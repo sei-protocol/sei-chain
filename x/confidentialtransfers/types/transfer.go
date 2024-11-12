@@ -75,7 +75,7 @@ func NewTransfer(
 
 	// Check that account has sufficient balance to make the transfer.
 	if currentBalance < amount {
-		return &Transfer{}, errors.New("Insufficient Balance")
+		return &Transfer{}, errors.New("insufficient balance")
 	}
 
 	// Encrypt the new balance using the user's AES Key.
@@ -285,6 +285,11 @@ func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipien
 	ok = zkproofs.VerifyCiphertextValidity(params.Proofs.RecipientTransferAmountLoValidityProof, *recipientPubkey, params.RecipientTransferAmountLo)
 	if !ok {
 		return errors.New("Failed to verify recipientTransferAmountLo")
+	}
+
+	ok = zkproofs.VerifyCiphertextValidity(params.Proofs.RecipientTransferAmountHiValidityProof, *recipientPubkey, params.RecipientTransferAmountHi)
+	if !ok {
+		return errors.New("Failed to verify recipientTransferAmountHi")
 	}
 
 	// Verify that the account's remaining balance is greater than zero after this transfer.

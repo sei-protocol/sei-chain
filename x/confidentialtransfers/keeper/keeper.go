@@ -27,6 +27,7 @@ type Keeper interface {
 	GetParams(ctx sdk.Context) types.Params
 	SetParams(ctx sdk.Context, params types.Params)
 
+	// TODO: See if there's a way to put this somewhere else
 	SendTokens(ctx sdk.Context, to sdk.AccAddress, amount sdk.Coins) error
 	ReceiveTokens(ctx sdk.Context, from sdk.AccAddress, amount sdk.Coins) error
 

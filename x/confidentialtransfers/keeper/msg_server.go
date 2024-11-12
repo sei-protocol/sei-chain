@@ -28,18 +28,18 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 	// Convert the instruction to proto. This also validates the request.
 	instruction, err := req.FromProto()
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Msg")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid msg")
 	}
 
 	// Check if the account already exists
 	address, err := sdk.AccAddressFromBech32(instruction.FromAddress)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Address")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid address")
 	}
 
 	_, exists := m.Keeper.GetAccount(ctx, address, instruction.Denom)
 	if exists {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Account already exists")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already exists")
 	}
 
 	// Validate the public key
@@ -96,28 +96,28 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 	// Validate request
 	err := req.ValidateBasic()
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Request")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid request")
 	}
 
 	// Check if the account exists
 	address, err := sdk.AccAddressFromBech32(req.FromAddress)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Address")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid address")
 	}
 
 	account, exists := m.Keeper.GetAccount(ctx, address, req.Denom)
 	if !exists {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Account does not exist")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account does not exist")
 	}
 
 	// The maximum transfer amount is 2^48
 	if req.Amount > uint64((2<<48)-1) {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Exceeded maximum transfer amount")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "exceeded maximum deposit amount of 2^48")
 	}
 
 	// Check that account does not have the maximum limit of pending transactions.
 	if account.PendingBalanceCreditCounter == math.MaxUint16 {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Account has too many pending transactions")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account has too many pending transactions")
 	}
 
 	// Deduct amount from user's token balance.
@@ -140,12 +140,12 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 	teg := elgamal.NewTwistedElgamal()
 	newPendingBalanceLo, err := teg.AddScalar(account.PendingBalanceLo, uint64(bottom16))
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Error adding pending balance lo")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding pending balance lo")
 	}
 
 	newPendingBalanceHi, err := teg.AddScalar(account.PendingBalanceHi, uint64(next32))
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Error adding pending balance hi")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding pending balance hi")
 	}
 
 	// Update the account state
@@ -175,38 +175,38 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 	// Get the requested address.
 	address, err := sdk.AccAddressFromBech32(req.FromAddress)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Address")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid address")
 	}
 
 	// Get the user's account
 	account, exists := m.Keeper.GetAccount(ctx, address, req.Denom)
 	if !exists {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Account does not exist")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account does not exist")
 	}
 
 	// Convert the struct to a usable form. This also validates the request.
 	instruction, err := req.FromProto()
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Msg")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid msg")
 	}
 
 	// Verify that the account has sufficient funds (Remaining balance after making the transfer is greater than or equal to zero.)
 	// This range proof verification is performed on the RemainingBalanceCommitment sent by the user. An additional check is required to ensure that this matches the remaining balance calculated by the server.
 	verified, _ := zkproofs.VerifyRangeProof(instruction.Proofs.RemainingBalanceRangeProof, instruction.RemainingBalanceCommitment, 64)
 	if !verified {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Range proof verification failed")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "range proof verification failed")
 	}
 
 	// Verify that the remaining balance sent by the user matches the remaining balance calculated by the server.
 	teg := elgamal.NewTwistedElgamal()
 	remainingBalanceCalculated, err := teg.SubScalar(account.AvailableBalance, instruction.Amount)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Error subtracting amount")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error subtracting amount")
 	}
 
 	verified = zkproofs.VerifyCiphertextCommitmentEquality(instruction.Proofs.RemainingBalanceEqualityProof, &account.PublicKey, remainingBalanceCalculated, &instruction.RemainingBalanceCommitment.C)
 	if !verified {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Ciphertext Commitment equality verification failed")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "ciphertext commitment equality verification failed")
 	}
 
 	// Update the account state
@@ -241,32 +241,32 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 	// Check if the account exists
 	address, err := sdk.AccAddressFromBech32(req.Address)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Address")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid address")
 	}
 
 	account, exists := m.Keeper.GetAccount(ctx, address, req.Denom)
 	if !exists {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Account does not exist")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account does not exist")
 	}
 
 	if account.PendingBalanceCreditCounter == 0 {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "No pending balance to apply")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "no pending balances to apply")
 	}
 
 	// Calculate updated balances
 	teg := elgamal.NewTwistedElgamal()
 	newAvailableBalance, err := teg.AddWithLoHi(account.AvailableBalance, account.PendingBalanceLo, account.PendingBalanceHi)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Error summing balances")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error summing balances")
 	}
 
 	zeroCiphertextLo, err := elgamal.SubtractCiphertext(account.PendingBalanceLo, account.PendingBalanceLo)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Error zeroing pending balance lo")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error zeroing pending balance lo")
 	}
 	zeroCiphertextHi, err := elgamal.SubtractCiphertext(account.PendingBalanceHi, account.PendingBalanceHi)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Error zeroing pending balance hi")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error zeroing pending balance hi")
 	}
 
 	// Apply the changes to the account state
@@ -297,17 +297,17 @@ func (m msgServer) CloseAccount(goCtx context.Context, req *types.MsgCloseAccoun
 	// Check if the account exists
 	address, err := sdk.AccAddressFromBech32(req.Address)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Address")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid address")
 	}
 
 	account, exists := m.Keeper.GetAccount(ctx, address, req.Denom)
 	if !exists {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Account does not exist")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account does not exist")
 	}
 
 	instruction, err := req.FromProto()
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Msg")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid msg")
 	}
 
 	// Validate proof that pending balance lo is zero.
@@ -348,18 +348,18 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 
 	instruction, err := req.FromProto()
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid Msg")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid msg")
 	}
 
 	// Check that sender and recipient accounts exist.
 	senderAddress, err := sdk.AccAddressFromBech32(req.FromAddress)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid sender address")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid sender address")
 	}
 
 	recipientAddress, err := sdk.AccAddressFromBech32(req.ToAddress)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid recipient address")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid recipient address")
 	}
 
 	senderAccount, exists := m.Keeper.GetAccount(ctx, senderAddress, req.Denom)
@@ -381,7 +381,7 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	teg := elgamal.NewTwistedElgamal()
 	newSenderBalanceCiphertext, err := teg.SubWithLoHi(senderAccount.AvailableBalance, instruction.SenderTransferAmountLo, instruction.SenderTransferAmountHi)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Error subtracting sender transfer amount")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error subtracting sender transfer amount")
 	}
 
 	// Validate proofs
@@ -394,7 +394,7 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	for _, auditorParams := range instruction.Auditors {
 		auditorAddress, err := sdk.AccAddressFromBech32(auditorParams.Address)
 		if err != nil {
-			return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Invalid auditor address")
+			return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid auditor address")
 		}
 
 		auditorAccount, exists := m.Keeper.GetAccount(ctx, auditorAddress, instruction.Denom)
@@ -418,12 +418,12 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	// TODO: Is there a possibility for a race condition here if multiple Transfer transactions are made to the same account at the same time?
 	recipientPendingBalanceLo, err := elgamal.AddCiphertext(recipientAccount.PendingBalanceLo, instruction.RecipientTransferAmountLo)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Error adding recipient transfer amount lo")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding recipient transfer amount lo")
 	}
 
 	recipientPendingBalanceHi, err := elgamal.AddCiphertext(recipientAccount.PendingBalanceHi, instruction.RecipientTransferAmountHi)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Error adding recipient transfer amount hi")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding recipient transfer amount hi")
 	}
 
 	recipientAccount.PendingBalanceLo = recipientPendingBalanceLo

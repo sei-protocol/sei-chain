@@ -54,7 +54,7 @@ func NewWithdraw(
 	}
 
 	if currentBalance < amount {
-		return &Withdraw{}, errors.New("Insufficient Balance")
+		return &Withdraw{}, errors.New("insufficient balance")
 	}
 
 	newBalance := currentBalance - amount

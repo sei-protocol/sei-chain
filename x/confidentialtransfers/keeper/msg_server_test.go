@@ -28,11 +28,10 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountBasic() {
 		Denom:       DefaultTestDenom,
 	}
 	_, err := suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
-	suite.Require().Error(err)
+	suite.Require().Error(err, "Should have error initializing using struct with missing fields")
 
 	// Happy Path
-	initializeStruct, err := types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
-	suite.Require().NoError(err, "Should not have error creating account state")
+	initializeStruct, _ := types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
 
 	req = types.NewMsgInitializeAccountProto(initializeStruct)
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
@@ -57,11 +56,11 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountBasic() {
 	// Try to initialize the account again - this should produce an error
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error initializing account that already exists")
+	suite.Require().ErrorContains(err, "account already exists")
 
 	// Try to initialize another account for a different denom
 	otherDenom := "otherdenom"
-	initializeStruct, err = types.NewInitializeAccount(testAddr.String(), otherDenom, *testPk)
-	suite.Require().NoError(err, "Should not have error creating account state")
+	initializeStruct, _ = types.NewInitializeAccount(testAddr.String(), otherDenom, *testPk)
 	req = types.NewMsgInitializeAccountProto(initializeStruct)
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().NoError(err, "Should not have error initializing valid account state on a different denom")
@@ -86,18 +85,18 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyPubkey() {
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
 
 	// Test that modifying the PublicKey without modifying the proof fails the PubkeyValidityProof test.
-	initializeStruct, err := types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
-	suite.Require().NoError(err, "Should not have error creating account state")
+	initializeStruct, _ := types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
 
 	// Modify the pubkey used after.
-	otherPk, err := crypto.GenerateKey()
+	otherPk, _ := crypto.GenerateKey()
 	teg := elgamal.NewTwistedElgamal()
-	otherKeyPair, err := teg.KeyGen(*otherPk, DefaultTestDenom)
+	otherKeyPair, _ := teg.KeyGen(*otherPk, DefaultTestDenom)
 	initializeStruct.Pubkey = &otherKeyPair.PublicKey
 
 	req := types.NewMsgInitializeAccountProto(initializeStruct)
-	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
+	_, err := suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error initializing account with mismatched pubkey")
+	suite.Require().ErrorContains(err, "invalid public key")
 
 	// Check that account does not exist in storage
 	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
@@ -110,6 +109,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyPubkey() {
 	req = types.NewMsgInitializeAccountProto(initializeStruct)
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error initializing account with mismatched pubkey despite valid PubkeyValidityProof")
+	suite.Require().ErrorContains(err, "invalid pending balance lo")
 }
 
 // Tests scenarios where the client tries to initialize an account with balances that are not zero.
@@ -123,9 +123,8 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyBalances() {
 
 	// Create a ciphertext on a non zero value.
 	teg := elgamal.NewTwistedElgamal()
-	keyPair, err := teg.KeyGen(*testPk, DefaultTestDenom)
-	nonZeroCiphertext, _, err := teg.Encrypt(keyPair.PublicKey, 100000)
-	suite.Require().NoError(err, "Should not have error creating ciphertext")
+	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
+	nonZeroCiphertext, _, _ := teg.Encrypt(keyPair.PublicKey, 100000)
 
 	// Generate a 'ZeroBalanceProof' on the non-zero balance
 	// Proof generation should be successful, but the initialization should still fail.
@@ -141,6 +140,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyBalances() {
 	req := types.NewMsgInitializeAccountProto(initializeStruct)
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error initializing account with non-zero available balance")
+	suite.Require().ErrorContains(err, "invalid available balance")
 
 	// Try modifying the proof as well.
 	initializeStruct.Proofs.ZeroAvailableBalanceProof = zeroBalanceProof
@@ -149,16 +149,17 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyBalances() {
 	// ZeroBalanceProof validation on ZeroAvailableBalance should fail.
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error initializing account with non-zero available balance despite generating a proof on it.")
+	suite.Require().ErrorContains(err, "invalid available balance")
 
 	// Repeat tests for PendingAmountLo
-	initializeStruct, err = types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
-	suite.Require().NoError(err, "Should not have error creating account state")
+	initializeStruct, _ = types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
 
 	// Modify the pending balance lo. This should fail the zero balance check for the pendingBalanceLo.
 	initializeStruct.PendingBalanceLo = nonZeroCiphertext
 	req = types.NewMsgInitializeAccountProto(initializeStruct)
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error initializing account with non-zero pending balance lo")
+	suite.Require().ErrorContains(err, "invalid pending balance lo")
 
 	// Try modifying the proof as well.
 	initializeStruct.Proofs.ZeroPendingBalanceLoProof = zeroBalanceProof
@@ -167,16 +168,17 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyBalances() {
 	// ZeroBalanceProof validation on PendingBalanceLo should fail.
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error initializing account with non-zero pending balance lo despite generating a proof on it.")
+	suite.Require().ErrorContains(err, "invalid pending balance lo")
 
 	// Repeat tests for PendingAmountHi
-	initializeStruct, err = types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
-	suite.Require().NoError(err, "Should not have error creating account state")
+	initializeStruct, _ = types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
 
 	// Modify the pending balance hi. This should fail the zero balance check for the pendingBalanceHi.
 	initializeStruct.PendingBalanceHi = nonZeroCiphertext
 	req = types.NewMsgInitializeAccountProto(initializeStruct)
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error initializing account with non-zero pending balance hi")
+	suite.Require().ErrorContains(err, "invalid pending balance hi")
 
 	// Try modifying the proof as well.
 	initializeStruct.Proofs.ZeroPendingBalanceHiProof = zeroBalanceProof
@@ -185,6 +187,8 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyBalances() {
 	// ZeroBalanceProof validation on PendingBalanceHi should fail.
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error initializing account with non-zero pending balance hi despite generating a proof on it.")
+	suite.Require().ErrorContains(err, "invalid pending balance hi")
+
 }
 
 // Validate alternate scenarios that are technically allowed, but will cause incompatibility with the client.
@@ -200,14 +204,13 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountAlternateHappyPaths
 	// However, since the client generates the keys based on the denom,
 	// all the fields will be encrypted with a different PublicKe than the one the client would use.
 	// As a result, the client will not be able to use the account.
-	initializeStruct, err := types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
-	suite.Require().NoError(err, "Should not have error creating account state")
+	initializeStruct, _ := types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
 
 	// Modify the denom
 	otherDenom := "otherdenom"
 	initializeStruct.Denom = otherDenom
 	req := types.NewMsgInitializeAccountProto(initializeStruct)
-	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
+	_, err := suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().NoError(err, "Should not have error initializing account with different denom")
 
 	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, otherDenom)
@@ -250,6 +253,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	}
 	_, err := suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error depositing without amount")
+	suite.Require().ErrorContains(err, "invalid request")
 
 	// Happy path
 	depositStruct := types.MsgDeposit{
@@ -262,8 +266,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	suite.Require().NoError(err, "Should not have error depositing with valid request")
 
 	// Check that the account has been updated
-	account, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
-	suite.Require().True(exists, "Account should exist")
+	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
 
 	// Check that available balances were not touched by this operation
 	suite.Require().Equal(initialState.AvailableBalance.C.ToAffineCompressed(), account.AvailableBalance.C.ToAffineCompressed(), "AvailableBalance.C should not have been touched")
@@ -275,11 +278,9 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 
 	// Check that pending balances were increased by the deposit amount
 	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
-	oldPendingBalancePlaintext, err := initialState.GetPendingBalancePlaintext(teg, keyPair)
-	suite.Require().NoError(err, "Should not have error getting pending balance")
+	oldPendingBalancePlaintext, _ := initialState.GetPendingBalancePlaintext(teg, keyPair)
 
-	newPendingBalancePlaintext, err := account.GetPendingBalancePlaintext(teg, keyPair)
-	suite.Require().NoError(err, "Should not have error getting pending balance")
+	newPendingBalancePlaintext, _ := account.GetPendingBalancePlaintext(teg, keyPair)
 
 	// Check that newPendingBalancePlaintext = oldPendingBalancePlaintext + DepositAmount
 	suite.Require().Equal(
@@ -307,12 +308,10 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	suite.Require().NoError(err, "Should not have error depositing large amount with valid request")
 
 	// Check that the account has been updated
-	updatedAccount, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
-	suite.Require().True(exists, "Account should exist")
+	updatedAccount, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
 
 	oldPendingBalancePlaintext = newPendingBalancePlaintext
-	newPendingBalancePlaintext, err = updatedAccount.GetPendingBalancePlaintext(teg, keyPair)
-	suite.Require().NoError(err, "Should not have error getting pending balance")
+	newPendingBalancePlaintext, _ = updatedAccount.GetPendingBalancePlaintext(teg, keyPair)
 	suite.Require().Equal(
 		new(big.Int).Add(oldPendingBalancePlaintext, new(big.Int).SetUint64(depositStruct.Amount)),
 		newPendingBalancePlaintext,
@@ -369,13 +368,13 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositInsufficientFunds() {
 		Amount:      bankModuleInitialAmount + 1,
 	}
 
-	// Test depositing into uninitialized account
+	// Test depositing into account with insufficient funds
 	_, err := suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), &depositStruct)
-	suite.Require().Error(err, "Should have error depositing more than available balance")
+	suite.Require().Error(err, "Should have error depositing more than available balance in bank module")
+	suite.Require().ErrorContains(err, "insufficient funds to deposit")
 
 	// Test that account state is untouched
-	account, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
-	suite.Require().True(exists, "Account should exist")
+	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
 
 	// Check that pending balances were not touched by this operation
 	suite.Require().Equal(initialState.PendingBalanceLo.C.ToAffineCompressed(), account.PendingBalanceLo.C.ToAffineCompressed(), "PendingBalanceLo.C should not have been modified by failed instruction")
@@ -407,6 +406,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositOversizedDeposit() {
 	// Test depositing an amount larger than 48 bits.
 	_, err := suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), &depositStruct)
 	suite.Require().Error(err, "Should not be able to deposit an amount larger than 48 bits")
+	suite.Require().ErrorContains(err, "exceeded maximum deposit amount of 2^48")
 }
 
 // Tests scenario in which user tries to deposit into an amount with too many pending balances
@@ -432,6 +432,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositTooManyPendingBalances() {
 	// Test depositing an amount larger than 48 bits.
 	_, err := suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), &depositStruct)
 	suite.Require().Error(err, "Should not be able to deposit an amount when pending balance counter is at maximum value")
+	suite.Require().ErrorContains(err, "account has too many pending transactions")
 }
 
 // WITHDRAW TESTS
@@ -444,8 +445,7 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawHappyPath() {
 	initialModuleBalance := int64(1000000000000)
 	suite.FundAcc(suite.TestAccs[0], sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(initialModuleBalance))))
 
-	err := suite.App.BankKeeper.SendCoinsFromAccountToModule(suite.Ctx, suite.TestAccs[0], types.ModuleName, sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(1000000000000))))
-	suite.Require().NoError(err, "Should not have error funding module account")
+	_ = suite.App.BankKeeper.SendCoinsFromAccountToModule(suite.Ctx, suite.TestAccs[0], types.ModuleName, sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(1000000000000))))
 
 	testPk := suite.PrivKeys[0]
 	testAddr := privkeyToAddress(testPk)
@@ -456,17 +456,15 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawHappyPath() {
 
 	// Create a withdraw request
 	withdrawAmount := uint64(50000)
-	withdrawStruct, err := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
-	suite.Require().NoError(err, "Should not have error creating withdraw struct")
+	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
 
 	// Execute the withdraw
 	req := types.NewMsgWithdrawProto(withdrawStruct)
-	_, err = suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
+	_, err := suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().NoError(err, "Should not have error calling valid withdraw")
 
 	// Check that the account has been updated
-	account, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
-	suite.Require().True(exists, "Account should exist")
+	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
 
 	// Check that pending balances are left untouched
 	suite.Require().Equal(initialState.PendingBalanceLo.C.ToAffineCompressed(), account.PendingBalanceLo.C.ToAffineCompressed(), "PendingBalanceLo.C should not have been modified by withdraw")
@@ -478,10 +476,8 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawHappyPath() {
 	// Check that available balances were updated correctly
 	teg := elgamal.NewTwistedElgamal()
 	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
-	oldBalanceDecrypted, err := teg.DecryptLargeNumber(keyPair.PrivateKey, initialState.AvailableBalance, elgamal.MaxBits40)
-	suite.Require().NoError(err, "Should not have error decrypting balance")
-	newBalanceDecrypted, err := teg.DecryptLargeNumber(keyPair.PrivateKey, account.AvailableBalance, elgamal.MaxBits40)
-	suite.Require().NoError(err, "Should not have error decrypting balance")
+	oldBalanceDecrypted, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, initialState.AvailableBalance, elgamal.MaxBits40)
+	newBalanceDecrypted, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, account.AvailableBalance, elgamal.MaxBits40)
 	newTotal := oldBalanceDecrypted - withdrawAmount
 	suite.Require().Equal(newTotal, newBalanceDecrypted)
 
@@ -508,8 +504,7 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawSuccessive() {
 	initialModuleBalance := int64(1000000000000)
 	suite.FundAcc(suite.TestAccs[0], sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(initialModuleBalance))))
 
-	err := suite.App.BankKeeper.SendCoinsFromAccountToModule(suite.Ctx, suite.TestAccs[0], types.ModuleName, sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(1000000000000))))
-	suite.Require().NoError(err, "Should not have error funding module account")
+	_ = suite.App.BankKeeper.SendCoinsFromAccountToModule(suite.Ctx, suite.TestAccs[0], types.ModuleName, sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(1000000000000))))
 
 	// Initialize an account
 	initialAvailableBalance := uint64(1000000)
@@ -517,14 +512,13 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawSuccessive() {
 
 	// Create a withdraw request with an invalid amount
 	withdrawAmount := initialAvailableBalance + 1
-	_, err = types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
+	_, err := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
 	suite.Require().Error(err, "Cannot use client to create withdraw for more than the account balance")
+	suite.Require().ErrorContains(err, "insufficient balance")
 
 	// Create two withdraw requests for the entire balance
-	withdrawStruct1, err := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, initialAvailableBalance)
-	suite.Require().NoError(err, "Should be able to create withdraw struct")
-	withdrawStruct2, err := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, initialAvailableBalance)
-	suite.Require().NoError(err, "Should still be able to create withdraw struct since first one has not been executed")
+	withdrawStruct1, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, initialAvailableBalance)
+	withdrawStruct2, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, initialAvailableBalance)
 
 	// Execute the first withdraw
 	req1 := types.NewMsgWithdrawProto(withdrawStruct1)
@@ -535,6 +529,7 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawSuccessive() {
 	req2 := types.NewMsgWithdrawProto(withdrawStruct2)
 	_, err = suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req2)
 	suite.Require().Error(err, "The withdraw should have failed since the withdraw struct is now invalid (has wrong newBalanceCommitment)")
+	suite.Require().ErrorContains(err, "ciphertext commitment equality verification failed")
 }
 
 // Test that we cannot perform withdraws with an invalid amount.
@@ -548,8 +543,7 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawInvalidAmount() {
 	initialModuleBalance := int64(1000000000000)
 	suite.FundAcc(suite.TestAccs[0], sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(initialModuleBalance))))
 
-	err := suite.App.BankKeeper.SendCoinsFromAccountToModule(suite.Ctx, suite.TestAccs[0], types.ModuleName, sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(1000000000000))))
-	suite.Require().NoError(err, "Should not have error funding module account")
+	_ = suite.App.BankKeeper.SendCoinsFromAccountToModule(suite.Ctx, suite.TestAccs[0], types.ModuleName, sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(1000000000000))))
 
 	// Initialize an account
 	initialAvailableBalance := uint64(1000000)
@@ -557,16 +551,16 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawInvalidAmount() {
 
 	// Create a withdraw request
 	withdrawAmount := initialAvailableBalance
-	withdrawStruct, err := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
-	suite.Require().NoError(err, "Should be able to create withdraw struct")
+	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
 
 	// Manually modify the withdraw struct to have an invalid amount (since we can't do that via the client)
 	withdrawStruct.Amount = initialAvailableBalance + 1
 
 	// Try executing the withdraw. This should fail since the proofs generated before are invalid
 	req := types.NewMsgWithdrawProto(withdrawStruct)
-	_, err = suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
+	_, err := suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "The withdraw should have failed since the withdraw struct has an invalid amount")
+	suite.Require().ErrorContains(err, "ciphertext commitment equality verification failed")
 
 	// Try creating proofs on the new withdraw amount. This should not work since range proofs cannnot be generated on negative numbers.
 	teg := elgamal.NewTwistedElgamal()
@@ -575,8 +569,7 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawInvalidAmount() {
 
 	// NOTE: This should be encrypting a negative number, but this cannot be done using the teg library.
 	// This is not important for the test since we just want to test that we cannot create a range proof on a negative number.
-	_, randomness, err := teg.Encrypt(keys.PublicKey, 0)
-	suite.Require().NoError(err, "Should not have error creating new balance commitment")
+	_, randomness, _ := teg.Encrypt(keys.PublicKey, 0)
 
 	_, err = zkproofs.NewRangeProof(64, int(newBalanceNegative), randomness)
 	suite.Require().Error(err, "Cannot create a range proof on a negative number")
@@ -593,8 +586,7 @@ func (suite *KeeperTestSuite) TestMsgServer_RepeatWithdraw() {
 	initialModuleBalance := int64(1000000000000)
 	suite.FundAcc(suite.TestAccs[0], sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(initialModuleBalance))))
 
-	err := suite.App.BankKeeper.SendCoinsFromAccountToModule(suite.Ctx, suite.TestAccs[0], types.ModuleName, sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(1000000000000))))
-	suite.Require().NoError(err, "Should not have error funding module account")
+	_ = suite.App.BankKeeper.SendCoinsFromAccountToModule(suite.Ctx, suite.TestAccs[0], types.ModuleName, sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(1000000000000))))
 
 	// Initialize an account
 	initialAvailableBalance := uint64(1000000)
@@ -602,17 +594,17 @@ func (suite *KeeperTestSuite) TestMsgServer_RepeatWithdraw() {
 
 	// Create a withdraw request
 	withdrawAmount := initialAvailableBalance / 5
-	withdrawStruct, err := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
-	suite.Require().NoError(err, "Should be able to create withdraw struct")
+	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
 
 	// Execute the first withdraw
 	req := types.NewMsgWithdrawProto(withdrawStruct)
-	_, err = suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
+	_, err := suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().NoError(err, "Should not have error calling valid withdraw")
 
 	// Execute the same withdraw again
 	_, err = suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should not be able to repeat withdraw")
+	suite.Require().ErrorContains(err, "ciphertext commitment equality verification failed")
 }
 
 // Tetst the scenario where
@@ -626,8 +618,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 	initialModuleBalance := int64(1000000000000)
 	suite.FundAcc(suite.TestAccs[0], sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(initialModuleBalance))))
 
-	err := suite.App.BankKeeper.SendCoinsFromAccountToModule(suite.Ctx, suite.TestAccs[0], types.ModuleName, sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(1000000000000))))
-	suite.Require().NoError(err, "Should not have error funding module account")
+	_ = suite.App.BankKeeper.SendCoinsFromAccountToModule(suite.Ctx, suite.TestAccs[0], types.ModuleName, sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(1000000000000))))
 
 	// Initialize an account
 	initialAvailableBalance := uint64(1000000)
@@ -635,19 +626,16 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 
 	// Create a withdraw request
 	withdrawAmount := initialAvailableBalance / 5
-	withdrawStruct, err := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
-	suite.Require().NoError(err, "Should be able to create withdraw struct")
+	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
 
 	// Modify the decryptable balance
-	aesKey, err := encryption.GetAESKey(*testPk, DefaultTestDenom)
-	suite.Require().NoError(err, "Should be able to derive aes key")
-	fraudulentDecryptableBalance, err := encryption.EncryptAESGCM(10000000000, aesKey)
-	suite.Require().NoError(err, "Should be able to encrypt using aesgcm")
+	aesKey, _ := encryption.GetAESKey(*testPk, DefaultTestDenom)
+	fraudulentDecryptableBalance, _ := encryption.EncryptAESGCM(10000000000, aesKey)
 	withdrawStruct.DecryptableBalance = fraudulentDecryptableBalance
 
 	// Execute the withdraw
 	req := types.NewMsgWithdrawProto(withdrawStruct)
-	_, err = suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
+	_, err := suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().NoError(err, "Should not have error calling withdraw despite incorrect decryptable balance submitted")
 
 	// At this point, the decryptable available balance is corrupted.
@@ -657,6 +645,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 	req = types.NewMsgWithdrawProto(nextWithdrawStruct)
 	_, err = suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error withdrawing since withdraw struct is invalid")
+	suite.Require().ErrorContains(err, "range proof verification failed")
 
 	// We can still fix this at this point if we know the correct decryptable balance.
 	// This is because the account state is still correct; the decryptable balance is just a convenience feature.
@@ -670,8 +659,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 	suite.Require().NoError(err, "Should be able to decrypt actual balance since the encrypted value is small")
 
 	// Re-encrypt the actual balance as the current decryptable balance.
-	aesEncryptedActualBalance, err := encryption.EncryptAESGCM(actualBalance, aesKey)
-	suite.Require().NoError(err, "Should be able to encrypt using aes")
+	aesEncryptedActualBalance, _ := encryption.EncryptAESGCM(actualBalance, aesKey)
 
 	// Then create the correct struct for the withdraw
 	correctedWithdrawStruct, err := types.NewWithdraw(*testPk, accountState.AvailableBalance, DefaultTestDenom, testAddr.String(), aesEncryptedActualBalance, withdrawAmount)
@@ -727,6 +715,8 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHappyPath() {
 	// Try sending the close account instruction again. This should fail now since the account doesn't exist.
 	_, err = suite.msgServer.CloseAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error closing account that doesn't exist")
+	suite.Require().ErrorContains(err, "account does not exist")
+
 }
 
 func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHasPendingBalance() {
@@ -739,19 +729,19 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHasPendingBalance() {
 	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 3, 0, 200, 100)
 
 	// Create a close account request
-	closeAccountStruct, err := types.NewCloseAccount(
+	closeAccountStruct, _ := types.NewCloseAccount(
 		*testPk,
 		testAddr.String(),
 		DefaultTestDenom,
 		initialState.PendingBalanceLo,
 		initialState.PendingBalanceHi,
 		initialState.AvailableBalance)
-	suite.Require().NoError(err, "Should not have error creating close account struct")
 
 	// Execute the close account. This should fail since the account has pending balances on it.
 	req := types.NewMsgCloseAccountProto(closeAccountStruct)
-	_, err = suite.msgServer.CloseAccount(sdk.WrapSDKContext(suite.Ctx), req)
+	_, err := suite.msgServer.CloseAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error closing account with pending balance")
+	suite.Require().ErrorContains(err, "pending balance lo must be 0")
 
 	// Check that the account still exists
 	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
@@ -769,19 +759,19 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHasAvailableBalance() {
 	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 0, 900, 0, 100)
 
 	// Create a close account request
-	closeAccountStruct, err := types.NewCloseAccount(
+	closeAccountStruct, _ := types.NewCloseAccount(
 		*testPk,
 		testAddr.String(),
 		DefaultTestDenom,
 		initialState.PendingBalanceLo,
 		initialState.PendingBalanceHi,
 		initialState.AvailableBalance)
-	suite.Require().NoError(err, "Should not have error creating close account struct")
 
 	// Execute the close account. This should fail since the account still has available balances.
 	req := types.NewMsgCloseAccountProto(closeAccountStruct)
-	_, err = suite.msgServer.CloseAccount(sdk.WrapSDKContext(suite.Ctx), req)
+	_, err := suite.msgServer.CloseAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error closing account with available balance")
+	suite.Require().ErrorContains(err, "available balance must be 0")
 
 	// Check that the account still exists
 	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
@@ -803,8 +793,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalance() {
 	// Create an apply pending balance request
 	aesKey, _ := encryption.GetAESKey(*testPk, DefaultTestDenom)
 	newBalance := initialAvailableBalance + initialPendingBalance
-	newDecryptableBalance, err := encryption.EncryptAESGCM(newBalance, aesKey)
-	suite.Require().NoError(err, "Should not have error encrypting new decryptable balance")
+	newDecryptableBalance, _ := encryption.EncryptAESGCM(newBalance, aesKey)
 	req := types.MsgApplyPendingBalance{
 		testAddr.String(),
 		DefaultTestDenom,
@@ -812,33 +801,28 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalance() {
 	}
 
 	// Execute the apply pending balance
-	_, err = suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), &req)
+	_, err := suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), &req)
 	suite.Require().NoError(err, "Should not have error applying pending balance")
 
 	// Check that the account has been updated
-	account, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
-	suite.Require().True(exists, "Account should still exist")
+	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
 
 	// Decrypt and check balances
 	teg := elgamal.NewTwistedElgamal()
 	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
 
 	// Check that the balances were correctly added to the available balance.
-	actualAvailableBalance, err := teg.DecryptLargeNumber(keyPair.PrivateKey, account.AvailableBalance, elgamal.MaxBits40)
-	suite.Require().NoError(err, "Should not have error decrypting available balance")
-	suite.Require().Equal(newBalance, actualAvailableBalance, "Available balance does not match")
+	actualAvailableBalance, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, account.AvailableBalance, elgamal.MaxBits40)
+	suite.Require().Equal(newBalance, actualAvailableBalance, "Available balance should match")
 
-	actualDecryptableAvailableBalance, err := encryption.DecryptAESGCM(account.DecryptableAvailableBalance, aesKey)
-	suite.Require().NoError(err, "Should not have error decrypting available balance")
-	suite.Require().Equal(newBalance, actualDecryptableAvailableBalance, "Decryptable available balance does not match")
+	actualDecryptableAvailableBalance, _ := encryption.DecryptAESGCM(account.DecryptableAvailableBalance, aesKey)
+	suite.Require().Equal(newBalance, actualDecryptableAvailableBalance, "Decryptable available balance should match")
 
 	// Check that the pending balances are set to 0.
-	actualPendingBalanceLo, err := teg.Decrypt(keyPair.PrivateKey, account.PendingBalanceLo, elgamal.MaxBits32)
-	suite.Require().NoError(err, "Should not have error decrypting pending balance lo")
+	actualPendingBalanceLo, _ := teg.Decrypt(keyPair.PrivateKey, account.PendingBalanceLo, elgamal.MaxBits32)
 	suite.Require().Equal(uint64(0), actualPendingBalanceLo, "Pending balance lo not 0")
 
-	actualPendingBalanceHi, err := teg.DecryptLargeNumber(keyPair.PrivateKey, account.PendingBalanceHi, elgamal.MaxBits48)
-	suite.Require().NoError(err, "Should not have error decrypting pending balance hi")
+	actualPendingBalanceHi, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, account.PendingBalanceHi, elgamal.MaxBits48)
 	suite.Require().Equal(uint64(0), actualPendingBalanceHi, "Pending balance hi not 0")
 
 	// Check that the pending balance credit counter is reset to 0.
@@ -858,8 +842,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceNoPendingBalances
 
 	// Create an apply pending balance request
 	aesKey, _ := encryption.GetAESKey(*testPk, DefaultTestDenom)
-	newDecryptableBalance, err := encryption.EncryptAESGCM(initialAvailableBalance, aesKey)
-	suite.Require().NoError(err, "Should not have error encrypting new decryptable balance")
+	newDecryptableBalance, _ := encryption.EncryptAESGCM(initialAvailableBalance, aesKey)
 	req := types.MsgApplyPendingBalance{
 		testAddr.String(),
 		DefaultTestDenom,
@@ -867,7 +850,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceNoPendingBalances
 	}
 
 	// Execute the apply pending balance. This should fail since there are no pending balances to apply.
-	_, err = suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), &req)
+	_, err := suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), &req)
 	suite.Require().Error(err, "Should have error applying pending balance on account with no pending balances")
 
 	// Delete the account so we can test running the instruction on an account that doesn't exist.
@@ -876,7 +859,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceNoPendingBalances
 	// Execute the apply pending balance. This should fail since the account doesn't exist.
 	_, err = suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), &req)
 	suite.Require().Error(err, "Should have error applying pending balance on account that doesn't exist")
-	suite.Require().ErrorContains(err, "Account does not exist", "Should have error message that account does not exist")
+	suite.Require().ErrorContains(err, "account does not exist")
 }
 
 func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
@@ -896,11 +879,9 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 	initialAuditorState, _ := suite.SetupAccountState(auditorPk, DefaultTestDenom, 12, 5000, 21000, 201000)
 
 	teg := elgamal.NewTwistedElgamal()
-	senderKeypair, err := teg.KeyGen(*senderPk, DefaultTestDenom)
-	suite.Require().NoError(err, "Should not have error generating sender key")
+	senderKeypair, _ := teg.KeyGen(*senderPk, DefaultTestDenom)
 
-	recipientKeypair, err := teg.KeyGen(*recipientPk, DefaultTestDenom)
-	suite.Require().NoError(err, "Should not have error generating recipient key")
+	recipientKeypair, _ := teg.KeyGen(*recipientPk, DefaultTestDenom)
 
 	transferAmount := uint64(500)
 
@@ -922,8 +903,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().NoError(err, "Should not have error calling valid transfer")
 
-	senderAccountState, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, senderAddr, DefaultTestDenom)
-	suite.Require().True(exists, "Sender account should exist")
+	senderAccountState, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, senderAddr, DefaultTestDenom)
 
 	// Pending Balances should not be altered by this instruction
 	suite.Require().Equal(initialSenderState.PendingBalanceLo.C.ToAffineCompressed(), senderAccountState.PendingBalanceLo.C.ToAffineCompressed(), "PendingBalanceLo should not have been touched")
@@ -936,25 +916,19 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 	suite.Require().Equal(initialSenderState.PublicKey.ToAffineCompressed(), senderAccountState.PublicKey.ToAffineCompressed(), "PublicKey should not have been touched")
 
 	// Check that new balance encrypts the sum of oldBalance and withdrawAmount
-	senderOldBalanceDecrypted, err := teg.DecryptLargeNumber(senderKeypair.PrivateKey, initialSenderState.AvailableBalance, elgamal.MaxBits40)
-	suite.Require().NoError(err, "Should not have error decrypting balance")
-	senderNewBalanceDecrypted, err := teg.DecryptLargeNumber(senderKeypair.PrivateKey, senderAccountState.AvailableBalance, elgamal.MaxBits40)
-	suite.Require().NoError(err, "Should not have error decrypting balance")
+	senderOldBalanceDecrypted, _ := teg.DecryptLargeNumber(senderKeypair.PrivateKey, initialSenderState.AvailableBalance, elgamal.MaxBits40)
+	senderNewBalanceDecrypted, _ := teg.DecryptLargeNumber(senderKeypair.PrivateKey, senderAccountState.AvailableBalance, elgamal.MaxBits40)
 	suite.Require().Equal(senderOldBalanceDecrypted-transferAmount, senderNewBalanceDecrypted, "AvailableBalance of sender should be decreased")
 
 	// Verify that the DecryptableAvailableBalances were updated as well and that they match the available balances.
-	senderAesKey, err := encryption.GetAESKey(*senderPk, DefaultTestDenom)
-	suite.Require().NoError(err, "Should be able to derive sender aes key")
-	senderOldDecryptableBalanceDecrypted, err := encryption.DecryptAESGCM(initialSenderState.DecryptableAvailableBalance, senderAesKey)
-	suite.Require().NoError(err, "Should be able to decrypt old decryptable balance using key")
-	senderNewDecryptableBalanceDecrypted, err := encryption.DecryptAESGCM(senderAccountState.DecryptableAvailableBalance, senderAesKey)
-	suite.Require().NoError(err, "Should be able to decrypt new decryptable balance using key")
+	senderAesKey, _ := encryption.GetAESKey(*senderPk, DefaultTestDenom)
+	senderOldDecryptableBalanceDecrypted, _ := encryption.DecryptAESGCM(initialSenderState.DecryptableAvailableBalance, senderAesKey)
+	senderNewDecryptableBalanceDecrypted, _ := encryption.DecryptAESGCM(senderAccountState.DecryptableAvailableBalance, senderAesKey)
 	suite.Require().Equal(senderOldDecryptableBalanceDecrypted-transferAmount, senderNewDecryptableBalanceDecrypted)
 	suite.Require().Equal(senderNewBalanceDecrypted, senderNewDecryptableBalanceDecrypted)
 
 	// On the other hand, available balances of the recipient account should not have been altered
-	recipientAccountState, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, recipientAddr, DefaultTestDenom)
-	suite.Require().True(exists, "Recipient account should exist")
+	recipientAccountState, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, recipientAddr, DefaultTestDenom)
 	suite.Require().Equal(initialRecipientState.AvailableBalance.C.ToAffineCompressed(), recipientAccountState.AvailableBalance.C.ToAffineCompressed(), "AvailableBalance should not have been touched")
 	suite.Require().Equal(initialRecipientState.AvailableBalance.D.ToAffineCompressed(), recipientAccountState.AvailableBalance.D.ToAffineCompressed(), "AvailableBalance should not have been touched")
 	suite.Require().Equal(initialRecipientState.DecryptableAvailableBalance, recipientAccountState.DecryptableAvailableBalance, "DecryptableAvailableBalance should not have been touched")
@@ -964,14 +938,12 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 
 	// Check that new pending balances of the recipient account have been updated to reflect the change
 	suite.Require().Equal(initialRecipientState.PendingBalanceCreditCounter+1, recipientAccountState.PendingBalanceCreditCounter)
-	oldRecipientPendingBalance, err := initialRecipientState.GetPendingBalancePlaintext(teg, recipientKeypair)
-	suite.Require().NoError(err, "Should not have error decrypting recipient pending balances")
-	newRecipientPendingBalance, err := recipientAccountState.GetPendingBalancePlaintext(teg, recipientKeypair)
-	suite.Require().NoError(err, "Should not have error decrypting recipient pending balances")
+	oldRecipientPendingBalance, _ := initialRecipientState.GetPendingBalancePlaintext(teg, recipientKeypair)
+	newRecipientPendingBalance, _ := recipientAccountState.GetPendingBalancePlaintext(teg, recipientKeypair)
 
-	depositAmountBigInt := new(big.Int).SetUint64(transferAmount)
-	newTotal := new(big.Int).Add(oldRecipientPendingBalance, depositAmountBigInt)
-	suite.Require().Equal(newTotal, newRecipientPendingBalance)
+	transferAmountBigInt := new(big.Int).SetUint64(transferAmount)
+	newTotal := new(big.Int).Add(oldRecipientPendingBalance, transferAmountBigInt)
+	suite.Require().Equal(newTotal, newRecipientPendingBalance, "New pending balance should be equal to transfer amount added to old pending balance")
 }
 
 func (suite *KeeperTestSuite) TestMsgServer_TransferToMaxPendingRecipient() {
@@ -993,7 +965,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferToMaxPendingRecipient() {
 	transferAmount := uint64(50)
 
 	// Attempt to transfer to account with max pending balances
-	transferStruct, err := types.NewTransfer(
+	transferStruct, _ := types.NewTransfer(
 		senderPk,
 		senderAddr.String(),
 		recipientAddr.String(),
@@ -1004,11 +976,11 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferToMaxPendingRecipient() {
 		&initialRecipientState.PublicKey,
 		nil,
 	)
-	suite.Require().NoError(err, "Should not have error creating transfer struct")
 
 	req := types.NewMsgTransferProto(transferStruct)
-	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
+	_, err := suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should not be able to transfer to account with max pending balances")
+	suite.Require().ErrorContains(err, "recipient account has too many pending transactions")
 }
 
 func (suite *KeeperTestSuite) TestMsgServer_TransferInsufficientBalance() {
@@ -1025,17 +997,15 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferInsufficientBalance() {
 	// Initialize the recipient account
 	recipientAccountState, _ := suite.SetupAccountState(recipientPk, DefaultTestDenom, 10, 2000, 3000, 1000)
 
-	senderAesKey, err := encryption.GetAESKey(*senderPk, DefaultTestDenom)
-	suite.Require().NoError(err, "Should not fail to create AES key")
+	senderAesKey, _ := encryption.GetAESKey(*senderPk, DefaultTestDenom)
 
-	initialBalance, err := encryption.DecryptAESGCM(initialSenderState.DecryptableAvailableBalance, senderAesKey)
-	suite.Require().NoError(err, "Should not fail to decrypt balance")
+	initialBalance, _ := encryption.DecryptAESGCM(initialSenderState.DecryptableAvailableBalance, senderAesKey)
 
 	// Set transfer amount to greater than the initial balance.
 	transferAmount := initialBalance + 1
 
 	// Attempt to create transfer object.
-	_, err = types.NewTransfer(
+	_, err := types.NewTransfer(
 		senderPk,
 		senderAddr.String(),
 		recipientAddr.String(),
@@ -1047,10 +1017,11 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferInsufficientBalance() {
 		nil,
 	)
 
-	suite.Require().Error(err, "Should have error creating transfer struct using the client")
+	suite.Require().Error(err, "Should have error creating transfer struct with insufficient balances using the client")
+	suite.Require().ErrorContains(err, "insufficient balance")
 
 	// First create a regular transfer with a normal transfer amount
-	transferStruct, err := types.NewTransfer(
+	transferStruct, _ := types.NewTransfer(
 		senderPk,
 		senderAddr.String(),
 		recipientAddr.String(),
@@ -1068,15 +1039,11 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferInsufficientBalance() {
 	transferHiBits := uint32((initialBalance >> 16) & 0xFFFFFFFF)
 
 	teg := elgamal.NewTwistedElgamal()
-	senderAmountLo, senderLoRandomness, err := teg.Encrypt(initialSenderState.PublicKey, uint64(transferLoBits))
-	suite.Require().NoError(err, "Should not have error encrypting sender amount")
-	senderAmountHi, senderHiRandomness, err := teg.Encrypt(initialSenderState.PublicKey, uint64(transferHiBits))
-	suite.Require().NoError(err, "Should not have error encrypting sender amount")
+	senderAmountLo, senderLoRandomness, _ := teg.Encrypt(initialSenderState.PublicKey, uint64(transferLoBits))
+	senderAmountHi, senderHiRandomness, _ := teg.Encrypt(initialSenderState.PublicKey, uint64(transferHiBits))
 
-	recipientAmountLo, recipientLoRandomness, err := teg.Encrypt(recipientAccountState.PublicKey, uint64(transferLoBits))
-	suite.Require().NoError(err, "Should not have error encrypting recipient amount")
-	recipientAmountHi, recipientHiRandomness, err := teg.Encrypt(recipientAccountState.PublicKey, uint64(transferHiBits))
-	suite.Require().NoError(err, "Should not have error encrypting recipient amount")
+	recipientAmountLo, recipientLoRandomness, _ := teg.Encrypt(recipientAccountState.PublicKey, uint64(transferLoBits))
+	recipientAmountHi, recipientHiRandomness, _ := teg.Encrypt(recipientAccountState.PublicKey, uint64(transferHiBits))
 
 	transferStruct.SenderTransferAmountLo = senderAmountLo
 	transferStruct.SenderTransferAmountHi = senderAmountHi
@@ -1087,16 +1054,13 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferInsufficientBalance() {
 	req := types.NewMsgTransferProto(transferStruct)
 	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error transferring more than the account balance")
+	suite.Require().ErrorContains(err, "Failed to verify senderTransferAmountLo")
 
 	// Try to modify the proofs as well
-	senderLoValidityProof, err := zkproofs.NewCiphertextValidityProof(&senderLoRandomness, initialSenderState.PublicKey, senderAmountLo, uint64(transferLoBits))
-	suite.Require().NoError(err, "Should not have error creating validity proof")
-	senderHiValidityProof, err := zkproofs.NewCiphertextValidityProof(&senderHiRandomness, initialSenderState.PublicKey, senderAmountHi, uint64(transferHiBits))
-	suite.Require().NoError(err, "Should not have error creating validity proof")
-	recipientLoValidityProof, err := zkproofs.NewCiphertextValidityProof(&recipientLoRandomness, recipientAccountState.PublicKey, recipientAmountLo, uint64(transferLoBits))
-	suite.Require().NoError(err, "Should not have error creating validity proof")
-	recipientHiValidityProof, err := zkproofs.NewCiphertextValidityProof(&recipientHiRandomness, recipientAccountState.PublicKey, recipientAmountHi, uint64(transferHiBits))
-	suite.Require().NoError(err, "Should not have error creating validity proof")
+	senderLoValidityProof, _ := zkproofs.NewCiphertextValidityProof(&senderLoRandomness, initialSenderState.PublicKey, senderAmountLo, uint64(transferLoBits))
+	senderHiValidityProof, _ := zkproofs.NewCiphertextValidityProof(&senderHiRandomness, initialSenderState.PublicKey, senderAmountHi, uint64(transferHiBits))
+	recipientLoValidityProof, _ := zkproofs.NewCiphertextValidityProof(&recipientLoRandomness, recipientAccountState.PublicKey, recipientAmountLo, uint64(transferLoBits))
+	recipientHiValidityProof, _ := zkproofs.NewCiphertextValidityProof(&recipientHiRandomness, recipientAccountState.PublicKey, recipientAmountHi, uint64(transferHiBits))
 
 	transferStruct.Proofs.SenderTransferAmountLoValidityProof = senderLoValidityProof
 	transferStruct.Proofs.SenderTransferAmountHiValidityProof = senderHiValidityProof
@@ -1109,6 +1073,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferInsufficientBalance() {
 	req = types.NewMsgTransferProto(transferStruct)
 	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should still have error transferring more than the account balance despite modifying the proofs")
+	suite.Require().ErrorContains(err, "Ciphertext Commitment equality verification failed")
 }
 
 func (suite *KeeperTestSuite) TestMsgServer_TransferWrongRecipient() {
@@ -1127,15 +1092,13 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferWrongRecipient() {
 	initialRecipientState, _ := suite.SetupAccountState(recipientPk, DefaultTestDenom, 10, 2000, 3000, 1000)
 	suite.SetupAccountState(otherPk, DefaultTestDenom, 10, 2000, 3000, 1000)
 
-	senderAesKey, err := encryption.GetAESKey(*senderPk, DefaultTestDenom)
-	suite.Require().NoError(err, "Should not fail to create AES key")
+	senderAesKey, _ := encryption.GetAESKey(*senderPk, DefaultTestDenom)
 
-	initialBalance, err := encryption.DecryptAESGCM(initialSenderState.DecryptableAvailableBalance, senderAesKey)
-	suite.Require().NoError(err, "Should not fail to decrypt balance")
+	initialBalance, _ := encryption.DecryptAESGCM(initialSenderState.DecryptableAvailableBalance, senderAesKey)
 
 	// Set transfer amount to half of the initial balance.
 	transferAmount := initialBalance / 2
-	transferStruct, err := types.NewTransfer(
+	transferStruct, _ := types.NewTransfer(
 		senderPk,
 		senderAddr.String(),
 		recipientAddr.String(),
@@ -1146,15 +1109,15 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferWrongRecipient() {
 		&initialRecipientState.PublicKey,
 		nil,
 	)
-	suite.Require().NoError(err, "Should not have issue creating transfer struct")
 
 	// Set the transferStruct recipient to the wrong recipient
 	transferStruct.ToAddress = otherAddr.String()
 
 	// However, since the balance used to calculate the proofs in the transfer structs are false, the equality proof verification will fail
 	req := types.NewMsgTransferProto(transferStruct)
-	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
+	_, err := suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should fail ciphertext validity proof since we created those ciphertexts using recipient's public key")
+	suite.Require().ErrorContains(err, "Failed to verify recipientTransferAmountLo")
 }
 
 func (suite *KeeperTestSuite) TestMsgServer_TransferDifferentAmounts() {
@@ -1172,15 +1135,13 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferDifferentAmounts() {
 	initialSenderState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 10, 2000, 3000, 1000)
 	initialRecipientState, _ := suite.SetupAccountState(recipientPk, DefaultTestDenom, 10, 2000, 3000, 1000)
 
-	senderAesKey, err := encryption.GetAESKey(*senderPk, DefaultTestDenom)
-	suite.Require().NoError(err, "Should not fail to create AES key")
+	senderAesKey, _ := encryption.GetAESKey(*senderPk, DefaultTestDenom)
 
-	initialBalance, err := encryption.DecryptAESGCM(initialSenderState.DecryptableAvailableBalance, senderAesKey)
-	suite.Require().NoError(err, "Should not fail to decrypt balance")
+	initialBalance, _ := encryption.DecryptAESGCM(initialSenderState.DecryptableAvailableBalance, senderAesKey)
 
 	// Set transfer amount to a fraction of the initial balance.
 	transferAmount := initialBalance / 5
-	transferStruct, err := types.NewTransfer(
+	transferStruct, _ := types.NewTransfer(
 		senderPk,
 		senderAddr.String(),
 		recipientAddr.String(),
@@ -1191,7 +1152,6 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferDifferentAmounts() {
 		&initialRecipientState.PublicKey,
 		nil,
 	)
-	suite.Require().NoError(err, "Should not have issue creating transfer struct")
 
 	// Now we change the transfer amounts encoded with the recipient's keys to attempt to send them more than we lose.
 	fakeTransferAmount := transferAmount * 2
@@ -1201,27 +1161,25 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferDifferentAmounts() {
 	transferHiBits := uint32((fakeTransferAmount >> 16) & 0xFFFFFFFF)
 
 	// Encrypt the transfer amounts for the recipient
-	recipientKeyPair, err := teg.KeyGen(*recipientPk, DefaultTestDenom)
-	suite.Require().NoError(err, "Should not fail to generate key pair")
+	recipientKeyPair, _ := teg.KeyGen(*recipientPk, DefaultTestDenom)
 
-	encryptedTransferLoBits, loBitsRandomness, err := teg.Encrypt(recipientKeyPair.PublicKey, uint64(transferLoBits))
-	suite.Require().NoError(err, "Should have no error encrypting amount")
+	encryptedTransferLoBits, loBitsRandomness, _ := teg.Encrypt(recipientKeyPair.PublicKey, uint64(transferLoBits))
 
-	encryptedTransferHiBits, hiBitsRandomness, err := teg.Encrypt(recipientKeyPair.PublicKey, uint64(transferHiBits))
-	suite.Require().NoError(err, "Should have no error encrypting amount")
+	encryptedTransferHiBits, hiBitsRandomness, _ := teg.Encrypt(recipientKeyPair.PublicKey, uint64(transferHiBits))
 
-	// Set the transferStruct recipient to the wrong recipient
+	// Set the transferStruct recipient to the new amounts
 	transferStruct.RecipientTransferAmountLo = encryptedTransferLoBits
 	transferStruct.RecipientTransferAmountHi = encryptedTransferHiBits
 
 	// Attempt to make the transfer. This call should fail since the ciphertext validity proofs generated are specific to the underlying value and have not been updated.
 	req := types.NewMsgTransferProto(transferStruct)
-	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
+	_, err := suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should fail validity proof since we created those proofs using ciphertexts on the original value.")
+	suite.Require().ErrorContains(err, "Failed to verify recipientTransferAmountLo")
 
 	// Generate the validity proofs of the new amounts
-	loBitsValidityProof, err := zkproofs.NewCiphertextValidityProof(&loBitsRandomness, recipientKeyPair.PublicKey, encryptedTransferLoBits, uint64(transferLoBits))
-	hiBitsValidityProof, err := zkproofs.NewCiphertextValidityProof(&hiBitsRandomness, recipientKeyPair.PublicKey, encryptedTransferHiBits, uint64(transferHiBits))
+	loBitsValidityProof, _ := zkproofs.NewCiphertextValidityProof(&loBitsRandomness, recipientKeyPair.PublicKey, encryptedTransferLoBits, uint64(transferLoBits))
+	hiBitsValidityProof, _ := zkproofs.NewCiphertextValidityProof(&hiBitsRandomness, recipientKeyPair.PublicKey, encryptedTransferHiBits, uint64(transferHiBits))
 
 	transferStruct.Proofs.RecipientTransferAmountLoValidityProof = loBitsValidityProof
 	transferStruct.Proofs.RecipientTransferAmountHiValidityProof = hiBitsValidityProof
@@ -1230,18 +1188,16 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferDifferentAmounts() {
 	req = types.NewMsgTransferProto(transferStruct)
 	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should fail equality proof since we created those proofs using ciphertexts on the original value.")
+	suite.Require().ErrorContains(err, "Ciphertext Ciphertext equality verification on transferAmountLo failed")
 
 	// So we attempt to generate new equality proofs for the amounts as well.
 	bigIntLoBits := new(big.Int).SetUint64(uint64(transferLoBits))
-	loBitsScalar, err := curves.ED25519().Scalar.SetBigInt(bigIntLoBits)
-	suite.Require().NoError(err, "Unexpected error setting scalar")
+	loBitsScalar, _ := curves.ED25519().Scalar.SetBigInt(bigIntLoBits)
 
 	bigIntHiBits := new(big.Int).SetUint64(uint64(transferHiBits))
-	hiBitsScalar, err := curves.ED25519().Scalar.SetBigInt(bigIntHiBits)
-	suite.Require().NoError(err, "Unexpected error setting scalar")
+	hiBitsScalar, _ := curves.ED25519().Scalar.SetBigInt(bigIntHiBits)
 
-	senderKeyPair, err := teg.KeyGen(*senderPk, DefaultTestDenom)
-	suite.Require().NoError(err, "Unexpected error getting sender keypair")
+	senderKeyPair, _ := teg.KeyGen(*senderPk, DefaultTestDenom)
 
 	ciphertextEqualityLoProof, err := zkproofs.NewCiphertextCiphertextEqualityProof(senderKeyPair, &recipientKeyPair.PublicKey, transferStruct.SenderTransferAmountLo, &loBitsRandomness, &loBitsScalar)
 	suite.Require().NoError(err, "Should have no error generating lo bits equality proof despite mismatch in transfer amounts")
@@ -1256,4 +1212,5 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferDifferentAmounts() {
 	req = types.NewMsgTransferProto(transferStruct)
 	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should still fail equality proof since transfer amount ciphertexts encode different values.")
+	suite.Require().ErrorContains(err, "Ciphertext Ciphertext equality verification on transferAmountLo failed")
 }
