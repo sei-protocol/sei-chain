@@ -20,9 +20,9 @@ type Keeper interface {
 	InitGenesis(sdk.Context, *types.GenesisState)
 	ExportGenesis(sdk.Context) *types.GenesisState
 
-	GetAccount(ctx sdk.Context, address sdk.AccAddress, denom string) (types.Account, bool)
-	SetAccount(ctx sdk.Context, address sdk.AccAddress, denom string, account types.Account)
-	DeleteAccount(ctx sdk.Context, address sdk.AccAddress, denom string)
+	GetAccount(ctx sdk.Context, addrString string, denom string) (types.Account, bool)
+	SetAccount(ctx sdk.Context, addrString string, denom string, account types.Account) error
+	DeleteAccount(ctx sdk.Context, addrString string, denom string) error
 
 	GetParams(ctx sdk.Context) types.Params
 	SetParams(ctx sdk.Context, params types.Params)
@@ -71,8 +71,13 @@ func NewKeeper(
 	}
 }
 
-func (k BaseKeeper) GetAccount(ctx sdk.Context, address sdk.AccAddress, denom string) (types.Account, bool) {
+func (k BaseKeeper) GetAccount(ctx sdk.Context, addrString, denom string) (types.Account, bool) {
 	store := ctx.KVStore(k.storeKey)
+	address, err := sdk.AccAddressFromBech32(addrString)
+	if err != nil {
+		return types.Account{}, false
+	}
+
 	key := types.GetAccountKey(address, denom)
 	if !store.Has(key) {
 		return types.Account{}, false
@@ -88,18 +93,30 @@ func (k BaseKeeper) GetAccount(ctx sdk.Context, address sdk.AccAddress, denom st
 	return *account, true
 }
 
-func (k BaseKeeper) SetAccount(ctx sdk.Context, address sdk.AccAddress, denom string, account types.Account) {
+func (k BaseKeeper) SetAccount(ctx sdk.Context, addrString, denom string, account types.Account) error {
 	store := ctx.KVStore(k.storeKey)
+	address, err := sdk.AccAddressFromBech32(addrString)
+	if err != nil {
+		return err
+	}
+
 	key := types.GetAccountKey(address, denom)
 	ctAccount := types.NewCtAccount(&account)
 	bz := k.cdc.MustMarshal(ctAccount) // Marshal the Account object into bytes
 	store.Set(key, bz)                 // Store the serialized account under the key
+	return nil
 }
 
-func (k BaseKeeper) DeleteAccount(ctx sdk.Context, address sdk.AccAddress, denom string) {
+func (k BaseKeeper) DeleteAccount(ctx sdk.Context, addrString, denom string) error {
+	address, err := sdk.AccAddressFromBech32(addrString)
+	if err != nil {
+		return err
+	}
+
 	store := ctx.KVStore(k.storeKey)
 	key := types.GetAccountKey(address, denom)
 	store.Delete(key) // Store the serialized account under the key
+	return nil
 }
 
 // Logger returns a logger for the x/confidentialtransfers module

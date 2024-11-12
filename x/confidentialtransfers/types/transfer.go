@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"github.com/coinbase/kryptology/pkg/core/curves"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
@@ -99,10 +100,10 @@ func NewTransfer(
 
 	// Split the transfer amount into bottom 16 bits and top 32 bits.
 	// Extract the bottom 16 bits (rightmost 16 bits)
-	transferLoBits := uint16(amount & 0xFFFF)
-
-	// Extract the next 32 bits (from bit 16 to bit 47) (Everything else is ignored since the max is 48 bits)
-	transferHiBits := uint32((amount >> 16) & 0xFFFFFFFF)
+	transferLoBits, transferHiBits, err := utils.SplitTransferBalance(amount)
+	if err != nil {
+		return &Transfer{}, err
+	}
 
 	// Encrypt the transfer amounts for the sender
 	senderEncryptedTransferLoBits, senderLoBitsRandomness, err := teg.Encrypt(senderKeyPair.PublicKey, uint64(transferLoBits))

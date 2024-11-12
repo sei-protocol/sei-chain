@@ -5,6 +5,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
@@ -38,7 +39,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountBasic() {
 	suite.Require().NoError(err, "Should not have error initializing valid account state")
 
 	// Check that account exists in storage now
-	account, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
+	account, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 	suite.Require().True(exists, "Account should exist after successful initialization")
 
 	// Check that account state matches the one submitted.
@@ -66,11 +67,11 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountBasic() {
 	suite.Require().NoError(err, "Should not have error initializing valid account state on a different denom")
 
 	// Check that other account exists in storage as well
-	_, exists = suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, otherDenom)
+	_, exists = suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), otherDenom)
 	suite.Require().True(exists, "Account should exist after successful initialization")
 
 	// Check that initial account still exists independently and is unchanged.
-	accountAgain, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
+	accountAgain, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 	suite.Require().True(exists, "Account should still exist")
 	suite.Require().Equal(account, accountAgain, "Account should be unchanged")
 }
@@ -99,7 +100,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyPubkey() {
 	suite.Require().ErrorContains(err, "invalid public key")
 
 	// Check that account does not exist in storage
-	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
+	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 	suite.Require().False(exists, "Account should not exist after failed initialization")
 
 	// Now try modifying the Pubkey Validity Proof as well.
@@ -213,7 +214,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountAlternateHappyPaths
 	_, err := suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().NoError(err, "Should not have error initializing account with different denom")
 
-	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, otherDenom)
+	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), otherDenom)
 	suite.Require().True(exists, "Account should exist after successful initialization")
 
 	// Test that modifying the decryptableBalance will still lead to a successful initialization.
@@ -226,7 +227,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountAlternateHappyPaths
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().NoError(err, "Should not have error initializing account despite corrupted decryptable balance")
 
-	_, exists = suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
+	_, exists = suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 	suite.Require().True(exists, "Account should exist after successful initialization")
 }
 
@@ -266,7 +267,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	suite.Require().NoError(err, "Should not have error depositing with valid request")
 
 	// Check that the account has been updated
-	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
+	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 
 	// Check that available balances were not touched by this operation
 	suite.Require().Equal(initialState.AvailableBalance.C.ToAffineCompressed(), account.AvailableBalance.C.ToAffineCompressed(), "AvailableBalance.C should not have been touched")
@@ -308,7 +309,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	suite.Require().NoError(err, "Should not have error depositing large amount with valid request")
 
 	// Check that the account has been updated
-	updatedAccount, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
+	updatedAccount, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 
 	oldPendingBalancePlaintext = newPendingBalancePlaintext
 	newPendingBalancePlaintext, _ = updatedAccount.GetPendingBalancePlaintext(teg, keyPair)
@@ -374,7 +375,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositInsufficientFunds() {
 	suite.Require().ErrorContains(err, "insufficient funds to deposit")
 
 	// Test that account state is untouched
-	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
+	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 
 	// Check that pending balances were not touched by this operation
 	suite.Require().Equal(initialState.PendingBalanceLo.C.ToAffineCompressed(), account.PendingBalanceLo.C.ToAffineCompressed(), "PendingBalanceLo.C should not have been modified by failed instruction")
@@ -464,7 +465,7 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawHappyPath() {
 	suite.Require().NoError(err, "Should not have error calling valid withdraw")
 
 	// Check that the account has been updated
-	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
+	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 
 	// Check that pending balances are left untouched
 	suite.Require().Equal(initialState.PendingBalanceLo.C.ToAffineCompressed(), account.PendingBalanceLo.C.ToAffineCompressed(), "PendingBalanceLo.C should not have been modified by withdraw")
@@ -640,7 +641,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 
 	// At this point, the decryptable available balance is corrupted.
 	// Any withdraw struct we create based on the decryptable balance in the account will be invalid.
-	accountState, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
+	accountState, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 	nextWithdrawStruct, err := types.NewWithdraw(*testPk, accountState.AvailableBalance, DefaultTestDenom, testAddr.String(), accountState.DecryptableAvailableBalance, withdrawAmount)
 	req = types.NewMsgWithdrawProto(nextWithdrawStruct)
 	_, err = suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
@@ -670,7 +671,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 	suite.Require().NoError(err, "Should not have error calling withdraw despite incorrect decryptable balance submitted")
 
 	// Validate that the number is correct
-	accountState, _ = suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
+	accountState, _ = suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 	decryptedAvailableBalance, err := teg.DecryptLargeNumber(keyPair.PrivateKey, accountState.AvailableBalance, elgamal.MaxBits40)
 	suite.Require().NoError(err, "Should be decryptable")
 	newBalance := actualBalance - withdrawAmount
@@ -709,7 +710,7 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHappyPath() {
 	suite.Require().NoError(err, "Should not have error closing account")
 
 	// Check that the account has been deleted
-	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
+	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 	suite.Require().False(exists, "Account should not exist")
 
 	// Try sending the close account instruction again. This should fail now since the account doesn't exist.
@@ -744,7 +745,7 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHasPendingBalance() {
 	suite.Require().ErrorContains(err, "pending balance lo must be 0")
 
 	// Check that the account still exists
-	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
+	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 	suite.Require().True(exists, "Account should still exist")
 }
 
@@ -774,7 +775,7 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHasAvailableBalance() {
 	suite.Require().ErrorContains(err, "available balance must be 0")
 
 	// Check that the account still exists
-	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
+	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 	suite.Require().True(exists, "Account should still exist")
 }
 
@@ -805,7 +806,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalance() {
 	suite.Require().NoError(err, "Should not have error applying pending balance")
 
 	// Check that the account has been updated
-	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr, DefaultTestDenom)
+	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 
 	// Decrypt and check balances
 	teg := elgamal.NewTwistedElgamal()
@@ -854,7 +855,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceNoPendingBalances
 	suite.Require().Error(err, "Should have error applying pending balance on account with no pending balances")
 
 	// Delete the account so we can test running the instruction on an account that doesn't exist.
-	suite.App.ConfidentialTransfersKeeper.DeleteAccount(suite.Ctx, testAddr, DefaultTestDenom)
+	suite.App.ConfidentialTransfersKeeper.DeleteAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 
 	// Execute the apply pending balance. This should fail since the account doesn't exist.
 	_, err = suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), &req)
@@ -903,7 +904,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().NoError(err, "Should not have error calling valid transfer")
 
-	senderAccountState, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, senderAddr, DefaultTestDenom)
+	senderAccountState, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, senderAddr.String(), DefaultTestDenom)
 
 	// Pending Balances should not be altered by this instruction
 	suite.Require().Equal(initialSenderState.PendingBalanceLo.C.ToAffineCompressed(), senderAccountState.PendingBalanceLo.C.ToAffineCompressed(), "PendingBalanceLo should not have been touched")
@@ -928,7 +929,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 	suite.Require().Equal(senderNewBalanceDecrypted, senderNewDecryptableBalanceDecrypted)
 
 	// On the other hand, available balances of the recipient account should not have been altered
-	recipientAccountState, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, recipientAddr, DefaultTestDenom)
+	recipientAccountState, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, recipientAddr.String(), DefaultTestDenom)
 	suite.Require().Equal(initialRecipientState.AvailableBalance.C.ToAffineCompressed(), recipientAccountState.AvailableBalance.C.ToAffineCompressed(), "AvailableBalance should not have been touched")
 	suite.Require().Equal(initialRecipientState.AvailableBalance.D.ToAffineCompressed(), recipientAccountState.AvailableBalance.D.ToAffineCompressed(), "AvailableBalance should not have been touched")
 	suite.Require().Equal(initialRecipientState.DecryptableAvailableBalance, recipientAccountState.DecryptableAvailableBalance, "DecryptableAvailableBalance should not have been touched")
@@ -1157,8 +1158,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferDifferentAmounts() {
 	fakeTransferAmount := transferAmount * 2
 
 	// Split the transfer amount into bottom 16 bits and top 32 bits.
-	transferLoBits := uint16(fakeTransferAmount & 0xFFFF)
-	transferHiBits := uint32((fakeTransferAmount >> 16) & 0xFFFFFFFF)
+	transferLoBits, transferHiBits, _ := utils.SplitTransferBalance(fakeTransferAmount)
 
 	// Encrypt the transfer amounts for the recipient
 	recipientKeyPair, _ := teg.KeyGen(*recipientPk, DefaultTestDenom)

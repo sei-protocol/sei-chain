@@ -5,6 +5,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
 	"math"
@@ -25,21 +26,16 @@ var _ types.MsgServer = msgServer{}
 func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitializeAccount) (*types.MsgInitializeAccountResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	// Convert the instruction to proto. This also validates the request.
+	// Convert the instruction from proto. This also validates the request.
 	instruction, err := req.FromProto()
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid msg")
 	}
 
 	// Check if the account already exists
-	address, err := sdk.AccAddressFromBech32(instruction.FromAddress)
-	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid address")
-	}
-
-	_, exists := m.Keeper.GetAccount(ctx, address, instruction.Denom)
+	_, exists := m.Keeper.GetAccount(ctx, req.FromAddress, instruction.Denom)
 	if exists {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already exists")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrNotFound, "account already exists")
 	}
 
 	// Validate the public key
@@ -77,7 +73,10 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 	}
 
 	// Store the account
-	m.Keeper.SetAccount(ctx, address, req.Denom, account)
+	err = m.Keeper.SetAccount(ctx, req.FromAddress, req.Denom, account)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting account")
+	}
 
 	ctx.EventManager().EmitEvents(sdk.Events{
 		sdk.NewEvent(
@@ -105,9 +104,9 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid address")
 	}
 
-	account, exists := m.Keeper.GetAccount(ctx, address, req.Denom)
+	account, exists := m.Keeper.GetAccount(ctx, req.FromAddress, req.Denom)
 	if !exists {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account does not exist")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrNotFound, "account does not exist")
 	}
 
 	// The maximum transfer amount is 2^48
@@ -131,10 +130,10 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 
 	// Split the deposit amount into lo and hi bits.
 	// Extract the bottom 16 bits (rightmost 16 bits)
-	bottom16 := uint16(req.Amount & 0xFFFF)
-
-	// Extract the next 32 bits (from bit 16 to bit 47) (Everything else is ignored since the max is 48 bits)
-	next32 := uint32((req.Amount >> 16) & 0xFFFFFFFF)
+	bottom16, next32, err := utils.SplitTransferBalance(req.Amount)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error splitting transfer balance")
+	}
 
 	// Compute the new balances
 	teg := elgamal.NewTwistedElgamal()
@@ -154,7 +153,10 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 	account.PendingBalanceCreditCounter += 1
 
 	// Save the changes to the account state
-	m.Keeper.SetAccount(ctx, address, req.Denom, account)
+	err = m.Keeper.SetAccount(ctx, req.FromAddress, req.Denom, account)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting account")
+	}
 
 	// Emit any required events
 	ctx.EventManager().EmitEvents(sdk.Events{
@@ -179,9 +181,9 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 	}
 
 	// Get the user's account
-	account, exists := m.Keeper.GetAccount(ctx, address, req.Denom)
+	account, exists := m.Keeper.GetAccount(ctx, req.FromAddress, req.Denom)
 	if !exists {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account does not exist")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrNotFound, "account does not exist")
 	}
 
 	// Convert the struct to a usable form. This also validates the request.
@@ -191,7 +193,8 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 	}
 
 	// Verify that the account has sufficient funds (Remaining balance after making the transfer is greater than or equal to zero.)
-	// This range proof verification is performed on the RemainingBalanceCommitment sent by the user. An additional check is required to ensure that this matches the remaining balance calculated by the server.
+	// This range proof verification is performed on the RemainingBalanceCommitment sent by the user.
+	// An additional check is required to ensure that this matches the remaining balance calculated by the server.
 	verified, _ := zkproofs.VerifyRangeProof(instruction.Proofs.RemainingBalanceRangeProof, instruction.RemainingBalanceCommitment, 64)
 	if !verified {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "range proof verification failed")
@@ -204,7 +207,10 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error subtracting amount")
 	}
 
-	verified = zkproofs.VerifyCiphertextCommitmentEquality(instruction.Proofs.RemainingBalanceEqualityProof, &account.PublicKey, remainingBalanceCalculated, &instruction.RemainingBalanceCommitment.C)
+	verified = zkproofs.VerifyCiphertextCommitmentEquality(
+		instruction.Proofs.RemainingBalanceEqualityProof,
+		&account.PublicKey, remainingBalanceCalculated,
+		&instruction.RemainingBalanceCommitment.C)
 	if !verified {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "ciphertext commitment equality verification failed")
 	}
@@ -214,7 +220,10 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 	account.AvailableBalance = remainingBalanceCalculated
 
 	// Save the account state
-	m.Keeper.SetAccount(ctx, address, req.Denom, account)
+	err = m.Keeper.SetAccount(ctx, req.FromAddress, req.Denom, account)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting account")
+	}
 
 	// Return the tokens to the sender
 	coins := sdk.NewCoins(sdk.NewCoin(instruction.Denom, sdk.NewIntFromUint64(instruction.Amount)))
@@ -239,14 +248,9 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
 	// Check if the account exists
-	address, err := sdk.AccAddressFromBech32(req.Address)
-	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid address")
-	}
-
-	account, exists := m.Keeper.GetAccount(ctx, address, req.Denom)
+	account, exists := m.Keeper.GetAccount(ctx, req.Address, req.Denom)
 	if !exists {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account does not exist")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrNotFound, "account does not exist")
 	}
 
 	if account.PendingBalanceCreditCounter == 0 {
@@ -277,7 +281,7 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 	account.PendingBalanceCreditCounter = 0
 
 	// Save the changes to the account state
-	m.Keeper.SetAccount(ctx, address, req.Denom, account)
+	m.Keeper.SetAccount(ctx, req.Address, req.Denom, account)
 
 	// Emit any required events
 	ctx.EventManager().EmitEvents(sdk.Events{
@@ -295,14 +299,9 @@ func (m msgServer) CloseAccount(goCtx context.Context, req *types.MsgCloseAccoun
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
 	// Check if the account exists
-	address, err := sdk.AccAddressFromBech32(req.Address)
-	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid address")
-	}
-
-	account, exists := m.Keeper.GetAccount(ctx, address, req.Denom)
+	account, exists := m.Keeper.GetAccount(ctx, req.Address, req.Denom)
 	if !exists {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account does not exist")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrNotFound, "account does not exist")
 	}
 
 	instruction, err := req.FromProto()
@@ -329,7 +328,10 @@ func (m msgServer) CloseAccount(goCtx context.Context, req *types.MsgCloseAccoun
 	}
 
 	// Delete the account
-	m.Keeper.DeleteAccount(ctx, address, req.Denom)
+	err = m.Keeper.DeleteAccount(ctx, req.Address, req.Denom)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error deleting account")
+	}
 
 	// Emit any required events
 	ctx.EventManager().EmitEvents(sdk.Events{
@@ -352,24 +354,14 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	}
 
 	// Check that sender and recipient accounts exist.
-	senderAddress, err := sdk.AccAddressFromBech32(req.FromAddress)
-	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid sender address")
-	}
-
-	recipientAddress, err := sdk.AccAddressFromBech32(req.ToAddress)
-	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid recipient address")
-	}
-
-	senderAccount, exists := m.Keeper.GetAccount(ctx, senderAddress, req.Denom)
+	senderAccount, exists := m.Keeper.GetAccount(ctx, req.FromAddress, req.Denom)
 	if !exists {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "sender account does not exist")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrNotFound, "sender account does not exist")
 	}
 
-	recipientAccount, exists := m.Keeper.GetAccount(ctx, recipientAddress, req.Denom)
+	recipientAccount, exists := m.Keeper.GetAccount(ctx, req.ToAddress, req.Denom)
 	if !exists {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "recipient account does not exist")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrNotFound, "recipient account does not exist")
 	}
 
 	// Check that account does not have the maximum limit of pending transactions.
@@ -392,14 +384,10 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 
 	// Validate proofs for each auditor
 	for _, auditorParams := range instruction.Auditors {
-		auditorAddress, err := sdk.AccAddressFromBech32(auditorParams.Address)
-		if err != nil {
-			return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid auditor address")
-		}
 
-		auditorAccount, exists := m.Keeper.GetAccount(ctx, auditorAddress, instruction.Denom)
+		auditorAccount, exists := m.Keeper.GetAccount(ctx, auditorParams.Address, instruction.Denom)
 		if !exists {
-			return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "auditor account does not exist")
+			return nil, sdkerrors.Wrap(sdkerrors.ErrNotFound, "auditor account does not exist")
 		}
 
 		err = types.VerifyAuditorProof(
@@ -434,8 +422,15 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	senderAccount.AvailableBalance = newSenderBalanceCiphertext
 
 	// Save the account states
-	m.Keeper.SetAccount(ctx, senderAddress, req.Denom, senderAccount)
-	m.Keeper.SetAccount(ctx, recipientAddress, req.Denom, recipientAccount)
+	err = m.Keeper.SetAccount(ctx, req.FromAddress, req.Denom, senderAccount)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting sender account")
+	}
+
+	err = m.Keeper.SetAccount(ctx, req.ToAddress, req.Denom, recipientAccount)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting recipient account")
+	}
 
 	// Emit any required events
 	ctx.EventManager().EmitEvents(sdk.Events{
