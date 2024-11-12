@@ -232,6 +232,7 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 	}
 
 	// Emit any required events
+	//TODO: Look into whether we can use EmitTypedEvents instead since EmitEvents is deprecated
 	ctx.EventManager().EmitEvents(sdk.Events{
 		sdk.NewEvent(
 			types.EventTypeWithdraw,
