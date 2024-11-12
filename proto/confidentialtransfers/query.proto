@@ -1,28 +1,50 @@
 syntax = "proto3";
 package seiprotocol.seichain.confidentialtransfers;
 
+import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
+import "confidentialtransfers/confidential.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types";
 
-// TODO: Define any query messages here
 // Query defines the gRPC querier service.
 service Query {
-  // TODO: This is a mock method. Remove when we add real queries
-  rpc TestQuery (TestQueryRequest) returns (TestQueryResponse) {
+  rpc GetCtAccount (GetCtAccountRequest) returns (GetCtAccountResponse) {
     option (google.api.http) = {
-      get: "/seichain/confidentialtransfers/test_query"
+      get: "/seichain/confidentialtransfers/account/{address}/{denom}"
+    };
+  }
+
+  rpc GetAllCtAccounts (GetAllCtAccountsRequest) returns (GetAllCtAccountsResponse) {
+    option (google.api.http) = {
+      get: "/seichain/confidentialtransfers/account/{address}"
     };
   }
 }
 
-// TODO: This is a mock method. Remove when we add real queries
-message TestQueryRequest {
-  string test_field = 1;
+message GetCtAccountRequest {
+  string address = 1;
+  string denom = 2;
 }
 
-// TODO: This is a mock method. Remove when we add real queries
-message TestQueryResponse {
-  string test_field = 1;
+message GetCtAccountResponse {
+  CtAccount account = 1;
+}
+
+message GetAllCtAccountsRequest {
+  option (gogoproto.equal)           = false;
+  option (gogoproto.goproto_getters) = false;
+
+  string address = 1;
+
+  // pagination defines an optional pagination for the request.
+  cosmos.base.query.v1beta1.PageRequest pagination = 2;
+}
+
+message GetAllCtAccountsResponse {
+  repeated CtAccountWithDenom accounts = 1 [(gogoproto.nullable) = false];
+
+  // pagination defines the pagination in the response.
+  cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }

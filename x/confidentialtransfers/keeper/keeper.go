@@ -1,8 +1,6 @@
 package keeper
 
 import (
-	"bytes"
-	"context"
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
@@ -17,17 +15,21 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
+var _ Keeper = (*BaseKeeper)(nil)
+
 type Keeper interface {
 	InitGenesis(sdk.Context, *types.GenesisState)
 	ExportGenesis(sdk.Context) *types.GenesisState
 
-	GetAccount(ctx sdk.Context, address sdk.AccAddress, denom string) (types.Account, bool)
-	SetAccount(ctx sdk.Context, address sdk.AccAddress, denom string, account types.Account)
+	GetAccount(ctx sdk.Context, addrString string, denom string) (types.Account, bool)
+	SetAccount(ctx sdk.Context, addrString string, denom string, account types.Account) error
 
 	GetParams(ctx sdk.Context) types.Params
 	SetParams(ctx sdk.Context, params types.Params)
 
 	CreateModuleAccount(ctx sdk.Context)
+
+	types.QueryServer
 }
 
 type BaseKeeper struct {
@@ -37,11 +39,6 @@ type BaseKeeper struct {
 
 	paramSpace    paramtypes.Subspace
 	accountKeeper types.AccountKeeper
-}
-
-func (k BaseKeeper) TestQuery(ctx context.Context, request *types.TestQueryRequest) (*types.TestQueryResponse, error) {
-	//TODO: This is not a real gRPC query. This was added to the query.proto file as a placeholder. We should remove this and add the real queries once we better define query.proto.
-	panic("implement me")
 }
 
 // NewKeeper returns a new instance of the x/confidentialtransfers keeper
@@ -64,16 +61,15 @@ func NewKeeper(
 	}
 }
 
-func (k BaseKeeper) GetAccount(ctx sdk.Context, address sdk.AccAddress, denom string) (types.Account, bool) {
-	store := ctx.KVStore(k.storeKey)
-	key := types.GetAccountKey(address, denom)
-	if !store.Has(key) {
+func (k BaseKeeper) GetAccount(ctx sdk.Context, address string, denom string) (types.Account, bool) {
+	addr, err := sdk.AccAddressFromBech32(address)
+	if err != nil {
 		return types.Account{}, false
 	}
-
-	var ctAccount types.CtAccount
-	bz := store.Get(key)
-	k.cdc.MustUnmarshal(bz, &ctAccount) // Unmarshal the bytes back into the CtAccount object
+	ctAccount, found := k.getCtAccount(ctx, addr, denom)
+	if !found {
+		return types.Account{}, false
+	}
 	account, err := ctAccount.FromProto()
 	if err != nil {
 		return types.Account{}, false
@@ -81,12 +77,29 @@ func (k BaseKeeper) GetAccount(ctx sdk.Context, address sdk.AccAddress, denom st
 	return *account, true
 }
 
-func (k BaseKeeper) SetAccount(ctx sdk.Context, address sdk.AccAddress, denom string, account types.Account) {
-	store := ctx.KVStore(k.storeKey)
-	key := types.GetAccountKey(address, denom)
+func (k BaseKeeper) getCtAccount(ctx sdk.Context, address sdk.AccAddress, denom string) (types.CtAccount, bool) {
+	store := k.getAccountStoreForAddress(ctx, address)
+	key := []byte(denom)
+	if !store.Has(key) {
+		return types.CtAccount{}, false
+	}
+
+	var ctAccount types.CtAccount
+	bz := store.Get(key)
+	k.cdc.MustUnmarshal(bz, &ctAccount) // Unmarshal the bytes back into the CtAccount object
+	return ctAccount, true
+}
+
+func (k BaseKeeper) SetAccount(ctx sdk.Context, address string, denom string, account types.Account) error {
+	addr, err := sdk.AccAddressFromBech32(address)
+	if err != nil {
+		return err
+	}
+	store := k.getAccountStoreForAddress(ctx, addr)
 	ctAccount := types.NewCtAccount(&account)
 	bz := k.cdc.MustMarshal(ctAccount) // Marshal the Account object into bytes
-	store.Set(key, bz)                 // Store the serialized account under the key
+	store.Set([]byte(denom), bz)       // Store the serialized account under denom name as key
+	return nil
 }
 
 // Logger returns a logger for the x/confidentialtransfers module
@@ -98,27 +111,29 @@ func (k BaseKeeper) Logger(ctx sdk.Context) log.Logger {
 // and returns a mapping of denom:account
 func (k BaseKeeper) GetAccountsForAddress(ctx sdk.Context, address sdk.AccAddress) (map[string]*types.Account, error) {
 	// Create a prefix store scoped to the address
-	store := prefix.NewStore(ctx.KVStore(k.storeKey), types.GetAddressPrefix(address))
+	store := k.getAccountStoreForAddress(ctx, address)
 
 	// Iterate over all keys in the prefix store
 	iterator := sdk.KVStorePrefixIterator(store, []byte{})
-	defer iterator.Close()
+	defer func(iterator sdk.Iterator) {
+		err := iterator.Close()
+		if err != nil {
+			k.Logger(ctx).Error("failed to close iterator", "error", err)
+		}
+	}(iterator)
 
 	accounts := make(map[string]*types.Account)
 	for ; iterator.Valid(); iterator.Next() {
-		var ctaccount types.CtAccount
-		k.cdc.MustUnmarshal(iterator.Value(), &ctaccount)
-		account, err := ctaccount.FromProto()
+		var ctAccount types.CtAccount
+		k.cdc.MustUnmarshal(iterator.Value(), &ctAccount)
+		account, err := ctAccount.FromProto()
 		if err != nil {
 			return nil, err
 		}
 
-		// Extract the denom from the key
 		key := iterator.Key()
-		// Key format: account|<addr>|<denom>, so denom starts after "account|<addr>|"
-		denom := string(bytes.TrimPrefix(key, types.GetAddressPrefix(address)))
 
-		accounts[denom] = account
+		accounts[string(key)] = account
 	}
 
 	return accounts, nil
@@ -137,4 +152,14 @@ func (k BaseKeeper) SetParams(ctx sdk.Context, params types.Params) {
 func (k BaseKeeper) CreateModuleAccount(ctx sdk.Context) {
 	moduleAcc := authtypes.NewEmptyModuleAccount(types.ModuleName, authtypes.Minter, authtypes.Burner)
 	k.accountKeeper.SetModuleAccount(ctx, moduleAcc)
+}
+
+func (k BaseKeeper) getAccountStore(ctx sdk.Context) prefix.Store {
+	store := ctx.KVStore(k.storeKey)
+	return prefix.NewStore(store, types.AccountsKey)
+}
+
+func (k BaseKeeper) getAccountStoreForAddress(ctx sdk.Context, addr sdk.AccAddress) prefix.Store {
+	store := ctx.KVStore(k.storeKey)
+	return prefix.NewStore(store, types.GetAddressPrefix(addr))
 }
