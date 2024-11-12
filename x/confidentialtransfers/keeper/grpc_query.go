@@ -32,7 +32,8 @@ func (k BaseKeeper) GetAccount(ctx context.Context, req *types.GetAccountRequest
 
 	ctAccount, found := k.getCtAccount(sdkCtx, address, req.Denom)
 	if !found {
-		return nil, status.Errorf(codes.NotFound, "account %s not found", req.Address)
+		return nil, status.Errorf(codes.NotFound, "account not found for account %s and denom %s",
+			req.Address, req.Denom)
 	}
 
 	return &types.GetAccountResponse{Account: &ctAccount}, nil

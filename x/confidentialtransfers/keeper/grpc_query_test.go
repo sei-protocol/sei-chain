@@ -1,7 +1,6 @@
 package keeper_test
 
 import (
-	gocontext "context"
 	"fmt"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
@@ -9,18 +8,72 @@ import (
 )
 
 func (suite *KeeperTestSuite) TestAccountQuery() {
-	app, ctx, queryClient := suite.App, suite.Ctx, suite.queryClient
 	_, _, addr := testdata.KeyTestPubAddr()
-	pk1, _ := encryption.GenerateKey()
+	_, _, nonExistingAddr := testdata.KeyTestPubAddr()
 	testDenom := fmt.Sprintf("factory/%s/TEST", addr.String())
-	ctAccount := generateCtAccount(pk1, testDenom, 1000)
-	account, _ := ctAccount.FromProto()
+	nonExistingDenom := fmt.Sprintf("factory/%s/NONEXISTING", addr.String())
 
-	app.ConfidentialTransfersKeeper.SetAccount(ctx, addr, testDenom, *account)
+	testCases := []struct {
+		name            string
+		req             *types.GetAccountRequest
+		expFail         bool
+		expErrorMessage string
+	}{
+		{
+			name:            "empty address",
+			req:             &types.GetAccountRequest{},
+			expFail:         true,
+			expErrorMessage: "rpc error: code = InvalidArgument desc = address cannot be empty",
+		},
+		{
+			name:            "empty denom",
+			req:             &types.GetAccountRequest{Address: addr.String()},
+			expFail:         true,
+			expErrorMessage: "rpc error: code = InvalidArgument desc = invalid denom",
+		},
+		{
+			name:    "account for address does not exist",
+			req:     &types.GetAccountRequest{Address: nonExistingAddr.String(), Denom: testDenom},
+			expFail: true,
+			expErrorMessage: fmt.Sprintf("rpc error: code = NotFound desc = account not found for account %s "+
+				"and denom %s", nonExistingAddr, testDenom),
+		},
+		{
+			name:    "account for the denom does not exist",
+			req:     &types.GetAccountRequest{Address: addr.String(), Denom: nonExistingDenom},
+			expFail: true,
+			expErrorMessage: fmt.Sprintf("rpc error: code = NotFound desc = account not found for account %s "+
+				"and denom %s", addr.String(), nonExistingDenom),
+		},
+		{
+			name: "existing denom can be found",
+			req:  &types.GetAccountRequest{Address: addr.String(), Denom: testDenom},
+		},
+	}
 
-	result, err := queryClient.GetAccount(gocontext.Background(),
-		&types.GetAccountRequest{Address: addr.String(), Denom: testDenom})
-	suite.Require().NoError(err)
+	for _, tc := range testCases {
+		suite.Run(fmt.Sprintf("Case %s", tc.name), func() {
+			suite.SetupTest() // reset
+			app, ctx, queryClient := suite.App, suite.Ctx, suite.queryClient
 
-	suite.Require().Equal(&ctAccount, result.Account)
+			pk1, _ := encryption.GenerateKey()
+
+			ctAccount := generateCtAccount(pk1, testDenom, 1000)
+			account, _ := ctAccount.FromProto()
+
+			app.ConfidentialTransfersKeeper.SetAccount(ctx, addr, testDenom, *account)
+
+			result, err := queryClient.GetAccount(ctx.Context(), tc.req)
+
+			if tc.expFail {
+				suite.Require().Error(err)
+				suite.Require().EqualError(err, tc.expErrorMessage)
+			} else {
+				suite.Require().NoError(err)
+				suite.Require().NotNil(result)
+				suite.Require().Equal(&ctAccount, result.Account)
+
+			}
+		})
+	}
 }
