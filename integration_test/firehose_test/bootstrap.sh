@@ -21,9 +21,12 @@ main() {
 
     sd '\[evm\]' "[evm]\nlive_evm_tracer = \"firehose\"" "$HOME/.sei/config/app.toml"
 
-    if [[ "${PARALLEL_TX_ENABLED:-"true"}" != "true" ]]; then
-        sd 'occ-enabled *=.*' 'occ-enabled = false' "$HOME/.sei/config/app.toml"
+    occ_enabled="true"
+    if [[ "${parallel_tx_enabled}" != "true" ]]; then
+        occ_enabled="false"
     fi
+
+    sd 'occ-enabled *=.*' "occ-enabled = ${occ_enabled}" "$HOME/.sei/config/app.toml"
 }
 
 main "$@"
