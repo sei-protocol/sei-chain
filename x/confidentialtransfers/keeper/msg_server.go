@@ -124,7 +124,7 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 	coins := sdk.NewCoins(sdk.NewCoin(req.Denom, sdk.NewIntFromUint64(req.Amount)))
 
 	// Transfer the amount from the sender's account to the module account
-	if err := m.Keeper.ReceiveTokens(ctx, address, coins); err != nil {
+	if err := m.Keeper.BankKeeper().SendCoinsFromAccountToModule(ctx, address, types.ModuleName, coins); err != nil {
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to deposit %d %s", req.Amount, req.Denom)
 	}
 
@@ -227,7 +227,7 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 
 	// Return the tokens to the sender
 	coins := sdk.NewCoins(sdk.NewCoin(instruction.Denom, sdk.NewIntFromUint64(instruction.Amount)))
-	if err := m.Keeper.SendTokens(ctx, address, coins); err != nil {
+	if err := m.Keeper.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, address, coins); err != nil {
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to withdraw %d %s", req.Amount, req.Denom)
 	}
 
@@ -404,7 +404,6 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	}
 
 	// Calculate and Update the account states.
-	// TODO: Is there a possibility for a race condition here if multiple Transfer transactions are made to the same account at the same time?
 	recipientPendingBalanceLo, err := elgamal.AddCiphertext(recipientAccount.PendingBalanceLo, instruction.RecipientTransferAmountLo)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding recipient transfer amount lo")

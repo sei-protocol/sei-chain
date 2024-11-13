@@ -27,9 +27,7 @@ type Keeper interface {
 	GetParams(ctx sdk.Context) types.Params
 	SetParams(ctx sdk.Context, params types.Params)
 
-	// TODO: See if there's a way to put this somewhere else
-	SendTokens(ctx sdk.Context, to sdk.AccAddress, amount sdk.Coins) error
-	ReceiveTokens(ctx sdk.Context, from sdk.AccAddress, amount sdk.Coins) error
+	BankKeeper() types.BankKeeper
 
 	CreateModuleAccount(ctx sdk.Context)
 
@@ -176,12 +174,8 @@ func (k BaseKeeper) SetParams(ctx sdk.Context, params types.Params) {
 	k.paramSpace.SetParamSet(ctx, &params)
 }
 
-func (k BaseKeeper) SendTokens(ctx sdk.Context, to sdk.AccAddress, amount sdk.Coins) error {
-	return k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, to, amount)
-}
-
-func (k BaseKeeper) ReceiveTokens(ctx sdk.Context, from sdk.AccAddress, amount sdk.Coins) error {
-	return k.bankKeeper.SendCoinsFromAccountToModule(ctx, from, types.ModuleName, amount)
+func (k BaseKeeper) BankKeeper() types.BankKeeper {
+	return k.bankKeeper
 }
 
 func (k BaseKeeper) getAccountStore(ctx sdk.Context) prefix.Store {

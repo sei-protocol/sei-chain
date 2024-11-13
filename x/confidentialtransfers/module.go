@@ -90,11 +90,9 @@ func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config clien
 	return nil
 }
 
-// TODO: Look into whether we require REST endpoints
 // RegisterRESTRoutes registers the capability module's REST service handlers.
 func (AppModuleBasic) RegisterRESTRoutes(_ client.Context, _ *mux.Router) {}
 
-// TODO: Look into whether we require gRPC Gateway support
 // RegisterGRPCGatewayRoutes registers the gRPC Gateway routes for the module.
 func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *runtime.ServeMux) {
 	types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx)) //nolint:errcheck
@@ -118,7 +116,6 @@ func (AppModuleBasic) GetQueryCmd() *cobra.Command {
 // AppModule
 // ----------------------------------------------------------------------------
 
-// TODO: Add any required keepers here
 // AppModule implements the AppModule interface for the capability module.
 type AppModule struct {
 	AppModuleBasic
@@ -126,7 +123,6 @@ type AppModule struct {
 	keeper keeper.Keeper
 }
 
-// TODO: Revisit if any other keepers are required.
 func NewAppModule(
 	keeper keeper.Keeper,
 ) AppModule {
@@ -184,7 +180,6 @@ func (am AppModule) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, gs json.Ra
 // ExportGenesis returns the x/confidentialtransfers module's exported genesis state as raw
 // JSON bytes.
 func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.RawMessage {
-	// TODO: Implement once we implement keeper/Genesis
 	genState := am.keeper.ExportGenesis(ctx)
 	return cdc.MustMarshalJSON(genState)
 }
