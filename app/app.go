@@ -1606,16 +1606,16 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	events = append(events, lazyWriteEvents...)
 
 	// Sum up total used per block only for evm transactions
-	blockTotalGasUsed := int64(0)
+	evmTotalGasUsed := int64(0)
 	for _, txResult := range txResults {
 		if txResult.EvmTxInfo != nil {
-			blockTotalGasUsed += txResult.GasUsed
+			evmTotalGasUsed += txResult.GasUsed
 		}
 	}
 
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
 		Height:       req.GetHeight(),
-		BlockGasUsed: blockTotalGasUsed,
+		BlockGasUsed: evmTotalGasUsed,
 	})
 
 	events = append(events, endBlockResp.Events...)
