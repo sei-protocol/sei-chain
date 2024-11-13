@@ -129,13 +129,62 @@ func (c *InitializeAccountMsgProofs) Validate() error {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "pubkey validity proof is required")
 	}
 
+	if c.ZeroPendingBalanceLoProof == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "zero pending balance lo proof is required")
+	}
+
+	if c.ZeroPendingBalanceHiProof == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "zero pending balance hi proof is required")
+	}
+
+	if c.ZeroAvailableBalanceProof == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "zero available balance proof is required")
+	}
+
 	return nil
 }
 
 func NewInitializeAccountMsgProofs(proofs *InitializeAccountProofs) *InitializeAccountMsgProofs {
 	return &InitializeAccountMsgProofs{
-		PubkeyValidityProof: NewPubkeyValidityProofProto(proofs.PubkeyValidityProof),
+		PubkeyValidityProof:       NewPubkeyValidityProofProto(proofs.PubkeyValidityProof),
+		ZeroPendingBalanceLoProof: NewZeroBalanceProofProto(proofs.ZeroPendingBalanceLoProof),
+		ZeroPendingBalanceHiProof: NewZeroBalanceProofProto(proofs.ZeroPendingBalanceHiProof),
+		ZeroAvailableBalanceProof: NewZeroBalanceProofProto(proofs.ZeroAvailableBalanceProof),
 	}
+}
+
+func (c *InitializeAccountMsgProofs) FromProto() (*InitializeAccountProofs, error) {
+	err := c.Validate()
+	if err != nil {
+		return nil, err
+	}
+
+	pubkeyValidityProof, err := c.PubkeyValidityProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	zeroPendingBalanceLoProof, err := c.ZeroPendingBalanceLoProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	zeroPendingBalanceHiProof, err := c.ZeroPendingBalanceHiProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	zeroAvailableBalanceProof, err := c.ZeroAvailableBalanceProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return &InitializeAccountProofs{
+		PubkeyValidityProof:       pubkeyValidityProof,
+		ZeroPendingBalanceLoProof: zeroPendingBalanceLoProof,
+		ZeroPendingBalanceHiProof: zeroPendingBalanceHiProof,
+		ZeroAvailableBalanceProof: zeroAvailableBalanceProof,
+	}, nil
 }
 
 func (w *WithdrawMsgProofs) FromProto() (*WithdrawProofs, error) {
@@ -172,27 +221,11 @@ func (w *WithdrawMsgProofs) Validate() error {
 	return nil
 }
 
-func (w *WithdrawMsgProofs) NewWithdrawMsgProofs(proofs *WithdrawProofs) *WithdrawMsgProofs {
+func NewWithdrawMsgProofs(proofs *WithdrawProofs) *WithdrawMsgProofs {
 	return &WithdrawMsgProofs{
 		RemainingBalanceRangeProof:    NewRangeProofProto(proofs.RemainingBalanceRangeProof),
 		RemainingBalanceEqualityProof: NewCiphertextCommitmentEqualityProofProto(proofs.RemainingBalanceEqualityProof),
 	}
-}
-
-func (c *InitializeAccountMsgProofs) FromProto() (*InitializeAccountProofs, error) {
-	err := c.Validate()
-	if err != nil {
-		return nil, err
-	}
-
-	pubkeyValidityProof, err := c.PubkeyValidityProof.FromProto()
-	if err != nil {
-		return nil, err
-	}
-
-	return &InitializeAccountProofs{
-		PubkeyValidityProof: pubkeyValidityProof,
-	}, nil
 }
 
 func (c *CiphertextValidityProof) Validate() error {
@@ -472,7 +505,7 @@ func (a *Auditor) FromProto() (*TransferAuditor, error) {
 	if err != nil {
 		return nil, err
 	}
-	transferAmountHiEqualityProof, err := a.TransferAmountLoEqualityProof.FromProto()
+	transferAmountHiEqualityProof, err := a.TransferAmountHiEqualityProof.FromProto()
 	if err != nil {
 		return nil, err
 	}
@@ -565,12 +598,6 @@ func (z *ZeroBalanceProof) FromProto() (*zkproofs.ZeroBalanceProof, error) {
 		Yd: yd,
 		Z:  zScalar,
 	}, nil
-}
-
-type CloseAccountProofs struct {
-	ZeroAvailableBalanceProof *zkproofs.ZeroBalanceProof
-	ZeroPendingBalanceLoProof *zkproofs.ZeroBalanceProof
-	ZeroPendingBalanceHiProof *zkproofs.ZeroBalanceProof
 }
 
 func (c *CloseAccountMsgProofs) Validate() error {

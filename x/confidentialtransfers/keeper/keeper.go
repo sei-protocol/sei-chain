@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"fmt"
+	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -11,8 +12,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
 var _ Keeper = (*BaseKeeper)(nil)
@@ -24,8 +23,13 @@ type Keeper interface {
 	GetAccount(ctx sdk.Context, addrString string, denom string) (types.Account, bool)
 	SetAccount(ctx sdk.Context, addrString string, denom string, account types.Account) error
 
+	DeleteAccount(ctx sdk.Context, addrString string, denom string) error
 	GetParams(ctx sdk.Context) types.Params
 	SetParams(ctx sdk.Context, params types.Params)
+
+	// TODO: See if there's a way to put this somewhere else
+	SendTokens(ctx sdk.Context, to sdk.AccAddress, amount sdk.Coins) error
+	ReceiveTokens(ctx sdk.Context, from sdk.AccAddress, amount sdk.Coins) error
 
 	CreateModuleAccount(ctx sdk.Context)
 
@@ -39,6 +43,7 @@ type BaseKeeper struct {
 
 	paramSpace    paramtypes.Subspace
 	accountKeeper types.AccountKeeper
+	bankKeeper    types.BankKeeper
 }
 
 // NewKeeper returns a new instance of the x/confidentialtransfers keeper
@@ -47,6 +52,7 @@ func NewKeeper(
 	storeKey sdk.StoreKey,
 	paramSpace paramtypes.Subspace,
 	accountKeeper types.AccountKeeper,
+	bankKeeper types.BankKeeper,
 ) Keeper {
 
 	if !paramSpace.HasKeyTable() {
@@ -57,6 +63,7 @@ func NewKeeper(
 		cdc:           codec,
 		storeKey:      storeKey,
 		accountKeeper: accountKeeper,
+		bankKeeper:    bankKeeper,
 		paramSpace:    paramSpace,
 	}
 }
@@ -75,6 +82,17 @@ func (k BaseKeeper) GetAccount(ctx sdk.Context, address string, denom string) (t
 		return types.Account{}, false
 	}
 	return *account, true
+}
+
+func (k BaseKeeper) DeleteAccount(ctx sdk.Context, addrString, denom string) error {
+	address, err := sdk.AccAddressFromBech32(addrString)
+	if err != nil {
+		return err
+	}
+
+	store := k.getAccountStoreForAddress(ctx, address)
+	store.Delete([]byte(denom)) // Store the serialized account under the key
+	return nil
 }
 
 func (k BaseKeeper) getCtAccount(ctx sdk.Context, address sdk.AccAddress, denom string) (types.CtAccount, bool) {
@@ -139,6 +157,15 @@ func (k BaseKeeper) GetAccountsForAddress(ctx sdk.Context, address sdk.AccAddres
 	return accounts, nil
 }
 
+// CreateModuleAccount creates the module account for confidentialtransfers
+func (k BaseKeeper) CreateModuleAccount(ctx sdk.Context) {
+	account := k.accountKeeper.GetModuleAccount(ctx, types.ModuleName)
+	if account == nil {
+		moduleAcc := authtypes.NewEmptyModuleAccount(types.ModuleName)
+		k.accountKeeper.SetModuleAccount(ctx, moduleAcc)
+	}
+}
+
 func (k BaseKeeper) GetParams(ctx sdk.Context) (params types.Params) {
 	k.paramSpace.GetParamSet(ctx, &params)
 	return params
@@ -149,9 +176,12 @@ func (k BaseKeeper) SetParams(ctx sdk.Context, params types.Params) {
 	k.paramSpace.SetParamSet(ctx, &params)
 }
 
-func (k BaseKeeper) CreateModuleAccount(ctx sdk.Context) {
-	moduleAcc := authtypes.NewEmptyModuleAccount(types.ModuleName, authtypes.Minter, authtypes.Burner)
-	k.accountKeeper.SetModuleAccount(ctx, moduleAcc)
+func (k BaseKeeper) SendTokens(ctx sdk.Context, to sdk.AccAddress, amount sdk.Coins) error {
+	return k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, to, amount)
+}
+
+func (k BaseKeeper) ReceiveTokens(ctx sdk.Context, from sdk.AccAddress, amount sdk.Coins) error {
+	return k.bankKeeper.SendCoinsFromAccountToModule(ctx, from, types.ModuleName, amount)
 }
 
 func (k BaseKeeper) getAccountStore(ctx sdk.Context) prefix.Store {
