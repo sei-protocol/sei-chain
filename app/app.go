@@ -1605,10 +1605,12 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
 	events = append(events, lazyWriteEvents...)
 
-	// Sum up total used per block
+	// Sum up total used per block only for evm transactions
 	blockTotalGasUsed := int64(0)
 	for _, txResult := range txResults {
-		blockTotalGasUsed += txResult.GasUsed
+		if txResult.EvmTxInfo != nil {
+			blockTotalGasUsed += txResult.GasUsed
+		}
 	}
 
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
