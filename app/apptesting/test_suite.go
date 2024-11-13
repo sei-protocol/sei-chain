@@ -2,6 +2,8 @@ package apptesting
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"github.com/ethereum/go-ethereum/crypto"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -174,6 +176,20 @@ func CreateRandomAccounts(numAccts int) []sdk.AccAddress {
 	}
 
 	return testAddrs
+}
+
+// CreateRandomAccountKeys is a function return a list of randomly generated private keys
+func CreateRandomAccountKeys(numAccts int) []*ecdsa.PrivateKey {
+	testAccts := make([]*ecdsa.PrivateKey, numAccts)
+	for i := 0; i < numAccts; i++ {
+		pk, err := crypto.GenerateKey()
+		if err != nil {
+			panic(err)
+		}
+		testAccts[i] = pk
+	}
+
+	return testAccts
 }
 
 func GenerateTestAddrs() (string, string) {

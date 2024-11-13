@@ -27,12 +27,12 @@ func (m *MsgTransfer) Type() string { return TypeMsgTransfer }
 func (m *MsgTransfer) ValidateBasic() error {
 	_, err := sdk.AccAddressFromBech32(m.FromAddress)
 	if err != nil {
-		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid sender address (%s)", err)
 	}
 
 	_, err = sdk.AccAddressFromBech32(m.ToAddress)
 	if err != nil {
-		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid recipient address (%s)", err)
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid recipient address (%s)", err)
 	}
 
 	err = sdk.ValidateDenom(m.Denom)
@@ -41,27 +41,27 @@ func (m *MsgTransfer) ValidateBasic() error {
 	}
 
 	if m.FromAmountLo == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "FromAmountLo is required")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "from amount lo is required")
 	}
 
 	if m.FromAmountHi == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "FromAmountHi is required")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "from amount hi is required")
 	}
 
 	if m.ToAmountLo == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "ToAmountLo is required")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "to amount lo is required")
 	}
 
 	if m.ToAmountHi == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "ToAmountHi is required")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "to amount hi is required")
 	}
 
 	if m.RemainingBalance == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RemainingBalance is required")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "remaining balance is required")
 	}
 
 	if m.Proofs == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Proofs is required")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "proofs is required")
 	}
 
 	err = m.Proofs.Validate()
@@ -141,6 +141,36 @@ func (m *MsgTransfer) FromProto() (*Transfer, error) {
 	}, nil
 }
 
+func NewMsgTransferProto(transfer *Transfer) *MsgTransfer {
+	fromAmountLo := NewCiphertextProto(transfer.SenderTransferAmountLo)
+	fromAmountHi := NewCiphertextProto(transfer.SenderTransferAmountHi)
+	toAmountLo := NewCiphertextProto(transfer.RecipientTransferAmountLo)
+	toAmountHi := NewCiphertextProto(transfer.RecipientTransferAmountHi)
+	remainingBalance := NewCiphertextProto(transfer.RemainingBalanceCommitment)
+	proofs := NewTransferMsgProofs(transfer.Proofs)
+
+	// iterate over transfer.Auditors and convert them to types.Auditor
+	auditors := make([]*Auditor, 0, len(transfer.Auditors))
+	for _, auditorData := range transfer.Auditors {
+		auditor := NewAuditorProto(auditorData)
+		auditors = append(auditors, auditor)
+	}
+
+	return &MsgTransfer{
+		FromAddress:        transfer.FromAddress,
+		ToAddress:          transfer.ToAddress,
+		Denom:              transfer.Denom,
+		FromAmountLo:       fromAmountLo,
+		FromAmountHi:       fromAmountHi,
+		ToAmountLo:         toAmountLo,
+		ToAmountHi:         toAmountHi,
+		RemainingBalance:   remainingBalance,
+		DecryptableBalance: transfer.DecryptableBalance,
+		Proofs:             proofs,
+		Auditors:           auditors,
+	}
+}
+
 var _ sdk.Msg = &MsgInitializeAccount{}
 
 // Route Implements Msg.
@@ -152,7 +182,7 @@ func (m *MsgInitializeAccount) Type() string { return TypeMsgInitializeAccount }
 func (m *MsgInitializeAccount) ValidateBasic() error {
 	_, err := sdk.AccAddressFromBech32(m.FromAddress)
 	if err != nil {
-		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid sender address (%s)", err)
 	}
 
 	err = sdk.ValidateDenom(m.Denom)
@@ -161,15 +191,27 @@ func (m *MsgInitializeAccount) ValidateBasic() error {
 	}
 
 	if m.PublicKey == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "PublicKey is required")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "public key is required")
 	}
 
 	if m.DecryptableBalance == "" {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "DecryptableBalance is required")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptable balance is required")
+	}
+
+	if m.PendingBalanceLo == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "pending amount lo is required")
+	}
+
+	if m.PendingBalanceHi == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "pending amount hi is required")
+	}
+
+	if m.AvailableBalance == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "available balance is required")
 	}
 
 	if m.Proofs == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Proofs is required")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "proofs is required")
 	}
 
 	err = m.Proofs.Validate()
@@ -201,6 +243,21 @@ func (m *MsgInitializeAccount) FromProto() (*InitializeAccount, error) {
 		return nil, err
 	}
 
+	pendingBalanceLo, err := m.PendingBalanceLo.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	pendingBalanceHi, err := m.PendingBalanceHi.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	availableBalance, err := m.AvailableBalance.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
 	proofs, err := m.Proofs.FromProto()
 	if err != nil {
 		return nil, err
@@ -210,9 +267,37 @@ func (m *MsgInitializeAccount) FromProto() (*InitializeAccount, error) {
 		FromAddress:        m.FromAddress,
 		Denom:              m.Denom,
 		Pubkey:             &pubkey,
+		PendingBalanceLo:   pendingBalanceLo,
+		PendingBalanceHi:   pendingBalanceHi,
+		AvailableBalance:   availableBalance,
 		DecryptableBalance: m.DecryptableBalance,
 		Proofs:             proofs,
 	}, nil
+}
+
+// convert the InitializeAccount to MsgInitializeAccount
+func NewMsgInitializeAccountProto(initializeAccount *InitializeAccount) *MsgInitializeAccount {
+	pubkeyRaw := *initializeAccount.Pubkey
+	pubkey := pubkeyRaw.ToAffineCompressed()
+
+	pendingBalanceLo := NewCiphertextProto(initializeAccount.PendingBalanceLo)
+
+	pendingBalanceHi := NewCiphertextProto(initializeAccount.PendingBalanceHi)
+
+	availableBalance := NewCiphertextProto(initializeAccount.AvailableBalance)
+
+	proofs := NewInitializeAccountMsgProofs(initializeAccount.Proofs)
+
+	return &MsgInitializeAccount{
+		FromAddress:        initializeAccount.FromAddress,
+		Denom:              initializeAccount.Denom,
+		PublicKey:          pubkey,
+		DecryptableBalance: initializeAccount.DecryptableBalance,
+		PendingBalanceLo:   pendingBalanceLo,
+		PendingBalanceHi:   pendingBalanceHi,
+		AvailableBalance:   availableBalance,
+		Proofs:             proofs,
+	}
 }
 
 var _ sdk.Msg = &MsgApplyPendingBalance{}
@@ -226,7 +311,7 @@ func (m *MsgApplyPendingBalance) Type() string { return TypeMsgApplyPendingBalan
 func (m *MsgApplyPendingBalance) ValidateBasic() error {
 	_, err := sdk.AccAddressFromBech32(m.Address)
 	if err != nil {
-		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid address (%s)", err)
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid address (%s)", err)
 	}
 
 	err = sdk.ValidateDenom(m.Denom)
@@ -235,7 +320,7 @@ func (m *MsgApplyPendingBalance) ValidateBasic() error {
 	}
 
 	if len(m.NewDecryptableAvailableBalance) == 0 {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "NewDecryptableAvailableBalance is required")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "new decryptable available balance is required")
 	}
 	return nil
 }
@@ -260,7 +345,7 @@ func (m *MsgCloseAccount) Type() string { return TypeMsgCloseAccount }
 func (m *MsgCloseAccount) ValidateBasic() error {
 	_, err := sdk.AccAddressFromBech32(m.Address)
 	if err != nil {
-		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid address (%s)", err)
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid address (%s)", err)
 	}
 
 	err = sdk.ValidateDenom(m.Denom)
@@ -269,7 +354,7 @@ func (m *MsgCloseAccount) ValidateBasic() error {
 	}
 
 	if m.Proofs == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Proofs is required")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "proofs is required")
 	}
 
 	err = m.Proofs.Validate()
@@ -281,6 +366,24 @@ func (m *MsgCloseAccount) ValidateBasic() error {
 	return nil
 }
 
+func (m *MsgCloseAccount) FromProto() (*CloseAccount, error) {
+	err := m.ValidateBasic()
+	if err != nil {
+		return nil, err
+	}
+
+	proofs, err := m.Proofs.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return &CloseAccount{
+		Address: m.Address,
+		Denom:   m.Denom,
+		Proofs:  proofs,
+	}, nil
+}
+
 func (m *MsgCloseAccount) GetSignBytes() []byte {
 	return sdk.MustSortJSON(ModuleCdc.MustMarshalJSON(m))
 }
@@ -288,6 +391,15 @@ func (m *MsgCloseAccount) GetSignBytes() []byte {
 func (m *MsgCloseAccount) GetSigners() []sdk.AccAddress {
 	sender, _ := sdk.AccAddressFromBech32(m.Address)
 	return []sdk.AccAddress{sender}
+}
+
+func NewMsgCloseAccountProto(closeAccount *CloseAccount) *MsgCloseAccount {
+	proofs := NewCloseAccountMsgProofs(closeAccount.Proofs)
+	return &MsgCloseAccount{
+		Address: closeAccount.Address,
+		Denom:   closeAccount.Denom,
+		Proofs:  proofs,
+	}
 }
 
 var _ sdk.Msg = &MsgDeposit{}
@@ -301,7 +413,7 @@ func (m *MsgDeposit) Type() string { return TypeMsgDeposit }
 func (m *MsgDeposit) ValidateBasic() error {
 	_, err := sdk.AccAddressFromBech32(m.FromAddress)
 	if err != nil {
-		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid sender address (%s)", err)
 	}
 
 	err = sdk.ValidateDenom(m.Denom)
@@ -310,7 +422,7 @@ func (m *MsgDeposit) ValidateBasic() error {
 	}
 
 	if m.Amount <= 0 {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Positive amount is required")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "positive amount is required")
 	}
 
 	return nil
@@ -336,7 +448,7 @@ func (m *MsgWithdraw) Type() string { return TypeMsgWithdraw }
 func (m *MsgWithdraw) ValidateBasic() error {
 	_, err := sdk.AccAddressFromBech32(m.FromAddress)
 	if err != nil {
-		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid sender address (%s)", err)
 	}
 
 	err = sdk.ValidateDenom(m.Denom)
@@ -345,19 +457,19 @@ func (m *MsgWithdraw) ValidateBasic() error {
 	}
 
 	if m.Amount <= 0 {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Positive amount is required")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "positive amount is required")
 	}
 
 	if m.RemainingBalanceCommitment == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "RemainingBalanceCommitment is required")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "remainingBalanceCommitment is required")
 	}
 
 	if m.DecryptableBalance == "" {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "DecryptableBalance is required")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptableBalance is required")
 	}
 
 	if m.Proofs == nil {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "Proofs is required")
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "proofs is required")
 	}
 
 	err = m.Proofs.Validate()
@@ -401,4 +513,19 @@ func (m *MsgWithdraw) FromProto() (*Withdraw, error) {
 		DecryptableBalance:         m.DecryptableBalance,
 		Proofs:                     proofs,
 	}, nil
+}
+
+func NewMsgWithdrawProto(withdraw *Withdraw) *MsgWithdraw {
+	remainingBalanceCommitment := NewCiphertextProto(withdraw.RemainingBalanceCommitment)
+
+	proofs := NewWithdrawMsgProofs(withdraw.Proofs)
+
+	return &MsgWithdraw{
+		FromAddress:                withdraw.FromAddress,
+		Denom:                      withdraw.Denom,
+		Amount:                     withdraw.Amount,
+		RemainingBalanceCommitment: remainingBalanceCommitment,
+		DecryptableBalance:         withdraw.DecryptableBalance,
+		Proofs:                     proofs,
+	}
 }
