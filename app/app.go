@@ -228,7 +228,9 @@ var (
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
-		cttypes.ModuleName:             {},
+		// Confidential Transfers module is not live yet, but we add the permissions for testing
+		cttypes.ModuleName: nil,
+
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -556,7 +558,8 @@ func New(
 		appCodec,
 		app.keys[(cttypes.StoreKey)],
 		app.GetSubspace(cttypes.ModuleName),
-		app.AccountKeeper)
+		app.AccountKeeper,
+		app.BankKeeper)
 
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks

@@ -27,7 +27,6 @@ service Msg {
 
   // CloseAccount defines a method for closing an account.
   rpc CloseAccount(MsgCloseAccount) returns (MsgCloseAccountResponse);
-
 }
 
 // MsgTransfer represents a message to send coins from one account to another.
@@ -70,7 +69,10 @@ message MsgInitializeAccount {
   string   denom = 2 [(gogoproto.moretags) = "yaml:\"denom\""];
   bytes public_key = 3 [(gogoproto.moretags) = "yaml:\"public_key\""];
   string decryptable_balance = 4 [(gogoproto.moretags) = "yaml:\"decryptable_balance\""];
-  InitializeAccountMsgProofs proofs = 5 [(gogoproto.moretags) = "yaml:\"proofs\""];
+  Ciphertext pending_balance_lo = 5 [(gogoproto.moretags) = "yaml:\"pending_balance_lo\""];
+  Ciphertext pending_balance_hi = 6 [(gogoproto.moretags) = "yaml:\"pending_balance_hi\""];
+  Ciphertext available_balance = 7 [(gogoproto.moretags) = "yaml:\"available_balance\""];
+  InitializeAccountMsgProofs proofs = 8 [(gogoproto.moretags) = "yaml:\"proofs\""];
 }
 
 // MsgInitializeAccountResponse defines the Msg/Send response type.
@@ -110,9 +112,9 @@ message MsgApplyPendingBalance {
   option (gogoproto.equal) = false;
   option (gogoproto.goproto_getters) = false;
 
-  string address = 1;
-  string denom = 2;
-  string new_decryptable_available_balance = 3;
+  string address = 1 [(gogoproto.moretags) = "yaml:\"address\""];
+  string denom = 2 [(gogoproto.moretags) = "yaml:\"denom\""];
+  string new_decryptable_available_balance = 3 [(gogoproto.moretags) = "yaml:\"new_decryptable_available_balance\""];
 }
 
 message MsgApplyPendingBalanceResponse {}

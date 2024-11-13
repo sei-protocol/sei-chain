@@ -2,13 +2,15 @@ package keeper
 
 import (
 	"fmt"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 )
 
 func (k BaseKeeper) InitGenesis(ctx sdk.Context, gs *types.GenesisState) {
+	moduleAcc := authtypes.NewEmptyModuleAccount(types.ModuleName)
+	k.accountKeeper.SetModuleAccount(ctx, moduleAcc)
 	k.SetParams(ctx, gs.Params)
 	store := k.getAccountStore(ctx)
 	for i := range gs.Accounts {

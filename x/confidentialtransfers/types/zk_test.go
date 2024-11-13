@@ -275,15 +275,52 @@ func TestInitializeAccountMsgProofs_Validate(t *testing.T) {
 		{
 			name: "valid proofs",
 			proofs: InitializeAccountMsgProofs{
-				PubkeyValidityProof: &PubkeyValidityProof{},
+				PubkeyValidityProof:       &PubkeyValidityProof{},
+				ZeroPendingBalanceLoProof: &ZeroBalanceProof{},
+				ZeroPendingBalanceHiProof: &ZeroBalanceProof{},
+				ZeroAvailableBalanceProof: &ZeroBalanceProof{},
 			},
 			wantErr: false,
 		},
 		{
-			name:    "missing PubkeyValidityProof",
-			proofs:  InitializeAccountMsgProofs{},
+			name: "missing PubkeyValidityProof",
+			proofs: InitializeAccountMsgProofs{
+				ZeroPendingBalanceLoProof: &ZeroBalanceProof{},
+				ZeroPendingBalanceHiProof: &ZeroBalanceProof{},
+				ZeroAvailableBalanceProof: &ZeroBalanceProof{},
+			},
 			wantErr: true,
 			errMsg:  "pubkey validity proof is required",
+		},
+		{
+			name: "missing ZeroPendingBalanceLoProof",
+			proofs: InitializeAccountMsgProofs{
+				PubkeyValidityProof:       &PubkeyValidityProof{},
+				ZeroPendingBalanceHiProof: &ZeroBalanceProof{},
+				ZeroAvailableBalanceProof: &ZeroBalanceProof{},
+			},
+			wantErr: true,
+			errMsg:  "zero pending balance lo proof is required",
+		},
+		{
+			name: "missing ZeroPendingBalanceHiProof",
+			proofs: InitializeAccountMsgProofs{
+				PubkeyValidityProof:       &PubkeyValidityProof{},
+				ZeroPendingBalanceLoProof: &ZeroBalanceProof{},
+				ZeroAvailableBalanceProof: &ZeroBalanceProof{},
+			},
+			wantErr: true,
+			errMsg:  "zero pending balance hi proof is required",
+		},
+		{
+			name: "missing ZeroAvailableBalanceProof",
+			proofs: InitializeAccountMsgProofs{
+				PubkeyValidityProof:       &PubkeyValidityProof{},
+				ZeroPendingBalanceLoProof: &ZeroBalanceProof{},
+				ZeroPendingBalanceHiProof: &ZeroBalanceProof{},
+			},
+			wantErr: true,
+			errMsg:  "zero available balance proof is required",
 		},
 	}
 
@@ -314,14 +351,108 @@ func TestInitializeAccountMsgProofs_FromProto(t *testing.T) {
 					Y: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
 					Z: curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
 				},
+				ZeroPendingBalanceLoProof: &ZeroBalanceProof{
+					YP: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					YD: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z:  curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+				ZeroPendingBalanceHiProof: &ZeroBalanceProof{
+					YP: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					YD: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z:  curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+				ZeroAvailableBalanceProof: &ZeroBalanceProof{
+					YP: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					YD: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z:  curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
 			},
 			wantErr: false,
 		},
 		{
-			name:    "missing PubkeyValidityProof",
-			proofs:  InitializeAccountMsgProofs{},
+			name: "missing PubkeyValidityProof",
+			proofs: InitializeAccountMsgProofs{
+				ZeroPendingBalanceLoProof: &ZeroBalanceProof{
+					YP: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					YD: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z:  curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+				ZeroPendingBalanceHiProof: &ZeroBalanceProof{
+					YP: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					YD: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z:  curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+				ZeroAvailableBalanceProof: &ZeroBalanceProof{
+					YP: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					YD: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z:  curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+			},
 			wantErr: true,
 			errMsg:  "pubkey validity proof is required",
+		},
+		{
+			name: "missing ZeroPendingBalanceLoProof",
+			proofs: InitializeAccountMsgProofs{
+				PubkeyValidityProof: &PubkeyValidityProof{
+					Y: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z: curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+				ZeroPendingBalanceHiProof: &ZeroBalanceProof{
+					YP: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					YD: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z:  curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+				ZeroAvailableBalanceProof: &ZeroBalanceProof{
+					YP: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					YD: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z:  curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+			},
+			wantErr: true,
+			errMsg:  "zero pending balance lo proof is required",
+		},
+		{
+			name: "missing ZeroPendingBalanceHiProof",
+			proofs: InitializeAccountMsgProofs{
+				PubkeyValidityProof: &PubkeyValidityProof{
+					Y: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z: curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+				ZeroPendingBalanceLoProof: &ZeroBalanceProof{
+					YP: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					YD: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z:  curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+				ZeroAvailableBalanceProof: &ZeroBalanceProof{
+					YP: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					YD: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z:  curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+			},
+			wantErr: true,
+			errMsg:  "zero pending balance hi proof is required",
+		},
+		{
+			name: "missing ZeroAvailableBalanceProof",
+			proofs: InitializeAccountMsgProofs{
+				PubkeyValidityProof: &PubkeyValidityProof{
+					Y: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z: curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+				ZeroPendingBalanceLoProof: &ZeroBalanceProof{
+					YP: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					YD: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z:  curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+				ZeroPendingBalanceHiProof: &ZeroBalanceProof{
+					YP: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					YD: curves.ED25519().Point.Random(crand.Reader).ToAffineCompressed(),
+					Z:  curves.ED25519().Scalar.Random(crand.Reader).Bytes(),
+				},
+			},
+			wantErr: true,
+			errMsg:  "zero available balance proof is required",
 		},
 	}
 
