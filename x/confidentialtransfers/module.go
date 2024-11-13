@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/client/cli"
 	"math/rand"
 
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
@@ -105,11 +106,9 @@ func (am AppModuleBasic) GetTxCmd() *cobra.Command {
 	return nil
 }
 
-// TODO: Implement this when we add the CLI methods
 // GetQueryCmd returns the x/confidentialtransfers module's root query command.
 func (AppModuleBasic) GetQueryCmd() *cobra.Command {
-	//return cli.GetQueryCmd()
-	return nil
+	return cli.GetQueryCmd()
 }
 
 // ----------------------------------------------------------------------------
