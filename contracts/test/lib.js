@@ -452,6 +452,7 @@ async function verifyPointerDeployment(provider, txHash, address, command, attem
         await sleep(500);
         attempt++
     }
+    throw new Error('contract deployment failed');
     // const output = await execute(command);
     // const hash = output.replace(/.*0x/, "0x").trim()
     // await sleep(2000);
