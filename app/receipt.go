@@ -3,9 +3,6 @@ package app
 import (
 	"encoding/json"
 	"fmt"
-	"math"
-	"math/big"
-
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
@@ -15,6 +12,9 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	abci "github.com/tendermint/tendermint/abci/types"
+	"math"
+	"math/big"
+	"strings"
 )
 
 const ShellEVMTxType = math.MaxUint32
@@ -30,6 +30,15 @@ var TrueHash = common.HexToHash("0x1")
 type AllowanceResponse struct {
 	Allowance sdk.Int         `json:"allowance"`
 	Expires   json.RawMessage `json:"expires"`
+}
+
+func shouldIncludeLog(log *ethtypes.Log) bool {
+	for _, topic := range log.Topics {
+		if strings.Contains(topic.String(), "cw721_pretransfer_owner") {
+			return false
+		}
+	}
+	return true
 }
 
 func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.Tx, checksum [32]byte, response sdk.DeliverTxHookInput) {
@@ -81,7 +90,16 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		for i, l := range r.Logs {
 			l.Index = uint32(i)
 		}
-		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: evmkeeper.GetLogsForTx(r)}})
+
+		// For now filter out cw721_pretransfer_owner until next upgrade
+		filteredLogs := make([]*ethtypes.Log, 0, len(r.Logs))
+		for _, log := range evmkeeper.GetLogsForTx(r) {
+			if shouldIncludeLog(log) {
+				filteredLogs = append(filteredLogs, log)
+			}
+		}
+
+		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: filteredLogs}})
 		r.LogsBloom = bloom[:]
 		_ = app.EvmKeeper.SetTransientReceipt(wasmToEvmEventCtx, txHash, r)
 	} else {
