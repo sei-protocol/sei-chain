@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"fmt"
+
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"

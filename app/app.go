@@ -562,7 +562,7 @@ func New(
 
 	app.ConfidentialTransfersKeeper = ctkeeper.NewKeeper(
 		appCodec,
-		app.keys[(cttypes.StoreKey)],
+		app.keys[cttypes.StoreKey],
 		app.GetSubspace(cttypes.ModuleName),
 		app.AccountKeeper,
 		app.BankKeeper)
