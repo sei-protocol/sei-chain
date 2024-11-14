@@ -83,7 +83,7 @@ type WasmdKeeper interface {
 }
 
 type WasmdViewKeeper interface {
-	QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error)
+	QuerySmartSafe(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error)
 }
 
 type StakingKeeper interface {
