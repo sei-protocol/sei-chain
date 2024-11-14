@@ -19,6 +19,7 @@ func GetQueryCmd() *cobra.Command {
 
 	confidentialTransfersQueryCmd.AddCommand(
 		GetCmdQueryAccount(),
+		GetCmdQueryAllAccount(),
 	)
 
 	return confidentialTransfersQueryCmd
@@ -58,7 +59,7 @@ func GetCmdQueryAccount() *cobra.Command {
 // GetCmdQueryAccount implements a command to return an account asssociated with the address and denom
 func GetCmdQueryAllAccount() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "account [address]",
+		Use:   "accounts [address]",
 		Short: "Query all the confidential token accounts associated with the address",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
