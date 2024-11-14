@@ -2,9 +2,15 @@ package cli
 
 import (
 	"crypto/ecdsa"
+	"encoding/hex"
+	"errors"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
+	"github.com/cosmos/cosmos-sdk/codec/legacy"
+	"github.com/cosmos/cosmos-sdk/crypto/hd"
+	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/spf13/cobra"
 )
@@ -40,7 +46,6 @@ func NewInitializeAccountTxCmd() *cobra.Command {
 		RunE: makeInitializeAccountCmd,
 	}
 
-	cmd.Flags().String(FlagPrivateKey, "", "Private key of the account")
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd
@@ -52,13 +57,11 @@ func makeInitializeAccountCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	_, err = cmd.Flags().GetString(FlagPrivateKey)
+	privKey, err := getPrivateKey(cmd)
 	if err != nil {
 		return err
 	}
-
-	// TODO: implement logic to standardize private key format
-	initializeAccount, err := types.NewInitializeAccount(clientCtx.GetFromAddress().String(), args[1], *new(ecdsa.PrivateKey))
+	initializeAccount, err := types.NewInitializeAccount(clientCtx.GetFromAddress().String(), args[0], *privKey)
 	if err != nil {
 		return err
 	}
@@ -70,6 +73,33 @@ func makeInitializeAccountCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+}
+
+func getPrivateKey(cmd *cobra.Command) (*ecdsa.PrivateKey, error) {
+	clientCtx, err := client.GetClientTxContext(cmd)
+	if err != nil {
+		return nil, err
+	}
+	txf := tx.NewFactoryCLI(clientCtx, cmd.Flags())
+	kb := txf.Keybase()
+	info, err := kb.Key(clientCtx.GetFromName())
+	if err != nil {
+		return nil, err
+	}
+	localInfo, ok := info.(keyring.LocalInfo)
+	if !ok {
+		return nil, errors.New("can only associate address for local keys")
+	}
+	if localInfo.GetAlgo() != hd.Secp256k1Type {
+		return nil, errors.New("can only use addresses using secp256k1")
+	}
+	priv, err := legacy.PrivKeyFromBytes([]byte(localInfo.PrivKeyArmor))
+	if err != nil {
+		return nil, err
+	}
+	privHex := hex.EncodeToString(priv.Bytes())
+	key, _ := crypto.HexToECDSA(privHex)
+	return key, nil
 }
 
 // NewCloseAccountTxCmd returns a CLI command handler for creating a MsgCloseAccount transaction.

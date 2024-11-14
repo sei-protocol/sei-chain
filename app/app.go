@@ -562,7 +562,7 @@ func New(
 
 	app.ConfidentialTransfersKeeper = ctkeeper.NewKeeper(
 		appCodec,
-		app.keys[(cttypes.StoreKey)],
+		app.keys[cttypes.StoreKey],
 		app.GetSubspace(cttypes.ModuleName),
 		app.AccountKeeper,
 		app.BankKeeper)
@@ -1076,6 +1076,15 @@ func (app *App) SetStoreUpgradeHandlers() {
 		dexStoreKeyName := "dex"
 		storeUpgrades := storetypes.StoreUpgrades{
 			Deleted: []string{dexStoreKeyName},
+		}
+
+		// configure store loader that checks if version == upgradeHeight and applies store upgrades
+		app.SetStoreLoader(upgradetypes.UpgradeStoreLoader(upgradeInfo.Height, &storeUpgrades))
+	}
+
+	if (upgradeInfo.Name == "v6.1.0") && !app.UpgradeKeeper.IsSkipHeight(upgradeInfo.Height) {
+		storeUpgrades := storetypes.StoreUpgrades{
+			Added: []string{cttypes.StoreKey},
 		}
 
 		// configure store loader that checks if version == upgradeHeight and applies store upgrades

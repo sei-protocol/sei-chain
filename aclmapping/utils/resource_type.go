@@ -11,6 +11,7 @@ import (
 	feegranttypes "github.com/cosmos/cosmos-sdk/x/feegrant"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -100,6 +101,10 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 		aclsdktypes.ResourceType_KV_TOKENFACTORY_METADATA: []byte(tokenfactorytypes.DenomAuthorityMetadataKey),
 		aclsdktypes.ResourceType_KV_TOKENFACTORY_ADMIN:    []byte(tokenfactorytypes.AdminPrefixKey),
 		aclsdktypes.ResourceType_KV_TOKENFACTORY_CREATOR:  []byte(tokenfactorytypes.AdminPrefixKey),
+	},
+	cttypes.StoreKey: {
+		//aclsdktypes.ResourceType_KV_CT:         aclsdktypes.EmptyPrefix,
+		//aclsdktypes.ResourceType_KV_CT_ACCOUNT: cttypes.AccountsKey,
 	},
 	epochtypes.StoreKey: {
 		aclsdktypes.ResourceType_KV_EPOCH: aclsdktypes.EmptyPrefix,
@@ -210,6 +215,10 @@ var ResourceTypeToStoreKeyMap = aclsdktypes.ResourceTypeToStoreKeyMap{
 	aclsdktypes.ResourceType_KV_TOKENFACTORY_METADATA: tokenfactorytypes.StoreKey,
 	aclsdktypes.ResourceType_KV_TOKENFACTORY_ADMIN:    tokenfactorytypes.StoreKey,
 	aclsdktypes.ResourceType_KV_TOKENFACTORY_CREATOR:  tokenfactorytypes.StoreKey,
+
+	// ~~~~ CONFIDENTIAL TRANSFERS Resource Types ~~~~
+	//aclsdktypes.ResourceType_KV_CT:         cttypes.StoreKey,
+	//aclsdktypes.ResourceType_KV_CT_ACCOUNT: cttypes.StoreKey,
 
 	// ~~~~ EPOCH Resource Types ~~~~
 	aclsdktypes.ResourceType_KV_EPOCH: epochtypes.StoreKey,
