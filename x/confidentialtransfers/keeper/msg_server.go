@@ -358,6 +358,10 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid msg")
 	}
 
+	if instruction.FromAddress == instruction.ToAddress {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "sender and recipient addresses must be different")
+	}
+
 	// Check that sender and recipient accounts exist.
 	senderAccount, exists := m.Keeper.GetAccount(ctx, req.FromAddress, req.Denom)
 	if !exists {

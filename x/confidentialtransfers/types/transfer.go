@@ -64,6 +64,11 @@ func NewTransfer(
 	amount uint64,
 	recipientPubkey *curves.Point,
 	auditors []AuditorInput) (*Transfer, error) {
+
+	if senderAddr == recipientAddr {
+		return &Transfer{}, errors.New("sender and recipient addresses cannot be the same")
+	}
+	
 	// Get the current balance of the account from the decryptableBalance
 	aesKey, err := encryption.GetAESKey(*privateKey, denom)
 	if err != nil {

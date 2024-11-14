@@ -298,7 +298,7 @@ func makeWithdrawCmd(cmd *cobra.Command, args []string) error {
 	}
 	address := clientCtx.GetFromAddress().String()
 	denom := args[0]
-	amount, err := strconv.ParseUint(args[2], 10, 64)
+	amount, err := strconv.ParseUint(args[1], 10, 64)
 	if err != nil {
 		return err
 	}
@@ -352,7 +352,7 @@ func makeDepositCmd(cmd *cobra.Command, args []string) error {
 
 	address := clientCtx.GetFromAddress().String()
 	denom := args[0]
-	amount, err := strconv.ParseUint(args[2], 10, 64)
+	amount, err := strconv.ParseUint(args[1], 10, 64)
 	if err != nil {
 		return err
 	}
