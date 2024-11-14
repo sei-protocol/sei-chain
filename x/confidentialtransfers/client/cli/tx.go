@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"errors"
+
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
@@ -159,6 +160,10 @@ func makeCloseAccountCmd(cmd *cobra.Command, args []string) error {
 		account.PendingBalanceLo,
 		account.PendingBalanceHi,
 		account.AvailableBalance)
+
+	if err != nil {
+		return err
+	}
 
 	msg := types.NewMsgCloseAccountProto(closeAccount)
 
