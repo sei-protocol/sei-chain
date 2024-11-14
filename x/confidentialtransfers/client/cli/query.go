@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
@@ -30,7 +33,7 @@ func GetQueryCmd() *cobra.Command {
 // GetCmdQueryAccount implements a command to return an account asssociated with the address and denom
 func GetCmdQueryAccount() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "account [address] [denom]",
+		Use:   "account [denom] [address] [flags]",
 		Short: "Query the account state",
 		Long: "Queries the account state associated with the address and denom." +
 			"Pass the --from flag to decrypt the account." +
@@ -43,8 +46,13 @@ func GetCmdQueryAccount() *cobra.Command {
 			}
 			queryClient := types.NewQueryClient(clientCtx)
 
-			address := args[0]
-			denom := args[1]
+			denom := args[0]
+			address := args[1]
+			// Validate address
+			_, err = sdk.AccAddressFromBech32(address)
+			if err != nil {
+				return fmt.Errorf("invalid address: %v", err)
+			}
 
 			from, err := cmd.Flags().GetString(flags.FlagFrom)
 			if err != nil {
@@ -117,6 +125,13 @@ func GetCmdQueryAllAccount() *cobra.Command {
 				return err
 			}
 			queryClient := types.NewQueryClient(clientCtx)
+
+			address := args[0]
+			// Validate address
+			_, err = sdk.AccAddressFromBech32(address)
+			if err != nil {
+				return fmt.Errorf("invalid address: %v", err)
+			}
 
 			res, err := queryClient.GetAllCtAccounts(cmd.Context(), &types.GetAllCtAccountsRequest{
 				Address: args[0],
