@@ -96,7 +96,6 @@ func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *r
 	types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx)) //nolint:errcheck
 }
 
-// TODO: Implement this when we add the CLI methods
 // GetTxCmd returns the x/confidentialtransfers module's root tx command.
 func (am AppModuleBasic) GetTxCmd() *cobra.Command {
 	return cli.NewTxCmd()

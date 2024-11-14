@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"errors"
@@ -113,7 +114,6 @@ func NewCloseAccountTxCmd() *cobra.Command {
 		RunE: makeCloseAccountCmd,
 	}
 
-	cmd.Flags().String(FlagPrivateKey, "", "Private key of the account")
 	flags.AddTxFlagsToCmd(cmd)
 
 	return cmd
@@ -125,16 +125,43 @@ func makeCloseAccountCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	_, err = cmd.Flags().GetString(FlagPrivateKey)
+	queryClientCtx, err := client.GetClientQueryContext(cmd)
 	if err != nil {
 		return err
 	}
-	// TODO: Get below values from NewCloseAccount function once merged
-	msg := &types.MsgCloseAccount{
-		Address: clientCtx.GetFromAddress().String(),
-		Denom:   args[1],
-		Proofs:  nil,
+
+	queryClient := types.NewQueryClient(queryClientCtx)
+
+	privKey, err := getPrivateKey(cmd)
+	if err != nil {
+		return err
 	}
+
+	req := &types.GetCtAccountRequest{
+		Address: clientCtx.GetFromAddress().String(),
+		Denom:   args[0],
+	}
+
+	ctAccount, err := queryClient.GetCtAccount(context.Background(), req)
+	if err != nil {
+		return err
+	}
+
+	account, err := ctAccount.GetAccount().FromProto()
+	if err != nil {
+		return err
+	}
+
+	closeAccount, err := types.NewCloseAccount(
+		*privKey,
+		clientCtx.GetFromAddress().String(),
+		args[0],
+		account.PendingBalanceLo,
+		account.PendingBalanceHi,
+		account.AvailableBalance)
+
+	msg := types.NewMsgCloseAccountProto(closeAccount)
+
 	if err = msg.ValidateBasic(); err != nil {
 		return err
 	}
