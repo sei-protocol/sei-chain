@@ -77,8 +77,8 @@ func GetCmdQueryAllAccount() *cobra.Command {
 				return err
 			}
 
-			for _, account := range res.Accounts {
-				err = clientCtx.PrintProto(&account)
+			for i := range res.Accounts {
+				err = clientCtx.PrintProto(&res.Accounts[i])
 				if err != nil {
 					return err
 				}
