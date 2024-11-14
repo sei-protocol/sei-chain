@@ -789,20 +789,19 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalance() {
 	// Initialize an account
 	initialAvailableBalance := uint64(20000000)
 	initialPendingBalance := uint64(100000)
-	suite.SetupAccountState(testPk, DefaultTestDenom, 10, initialAvailableBalance, initialPendingBalance, 1000)
+	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 10, initialAvailableBalance, initialPendingBalance, 1000)
 
 	// Create an apply pending balance request
-	aesKey, _ := encryption.GetAESKey(*testPk, DefaultTestDenom)
-	newBalance := initialAvailableBalance + initialPendingBalance
-	newDecryptableBalance, _ := encryption.EncryptAESGCM(newBalance, aesKey)
-	req := types.MsgApplyPendingBalance{
+	req, err := types.NewMsgApplyPendingBalance(
+		*testPk,
 		testAddr.String(),
 		DefaultTestDenom,
-		newDecryptableBalance,
-	}
+		initialState.DecryptableAvailableBalance,
+		initialState.PendingBalanceLo,
+		initialState.PendingBalanceHi)
 
 	// Execute the apply pending balance
-	_, err := suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), &req)
+	_, err = suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().NoError(err, "Should not have error applying pending balance")
 
 	// Check that the account has been updated
@@ -812,12 +811,15 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalance() {
 	teg := elgamal.NewTwistedElgamal()
 	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
 
+	expectedNewBalance := initialPendingBalance + initialAvailableBalance
+
 	// Check that the balances were correctly added to the available balance.
 	actualAvailableBalance, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, account.AvailableBalance, elgamal.MaxBits40)
-	suite.Require().Equal(newBalance, actualAvailableBalance, "Available balance should match")
+	suite.Require().Equal(expectedNewBalance, actualAvailableBalance, "Available balance should match")
 
+	aesKey, _ := encryption.GetAESKey(*testPk, DefaultTestDenom)
 	actualDecryptableAvailableBalance, _ := encryption.DecryptAESGCM(account.DecryptableAvailableBalance, aesKey)
-	suite.Require().Equal(newBalance, actualDecryptableAvailableBalance, "Decryptable available balance should match")
+	suite.Require().Equal(expectedNewBalance, actualDecryptableAvailableBalance, "Decryptable available balance should match")
 
 	// Check that the pending balances are set to 0.
 	actualPendingBalanceLo, _ := teg.Decrypt(keyPair.PrivateKey, account.PendingBalanceLo, elgamal.MaxBits32)
@@ -839,26 +841,28 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceNoPendingBalances
 
 	// Initialize an account
 	initialAvailableBalance := uint64(20000000)
-	suite.SetupAccountState(testPk, DefaultTestDenom, 0, initialAvailableBalance, uint64(0), 1000)
+	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 0, initialAvailableBalance, uint64(0), 1000)
 
 	// Create an apply pending balance request
-	aesKey, _ := encryption.GetAESKey(*testPk, DefaultTestDenom)
-	newDecryptableBalance, _ := encryption.EncryptAESGCM(initialAvailableBalance, aesKey)
-	req := types.MsgApplyPendingBalance{
+	req, err := types.NewMsgApplyPendingBalance(
+		*testPk,
 		testAddr.String(),
 		DefaultTestDenom,
-		newDecryptableBalance,
-	}
+		initialState.DecryptableAvailableBalance,
+		initialState.PendingBalanceLo,
+		initialState.PendingBalanceHi)
+
+	suite.Require().NoError(err, "Should not have error creating apply pending balance request")
 
 	// Execute the apply pending balance. This should fail since there are no pending balances to apply.
-	_, err := suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), &req)
+	_, err = suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error applying pending balance on account with no pending balances")
 
 	// Delete the account so we can test running the instruction on an account that doesn't exist.
 	suite.App.ConfidentialTransfersKeeper.DeleteAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 
 	// Execute the apply pending balance. This should fail since the account doesn't exist.
-	_, err = suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), &req)
+	_, err = suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error applying pending balance on account that doesn't exist")
 	suite.Require().ErrorContains(err, "account does not exist")
 }
