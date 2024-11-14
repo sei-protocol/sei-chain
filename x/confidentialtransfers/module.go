@@ -13,7 +13,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/client/cli"
 	"math/rand"
 
 	"github.com/cosmos/cosmos-sdk/client"
