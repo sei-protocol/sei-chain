@@ -2,13 +2,14 @@ package keeper
 
 import (
 	"context"
+	"math"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
-	"math"
 )
 
 type msgServer struct {
@@ -282,7 +283,10 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 	account.PendingBalanceCreditCounter = 0
 
 	// Save the changes to the account state
-	m.Keeper.SetAccount(ctx, req.Address, req.Denom, account)
+	err = m.Keeper.SetAccount(ctx, req.Address, req.Denom, account)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting account")
+	}
 
 	// Emit any required events
 	ctx.EventManager().EmitEvents(sdk.Events{

@@ -16,23 +16,19 @@ import (
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/client/cli"
 	"math/rand"
 
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
-	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/keeper"
-	"github.com/spf13/cobra"
-
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
-	"github.com/gorilla/mux"
-	abci "github.com/tendermint/tendermint/abci/types"
-
-	//"github.com/sei-protocol/sei-chain/x/tokenfactory/client/cli"
-	//"github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
-	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
-
 	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
+	"github.com/gorilla/mux"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/client/cli"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/keeper"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
+	"github.com/spf13/cobra"
+	abci "github.com/tendermint/tendermint/abci/types"
 )
 
 var (
@@ -99,11 +95,9 @@ func (AppModuleBasic) RegisterGRPCGatewayRoutes(clientCtx client.Context, mux *r
 	types.RegisterQueryHandlerClient(context.Background(), mux, types.NewQueryClient(clientCtx)) //nolint:errcheck
 }
 
-// TODO: Implement this when we add the CLI methods
 // GetTxCmd returns the x/confidentialtransfers module's root tx command.
 func (am AppModuleBasic) GetTxCmd() *cobra.Command {
-	//return cli.GetTxCmd()
-	return nil
+	return cli.NewTxCmd()
 }
 
 // GetQueryCmd returns the x/confidentialtransfers module's root query command.

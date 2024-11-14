@@ -3,12 +3,13 @@ package types
 import (
 	"crypto/ecdsa"
 	"errors"
+	"math/big"
+
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
-	"math/big"
 )
 
 type Transfer struct {
