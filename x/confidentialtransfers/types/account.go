@@ -1,9 +1,10 @@
 package types
 
 import (
+	"math/big"
+
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
-	"math/big"
 )
 
 type Account struct {

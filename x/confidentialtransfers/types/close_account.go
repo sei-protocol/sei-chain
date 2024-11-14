@@ -2,6 +2,7 @@ package types
 
 import (
 	"crypto/ecdsa"
+
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
 )
