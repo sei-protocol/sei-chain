@@ -39,6 +39,7 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		return
 	}
 	logs := []*ethtypes.Log{}
+	ownerReplacements := map[uint]common.Hash{}
 	// Note: txs with a very large number of WASM events may run out of gas due to
 	// additional gas consumption from EVM receipt generation and event translation
 	wasmToEvmEventGasLimit := app.EvmKeeper.GetDeliverTxHookWasmGasLimit(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)))
@@ -60,10 +61,13 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		// check if there is a ERC721 pointer to contract Addr
 		pointerAddr, _, exists = app.EvmKeeper.GetERC721CW721Pointer(wasmToEvmEventCtx, contractAddr)
 		if exists {
-			log, eligible := app.translateCW721Event(wasmToEvmEventCtx, wasmEvent, pointerAddr, contractAddr, response)
+			log, realOwner, eligible := app.translateCW721Event(wasmToEvmEventCtx, wasmEvent, pointerAddr, contractAddr, response)
 			if eligible {
 				log.Index = uint(len(logs))
 				logs = append(logs, log)
+				if (realOwner != common.Hash{}) {
+					ownerReplacements[log.Index] = realOwner
+				}
 			}
 			continue
 		}
@@ -77,15 +81,22 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 	}
 	var bloom ethtypes.Bloom
 	if r, err := app.EvmKeeper.GetTransientReceipt(wasmToEvmEventCtx, txHash); err == nil && r != nil {
+		existingLogCnt := len(r.Logs)
 		r.Logs = append(r.Logs, utils.Map(logs, evmkeeper.ConvertSyntheticEthLog)...)
 		for i, l := range r.Logs {
 			l.Index = uint32(i)
 		}
 		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: evmkeeper.GetLogsForTx(r)}})
 		r.LogsBloom = bloom[:]
+		for i, o := range ownerReplacements {
+			r.Logs[existingLogCnt+int(i)].Topics[1] = o.Hex()
+		}
 		_ = app.EvmKeeper.SetTransientReceipt(wasmToEvmEventCtx, txHash, r)
 	} else {
 		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: logs}})
+		for i, o := range ownerReplacements {
+			logs[int(i)].Topics[1] = o
+		}
 		receipt := &evmtypes.Receipt{
 			TxType:           ShellEVMTxType,
 			TxHashHex:        txHash.Hex(),
@@ -173,19 +184,24 @@ func (app *App) translateCW20Event(ctx sdk.Context, wasmEvent abci.Event, pointe
 	return nil, false
 }
 
-func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string, response sdk.DeliverTxHookInput) (*ethtypes.Log, bool) {
+func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string, response sdk.DeliverTxHookInput) (*ethtypes.Log, common.Hash, bool) {
 	action, found := GetAttributeValue(wasmEvent, "action")
 	if !found {
-		return nil, false
+		return nil, common.Hash{}, false
 	}
 	var topics []common.Hash
 	switch action {
 	case "transfer_nft", "send_nft", "burn":
 		tokenID := GetTokenIDAttribute(wasmEvent)
 		if tokenID == nil {
-			return nil, false
+			return nil, common.Hash{}, false
 		}
-		sender := app.GetEvmAddressAttribute(ctx, wasmEvent, "sender")
+		sender := common.Hash{}
+		// unfortunately CW721 transfer events differ from ERC721 transfer events
+		// in that CW721 include sender (which can be different than owner) whereas
+		// ERC721 always include owner. The following logic refer to the owner
+		// event emitted before the transfer and use that instead to populate the
+		// synthetic ERC721 event.
 		ownerEvents := GetEventsOfType(response, wasmtypes.EventTypeCW721PreTransferOwner)
 		for _, ownerEvent := range ownerEvents {
 			if len(ownerEvent.Attributes) != 3 {
@@ -210,7 +226,7 @@ func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, point
 		}
 		topics = []common.Hash{
 			ERC721TransferTopic,
-			sender,
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "recipient"),
 			common.BigToHash(tokenID),
 		}
@@ -218,11 +234,11 @@ func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, point
 			Address: pointerAddr,
 			Topics:  topics,
 			Data:    EmptyHash.Bytes(),
-		}, true
+		}, sender, true
 	case "mint":
 		tokenID := GetTokenIDAttribute(wasmEvent)
 		if tokenID == nil {
-			return nil, false
+			return nil, common.Hash{}, false
 		}
 		topics = []common.Hash{
 			ERC721TransferTopic,
@@ -234,11 +250,11 @@ func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, point
 			Address: pointerAddr,
 			Topics:  topics,
 			Data:    EmptyHash.Bytes(),
-		}, true
+		}, common.Hash{}, true
 	case "approve":
 		tokenID := GetTokenIDAttribute(wasmEvent)
 		if tokenID == nil {
-			return nil, false
+			return nil, common.Hash{}, false
 		}
 		topics = []common.Hash{
 			ERC721ApprovalTopic,
@@ -250,11 +266,11 @@ func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, point
 			Address: pointerAddr,
 			Topics:  topics,
 			Data:    EmptyHash.Bytes(),
-		}, true
+		}, common.Hash{}, true
 	case "revoke":
 		tokenID := GetTokenIDAttribute(wasmEvent)
 		if tokenID == nil {
-			return nil, false
+			return nil, common.Hash{}, false
 		}
 		topics = []common.Hash{
 			ERC721ApprovalTopic,
@@ -266,7 +282,7 @@ func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, point
 			Address: pointerAddr,
 			Topics:  topics,
 			Data:    EmptyHash.Bytes(),
-		}, true
+		}, common.Hash{}, true
 	case "approve_all":
 		topics = []common.Hash{
 			ERC721ApproveAllTopic,
@@ -277,7 +293,7 @@ func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, point
 			Address: pointerAddr,
 			Topics:  topics,
 			Data:    TrueHash.Bytes(),
-		}, true
+		}, common.Hash{}, true
 	case "revoke_all":
 		topics = []common.Hash{
 			ERC721ApproveAllTopic,
@@ -288,9 +304,9 @@ func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, point
 			Address: pointerAddr,
 			Topics:  topics,
 			Data:    EmptyHash.Bytes(),
-		}, true
+		}, common.Hash{}, true
 	}
-	return nil, false
+	return nil, common.Hash{}, false
 }
 
 func (app *App) GetEvmAddressAttribute(ctx sdk.Context, event abci.Event, attribute string) common.Hash {
