@@ -32,8 +32,10 @@ func GetCmdQueryAccount() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "account [address] [denom]",
 		Short: "Query the account state",
-		Long:  "Queries the account state associated with the address and denom",
-		Args:  cobra.ExactArgs(2),
+		Long: "Queries the account state associated with the address and denom." +
+			"Pass the --from flag to decrypt the account." +
+			"Pass the --decryptAvailableBalance flag to attempt to decrypt the available balance.",
+		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
 			if err != nil {
@@ -99,7 +101,7 @@ func GetCmdQueryAccount() *cobra.Command {
 
 	flags.AddQueryFlagsToCmd(cmd)
 	cmd.Flags().String(flags.FlagFrom, "", "Name or address of private key to decrypt the account")
-	cmd.Flags().Bool("decryptAvailableBalance", false, "Decrypt the available balance")
+	cmd.Flags().Bool("decryptAvailableBalance", false, "Set this to attempt to decrypt the available balance")
 	return cmd
 }
 
@@ -125,6 +127,7 @@ func GetCmdQueryAllAccount() *cobra.Command {
 			}
 
 			for i := range res.Accounts {
+				clientCtx.PrintString("\n")
 				err = clientCtx.PrintProto(&res.Accounts[i])
 				if err != nil {
 					return err
