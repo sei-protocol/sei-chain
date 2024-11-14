@@ -168,7 +168,8 @@ func TestEvmEventsForCw721(t *testing.T) {
 	amt := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000)))
 	k.BankKeeper().MintCoins(ctx, "evm", amt)
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, "evm", creator, amt)
-	recipient, _ := testkeeper.MockAddressPair()
+	privKeyRecipient := testkeeper.MockPrivateKey()
+	recipient, _ := testkeeper.PrivateKeyToAddresses(privKeyRecipient)
 	payload := []byte(fmt.Sprintf("{\"mint\":{\"token_id\":\"1\",\"owner\":\"%s\"}}", recipient.String()))
 	msg := &wasmtypes.MsgExecuteContract{
 		Sender:   creator.String(),
@@ -320,6 +321,39 @@ func TestEvmEventsForCw721(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, common.HexToHash("0x1").Bytes(), receipt.Logs[0].Data)
 
+	// burn on behalf
+	payload = []byte("{\"burn\":{\"token_id\":\"2\"}}")
+	k.BankKeeper().MintCoins(ctx, "evm", amt)
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, "evm", recipient, amt)
+	msg = &wasmtypes.MsgExecuteContract{
+		Sender:   recipient.String(),
+		Contract: contractAddr.String(),
+		Msg:      payload,
+	}
+	txBuilder = testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
+	txBuilder.SetMsgs(msg)
+	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000))))
+	txBuilder.SetGasLimit(300000)
+	tx = signTx(txBuilder, privKeyRecipient, k.AccountKeeper().GetAccount(ctx, recipient))
+	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
+	require.Nil(t, err)
+	sum = sha256.Sum256(txbz)
+	res = testkeeper.EVMTestApp.DeliverTx(ctx.WithEventManager(sdk.NewEventManager()), abci.RequestDeliverTx{Tx: txbz}, tx, sum)
+	require.Equal(t, uint32(0), res.Code)
+	receipt, err = testkeeper.EVMTestApp.EvmKeeper.GetTransientReceipt(ctx, common.BytesToHash(sum[:]))
+	require.Nil(t, err)
+	require.Equal(t, 1, len(receipt.Logs))
+	require.NotEmpty(t, receipt.LogsBloom)
+	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
+	require.Equal(t, uint32(0), receipt.Logs[0].Index)
+	ownerHash := receipt.Logs[0].Topics[1]
+	// make sure that the owner is set correctly to the creator, not the spender.
+	creatorEvmAddr := testkeeper.EVMTestApp.EvmKeeper.GetEVMAddressOrDefault(ctx, creator)
+	require.Equal(t, common.BytesToHash(creatorEvmAddr[:]).Hex(), ownerHash)
+	tokenIdHash = receipt.Logs[0].Topics[3]
+	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", tokenIdHash)
+	require.Equal(t, common.HexToHash("0x0").Bytes(), receipt.Logs[0].Data)
+
 	// revoke all
 	payload = []byte(fmt.Sprintf("{\"revoke_all\":{\"operator\":\"%s\"}}", recipient.String()))
 	msg = &wasmtypes.MsgExecuteContract{
@@ -344,34 +378,6 @@ func TestEvmEventsForCw721(t *testing.T) {
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
 	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.True(t, found)
-	require.Equal(t, common.HexToHash("0x0").Bytes(), receipt.Logs[0].Data)
-
-	// burn
-	payload = []byte("{\"burn\":{\"token_id\":\"2\"}}")
-	msg = &wasmtypes.MsgExecuteContract{
-		Sender:   creator.String(),
-		Contract: contractAddr.String(),
-		Msg:      payload,
-	}
-	txBuilder = testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
-	txBuilder.SetMsgs(msg)
-	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000))))
-	txBuilder.SetGasLimit(300000)
-	tx = signTx(txBuilder, privKey, k.AccountKeeper().GetAccount(ctx, creator))
-	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
-	require.Nil(t, err)
-	sum = sha256.Sum256(txbz)
-	res = testkeeper.EVMTestApp.DeliverTx(ctx.WithEventManager(sdk.NewEventManager()), abci.RequestDeliverTx{Tx: txbz}, tx, sum)
-	require.Equal(t, uint32(0), res.Code)
-	receipt, err = testkeeper.EVMTestApp.EvmKeeper.GetTransientReceipt(ctx, common.BytesToHash(sum[:]))
-	require.Nil(t, err)
-	require.Equal(t, 1, len(receipt.Logs))
-	require.NotEmpty(t, receipt.LogsBloom)
-	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
-	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
-	require.True(t, found)
-	tokenIdHash = receipt.Logs[0].Topics[3]
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", tokenIdHash)
 	require.Equal(t, common.HexToHash("0x0").Bytes(), receipt.Logs[0].Data)
 }
 
