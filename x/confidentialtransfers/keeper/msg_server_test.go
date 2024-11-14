@@ -1,6 +1,9 @@
 package keeper_test
 
 import (
+	"math"
+	"math/big"
+
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -10,8 +13,6 @@ import (
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"math"
-	"math/big"
 )
 
 // Tests the InitializeAccount method of the MsgServer.
@@ -279,9 +280,9 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 
 	// Check that pending balances were increased by the deposit amount
 	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
-	oldPendingBalancePlaintext, _ := initialState.GetPendingBalancePlaintext(teg, keyPair)
+	oldPendingBalancePlaintext, _, _, _ := initialState.GetPendingBalancePlaintext(teg, keyPair)
 
-	newPendingBalancePlaintext, _ := account.GetPendingBalancePlaintext(teg, keyPair)
+	newPendingBalancePlaintext, _, _, _ := account.GetPendingBalancePlaintext(teg, keyPair)
 
 	// Check that newPendingBalancePlaintext = oldPendingBalancePlaintext + DepositAmount
 	suite.Require().Equal(
@@ -312,7 +313,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	updatedAccount, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 
 	oldPendingBalancePlaintext = newPendingBalancePlaintext
-	newPendingBalancePlaintext, _ = updatedAccount.GetPendingBalancePlaintext(teg, keyPair)
+	newPendingBalancePlaintext, _, _, _ = updatedAccount.GetPendingBalancePlaintext(teg, keyPair)
 	suite.Require().Equal(
 		new(big.Int).Add(oldPendingBalancePlaintext, new(big.Int).SetUint64(depositStruct.Amount)),
 		newPendingBalancePlaintext,
@@ -939,8 +940,8 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 
 	// Check that new pending balances of the recipient account have been updated to reflect the change
 	suite.Require().Equal(initialRecipientState.PendingBalanceCreditCounter+1, recipientAccountState.PendingBalanceCreditCounter)
-	oldRecipientPendingBalance, _ := initialRecipientState.GetPendingBalancePlaintext(teg, recipientKeypair)
-	newRecipientPendingBalance, _ := recipientAccountState.GetPendingBalancePlaintext(teg, recipientKeypair)
+	oldRecipientPendingBalance, _, _, _ := initialRecipientState.GetPendingBalancePlaintext(teg, recipientKeypair)
+	newRecipientPendingBalance, _, _, _ := recipientAccountState.GetPendingBalancePlaintext(teg, recipientKeypair)
 
 	transferAmountBigInt := new(big.Int).SetUint64(transferAmount)
 	newTotal := new(big.Int).Add(oldRecipientPendingBalance, transferAmountBigInt)
