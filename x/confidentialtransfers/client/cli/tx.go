@@ -258,8 +258,8 @@ func makeTransferCmd(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		auditors[i] = types.AuditorInput{
-			auditorAddr,
-			&auditorAccount.PublicKey,
+			Address: auditorAddr,
+			Pubkey:  &auditorAccount.PublicKey,
 		}
 	}
 
@@ -456,6 +456,8 @@ func makeApplyPendingBalanceCmd(cmd *cobra.Command, args []string) error {
 		address,
 		denom,
 		account.DecryptableAvailableBalance,
+		account.PendingBalanceCreditCounter,
+		account.AvailableBalance,
 		account.PendingBalanceLo,
 		account.PendingBalanceHi)
 

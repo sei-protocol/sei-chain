@@ -799,6 +799,8 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalance() {
 		testAddr.String(),
 		DefaultTestDenom,
 		initialState.DecryptableAvailableBalance,
+		initialState.PendingBalanceCreditCounter,
+		initialState.AvailableBalance,
 		initialState.PendingBalanceLo,
 		initialState.PendingBalanceHi)
 
@@ -834,6 +836,78 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalance() {
 	suite.Require().Equal(uint16(0), account.PendingBalanceCreditCounter, "Pending balance credit counter should be set to 0 after applying")
 }
 
+// Tests the ApplyPendingBalance method of the MsgServer when there is a change to the AvailableBalance between the time the pending balance instruction was created and when it is applied.
+func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceAfterWithdraw() {
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	testPk := suite.PrivKeys[0]
+	testAddr := privkeyToAddress(testPk)
+
+	// Initialize an account
+	initialAvailableBalance := uint64(2000)
+	initialPendingBalance := uint64(1000)
+	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 10, initialAvailableBalance, initialPendingBalance, 1000)
+
+	// Create an apply pending balance request
+	req, err := types.NewMsgApplyPendingBalance(
+		*testPk,
+		testAddr.String(),
+		DefaultTestDenom,
+		initialState.DecryptableAvailableBalance,
+		initialState.PendingBalanceCreditCounter,
+		initialState.AvailableBalance,
+		initialState.PendingBalanceLo,
+		initialState.PendingBalanceHi)
+
+	// Before the pending balance is applied, a withdrawal is made, changing the available balance in the account.
+	withdrawReq, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, initialAvailableBalance/2)
+	withdrawMsg := types.NewMsgWithdrawProto(withdrawReq)
+	_, err = suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), withdrawMsg)
+
+	// Now execute the apply pending balance. Checks in the ApplyPendingBalance function should catch this and cause it to fail so we don't wrongly update the new decryptableAvailableBalance
+	_, err = suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().Error(err, "Application should fail since the available balance has changed since the pending balance was created")
+	suite.Require().ErrorContains(err, "available balance mismatch")
+}
+
+// Tests the ApplyPendingBalance method of the MsgServer when there is a change to the PendingBalance between the time the pending balance instruction was created and when it is applied.
+func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceAfterDeposit() {
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	testPk := suite.PrivKeys[0]
+	testAddr := privkeyToAddress(testPk)
+
+	// Initialize an account
+	initialAvailableBalance := uint64(2000)
+	initialPendingBalance := uint64(10)
+	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 10, initialAvailableBalance, initialPendingBalance, 1000)
+
+	// Create an apply pending balance request
+	req, err := types.NewMsgApplyPendingBalance(
+		*testPk,
+		testAddr.String(),
+		DefaultTestDenom,
+		initialState.DecryptableAvailableBalance,
+		initialState.PendingBalanceCreditCounter,
+		initialState.AvailableBalance,
+		initialState.PendingBalanceLo,
+		initialState.PendingBalanceHi)
+
+	// Before the pending balance is applied, a deposit is made, changing the pending balance in the account.
+	// The same scenario happens when incoming transfers are received.
+	depositMsg := &types.MsgDeposit{
+		testAddr.String(),
+		DefaultTestDenom,
+		1000,
+	}
+	_, err = suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), depositMsg)
+
+	// Now execute the apply pending balance. Checks in the ApplyPendingBalance function should catch this and cause it to fail so we don't wrongly update the new decryptableAvailableBalance
+	_, err = suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().Error(err, "Application should fail since the available balance has changed since the pending balance was created")
+	suite.Require().ErrorContains(err, "pending balance mismatch")
+}
+
 // Tests the ApplyPendingBalance method of the MsgServer on an account with no Pending Balances or doesn't exist. These should both fail.
 func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceNoPendingBalances() {
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
@@ -851,6 +925,8 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceNoPendingBalances
 		testAddr.String(),
 		DefaultTestDenom,
 		initialState.DecryptableAvailableBalance,
+		initialState.PendingBalanceCreditCounter,
+		initialState.AvailableBalance,
 		initialState.PendingBalanceLo,
 		initialState.PendingBalanceHi)
 

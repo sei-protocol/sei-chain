@@ -3,6 +3,7 @@ package types
 import (
 	"crypto/ecdsa"
 	"errors"
+
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -351,6 +352,8 @@ func NewMsgApplyPendingBalance(
 	privKey ecdsa.PrivateKey,
 	address, denom,
 	currentDecryptableBalance string,
+	currentPendingBalanceCounter uint16,
+	currentAvailableBalance,
 	currentPendingBalanceLo,
 	currentPendingBalanceHi *elgamal.Ciphertext) (*MsgApplyPendingBalance, error) {
 	aesKey, err := encryption.GetAESKey(privKey, denom)
@@ -405,6 +408,8 @@ func NewMsgApplyPendingBalance(
 		Address:                        address,
 		Denom:                          denom,
 		NewDecryptableAvailableBalance: newDecryptableAvailableBalance,
+		CurrentPendingBalanceCounter:   uint32(currentPendingBalanceCounter),
+		CurrentAvailableBalance:        NewCiphertextProto(currentAvailableBalance),
 	}, nil
 }
 

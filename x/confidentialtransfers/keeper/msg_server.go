@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"bytes"
 	"context"
 	"math"
 
@@ -257,6 +258,19 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 
 	if account.PendingBalanceCreditCounter == 0 {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "no pending balances to apply")
+	}
+
+	// Validate that the balances sent by the user match the balances stored on the server.
+	// If the balances do not match, the state has changed since the user created the apply balances.
+	// If the pending balance has changed, the account received a transfer or deposit after the user created the apply balances.
+	if uint16(req.CurrentPendingBalanceCounter) != account.PendingBalanceCreditCounter {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "pending balance mismatch")
+	}
+	// If the available balance has changed, the account submitted a withdraw after the user created the apply balances.
+	protoAvailableBalance := types.NewCiphertextProto(account.AvailableBalance)
+	if !bytes.Equal(protoAvailableBalance.GetC(), req.CurrentAvailableBalance.C) ||
+		!bytes.Equal(protoAvailableBalance.GetD(), req.CurrentAvailableBalance.D) {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "available balance mismatch")
 	}
 
 	// Calculate updated balances
