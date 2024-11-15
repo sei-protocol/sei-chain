@@ -1056,7 +1056,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferInsufficientBalance() {
 	req := types.NewMsgTransferProto(transferStruct)
 	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error transferring more than the account balance")
-	suite.Require().ErrorContains(err, "Failed to verify senderTransferAmountLo")
+	suite.Require().ErrorContains(err, "failed to verify sender transfer amount lo")
 
 	// Try to modify the proofs as well
 	senderLoValidityProof, _ := zkproofs.NewCiphertextValidityProof(&senderLoRandomness, initialSenderState.PublicKey, senderAmountLo, uint64(transferLoBits))
@@ -1075,7 +1075,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferInsufficientBalance() {
 	req = types.NewMsgTransferProto(transferStruct)
 	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should still have error transferring more than the account balance despite modifying the proofs")
-	suite.Require().ErrorContains(err, "Ciphertext Commitment equality verification failed")
+	suite.Require().ErrorContains(err, "ciphertext commitment equality verification failed")
 }
 
 func (suite *KeeperTestSuite) TestMsgServer_TransferWrongRecipient() {
@@ -1119,7 +1119,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferWrongRecipient() {
 	req := types.NewMsgTransferProto(transferStruct)
 	_, err := suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should fail ciphertext validity proof since we created those ciphertexts using recipient's public key")
-	suite.Require().ErrorContains(err, "Failed to verify recipientTransferAmountLo")
+	suite.Require().ErrorContains(err, "failed to verify recipient transfer amount lo")
 }
 
 func (suite *KeeperTestSuite) TestMsgServer_TransferDifferentAmounts() {
@@ -1176,7 +1176,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferDifferentAmounts() {
 	req := types.NewMsgTransferProto(transferStruct)
 	_, err := suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should fail validity proof since we created those proofs using ciphertexts on the original value.")
-	suite.Require().ErrorContains(err, "Failed to verify recipientTransferAmountLo")
+	suite.Require().ErrorContains(err, "failed to verify recipient transfer amount lo")
 
 	// Generate the validity proofs of the new amounts
 	loBitsValidityProof, _ := zkproofs.NewCiphertextValidityProof(&loBitsRandomness, recipientKeyPair.PublicKey, encryptedTransferLoBits, uint64(transferLoBits))
@@ -1189,7 +1189,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferDifferentAmounts() {
 	req = types.NewMsgTransferProto(transferStruct)
 	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should fail equality proof since we created those proofs using ciphertexts on the original value.")
-	suite.Require().ErrorContains(err, "Ciphertext Ciphertext equality verification on transferAmountLo failed")
+	suite.Require().ErrorContains(err, "ciphertext ciphertext equality verification on transfer amount lo failed")
 
 	// So we attempt to generate new equality proofs for the amounts as well.
 	bigIntLoBits := new(big.Int).SetUint64(uint64(transferLoBits))
@@ -1213,5 +1213,5 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferDifferentAmounts() {
 	req = types.NewMsgTransferProto(transferStruct)
 	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should still fail equality proof since transfer amount ciphertexts encode different values.")
-	suite.Require().ErrorContains(err, "Ciphertext Ciphertext equality verification on transferAmountLo failed")
+	suite.Require().ErrorContains(err, "ciphertext ciphertext equality verification on transfer amount lo failed")
 }

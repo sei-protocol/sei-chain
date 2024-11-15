@@ -276,22 +276,22 @@ func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipien
 
 	ok = zkproofs.VerifyCiphertextValidity(params.Proofs.SenderTransferAmountLoValidityProof, *senderPubkey, params.SenderTransferAmountLo)
 	if !ok {
-		return errors.New("failed to verify senderTransferAmountLo")
+		return errors.New("failed to verify sender transfer amount lo")
 	}
 
 	ok = zkproofs.VerifyCiphertextValidity(params.Proofs.SenderTransferAmountHiValidityProof, *senderPubkey, params.SenderTransferAmountHi)
 	if !ok {
-		return errors.New("failed to verify senderTransferAmountHi")
+		return errors.New("failed to verify sender transfer amount hi")
 	}
 
 	ok = zkproofs.VerifyCiphertextValidity(params.Proofs.RecipientTransferAmountLoValidityProof, *recipientPubkey, params.RecipientTransferAmountLo)
 	if !ok {
-		return errors.New("failed to verify recipientTransferAmountLo")
+		return errors.New("failed to verify recipient transfer amount lo")
 	}
 
 	ok = zkproofs.VerifyCiphertextValidity(params.Proofs.RecipientTransferAmountHiValidityProof, *recipientPubkey, params.RecipientTransferAmountHi)
 	if !ok {
-		return errors.New("failed to verify recipientTransferAmountHi")
+		return errors.New("failed to verify recipient transfer amount hi")
 	}
 
 	// Verify that the account's remaining balance is greater than zero after this transfer.
@@ -313,12 +313,12 @@ func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipien
 	// Lastly verify that the transferAmount ciphertexts encode the same value
 	ok = zkproofs.VerifyCiphertextCiphertextEquality(params.Proofs.TransferAmountLoEqualityProof, senderPubkey, recipientPubkey, params.SenderTransferAmountLo, params.RecipientTransferAmountLo)
 	if !ok {
-		return errors.New("ciphertext ciphertext equality verification on transferAmountLo failed")
+		return errors.New("ciphertext ciphertext equality verification on transfer amount lo failed")
 	}
 
 	ok = zkproofs.VerifyCiphertextCiphertextEquality(params.Proofs.TransferAmountHiEqualityProof, senderPubkey, recipientPubkey, params.SenderTransferAmountHi, params.RecipientTransferAmountHi)
 	if !ok {
-		return errors.New("ciphertext ciphertext equality verification on transferAmountHi failed")
+		return errors.New("ciphertext ciphertext equality verification on transfer amount hi failed")
 	}
 
 	return nil
