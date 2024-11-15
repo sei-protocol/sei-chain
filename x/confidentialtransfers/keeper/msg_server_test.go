@@ -454,10 +454,10 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawHappyPath() {
 
 	// Initialize an account
 	bankModuleInitialAmount := uint64(1000000000000)
-	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 50, 1000000, 8000, bankModuleInitialAmount)
+	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 50, 1000, 8000, bankModuleInitialAmount)
 
 	// Create a withdraw request
-	withdrawAmount := uint64(50000)
+	withdrawAmount := uint64(500)
 	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
 
 	// Execute the withdraw
@@ -478,8 +478,8 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawHappyPath() {
 	// Check that available balances were updated correctly
 	teg := elgamal.NewTwistedElgamal()
 	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
-	oldBalanceDecrypted, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, initialState.AvailableBalance, elgamal.MaxBits40)
-	newBalanceDecrypted, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, account.AvailableBalance, elgamal.MaxBits40)
+	oldBalanceDecrypted, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, initialState.AvailableBalance, elgamal.MaxBits32)
+	newBalanceDecrypted, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, account.AvailableBalance, elgamal.MaxBits32)
 	newTotal := oldBalanceDecrypted - withdrawAmount
 	suite.Require().Equal(newTotal, newBalanceDecrypted)
 
