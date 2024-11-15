@@ -303,7 +303,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	depositStruct = types.MsgDeposit{
 		FromAddress: testAddr.String(),
 		Denom:       DefaultTestDenom,
-		Amount:      50000000000,
+		Amount:      math.MaxUint32 + 1,
 	}
 
 	_, err = suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), &depositStruct)
@@ -454,10 +454,11 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawHappyPath() {
 
 	// Initialize an account
 	bankModuleInitialAmount := uint64(1000000000000)
-	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 50, 1000, 8000, bankModuleInitialAmount)
+	initialAvailableBalance := uint64(1000)
+	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 50, initialAvailableBalance, 8000, bankModuleInitialAmount)
 
 	// Create a withdraw request
-	withdrawAmount := uint64(500)
+	withdrawAmount := initialAvailableBalance / 2
 	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
 
 	// Execute the withdraw
@@ -623,7 +624,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 	_ = suite.App.BankKeeper.SendCoinsFromAccountToModule(suite.Ctx, suite.TestAccs[0], types.ModuleName, sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(1000000000000))))
 
 	// Initialize an account
-	initialAvailableBalance := uint64(1000000)
+	initialAvailableBalance := uint64(10000)
 	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 50, initialAvailableBalance, 8000, 1000000000000)
 
 	// Create a withdraw request
@@ -657,7 +658,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 	// This will only work if the encrypted value is small enough to be decrypted.
 	teg := elgamal.NewTwistedElgamal()
 	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
-	actualBalance, err := teg.DecryptLargeNumber(keyPair.PrivateKey, accountState.AvailableBalance, elgamal.MaxBits40)
+	actualBalance, err := teg.DecryptLargeNumber(keyPair.PrivateKey, accountState.AvailableBalance, elgamal.MaxBits32)
 	suite.Require().NoError(err, "Should be able to decrypt actual balance since the encrypted value is small")
 
 	// Re-encrypt the actual balance as the current decryptable balance.
@@ -673,7 +674,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 
 	// Validate that the number is correct
 	accountState, _ = suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
-	decryptedAvailableBalance, err := teg.DecryptLargeNumber(keyPair.PrivateKey, accountState.AvailableBalance, elgamal.MaxBits40)
+	decryptedAvailableBalance, err := teg.DecryptLargeNumber(keyPair.PrivateKey, accountState.AvailableBalance, elgamal.MaxBits32)
 	suite.Require().NoError(err, "Should be decryptable")
 	newBalance := actualBalance - withdrawAmount
 	suite.Require().Equal(decryptedAvailableBalance, newBalance, "New account value should have been updated")
@@ -788,7 +789,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalance() {
 	testAddr := privkeyToAddress(testPk)
 
 	// Initialize an account
-	initialAvailableBalance := uint64(20000000)
+	initialAvailableBalance := uint64(2000)
 	initialPendingBalance := uint64(100000)
 	suite.SetupAccountState(testPk, DefaultTestDenom, 10, initialAvailableBalance, initialPendingBalance, 1000)
 
@@ -814,17 +815,17 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalance() {
 	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
 
 	// Check that the balances were correctly added to the available balance.
-	actualAvailableBalance, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, account.AvailableBalance, elgamal.MaxBits40)
+	actualAvailableBalance, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, account.AvailableBalance, elgamal.MaxBits32)
 	suite.Require().Equal(newBalance, actualAvailableBalance, "Available balance should match")
 
 	actualDecryptableAvailableBalance, _ := encryption.DecryptAESGCM(account.DecryptableAvailableBalance, aesKey)
 	suite.Require().Equal(newBalance, actualDecryptableAvailableBalance, "Decryptable available balance should match")
 
 	// Check that the pending balances are set to 0.
-	actualPendingBalanceLo, _ := teg.Decrypt(keyPair.PrivateKey, account.PendingBalanceLo, elgamal.MaxBits32)
+	actualPendingBalanceLo, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, account.PendingBalanceLo, elgamal.MaxBits32)
 	suite.Require().Equal(uint64(0), actualPendingBalanceLo, "Pending balance lo not 0")
 
-	actualPendingBalanceHi, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, account.PendingBalanceHi, elgamal.MaxBits48)
+	actualPendingBalanceHi, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, account.PendingBalanceHi, elgamal.MaxBits32)
 	suite.Require().Equal(uint64(0), actualPendingBalanceHi, "Pending balance hi not 0")
 
 	// Check that the pending balance credit counter is reset to 0.
@@ -918,8 +919,8 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 	suite.Require().Equal(initialSenderState.PublicKey.ToAffineCompressed(), senderAccountState.PublicKey.ToAffineCompressed(), "PublicKey should not have been touched")
 
 	// Check that new balance encrypts the sum of oldBalance and withdrawAmount
-	senderOldBalanceDecrypted, _ := teg.DecryptLargeNumber(senderKeypair.PrivateKey, initialSenderState.AvailableBalance, elgamal.MaxBits40)
-	senderNewBalanceDecrypted, _ := teg.DecryptLargeNumber(senderKeypair.PrivateKey, senderAccountState.AvailableBalance, elgamal.MaxBits40)
+	senderOldBalanceDecrypted, _ := teg.DecryptLargeNumber(senderKeypair.PrivateKey, initialSenderState.AvailableBalance, elgamal.MaxBits32)
+	senderNewBalanceDecrypted, _ := teg.DecryptLargeNumber(senderKeypair.PrivateKey, senderAccountState.AvailableBalance, elgamal.MaxBits32)
 	suite.Require().Equal(senderOldBalanceDecrypted-transferAmount, senderNewBalanceDecrypted, "AvailableBalance of sender should be decreased")
 
 	// Verify that the DecryptableAvailableBalances were updated as well and that they match the available balances.
