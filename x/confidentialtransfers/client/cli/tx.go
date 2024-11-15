@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -13,6 +14,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/spf13/cobra"
@@ -64,11 +66,17 @@ func makeInitializeAccountCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	denom := args[0]
+	err = sdk.ValidateDenom(denom)
+	if err != nil {
+		return fmt.Errorf("invalid denom: %v", err)
+	}
+
 	privKey, err := getPrivateKey(cmd)
 	if err != nil {
 		return err
 	}
-	initializeAccount, err := types.NewInitializeAccount(clientCtx.GetFromAddress().String(), args[0], *privKey)
+	initializeAccount, err := types.NewInitializeAccount(clientCtx.GetFromAddress().String(), denom, *privKey)
 	if err != nil {
 		return err
 	}
@@ -131,6 +139,12 @@ func makeCloseAccountCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	denom := args[0]
+	err = sdk.ValidateDenom(denom)
+	if err != nil {
+		return fmt.Errorf("invalid denom: %v", err)
+	}
+
 	queryClientCtx, err := client.GetClientQueryContext(cmd)
 	if err != nil {
 		return err
@@ -143,7 +157,7 @@ func makeCloseAccountCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	account, err := getAccount(queryClient, clientCtx.GetFromAddress().String(), args[0])
+	account, err := getAccount(queryClient, clientCtx.GetFromAddress().String(), denom)
 	if err != nil {
 		return err
 	}
@@ -151,7 +165,7 @@ func makeCloseAccountCmd(cmd *cobra.Command, args []string) error {
 	closeAccount, err := types.NewCloseAccount(
 		*privKey,
 		clientCtx.GetFromAddress().String(),
-		args[0],
+		denom,
 		account.PendingBalanceLo,
 		account.PendingBalanceHi,
 		account.AvailableBalance)
@@ -206,7 +220,17 @@ func makeTransferCmd(cmd *cobra.Command, args []string) error {
 
 	fromAddress := clientCtx.GetFromAddress().String()
 	denom := args[0]
+	err = sdk.ValidateDenom(denom)
+	if err != nil {
+		return fmt.Errorf("invalid denom: %v", err)
+	}
+
 	toAddress := args[1]
+	_, err = sdk.AccAddressFromBech32(toAddress)
+	if err != nil {
+		return fmt.Errorf("invalid address: %v", err)
+	}
+
 	amount, err := strconv.ParseUint(args[2], 10, 64)
 	if err != nil {
 		return err
@@ -243,7 +267,7 @@ func makeTransferCmd(cmd *cobra.Command, args []string) error {
 		privKey,
 		fromAddress,
 		toAddress,
-		args[0],
+		denom,
 		senderAccount.DecryptableAvailableBalance,
 		senderAccount.AvailableBalance,
 		amount,
@@ -297,11 +321,18 @@ func makeWithdrawCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	address := clientCtx.GetFromAddress().String()
+
 	denom := args[0]
+	err = sdk.ValidateDenom(denom)
+	if err != nil {
+		return fmt.Errorf("invalid denom: %v", err)
+	}
+
 	amount, err := strconv.ParseUint(args[1], 10, 64)
 	if err != nil {
 		return err
 	}
+
 	account, err := getAccount(queryClient, address, denom)
 	if err != nil {
 		return err
@@ -352,6 +383,11 @@ func makeDepositCmd(cmd *cobra.Command, args []string) error {
 
 	address := clientCtx.GetFromAddress().String()
 	denom := args[0]
+	err = sdk.ValidateDenom(denom)
+	if err != nil {
+		return fmt.Errorf("invalid denom: %v", err)
+	}
+
 	amount, err := strconv.ParseUint(args[1], 10, 64)
 	if err != nil {
 		return err
@@ -405,11 +441,12 @@ func makeApplyPendingBalanceCmd(cmd *cobra.Command, args []string) error {
 
 	address := clientCtx.GetFromAddress().String()
 	denom := args[0]
+	err = sdk.ValidateDenom(denom)
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid denom: %v", err)
 	}
 
-	account, err := getAccount(queryClient, clientCtx.GetFromAddress().String(), args[0])
+	account, err := getAccount(queryClient, clientCtx.GetFromAddress().String(), denom)
 	if err != nil {
 		return err
 	}
