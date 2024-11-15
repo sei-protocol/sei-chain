@@ -3,8 +3,9 @@ package apptesting
 import (
 	"context"
 	"crypto/ecdsa"
-	"github.com/ethereum/go-ethereum/crypto"
 	"time"
+
+	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"

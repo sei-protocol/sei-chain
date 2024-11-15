@@ -314,7 +314,7 @@ func TestMsgTransfer_ValidateBasic(t *testing.T) {
 				Denom:       validDenom,
 			},
 			wantErr: true,
-			errMsg:  "FromAmountLo is required",
+			errMsg:  "from amount lo is required",
 		},
 		{
 			name: "missing from amount hi",
@@ -325,7 +325,7 @@ func TestMsgTransfer_ValidateBasic(t *testing.T) {
 				FromAmountLo: &Ciphertext{},
 			},
 			wantErr: true,
-			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+			errMsg:  "from amount hi is required",
 		},
 		{
 			name: "missing to amount lo",
