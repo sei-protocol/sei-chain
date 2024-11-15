@@ -2,8 +2,10 @@ package types
 
 import (
 	"math/big"
+	"strconv"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
+	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 )
 
@@ -34,14 +36,14 @@ type Account struct {
 	DecryptableAvailableBalance string
 }
 
-func (a *Account) GetPendingBalancePlaintext(decryptor *elgamal.TwistedElGamal, keypair *elgamal.KeyPair) (*big.Int, error) {
+func (a *Account) GetPendingBalancePlaintext(decryptor *elgamal.TwistedElGamal, keypair *elgamal.KeyPair) (*big.Int, uint64, uint64, error) {
 	actualPendingBalanceLo, err := decryptor.Decrypt(keypair.PrivateKey, a.PendingBalanceLo, elgamal.MaxBits32)
 	if err != nil {
-		return big.NewInt(0), err
+		return big.NewInt(0), 0, 0, err
 	}
 	actualPendingBalanceHi, err := decryptor.DecryptLargeNumber(keypair.PrivateKey, a.PendingBalanceHi, elgamal.MaxBits48)
 	if err != nil {
-		return big.NewInt(0), err
+		return big.NewInt(0), 0, 0, err
 	}
 
 	loBig := new(big.Int).SetUint64(actualPendingBalanceLo)
@@ -52,5 +54,40 @@ func (a *Account) GetPendingBalancePlaintext(decryptor *elgamal.TwistedElGamal, 
 
 	// Combine by adding hiBig with loBig
 	combined := new(big.Int).Add(hiBig, loBig)
-	return combined, nil
+	return combined, actualPendingBalanceLo, actualPendingBalanceHi, nil
+}
+
+// Returns the decrypted account state.
+// Does not decyrpt the available balance unless specified. Decrypting the is only feasible for small numbers under 40 bits.
+// TODO: Add tests for this method
+func (a *Account) Decrypt(decryptor *elgamal.TwistedElGamal, keypair *elgamal.KeyPair, aesKey []byte, decryptAvailableBalance bool) (*DecryptedCtAccount, error) {
+	pendingBalanceCombined, pendingBalanceLo, pendingBalanceHi, err := a.GetPendingBalancePlaintext(decryptor, keypair)
+	if err != nil {
+		return nil, err
+	}
+
+	aesAvailableBalance, err := encryption.DecryptAESGCM(a.DecryptableAvailableBalance, aesKey)
+	if err != nil {
+		return nil, err
+	}
+
+	availableBalanceString := "Not Decrypted"
+	if decryptAvailableBalance {
+		availableBalance, err := decryptor.DecryptLargeNumber(keypair.PrivateKey, a.AvailableBalance, elgamal.MaxBits40)
+		if err != nil {
+			return nil, err
+		}
+
+		availableBalanceString = strconv.FormatUint(availableBalance, 10)
+	}
+
+	return &DecryptedCtAccount{
+		PublicKey:                   a.PublicKey.ToAffineCompressed(),
+		PendingBalanceLo:            uint32(pendingBalanceLo),
+		PendingBalanceHi:            pendingBalanceHi,
+		CombinedPendingBalance:      pendingBalanceCombined.Uint64(),
+		PendingBalanceCreditCounter: uint32(a.PendingBalanceCreditCounter),
+		AvailableBalance:            availableBalanceString,
+		DecryptableAvailableBalance: aesAvailableBalance,
+	}, nil
 }
