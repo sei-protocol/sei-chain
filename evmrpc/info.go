@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"slices"
 	"time"
@@ -41,6 +42,7 @@ type FeeHistoryResult struct {
 func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
 	startTime := time.Now()
 	defer recordMetrics("eth_BlockNumber", i.connectionType, startTime, true)
+	fmt.Println("In BlockNumber", "i.ctxProvider(LatestCtxHeight).BlockHeight() = ", i.ctxProvider(LatestCtxHeight).BlockHeight())
 	return hexutil.Uint64(i.ctxProvider(LatestCtxHeight).BlockHeight())
 }
 

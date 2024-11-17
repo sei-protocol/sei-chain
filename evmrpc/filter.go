@@ -216,6 +216,7 @@ func (a *FilterAPI) GetLogs(
 	ctx context.Context,
 	crit filters.FilterCriteria,
 ) (res []*ethtypes.Log, err error) {
+	fmt.Println("In GetLogs", "crit", crit)
 	defer recordMetrics(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now(), err == nil)
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
 	return logs, err
@@ -311,6 +312,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	if !applyOpenEndedLogLimit && f.filterConfig.maxBlock > 0 && end >= (begin+f.filterConfig.maxBlock) {
 		end = begin + f.filterConfig.maxBlock - 1
 	}
+	fmt.Println("In GetLogsByFilters", "begin", begin, "end", end)
 	// begin should always be <= end block at this point
 	if begin > end {
 		return nil, 0, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
@@ -372,11 +374,17 @@ func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (re
 			ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
 			continue
 		}
+		fmt.Println("In FindLogsByBloom", "considering hash", hash.Hex())
+		fmt.Println("In FindLogsByBloom", "includeSyntheticReceipts", f.includeSyntheticReceipts, "receipt.TxType", receipt.TxType, "receipt.EffectiveGasPrice", receipt.EffectiveGasPrice)
 		if !f.includeSyntheticReceipts && (receipt.TxType == ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
+			fmt.Println("In FindLogsByBloom", "skipping hash", hash.Hex())
 			continue
 		}
+		fmt.Println("In FindLogsByBloom", "no skipping hash", hash.Hex())
 		if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
-			res = append(res, keeper.GetLogsForTx(receipt)...)
+			logs := keeper.GetLogsForTx(receipt)
+			fmt.Println("Adding", len(logs), "logs")
+			res = append(res, logs...)
 		}
 	}
 	return
