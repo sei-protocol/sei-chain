@@ -778,7 +778,6 @@ func setupLogs() {
 			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
 		},
 	}}}})
-	fmt.Println("multiTxBlockSynthTx.Hash()", multiTxBlockSynthTx.Hash().Hex())
 	EVMKeeper.MockReceipt(CtxMock, multiTxBlockSynthTx.Hash(), &types.Receipt{
 		BlockNumber:      MockHeight,
 		TransactionIndex: 0,
@@ -819,7 +818,6 @@ func setupLogs() {
 		multiTxBlockTx3.Hash(),
 	})
 	EVMKeeper.SetBlockBloom(MultiTxCtx, []ethtypes.Bloom{bloom1, bloom2, bloom3})
-	fmt.Println("Should be on block 8", multiTxBlockTx1.Hash(), multiTxBlockTx2.Hash(), multiTxBlockTx3.Hash())
 
 	// block 2
 	EVMKeeper.SetTxHashesOnHeight(Ctx, MockHeight, []common.Hash{
@@ -832,7 +830,6 @@ func setupLogs() {
 			common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111112")},
 	}}}})
 	EVMKeeper.SetBlockBloom(Ctx, []ethtypes.Bloom{bloomSynth, bloom4, bloomTx1})
-	fmt.Println("Should be on block 2", multiTxBlockSynthTx.Hash(), multiTxBlockTx4.Hash())
 }
 
 //nolint:deadcode
