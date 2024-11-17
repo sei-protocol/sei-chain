@@ -130,9 +130,11 @@ func getCommonFilterLogTests() []GetFilterLogTests {
 			wantLen: 4,
 		},
 		{
-			name:    "filter by single topic with default range",
-			topics:  [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")}},
-			wantErr: false,
+			name:      "filter by single topic with block range",
+			fromBlock: "0x8",
+			toBlock:   "0x8",
+			topics:    [][]common.Hash{{common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")}},
+			wantErr:   false,
 			check: func(t *testing.T, log map[string]interface{}) {
 				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000123", log["topics"].([]interface{})[0].(string))
 			},
@@ -192,7 +194,7 @@ func TestFilterGetLogs(t *testing.T) {
 	testFilterGetLogs(t, "eth", getCommonFilterLogTests())
 }
 
-func TestSeiFilterGetLogs(t *testing.T) {
+func TestFilterSeiGetLogs(t *testing.T) {
 	// make sure we pass all the eth_ namespace tests
 	testFilterGetLogs(t, "sei", getCommonFilterLogTests())
 
@@ -221,16 +223,33 @@ func TestSeiFilterGetLogs(t *testing.T) {
 	})
 }
 
-func TestEthEndpointCanReturnSyntheticLogs(t *testing.T) {
+func TestFilterEthEndpointCanReturnSyntheticLogs(t *testing.T) {
 	testFilterGetLogs(t, "eth", []GetFilterLogTests{
 		{
-			name:    "filter by single topic with default range, exclude synethetic logs",
+			name:    "filter by single topic with default range, still include synthetic logs",
 			topics:  [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234")}},
 			wantErr: false,
 			check: func(t *testing.T, log map[string]interface{}) {
 				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000234", log["topics"].([]interface{})[0].(string))
 			},
 			wantLen: 1,
+		},
+	})
+}
+
+func TestFilterEthEndpointReturnsNormalEvmLogEvenIfSyntheticLogIsInSameBlock(t *testing.T) {
+	testFilterGetLogs(t, "eth", []GetFilterLogTests{
+		{
+			name:      "normal evm log is returned even if synthetic log is in the same block",
+			fromBlock: "0x64", // 100
+			toBlock:   "0x64",
+			wantErr:   false,
+			check: func(t *testing.T, log map[string]interface{}) {
+				// check that none of the events have the synthetic hash
+				syntheticHash := multiTxBlockSynthTx.Hash()
+				require.NotEqual(t, syntheticHash.Hex(), log["transactionHash"].(string))
+			},
+			wantLen: 2,
 		},
 	})
 }
@@ -283,7 +302,7 @@ func TestFilterGetFilterLogs(t *testing.T) {
 
 	resObj = sendRequest(t, TestPort, "getFilterLogs", filterId)
 	logs := resObj["result"].([]interface{})
-	require.Equal(t, 4, len(logs))
+	require.Equal(t, 6, len(logs))
 	for _, log := range logs {
 		logObj := log.(map[string]interface{})
 		require.Equal(t, "0x2", logObj["blockNumber"].(string))
