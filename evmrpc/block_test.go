@@ -80,7 +80,7 @@ func TestGetBlockReceipts(t *testing.T) {
 	// Query by block height
 	resObj := sendRequestGood(t, "getBlockReceipts", "0x2")
 	result := resObj["result"].([]interface{})
-	require.Equal(t, 6, len(result))
+	require.Equal(t, 5, len(result))
 	receipt1 := result[0].(map[string]interface{})
 	require.Equal(t, "0x2", receipt1["blockNumber"])
 	require.Equal(t, "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", receipt1["transactionHash"])
@@ -91,10 +91,14 @@ func TestGetBlockReceipts(t *testing.T) {
 	require.Equal(t, "0x2", receipt3["blockNumber"])
 	require.Equal(t, "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", receipt3["transactionHash"])
 
+	resObjSei := sendSeiRequestGood(t, "getBlockReceipts", "0x2")
+	result = resObjSei["result"].([]interface{})
+	require.Equal(t, 6, len(result))
+
 	// Query by block hash
 	resObj2 := sendRequestGood(t, "getBlockReceipts", "0x0000000000000000000000000000000000000000000000000000000000000002")
 	result = resObj2["result"].([]interface{})
-	require.Equal(t, 6, len(result))
+	require.Equal(t, 5, len(result))
 	receipt1 = result[0].(map[string]interface{})
 	require.Equal(t, "0x2", receipt1["blockNumber"])
 	require.Equal(t, "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", receipt1["transactionHash"])

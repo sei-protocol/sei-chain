@@ -779,6 +779,7 @@ func setupLogs() {
 		},
 	}}}})
 	EVMKeeper.MockReceipt(CtxMock, multiTxBlockSynthTx.Hash(), &types.Receipt{
+		TxType:           evmrpc.ShellEVMTxType,
 		BlockNumber:      MockHeight,
 		TransactionIndex: 0,
 		TxHashHex:        multiTxBlockSynthTx.Hash().Hex(),
