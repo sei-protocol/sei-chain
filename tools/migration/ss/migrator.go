@@ -204,6 +204,53 @@ func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey
 	return nil
 }
 
+func (m *Migrator) AggregateModuleStats(db dbm.DB) error {
+	fmt.Println("SeiDB Archive Migration: Aggregating module stats...")
+
+	for _, module := range modules {
+
+		startTimeModule := time.Now()
+		fmt.Printf("SeiDB Archive Migration: Aggregating stats for module %s...\n", module)
+
+		// Prepare the prefixed DB for the module
+		prefixDB := dbm.NewPrefixDB(db, []byte(buildRawPrefix(module)))
+
+		// Get an iterator for the prefixed DB
+		itr, err := prefixDB.Iterator(nil, nil)
+		if err != nil {
+			fmt.Printf("SeiDB Archive Migration: Error creating iterator: %+v\n", err)
+			return fmt.Errorf("failed to create iterator: %w", err)
+		}
+		defer itr.Close()
+
+		// Aggregated stats for the current module
+		var totalKeys int
+		var totalKeySize int
+		var totalValueSize int
+
+		for ; itr.Valid(); itr.Next() {
+			totalKeys++
+			totalKeySize += len(itr.Key())
+			totalValueSize += len(itr.Value())
+		}
+
+		if err := itr.Error(); err != nil {
+			fmt.Printf("SeiDB Archive Migration: Iterator error for module %s: %+v\n", module, err)
+			return fmt.Errorf("iterator error for module %s: %w", module, err)
+		}
+
+		moduleDuration := time.Since(startTimeModule)
+		fmt.Printf("SeiDB Archive Migration: Module %s stats:\n", module)
+		fmt.Printf("  Total keys: %d\n", totalKeys)
+		fmt.Printf("  Total key size (bytes): %d\n", totalKeySize)
+		fmt.Printf("  Total value size (bytes): %d\n", totalValueSize)
+		fmt.Printf("  Time taken: %v\n", moduleDuration)
+	}
+
+	fmt.Println("SeiDB Archive Migration: Aggregation completed.")
+	return nil
+}
+
 func buildRawPrefix(moduleName string) string {
 	return fmt.Sprintf("s/k:%s/n", moduleName)
 }

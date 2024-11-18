@@ -94,3 +94,29 @@ func verifySS(version int64, homeDir string, db dbm.DB) error {
 	migrator := ss.NewMigrator(homeDir, db, stateStore)
 	return migrator.Verify(version)
 }
+
+func GenerateStats() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "generate-stats",
+		Short: "A tool to generate archive node iavl stats like number of keys and size per module.",
+		Run:   generate,
+	}
+	cmd.PersistentFlags().String("home-dir", "/root/.sei", "Sei home directory")
+	return cmd
+}
+
+func generate(cmd *cobra.Command, _ []string) {
+	homeDir, _ := cmd.Flags().GetString("home-dir")
+	dataDir := filepath.Join(homeDir, "data")
+	db, err := dbm.NewGoLevelDB("application", dataDir)
+	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig.Enable = true
+
+	stateStore, err := sstypes.NewStateStore(log.NewNopLogger(), homeDir, ssConfig)
+	if err != nil {
+		panic(err)
+	}
+	migrator := ss.NewMigrator(homeDir, db, stateStore)
+	migrator.AggregateModuleStats(db)
+
+}
