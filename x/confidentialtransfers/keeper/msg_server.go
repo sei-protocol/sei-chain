@@ -118,7 +118,7 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 	}
 
 	// The maximum transfer amount is 2^48
-	if req.Amount > uint64((2<<48)-1) {
+	if req.Amount > uint64((1<<48)-1) {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "exceeded maximum deposit amount of 2^48")
 	}
 
