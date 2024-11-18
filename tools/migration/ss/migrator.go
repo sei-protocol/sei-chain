@@ -254,7 +254,7 @@ func (m *Migrator) AggregateModuleStats(db dbm.DB) error {
 		}
 
 		moduleDuration := time.Since(startTimeModule)
-		fmt.Printf("Module %s finished, total keys %d, total key size %d, total value size %d, time taken %s\n",
+		fmt.Printf("Module %s stats finished, total keys %d, total key size %d, total value size %d, time taken %s\n",
 			module, totalKeys, totalKeySize, totalValueSize, moduleDuration)
 	}
 
