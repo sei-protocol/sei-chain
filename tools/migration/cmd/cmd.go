@@ -97,7 +97,7 @@ func verifySS(version int64, homeDir string, db dbm.DB) error {
 
 func GenerateStats() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "generate-iavl-stats",
+		Use:   "iavl-stats",
 		Short: "A tool to generate archive node iavl stats like number of keys and size per module.",
 		Run:   generate,
 	}
