@@ -12,7 +12,7 @@ option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/t
 service Query {
   rpc GetCtAccount (GetCtAccountRequest) returns (GetCtAccountResponse) {
     option (google.api.http) = {
-      get: "/seichain/confidentialtransfers/account/{address}/{denom}"
+      get: "/seichain/confidentialtransfers/account/{address}/denom"
     };
   }
 
