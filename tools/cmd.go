@@ -14,5 +14,6 @@ func ToolCmd() *cobra.Command {
 	toolsCmd.AddCommand(scanner.ScanCmd())
 	toolsCmd.AddCommand(migration.MigrateCmd())
 	toolsCmd.AddCommand(migration.VerifyMigrationCmd())
+	toolsCmd.AddCommand(migration.GenerateStats())
 	return toolsCmd
 }
