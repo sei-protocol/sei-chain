@@ -402,7 +402,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositOversizedDeposit() {
 	depositStruct := types.MsgDeposit{
 		FromAddress: testAddr.String(),
 		Denom:       DefaultTestDenom,
-		Amount:      (2 << 48) + 1,
+		Amount:      (1 << 48) + 1,
 	}
 
 	// Test depositing an amount larger than 48 bits.
