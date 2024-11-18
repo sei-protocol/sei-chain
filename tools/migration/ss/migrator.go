@@ -242,6 +242,11 @@ func (m *Migrator) AggregateModuleStats(db dbm.DB) error {
 				totalKeySize += len(itr.Key())
 				totalValueSize += len(itr.Value())
 			}
+
+			if totalKeys%1000000 == 0 {
+				fmt.Printf("Module %s num of keys %d, key size %d, value size %d\n",
+					module, totalKeys, totalKeySize, totalValueSize)
+			}
 		}
 
 		if err := itr.Error(); err != nil {
@@ -249,11 +254,8 @@ func (m *Migrator) AggregateModuleStats(db dbm.DB) error {
 		}
 
 		moduleDuration := time.Since(startTimeModule)
-		fmt.Printf("SeiDB Archive Migration: Module %s stats:\n", module)
-		fmt.Printf("  Total keys: %d\n", totalKeys)
-		fmt.Printf("  Total key size (bytes): %d\n", totalKeySize)
-		fmt.Printf("  Total value size (bytes): %d\n", totalValueSize)
-		fmt.Printf("  Time taken: %v\n", moduleDuration)
+		fmt.Printf("Module %s finished, total keys %d, total key size %d, total value size %d, time taken %s\n",
+			module, totalKeys, totalKeySize, totalValueSize, moduleDuration)
 	}
 
 	fmt.Println("SeiDB Archive Migration: Aggregation completed.")

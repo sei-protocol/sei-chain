@@ -117,7 +117,7 @@ func generate(cmd *cobra.Command, _ []string) {
 		panic(err)
 	}
 	migrator := ss.NewMigrator(homeDir, db, stateStore)
-	err := migrator.AggregateModuleStats(db)
+	err = migrator.AggregateModuleStats(db)
 	if err != nil {
 		panic(err)
 	}
