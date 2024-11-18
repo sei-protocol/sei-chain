@@ -229,13 +229,22 @@ func (m *Migrator) AggregateModuleStats(db dbm.DB) error {
 		var totalValueSize int
 
 		for ; itr.Valid(); itr.Next() {
-			totalKeys++
-			totalKeySize += len(itr.Key())
-			totalValueSize += len(itr.Value())
+			value := bytes.Clone(itr.Value())
+
+			node, err := iavl.MakeNode(value)
+			if err != nil {
+				return fmt.Errorf("failed to make node: %w", err)
+			}
+
+			// Only export leaf nodes
+			if node.GetHeight() == 0 {
+				totalKeys++
+				totalKeySize += len(itr.Key())
+				totalValueSize += len(itr.Value())
+			}
 		}
 
 		if err := itr.Error(); err != nil {
-			fmt.Printf("SeiDB Archive Migration: Iterator error for module %s: %+v\n", module, err)
 			return fmt.Errorf("iterator error for module %s: %w", module, err)
 		}
 
