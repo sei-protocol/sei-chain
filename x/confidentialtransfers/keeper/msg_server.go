@@ -40,6 +40,12 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 		return nil, sdkerrors.Wrap(sdkerrors.ErrNotFound, "account already exists")
 	}
 
+	// Check if denom already exists.
+	_, denomExists := m.Keeper.BankKeeper().GetDenomMetaData(ctx, instruction.Denom)
+	if !denomExists {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "denom does not exist")
+	}
+
 	// Validate the public key
 	validated := zkproofs.VerifyPubKeyValidity(*instruction.Pubkey, *instruction.Proofs.PubkeyValidityProof)
 	if !validated {
