@@ -3,6 +3,7 @@ package ss
 import (
 	"bytes"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/tools/migration/utils"
 	"time"
 
 	"github.com/armon/go-metrics"
@@ -21,11 +22,7 @@ const (
 	DefaultCacheSize int = 10000
 )
 
-var modules = []string{
-	"wasm", "aclaccesscontrol", "oracle", "epoch", "mint", "acc", "bank", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
-}
-
-func NewMigrator(homeDir string, db dbm.DB, stateStore types.StateStore) *Migrator {
+func NewMigrator(db dbm.DB, stateStore types.StateStore) *Migrator {
 	return &Migrator{
 		iavlDB:     db,
 		stateStore: stateStore,
@@ -78,8 +75,8 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 
 func (m *Migrator) Verify(version int64) error {
 	var verifyErr error
-	for _, module := range modules {
-		tree, err := ReadTree(m.iavlDB, version, []byte(buildTreePrefix(module)))
+	for _, module := range utils.Modules {
+		tree, err := ReadTree(m.iavlDB, version, []byte(utils.BuildTreePrefix(module)))
 		if err != nil {
 			fmt.Printf("Error reading tree %s: %s\n", module, err.Error())
 			return err
@@ -125,7 +122,7 @@ func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey
 	var batchLeafNodeCount int
 	startModuleFound := startModule == "" // true if no start module specified
 
-	for _, module := range modules {
+	for _, module := range utils.Modules {
 		if !startModuleFound {
 			if module == startModule {
 				startModuleFound = true
@@ -136,12 +133,12 @@ func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey
 		startTimeModule := time.Now() // Measure time for each module
 		fmt.Printf("SeiDB Archive Migration: Iterating through %s module...\n", module)
 
-		prefixDB := dbm.NewPrefixDB(db, []byte(buildRawPrefix(module)))
+		prefixDB := dbm.NewPrefixDB(db, []byte(utils.BuildRawPrefix(module)))
 		var itr dbm.Iterator
 		var err error
 
 		// If there is a starting key, seek to it, otherwise start from the beginning
-		if startKey != nil && bytes.HasPrefix(startKey, []byte(buildRawPrefix(module))) {
+		if startKey != nil && bytes.HasPrefix(startKey, []byte(utils.BuildRawPrefix(module))) {
 			itr, err = prefixDB.Iterator(startKey, nil) // Start from the latest key
 		} else {
 			itr, err = prefixDB.Iterator(nil, nil) // Start from the beginning
@@ -202,72 +199,6 @@ func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey
 	fmt.Printf("SeiDB Archive Migration: DB scanning completed. Total time taken: %v. Total entries scanned: %d, leaf nodes exported: %d\n", totalDuration, count, leafNodeCount)
 
 	return nil
-}
-
-func (m *Migrator) AggregateModuleStats(db dbm.DB) error {
-	fmt.Println("SeiDB Archive Migration: Aggregating module stats...")
-
-	for _, module := range modules {
-
-		startTimeModule := time.Now()
-		fmt.Printf("SeiDB Archive Migration: Aggregating stats for module %s...\n", module)
-
-		// Prepare the prefixed DB for the module
-		prefixDB := dbm.NewPrefixDB(db, []byte(buildRawPrefix(module)))
-
-		// Get an iterator for the prefixed DB
-		itr, err := prefixDB.Iterator(nil, nil)
-		if err != nil {
-			fmt.Printf("SeiDB Archive Migration: Error creating iterator: %+v\n", err)
-			return fmt.Errorf("failed to create iterator: %w", err)
-		}
-		defer itr.Close()
-
-		// Aggregated stats for the current module
-		var totalKeys int
-		var totalKeySize int
-		var totalValueSize int
-
-		for ; itr.Valid(); itr.Next() {
-			value := bytes.Clone(itr.Value())
-
-			node, err := iavl.MakeNode(value)
-			if err != nil {
-				return fmt.Errorf("failed to make node: %w", err)
-			}
-
-			// Only export leaf nodes
-			if node.GetHeight() == 0 {
-				totalKeys++
-				totalKeySize += len(itr.Key())
-				totalValueSize += len(itr.Value())
-			}
-
-			if totalKeys%1000000 == 0 {
-				fmt.Printf("Module %s num of keys %d, key size %d, value size %d\n",
-					module, totalKeys, totalKeySize, totalValueSize)
-			}
-		}
-
-		if err := itr.Error(); err != nil {
-			return fmt.Errorf("iterator error for module %s: %w", module, err)
-		}
-
-		moduleDuration := time.Since(startTimeModule)
-		fmt.Printf("Module %s stats finished, total keys %d, total key size %d, total value size %d, time taken %s\n",
-			module, totalKeys, totalKeySize, totalValueSize, moduleDuration)
-	}
-
-	fmt.Println("SeiDB Archive Migration: Aggregation completed.")
-	return nil
-}
-
-func buildRawPrefix(moduleName string) string {
-	return fmt.Sprintf("s/k:%s/n", moduleName)
-}
-
-func buildTreePrefix(moduleName string) string {
-	return fmt.Sprintf("s/k:%s/", moduleName)
 }
 
 func ReadTree(db dbm.DB, version int64, prefix []byte) (*iavl.MutableTree, error) {
