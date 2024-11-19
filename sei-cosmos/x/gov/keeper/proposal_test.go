@@ -3,6 +3,7 @@ package keeper_test
 import (
 	"errors"
 	"fmt"
+	"github.com/cosmos/cosmos-sdk/x/params/types/proposal"
 	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
@@ -163,6 +164,106 @@ func (suite *KeeperTestSuite) TestGetProposalsFiltered() {
 				if types.ValidProposalStatus(tc.params.ProposalStatus) {
 					suite.Require().Equal(tc.params.ProposalStatus, p.Status)
 				}
+			}
+		})
+	}
+}
+
+func (suite *KeeperTestSuite) TestParamChangeProposal() {
+	// Simple parameter changes
+	validStakingChange := proposal.ParamChange{
+		Subspace: "staking",
+		Key:      "MaxValidators",
+		Value:    "100",
+	}
+
+	invalidStakingChange := proposal.ParamChange{
+		Subspace: "staking",
+		Key:      "NonExistentParam",
+		Value:    "100",
+	}
+
+	// Complex gov parameter changes
+	validVotingParamsChange := proposal.ParamChange{
+		Subspace: "gov",
+		Key:      "votingparams",
+		Value:    `{"voting_period":"172800s","expedited_voting_period":"86400s"}`,
+	}
+
+	invalidVotingParamsChange := proposal.ParamChange{
+		Subspace: "gov",
+		Key:      "invalidvotingparams",
+		Value:    `{"voting_period":"invalid"}`, // Invalid duration
+	}
+
+	testCases := map[string]struct {
+		proposal    types.Content
+		expectError bool
+	}{
+		"valid staking param change": {
+			proposal: &proposal.ParameterChangeProposal{
+				Title:       "Valid Staking Param Change",
+				Description: "Testing valid staking param changes",
+				Changes:     []proposal.ParamChange{validStakingChange},
+				IsExpedited: false,
+			},
+			expectError: false,
+		},
+		"invalid staking param change": {
+			proposal: &proposal.ParameterChangeProposal{
+				Title:       "Invalid Staking Param Change",
+				Description: "Testing invalid staking param changes",
+				Changes:     []proposal.ParamChange{invalidStakingChange},
+				IsExpedited: false,
+			},
+			expectError: true,
+		},
+		"valid voting params change": {
+			proposal: &proposal.ParameterChangeProposal{
+				Title:       "Valid Voting Params Change",
+				Description: "Testing valid voting param changes",
+				Changes:     []proposal.ParamChange{validVotingParamsChange},
+				IsExpedited: false,
+			},
+			expectError: false,
+		},
+		"invalid voting params change": {
+			proposal: &proposal.ParameterChangeProposal{
+				Title:       "Invalid Voting Params Change",
+				Description: "Testing invalid voting param changes",
+				Changes:     []proposal.ParamChange{invalidVotingParamsChange},
+				IsExpedited: false,
+			},
+			expectError: true,
+		},
+		"mixed valid and invalid params": {
+			proposal: &proposal.ParameterChangeProposal{
+				Title:       "Mixed Param Changes",
+				Description: "Testing both valid and invalid params",
+				Changes:     []proposal.ParamChange{validStakingChange, invalidStakingChange},
+				IsExpedited: false,
+			},
+			expectError: true,
+		},
+		"multiple valid params": {
+			proposal: &proposal.ParameterChangeProposal{
+				Title:       "Multiple Valid Params",
+				Description: "Testing multiple valid param changes",
+				Changes:     []proposal.ParamChange{validStakingChange, validVotingParamsChange},
+				IsExpedited: false,
+			},
+			expectError: false,
+		},
+	}
+
+	for name, tc := range testCases {
+		suite.Run(name, func() {
+			_, err := suite.app.GovKeeper.SubmitProposal(suite.ctx, tc.proposal)
+			if tc.expectError {
+				suite.Require().Error(err)
+				suite.Require().Contains(err.Error(), "parameter")
+			} else {
+				suite.Require().NoError(err)
 			}
 		})
 	}
