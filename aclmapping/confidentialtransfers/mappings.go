@@ -21,9 +21,11 @@ func GetConfidentialTransfersDependencyGenerators() aclkeeper.DependencyGenerato
 	transferMsgKey := acltypes.GenerateMessageKey(&types.MsgTransfer{})
 	initializeAccountMsgKey := acltypes.GenerateMessageKey(&types.MsgInitializeAccount{})
 	depositMsgKey := acltypes.GenerateMessageKey(&types.MsgDeposit{})
+	withdrawMsgKey := acltypes.GenerateMessageKey(&types.MsgWithdraw{})
 	dependencyGeneratorMap[transferMsgKey] = MsgTransferDependencyGenerator
 	dependencyGeneratorMap[initializeAccountMsgKey] = MsgInitializeAccountDependencyGenerator
 	dependencyGeneratorMap[depositMsgKey] = MsgDepositDependencyGenerator
+	dependencyGeneratorMap[withdrawMsgKey] = MsgWithdrawDependencyGenerator
 	return dependencyGeneratorMap
 }
 
@@ -134,6 +136,58 @@ func MsgDepositDependencyGenerator(aclkeeper aclkeeper.Keeper, _ sdk.Context, ms
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
 			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(moduleAddress.String())),
+		},
+
+		// Modifies account state
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_CT_ACCOUNT,
+			IdentifierTemplate: fromAddrIdentifier,
+		},
+
+		*acltypes.CommitAccessOp(),
+	}
+	return accessOperations, nil
+}
+
+func MsgWithdrawDependencyGenerator(aclkeeper aclkeeper.Keeper, _ sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
+	msgWithdraw, ok := msg.(*types.MsgWithdraw)
+	if !ok {
+		return []sdkacltypes.AccessOperation{}, ErrorInvalidMsgType
+	}
+
+	moduleAddress := aclkeeper.AccountKeeper.GetModuleAddress(types.ModuleName)
+
+	fromAddrIdentifier := hex.EncodeToString(types.GetAccountPrefixFromBech32(msgWithdraw.FromAddress))
+
+	accessOperations := []sdkacltypes.AccessOperation{
+		// Get account state
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_CT_ACCOUNT,
+			IdentifierTemplate: fromAddrIdentifier,
+		},
+		// Withdraws from module's bank Balance
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(moduleAddress.String())),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(moduleAddress.String())),
+		},
+		// Transfer to sender's bank Balance
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(msgWithdraw.FromAddress)),
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
+			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(msgWithdraw.FromAddress)),
 		},
 
 		// Modifies account state

@@ -229,6 +229,14 @@ func TestGeneratorInvalidDepositMessageTypes(t *testing.T) {
 	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
 }
 
+func TestGeneratorInvalidWithdrawMessageTypes(t *testing.T) {
+	app, ctx, oracleVote := setUp()
+
+	_, err := ctacl.MsgWithdrawDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
+	require.Error(t, err)
+	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
+}
+
 func setUp() (*simapp.SimApp, sdk.Context, oracletypes.MsgAggregateExchangeRateVote) {
 	// setup
 	accs := authtypes.GenesisAccounts{}
@@ -291,6 +299,84 @@ func (suite *KeeperTestSuite) TestMsgDepositDependencies() {
 			suite.Require().NoError(err)
 
 			dependencies, _ := ctacl.MsgDepositDependencyGenerator(
+				suite.App.AccessControlKeeper,
+				handlerCtx,
+				tc.msg,
+			)
+
+			if !tc.dynamicDep {
+				dependencies = sdkacltypes.SynchronousAccessOps()
+			}
+
+			if tc.expectedError != nil {
+				suite.Require().EqualError(err, tc.expectedError.Error())
+			} else {
+				suite.Require().NoError(err)
+			}
+
+			missing := handlerCtx.MsgValidator().ValidateAccessOperations(dependencies, cms.GetEvents())
+			suite.Require().Empty(missing)
+		})
+	}
+}
+
+func (suite *KeeperTestSuite) TestMsgWithdrawDependencies() {
+	suite.PrepareTest()
+
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+
+	// Initialize an account
+	initialState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 10, 2000, 3000, 1000)
+
+	withdrawAmount := uint64(500)
+	withdraw, _ := types.NewWithdraw(*senderPk,
+		initialState.AvailableBalance,
+		DefaultTestDenom,
+		senderAddr.String(),
+		initialState.DecryptableAvailableBalance,
+		withdrawAmount)
+
+	withdrawStruct := types.NewMsgWithdrawProto(withdraw)
+
+	tests := []struct {
+		name          string
+		expectedError error
+		msg           *types.MsgWithdraw
+		dynamicDep    bool
+	}{
+		{
+			name:          "withdraw in dynamic dep mode",
+			msg:           withdrawStruct,
+			expectedError: nil,
+			dynamicDep:    true,
+		},
+		{
+			name:          "withdraw in sync dep mode",
+			msg:           withdrawStruct,
+			expectedError: nil,
+			dynamicDep:    false,
+		},
+	}
+	for _, tc := range tests {
+		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
+			handlerCtx, cms := cacheTxContext(suite.Ctx)
+
+			suite.FundAcc(senderAddr, sdk.NewCoins(sdk.Coin{Denom: DefaultTestDenom, Amount: sdk.NewInt(1000)}))
+			err := suite.App.BankKeeper.SendCoinsFromAccountToModule(
+				handlerCtx, senderAddr,
+				types.ModuleName,
+				sdk.NewCoins(sdk.Coin{Denom: DefaultTestDenom,
+					Amount: sdk.NewInt(1000)}))
+			suite.Require().NoError(err)
+
+			_, err = suite.msgServer.Withdraw(
+				sdk.WrapSDKContext(handlerCtx),
+				tc.msg,
+			)
+			suite.Require().NoError(err)
+
+			dependencies, _ := ctacl.MsgWithdrawDependencyGenerator(
 				suite.App.AccessControlKeeper,
 				handlerCtx,
 				tc.msg,
