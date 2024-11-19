@@ -1,9 +1,15 @@
 package types
 
 import (
+	"crypto/ecdsa"
+	"errors"
+
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
+	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
+	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 )
 
 // confidential transfers message types
@@ -332,6 +338,76 @@ func (m *MsgApplyPendingBalance) GetSignBytes() []byte {
 func (m *MsgApplyPendingBalance) GetSigners() []sdk.AccAddress {
 	sender, _ := sdk.AccAddressFromBech32(m.Address)
 	return []sdk.AccAddress{sender}
+}
+
+// NewMsgApplyPendingBalance creates a new MsgApplyPendingBalance instance
+// TODO: If pending balance changes between when this instruction is generated and when it is received by server,
+// the new pending balance will be incorrect. This is a potential attack vector.
+// We should consider adding the pending balances being applied to the instruction to circumvent this.
+// 1. Account state: Pending: 100, Available: 1000
+// 2. Create Instruction: DecryptableAvailableBalance = 1100
+// 3. Transfer Received: Pending: 200, Available: 1000
+// 4. Apply Instruction: Applies pending balance of 200 -> AvailableBalance = 1200 while DecryptableAvailableBalance = 1100
+func NewMsgApplyPendingBalance(
+	privKey ecdsa.PrivateKey,
+	address, denom,
+	currentDecryptableBalance string,
+	currentPendingBalanceCounter uint16,
+	currentAvailableBalance,
+	currentPendingBalanceLo,
+	currentPendingBalanceHi *elgamal.Ciphertext) (*MsgApplyPendingBalance, error) {
+	aesKey, err := encryption.GetAESKey(privKey, denom)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the current balance from the decryptable balance.
+	currentBalance, err := encryption.DecryptAESGCM(currentDecryptableBalance, aesKey)
+	if err != nil {
+		return nil, err
+	}
+
+	teg := elgamal.NewTwistedElgamal()
+	keyPair, err := teg.KeyGen(privKey, denom)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate the pending balances that we need to add to the available balance.
+	loBalance, err := teg.Decrypt(keyPair.PrivateKey, currentPendingBalanceLo, elgamal.MaxBits32)
+	if err != nil {
+		return nil, err
+	}
+
+	hiBalance, err := teg.DecryptLargeNumber(keyPair.PrivateKey, currentPendingBalanceHi, elgamal.MaxBits48)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the pending balance by combining the lo and hi bits
+	pendingBalance := utils.CombineTransferAmount(uint16(loBalance), uint32(hiBalance))
+
+	// Sum the balances to get the new available balance
+	newDecryptedAvailableBalance := currentBalance + pendingBalance
+
+	// Check for overflow: if the sum is less than one of the operands, an overflow has occurred.
+	if newDecryptedAvailableBalance < currentBalance {
+		return nil, errors.New("addition overflow: total balance exceeds uint64")
+	}
+
+	// Encrypt the new available balance
+	newDecryptableAvailableBalance, err := encryption.EncryptAESGCM(newDecryptedAvailableBalance, aesKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &MsgApplyPendingBalance{
+		Address:                        address,
+		Denom:                          denom,
+		NewDecryptableAvailableBalance: newDecryptableAvailableBalance,
+		CurrentPendingBalanceCounter:   uint32(currentPendingBalanceCounter),
+		CurrentAvailableBalance:        NewCiphertextProto(currentAvailableBalance),
+	}, nil
 }
 
 var _ sdk.Msg = &MsgCloseAccount{}
