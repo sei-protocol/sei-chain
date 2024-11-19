@@ -22,10 +22,13 @@ func GetConfidentialTransfersDependencyGenerators() aclkeeper.DependencyGenerato
 	initializeAccountMsgKey := acltypes.GenerateMessageKey(&types.MsgInitializeAccount{})
 	depositMsgKey := acltypes.GenerateMessageKey(&types.MsgDeposit{})
 	withdrawMsgKey := acltypes.GenerateMessageKey(&types.MsgWithdraw{})
+	applyPendingBalanceMsgKey := acltypes.GenerateMessageKey(&types.MsgApplyPendingBalance{})
 	dependencyGeneratorMap[transferMsgKey] = MsgTransferDependencyGenerator
 	dependencyGeneratorMap[initializeAccountMsgKey] = MsgInitializeAccountDependencyGenerator
 	dependencyGeneratorMap[depositMsgKey] = MsgDepositDependencyGenerator
 	dependencyGeneratorMap[withdrawMsgKey] = MsgWithdrawDependencyGenerator
+	dependencyGeneratorMap[applyPendingBalanceMsgKey] = MsgApplyPendingBalanceDependencyGenerator
+
 	return dependencyGeneratorMap
 }
 
@@ -191,6 +194,33 @@ func MsgWithdrawDependencyGenerator(aclkeeper aclkeeper.Keeper, _ sdk.Context, m
 		},
 
 		// Modifies account state
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_CT_ACCOUNT,
+			IdentifierTemplate: fromAddrIdentifier,
+		},
+
+		*acltypes.CommitAccessOp(),
+	}
+	return accessOperations, nil
+}
+
+func MsgApplyPendingBalanceDependencyGenerator(_ aclkeeper.Keeper, _ sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
+	msgApplyPendingBalance, ok := msg.(*types.MsgApplyPendingBalance)
+	if !ok {
+		return []sdkacltypes.AccessOperation{}, ErrorInvalidMsgType
+	}
+
+	fromAddrIdentifier := hex.EncodeToString(types.GetAccountPrefixFromBech32(msgApplyPendingBalance.Address))
+
+	accessOperations := []sdkacltypes.AccessOperation{
+		// Get account state
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_CT_ACCOUNT,
+			IdentifierTemplate: fromAddrIdentifier,
+		},
+		// Apply pending balance
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_CT_ACCOUNT,

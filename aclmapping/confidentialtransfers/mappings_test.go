@@ -464,3 +464,74 @@ func (suite *KeeperTestSuite) TestMsgInitializeAccountDependencies() {
 		})
 	}
 }
+
+func (suite *KeeperTestSuite) TestMsgApplyPendingBalanceDependencies() {
+	suite.PrepareTest()
+
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+
+	// Initialize an account
+	initialState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 10, 2000, 3000, 1000)
+
+	applyPendingBalanceMsg, _ := types.NewMsgApplyPendingBalance(
+		*senderPk,
+		senderAddr.String(),
+		DefaultTestDenom,
+		initialState.DecryptableAvailableBalance,
+		initialState.PendingBalanceCreditCounter,
+		initialState.AvailableBalance,
+		initialState.PendingBalanceLo,
+		initialState.PendingBalanceHi)
+
+	tests := []struct {
+		name          string
+		expectedError error
+		msg           *types.MsgApplyPendingBalance
+		dynamicDep    bool
+	}{
+		{
+			name:          "apply pending balance in dynamic dep mode",
+			msg:           applyPendingBalanceMsg,
+			expectedError: nil,
+			dynamicDep:    true,
+		},
+		{
+			name:          "apply pending balance in sync dep mode",
+			msg:           applyPendingBalanceMsg,
+			expectedError: nil,
+			dynamicDep:    false,
+		},
+	}
+	for _, tc := range tests {
+		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
+
+			handlerCtx, cms := cacheTxContext(suite.Ctx)
+
+			_, err := suite.msgServer.ApplyPendingBalance(
+				sdk.WrapSDKContext(handlerCtx),
+				tc.msg,
+			)
+			suite.Require().NoError(err)
+
+			dependencies, _ := ctacl.MsgApplyPendingBalanceDependencyGenerator(
+				suite.App.AccessControlKeeper,
+				handlerCtx,
+				tc.msg,
+			)
+
+			if !tc.dynamicDep {
+				dependencies = sdkacltypes.SynchronousAccessOps()
+			}
+
+			if tc.expectedError != nil {
+				suite.Require().EqualError(err, tc.expectedError.Error())
+			} else {
+				suite.Require().NoError(err)
+			}
+
+			missing := handlerCtx.MsgValidator().ValidateAccessOperations(dependencies, cms.GetEvents())
+			suite.Require().Empty(missing)
+		})
+	}
+}
