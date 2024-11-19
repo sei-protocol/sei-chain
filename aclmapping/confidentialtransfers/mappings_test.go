@@ -87,7 +87,7 @@ func (suite *KeeperTestSuite) SetupAccountState(privateKey *ecdsa.PrivateKey, de
 	// Extract the next 32 bits (from bit 16 to bit 47)
 	pendingBalanceHi := uint32((pendingBalance >> 16) & 0xFFFFFFFF)
 
-	availableBalanceCipherText, _, err := teg.Encrypt(keypair.PublicKey, uint64(availableBalance))
+	availableBalanceCipherText, _, err := teg.Encrypt(keypair.PublicKey, availableBalance)
 	if err != nil {
 		return types.Account{}, err
 	}
@@ -102,7 +102,7 @@ func (suite *KeeperTestSuite) SetupAccountState(privateKey *ecdsa.PrivateKey, de
 		return types.Account{}, err
 	}
 
-	decryptableAvailableBalance, err := encryption.EncryptAESGCM(uint64(availableBalance), aesKey)
+	decryptableAvailableBalance, err := encryption.EncryptAESGCM(availableBalance, aesKey)
 	if err != nil {
 		return types.Account{}, err
 	}
@@ -213,7 +213,24 @@ func (suite *KeeperTestSuite) TestMsgTransferDependencies() {
 	}
 }
 
-func TestGeneratorInvalidMessageTypes(t *testing.T) {
+func TestGeneratorInvalidTransferMessageTypes(t *testing.T) {
+	app, ctx, oracleVote := setUp()
+
+	_, err := ctacl.MsgTransferDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
+	require.Error(t, err)
+	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
+}
+
+func TestGeneratorInvalidDepositMessageTypes(t *testing.T) {
+	app, ctx, oracleVote := setUp()
+
+	_, err := ctacl.MsgDepositDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
+	require.Error(t, err)
+	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
+}
+
+func setUp() (*simapp.SimApp, sdk.Context, oracletypes.MsgAggregateExchangeRateVote) {
+	// setup
 	accs := authtypes.GenesisAccounts{}
 	var balances []banktypes.Balance
 
@@ -225,8 +242,139 @@ func TestGeneratorInvalidMessageTypes(t *testing.T) {
 		Feeder:        "test",
 		Validator:     "validator",
 	}
+	return app, ctx, oracleVote
+}
 
-	_, err := ctacl.MsgTransferDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
+func (suite *KeeperTestSuite) TestMsgDepositDependencies() {
+	suite.PrepareTest()
+
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+
+	// Initialize an account
+	_, _ = suite.SetupAccountState(senderPk, DefaultTestDenom, 10, 2000, 3000, 1000)
+
+	depositAmount := uint64(500)
+
+	depositStruct := &types.MsgDeposit{
+		FromAddress: senderAddr.String(),
+		Denom:       DefaultTestDenom,
+		Amount:      depositAmount,
+	}
+
+	tests := []struct {
+		name          string
+		expectedError error
+		msg           *types.MsgDeposit
+		dynamicDep    bool
+	}{
+		{
+			name:          "deposit in dynamic dep mode",
+			msg:           depositStruct,
+			expectedError: nil,
+			dynamicDep:    true,
+		},
+		{
+			name:          "deposit in sync dep mode",
+			msg:           depositStruct,
+			expectedError: nil,
+			dynamicDep:    false,
+		},
+	}
+	for _, tc := range tests {
+		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
+			handlerCtx, cms := cacheTxContext(suite.Ctx)
+			_, err := suite.msgServer.Deposit(
+				sdk.WrapSDKContext(handlerCtx),
+				tc.msg,
+			)
+			suite.Require().NoError(err)
+
+			dependencies, _ := ctacl.MsgDepositDependencyGenerator(
+				suite.App.AccessControlKeeper,
+				handlerCtx,
+				tc.msg,
+			)
+
+			if !tc.dynamicDep {
+				dependencies = sdkacltypes.SynchronousAccessOps()
+			}
+
+			if tc.expectedError != nil {
+				suite.Require().EqualError(err, tc.expectedError.Error())
+			} else {
+				suite.Require().NoError(err)
+			}
+
+			missing := handlerCtx.MsgValidator().ValidateAccessOperations(dependencies, cms.GetEvents())
+			suite.Require().Empty(missing)
+		})
+	}
+}
+
+func TestGeneratorInvalidInitializeAccountMessageTypes(t *testing.T) {
+	app, ctx, oracleVote := setUp()
+
+	_, err := ctacl.MsgInitializeAccountDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
 	require.Error(t, err)
-	require.Equal(t, "invalid message received for confidential treansfers module", err.Error())
+	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
+}
+
+func (suite *KeeperTestSuite) TestMsgInitializeAccountDependencies() {
+	suite.PrepareTest()
+
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+
+	initAccount, _ := types.NewInitializeAccount(senderAddr.String(), DefaultTestDenom, *senderPk)
+	initializeAccountStruct := types.NewMsgInitializeAccountProto(initAccount)
+
+	tests := []struct {
+		name          string
+		expectedError error
+		msg           *types.MsgInitializeAccount
+		dynamicDep    bool
+	}{
+		{
+			name:          "initialize account in dynamic dep mode",
+			msg:           initializeAccountStruct,
+			expectedError: nil,
+			dynamicDep:    true,
+		},
+		{
+			name:          "initialize account in sync dep mode",
+			msg:           initializeAccountStruct,
+			expectedError: nil,
+			dynamicDep:    false,
+		},
+	}
+	for _, tc := range tests {
+		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
+			handlerCtx, cms := cacheTxContext(suite.Ctx)
+			_, err := suite.msgServer.InitializeAccount(
+				sdk.WrapSDKContext(handlerCtx),
+				tc.msg,
+			)
+			suite.Require().NoError(err)
+
+			dependencies, _ := ctacl.MsgInitializeAccountDependencyGenerator(
+				suite.App.AccessControlKeeper,
+				handlerCtx,
+				tc.msg,
+			)
+
+			if !tc.dynamicDep {
+				dependencies = sdkacltypes.SynchronousAccessOps()
+			}
+
+			if tc.expectedError != nil {
+				suite.Require().EqualError(err, tc.expectedError.Error())
+			} else {
+				suite.Require().NoError(err)
+			}
+
+			missing := handlerCtx.MsgValidator().ValidateAccessOperations(dependencies, cms.GetEvents())
+			suite.Require().Empty(missing)
+		})
+	}
 }
