@@ -12,6 +12,7 @@ import (
 	ctacl "github.com/sei-protocol/sei-chain/aclmapping/confidentialtransfers"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
@@ -83,11 +84,7 @@ func (suite *KeeperTestSuite) SetupAccountState(privateKey *ecdsa.PrivateKey, de
 	availableBalance := initialAvailableBalance
 	pendingBalance := initialPendingBalance
 
-	// Extract the bottom 16 bits (rightmost 16 bits)
-	pendingBalanceLo := uint16(pendingBalance & 0xFFFF)
-
-	// Extract the next 32 bits (from bit 16 to bit 47)
-	pendingBalanceHi := uint32((pendingBalance >> 16) & 0xFFFFFFFF)
+	pendingBalanceLo, pendingBalanceHi, _ := utils.SplitTransferBalance(pendingBalance)
 
 	availableBalanceCipherText, _, err := teg.Encrypt(keypair.PublicKey, availableBalance)
 	if err != nil {
