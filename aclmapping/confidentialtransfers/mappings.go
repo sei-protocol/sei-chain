@@ -23,11 +23,13 @@ func GetConfidentialTransfersDependencyGenerators() aclkeeper.DependencyGenerato
 	depositMsgKey := acltypes.GenerateMessageKey(&types.MsgDeposit{})
 	withdrawMsgKey := acltypes.GenerateMessageKey(&types.MsgWithdraw{})
 	applyPendingBalanceMsgKey := acltypes.GenerateMessageKey(&types.MsgApplyPendingBalance{})
+	closeAccountMsgKey := acltypes.GenerateMessageKey(&types.MsgCloseAccount{})
 	dependencyGeneratorMap[transferMsgKey] = MsgTransferDependencyGenerator
 	dependencyGeneratorMap[initializeAccountMsgKey] = MsgInitializeAccountDependencyGenerator
 	dependencyGeneratorMap[depositMsgKey] = MsgDepositDependencyGenerator
 	dependencyGeneratorMap[withdrawMsgKey] = MsgWithdrawDependencyGenerator
 	dependencyGeneratorMap[applyPendingBalanceMsgKey] = MsgApplyPendingBalanceDependencyGenerator
+	dependencyGeneratorMap[closeAccountMsgKey] = MsgCloseAccountDependencyGenerator
 
 	return dependencyGeneratorMap
 }
@@ -221,6 +223,33 @@ func MsgApplyPendingBalanceDependencyGenerator(_ aclkeeper.Keeper, _ sdk.Context
 			IdentifierTemplate: fromAddrIdentifier,
 		},
 		// Apply pending balance
+		{
+			AccessType:         sdkacltypes.AccessType_WRITE,
+			ResourceType:       sdkacltypes.ResourceType_KV_CT_ACCOUNT,
+			IdentifierTemplate: fromAddrIdentifier,
+		},
+
+		*acltypes.CommitAccessOp(),
+	}
+	return accessOperations, nil
+}
+
+func MsgCloseAccountDependencyGenerator(_ aclkeeper.Keeper, _ sdk.Context, msg sdk.Msg) ([]sdkacltypes.AccessOperation, error) {
+	msgCloseAccount, ok := msg.(*types.MsgCloseAccount)
+	if !ok {
+		return []sdkacltypes.AccessOperation{}, ErrorInvalidMsgType
+	}
+
+	fromAddrIdentifier := hex.EncodeToString(types.GetAccountPrefixFromBech32(msgCloseAccount.Address))
+
+	accessOperations := []sdkacltypes.AccessOperation{
+		// Get account state
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_CT_ACCOUNT,
+			IdentifierTemplate: fromAddrIdentifier,
+		},
+		// Close account
 		{
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_CT_ACCOUNT,

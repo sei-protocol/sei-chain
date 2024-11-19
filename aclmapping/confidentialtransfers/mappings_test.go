@@ -13,6 +13,7 @@ import (
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
+	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
@@ -54,6 +55,7 @@ func (suite *KeeperTestSuite) PrepareTest() {
 	suite.SetupConfidentialTransfers()
 	suite.queryClient = types.NewQueryClient(suite.QueryHelper)
 	suite.msgServer = keeper.NewMsgServerImpl(suite.App.ConfidentialTransfersKeeper)
+	suite.tfMsgServer = tokenfactorykeeper.NewMsgServerImpl(suite.App.TokenFactoryKeeper)
 
 	msgValidator := sdkacltypes.NewMsgValidator(aclutils.StoreKeyToResourceTypePrefixMap)
 	suite.Ctx = suite.Ctx.WithMsgValidator(msgValidator)
@@ -237,6 +239,22 @@ func TestGeneratorInvalidWithdrawMessageTypes(t *testing.T) {
 	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
 }
 
+func TestGeneratorInvalidApplyPendingBalanceMessageTypes(t *testing.T) {
+	app, ctx, oracleVote := setUp()
+
+	_, err := ctacl.MsgApplyPendingBalanceDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
+	require.Error(t, err)
+	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
+}
+
+func TestGeneratorInvalidCloseAccountMessageTypes(t *testing.T) {
+	app, ctx, oracleVote := setUp()
+
+	_, err := ctacl.MsgCloseAccountDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
+	require.Error(t, err)
+	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
+}
+
 func setUp() (*simapp.SimApp, sdk.Context, oracletypes.MsgAggregateExchangeRateVote) {
 	// setup
 	accs := authtypes.GenesisAccounts{}
@@ -412,7 +430,13 @@ func (suite *KeeperTestSuite) TestMsgInitializeAccountDependencies() {
 	senderPk := suite.PrivKeys[0]
 	senderAddr := privkeyToAddress(senderPk)
 
-	initAccount, _ := types.NewInitializeAccount(senderAddr.String(), DefaultTestDenom, *senderPk)
+	res, err := suite.tfMsgServer.CreateDenom(
+		sdk.WrapSDKContext(suite.Ctx),
+		tokenfactorytypes.NewMsgCreateDenom(suite.TestAccs[0].String(), DefaultTestDenom),
+	)
+	suite.Require().NoError(err)
+
+	initAccount, _ := types.NewInitializeAccount(senderAddr.String(), res.NewTokenDenom, *senderPk)
 	initializeAccountStruct := types.NewMsgInitializeAccountProto(initAccount)
 
 	tests := []struct {
@@ -515,6 +539,77 @@ func (suite *KeeperTestSuite) TestMsgApplyPendingBalanceDependencies() {
 			suite.Require().NoError(err)
 
 			dependencies, _ := ctacl.MsgApplyPendingBalanceDependencyGenerator(
+				suite.App.AccessControlKeeper,
+				handlerCtx,
+				tc.msg,
+			)
+
+			if !tc.dynamicDep {
+				dependencies = sdkacltypes.SynchronousAccessOps()
+			}
+
+			if tc.expectedError != nil {
+				suite.Require().EqualError(err, tc.expectedError.Error())
+			} else {
+				suite.Require().NoError(err)
+			}
+
+			missing := handlerCtx.MsgValidator().ValidateAccessOperations(dependencies, cms.GetEvents())
+			suite.Require().Empty(missing)
+		})
+	}
+}
+
+func (suite *KeeperTestSuite) TestMsgCloseAccountDependencies() {
+	suite.PrepareTest()
+
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+
+	// Initialize an account
+	initialState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 0, 0, 0, 1000)
+
+	closeAccount, _ := types.NewCloseAccount(
+		*senderPk,
+		senderAddr.String(),
+		DefaultTestDenom,
+		initialState.PendingBalanceLo,
+		initialState.PendingBalanceHi,
+		initialState.AvailableBalance)
+
+	closeAccountMsg := types.NewMsgCloseAccountProto(closeAccount)
+
+	tests := []struct {
+		name          string
+		expectedError error
+		msg           *types.MsgCloseAccount
+		dynamicDep    bool
+	}{
+		{
+			name:          "close account in dynamic dep mode",
+			msg:           closeAccountMsg,
+			expectedError: nil,
+			dynamicDep:    true,
+		},
+		{
+			name:          "close account in sync dep mode",
+			msg:           closeAccountMsg,
+			expectedError: nil,
+			dynamicDep:    false,
+		},
+	}
+	for _, tc := range tests {
+		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
+
+			handlerCtx, cms := cacheTxContext(suite.Ctx)
+
+			_, err := suite.msgServer.CloseAccount(
+				sdk.WrapSDKContext(handlerCtx),
+				tc.msg,
+			)
+			suite.Require().NoError(err)
+
+			dependencies, _ := ctacl.MsgCloseAccountDependencyGenerator(
 				suite.App.AccessControlKeeper,
 				handlerCtx,
 				tc.msg,
