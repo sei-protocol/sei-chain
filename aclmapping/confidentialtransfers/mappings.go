@@ -2,6 +2,7 @@ package confidentialtransfers
 
 import (
 	"encoding/hex"
+	//"encoding/hex"
 	"fmt"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
