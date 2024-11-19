@@ -2,6 +2,8 @@ package keeper_test
 
 import (
 	"crypto/ecdsa"
+	"testing"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
@@ -10,10 +12,10 @@ import (
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/stretchr/testify/suite"
-	"testing"
 )
 
-const DefaultTestDenom = "test"
+const DefaultTestDenom = "factory/creator/test"
+const DefaultOtherDenom = "factory/creator/other"
 
 type KeeperTestSuite struct {
 	apptesting.KeeperTestHelper
@@ -46,6 +48,8 @@ func (suite *KeeperTestSuite) SetupTest() {
 	)
 	suite.msgServer = keeper.NewMsgServerImpl(suite.App.ConfidentialTransfersKeeper)
 	suite.PrivKeys = apptesting.CreateRandomAccountKeys(3)
+	suite.App.TokenFactoryKeeper.CreateDenom(suite.Ctx, "creator", "test")
+	suite.App.TokenFactoryKeeper.CreateDenom(suite.Ctx, "creator", "other")
 }
 
 func (suite *KeeperTestSuite) SetupAccount() {

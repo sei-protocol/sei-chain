@@ -5,6 +5,8 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"strconv"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -12,6 +14,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/spf13/cobra"
@@ -33,6 +36,10 @@ func NewTxCmd() *cobra.Command {
 
 	txCmd.AddCommand(NewInitializeAccountTxCmd())
 	txCmd.AddCommand(NewCloseAccountTxCmd())
+	txCmd.AddCommand(NewTransferTxCmd())
+	txCmd.AddCommand(NewWithdrawTxCmd())
+	txCmd.AddCommand(NewDepositTxCmd())
+	txCmd.AddCommand(NewApplyPendingBalanceTxCmd())
 
 	return txCmd
 }
@@ -59,11 +66,17 @@ func makeInitializeAccountCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	denom := args[0]
+	err = sdk.ValidateDenom(denom)
+	if err != nil {
+		return fmt.Errorf("invalid denom: %v", err)
+	}
+
 	privKey, err := getPrivateKey(cmd)
 	if err != nil {
 		return err
 	}
-	initializeAccount, err := types.NewInitializeAccount(clientCtx.GetFromAddress().String(), args[0], *privKey)
+	initializeAccount, err := types.NewInitializeAccount(clientCtx.GetFromAddress().String(), denom, *privKey)
 	if err != nil {
 		return err
 	}
@@ -126,6 +139,12 @@ func makeCloseAccountCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	denom := args[0]
+	err = sdk.ValidateDenom(denom)
+	if err != nil {
+		return fmt.Errorf("invalid denom: %v", err)
+	}
+
 	queryClientCtx, err := client.GetClientQueryContext(cmd)
 	if err != nil {
 		return err
@@ -138,17 +157,7 @@ func makeCloseAccountCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	req := &types.GetCtAccountRequest{
-		Address: clientCtx.GetFromAddress().String(),
-		Denom:   args[0],
-	}
-
-	ctAccount, err := queryClient.GetCtAccount(context.Background(), req)
-	if err != nil {
-		return err
-	}
-
-	account, err := ctAccount.GetAccount().FromProto()
+	account, err := getAccount(queryClient, clientCtx.GetFromAddress().String(), denom)
 	if err != nil {
 		return err
 	}
@@ -156,7 +165,7 @@ func makeCloseAccountCmd(cmd *cobra.Command, args []string) error {
 	closeAccount, err := types.NewCloseAccount(
 		*privKey,
 		clientCtx.GetFromAddress().String(),
-		args[0],
+		denom,
 		account.PendingBalanceLo,
 		account.PendingBalanceHi,
 		account.AvailableBalance)
@@ -172,4 +181,311 @@ func makeCloseAccountCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+}
+
+// NewTransferTxCmd returns a CLI command handler for creating a MsgTransfer transaction.
+func NewTransferTxCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "transfer [denom] [to_address] [amount] [flags]",
+		Short: "Make a confidential transfer to another address",
+		Long: `Transfer command create a confidential transfer of the specified amount of the specified denomination to the specified address. 
+        passed in .`,
+		Args: cobra.ExactArgs(3),
+		RunE: makeTransferCmd,
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+	cmd.Flags().StringSlice("auditors", []string{}, "List of auditors")
+
+	return cmd
+}
+
+func makeTransferCmd(cmd *cobra.Command, args []string) error {
+	clientCtx, err := client.GetClientTxContext(cmd)
+	if err != nil {
+		return err
+	}
+
+	queryClientCtx, err := client.GetClientQueryContext(cmd)
+	if err != nil {
+		return err
+	}
+
+	queryClient := types.NewQueryClient(queryClientCtx)
+
+	privKey, err := getPrivateKey(cmd)
+	if err != nil {
+		return err
+	}
+
+	fromAddress := clientCtx.GetFromAddress().String()
+	denom := args[0]
+	err = sdk.ValidateDenom(denom)
+	if err != nil {
+		return fmt.Errorf("invalid denom: %v", err)
+	}
+
+	toAddress := args[1]
+	_, err = sdk.AccAddressFromBech32(toAddress)
+	if err != nil {
+		return fmt.Errorf("invalid address: %v", err)
+	}
+
+	amount, err := strconv.ParseUint(args[2], 10, 64)
+	if err != nil {
+		return err
+	}
+
+	senderAccount, err := getAccount(queryClient, fromAddress, denom)
+	if err != nil {
+		return err
+	}
+
+	recipientAccount, err := getAccount(queryClient, toAddress, denom)
+	if err != nil {
+		return err
+	}
+
+	auditorAddrs, err := cmd.Flags().GetStringSlice("auditors")
+	if err != nil {
+		return err
+	}
+
+	auditors := make([]types.AuditorInput, len(auditorAddrs))
+	for i, auditorAddr := range auditorAddrs {
+		auditorAccount, err := getAccount(queryClient, auditorAddr, denom)
+		if err != nil {
+			return err
+		}
+		auditors[i] = types.AuditorInput{
+			Address: auditorAddr,
+			Pubkey:  &auditorAccount.PublicKey,
+		}
+	}
+
+	transfer, err := types.NewTransfer(
+		privKey,
+		fromAddress,
+		toAddress,
+		denom,
+		senderAccount.DecryptableAvailableBalance,
+		senderAccount.AvailableBalance,
+		amount,
+		&recipientAccount.PublicKey,
+		auditors)
+
+	if err != nil {
+		return err
+	}
+
+	msg := types.NewMsgTransferProto(transfer)
+
+	if err = msg.ValidateBasic(); err != nil {
+		return err
+	}
+
+	return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+}
+
+// NewWithdrawTxCmd returns a CLI command handler for creating a MsgWithdraw transaction.
+func NewWithdrawTxCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "withdraw [denom] [amount] [flags]",
+		Short: "Withdraw from confidential transfers account",
+		Long: `Withdraws the specified amount from the confidential transfers account for the specified denomination and address 
+        passed in --from flag.`,
+		Args: cobra.ExactArgs(2),
+		RunE: makeWithdrawCmd,
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func makeWithdrawCmd(cmd *cobra.Command, args []string) error {
+	clientCtx, err := client.GetClientTxContext(cmd)
+	if err != nil {
+		return err
+	}
+
+	queryClientCtx, err := client.GetClientQueryContext(cmd)
+	if err != nil {
+		return err
+	}
+
+	queryClient := types.NewQueryClient(queryClientCtx)
+
+	privKey, err := getPrivateKey(cmd)
+	if err != nil {
+		return err
+	}
+	address := clientCtx.GetFromAddress().String()
+
+	denom := args[0]
+	err = sdk.ValidateDenom(denom)
+	if err != nil {
+		return fmt.Errorf("invalid denom: %v", err)
+	}
+
+	amount, err := strconv.ParseUint(args[1], 10, 64)
+	if err != nil {
+		return err
+	}
+
+	account, err := getAccount(queryClient, address, denom)
+	if err != nil {
+		return err
+	}
+
+	withdraw, err := types.NewWithdraw(
+		*privKey,
+		account.AvailableBalance,
+		denom,
+		address,
+		account.DecryptableAvailableBalance,
+		amount)
+
+	if err != nil {
+		return err
+	}
+
+	msg := types.NewMsgWithdrawProto(withdraw)
+
+	if err = msg.ValidateBasic(); err != nil {
+		return err
+	}
+
+	return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+}
+
+// NewDepositTxCmd returns a CLI command handler for creating a MsgDeposit transaction.
+func NewDepositTxCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "deposit [denom] [amount] [flags]",
+		Short: "Deposit funds into confidential transfers account",
+		Long: `Deposit the specified amount into the confidential transfers account for the specified denomination and address 
+        passed in --from flag.`,
+		Args: cobra.ExactArgs(2),
+		RunE: makeDepositCmd,
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func makeDepositCmd(cmd *cobra.Command, args []string) error {
+	clientCtx, err := client.GetClientTxContext(cmd)
+	if err != nil {
+		return err
+	}
+
+	address := clientCtx.GetFromAddress().String()
+	denom := args[0]
+	err = sdk.ValidateDenom(denom)
+	if err != nil {
+		return fmt.Errorf("invalid denom: %v", err)
+	}
+
+	amount, err := strconv.ParseUint(args[1], 10, 64)
+	if err != nil {
+		return err
+	}
+
+	msg := &types.MsgDeposit{
+		FromAddress: address,
+		Denom:       denom,
+		Amount:      amount,
+	}
+
+	if err = msg.ValidateBasic(); err != nil {
+		return err
+	}
+
+	return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+}
+
+// NewApplyPendingBalanceCmd returns a CLI command handler for creating a MsgDeposit transaction.
+func NewApplyPendingBalanceTxCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "apply-pending-balance [denom] [flags]",
+		Short: "Applies the pending balances to the available balances",
+		Long: `Makes the pending balances of the confidential token account for the specified denomination and address 
+        passed in --from flag spendable by moving them to the available balance.`,
+		Args: cobra.ExactArgs(1),
+		RunE: makeApplyPendingBalanceCmd,
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func makeApplyPendingBalanceCmd(cmd *cobra.Command, args []string) error {
+	clientCtx, err := client.GetClientTxContext(cmd)
+	if err != nil {
+		return err
+	}
+
+	queryClientCtx, err := client.GetClientQueryContext(cmd)
+	if err != nil {
+		return err
+	}
+
+	queryClient := types.NewQueryClient(queryClientCtx)
+	privKey, err := getPrivateKey(cmd)
+	if err != nil {
+		return err
+	}
+
+	address := clientCtx.GetFromAddress().String()
+	denom := args[0]
+	err = sdk.ValidateDenom(denom)
+	if err != nil {
+		return fmt.Errorf("invalid denom: %v", err)
+	}
+
+	account, err := getAccount(queryClient, clientCtx.GetFromAddress().String(), denom)
+	if err != nil {
+		return err
+	}
+
+	msg, err := types.NewMsgApplyPendingBalance(
+		*privKey,
+		address,
+		denom,
+		account.DecryptableAvailableBalance,
+		account.PendingBalanceCreditCounter,
+		account.AvailableBalance,
+		account.PendingBalanceLo,
+		account.PendingBalanceHi)
+
+	if err != nil {
+		return err
+	}
+
+	if err = msg.ValidateBasic(); err != nil {
+		return err
+	}
+
+	return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+}
+
+// Uses the query client to get the account data for the given address and denomination.
+func getAccount(queryClient types.QueryClient, address, denom string) (*types.Account, error) {
+	ctAccount, err := queryClient.GetCtAccount(context.Background(), &types.GetCtAccountRequest{
+		Address: address,
+		Denom:   denom,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	account, err := ctAccount.GetAccount().FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return account, nil
 }

@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"bytes"
 	"context"
 	"math"
 
@@ -37,6 +38,12 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 	_, exists := m.Keeper.GetAccount(ctx, req.FromAddress, instruction.Denom)
 	if exists {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrNotFound, "account already exists")
+	}
+
+	// Check if denom already exists.
+	_, denomExists := m.Keeper.BankKeeper().GetDenomMetaData(ctx, instruction.Denom)
+	if !denomExists {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "denom does not exist")
 	}
 
 	// Validate the public key
@@ -111,7 +118,7 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 	}
 
 	// The maximum transfer amount is 2^48
-	if req.Amount > uint64((2<<48)-1) {
+	if req.Amount > uint64((1<<48)-1) {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "exceeded maximum deposit amount of 2^48")
 	}
 
@@ -259,6 +266,19 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "no pending balances to apply")
 	}
 
+	// Validate that the balances sent by the user match the balances stored on the server.
+	// If the balances do not match, the state has changed since the user created the apply balances.
+	// If the pending balance has changed, the account received a transfer or deposit after the user created the apply balances.
+	if uint16(req.CurrentPendingBalanceCounter) != account.PendingBalanceCreditCounter {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "pending balance mismatch")
+	}
+	// If the available balance has changed, the account submitted a withdraw after the user created the apply balances.
+	protoAvailableBalance := types.NewCiphertextProto(account.AvailableBalance)
+	if !bytes.Equal(protoAvailableBalance.GetC(), req.CurrentAvailableBalance.C) ||
+		!bytes.Equal(protoAvailableBalance.GetD(), req.CurrentAvailableBalance.D) {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "available balance mismatch")
+	}
+
 	// Calculate updated balances
 	teg := elgamal.NewTwistedElgamal()
 	newAvailableBalance, err := teg.AddWithLoHi(account.AvailableBalance, account.PendingBalanceLo, account.PendingBalanceHi)
@@ -356,6 +376,10 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	instruction, err := req.FromProto()
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid msg")
+	}
+
+	if instruction.FromAddress == instruction.ToAddress {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "sender and recipient addresses must be different")
 	}
 
 	// Check that sender and recipient accounts exist.
