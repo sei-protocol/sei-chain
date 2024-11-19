@@ -61,7 +61,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountBasic() {
 	suite.Require().ErrorContains(err, "account already exists")
 
 	// Try to initialize another account for a different denom
-	otherDenom := "otherdenom"
+	otherDenom := DefaultOtherDenom
 	initializeStruct, _ = types.NewInitializeAccount(testAddr.String(), otherDenom, *testPk)
 	req = types.NewMsgInitializeAccountProto(initializeStruct)
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
@@ -190,7 +190,26 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyBalances() {
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error initializing account with non-zero pending balance hi despite generating a proof on it.")
 	suite.Require().ErrorContains(err, "invalid pending balance hi")
+}
 
+// Tests scenarios where the client tries to initialize an account on a denom that doesn't exist.
+func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountDenomDoesnExist() {
+	testPk := suite.PrivKeys[0]
+
+	// Generate the address from the private key
+	testAddr := privkeyToAddress(testPk)
+
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	nonExistentDenom := "nonExistentDenom"
+
+	initialize, err := types.NewInitializeAccount(testAddr.String(), nonExistentDenom, *testPk)
+	req := types.NewMsgInitializeAccountProto(initialize)
+	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
+
+	// Test that submitting an initialization request for a non-existent denom will fail.
+	suite.Require().Error(err, "Should not be able to create denom on non-existent denom")
+	suite.Require().ErrorContains(err, "denom does not exist")
 }
 
 // Validate alternate scenarios that are technically allowed, but will cause incompatibility with the client.
@@ -209,7 +228,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountAlternateHappyPaths
 	initializeStruct, _ := types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
 
 	// Modify the denom
-	otherDenom := "otherdenom"
+	otherDenom := DefaultOtherDenom
 	initializeStruct.Denom = otherDenom
 	req := types.NewMsgInitializeAccountProto(initializeStruct)
 	_, err := suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
