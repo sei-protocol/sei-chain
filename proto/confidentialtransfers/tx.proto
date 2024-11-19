@@ -115,6 +115,8 @@ message MsgApplyPendingBalance {
   string address = 1 [(gogoproto.moretags) = "yaml:\"address\""];
   string denom = 2 [(gogoproto.moretags) = "yaml:\"denom\""];
   string new_decryptable_available_balance = 3 [(gogoproto.moretags) = "yaml:\"new_decryptable_available_balance\""];
+  uint32 current_pending_balance_counter = 4 [(gogoproto.moretags) = "yaml:\"current_pending_balance_counter\""];
+  Ciphertext current_available_balance = 5 [(gogoproto.moretags) = "yaml:\"current_available_balance\""];
 }
 
 message MsgApplyPendingBalanceResponse {}
