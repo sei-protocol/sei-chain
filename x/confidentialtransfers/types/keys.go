@@ -22,10 +22,16 @@ const (
 )
 
 var (
-	AccountsKey = []byte{0x01}
+	AccountsKeyPrefix = []byte{0x01}
 )
 
 // GetAddressPrefix generates the prefix for all accounts under a specific address
 func GetAddressPrefix(addr sdk.AccAddress) []byte {
-	return append(AccountsKey, address.MustLengthPrefix(addr)...)
+	return append(AccountsKeyPrefix, address.MustLengthPrefix(addr)...)
+}
+
+func GetAccountPrefixFromBech32(addr string) []byte {
+	accAdrr, _ := sdk.AccAddressFromBech32(addr)
+	accAdrrPrefix := GetAddressPrefix(accAdrr)
+	return accAdrrPrefix
 }
