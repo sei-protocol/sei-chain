@@ -134,6 +134,209 @@ func privkeyToAddress(privateKey *ecdsa.PrivateKey) sdk.AccAddress {
 	return testAddr
 }
 
+func (suite *KeeperTestSuite) TestMsgInitializeAccountDependencies() {
+	suite.PrepareTest()
+
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+
+	res, err := suite.tfMsgServer.CreateDenom(
+		sdk.WrapSDKContext(suite.Ctx),
+		tokenfactorytypes.NewMsgCreateDenom(suite.TestAccs[0].String(), DefaultTestDenom),
+	)
+	suite.Require().NoError(err)
+
+	initAccount, _ := types.NewInitializeAccount(senderAddr.String(), res.NewTokenDenom, *senderPk)
+	initializeAccountStruct := types.NewMsgInitializeAccountProto(initAccount)
+
+	tests := []struct {
+		name          string
+		expectedError error
+		msg           *types.MsgInitializeAccount
+		dynamicDep    bool
+	}{
+		{
+			name:          "initialize account in dynamic dep mode",
+			msg:           initializeAccountStruct,
+			expectedError: nil,
+			dynamicDep:    true,
+		},
+		{
+			name:          "initialize account in sync dep mode",
+			msg:           initializeAccountStruct,
+			expectedError: nil,
+			dynamicDep:    false,
+		},
+	}
+	for _, tc := range tests {
+		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
+			handlerCtx, cms := cacheTxContext(suite.Ctx)
+			_, err := suite.msgServer.InitializeAccount(
+				sdk.WrapSDKContext(handlerCtx),
+				tc.msg,
+			)
+			suite.Require().NoError(err)
+
+			dependencies, _ := ctacl.MsgInitializeAccountDependencyGenerator(
+				suite.App.AccessControlKeeper,
+				handlerCtx,
+				tc.msg,
+			)
+
+			if !tc.dynamicDep {
+				dependencies = sdkacltypes.SynchronousAccessOps()
+			}
+
+			if tc.expectedError != nil {
+				suite.Require().EqualError(err, tc.expectedError.Error())
+			} else {
+				suite.Require().NoError(err)
+			}
+
+			missing := handlerCtx.MsgValidator().ValidateAccessOperations(dependencies, cms.GetEvents())
+			suite.Require().Empty(missing)
+		})
+	}
+}
+
+func (suite *KeeperTestSuite) TestMsgDepositDependencies() {
+	suite.PrepareTest()
+
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+
+	// Initialize an account
+	_, _ = suite.SetupAccountState(senderPk, DefaultTestDenom, 10, 2000, 3000, 1000)
+
+	depositAmount := uint64(500)
+
+	depositStruct := &types.MsgDeposit{
+		FromAddress: senderAddr.String(),
+		Denom:       DefaultTestDenom,
+		Amount:      depositAmount,
+	}
+
+	tests := []struct {
+		name          string
+		expectedError error
+		msg           *types.MsgDeposit
+		dynamicDep    bool
+	}{
+		{
+			name:          "deposit in dynamic dep mode",
+			msg:           depositStruct,
+			expectedError: nil,
+			dynamicDep:    true,
+		},
+		{
+			name:          "deposit in sync dep mode",
+			msg:           depositStruct,
+			expectedError: nil,
+			dynamicDep:    false,
+		},
+	}
+	for _, tc := range tests {
+		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
+			handlerCtx, cms := cacheTxContext(suite.Ctx)
+			_, err := suite.msgServer.Deposit(
+				sdk.WrapSDKContext(handlerCtx),
+				tc.msg,
+			)
+			suite.Require().NoError(err)
+
+			dependencies, _ := ctacl.MsgDepositDependencyGenerator(
+				suite.App.AccessControlKeeper,
+				handlerCtx,
+				tc.msg,
+			)
+
+			if !tc.dynamicDep {
+				dependencies = sdkacltypes.SynchronousAccessOps()
+			}
+
+			if tc.expectedError != nil {
+				suite.Require().EqualError(err, tc.expectedError.Error())
+			} else {
+				suite.Require().NoError(err)
+			}
+
+			missing := handlerCtx.MsgValidator().ValidateAccessOperations(dependencies, cms.GetEvents())
+			suite.Require().Empty(missing)
+		})
+	}
+}
+
+func (suite *KeeperTestSuite) TestMsgApplyPendingBalanceDependencies() {
+	suite.PrepareTest()
+
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+
+	// Initialize an account
+	initialState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 10, 2000, 3000, 1000)
+
+	applyPendingBalanceMsg, _ := types.NewMsgApplyPendingBalance(
+		*senderPk,
+		senderAddr.String(),
+		DefaultTestDenom,
+		initialState.DecryptableAvailableBalance,
+		initialState.PendingBalanceCreditCounter,
+		initialState.AvailableBalance,
+		initialState.PendingBalanceLo,
+		initialState.PendingBalanceHi)
+
+	tests := []struct {
+		name          string
+		expectedError error
+		msg           *types.MsgApplyPendingBalance
+		dynamicDep    bool
+	}{
+		{
+			name:          "apply pending balance in dynamic dep mode",
+			msg:           applyPendingBalanceMsg,
+			expectedError: nil,
+			dynamicDep:    true,
+		},
+		{
+			name:          "apply pending balance in sync dep mode",
+			msg:           applyPendingBalanceMsg,
+			expectedError: nil,
+			dynamicDep:    false,
+		},
+	}
+	for _, tc := range tests {
+		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
+
+			handlerCtx, cms := cacheTxContext(suite.Ctx)
+
+			_, err := suite.msgServer.ApplyPendingBalance(
+				sdk.WrapSDKContext(handlerCtx),
+				tc.msg,
+			)
+			suite.Require().NoError(err)
+
+			dependencies, _ := ctacl.MsgApplyPendingBalanceDependencyGenerator(
+				suite.App.AccessControlKeeper,
+				handlerCtx,
+				tc.msg,
+			)
+
+			if !tc.dynamicDep {
+				dependencies = sdkacltypes.SynchronousAccessOps()
+			}
+
+			if tc.expectedError != nil {
+				suite.Require().EqualError(err, tc.expectedError.Error())
+			} else {
+				suite.Require().NoError(err)
+			}
+
+			missing := handlerCtx.MsgValidator().ValidateAccessOperations(dependencies, cms.GetEvents())
+			suite.Require().Empty(missing)
+		})
+	}
+}
+
 func (suite *KeeperTestSuite) TestMsgTransferDependencies() {
 	suite.PrepareTest()
 
@@ -194,129 +397,6 @@ func (suite *KeeperTestSuite) TestMsgTransferDependencies() {
 			suite.Require().NoError(err)
 
 			dependencies, _ := ctacl.MsgTransferDependencyGenerator(
-				suite.App.AccessControlKeeper,
-				handlerCtx,
-				tc.msg,
-			)
-
-			if !tc.dynamicDep {
-				dependencies = sdkacltypes.SynchronousAccessOps()
-			}
-
-			if tc.expectedError != nil {
-				suite.Require().EqualError(err, tc.expectedError.Error())
-			} else {
-				suite.Require().NoError(err)
-			}
-
-			missing := handlerCtx.MsgValidator().ValidateAccessOperations(dependencies, cms.GetEvents())
-			suite.Require().Empty(missing)
-		})
-	}
-}
-
-func TestGeneratorInvalidTransferMessageTypes(t *testing.T) {
-	app, ctx, oracleVote := setUp()
-
-	_, err := ctacl.MsgTransferDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
-	require.Error(t, err)
-	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
-}
-
-func TestGeneratorInvalidDepositMessageTypes(t *testing.T) {
-	app, ctx, oracleVote := setUp()
-
-	_, err := ctacl.MsgDepositDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
-	require.Error(t, err)
-	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
-}
-
-func TestGeneratorInvalidWithdrawMessageTypes(t *testing.T) {
-	app, ctx, oracleVote := setUp()
-
-	_, err := ctacl.MsgWithdrawDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
-	require.Error(t, err)
-	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
-}
-
-func TestGeneratorInvalidApplyPendingBalanceMessageTypes(t *testing.T) {
-	app, ctx, oracleVote := setUp()
-
-	_, err := ctacl.MsgApplyPendingBalanceDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
-	require.Error(t, err)
-	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
-}
-
-func TestGeneratorInvalidCloseAccountMessageTypes(t *testing.T) {
-	app, ctx, oracleVote := setUp()
-
-	_, err := ctacl.MsgCloseAccountDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
-	require.Error(t, err)
-	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
-}
-
-func setUp() (*simapp.SimApp, sdk.Context, oracletypes.MsgAggregateExchangeRateVote) {
-	// setup
-	accs := authtypes.GenesisAccounts{}
-	var balances []banktypes.Balance
-
-	app := simapp.SetupWithGenesisAccounts(accs, balances...)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-
-	oracleVote := oracletypes.MsgAggregateExchangeRateVote{
-		ExchangeRates: "1usei",
-		Feeder:        "test",
-		Validator:     "validator",
-	}
-	return app, ctx, oracleVote
-}
-
-func (suite *KeeperTestSuite) TestMsgDepositDependencies() {
-	suite.PrepareTest()
-
-	senderPk := suite.PrivKeys[0]
-	senderAddr := privkeyToAddress(senderPk)
-
-	// Initialize an account
-	_, _ = suite.SetupAccountState(senderPk, DefaultTestDenom, 10, 2000, 3000, 1000)
-
-	depositAmount := uint64(500)
-
-	depositStruct := &types.MsgDeposit{
-		FromAddress: senderAddr.String(),
-		Denom:       DefaultTestDenom,
-		Amount:      depositAmount,
-	}
-
-	tests := []struct {
-		name          string
-		expectedError error
-		msg           *types.MsgDeposit
-		dynamicDep    bool
-	}{
-		{
-			name:          "deposit in dynamic dep mode",
-			msg:           depositStruct,
-			expectedError: nil,
-			dynamicDep:    true,
-		},
-		{
-			name:          "deposit in sync dep mode",
-			msg:           depositStruct,
-			expectedError: nil,
-			dynamicDep:    false,
-		},
-	}
-	for _, tc := range tests {
-		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
-			handlerCtx, cms := cacheTxContext(suite.Ctx)
-			_, err := suite.msgServer.Deposit(
-				sdk.WrapSDKContext(handlerCtx),
-				tc.msg,
-			)
-			suite.Require().NoError(err)
-
-			dependencies, _ := ctacl.MsgDepositDependencyGenerator(
 				suite.App.AccessControlKeeper,
 				handlerCtx,
 				tc.msg,
@@ -416,150 +496,6 @@ func (suite *KeeperTestSuite) TestMsgWithdrawDependencies() {
 	}
 }
 
-func TestGeneratorInvalidInitializeAccountMessageTypes(t *testing.T) {
-	app, ctx, oracleVote := setUp()
-
-	_, err := ctacl.MsgInitializeAccountDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
-	require.Error(t, err)
-	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
-}
-
-func (suite *KeeperTestSuite) TestMsgInitializeAccountDependencies() {
-	suite.PrepareTest()
-
-	senderPk := suite.PrivKeys[0]
-	senderAddr := privkeyToAddress(senderPk)
-
-	res, err := suite.tfMsgServer.CreateDenom(
-		sdk.WrapSDKContext(suite.Ctx),
-		tokenfactorytypes.NewMsgCreateDenom(suite.TestAccs[0].String(), DefaultTestDenom),
-	)
-	suite.Require().NoError(err)
-
-	initAccount, _ := types.NewInitializeAccount(senderAddr.String(), res.NewTokenDenom, *senderPk)
-	initializeAccountStruct := types.NewMsgInitializeAccountProto(initAccount)
-
-	tests := []struct {
-		name          string
-		expectedError error
-		msg           *types.MsgInitializeAccount
-		dynamicDep    bool
-	}{
-		{
-			name:          "initialize account in dynamic dep mode",
-			msg:           initializeAccountStruct,
-			expectedError: nil,
-			dynamicDep:    true,
-		},
-		{
-			name:          "initialize account in sync dep mode",
-			msg:           initializeAccountStruct,
-			expectedError: nil,
-			dynamicDep:    false,
-		},
-	}
-	for _, tc := range tests {
-		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
-			handlerCtx, cms := cacheTxContext(suite.Ctx)
-			_, err := suite.msgServer.InitializeAccount(
-				sdk.WrapSDKContext(handlerCtx),
-				tc.msg,
-			)
-			suite.Require().NoError(err)
-
-			dependencies, _ := ctacl.MsgInitializeAccountDependencyGenerator(
-				suite.App.AccessControlKeeper,
-				handlerCtx,
-				tc.msg,
-			)
-
-			if !tc.dynamicDep {
-				dependencies = sdkacltypes.SynchronousAccessOps()
-			}
-
-			if tc.expectedError != nil {
-				suite.Require().EqualError(err, tc.expectedError.Error())
-			} else {
-				suite.Require().NoError(err)
-			}
-
-			missing := handlerCtx.MsgValidator().ValidateAccessOperations(dependencies, cms.GetEvents())
-			suite.Require().Empty(missing)
-		})
-	}
-}
-
-func (suite *KeeperTestSuite) TestMsgApplyPendingBalanceDependencies() {
-	suite.PrepareTest()
-
-	senderPk := suite.PrivKeys[0]
-	senderAddr := privkeyToAddress(senderPk)
-
-	// Initialize an account
-	initialState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 10, 2000, 3000, 1000)
-
-	applyPendingBalanceMsg, _ := types.NewMsgApplyPendingBalance(
-		*senderPk,
-		senderAddr.String(),
-		DefaultTestDenom,
-		initialState.DecryptableAvailableBalance,
-		initialState.PendingBalanceCreditCounter,
-		initialState.AvailableBalance,
-		initialState.PendingBalanceLo,
-		initialState.PendingBalanceHi)
-
-	tests := []struct {
-		name          string
-		expectedError error
-		msg           *types.MsgApplyPendingBalance
-		dynamicDep    bool
-	}{
-		{
-			name:          "apply pending balance in dynamic dep mode",
-			msg:           applyPendingBalanceMsg,
-			expectedError: nil,
-			dynamicDep:    true,
-		},
-		{
-			name:          "apply pending balance in sync dep mode",
-			msg:           applyPendingBalanceMsg,
-			expectedError: nil,
-			dynamicDep:    false,
-		},
-	}
-	for _, tc := range tests {
-		suite.Run(fmt.Sprintf("Test Case: %s", tc.name), func() {
-
-			handlerCtx, cms := cacheTxContext(suite.Ctx)
-
-			_, err := suite.msgServer.ApplyPendingBalance(
-				sdk.WrapSDKContext(handlerCtx),
-				tc.msg,
-			)
-			suite.Require().NoError(err)
-
-			dependencies, _ := ctacl.MsgApplyPendingBalanceDependencyGenerator(
-				suite.App.AccessControlKeeper,
-				handlerCtx,
-				tc.msg,
-			)
-
-			if !tc.dynamicDep {
-				dependencies = sdkacltypes.SynchronousAccessOps()
-			}
-
-			if tc.expectedError != nil {
-				suite.Require().EqualError(err, tc.expectedError.Error())
-			} else {
-				suite.Require().NoError(err)
-			}
-
-			missing := handlerCtx.MsgValidator().ValidateAccessOperations(dependencies, cms.GetEvents())
-			suite.Require().Empty(missing)
-		})
-	}
-}
-
 func (suite *KeeperTestSuite) TestMsgCloseAccountDependencies() {
 	suite.PrepareTest()
 
@@ -629,4 +565,68 @@ func (suite *KeeperTestSuite) TestMsgCloseAccountDependencies() {
 			suite.Require().Empty(missing)
 		})
 	}
+}
+
+func TestGeneratorInvalidInitializeAccountMessageTypes(t *testing.T) {
+	app, ctx, oracleVote := setUpGeneratorTests()
+
+	_, err := ctacl.MsgInitializeAccountDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
+	require.Error(t, err)
+	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
+}
+
+func TestGeneratorInvalidDepositMessageTypes(t *testing.T) {
+	app, ctx, oracleVote := setUpGeneratorTests()
+
+	_, err := ctacl.MsgDepositDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
+	require.Error(t, err)
+	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
+}
+
+func TestGeneratorInvalidApplyPendingBalanceMessageTypes(t *testing.T) {
+	app, ctx, oracleVote := setUpGeneratorTests()
+
+	_, err := ctacl.MsgApplyPendingBalanceDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
+	require.Error(t, err)
+	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
+}
+
+func TestGeneratorInvalidTransferMessageTypes(t *testing.T) {
+	app, ctx, oracleVote := setUpGeneratorTests()
+
+	_, err := ctacl.MsgTransferDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
+	require.Error(t, err)
+	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
+}
+
+func TestGeneratorInvalidWithdrawMessageTypes(t *testing.T) {
+	app, ctx, oracleVote := setUpGeneratorTests()
+
+	_, err := ctacl.MsgWithdrawDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
+	require.Error(t, err)
+	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
+}
+
+func TestGeneratorInvalidCloseAccountMessageTypes(t *testing.T) {
+	app, ctx, oracleVote := setUpGeneratorTests()
+
+	_, err := ctacl.MsgCloseAccountDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
+	require.Error(t, err)
+	require.Equal(t, "invalid message received for confidential transfers module", err.Error())
+}
+
+func setUpGeneratorTests() (*simapp.SimApp, sdk.Context, oracletypes.MsgAggregateExchangeRateVote) {
+	// setup
+	accs := authtypes.GenesisAccounts{}
+	var balances []banktypes.Balance
+
+	app := simapp.SetupWithGenesisAccounts(accs, balances...)
+	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+
+	oracleVote := oracletypes.MsgAggregateExchangeRateVote{
+		ExchangeRates: "1usei",
+		Feeder:        "test",
+		Validator:     "validator",
+	}
+	return app, ctx, oracleVote
 }
