@@ -53,3 +53,6 @@ example/cosmwasm/cw1155/target
 
 # Solidity contracts artifacts
 contracts/artifacts
+
+# Integration tests build artifacts
+integration_test/dapp_tests/artifacts

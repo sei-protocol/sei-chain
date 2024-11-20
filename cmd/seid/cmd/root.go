@@ -313,7 +313,33 @@ func appExport(
 	forZeroHeight bool,
 	jailAllowedAddrs []string,
 	appOpts servertypes.AppOptions,
+	file *os.File,
 ) (servertypes.ExportedApp, error) {
+	exportableApp, err := getExportableApp(
+		logger,
+		db,
+		traceStore,
+		height,
+		appOpts,
+	)
+	if err != nil {
+		return servertypes.ExportedApp{}, err
+	}
+
+	if file == nil {
+		return exportableApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)
+	} else {
+		return exportableApp.ExportAppToFileStateAndValidators(forZeroHeight, jailAllowedAddrs, file)
+	}
+}
+
+func getExportableApp(
+	logger log.Logger,
+	db dbm.DB,
+	traceStore io.Writer,
+	height int64,
+	appOpts servertypes.AppOptions,
+) (*app.App, error) {
 	encCfg := app.MakeEncodingConfig()
 	encCfg.Marshaler = codec.NewProtoCodec(encCfg.InterfaceRegistry)
 
@@ -321,19 +347,19 @@ func appExport(
 
 	homePath, ok := appOpts.Get(flags.FlagHome).(string)
 	if !ok || homePath == "" {
-		return servertypes.ExportedApp{}, errors.New("application home not set")
+		return nil, errors.New("application home not set")
 	}
 
 	if height != -1 {
 		exportableApp = app.New(logger, db, traceStore, false, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyACLOpts, app.EmptyAppOptions)
 		if err := exportableApp.LoadHeight(height); err != nil {
-			return servertypes.ExportedApp{}, err
+			return nil, err
 		}
 	} else {
 		exportableApp = app.New(logger, db, traceStore, true, map[int64]bool{}, cast.ToString(appOpts.Get(flags.FlagHome)), uint(1), true, nil, encCfg, app.GetWasmEnabledProposals(), appOpts, app.EmptyWasmOpts, app.EmptyACLOpts, app.EmptyAppOptions)
 	}
+	return exportableApp, nil
 
-	return exportableApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)
 }
 
 func getPrimeNums(lo int, hi int) []int {

@@ -23,7 +23,7 @@ var DefaultPriorityNormalizer = sdk.NewDec(1)
 // burnt rather than go to validators (similar to base fee on
 // Ethereum).
 var DefaultBaseFeePerGas = sdk.NewDec(0)
-var DefaultMinFeePerGas = sdk.NewDec(1000000000)
+var DefaultMinFeePerGas = sdk.NewDec(100000000000)
 
 var DefaultWhitelistedCwCodeHashesForDelegateCall = generateDefaultWhitelistedCwCodeHashesForDelegateCall()
 

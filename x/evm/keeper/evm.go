@@ -73,7 +73,7 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 }
 
 func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Address, val *sdk.Int, data []byte) (retdata []byte, reterr error) {
-	if ctx.IsEVM() {
+	if ctx.IsEVM() && !ctx.EVMEntryViaWasmdPrecompile() {
 		return nil, errors.New("sei does not support EVM->CW->EVM call pattern")
 	}
 	if to == nil && len(data) > params.MaxInitCodeSize {
@@ -87,7 +87,7 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 		value = val.BigInt()
 	}
 	// This call was not part of an existing StateTransition, so it should trigger one
-	executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)).WithIsEVM(true)
+	executionCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)).WithEVMEntryViaWasmdPrecompile(false)
 	stateDB := state.NewDBImpl(executionCtx, k, false)
 	gp := k.GetGasPool()
 	evmMsg := &core.Message{
@@ -117,6 +117,23 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	vmErr := ""
 	if res.Err != nil {
 		vmErr = res.Err.Error()
+	}
+	existingReceipt, err := k.GetTransientReceipt(ctx, ctx.TxSum())
+	if err == nil {
+		for _, l := range existingReceipt.Logs {
+			stateDB.AddLog(&ethtypes.Log{
+				Address: common.HexToAddress(l.Address),
+				Topics:  utils.Map(l.Topics, common.HexToHash),
+				Data:    l.Data,
+			})
+		}
+		if existingReceipt.VmError != "" {
+			vmErr = fmt.Sprintf("%s\n%s\n", existingReceipt.VmError, vmErr)
+		}
+	}
+	existingDeferredInfo, found := k.GetEVMTxDeferredInfo(ctx)
+	if found {
+		surplus = surplus.Add(existingDeferredInfo.Surplus)
 	}
 	receipt, err := k.WriteReceipt(ctx, stateDB, evmMsg, ethtypes.LegacyTxType, ctx.TxSum(), res.UsedGas, vmErr)
 	if err != nil {

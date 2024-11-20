@@ -99,8 +99,8 @@ async function bankSend(toAddr, fromKey, amount="100000000000", denom="usei") {
     return result
 }
 
-async function fundSeiAddress(seiAddr, amount="100000000000", denom="usei") {
-    return await execute(`seid tx bank send ${adminKeyName} ${seiAddr} ${amount}${denom} -b block --fees 20000usei -y`);
+async function fundSeiAddress(seiAddr, amount="100000000000", denom="usei", funder=adminKeyName) {
+    return await execute(`seid tx bank send ${funder} ${seiAddr} ${amount}${denom} -b block --fees 20000usei -y`);
 }
 
 async function getSeiBalance(seiAddr, denom="usei") {
@@ -196,15 +196,15 @@ async function incrementPointerVersion(provider, pointerType, offset) {
     }
 }
 
-async function createTokenFactoryTokenAndMint(name, amount, recipient) {
-    const command = `seid tx tokenfactory create-denom ${name} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
+async function createTokenFactoryTokenAndMint(name, amount, recipient, from=adminKeyName) {
+    const command = `seid tx tokenfactory create-denom ${name} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
     const output = await execute(command);
     const response = JSON.parse(output)
     const token_denom = getEventAttribute(response, "create_denom", "new_token_denom")
-    const mint_command = `seid tx tokenfactory mint ${amount}${token_denom} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
+    const mint_command = `seid tx tokenfactory mint ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
     await execute(mint_command);
 
-    const send_command = `seid tx bank send ${adminKeyName} ${recipient} ${amount}${token_denom} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
+    const send_command = `seid tx bank send ${from} ${recipient} ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
     await execute(send_command);
     return token_denom
 }
@@ -215,12 +215,13 @@ async function getPointerForNative(name) {
     return JSON.parse(output);
 }
 
-async function storeWasm(path) {
-    const command = `seid tx wasm store ${path} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
+async function storeWasm(path, from=adminKeyName) {
+    const command = `seid tx wasm store ${path} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
     const output = await execute(command);
     const response = JSON.parse(output)
     return getEventAttribute(response, "store_code", "code_id")
 }
+
 async function getPointerForCw20(cw20Address) {
     const command = `seid query evm pointer CW20 ${cw20Address} -o json`
     const output = await execute(command);
@@ -239,8 +240,11 @@ async function getPointerForCw1155(cw1155Address) {
     return JSON.parse(output);
 }
 
-async function deployErc20PointerForCw20(provider, cw20Address, attempts=10) {
-    const command = `seid tx evm register-evm-pointer CW20 ${cw20Address} --from=admin -b block`
+async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, from=adminKeyName, evmRpc="") {
+    let command = `seid tx evm register-evm-pointer CW20 ${cw20Address} --from=${from} -b block`
+    if (evmRpc) {
+        command = command + ` --evm-rpc=${evmRpc}`
+    }
     const output = await execute(command);
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
@@ -257,8 +261,11 @@ async function deployErc20PointerForCw20(provider, cw20Address, attempts=10) {
     throw new Error("contract deployment failed")
 }
 
-async function deployErc20PointerNative(provider, name) {
-    const command = `seid tx evm call-precompile pointer addNativePointer ${name} --from=admin -b block`
+async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRpc="") {
+    let command = `seid tx evm call-precompile pointer addNativePointer ${name} --from=${from} -b block`
+    if (evmRpc) {
+        command = command + ` --evm-rpc=${evmRpc}`
+    }
     const output = await execute(command);
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
@@ -273,8 +280,11 @@ async function deployErc20PointerNative(provider, name) {
     throw new Error("contract deployment failed")
 }
 
-async function deployErc721PointerForCw721(provider, cw721Address) {
-    const command = `seid tx evm register-evm-pointer CW721 ${cw721Address} --from=admin -b block`
+async function deployErc721PointerForCw721(provider, cw721Address, from=adminKeyName, evmRpc="") {
+    let command = `seid tx evm register-evm-pointer CW721 ${cw721Address} --from=${from} -b block`
+    if (evmRpc) {
+        command = command + ` --evm-rpc=${evmRpc}`
+    }
     const output = await execute(command);
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
@@ -291,8 +301,11 @@ async function deployErc721PointerForCw721(provider, cw721Address) {
     throw new Error("contract deployment failed")
 }
 
-async function deployErc1155PointerForCw1155(provider, cw1155Address) {
-    const command = `seid tx evm register-evm-pointer CW1155 ${cw1155Address} --from=admin -b block`
+async function deployErc1155PointerForCw1155(provider, cw1155Address, from=adminKeyName, evmRpc="") {
+    let command = `seid tx evm register-evm-pointer CW1155 ${cw1155Address} --from=${from} -b block`
+    if (evmRpc) {
+        command = command + ` --evm-rpc=${evmRpc}`
+    }
     const output = await execute(command);
     const txHash = output.replace(/.*0x/, "0x").trim()
     let attempt = 0;
@@ -309,14 +322,14 @@ async function deployErc1155PointerForCw1155(provider, cw1155Address) {
     throw new Error("contract deployment failed")
 }
 
-async function deployWasm(path, adminAddr, label, args = {}) {
-    const codeId = await storeWasm(path)
-    return await instantiateWasm(codeId, adminAddr, label, args)
+async function deployWasm(path, adminAddr, label, args = {}, from=adminKeyName) {
+    const codeId = await storeWasm(path, from)
+    return await instantiateWasm(codeId, adminAddr, label, args, from)
 }
 
-async function instantiateWasm(codeId, adminAddr, label, args = {}) {
+async function instantiateWasm(codeId, adminAddr, label, args = {}, from=adminKeyName) {
     const jsonString = JSON.stringify(args).replace(/"/g, '\\"');
-    const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddr} --from ${adminKeyName} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
+    const command = `seid tx wasm instantiate ${codeId} "${jsonString}" --label ${label} --admin ${adminAddr} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`;
     const output = await execute(command);
     const response = JSON.parse(output);
     return getEventAttribute(response, "instantiate", "_contract_address");
@@ -526,6 +539,7 @@ module.exports = {
     registerPointerForERC20,
     registerPointerForERC721,
     registerPointerForERC1155,
+    getPointerForNative,
     proposeCW20toERC20Upgrade,
     importKey,
     getNativeAccount,
