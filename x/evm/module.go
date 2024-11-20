@@ -221,6 +221,10 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 13, func(ctx sdk.Context) error {
 		return migrations.MigrateEip1559Params(ctx, am.keeper)
 	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 14, func(ctx sdk.Context) error {
+		return migrations.MigrateEip1559MaxFeePerGas(ctx, am.keeper)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.

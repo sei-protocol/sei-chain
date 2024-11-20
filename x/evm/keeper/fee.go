@@ -16,6 +16,7 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 		return &currentBaseFee
 	}
 	minimumFeePerGas := k.GetParams(ctx).MinimumFeePerGas
+	maximumFeePerGas := k.GetParams(ctx).MaximumFeePerGas
 	blockGasLimit := sdk.NewDec(ctx.ConsensusParams().Block.MaxGas)
 	blockGasUsedDec := sdk.NewDec(int64(blockGasUsed))
 
@@ -44,6 +45,11 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 	// Ensure the new base fee is not lower than the minimum fee
 	if newBaseFee.LT(minimumFeePerGas) {
 		newBaseFee = minimumFeePerGas
+	}
+
+	// Ensure the new base fee is not higher than the maximum fee
+	if newBaseFee.GT(maximumFeePerGas) {
+		newBaseFee = maximumFeePerGas
 	}
 
 	// Set the new base fee for the next height

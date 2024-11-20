@@ -49,6 +49,10 @@ func (k *Keeper) GetMinimumFeePerGas(ctx sdk.Context) sdk.Dec {
 	return k.GetParams(ctx).MinimumFeePerGas
 }
 
+func (k *Keeper) GetMaximumFeePerGas(ctx sdk.Context) sdk.Dec {
+	return k.GetParams(ctx).MaximumFeePerGas
+}
+
 func (k *Keeper) GetTargetGasUsedPerBlock(ctx sdk.Context) uint64 {
 	return k.GetParams(ctx).TargetGasUsedPerBlock
 }
