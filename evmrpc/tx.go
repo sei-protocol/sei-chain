@@ -53,6 +53,40 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 		}
 		return nil, err
 	}
+	// Check if the transaction has failed and used 0 gas
+	if receipt.TxType == 0 && receipt.GasUsed == 0 {
+		// Get the block
+		height := int64(receipt.BlockNumber)
+		block, err := blockByNumberWithRetry(ctx, t.tmClient, &height, 1)
+		if err != nil {
+			return nil, err
+		}
+
+		// Find the transaction in the block
+		for _, tx := range block.Block.Txs {
+			etx := getEthTxForTxBz(tx, t.txConfig.TxDecoder())
+			if etx != nil && etx.Hash() == hash {
+				// Get the signer
+				signer := ethtypes.MakeSigner(
+					types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkctx)),
+					big.NewInt(height),
+					uint64(block.Block.Time.Unix()),
+				)
+				from, _ := ethtypes.Sender(signer, etx)
+
+				// Update receipt with correct information
+				receipt.From = from.Hex()
+				receipt.To = etx.To().Hex()
+				receipt.TxType = uint32(etx.Type())
+				receipt.GasUsed = etx.Gas()
+				receipt.EffectiveGasPrice = etx.GasPrice().Uint64()
+				receipt.Status = uint32(ethtypes.ReceiptStatusFailed)
+				receipt.ContractAddress = ""
+
+				break
+			}
+		}
+	}
 	height := int64(receipt.BlockNumber)
 	block, err := blockByNumberWithRetry(ctx, t.tmClient, &height, 1)
 	if err != nil {
