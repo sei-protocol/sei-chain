@@ -772,8 +772,8 @@ github.com/savaki/jq v0.0.0-20161209013833-0e6baecebbf8 h1:ajJQhvqPSQFJJ4aV5mDAM
 github.com/savaki/jq v0.0.0-20161209013833-0e6baecebbf8/go.mod h1:Nw/CCOXNyF5JDd6UpYxBwG5WWZ2FOJ/d5QnXL4KQ6vY=
 github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529/go.mod h1:DxrIzT+xaE7yg65j358z/aeFdxmN0P9QXhEzd20vsDc=
 github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KRMzBtS3oedY=
-github.com/sei-protocol/sei-cosmos v0.3.26 h1:brYESCnbYI7gr/O8QEHxIyntZrIZp4ONA7m0xfDn6eI=
-github.com/sei-protocol/sei-cosmos v0.3.26/go.mod h1:og/KbejR/zSQ8otapODEDU9zYNhFSUDbq9+tgeYePyU=
+github.com/sei-protocol/sei-cosmos v0.3.45 h1:l6ss5Y4OC+vvu+74lWz8EUBJN68x0CRuaEYtqA+TvOs=
+github.com/sei-protocol/sei-cosmos v0.3.45/go.mod h1:ZwWxF/69WlcLEn4BzVjPPToTFkE2sjPanU8PNNyKoOk=
 github.com/sei-protocol/sei-db v0.0.27-0.20240123064153-d6dfa112e760 h1:MiHIPwPH2Yo6LQQfINgFTofm+K1EqpQYmg8h5m/cFrs=
 github.com/sei-protocol/sei-db v0.0.27-0.20240123064153-d6dfa112e760/go.mod h1:F/ZKZA8HJPcUzSZPA8yt6pfwlGriJ4RDR4eHKSGLStI=
 github.com/sei-protocol/sei-iavl v0.1.9 h1:y4mVYftxLNRs6533zl7N0/Ch+CzRQc04JDfHolIxgBE=

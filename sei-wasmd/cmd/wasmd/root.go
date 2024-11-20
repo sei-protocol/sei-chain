@@ -111,7 +111,7 @@ func initRootCmd(rootCmd *cobra.Command, encodingConfig params.EncodingConfig) {
 	ac := appCreator{
 		encCfg: encodingConfig,
 	}
-	server.AddCommands(rootCmd, app.DefaultNodeHome, ac.newApp, ac.appExport, addModuleInitFlags, []trace.TracerProviderOption{})
+	server.AddCommands(rootCmd, app.DefaultNodeHome, ac.newApp, nil, addModuleInitFlags, []trace.TracerProviderOption{})
 
 	// add keybase, auxiliary RPC, query, and tx child commands
 	rootCmd.AddCommand(
