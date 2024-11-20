@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"log"
-
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts"
@@ -56,7 +54,6 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 		return nil, err
 	}
 	// Fill in the receipt if the transaction has failed and used 0 gas
-	log.Printf("[DEBUG] receipt info: %+v", receipt)
 	if receipt.TxType == 0 && receipt.GasUsed == 0 {
 		// Get the block
 		height := int64(receipt.BlockNumber)
@@ -90,7 +87,6 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 				receipt.TxType = uint32(etx.Type())
 				receipt.Status = uint32(ethtypes.ReceiptStatusFailed)
 				receipt.GasUsed = 0
-				log.Printf("[DEBUG] GetTransactionReceipt gasUsed: %d", receipt.GasUsed)
 				break
 			}
 		}
@@ -320,7 +316,6 @@ func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretyp
 	}
 	bloom := ethtypes.Bloom{}
 	bloom.SetBytes(receipt.LogsBloom)
-	log.Printf("[DEBUG] encodeReceipt gasUsed: %d", receipt.GasUsed)
 	fields := map[string]interface{}{
 		"blockHash":         bh,
 		"blockNumber":       hexutil.Uint64(receipt.BlockNumber),
