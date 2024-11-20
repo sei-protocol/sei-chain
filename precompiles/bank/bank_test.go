@@ -104,6 +104,8 @@ func TestRun(t *testing.T) {
 	require.Nil(t, err)
 	_, _, err = p.RunAndCalculateGas(&evm, evmAddr, evmAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendNativeID, argsNativeError...), 100000, big.NewInt(100), nil, false, false)
 	require.NotNil(t, err)
+	_, _, err = p.RunAndCalculateGas(&evm, evmAddr, evmAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendNativeID, argsNativeError...), 100000, big.NewInt(100), nil, true, false)
+	require.NotNil(t, err)
 
 	// Send native 10_000_000_000_100, split into 10 usei 100wei
 	// Test payable with eth LegacyTx
