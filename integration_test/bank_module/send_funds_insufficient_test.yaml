@@ -1,0 +1,24 @@
+- name: Test insufficient balance
+  inputs:
+    # Create a test account with a low balance
+    - cmd: seid keys add --keyring-backend test insufficient-balance-test
+    - cmd: seid keys show -a insufficient-balance-test --keyring-backend test
+      env: INSUFFICIENT_TEST_ACC
+    # Fund the test account with 1sei
+    - cmd: seid tx bank send $ADMIN_ACC $INSUFFICIENT_TEST_ACC 1sei --fees 2000usei --chain-id sei -y --keyring-backend test --output json | jq -r ".txhash"
+      env: FUNDING_TX_HASH
+    # Wait to ensure the transaction is processed
+    - cmd: sleep 10
+    # Check the balance of the test account
+    - cmd: seid q bank balances $INSUFFICIENT_TEST_ACC --denom usei --output json | jq -r .amount
+      env: INSUFFICIENT_TEST_BALANCE
+    # Attempt to send more funds than the available balance
+    - cmd: printf "12345678\n" | seid tx bank send $INSUFFICIENT_TEST_ACC $BANK_TEST_ACC 1000000000sei -b block --fees 2000usei --chain-id sei -y --output json 2>&1 | jq -r ".raw_log"
+      env: INSUFFICIENT_BALANCE_LOG
+  verifiers:
+    # Verify the test account received 1sei
+    - type: eval
+      expr: INSUFFICIENT_TEST_BALANCE == 1000000
+    # Verify the error message contains "insufficient funds"
+    - type: eval
+      expr: INSUFFICIENT_BALANCE_LOG | contains("insufficient funds")
