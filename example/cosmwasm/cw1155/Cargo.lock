@@ -57,9 +57,9 @@ dependencies = [
 
 [[package]]
 name = "bnum"
-version = "0.8.1"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab9008b6bb9fc80b5277f2fe481c09e828743d9151203e804583eb4c9e15b31d"
+checksum = "56953345e39537a3e18bdaeba4cb0c58a78c1f61f361dc0fa7c5c7340ae87c5f"
 
 [[package]]
 name = "byteorder"
@@ -81,12 +81,11 @@ checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
 name = "cosmwasm-crypto"
-version = "1.5.2"
+version = "1.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ed6aa9f904de106fa16443ad14ec2abe75e94ba003bb61c681c0e43d4c58d2a"
+checksum = "58535cbcd599b3c193e3967c8292fe1dbbb5de7c2a2d87380661091dd4744044"
 dependencies = [
  "digest 0.10.7",
- "ecdsa",
  "ed25519-zebra",
  "k256",
  "rand_core 0.6.4",
@@ -95,9 +94,9 @@ dependencies = [
 
 [[package]]
 name = "cosmwasm-derive"
-version = "1.5.2"
+version = "1.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40abec852f3d4abec6d44ead9a58b78325021a1ead1e7229c3471414e57b2e49"
+checksum = "a8e07de16c800ac82fd188d055ecdb923ead0cf33960d3350089260bb982c09f"
 dependencies = [
  "syn 1.0.109",
 ]
@@ -128,9 +127,9 @@ dependencies = [
 
 [[package]]
 name = "cosmwasm-std"
-version = "1.5.2"
+version = "1.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad011ae7447188e26e4a7dbca2fcd0fc186aa21ae5c86df0503ea44c78f9e469"
+checksum = "c21fde95ccd20044a23c0ac6fd8c941f3e8c158169dc94b5aa6491a2d9551a8d"
 dependencies = [
  "base64",
  "bech32",
@@ -260,6 +259,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cw-paginate-storage"
+version = "2.5.0"
+source = "git+https://github.com/DA0-DA0/dao-contracts.git#b0c7ef162d80667ddb99a1896e708134681d1d4d"
+dependencies = [
+ "cosmwasm-std",
+ "cw-storage-plus 1.2.0",
+ "serde",
+]
+
+[[package]]
 name = "cw-storage-plus"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -314,7 +323,7 @@ dependencies = [
 [[package]]
 name = "cw1155"
 version = "0.19.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=5b888092be361dea919f19107de5187a04fb10ec#5b888092be361dea919f19107de5187a04fb10ec"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=93340408c972a2d5bbd59eee2810d0fe247f30b5#93340408c972a2d5bbd59eee2810d0fe247f30b5"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
@@ -331,7 +340,7 @@ dependencies = [
 [[package]]
 name = "cw1155-base"
 version = "0.19.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=5b888092be361dea919f19107de5187a04fb10ec#5b888092be361dea919f19107de5187a04fb10ec"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=93340408c972a2d5bbd59eee2810d0fe247f30b5#93340408c972a2d5bbd59eee2810d0fe247f30b5"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
@@ -349,7 +358,7 @@ dependencies = [
 [[package]]
 name = "cw1155-royalties"
 version = "0.19.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=5b888092be361dea919f19107de5187a04fb10ec#5b888092be361dea919f19107de5187a04fb10ec"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=93340408c972a2d5bbd59eee2810d0fe247f30b5#93340408c972a2d5bbd59eee2810d0fe247f30b5"
 dependencies = [
  "cosmwasm-std",
  "cw1155",
@@ -408,17 +417,17 @@ dependencies = [
 [[package]]
 name = "cw2981-royalties"
 version = "0.19.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=5b888092be361dea919f19107de5187a04fb10ec#5b888092be361dea919f19107de5187a04fb10ec"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=93340408c972a2d5bbd59eee2810d0fe247f30b5#93340408c972a2d5bbd59eee2810d0fe247f30b5"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
  "cw-ownable 0.6.0",
  "cw2 1.1.2",
  "cw721 0.19.0",
- "cw721-base 0.19.0",
  "schemars",
  "serde",
  "thiserror",
+ "url",
 ]
 
 [[package]]
@@ -462,11 +471,12 @@ dependencies = [
 [[package]]
 name = "cw721"
 version = "0.19.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=5b888092be361dea919f19107de5187a04fb10ec#5b888092be361dea919f19107de5187a04fb10ec"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=93340408c972a2d5bbd59eee2810d0fe247f30b5#93340408c972a2d5bbd59eee2810d0fe247f30b5"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
  "cw-ownable 0.6.0",
+ "cw-paginate-storage",
  "cw-storage-plus 1.2.0",
  "cw-utils 1.0.3",
  "cw2 1.1.2",
@@ -474,6 +484,7 @@ dependencies = [
  "schemars",
  "serde",
  "thiserror",
+ "url",
 ]
 
 [[package]]
@@ -515,7 +526,7 @@ dependencies = [
 [[package]]
 name = "cw721-base"
 version = "0.19.0"
-source = "git+https://github.com/palletexchange/cw-nfts.git?rev=5b888092be361dea919f19107de5187a04fb10ec#5b888092be361dea919f19107de5187a04fb10ec"
+source = "git+https://github.com/palletexchange/cw-nfts.git?rev=93340408c972a2d5bbd59eee2810d0fe247f30b5#93340408c972a2d5bbd59eee2810d0fe247f30b5"
 dependencies = [
  "cosmwasm-schema",
  "cosmwasm-std",
@@ -656,6 +667,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "form_urlencoded"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e13624c2627564efccf4934284bdd98cbaa14e79b0b5a141218e507b3a823456"
+dependencies = [
+ "percent-encoding",
+]
+
+[[package]]
 name = "forward_ref"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -719,6 +739,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "idna"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "634d9b1461af396cad843f47fdba5597a4f9e6ddd4bfb6ff5d85028c25cb12f6"
+dependencies = [
+ "unicode-bidi",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "itertools"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -764,6 +794,12 @@ name = "opaque-debug"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
+
+[[package]]
+name = "percent-encoding"
+version = "2.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
 
 [[package]]
 name = "pkcs8"
@@ -879,9 +915,9 @@ dependencies = [
 
 [[package]]
 name = "serde-json-wasm"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16a62a1fad1e1828b24acac8f2b468971dade7b8c3c2e672bcadefefb1f8c137"
+checksum = "9e9213a07d53faa0b8dd81e767a54a8188a242fdb9be99ab75ec576a774bfdd7"
 dependencies = [
  "serde",
 ]
@@ -1018,16 +1054,57 @@ dependencies = [
 ]
 
 [[package]]
+name = "tinyvec"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "445e881f4f6d382d5f27c034e25eb92edd7c784ceab92a0937db7f2e9471b938"
+dependencies = [
+ "tinyvec_macros",
+]
+
+[[package]]
+name = "tinyvec_macros"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+
+[[package]]
 name = "typenum"
 version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
 
 [[package]]
+name = "unicode-bidi"
+version = "0.3.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ab17db44d7388991a428b2ee655ce0c212e862eff1768a455c58f9aad6e7893"
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3354b9ac3fae1ff6755cb6db53683adb661634f67557942dea4facebec0fee4b"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5033c97c4262335cded6d6fc3e5c18ab755e1a3dc96376350f3d8e9f009ad956"
+dependencies = [
+ "tinyvec",
+]
+
+[[package]]
+name = "url"
+version = "2.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22784dbdf76fdde8af1aeda5622b546b422b6fc585325248a2bf9f5e41e94d6c"
+dependencies = [
+ "form_urlencoded",
+ "idna",
+ "percent-encoding",
+]
 
 [[package]]
 name = "version_check"

@@ -15,10 +15,10 @@ library = []
 
 [dependencies]
 cosmwasm-schema = "1.5.0"
-cosmwasm-std = { version = "1.3.1", features = ["staking", "stargate"] }
+cosmwasm-std = { version = "1.5.4", features = ["staking", "stargate"] }
 cw-storage-plus = "1.2.0"
-cw1155-royalties = { git = "https://github.com/palletexchange/cw-nfts.git", rev = "5b888092be361dea919f19107de5187a04fb10ec" }
-cw1155 = { git = "https://github.com/palletexchange/cw-nfts.git", rev = "5b888092be361dea919f19107de5187a04fb10ec" }
+cw1155-royalties = { git = "https://github.com/palletexchange/cw-nfts.git", rev = "93340408c972a2d5bbd59eee2810d0fe247f30b5" }
+cw1155 = { git = "https://github.com/palletexchange/cw-nfts.git", rev = "93340408c972a2d5bbd59eee2810d0fe247f30b5" }
 cw2981-royalties = "0.18.0"
 cw721 = "0.18.0"
 cw721-base = "0.18.0"
@@ -38,5 +38,5 @@ fi
 docker run --rm -v "$(pwd)":/code \
   --mount type=volume,source="$(basename "$(pwd)")_cache",target=/code/target \
   --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
-  ${image}:0.15.1
+  ${image}:0.16.0
 """
