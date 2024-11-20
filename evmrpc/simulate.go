@@ -380,7 +380,7 @@ func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexe
 			if !associatedNow {
 				err := types.NewAssociationMissingErr(msg.From.Hex())
 				metrics.IncrementAssociationError("state_at_block", err)
-				return nil, emptyRelease, err
+				continue // don't return error, just continue bc we want to process the rest of the txs and return the statedb
 			}
 			if err := helpers.NewAssociationHelper(b.keeper, b.keeper.BankKeeper(), b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
 				return nil, emptyRelease, err
