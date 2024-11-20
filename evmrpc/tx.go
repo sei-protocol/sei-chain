@@ -53,7 +53,7 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 		}
 		return nil, err
 	}
-	// Check if the transaction has failed and used 0 gas
+	// Fill in the receipt if the transaction has failed and used 0 gas
 	if receipt.TxType == 0 && receipt.GasUsed == 0 {
 		// Get the block
 		height := int64(receipt.BlockNumber)
@@ -76,12 +76,17 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 
 				// Update receipt with correct information
 				receipt.From = from.Hex()
-				receipt.To = etx.To().Hex()
+				if etx.To() != nil {
+					receipt.To = etx.To().Hex()
+					receipt.ContractAddress = ""
+				} else {
+					receipt.To = ""
+					// For contract creation transactions, calculate the contract address
+					receipt.ContractAddress = crypto.CreateAddress(from, etx.Nonce()).Hex()
+				}
 				receipt.TxType = uint32(etx.Type())
 				receipt.GasUsed = etx.Gas()
-				receipt.EffectiveGasPrice = etx.GasPrice().Uint64()
 				receipt.Status = uint32(ethtypes.ReceiptStatusFailed)
-				receipt.ContractAddress = ""
 
 				break
 			}
