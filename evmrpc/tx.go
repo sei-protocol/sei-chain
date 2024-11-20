@@ -85,7 +85,6 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 					receipt.ContractAddress = crypto.CreateAddress(from, etx.Nonce()).Hex()
 				}
 				receipt.TxType = uint32(etx.Type())
-				receipt.GasUsed = etx.Gas()
 				receipt.Status = uint32(ethtypes.ReceiptStatusFailed)
 
 				break
