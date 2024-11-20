@@ -60,7 +60,7 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		// check if there is a ERC721 pointer to contract Addr
 		pointerAddr, _, exists = app.EvmKeeper.GetERC721CW721Pointer(wasmToEvmEventCtx, contractAddr)
 		if exists {
-			log, eligible := app.translateCW721Event(wasmToEvmEventCtx, wasmEvent, pointerAddr, contractAddr)
+			log, eligible := app.translateCW721Event(wasmToEvmEventCtx, wasmEvent, pointerAddr, contractAddr, response)
 			if eligible {
 				log.Index = uint(len(logs))
 				logs = append(logs, log)
@@ -173,7 +173,7 @@ func (app *App) translateCW20Event(ctx sdk.Context, wasmEvent abci.Event, pointe
 	return nil, false
 }
 
-func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string) (*ethtypes.Log, bool) {
+func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string, response sdk.DeliverTxHookInput) (*ethtypes.Log, bool) {
 	action, found := GetAttributeValue(wasmEvent, "action")
 	if !found {
 		return nil, false
@@ -185,9 +185,35 @@ func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, point
 		if tokenID == nil {
 			return nil, false
 		}
+		sender := common.Hash{}
+		// unfortunately CW721 transfer events differ from ERC721 transfer events
+		// in that CW721 include sender (which can be different than owner) whereas
+		// ERC721 always include owner. The following logic refer to the owner
+		// event emitted before the transfer and use that instead to populate the
+		// synthetic ERC721 event.
+		ownerEvents := GetEventsOfType(response, wasmtypes.EventTypeCW721PreTransferOwner)
+		for _, ownerEvent := range ownerEvents {
+			if len(ownerEvent.Attributes) != 3 ||
+				string(ownerEvent.Attributes[0].Key) != wasmtypes.AttributeKeyContractAddr ||
+				string(ownerEvent.Attributes[0].Value) != contractAddr {
+				continue
+			}
+			tokenIDStr, _ := GetAttributeValue(wasmEvent, "token_id")
+			if string(ownerEvent.Attributes[1].Key) != wasmtypes.AttributeKeyTokenId ||
+				string(ownerEvent.Attributes[1].Value) != tokenIDStr ||
+				string(ownerEvent.Attributes[2].Key) != wasmtypes.AttributeKeyOwner {
+				continue
+			}
+			ownerAcc, err := sdk.AccAddressFromBech32(string(ownerEvent.Attributes[2].Value))
+			if err != nil {
+				continue
+			}
+			owner := app.EvmKeeper.GetEVMAddressOrDefault(ctx, ownerAcc)
+			sender = common.BytesToHash(owner[:])
+		}
 		topics = []common.Hash{
 			ERC721TransferTopic,
-			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+			sender,
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "recipient"),
 			common.BigToHash(tokenID),
 		}
