@@ -80,7 +80,15 @@ func TestRun(t *testing.T) {
 	require.Nil(t, err)
 	args, err := send.Inputs.Pack(senderEVMAddr, evmAddr, "usei", big.NewInt(25))
 	require.Nil(t, err)
+	_, _, err = p.RunAndCalculateGas(&evm, senderEVMAddr, senderEVMAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendID, args...), 100000, nil, nil, true, false) // should error because of read only call
+	require.NotNil(t, err)
+	_, _, err = p.RunAndCalculateGas(&evm, senderEVMAddr, senderEVMAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendID, args...), 100000, big.NewInt(1), nil, false, false) // should error because it's not payable
+	require.NotNil(t, err)
 	_, _, err = p.RunAndCalculateGas(&evm, senderEVMAddr, senderEVMAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendID, args...), 100000, nil, nil, false, false) // should error because address is not whitelisted
+	require.NotNil(t, err)
+	invalidDenomArgs, err := send.Inputs.Pack(senderEVMAddr, evmAddr, "", big.NewInt(25))
+	require.Nil(t, err)
+	_, _, err = p.RunAndCalculateGas(&evm, senderEVMAddr, senderEVMAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendID, invalidDenomArgs...), 100000, nil, nil, false, false) // should error because denom is empty
 	require.NotNil(t, err)
 
 	// Precompile sendNative test error
@@ -105,6 +113,8 @@ func TestRun(t *testing.T) {
 	_, _, err = p.RunAndCalculateGas(&evm, evmAddr, evmAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendNativeID, argsNativeError...), 100000, big.NewInt(100), nil, false, false)
 	require.NotNil(t, err)
 	_, _, err = p.RunAndCalculateGas(&evm, evmAddr, evmAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendNativeID, argsNativeError...), 100000, big.NewInt(100), nil, true, false)
+	require.NotNil(t, err)
+	_, _, err = p.RunAndCalculateGas(&evm, evmAddr, evmAddr, append(p.GetExecutor().(*bank.PrecompileExecutor).SendNativeID, argsNativeError...), 100000, big.NewInt(100), nil, false, true)
 	require.NotNil(t, err)
 
 	// Send native 10_000_000_000_100, split into 10 usei 100wei
