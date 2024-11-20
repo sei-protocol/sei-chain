@@ -1,11 +1,18 @@
 package cli
 
 import (
+	"context"
+	"crypto/ecdsa"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/cosmos/cosmos-sdk/codec"
+	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/tx"
+	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
@@ -17,7 +24,7 @@ const decryptAvailableBalanceFlag = "decrypt-available-balance"
 // GetQueryCmd returns the cli query commands for the minting module.
 func GetQueryCmd() *cobra.Command {
 	confidentialTransfersQueryCmd := &cobra.Command{
-		Use:                        types.ModuleName,
+		Use:                        types.ShortModuleName,
 		Short:                      "Querying commands for the confidential transfer module",
 		DisableFlagParsing:         true,
 		SuggestionsMinimumDistance: 2,
@@ -27,6 +34,7 @@ func GetQueryCmd() *cobra.Command {
 	confidentialTransfersQueryCmd.AddCommand(
 		GetCmdQueryAccount(),
 		GetCmdQueryAllAccount(),
+		GetCmdQueryTx(),
 	)
 
 	return confidentialTransfersQueryCmd
@@ -177,4 +185,127 @@ func queryAllAccounts(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// GetCmdQueryTx implements a command to query a tx by it's transaction hash and return it in it's decrypted state.
+func GetCmdQueryTx() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "tx [hash]",
+		Short: "Query the confidential transaction and decrypts it",
+		Long: "Query the confidential transaction by it's tx hash and decrypts it using the private key of the account in --from" +
+			"Pass the --from flag to decrypt the account" +
+			"Pass the --decrypt-available-balance flag to attempt to decrypt the available balance. (This is an expensive operation)",
+		Args: cobra.ExactArgs(1),
+		RunE: queryDecryptedTx,
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+	cmd.Flags().String(flags.FlagFrom, "", "Name or address of private key to decrypt the account")
+	cmd.Flags().Bool(decryptAvailableBalanceFlag, false, "Set this to attempt to decrypt the available balance")
+	return cmd
+}
+
+func queryDecryptedTx(cmd *cobra.Command, args []string) error {
+	clientCtx, err := client.GetClientQueryContext(cmd)
+	if err != nil {
+		return err
+	}
+
+	txHashHex := args[0]
+
+	from, err := cmd.Flags().GetString(flags.FlagFrom)
+	if err != nil {
+		return err
+	}
+	fromAddr, _, _, err := client.GetFromFields(clientCtx, clientCtx.Keyring, from)
+	if err != nil {
+		return err
+	}
+
+	decryptAvailableBalance, err := cmd.Flags().GetBool(decryptAvailableBalanceFlag)
+	if err != nil {
+		return err
+	}
+
+	// Decode the transaction hash from hex to bytes
+	txHash, err := hex.DecodeString(txHashHex)
+	if err != nil {
+		return fmt.Errorf("failed to decode transaction hash: %w", err)
+	}
+
+	// Connect to the gRPC client
+	node, err := clientCtx.GetNode()
+	if err != nil {
+		return fmt.Errorf("failed to connect to node: %w", err)
+	}
+
+	// Query the transaction using Tendermint's Tx endpoint
+	res, err := node.Tx(context.Background(), txHash, false)
+	if err != nil {
+		return fmt.Errorf("failed to fetch transaction: %w", err)
+	}
+
+	// Decode the transaction
+	var rawTx tx.Tx
+	if err := clientCtx.Codec.Unmarshal(res.Tx, &rawTx); err != nil {
+		return fmt.Errorf("failed to unmarshal transaction: %w", err)
+	}
+
+	decryptor := elgamal.NewTwistedElgamal()
+	privateKey, err := getPrivateKey(cmd)
+
+	if err != nil {
+		return err
+	}
+	msgPrinted := false
+	for _, msg := range rawTx.Body.Messages {
+		result, foundMsg, err := handleDecryptableMessage(clientCtx.Codec, msg, decryptor, privateKey, decryptAvailableBalance, fromAddr.String())
+		if !foundMsg {
+			continue
+		} else {
+			if err != nil {
+				return err
+			}
+			err = clientCtx.PrintProto(result)
+			msgPrinted = true
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if !msgPrinted {
+		return fmt.Errorf("no decryptable message found in the transaction")
+	}
+
+	return nil
+}
+
+// Helper function to unmarshal a message and run its Decrypt() method
+func handleDecryptableMessage(
+	cdc codec.Codec,
+	msgAny *cdctypes.Any,
+	decryptor *elgamal.TwistedElGamal,
+	privKey *ecdsa.PrivateKey,
+	decryptAvailableBalance bool,
+	address string) (msg proto.Message, foundDecryptableMsg bool, error error) {
+	// Try to unmarshal the message as one of the known types
+	var sdkmsg sdk.Msg
+	err := cdc.UnpackAny(msgAny, &sdkmsg)
+	if err != nil {
+		return nil, false, nil
+	}
+
+	decryptable, ok := sdkmsg.(types.Decryptable)
+	if !ok {
+		return nil, false, nil
+	}
+
+	// Successfully unmarshaled as decryptable message, run the Decrypt() method
+	result, err := decryptable.Decrypt(decryptor, *privKey, decryptAvailableBalance, address)
+	if err != nil {
+		return nil, true, fmt.Errorf("failed to decrypt message: %w", err)
+	}
+
+	return result, true, nil
 }

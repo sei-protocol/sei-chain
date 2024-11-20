@@ -451,7 +451,7 @@ func makeApplyPendingBalanceCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	msg, err := types.NewMsgApplyPendingBalance(
+	applyPendingBalance, err := types.NewApplyPendingBalance(
 		*privKey,
 		address,
 		denom,
@@ -460,6 +460,12 @@ func makeApplyPendingBalanceCmd(cmd *cobra.Command, args []string) error {
 		account.AvailableBalance,
 		account.PendingBalanceLo,
 		account.PendingBalanceHi)
+
+	if err != nil {
+		return err
+	}
+	
+	msg := types.NewMsgApplyPendingBalanceProto(applyPendingBalance)
 
 	if err != nil {
 		return err

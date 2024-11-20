@@ -2,6 +2,7 @@ package types
 
 import (
 	"crypto/ecdsa"
+	"strconv"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
@@ -98,5 +99,52 @@ func NewInitializeAccount(address, denom string, privateKey ecdsa.PrivateKey) (*
 		PendingBalanceHi:   zeroCiphertextHi,
 		AvailableBalance:   zeroCiphertextAvailable,
 		Proofs:             &proofs,
+	}, nil
+}
+
+func (r InitializeAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool, address string) (*InitializeAccountDecrypted, error) {
+	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
+	if err != nil {
+		return &InitializeAccountDecrypted{}, err
+	}
+
+	aesKey, err := encryption.GetAESKey(privKey, r.Denom)
+	if err != nil {
+		return &InitializeAccountDecrypted{}, err
+	}
+
+	pendingBalanceLo, err := decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.PendingBalanceLo, elgamal.MaxBits32)
+	if err != nil {
+		return nil, err
+	}
+	pendingBalanceHi, err := decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.PendingBalanceHi, elgamal.MaxBits48)
+	if err != nil {
+		return nil, err
+	}
+	decryptableBalance, err := encryption.DecryptAESGCM(r.DecryptableBalance, aesKey)
+	if err != nil {
+		return nil, err
+	}
+	availableBalanceString := "Not Decrypted"
+	if decryptAvailableBalance {
+		availableBalance, err := decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.AvailableBalance, elgamal.MaxBits48)
+		if err != nil {
+			return nil, err
+		}
+		availableBalanceString = strconv.FormatUint(availableBalance, 10)
+	}
+
+	pubkeyRaw := *r.Pubkey
+	pubkey := pubkeyRaw.ToAffineCompressed()
+
+	return &InitializeAccountDecrypted{
+		FromAddress:        r.FromAddress,
+		Denom:              r.Denom,
+		Pubkey:             pubkey,
+		PendingBalanceLo:   uint32(pendingBalanceLo),
+		PendingBalanceHi:   pendingBalanceHi,
+		AvailableBalance:   availableBalanceString,
+		DecryptableBalance: decryptableBalance,
+		Proofs:             NewInitializeAccountMsgProofs(r.Proofs),
 	}, nil
 }

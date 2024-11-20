@@ -261,61 +261,264 @@ func (m *DecryptedCtAccount) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_DecryptedCtAccount proto.InternalMessageInfo
 
+// Decrypted version of ApplyPendingBalance
+type ApplyPendingBalanceDecrypted struct {
+	Address                        string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
+	Denom                          string `protobuf:"bytes,2,opt,name=denom,proto3" json:"denom,omitempty"`
+	NewDecryptableAvailableBalance uint64 `protobuf:"varint,3,opt,name=new_decryptable_available_balance,json=newDecryptableAvailableBalance,proto3" json:"new_decryptable_available_balance,omitempty"`
+	CurrentPendingBalanceCounter   uint32 `protobuf:"varint,4,opt,name=current_pending_balance_counter,json=currentPendingBalanceCounter,proto3" json:"current_pending_balance_counter,omitempty"`
+	CurrentAvailableBalance        string `protobuf:"bytes,5,opt,name=current_available_balance,json=currentAvailableBalance,proto3" json:"current_available_balance,omitempty"`
+}
+
+func (m *ApplyPendingBalanceDecrypted) Reset()         { *m = ApplyPendingBalanceDecrypted{} }
+func (m *ApplyPendingBalanceDecrypted) String() string { return proto.CompactTextString(m) }
+func (*ApplyPendingBalanceDecrypted) ProtoMessage()    {}
+func (*ApplyPendingBalanceDecrypted) Descriptor() ([]byte, []int) {
+	return fileDescriptor_35280e71e5f6c1ab, []int{5}
+}
+func (m *ApplyPendingBalanceDecrypted) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ApplyPendingBalanceDecrypted) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ApplyPendingBalanceDecrypted.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ApplyPendingBalanceDecrypted) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ApplyPendingBalanceDecrypted.Merge(m, src)
+}
+func (m *ApplyPendingBalanceDecrypted) XXX_Size() int {
+	return m.Size()
+}
+func (m *ApplyPendingBalanceDecrypted) XXX_DiscardUnknown() {
+	xxx_messageInfo_ApplyPendingBalanceDecrypted.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ApplyPendingBalanceDecrypted proto.InternalMessageInfo
+
+// Decrypted version of InitializeAccount
+type InitializeAccountDecrypted struct {
+	FromAddress        string                      `protobuf:"bytes,1,opt,name=from_address,json=fromAddress,proto3" json:"from_address,omitempty"`
+	Denom              string                      `protobuf:"bytes,2,opt,name=denom,proto3" json:"denom,omitempty"`
+	Pubkey             []byte                      `protobuf:"bytes,3,opt,name=pubkey,proto3" json:"pubkey,omitempty"`
+	PendingBalanceLo   uint32                      `protobuf:"varint,4,opt,name=pending_balance_lo,json=pendingBalanceLo,proto3" json:"pending_balance_lo,omitempty"`
+	PendingBalanceHi   uint64                      `protobuf:"varint,5,opt,name=pending_balance_hi,json=pendingBalanceHi,proto3" json:"pending_balance_hi,omitempty"`
+	AvailableBalance   string                      `protobuf:"bytes,6,opt,name=available_balance,json=availableBalance,proto3" json:"available_balance,omitempty"`
+	DecryptableBalance uint64                      `protobuf:"varint,7,opt,name=decryptable_balance,json=decryptableBalance,proto3" json:"decryptable_balance,omitempty"`
+	Proofs             *InitializeAccountMsgProofs `protobuf:"bytes,8,opt,name=proofs,proto3" json:"proofs,omitempty"`
+}
+
+func (m *InitializeAccountDecrypted) Reset()         { *m = InitializeAccountDecrypted{} }
+func (m *InitializeAccountDecrypted) String() string { return proto.CompactTextString(m) }
+func (*InitializeAccountDecrypted) ProtoMessage()    {}
+func (*InitializeAccountDecrypted) Descriptor() ([]byte, []int) {
+	return fileDescriptor_35280e71e5f6c1ab, []int{6}
+}
+func (m *InitializeAccountDecrypted) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *InitializeAccountDecrypted) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_InitializeAccountDecrypted.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *InitializeAccountDecrypted) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_InitializeAccountDecrypted.Merge(m, src)
+}
+func (m *InitializeAccountDecrypted) XXX_Size() int {
+	return m.Size()
+}
+func (m *InitializeAccountDecrypted) XXX_DiscardUnknown() {
+	xxx_messageInfo_InitializeAccountDecrypted.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_InitializeAccountDecrypted proto.InternalMessageInfo
+
+// Decrypted version of Withdraw
+type WithdrawDecrypted struct {
+	FromAddress                string             `protobuf:"bytes,1,opt,name=from_address,json=fromAddress,proto3" json:"from_address,omitempty"`
+	Denom                      string             `protobuf:"bytes,2,opt,name=denom,proto3" json:"denom,omitempty"`
+	Amount                     uint64             `protobuf:"varint,3,opt,name=amount,proto3" json:"amount,omitempty"`
+	DecryptableBalance         uint64             `protobuf:"varint,4,opt,name=decryptable_balance,json=decryptableBalance,proto3" json:"decryptable_balance,omitempty"`
+	RemainingBalanceCommitment string             `protobuf:"bytes,5,opt,name=remaining_balance_commitment,json=remainingBalanceCommitment,proto3" json:"remaining_balance_commitment,omitempty"`
+	Proofs                     *WithdrawMsgProofs `protobuf:"bytes,6,opt,name=proofs,proto3" json:"proofs,omitempty"`
+}
+
+func (m *WithdrawDecrypted) Reset()         { *m = WithdrawDecrypted{} }
+func (m *WithdrawDecrypted) String() string { return proto.CompactTextString(m) }
+func (*WithdrawDecrypted) ProtoMessage()    {}
+func (*WithdrawDecrypted) Descriptor() ([]byte, []int) {
+	return fileDescriptor_35280e71e5f6c1ab, []int{7}
+}
+func (m *WithdrawDecrypted) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *WithdrawDecrypted) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_WithdrawDecrypted.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *WithdrawDecrypted) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_WithdrawDecrypted.Merge(m, src)
+}
+func (m *WithdrawDecrypted) XXX_Size() int {
+	return m.Size()
+}
+func (m *WithdrawDecrypted) XXX_DiscardUnknown() {
+	xxx_messageInfo_WithdrawDecrypted.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_WithdrawDecrypted proto.InternalMessageInfo
+
+// Decrypted version of Transfer
+type TransferDecrypted struct {
+	FromAddress                string             `protobuf:"bytes,1,opt,name=from_address,json=fromAddress,proto3" json:"from_address,omitempty"`
+	ToAddress                  string             `protobuf:"bytes,2,opt,name=to_address,json=toAddress,proto3" json:"to_address,omitempty"`
+	Denom                      string             `protobuf:"bytes,3,opt,name=denom,proto3" json:"denom,omitempty"`
+	TransferAmountLo           uint32             `protobuf:"varint,4,opt,name=transfer_amount_lo,json=transferAmountLo,proto3" json:"transfer_amount_lo,omitempty"`
+	TransferAmountHi           uint32             `protobuf:"varint,5,opt,name=transfer_amount_hi,json=transferAmountHi,proto3" json:"transfer_amount_hi,omitempty"`
+	TotalTransferAmount        uint64             `protobuf:"varint,6,opt,name=total_transfer_amount,json=totalTransferAmount,proto3" json:"total_transfer_amount,omitempty"`
+	RemainingBalanceCommitment string             `protobuf:"bytes,7,opt,name=remaining_balance_commitment,json=remainingBalanceCommitment,proto3" json:"remaining_balance_commitment,omitempty"`
+	DecryptableBalance         string             `protobuf:"bytes,8,opt,name=decryptable_balance,json=decryptableBalance,proto3" json:"decryptable_balance,omitempty"`
+	Proofs                     *TransferMsgProofs `protobuf:"bytes,9,opt,name=proofs,proto3" json:"proofs,omitempty"`
+	Auditors                   []string           `protobuf:"bytes,10,rep,name=auditors,proto3" json:"auditors,omitempty"`
+}
+
+func (m *TransferDecrypted) Reset()         { *m = TransferDecrypted{} }
+func (m *TransferDecrypted) String() string { return proto.CompactTextString(m) }
+func (*TransferDecrypted) ProtoMessage()    {}
+func (*TransferDecrypted) Descriptor() ([]byte, []int) {
+	return fileDescriptor_35280e71e5f6c1ab, []int{8}
+}
+func (m *TransferDecrypted) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TransferDecrypted) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TransferDecrypted.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *TransferDecrypted) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TransferDecrypted.Merge(m, src)
+}
+func (m *TransferDecrypted) XXX_Size() int {
+	return m.Size()
+}
+func (m *TransferDecrypted) XXX_DiscardUnknown() {
+	xxx_messageInfo_TransferDecrypted.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TransferDecrypted proto.InternalMessageInfo
+
 func init() {
 	proto.RegisterType((*GetCtAccountRequest)(nil), "seiprotocol.seichain.confidentialtransfers.GetCtAccountRequest")
 	proto.RegisterType((*GetCtAccountResponse)(nil), "seiprotocol.seichain.confidentialtransfers.GetCtAccountResponse")
 	proto.RegisterType((*GetAllCtAccountsRequest)(nil), "seiprotocol.seichain.confidentialtransfers.GetAllCtAccountsRequest")
 	proto.RegisterType((*GetAllCtAccountsResponse)(nil), "seiprotocol.seichain.confidentialtransfers.GetAllCtAccountsResponse")
 	proto.RegisterType((*DecryptedCtAccount)(nil), "seiprotocol.seichain.confidentialtransfers.DecryptedCtAccount")
+	proto.RegisterType((*ApplyPendingBalanceDecrypted)(nil), "seiprotocol.seichain.confidentialtransfers.ApplyPendingBalanceDecrypted")
+	proto.RegisterType((*InitializeAccountDecrypted)(nil), "seiprotocol.seichain.confidentialtransfers.InitializeAccountDecrypted")
+	proto.RegisterType((*WithdrawDecrypted)(nil), "seiprotocol.seichain.confidentialtransfers.WithdrawDecrypted")
+	proto.RegisterType((*TransferDecrypted)(nil), "seiprotocol.seichain.confidentialtransfers.TransferDecrypted")
 }
 
 func init() { proto.RegisterFile("confidentialtransfers/query.proto", fileDescriptor_35280e71e5f6c1ab) }
 
 var fileDescriptor_35280e71e5f6c1ab = []byte{
-	// 673 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xa4, 0x54, 0x4d, 0x4f, 0x13, 0x4f,
-	0x18, 0xef, 0x52, 0x5e, 0x07, 0xfe, 0x09, 0xff, 0x91, 0xe8, 0xa6, 0xc8, 0x82, 0x3d, 0x68, 0x83,
-	0xba, 0x1b, 0x4a, 0x8c, 0xe2, 0x41, 0xa4, 0x45, 0x31, 0xd1, 0x44, 0xec, 0xc5, 0xe8, 0xa5, 0xce,
-	0xee, 0x3e, 0x6c, 0x27, 0x6e, 0x67, 0x96, 0x9d, 0x29, 0xb1, 0x31, 0x5e, 0x4c, 0x4c, 0xf4, 0x66,
-	0xe2, 0x17, 0xe0, 0x5b, 0xf8, 0x09, 0x4c, 0x38, 0x12, 0xbd, 0x70, 0x32, 0x06, 0x3c, 0xf8, 0x31,
-	0x4c, 0x67, 0x76, 0x4b, 0x29, 0x6b, 0x10, 0xbc, 0xed, 0x3c, 0x2f, 0xbf, 0xe7, 0xf7, 0x7b, 0x5e,
-	0x16, 0x5d, 0xf2, 0x38, 0xdb, 0xa0, 0x3e, 0x30, 0x49, 0x49, 0x28, 0x63, 0xc2, 0xc4, 0x06, 0xc4,
-	0xc2, 0xd9, 0x6c, 0x41, 0xdc, 0xb6, 0xa3, 0x98, 0x4b, 0x8e, 0xe7, 0x05, 0x50, 0xf5, 0xe5, 0xf1,
-	0xd0, 0x16, 0x40, 0xbd, 0x06, 0xa1, 0xcc, 0xce, 0xcc, 0x2b, 0xcc, 0x7b, 0x5c, 0x34, 0xb9, 0x70,
-	0x5c, 0x22, 0x40, 0x83, 0x38, 0x5b, 0x0b, 0x2e, 0x48, 0xb2, 0xe0, 0x44, 0x24, 0xa0, 0x8c, 0x48,
-	0xca, 0x99, 0xc6, 0x2d, 0x4c, 0x05, 0x3c, 0xe0, 0xea, 0xd3, 0xe9, 0x7c, 0x25, 0xd6, 0x8b, 0x01,
-	0xe7, 0x41, 0x08, 0x0e, 0x89, 0xa8, 0x43, 0x18, 0xe3, 0x52, 0xa5, 0x88, 0xc4, 0x5b, 0xca, 0xa6,
-	0xdb, 0x6b, 0xd5, 0x91, 0xc5, 0x7b, 0xe8, 0xdc, 0x1a, 0xc8, 0xaa, 0x5c, 0xf1, 0x3c, 0xde, 0x62,
-	0xb2, 0x06, 0x9b, 0x2d, 0x10, 0x12, 0x9b, 0x68, 0x84, 0xf8, 0x7e, 0x0c, 0x42, 0x98, 0xc6, 0x9c,
-	0x51, 0x1a, 0xab, 0xa5, 0x4f, 0x3c, 0x85, 0x86, 0x7c, 0x60, 0xbc, 0x69, 0x0e, 0x28, 0xbb, 0x7e,
-	0x14, 0x03, 0x34, 0x75, 0x14, 0x46, 0x44, 0x9c, 0x09, 0xc0, 0x8f, 0xd1, 0x08, 0xd1, 0x26, 0x85,
-	0x33, 0x5e, 0xbe, 0x61, 0xff, 0x7d, 0x9b, 0xec, 0x43, 0xbc, 0x14, 0xa5, 0xf8, 0xce, 0x40, 0x17,
-	0xd6, 0x40, 0xae, 0x84, 0x61, 0xd7, 0x29, 0x4e, 0x26, 0x7d, 0x1f, 0xa1, 0xc3, 0xbe, 0x2a, 0xe6,
-	0xe3, 0xe5, 0xcb, 0xb6, 0x1e, 0x82, 0xdd, 0x19, 0x82, 0xad, 0x27, 0x99, 0x0c, 0xc1, 0x5e, 0x27,
-	0x01, 0x24, 0xa8, 0xb5, 0x9e, 0xcc, 0xdb, 0xa3, 0xef, 0xb7, 0x67, 0x73, 0xbf, 0xb6, 0x67, 0x73,
-	0xc5, 0x2f, 0x06, 0x32, 0x8f, 0xf3, 0x48, 0x54, 0xbf, 0x40, 0xa3, 0x09, 0xdf, 0x0e, 0x93, 0x7c,
-	0x69, 0xbc, 0x7c, 0xe7, 0x4c, 0xb2, 0x9f, 0x52, 0xd9, 0x58, 0xed, 0xf4, 0xb7, 0x32, 0xb8, 0xf3,
-	0x7d, 0x36, 0x57, 0xeb, 0xa2, 0xe2, 0xb5, 0x0c, 0x41, 0x57, 0x4e, 0x14, 0xa4, 0xe9, 0xf5, 0x2a,
-	0x2a, 0x7e, 0xc8, 0x23, 0xbc, 0x0a, 0x5e, 0xdc, 0x8e, 0x24, 0xf8, 0xdd, 0xc2, 0x78, 0x06, 0xa1,
-	0xa8, 0xe5, 0x86, 0xd4, 0xab, 0xbf, 0x84, 0xb6, 0xea, 0xe6, 0x44, 0x6d, 0x4c, 0x5b, 0x1e, 0x42,
-	0x1b, 0x5f, 0x43, 0x38, 0x02, 0xe6, 0x53, 0x16, 0xd4, 0x5d, 0x12, 0x12, 0xe6, 0x41, 0x3d, 0xe4,
-	0x8a, 0xc6, 0x7f, 0xb5, 0xc9, 0xc4, 0x53, 0xd1, 0x8e, 0x47, 0x3c, 0x2b, 0xba, 0x41, 0xcd, 0xfc,
-	0x9c, 0x51, 0x1a, 0xec, 0x8f, 0x7e, 0x40, 0xf1, 0x2d, 0x64, 0x7a, 0xbc, 0xe9, 0x52, 0x06, 0x7e,
-	0xbd, 0x2f, 0xcd, 0x1c, 0x54, 0x39, 0xe7, 0x53, 0xff, 0xfa, 0x91, 0x5c, 0x5c, 0x45, 0x56, 0x7f,
-	0x1d, 0x2f, 0x06, 0x9f, 0xca, 0xba, 0x12, 0x05, 0xb1, 0x39, 0xa4, 0x18, 0x4e, 0x1f, 0xad, 0x59,
-	0x55, 0x31, 0x55, 0x1d, 0x82, 0xaf, 0xa2, 0xff, 0xc9, 0x16, 0xa1, 0x21, 0x71, 0x43, 0xe8, 0xd6,
-	0x1d, 0x56, 0xeb, 0x34, 0xd9, 0x75, 0xa4, 0x15, 0x2b, 0x68, 0xc6, 0xd7, 0xcd, 0x53, 0xe1, 0xc7,
-	0x13, 0x47, 0x14, 0xe1, 0xe9, 0x9e, 0xa0, 0x95, 0x3e, 0x8c, 0xc3, 0x9d, 0x2a, 0x7f, 0xce, 0xa3,
-	0xa1, 0x27, 0x9d, 0xb1, 0xe1, 0xaf, 0x06, 0x9a, 0xe8, 0xbd, 0x27, 0xbc, 0x7c, 0x9a, 0xfd, 0xc9,
-	0x38, 0xe8, 0xc2, 0xdd, 0xb3, 0x03, 0xe8, 0xad, 0x29, 0x2e, 0xbf, 0xfd, 0xf6, 0xf3, 0xd3, 0xc0,
-	0x12, 0xbe, 0xe9, 0xa4, 0xd9, 0x4e, 0xf6, 0x5f, 0x26, 0x59, 0x52, 0xe7, 0x75, 0x72, 0x7d, 0x6f,
-	0x1c, 0xf5, 0x8f, 0xc0, 0x7b, 0x06, 0x9a, 0xec, 0x3f, 0x19, 0x5c, 0x3d, 0x25, 0xaf, 0xac, 0xc3,
-	0x2f, 0xac, 0xfe, 0x1b, 0x48, 0x22, 0x70, 0x49, 0x09, 0x5c, 0xc4, 0x0b, 0xa7, 0x16, 0x58, 0x79,
-	0xb6, 0xb3, 0x6f, 0x19, 0xbb, 0xfb, 0x96, 0xf1, 0x63, 0xdf, 0x32, 0x3e, 0x1e, 0x58, 0xb9, 0xdd,
-	0x03, 0x2b, 0xb7, 0x77, 0x60, 0xe5, 0x9e, 0x2f, 0x07, 0x54, 0x36, 0x5a, 0xae, 0xed, 0xf1, 0x66,
-	0x07, 0xf6, 0x7a, 0xca, 0x52, 0x3d, 0x74, 0x91, 0x57, 0x7f, 0x28, 0x23, 0xdb, 0x11, 0x08, 0x77,
-	0x58, 0x65, 0x2c, 0xfe, 0x0e, 0x00, 0x00, 0xff, 0xff, 0x61, 0xae, 0x54, 0x04, 0x82, 0x06, 0x00,
-	0x00,
+	// 1032 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xac, 0x56, 0x4d, 0x6f, 0xdc, 0x44,
+	0x18, 0xde, 0xcd, 0x6e, 0xbe, 0xde, 0x14, 0x29, 0x99, 0x84, 0xd6, 0x6c, 0x93, 0x4d, 0xb2, 0x07,
+	0x88, 0x4a, 0xb1, 0x95, 0x54, 0x08, 0x5a, 0x09, 0xd2, 0x4d, 0xd2, 0xa6, 0x15, 0x20, 0xc2, 0xaa,
+	0x08, 0xc1, 0x01, 0x33, 0x6b, 0x4f, 0x9c, 0x51, 0xed, 0x19, 0xd7, 0x9e, 0x6d, 0xd8, 0x22, 0x2e,
+	0x48, 0x48, 0x70, 0x03, 0xf1, 0x07, 0x7a, 0xe2, 0x2f, 0xc0, 0x1f, 0x40, 0xea, 0xb1, 0x82, 0x4b,
+	0x4f, 0x08, 0x25, 0x1c, 0x90, 0xf8, 0x13, 0xc8, 0x33, 0x63, 0xaf, 0xf7, 0x2b, 0xc1, 0x85, 0x9b,
+	0x67, 0xde, 0x8f, 0x79, 0xde, 0xe7, 0x79, 0x6c, 0x0f, 0xac, 0x3b, 0x9c, 0x1d, 0x52, 0x97, 0x30,
+	0x41, 0xb1, 0x2f, 0x22, 0xcc, 0xe2, 0x43, 0x12, 0xc5, 0xd6, 0x83, 0x0e, 0x89, 0xba, 0x66, 0x18,
+	0x71, 0xc1, 0xd1, 0x95, 0x98, 0x50, 0xf9, 0xe4, 0x70, 0xdf, 0x8c, 0x09, 0x75, 0x8e, 0x30, 0x65,
+	0xe6, 0xc8, 0xba, 0xda, 0x15, 0x87, 0xc7, 0x01, 0x8f, 0xad, 0x36, 0x8e, 0x89, 0x6a, 0x62, 0x3d,
+	0xdc, 0x6c, 0x13, 0x81, 0x37, 0xad, 0x10, 0x7b, 0x94, 0x61, 0x41, 0x39, 0x53, 0x7d, 0x6b, 0x4b,
+	0x1e, 0xf7, 0xb8, 0x7c, 0xb4, 0x92, 0x27, 0xbd, 0xbb, 0xec, 0x71, 0xee, 0xf9, 0xc4, 0xc2, 0x21,
+	0xb5, 0x30, 0x63, 0x5c, 0xc8, 0x92, 0x58, 0x47, 0x37, 0x46, 0xc3, 0xcd, 0xef, 0xea, 0xcc, 0xfa,
+	0xe8, 0xcc, 0x47, 0xf7, 0x55, 0xbc, 0x71, 0x0b, 0x16, 0xf7, 0x89, 0xd8, 0x15, 0x4d, 0xc7, 0xe1,
+	0x1d, 0x26, 0x5a, 0xe4, 0x41, 0x87, 0xc4, 0x02, 0x19, 0x30, 0x8d, 0x5d, 0x37, 0x22, 0x71, 0x6c,
+	0x94, 0xd7, 0xca, 0x1b, 0xb3, 0xad, 0x74, 0x89, 0x96, 0x60, 0xd2, 0x25, 0x8c, 0x07, 0xc6, 0x84,
+	0xdc, 0x57, 0x8b, 0x86, 0x07, 0x4b, 0xfd, 0x6d, 0xe2, 0x90, 0xb3, 0x98, 0xa0, 0xf7, 0x61, 0x1a,
+	0xab, 0x2d, 0xd9, 0x67, 0x6e, 0xeb, 0x75, 0xf3, 0xdf, 0xd3, 0x68, 0xf6, 0xfa, 0xa5, 0x5d, 0x1a,
+	0x5f, 0x97, 0xe1, 0xd2, 0x3e, 0x11, 0x4d, 0xdf, 0xcf, 0x82, 0xf1, 0xf9, 0xa0, 0x6f, 0x03, 0xf4,
+	0x78, 0x97, 0xc8, 0xe7, 0xb6, 0x5e, 0x36, 0x95, 0x48, 0x66, 0x22, 0x92, 0xa9, 0x94, 0xd6, 0x22,
+	0x99, 0x07, 0xd8, 0x23, 0xba, 0x6b, 0x2b, 0x57, 0x79, 0x63, 0xe6, 0x9b, 0xc7, 0xab, 0xa5, 0xbf,
+	0x1e, 0xaf, 0x96, 0x1a, 0xbf, 0x94, 0xc1, 0x18, 0xc6, 0xa1, 0xa7, 0xfe, 0x0c, 0x66, 0x34, 0xde,
+	0x04, 0x49, 0x65, 0x63, 0x6e, 0xeb, 0xed, 0xe7, 0x1a, 0xfb, 0x23, 0x2a, 0x8e, 0xf6, 0x12, 0x7e,
+	0x77, 0xaa, 0x4f, 0x7e, 0x5f, 0x2d, 0xb5, 0xb2, 0xae, 0x68, 0x7f, 0xc4, 0x40, 0xaf, 0x9c, 0x3b,
+	0x90, 0x82, 0x97, 0x9f, 0xa8, 0xf1, 0x6d, 0x05, 0xd0, 0x1e, 0x71, 0xa2, 0x6e, 0x28, 0x88, 0x9b,
+	0x1d, 0x8c, 0x56, 0x00, 0xc2, 0x4e, 0xdb, 0xa7, 0x8e, 0x7d, 0x9f, 0x74, 0x25, 0x9b, 0x17, 0x5a,
+	0xb3, 0x6a, 0xe7, 0x1d, 0xd2, 0x45, 0x57, 0x01, 0x85, 0x84, 0xb9, 0x94, 0x79, 0x76, 0x1b, 0xfb,
+	0x98, 0x39, 0xc4, 0xf6, 0xb9, 0x84, 0xf1, 0x42, 0x6b, 0x5e, 0x47, 0x76, 0x54, 0xe0, 0x5d, 0x3e,
+	0x2a, 0xfb, 0x88, 0x1a, 0x95, 0xb5, 0xf2, 0x46, 0x75, 0x30, 0xfb, 0x0e, 0x45, 0x6f, 0x82, 0xe1,
+	0xf0, 0xa0, 0x4d, 0x19, 0x71, 0xed, 0x81, 0x32, 0xa3, 0x2a, 0x6b, 0x2e, 0xa6, 0xf1, 0x83, 0xbe,
+	0x5a, 0xb4, 0x0b, 0xf5, 0xc1, 0x73, 0x9c, 0x88, 0xb8, 0x54, 0xd8, 0x72, 0x28, 0x12, 0x19, 0x93,
+	0x12, 0xe1, 0xe5, 0xfe, 0x33, 0x77, 0x65, 0xce, 0xae, 0x4a, 0x41, 0xaf, 0xc2, 0x02, 0x7e, 0x88,
+	0xa9, 0x8f, 0xdb, 0x3e, 0xc9, 0xce, 0x9d, 0x92, 0x76, 0x9a, 0xcf, 0x02, 0xe9, 0x89, 0x3b, 0xb0,
+	0xe2, 0x2a, 0xf2, 0x64, 0xfa, 0x70, 0xe1, 0xb4, 0x04, 0x7c, 0x39, 0x97, 0xd4, 0x1c, 0xe8, 0x91,
+	0xf3, 0xd4, 0x8f, 0x13, 0xb0, 0xdc, 0x0c, 0x43, 0xbf, 0xdb, 0x3f, 0x57, 0x26, 0x4f, 0xd1, 0xb7,
+	0x12, 0xdd, 0x85, 0x75, 0x46, 0x8e, 0xed, 0xb3, 0x21, 0x2a, 0x1d, 0xea, 0x8c, 0x1c, 0xef, 0x8d,
+	0x47, 0x89, 0x6e, 0xc1, 0xaa, 0xd3, 0x89, 0x22, 0xc2, 0x84, 0x3d, 0xc4, 0xb1, 0x26, 0xb7, 0x2a,
+	0xc9, 0x5d, 0xd6, 0x69, 0xfd, 0x33, 0xa4, 0xec, 0xde, 0x80, 0x97, 0xd2, 0x36, 0xc3, 0x48, 0x26,
+	0x25, 0xf6, 0x4b, 0x3a, 0xe1, 0x0c, 0xa2, 0xbe, 0xaf, 0x40, 0xed, 0x2e, 0xa3, 0xc9, 0x5b, 0x43,
+	0x1f, 0x11, 0xed, 0xd9, 0x1e, 0x4d, 0xeb, 0x70, 0xe1, 0x30, 0xe2, 0x81, 0xdd, 0xcf, 0xd5, 0x5c,
+	0xb2, 0xd7, 0x3c, 0x93, 0xaf, 0x8b, 0x30, 0x15, 0x76, 0xda, 0x89, 0xe3, 0x2b, 0xd2, 0xf1, 0x7a,
+	0x35, 0xc6, 0xee, 0xd5, 0x42, 0x76, 0x9f, 0x1c, 0x63, 0xf7, 0x42, 0x7e, 0xb3, 0x60, 0x31, 0x2f,
+	0x66, 0xbf, 0xcb, 0x50, 0x2e, 0x94, 0x16, 0x7c, 0x0a, 0x53, 0x61, 0xc4, 0xf9, 0x61, 0x6c, 0xcc,
+	0xc8, 0x6f, 0xc4, 0xed, 0x22, 0xdf, 0xa1, 0x21, 0x8a, 0xdf, 0x8b, 0xbd, 0x03, 0xd9, 0xad, 0xa5,
+	0xbb, 0xe6, 0x34, 0xf9, 0x79, 0x02, 0x16, 0x92, 0xef, 0x95, 0x1b, 0xe1, 0xe3, 0xff, 0x47, 0x0a,
+	0x1c, 0xc8, 0xff, 0x86, 0xf2, 0xa7, 0x5e, 0x8d, 0x63, 0xa0, 0x3a, 0x96, 0x81, 0x9b, 0xb0, 0x1c,
+	0x91, 0x00, 0x53, 0xd6, 0x6f, 0xd9, 0x20, 0xa0, 0x22, 0x20, 0x4c, 0x68, 0xd3, 0xd5, 0xb2, 0x9c,
+	0xcc, 0xb0, 0x69, 0x06, 0xfa, 0x30, 0xe3, 0x70, 0x4a, 0x72, 0xf8, 0x56, 0x11, 0x0e, 0x53, 0x4a,
+	0xce, 0xa2, 0xee, 0xef, 0x0a, 0x2c, 0xdc, 0xd3, 0x15, 0x85, 0xa8, 0x5b, 0x01, 0x10, 0x3c, 0x4b,
+	0x50, 0xfc, 0xcd, 0x0a, 0x3e, 0xc4, 0x6c, 0x25, 0xcf, 0xec, 0x55, 0x40, 0x29, 0x3c, 0x5b, 0x91,
+	0x9a, 0x33, 0x73, 0x1a, 0x69, 0xca, 0x80, 0x32, 0xf3, 0x60, 0xb6, 0x36, 0xf3, 0x50, 0xf6, 0x1d,
+	0x8a, 0xb6, 0xe0, 0x45, 0xc1, 0x05, 0xf6, 0xed, 0x81, 0x1a, 0xc9, 0x5c, 0xb5, 0xb5, 0x28, 0x83,
+	0xf7, 0xfa, 0xaa, 0xce, 0x15, 0x68, 0xfa, 0x5c, 0x81, 0xc6, 0x78, 0x62, 0x46, 0x16, 0x8e, 0xf2,
+	0x44, 0x4f, 0xd1, 0xd9, 0xe2, 0x8a, 0xa6, 0xf0, 0x87, 0x14, 0x45, 0x35, 0x98, 0xc1, 0x1d, 0x97,
+	0x0a, 0x1e, 0xc5, 0x06, 0xac, 0x55, 0x36, 0x66, 0x5b, 0xd9, 0xba, 0xa7, 0xf6, 0xd6, 0x4f, 0x15,
+	0x98, 0xfc, 0x20, 0xf9, 0x39, 0xa3, 0x5f, 0xcb, 0x70, 0x21, 0x7f, 0x6b, 0x42, 0xdb, 0x45, 0x70,
+	0x8c, 0xb8, 0xb6, 0xd5, 0x6e, 0x3e, 0x7f, 0x03, 0x75, 0x37, 0x68, 0x6c, 0x7f, 0xf5, 0xdb, 0x9f,
+	0x3f, 0x4c, 0x5c, 0x47, 0x6f, 0x58, 0x69, 0xb5, 0x35, 0xfa, 0x06, 0xa9, 0xaf, 0x22, 0xd6, 0x17,
+	0xda, 0x7e, 0x5f, 0x5a, 0xca, 0x5e, 0xcf, 0xca, 0x30, 0x3f, 0x78, 0x31, 0x42, 0xbb, 0x05, 0x71,
+	0x8d, 0xba, 0xde, 0xd5, 0xf6, 0xfe, 0x5b, 0x13, 0x3d, 0xe0, 0x75, 0x39, 0xe0, 0x35, 0xb4, 0x59,
+	0x78, 0xc0, 0x9d, 0x8f, 0x9f, 0x9c, 0xd4, 0xcb, 0x4f, 0x4f, 0xea, 0xe5, 0x3f, 0x4e, 0xea, 0xe5,
+	0xef, 0x4e, 0xeb, 0xa5, 0xa7, 0xa7, 0xf5, 0xd2, 0xb3, 0xd3, 0x7a, 0xe9, 0x93, 0x6d, 0x8f, 0x8a,
+	0xa3, 0x4e, 0xdb, 0x74, 0x78, 0x90, 0xb4, 0x7d, 0x2d, 0x45, 0x29, 0x17, 0xea, 0x90, 0xcf, 0xc7,
+	0x1c, 0x23, 0xba, 0x21, 0x89, 0xdb, 0x53, 0xb2, 0xe2, 0xda, 0x3f, 0x01, 0x00, 0x00, 0xff, 0xff,
+	0x66, 0xad, 0x9c, 0x01, 0x88, 0x0c, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -659,6 +862,298 @@ func (m *DecryptedCtAccount) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *ApplyPendingBalanceDecrypted) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ApplyPendingBalanceDecrypted) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ApplyPendingBalanceDecrypted) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.CurrentAvailableBalance) > 0 {
+		i -= len(m.CurrentAvailableBalance)
+		copy(dAtA[i:], m.CurrentAvailableBalance)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.CurrentAvailableBalance)))
+		i--
+		dAtA[i] = 0x2a
+	}
+	if m.CurrentPendingBalanceCounter != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.CurrentPendingBalanceCounter))
+		i--
+		dAtA[i] = 0x20
+	}
+	if m.NewDecryptableAvailableBalance != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.NewDecryptableAvailableBalance))
+		i--
+		dAtA[i] = 0x18
+	}
+	if len(m.Denom) > 0 {
+		i -= len(m.Denom)
+		copy(dAtA[i:], m.Denom)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Denom)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Address) > 0 {
+		i -= len(m.Address)
+		copy(dAtA[i:], m.Address)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Address)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *InitializeAccountDecrypted) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *InitializeAccountDecrypted) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *InitializeAccountDecrypted) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.Proofs != nil {
+		{
+			size, err := m.Proofs.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintQuery(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x42
+	}
+	if m.DecryptableBalance != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.DecryptableBalance))
+		i--
+		dAtA[i] = 0x38
+	}
+	if len(m.AvailableBalance) > 0 {
+		i -= len(m.AvailableBalance)
+		copy(dAtA[i:], m.AvailableBalance)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.AvailableBalance)))
+		i--
+		dAtA[i] = 0x32
+	}
+	if m.PendingBalanceHi != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.PendingBalanceHi))
+		i--
+		dAtA[i] = 0x28
+	}
+	if m.PendingBalanceLo != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.PendingBalanceLo))
+		i--
+		dAtA[i] = 0x20
+	}
+	if len(m.Pubkey) > 0 {
+		i -= len(m.Pubkey)
+		copy(dAtA[i:], m.Pubkey)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Pubkey)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.Denom) > 0 {
+		i -= len(m.Denom)
+		copy(dAtA[i:], m.Denom)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Denom)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.FromAddress) > 0 {
+		i -= len(m.FromAddress)
+		copy(dAtA[i:], m.FromAddress)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.FromAddress)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *WithdrawDecrypted) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *WithdrawDecrypted) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *WithdrawDecrypted) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.Proofs != nil {
+		{
+			size, err := m.Proofs.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintQuery(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x32
+	}
+	if len(m.RemainingBalanceCommitment) > 0 {
+		i -= len(m.RemainingBalanceCommitment)
+		copy(dAtA[i:], m.RemainingBalanceCommitment)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.RemainingBalanceCommitment)))
+		i--
+		dAtA[i] = 0x2a
+	}
+	if m.DecryptableBalance != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.DecryptableBalance))
+		i--
+		dAtA[i] = 0x20
+	}
+	if m.Amount != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.Amount))
+		i--
+		dAtA[i] = 0x18
+	}
+	if len(m.Denom) > 0 {
+		i -= len(m.Denom)
+		copy(dAtA[i:], m.Denom)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Denom)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.FromAddress) > 0 {
+		i -= len(m.FromAddress)
+		copy(dAtA[i:], m.FromAddress)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.FromAddress)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *TransferDecrypted) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TransferDecrypted) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *TransferDecrypted) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.Auditors) > 0 {
+		for iNdEx := len(m.Auditors) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.Auditors[iNdEx])
+			copy(dAtA[i:], m.Auditors[iNdEx])
+			i = encodeVarintQuery(dAtA, i, uint64(len(m.Auditors[iNdEx])))
+			i--
+			dAtA[i] = 0x52
+		}
+	}
+	if m.Proofs != nil {
+		{
+			size, err := m.Proofs.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintQuery(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x4a
+	}
+	if len(m.DecryptableBalance) > 0 {
+		i -= len(m.DecryptableBalance)
+		copy(dAtA[i:], m.DecryptableBalance)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.DecryptableBalance)))
+		i--
+		dAtA[i] = 0x42
+	}
+	if len(m.RemainingBalanceCommitment) > 0 {
+		i -= len(m.RemainingBalanceCommitment)
+		copy(dAtA[i:], m.RemainingBalanceCommitment)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.RemainingBalanceCommitment)))
+		i--
+		dAtA[i] = 0x3a
+	}
+	if m.TotalTransferAmount != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.TotalTransferAmount))
+		i--
+		dAtA[i] = 0x30
+	}
+	if m.TransferAmountHi != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.TransferAmountHi))
+		i--
+		dAtA[i] = 0x28
+	}
+	if m.TransferAmountLo != 0 {
+		i = encodeVarintQuery(dAtA, i, uint64(m.TransferAmountLo))
+		i--
+		dAtA[i] = 0x20
+	}
+	if len(m.Denom) > 0 {
+		i -= len(m.Denom)
+		copy(dAtA[i:], m.Denom)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.Denom)))
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.ToAddress) > 0 {
+		i -= len(m.ToAddress)
+		copy(dAtA[i:], m.ToAddress)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.ToAddress)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.FromAddress) > 0 {
+		i -= len(m.FromAddress)
+		copy(dAtA[i:], m.FromAddress)
+		i = encodeVarintQuery(dAtA, i, uint64(len(m.FromAddress)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintQuery(dAtA []byte, offset int, v uint64) int {
 	offset -= sovQuery(v)
 	base := offset
@@ -764,6 +1259,150 @@ func (m *DecryptedCtAccount) Size() (n int) {
 	}
 	if m.DecryptableAvailableBalance != 0 {
 		n += 1 + sovQuery(uint64(m.DecryptableAvailableBalance))
+	}
+	return n
+}
+
+func (m *ApplyPendingBalanceDecrypted) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Address)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	l = len(m.Denom)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	if m.NewDecryptableAvailableBalance != 0 {
+		n += 1 + sovQuery(uint64(m.NewDecryptableAvailableBalance))
+	}
+	if m.CurrentPendingBalanceCounter != 0 {
+		n += 1 + sovQuery(uint64(m.CurrentPendingBalanceCounter))
+	}
+	l = len(m.CurrentAvailableBalance)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	return n
+}
+
+func (m *InitializeAccountDecrypted) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.FromAddress)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	l = len(m.Denom)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	l = len(m.Pubkey)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	if m.PendingBalanceLo != 0 {
+		n += 1 + sovQuery(uint64(m.PendingBalanceLo))
+	}
+	if m.PendingBalanceHi != 0 {
+		n += 1 + sovQuery(uint64(m.PendingBalanceHi))
+	}
+	l = len(m.AvailableBalance)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	if m.DecryptableBalance != 0 {
+		n += 1 + sovQuery(uint64(m.DecryptableBalance))
+	}
+	if m.Proofs != nil {
+		l = m.Proofs.Size()
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	return n
+}
+
+func (m *WithdrawDecrypted) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.FromAddress)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	l = len(m.Denom)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	if m.Amount != 0 {
+		n += 1 + sovQuery(uint64(m.Amount))
+	}
+	if m.DecryptableBalance != 0 {
+		n += 1 + sovQuery(uint64(m.DecryptableBalance))
+	}
+	l = len(m.RemainingBalanceCommitment)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	if m.Proofs != nil {
+		l = m.Proofs.Size()
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	return n
+}
+
+func (m *TransferDecrypted) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.FromAddress)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	l = len(m.ToAddress)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	l = len(m.Denom)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	if m.TransferAmountLo != 0 {
+		n += 1 + sovQuery(uint64(m.TransferAmountLo))
+	}
+	if m.TransferAmountHi != 0 {
+		n += 1 + sovQuery(uint64(m.TransferAmountHi))
+	}
+	if m.TotalTransferAmount != 0 {
+		n += 1 + sovQuery(uint64(m.TotalTransferAmount))
+	}
+	l = len(m.RemainingBalanceCommitment)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	l = len(m.DecryptableBalance)
+	if l > 0 {
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	if m.Proofs != nil {
+		l = m.Proofs.Size()
+		n += 1 + l + sovQuery(uint64(l))
+	}
+	if len(m.Auditors) > 0 {
+		for _, s := range m.Auditors {
+			l = len(s)
+			n += 1 + l + sovQuery(uint64(l))
+		}
 	}
 	return n
 }
@@ -1402,6 +2041,1018 @@ func (m *DecryptedCtAccount) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipQuery(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ApplyPendingBalanceDecrypted) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowQuery
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ApplyPendingBalanceDecrypted: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ApplyPendingBalanceDecrypted: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Address", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Address = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Denom", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Denom = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field NewDecryptableAvailableBalance", wireType)
+			}
+			m.NewDecryptableAvailableBalance = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.NewDecryptableAvailableBalance |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CurrentPendingBalanceCounter", wireType)
+			}
+			m.CurrentPendingBalanceCounter = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.CurrentPendingBalanceCounter |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CurrentAvailableBalance", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.CurrentAvailableBalance = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipQuery(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *InitializeAccountDecrypted) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowQuery
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: InitializeAccountDecrypted: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: InitializeAccountDecrypted: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field FromAddress", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.FromAddress = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Denom", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Denom = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Pubkey", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Pubkey = append(m.Pubkey[:0], dAtA[iNdEx:postIndex]...)
+			if m.Pubkey == nil {
+				m.Pubkey = []byte{}
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PendingBalanceLo", wireType)
+			}
+			m.PendingBalanceLo = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.PendingBalanceLo |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PendingBalanceHi", wireType)
+			}
+			m.PendingBalanceHi = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.PendingBalanceHi |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AvailableBalance", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.AvailableBalance = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 7:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DecryptableBalance", wireType)
+			}
+			m.DecryptableBalance = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.DecryptableBalance |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 8:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Proofs", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Proofs == nil {
+				m.Proofs = &InitializeAccountMsgProofs{}
+			}
+			if err := m.Proofs.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipQuery(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *WithdrawDecrypted) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowQuery
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: WithdrawDecrypted: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: WithdrawDecrypted: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field FromAddress", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.FromAddress = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Denom", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Denom = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Amount", wireType)
+			}
+			m.Amount = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Amount |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DecryptableBalance", wireType)
+			}
+			m.DecryptableBalance = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.DecryptableBalance |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RemainingBalanceCommitment", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.RemainingBalanceCommitment = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Proofs", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Proofs == nil {
+				m.Proofs = &WithdrawMsgProofs{}
+			}
+			if err := m.Proofs.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipQuery(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *TransferDecrypted) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowQuery
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TransferDecrypted: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TransferDecrypted: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field FromAddress", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.FromAddress = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ToAddress", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ToAddress = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Denom", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Denom = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TransferAmountLo", wireType)
+			}
+			m.TransferAmountLo = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.TransferAmountLo |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TransferAmountHi", wireType)
+			}
+			m.TransferAmountHi = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.TransferAmountHi |= uint32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 6:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TotalTransferAmount", wireType)
+			}
+			m.TotalTransferAmount = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.TotalTransferAmount |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 7:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field RemainingBalanceCommitment", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.RemainingBalanceCommitment = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 8:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DecryptableBalance", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DecryptableBalance = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 9:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Proofs", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Proofs == nil {
+				m.Proofs = &TransferMsgProofs{}
+			}
+			if err := m.Proofs.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 10:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Auditors", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowQuery
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthQuery
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthQuery
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Auditors = append(m.Auditors, string(dAtA[iNdEx:postIndex]))
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipQuery(dAtA[iNdEx:])
