@@ -372,6 +372,41 @@ func TestEvmEventsForCw721(t *testing.T) {
 	res = testkeeper.EVMTestApp.DeliverTx(ctx.WithEventManager(sdk.NewEventManager()), abci.RequestDeliverTx{Tx: txbz}, tx, sum)
 	require.Equal(t, uint32(0), res.Code)
 
+	// acct2 transfer on behalf of acct1 to acct2, acct2 approve acct1, acct1 transfer on behalf of acct2 to acct1
+	txBuilder = testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
+	msg1 := &wasmtypes.MsgExecuteContract{
+		Sender:   recipient.String(),
+		Contract: contractAddr.String(),
+		Msg:      []byte(fmt.Sprintf("{\"transfer_nft\":{\"token_id\":\"2\",\"recipient\":\"%s\"}}", recipient.String())),
+	}
+	msg2 := &wasmtypes.MsgExecuteContract{
+		Sender:   recipient.String(),
+		Contract: contractAddr.String(),
+		Msg:      []byte(fmt.Sprintf("{\"approve_all\":{\"operator\":\"%s\"}}", creator.String())),
+	}
+	msg3 := &wasmtypes.MsgExecuteContract{
+		Sender:   creator.String(),
+		Contract: contractAddr.String(),
+		Msg:      []byte(fmt.Sprintf("{\"transfer_nft\":{\"token_id\":\"2\",\"recipient\":\"%s\"}}", creator.String())),
+	}
+	txBuilder.SetMsgs(msg1, msg2, msg3)
+	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000))))
+	txBuilder.SetGasLimit(1000000)
+	tx = signTxMultiple(txBuilder, []cryptotypes.PrivKey{privKeyRecipient, privKey}, []authtypes.AccountI{k.AccountKeeper().GetAccount(ctx, recipient), k.AccountKeeper().GetAccount(ctx, creator)})
+	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
+	require.Nil(t, err)
+	sum = sha256.Sum256(txbz)
+	res = testkeeper.EVMTestApp.DeliverTx(ctx.WithEventManager(sdk.NewEventManager()), abci.RequestDeliverTx{Tx: txbz}, tx, sum)
+	require.Equal(t, uint32(0), res.Code)
+	receipt, err = testkeeper.EVMTestApp.EvmKeeper.GetTransientReceipt(ctx, common.BytesToHash(sum[:]))
+	require.Nil(t, err)
+	require.Equal(t, 3, len(receipt.Logs))
+	// make sure that the owner is set correctly to the creator, not the spender.
+	require.Equal(t, common.BytesToHash(creatorEvmAddr[:]).Hex(), receipt.Logs[0].Topics[1])
+	// the second log is the approval log, which doesn't affect ownership thus not checking here.
+	recipientEvmAddr := testkeeper.EVMTestApp.EvmKeeper.GetEVMAddressOrDefault(ctx, recipient)
+	require.Equal(t, common.BytesToHash(recipientEvmAddr[:]).Hex(), receipt.Logs[2].Topics[1])
+
 	// burn on behalf
 	payload = []byte("{\"burn\":{\"token_id\":\"2\"}}")
 	msg = &wasmtypes.MsgExecuteContract{
@@ -457,6 +492,40 @@ func signTx(txBuilder client.TxBuilder, privKey cryptotypes.PrivKey, acc authtyp
 		acc.GetSequence(),
 	)
 	sigsV2 = append(sigsV2, sigV2)
+	_ = txBuilder.SetSignatures(sigsV2...)
+	return txBuilder.GetTx()
+}
+
+func signTxMultiple(txBuilder client.TxBuilder, privKeys []cryptotypes.PrivKey, accs []authtypes.AccountI) sdk.Tx {
+	var sigsV2 []signing.SignatureV2
+	for i, privKey := range privKeys {
+		sigsV2 = append(sigsV2, signing.SignatureV2{
+			PubKey: privKey.PubKey(),
+			Data: &signing.SingleSignatureData{
+				SignMode:  testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(),
+				Signature: nil,
+			},
+			Sequence: accs[i].GetSequence(),
+		})
+	}
+	_ = txBuilder.SetSignatures(sigsV2...)
+	sigsV2 = []signing.SignatureV2{}
+	for i, privKey := range privKeys {
+		signerData := xauthsigning.SignerData{
+			ChainID:       "sei-test",
+			AccountNumber: accs[i].GetAccountNumber(),
+			Sequence:      accs[i].GetSequence(),
+		}
+		sigV2, _ := clienttx.SignWithPrivKey(
+			testkeeper.EVMTestApp.GetTxConfig().SignModeHandler().DefaultMode(),
+			signerData,
+			txBuilder,
+			privKey,
+			testkeeper.EVMTestApp.GetTxConfig(),
+			accs[i].GetSequence(),
+		)
+		sigsV2 = append(sigsV2, sigV2)
+	}
 	_ = txBuilder.SetSignatures(sigsV2...)
 	return txBuilder.GetTx()
 }
