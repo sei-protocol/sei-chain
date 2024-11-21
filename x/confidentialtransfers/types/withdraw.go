@@ -116,7 +116,7 @@ func (r *Withdraw) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.Priv
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptor is required")
 	}
 
-	availableBalanceString := "Not Decrypted"
+	availableBalanceString := NotDecrypted
 	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
 	if err != nil {
 		return &WithdrawDecrypted{}, err

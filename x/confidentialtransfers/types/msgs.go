@@ -20,6 +20,8 @@ const (
 	TypeMsgCloseAccount        = "close_account"
 )
 
+const NotDecrypted = "not decrypted"
+
 type Decryptable interface {
 	Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool, address string) (proto.Message, error)
 }

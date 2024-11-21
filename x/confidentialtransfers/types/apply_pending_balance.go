@@ -89,7 +89,7 @@ func (r *ApplyPendingBalance) Decrypt(decryptor *elgamal.TwistedElGamal, privKey
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptor is required")
 	}
 
-	availableBalanceString := "Not Decrypted"
+	availableBalanceString := NotDecrypted
 	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
 	if err != nil {
 		return &ApplyPendingBalanceDecrypted{}, err

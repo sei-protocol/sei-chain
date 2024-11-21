@@ -454,7 +454,7 @@ func (r *Transfer) decryptAsRecipient(decryptor *elgamal.TwistedElGamal, privKey
 		return &TransferDecrypted{}, err
 	}
 
-	return NewTransferDecrypted(r, uint32(transferAmountLo), uint32(transferAmountHi), "Not Decrypted"), nil
+	return NewTransferDecrypted(r, uint32(transferAmountLo), uint32(transferAmountHi), NotDecrypted), nil
 }
 
 // Decrypts the Transfer object as one of the auditors on the transaction.
@@ -476,7 +476,7 @@ func (r *Transfer) decryptAsAuditor(decryptor *elgamal.TwistedElGamal, privKey e
 				return &TransferDecrypted{}, err
 			}
 
-			return NewTransferDecrypted(r, uint32(transferAmountLo), uint32(transferAmountHi), "Not Decrypted"), nil
+			return NewTransferDecrypted(r, uint32(transferAmountLo), uint32(transferAmountHi), NotDecrypted), nil
 		}
 	}
 
@@ -496,7 +496,7 @@ func NewTransferDecrypted(transfer *Transfer, transferAmountLo uint32, transferA
 		TransferAmountLo:           transferAmountLo,
 		TransferAmountHi:           transferAmountHi,
 		TotalTransferAmount:        utils.CombineTransferAmount(uint16(transferAmountLo), transferAmountHi),
-		RemainingBalanceCommitment: "Not Decrypted",
+		RemainingBalanceCommitment: NotDecrypted,
 		DecryptableBalance:         decryptableBalance,
 		Proofs:                     NewTransferMsgProofs(transfer.Proofs),
 		Auditors:                   auditorAddrs,

@@ -134,7 +134,7 @@ func (r InitializeAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ec
 		return nil, err
 	}
 
-	availableBalanceString := "Not Decrypted"
+	availableBalanceString := NotDecrypted
 
 	if decryptAvailableBalance {
 		availableBalance, err := decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.AvailableBalance, elgamal.MaxBits48)
