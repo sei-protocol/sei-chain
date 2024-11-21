@@ -35,8 +35,27 @@ var ModuleKeys = sdk.NewKVStoreKeys(
 )
 
 var Modules = []string{
-	"wasm", "aclaccesscontrol", "oracle", "epoch", "mint", "acc", "bank", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
-}
+	"acc",
+	"aclaccesscontrol",
+	"authz",
+	"bank",
+	"capability",
+	"distribution",
+	"epoch",
+	"evidence",
+	"evm",
+	"feegrant",
+	"gov",
+	"ibc",
+	"mint",
+	"oracle",
+	"params",
+	"slashing",
+	"staking",
+	"tokenfactory",
+	"transfer",
+	"upgrade",
+	"wasm"}
 
 func BuildRawPrefix(moduleName string) string {
 	return fmt.Sprintf("s/k:%s/n", moduleName)
