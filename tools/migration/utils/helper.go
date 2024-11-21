@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+
 	"github.com/CosmWasm/wasmd/x/wasm"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"

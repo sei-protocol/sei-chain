@@ -3,11 +3,11 @@ package ss
 import (
 	"bytes"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/tools/migration/utils"
 	"time"
 
 	"github.com/armon/go-metrics"
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-chain/tools/migration/utils"
 	"github.com/sei-protocol/sei-db/ss/types"
 	dbm "github.com/tendermint/tm-db"
 )
