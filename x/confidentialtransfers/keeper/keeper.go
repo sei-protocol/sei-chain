@@ -181,7 +181,7 @@ func (k BaseKeeper) BankKeeper() types.BankKeeper {
 
 func (k BaseKeeper) getAccountStore(ctx sdk.Context) prefix.Store {
 	store := ctx.KVStore(k.storeKey)
-	return prefix.NewStore(store, types.AccountsKey)
+	return prefix.NewStore(store, types.AccountsKeyPrefix)
 }
 
 func (k BaseKeeper) getAccountStoreForAddress(ctx sdk.Context, addr sdk.AccAddress) prefix.Store {

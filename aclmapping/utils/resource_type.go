@@ -11,6 +11,7 @@ import (
 	feegranttypes "github.com/cosmos/cosmos-sdk/x/feegrant"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
@@ -132,6 +133,10 @@ var StoreKeyToResourceTypePrefixMap = aclsdktypes.StoreKeyToResourceTypePrefixMa
 		aclsdktypes.ResourceType_KV_EVM_CODE:              evmtypes.CodeKeyPrefix,
 		aclsdktypes.ResourceType_KV_EVM_CODE_SIZE:         evmtypes.CodeSizeKeyPrefix,
 	},
+	cttypes.StoreKey: {
+		aclsdktypes.ResourceType_KV_CT:         aclsdktypes.EmptyPrefix,
+		aclsdktypes.ResourceType_KV_CT_ACCOUNT: cttypes.AccountsKeyPrefix,
+	},
 }
 
 // ResourceTypeToStoreKeyMap this maps between resource types and their respective storekey
@@ -241,4 +246,8 @@ var ResourceTypeToStoreKeyMap = aclsdktypes.ResourceTypeToStoreKeyMap{
 	aclsdktypes.ResourceType_KV_EVM_CODE_HASH:         evmtypes.StoreKey,
 	aclsdktypes.ResourceType_KV_EVM_CODE:              evmtypes.StoreKey,
 	aclsdktypes.ResourceType_KV_EVM_CODE_SIZE:         evmtypes.StoreKey,
+
+	// ~~~~ CONFIDENTIAL TRANSFERS Resource Types ~~~~
+	aclsdktypes.ResourceType_KV_CT:         cttypes.StoreKey,
+	aclsdktypes.ResourceType_KV_CT_ACCOUNT: cttypes.StoreKey,
 }
