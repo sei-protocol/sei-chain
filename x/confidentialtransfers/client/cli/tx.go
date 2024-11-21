@@ -72,7 +72,7 @@ func makeInitializeAccountCmd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid denom: %v", err)
 	}
 
-	privKey, err := getPrivateKey(cmd)
+	privKey, err := getPrivateKey(cmd, clientCtx.GetFromName())
 	if err != nil {
 		return err
 	}
@@ -90,14 +90,14 @@ func makeInitializeAccountCmd(cmd *cobra.Command, args []string) error {
 	return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 }
 
-func getPrivateKey(cmd *cobra.Command) (*ecdsa.PrivateKey, error) {
+func getPrivateKey(cmd *cobra.Command, fromName string) (*ecdsa.PrivateKey, error) {
 	clientCtx, err := client.GetClientTxContext(cmd)
 	if err != nil {
 		return nil, err
 	}
 	txf := tx.NewFactoryCLI(clientCtx, cmd.Flags())
 	kb := txf.Keybase()
-	info, err := kb.Key(clientCtx.GetFromName())
+	info, err := kb.Key(fromName)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +152,7 @@ func makeCloseAccountCmd(cmd *cobra.Command, args []string) error {
 
 	queryClient := types.NewQueryClient(queryClientCtx)
 
-	privKey, err := getPrivateKey(cmd)
+	privKey, err := getPrivateKey(cmd, clientCtx.GetFromName())
 	if err != nil {
 		return err
 	}
@@ -213,7 +213,7 @@ func makeTransferCmd(cmd *cobra.Command, args []string) error {
 
 	queryClient := types.NewQueryClient(queryClientCtx)
 
-	privKey, err := getPrivateKey(cmd)
+	privKey, err := getPrivateKey(cmd, clientCtx.GetFromName())
 	if err != nil {
 		return err
 	}
@@ -316,7 +316,7 @@ func makeWithdrawCmd(cmd *cobra.Command, args []string) error {
 
 	queryClient := types.NewQueryClient(queryClientCtx)
 
-	privKey, err := getPrivateKey(cmd)
+	privKey, err := getPrivateKey(cmd, clientCtx.GetFromName())
 	if err != nil {
 		return err
 	}
@@ -434,7 +434,7 @@ func makeApplyPendingBalanceCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	queryClient := types.NewQueryClient(queryClientCtx)
-	privKey, err := getPrivateKey(cmd)
+	privKey, err := getPrivateKey(cmd, clientCtx.GetFromName())
 	if err != nil {
 		return err
 	}

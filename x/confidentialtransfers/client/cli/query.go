@@ -20,6 +20,7 @@ import (
 )
 
 const decryptAvailableBalanceFlag = "decrypt-available-balance"
+const decryptorFlag = "decryptor"
 
 // GetQueryCmd returns the cli query commands for the minting module.
 func GetQueryCmd() *cobra.Command {
@@ -46,14 +47,14 @@ func GetCmdQueryAccount() *cobra.Command {
 		Use:   "account [denom] [address] [flags]",
 		Short: "Query the account state",
 		Long: "Queries the account state associated with the address and denom." +
-			"Pass the --from flag to decrypt the account" +
+			"Pass the --decryptor flag to decrypt the account" +
 			"Pass the --decrypt-available-balance flag to attempt to decrypt the available balance.",
 		Args: cobra.ExactArgs(2),
 		RunE: queryAccount,
 	}
 
 	flags.AddQueryFlagsToCmd(cmd)
-	cmd.Flags().String(flags.FlagFrom, "", "Name or address of private key to decrypt the account")
+	cmd.Flags().String(decryptorFlag, "", "Name or address of private key to decrypt the account")
 	cmd.Flags().Bool(decryptAvailableBalanceFlag, false, "Set this to attempt to decrypt the available balance")
 	return cmd
 }
@@ -80,11 +81,11 @@ func queryAccount(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid address: %v", err)
 	}
 
-	from, err := cmd.Flags().GetString(flags.FlagFrom)
+	decryptorAccount, err := cmd.Flags().GetString(decryptorFlag)
 	if err != nil {
 		return err
 	}
-	fromAddr, _, _, err := client.GetFromFields(clientCtx, clientCtx.Keyring, from)
+	decryptorAddr, name, _, err := client.GetFromFields(clientCtx, clientCtx.Keyring, decryptorAccount)
 	if err != nil {
 		return err
 	}
@@ -97,13 +98,13 @@ func queryAccount(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// If the --from flag passed matches the queried address, attempt to decrypt the contents
-	if fromAddr.String() == address {
+	// If the decryptor flag passed matches the queried address, attempt to decrypt the contents
+	if decryptorAddr.String() == address {
 		account, err := res.Account.FromProto()
 		if err != nil {
 			return err
 		}
-		privateKey, err := getPrivateKey(cmd)
+		privateKey, err := getPrivateKey(cmd, name)
 		if err != nil {
 			return err
 		}
@@ -190,16 +191,16 @@ func queryAllAccounts(cmd *cobra.Command, args []string) error {
 // GetCmdQueryTx implements a command to query a tx by it's transaction hash and return it's decrypted state by decrypting with the senders private key.
 func GetCmdQueryTx() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "tx [hash]",
+		Use:   "tx [hash] --decryptor [decryptor] [flags]",
 		Short: "Query the confidential transaction and decrypts it",
-		Long: "Query the confidential transaction by it's tx hash and decrypts it using the private key of the account in --from. For decryption to work, the address should be of a sender, receiver or auditor." +
+		Long: "Query the confidential transaction by it's tx hash and decrypts it using the private key of the account in --decryptor. For decryption to work, the decryptor should be of a sender, receiver or auditor." +
 			"Pass the --decrypt-available-balance flag to attempt to decrypt the available balance. (This is an expensive operation and may not succeed even if the private key provided is valid)",
 		Args: cobra.ExactArgs(1),
 		RunE: queryDecryptedTx,
 	}
 
 	flags.AddQueryFlagsToCmd(cmd)
-	cmd.Flags().String(flags.FlagFrom, "", "Name or address of private key to decrypt the account")
+	cmd.Flags().String(decryptorFlag, "", "Name or address of private key to decrypt the account")
 	cmd.Flags().Bool(decryptAvailableBalanceFlag, false, "Set this to attempt to decrypt the available balance")
 	return cmd
 }
@@ -213,19 +214,20 @@ func queryDecryptedTx(cmd *cobra.Command, args []string) error {
 	// Get the transaction hash
 	txHashHex := args[0]
 
-	from, err := cmd.Flags().GetString(flags.FlagFrom)
+	decryptorAccount, err := cmd.Flags().GetString(decryptorFlag)
 	if err != nil {
 		return err
 	}
 
-	if from == "" {
-		return fmt.Errorf("--from flag must be set since we need the private key to decrypt the transaction")
+	if decryptorAccount == "" {
+		return fmt.Errorf("--decryptor flag must be set since we need the private key to decrypt the transaction")
 	}
 
-	fromAddr, _, _, err := client.GetFromFields(clientCtx, clientCtx.Keyring, from)
+	fromAddr, name, _, err := client.GetFromFields(clientCtx, clientCtx.Keyring, decryptorAccount)
 	if err != nil {
 		return err
 	}
+	clientCtx = clientCtx.WithFrom(decryptorAccount).WithFromAddress(fromAddr).WithFromName(name)
 
 	decryptAvailableBalance, err := cmd.Flags().GetBool(decryptAvailableBalanceFlag)
 	if err != nil {
@@ -263,7 +265,7 @@ func queryDecryptedTx(cmd *cobra.Command, args []string) error {
 	}
 
 	decryptor := elgamal.NewTwistedElgamal()
-	privateKey, err := getPrivateKey(cmd)
+	privateKey, err := getPrivateKey(cmd, name)
 
 	if err != nil {
 		return err
