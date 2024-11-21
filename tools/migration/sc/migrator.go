@@ -15,30 +15,12 @@ import (
 	rootmulti2 "github.com/cosmos/cosmos-sdk/storev2/rootmulti"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	authzkeeper "github.com/cosmos/cosmos-sdk/x/authz/keeper"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
-	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
-	evidencetypes "github.com/cosmos/cosmos-sdk/x/evidence/types"
-	"github.com/cosmos/cosmos-sdk/x/feegrant"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
-	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
-	ibctransfertypes "github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
-	ibchost "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 	"github.com/sei-protocol/sei-chain/app/params"
-	epochmoduletypes "github.com/sei-protocol/sei-chain/x/epoch/types"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
-	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
-	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
-	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+	"github.com/sei-protocol/sei-chain/tools/migration/utils"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
@@ -51,20 +33,12 @@ type Migrator struct {
 	storeV2 store.CommitMultiStore
 }
 
-var Keys = sdk.NewKVStoreKeys(
-	acltypes.StoreKey, authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
-	minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
-	govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
-	evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
-	evmtypes.StoreKey, wasm.StoreKey, epochmoduletypes.StoreKey, tokenfactorytypes.StoreKey,
-)
-
 func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 	logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
 
 	// Creating CMS for store V1
 	cmsV1 := rootmulti.NewStore(db, logger)
-	for _, key := range Keys {
+	for _, key := range utils.ModuleKeys {
 		cmsV1.MountStoreWithDB(key, sdk.StoreTypeIAVL, nil)
 	}
 	err := cmsV1.LoadLatestVersion()
@@ -79,7 +53,7 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 	ssConfig.Enable = true
 	ssConfig.KeepRecent = 0
 	cmsV2 := rootmulti2.NewStore(homeDir, logger, scConfig, ssConfig, true)
-	for _, key := range Keys {
+	for _, key := range utils.ModuleKeys {
 		cmsV2.MountStoreWithDB(key, sdk.StoreTypeIAVL, db)
 	}
 	err = cmsV2.LoadLatestVersion()
@@ -174,7 +148,7 @@ func CreateWasmSnapshotter(cms sdk.MultiStore, homeDir string) *keeper.WasmSnaps
 	pk := paramskeeper.NewKeeper(encodingConfig.Marshaler, encodingConfig.Amino, keyParams, tkeyParams)
 	wasmKeeper := keeper.NewKeeper(
 		encodingConfig.Marshaler,
-		Keys[wasm.StoreKey],
+		utils.ModuleKeys[wasm.StoreKey],
 		paramskeeper.Keeper{},
 		pk.Subspace("wasm"),
 		authkeeper.AccountKeeper{},
