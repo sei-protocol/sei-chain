@@ -5,6 +5,7 @@ import "cosmos/base/query/v1beta1/pagination.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "confidentialtransfers/confidential.proto";
+import "confidentialtransfers/zk.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types";
 
@@ -60,4 +61,61 @@ message DecryptedCtAccount {
   uint32   pending_balance_credit_counter = 5;
   string   available_balance = 6; // decrypted available balance
   uint64   decryptable_available_balance = 7; // decrypted aes encrypted available balance
+}
+
+// Decrypted version of ApplyPendingBalance
+message ApplyPendingBalanceDecrypted {
+  option (gogoproto.equal) = false;
+  option (gogoproto.goproto_getters) = false;
+
+  string address = 1;
+  string denom = 2;
+  uint64 new_decryptable_available_balance = 3;
+  uint32 current_pending_balance_counter = 4;
+  string current_available_balance = 5;
+}
+
+// Decrypted version of InitializeAccount
+message InitializeAccountDecrypted {
+  option (gogoproto.equal) = false;
+  option (gogoproto.goproto_getters) = false;
+
+  string from_address = 1;
+  string denom = 2;
+  bytes pubkey = 3;
+  uint32 pending_balance_lo = 4;
+  uint64 pending_balance_hi = 5;
+  string available_balance = 6;
+  uint64 decryptable_balance = 7;
+  InitializeAccountMsgProofs proofs = 8;
+}
+
+// Decrypted version of Withdraw
+message WithdrawDecrypted {
+  option (gogoproto.equal) = false;
+  option (gogoproto.goproto_getters) = false;
+
+  string from_address = 1;
+  string denom = 2;
+  uint64 amount = 3;
+  uint64 decryptable_balance = 4;
+  string remaining_balance_commitment = 5;
+  WithdrawMsgProofs proofs = 6;
+}
+
+// Decrypted version of Transfer
+message TransferDecrypted {
+  option (gogoproto.equal) = false;
+  option (gogoproto.goproto_getters) = false;
+
+  string from_address = 1;
+  string to_address = 2;
+  string denom = 3;
+  uint32 transfer_amount_lo = 4;
+  uint32 transfer_amount_hi = 5;
+  uint64 total_transfer_amount = 6;
+  string remaining_balance_commitment = 7;
+  string decryptable_balance = 8;
+  TransferMsgProofs proofs = 9;
+  repeated string auditors = 10;
 }

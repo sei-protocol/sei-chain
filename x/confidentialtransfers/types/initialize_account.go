@@ -2,8 +2,10 @@ package types
 
 import (
 	"crypto/ecdsa"
+	"strconv"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
@@ -98,5 +100,61 @@ func NewInitializeAccount(address, denom string, privateKey ecdsa.PrivateKey) (*
 		PendingBalanceHi:   zeroCiphertextHi,
 		AvailableBalance:   zeroCiphertextAvailable,
 		Proofs:             &proofs,
+	}, nil
+}
+
+// Decrypt decrypts the InitializeAccount message using the provided private key.
+func (r InitializeAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool) (*InitializeAccountDecrypted, error) {
+	if decryptor == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptor is required")
+	}
+
+	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
+	if err != nil {
+		return &InitializeAccountDecrypted{}, err
+	}
+
+	aesKey, err := encryption.GetAESKey(privKey, r.Denom)
+	if err != nil {
+		return &InitializeAccountDecrypted{}, err
+	}
+
+	pendingBalanceLo, err := decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.PendingBalanceLo, elgamal.MaxBits32)
+	if err != nil {
+		return nil, err
+	}
+
+	pendingBalanceHi, err := decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.PendingBalanceHi, elgamal.MaxBits48)
+	if err != nil {
+		return nil, err
+	}
+
+	decryptableBalance, err := encryption.DecryptAESGCM(r.DecryptableBalance, aesKey)
+	if err != nil {
+		return nil, err
+	}
+
+	availableBalanceString := NotDecrypted
+
+	if decryptAvailableBalance {
+		availableBalance, err := decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.AvailableBalance, elgamal.MaxBits48)
+		if err != nil {
+			return nil, err
+		}
+		availableBalanceString = strconv.FormatUint(availableBalance, 10)
+	}
+
+	pubkeyRaw := *r.Pubkey
+	pubkey := pubkeyRaw.ToAffineCompressed()
+
+	return &InitializeAccountDecrypted{
+		FromAddress:        r.FromAddress,
+		Denom:              r.Denom,
+		Pubkey:             pubkey,
+		PendingBalanceLo:   uint32(pendingBalanceLo),
+		PendingBalanceHi:   pendingBalanceHi,
+		AvailableBalance:   availableBalanceString,
+		DecryptableBalance: decryptableBalance,
+		Proofs:             NewInitializeAccountMsgProofs(r.Proofs),
 	}, nil
 }

@@ -2,6 +2,9 @@ package types
 
 import (
 	crand "crypto/rand"
+	"math/big"
+	"testing"
+
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -10,8 +13,6 @@ import (
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"math/big"
-	"testing"
 )
 
 func TestMsgTransfer_FromProto(t *testing.T) {
@@ -962,11 +963,35 @@ func TestMsgApplyPendingBalance_ValidateBasic(t *testing.T) {
 			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
 		},
 		{
+			name: "missing current available balance",
+			msg: MsgApplyPendingBalance{
+				Address:                        validAddress,
+				Denom:                          validDenom,
+				NewDecryptableAvailableBalance: "some_balance",
+				CurrentPendingBalanceCounter:   1,
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
+			name: "missing current pending balance counter",
+			msg: MsgApplyPendingBalance{
+				Address:                        validAddress,
+				Denom:                          validDenom,
+				NewDecryptableAvailableBalance: "some_balance",
+				CurrentAvailableBalance:        &Ciphertext{},
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
+		{
 			name: "valid message",
 			msg: MsgApplyPendingBalance{
 				Address:                        validAddress,
 				Denom:                          validDenom,
 				NewDecryptableAvailableBalance: "some_balance",
+				CurrentPendingBalanceCounter:   1,
+				CurrentAvailableBalance:        &Ciphertext{},
 			},
 			wantErr: false,
 		},
