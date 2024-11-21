@@ -10,7 +10,7 @@ import (
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 )
 
-// MsgApplyPendingBalance is a message to apply the pending balance to the available balance
+// ApplyPendingBalance is a message to apply the pending balance to the available balance
 type ApplyPendingBalance struct {
 	Address                        string
 	Denom                          string
@@ -82,8 +82,8 @@ func NewApplyPendingBalance(
 	}, nil
 }
 
-// ApplyPendingBalanceDecrypted is the decrypted version of ApplyPendingBalance
-func (r *ApplyPendingBalance) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool, address string) (*ApplyPendingBalanceDecrypted, error) {
+// Decrypt returns the decrypted version of ApplyPendingBalance by decrypting using the given privateKey.
+func (r *ApplyPendingBalance) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool) (*ApplyPendingBalanceDecrypted, error) {
 	availableBalanceString := "Not Decrypted"
 	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
 	if err != nil {

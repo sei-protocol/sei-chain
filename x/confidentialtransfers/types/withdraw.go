@@ -110,7 +110,7 @@ func NewWithdraw(
 	}, nil
 }
 
-func (r *Withdraw) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool, address string) (*WithdrawDecrypted, error) {
+func (r *Withdraw) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool) (*WithdrawDecrypted, error) {
 	availableBalanceString := "Not Decrypted"
 	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
 	if err != nil {

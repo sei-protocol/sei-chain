@@ -102,7 +102,8 @@ func NewInitializeAccount(address, denom string, privateKey ecdsa.PrivateKey) (*
 	}, nil
 }
 
-func (r InitializeAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool, address string) (*InitializeAccountDecrypted, error) {
+// Decrypt decrypts the InitializeAccount message using the provided private key.
+func (r InitializeAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool) (*InitializeAccountDecrypted, error) {
 	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
 	if err != nil {
 		return &InitializeAccountDecrypted{}, err
@@ -117,15 +118,19 @@ func (r InitializeAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ec
 	if err != nil {
 		return nil, err
 	}
+
 	pendingBalanceHi, err := decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.PendingBalanceHi, elgamal.MaxBits48)
 	if err != nil {
 		return nil, err
 	}
+
 	decryptableBalance, err := encryption.DecryptAESGCM(r.DecryptableBalance, aesKey)
 	if err != nil {
 		return nil, err
 	}
+
 	availableBalanceString := "Not Decrypted"
+
 	if decryptAvailableBalance {
 		availableBalance, err := decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.AvailableBalance, elgamal.MaxBits48)
 		if err != nil {

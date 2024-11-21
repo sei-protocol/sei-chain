@@ -292,13 +292,13 @@ func (m *MsgInitializeAccount) FromProto() (*InitializeAccount, error) {
 	}, nil
 }
 
-func (m *MsgInitializeAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool, address string) (proto.Message, error) {
+func (m *MsgInitializeAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool) (proto.Message, error) {
 	initialize, err := m.FromProto()
 	if err != nil {
 		return nil, err
 	}
 
-	return initialize.Decrypt(decryptor, privKey, decryptAvailableBalance, address)
+	return initialize.Decrypt(decryptor, privKey, decryptAvailableBalance)
 }
 
 // convert the InitializeAccount to MsgInitializeAccount
@@ -389,13 +389,13 @@ func (m *MsgApplyPendingBalance) FromProto() (*ApplyPendingBalance, error) {
 	}, nil
 }
 
-func (m *MsgApplyPendingBalance) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool, address string) (proto.Message, error) {
+func (m *MsgApplyPendingBalance) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool) (proto.Message, error) {
 	apply, err := m.FromProto()
 	if err != nil {
 		return nil, err
 	}
 
-	return apply.Decrypt(decryptor, privKey, decryptAvailableBalance, address)
+	return apply.Decrypt(decryptor, privKey, decryptAvailableBalance)
 }
 
 func NewMsgApplyPendingBalanceProto(applyPendingBalance *ApplyPendingBalance) *MsgApplyPendingBalance {
@@ -469,10 +469,6 @@ func (m *MsgCloseAccount) GetSigners() []sdk.AccAddress {
 	return []sdk.AccAddress{sender}
 }
 
-func (m *MsgCloseAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool, address string) (proto.Message, error) {
-	return m, nil
-}
-
 func NewMsgCloseAccountProto(closeAccount *CloseAccount) *MsgCloseAccount {
 	proofs := NewCloseAccountMsgProofs(closeAccount.Proofs)
 	return &MsgCloseAccount{
@@ -515,10 +511,6 @@ func (m *MsgDeposit) GetSignBytes() []byte {
 func (m *MsgDeposit) GetSigners() []sdk.AccAddress {
 	sender, _ := sdk.AccAddressFromBech32(m.FromAddress)
 	return []sdk.AccAddress{sender}
-}
-
-func (m *MsgDeposit) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool, address string) (proto.Message, error) {
-	return m, nil
 }
 
 var _ sdk.Msg = &MsgWithdraw{}
@@ -599,13 +591,13 @@ func (m *MsgWithdraw) FromProto() (*Withdraw, error) {
 	}, nil
 }
 
-func (m *MsgWithdraw) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool, address string) (proto.Message, error) {
+func (m *MsgWithdraw) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool) (proto.Message, error) {
 	withdraw, err := m.FromProto()
 	if err != nil {
 		return nil, err
 	}
 
-	return withdraw.Decrypt(decryptor, privKey, decryptAvailableBalance, address)
+	return withdraw.Decrypt(decryptor, privKey, decryptAvailableBalance)
 }
 
 func NewMsgWithdrawProto(withdraw *Withdraw) *MsgWithdraw {

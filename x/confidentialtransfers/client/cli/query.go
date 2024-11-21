@@ -187,14 +187,13 @@ func queryAllAccounts(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// GetCmdQueryTx implements a command to query a tx by it's transaction hash and return it in it's decrypted state.
+// GetCmdQueryTx implements a command to query a tx by it's transaction hash and return it's decrypted state by decrypting with the senders private key.
 func GetCmdQueryTx() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tx [hash]",
 		Short: "Query the confidential transaction and decrypts it",
-		Long: "Query the confidential transaction by it's tx hash and decrypts it using the private key of the account in --from" +
-			"Pass the --from flag to decrypt the account" +
-			"Pass the --decrypt-available-balance flag to attempt to decrypt the available balance. (This is an expensive operation)",
+		Long: "Query the confidential transaction by it's tx hash and decrypts it using the private key of the account in --from. For decryption to work, the address should be of a sender, receiver or auditor." +
+			"Pass the --decrypt-available-balance flag to attempt to decrypt the available balance. (This is an expensive operation and may not succeed even if the private key provided is valid)",
 		Args: cobra.ExactArgs(1),
 		RunE: queryDecryptedTx,
 	}
@@ -211,12 +210,18 @@ func queryDecryptedTx(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Get the transaction hash
 	txHashHex := args[0]
 
 	from, err := cmd.Flags().GetString(flags.FlagFrom)
 	if err != nil {
 		return err
 	}
+
+	if from == "" {
+		return fmt.Errorf("--from flag must be set since we need the private key to decrypt the transaction")
+	}
+
 	fromAddr, _, _, err := client.GetFromFields(clientCtx, clientCtx.Keyring, from)
 	if err != nil {
 		return err
@@ -225,6 +230,12 @@ func queryDecryptedTx(cmd *cobra.Command, args []string) error {
 	decryptAvailableBalance, err := cmd.Flags().GetBool(decryptAvailableBalanceFlag)
 	if err != nil {
 		return err
+	}
+	if decryptAvailableBalance {
+		err = clientCtx.PrintString("--decrypt-available-balance set to true. This operation could take a long time and may not succeed even if the private key provided is valid\n")
+		if err != nil {
+			return err
+		}
 	}
 
 	// Decode the transaction hash from hex to bytes
@@ -296,16 +307,23 @@ func handleDecryptableMessage(
 		return nil, false, nil
 	}
 
-	decryptable, ok := sdkmsg.(types.Decryptable)
-	if !ok {
+	var result proto.Message
+	switch message := sdkmsg.(type) {
+	case *types.MsgInitializeAccount:
+		result, err = message.Decrypt(decryptor, *privKey, decryptAvailableBalance)
+	case *types.MsgWithdraw:
+		result, err = message.Decrypt(decryptor, *privKey, decryptAvailableBalance)
+	case *types.MsgApplyPendingBalance:
+		result, err = message.Decrypt(decryptor, *privKey, decryptAvailableBalance)
+	case *types.MsgTransfer:
+		result, err = message.Decrypt(decryptor, *privKey, decryptAvailableBalance, address)
+	case *types.MsgDeposit:
+		result = message
+	case *types.MsgCloseAccount:
+		result = message
+	default:
 		return nil, false, nil
 	}
 
-	// Successfully unmarshaled as decryptable message, run the Decrypt() method
-	result, err := decryptable.Decrypt(decryptor, *privKey, decryptAvailableBalance, address)
-	if err != nil {
-		return nil, true, fmt.Errorf("failed to decrypt message: %w", err)
-	}
-
-	return result, true, nil
+	return result, true, err
 }

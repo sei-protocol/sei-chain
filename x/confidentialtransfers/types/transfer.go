@@ -49,15 +49,6 @@ type TransferAuditor struct {
 	TransferAmountHiEqualityProof *zkproofs.CiphertextCiphertextEqualityProof `json:"transfer_amount_hi_equality_proof"`
 }
 
-type DecryptorType int
-
-const (
-	NotSetDecryptor DecryptorType = iota
-	SenderDecryptor
-	RecipientDecryptor
-	AuditorDecryptor
-)
-
 type AuditorInput struct {
 	Address string
 	Pubkey  *curves.Point
@@ -215,113 +206,6 @@ func NewTransfer(
 	}, nil
 }
 
-// Decrypts the transfer transaction and returns the decrypted data.
-// The aesKey and decryptAvailableBalance field are only used if address is the sender address of the transaction.
-func (r *Transfer) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool, address string) (*TransferDecrypted, error) {
-	// Get the addresses of the auditors.
-	decryptorType := NotSetDecryptor
-	auditorAddrs := make([]string, len(r.Auditors))
-	for i, auditor := range r.Auditors {
-		auditorAddrs[i] = auditor.Address
-		if auditor.Address == address {
-			decryptorType = AuditorDecryptor
-		}
-	}
-
-	if address == r.FromAddress {
-		decryptorType = SenderDecryptor
-	} else if address == r.ToAddress {
-		decryptorType = RecipientDecryptor
-	}
-
-	var err error
-	if decryptorType == NotSetDecryptor {
-		return nil, errors.New("address not found in transfer transaction")
-	}
-
-	// These 2 fields are not decrypted unless the Decryptor is the sender.
-	availableBalanceString := "Not Decrypted"
-	decryptableBalanceString := "Not Decrypted"
-	transferAmountLo := uint64(0)
-	transferAmountHi := uint64(0)
-
-	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
-	if err != nil {
-		return nil, err
-	}
-
-	if decryptorType == SenderDecryptor {
-		transferAmountLo, err = decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.SenderTransferAmountLo, elgamal.MaxBits16)
-		if err != nil {
-			return &TransferDecrypted{}, err
-		}
-
-		transferAmountHi, err = decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.SenderTransferAmountHi, elgamal.MaxBits32)
-		if err != nil {
-			return &TransferDecrypted{}, err
-		}
-
-		aesKey, err := encryption.GetAESKey(privKey, r.Denom)
-		if err != nil {
-			return nil, err
-		}
-
-		decryptableBalance, err := encryption.DecryptAESGCM(r.DecryptableBalance, aesKey)
-		if err != nil {
-			return nil, err
-		}
-		decryptableBalanceString = strconv.FormatUint(decryptableBalance, 10)
-
-		if decryptAvailableBalance {
-			availableBalance, err := decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.RemainingBalanceCommitment, elgamal.MaxBits48)
-			if err != nil {
-				return nil, err
-			}
-			availableBalanceString = strconv.FormatUint(availableBalance, 10)
-		}
-	} else if decryptorType == RecipientDecryptor {
-		transferAmountLo, err = decryptor.Decrypt(keyPair.PrivateKey, r.RecipientTransferAmountLo, elgamal.MaxBits16)
-		if err != nil {
-			return &TransferDecrypted{}, err
-		}
-
-		transferAmountHi, err = decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.RecipientTransferAmountHi, elgamal.MaxBits32)
-		if err != nil {
-			return &TransferDecrypted{}, err
-		}
-	} else if decryptorType == AuditorDecryptor {
-		for _, auditor := range r.Auditors {
-			if auditor.Address == address {
-				transferAmountLo, err = decryptor.Decrypt(keyPair.PrivateKey, auditor.EncryptedTransferAmountLo, elgamal.MaxBits16)
-				if err != nil {
-					return &TransferDecrypted{}, err
-				}
-
-				transferAmountHi, err = decryptor.DecryptLargeNumber(keyPair.PrivateKey, auditor.EncryptedTransferAmountHi, elgamal.MaxBits32)
-				if err != nil {
-					return &TransferDecrypted{}, err
-				}
-			}
-		}
-	}
-
-	combinedTransferAmount := utils.CombineTransferAmount(uint16(transferAmountLo), uint32(transferAmountHi))
-
-	return &TransferDecrypted{
-		FromAddress:                r.FromAddress,
-		ToAddress:                  r.ToAddress,
-		Denom:                      r.Denom,
-		TransferAmountLo:           uint32(transferAmountLo),
-		TransferAmountHi:           uint32(transferAmountHi),
-		TotalTransferAmount:        combinedTransferAmount,
-		RemainingBalanceCommitment: availableBalanceString,
-		DecryptableBalance:         decryptableBalanceString,
-		Proofs:                     NewTransferMsgProofs(r.Proofs),
-		Auditors:                   auditorAddrs,
-	}, nil
-
-}
-
 func createTransferPartyParams(
 	partyAddress string,
 	transferLoBits uint16,
@@ -476,4 +360,140 @@ func VerifyAuditorProof(
 	}
 
 	return nil
+}
+
+// Decrypts the transfer transaction and returns the decrypted data.
+// The method only works if the decryptor is the sender, recipient or an auditor on the transaction.
+func (r *Transfer) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool, decryptorAddress string) (*TransferDecrypted, error) {
+	switch decryptorAddress {
+	case r.FromAddress:
+		if decryptAvailableBalance {
+			return r.decryptWithAvailableBalanceAsSender(decryptor, privKey)
+		} else {
+			return r.decryptAsSender(decryptor, privKey)
+		}
+	case r.ToAddress:
+		return r.decryptAsRecipient(decryptor, privKey)
+	default:
+		return r.decryptAsAuditor(decryptor, privKey, decryptorAddress)
+	}
+}
+
+// Decrypts the Transfer object as a sender, while also attempting to perform the expensive operation of decrypting the NewBalanceCommitment.
+// NOTE: Decryption of the NewBalanceCommitment can potentially take hours or be impossible even with the correct private key and should only be done when necessary.
+func (r *Transfer) decryptWithAvailableBalanceAsSender(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey) (*TransferDecrypted, error) {
+	decrypted, err := r.decryptAsSender(decryptor, privKey)
+	if err != nil {
+		return nil, err
+	}
+
+	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
+	if err != nil {
+		return nil, err
+	}
+
+	remainingBalance, err := decryptor.Decrypt(keyPair.PrivateKey, r.RemainingBalanceCommitment, elgamal.MaxBits48)
+	if err != nil {
+		return nil, err
+	}
+
+	decrypted.RemainingBalanceCommitment = strconv.FormatUint(remainingBalance, 10)
+	return decrypted, nil
+}
+
+// Decrypts the Transfer object as a sender,
+func (r *Transfer) decryptAsSender(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey) (*TransferDecrypted, error) {
+	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
+	if err != nil {
+		return nil, err
+	}
+
+	transferAmountLo, err := decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.SenderTransferAmountLo, elgamal.MaxBits16)
+	if err != nil {
+		return &TransferDecrypted{}, err
+	}
+
+	transferAmountHi, err := decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.SenderTransferAmountHi, elgamal.MaxBits32)
+	if err != nil {
+		return &TransferDecrypted{}, err
+	}
+
+	aesKey, err := encryption.GetAESKey(privKey, r.Denom)
+	if err != nil {
+		return nil, err
+	}
+
+	decryptableBalance, err := encryption.DecryptAESGCM(r.DecryptableBalance, aesKey)
+	if err != nil {
+		return nil, err
+	}
+	decryptableBalanceString := strconv.FormatUint(decryptableBalance, 10)
+
+	return NewTransferDecrypted(r, uint32(transferAmountLo), uint32(transferAmountHi), decryptableBalanceString), nil
+}
+
+// Decrypts the Transfer object as the listed recipient in the transfer
+func (r *Transfer) decryptAsRecipient(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey) (*TransferDecrypted, error) {
+	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
+	if err != nil {
+		return nil, err
+	}
+
+	transferAmountLo, err := decryptor.Decrypt(keyPair.PrivateKey, r.RecipientTransferAmountLo, elgamal.MaxBits16)
+	if err != nil {
+		return &TransferDecrypted{}, err
+	}
+
+	transferAmountHi, err := decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.RecipientTransferAmountHi, elgamal.MaxBits32)
+	if err != nil {
+		return &TransferDecrypted{}, err
+	}
+
+	return NewTransferDecrypted(r, uint32(transferAmountLo), uint32(transferAmountHi), "Not Decrypted"), nil
+}
+
+// Decrypts the Transfer object as one of the auditors on the transaction.
+func (r *Transfer) decryptAsAuditor(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptorAddress string) (*TransferDecrypted, error) {
+	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, auditor := range r.Auditors {
+		if auditor.Address == decryptorAddress {
+			transferAmountLo, err := decryptor.Decrypt(keyPair.PrivateKey, auditor.EncryptedTransferAmountLo, elgamal.MaxBits16)
+			if err != nil {
+				return &TransferDecrypted{}, err
+			}
+
+			transferAmountHi, err := decryptor.DecryptLargeNumber(keyPair.PrivateKey, auditor.EncryptedTransferAmountHi, elgamal.MaxBits32)
+			if err != nil {
+				return &TransferDecrypted{}, err
+			}
+
+			return NewTransferDecrypted(r, uint32(transferAmountLo), uint32(transferAmountHi), "Not Decrypted"), nil
+		}
+	}
+
+	return nil, errors.New("address not found in transfer transaction")
+}
+
+func NewTransferDecrypted(transfer *Transfer, transferAmountLo uint32, transferAmountHi uint32, decryptableBalance string) *TransferDecrypted {
+	auditorAddrs := make([]string, len(transfer.Auditors))
+	for i, auditor := range transfer.Auditors {
+		auditorAddrs[i] = auditor.Address
+	}
+
+	return &TransferDecrypted{
+		FromAddress:                transfer.FromAddress,
+		ToAddress:                  transfer.ToAddress,
+		Denom:                      transfer.Denom,
+		TransferAmountLo:           transferAmountLo,
+		TransferAmountHi:           transferAmountHi,
+		TotalTransferAmount:        utils.CombineTransferAmount(uint16(transferAmountLo), transferAmountHi),
+		RemainingBalanceCommitment: "Not Decrypted",
+		DecryptableBalance:         decryptableBalance,
+		Proofs:                     NewTransferMsgProofs(transfer.Proofs),
+		Auditors:                   auditorAddrs,
+	}
 }
