@@ -54,7 +54,7 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 		return nil, err
 	}
 	// Fill in the receipt if the transaction has failed and used 0 gas
-	if receipt.TxType == 0 && receipt.GasUsed == 0 {
+	if receipt.Status == 0 && receipt.GasUsed == 0 {
 		// Get the block
 		height := int64(receipt.BlockNumber)
 		block, err := blockByNumberWithRetry(ctx, t.tmClient, &height, 1)
