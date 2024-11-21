@@ -32,6 +32,10 @@ type BankKeeper interface {
 	SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
 }
 
+type BankMsgServer interface {
+	Send(goCtx context.Context, msg *banktypes.MsgSend) (*banktypes.MsgSendResponse, error)
+}
+
 type EVMKeeper interface {
 	GetSeiAddress(sdk.Context, common.Address) (sdk.AccAddress, bool)
 	GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress // only used for getting precompile Sei addresses
@@ -50,17 +54,19 @@ type EVMKeeper interface {
 	GetERC1155CW1155Pointer(ctx sdk.Context, cw1155Address string) (addr common.Address, version uint16, exists bool)
 	SetCode(ctx sdk.Context, addr common.Address, code []byte)
 	UpsertERCNativePointer(
-		ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, token string, metadata utils.ERCMetadata,
-	) (contractAddr common.Address, remainingGas uint64, err error)
+		ctx sdk.Context, evm *vm.EVM, token string, metadata utils.ERCMetadata,
+	) (contractAddr common.Address, err error)
 	UpsertERCCW20Pointer(
-		ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, cw20Addr string, metadata utils.ERCMetadata,
-	) (contractAddr common.Address, remainingGas uint64, err error)
+		ctx sdk.Context, evm *vm.EVM, cw20Addr string, metadata utils.ERCMetadata,
+	) (contractAddr common.Address, err error)
 	UpsertERCCW721Pointer(
-		ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, cw721Addr string, metadata utils.ERCMetadata,
-	) (contractAddr common.Address, remainingGas uint64, err error)
+		ctx sdk.Context, evm *vm.EVM, cw721Addr string, metadata utils.ERCMetadata,
+	) (contractAddr common.Address, err error)
 	UpsertERCCW1155Pointer(
-		ctx sdk.Context, evm *vm.EVM, suppliedGas uint64, cw1155Addr string, metadata utils.ERCMetadata,
-	) (contractAddr common.Address, remainingGas uint64, err error)
+		ctx sdk.Context, evm *vm.EVM, cw1155Addr string, metadata utils.ERCMetadata,
+	) (contractAddr common.Address, err error)
+	GetEVMGasLimitFromCtx(ctx sdk.Context) uint64
+	GetCosmosGasLimitFromEVMGas(ctx sdk.Context, evmGas uint64) uint64
 }
 
 type AccountKeeper interface {
@@ -82,7 +88,7 @@ type WasmdKeeper interface {
 }
 
 type WasmdViewKeeper interface {
-	QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error)
+	QuerySmartSafe(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error)
 }
 
 type StakingKeeper interface {

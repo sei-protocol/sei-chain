@@ -54,6 +54,9 @@ var (
 
 	AnteSurplusPrefix  = []byte{0x18} // transient
 	DeferredInfoPrefix = []byte{0x19} // transient
+
+	LegacyBlockBloomCutoffHeightKey = []byte{0x1a}
+	BaseFeePerGasPrefix             = []byte{0x1b}
 )
 
 var (

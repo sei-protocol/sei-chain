@@ -36,7 +36,7 @@ func TestMigrate2to3(t *testing.T) {
 	cdc := codec.NewProtoCodec(registry)
 
 	paramsSubspace := typesparams.NewSubspace(cdc,
-		types.Amino,
+		codec.NewLegacyAmino(),
 		storeKey,
 		memStoreKey,
 		"TokenfactoryParams",
@@ -59,7 +59,7 @@ func TestMigrate2to3(t *testing.T) {
 	store.Set(oldCreatorSpecificPrefix, []byte("garbage value whitelist creator"))
 	require.True(t, store.Has(oldCreateDenomFeeWhitelistPrefix))
 	require.True(t, store.Has(oldCreatorSpecificPrefix))
-	newKeeper := NewKeeper(cdc, storeKey, paramsSubspace, nil, bankkeeper.NewBaseKeeper(cdc, bankstorekey, nil, paramsSubspace, nil), nil)
+	newKeeper := NewKeeper(cdc, storeKey, paramsSubspace, nil, bankkeeper.NewBaseKeeper(cdc, bankstorekey, nil, paramsSubspace, nil), nil, Config{DenomAllowListMaxSize: 100})
 	m := NewMigrator(newKeeper)
 	err := m.Migrate2to3(ctx)
 	require.Nil(t, err)
@@ -80,7 +80,7 @@ func TestMigrate2to3(t *testing.T) {
 func TestMigrate3To4(t *testing.T) {
 	// Test migration with all metadata denom
 	metadata := banktypes.Metadata{Description: sdk.DefaultBondDenom, Base: sdk.DefaultBondDenom, Display: sdk.DefaultBondDenom, Name: sdk.DefaultBondDenom, Symbol: sdk.DefaultBondDenom}
-	keeper := NewKeeper(nil, nil, typesparams.Subspace{}, nil, nil, nil)
+	keeper := NewKeeper(nil, nil, typesparams.Subspace{}, nil, nil, nil, Config{DenomAllowListMaxSize: 100})
 	m := NewMigrator(keeper)
 	m.SetMetadata(&metadata)
 	require.Equal(t, sdk.DefaultBondDenom, metadata.Display)

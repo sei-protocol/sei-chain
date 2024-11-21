@@ -13,7 +13,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -23,6 +22,10 @@ const UnknownMethodCallGas uint64 = 3000
 
 type Contexter interface {
 	Ctx() sdk.Context
+}
+
+type StateEVMKeeperGetter interface {
+	EVMKeeper() state.EVMKeeper
 }
 
 type PrecompileExecutor interface {
@@ -57,7 +60,7 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 	return p.executor.RequiredGas(input[4:], method)
 }
 
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool) (bz []byte, err error) {
+func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool, isFromDelegateCall bool) (bz []byte, err error) {
 	operation := fmt.Sprintf("%s_unknown", p.name)
 	defer func() {
 		HandlePrecompileError(err, evm, operation)
@@ -74,6 +77,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 	operation = method.Name
 	em := ctx.EventManager()
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
+	ctx = ctx.WithEVMPrecompileCalledFromDelegateCall(isFromDelegateCall)
 	bz, err = p.executor.Execute(ctx, method, caller, callingContract, args, value, readOnly, evm)
 	if err != nil {
 		return bz, err
@@ -147,7 +151,7 @@ func NewDynamicGasPrecompile(a abi.ABI, executor DynamicGasPrecompileExecutor, a
 	return &DynamicGasPrecompile{Precompile: NewPrecompile(a, nil, address, name), executor: executor}
 }
 
-func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, hooks *tracing.Hooks, readOnly bool) (ret []byte, remainingGas uint64, err error) {
+func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, hooks *tracing.Hooks, readOnly bool, isFromDelegateCall bool) (ret []byte, remainingGas uint64, err error) {
 	operation := fmt.Sprintf("%s_unknown", d.name)
 	defer func() {
 		HandlePrecompileError(err, evm, operation)
@@ -160,16 +164,12 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	if err != nil {
 		return nil, 0, err
 	}
-	gasMultipler := d.executor.EVMKeeper().GetPriorityNormalizer(ctx)
-	gasLimitBigInt := sdk.NewDecFromInt(sdk.NewIntFromUint64(suppliedGas)).Mul(gasMultipler).TruncateInt().BigInt()
-	if gasLimitBigInt.Cmp(utils.BigMaxU64) > 0 {
-		gasLimitBigInt = utils.BigMaxU64
-	}
-	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimitBigInt.Uint64()))
-
+	gasLimit := d.executor.EVMKeeper().GetCosmosGasLimitFromEVMGas(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), suppliedGas)
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
 	operation = method.Name
 	em := ctx.EventManager()
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
+	ctx = ctx.WithEVMPrecompileCalledFromDelegateCall(isFromDelegateCall)
 	ret, remainingGas, err = d.executor.Execute(ctx, method, caller, callingContract, args, value, readOnly, evm, suppliedGas)
 	if err != nil {
 		return ret, remainingGas, err
@@ -231,9 +231,7 @@ sei gas = evm gas * multiplier
 sei gas price = fee / sei gas = fee / (evm gas * multiplier) = evm gas / multiplier
 */
 func GetRemainingGas(ctx sdk.Context, evmKeeper EVMKeeper) uint64 {
-	gasMultipler := evmKeeper.GetPriorityNormalizer(ctx)
-	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
-	return sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Quo(gasMultipler).TruncateInt().Uint64()
+	return evmKeeper.GetEVMGasLimitFromCtx(ctx)
 }
 
 func ExtractMethodID(input []byte) ([]byte, error) {

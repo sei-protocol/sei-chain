@@ -11,7 +11,8 @@ import (
 )
 
 func TestAddERCNativePointerProposalsV2(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	require.Nil(t, evm.HandleAddERCNativePointerProposalV2(ctx, k, &types.AddERCNativePointerProposalV2{
 		Token:    "test",
 		Name:     "NAME",

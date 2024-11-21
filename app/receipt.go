@@ -37,21 +37,25 @@ type AllowanceResponse struct {
 	Expires   json.RawMessage `json:"expires"`
 }
 
-func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.Tx, checksum [32]byte, response abci.ResponseDeliverTx) {
-	if response.Code > 0 {
+func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.Tx, checksum [32]byte, response sdk.DeliverTxHookInput) {
+	// hooks will only be called if DeliverTx is successful
+	wasmEvents := GetEventsOfType(response, wasmtypes.WasmModuleEventType)
+	if len(wasmEvents) == 0 {
 		return
 	}
-	wasmEvents := GetEventsOfType(response, wasmtypes.WasmModuleEventType)
 	logs := []*ethtypes.Log{}
+	// Note: txs with a very large number of WASM events may run out of gas due to
+	// additional gas consumption from EVM receipt generation and event translation
+	wasmToEvmEventGasLimit := app.EvmKeeper.GetDeliverTxHookWasmGasLimit(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)))
+	wasmToEvmEventCtx := ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, wasmToEvmEventGasLimit))
 	for _, wasmEvent := range wasmEvents {
 		contractAddr, found := GetAttributeValue(wasmEvent, wasmtypes.AttributeKeyContractAddr)
 		if !found {
 			continue
 		}
-		// check if there is a ERC20 pointer to contractAddr
-		pointerAddr, _, exists := app.EvmKeeper.GetERC20CW20Pointer(ctx, contractAddr)
+		pointerAddr, _, exists := app.EvmKeeper.GetERC20CW20Pointer(wasmToEvmEventCtx, contractAddr)
 		if exists {
-			log, eligible := app.translateCW20Event(ctx, wasmEvent, pointerAddr, contractAddr)
+			log, eligible := app.translateCW20Event(wasmToEvmEventCtx, wasmEvent, pointerAddr, contractAddr)
 			if eligible {
 				log.Index = uint(len(logs))
 				logs = append(logs, log)
@@ -59,9 +63,9 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 			continue
 		}
 		// check if there is a ERC721 pointer to contract Addr
-		pointerAddr, _, exists = app.EvmKeeper.GetERC721CW721Pointer(ctx, contractAddr)
+		pointerAddr, _, exists = app.EvmKeeper.GetERC721CW721Pointer(wasmToEvmEventCtx, contractAddr)
 		if exists {
-			log, eligible := app.translateCW721Event(ctx, wasmEvent, pointerAddr, contractAddr)
+			log, eligible := app.translateCW721Event(wasmToEvmEventCtx, wasmEvent, pointerAddr, contractAddr, response)
 			if eligible {
 				log.Index = uint(len(logs))
 				logs = append(logs, log)
@@ -87,14 +91,14 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		txHash = common.HexToHash(response.EvmTxInfo.TxHash)
 	}
 	var bloom ethtypes.Bloom
-	if r, err := app.EvmKeeper.GetTransientReceipt(ctx, txHash); err == nil && r != nil {
+	if r, err := app.EvmKeeper.GetTransientReceipt(wasmToEvmEventCtx, txHash); err == nil && r != nil {
 		r.Logs = append(r.Logs, utils.Map(logs, evmkeeper.ConvertSyntheticEthLog)...)
 		for i, l := range r.Logs {
 			l.Index = uint32(i)
 		}
 		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: evmkeeper.GetLogsForTx(r)}})
 		r.LogsBloom = bloom[:]
-		_ = app.EvmKeeper.SetTransientReceipt(ctx, txHash, r)
+		_ = app.EvmKeeper.SetTransientReceipt(wasmToEvmEventCtx, txHash, r)
 	} else {
 		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: logs}})
 		receipt := &evmtypes.Receipt{
@@ -110,18 +114,24 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		sigTx, ok := tx.(authsigning.SigVerifiableTx)
 		if ok && len(sigTx.GetSigners()) > 0 {
 			// use the first signer as the `from`
-			receipt.From = app.EvmKeeper.GetEVMAddressOrDefault(ctx, sigTx.GetSigners()[0]).Hex()
+			receipt.From = app.EvmKeeper.GetEVMAddressOrDefault(wasmToEvmEventCtx, sigTx.GetSigners()[0]).Hex()
 		}
-		_ = app.EvmKeeper.SetTransientReceipt(ctx, txHash, receipt)
+		_ = app.EvmKeeper.SetTransientReceipt(wasmToEvmEventCtx, txHash, receipt)
 	}
 	if d, found := app.EvmKeeper.GetEVMTxDeferredInfo(ctx); found {
-		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, txHash, d.Surplus)
+		app.EvmKeeper.AppendToEvmTxDeferredInfo(wasmToEvmEventCtx, bloom, txHash, d.Surplus)
 	} else {
-		app.EvmKeeper.AppendToEvmTxDeferredInfo(ctx, bloom, txHash, sdk.ZeroInt())
+		app.EvmKeeper.AppendToEvmTxDeferredInfo(wasmToEvmEventCtx, bloom, txHash, sdk.ZeroInt())
 	}
 }
 
 func (app *App) translateCW20Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string) (*ethtypes.Log, bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("[Error] Panic caught during translateCW20Event: type=%T, value=%+v\n", r, r)
+		}
+	}()
+
 	action, found := GetAttributeValue(wasmEvent, "action")
 	if !found {
 		return nil, false
@@ -178,87 +188,102 @@ func (app *App) translateCW20Event(ctx sdk.Context, wasmEvent abci.Event, pointe
 	return nil, false
 }
 
-func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string) (*ethtypes.Log, bool) {
+func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string, response sdk.DeliverTxHookInput) (*ethtypes.Log, bool) {
 	action, found := GetAttributeValue(wasmEvent, "action")
 	if !found {
 		return nil, false
 	}
 	var topics []common.Hash
 	switch action {
-	case "transfer_nft", "send_nft":
+	case "transfer_nft", "send_nft", "burn":
+		tokenID := GetTokenIDAttribute(wasmEvent)
+		if tokenID == nil {
+			return nil, false
+		}
+		sender := common.Hash{}
+		// unfortunately CW721 transfer events differ from ERC721 transfer events
+		// in that CW721 include sender (which can be different than owner) whereas
+		// ERC721 always include owner. The following logic refer to the owner
+		// event emitted before the transfer and use that instead to populate the
+		// synthetic ERC721 event.
+		ownerEvents := GetEventsOfType(response, wasmtypes.EventTypeCW721PreTransferOwner)
+		for _, ownerEvent := range ownerEvents {
+			if len(ownerEvent.Attributes) != 3 ||
+				string(ownerEvent.Attributes[0].Key) != wasmtypes.AttributeKeyContractAddr ||
+				string(ownerEvent.Attributes[0].Value) != contractAddr {
+				continue
+			}
+			tokenIDStr, _ := GetAttributeValue(wasmEvent, "token_id")
+			if string(ownerEvent.Attributes[1].Key) != wasmtypes.AttributeKeyTokenId ||
+				string(ownerEvent.Attributes[1].Value) != tokenIDStr ||
+				string(ownerEvent.Attributes[2].Key) != wasmtypes.AttributeKeyOwner {
+				continue
+			}
+			ownerAcc, err := sdk.AccAddressFromBech32(string(ownerEvent.Attributes[2].Value))
+			if err != nil {
+				continue
+			}
+			owner := app.EvmKeeper.GetEVMAddressOrDefault(ctx, ownerAcc)
+			sender = common.BytesToHash(owner[:])
+		}
 		topics = []common.Hash{
 			ERC721TransferTopic,
-			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+			sender,
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "recipient"),
-		}
-		tokenID := GetTokenIDAttribute(wasmEvent)
-		if tokenID == nil {
-			return nil, false
+			common.BigToHash(tokenID),
 		}
 		return &ethtypes.Log{
 			Address: pointerAddr,
 			Topics:  topics,
-			Data:    common.BigToHash(tokenID).Bytes(),
-		}, true
-	case "burn":
-		topics = []common.Hash{
-			ERC721TransferTopic,
-			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
-			EmptyHash,
-		}
-		tokenID := GetTokenIDAttribute(wasmEvent)
-		if tokenID == nil {
-			return nil, false
-		}
-		return &ethtypes.Log{
-			Address: pointerAddr,
-			Topics:  topics,
-			Data:    common.BigToHash(tokenID).Bytes(),
+			Data:    EmptyHash.Bytes(),
 		}, true
 	case "mint":
+		tokenID := GetTokenIDAttribute(wasmEvent)
+		if tokenID == nil {
+			return nil, false
+		}
 		topics = []common.Hash{
 			ERC721TransferTopic,
 			EmptyHash,
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "owner"),
-		}
-		tokenID := GetTokenIDAttribute(wasmEvent)
-		if tokenID == nil {
-			return nil, false
+			common.BigToHash(tokenID),
 		}
 		return &ethtypes.Log{
 			Address: pointerAddr,
 			Topics:  topics,
-			Data:    common.BigToHash(tokenID).Bytes(),
+			Data:    EmptyHash.Bytes(),
 		}, true
 	case "approve":
+		tokenID := GetTokenIDAttribute(wasmEvent)
+		if tokenID == nil {
+			return nil, false
+		}
 		topics = []common.Hash{
 			ERC721ApprovalTopic,
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "spender"),
-		}
-		tokenID := GetTokenIDAttribute(wasmEvent)
-		if tokenID == nil {
-			return nil, false
+			common.BigToHash(tokenID),
 		}
 		return &ethtypes.Log{
 			Address: pointerAddr,
 			Topics:  topics,
-			Data:    common.BigToHash(tokenID).Bytes(),
+			Data:    EmptyHash.Bytes(),
 		}, true
 	case "revoke":
+		tokenID := GetTokenIDAttribute(wasmEvent)
+		if tokenID == nil {
+			return nil, false
+		}
 		topics = []common.Hash{
 			ERC721ApprovalTopic,
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
 			EmptyHash,
-		}
-		tokenID := GetTokenIDAttribute(wasmEvent)
-		if tokenID == nil {
-			return nil, false
+			common.BigToHash(tokenID),
 		}
 		return &ethtypes.Log{
 			Address: pointerAddr,
 			Topics:  topics,
-			Data:    common.BigToHash(tokenID).Bytes(),
+			Data:    EmptyHash.Bytes(),
 		}, true
 	case "approve_all":
 		topics = []common.Hash{
@@ -391,7 +416,7 @@ func (app *App) GetEvmAddressAttribute(ctx sdk.Context, event abci.Event, attrib
 	return EmptyHash
 }
 
-func GetEventsOfType(rdtx abci.ResponseDeliverTx, ty string) (res []abci.Event) {
+func GetEventsOfType(rdtx sdk.DeliverTxHookInput, ty string) (res []abci.Event) {
 	for _, event := range rdtx.Events {
 		if event.Type == ty {
 			res = append(res, event)

@@ -39,7 +39,8 @@ func TestValidteNonPayable(t *testing.T) {
 
 func TestHandlePrecompileError(t *testing.T) {
 	_, evmAddr := testkeeper.MockAddressPair()
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	stateDB := state.NewDBImpl(ctx, k, false)
 	evm := &vm.EVM{StateDB: stateDB}
 
@@ -66,7 +67,8 @@ func (e *MockPrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, ca
 }
 
 func TestPrecompileRun(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	abiBz, err := os.ReadFile("erc20_abi.json")
 	require.Nil(t, err)
 	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
@@ -75,13 +77,13 @@ func TestPrecompileRun(t *testing.T) {
 	require.Nil(t, err)
 	precompile := common.NewPrecompile(newAbi, &MockPrecompileExecutor{throw: false}, ethcommon.Address{}, "test")
 	stateDB := state.NewDBImpl(ctx, k, false)
-	res, err := precompile.Run(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, big.NewInt(0), false)
+	res, err := precompile.Run(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, big.NewInt(0), false, false)
 	require.Equal(t, []byte("success"), res)
 	require.Nil(t, err)
 	require.NotEmpty(t, stateDB.Ctx().EventManager().Events())
 	stateDB.WithCtx(ctx.WithEventManager(sdk.NewEventManager()))
 	precompile = common.NewPrecompile(newAbi, &MockPrecompileExecutor{throw: true}, ethcommon.Address{}, "test")
-	res, err = precompile.Run(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, big.NewInt(0), false)
+	res, err = precompile.Run(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, big.NewInt(0), false, false)
 	require.NotNil(t, res)
 	require.NotNil(t, err)
 	// should not emit any event
@@ -106,7 +108,8 @@ func (e *MockDynamicGasPrecompileExecutor) EVMKeeper() common.EVMKeeper {
 }
 
 func TestDynamicGasPrecompileRun(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	abiBz, err := os.ReadFile("erc20_abi.json")
 	require.Nil(t, err)
 	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
@@ -115,13 +118,13 @@ func TestDynamicGasPrecompileRun(t *testing.T) {
 	require.Nil(t, err)
 	precompile := common.NewDynamicGasPrecompile(newAbi, &MockDynamicGasPrecompileExecutor{throw: false, evmKeeper: k}, ethcommon.Address{}, "test")
 	stateDB := state.NewDBImpl(ctx, k, false)
-	res, _, err := precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 0, big.NewInt(0), nil, false)
+	res, _, err := precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 0, big.NewInt(0), nil, false, false)
 	require.Equal(t, []byte("success"), res)
 	require.Nil(t, err)
 	require.NotEmpty(t, stateDB.Ctx().EventManager().Events())
 	stateDB.WithCtx(ctx.WithEventManager(sdk.NewEventManager()))
 	precompile = common.NewDynamicGasPrecompile(newAbi, &MockDynamicGasPrecompileExecutor{throw: true, evmKeeper: k}, ethcommon.Address{}, "test")
-	res, _, err = precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 0, big.NewInt(0), nil, false)
+	res, _, err = precompile.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, ethcommon.Address{}, ethcommon.Address{}, input, 0, big.NewInt(0), nil, false, false)
 	require.NotNil(t, res)
 	require.NotNil(t, err)
 	// should not emit any event

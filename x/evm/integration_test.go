@@ -9,10 +9,17 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/client"
+	clienttx "github.com/cosmos/cosmos-sdk/client/tx"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/tx/signing"
+	xauthsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -77,7 +84,7 @@ func TestERC721RoyaltiesPointerToCW721Royalties(t *testing.T) {
 	txData := ethtypes.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(100000000000),
-		Gas:      5000000,
+		Gas:      6000000,
 		To:       &to,
 		Data:     data,
 	}
@@ -110,7 +117,7 @@ func TestERC721RoyaltiesPointerToCW721Royalties(t *testing.T) {
 	txData = ethtypes.LegacyTx{
 		Nonce:    1,
 		GasPrice: big.NewInt(100000000000),
-		Gas:      1000000,
+		Gas:      300000,
 		To:       &pointerAddr,
 		Data:     data,
 	}
@@ -160,7 +167,7 @@ func TestCW721RoyaltiesPointerToERC721Royalties(t *testing.T) {
 	txData := ethtypes.LegacyTx{
 		Nonce:    0,
 		GasPrice: big.NewInt(100000000000),
-		Gas:      5000000,
+		Gas:      6000000,
 		To:       nil,
 		Data:     append(bz, data...),
 	}
@@ -195,7 +202,7 @@ func TestCW721RoyaltiesPointerToERC721Royalties(t *testing.T) {
 	txData = ethtypes.LegacyTx{
 		Nonce:    1,
 		GasPrice: big.NewInt(100000000000),
-		Gas:      1000000,
+		Gas:      300000,
 		To:       &to,
 		Data:     data,
 	}
@@ -601,4 +608,3 @@ func signTx(txBuilder client.TxBuilder, privKey cryptotypes.PrivKey, acc authtyp
 	_ = txBuilder.SetSignatures(sigsV2...)
 	return txBuilder.GetTx()
 }
-

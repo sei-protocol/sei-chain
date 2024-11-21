@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -49,6 +50,7 @@ type FilterAPI struct {
 	filterConfig   *FilterConfig
 	logFetcher     *LogFetcher
 	connectionType ConnectionType
+	namespace      string
 }
 
 type FilterConfig struct {
@@ -62,10 +64,11 @@ type EventItemDataWrapper struct {
 	Value json.RawMessage `json:"value"`
 }
 
-func NewFilterAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, filterConfig *FilterConfig, connectionType ConnectionType) *FilterAPI {
-	logFetcher.filterConfig = filterConfig
+func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, filterConfig *FilterConfig, connectionType ConnectionType, namespace string) *FilterAPI {
+	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, txConfig: txConfig, filterConfig: filterConfig, includeSyntheticReceipts: shouldIncludeSynthetic(namespace)}
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
+		namespace:      namespace,
 		tmClient:       tmClient,
 		filtersMu:      sync.Mutex{},
 		filters:        filters,
@@ -101,7 +104,7 @@ func (a *FilterAPI) NewFilter(
 	_ context.Context,
 	crit filters.FilterCriteria,
 ) (id ethrpc.ID, err error) {
-	defer recordMetrics("eth_newFilter", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics(fmt.Sprintf("%s_newFilter", a.namespace), a.connectionType, time.Now(), err == nil)
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	curFilterID := ethrpc.NewID()
@@ -117,7 +120,7 @@ func (a *FilterAPI) NewFilter(
 func (a *FilterAPI) NewBlockFilter(
 	_ context.Context,
 ) (id ethrpc.ID, err error) {
-	defer recordMetrics("eth_newBlockFilter", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics(fmt.Sprintf("%s_newBlockFilter", a.namespace), a.connectionType, time.Now(), err == nil)
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	curFilterID := ethrpc.NewID()
@@ -133,7 +136,7 @@ func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res interface{}, err error) {
-	defer recordMetrics("eth_getFilterChanges", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics(fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, time.Now(), err == nil)
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	filter, ok := a.filters[filterID]
@@ -184,7 +187,7 @@ func (a *FilterAPI) GetFilterLogs(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res []*ethtypes.Log, err error) {
-	defer recordMetrics("eth_getFilterLogs", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics(fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, time.Now(), err == nil)
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	filter, ok := a.filters[filterID]
@@ -213,7 +216,7 @@ func (a *FilterAPI) GetLogs(
 	ctx context.Context,
 	crit filters.FilterCriteria,
 ) (res []*ethtypes.Log, err error) {
-	defer recordMetrics("eth_getLogs", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now(), err == nil)
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
 	return logs, err
 }
@@ -260,7 +263,7 @@ func (a *FilterAPI) UninstallFilter(
 	_ context.Context,
 	filterID ethrpc.ID,
 ) (res bool) {
-	defer recordMetrics("eth_uninstallFilter", a.connectionType, time.Now(), res)
+	defer recordMetrics(fmt.Sprintf("%s_uninstallFilter", a.namespace), a.connectionType, time.Now(), res)
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	_, found := a.filters[filterID]
@@ -272,10 +275,12 @@ func (a *FilterAPI) UninstallFilter(
 }
 
 type LogFetcher struct {
-	tmClient     rpcclient.Client
-	k            *keeper.Keeper
-	ctxProvider  func(int64) sdk.Context
-	filterConfig *FilterConfig
+	tmClient                 rpcclient.Client
+	k                        *keeper.Keeper
+	txConfig                 client.TxConfig
+	ctxProvider              func(int64) sdk.Context
+	filterConfig             *FilterConfig
+	includeSyntheticReceipts bool
 }
 
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) ([]*ethtypes.Log, int64, error) {
@@ -339,9 +344,13 @@ func (f *LogFetcher) GetLogsForBlock(ctx context.Context, block *coretypes.Resul
 
 func (f *LogFetcher) FindBlockesByBloom(begin, end int64, filters [][]bloomIndexes) (res []int64) {
 	//TODO: parallelize
-	ctx := f.ctxProvider(LatestCtxHeight)
 	for height := begin; height <= end; height++ {
-		blockBloom := f.k.GetBlockBloom(ctx, height)
+		if height == 0 {
+			// no block bloom on genesis height
+			continue
+		}
+		ctx := f.ctxProvider(height)
+		blockBloom := f.k.GetBlockBloom(ctx)
 		if MatchFilters(blockBloom, filters) {
 			res = append(res, height)
 		}
@@ -351,11 +360,19 @@ func (f *LogFetcher) FindBlockesByBloom(begin, end int64, filters [][]bloomIndex
 
 func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (res []*ethtypes.Log) {
 	ctx := f.ctxProvider(LatestCtxHeight)
-	txHashes := f.k.GetTxHashesOnHeight(ctx, height)
-	for _, hash := range txHashes {
+	block, err := blockByNumberWithRetry(context.Background(), f.tmClient, &height, 1)
+	if err != nil {
+		fmt.Printf("error getting block when querying logs: %s\n", err)
+		return
+	}
+
+	for _, hash := range getEvmTxHashesFromBlock(block, f.txConfig) {
 		receipt, err := f.k.GetReceipt(ctx, hash)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
+			continue
+		}
+		if !f.includeSyntheticReceipts && (receipt.TxType == ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
 			continue
 		}
 		if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {

@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/big"
 	"testing"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -20,7 +21,8 @@ import (
 )
 
 func TestEVMFeeCheckDecorator(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	handler := ante.NewEVMFeeCheckDecorator(k)
 	privKey := testkeeper.MockPrivateKey()
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
@@ -110,10 +112,29 @@ func TestEVMFeeCheckDecorator(t *testing.T) {
 		return ctx, nil
 	})
 	require.NotNil(t, err)
+
+	// should fail because of negative gas tip cap
+	txData.GasTipCap = big.NewInt(-1)
+	txData.GasFeeCap = big.NewInt(10000000000000)
+	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	typedTx = newDynamicFeeTxWithoutValidation(tx)
+	msg, err = types.NewMsgEVMTransaction(typedTx)
+	require.Nil(t, err)
+	ctx, err = preprocessor.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
+	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "gas fee cap cannot be negative")
 }
 
 func TestCalculatePriorityScenarios(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	decorator := ante.NewEVMFeeCheckDecorator(k)
 
 	_1gwei := big.NewInt(100000000000)
@@ -223,4 +244,23 @@ func TestCalculatePriorityScenarios(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newDynamicFeeTxWithoutValidation(tx *ethtypes.Transaction) *ethtx.DynamicFeeTx {
+	txData := &ethtx.DynamicFeeTx{
+		Nonce:    tx.Nonce(),
+		Data:     tx.Data(),
+		GasLimit: tx.Gas(),
+	}
+
+	v, r, s := tx.RawSignatureValues()
+	ethtx.SetConvertIfPresent(tx.To(), func(to *common.Address) string { return to.Hex() }, txData.SetTo)
+	ethtx.SetConvertIfPresent(tx.Value(), sdk.NewIntFromBigInt, txData.SetAmount)
+	ethtx.SetConvertIfPresent(tx.GasFeeCap(), sdk.NewIntFromBigInt, txData.SetGasFeeCap)
+	ethtx.SetConvertIfPresent(tx.GasTipCap(), sdk.NewIntFromBigInt, txData.SetGasTipCap)
+	al := tx.AccessList()
+	ethtx.SetConvertIfPresent(&al, ethtx.NewAccessList, txData.SetAccesses)
+
+	txData.SetSignatureValues(tx.ChainId(), v, r, s)
+	return txData
 }

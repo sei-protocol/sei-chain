@@ -3,6 +3,7 @@ package state_test
 import (
 	"math/big"
 	"testing"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -14,7 +15,8 @@ import (
 )
 
 func TestState(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	_, evmAddr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k, false)
 	statedb.CreateAccount(evmAddr)
@@ -53,7 +55,8 @@ func TestState(t *testing.T) {
 }
 
 func TestCreate(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	_, evmAddr := testkeeper.MockAddressPair()
 	statedb := state.NewDBImpl(ctx, k, false)
 	statedb.CreateAccount(evmAddr)
@@ -86,7 +89,8 @@ func TestCreate(t *testing.T) {
 }
 
 func TestSelfDestructAssociated(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	statedb := state.NewDBImpl(ctx, k, false)
@@ -130,9 +134,11 @@ func TestSelfDestructAssociated(t *testing.T) {
 }
 
 func TestSnapshot(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+	eventCount := len(ctx.EventManager().Events())
 	statedb := state.NewDBImpl(ctx, k, false)
 	statedb.CreateAccount(evmAddr)
 	key := common.BytesToHash([]byte("abc"))
@@ -141,6 +147,7 @@ func TestSnapshot(t *testing.T) {
 	tval := common.BytesToHash([]byte("mno"))
 	statedb.SetState(evmAddr, key, val)
 	statedb.SetTransientState(evmAddr, tkey, tval)
+	statedb.Ctx().EventManager().EmitEvent(sdk.Event{})
 
 	rev := statedb.Snapshot()
 
@@ -148,6 +155,7 @@ func TestSnapshot(t *testing.T) {
 	newTVal := common.BytesToHash([]byte("y"))
 	statedb.SetState(evmAddr, key, newVal)
 	statedb.SetTransientState(evmAddr, tkey, newTVal)
+	statedb.Ctx().EventManager().EmitEvent(sdk.Event{})
 
 	statedb.RevertToSnapshot(rev)
 
@@ -165,4 +173,5 @@ func TestSnapshot(t *testing.T) {
 	// prev state DB committed except for transient states
 	require.Equal(t, common.Hash{}, newStateDB.GetTransientState(evmAddr, tkey))
 	require.Equal(t, val, newStateDB.GetState(evmAddr, key))
+	require.Equal(t, eventCount+1, len(ctx.EventManager().Events()))
 }

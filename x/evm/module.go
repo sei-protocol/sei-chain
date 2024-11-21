@@ -24,6 +24,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/module"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/client/cli"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/migrations"
@@ -49,9 +50,9 @@ func (AppModuleBasic) Name() string {
 	return types.ModuleName
 }
 
-func (AppModuleBasic) RegisterCodec(*codec.LegacyAmino) {}
-
-func (AppModuleBasic) RegisterLegacyAminoCodec(*codec.LegacyAmino) {}
+func (AppModuleBasic) RegisterLegacyAminoCodec(cdc *codec.LegacyAmino) {
+	types.RegisterCodec(cdc)
+}
 
 // RegisterInterfaces registers the module's interface types
 func (a AppModuleBasic) RegisterInterfaces(reg cdctypes.InterfaceRegistry) {
@@ -210,6 +211,18 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 11, func(ctx sdk.Context) error {
+		return migrations.MigrateDeliverTxHookWasmGasLimitParam(ctx, am.keeper)
+	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 12, func(ctx sdk.Context) error {
+		return migrations.MigrateBlockBloom(ctx, am.keeper)
+	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 13, func(ctx sdk.Context) error {
+		return migrations.MigrateEip1559Params(ctx, am.keeper)
+	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 14, func(ctx sdk.Context) error {
 		return migrations.StoreCWPointerCode(ctx, am.keeper, false, false, true)
 	})
 }
@@ -249,7 +262,7 @@ func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 11 }
+func (AppModule) ConsensusVersion() uint64 { return 14 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
@@ -276,7 +289,11 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 
 // EndBlock executes all ABCI EndBlock logic respective to the evm module. It
 // returns no validator updates.
-func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
+func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.ValidatorUpdate {
+	newBaseFee := am.keeper.AdjustDynamicBaseFeePerGas(ctx, uint64(req.BlockGasUsed))
+	if newBaseFee != nil {
+		metrics.GaugeEvmBlockBaseFee(newBaseFee.TruncateInt().BigInt(), req.Height)
+	}
 	var coinbase sdk.AccAddress
 	if am.keeper.EthBlockTestConfig.Enabled {
 		blocks := am.keeper.BlockTest.Json.Blocks
@@ -330,6 +347,6 @@ func (am AppModule) EndBlock(ctx sdk.Context, _ abci.RequestEndBlock) []abci.Val
 		}
 	}
 	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Filter(utils.Map(evmTxDeferredInfoList, func(i *types.DeferredInfo) common.Hash { return common.BytesToHash(i.TxHash) }), func(h common.Hash) bool { return h.Cmp(ethtypes.EmptyTxsHash) != 0 }))
-	am.keeper.SetBlockBloom(ctx, ctx.BlockHeight(), utils.Map(evmTxDeferredInfoList, func(i *types.DeferredInfo) ethtypes.Bloom { return ethtypes.BytesToBloom(i.TxBloom) }))
+	am.keeper.SetBlockBloom(ctx, utils.Map(evmTxDeferredInfoList, func(i *types.DeferredInfo) ethtypes.Bloom { return ethtypes.BytesToBloom(i.TxBloom) }))
 	return []abci.ValidatorUpdate{}
 }

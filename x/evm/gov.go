@@ -20,7 +20,7 @@ func HandleAddERCNativePointerProposalV2(ctx sdk.Context, k *keeper.Keeper, p *t
 	}
 	return k.RunWithOneOffEVMInstance(
 		ctx, func(e *vm.EVM) error {
-			_, _, err := k.UpsertERCNativePointer(ctx, e, math.MaxUint64, p.Token, utils.ERCMetadata{Name: p.Name, Symbol: p.Symbol, Decimals: decimals})
+			_, err := k.UpsertERCNativePointer(ctx, e, p.Token, utils.ERCMetadata{Name: p.Name, Symbol: p.Symbol, Decimals: decimals})
 			return err
 		}, func(s1, s2 string) {
 			logNativeV2Error(ctx, p, s1, s2)

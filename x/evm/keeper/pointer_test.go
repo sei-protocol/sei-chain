@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -32,7 +33,7 @@ type seiPointerTest struct {
 }
 
 func TestEVMtoCWPointers(t *testing.T) {
-	_, ctx := testkeeper.MockEVMKeeper()
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 
 	tests := []seiPointerTest{
 		{
@@ -194,7 +195,8 @@ func TestEVMtoCWPointers(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			k, ctx := testkeeper.MockEVMKeeper()
+			k := &testkeeper.EVMTestApp.EvmKeeper
+			ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 			handlers := test.getHandlers(k)
 			cwAddress, evmAddress := testkeeper.MockAddressPair()
 
@@ -364,7 +366,8 @@ func TestCWtoEVMPointers(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			k, ctx := testkeeper.MockEVMKeeper()
+			k := &testkeeper.EVMTestApp.EvmKeeper
+			ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 			handlers := test.getHandlers(k)
 			cwAddress, evmAddress := testkeeper.MockAddressPair()
 

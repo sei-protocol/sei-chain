@@ -10,6 +10,7 @@ option go_package = "github.com/sei-protocol/sei-chain/x/tokenfactory/types";
 // Msg defines the tokefactory module's gRPC message service.
 service Msg {
   rpc CreateDenom(MsgCreateDenom) returns (MsgCreateDenomResponse);
+  rpc UpdateDenom(MsgUpdateDenom) returns (MsgUpdateDenomResponse);
   rpc Mint(MsgMint) returns (MsgMintResponse);
   rpc Burn(MsgBurn) returns (MsgBurnResponse);
   rpc ChangeAdmin(MsgChangeAdmin) returns (MsgChangeAdminResponse);
@@ -30,6 +31,7 @@ message MsgCreateDenom {
   string sender = 1 [ (gogoproto.moretags) = "yaml:\"sender\"" ];
   // subdenom can be up to 44 "alphanumeric" characters long.
   string subdenom = 2 [ (gogoproto.moretags) = "yaml:\"subdenom\"" ];
+  cosmos.bank.v1beta1.AllowList allow_list = 3 [ (gogoproto.moretags) = "yaml:\"allow_list\"", (gogoproto.nullable)   = true ];
 }
 
 // MsgCreateDenomResponse is the return value of MsgCreateDenom
@@ -85,3 +87,14 @@ message MsgSetDenomMetadata {
 // MsgSetDenomMetadataResponse defines the response structure for an executed
 // MsgSetDenomMetadata message.
 message MsgSetDenomMetadataResponse {}
+
+// MsgUpdateDenom is the sdk.Msg allowing an admin to update the denom
+message MsgUpdateDenom {
+  string sender = 1 [ (gogoproto.moretags) = "yaml:\"sender\"" ];
+  string denom = 2 [ (gogoproto.moretags) = "yaml:\"denom\"" ];
+  cosmos.bank.v1beta1.AllowList allow_list = 3 [ (gogoproto.moretags) = "yaml:\"allow_list\"", (gogoproto.nullable)   = true ];
+}
+
+
+// MsgUpdateDenomResponse defines the response structure for an executed MsgUpdateDenom message.
+message MsgUpdateDenomResponse {}

@@ -47,6 +47,7 @@ func GetQueryCmd(_ string) *cobra.Command {
 	cmd.AddCommand(CmdQueryPayload())
 	cmd.AddCommand(CmdQueryPointer())
 	cmd.AddCommand(CmdQueryPointerVersion())
+	cmd.AddCommand(CmdQueryPointee())
 
 	return cmd
 }
@@ -419,6 +420,35 @@ func CmdQueryPointerVersion() *cobra.Command {
 
 			req := types.QueryPointerVersionRequest{PointerType: types.PointerType(types.PointerType_value[args[0]])}
 			res, err := queryClient.PointerVersion(ctx, &req)
+			if err != nil {
+				return err
+			}
+
+			return clientCtx.PrintProto(res)
+		},
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func CmdQueryPointee() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "pointee [type] [pointer]",
+		Short: "Get pointee address of the specified type (one of [NATIVE, CW20, CW721, ERC20, ERC721]) and pointer",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientQueryContext(cmd)
+			if err != nil {
+				return err
+			}
+			queryClient := types.NewQueryClient(clientCtx)
+			ctx := cmd.Context()
+
+			res, err := queryClient.Pointee(ctx, &types.QueryPointeeRequest{
+				PointerType: types.PointerType(types.PointerType_value[args[0]]), Pointer: args[1],
+			})
 			if err != nil {
 				return err
 			}

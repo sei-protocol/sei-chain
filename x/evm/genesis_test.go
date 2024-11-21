@@ -13,7 +13,8 @@ import (
 )
 
 func TestExportImportGenesis(t *testing.T) {
-	keeper, origctx := testkeeper.MockEVMKeeper()
+	keeper := &testkeeper.EVMTestApp.EvmKeeper
+	origctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	ctx := origctx.WithMultiStore(origctx.MultiStore().CacheMultiStore())
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	keeper.SetAddressMapping(ctx, seiAddr, evmAddr)
@@ -22,7 +23,7 @@ func TestExportImportGenesis(t *testing.T) {
 	keeper.SetState(ctx, codeAddr, common.BytesToHash([]byte("123")), common.BytesToHash([]byte("456")))
 	keeper.SetNonce(ctx, evmAddr, 2)
 	keeper.MockReceipt(ctx, common.BytesToHash([]byte("789")), &types.Receipt{TxType: 2})
-	keeper.SetBlockBloom(ctx, 5, []ethtypes.Bloom{{1}})
+	keeper.SetBlockBloom(ctx, []ethtypes.Bloom{{1}})
 	keeper.SetTxHashesOnHeight(ctx, 5, []common.Hash{common.BytesToHash([]byte("123"))})
 	keeper.SetERC20CW20Pointer(ctx, "cw20addr", codeAddr)
 	genesis := evm.ExportGenesis(ctx, keeper)
@@ -32,6 +33,8 @@ func TestExportImportGenesis(t *testing.T) {
 	assert.Equal(t, types.DefaultParams().BaseFeePerGas, param.BaseFeePerGas)
 	assert.Equal(t, types.DefaultParams().MinimumFeePerGas, param.MinimumFeePerGas)
 	assert.Equal(t, types.DefaultParams().WhitelistedCwCodeHashesForDelegateCall, param.WhitelistedCwCodeHashesForDelegateCall)
+	assert.Equal(t, types.DefaultParams().MaxDynamicBaseFeeUpwardAdjustment, param.MaxDynamicBaseFeeUpwardAdjustment)
+	assert.Equal(t, types.DefaultParams().MaxDynamicBaseFeeDownwardAdjustment, param.MaxDynamicBaseFeeDownwardAdjustment)
 	evm.InitGenesis(origctx, keeper, *genesis)
 	require.Equal(t, evmAddr, keeper.GetEVMAddressOrDefault(origctx, seiAddr))
 	require.Equal(t, keeper.GetCode(ctx, codeAddr), keeper.GetCode(origctx, codeAddr))
@@ -41,7 +44,7 @@ func TestExportImportGenesis(t *testing.T) {
 	require.Equal(t, keeper.GetNonce(ctx, evmAddr), keeper.GetNonce(origctx, evmAddr))
 	_, err := keeper.GetReceipt(origctx, common.BytesToHash([]byte("789")))
 	require.Nil(t, err)
-	require.Equal(t, keeper.GetBlockBloom(ctx, 5), keeper.GetBlockBloom(origctx, 5))
+	require.Equal(t, keeper.GetBlockBloom(ctx), keeper.GetBlockBloom(origctx))
 	require.Equal(t, keeper.GetTxHashesOnHeight(ctx, 5), keeper.GetTxHashesOnHeight(origctx, 5))
 	_, _, exists := keeper.GetERC20CW20Pointer(origctx, "cw20addr")
 	require.True(t, exists)

@@ -28,7 +28,8 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 
 	if msg.Derived != nil && !gl.k.EthReplayConfig.Enabled && !gl.k.EthBlockTestConfig.Enabled {
 		startingNonce := gl.k.GetNonce(ctx, msg.Derived.SenderEVMAddr)
-		if !ctx.IsCheckTx() && !ctx.IsReCheckTx() {
+		txNonce := etx.Nonce()
+		if !ctx.IsCheckTx() && !ctx.IsReCheckTx() && startingNonce == txNonce {
 			ctx = ctx.WithDeliverTxCallback(func(callCtx sdk.Context) {
 				// bump nonce if it is for some reason not incremented (e.g. ante failure)
 				if gl.k.GetNonce(callCtx, msg.Derived.SenderEVMAddr) == startingNonce {
@@ -56,6 +57,15 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 
 	if etx.Type() == ethtypes.BlobTxType {
 		return ctx, sdkerrors.ErrUnsupportedTxType
+	}
+
+	// Check if gas exceed the limit
+	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
+		// If there exists a maximum block gas limit, we must ensure that the tx
+		// does not exceed it.
+		if cp.Block.MaxGas > 0 && etx.Gas() > uint64(cp.Block.MaxGas) {
+			return ctx, sdkerrors.Wrapf(sdkerrors.ErrOutOfGas, "tx gas limit %d exceeds block max gas %d", etx.Gas(), cp.Block.MaxGas)
+		}
 	}
 
 	//TODO: support blobs (leaving this commented out)

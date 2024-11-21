@@ -47,6 +47,9 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	if txData.GetGasFeeCap().Cmp(fc.getMinimumFee(ctx)) < 0 {
 		return ctx, sdkerrors.ErrInsufficientFee
 	}
+	if txData.GetGasTipCap().Sign() < 0 {
+		return ctx, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "gas fee cap cannot be negative")
+	}
 
 	// if EVM version is Cancun or later, and the transaction contains at least one blob, we need to
 	// make sure the transaction carries a non-zero blob fee cap.
@@ -76,7 +79,7 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 		// we don't want to run nonce check here for CheckTx because we have special
 		// logic for pending nonce during CheckTx in sig.go
 		if err := st.StatelessChecks(); err != nil {
-			return ctx, err
+			return ctx, sdkerrors.Wrap(sdkerrors.ErrWrongSequence, err.Error())
 		}
 	}
 	if err := st.BuyGas(); err != nil {
@@ -99,12 +102,12 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	return next(ctx, tx, simulate)
 }
 
-// fee per gas to be burnt
+// minimum fee per gas required for a tx to be processed
 func (fc EVMFeeCheckDecorator) getBaseFee(ctx sdk.Context) *big.Int {
-	return fc.evmKeeper.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
+	return fc.evmKeeper.GetDynamicBaseFeePerGas(ctx).TruncateInt().BigInt()
 }
 
-// lowest allowed fee per gas
+// lowest allowed fee per gas, base fee will not be lower than this
 func (fc EVMFeeCheckDecorator) getMinimumFee(ctx sdk.Context) *big.Int {
 	return fc.evmKeeper.GetMinimumFeePerGas(ctx).TruncateInt().BigInt()
 }

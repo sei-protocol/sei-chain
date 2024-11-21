@@ -71,19 +71,19 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *ethabi.Method, call
 	if readOnly {
 		return nil, 0, errors.New("cannot call pointer precompile from staticcall")
 	}
-	if caller.Cmp(callingContract) != 0 {
+	if ctx.EVMPrecompileCalledFromDelegateCall() {
 		return nil, 0, errors.New("cannot delegatecall pointer")
 	}
 
 	switch method.Name {
 	case AddNativePointer:
-		return p.AddNative(ctx, method, caller, args, value, evm, suppliedGas)
+		return p.AddNative(ctx, method, caller, args, value, evm)
 	case AddCW20Pointer:
-		return p.AddCW20(ctx, method, caller, args, value, evm, suppliedGas)
+		return p.AddCW20(ctx, method, caller, args, value, evm)
 	case AddCW721Pointer:
-		return p.AddCW721(ctx, method, caller, args, value, evm, suppliedGas)
+		return p.AddCW721(ctx, method, caller, args, value, evm)
 	case AddCW1155Pointer:
-		return p.AddCW1155(ctx, method, caller, args, value, evm, suppliedGas)
+		return p.AddCW1155(ctx, method, caller, args, value, evm)
 	default:
 		err = fmt.Errorf("unknown method %s", method.Name)
 	}
@@ -94,7 +94,7 @@ func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
 	return p.evmKeeper
 }
 
-func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -119,15 +119,16 @@ func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, ca
 			}
 		}
 	}
-	contractAddr, remainingGas, err := p.evmKeeper.UpsertERCNativePointer(ctx, evm, suppliedGas, token, utils.ERCMetadata{Name: name, Symbol: symbol, Decimals: decimals})
+	contractAddr, err := p.evmKeeper.UpsertERCNativePointer(ctx, evm, token, utils.ERCMetadata{Name: name, Symbol: symbol, Decimals: decimals})
 	if err != nil {
 		return nil, 0, err
 	}
 	ret, err = method.Outputs.Pack(contractAddr)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
 
-func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -139,7 +140,7 @@ func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, call
 	if err != nil {
 		return nil, 0, err
 	}
-	res, err := p.wasmdKeeper.QuerySmart(ctx, cwAddress, []byte("{\"token_info\":{}}"))
+	res, err := p.wasmdKeeper.QuerySmartSafe(ctx, cwAddress, []byte("{\"token_info\":{}}"))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -149,15 +150,16 @@ func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, call
 	}
 	name := formattedRes["name"].(string)
 	symbol := formattedRes["symbol"].(string)
-	contractAddr, remainingGas, err := p.evmKeeper.UpsertERCCW20Pointer(ctx, evm, suppliedGas, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
+	contractAddr, err := p.evmKeeper.UpsertERCCW20Pointer(ctx, evm, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
 	if err != nil {
 		return nil, 0, err
 	}
 	ret, err = method.Outputs.Pack(contractAddr)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
 
-func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -169,7 +171,7 @@ func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, cal
 	if err != nil {
 		return nil, 0, err
 	}
-	res, err := p.wasmdKeeper.QuerySmart(ctx, cwAddress, []byte("{\"contract_info\":{}}"))
+	res, err := p.wasmdKeeper.QuerySmartSafe(ctx, cwAddress, []byte("{\"contract_info\":{}}"))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -179,15 +181,16 @@ func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, cal
 	}
 	name := formattedRes["name"].(string)
 	symbol := formattedRes["symbol"].(string)
-	contractAddr, remainingGas, err := p.evmKeeper.UpsertERCCW721Pointer(ctx, evm, suppliedGas, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
+	contractAddr, err := p.evmKeeper.UpsertERCCW721Pointer(ctx, evm, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
 	if err != nil {
 		return nil, 0, err
 	}
 	ret, err = method.Outputs.Pack(contractAddr)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
 
-func (p PrecompileExecutor) AddCW1155(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) AddCW1155(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -199,7 +202,7 @@ func (p PrecompileExecutor) AddCW1155(ctx sdk.Context, method *ethabi.Method, ca
 	if err != nil {
 		return nil, 0, err
 	}
-	res, err := p.wasmdKeeper.QuerySmart(ctx, cwAddress, []byte("{\"contract_info\":{}}"))
+	res, err := p.wasmdKeeper.QuerySmartSafe(ctx, cwAddress, []byte("{\"contract_info\":{}}"))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -209,10 +212,12 @@ func (p PrecompileExecutor) AddCW1155(ctx sdk.Context, method *ethabi.Method, ca
 	}
 	name := formattedRes["name"].(string)
 	symbol := formattedRes["symbol"].(string)
-	contractAddr, remainingGas, err := p.evmKeeper.UpsertERCCW1155Pointer(ctx, evm, suppliedGas, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
+	contractAddr, err := p.evmKeeper.UpsertERCCW1155Pointer(ctx, evm, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
 	if err != nil {
 		return nil, 0, err
 	}
 	ret, err = method.Outputs.Pack(contractAddr)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
+
