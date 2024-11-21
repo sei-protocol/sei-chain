@@ -32,6 +32,10 @@ type BankKeeper interface {
 	SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
 }
 
+type BankMsgServer interface {
+	Send(goCtx context.Context, msg *banktypes.MsgSend) (*banktypes.MsgSendResponse, error)
+}
+
 type EVMKeeper interface {
 	GetSeiAddress(sdk.Context, common.Address) (sdk.AccAddress, bool)
 	GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress // only used for getting precompile Sei addresses
@@ -79,7 +83,7 @@ type WasmdKeeper interface {
 }
 
 type WasmdViewKeeper interface {
-	QuerySmart(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error)
+	QuerySmartSafe(ctx sdk.Context, contractAddr sdk.AccAddress, req []byte) ([]byte, error)
 }
 
 type StakingKeeper interface {

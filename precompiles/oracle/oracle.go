@@ -53,7 +53,7 @@ type OracleTwap struct {
 	LookbackSeconds int64  `json:"lookbackSeconds"`
 }
 
-func NewPrecompile(oracleKeeper pcommon.OracleKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.Precompile, error) {
+func NewPrecompile(oracleKeeper pcommon.OracleKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
@@ -70,7 +70,7 @@ func NewPrecompile(oracleKeeper pcommon.OracleKeeper, evmKeeper pcommon.EVMKeepe
 		}
 	}
 
-	return pcommon.NewPrecompile(newAbi, p, common.HexToAddress(OracleAddress), "oracle"), nil
+	return pcommon.NewDynamicGasPrecompile(newAbi, p, common.HexToAddress(OracleAddress), "oracle"), nil
 }
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
@@ -78,7 +78,7 @@ func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64
 	return pcommon.DefaultGasCost(input, p.IsTransaction(method.Name))
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (bz []byte, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (bz []byte, remainingGas uint64, err error) {
 	switch method.Name {
 	case GetExchangeRatesMethod:
 		return p.getExchangeRates(ctx, method, args, value)
@@ -88,13 +88,13 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	return
 }
 
-func (p PrecompileExecutor) getExchangeRates(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) getExchangeRates(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 0); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	exchangeRates := []DenomOracleExchangeRatePair{}
 	p.oracleKeeper.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
@@ -102,28 +102,34 @@ func (p PrecompileExecutor) getExchangeRates(ctx sdk.Context, method *abi.Method
 		return false
 	})
 
-	return method.Outputs.Pack(exchangeRates)
+	bz, err := method.Outputs.Pack(exchangeRates)
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
 }
 
-func (p PrecompileExecutor) getOracleTwaps(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) getOracleTwaps(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	lookbackSeconds := args[0].(uint64)
 	twaps, err := p.oracleKeeper.CalculateTwaps(ctx, lookbackSeconds)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	// Convert twap to string
 	oracleTwaps := make([]OracleTwap, 0, len(twaps))
 	for _, twap := range twaps {
 		oracleTwaps = append(oracleTwaps, OracleTwap{Denom: twap.Denom, Twap: twap.Twap.String(), LookbackSeconds: twap.LookbackSeconds})
 	}
-	return method.Outputs.Pack(oracleTwaps)
+	bz, err := method.Outputs.Pack(oracleTwaps)
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
+}
+
+func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+	return p.evmKeeper
 }
 
 func (PrecompileExecutor) IsTransaction(string) bool {
