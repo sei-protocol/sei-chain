@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
@@ -111,6 +112,10 @@ func NewWithdraw(
 }
 
 func (r *Withdraw) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool) (*WithdrawDecrypted, error) {
+	if decryptor == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptor is required")
+	}
+
 	availableBalanceString := "Not Decrypted"
 	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
@@ -84,6 +85,10 @@ func NewApplyPendingBalance(
 
 // Decrypt returns the decrypted version of ApplyPendingBalance by decrypting using the given privateKey.
 func (r *ApplyPendingBalance) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool) (*ApplyPendingBalanceDecrypted, error) {
+	if decryptor == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptor is required")
+	}
+
 	availableBalanceString := "Not Decrypted"
 	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
 	if err != nil {

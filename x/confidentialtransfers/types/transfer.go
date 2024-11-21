@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
@@ -365,6 +366,10 @@ func VerifyAuditorProof(
 // Decrypts the transfer transaction and returns the decrypted data.
 // The method only works if the decryptor is the sender, recipient or an auditor on the transaction.
 func (r *Transfer) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool, decryptorAddress string) (*TransferDecrypted, error) {
+	if decryptor == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptor is required")
+	}
+
 	switch decryptorAddress {
 	case r.FromAddress:
 		if decryptAvailableBalance {

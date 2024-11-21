@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
@@ -104,6 +105,10 @@ func NewInitializeAccount(address, denom string, privateKey ecdsa.PrivateKey) (*
 
 // Decrypt decrypts the InitializeAccount message using the provided private key.
 func (r InitializeAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool) (*InitializeAccountDecrypted, error) {
+	if decryptor == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptor is required")
+	}
+
 	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
 	if err != nil {
 		return &InitializeAccountDecrypted{}, err

@@ -150,6 +150,10 @@ func (m *MsgTransfer) FromProto() (*Transfer, error) {
 }
 
 func (m *MsgTransfer) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool, address string) (proto.Message, error) {
+	if decryptor == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptor is required")
+	}
+
 	transfer, err := m.FromProto()
 	if err != nil {
 		return nil, err
@@ -293,6 +297,10 @@ func (m *MsgInitializeAccount) FromProto() (*InitializeAccount, error) {
 }
 
 func (m *MsgInitializeAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool) (proto.Message, error) {
+	if decryptor == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptor is required")
+	}
+
 	initialize, err := m.FromProto()
 	if err != nil {
 		return nil, err
@@ -390,6 +398,10 @@ func (m *MsgApplyPendingBalance) FromProto() (*ApplyPendingBalance, error) {
 }
 
 func (m *MsgApplyPendingBalance) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool) (proto.Message, error) {
+	if decryptor == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptor is required")
+	}
+
 	apply, err := m.FromProto()
 	if err != nil {
 		return nil, err
@@ -592,6 +604,10 @@ func (m *MsgWithdraw) FromProto() (*Withdraw, error) {
 }
 
 func (m *MsgWithdraw) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool) (proto.Message, error) {
+	if decryptor == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptor is required")
+	}
+
 	withdraw, err := m.FromProto()
 	if err != nil {
 		return nil, err
