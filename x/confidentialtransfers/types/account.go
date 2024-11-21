@@ -71,7 +71,7 @@ func (a *Account) Decrypt(decryptor *elgamal.TwistedElGamal, keypair *elgamal.Ke
 		return nil, err
 	}
 
-	availableBalanceString := "Not Decrypted"
+	availableBalanceString := NotDecrypted
 	if decryptAvailableBalance {
 		availableBalance, err := decryptor.DecryptLargeNumber(keypair.PrivateKey, a.AvailableBalance, elgamal.MaxBits40)
 		if err != nil {

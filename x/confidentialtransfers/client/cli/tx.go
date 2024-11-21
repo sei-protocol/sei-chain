@@ -72,7 +72,7 @@ func makeInitializeAccountCmd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid denom: %v", err)
 	}
 
-	privKey, err := getPrivateKey(cmd)
+	privKey, err := getPrivateKey(cmd, clientCtx.GetFromName())
 	if err != nil {
 		return err
 	}
@@ -90,14 +90,14 @@ func makeInitializeAccountCmd(cmd *cobra.Command, args []string) error {
 	return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 }
 
-func getPrivateKey(cmd *cobra.Command) (*ecdsa.PrivateKey, error) {
+func getPrivateKey(cmd *cobra.Command, fromName string) (*ecdsa.PrivateKey, error) {
 	clientCtx, err := client.GetClientTxContext(cmd)
 	if err != nil {
 		return nil, err
 	}
 	txf := tx.NewFactoryCLI(clientCtx, cmd.Flags())
 	kb := txf.Keybase()
-	info, err := kb.Key(clientCtx.GetFromName())
+	info, err := kb.Key(fromName)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +152,7 @@ func makeCloseAccountCmd(cmd *cobra.Command, args []string) error {
 
 	queryClient := types.NewQueryClient(queryClientCtx)
 
-	privKey, err := getPrivateKey(cmd)
+	privKey, err := getPrivateKey(cmd, clientCtx.GetFromName())
 	if err != nil {
 		return err
 	}
@@ -189,7 +189,7 @@ func NewTransferTxCmd() *cobra.Command {
 		Use:   "transfer [denom] [to_address] [amount] [flags]",
 		Short: "Make a confidential transfer to another address",
 		Long: `Transfer command create a confidential transfer of the specified amount of the specified denomination to the specified address. 
-        passed in .`,
+        passed in. To add auditors to the transaction, pass the --auditors flag with a comma separated list of auditor addresses.`,
 		Args: cobra.ExactArgs(3),
 		RunE: makeTransferCmd,
 	}
@@ -213,7 +213,7 @@ func makeTransferCmd(cmd *cobra.Command, args []string) error {
 
 	queryClient := types.NewQueryClient(queryClientCtx)
 
-	privKey, err := getPrivateKey(cmd)
+	privKey, err := getPrivateKey(cmd, clientCtx.GetFromName())
 	if err != nil {
 		return err
 	}
@@ -316,7 +316,7 @@ func makeWithdrawCmd(cmd *cobra.Command, args []string) error {
 
 	queryClient := types.NewQueryClient(queryClientCtx)
 
-	privKey, err := getPrivateKey(cmd)
+	privKey, err := getPrivateKey(cmd, clientCtx.GetFromName())
 	if err != nil {
 		return err
 	}
@@ -434,7 +434,7 @@ func makeApplyPendingBalanceCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	queryClient := types.NewQueryClient(queryClientCtx)
-	privKey, err := getPrivateKey(cmd)
+	privKey, err := getPrivateKey(cmd, clientCtx.GetFromName())
 	if err != nil {
 		return err
 	}
@@ -451,7 +451,7 @@ func makeApplyPendingBalanceCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	msg, err := types.NewMsgApplyPendingBalance(
+	applyPendingBalance, err := types.NewApplyPendingBalance(
 		*privKey,
 		address,
 		denom,
@@ -460,6 +460,12 @@ func makeApplyPendingBalanceCmd(cmd *cobra.Command, args []string) error {
 		account.AvailableBalance,
 		account.PendingBalanceLo,
 		account.PendingBalanceHi)
+
+	if err != nil {
+		return err
+	}
+
+	msg := types.NewMsgApplyPendingBalanceProto(applyPendingBalance)
 
 	if err != nil {
 		return err

@@ -3,6 +3,7 @@ package confidentialtransfers_test
 import (
 	"crypto/ecdsa"
 	"fmt"
+
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -21,10 +22,11 @@ import (
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
+	"testing"
+
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/keeper"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/stretchr/testify/suite"
-	"testing"
 )
 
 const (
@@ -272,7 +274,7 @@ func (suite *KeeperTestSuite) TestMsgApplyPendingBalanceDependencies() {
 	// Initialize an account
 	initialState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 10, 2000, 3000, 1000)
 
-	applyPendingBalanceMsg, _ := types.NewMsgApplyPendingBalance(
+	applyPendingBalance, _ := types.NewApplyPendingBalance(
 		*senderPk,
 		senderAddr.String(),
 		DefaultTestDenom,
@@ -281,6 +283,8 @@ func (suite *KeeperTestSuite) TestMsgApplyPendingBalanceDependencies() {
 		initialState.AvailableBalance,
 		initialState.PendingBalanceLo,
 		initialState.PendingBalanceHi)
+
+	applyPendingBalanceMsg := types.NewMsgApplyPendingBalanceProto(applyPendingBalance)
 
 	tests := []struct {
 		name          string

@@ -2,13 +2,11 @@ package types
 
 import (
 	"crypto/ecdsa"
-	"errors"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
-	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
+	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 )
 
@@ -21,6 +19,12 @@ const (
 	TypeMsgApplyPendingBalance = "apply_pending_balance"
 	TypeMsgCloseAccount        = "close_account"
 )
+
+const NotDecrypted = "not decrypted"
+
+type Decryptable interface {
+	Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool, address string) (proto.Message, error)
+}
 
 var _ sdk.Msg = &MsgTransfer{}
 
@@ -145,6 +149,19 @@ func (m *MsgTransfer) FromProto() (*Transfer, error) {
 		Proofs:                     proofs,
 		Auditors:                   auditors,
 	}, nil
+}
+
+func (m *MsgTransfer) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool, address string) (proto.Message, error) {
+	if decryptor == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptor is required")
+	}
+
+	transfer, err := m.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return transfer.Decrypt(decryptor, privKey, decryptAvailableBalance, address)
 }
 
 func NewMsgTransferProto(transfer *Transfer) *MsgTransfer {
@@ -281,6 +298,19 @@ func (m *MsgInitializeAccount) FromProto() (*InitializeAccount, error) {
 	}, nil
 }
 
+func (m *MsgInitializeAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool) (proto.Message, error) {
+	if decryptor == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptor is required")
+	}
+
+	initialize, err := m.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return initialize.Decrypt(decryptor, privKey, decryptAvailableBalance)
+}
+
 // convert the InitializeAccount to MsgInitializeAccount
 func NewMsgInitializeAccountProto(initializeAccount *InitializeAccount) *MsgInitializeAccount {
 	pubkeyRaw := *initializeAccount.Pubkey
@@ -328,6 +358,15 @@ func (m *MsgApplyPendingBalance) ValidateBasic() error {
 	if len(m.NewDecryptableAvailableBalance) == 0 {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "new decryptable available balance is required")
 	}
+
+	if m.CurrentPendingBalanceCounter == 0 {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "current pending balance counter should be greater than 0")
+	}
+
+	if m.CurrentAvailableBalance == nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "current available balance is required")
+	}
+
 	return nil
 }
 
@@ -340,74 +379,49 @@ func (m *MsgApplyPendingBalance) GetSigners() []sdk.AccAddress {
 	return []sdk.AccAddress{sender}
 }
 
-// NewMsgApplyPendingBalance creates a new MsgApplyPendingBalance instance
-// TODO: If pending balance changes between when this instruction is generated and when it is received by server,
-// the new pending balance will be incorrect. This is a potential attack vector.
-// We should consider adding the pending balances being applied to the instruction to circumvent this.
-// 1. Account state: Pending: 100, Available: 1000
-// 2. Create Instruction: DecryptableAvailableBalance = 1100
-// 3. Transfer Received: Pending: 200, Available: 1000
-// 4. Apply Instruction: Applies pending balance of 200 -> AvailableBalance = 1200 while DecryptableAvailableBalance = 1100
-func NewMsgApplyPendingBalance(
-	privKey ecdsa.PrivateKey,
-	address, denom,
-	currentDecryptableBalance string,
-	currentPendingBalanceCounter uint16,
-	currentAvailableBalance,
-	currentPendingBalanceLo,
-	currentPendingBalanceHi *elgamal.Ciphertext) (*MsgApplyPendingBalance, error) {
-	aesKey, err := encryption.GetAESKey(privKey, denom)
+func (m *MsgApplyPendingBalance) FromProto() (*ApplyPendingBalance, error) {
+	err := m.ValidateBasic()
 	if err != nil {
 		return nil, err
 	}
 
-	// Get the current balance from the decryptable balance.
-	currentBalance, err := encryption.DecryptAESGCM(currentDecryptableBalance, aesKey)
+	currentAvailableBalance, err := m.CurrentAvailableBalance.FromProto()
 	if err != nil {
 		return nil, err
 	}
 
-	teg := elgamal.NewTwistedElgamal()
-	keyPair, err := teg.KeyGen(privKey, denom)
+	return &ApplyPendingBalance{
+		Address:                        m.Address,
+		Denom:                          m.Denom,
+		NewDecryptableAvailableBalance: m.NewDecryptableAvailableBalance,
+		CurrentPendingBalanceCounter:   m.CurrentPendingBalanceCounter,
+		CurrentAvailableBalance:        currentAvailableBalance,
+	}, nil
+}
+
+func (m *MsgApplyPendingBalance) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool) (proto.Message, error) {
+	if decryptor == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptor is required")
+	}
+
+	apply, err := m.FromProto()
 	if err != nil {
 		return nil, err
 	}
 
-	// Calculate the pending balances that we need to add to the available balance.
-	loBalance, err := teg.Decrypt(keyPair.PrivateKey, currentPendingBalanceLo, elgamal.MaxBits32)
-	if err != nil {
-		return nil, err
-	}
+	return apply.Decrypt(decryptor, privKey, decryptAvailableBalance)
+}
 
-	hiBalance, err := teg.DecryptLargeNumber(keyPair.PrivateKey, currentPendingBalanceHi, elgamal.MaxBits48)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get the pending balance by combining the lo and hi bits
-	pendingBalance := utils.CombineTransferAmount(uint16(loBalance), uint32(hiBalance))
-
-	// Sum the balances to get the new available balance
-	newDecryptedAvailableBalance := currentBalance + pendingBalance
-
-	// Check for overflow: if the sum is less than one of the operands, an overflow has occurred.
-	if newDecryptedAvailableBalance < currentBalance {
-		return nil, errors.New("addition overflow: total balance exceeds uint64")
-	}
-
-	// Encrypt the new available balance
-	newDecryptableAvailableBalance, err := encryption.EncryptAESGCM(newDecryptedAvailableBalance, aesKey)
-	if err != nil {
-		return nil, err
-	}
+func NewMsgApplyPendingBalanceProto(applyPendingBalance *ApplyPendingBalance) *MsgApplyPendingBalance {
+	currentAvailableBalance := NewCiphertextProto(applyPendingBalance.CurrentAvailableBalance)
 
 	return &MsgApplyPendingBalance{
-		Address:                        address,
-		Denom:                          denom,
-		NewDecryptableAvailableBalance: newDecryptableAvailableBalance,
-		CurrentPendingBalanceCounter:   uint32(currentPendingBalanceCounter),
-		CurrentAvailableBalance:        NewCiphertextProto(currentAvailableBalance),
-	}, nil
+		Address:                        applyPendingBalance.Address,
+		Denom:                          applyPendingBalance.Denom,
+		NewDecryptableAvailableBalance: applyPendingBalance.NewDecryptableAvailableBalance,
+		CurrentPendingBalanceCounter:   applyPendingBalance.CurrentPendingBalanceCounter,
+		CurrentAvailableBalance:        currentAvailableBalance,
+	}
 }
 
 var _ sdk.Msg = &MsgCloseAccount{}
@@ -589,6 +603,19 @@ func (m *MsgWithdraw) FromProto() (*Withdraw, error) {
 		DecryptableBalance:         m.DecryptableBalance,
 		Proofs:                     proofs,
 	}, nil
+}
+
+func (m *MsgWithdraw) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptAvailableBalance bool) (proto.Message, error) {
+	if decryptor == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptor is required")
+	}
+
+	withdraw, err := m.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return withdraw.Decrypt(decryptor, privKey, decryptAvailableBalance)
 }
 
 func NewMsgWithdrawProto(withdraw *Withdraw) *MsgWithdraw {
