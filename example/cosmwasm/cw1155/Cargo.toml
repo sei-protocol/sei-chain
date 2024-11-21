@@ -17,8 +17,8 @@ library = []
 cosmwasm-schema = "1.5.0"
 cosmwasm-std = { version = "1.5.4", features = ["staking", "stargate"] }
 cw-storage-plus = "1.2.0"
-cw1155-royalties = { git = "https://github.com/palletexchange/cw-nfts.git", rev = "2372b03ef7fa47c167447f230472d0c5b8206749" }
-cw1155 = { git = "https://github.com/palletexchange/cw-nfts.git", rev = "2372b03ef7fa47c167447f230472d0c5b8206749" }
+cw1155-royalties = { git = "https://github.com/palletexchange/cw-nfts.git", rev = "b00b04f", features = ["library"] }
+cw1155 = { git = "https://github.com/palletexchange/cw-nfts.git", rev = "b00b04f" }
 cw2981-royalties = "0.18.0"
 cw721 = "0.18.0"
 cw721-base = "0.18.0"
