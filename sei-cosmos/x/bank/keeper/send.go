@@ -482,7 +482,6 @@ func (k BaseSendKeeper) IsInDenomAllowList(ctx sdk.Context, addr sdk.AccAddress,
 			continue
 		}
 
-		// Return false if the address is neither allowed nor a module address
 		if !allowedAddresses.contains(addr) {
 			return false
 		}
