@@ -470,7 +470,7 @@ describe("EVM Test", function () {
         })).to.be.reverted;
       });
 
-      it.only("Should deduct correct amount even if higher gas price is used", async function () {
+      it("Should deduct correct amount even if higher gas price is used", async function () {
         const balanceBefore = await ethers.provider.getBalance(owner);
 
         const feeData = await ethers.provider.getFeeData();
