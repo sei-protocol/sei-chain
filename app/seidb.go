@@ -64,7 +64,7 @@ func SetupSeiDB(
 	migrationHeight := cast.ToInt64(appOpts.Get(FlagMigrateHeight))
 	baseAppOptions = append([]func(*baseapp.BaseApp){
 		func(baseApp *baseapp.BaseApp) {
-			if migrationEnabled {
+			if migrationEnabled || migrationHeight > 0 {
 				originalCMS := baseApp.CommitMultiStore()
 				baseApp.SetQueryMultiStore(originalCMS)
 				baseApp.SetMigrationHeight(migrationHeight)
