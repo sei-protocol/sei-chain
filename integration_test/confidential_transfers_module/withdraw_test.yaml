@@ -9,17 +9,21 @@
       env: TEST_ADDR
     - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 1sei -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
     - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 100000000uatom -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+
     # Set the deposit and withdraw amount
     - cmd: echo 500000
       env: WITHDRAW_AMOUNT
+
     # Initialize confidential token account for denom uatom
     - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctwithdrawtest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: INIT_ACCOUNT_CODE
+
     # Deposit to the confidential token account and apply the pending balance
     - cmd: printf "12345678\n" | seid tx ct deposit uatom $WITHDRAW_AMOUNT --from ctwithdrawtest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: DEPOSIT_CODE
     - cmd: printf "12345678\n" | seid tx ct apply-pending-balance uatom --from ctwithdrawtest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: APPLY_PENDING_BALANCE_CODE
+
     # Query the initial account state
     - cmd: printf "12345678\n" | seid q ct account uatom $TEST_ADDR --decryptor ctwithdrawtest --output json
       env: INITIAL_ACCOUNT_STATE
@@ -27,12 +31,15 @@
       env: INITIAL_PENDING_BALANCE
     - cmd: echo $(( $(echo $INITIAL_ACCOUNT_STATE | jq -r ".decryptable_available_balance") )) # Convert to integer
       env: INITIAL_AVAILABLE_BALANCE
+
     # Query the bank balance before withdrawal
     - cmd: seid q bank balances $TEST_ADDR --denom uatom --output json | jq -r ".amount"
       env: INITIAL_BANK_BALANCE
+
     # Withdraw from the confidential token account
     - cmd: printf "12345678\n" | seid tx ct withdraw uatom $WITHDRAW_AMOUNT --from ctwithdrawtest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: WITHDRAW_CODE
+
     # Query the account to verify the new account state
     - cmd: printf "12345678\n" | seid q ct account uatom $TEST_ADDR --decryptor ctwithdrawtest --output json
       env: FINAL_ACCOUNT_STATE
@@ -40,28 +47,36 @@
       env: FINAL_PENDING_BALANCE
     - cmd: echo $(( $(echo $FINAL_ACCOUNT_STATE | jq -r ".decryptable_available_balance") )) # Convert to integer
       env: FINAL_AVAILABLE_BALANCE
+
     # Query the bank balance after withdrawal
     - cmd: seid q bank balances $TEST_ADDR --denom uatom --output json | jq -r ".amount"
       env: FINAL_BANK_BALANCE
+
   verifiers:
     # Verify that the account exists after the instruction is executed.
     - type: eval
       expr: INIT_ACCOUNT_CODE == 0 or INIT_ACCOUNT_CODE == 38
+
     # Verify that the deposit was successful
     - type: eval
       expr: DEPOSIT_CODE == 0
+
     # Verify that the apply pending balance was successful
     - type: eval
       expr: APPLY_PENDING_BALANCE_CODE == 0
+
     # Verify that the withdraw was successful
     - type: eval
       expr: WITHDRAW_CODE == 0
+
     # Verify that the available balance decreased by the withdraw amount
     - type: eval
       expr: INITIAL_AVAILABLE_BALANCE - FINAL_AVAILABLE_BALANCE == WITHDRAW_AMOUNT
+
     # Verify that the pending balance was left untouched
     - type: eval
       expr: INITIAL_PENDING_BALANCE == FINAL_PENDING_BALANCE
+
     # Verify that the bank balance increased by the withdraw amount
     - type: eval
       expr: FINAL_BANK_BALANCE - INITIAL_BANK_BALANCE == WITHDRAW_AMOUNT
@@ -74,14 +89,17 @@
     - cmd: printf "12345678\n" | seid keys show -a ctwithdrawtest
       env: TEST_ADDR
     - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 100000000uatom -b block --fees 2000usei --chain-id sei -y
+
     # Query the initial account state
     - cmd: printf "12345678\n" | seid q ct account uatom $TEST_ADDR --decryptor ctwithdrawtest --output json
       env: INITIAL_ACCOUNT_STATE
     - cmd: echo $INITIAL_ACCOUNT_STATE | jq -r ".decryptable_available_balance"
       env: INITIAL_AVAILABLE_BALANCE
+
     # Attempt to withdraw more than the available balance
     - cmd: printf "12345678\n" | seid tx ct withdraw uatom $((INITIAL_AVAILABLE_BALANCE + 1)) --from ctwithdrawtest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: WITHDRAW_CODE
+
   verifiers:
     # Verify that the withdraw was unsuccessful due to insufficient funds
     - type: eval
@@ -94,9 +112,11 @@
       env: ADMIN_ADDR
     - cmd: printf "12345678\n" | seid keys show -a ctwithdrawtest
       env: TEST_ADDR
+
     # Attempt to withdraw from an uninitialized account
     - cmd: printf "12345678\n" | seid tx ct withdraw notexists 50000 --from ctwithdrawtest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: WITHDRAW_CODE
+
   verifiers:
     # Verify that the withdraw was unsuccessful due to uninitialized account
     - type: eval
