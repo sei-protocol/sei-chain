@@ -6,7 +6,7 @@
       env: ADMIN_ADDR
     - cmd: printf "12345678\n" | seid keys show -a cttest
       env: TEST_ADDR
-    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 1sei -b block --fees 2000usei --chain-id sei -y
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 1sei -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
     # Initialize confidential token account for denom uatom for admin
     - cmd: printf "12345678\n" | seid tx ct init-account uatom --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: INIT_ACCOUNT_CODE

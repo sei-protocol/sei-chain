@@ -2,26 +2,31 @@
 - name: Test applying pending balance to confidential token account
   inputs:
     # Setup test account
+    - cmd: printf "12345678\n" | seid keys add ctapplytest
     - cmd: printf "12345678\n" | seid keys show -a admin
       env: ADMIN_ADDR
-    - cmd: printf "12345678\n" | seid keys show -a cttest
+    - cmd: printf "12345678\n" | seid keys show -a ctapplytest
       env: TEST_ADDR
-    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 100000000uatom -b block --fees 2000usei --chain-id sei -y
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 1sei -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 100000000uatom -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+    # Initialize confidential token account for denom uatom
+    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctapplytest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: INIT_ACCOUNT_CODE
     # Deposit to the confidential token account
-    - cmd: printf "12345678\n" | seid tx ct deposit uatom 500000 --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct deposit uatom 500000 --from ctapplytest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: DEPOSIT_CODE
     # Query the initial account state
-    - cmd: printf "12345678\n" | seid q ct account uatom $TEST_ADDR --decryptor cttest --output json
+    - cmd: printf "12345678\n" | seid q ct account uatom $TEST_ADDR --decryptor ctapplytest --output json
       env: INITIAL_ACCOUNT_STATE
     - cmd: echo $INITIAL_ACCOUNT_STATE | jq -r ".combined_pending_balance"
       env: INITIAL_PENDING_BALANCE
     - cmd: echo $(( $(echo $INITIAL_ACCOUNT_STATE | jq -r ".decryptable_available_balance") )) # Convert to integer
       env: INITIAL_AVAILABLE_BALANCE
     # Apply pending balance
-    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance uatom --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance uatom --from ctapplytest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: APPLY_PENDING_BALANCE_CODE
     # Query the account to verify the available balance
-    - cmd: printf "12345678\n" | seid q ct account uatom $TEST_ADDR --decryptor cttest --output json
+    - cmd: printf "12345678\n" | seid q ct account uatom $TEST_ADDR --decryptor ctapplytest --output json
       env: FINAL_ACCOUNT_STATE
     - cmd: echo $FINAL_ACCOUNT_STATE | jq -r ".combined_pending_balance"
       env: FINAL_PENDING_BALANCE
@@ -30,6 +35,9 @@
     - cmd: echo $(( $(echo $FINAL_ACCOUNT_STATE | jq -r ".decryptable_available_balance") )) # Convert to integer
       env: FINAL_AVAILABLE_BALANCE
   verifiers:
+    # Verify that the setup was successful
+    - type: eval
+      expr: INIT_ACCOUNT_CODE == 0 or INIT_ACCOUNT_CODE == 38
     # Verify that the setup deposit was successful
     - type: eval
       expr: DEPOSIT_CODE == 0
@@ -51,10 +59,10 @@
     # Setup test account
     - cmd: printf "12345678\n" | seid keys show -a admin
       env: ADMIN_ADDR
-    - cmd: printf "12345678\n" | seid keys show -a cttest
+    - cmd: printf "12345678\n" | seid keys show -a ctapplytest
       env: TEST_ADDR
     # Apply pending balance with no pending balance
-    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance uatom --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance uatom --from ctapplytest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: APPLY_PENDING_BALANCE_CODE
   verifiers:
     # Verify that the apply pending balance was unsuccessful
@@ -66,10 +74,10 @@
     # Setup test account
     - cmd: printf "12345678\n" | seid keys show -a admin
       env: ADMIN_ADDR
-    - cmd: printf "12345678\n" | seid keys show -a cttest
+    - cmd: printf "12345678\n" | seid keys show -a ctapplytest
       env: TEST_ADDR
     # Attempt to apply pending balance to uninitialized account
-    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance notexists --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance notexists --from ctapplytest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: APPLY_PENDING_BALANCE_CODE
   verifiers:
     # Verify that the apply pending balance was unsuccessful
