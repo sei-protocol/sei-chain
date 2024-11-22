@@ -223,6 +223,10 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 14, func(ctx sdk.Context) error {
+		return migrations.MigrateEip1559MaxFeePerGas(ctx, am.keeper)
+	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 15, func(ctx sdk.Context) error {
 		return migrations.StoreCWPointerCode(ctx, am.keeper, false, false, true)
 	})
 }

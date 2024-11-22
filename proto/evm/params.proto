@@ -62,6 +62,12 @@ string minimum_fee_per_gas = 4 [
     (gogoproto.jsontag) = "max_dynamic_base_fee_downward_adjustment"
   ];
   uint64 target_gas_used_per_block = 12;
+  string maximum_fee_per_gas = 13 [
+    (gogoproto.moretags)   = "yaml:\"maximum_fee_per_gas\"",
+    (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Dec",
+    (gogoproto.nullable)   = false,
+    (gogoproto.jsontag) = "maximum_fee_per_gas"
+  ];
 }
 
 message ParamsPreV580 {

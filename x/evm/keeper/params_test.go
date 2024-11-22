@@ -18,6 +18,8 @@ func TestParams(t *testing.T) {
 	require.Equal(t, types.DefaultMinFeePerGas, k.GetDynamicBaseFeePerGas(ctx))
 	require.Equal(t, types.DefaultBaseFeePerGas, k.GetBaseFeePerGas(ctx))
 	require.Equal(t, types.DefaultMinFeePerGas, k.GetMinimumFeePerGas(ctx))
+	require.Equal(t, types.DefaultMaxFeePerGas, k.GetMaximumFeePerGas(ctx))
+	require.True(t, k.GetMinimumFeePerGas(ctx).LTE(k.GetMaximumFeePerGas(ctx)))
 	require.Equal(t, types.DefaultDeliverTxHookWasmGasLimit, k.GetDeliverTxHookWasmGasLimit(ctx))
 	require.Equal(t, types.DefaultMaxDynamicBaseFeeUpwardAdjustment, k.GetMaxDynamicBaseFeeUpwardAdjustment(ctx))
 	require.Equal(t, types.DefaultMaxDynamicBaseFeeDownwardAdjustment, k.GetMaxDynamicBaseFeeDownwardAdjustment(ctx))
