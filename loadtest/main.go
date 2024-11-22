@@ -519,12 +519,12 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		}}
 	case ConfidentialTransfers:
 		denom := "usei"
-		accountKeys := c.AccountKeys
+		//accountKeys := c.AccountKeys
 		// get a random key for receiver and if it's same as the current key, get another one
-		receiverKey := accountKeys[rand.Intn(len(accountKeys))]
-		for receiverKey.PubKey().Equals(key.PubKey()) {
-			receiverKey = accountKeys[rand.Intn(len(accountKeys))]
-		}
+		//receiverKey := accountKeys[rand.Intn(len(accountKeys))]
+		//for receiverKey.PubKey().Equals(key.PubKey()) {
+		//	receiverKey = accountKeys[rand.Intn(len(accountKeys))]
+		//}
 		// Initialize the sender account
 		senderPrivHex := hex.EncodeToString(key.Bytes())
 		senderEcdsaKey, _ := crypto.HexToECDSA(senderPrivHex)
@@ -532,12 +532,12 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		initSenderAccMsg := cttypes.NewMsgInitializeAccountProto(initSenderAccount)
 		msgs = append(msgs, initSenderAccMsg)
 
-		// Initialize the receiver account
-		receiverPrivHex := hex.EncodeToString(receiverKey.Bytes())
-		receiverEcdsaKey, _ := crypto.HexToECDSA(receiverPrivHex)
-		initReceiverAccount, _ := cttypes.NewInitializeAccount(receiverKey.PubKey().Address().String(), denom, *receiverEcdsaKey)
-		initReceiverAccMsg := cttypes.NewMsgInitializeAccountProto(initReceiverAccount)
-		msgs = append(msgs, initReceiverAccMsg)
+		//// Initialize the receiver account
+		//receiverPrivHex := hex.EncodeToString(receiverKey.Bytes())
+		//receiverEcdsaKey, _ := crypto.HexToECDSA(receiverPrivHex)
+		//initReceiverAccount, _ := cttypes.NewInitializeAccount(receiverKey.PubKey().Address().String(), denom, *receiverEcdsaKey)
+		//initReceiverAccMsg := cttypes.NewMsgInitializeAccountProto(initReceiverAccount)
+		//msgs = append(msgs, initReceiverAccMsg)
 
 		// Deposit to the sender's account
 		depositMsg := &cttypes.MsgDeposit{

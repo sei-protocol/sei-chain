@@ -61,7 +61,8 @@
       "wasm_occ_iterator_range",
       "wasm_occ_parallel_write",
       "evm",
-      "univ2"
+      "univ2",
+      "confidential_transfers"
     ],
     "evm_use_eip1559_txs": true,
     "run_oracle": false,
