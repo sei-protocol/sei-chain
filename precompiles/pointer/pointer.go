@@ -220,4 +220,3 @@ func (p PrecompileExecutor) AddCW1155(ctx sdk.Context, method *ethabi.Method, ca
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
-

@@ -541,8 +541,8 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // token id 2
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(32)).Bytes()...) // offset for token_ids array (always 32)
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of amounts array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(30)).Bytes()...)  // amount 30
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(40)).Bytes()...)  // amount 40
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(30)).Bytes()...) // amount 30
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(40)).Bytes()...) // amount 40
 	require.Equal(t, expectedData, receipt.Logs[0].Data)
 
 	// send
