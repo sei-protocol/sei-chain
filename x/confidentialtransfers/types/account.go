@@ -1,10 +1,10 @@
 package types
 
 import (
-	"math/big"
 	"strconv"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 )
@@ -36,24 +36,17 @@ type Account struct {
 	DecryptableAvailableBalance string
 }
 
-func (a *Account) GetPendingBalancePlaintext(decryptor *elgamal.TwistedElGamal, keypair *elgamal.KeyPair) (*big.Int, uint64, uint64, error) {
+func (a *Account) GetPendingBalancePlaintext(decryptor *elgamal.TwistedElGamal, keypair *elgamal.KeyPair) (uint64, uint64, uint64, error) {
 	actualPendingBalanceLo, err := decryptor.Decrypt(keypair.PrivateKey, a.PendingBalanceLo, elgamal.MaxBits32)
 	if err != nil {
-		return big.NewInt(0), 0, 0, err
+		return 0, 0, 0, err
 	}
 	actualPendingBalanceHi, err := decryptor.DecryptLargeNumber(keypair.PrivateKey, a.PendingBalanceHi, elgamal.MaxBits48)
 	if err != nil {
-		return big.NewInt(0), 0, 0, err
+		return 0, 0, 0, err
 	}
 
-	loBig := new(big.Int).SetUint64(actualPendingBalanceLo)
-	hiBig := new(big.Int).SetUint64(actualPendingBalanceHi)
-
-	// Shift the 48-bit number by 32 bits to the left
-	hiBig.Lsh(hiBig, 16) // Equivalent to hi << 32
-
-	// Combine by adding hiBig with loBig
-	combined := new(big.Int).Add(hiBig, loBig)
+	combined := utils.CombinePendingBalances(actualPendingBalanceLo, actualPendingBalanceHi)
 	return combined, actualPendingBalanceLo, actualPendingBalanceHi, nil
 }
 
@@ -85,7 +78,7 @@ func (a *Account) Decrypt(decryptor *elgamal.TwistedElGamal, keypair *elgamal.Ke
 		PublicKey:                   a.PublicKey.ToAffineCompressed(),
 		PendingBalanceLo:            uint32(pendingBalanceLo),
 		PendingBalanceHi:            pendingBalanceHi,
-		CombinedPendingBalance:      pendingBalanceCombined.Uint64(),
+		CombinedPendingBalance:      pendingBalanceCombined,
 		PendingBalanceCreditCounter: uint32(a.PendingBalanceCreditCounter),
 		AvailableBalance:            availableBalanceString,
 		DecryptableAvailableBalance: aesAvailableBalance,

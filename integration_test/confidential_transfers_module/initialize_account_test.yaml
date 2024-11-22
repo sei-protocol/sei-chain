@@ -1,0 +1,50 @@
+- name: Test initializing confidential token account
+  inputs:
+    # Setup test account
+    - cmd: printf "12345678\n" | seid keys add cttest
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a cttest
+      env: TEST_ADDR
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 1sei -b block --fees 2000usei --chain-id sei -y
+    # Initialize confidential token account for denom uatom for admin
+    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: INIT_ACCOUNT_CODE
+    # Query the account to verify it was set up
+    - cmd: seid q ct account uatom $TEST_ADDR --output json | jq -r ".pending_balance_credit_counter"
+      env: ACCOUNT_PENDING_BALANCE
+    # Initialize confidential token account for denom uatom for admin again. This should fail as the account already exists
+    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: INIT_ACCOUNT_CODE_REPEAT
+    # Initialize confidential token account for different denom uusdc for admin
+    - cmd: printf "12345678\n" | seid tx ct init-account uusdc --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: INIT_ACCOUNT_CODE_USDC
+    # Query the account to verify it was set up
+    - cmd: seid q ct account uusdc $TEST_ADDR --output json | jq -r ".pending_balance_credit_counter"
+      env: ACCOUNT_PENDING_BALANCE_USDC
+  verifiers:
+    # Verify that the account initialization was successful
+    - type: eval
+      expr: INIT_ACCOUNT_CODE == 0
+    # Verify that the account exists
+    - type: eval
+      expr: ACCOUNT_PENDING_BALANCE == 0
+    # Verify that the account initialization was successful
+    - type: eval
+      expr: INIT_ACCOUNT_CODE_REPEAT == 38
+    # Verify that the account initialization for a different denom was successful
+    - type: eval
+      expr: INIT_ACCOUNT_CODE_USDC == 0
+    # Verify that the account for a different denom exists
+    - type: eval
+      expr: ACCOUNT_PENDING_BALANCE_USDC == 0
+
+- name: Test initializing confidential token account for a denom that doesn't exist
+  inputs:
+    # Initialize confidential token account for denom uatom for admin
+    - cmd: printf "12345678\n" | seid tx ct init-account notexist --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: INIT_ACCOUNT_CODE
+  verifiers:
+    # Verify that the account initialization was unsuccessful
+    - type: eval
+      expr: INIT_ACCOUNT_CODE == 18

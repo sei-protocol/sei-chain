@@ -1,0 +1,77 @@
+# Tests for applying pending balances to confidential token accounts. These tests follow the initialize_account test and the deposit_test, relying on the account being set up and having a pending balance.
+- name: Test applying pending balance to confidential token account
+  inputs:
+    # Setup test account
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a cttest
+      env: TEST_ADDR
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 100000000uatom -b block --fees 2000usei --chain-id sei -y
+    # Deposit to the confidential token account
+    - cmd: printf "12345678\n" | seid tx ct deposit uatom 500000 --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: DEPOSIT_CODE
+    # Query the initial account state
+    - cmd: printf "12345678\n" | seid q ct account uatom $TEST_ADDR --decryptor cttest --output json
+      env: INITIAL_ACCOUNT_STATE
+    - cmd: echo $INITIAL_ACCOUNT_STATE | jq -r ".combined_pending_balance"
+      env: INITIAL_PENDING_BALANCE
+    - cmd: echo $(( $(echo $INITIAL_ACCOUNT_STATE | jq -r ".decryptable_available_balance") )) # Convert to integer
+      env: INITIAL_AVAILABLE_BALANCE
+    # Apply pending balance
+    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance uatom --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: APPLY_PENDING_BALANCE_CODE
+    # Query the account to verify the available balance
+    - cmd: printf "12345678\n" | seid q ct account uatom $TEST_ADDR --decryptor cttest --output json
+      env: FINAL_ACCOUNT_STATE
+    - cmd: echo $FINAL_ACCOUNT_STATE | jq -r ".combined_pending_balance"
+      env: FINAL_PENDING_BALANCE
+    - cmd: echo $FINAL_ACCOUNT_STATE | jq -r ".pending_balance_credit_counter"
+      env: FINAL_PENDING_BALANCE_COUNTER
+    - cmd: echo $(( $(echo $FINAL_ACCOUNT_STATE | jq -r ".decryptable_available_balance") )) # Convert to integer
+      env: FINAL_AVAILABLE_BALANCE
+  verifiers:
+    # Verify that the setup deposit was successful
+    - type: eval
+      expr: DEPOSIT_CODE == 0
+    # Verify that the apply pending balance was successful
+    - type: eval
+      expr: APPLY_PENDING_BALANCE_CODE == 0
+    # Verify that the available balance increased by the deposit amount
+    - type: eval
+      expr: FINAL_AVAILABLE_BALANCE - INITIAL_AVAILABLE_BALANCE - INITIAL_PENDING_BALANCE == 0
+    # Verify that the pending balance is now 0
+    - type: eval
+      expr: FINAL_PENDING_BALANCE == 0
+    # Verify that the pending balance counter is set to 0
+    - type: eval
+      expr: FINAL_PENDING_BALANCE_COUNTER == 0
+
+- name: Test applying pending balance with no pending balance
+  inputs:
+    # Setup test account
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a cttest
+      env: TEST_ADDR
+    # Apply pending balance with no pending balance
+    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance uatom --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: APPLY_PENDING_BALANCE_CODE
+  verifiers:
+    # Verify that the apply pending balance was unsuccessful
+    - type: eval
+      expr: APPLY_PENDING_BALANCE_CODE != 0
+
+- name: Test applying pending balance to uninitialized account
+  inputs:
+    # Setup test account
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a cttest
+      env: TEST_ADDR
+    # Attempt to apply pending balance to uninitialized account
+    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance notexists --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: APPLY_PENDING_BALANCE_CODE
+  verifiers:
+    # Verify that the apply pending balance was unsuccessful
+    - type: eval
+      expr: APPLY_PENDING_BALANCE_CODE != 0
