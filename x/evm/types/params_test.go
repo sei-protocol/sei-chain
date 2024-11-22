@@ -14,6 +14,7 @@ func TestDefaultParams(t *testing.T) {
 		PriorityNormalizer:                     types.DefaultPriorityNormalizer,
 		BaseFeePerGas:                          types.DefaultBaseFeePerGas,
 		MinimumFeePerGas:                       types.DefaultMinFeePerGas,
+		MaximumFeePerGas:                       types.DefaultMaxFeePerGas,
 		DeliverTxHookWasmGasLimit:              types.DefaultDeliverTxHookWasmGasLimit,
 		WhitelistedCwCodeHashesForDelegateCall: types.DefaultWhitelistedCwCodeHashesForDelegateCall,
 		MaxDynamicBaseFeeUpwardAdjustment:      types.DefaultMaxDynamicBaseFeeUpwardAdjustment,
