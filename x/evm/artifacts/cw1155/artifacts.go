@@ -17,7 +17,6 @@ const CurrentVersion uint16 = 1
 var f embed.FS
 
 var cachedBin []byte
-var cachedLegacyBin []byte
 var cachedABI *abi.ABI
 
 func GetABI() []byte {

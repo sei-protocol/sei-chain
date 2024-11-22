@@ -41,7 +41,7 @@ func init() {
 	govtypes.RegisterProposalTypeCodec(&AddCWERC20PointerProposal{}, "evm/AddCWERC20PointerProposal")
 	govtypes.RegisterProposalTypeCodec(&AddCWERC721PointerProposal{}, "evm/AddCWERC721PointerProposal")
 	govtypes.RegisterProposalTypeCodec(&AddCWERC1155PointerProposal{}, "evm/AddCWERC1155PointerProposal")
-	govtypes.RegisterProposalTypeCodec(&AddERCNativePointerProposalV2{}, "evm/AddCWERC721PointerProposalV2")
+	govtypes.RegisterProposalTypeCodec(&AddERCNativePointerProposalV2{}, "evm/AddERCNativePointerProposalV2")
 }
 
 func (p *AddERCNativePointerProposal) GetTitle() string { return p.Title }

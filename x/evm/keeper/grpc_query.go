@@ -196,6 +196,13 @@ func (q Querier) Pointee(c context.Context, req *types.QueryPointeeRequest) (*ty
 			Version: uint32(v),
 			Exists:  e,
 		}, nil
+	case types.PointerType_CW1155:
+		p, v, e := q.Keeper.GetCW1155Pointee(ctx, common.HexToAddress(req.Pointer))
+		return &types.QueryPointeeResponse{
+			Pointee: p,
+			Version: uint32(v),
+			Exists:  e,
+		}, nil
 	case types.PointerType_ERC20:
 		p, v, e := q.Keeper.GetERC20Pointee(ctx, req.Pointer)
 		return &types.QueryPointeeResponse{
@@ -205,6 +212,13 @@ func (q Querier) Pointee(c context.Context, req *types.QueryPointeeRequest) (*ty
 		}, nil
 	case types.PointerType_ERC721:
 		p, v, e := q.Keeper.GetERC721Pointee(ctx, req.Pointer)
+		return &types.QueryPointeeResponse{
+			Pointee: p.Hex(),
+			Version: uint32(v),
+			Exists:  e,
+		}, nil
+	case types.PointerType_ERC1155:
+		p, v, e := q.Keeper.GetERC1155Pointee(ctx, req.Pointer)
 		return &types.QueryPointeeResponse{
 			Pointee: p.Hex(),
 			Version: uint32(v),

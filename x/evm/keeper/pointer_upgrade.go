@@ -77,7 +77,7 @@ func (k *Keeper) UpsertERCCW1155Pointer(
 	ctx sdk.Context, evm *vm.EVM, cw1155Addr string, metadata utils.ERCMetadata,
 ) (contractAddr common.Address, err error) {
 	return k.UpsertERCPointer(
-		ctx, evm, "cw721", []interface{}{
+		ctx, evm, "cw1155", []interface{}{
 			cw1155Addr, metadata.Name, metadata.Symbol,
 		}, k.GetERC1155CW1155Pointer, k.SetERC1155CW1155Pointer,
 	)

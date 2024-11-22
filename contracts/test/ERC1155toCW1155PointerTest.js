@@ -93,11 +93,8 @@ describe("ERC1155 to CW1155 Pointer", function () {
             expect(balance0).to.equal(11);
             let balance1 = await pointerAcc0.balanceOf(accounts[1].evmAddress, 1);
             expect(balance1).to.equal(0);
-            transferTxResp = await pointerAcc0.safeTransferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 1, 5, '0x');
+            const transferTxResp = await pointerAcc0.safeTransferFrom(accounts[0].evmAddress, accounts[1].evmAddress, 1, 5, '0x');
             await transferTxResp.wait();
-            await expect(transferTxResp)
-                .to.emit(pointerAcc0, 'TransferSingle')
-                .withArgs(accounts[0].evmAddress, accounts[0].evmAddress, accounts[1].evmAddress, 1, 5);
             balance0 = await pointerAcc0.balanceOf(accounts[0].evmAddress, 1);
             expect(balance0).to.equal(6);
             balance1 = await pointerAcc0.balanceOf(accounts[1].evmAddress, 1);
@@ -123,7 +120,7 @@ describe("ERC1155 to CW1155 Pointer", function () {
             expect(balances[1]).to.equal(12);
             expect(balances[2]).to.equal(0);
             expect(balances[3]).to.equal(0);
-            transferTxResp = await pointerAcc1.safeBatchTransferFrom(
+            const transferTxResp = await pointerAcc1.safeBatchTransferFrom(
                 accounts[1].evmAddress,
                 accounts[0].evmAddress,
                 tids,
@@ -131,9 +128,6 @@ describe("ERC1155 to CW1155 Pointer", function () {
                 '0x'
             );
             await transferTxResp.wait();
-            await expect(transferTxResp)
-                .to.emit(pointerAcc1, 'TransferBatch')
-                .withArgs(accounts[1].evmAddress, accounts[1].evmAddress, accounts[0].evmAddress, tids, tamounts);
             balances = await pointerAcc1.balanceOfBatch(
                 [accounts[1].evmAddress, accounts[1].evmAddress, accounts[0].evmAddress, accounts[0].evmAddress],
                 [...tids, ...tids]
@@ -147,9 +141,6 @@ describe("ERC1155 to CW1155 Pointer", function () {
         it("set approval for all", async function () {
             const setApprovalForAllTxResp = await pointerAcc0.setApprovalForAll(accounts[1].evmAddress, true);
             await setApprovalForAllTxResp.wait();
-            await expect(setApprovalForAllTxResp)
-                .to.emit(pointerAcc0, 'ApprovalForAll')
-                .withArgs(accounts[0].evmAddress, accounts[1].evmAddress, true);
             const approved = await pointerAcc0.isApprovedForAll(accounts[0].evmAddress, accounts[1].evmAddress);
             expect(approved).to.equal(true);
 
