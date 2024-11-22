@@ -58,12 +58,13 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 
 	erc1155CodeID, err := k.wasmKeeper.Create(ctx, k.accountKeeper.GetModuleAddress(types.ModuleName), erc1155.GetBin(), nil)
 	if err != nil {
-		panic(err)
+		ctx.Logger().Error(fmt.Sprintf("error creating CWERC1155 pointer code due to %s", err))
+	} else {
+		prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW1155ERC1155Prefix).Set(
+			artifactsutils.GetVersionBz(erc1155.CurrentVersion),
+			artifactsutils.GetCodeIDBz(erc1155CodeID),
+		)
 	}
-	prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW1155ERC1155Prefix).Set(
-		artifactsutils.GetVersionBz(erc1155.CurrentVersion),
-		artifactsutils.GetCodeIDBz(erc1155CodeID),
-	)
 
 	if k.EthReplayConfig.Enabled && !ethReplayInitialied {
 		header := k.OpenEthDatabase()

@@ -358,7 +358,7 @@ func (app *App) translateCW1155Event(ctx sdk.Context, wasmEvent abci.Event, poin
 			toHash = app.GetEvmAddressAttribute(ctx, wasmEvent, "recipient")
 		}
 		topics = []common.Hash{
-			ERC1155TransferSingleTopic,
+			ERC1155TransferBatchTopic,
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
 			fromHash,
 			toHash,

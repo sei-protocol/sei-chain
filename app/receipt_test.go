@@ -434,23 +434,32 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
 	wasmKeeper := k.WasmKeeper()
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now()).WithChainID("sei-test").WithBlockHeight(1)
+	// Create account 1 and associate its addresses
+	amt := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000)))
+	privKey := testkeeper.MockPrivateKey()
+	creator, creatorEvmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	creatorHash := common.BytesToHash(creatorEvmAddr[:]).Hex()
+	k.BankKeeper().MintCoins(ctx, "evm", amt)
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, "evm", creator, amt)
+	k.SetAddressMapping(ctx, creator, creatorEvmAddr)
+	// Create account 2 and associate its addresses
+	privKeyRecipient := testkeeper.MockPrivateKey()
+	recipient, recipientEvmAddr := testkeeper.PrivateKeyToAddresses(privKeyRecipient)
+	recipientHash := common.BytesToHash(recipientEvmAddr[:]).Hex()
+	k.BankKeeper().MintCoins(ctx, "evm", amt)
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, "evm", recipient, amt)
+	k.SetAddressMapping(ctx, recipient, recipientEvmAddr)
+	// Deploy contract
 	code, err := os.ReadFile("../contracts/wasm/cw1155_base.wasm")
 	require.Nil(t, err)
-	privKey := testkeeper.MockPrivateKey()
-	creator, _ := testkeeper.PrivateKeyToAddresses(privKey)
 	codeID, err := wasmKeeper.Create(ctx, creator, code, nil)
 	require.Nil(t, err)
 	contractAddr, _, err := wasmKeeper.Instantiate(ctx, codeID, creator, creator, []byte(fmt.Sprintf("{\"name\":\"test\",\"symbol\":\"test\",\"minter\":\"%s\"}", creator.String())), "test", sdk.NewCoins())
 	require.Nil(t, err)
-
 	_, mockPointerAddr := testkeeper.MockAddressPair()
 	k.SetERC1155CW1155Pointer(ctx, contractAddr.String(), mockPointerAddr)
 
 	// calling CW contract directly
-	amt := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000)))
-	k.BankKeeper().MintCoins(ctx, "evm", amt)
-	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, "evm", creator, amt)
-	recipient, _ := testkeeper.MockAddressPair()
 	payload := []byte(fmt.Sprintf("{\"mint\":{\"recipient\":\"%s\",\"msg\":{\"token_id\":\"1\",\"amount\":\"10\"}}}", recipient.String()))
 	msg := &wasmtypes.MsgExecuteContract{
 		Sender:   creator.String(),
@@ -472,16 +481,19 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
-	expectedData := append(common.BigToHash(big.NewInt(1)).Bytes(), common.BigToHash(big.NewInt(10)).Bytes()...)
-	require.Equal(t, expectedData, receipt.Logs[0].Data)
 	_, found := testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.True(t, found)
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[1])
+	require.Equal(t, common.HexToHash("0x0").Hex(), receipt.Logs[0].Topics[2])
+	require.Equal(t, recipientHash, receipt.Logs[0].Topics[3])
+	expectedData := append(common.BigToHash(big.NewInt(1)).Bytes(), common.BigToHash(big.NewInt(10)).Bytes()...)
+	require.Equal(t, expectedData, receipt.Logs[0].Data)
 
 	// calling from wasmd precompile
 	abi := pcommon.MustGetABI(f, "wasm_abi.json")
 	emptyCoins, err := sdk.NewCoins().MarshalJSON()
 	require.Nil(t, err)
-	payload = []byte(fmt.Sprintf("{\"mint_batch\":{\"recipient\":\"%s\",\"msgs\":[{\"token_id\":\"1\",\"amount\":\"3\"},{\"token_id\":\"2\",\"amount\":\"4\"}]}}", creator.String()))
+	payload = []byte(fmt.Sprintf("{\"mint_batch\":{\"recipient\":\"%s\",\"msgs\":[{\"token_id\":\"1\",\"amount\":\"30\"},{\"token_id\":\"2\",\"amount\":\"40\"}]}}", creator.String()))
 	data, err := abi.Pack("execute", contractAddr.String(), payload, emptyCoins)
 	require.Nil(t, err)
 	wasmAddr := common.HexToAddress(wasmd.WasmdAddress)
@@ -510,6 +522,7 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	tx = txBuilder.GetTx()
 	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
 	require.Nil(t, err)
+	sum = sha256.Sum256(txbz)
 	res = testkeeper.EVMTestApp.DeliverTx(ctx.WithEventManager(sdk.NewEventManager()).WithTxIndex(1), abci.RequestDeliverTx{Tx: txbz}, tx, sum)
 	require.Equal(t, uint32(0), res.Code)
 	receipt, err = testkeeper.EVMTestApp.EvmKeeper.GetTransientReceipt(ctx, signedTx.Hash())
@@ -517,20 +530,23 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, 1, len(receipt.Logs))
 	require.NotEmpty(t, receipt.LogsBloom)
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
+	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
+	require.True(t, found)
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[1])
+	require.Equal(t, common.HexToHash("0x0").Hex(), receipt.Logs[0].Topics[2])
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[3])
 	expectedData = append([]byte{}, common.BigToHash(big.NewInt(32)).Bytes()...)     // offset for token_ids array (always 32)
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of token_ids array
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // token id 1
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // token id 2
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(32)).Bytes()...) // offset for token_ids array (always 32)
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of amounts array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(3)).Bytes()...)  // amount 3
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(4)).Bytes()...)  // amount 4
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(30)).Bytes()...)  // amount 30
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(40)).Bytes()...)  // amount 40
 	require.Equal(t, expectedData, receipt.Logs[0].Data)
-	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
-	require.True(t, found)
 
 	// send
-	payload = []byte(fmt.Sprintf("{\"send\":{\"to\":\"%s\",\"token_id\":\"1\",\"amount\":\"2\"}}", creator))
+	payload = []byte(fmt.Sprintf("{\"send\":{\"to\":\"%s\",\"token_id\":\"1\",\"amount\":\"2\"}}", recipient.String()))
 	msg = &wasmtypes.MsgExecuteContract{
 		Sender:   creator.String(),
 		Contract: contractAddr.String(),
@@ -553,11 +569,14 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
 	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.True(t, found)
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[1])
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[2])
+	require.Equal(t, recipientHash, receipt.Logs[0].Topics[3])
 	expectedData = append(common.HexToHash("0x1").Bytes(), common.HexToHash("0x2").Bytes()...)
 	require.Equal(t, expectedData, receipt.Logs[0].Data)
 
 	// send_batch
-	payload = []byte(fmt.Sprintf("{\"send_batch\":{\"to\":\"%s\",\"batch\":[{\"token_id\":\"1\",\"amount\":\"2\"},{\"token_id\":\"2\",\"amount\":\"1\"}]}}", creator))
+	payload = []byte(fmt.Sprintf("{\"send_batch\":{\"to\":\"%s\",\"batch\":[{\"token_id\":\"1\",\"amount\":\"1\"},{\"token_id\":\"2\",\"amount\":\"2\"}]}}", recipient.String()))
 	msg = &wasmtypes.MsgExecuteContract{
 		Sender:   creator.String(),
 		Contract: contractAddr.String(),
@@ -580,14 +599,17 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
 	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.True(t, found)
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[1])
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[2])
+	require.Equal(t, recipientHash, receipt.Logs[0].Topics[3])
 	expectedData = append([]byte{}, common.BigToHash(big.NewInt(32)).Bytes()...)     // offset for token_ids array (always 32)
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of token_ids array
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // token id 1
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // token id 2
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(32)).Bytes()...) // offset for token_ids array (always 32)
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of amounts array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // amount 2
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // amount 1
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // amount 2
 	require.Equal(t, expectedData, receipt.Logs[0].Data)
 
 	// approve all
@@ -614,7 +636,135 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
 	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.True(t, found)
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[1])
+	require.Equal(t, recipientHash, receipt.Logs[0].Topics[2])
 	require.Equal(t, common.HexToHash("0x1").Bytes(), receipt.Logs[0].Data)
+
+	// send on behalf
+	payload = []byte(fmt.Sprintf("{\"send\":{\"to\":\"%s\",\"from\":\"%s\",\"token_id\":\"1\",\"amount\":\"1\"}}", recipient.String(), creator.String()))
+	msg = &wasmtypes.MsgExecuteContract{
+		Sender:   recipient.String(),
+		Contract: contractAddr.String(),
+		Msg:      payload,
+	}
+	txBuilder = testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
+	txBuilder.SetMsgs(msg)
+	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000))))
+	txBuilder.SetGasLimit(300000)
+	tx = signTx(txBuilder, privKeyRecipient, k.AccountKeeper().GetAccount(ctx, recipient))
+	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
+	require.Nil(t, err)
+	sum = sha256.Sum256(txbz)
+	res = testkeeper.EVMTestApp.DeliverTx(ctx.WithEventManager(sdk.NewEventManager()), abci.RequestDeliverTx{Tx: txbz}, tx, sum)
+	require.Equal(t, uint32(0), res.Code)
+	receipt, err = testkeeper.EVMTestApp.EvmKeeper.GetTransientReceipt(ctx, common.BytesToHash(sum[:]))
+	require.Nil(t, err)
+	require.Equal(t, 1, len(receipt.Logs))
+	require.NotEmpty(t, receipt.LogsBloom)
+	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
+	require.Equal(t, recipientHash, receipt.Logs[0].Topics[1])
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[2])
+	require.Equal(t, recipientHash, receipt.Logs[0].Topics[3])
+	expectedData = append(common.HexToHash("0x1").Bytes(), common.HexToHash("0x1").Bytes()...)
+	require.Equal(t, expectedData, receipt.Logs[0].Data)
+
+	// send_batch on behalf
+	payload = []byte(fmt.Sprintf("{\"send_batch\":{\"to\":\"%s\",\"from\":\"%s\",\"batch\":[{\"token_id\":\"1\",\"amount\":\"1\"},{\"token_id\":\"2\",\"amount\":\"1\"}]}}", recipient.String(), creator.String()))
+	msg = &wasmtypes.MsgExecuteContract{
+		Sender:   recipient.String(),
+		Contract: contractAddr.String(),
+		Msg:      payload,
+	}
+	txBuilder = testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
+	txBuilder.SetMsgs(msg)
+	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000))))
+	txBuilder.SetGasLimit(300000)
+	tx = signTx(txBuilder, privKeyRecipient, k.AccountKeeper().GetAccount(ctx, recipient))
+	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
+	require.Nil(t, err)
+	sum = sha256.Sum256(txbz)
+	res = testkeeper.EVMTestApp.DeliverTx(ctx.WithEventManager(sdk.NewEventManager()), abci.RequestDeliverTx{Tx: txbz}, tx, sum)
+	require.Equal(t, uint32(0), res.Code)
+	receipt, err = testkeeper.EVMTestApp.EvmKeeper.GetTransientReceipt(ctx, common.BytesToHash(sum[:]))
+	require.Nil(t, err)
+	require.Equal(t, 1, len(receipt.Logs))
+	require.NotEmpty(t, receipt.LogsBloom)
+	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
+	require.Equal(t, recipientHash, receipt.Logs[0].Topics[1])
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[2])
+	require.Equal(t, recipientHash, receipt.Logs[0].Topics[3])
+	expectedData = append([]byte{}, common.BigToHash(big.NewInt(32)).Bytes()...)     // offset for token_ids array (always 32)
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of token_ids array
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // token id 1
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // token id 2
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(32)).Bytes()...) // offset for token_ids array (always 32)
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of amounts array
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // amount 1
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // amount 1
+	require.Equal(t, expectedData, receipt.Logs[0].Data)
+
+	// burn on behalf
+	payload = []byte(fmt.Sprintf("{\"burn\":{\"from\":\"%s\",\"token_id\":\"1\",\"amount\":\"1\"}}", creator.String()))
+	msg = &wasmtypes.MsgExecuteContract{
+		Sender:   recipient.String(),
+		Contract: contractAddr.String(),
+		Msg:      payload,
+	}
+	txBuilder = testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
+	txBuilder.SetMsgs(msg)
+	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000))))
+	txBuilder.SetGasLimit(300000)
+	tx = signTx(txBuilder, privKeyRecipient, k.AccountKeeper().GetAccount(ctx, recipient))
+	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
+	require.Nil(t, err)
+	sum = sha256.Sum256(txbz)
+	res = testkeeper.EVMTestApp.DeliverTx(ctx.WithEventManager(sdk.NewEventManager()), abci.RequestDeliverTx{Tx: txbz}, tx, sum)
+	require.Equal(t, uint32(0), res.Code)
+	receipt, err = testkeeper.EVMTestApp.EvmKeeper.GetTransientReceipt(ctx, common.BytesToHash(sum[:]))
+	require.Nil(t, err)
+	require.Equal(t, 1, len(receipt.Logs))
+	require.NotEmpty(t, receipt.LogsBloom)
+	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
+	require.Equal(t, recipientHash, receipt.Logs[0].Topics[1])
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[2])
+	require.Equal(t, common.HexToHash("0x0").Hex(), receipt.Logs[0].Topics[3])
+	expectedData = append(common.HexToHash("0x1").Bytes(), common.HexToHash("0x1").Bytes()...)
+	require.Equal(t, expectedData, receipt.Logs[0].Data)
+
+	// burn_batch on behalf
+	payload = []byte(fmt.Sprintf("{\"burn_batch\":{\"from\":\"%s\",\"batch\":[{\"token_id\":\"1\",\"amount\":\"1\"},{\"token_id\":\"2\",\"amount\":\"1\"}]}}", creator.String()))
+	msg = &wasmtypes.MsgExecuteContract{
+		Sender:   recipient.String(),
+		Contract: contractAddr.String(),
+		Msg:      payload,
+	}
+	txBuilder = testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
+	txBuilder.SetMsgs(msg)
+	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000))))
+	txBuilder.SetGasLimit(300000)
+	tx = signTx(txBuilder, privKeyRecipient, k.AccountKeeper().GetAccount(ctx, recipient))
+	txbz, err = testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
+	require.Nil(t, err)
+	sum = sha256.Sum256(txbz)
+	res = testkeeper.EVMTestApp.DeliverTx(ctx.WithEventManager(sdk.NewEventManager()), abci.RequestDeliverTx{Tx: txbz}, tx, sum)
+	require.Equal(t, uint32(0), res.Code)
+	receipt, err = testkeeper.EVMTestApp.EvmKeeper.GetTransientReceipt(ctx, common.BytesToHash(sum[:]))
+	require.Nil(t, err)
+	require.Equal(t, 1, len(receipt.Logs))
+	require.NotEmpty(t, receipt.LogsBloom)
+	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
+	require.Equal(t, recipientHash, receipt.Logs[0].Topics[1])
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[2])
+	require.Equal(t, common.HexToHash("0x0").Hex(), receipt.Logs[0].Topics[3])
+	expectedData = append([]byte{}, common.BigToHash(big.NewInt(32)).Bytes()...)     // offset for token_ids array (always 32)
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of token_ids array
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // token id 1
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // token id 2
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(32)).Bytes()...) // offset for token_ids array (always 32)
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of amounts array
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // amount 1
+	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // amount 1
+	require.Equal(t, expectedData, receipt.Logs[0].Data)
 
 	// revoke all
 	payload = []byte(fmt.Sprintf("{\"revoke_all\":{\"operator\":\"%s\"}}", recipient.String()))
@@ -640,6 +790,8 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
 	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.True(t, found)
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[1])
+	require.Equal(t, recipientHash, receipt.Logs[0].Topics[2])
 	require.Equal(t, common.HexToHash("0x0").Bytes(), receipt.Logs[0].Data)
 
 	// burn
@@ -666,6 +818,9 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
 	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.True(t, found)
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[1])
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[2])
+	require.Equal(t, common.HexToHash("0x0").Hex(), receipt.Logs[0].Topics[3])
 	expectedData = append(common.HexToHash("0x2").Bytes(), common.HexToHash("0x1").Bytes()...)
 	require.Equal(t, expectedData, receipt.Logs[0].Data)
 
@@ -693,6 +848,9 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
 	_, found = testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
 	require.True(t, found)
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[1])
+	require.Equal(t, creatorHash, receipt.Logs[0].Topics[2])
+	require.Equal(t, common.HexToHash("0x0").Hex(), receipt.Logs[0].Topics[3])
 	expectedData = append([]byte{}, common.BigToHash(big.NewInt(32)).Bytes()...)     // offset for token_ids array (always 32)
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of token_ids array
 	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // token id 1
