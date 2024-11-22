@@ -61,7 +61,6 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
             _formatPayload("send", _curlyBrace(_join(f, ",", _join(t, ",", _join(tId, ",", amt)))))
         );
         _execute(bytes(req));
-        emit TransferSingle(msg.sender, from, to, id, amount);
         if (to.code.length > 0) {
             require(
                 IERC1155Receiver(to).onERC1155Received(
@@ -115,7 +114,6 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
         }
         payload = string.concat(payload, "]}}");
         _execute(bytes(payload));
-        emit TransferBatch(msg.sender, from, to, ids, amounts);
         if (to.code.length > 0) {
             require(
                 IERC1155Receiver(to).onERC1155BatchReceived(
@@ -137,7 +135,6 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
         } else {
             _execute(bytes(_curlyBrace(_formatPayload("revoke_all", op))));
         }
-        emit ApprovalForAll(msg.sender, operator, approved);
     }
 
     // ERC1155Burnable transactions
@@ -157,7 +154,6 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
             _formatPayload("burn", _curlyBrace(_join(f, ",", _join(tId, ",", amt))))
         );
         _execute(bytes(req));
-        emit TransferSingle(msg.sender, account, address(0), id, amount);
     }
 
     function burnBatch(address account, uint256[] memory ids, uint256[] memory amounts) public virtual {
@@ -192,7 +188,6 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
         }
         payload = string.concat(payload, "]}}");
         _execute(bytes(payload));
-        emit TransferBatch(msg.sender, account, address(0), ids, amounts);
     }
 
     // Queries
