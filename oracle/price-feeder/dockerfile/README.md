@@ -11,7 +11,7 @@ docker build --build-arg VERSION=$VERSION -t price-feeder:latest .
 ```
 
 ## Create `config.toml`
-Edit your `address`, `validator`, `grpc_endpoint`, `tmrpc_endpoint` you may need to modifify your firewall to allow this container to reach your chain-node. See [offical docs](https://docs.kujira.app/validators/run-a-node/oracle-price-feeder) for more details.
+Edit your `address`, `validator`, `grpc_endpoint`, `tmrpc_endpoint` you may need to modifify your firewall to allow this container to reach your chain-node. See [official docs](https://docs.kujira.app/validators/run-a-node/oracle-price-feeder) for more details.
 
 ```bash
 sudo tee config.toml <<EOF

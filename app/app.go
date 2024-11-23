@@ -1251,7 +1251,7 @@ type ChannelResult struct {
 	result  *abci.ExecTxResult
 }
 
-// cacheContext returns a new context based off of the provided context with
+// CacheContext returns a new context based off of the provided context with
 // a branched multi-store.
 func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
 	ms := ctx.MultiStore()
@@ -1445,7 +1445,7 @@ func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []
 	return prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices
 }
 
-// ExecuteTxsConcurrently calls the appropriate function for processing transacitons
+// ExecuteTxsConcurrently calls the appropriate function for processing transactions
 func (app *App) ExecuteTxsConcurrently(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	// TODO after OCC release, remove this check and call ProcessTXsWithOCC directly
 	if ctx.IsOCCEnabled() {

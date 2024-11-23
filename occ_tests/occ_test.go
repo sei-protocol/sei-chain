@@ -69,7 +69,7 @@ func assertEqualEvents(t *testing.T, expected, actual []types.Event, testName st
 	}
 }
 
-// assertEqualExecTxResults validates the code, so that all errors don't count as a success
+// assertExecTxResultCode validates the code, so that all errors don't count as a success
 func assertExecTxResultCode(t *testing.T, expected, actual []*types.ExecTxResult, code uint32, testName string) {
 	for _, e := range expected {
 		require.Equal(t, code, e.Code, "%s: Expected code %d, got %d", testName, code, e.Code)

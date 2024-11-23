@@ -16,7 +16,7 @@ run this if you're trying to setup a price feeder service on a validator node po
 
 ## Running Services
 
-For seid and price-feeder processes, it's reccomended to run as a systemd service.
+For seid and price-feeder processes, it's recommended to run as a systemd service.
 
 seid
 

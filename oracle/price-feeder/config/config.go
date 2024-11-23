@@ -53,7 +53,7 @@ var (
 		ProviderMock:     {},
 	}
 
-	// maxDeviationThreshold is the maxmimum allowed amount of standard
+	// maxDeviationThreshold is the maximum allowed amount of standard
 	// deviations which validators are able to set for a given asset.
 	maxDeviationThreshold = sdk.MustNewDecFromStr("3.0")
 
