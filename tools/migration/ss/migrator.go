@@ -112,9 +112,13 @@ func (m *Migrator) Verify(version int64) error {
 			fmt.Printf("SeiDB Archive Migration: Failed to iterate the tree %s: %s\n", module, err.Error())
 			return err
 		}
+		if verifyErr != nil {
+			return verifyErr
+		}
 		fmt.Printf("SeiDB Archive Migration:: Finished verifying module %s, total scanned: %d keys\n", module, count)
 	}
-	return verifyErr
+
+	return nil
 }
 
 func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey []byte, startModule string) error {
