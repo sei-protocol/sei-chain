@@ -54,7 +54,7 @@ type PrecompileExecutor struct {
 	AssociatePubKeyID []byte
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, accountKeeper pcommon.AccountKeeper) (*pcommon.Precompile, error) {
+func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, accountKeeper pcommon.AccountKeeper) (*pcommon.DynamicGasPrecompile, error) {
 
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
@@ -77,7 +77,7 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, a
 		}
 	}
 
-	return pcommon.NewPrecompile(newAbi, p, common.HexToAddress(AddrAddress), "addr"), nil
+	return pcommon.NewDynamicGasPrecompile(newAbi, p, common.HexToAddress(AddrAddress), "addr"), nil
 }
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
@@ -88,7 +88,7 @@ func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64
 	return pcommon.DefaultGasCost(input, p.IsTransaction(method.Name))
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, _ common.Address, _ common.Address, args []interface{}, value *big.Int, readOnly bool, _ *vm.EVM) (bz []byte, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, _ common.Address, _ common.Address, args []interface{}, value *big.Int, readOnly bool, _ *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
 	switch method.Name {
 	case GetSeiAddressMethod:
 		return p.getSeiAddr(ctx, method, args, value)
@@ -96,64 +96,66 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, _ commo
 		return p.getEvmAddr(ctx, method, args, value)
 	case Associate:
 		if readOnly {
-			return nil, errors.New("cannot call associate precompile from staticcall")
+			return nil, 0, errors.New("cannot call associate precompile from staticcall")
 		}
 		return p.associate(ctx, method, args, value)
 	case AssociatePubKey:
 		if readOnly {
-			return nil, errors.New("cannot call associate pub key precompile from staticcall")
+			return nil, 0, errors.New("cannot call associate pub key precompile from staticcall")
 		}
 		return p.associatePublicKey(ctx, method, args, value)
 	}
 	return
 }
 
-func (p PrecompileExecutor) getSeiAddr(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) getSeiAddr(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	seiAddr, found := p.evmKeeper.GetSeiAddress(ctx, args[0].(common.Address))
 	if !found {
 		metrics.IncrementAssociationError("getSeiAddr", types.NewAssociationMissingErr(args[0].(common.Address).Hex()))
-		return nil, fmt.Errorf("EVM address %s is not associated", args[0].(common.Address).Hex())
+		return nil, 0, fmt.Errorf("EVM address %s is not associated", args[0].(common.Address).Hex())
 	}
-	return method.Outputs.Pack(seiAddr.String())
+	ret, err = method.Outputs.Pack(seiAddr.String())
+	return ret, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
 }
 
-func (p PrecompileExecutor) getEvmAddr(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) getEvmAddr(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	seiAddr, err := sdk.AccAddressFromBech32(args[0].(string))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	evmAddr, found := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
 	if !found {
 		metrics.IncrementAssociationError("getEvmAddr", types.NewAssociationMissingErr(args[0].(string)))
-		return nil, fmt.Errorf("sei address %s is not associated", args[0].(string))
+		return nil, 0, fmt.Errorf("sei address %s is not associated", args[0].(string))
 	}
-	return method.Outputs.Pack(evmAddr)
+	ret, err = method.Outputs.Pack(evmAddr)
+	return ret, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
 }
 
-func (p PrecompileExecutor) associate(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) associate(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 4); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// v, r and s are components of a signature over the customMessage sent.
@@ -165,15 +167,15 @@ func (p PrecompileExecutor) associate(ctx sdk.Context, method *abi.Method, args 
 
 	rBytes, err := decodeHexString(r)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	sBytes, err := decodeHexString(s)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	vBytes, err := decodeHexString(v)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	vBig := new(big.Int).SetBytes(vBytes)
@@ -186,19 +188,19 @@ func (p PrecompileExecutor) associate(ctx sdk.Context, method *abi.Method, args 
 	customMessageHash := crypto.Keccak256Hash([]byte(customMessage))
 	evmAddr, seiAddr, pubkey, err := helpers.GetAddresses(vBig, rBig, sBig, customMessageHash)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	return p.associateAddresses(ctx, method, evmAddr, seiAddr, pubkey)
 }
 
-func (p PrecompileExecutor) associatePublicKey(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) associatePublicKey(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Takes a single argument, a compressed pubkey in hex format, excluding the '0x'
@@ -206,13 +208,13 @@ func (p PrecompileExecutor) associatePublicKey(ctx sdk.Context, method *abi.Meth
 
 	pubKeyBytes, err := hex.DecodeString(pubKeyHex)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Parse the compressed public key
 	pubKey, err := btcec.ParsePubKey(pubKeyBytes, btcec.S256())
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Convert to uncompressed public key
@@ -220,27 +222,28 @@ func (p PrecompileExecutor) associatePublicKey(ctx sdk.Context, method *abi.Meth
 
 	evmAddr, seiAddr, pubkey, err := helpers.GetAddressesFromPubkeyBytes(uncompressedPubKey)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	return p.associateAddresses(ctx, method, evmAddr, seiAddr, pubkey)
 }
 
-func (p PrecompileExecutor) associateAddresses(ctx sdk.Context, method *abi.Method, evmAddr common.Address, seiAddr sdk.AccAddress, pubkey cryptotypes.PubKey) ([]byte, error) {
+func (p PrecompileExecutor) associateAddresses(ctx sdk.Context, method *abi.Method, evmAddr common.Address, seiAddr sdk.AccAddress, pubkey cryptotypes.PubKey) (ret []byte, remainingGas uint64, err error) {
 	// Check that address is not already associated
 	_, found := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
 	if found {
-		return nil, fmt.Errorf("address %s is already associated with evm address %s", seiAddr, evmAddr)
+		return nil, 0, fmt.Errorf("address %s is already associated with evm address %s", seiAddr, evmAddr)
 	}
 
 	// Associate Addresses:
 	associationHelper := helpers.NewAssociationHelper(p.evmKeeper, p.bankKeeper, p.accountKeeper)
-	err := associationHelper.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey)
+	err = associationHelper.AssociateAddresses(ctx, seiAddr, evmAddr, pubkey)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return method.Outputs.Pack(seiAddr.String(), evmAddr)
+	ret, err = method.Outputs.Pack(seiAddr.String(), evmAddr)
+	return ret, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
 }
 
 func (PrecompileExecutor) IsTransaction(method string) bool {
@@ -250,6 +253,10 @@ func (PrecompileExecutor) IsTransaction(method string) bool {
 	default:
 		return false
 	}
+}
+
+func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+	return p.evmKeeper
 }
 
 func decodeHexString(hexString string) ([]byte, error) {
