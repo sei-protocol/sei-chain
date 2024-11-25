@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"math/rand"
 	"strings"
 	"sync"
@@ -35,6 +36,7 @@ type LoadTestClient struct {
 	SignerClient       *SignerClient
 	ChainID            string
 	GrpcConns          []*grpc.ClientConn
+	CtQueryClient      cttypes.QueryClient
 	StakingQueryClient stakingtypes.QueryClient
 	// Staking specific variables
 	Validators []stakingtypes.Validator
@@ -76,6 +78,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 		SignerClient:                  signerClient,
 		ChainID:                       config.ChainID,
 		GrpcConns:                     grpcConns,
+		CtQueryClient:                 cttypes.NewQueryClient(grpcConns[0]),
 		StakingQueryClient:            stakingtypes.NewQueryClient(grpcConns[0]),
 		DelegationMap:                 map[string]map[string]int{},
 		TokenFactoryDenomOwner:        map[string]string{},

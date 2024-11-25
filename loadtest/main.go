@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"io"
 	"math/big"
@@ -517,63 +516,75 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 			Contract: contract,
 			Msg:      wasmtypes.RawContractMessage([]byte(fmt.Sprintf("{\"test_occ_parallelism\":{\"value\": %d}}", value))),
 		}}
-	case ConfidentialTransfers:
-		denom := "usei"
-		//accountKeys := c.AccountKeys
-		// get a random key for receiver and if it's same as the current key, get another one
-		//receiverKey := accountKeys[rand.Intn(len(accountKeys))]
-		//for receiverKey.PubKey().Equals(key.PubKey()) {
-		//	receiverKey = accountKeys[rand.Intn(len(accountKeys))]
-		//}
-		// Initialize the sender account
-		senderPrivHex := hex.EncodeToString(key.Bytes())
-		senderEcdsaKey, _ := crypto.HexToECDSA(senderPrivHex)
-		initSenderAccount, _ := cttypes.NewInitializeAccount(key.PubKey().Address().String(), denom, *senderEcdsaKey)
-		initSenderAccMsg := cttypes.NewMsgInitializeAccountProto(initSenderAccount)
-		msgs = append(msgs, initSenderAccMsg)
-
-		//// Initialize the receiver account
-		//receiverPrivHex := hex.EncodeToString(receiverKey.Bytes())
-		//receiverEcdsaKey, _ := crypto.HexToECDSA(receiverPrivHex)
-		//initReceiverAccount, _ := cttypes.NewInitializeAccount(receiverKey.PubKey().Address().String(), denom, *receiverEcdsaKey)
-		//initReceiverAccMsg := cttypes.NewMsgInitializeAccountProto(initReceiverAccount)
-		//msgs = append(msgs, initReceiverAccMsg)
-
-		// Deposit to the sender's account
+	case ConfidentialTransfersDeposit:
 		depositMsg := &cttypes.MsgDeposit{
-			FromAddress: key.PubKey().Address().String(),
-			Denom:       denom,
-			Amount:      10000,
+			FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
+			Denom:       CtDefaultDenom,
+			Amount:      1,
 		}
 		msgs = append(msgs, depositMsg)
+	case ConfidentialTransfersWithdraw:
+		senderPrivHex := hex.EncodeToString(key.Bytes())
+		senderEcdsaKey, _ := crypto.HexToECDSA(senderPrivHex)
+		account := c.getCtAccount(sdk.AccAddress(key.PubKey().Address()).String(), CtDefaultDenom)
 
-		// Apply pending balance
-		currentBalance := 0
-		// Extract the bottom 16 bits (rightmost 16 bits)
-		pendingBalanceLo := uint16(currentBalance & 0xFFFF)
+		withdraw, _ := cttypes.NewWithdraw(
+			*senderEcdsaKey,
+			account.AvailableBalance,
+			CtDefaultDenom,
+			sdk.AccAddress(key.PubKey().Address()).String(),
+			account.DecryptableAvailableBalance,
+			1,
+		)
+		withdrawMsg := cttypes.NewMsgWithdrawProto(withdraw)
+		msgs = append(msgs, withdrawMsg)
+	case ConfidentialTransfersApplyPendingBalance:
+		senderPrivHex := hex.EncodeToString(key.Bytes())
+		senderEcdsaKey, _ := crypto.HexToECDSA(senderPrivHex)
+		account := c.getCtAccount(sdk.AccAddress(key.PubKey().Address()).String(), CtDefaultDenom)
 
-		// Extract the next 32 bits (from bit 16 to bit 47)
-		pendingBalanceHi := uint32((currentBalance >> 16) & 0xFFFFFFFF)
-		teg := elgamal.NewTwistedElgamal()
-		senderKeyPair, _ := teg.KeyGen(*senderEcdsaKey, denom)
-		availableBalanceCipherText, _, _ := teg.Encrypt(senderKeyPair.PublicKey, uint64(currentBalance))
-		pendingBalanceLoCipherText, _, _ := teg.Encrypt(senderKeyPair.PublicKey, uint64(pendingBalanceLo))
-		pendingBalanceHiCipherText, _, _ := teg.Encrypt(senderKeyPair.PublicKey, uint64(pendingBalanceHi))
-
-		senderAesKey, _ := encryption.GetAESKey(*senderEcdsaKey, denom)
-		decryptableAvailableBalance, _ := encryption.EncryptAESGCM(0, senderAesKey)
 		applyPendingBalance, _ := cttypes.NewApplyPendingBalance(
 			*senderEcdsaKey,
-			key.PubKey().Address().String(),
-			denom,
-			decryptableAvailableBalance,
-			1,
-			availableBalanceCipherText,
-			pendingBalanceLoCipherText,
-			pendingBalanceHiCipherText)
+			sdk.AccAddress(key.PubKey().Address()).String(),
+			CtDefaultDenom,
+			account.DecryptableAvailableBalance,
+			account.PendingBalanceCreditCounter,
+			account.AvailableBalance,
+			account.PendingBalanceLo,
+			account.PendingBalanceHi)
 		applyPendingBalanceMsg := cttypes.NewMsgApplyPendingBalanceProto(applyPendingBalance)
 		msgs = append(msgs, applyPendingBalanceMsg)
+	case ConfidentialTransfersTransfer:
+		accountKeys := c.AccountKeys
+		// get a random key for receiver and if it's same as the current key, get another one
+		receiverKey := accountKeys[rand.Intn(len(accountKeys))]
+		for receiverKey.PubKey().Equals(key.PubKey()) {
+			receiverKey = accountKeys[rand.Intn(len(accountKeys))]
+		}
 
+		senderPrivHex := hex.EncodeToString(key.Bytes())
+		senderEcdsaKey, _ := crypto.HexToECDSA(senderPrivHex)
+		receiverPrivHex := hex.EncodeToString(receiverKey.Bytes())
+		receiverEcdsaKey, _ := crypto.HexToECDSA(receiverPrivHex)
+
+		teg := elgamal.NewTwistedElgamal()
+		receiverKeyPair, _ := teg.KeyGen(*receiverEcdsaKey, CtDefaultDenom)
+
+		senderAccount := c.getCtAccount(sdk.AccAddress(key.PubKey().Address()).String(), CtDefaultDenom)
+
+		transfer, _ := cttypes.NewTransfer(
+			senderEcdsaKey,
+			sdk.AccAddress(key.PubKey().Address()).String(),
+			sdk.AccAddress(receiverKey.PubKey().Address()).String(),
+			CtDefaultDenom,
+			senderAccount.DecryptableAvailableBalance,
+			senderAccount.AvailableBalance,
+			1,
+			&receiverKeyPair.PublicKey,
+			[]cttypes.AuditorInput{},
+		)
+		transferMsg := cttypes.NewMsgTransferProto(transfer)
+		msgs = append(msgs, transferMsg)
 	default:
 		fmt.Printf("Unrecognized message type %s", msgType)
 	}
@@ -582,6 +593,17 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		return msgs, true, signer, gas, int64(fee)
 	}
 	return msgs, false, signer, gas, int64(fee)
+}
+
+func (c *LoadTestClient) getCtAccount(address string, denom string) *cttypes.Account {
+	getCtAccountReq := &cttypes.GetCtAccountRequest{
+		Address: address,
+		Denom:   denom,
+	}
+	getCtAccountRes, _ := c.CtQueryClient.GetCtAccount(context.Background(), getCtAccountReq)
+	ctAccount := getCtAccountRes.GetAccount()
+	account, _ := ctAccount.FromProto()
+	return account
 }
 
 func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr string) sdk.Msg {
