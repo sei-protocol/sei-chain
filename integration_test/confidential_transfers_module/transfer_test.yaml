@@ -117,7 +117,7 @@
       env: SENDER_ADDR
     - cmd: printf "12345678\n" | seid keys show -a ctrecipient
       env: RECIPIENT_ADDR
-    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $SENDER_ADDR 100000000uatom -b block --fees 2000usei --chain-id sei -y
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $SENDER_ADDR 100000000uatom -b block --fees 2000usei --chain-id sei -y | jq -r ".code"
 
     # Query the initial account state
     - cmd: printf "12345678\n" | seid q ct account uatom $SENDER_ADDR --decryptor ctsender --output json

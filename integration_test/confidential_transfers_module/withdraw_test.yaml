@@ -88,7 +88,7 @@
       env: ADMIN_ADDR
     - cmd: printf "12345678\n" | seid keys show -a ctwithdrawtest
       env: TEST_ADDR
-    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 100000000uatom -b block --fees 2000usei --chain-id sei -y
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 100000000uatom -b block --fees 2000usei --chain-id sei -y | jq -r ".code"
 
     # Query the initial account state
     - cmd: printf "12345678\n" | seid q ct account uatom $TEST_ADDR --decryptor ctwithdrawtest --output json
