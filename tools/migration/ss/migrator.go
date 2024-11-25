@@ -47,17 +47,21 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 		return fmt.Errorf("failed to get latest module: %w", err)
 	}
 
-	fmt.Println("Starting migration...")
+	fmt.Println("SeiDB Archive Migration: Starting migration...")
 
 	// Goroutine to iterate through IAVL and export leaf nodes
 	go func() {
 		defer close(ch)
-		errCh <- ExportLeafNodesFromKey(m.iavlDB, ch, latestKey, latestModule)
+		err := ExportLeafNodesFromKey(m.iavlDB, ch, latestKey, latestModule)
+		errCh <- err
+		fmt.Printf("SeiDB Archive Migration: ExportLeafNodesFromKey Finished with err %+v \n", err)
 	}()
 
 	// Import nodes into PebbleDB
 	go func() {
-		errCh <- m.stateStore.RawImport(ch)
+		err := m.stateStore.RawImport(ch)
+		errCh <- err
+		fmt.Printf("SeiDB Archive Migration: RawImport Finished with err %+v \n", err)
 	}()
 
 	// Block until both processes complete
@@ -66,6 +70,8 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 			return err
 		}
 	}
+
+	fmt.Println("SeiDB Archive Migration: Setting earliest version")
 
 	// Set earliest and latest version in the database
 	err = m.stateStore.SetEarliestVersion(1)
