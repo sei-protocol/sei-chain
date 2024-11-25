@@ -7,7 +7,7 @@
       env: ADMIN_ADDR
     - cmd: printf "12345678\n" | seid keys show -a ctclosetest
       env: TEST_ADDR
-    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 1sei -b block --fees 2000usei --chain-id sei -y --output json | | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 1sei -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
     - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 100000000uatom -b block --fees 2000usei --chain-id sei -y | jq -r ".code"
 
     # Initialize the confidential token account
