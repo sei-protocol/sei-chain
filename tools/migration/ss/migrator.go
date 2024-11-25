@@ -86,6 +86,8 @@ func (m *Migrator) Verify(version int64) error {
 		}
 		var count int
 		_, err = tree.Iterate(func(key []byte, value []byte) bool {
+			fmt.Printf("SeiDB Archive Migration: Verifying key %s with value %s for module %s\n", string(key), string(value), module)
+
 			// Run Get() against PebbleDB and verify values match
 			val, err := m.stateStore.Get(module, version, key)
 			if err != nil {
