@@ -84,6 +84,6 @@ func (a *Account) Decrypt(decryptor *elgamal.TwistedElGamal, keypair *elgamal.Ke
 		CombinedPendingBalance:      pendingBalanceCombined.Uint64(),
 		PendingBalanceCreditCounter: uint32(a.PendingBalanceCreditCounter),
 		AvailableBalance:            availableBalanceString,
-		DecryptableAvailableBalance: aesAvailableBalance,
+		DecryptableAvailableBalance: aesAvailableBalance.String(),
 	}, nil
 }

@@ -27,10 +27,10 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 	aesPK, err := encryption.GetAESKey(*sourcePrivateKey, testDenom)
 	require.NoError(t, err)
 
-	amountLo := uint64(100)
-	amountHi := uint64(0)
+	amountLo := big.NewInt(100)
+	amountHi := big.NewInt(0)
 
-	remainingBalance := uint64(200)
+	remainingBalance := big.NewInt(200)
 
 	decryptableBalance, err := encryption.EncryptAESGCM(remainingBalance, aesPK)
 
@@ -60,17 +60,15 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 
 	remainingBalanceCommitmentValidityProof, _ := zkproofs.NewCiphertextValidityProof(&remainingBalanceRandomness, sourceKeypair.PublicKey, remainingBalanceCiphertext, remainingBalance)
 
-	remainingBalanceRangeProof, _ := zkproofs.NewRangeProof(64, int(remainingBalance), remainingBalanceRandomness)
+	remainingBalanceRangeProof, _ := zkproofs.NewRangeProof(128, remainingBalance, remainingBalanceRandomness)
 
 	ed25519Curve := curves.ED25519()
 
-	scalarAmtValue := new(big.Int).SetUint64(remainingBalance)
-	scalarAmount, _ := ed25519Curve.Scalar.SetBigInt(scalarAmtValue)
+	scalarAmount, _ := ed25519Curve.Scalar.SetBigInt(remainingBalance)
 	remainingBalanceEqualityProof, _ := zkproofs.NewCiphertextCommitmentEqualityProof(
 		sourceKeypair, remainingBalanceCiphertext, &remainingBalanceRandomness, &scalarAmount)
 
-	scalarAmountValueLo := new(big.Int).SetUint64(amountLo)
-	scalarAmountLo, _ := ed25519Curve.Scalar.SetBigInt(scalarAmountValueLo)
+	scalarAmountLo, _ := ed25519Curve.Scalar.SetBigInt(amountLo)
 
 	transferAmountLoEqualityProof, _ := zkproofs.NewCiphertextCiphertextEqualityProof(
 		sourceKeypair,
@@ -79,8 +77,7 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		&destinationCipherAmountLoR,
 		&scalarAmountLo)
 
-	scalarAmountValueHi := new(big.Int).SetUint64(amountHi)
-	scalarAmountHi, _ := ed25519Curve.Scalar.SetBigInt(scalarAmountValueHi)
+	scalarAmountHi, _ := ed25519Curve.Scalar.SetBigInt(amountHi)
 
 	transferAmountHiEqualityProof, _ := zkproofs.NewCiphertextCiphertextEqualityProof(
 		sourceKeypair,
@@ -216,7 +213,7 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 
 	valid, err := zkproofs.VerifyRangeProof(
 		result.Proofs.RemainingBalanceRangeProof,
-		result.RemainingBalanceCommitment, 64)
+		result.RemainingBalanceCommitment, 128)
 
 	assert.NoError(t, err)
 	assert.True(t, valid)
@@ -404,9 +401,10 @@ func TestMsgInitializeAccount_FromProto(t *testing.T) {
 	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
 	aesPK, err := encryption.GetAESKey(*sourcePrivateKey, testDenom)
 	require.NoError(t, err)
+	bigIntZero := big.NewInt(0)
 
-	decryptableBalance, err := encryption.EncryptAESGCM(0, aesPK)
-	encryptedZero, _, err := eg.Encrypt(sourceKeypair.PublicKey, 0)
+	decryptableBalance, err := encryption.EncryptAESGCM(bigIntZero, aesPK)
+	encryptedZero, _, err := eg.Encrypt(sourceKeypair.PublicKey, bigIntZero)
 
 	// Generate the proof
 	pubkeyValidityProof, _ := zkproofs.NewPubKeyValidityProof(
@@ -541,18 +539,18 @@ func TestMsgWithdraw_FromProto(t *testing.T) {
 	aesPK, err := encryption.GetAESKey(*sourcePrivateKey, testDenom)
 	require.NoError(t, err)
 
-	currentBalance := uint64(500000000)
+	currentBalance := big.NewInt(500000000)
 	currentBalanceCt, _, _ := eg.Encrypt(sourceKeypair.PublicKey, currentBalance)
-	withdrawAmount := uint64(10000)
+	withdrawAmount := big.NewInt(10000)
 	withdrawAmountCt, _ := eg.SubScalar(currentBalanceCt, withdrawAmount)
-	newBalance := currentBalance - withdrawAmount
-	newBalanceScalar := curves.ED25519().Scalar.New(int(newBalance))
+	newBalance := new(big.Int).Sub(currentBalance, withdrawAmount)
+	newBalanceScalar, _ := curves.ED25519().Scalar.SetBigInt(newBalance)
 	decryptableBalance, err := encryption.EncryptAESGCM(newBalance, aesPK)
 	newBalanceCommitment, randomness, err := eg.Encrypt(sourceKeypair.PublicKey, newBalance)
 	require.NoError(t, err)
 
 	// Generate the proofs
-	rangeProof, _ := zkproofs.NewRangeProof(64, int(newBalance), randomness)
+	rangeProof, _ := zkproofs.NewRangeProof(128, newBalance, randomness)
 	ciphertextCommitmentEqualityProof, _ := zkproofs.NewCiphertextCommitmentEqualityProof(
 		sourceKeypair,
 		withdrawAmountCt,
@@ -571,7 +569,7 @@ func TestMsgWithdraw_FromProto(t *testing.T) {
 	m := &MsgWithdraw{
 		FromAddress:                address1.String(),
 		Denom:                      testDenom,
-		Amount:                     withdrawAmount,
+		Amount:                     withdrawAmount.String(),
 		RemainingBalanceCommitment: newBalanceProto,
 		DecryptableBalance:         decryptableBalance,
 		Proofs:                     proofsProto,
@@ -608,7 +606,7 @@ func TestMsgWithdraw_FromProto(t *testing.T) {
 	assert.Equal(t, newBalance, decryptedCommitment)
 
 	// Make sure the proofs are valid
-	verified, err := zkproofs.VerifyRangeProof(result.Proofs.RemainingBalanceRangeProof, result.RemainingBalanceCommitment, 64)
+	verified, err := zkproofs.VerifyRangeProof(result.Proofs.RemainingBalanceRangeProof, result.RemainingBalanceCommitment, 128)
 	assert.NoError(t, err)
 	assert.True(t, verified)
 
@@ -664,7 +662,7 @@ func TestMsgWithdraw_ValidateBasic(t *testing.T) {
 				FromAddress:                validAddress,
 				Denom:                      validDenom,
 				RemainingBalanceCommitment: &Ciphertext{},
-				Amount:                     0,
+				Amount:                     "0",
 			},
 			wantErr: true,
 			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
@@ -675,7 +673,7 @@ func TestMsgWithdraw_ValidateBasic(t *testing.T) {
 				FromAddress:                validAddress,
 				Denom:                      validDenom,
 				RemainingBalanceCommitment: &Ciphertext{},
-				Amount:                     100,
+				Amount:                     "100",
 				DecryptableBalance:         "",
 			},
 			wantErr: true,
@@ -687,7 +685,7 @@ func TestMsgWithdraw_ValidateBasic(t *testing.T) {
 				FromAddress:                validAddress,
 				Denom:                      validDenom,
 				RemainingBalanceCommitment: &Ciphertext{},
-				Amount:                     100,
+				Amount:                     "100",
 				DecryptableBalance:         "notnil",
 				Proofs:                     nil,
 			},
@@ -699,7 +697,7 @@ func TestMsgWithdraw_ValidateBasic(t *testing.T) {
 			msg: MsgWithdraw{
 				FromAddress:                validAddress,
 				Denom:                      validDenom,
-				Amount:                     100,
+				Amount:                     "100",
 				RemainingBalanceCommitment: &Ciphertext{},
 				DecryptableBalance:         "notnil",
 				Proofs: &WithdrawMsgProofs{
@@ -728,11 +726,12 @@ func TestMsgCloseAccount_FromProto(t *testing.T) {
 	address := sdk.AccAddress("address1")
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
 	privateKey, _ := encryption.GenerateKey()
+	zeroBigInt := big.NewInt(0)
 	eg := elgamal.NewTwistedElgamal()
 	keypair, _ := eg.KeyGen(*privateKey, testDenom)
-	availableBalanceCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, 0)
-	pendingBalanceLoCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, 0)
-	pendingBalanceHiCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, 0)
+	availableBalanceCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, zeroBigInt)
+	pendingBalanceLoCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, zeroBigInt)
+	pendingBalanceHiCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, zeroBigInt)
 
 	availableBalanceProof, err := zkproofs.NewZeroBalanceProof(keypair, availableBalanceCiphertext)
 	require.NoError(t, err)

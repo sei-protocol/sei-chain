@@ -4,7 +4,6 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"math/big"
-	"strconv"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -82,13 +81,14 @@ func NewTransfer(
 		return &Transfer{}, err
 	}
 
+	bigIntAmount := big.NewInt(int64(amount))
 	// Check that account has sufficient balance to make the transfer.
-	if currentBalance < amount {
+	if currentBalance.Cmp(bigIntAmount) == -1 {
 		return &Transfer{}, errors.New("insufficient balance")
 	}
 
 	// Encrypt the new balance using the user's AES Key.
-	newBalance := currentBalance - amount
+	newBalance := new(big.Int).Sub(currentBalance, bigIntAmount)
 	decryptableNewBalance, err := encryption.EncryptAESGCM(newBalance, aesKey)
 	if err != nil {
 		return &Transfer{}, err
@@ -112,14 +112,16 @@ func NewTransfer(
 	if err != nil {
 		return &Transfer{}, err
 	}
+	loBitsBigInt := big.NewInt(int64(transferLoBits))
+	hiBitsBigInt := big.NewInt(int64(transferHiBits))
 
 	// Encrypt the transfer amounts for the sender
-	senderEncryptedTransferLoBits, senderLoBitsRandomness, err := teg.Encrypt(senderKeyPair.PublicKey, uint64(transferLoBits))
+	senderEncryptedTransferLoBits, senderLoBitsRandomness, err := teg.Encrypt(senderKeyPair.PublicKey, loBitsBigInt)
 	if err != nil {
 		return &Transfer{}, err
 	}
 
-	senderEncryptedTransferHiBits, senderHiBitsRandomness, err := teg.Encrypt(senderKeyPair.PublicKey, uint64(transferHiBits))
+	senderEncryptedTransferHiBits, senderHiBitsRandomness, err := teg.Encrypt(senderKeyPair.PublicKey, hiBitsBigInt)
 	if err != nil {
 		return &Transfer{}, err
 	}
@@ -131,25 +133,24 @@ func NewTransfer(
 		return &Transfer{}, err
 	}
 
-	senderLoBitsValidityProof, err := zkproofs.NewCiphertextValidityProof(&senderLoBitsRandomness, senderKeyPair.PublicKey, senderEncryptedTransferLoBits, uint64(transferLoBits))
+	senderLoBitsValidityProof, err := zkproofs.NewCiphertextValidityProof(&senderLoBitsRandomness, senderKeyPair.PublicKey, senderEncryptedTransferLoBits, loBitsBigInt)
 	if err != nil {
 		return &Transfer{}, err
 	}
 
-	senderHiBitsValidityProof, err := zkproofs.NewCiphertextValidityProof(&senderHiBitsRandomness, senderKeyPair.PublicKey, senderEncryptedTransferHiBits, uint64(transferHiBits))
+	senderHiBitsValidityProof, err := zkproofs.NewCiphertextValidityProof(&senderHiBitsRandomness, senderKeyPair.PublicKey, senderEncryptedTransferHiBits, hiBitsBigInt)
 	if err != nil {
 		return &Transfer{}, err
 	}
 
 	// Secondly, we generate a Range Proof to prove that the PedersonCommitment to the new balance is greater than zero.
-	newBalanceRangeProof, err := zkproofs.NewRangeProof(64, int(newBalance), newBalanceRandomness)
+	newBalanceRangeProof, err := zkproofs.NewRangeProof(128, newBalance, newBalanceRandomness)
 	if err != nil {
 		return &Transfer{}, err
 	}
 
 	// Thirdly we generate proof that the PedersonCommitment we generated encrypts the same value as AvailableBalance - TransferAmount
-	bigIntNewBalance := new(big.Int).SetUint64(newBalance)
-	newBalanceScalar, err := curves.ED25519().Scalar.SetBigInt(bigIntNewBalance)
+	newBalanceScalar, err := curves.ED25519().Scalar.SetBigInt(newBalance)
 	if err != nil {
 		return &Transfer{}, err
 	}
@@ -165,7 +166,7 @@ func NewTransfer(
 	}
 
 	// Now, we create params and proofs specific to the recipient
-	recipientParams, err := createTransferPartyParams(recipientAddr, transferLoBits, transferHiBits, senderKeyPair, senderEncryptedTransferLoBits, senderEncryptedTransferHiBits, recipientPubkey)
+	recipientParams, err := createTransferPartyParams(recipientAddr, loBitsBigInt, hiBitsBigInt, senderKeyPair, senderEncryptedTransferLoBits, senderEncryptedTransferHiBits, recipientPubkey)
 	if err != nil {
 		return &Transfer{}, err
 	}
@@ -185,7 +186,7 @@ func NewTransfer(
 	// Lastly we generate the Auditor parameters, if required.
 	auditorsData := []*TransferAuditor{}
 	for _, auditor := range auditors {
-		auditorData, err := createTransferPartyParams(auditor.Address, transferLoBits, transferHiBits, senderKeyPair, senderEncryptedTransferLoBits, senderEncryptedTransferHiBits, auditor.Pubkey)
+		auditorData, err := createTransferPartyParams(auditor.Address, loBitsBigInt, hiBitsBigInt, senderKeyPair, senderEncryptedTransferLoBits, senderEncryptedTransferHiBits, auditor.Pubkey)
 		if err != nil {
 			return &Transfer{}, err
 		}
@@ -209,8 +210,8 @@ func NewTransfer(
 
 func createTransferPartyParams(
 	partyAddress string,
-	transferLoBits uint16,
-	transferHiBits uint32,
+	transferLoBits *big.Int,
+	transferHiBits *big.Int,
 	senderKeyPair *elgamal.KeyPair,
 	senderEncryptedTransferLoBits,
 	senderEncryptedTransferHiBits *elgamal.Ciphertext,
@@ -218,36 +219,34 @@ func createTransferPartyParams(
 	teg := elgamal.NewTwistedElgamal()
 
 	// Encrypt the transfer amounts using the party's public key.
-	encryptedTransferLoBits, loBitsRandomness, err := teg.Encrypt(*partyPubkey, uint64(transferLoBits))
+	encryptedTransferLoBits, loBitsRandomness, err := teg.Encrypt(*partyPubkey, transferLoBits)
 	if err != nil {
 		return &TransferAuditor{}, err
 	}
 
-	encryptedTransferHiBits, hiBitsRandomness, err := teg.Encrypt(*partyPubkey, uint64(transferHiBits))
+	encryptedTransferHiBits, hiBitsRandomness, err := teg.Encrypt(*partyPubkey, transferHiBits)
 	if err != nil {
 		return &TransferAuditor{}, err
 	}
 
 	// Create validity proofs that the ciphertexts are valid (encrypted with the correct pubkey).
-	loBitsValidityProof, err := zkproofs.NewCiphertextValidityProof(&loBitsRandomness, *partyPubkey, encryptedTransferLoBits, uint64(transferLoBits))
+	loBitsValidityProof, err := zkproofs.NewCiphertextValidityProof(&loBitsRandomness, *partyPubkey, encryptedTransferLoBits, transferLoBits)
 	if err != nil {
 		return &TransferAuditor{}, err
 	}
 
-	hiBitsValidityProof, err := zkproofs.NewCiphertextValidityProof(&hiBitsRandomness, *partyPubkey, encryptedTransferHiBits, uint64(transferHiBits))
+	hiBitsValidityProof, err := zkproofs.NewCiphertextValidityProof(&hiBitsRandomness, *partyPubkey, encryptedTransferHiBits, transferHiBits)
 	if err != nil {
 		return &TransferAuditor{}, err
 	}
 
 	// Lastly, we need to generate proof that the ciphertexts of the transfer amounts encrypt the same value as those for the sender.
-	bigIntLoBits := new(big.Int).SetUint64(uint64(transferLoBits))
-	loBitsScalar, err := curves.ED25519().Scalar.SetBigInt(bigIntLoBits)
+	loBitsScalar, err := curves.ED25519().Scalar.SetBigInt(transferLoBits)
 	if err != nil {
 		return &TransferAuditor{}, err
 	}
 
-	bigIntHiBits := new(big.Int).SetUint64(uint64(transferHiBits))
-	hiBitsScalar, err := curves.ED25519().Scalar.SetBigInt(bigIntHiBits)
+	hiBitsScalar, err := curves.ED25519().Scalar.SetBigInt(transferHiBits)
 	if err != nil {
 		return &TransferAuditor{}, err
 	}
@@ -303,7 +302,7 @@ func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipien
 
 	// Verify that the account's remaining balance is greater than zero after this transfer.
 	// This validates the RemainingBalanceCommitment sent by the user, so an additional check is needed to make sure this matches what is calculated by the server.
-	ok, err := zkproofs.VerifyRangeProof(params.Proofs.RemainingBalanceRangeProof, params.RemainingBalanceCommitment, 64)
+	ok, err := zkproofs.VerifyRangeProof(params.Proofs.RemainingBalanceRangeProof, params.RemainingBalanceCommitment, 128)
 	if err != nil {
 		return err
 	}
@@ -402,7 +401,7 @@ func (r *Transfer) decryptWithAvailableBalanceAsSender(decryptor *elgamal.Twiste
 		return nil, err
 	}
 
-	decrypted.RemainingBalanceCommitment = strconv.FormatUint(remainingBalance, 10)
+	decrypted.RemainingBalanceCommitment = remainingBalance.String()
 	return decrypted, nil
 }
 
@@ -432,9 +431,8 @@ func (r *Transfer) decryptAsSender(decryptor *elgamal.TwistedElGamal, privKey ec
 	if err != nil {
 		return nil, err
 	}
-	decryptableBalanceString := strconv.FormatUint(decryptableBalance, 10)
 
-	return NewTransferDecrypted(r, uint32(transferAmountLo), uint32(transferAmountHi), decryptableBalanceString), nil
+	return NewTransferDecrypted(r, uint32(transferAmountLo.Uint64()), uint32(transferAmountHi.Uint64()), decryptableBalance.String()), nil
 }
 
 // Decrypts the Transfer object as the listed recipient in the transfer
@@ -454,7 +452,7 @@ func (r *Transfer) decryptAsRecipient(decryptor *elgamal.TwistedElGamal, privKey
 		return &TransferDecrypted{}, err
 	}
 
-	return NewTransferDecrypted(r, uint32(transferAmountLo), uint32(transferAmountHi), NotDecrypted), nil
+	return NewTransferDecrypted(r, uint32(transferAmountLo.Uint64()), uint32(transferAmountHi.Uint64()), NotDecrypted), nil
 }
 
 // Decrypts the Transfer object as one of the auditors on the transaction.
@@ -476,7 +474,7 @@ func (r *Transfer) decryptAsAuditor(decryptor *elgamal.TwistedElGamal, privKey e
 				return &TransferDecrypted{}, err
 			}
 
-			return NewTransferDecrypted(r, uint32(transferAmountLo), uint32(transferAmountHi), NotDecrypted), nil
+			return NewTransferDecrypted(r, uint32(transferAmountLo.Uint64()), uint32(transferAmountHi.Uint64()), NotDecrypted), nil
 		}
 	}
 
@@ -495,7 +493,7 @@ func NewTransferDecrypted(transfer *Transfer, transferAmountLo uint32, transferA
 		Denom:                      transfer.Denom,
 		TransferAmountLo:           transferAmountLo,
 		TransferAmountHi:           transferAmountHi,
-		TotalTransferAmount:        utils.CombineTransferAmount(uint16(transferAmountLo), transferAmountHi),
+		TotalTransferAmount:        utils.CombineTransferAmount(uint16(transferAmountLo), transferAmountHi).Uint64(),
 		RemainingBalanceCommitment: NotDecrypted,
 		DecryptableBalance:         decryptableBalance,
 		Proofs:                     NewTransferMsgProofs(transfer.Proofs),

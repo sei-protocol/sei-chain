@@ -2,6 +2,7 @@ package keeper_test
 
 import (
 	"crypto/ecdsa"
+	"math/big"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -66,7 +67,7 @@ func (suite *KeeperTestSuite) SetupAccount() {
 	suite.PrivKeys = apptesting.CreateRandomAccountKeys(4)
 }
 
-func (suite *KeeperTestSuite) SetupAccountState(privateKey *ecdsa.PrivateKey, denom string, pendingBalanceCreditCounter uint16, initialAvailableBalance, initialPendingBalance, bankAmount uint64) (types.Account, error) {
+func (suite *KeeperTestSuite) SetupAccountState(privateKey *ecdsa.PrivateKey, denom string, pendingBalanceCreditCounter uint16, initialAvailableBalance, initialPendingBalance, bankAmount *big.Int) (types.Account, error) {
 	aesKey, err := encryption.GetAESKey(*privateKey, denom)
 	if err != nil {
 		return types.Account{}, err
@@ -78,35 +79,42 @@ func (suite *KeeperTestSuite) SetupAccountState(privateKey *ecdsa.PrivateKey, de
 		return types.Account{}, err
 	}
 
-	availableBalance := initialAvailableBalance
-	pendingBalance := initialPendingBalance
+	availableBalance := new(big.Int).Set(initialAvailableBalance)
 
+	// The maximum pending balance is the max Uint32 + max Uint48 (0xFFFFFFFF + 0xFFFFFFFFFFFF = 0x10000FFFFFFFE).
+	// If amount is below 64 bits, just split into top 48 bits and bottom 16 bits for simplicity. Otherwise, assume Hi bits are full and lo bits can make up the remainder.
 	// Extract the bottom 16 bits (rightmost 16 bits)
-	pendingBalanceLo := uint16(pendingBalance & 0xFFFF)
-
-	// Extract the next 32 bits (from bit 16 to bit 47)
-	pendingBalanceHi := uint32((pendingBalance >> 16) & 0xFFFFFFFF)
+	pendingBalanceHi := new(big.Int)
+	pendingBalanceLo := new(big.Int)
+	if initialPendingBalance.Cmp(new(big.Int).SetUint64(0xFFFFFFFFFFFFFFFF)) == 1 {
+		pendingBalanceHi = pendingBalanceHi.SetUint64(0xFFFFFFFFFFFF)
+		pendingBalanceLo = pendingBalanceLo.Sub(initialPendingBalance, new(big.Int).SetUint64(0xFFFFFFFFFFFFFFFF))
+	} else {
+		pendingBalance := initialPendingBalance.Uint64()
+		pendingBalanceLo = pendingBalanceLo.SetUint64(pendingBalance & 0xFFFF)
+		pendingBalanceHi = pendingBalanceHi.SetUint64((pendingBalance >> 16) & 0xFFFFFFFFFFFF)
+	}
 
 	if err != nil {
 		return types.Account{}, err
 	}
 
-	availableBalanceCipherText, _, err := teg.Encrypt(keypair.PublicKey, uint64(availableBalance))
+	availableBalanceCipherText, _, err := teg.Encrypt(keypair.PublicKey, availableBalance)
 	if err != nil {
 		return types.Account{}, err
 	}
 
-	pendingBalanceLoCipherText, _, err := teg.Encrypt(keypair.PublicKey, uint64(pendingBalanceLo))
+	pendingBalanceLoCipherText, _, err := teg.Encrypt(keypair.PublicKey, pendingBalanceLo)
 	if err != nil {
 		return types.Account{}, err
 	}
 
-	pendingBalanceHiCipherText, _, err := teg.Encrypt(keypair.PublicKey, uint64(pendingBalanceHi))
+	pendingBalanceHiCipherText, _, err := teg.Encrypt(keypair.PublicKey, pendingBalanceHi)
 	if err != nil {
 		return types.Account{}, err
 	}
 
-	decryptableAvailableBalance, err := encryption.EncryptAESGCM(uint64(availableBalance), aesKey)
+	decryptableAvailableBalance, err := encryption.EncryptAESGCM(availableBalance, aesKey)
 	if err != nil {
 		return types.Account{}, err
 	}
@@ -123,7 +131,7 @@ func (suite *KeeperTestSuite) SetupAccountState(privateKey *ecdsa.PrivateKey, de
 	addr := privkeyToAddress(privateKey)
 	suite.App.ConfidentialTransfersKeeper.SetAccount(suite.Ctx, addr.String(), denom, initialAccountState)
 
-	bankModuleTokens := sdk.NewCoins(sdk.Coin{Amount: sdk.NewInt(int64(bankAmount)), Denom: denom})
+	bankModuleTokens := sdk.NewCoins(sdk.Coin{Amount: sdk.NewIntFromBigInt(bankAmount), Denom: denom})
 
 	suite.FundAcc(addr, bankModuleTokens)
 

@@ -2,7 +2,7 @@ package types
 
 import (
 	"crypto/ecdsa"
-	"strconv"
+	"math/big"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -42,23 +42,23 @@ func NewInitializeAccount(address, denom string, privateKey ecdsa.PrivateKey) (*
 	}
 
 	// Encrypt the 0 value using the aesKey
-	decryptableBalance, err := encryption.EncryptAESGCM(0, aesKey)
+	decryptableBalance, err := encryption.EncryptAESGCM(big.NewInt(0), aesKey)
 	if err != nil {
 		return &InitializeAccount{}, err
 	}
 
 	// Encrypt the 0 value thrice using the public key for the account balances.
-	zeroCiphertextLo, _, err := teg.Encrypt(keys.PublicKey, 0)
+	zeroCiphertextLo, _, err := teg.Encrypt(keys.PublicKey, big.NewInt(0))
 	if err != nil {
 		return &InitializeAccount{}, err
 	}
 
-	zeroCiphertextHi, _, err := teg.Encrypt(keys.PublicKey, 0)
+	zeroCiphertextHi, _, err := teg.Encrypt(keys.PublicKey, big.NewInt(0))
 	if err != nil {
 		return &InitializeAccount{}, err
 	}
 
-	zeroCiphertextAvailable, _, err := teg.Encrypt(keys.PublicKey, 0)
+	zeroCiphertextAvailable, _, err := teg.Encrypt(keys.PublicKey, big.NewInt(0))
 	if err != nil {
 		return &InitializeAccount{}, err
 	}
@@ -141,7 +141,7 @@ func (r InitializeAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ec
 		if err != nil {
 			return nil, err
 		}
-		availableBalanceString = strconv.FormatUint(availableBalance, 10)
+		availableBalanceString = availableBalance.String()
 	}
 
 	pubkeyRaw := *r.Pubkey
@@ -151,10 +151,10 @@ func (r InitializeAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ec
 		FromAddress:        r.FromAddress,
 		Denom:              r.Denom,
 		Pubkey:             pubkey,
-		PendingBalanceLo:   uint32(pendingBalanceLo),
-		PendingBalanceHi:   pendingBalanceHi,
+		PendingBalanceLo:   uint32(pendingBalanceLo.Uint64()),
+		PendingBalanceHi:   pendingBalanceHi.Uint64(),
 		AvailableBalance:   availableBalanceString,
-		DecryptableBalance: decryptableBalance,
+		DecryptableBalance: decryptableBalance.String(),
 		Proofs:             NewInitializeAccountMsgProofs(r.Proofs),
 	}, nil
 }

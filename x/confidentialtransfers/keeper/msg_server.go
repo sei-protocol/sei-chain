@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"math"
+	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -145,12 +146,12 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 
 	// Compute the new balances
 	teg := elgamal.NewTwistedElgamal()
-	newPendingBalanceLo, err := teg.AddScalar(account.PendingBalanceLo, uint64(bottom16))
+	newPendingBalanceLo, err := teg.AddScalar(account.PendingBalanceLo, big.NewInt(int64(bottom16)))
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding pending balance lo")
 	}
 
-	newPendingBalanceHi, err := teg.AddScalar(account.PendingBalanceHi, uint64(next32))
+	newPendingBalanceHi, err := teg.AddScalar(account.PendingBalanceHi, big.NewInt(int64(next32)))
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding pending balance hi")
 	}
@@ -203,7 +204,7 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 	// Verify that the account has sufficient funds (Remaining balance after making the transfer is greater than or equal to zero.)
 	// This range proof verification is performed on the RemainingBalanceCommitment sent by the user.
 	// An additional check is required to ensure that this matches the remaining balance calculated by the server.
-	verified, _ := zkproofs.VerifyRangeProof(instruction.Proofs.RemainingBalanceRangeProof, instruction.RemainingBalanceCommitment, 64)
+	verified, _ := zkproofs.VerifyRangeProof(instruction.Proofs.RemainingBalanceRangeProof, instruction.RemainingBalanceCommitment, 128)
 	if !verified {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "range proof verification failed")
 	}
@@ -234,9 +235,10 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 	}
 
 	// Return the tokens to the sender
-	coins := sdk.NewCoins(sdk.NewCoin(instruction.Denom, sdk.NewIntFromUint64(instruction.Amount)))
+	coin := sdk.NewCoin(instruction.Denom, sdk.NewIntFromBigInt(instruction.Amount))
+	coins := sdk.NewCoins(coin)
 	if err := m.Keeper.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, address, coins); err != nil {
-		return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to withdraw %d %s", req.Amount, req.Denom)
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to withdraw %s %s", req.Amount, req.Denom)
 	}
 
 	// Emit any required events
@@ -246,7 +248,7 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 			types.EventTypeWithdraw,
 			sdk.NewAttribute(types.AttributeDenom, instruction.Denom),
 			sdk.NewAttribute(types.AttributeAddress, instruction.FromAddress),
-			sdk.NewAttribute(sdk.AttributeKeyAmount, sdk.NewCoin(instruction.Denom, sdk.NewIntFromUint64(instruction.Amount)).String()),
+			sdk.NewAttribute(sdk.AttributeKeyAmount, coin.String()),
 		),
 	})
 

@@ -60,7 +60,7 @@ message DecryptedCtAccount {
   uint64  combined_pending_balance = 4; // combined pending balance
   uint32   pending_balance_credit_counter = 5;
   string   available_balance = 6; // decrypted available balance
-  string   decryptable_available_balance = 7 [(gogoproto.customtype) = "Int", (gogoproto.nullable) = false];; // decrypted aes encrypted available balance
+  string   decryptable_available_balance = 7; // decrypted aes encrypted available balance
 }
 
 // Decrypted version of ApplyPendingBalance
@@ -70,7 +70,7 @@ message ApplyPendingBalanceDecrypted {
 
   string address = 1;
   string denom = 2;
-  string new_decryptable_available_balance = 3 [(gogoproto.customtype) = "Int", (gogoproto.nullable) = false];;
+  string new_decryptable_available_balance = 3;
   uint32 current_pending_balance_counter = 4;
   string current_available_balance = 5;
 }
@@ -86,7 +86,7 @@ message InitializeAccountDecrypted {
   uint32 pending_balance_lo = 4;
   uint64 pending_balance_hi = 5;
   string available_balance = 6;
-  string decryptable_balance = 7 [(gogoproto.customtype) = "Int", (gogoproto.nullable) = false];;
+  string decryptable_balance = 7;
   InitializeAccountMsgProofs proofs = 8;
 }
 
@@ -97,8 +97,8 @@ message WithdrawDecrypted {
 
   string from_address = 1;
   string denom = 2;
-  string amount = 3 [(gogoproto.customtype) = "Int", (gogoproto.nullable) = false];;
-  string decryptable_balance = 4 [(gogoproto.customtype) = "Int", (gogoproto.nullable) = false];;
+  string amount = 3;
+  string decryptable_balance = 4;
   string remaining_balance_commitment = 5;
   WithdrawMsgProofs proofs = 6;
 }
