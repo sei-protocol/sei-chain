@@ -58,7 +58,7 @@ func NewApplyPendingBalance(
 	}
 
 	// Get the pending balance by combining the lo and hi bits
-	pendingBalance := utils.CombineTransferAmount(uint16(loBalance), uint32(hiBalance))
+	pendingBalance := utils.CombinePendingBalances(loBalance, hiBalance)
 
 	// Sum the balances to get the new available balance
 	newDecryptedAvailableBalance := currentBalance + pendingBalance
