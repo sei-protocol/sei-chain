@@ -127,7 +127,7 @@ func (db *Database) GetLatestVersion() (int64, error) {
 	return int64(binary.LittleEndian.Uint64(bz)), nil
 }
 
-func (db *Database) SetEarliestVersion(version int64) error {
+func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error {
 	panic("not implemented")
 }
 
