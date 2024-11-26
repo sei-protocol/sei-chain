@@ -2,7 +2,6 @@ package types
 
 import (
 	"math/big"
-	"strconv"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
@@ -46,15 +45,12 @@ func (a *Account) GetPendingBalancePlaintext(decryptor *elgamal.TwistedElGamal, 
 		return big.NewInt(0), 0, 0, err
 	}
 
-	loBig := new(big.Int).SetUint64(actualPendingBalanceLo)
-	hiBig := new(big.Int).SetUint64(actualPendingBalanceHi)
-
 	// Shift the 48-bit number by 32 bits to the left
-	hiBig.Lsh(hiBig, 16) // Equivalent to hi << 32
+	actualPendingBalanceHi.Lsh(actualPendingBalanceHi, 16) // Equivalent to hi << 32
 
 	// Combine by adding hiBig with loBig
-	combined := new(big.Int).Add(hiBig, loBig)
-	return combined, actualPendingBalanceLo, actualPendingBalanceHi, nil
+	combined := new(big.Int).Add(actualPendingBalanceHi, actualPendingBalanceLo)
+	return combined, actualPendingBalanceLo.Uint64(), actualPendingBalanceHi.Uint64(), nil
 }
 
 // Returns the decrypted account state.
@@ -78,7 +74,7 @@ func (a *Account) Decrypt(decryptor *elgamal.TwistedElGamal, keypair *elgamal.Ke
 			return nil, err
 		}
 
-		availableBalanceString = strconv.FormatUint(availableBalance, 10)
+		availableBalanceString = availableBalance.String()
 	}
 
 	return &DecryptedCtAccount{

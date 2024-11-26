@@ -98,7 +98,7 @@ message MsgWithdraw {
 
   string   from_address = 1 [(gogoproto.moretags) = "yaml:\"from_address\""];
   string   denom = 2 [(gogoproto.moretags) = "yaml:\"denom\""];
-  uint64 amount = 3 [(gogoproto.moretags) = "yaml:\"amount\""];
+  string   amount = 3 [(gogoproto.moretags) = "yaml:\"amount\"", (gogoproto.customtype) = "Int", (gogoproto.nullable) = false];;
   string decryptable_balance = 4 [(gogoproto.moretags) = "yaml:\"decryptable_balance\""];
   Ciphertext remaining_balance_commitment = 5 [(gogoproto.moretags) = "yaml:\"remaining_balance_commitment\""];
   WithdrawMsgProofs proofs = 6 [(gogoproto.moretags) = "yaml:\"proofs\""];
