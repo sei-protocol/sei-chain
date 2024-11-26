@@ -23,6 +23,7 @@ const (
 
 var modules = []string{
 	"wasm", "aclaccesscontrol", "oracle", "epoch", "mint", "acc", "bank", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
+	"evm", "capability", "authz",
 }
 
 func NewMigrator(homeDir string, db dbm.DB, stateStore types.StateStore) *Migrator {
@@ -73,13 +74,8 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 
 	fmt.Println("SeiDB Archive Migration: Setting earliest version")
 
-	// Set earliest and latest version in the database
-	err = m.stateStore.SetEarliestVersion(1)
-	if err != nil {
-		return err
-	}
-
-	return m.stateStore.SetLatestVersion(version)
+	// Set earliest version in the database
+	return m.stateStore.SetEarliestVersion(1, true)
 }
 
 func (m *Migrator) Verify(version int64) error {
@@ -96,15 +92,7 @@ func (m *Migrator) Verify(version int64) error {
 	}
 	latestMigratedModule, err := m.stateStore.GetLatestMigratedModule()
 	fmt.Printf("State Store earliest version: %d latest version: %d latestModule %s. Setting earliest version to 1.\n", earliestVersion, latestVersion, latestMigratedModule)
-	err = m.stateStore.SetEarliestVersion(1)
-	if err != nil {
-		return err
-	}
-	earliestVersion, err = m.stateStore.GetEarliestVersion()
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("State Store earliest version after set %d\n", earliestVersion)
+
 	for _, module := range modules {
 		tree, err := ReadTree(m.iavlDB, version, []byte(buildTreePrefix(module)))
 		if err != nil {

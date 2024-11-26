@@ -126,7 +126,7 @@ func TestGetLatestVersionAndSetLatestVersion(t *testing.T) {
 func TestGetEarliestVersionAndSetEarliestVersion(t *testing.T) {
 	store := NewInMemoryStateStore()
 
-	err := store.SetEarliestVersion(1)
+	err := store.SetEarliestVersion(1, false)
 	assert.NoError(t, err)
 
 	version, err := store.GetEarliestVersion()

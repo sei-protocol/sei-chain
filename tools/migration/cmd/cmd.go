@@ -84,6 +84,7 @@ func verify(cmd *cobra.Command, _ []string) {
 
 func verifySS(version int64, homeDir string, db dbm.DB) error {
 	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig.KeepRecent = 0
 	ssConfig.Enable = true
 
 	stateStore, err := sstypes.NewStateStore(log.NewNopLogger(), homeDir, ssConfig)
