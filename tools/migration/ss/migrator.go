@@ -93,6 +93,19 @@ func (m *Migrator) Verify(version int64) error {
 	latestMigratedModule, err := m.stateStore.GetLatestMigratedModule()
 	fmt.Printf("State Store earliest version: %d latest version: %d latestModule %s.\n", earliestVersion, latestVersion, latestMigratedModule)
 
+	err = m.stateStore.SetEarliestVersion(1, true)
+	if err != nil {
+		return err
+	}
+
+	earliestVersion, err = m.stateStore.GetEarliestVersion()
+	if err != nil {
+		fmt.Println("Could not retrieve earliest version from state store")
+		return err
+	}
+
+	fmt.Printf("State Store earliest version after set: %d latest version: %d latestModule %s.\n", earliestVersion, latestVersion, latestMigratedModule)
+
 	for _, module := range modules {
 		tree, err := ReadTree(m.iavlDB, version, []byte(buildTreePrefix(module)))
 		if err != nil {
