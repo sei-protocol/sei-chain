@@ -30,8 +30,8 @@ def read_files_and_run_command(directory, max_threads=10):
 def run_commands(mnemonic, file_prefix):
     commands = [
         f"printf '{mnemonic}\n12345678\n' | ~/go/bin/seid keys add {file_prefix} --recover",
-        f"printf '12345678\n' | ~/go/bin/seid tx ct init-account usei --from {file_prefix} --fees 20000usei -y",
-        f"printf '12345678\n' | ~/go/bin/seid tx ct deposit usei 1000000000 --from {file_prefix} --fees 20000usei -y",
+        f"printf '12345678\n' | ~/go/bin/seid tx ct init-account usei --from {file_prefix} --fees 20000usei -y -b block",
+        f"printf '12345678\n' | ~/go/bin/seid tx ct deposit usei 1000000000 --from {file_prefix} --fees 20000usei -y -b block",
         f"printf '12345678\n' | ~/go/bin/seid tx ct apply-pending-balance usei --from {file_prefix} --fees 20000usei -y",
         f"printf '12345678\n' | ~/go/bin/seid keys delete {file_prefix} -y"
     ]
