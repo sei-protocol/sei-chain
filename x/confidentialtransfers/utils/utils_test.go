@@ -152,3 +152,66 @@ func TestUtils_CombineTransferAmount(t *testing.T) {
 		})
 	}
 }
+
+// Test the CombinePendingBalances method
+func TestUtils_CombinePendingBalances(t *testing.T) {
+	type args struct {
+		expectedTotal uint64
+		loBits        uint64
+		hiBits        uint64
+	}
+
+	testCases := []struct {
+		name string
+		args args
+	}{
+		{
+			name: "Happy Path",
+			args: args{
+				expectedTotal: 0x0000000000011111,
+				loBits:        0x0000000000001111,
+				hiBits:        0x0000000000000001,
+			},
+		},
+		{
+			name: "Overlap",
+			args: args{
+				expectedTotal: 0x0000111122221111,
+				loBits:        0x0000000011111111,
+				hiBits:        0x0000000011111111,
+			},
+		},
+		{
+			name: "All Zeroes",
+			args: args{
+				expectedTotal: 0x0000000000000000,
+				loBits:        0x0000000000000000,
+				hiBits:        0x0000000000000000,
+			},
+		},
+		{
+			name: "No Lo Bits",
+			args: args{
+				expectedTotal: 0x0000123456780000,
+				loBits:        0x0000000000000000,
+				hiBits:        0x0000000012345678,
+			},
+		},
+		{
+			name: "No Hi Bits",
+			args: args{
+				expectedTotal: 0x0000000000001234,
+				loBits:        0x0000000000001234,
+				hiBits:        0x0000000000000000,
+			},
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			totalAmount := CombinePendingBalances(tt.args.loBits, tt.args.hiBits)
+
+			require.Equal(t, tt.args.expectedTotal, totalAmount)
+		})
+	}
+}

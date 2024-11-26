@@ -1,6 +1,9 @@
 package utils
 
-import "errors"
+import (
+	"errors"
+	"math/big"
+)
 
 // SplitTransferBalance splits some amount (maximum of 48 bit) into two parts: the bottom 16 bits and the next 32 bits
 func SplitTransferBalance(amount uint64) (uint16, uint32, error) {
@@ -27,4 +30,16 @@ func CombineTransferAmount(bottom16 uint16, hi uint32) uint64 {
 	combined := (uint64(hi) << 16) | uint64(bottom16)
 
 	return combined
+}
+
+func CombinePendingBalances(loBits uint64, hiBits uint64) uint64 {
+	loBig := new(big.Int).SetUint64(loBits)
+	hiBig := new(big.Int).SetUint64(hiBits)
+
+	// Shift the hi bits by 16 bits to the left
+	hiBig.Lsh(hiBig, 16) // Equivalent to hi << 16
+
+	// Combine by adding hiBig with loBig
+	combined := new(big.Int).Add(hiBig, loBig)
+	return combined.Uint64()
 }
