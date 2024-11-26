@@ -571,6 +571,10 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		receiverKeyPair, _ := teg.KeyGen(*receiverEcdsaKey, CtDefaultDenom)
 
 		senderAccount := c.getCtAccount(sdk.AccAddress(key.PubKey().Address()).String(), CtDefaultDenom)
+		if senderAccount == nil {
+			fmt.Printf("Sender account not found for address %s\n", sdk.AccAddress(key.PubKey().Address()).String())
+			panic("Sender account not found")
+		}
 
 		transfer, _ := cttypes.NewTransfer(
 			senderEcdsaKey,
