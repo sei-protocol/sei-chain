@@ -526,9 +526,9 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 	case ConfidentialTransfersWithdraw:
 		senderPrivHex := hex.EncodeToString(key.Bytes())
 		senderEcdsaKey, _ := crypto.HexToECDSA(senderPrivHex)
-		account := c.getCtAccount(sdk.AccAddress(key.PubKey().Address()).String(), CtDefaultDenom)
-
-		withdraw, _ := cttypes.NewWithdraw(
+		address := sdk.AccAddress(key.PubKey().Address()).String()
+		account := c.getCtAccount(address, CtDefaultDenom)
+		withdraw, err := cttypes.NewWithdraw(
 			*senderEcdsaKey,
 			account.AvailableBalance,
 			CtDefaultDenom,
@@ -536,6 +536,9 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 			account.DecryptableAvailableBalance,
 			1,
 		)
+		if err != nil {
+			panic(fmt.Sprintf("error for senderAddress %s: %s\n", address, err.Error()))
+		}
 		withdrawMsg := cttypes.NewMsgWithdrawProto(withdraw)
 		msgs = append(msgs, withdrawMsg)
 	case ConfidentialTransfersApplyPendingBalance:
@@ -543,20 +546,28 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		senderEcdsaKey, _ := crypto.HexToECDSA(senderPrivHex)
 		account := c.getCtAccount(sdk.AccAddress(key.PubKey().Address()).String(), CtDefaultDenom)
 
-		applyPendingBalance, _ := cttypes.NewApplyPendingBalance(
+		address := sdk.AccAddress(key.PubKey().Address()).String()
+		applyPendingBalance, err := cttypes.NewApplyPendingBalance(
 			*senderEcdsaKey,
-			sdk.AccAddress(key.PubKey().Address()).String(),
+			address,
 			CtDefaultDenom,
 			account.DecryptableAvailableBalance,
 			account.PendingBalanceCreditCounter,
 			account.AvailableBalance,
 			account.PendingBalanceLo,
 			account.PendingBalanceHi)
+		if err != nil {
+			panic(fmt.Sprintf("error for senderAddress %s: %s\n", address, err.Error()))
+		}
+
 		applyPendingBalanceMsg := cttypes.NewMsgApplyPendingBalanceProto(applyPendingBalance)
 		msgs = append(msgs, applyPendingBalanceMsg)
 	case ConfidentialTransfersTransfer:
 		accountKeys := c.AccountKeys
 		// get a random key for receiver and if it's same as the current key, get another one
+		if len(accountKeys) < 2 {
+			panic("Need at least 2 accounts to transfer")
+		}
 		receiverKey := accountKeys[rand.Intn(len(accountKeys))]
 		for receiverKey.PubKey().Equals(key.PubKey()) {
 			receiverKey = accountKeys[rand.Intn(len(accountKeys))]
@@ -569,16 +580,15 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 
 		teg := elgamal.NewTwistedElgamal()
 		receiverKeyPair, _ := teg.KeyGen(*receiverEcdsaKey, CtDefaultDenom)
-
-		senderAccount := c.getCtAccount(sdk.AccAddress(key.PubKey().Address()).String(), CtDefaultDenom)
+		senderAddress := sdk.AccAddress(key.PubKey().Address()).String()
+		senderAccount := c.getCtAccount(senderAddress, CtDefaultDenom)
 		if senderAccount == nil {
-			fmt.Printf("Sender account not found for address %s\n", sdk.AccAddress(key.PubKey().Address()).String())
-			panic("Sender account not found")
+			panic(fmt.Sprintf("Sender account not found for address %s\n", senderAddress))
 		}
 
-		transfer, _ := cttypes.NewTransfer(
+		transfer, err := cttypes.NewTransfer(
 			senderEcdsaKey,
-			sdk.AccAddress(key.PubKey().Address()).String(),
+			senderAddress,
 			sdk.AccAddress(receiverKey.PubKey().Address()).String(),
 			CtDefaultDenom,
 			senderAccount.DecryptableAvailableBalance,
@@ -587,6 +597,10 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 			&receiverKeyPair.PublicKey,
 			[]cttypes.AuditorInput{},
 		)
+		if err != nil {
+			panic(fmt.Sprintf("error for address %s: %s\n", senderAddress, err.Error()))
+		}
+
 		transferMsg := cttypes.NewMsgTransferProto(transfer)
 		msgs = append(msgs, transferMsg)
 	default:
