@@ -94,7 +94,7 @@ func TestValidateParamsInvalidMaxFeePerGas(t *testing.T) {
 
 	err := params.Validate()
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "negative maximum fee per gas")
+	require.Contains(t, err.Error(), "negative max fee per gas")
 }
 
 func TestValidateParamsValidDeliverTxHookWasmGasLimit(t *testing.T) {
