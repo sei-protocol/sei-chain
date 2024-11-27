@@ -786,7 +786,7 @@ loop:
 	}
 	// initialize the earliest version for SS store
 	if rs.ssStore != nil {
-		rs.ssStore.SetEarliestVersion(height)
+		rs.ssStore.SetEarliestVersion(height, false)
 	}
 
 	return snapshotItem, restoreErr
