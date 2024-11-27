@@ -4,12 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"math/rand"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 
 	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"

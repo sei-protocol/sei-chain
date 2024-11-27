@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"io"
 	"math/big"
 	"math/rand"
@@ -23,6 +21,9 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/codec"
