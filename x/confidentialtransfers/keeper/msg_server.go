@@ -3,7 +3,9 @@ package keeper
 import (
 	"bytes"
 	"context"
+	"github.com/armon/go-metrics"
 	"math"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -99,6 +101,10 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 }
 
 func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types.MsgDepositResponse, error) {
+	defer metrics.MeasureSince(
+		[]string{"ct", "deposit", "milliseconds"},
+		time.Now().UTC(),
+	)
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
 	// Validate request
@@ -146,7 +152,13 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 
 	// Compute the new balances
 	teg := elgamal.NewTwistedElgamal()
+
+	addScalarStart := time.Now().UTC()
 	newPendingBalanceLo, err := teg.AddScalar(account.PendingBalanceLo, uint64(bottom16))
+	metrics.MeasureSince(
+		[]string{"ct", "add", "scalar", "milliseconds"},
+		addScalarStart,
+	)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding pending balance lo")
 	}
@@ -181,6 +193,10 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 }
 
 func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*types.MsgWithdrawResponse, error) {
+	defer metrics.MeasureSince(
+		[]string{"ct", "withdraw", "milliseconds"},
+		time.Now().UTC(),
+	)
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
 	// Get the requested address.
@@ -201,25 +217,40 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid msg")
 	}
 
+	rangeProofStart := time.Now().UTC()
 	// Verify that the account has sufficient funds (Remaining balance after making the transfer is greater than or equal to zero.)
 	// This range proof verification is performed on the RemainingBalanceCommitment sent by the user.
 	// An additional check is required to ensure that this matches the remaining balance calculated by the server.
 	verified, _ := zkproofs.VerifyRangeProof(instruction.Proofs.RemainingBalanceRangeProof, instruction.RemainingBalanceCommitment, 64)
+	metrics.MeasureSince(
+		[]string{"ct", "verify", "range", "proof", "milliseconds"},
+		rangeProofStart,
+	)
 	if !verified {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "range proof verification failed")
 	}
 
 	// Verify that the remaining balance sent by the user matches the remaining balance calculated by the server.
 	teg := elgamal.NewTwistedElgamal()
+	subScalarStart := time.Now().UTC()
 	remainingBalanceCalculated, err := teg.SubScalar(account.AvailableBalance, instruction.Amount)
+	metrics.MeasureSince(
+		[]string{"ct", "subtract", "scalar", "milliseconds"},
+		subScalarStart,
+	)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error subtracting amount")
 	}
 
+	verifyCipherTextStart := time.Now().UTC()
 	verified = zkproofs.VerifyCiphertextCommitmentEquality(
 		instruction.Proofs.RemainingBalanceEqualityProof,
 		&account.PublicKey, remainingBalanceCalculated,
 		&instruction.RemainingBalanceCommitment.C)
+	metrics.MeasureSince(
+		[]string{"ct", "verify", "ciphertext", "commitment", "equality", "milliseconds"},
+		verifyCipherTextStart,
+	)
 	if !verified {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "ciphertext commitment equality verification failed")
 	}
@@ -255,6 +286,10 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 }
 
 func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgApplyPendingBalance) (*types.MsgApplyPendingBalanceResponse, error) {
+	defer metrics.MeasureSince(
+		[]string{"ct", "apply", "pending", "balance", "milliseconds"},
+		time.Now().UTC(),
+	)
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
 	// Check if the account exists
@@ -282,12 +317,22 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 
 	// Calculate updated balances
 	teg := elgamal.NewTwistedElgamal()
+	startAddWithLoHi := time.Now().UTC()
 	newAvailableBalance, err := teg.AddWithLoHi(account.AvailableBalance, account.PendingBalanceLo, account.PendingBalanceHi)
+	metrics.MeasureSince(
+		[]string{"ct", "add", "with", "lo", "hi", "milliseconds"},
+		startAddWithLoHi,
+	)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error summing balances")
 	}
 
+	startSubCiphertext := time.Now().UTC()
 	zeroCiphertextLo, err := elgamal.SubtractCiphertext(account.PendingBalanceLo, account.PendingBalanceLo)
+	metrics.MeasureSince(
+		[]string{"ct", "subtract", "ciphertext", "milliseconds"},
+		startSubCiphertext,
+	)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error zeroing pending balance lo")
 	}
@@ -372,6 +417,10 @@ func (m msgServer) CloseAccount(goCtx context.Context, req *types.MsgCloseAccoun
 }
 
 func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*types.MsgTransferResponse, error) {
+	defer metrics.MeasureSince(
+		[]string{"ct", "transfer", "milliseconds"},
+		time.Now().UTC(),
+	)
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
 	instruction, err := req.FromProto()
@@ -401,13 +450,18 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 
 	// Calculate senders new available balance.
 	teg := elgamal.NewTwistedElgamal()
+	startSubWithLoHi := time.Now().UTC()
 	newSenderBalanceCiphertext, err := teg.SubWithLoHi(senderAccount.AvailableBalance, instruction.SenderTransferAmountLo, instruction.SenderTransferAmountHi)
+	metrics.MeasureSince(
+		[]string{"ct", "subtract", "with", "lo", "hi", "milliseconds"},
+		startSubWithLoHi)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error subtracting sender transfer amount")
 	}
 
 	// Validate proofs
 	err = types.VerifyTransferProofs(instruction, &senderAccount.PublicKey, &recipientAccount.PublicKey, newSenderBalanceCiphertext)
+
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
 	}
@@ -433,12 +487,19 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	}
 
 	// Calculate and Update the account states.
+	startAddCipherText := time.Now().UTC()
 	recipientPendingBalanceLo, err := elgamal.AddCiphertext(recipientAccount.PendingBalanceLo, instruction.RecipientTransferAmountLo)
+	metrics.MeasureSince(
+		[]string{"ct", "add", "ciphertext", "PendingBalanceLo", "milliseconds"},
+		startAddCipherText)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding recipient transfer amount lo")
 	}
-
+	startAddCipherText = time.Now().UTC()
 	recipientPendingBalanceHi, err := elgamal.AddCiphertext(recipientAccount.PendingBalanceHi, instruction.RecipientTransferAmountHi)
+	metrics.MeasureSince(
+		[]string{"ct", "add", "ciphertext", "PendingBalanceHi", "milliseconds"},
+		startAddCipherText)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding recipient transfer amount hi")
 	}
@@ -451,15 +512,15 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	senderAccount.AvailableBalance = newSenderBalanceCiphertext
 
 	// Save the account states
-	//err = m.Keeper.SetAccount(ctx, req.FromAddress, req.Denom, senderAccount)
-	//if err != nil {
-	//	return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting sender account")
-	//}
-	//
-	//err = m.Keeper.SetAccount(ctx, req.ToAddress, req.Denom, recipientAccount)
-	//if err != nil {
-	//	return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting recipient account")
-	//}
+	err = m.Keeper.SetAccount(ctx, req.FromAddress, req.Denom, senderAccount)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting sender account")
+	}
+
+	err = m.Keeper.SetAccount(ctx, req.ToAddress, req.Denom, recipientAccount)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting recipient account")
+	}
 
 	// Emit any required events
 	ctx.EventManager().EmitEvents(sdk.Events{
