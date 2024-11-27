@@ -181,8 +181,8 @@ func (db *Database) GetLatestVersion() (int64, error) {
 	return int64(binary.LittleEndian.Uint64(bz)), closer.Close()
 }
 
-func (db *Database) SetEarliestVersion(version int64) error {
-	if version > db.earliestVersion {
+func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error {
+	if version > db.earliestVersion || ignoreVersion {
 		db.earliestVersion = version
 
 		var ts [VersionSize]byte
@@ -486,7 +486,7 @@ func (db *Database) Prune(version int64) error {
 		}
 	}
 
-	return db.SetEarliestVersion(earliestVersion)
+	return db.SetEarliestVersion(earliestVersion, false)
 }
 
 func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {

@@ -17,7 +17,7 @@ type StateStore interface {
 	GetLatestVersion() (int64, error)
 	SetLatestVersion(version int64) error
 	GetEarliestVersion() (int64, error)
-	SetEarliestVersion(version int64) error
+	SetEarliestVersion(version int64, ignoreVersion bool) error
 	GetLatestMigratedKey() ([]byte, error)
 	SetLatestMigratedKey(key []byte) error
 	GetLatestMigratedModule() (string, error)

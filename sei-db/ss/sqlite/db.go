@@ -142,7 +142,7 @@ func (db *Database) GetEarliestVersion() (int64, error) {
 	panic("not implemented")
 }
 
-func (db *Database) SetEarliestVersion(version int64) error {
+func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error {
 	panic("not implemented")
 }
 
