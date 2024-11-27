@@ -65,7 +65,7 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 	}
 
 	// Set earliest and latest version in the database
-	err = m.stateStore.SetEarliestVersion(1)
+	err = m.stateStore.SetEarliestVersion(1, true)
 	if err != nil {
 		return err
 	}
