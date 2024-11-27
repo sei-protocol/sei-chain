@@ -193,7 +193,7 @@ func TestRun(t *testing.T) {
 			sdk.NewAttribute(banktypes.AttributeKeySender, senderAddr.String()),
 		),
 		// gas refund to the sender
-		banktypes.NewCoinReceivedEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(101398)))),
+		banktypes.NewCoinReceivedEvent(senderAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(132401)))),
 		// tip is paid to the validator
 		banktypes.NewCoinReceivedEvent(sdk.MustAccAddressFromBech32("sei1v4mx6hmrda5kucnpwdjsqqqqqqqqqqqqlve8dv"), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(67599)))),
 	}
@@ -244,7 +244,7 @@ func TestRun(t *testing.T) {
 		Denom:  "ufoo",
 	}, bank.CoinBalance(parsedBalances[0]))
 	require.Equal(t, bank.CoinBalance{
-		Amount: big.NewInt(9901387),
+		Amount: big.NewInt(9932390),
 		Denom:  "usei",
 	}, bank.CoinBalance(parsedBalances[1]))
 
