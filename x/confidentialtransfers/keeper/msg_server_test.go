@@ -305,8 +305,8 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 
 	// Check that newPendingBalancePlaintext = oldPendingBalancePlaintext + DepositAmount
 	suite.Require().Equal(
-		new(big.Int).Add(oldPendingBalancePlaintext, new(big.Int).SetUint64(depositStruct.Amount)),
-		newPendingBalancePlaintext,
+		new(big.Int).Add(oldPendingBalancePlaintext, big.NewInt(int64(depositStruct.Amount))).String(),
+		newPendingBalancePlaintext.String(),
 		"Pending balances should have increased by the deposit amount")
 
 	// Lastly check that the amount in the bank module are changed correctly.
@@ -334,8 +334,8 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	oldPendingBalancePlaintext = newPendingBalancePlaintext
 	newPendingBalancePlaintext, _, _, _ = updatedAccount.GetPendingBalancePlaintext(teg, keyPair)
 	suite.Require().Equal(
-		new(big.Int).Add(oldPendingBalancePlaintext, new(big.Int).SetUint64(depositStruct.Amount)),
-		newPendingBalancePlaintext,
+		new(big.Int).Add(oldPendingBalancePlaintext, big.NewInt(int64(depositStruct.Amount))).String(),
+		newPendingBalancePlaintext.String(),
 		"Pending balances should have increased by the deposit amount")
 
 	// Check that the amount in the bank module are changed correctly.
@@ -1053,6 +1053,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 	newRecipientPendingBalance, _, _, _ := recipientAccountState.GetPendingBalancePlaintext(teg, recipientKeypair)
 
 	newTotal := new(big.Int).Add(oldRecipientPendingBalance, transferAmountBigInt)
+
 	suite.Require().Equal(newTotal, newRecipientPendingBalance, "New pending balance should be equal to transfer amount added to old pending balance")
 }
 

@@ -4,6 +4,7 @@ import (
 	"math/big"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 )
@@ -35,22 +36,22 @@ type Account struct {
 	DecryptableAvailableBalance string
 }
 
-func (a *Account) GetPendingBalancePlaintext(decryptor *elgamal.TwistedElGamal, keypair *elgamal.KeyPair) (*big.Int, uint64, uint64, error) {
+func (a *Account) GetPendingBalancePlaintext(decryptor *elgamal.TwistedElGamal, keypair *elgamal.KeyPair) (*big.Int, *big.Int, *big.Int, error) {
 	actualPendingBalanceLo, err := decryptor.Decrypt(keypair.PrivateKey, a.PendingBalanceLo, elgamal.MaxBits32)
 	if err != nil {
-		return big.NewInt(0), 0, 0, err
+		return nil, nil, nil, err
 	}
 	actualPendingBalanceHi, err := decryptor.DecryptLargeNumber(keypair.PrivateKey, a.PendingBalanceHi, elgamal.MaxBits48)
 	if err != nil {
-		return big.NewInt(0), 0, 0, err
+		return nil, nil, nil, err
 	}
 
 	// Shift the 48-bit number by 32 bits to the left
 	actualPendingBalanceHi.Lsh(actualPendingBalanceHi, 16) // Equivalent to hi << 32
 
 	// Combine by adding hiBig with loBig
-	combined := new(big.Int).Add(actualPendingBalanceHi, actualPendingBalanceLo)
-	return combined, actualPendingBalanceLo.Uint64(), actualPendingBalanceHi.Uint64(), nil
+	combined := utils.CombinePendingBalances(actualPendingBalanceLo, actualPendingBalanceHi)
+	return combined, actualPendingBalanceLo, actualPendingBalanceHi, nil
 }
 
 // Returns the decrypted account state.
@@ -81,7 +82,7 @@ func (a *Account) Decrypt(decryptor *elgamal.TwistedElGamal, keypair *elgamal.Ke
 		PublicKey:                   a.PublicKey.ToAffineCompressed(),
 		PendingBalanceLo:            uint32(pendingBalanceLo),
 		PendingBalanceHi:            pendingBalanceHi,
-		CombinedPendingBalance:      pendingBalanceCombined.Uint64(),
+		CombinedPendingBalance:      pendingBalanceCombined,
 		PendingBalanceCreditCounter: uint32(a.PendingBalanceCreditCounter),
 		AvailableBalance:            availableBalanceString,
 		DecryptableAvailableBalance: aesAvailableBalance.String(),

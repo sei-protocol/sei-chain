@@ -42,8 +42,9 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 	}
 
 	// Check if denom already exists.
-	_, denomExists := m.Keeper.BankKeeper().GetDenomMetaData(ctx, instruction.Denom)
-	if !denomExists {
+	denomHasSupply := m.Keeper.BankKeeper().HasSupply(ctx, instruction.Denom)
+	_, denomMetadataExists := m.Keeper.BankKeeper().GetDenomMetaData(ctx, instruction.Denom)
+	if !denomMetadataExists && !denomHasSupply {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "denom does not exist")
 	}
 

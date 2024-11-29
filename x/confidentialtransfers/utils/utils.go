@@ -31,3 +31,12 @@ func CombineTransferAmount(bottom16 uint16, hi uint32) *big.Int {
 
 	return big.NewInt(int64(combined))
 }
+
+func CombinePendingBalances(loBits *big.Int, hiBits *big.Int) *big.Int {
+	// Shift the hi bits by 16 bits to the left
+	hiBits.Lsh(hiBits, 16) // Equivalent to hi << 16
+
+	// Combine by adding hiBig with loBig
+	combined := new(big.Int).Add(hiBits, loBits)
+	return combined
+}
