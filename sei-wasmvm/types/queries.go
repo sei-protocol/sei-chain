@@ -258,11 +258,12 @@ type ChannelResponse struct {
 }
 
 type StakingQuery struct {
-	AllValidators  *AllValidatorsQuery  `json:"all_validators,omitempty"`
-	Validator      *ValidatorQuery      `json:"validator,omitempty"`
-	AllDelegations *AllDelegationsQuery `json:"all_delegations,omitempty"`
-	Delegation     *DelegationQuery     `json:"delegation,omitempty"`
-	BondedDenom    *struct{}            `json:"bonded_denom,omitempty"`
+	AllValidators       *AllValidatorsQuery       `json:"all_validators,omitempty"`
+	Validator           *ValidatorQuery           `json:"validator,omitempty"`
+	AllDelegations      *AllDelegationsQuery      `json:"all_delegations,omitempty"`
+	Delegation          *DelegationQuery          `json:"delegation,omitempty"`
+	BondedDenom         *struct{}                 `json:"bonded_denom,omitempty"`
+	UnbondingDelegation *UnbondingDelegationQuery `json:"unbonding_delegation,omitempty"`
 }
 
 type AllValidatorsQuery struct{}
@@ -431,6 +432,22 @@ type FullDelegation struct {
 
 type BondedDenomResponse struct {
 	Denom string `json:"denom"`
+}
+
+type UnbondingDelegationQuery struct {
+	Delegator string `json:"delegator"`
+	Validator string `json:"validator"`
+}
+
+type UnbondingDelegationResponse struct {
+	Entries []UnbondingDelegationEntry `json:"entries"`
+}
+
+type UnbondingDelegationEntry struct {
+	CreationHeight int64  `json:"creation_height"`
+	CompletionTime string `json:"completion_time"` // RFC3339 encoded
+	InitialBalance string `json:"initial_balance"`
+	Balance        string `json:"balance"`
 }
 
 // StargateQuery is encoded the same way as abci_query, with path and protobuf encoded request data.
