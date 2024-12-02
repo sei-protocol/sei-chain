@@ -451,15 +451,15 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	senderAccount.AvailableBalance = newSenderBalanceCiphertext
 
 	// Save the account states
-	//err = m.Keeper.SetAccount(ctx, req.FromAddress, req.Denom, senderAccount)
-	//if err != nil {
-	//	return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting sender account")
-	//}
-	//
-	//err = m.Keeper.SetAccount(ctx, req.ToAddress, req.Denom, recipientAccount)
-	//if err != nil {
-	//	return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting recipient account")
-	//}
+	err = m.Keeper.SetAccount(ctx, req.FromAddress, req.Denom, senderAccount)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting sender account")
+	}
+
+	err = m.Keeper.SetAccount(ctx, req.ToAddress, req.Denom, recipientAccount)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting recipient account")
+	}
 
 	// Emit any required events
 	ctx.EventManager().EmitEvents(sdk.Events{

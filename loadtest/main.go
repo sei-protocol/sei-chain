@@ -582,6 +582,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		teg := elgamal.NewTwistedElgamal()
 		receiverKeyPair, _ := teg.KeyGen(*receiverEcdsaKey, CtDefaultDenom)
 		senderAddress := sdk.AccAddress(key.PubKey().Address()).String()
+		receiverAddress := sdk.AccAddress(receiverKey.PubKey().Address()).String()
 		senderAccount := c.getCtAccount(senderAddress, CtDefaultDenom)
 		if senderAccount == nil {
 			panic(fmt.Sprintf("Sender account not found for address %s\n", senderAddress))
@@ -590,7 +591,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		transfer, err := cttypes.NewTransfer(
 			senderEcdsaKey,
 			senderAddress,
-			sdk.AccAddress(receiverKey.PubKey().Address()).String(),
+			receiverAddress,
 			CtDefaultDenom,
 			senderAccount.DecryptableAvailableBalance,
 			senderAccount.AvailableBalance,
