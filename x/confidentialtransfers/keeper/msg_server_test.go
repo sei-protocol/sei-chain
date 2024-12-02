@@ -331,11 +331,11 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	// Check that the account has been updated
 	updatedAccount, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 
-	oldPendingBalancePlaintext = newPendingBalancePlaintext
+	oldPendingBalancePlaintext = oldPendingBalancePlaintext.Set(newPendingBalancePlaintext)
 	newPendingBalancePlaintext, _, _, _ = updatedAccount.GetPendingBalancePlaintext(teg, keyPair)
 	suite.Require().Equal(
-		new(big.Int).Add(oldPendingBalancePlaintext, big.NewInt(int64(depositStruct.Amount))).String(),
-		newPendingBalancePlaintext.String(),
+		new(big.Int).Add(oldPendingBalancePlaintext, big.NewInt(int64(depositStruct.Amount))),
+		newPendingBalancePlaintext,
 		"Pending balances should have increased by the deposit amount")
 
 	// Check that the amount in the bank module are changed correctly.
@@ -501,7 +501,7 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawHappyPath() {
 	oldBalanceDecrypted, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, initialState.AvailableBalance, elgamal.MaxBits32)
 	newBalanceDecrypted, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, account.AvailableBalance, elgamal.MaxBits32)
 	newTotal := new(big.Int).Sub(oldBalanceDecrypted, withdrawAmount)
-	suite.Require().Equal(newTotal.String(), newBalanceDecrypted.String())
+	suite.Require().Equal(newTotal, newBalanceDecrypted)
 
 	// Check that the DecryptableAvailableBalances were updated correctly
 	suite.Require().Equal(req.DecryptableBalance, account.DecryptableAvailableBalance)
@@ -1029,14 +1029,14 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 	transferAmountBigInt := new(big.Int).SetUint64(transferAmount)
 	senderOldBalanceDecrypted, _ := teg.DecryptLargeNumber(senderKeypair.PrivateKey, initialSenderState.AvailableBalance, elgamal.MaxBits32)
 	senderNewBalanceDecrypted, _ := teg.DecryptLargeNumber(senderKeypair.PrivateKey, senderAccountState.AvailableBalance, elgamal.MaxBits32)
-	suite.Require().Equal(new(big.Int).Sub(senderOldBalanceDecrypted, transferAmountBigInt).String(), senderNewBalanceDecrypted.String(), "AvailableBalance of sender should be decreased")
+	suite.Require().Equal(new(big.Int).Sub(senderOldBalanceDecrypted, transferAmountBigInt), senderNewBalanceDecrypted, "AvailableBalance of sender should be decreased")
 
 	// Verify that the DecryptableAvailableBalances were updated as well and that they match the available balances.
 	senderAesKey, _ := encryption.GetAESKey(*senderPk, DefaultTestDenom)
 	senderOldDecryptableBalanceDecrypted, _ := encryption.DecryptAESGCM(initialSenderState.DecryptableAvailableBalance, senderAesKey)
 	senderNewDecryptableBalanceDecrypted, _ := encryption.DecryptAESGCM(senderAccountState.DecryptableAvailableBalance, senderAesKey)
-	suite.Require().Equal(new(big.Int).Sub(senderOldDecryptableBalanceDecrypted, transferAmountBigInt).String(), senderNewDecryptableBalanceDecrypted.String())
-	suite.Require().Equal(senderNewBalanceDecrypted.String(), senderNewDecryptableBalanceDecrypted.String())
+	suite.Require().Equal(new(big.Int).Sub(senderOldDecryptableBalanceDecrypted, transferAmountBigInt), senderNewDecryptableBalanceDecrypted)
+	suite.Require().Equal(senderNewBalanceDecrypted, senderNewDecryptableBalanceDecrypted)
 
 	// On the other hand, available balances of the recipient account should not have been altered
 	recipientAccountState, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, recipientAddr.String(), DefaultTestDenom)

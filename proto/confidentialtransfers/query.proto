@@ -57,7 +57,7 @@ message DecryptedCtAccount {
   bytes  public_key = 1;  // serialized public key
   uint32  pending_balance_lo = 2;    // lo bits of the pending balance
   uint64  pending_balance_hi = 3; // hi bits of the pending balance
-  uint64  combined_pending_balance = 4; // combined pending balance
+  string  combined_pending_balance = 4; // combined pending balance
   uint32   pending_balance_credit_counter = 5;
   string   available_balance = 6; // decrypted available balance
   string   decryptable_available_balance = 7; // decrypted aes encrypted available balance

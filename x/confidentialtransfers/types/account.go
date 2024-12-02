@@ -46,9 +46,6 @@ func (a *Account) GetPendingBalancePlaintext(decryptor *elgamal.TwistedElGamal, 
 		return nil, nil, nil, err
 	}
 
-	// Shift the 48-bit number by 32 bits to the left
-	actualPendingBalanceHi.Lsh(actualPendingBalanceHi, 16) // Equivalent to hi << 32
-
 	// Combine by adding hiBig with loBig
 	combined := utils.CombinePendingBalances(actualPendingBalanceLo, actualPendingBalanceHi)
 	return combined, actualPendingBalanceLo, actualPendingBalanceHi, nil
@@ -80,9 +77,9 @@ func (a *Account) Decrypt(decryptor *elgamal.TwistedElGamal, keypair *elgamal.Ke
 
 	return &DecryptedCtAccount{
 		PublicKey:                   a.PublicKey.ToAffineCompressed(),
-		PendingBalanceLo:            uint32(pendingBalanceLo),
-		PendingBalanceHi:            pendingBalanceHi,
-		CombinedPendingBalance:      pendingBalanceCombined,
+		PendingBalanceLo:            uint32(pendingBalanceLo.Uint64()),
+		PendingBalanceHi:            pendingBalanceHi.Uint64(),
+		CombinedPendingBalance:      pendingBalanceCombined.String(),
 		PendingBalanceCreditCounter: uint32(a.PendingBalanceCreditCounter),
 		AvailableBalance:            availableBalanceString,
 		DecryptableAvailableBalance: aesAvailableBalance.String(),
