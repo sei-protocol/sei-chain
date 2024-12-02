@@ -29,7 +29,7 @@ func CombineTransferAmount(bottom16 uint16, hi uint32) *big.Int {
 	// Combine the bottom 32 bits and the next 48 bits
 	combined := (uint64(hi) << 16) | uint64(bottom16)
 
-	return big.NewInt(int64(combined))
+	return new(big.Int).SetUint64(combined)
 }
 
 func CombinePendingBalances(loBits *big.Int, hiBits *big.Int) *big.Int {

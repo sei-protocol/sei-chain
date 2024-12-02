@@ -305,7 +305,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 
 	// Check that newPendingBalancePlaintext = oldPendingBalancePlaintext + DepositAmount
 	suite.Require().Equal(
-		new(big.Int).Add(oldPendingBalancePlaintext, big.NewInt(int64(depositStruct.Amount))).String(),
+		new(big.Int).Add(oldPendingBalancePlaintext, new(big.Int).SetUint64(depositStruct.Amount)).String(),
 		newPendingBalancePlaintext.String(),
 		"Pending balances should have increased by the deposit amount")
 
@@ -334,7 +334,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	oldPendingBalancePlaintext = oldPendingBalancePlaintext.Set(newPendingBalancePlaintext)
 	newPendingBalancePlaintext, _, _, _ = updatedAccount.GetPendingBalancePlaintext(teg, keyPair)
 	suite.Require().Equal(
-		new(big.Int).Add(oldPendingBalancePlaintext, big.NewInt(int64(depositStruct.Amount))),
+		new(big.Int).Add(oldPendingBalancePlaintext, new(big.Int).SetUint64(depositStruct.Amount)),
 		newPendingBalancePlaintext,
 		"Pending balances should have increased by the deposit amount")
 
@@ -380,7 +380,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositInsufficientFunds() {
 
 	// Initialize an account
 	bankModuleInitialAmount := uint64(1000)
-	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 50, big.NewInt(1000000), big.NewInt(8000), big.NewInt(int64(bankModuleInitialAmount)))
+	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 50, big.NewInt(1000000), big.NewInt(8000), new(big.Int).SetUint64(bankModuleInitialAmount))
 
 	// Create a struct where the deposit amount is greater than the amount of token the user has.
 	depositStruct := types.MsgDeposit{
@@ -415,7 +415,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositOversizedDeposit() {
 
 	// Initialize an account
 	bankModuleInitialAmount := uint64(1000)
-	_, _ = suite.SetupAccountState(testPk, DefaultTestDenom, 50, big.NewInt(1000000), big.NewInt(8000), big.NewInt(int64(bankModuleInitialAmount)))
+	_, _ = suite.SetupAccountState(testPk, DefaultTestDenom, 50, big.NewInt(1000000), big.NewInt(8000), new(big.Int).SetUint64(bankModuleInitialAmount))
 
 	// Create a struct where the deposit amount is greater than a 48 bit number
 	depositStruct := types.MsgDeposit{
@@ -441,7 +441,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositTooManyPendingBalances() {
 
 	// Create an account where the pending balance counter is at the maximum value
 	bankModuleInitialAmount := uint64(10000000000)
-	suite.SetupAccountState(testPk, DefaultTestDenom, math.MaxUint16, big.NewInt(1000000), big.NewInt(8000), big.NewInt(int64(bankModuleInitialAmount)))
+	suite.SetupAccountState(testPk, DefaultTestDenom, math.MaxUint16, big.NewInt(1000000), big.NewInt(8000), new(big.Int).SetUint64(bankModuleInitialAmount))
 
 	// Create a struct where the deposit amount is greater than a 48 bit number
 	depositStruct := types.MsgDeposit{

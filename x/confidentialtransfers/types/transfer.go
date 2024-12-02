@@ -81,7 +81,7 @@ func NewTransfer(
 		return &Transfer{}, err
 	}
 
-	bigIntAmount := big.NewInt(int64(amount))
+	bigIntAmount := new(big.Int).SetUint64(amount)
 	// Check that account has sufficient balance to make the transfer.
 	if currentBalance.Cmp(bigIntAmount) == -1 {
 		return &Transfer{}, errors.New("insufficient balance")
@@ -112,8 +112,8 @@ func NewTransfer(
 	if err != nil {
 		return &Transfer{}, err
 	}
-	loBitsBigInt := big.NewInt(int64(transferLoBits))
-	hiBitsBigInt := big.NewInt(int64(transferHiBits))
+	loBitsBigInt := new(big.Int).SetUint64(uint64(transferLoBits))
+	hiBitsBigInt := new(big.Int).SetUint64(uint64(transferHiBits))
 
 	// Encrypt the transfer amounts for the sender
 	senderEncryptedTransferLoBits, senderLoBitsRandomness, err := teg.Encrypt(senderKeyPair.PublicKey, loBitsBigInt)
