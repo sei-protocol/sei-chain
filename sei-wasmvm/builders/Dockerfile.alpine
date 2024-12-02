@@ -1,0 +1,57 @@
+# This image is used for two things (which is not ideal, but yeah):
+# 1. Build the static Rust library
+# 2. Execute Go tests that use and test this library
+# For 2. we define the Go image here. For 1. we install Rust below.
+#
+# See also docs/COMPILER_VERSIONS.md
+FROM golang:1.20.10-alpine
+
+ENV RUSTUP_HOME=/usr/local/rustup \
+  CARGO_HOME=/usr/local/cargo \
+  PATH=/usr/local/cargo/bin:$PATH
+
+# this comes from standard alpine nightly file
+#  https://github.com/rust-lang/docker-rust-nightly/blob/master/alpine3.12/Dockerfile
+# with some changes to support our toolchain, etc
+RUN set -eux \
+  && apk add --no-cache ca-certificates build-base
+
+RUN wget "https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-musl/rustup-init" \
+  && chmod +x rustup-init \
+  && ./rustup-init -y --no-modify-path --profile minimal --default-toolchain 1.73.0 \
+  && rm rustup-init \
+  && chmod -R a+w $RUSTUP_HOME $CARGO_HOME
+
+# Install C compiler for cross-compilation. This is required by
+# Wasmer in https://github.com/wasmerio/wasmer/blob/2.2.1/lib/vm/build.rs.
+# For newer versions this might not be needed anymore since build.rs is removed
+# in https://github.com/wasmerio/wasmer/pull/2807.
+#
+# https://unix.stackexchange.com/questions/620205/aarch64-linux-musl-cross-has-a-broken-link-for-ld-musl-aarch64-so-1
+RUN wget https://musl.cc/aarch64-linux-musl-cross.tgz \
+  && tar -xf aarch64-linux-musl-cross.tgz \
+  && mv ./aarch64-linux-musl-cross /opt \
+  && /opt/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc --version \
+  && rm aarch64-linux-musl-cross.tgz
+
+# prepare go cache dirs
+RUN mkdir -p /.cache/go-build
+RUN chmod -R 777 /.cache
+
+# allow non-root user to download more deps later
+RUN chmod -R 777 /usr/local/cargo
+
+## COPY BUILD SCRIPTS
+WORKDIR /code
+
+# Add musl Rust targets
+RUN rustup target add aarch64-unknown-linux-musl x86_64-unknown-linux-musl
+
+COPY guest/*.sh /opt/
+RUN chmod +x /opt/*.sh
+
+RUN mkdir /.cargo
+RUN chmod +rx /.cargo
+COPY guest/cargo-config /.cargo/config
+
+CMD ["/opt/build_muslc.sh"]
