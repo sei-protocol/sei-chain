@@ -459,7 +459,7 @@ func TestMsgInitializeAccount_FromProto(t *testing.T) {
 	decryptedRemainingBalance, err := encryption.DecryptAESGCM(result.DecryptableBalance, aesPK)
 	assert.NoError(t, err)
 
-	assert.Equal(t, uint64(0), decryptedRemainingBalance)
+	assert.Equal(t, new(big.Int).SetUint64(0), decryptedRemainingBalance)
 
 	// Make sure the proofs are valid
 	assert.True(t, zkproofs.VerifyPubKeyValidity(
@@ -592,7 +592,7 @@ func TestMsgWithdraw_FromProto(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, m.FromAddress, result.FromAddress)
 	assert.Equal(t, m.Denom, result.Denom)
-	assert.Equal(t, m.Amount, result.Amount)
+	assert.Equal(t, m.Amount, result.Amount.String())
 	assert.Equal(t, m.DecryptableBalance, result.DecryptableBalance)
 	assert.True(t, newBalanceCommitment.C.Equal(result.RemainingBalanceCommitment.C))
 	assert.True(t, newBalanceCommitment.D.Equal(result.RemainingBalanceCommitment.D))
