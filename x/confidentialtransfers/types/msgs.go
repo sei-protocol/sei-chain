@@ -2,8 +2,6 @@ package types
 
 import (
 	"crypto/ecdsa"
-	"github.com/armon/go-metrics"
-	"time"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -94,9 +92,6 @@ func (m *MsgTransfer) GetSigners() []sdk.AccAddress {
 }
 
 func (m *MsgTransfer) FromProto() (*Transfer, error) {
-	defer metrics.MeasureSince(
-		[]string{"ct", "msg", "transfer", "from", "proto", "milliseconds"},
-		time.Now().UTC())
 	err := m.ValidateBasic()
 	if err != nil {
 		return nil, err

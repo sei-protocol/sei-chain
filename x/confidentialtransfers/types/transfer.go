@@ -3,10 +3,8 @@ package types
 import (
 	"crypto/ecdsa"
 	"errors"
-	"github.com/armon/go-metrics"
 	"math/big"
 	"strconv"
-	"time"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -277,58 +275,35 @@ func createTransferPartyParams(
 
 // Verifies the proofs sent in the transfer request. This does not verify proofs for auditors.
 func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipientPubkey *curves.Point, newBalanceCiphertext *elgamal.Ciphertext) error {
-	defer metrics.MeasureSince(
-		[]string{"ct", "verify", "transfer", "proofs", "milliseconds"},
-		time.Now().UTC())
 	// Verify the validity proofs that the ciphertexts sent are valid (encrypted with the correct pubkey).
-	startVerifyCiphertextValidity := time.Now().UTC()
 	ok := zkproofs.VerifyCiphertextValidity(params.Proofs.RemainingBalanceCommitmentValidityProof, *senderPubkey, params.RemainingBalanceCommitment)
-	metrics.MeasureSince(
-		[]string{"ct", "verify", "ciphertext", "validity", "RemainingBalanceCommitmentValidityProof", "milliseconds"},
-		startVerifyCiphertextValidity)
 	if !ok {
 		return errors.New("failed to verify remaining balance commitment")
 	}
-	startVerifyCiphertextValidity = time.Now().UTC()
+
 	ok = zkproofs.VerifyCiphertextValidity(params.Proofs.SenderTransferAmountLoValidityProof, *senderPubkey, params.SenderTransferAmountLo)
-	metrics.MeasureSince(
-		[]string{"ct", "verify", "ciphertext", "validity", "SenderTransferAmountLoValidityProof", "milliseconds"},
-		startVerifyCiphertextValidity)
 	if !ok {
 		return errors.New("failed to verify sender transfer amount lo")
 	}
-	startVerifyCiphertextValidity = time.Now().UTC()
+
 	ok = zkproofs.VerifyCiphertextValidity(params.Proofs.SenderTransferAmountHiValidityProof, *senderPubkey, params.SenderTransferAmountHi)
-	metrics.MeasureSince(
-		[]string{"ct", "verify", "ciphertext", "validity", "SenderTransferAmountHiValidityProof", "milliseconds"},
-		startVerifyCiphertextValidity)
 	if !ok {
 		return errors.New("failed to verify sender transfer amount hi")
 	}
-	startVerifyCiphertextValidity = time.Now().UTC()
+
 	ok = zkproofs.VerifyCiphertextValidity(params.Proofs.RecipientTransferAmountLoValidityProof, *recipientPubkey, params.RecipientTransferAmountLo)
-	metrics.MeasureSince(
-		[]string{"ct", "verify", "ciphertext", "validity", "RecipientTransferAmountLoValidityProof", "milliseconds"},
-		startVerifyCiphertextValidity)
 	if !ok {
 		return errors.New("failed to verify recipient transfer amount lo")
 	}
-	startVerifyCiphertextValidity = time.Now().UTC()
+
 	ok = zkproofs.VerifyCiphertextValidity(params.Proofs.RecipientTransferAmountHiValidityProof, *recipientPubkey, params.RecipientTransferAmountHi)
 	if !ok {
 		return errors.New("failed to verify recipient transfer amount hi")
 	}
-	metrics.MeasureSince(
-		[]string{"ct", "verify", "ciphertext", "validity", "RecipientTransferAmountHiValidityProof", "milliseconds"},
-		startVerifyCiphertextValidity)
 
 	// Verify that the account's remaining balance is greater than zero after this transfer.
 	// This validates the RemainingBalanceCommitment sent by the user, so an additional check is needed to make sure this matches what is calculated by the server.
-	startRangeProof := time.Now().UTC()
 	ok, err := zkproofs.VerifyRangeProof(params.Proofs.RemainingBalanceRangeProof, params.RemainingBalanceCommitment, 64)
-	metrics.MeasureSince(
-		[]string{"ct", "verify", "range", "proof", "RemainingBalanceRangeProof", "milliseconds"},
-		startRangeProof)
 	if err != nil {
 		return err
 	}
@@ -337,30 +312,18 @@ func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipien
 	}
 
 	// As part of the range proof above, we verify that the RemainingBalanceCommitment sent by the user is equal to the remaining balance calculated by the server.
-	startVVerifyCiphertextCommitmentEquality := time.Now().UTC()
 	ok = zkproofs.VerifyCiphertextCommitmentEquality(params.Proofs.RemainingBalanceEqualityProof, senderPubkey, newBalanceCiphertext, &params.RemainingBalanceCommitment.C)
-	metrics.MeasureSince(
-		[]string{"ct", "verify", "ciphertext", "commitment", "RemainingBalanceEqualityProof", "milliseconds"},
-		startVVerifyCiphertextCommitmentEquality)
 	if !ok {
 		return errors.New("ciphertext commitment equality verification failed")
 	}
 
 	// Lastly verify that the transferAmount ciphertexts encode the same value
-	startVVerifyCiphertextCommitmentEquality = time.Now().UTC()
 	ok = zkproofs.VerifyCiphertextCiphertextEquality(params.Proofs.TransferAmountLoEqualityProof, senderPubkey, recipientPubkey, params.SenderTransferAmountLo, params.RecipientTransferAmountLo)
-	metrics.MeasureSince(
-		[]string{"ct", "verify", "ciphertext", "commitment", "TransferAmountLoEqualityProof", "milliseconds"},
-		startVVerifyCiphertextCommitmentEquality)
 	if !ok {
 		return errors.New("ciphertext ciphertext equality verification on transfer amount lo failed")
 	}
 
-	startVVerifyCiphertextCommitmentEquality = time.Now().UTC()
 	ok = zkproofs.VerifyCiphertextCiphertextEquality(params.Proofs.TransferAmountHiEqualityProof, senderPubkey, recipientPubkey, params.SenderTransferAmountHi, params.RecipientTransferAmountHi)
-	metrics.MeasureSince(
-		[]string{"ct", "verify", "ciphertext", "commitment", "TransferAmountHiEqualityProof", "milliseconds"},
-		startVVerifyCiphertextCommitmentEquality)
 	if !ok {
 		return errors.New("ciphertext ciphertext equality verification on transfer amount hi failed")
 	}
@@ -375,13 +338,10 @@ func VerifyAuditorProof(
 	auditorParams *TransferAuditor,
 	senderPubkey *curves.Point,
 	auditorPubkey *curves.Point) error {
-	defer metrics.MeasureSince(
-		[]string{"ct", "verify", "auditor", "proofs", "milliseconds"},
-		time.Now().UTC())
 	// Verify that the transfer amounts are valid (encrypted with the correct pubkey).
 	ok := zkproofs.VerifyCiphertextValidity(auditorParams.TransferAmountLoValidityProof, *auditorPubkey, auditorParams.EncryptedTransferAmountLo)
 	if !ok {
-		return errors.New("failed to verify auditor transfer amount lo")
+		return errors.New("failed to verify auditor transfer amoun lo")
 	}
 
 	ok = zkproofs.VerifyCiphertextValidity(auditorParams.TransferAmountHiValidityProof, *auditorPubkey, auditorParams.EncryptedTransferAmountHi)

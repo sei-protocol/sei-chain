@@ -2,8 +2,6 @@ package keeper
 
 import (
 	"fmt"
-	"github.com/armon/go-metrics"
-	"time"
 
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 
@@ -70,10 +68,6 @@ func NewKeeper(
 }
 
 func (k BaseKeeper) GetAccount(ctx sdk.Context, address string, denom string) (types.Account, bool) {
-	defer metrics.MeasureSince(
-		[]string{"ct", "get", "account", "milliseconds"},
-		time.Now().UTC(),
-	)
 	addr, err := sdk.AccAddressFromBech32(address)
 	if err != nil {
 		return types.Account{}, false
@@ -114,10 +108,6 @@ func (k BaseKeeper) getCtAccount(ctx sdk.Context, address sdk.AccAddress, denom 
 }
 
 func (k BaseKeeper) SetAccount(ctx sdk.Context, address string, denom string, account types.Account) error {
-	defer metrics.MeasureSince(
-		[]string{"ct", "set", "account", "milliseconds"},
-		time.Now().UTC(),
-	)
 	addr, err := sdk.AccAddressFromBech32(address)
 	if err != nil {
 		return err
