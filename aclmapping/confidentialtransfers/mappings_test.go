@@ -3,6 +3,7 @@ package confidentialtransfers_test
 import (
 	"crypto/ecdsa"
 	"fmt"
+	"math/big"
 
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -83,7 +84,7 @@ func (suite *KeeperTestSuite) SetupAccountState(privateKey *ecdsa.PrivateKey, de
 		return types.Account{}, err
 	}
 
-	availableBalance := initialAvailableBalance
+	availableBalance := new(big.Int).SetUint64(initialAvailableBalance)
 	pendingBalance := initialPendingBalance
 
 	pendingBalanceLo, pendingBalanceHi, _ := utils.SplitTransferBalance(pendingBalance)
@@ -93,12 +94,12 @@ func (suite *KeeperTestSuite) SetupAccountState(privateKey *ecdsa.PrivateKey, de
 		return types.Account{}, err
 	}
 
-	pendingBalanceLoCipherText, _, err := teg.Encrypt(keypair.PublicKey, uint64(pendingBalanceLo))
+	pendingBalanceLoCipherText, _, err := teg.Encrypt(keypair.PublicKey, new(big.Int).SetUint64(uint64(pendingBalanceLo)))
 	if err != nil {
 		return types.Account{}, err
 	}
 
-	pendingBalanceHiCipherText, _, err := teg.Encrypt(keypair.PublicKey, uint64(pendingBalanceHi))
+	pendingBalanceHiCipherText, _, err := teg.Encrypt(keypair.PublicKey, new(big.Int).SetUint64(uint64(pendingBalanceHi)))
 	if err != nil {
 		return types.Account{}, err
 	}
@@ -428,7 +429,7 @@ func (suite *KeeperTestSuite) TestMsgWithdrawDependencies() {
 	// Initialize an account
 	initialState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 10, 2000, 3000, 1000)
 
-	withdrawAmount := uint64(500)
+	withdrawAmount := new(big.Int).SetUint64(500)
 	withdraw, _ := types.NewWithdraw(*senderPk,
 		initialState.AvailableBalance,
 		DefaultTestDenom,
