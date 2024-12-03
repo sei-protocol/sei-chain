@@ -6,4 +6,5 @@ option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/t
 // Params defines the parameters for the confidential tokens module.
 message Params {
   bool enable_feature = 1;
+  uint32 range_proof_gas_multiplier = 2;
 }

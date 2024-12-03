@@ -27,7 +27,9 @@ type Keeper interface {
 	DeleteAccount(ctx sdk.Context, addrString string, denom string) error
 	GetParams(ctx sdk.Context) types.Params
 	SetParams(ctx sdk.Context, params types.Params)
+
 	IsFeatureEnabled(ctx sdk.Context) bool
+	GetRangeProofGasMultiplier(ctx sdk.Context) uint32
 
 	BankKeeper() types.BankKeeper
 
@@ -181,6 +183,13 @@ func (k BaseKeeper) IsFeatureEnabled(ctx sdk.Context) bool {
 	var enableFeature bool
 	k.paramSpace.Get(ctx, types.KeyEnableFeature, &enableFeature)
 	return enableFeature
+}
+
+// Method to retrieve the parameter value
+func (k BaseKeeper) GetRangeProofGasMultiplier(ctx sdk.Context) uint32 {
+	var rangeProofGas uint32
+	k.paramSpace.Get(ctx, types.KeyRangeProofGas, &rangeProofGas)
+	return rangeProofGas
 }
 
 func (k BaseKeeper) BankKeeper() types.BankKeeper {

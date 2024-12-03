@@ -14,7 +14,8 @@ func ParamKeyTable() paramtypes.KeyTable {
 // DefaultParams default confidential transfers module parameters.
 func DefaultParams() Params {
 	return Params{
-		EnableFeature: DefaultEnableFeature,
+		EnableFeature:           DefaultEnableFeature,
+		RangeProofGasMultiplier: DefaultRangeProofGasMultiplier,
 	}
 }
 

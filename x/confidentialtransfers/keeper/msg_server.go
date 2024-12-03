@@ -254,6 +254,14 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to withdraw %s %s", req.Amount, req.Denom)
 	}
 
+	gasSoFar := ctx.GasMeter().GasConsumed()
+	multiplier := m.Keeper.GetRangeProofGasMultiplier(ctx)
+
+	// Consume additional gas according to the multiplier as range proofs are computationally expensive.
+	if multiplier > 1 {
+		ctx.GasMeter().ConsumeGas(gasSoFar*uint64(multiplier-1), "range proof verification")
+	}
+
 	// Emit any required events
 	//TODO: Look into whether we can use EmitTypedEvents instead since EmitEvents is deprecated
 	ctx.EventManager().EmitEvents(sdk.Events{
@@ -399,7 +407,7 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	if !m.Keeper.IsFeatureEnabled(ctx) {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "feature is disabled by governance")
 	}
-	
+
 	instruction, err := req.FromProto()
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid msg")
@@ -487,6 +495,14 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting recipient account")
 	}
 
+	gasSoFar := ctx.GasMeter().GasConsumed()
+	multiplier := m.Keeper.GetRangeProofGasMultiplier(ctx)
+
+	// Consume additional gas according to the multiplier as range proofs are computationally expensive.
+	if multiplier > 1 {
+		ctx.GasMeter().ConsumeGas(gasSoFar*uint64(multiplier-1), "range proof verification")
+	}
+	
 	// Emit any required events
 	ctx.EventManager().EmitEvents(sdk.Events{
 		sdk.NewEvent(
