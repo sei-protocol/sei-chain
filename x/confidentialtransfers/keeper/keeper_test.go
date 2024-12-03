@@ -95,10 +95,6 @@ func (suite *KeeperTestSuite) SetupAccountState(privateKey *ecdsa.PrivateKey, de
 		pendingBalanceHi = pendingBalanceHi.SetUint64((pendingBalance >> 16) & 0xFFFFFFFFFFFF)
 	}
 
-	if err != nil {
-		return types.Account{}, err
-	}
-
 	availableBalanceCipherText, _, err := teg.Encrypt(keypair.PublicKey, availableBalance)
 	if err != nil {
 		return types.Account{}, err
@@ -129,7 +125,10 @@ func (suite *KeeperTestSuite) SetupAccountState(privateKey *ecdsa.PrivateKey, de
 	}
 
 	addr := privkeyToAddress(privateKey)
-	suite.App.ConfidentialTransfersKeeper.SetAccount(suite.Ctx, addr.String(), denom, initialAccountState)
+	err = suite.App.ConfidentialTransfersKeeper.SetAccount(suite.Ctx, addr.String(), denom, initialAccountState)
+	if err != nil {
+		return types.Account{}, err
+	}
 
 	bankModuleTokens := sdk.NewCoins(sdk.Coin{Amount: sdk.NewIntFromBigInt(bankAmount), Denom: denom})
 

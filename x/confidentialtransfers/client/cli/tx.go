@@ -468,10 +468,6 @@ func makeApplyPendingBalanceCmd(cmd *cobra.Command, args []string) error {
 
 	msg := types.NewMsgApplyPendingBalanceProto(applyPendingBalance)
 
-	if err != nil {
-		return err
-	}
-
 	if err = msg.ValidateBasic(); err != nil {
 		return err
 	}
