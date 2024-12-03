@@ -15,6 +15,8 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
+const DenomAllowListMaxSize = 2000
+
 type (
 	Keeper struct {
 		storeKey sdk.StoreKey
@@ -24,8 +26,6 @@ type (
 		accountKeeper types.AccountKeeper
 		bankKeeper    types.BankKeeper
 		distrKeeper   types.DistrKeeper
-
-		config Config
 	}
 )
 
@@ -37,7 +37,6 @@ func NewKeeper(
 	accountKeeper types.AccountKeeper,
 	bankKeeper types.BankKeeper,
 	distrKeeper types.DistrKeeper,
-	config Config,
 ) Keeper {
 	if !paramSpace.HasKeyTable() {
 		paramSpace = paramSpace.WithKeyTable(types.ParamKeyTable())
@@ -50,8 +49,6 @@ func NewKeeper(
 		accountKeeper: accountKeeper,
 		bankKeeper:    bankKeeper,
 		distrKeeper:   distrKeeper,
-
-		config: config,
 	}
 }
 

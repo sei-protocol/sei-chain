@@ -51,6 +51,10 @@ func (suite *KeeperTestSuite) TestMsgCreateDenom() {
 }
 
 func (suite *KeeperTestSuite) TestCreateDenom() {
+	largeAllowList := make([]string, 2001)
+	for i := 0; i < 2001; i++ {
+		largeAllowList[i] = suite.TestAccs[i%len(suite.TestAccs)].String()
+	}
 	for _, tc := range []struct {
 		desc      string
 		setup     func()
@@ -99,16 +103,10 @@ func (suite *KeeperTestSuite) TestCreateDenom() {
 			valid: false,
 		},
 		{
-			desc:     "list is too large",
-			subdenom: "test",
-			allowList: &banktypes.AllowList{
-				Addresses: []string{
-					suite.TestAccs[0].String(),
-					suite.TestAccs[1].String(),
-					suite.TestAccs[2].String(),
-					suite.TestAccs[2].String()},
-			},
-			valid: false,
+			desc:      "list is too large",
+			subdenom:  "test",
+			allowList: &banktypes.AllowList{Addresses: largeAllowList},
+			valid:     false,
 		},
 	} {
 		suite.Run(fmt.Sprintf("Case %s", tc.desc), func() {
@@ -158,6 +156,10 @@ func (suite *KeeperTestSuite) TestCreateDenom() {
 }
 
 func (suite *KeeperTestSuite) TestUpdateDenom() {
+	largeAllowList := make([]string, 2001)
+	for i := 0; i < 2001; i++ {
+		largeAllowList[i] = suite.TestAccs[0].String()
+	}
 	for _, tc := range []struct {
 		desc      string
 		setup     func()
@@ -222,17 +224,10 @@ func (suite *KeeperTestSuite) TestUpdateDenom() {
 					types.NewMsgCreateDenom(suite.TestAccs[0].String(), "TLRG"))
 				suite.Require().NoError(err)
 			},
-			denom: fmt.Sprintf("factory/%s/TLRG", suite.TestAccs[0].String()),
-			allowList: &banktypes.AllowList{
-				Addresses: []string{
-					suite.TestAccs[0].String(),
-					suite.TestAccs[1].String(),
-					suite.TestAccs[2].String(),
-					suite.TestAccs[2].String(),
-				},
-			},
-			valid:  false,
-			errMsg: "allowlist too large",
+			denom:     fmt.Sprintf("factory/%s/TLRG", suite.TestAccs[0].String()),
+			allowList: &banktypes.AllowList{Addresses: largeAllowList},
+			valid:     false,
+			errMsg:    "allowlist too large",
 		},
 		{
 			desc:   "denom having invalid characters",

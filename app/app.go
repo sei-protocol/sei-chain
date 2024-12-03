@@ -534,11 +534,6 @@ func New(
 	).SetHooks(epochmoduletypes.NewMultiEpochHooks(
 		app.MintKeeper.Hooks()))
 
-	tokenFactoryConfig, err := tokenfactorykeeper.ReadConfig(appOpts)
-	if err != nil {
-		panic(fmt.Sprintf("error reading token factory config due to %s", err))
-	}
-
 	app.TokenFactoryKeeper = tokenfactorykeeper.NewKeeper(
 		appCodec,
 		app.keys[tokenfactorytypes.StoreKey],
@@ -546,7 +541,6 @@ func New(
 		app.AccountKeeper,
 		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
 		app.DistrKeeper,
-		tokenFactoryConfig,
 	)
 
 	// The last arguments can contain custom message handlers, and custom query handlers,

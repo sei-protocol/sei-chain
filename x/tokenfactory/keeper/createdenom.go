@@ -92,7 +92,7 @@ func (k Keeper) validateAllowListSize(allowList *banktypes.AllowList) error {
 		return types.ErrAllowListUndefined
 	}
 
-	if len(allowList.Addresses) > k.config.DenomAllowListMaxSize {
+	if len(allowList.Addresses) > DenomAllowListMaxSize {
 		return types.ErrAllowListTooLarge
 	}
 	return nil
