@@ -20,7 +20,7 @@ const (
 	// QuerierRoute defines the module's query routing key
 	QuerierRoute = ModuleName
 
-	DefaultEnableFeature = true
+	DefaultEnableFeature = false
 )
 
 var (
