@@ -27,6 +27,7 @@ type Keeper interface {
 	DeleteAccount(ctx sdk.Context, addrString string, denom string) error
 	GetParams(ctx sdk.Context) types.Params
 	SetParams(ctx sdk.Context, params types.Params)
+	IsFeatureEnabled(ctx sdk.Context) bool
 
 	BankKeeper() types.BankKeeper
 
@@ -173,6 +174,13 @@ func (k BaseKeeper) GetParams(ctx sdk.Context) (params types.Params) {
 // SetParams sets the total set of bank parameters.
 func (k BaseKeeper) SetParams(ctx sdk.Context, params types.Params) {
 	k.paramSpace.SetParamSet(ctx, &params)
+}
+
+// Method to retrieve the parameter value
+func (k BaseKeeper) IsFeatureEnabled(ctx sdk.Context) bool {
+	var enableFeature bool
+	k.paramSpace.Get(ctx, types.KeyEnableFeature, &enableFeature)
+	return enableFeature
 }
 
 func (k BaseKeeper) BankKeeper() types.BankKeeper {

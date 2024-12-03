@@ -19,10 +19,13 @@ const (
 
 	// QuerierRoute defines the module's query routing key
 	QuerierRoute = ModuleName
+
+	DefaultEnableFeature = true
 )
 
 var (
 	AccountsKeyPrefix = []byte{0x01}
+	KeyEnableFeature  = []byte("EnableFeature")
 )
 
 // GetAddressPrefix generates the prefix for all accounts under a specific address

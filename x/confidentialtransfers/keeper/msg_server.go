@@ -29,6 +29,10 @@ var _ types.MsgServer = msgServer{}
 func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitializeAccount) (*types.MsgInitializeAccountResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	if !m.Keeper.IsFeatureEnabled(ctx) {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "feature is disabled by governance")
+	}
+
 	// Convert the instruction from proto. This also validates the request.
 	instruction, err := req.FromProto()
 	if err != nil {
@@ -101,6 +105,10 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 
 func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types.MsgDepositResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
+
+	if !m.Keeper.IsFeatureEnabled(ctx) {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "feature is disabled by governance")
+	}
 
 	// Validate request
 	err := req.ValidateBasic()
@@ -184,6 +192,10 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*types.MsgWithdrawResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	if !m.Keeper.IsFeatureEnabled(ctx) {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "feature is disabled by governance")
+	}
+
 	// Get the requested address.
 	address, err := sdk.AccAddressFromBech32(req.FromAddress)
 	if err != nil {
@@ -259,6 +271,10 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgApplyPendingBalance) (*types.MsgApplyPendingBalanceResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	if !m.Keeper.IsFeatureEnabled(ctx) {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "feature is disabled by governance")
+	}
+
 	// Check if the account exists
 	account, exists := m.Keeper.GetAccount(ctx, req.Address, req.Denom)
 	if !exists {
@@ -326,6 +342,10 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 func (m msgServer) CloseAccount(goCtx context.Context, req *types.MsgCloseAccount) (*types.MsgCloseAccountResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	if !m.Keeper.IsFeatureEnabled(ctx) {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "feature is disabled by governance")
+	}
+
 	// Check if the account exists
 	account, exists := m.Keeper.GetAccount(ctx, req.Address, req.Denom)
 	if !exists {
@@ -376,6 +396,10 @@ func (m msgServer) CloseAccount(goCtx context.Context, req *types.MsgCloseAccoun
 func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*types.MsgTransferResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
+	if !m.Keeper.IsFeatureEnabled(ctx) {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "feature is disabled by governance")
+	}
+	
 	instruction, err := req.FromProto()
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid msg")

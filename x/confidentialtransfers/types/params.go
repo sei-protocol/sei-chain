@@ -1,6 +1,8 @@
 package types
 
 import (
+	"fmt"
+
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
@@ -11,7 +13,9 @@ func ParamKeyTable() paramtypes.KeyTable {
 
 // DefaultParams default confidential transfers module parameters.
 func DefaultParams() Params {
-	return Params{}
+	return Params{
+		EnableFeature: DefaultEnableFeature,
+	}
 }
 
 // Validate validate params.
@@ -21,5 +25,16 @@ func (p *Params) Validate() error {
 
 // ParamSetPairs Implements params.ParamSet.
 func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
-	return paramtypes.ParamSetPairs{}
+	return paramtypes.ParamSetPairs{
+		paramtypes.NewParamSetPair(KeyEnableFeature, &p.EnableFeature, validateEnableFeature),
+	}
+}
+
+// Validator for the parameter.
+func validateEnableFeature(i interface{}) error {
+	_, ok := i.(bool)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+	return nil
 }
