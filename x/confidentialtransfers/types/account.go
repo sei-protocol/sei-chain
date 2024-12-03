@@ -1,7 +1,7 @@
 package types
 
 import (
-	"strconv"
+	"math/big"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
@@ -36,16 +36,17 @@ type Account struct {
 	DecryptableAvailableBalance string
 }
 
-func (a *Account) GetPendingBalancePlaintext(decryptor *elgamal.TwistedElGamal, keypair *elgamal.KeyPair) (uint64, uint64, uint64, error) {
+func (a *Account) GetPendingBalancePlaintext(decryptor *elgamal.TwistedElGamal, keypair *elgamal.KeyPair) (*big.Int, *big.Int, *big.Int, error) {
 	actualPendingBalanceLo, err := decryptor.Decrypt(keypair.PrivateKey, a.PendingBalanceLo, elgamal.MaxBits32)
 	if err != nil {
-		return 0, 0, 0, err
+		return nil, nil, nil, err
 	}
 	actualPendingBalanceHi, err := decryptor.DecryptLargeNumber(keypair.PrivateKey, a.PendingBalanceHi, elgamal.MaxBits48)
 	if err != nil {
-		return 0, 0, 0, err
+		return nil, nil, nil, err
 	}
 
+	// Combine by adding hiBig with loBig
 	combined := utils.CombinePendingBalances(actualPendingBalanceLo, actualPendingBalanceHi)
 	return combined, actualPendingBalanceLo, actualPendingBalanceHi, nil
 }
@@ -71,16 +72,16 @@ func (a *Account) Decrypt(decryptor *elgamal.TwistedElGamal, keypair *elgamal.Ke
 			return nil, err
 		}
 
-		availableBalanceString = strconv.FormatUint(availableBalance, 10)
+		availableBalanceString = availableBalance.String()
 	}
 
 	return &DecryptedCtAccount{
 		PublicKey:                   a.PublicKey.ToAffineCompressed(),
-		PendingBalanceLo:            uint32(pendingBalanceLo),
-		PendingBalanceHi:            pendingBalanceHi,
-		CombinedPendingBalance:      pendingBalanceCombined,
+		PendingBalanceLo:            uint32(pendingBalanceLo.Uint64()),
+		PendingBalanceHi:            pendingBalanceHi.Uint64(),
+		CombinedPendingBalance:      pendingBalanceCombined.String(),
 		PendingBalanceCreditCounter: uint32(a.PendingBalanceCreditCounter),
 		AvailableBalance:            availableBalanceString,
-		DecryptableAvailableBalance: aesAvailableBalance,
+		DecryptableAvailableBalance: aesAvailableBalance.String(),
 	}, nil
 }

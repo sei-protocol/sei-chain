@@ -2,6 +2,8 @@ package keeper_test
 
 import (
 	"fmt"
+	"math/big"
+
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
@@ -15,7 +17,7 @@ func (suite *KeeperTestSuite) TestAccountQuery() {
 	nonExistingDenom := fmt.Sprintf("factory/%s/NONEXISTING", addr.String())
 
 	pk1, _ := encryption.GenerateKey()
-	ctAccount := generateCtAccount(pk1, testDenom, 1000)
+	ctAccount := generateCtAccount(pk1, testDenom, big.NewInt(1000))
 	account, _ := ctAccount.FromProto()
 
 	testCases := []struct {
@@ -92,8 +94,8 @@ func (suite *KeeperTestSuite) TestAllAccountsQuery() {
 
 	pk1, _ := encryption.GenerateKey()
 	pk2, _ := encryption.GenerateKey()
-	ctAccount1 := generateCtAccount(pk1, testDenom1, 1000)
-	ctAccount2 := generateCtAccount(pk2, testDenom2, 2000)
+	ctAccount1 := generateCtAccount(pk1, testDenom1, big.NewInt(1000))
+	ctAccount2 := generateCtAccount(pk2, testDenom2, big.NewInt(2000))
 	account1, _ := ctAccount1.FromProto()
 	account2, _ := ctAccount2.FromProto()
 

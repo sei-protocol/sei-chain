@@ -2,12 +2,14 @@ package types
 
 import (
 	crand "crypto/rand"
+	"math/big"
+	"testing"
+
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestTransferProofs_Validate(t *testing.T) {
@@ -474,10 +476,10 @@ func TestWithdrawMsgProofs_FromProto(t *testing.T) {
 	sourcePrivateKey, _ := encryption.GenerateKey()
 	eg := elgamal.NewTwistedElgamal()
 	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
-	value := uint64(100)
-	scalarValue := curves.ED25519().Scalar.New(int(value))
+	value := big.NewInt(100)
+	scalarValue, _ := curves.ED25519().Scalar.SetBigInt(value)
 	encrypted, randomness, _ := eg.Encrypt(sourceKeypair.PublicKey, value)
-	rangeProof, _ := zkproofs.NewRangeProof(64, int(value), randomness)
+	rangeProof, _ := zkproofs.NewRangeProof(128, value, randomness)
 	rangeProofProto := NewRangeProofProto(rangeProof)
 
 	equalityProof, _ := zkproofs.NewCiphertextCommitmentEqualityProof(sourceKeypair, encrypted, &randomness, &scalarValue)
@@ -533,10 +535,10 @@ func TestWithdrawMsgProofs_Validate(t *testing.T) {
 	sourcePrivateKey, _ := encryption.GenerateKey()
 	eg := elgamal.NewTwistedElgamal()
 	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
-	value := uint64(100)
-	scalarValue := curves.ED25519().Scalar.New(int(value))
+	value := big.NewInt(100)
+	scalarValue, _ := curves.ED25519().Scalar.SetBigInt(value)
 	encrypted, randomness, _ := eg.Encrypt(sourceKeypair.PublicKey, value)
-	rangeProof, _ := zkproofs.NewRangeProof(64, int(value), randomness)
+	rangeProof, _ := zkproofs.NewRangeProof(128, value, randomness)
 	rangeProofProto := NewRangeProofProto(rangeProof)
 
 	equalityProof, _ := zkproofs.NewCiphertextCommitmentEqualityProof(sourceKeypair, encrypted, &randomness, &scalarValue)

@@ -2,6 +2,7 @@ package utils
 
 import (
 	"math"
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -148,7 +149,7 @@ func TestUtils_CombineTransferAmount(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			totalAmount := CombineTransferAmount(tt.args.loBits, tt.args.hiBits)
 
-			require.Equal(t, tt.args.expectedTotal, totalAmount)
+			require.Equal(t, new(big.Int).SetUint64(tt.args.expectedTotal), totalAmount)
 		})
 	}
 }
@@ -209,9 +210,9 @@ func TestUtils_CombinePendingBalances(t *testing.T) {
 
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
-			totalAmount := CombinePendingBalances(tt.args.loBits, tt.args.hiBits)
+			totalAmount := CombinePendingBalances(new(big.Int).SetUint64(tt.args.loBits), new(big.Int).SetUint64(tt.args.hiBits))
 
-			require.Equal(t, tt.args.expectedTotal, totalAmount)
+			require.Equal(t, new(big.Int).SetUint64(tt.args.expectedTotal), totalAmount)
 		})
 	}
 }

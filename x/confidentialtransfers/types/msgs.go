@@ -2,6 +2,7 @@ package types
 
 import (
 	"crypto/ecdsa"
+	"math/big"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -546,7 +547,12 @@ func (m *MsgWithdraw) ValidateBasic() error {
 		return err
 	}
 
-	if m.Amount <= 0 {
+	amount, isValid := new(big.Int).SetString(m.Amount, 10)
+	if !isValid {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "amount is not valid")
+	}
+
+	if amount.Cmp(big.NewInt(0)) != 1 {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "positive amount is required")
 	}
 
@@ -595,10 +601,15 @@ func (m *MsgWithdraw) FromProto() (*Withdraw, error) {
 		return nil, err
 	}
 
+	amount, isValid := new(big.Int).SetString(m.Amount, 10)
+	if !isValid {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "amount is not valid")
+	}
+
 	return &Withdraw{
 		FromAddress:                m.FromAddress,
 		Denom:                      m.Denom,
-		Amount:                     m.Amount,
+		Amount:                     amount,
 		RemainingBalanceCommitment: remainingBalanceCommitment,
 		DecryptableBalance:         m.DecryptableBalance,
 		Proofs:                     proofs,
@@ -626,7 +637,7 @@ func NewMsgWithdrawProto(withdraw *Withdraw) *MsgWithdraw {
 	return &MsgWithdraw{
 		FromAddress:                withdraw.FromAddress,
 		Denom:                      withdraw.Denom,
-		Amount:                     withdraw.Amount,
+		Amount:                     withdraw.Amount.String(),
 		RemainingBalanceCommitment: remainingBalanceCommitment,
 		DecryptableBalance:         withdraw.DecryptableBalance,
 		Proofs:                     proofs,
