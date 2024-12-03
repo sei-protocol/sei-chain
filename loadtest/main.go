@@ -535,7 +535,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 			CtDefaultDenom,
 			sdk.AccAddress(key.PubKey().Address()).String(),
 			account.DecryptableAvailableBalance,
-			1,
+			big.NewInt(1),
 		)
 		if err != nil {
 			panic(fmt.Sprintf("error for senderAddress %s: %s\n", address, err.Error()))
