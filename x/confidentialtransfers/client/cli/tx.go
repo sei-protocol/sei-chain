@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"strconv"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -328,9 +329,9 @@ func makeWithdrawCmd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid denom: %v", err)
 	}
 
-	amount, err := strconv.ParseUint(args[1], 10, 64)
-	if err != nil {
-		return err
+	amount, isValid := new(big.Int).SetString(args[1], 10)
+	if !isValid {
+		return fmt.Errorf("invalid amount: %v", args[1])
 	}
 
 	account, err := getAccount(queryClient, address, denom)

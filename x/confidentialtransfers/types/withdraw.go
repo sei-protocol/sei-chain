@@ -4,7 +4,6 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"math/big"
-	"strconv"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -14,10 +13,10 @@ import (
 )
 
 type Withdraw struct {
-	FromAddress        string `json:"from_address"`
-	Denom              string `json:"denom"`
-	Amount             uint64 `json:"amount"`
-	DecryptableBalance string `json:"decrypted_balance"`
+	FromAddress        string   `json:"from_address"`
+	Denom              string   `json:"denom"`
+	Amount             *big.Int `json:"amount"`
+	DecryptableBalance string   `json:"decrypted_balance"`
 
 	// The Encrypted remaining balance, but re-encrypted from its plaintext form.
 	RemainingBalanceCommitment *elgamal.Ciphertext `json:"remaining_balance_commitment"`
@@ -39,7 +38,7 @@ func NewWithdraw(
 	denom,
 	address,
 	currentDecryptableBalance string,
-	amount uint64) (*Withdraw, error) {
+	amount *big.Int) (*Withdraw, error) {
 	aesKey, err := encryption.GetAESKey(privateKey, denom)
 	if err != nil {
 		return &Withdraw{}, err
@@ -56,11 +55,11 @@ func NewWithdraw(
 		return &Withdraw{}, err
 	}
 
-	if currentBalance < amount {
+	if currentBalance.Cmp(amount) == -1 {
 		return &Withdraw{}, errors.New("insufficient balance")
 	}
 
-	newBalance := currentBalance - amount
+	newBalance := new(big.Int).Sub(currentBalance, amount)
 
 	// Encrypt the new value using the aesKey
 	newDecryptableBalance, err := encryption.EncryptAESGCM(newBalance, aesKey)
@@ -75,7 +74,7 @@ func NewWithdraw(
 	}
 
 	// Create the range proof of the new balance to show that it is greater than 0.
-	rangeProof, err := zkproofs.NewRangeProof(64, int(newBalance), randomness)
+	rangeProof, err := zkproofs.NewRangeProof(128, newBalance, randomness)
 	if err != nil {
 		return &Withdraw{}, err
 	}
@@ -86,8 +85,7 @@ func NewWithdraw(
 		return &Withdraw{}, err
 	}
 
-	bigIntNewBalance := new(big.Int).SetUint64(newBalance)
-	newBalanceScalar, err := curves.ED25519().Scalar.SetBigInt(bigIntNewBalance)
+	newBalanceScalar, err := curves.ED25519().Scalar.SetBigInt(newBalance)
 	if err != nil {
 		return &Withdraw{}, err
 	}
@@ -133,7 +131,7 @@ func (r *Withdraw) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.Priv
 			return &WithdrawDecrypted{}, err
 		}
 
-		availableBalanceString = strconv.FormatUint(decryptedRemainingBalance, 10)
+		availableBalanceString = decryptedRemainingBalance.String()
 	}
 
 	decryptableAvailableBalance, err := encryption.DecryptAESGCM(r.DecryptableBalance, aesKey)
@@ -144,8 +142,8 @@ func (r *Withdraw) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.Priv
 	return &WithdrawDecrypted{
 		FromAddress:                r.FromAddress,
 		Denom:                      r.Denom,
-		Amount:                     r.Amount,
-		DecryptableBalance:         decryptableAvailableBalance,
+		Amount:                     r.Amount.String(),
+		DecryptableBalance:         decryptableAvailableBalance.String(),
 		RemainingBalanceCommitment: availableBalanceString,
 		Proofs:                     NewWithdrawMsgProofs(r.Proofs),
 	}, nil

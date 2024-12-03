@@ -2,8 +2,7 @@ package types
 
 import (
 	"crypto/ecdsa"
-	"errors"
-	"strconv"
+	"math/big"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
@@ -61,12 +60,7 @@ func NewApplyPendingBalance(
 	pendingBalance := utils.CombinePendingBalances(loBalance, hiBalance)
 
 	// Sum the balances to get the new available balance
-	newDecryptedAvailableBalance := currentBalance + pendingBalance
-
-	// Check for overflow: if the sum is less than one of the operands, an overflow has occurred.
-	if newDecryptedAvailableBalance < currentBalance {
-		return nil, errors.New("addition overflow: total balance exceeds uint64")
-	}
+	newDecryptedAvailableBalance := new(big.Int).Add(currentBalance, pendingBalance)
 
 	// Encrypt the new available balance
 	newDecryptableAvailableBalance, err := encryption.EncryptAESGCM(newDecryptedAvailableBalance, aesKey)
@@ -106,7 +100,7 @@ func (r *ApplyPendingBalance) Decrypt(decryptor *elgamal.TwistedElGamal, privKey
 			return &ApplyPendingBalanceDecrypted{}, err
 		}
 
-		availableBalanceString = strconv.FormatUint(decryptedRemainingBalance, 10)
+		availableBalanceString = decryptedRemainingBalance.String()
 	}
 
 	decryptableAvailableBalance, err := encryption.DecryptAESGCM(r.NewDecryptableAvailableBalance, aesKey)
@@ -117,7 +111,7 @@ func (r *ApplyPendingBalance) Decrypt(decryptor *elgamal.TwistedElGamal, privKey
 	return &ApplyPendingBalanceDecrypted{
 		Address:                        r.Address,
 		Denom:                          r.Denom,
-		NewDecryptableAvailableBalance: decryptableAvailableBalance,
+		NewDecryptableAvailableBalance: decryptableAvailableBalance.String(),
 		CurrentPendingBalanceCounter:   r.CurrentPendingBalanceCounter,
 		CurrentAvailableBalance:        availableBalanceString,
 	}, nil

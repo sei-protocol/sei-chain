@@ -3,6 +3,8 @@ package keeper_test
 import (
 	"crypto/ecdsa"
 	"fmt"
+	"math/big"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
@@ -30,8 +32,8 @@ func (suite *KeeperTestSuite) TestGenesisExportImportState() {
 	testDenom1 := fmt.Sprintf("factory/%s/TEST1", addr1.String())
 	testDenom2 := fmt.Sprintf("factory/%s/TEST2", addr2.String())
 
-	ctAcc1 := generateCtAccount(pk1, testDenom1, 1000)
-	ctAcc2 := generateCtAccount(pk2, testDenom2, 2000)
+	ctAcc1 := generateCtAccount(pk1, testDenom1, big.NewInt(1000))
+	ctAcc2 := generateCtAccount(pk2, testDenom2, big.NewInt(2000))
 
 	accounts := []types.GenesisCtAccount{
 		{
@@ -54,14 +56,14 @@ func (suite *KeeperTestSuite) TestGenesisExportImportState() {
 	suite.Require().Equal(genesisState, exportedGenesis)
 }
 
-func generateCtAccount(pk *ecdsa.PrivateKey, testDenom string, balance uint64) types.CtAccount {
+func generateCtAccount(pk *ecdsa.PrivateKey, testDenom string, balance *big.Int) types.CtAccount {
 	eg := elgamal.NewTwistedElgamal()
 	keyPair, _ := eg.KeyGen(*pk, testDenom)
 
 	aesPK1, _ := encryption.GetAESKey(*pk, testDenom)
 
-	amountLo := uint64(100)
-	amountHi := uint64(0)
+	amountLo := big.NewInt(100)
+	amountHi := big.NewInt(0)
 
 	decryptableBalance, _ := encryption.EncryptAESGCM(balance, aesPK1)
 
