@@ -2,7 +2,6 @@ package keeper_test
 
 import (
 	"fmt"
-
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -51,10 +50,9 @@ func (suite *KeeperTestSuite) TestMsgCreateDenom() {
 }
 
 func (suite *KeeperTestSuite) TestCreateDenom() {
-	largeAllowList := make([]string, 2001)
-	for i := 0; i < 2001; i++ {
-		largeAllowList[i] = suite.TestAccs[i%len(suite.TestAccs)].String()
-	}
+	params, _ := suite.queryClient.Params(suite.Ctx.Context(), &types.QueryParamsRequest{})
+	allowListSize := params.Params.DenomAllowlistMaxSize
+	largeAllowList := make([]string, allowListSize+1)
 	for _, tc := range []struct {
 		desc      string
 		setup     func()
@@ -156,10 +154,9 @@ func (suite *KeeperTestSuite) TestCreateDenom() {
 }
 
 func (suite *KeeperTestSuite) TestUpdateDenom() {
-	largeAllowList := make([]string, 2001)
-	for i := 0; i < 2001; i++ {
-		largeAllowList[i] = suite.TestAccs[0].String()
-	}
+	params, _ := suite.queryClient.Params(suite.Ctx.Context(), &types.QueryParamsRequest{})
+	allowListSize := params.Params.DenomAllowlistMaxSize
+	largeAllowList := make([]string, allowListSize+1)
 	for _, tc := range []struct {
 		desc      string
 		setup     func()

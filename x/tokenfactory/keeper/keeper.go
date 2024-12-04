@@ -82,8 +82,8 @@ func (k Keeper) CreateModuleAccount(ctx sdk.Context) {
 	k.accountKeeper.SetModuleAccount(ctx, moduleAcc)
 }
 
-func (k Keeper) GetDenomAllowListMaxSize(ctx sdk.Context) int32 {
-	var demomAllowListMaxSize int32
-	k.paramSpace.Get(ctx, types.DenomAllowListMaxSizeKey, &demomAllowListMaxSize)
-	return demomAllowListMaxSize
+func (k Keeper) GetDenomAllowListMaxSize(ctx sdk.Context) uint32 {
+	var denomAllowListMaxSize uint32
+	k.paramSpace.Get(ctx, types.DenomAllowListMaxSizeKey, &denomAllowListMaxSize)
+	return denomAllowListMaxSize
 }

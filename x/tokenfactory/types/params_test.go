@@ -30,7 +30,7 @@ func TestDefaultParams(t *testing.T) {
 
 func TestParams_Validate(t *testing.T) {
 	type fields struct {
-		DenomAllowlistMaxSize int32
+		DenomAllowlistMaxSize uint32
 	}
 	tests := []struct {
 		name    string
@@ -44,14 +44,6 @@ func TestParams_Validate(t *testing.T) {
 				DenomAllowlistMaxSize: 2000,
 			},
 			wantErr: false,
-		},
-		{
-			name: "invalid params",
-			fields: fields{
-				DenomAllowlistMaxSize: -1,
-			},
-			wantErr: true,
-			errMsg:  "denom allowlist max size must be a non-negative integer",
 		},
 	}
 	for _, tt := range tests {
@@ -83,7 +75,7 @@ func Test_validateDenomAllowListMaxSize(t *testing.T) {
 		{
 			name: "valid denom allowlist max size",
 			args: args{
-				i: int32(2000),
+				i: uint32(2000),
 			},
 			wantErr: false,
 		},
@@ -93,7 +85,7 @@ func Test_validateDenomAllowListMaxSize(t *testing.T) {
 				i: int32(-1),
 			},
 			wantErr: true,
-			errMsg:  "denom allowlist max size must be a non-negative integer",
+			errMsg:  "invalid parameter type: int32",
 		},
 		{
 			name: "invalid denom allowlist large int value",
@@ -127,9 +119,9 @@ func Test_validateDenomAllowListMaxSize(t *testing.T) {
 
 func TestParams_ParamSetPairs(t *testing.T) {
 	type fields struct {
-		DenomAllowlistMaxSize int32
+		DenomAllowlistMaxSize uint32
 	}
-	allowListSize := int32(20)
+	allowListSize := uint32(20)
 	params := &Params{DenomAllowlistMaxSize: allowListSize}
 	tests := []struct {
 		name   string

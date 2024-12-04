@@ -5,5 +5,5 @@ option go_package = "github.com/sei-protocol/sei-chain/x/tokenfactory/types";
 
 // Params defines the parameters for the tokenfactory module.
 message Params {
-  int32 denom_allowlist_max_size = 1;
+  uint32 denom_allowlist_max_size = 1;
 }

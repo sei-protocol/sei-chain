@@ -6,7 +6,8 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
-const DenomAllowListMaxSize = 2000
+// DefaultDenomAllowListMaxSize default denom allowlist max size and can be overridden by governance proposal.
+const DefaultDenomAllowListMaxSize = 2000
 
 // ParamKeyTable ParamTable for tokenfactory module.
 func ParamKeyTable() paramtypes.KeyTable {
@@ -16,7 +17,7 @@ func ParamKeyTable() paramtypes.KeyTable {
 // DefaultParams default tokenfactory module parameters.
 func DefaultParams() Params {
 	return Params{
-		DenomAllowlistMaxSize: DenomAllowListMaxSize,
+		DenomAllowlistMaxSize: DefaultDenomAllowListMaxSize,
 	}
 }
 
@@ -37,13 +38,9 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 
 // validateDenomAllowListMaxSize validates a parameter value is within a valid range.
 func validateDenomAllowListMaxSize(i interface{}) error {
-	val, ok := i.(int32)
+	_, ok := i.(uint32)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
-	if val < 0 {
-		return fmt.Errorf("denom allowlist max size must be a non-negative integer")
-	}
-
 	return nil
 }
