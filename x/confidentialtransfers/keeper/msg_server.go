@@ -502,7 +502,7 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	if multiplier > 1 {
 		ctx.GasMeter().ConsumeGas(gasSoFar*uint64(multiplier-1), "range proof verification")
 	}
-	
+
 	// Emit any required events
 	ctx.EventManager().EmitEvents(sdk.Events{
 		sdk.NewEvent(
