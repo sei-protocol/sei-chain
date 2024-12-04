@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"sort"
 	"sync"
 	"time"
 
@@ -315,7 +317,17 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	if begin > end {
 		return nil, 0, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
 	}
-	blockHeights := f.FindBlockesByBloom(begin, end, bloomIndexes)
+
+	var blockHeights []int64
+	if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
+		blockHeights = f.FindBlocksByBloom(begin, end, bloomIndexes)
+	} else {
+		blockHeights = make([]int64, end-begin+1)
+		for i := range blockHeights {
+			blockHeights[i] = begin + int64(i)
+		}
+	}
+
 	wg := sync.WaitGroup{}
 	res = []*ethtypes.Log{}
 	defer func() {
@@ -357,19 +369,57 @@ func (f *LogFetcher) GetLogsForBlock(ctx context.Context, block *coretypes.Resul
 	return matchedLogs
 }
 
-func (f *LogFetcher) FindBlockesByBloom(begin, end int64, filters [][]bloomIndexes) (res []int64) {
-	//TODO: parallelize
-	for height := begin; height <= end; height++ {
-		if height == 0 {
-			// no block bloom on genesis height
-			continue
-		}
-		ctx := f.ctxProvider(height)
-		blockBloom := f.k.GetBlockBloom(ctx)
-		if MatchFilters(blockBloom, filters) {
-			res = append(res, height)
+func (f *LogFetcher) FindBlocksByBloom(begin, end int64, filters [][]bloomIndexes) (res []int64) {
+	numWorkers := int(math.Min(100, float64(end-begin)))
+	var wg sync.WaitGroup
+	tasks := make(chan int64, end-begin+1)
+	results := make(chan int64, end-begin+1)
+
+	// Worker function
+	worker := func() {
+		defer wg.Done()
+		for height := range tasks {
+			if height == 0 {
+				continue // Skip genesis height
+			}
+			ctx := f.ctxProvider(height)
+			blockBloom := f.k.GetBlockBloom(ctx)
+			if MatchFilters(blockBloom, filters) {
+				results <- height
+			}
 		}
 	}
+
+	// Start workers
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go worker()
+	}
+
+	// Send tasks
+	go func() {
+		for height := begin; height <= end; height++ {
+			tasks <- height
+		}
+		close(tasks) // Close the tasks channel to signal workers
+	}()
+
+	// Collect results
+	go func() {
+		wg.Wait()
+		close(results) // Close the results channel after workers finish
+	}()
+
+	// Aggregate results into the final slice
+	for result := range results {
+		res = append(res, result)
+	}
+
+	// Sorting in ascending order
+	sort.Slice(res, func(i, j int) bool {
+		return res[i] < res[j]
+	})
+
 	return
 }
 
