@@ -125,6 +125,13 @@ func queryAccount(cmd *cobra.Command, args []string) error {
 			return err
 		}
 
+		if decryptAvailableBalance {
+			err = clientCtx.PrintString("--decrypt-available-balance set to true. This operation could take a long time and may not succeed even if the private key provided is valid\n")
+			if err != nil {
+				return err
+			}
+		}
+
 		decryptedAccount, err := account.Decrypt(decryptor, keyPair, aesKey, decryptAvailableBalance)
 		if err != nil {
 			return err
