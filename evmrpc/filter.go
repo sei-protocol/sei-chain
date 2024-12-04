@@ -292,7 +292,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		if err != nil {
 			return nil, 0, err
 		}
-		return f.GetLogsForBlock(ctx, block, crit, bloomIndexes), block.Block.Height, nil
+		return f.GetLogsForBlock(block, crit, bloomIndexes), block.Block.Height, nil
 	}
 	applyOpenEndedLogLimit := f.filterConfig.maxLog > 0 && (crit.FromBlock == nil || crit.ToBlock == nil)
 	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
@@ -318,74 +318,47 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		return nil, 0, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
 	}
 
-	var blockHeights []int64
-	if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
-		blockHeights = f.FindBlocksByBloom(begin, end, bloomIndexes)
-	} else {
-		blockHeights = make([]int64, end-begin+1)
-		for i := range blockHeights {
-			blockHeights[i] = begin + int64(i)
-		}
-	}
-
-	wg := sync.WaitGroup{}
+	// Parallelize execution
+	numWorkers := int(math.Min(100, float64(end-begin)))
+	var wg sync.WaitGroup
+	tasksChan := make(chan int64, end-begin+1)
+	resultsChan := make(chan *ethtypes.Log, end-begin+1)
 	res = []*ethtypes.Log{}
 	defer func() {
 		if e := recover(); e != nil {
 			err = fmt.Errorf("%s", e)
 		}
 	}()
-	slots := make([][]*ethtypes.Log, len(blockHeights))
-	for i, height := range blockHeights {
-		wg.Add(1)
-		h := height
-		i := i
-		go func() {
-			defer wg.Done()
-			block, err := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
-			if err != nil {
-				panic(err)
+	// Send tasks
+	go func() {
+		for height := begin; height <= end; height++ {
+			if height == 0 {
+				continue // Skip genesis height
 			}
-			slots[i] = f.GetLogsForBlock(ctx, block, crit, bloomIndexes)
-		}()
-	}
-	wg.Wait()
-	for _, logs := range slots {
-		res = append(res, logs...)
-	}
-	if applyOpenEndedLogLimit && int64(len(res)) >= f.filterConfig.maxLog {
-		res = res[:int(f.filterConfig.maxLog)]
-	}
-
-	return res, end, nil
-}
-
-func (f *LogFetcher) GetLogsForBlock(ctx context.Context, block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes) []*ethtypes.Log {
-	possibleLogs := f.FindLogsByBloom(block, filters)
-	matchedLogs := utils.Filter(possibleLogs, func(l *ethtypes.Log) bool { return f.IsLogExactMatch(l, crit) })
-	for _, l := range matchedLogs {
-		l.BlockHash = common.Hash(block.BlockID.Hash)
-	}
-	return matchedLogs
-}
-
-func (f *LogFetcher) FindBlocksByBloom(begin, end int64, filters [][]bloomIndexes) (res []int64) {
-	numWorkers := int(math.Min(100, float64(end-begin)))
-	var wg sync.WaitGroup
-	tasks := make(chan int64, end-begin+1)
-	results := make(chan int64, end-begin+1)
+			tasksChan <- height
+		}
+		close(tasksChan) // Close the tasks channel to signal workers
+	}()
 
 	// Worker function
 	worker := func() {
 		defer wg.Done()
-		for height := range tasks {
-			if height == 0 {
-				continue // Skip genesis height
+		for height := range tasksChan {
+			if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
+				providerCtx := f.ctxProvider(height)
+				blockBloom := f.k.GetBlockBloom(providerCtx)
+				if !MatchFilters(blockBloom, bloomIndexes) {
+					continue
+				}
 			}
-			ctx := f.ctxProvider(height)
-			blockBloom := f.k.GetBlockBloom(ctx)
-			if MatchFilters(blockBloom, filters) {
-				results <- height
+			h := height
+			block, berr := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
+			if berr != nil {
+				panic(berr)
+			}
+			matchedLogs := f.GetLogsForBlock(block, crit, bloomIndexes)
+			for _, log := range matchedLogs {
+				resultsChan <- log
 			}
 		}
 	}
@@ -396,29 +369,45 @@ func (f *LogFetcher) FindBlocksByBloom(begin, end int64, filters [][]bloomIndexe
 		go worker()
 	}
 
-	// Send tasks
-	go func() {
-		for height := begin; height <= end; height++ {
-			tasks <- height
-		}
-		close(tasks) // Close the tasks channel to signal workers
-	}()
-
 	// Collect results
 	go func() {
 		wg.Wait()
-		close(results) // Close the results channel after workers finish
+		close(resultsChan) // Close the results channel after workers finish
 	}()
+
+	// Aggregate results into the final slice
+	for result := range resultsChan {
+		res = append(res, result)
+	}
+
+	// Sorting res in ascending order
+	sort.Slice(res, func(i, j int) bool {
+		return res[i].BlockNumber < res[j].BlockNumber
+	})
+
+	// Apply rate limit
+	if applyOpenEndedLogLimit && int64(len(res)) >= f.filterConfig.maxLog {
+		res = res[:int(f.filterConfig.maxLog)]
+	}
+
+	return res, end, nil
+}
+
+func (f *LogFetcher) GetLogsForBlock(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes) []*ethtypes.Log {
+	possibleLogs := f.FindLogsByBloom(block, filters)
+	matchedLogs := utils.Filter(possibleLogs, func(l *ethtypes.Log) bool { return f.IsLogExactMatch(l, crit) })
+	for _, l := range matchedLogs {
+		l.BlockHash = common.Hash(block.BlockID.Hash)
+	}
+	return matchedLogs
+}
+
+func (f *LogFetcher) FindBlocksByBloom(begin, end int64, filters [][]bloomIndexes) (res []int64) {
 
 	// Aggregate results into the final slice
 	for result := range results {
 		res = append(res, result)
 	}
-
-	// Sorting in ascending order
-	sort.Slice(res, func(i, j int) bool {
-		return res[i] < res[j]
-	})
 
 	return
 }
