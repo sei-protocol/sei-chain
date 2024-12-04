@@ -28,6 +28,7 @@ func (p *Params) Validate() error {
 func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyEnableFeature, &p.EnableFeature, validateEnableFeature),
+		paramtypes.NewParamSetPair(KeyRangeProofGas, &p.RangeProofGasMultiplier, validateRangeProofGasMultiplier),
 	}
 }
 
@@ -36,6 +37,19 @@ func validateEnableFeature(i interface{}) error {
 	_, ok := i.(bool)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+	return nil
+}
+
+// Validator for the parameter.
+func validateRangeProofGasMultiplier(i interface{}) error {
+	multiplier, ok := i.(uint32)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+
+	if multiplier < 1 {
+		return fmt.Errorf("range proof gas multiplier must be greater than 0")
 	}
 	return nil
 }
