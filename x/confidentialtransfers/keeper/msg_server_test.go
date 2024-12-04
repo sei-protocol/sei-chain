@@ -251,6 +251,28 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountAlternateHappyPaths
 	suite.Require().True(exists, "Account should exist after successful initialization")
 }
 
+// Tests that the InitializeAccount method fails when the feature is disabled.
+func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountFeatureDisabled() {
+	testPk := suite.PrivKeys[0]
+
+	// Generate the address from the private key
+	testAddr := privkeyToAddress(testPk)
+
+	// Disable the confidential tokens module via params
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+	params := types.DefaultParams()
+	params.EnableFeature = false
+	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
+
+	initialize, err := types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
+	req := types.NewMsgInitializeAccountProto(initialize)
+	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
+
+	// Test that submitting an initialization request while module is disabled will fail.
+	suite.Require().Error(err, "Should not be able to initialize when feature is disabled")
+	suite.Require().ErrorContains(err, "feature is disabled by governance")
+}
+
 /// DEPOSIT TESTS
 
 // Tests the Deposit method of the MsgServer.
@@ -456,6 +478,38 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositTooManyPendingBalances() {
 	suite.Require().ErrorContains(err, "account has too many pending transactions")
 }
 
+// Tests that the Deposit method fails when the feature is disabled.
+func (suite *KeeperTestSuite) TestMsgServer_DepositFeatureDisabled() {
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	testPk := suite.PrivKeys[0]
+
+	// Generate the address from the private key
+	testAddr := privkeyToAddress(testPk)
+
+	// Initialize an account
+	bankModuleInitialAmount := uint64(1000)
+	_, _ = suite.SetupAccountState(testPk, DefaultTestDenom, 50, big.NewInt(1000000), big.NewInt(8000), new(big.Int).SetUint64(bankModuleInitialAmount))
+
+	// Create a struct where the deposit amount is greater than a 48 bit number
+	depositStruct := types.MsgDeposit{
+		FromAddress: testAddr.String(),
+		Denom:       DefaultTestDenom,
+		Amount:      100,
+	}
+
+	// Disable the confidential tokens module via params
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+	params := types.DefaultParams()
+	params.EnableFeature = false
+	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
+
+	// Test that submitting an deposit request while module is disabled will fail.
+	_, err := suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), &depositStruct)
+	suite.Require().Error(err, "Should not be able to deposit when feature is disabled")
+	suite.Require().ErrorContains(err, "feature is disabled by governance")
+}
+
 // WITHDRAW TESTS
 
 // Tests the Withdraw method of the MsgServer.
@@ -628,7 +682,7 @@ func (suite *KeeperTestSuite) TestMsgServer_RepeatWithdraw() {
 	suite.Require().ErrorContains(err, "ciphertext commitment equality verification failed")
 }
 
-// Tetst the scenario where
+// Test the scenario where the decryptable balance was modified and the user tries to withdraw.
 func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
 
@@ -703,6 +757,43 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 	_, err = suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().NoError(err, "Should not have error withdrawing since decryptable balance is no longer corrupted")
 }
+
+// Test that we cannot withdraw when the feature is disabled
+func (suite *KeeperTestSuite) TestMsgServer_WithdrawFeatureDisabled() {
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	testPk := suite.PrivKeys[0]
+	testAddr := privkeyToAddress(testPk)
+
+	// Fund the module account
+	initialModuleBalance := int64(1000000000000)
+	suite.FundAcc(suite.TestAccs[0], sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(initialModuleBalance))))
+
+	_ = suite.App.BankKeeper.SendCoinsFromAccountToModule(suite.Ctx, suite.TestAccs[0], types.ModuleName, sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(1000000000000))))
+
+	// Initialize an account
+	initialAvailableBalance := big.NewInt(1000000)
+	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 50, initialAvailableBalance, big.NewInt(8000), big.NewInt(1000000000000))
+
+	// Create a withdraw request
+	withdrawAmount := new(big.Int).Div(initialAvailableBalance, big.NewInt(5))
+	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
+
+	// Disable the confidential tokens module via params
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+	params := types.DefaultParams()
+	params.EnableFeature = false
+	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
+
+	req := types.NewMsgWithdrawProto(withdrawStruct)
+
+	// Test that submitting an withdraw request while module is disabled will fail.
+	_, err := suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().Error(err, "Should not be able to withdraw when feature is disabled")
+	suite.Require().ErrorContains(err, "feature is disabled by governance")
+}
+
+// CLOSE ACCOUNT TESTS
 
 // Tests the CloseAccount method of the MsgServer.
 func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHappyPath() {
@@ -798,6 +889,44 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHasAvailableBalance() {
 	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 	suite.Require().True(exists, "Account should still exist")
 }
+
+// Test that accounts cannot be closed while the feature is disabled
+func (suite *KeeperTestSuite) TestMsgServer_CloseAccountFeatureDisabled() {
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	testPk := suite.PrivKeys[0]
+	testAddr := privkeyToAddress(testPk)
+
+	// Initialize an account
+	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 0, big.NewInt(0), big.NewInt(0), big.NewInt(0))
+
+	// Create a close account request
+	closeAccountStruct, _ := types.NewCloseAccount(
+		*testPk,
+		testAddr.String(),
+		DefaultTestDenom,
+		initialState.PendingBalanceLo,
+		initialState.PendingBalanceHi,
+		initialState.AvailableBalance)
+
+	// Disable the confidential tokens module via params
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+	params := types.DefaultParams()
+	params.EnableFeature = false
+	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
+
+	// Execute the close account. This should fail as the module is disabled.
+	req := types.NewMsgCloseAccountProto(closeAccountStruct)
+	_, err := suite.msgServer.CloseAccount(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().Error(err, "Should not be able to close when feature is disabled")
+	suite.Require().ErrorContains(err, "feature is disabled by governance")
+
+	// Check that the account still exists
+	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
+	suite.Require().True(exists, "Account should still exist")
+}
+
+// APPLY PENDING BALANCES TESTS
 
 // Tests the ApplyPendingBalance method of the MsgServer.
 func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalance() {
@@ -971,6 +1100,45 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceNoPendingBalances
 	suite.Require().Error(err, "Should have error applying pending balance on account that doesn't exist")
 	suite.Require().ErrorContains(err, "account does not exist")
 }
+
+// Tests that balances cannot be applied while feature is disabled
+func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceFeatureDisabled() {
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	testPk := suite.PrivKeys[0]
+	testAddr := privkeyToAddress(testPk)
+
+	// Initialize an account
+	initialAvailableBalance := big.NewInt(2000)
+	initialPendingBalance := big.NewInt(100000)
+	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 10, initialAvailableBalance, initialPendingBalance, big.NewInt(1000))
+
+	// Create an apply pending balance request
+	applyPendingBalance, _ := types.NewApplyPendingBalance(
+		*testPk,
+		testAddr.String(),
+		DefaultTestDenom,
+		initialState.DecryptableAvailableBalance,
+		initialState.PendingBalanceCreditCounter,
+		initialState.AvailableBalance,
+		initialState.PendingBalanceLo,
+		initialState.PendingBalanceHi)
+
+	req := types.NewMsgApplyPendingBalanceProto(applyPendingBalance)
+
+	// Disable the confidential tokens module via params
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+	params := types.DefaultParams()
+	params.EnableFeature = false
+	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
+
+	// Execute the apply pending balance. This should have an error as the module is disabled
+	_, err := suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().Error(err, "Should not be able to apply balances when feature is disabled")
+	suite.Require().ErrorContains(err, "feature is disabled by governance")
+}
+
+// TRANSFER TESTS
 
 func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
@@ -1324,4 +1492,50 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferDifferentAmounts() {
 	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should still fail equality proof since transfer amount ciphertexts encode different values.")
 	suite.Require().ErrorContains(err, "ciphertext ciphertext equality verification on transfer amount lo failed")
+}
+
+func (suite *KeeperTestSuite) TestMsgServer_TransferFeatureDisabled() {
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	// Setup the accounts used for the test
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+	recipientPk := suite.PrivKeys[1]
+	recipientAddr := privkeyToAddress(recipientPk)
+	auditorPk := suite.PrivKeys[2]
+	auditorAddr := privkeyToAddress(auditorPk)
+
+	// Initialize an account
+	initialSenderState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 10, big.NewInt(2000), big.NewInt(3000), big.NewInt(1000))
+	initialRecipientState, _ := suite.SetupAccountState(recipientPk, DefaultTestDenom, 12, big.NewInt(5000), big.NewInt(21000), big.NewInt(201000))
+	initialAuditorState, _ := suite.SetupAccountState(auditorPk, DefaultTestDenom, 12, big.NewInt(5000), big.NewInt(21000), big.NewInt(201000))
+
+	transferAmount := uint64(500)
+
+	// Happy Path
+	auditorsInput := []types.AuditorInput{{auditorAddr.String(), &initialAuditorState.PublicKey}}
+	transferStruct, err := types.NewTransfer(
+		senderPk,
+		senderAddr.String(),
+		recipientAddr.String(),
+		DefaultTestDenom,
+		initialSenderState.DecryptableAvailableBalance,
+		initialSenderState.AvailableBalance,
+		transferAmount,
+		&initialRecipientState.PublicKey,
+		auditorsInput)
+	suite.Require().NoError(err, "Should not have error creating valid transfer struct")
+
+	req := types.NewMsgTransferProto(transferStruct)
+
+	// Disable the confidential tokens module via params
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+	params := types.DefaultParams()
+	params.EnableFeature = false
+	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
+
+	// Execute the transfer. This should have an error as the module is disabled
+	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().Error(err, "Should not be able to transfer when feature is disabled")
+	suite.Require().ErrorContains(err, "feature is disabled by governance")
 }
