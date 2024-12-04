@@ -80,7 +80,7 @@ func TestMigrate2to3(t *testing.T) {
 func TestMigrate3To4(t *testing.T) {
 	// Test migration with all metadata denom
 	metadata := banktypes.Metadata{Description: sdk.DefaultBondDenom, Base: sdk.DefaultBondDenom, Display: sdk.DefaultBondDenom, Name: sdk.DefaultBondDenom, Symbol: sdk.DefaultBondDenom}
-	keeper := NewKeeper(nil, nil, typesparams.Subspace{}, nil, nil, nil)
+	_, keeper := getStoreAndKeeper(t)
 	m := NewMigrator(keeper)
 	m.SetMetadata(&metadata)
 	require.Equal(t, sdk.DefaultBondDenom, metadata.Display)
@@ -93,4 +93,39 @@ func TestMigrate3To4(t *testing.T) {
 	require.Equal(t, testDenom, metadata.Display)
 	require.Equal(t, testDenom, metadata.Name)
 	require.Equal(t, testDenom, metadata.Symbol)
+}
+
+func TestMigrate4To5(t *testing.T) {
+	stateStore, keeper := getStoreAndKeeper(t)
+	m := NewMigrator(keeper)
+	ctx := sdk.NewContext(stateStore, tmproto.Header{}, false, log.NewNopLogger())
+	err := m.Migrate4to5(ctx)
+	require.NoError(t, err)
+	require.NotPanics(t, func() { m.keeper.GetParams(ctx) })
+	params := m.keeper.GetParams(ctx)
+	require.Equal(t, types.DefaultParams(), params)
+}
+
+func getStoreAndKeeper(t *testing.T) (store.CommitMultiStore, Keeper) {
+	storeKey := sdk.NewKVStoreKey(types.StoreKey)
+	bankStoreKey := sdk.NewKVStoreKey(banktypes.StoreKey)
+	memStoreKey := storetypes.NewMemoryStoreKey(types.MemStoreKey)
+
+	db := tmdb.NewMemDB()
+	stateStore := store.NewCommitMultiStore(db)
+	stateStore.MountStoreWithDB(storeKey, sdk.StoreTypeIAVL, db)
+	stateStore.MountStoreWithDB(bankStoreKey, sdk.StoreTypeIAVL, db)
+	stateStore.MountStoreWithDB(memStoreKey, sdk.StoreTypeMemory, nil)
+	require.NoError(t, stateStore.LoadLatestVersion())
+
+	registry := codectypes.NewInterfaceRegistry()
+	cdc := codec.NewProtoCodec(registry)
+
+	paramsSubspace := typesparams.NewSubspace(cdc,
+		codec.NewLegacyAmino(),
+		storeKey,
+		memStoreKey,
+		"TokenfactoryParams",
+	)
+	return stateStore, NewKeeper(nil, nil, paramsSubspace, nil, nil, nil)
 }

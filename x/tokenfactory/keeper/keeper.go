@@ -15,8 +15,6 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
-const DenomAllowListMaxSize = 2000
-
 type (
 	Keeper struct {
 		storeKey sdk.StoreKey
@@ -82,4 +80,10 @@ func (k Keeper) GetCreatorsPrefixStore(ctx sdk.Context) sdk.KVStore {
 func (k Keeper) CreateModuleAccount(ctx sdk.Context) {
 	moduleAcc := authtypes.NewEmptyModuleAccount(types.ModuleName, authtypes.Minter, authtypes.Burner)
 	k.accountKeeper.SetModuleAccount(ctx, moduleAcc)
+}
+
+func (k Keeper) GetDenomAllowListMaxSize(ctx sdk.Context) int32 {
+	var demomAllowListMaxSize int32
+	k.paramSpace.Get(ctx, types.DenomAllowListMaxSizeKey, &demomAllowListMaxSize)
+	return demomAllowListMaxSize
 }

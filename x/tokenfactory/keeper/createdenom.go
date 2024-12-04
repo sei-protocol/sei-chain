@@ -79,7 +79,7 @@ func (k Keeper) validateUpdateDenom(ctx sdk.Context, msg *types.MsgUpdateDenom) 
 		return "", types.ErrDenomDoesNotExist.Wrapf("denom: %s", msg.GetDenom())
 	}
 
-	err = k.validateAllowList(msg.AllowList)
+	err = k.validateAllowList(ctx, msg.AllowList)
 	if err != nil {
 		return "", err
 	}
@@ -87,19 +87,19 @@ func (k Keeper) validateUpdateDenom(ctx sdk.Context, msg *types.MsgUpdateDenom) 
 	return msg.GetDenom(), nil
 }
 
-func (k Keeper) validateAllowListSize(allowList *banktypes.AllowList) error {
+func (k Keeper) validateAllowListSize(ctx sdk.Context, allowList *banktypes.AllowList) error {
 	if allowList == nil {
 		return types.ErrAllowListUndefined
 	}
 
-	if len(allowList.Addresses) > DenomAllowListMaxSize {
+	if len(allowList.Addresses) > int(k.GetDenomAllowListMaxSize(ctx)) {
 		return types.ErrAllowListTooLarge
 	}
 	return nil
 }
 
-func (k Keeper) validateAllowList(allowList *banktypes.AllowList) error {
-	err := k.validateAllowListSize(allowList)
+func (k Keeper) validateAllowList(ctx sdk.Context, allowList *banktypes.AllowList) error {
+	err := k.validateAllowListSize(ctx, allowList)
 	if err != nil {
 		return err
 	}
