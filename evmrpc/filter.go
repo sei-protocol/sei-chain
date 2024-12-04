@@ -25,6 +25,8 @@ import (
 
 const TxSearchPerPage = 10
 
+const MaxNumOfWorkers = 500
+
 type FilterType byte
 
 const (
@@ -319,7 +321,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}
 
 	// Parallelize execution
-	numWorkers := int(math.Min(100, float64(end-begin)))
+	numWorkers := int(math.Min(MaxNumOfWorkers, float64(end-begin)))
 	var wg sync.WaitGroup
 	tasksChan := make(chan int64, end-begin+1)
 	resultsChan := make(chan *ethtypes.Log, end-begin+1)
@@ -400,16 +402,6 @@ func (f *LogFetcher) GetLogsForBlock(block *coretypes.ResultBlock, crit filters.
 		l.BlockHash = common.Hash(block.BlockID.Hash)
 	}
 	return matchedLogs
-}
-
-func (f *LogFetcher) FindBlocksByBloom(begin, end int64, filters [][]bloomIndexes) (res []int64) {
-
-	// Aggregate results into the final slice
-	for result := range results {
-		res = append(res, result)
-	}
-
-	return
 }
 
 func (f *LogFetcher) FindLogsByBloom(block *coretypes.ResultBlock, filters [][]bloomIndexes) (res []*ethtypes.Log) {
