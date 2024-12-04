@@ -152,7 +152,8 @@ func TestParams_ParamSetPairs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := params
 			got := p.ParamSetPairs()
-			if len(got) != len(tt.want) || !bytes.Equal(got[0].Key, tt.want[0].Key) || got[0].Value != tt.want[0].Value ||
+			if len(got) != len(tt.want) || !bytes.Equal(got[0].Key, tt.want[0].Key) ||
+				got[0].Value != tt.want[0].Value ||
 				reflect.ValueOf(got[0].ValidatorFn).Pointer() != reflect.ValueOf(tt.want[0].ValidatorFn).Pointer() {
 				t.Errorf("ParamSetPairs() = %v, want %v", got, tt.want)
 			}
