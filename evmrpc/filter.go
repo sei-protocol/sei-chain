@@ -283,7 +283,7 @@ type LogFetcher struct {
 	includeSyntheticReceipts bool
 }
 
-func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) ([]*ethtypes.Log, int64, error) {
+func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
 	bloomIndexes := EncodeFilters(crit.Addresses, crit.Topics)
 	if crit.BlockHash != nil {
 		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:], 1)
@@ -316,25 +316,40 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		return nil, 0, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
 	}
 	blockHeights := f.FindBlockesByBloom(begin, end, bloomIndexes)
-	res := []*ethtypes.Log{}
-	for _, height := range blockHeights {
+	wg := sync.WaitGroup{}
+	res = []*ethtypes.Log{}
+	defer func() {
+		if e := recover(); e != nil {
+			err = fmt.Errorf("%s", e)
+		}
+	}()
+	slots := make([][]*ethtypes.Log, len(blockHeights))
+	for i, height := range blockHeights {
+		wg.Add(1)
 		h := height
-		block, err := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
-		if err != nil {
-			return nil, 0, err
-		}
-		res = append(res, f.GetLogsForBlock(ctx, block, crit, bloomIndexes)...)
-		if applyOpenEndedLogLimit && int64(len(res)) >= f.filterConfig.maxLog {
-			res = res[:int(f.filterConfig.maxLog)]
-			break
-		}
+		i := i
+		go func() {
+			defer wg.Done()
+			block, err := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
+			if err != nil {
+				panic(err)
+			}
+			slots[i] = f.GetLogsForBlock(ctx, block, crit, bloomIndexes)
+		}()
+	}
+	wg.Wait()
+	for _, logs := range slots {
+		res = append(res, logs...)
+	}
+	if applyOpenEndedLogLimit && int64(len(res)) >= f.filterConfig.maxLog {
+		res = res[:int(f.filterConfig.maxLog)]
 	}
 
 	return res, end, nil
 }
 
 func (f *LogFetcher) GetLogsForBlock(ctx context.Context, block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes) []*ethtypes.Log {
-	possibleLogs := f.FindLogsByBloom(block.Block.Height, filters)
+	possibleLogs := f.FindLogsByBloom(block, filters)
 	matchedLogs := utils.Filter(possibleLogs, func(l *ethtypes.Log) bool { return f.IsLogExactMatch(l, crit) })
 	for _, l := range matchedLogs {
 		l.BlockHash = common.Hash(block.BlockID.Hash)
@@ -358,13 +373,8 @@ func (f *LogFetcher) FindBlockesByBloom(begin, end int64, filters [][]bloomIndex
 	return
 }
 
-func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (res []*ethtypes.Log) {
+func (f *LogFetcher) FindLogsByBloom(block *coretypes.ResultBlock, filters [][]bloomIndexes) (res []*ethtypes.Log) {
 	ctx := f.ctxProvider(LatestCtxHeight)
-	block, err := blockByNumberWithRetry(context.Background(), f.tmClient, &height, 1)
-	if err != nil {
-		fmt.Printf("error getting block when querying logs: %s\n", err)
-		return
-	}
 
 	for _, hash := range getEvmTxHashesFromBlock(block, f.txConfig) {
 		receipt, err := f.k.GetReceipt(ctx, hash)
