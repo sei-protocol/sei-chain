@@ -37,9 +37,12 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 
 // validateDenomAllowListMaxSize validates a parameter value is within a valid range.
 func validateDenomAllowListMaxSize(i interface{}) error {
-	_, ok := i.(int32)
+	val, ok := i.(int32)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+	if val < 0 {
+		return fmt.Errorf("denom allowlist max size must be a non-negative integer")
 	}
 
 	return nil
