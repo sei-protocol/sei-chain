@@ -6,6 +6,12 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 )
 
+// DefaultEnableCtModule is the default value for the EnableCtModule flag.
+const DefaultEnableCtModule = true
+
+// DefaultRangeProofGasMultiplier is the default value for RangeProofGasMultiplier param.
+const DefaultRangeProofGasMultiplier = uint32(10)
+
 // ParamKeyTable ParamTable for confidential transfers module.
 func ParamKeyTable() paramtypes.KeyTable {
 	return paramtypes.NewKeyTable().RegisterParamSet(&Params{})
@@ -14,7 +20,7 @@ func ParamKeyTable() paramtypes.KeyTable {
 // DefaultParams default confidential transfers module parameters.
 func DefaultParams() Params {
 	return Params{
-		EnableFeature:           DefaultEnableFeature,
+		EnableCtModule:          DefaultEnableCtModule,
 		RangeProofGasMultiplier: DefaultRangeProofGasMultiplier,
 	}
 }
@@ -27,13 +33,13 @@ func (p *Params) Validate() error {
 // ParamSetPairs Implements params.ParamSet.
 func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
-		paramtypes.NewParamSetPair(KeyEnableFeature, &p.EnableFeature, validateEnableFeature),
+		paramtypes.NewParamSetPair(KeyEnableCtModule, &p.EnableCtModule, validateEnableCtModule),
 		paramtypes.NewParamSetPair(KeyRangeProofGas, &p.RangeProofGasMultiplier, validateRangeProofGasMultiplier),
 	}
 }
 
 // Validator for the parameter.
-func validateEnableFeature(i interface{}) error {
+func validateEnableCtModule(i interface{}) error {
 	_, ok := i.(bool)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)

@@ -261,7 +261,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountFeatureDisabled() {
 	// Disable the confidential tokens module via params
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
 	params := types.DefaultParams()
-	params.EnableFeature = false
+	params.EnableCtModule = false
 	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
 
 	initialize, err := types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
@@ -501,7 +501,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositFeatureDisabled() {
 	// Disable the confidential tokens module via params
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
 	params := types.DefaultParams()
-	params.EnableFeature = false
+	params.EnableCtModule = false
 	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
 
 	// Test that submitting an deposit request while module is disabled will fail.
@@ -782,7 +782,7 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawFeatureDisabled() {
 	// Disable the confidential tokens module via params
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
 	params := types.DefaultParams()
-	params.EnableFeature = false
+	params.EnableCtModule = false
 	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
 
 	req := types.NewMsgWithdrawProto(withdrawStruct)
@@ -912,7 +912,7 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountFeatureDisabled() {
 	// Disable the confidential tokens module via params
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
 	params := types.DefaultParams()
-	params.EnableFeature = false
+	params.EnableCtModule = false
 	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
 
 	// Execute the close account. This should fail as the module is disabled.
@@ -1129,7 +1129,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceFeatureDisabled()
 	// Disable the confidential tokens module via params
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
 	params := types.DefaultParams()
-	params.EnableFeature = false
+	params.EnableCtModule = false
 	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
 
 	// Execute the apply pending balance. This should have an error as the module is disabled
@@ -1531,7 +1531,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferFeatureDisabled() {
 	// Disable the confidential tokens module via params
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
 	params := types.DefaultParams()
-	params.EnableFeature = false
+	params.EnableCtModule = false
 	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
 
 	// Execute the transfer. This should have an error as the module is disabled

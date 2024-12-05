@@ -19,14 +19,11 @@ const (
 
 	// QuerierRoute defines the module's query routing key
 	QuerierRoute = ModuleName
-
-	DefaultEnableFeature           = true
-	DefaultRangeProofGasMultiplier = 10
 )
 
 var (
 	AccountsKeyPrefix = []byte{0x01}
-	KeyEnableFeature  = []byte("EnableFeature")
+	KeyEnableCtModule = []byte("EnableCtModule")
 	KeyRangeProofGas  = []byte("RangeProofGasMultiplier")
 )
 

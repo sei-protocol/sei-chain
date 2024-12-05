@@ -6,16 +6,16 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestValidateEnableFeature(t *testing.T) {
+func TestValidateEnableCtModule(t *testing.T) {
 	t.Run("valid enable feature flag", func(t *testing.T) {
 		flag := true
-		err := validateEnableFeature(flag)
+		err := validateEnableCtModule(flag)
 		assert.Nil(t, err)
 	})
 
 	t.Run("invalid enable feature flag", func(t *testing.T) {
 		flag := "True"
-		err := validateEnableFeature(flag)
+		err := validateEnableCtModule(flag)
 		assert.Error(t, err)
 	})
 }

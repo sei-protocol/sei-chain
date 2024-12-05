@@ -29,7 +29,7 @@ var _ types.MsgServer = msgServer{}
 func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitializeAccount) (*types.MsgInitializeAccountResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	if !m.Keeper.IsFeatureEnabled(ctx) {
+	if !m.Keeper.IsCtModuleEnabled(ctx) {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "feature is disabled by governance")
 	}
 
@@ -106,7 +106,7 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types.MsgDepositResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	if !m.Keeper.IsFeatureEnabled(ctx) {
+	if !m.Keeper.IsCtModuleEnabled(ctx) {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "feature is disabled by governance")
 	}
 
@@ -192,7 +192,7 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*types.MsgWithdrawResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	if !m.Keeper.IsFeatureEnabled(ctx) {
+	if !m.Keeper.IsCtModuleEnabled(ctx) {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "feature is disabled by governance")
 	}
 
@@ -279,7 +279,7 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgApplyPendingBalance) (*types.MsgApplyPendingBalanceResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	if !m.Keeper.IsFeatureEnabled(ctx) {
+	if !m.Keeper.IsCtModuleEnabled(ctx) {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "feature is disabled by governance")
 	}
 
@@ -350,7 +350,7 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 func (m msgServer) CloseAccount(goCtx context.Context, req *types.MsgCloseAccount) (*types.MsgCloseAccountResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	if !m.Keeper.IsFeatureEnabled(ctx) {
+	if !m.Keeper.IsCtModuleEnabled(ctx) {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "feature is disabled by governance")
 	}
 
@@ -404,7 +404,7 @@ func (m msgServer) CloseAccount(goCtx context.Context, req *types.MsgCloseAccoun
 func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*types.MsgTransferResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	if !m.Keeper.IsFeatureEnabled(ctx) {
+	if !m.Keeper.IsCtModuleEnabled(ctx) {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "feature is disabled by governance")
 	}
 
