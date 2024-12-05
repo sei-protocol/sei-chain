@@ -873,28 +873,16 @@ func TestMsgDeposit_ValidateBasic(t *testing.T) {
 			name: "invalid from address",
 			msg: MsgDeposit{
 				FromAddress: invalidAddress,
-				Denom:       validDenom,
-				Amount:      100,
+				Coin:        sdk.NewCoin(validDenom, sdk.NewInt(100)),
 			},
 			wantErr: true,
 			errMsg:  sdkerrors.ErrInvalidAddress.Error(),
 		},
 		{
-			name: "invalid denom",
-			msg: MsgDeposit{
-				FromAddress: validAddress,
-				Denom:       "",
-				Amount:      100,
-			},
-			wantErr: true,
-			errMsg:  "invalid denom",
-		},
-		{
 			name: "zero amount",
 			msg: MsgDeposit{
 				FromAddress: validAddress,
-				Denom:       validDenom,
-				Amount:      0,
+				Coin:        sdk.NewCoin(validDenom, sdk.NewInt(0)),
 			},
 			wantErr: true,
 			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
@@ -903,8 +891,7 @@ func TestMsgDeposit_ValidateBasic(t *testing.T) {
 			name: "valid message",
 			msg: MsgDeposit{
 				FromAddress: validAddress,
-				Denom:       validDenom,
-				Amount:      100,
+				Coin:        sdk.NewCoin(validDenom, sdk.NewInt(100)),
 			},
 			wantErr: false,
 		},

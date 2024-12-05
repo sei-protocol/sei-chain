@@ -114,13 +114,13 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid address")
 	}
 
-	account, exists := m.Keeper.GetAccount(ctx, req.FromAddress, req.Denom)
+	account, exists := m.Keeper.GetAccount(ctx, req.FromAddress, req.Coin.Denom)
 	if !exists {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrNotFound, "account does not exist")
 	}
 
 	// The maximum transfer amount is 2^48
-	if req.Amount > uint64((1<<48)-1) {
+	if req.Coin.Amount.Uint64() > uint64((1<<48)-1) {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "exceeded maximum deposit amount of 2^48")
 	}
 
@@ -131,16 +131,17 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 
 	// Deduct amount from user's token balance.
 	// Define the amount to be transferred as sdk.Coins
-	coins := sdk.NewCoins(sdk.NewCoin(req.Denom, sdk.NewIntFromUint64(req.Amount)))
+	coins := sdk.NewCoins(req.Coin)
 
 	// Transfer the amount from the sender's account to the module account
 	if err := m.Keeper.BankKeeper().SendCoinsFromAccountToModule(ctx, address, types.ModuleName, coins); err != nil {
-		return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to deposit %d %s", req.Amount, req.Denom)
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to deposit %d %s",
+			req.Coin.Amount, req.Coin.Denom)
 	}
 
 	// Split the deposit amount into lo and hi bits.
 	// Extract the bottom 16 bits (rightmost 16 bits)
-	bottom16, next32, err := utils.SplitTransferBalance(req.Amount)
+	bottom16, next32, err := utils.SplitTransferBalance(req.Coin.Amount.Uint64())
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error splitting transfer balance")
 	}
@@ -163,7 +164,7 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 	account.PendingBalanceCreditCounter += 1
 
 	// Save the changes to the account state
-	err = m.Keeper.SetAccount(ctx, req.FromAddress, req.Denom, account)
+	err = m.Keeper.SetAccount(ctx, req.FromAddress, req.Coin.Denom, account)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting account")
 	}
@@ -172,9 +173,9 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 	ctx.EventManager().EmitEvents(sdk.Events{
 		sdk.NewEvent(
 			types.EventTypeDeposit,
-			sdk.NewAttribute(types.AttributeDenom, req.Denom),
+			sdk.NewAttribute(types.AttributeDenom, req.Coin.Denom),
 			sdk.NewAttribute(types.AttributeAddress, req.FromAddress),
-			sdk.NewAttribute(sdk.AttributeKeyAmount, sdk.NewCoin(req.Denom, sdk.NewIntFromUint64(req.Amount)).String()),
+			sdk.NewAttribute(sdk.AttributeKeyAmount, req.Coin.String()),
 		),
 	})
 

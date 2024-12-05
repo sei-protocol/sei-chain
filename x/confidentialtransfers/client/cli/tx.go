@@ -363,11 +363,11 @@ func makeWithdrawCmd(cmd *cobra.Command, args []string) error {
 // NewDepositTxCmd returns a CLI command handler for creating a MsgDeposit transaction.
 func NewDepositTxCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "deposit [denom] [amount] [flags]",
+		Use:   "deposit [amount] [flags]",
 		Short: "Deposit funds into confidential transfers account",
 		Long: `Deposit the specified amount into the confidential transfers account for the specified denomination and address 
         passed in --from flag.`,
-		Args: cobra.ExactArgs(2),
+		Args: cobra.ExactArgs(1),
 		RunE: makeDepositCmd,
 	}
 
@@ -383,21 +383,15 @@ func makeDepositCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	address := clientCtx.GetFromAddress().String()
-	denom := args[0]
-	err = sdk.ValidateDenom(denom)
-	if err != nil {
-		return fmt.Errorf("invalid denom: %v", err)
-	}
 
-	amount, err := strconv.ParseUint(args[1], 10, 64)
+	coin, err := sdk.ParseCoinNormalized(args[0])
 	if err != nil {
 		return err
 	}
 
 	msg := &types.MsgDeposit{
 		FromAddress: address,
-		Denom:       denom,
-		Amount:      amount,
+		Coin:        coin,
 	}
 
 	if err = msg.ValidateBasic(); err != nil {

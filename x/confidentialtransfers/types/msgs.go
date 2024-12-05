@@ -507,12 +507,12 @@ func (m *MsgDeposit) ValidateBasic() error {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid sender address (%s)", err)
 	}
 
-	err = sdk.ValidateDenom(m.Denom)
+	err = sdk.ValidateDenom(m.Coin.Denom)
 	if err != nil {
 		return err
 	}
 
-	if m.Amount <= 0 {
+	if m.Coin.Amount.IsNegative() || m.Coin.Amount.IsZero() {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "positive amount is required")
 	}
 

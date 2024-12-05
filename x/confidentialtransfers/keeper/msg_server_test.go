@@ -270,7 +270,6 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	// Test empty request
 	req := &types.MsgDeposit{
 		FromAddress: testAddr.String(),
-		Denom:       DefaultTestDenom,
 	}
 	_, err := suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error depositing without amount")
@@ -279,8 +278,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	// Happy path
 	depositStruct := types.MsgDeposit{
 		FromAddress: testAddr.String(),
-		Denom:       DefaultTestDenom,
-		Amount:      20000,
+		Coin:        sdk.NewCoin(DefaultTestDenom, sdk.NewInt(20000)),
 	}
 
 	_, err = suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), &depositStruct)
@@ -305,24 +303,23 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 
 	// Check that newPendingBalancePlaintext = oldPendingBalancePlaintext + DepositAmount
 	suite.Require().Equal(
-		new(big.Int).Add(oldPendingBalancePlaintext, new(big.Int).SetUint64(depositStruct.Amount)).String(),
+		new(big.Int).Add(oldPendingBalancePlaintext, depositStruct.Coin.Amount.BigInt()).String(),
 		newPendingBalancePlaintext.String(),
 		"Pending balances should have increased by the deposit amount")
 
 	// Lastly check that the amount in the bank module are changed correctly.
 	testAddrBalance := suite.App.BankKeeper.GetBalance(suite.Ctx, testAddr, DefaultTestDenom)
-	suite.Require().Equal(new(big.Int).Sub(bankModuleInitialAmount, new(big.Int).SetUint64(depositStruct.Amount)).String(), testAddrBalance.Amount.String(), "Addresses token balance should have decreased by the deposit amount")
+	suite.Require().Equal(new(big.Int).Sub(bankModuleInitialAmount, depositStruct.Coin.Amount.BigInt()).String(), testAddrBalance.Amount.String(), "Addresses token balance should have decreased by the deposit amount")
 
 	// Check that the amount in the bank module has increased by the deposit amount (Assuming module account balance starts from 0)
 	moduleAccount := suite.App.AccountKeeper.GetModuleAccount(suite.Ctx, types.ModuleName)
 	moduleBalance := suite.App.BankKeeper.GetBalance(suite.Ctx, moduleAccount.GetAddress(), DefaultTestDenom)
-	suite.Require().Equal(depositStruct.Amount, moduleBalance.Amount.Uint64(), "Module account balance should have increased by the deposit amount")
+	suite.Require().Equal(depositStruct.Coin.Amount.Uint64(), moduleBalance.Amount.Uint64(), "Module account balance should have increased by the deposit amount")
 
 	// Test Large Deposit
 	depositStruct = types.MsgDeposit{
 		FromAddress: testAddr.String(),
-		Denom:       DefaultTestDenom,
-		Amount:      math.MaxUint32 + 1,
+		Coin:        sdk.NewCoin(DefaultTestDenom, sdk.NewInt(math.MaxUint32+1)),
 	}
 
 	_, err = suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), &depositStruct)
@@ -334,20 +331,20 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	oldPendingBalancePlaintext = oldPendingBalancePlaintext.Set(newPendingBalancePlaintext)
 	newPendingBalancePlaintext, _, _, _ = updatedAccount.GetPendingBalancePlaintext(teg, keyPair)
 	suite.Require().Equal(
-		new(big.Int).Add(oldPendingBalancePlaintext, new(big.Int).SetUint64(depositStruct.Amount)),
+		new(big.Int).Add(oldPendingBalancePlaintext, depositStruct.Coin.Amount.BigInt()),
 		newPendingBalancePlaintext,
 		"Pending balances should have increased by the deposit amount")
 
 	// Check that the amount in the bank module are changed correctly.
 	oldTestAddrBalance := testAddrBalance
 	testAddrBalance = suite.App.BankKeeper.GetBalance(suite.Ctx, testAddr, DefaultTestDenom)
-	suite.Require().Equal(oldTestAddrBalance.Amount.Uint64()-depositStruct.Amount, testAddrBalance.Amount.Uint64(), "Addresses token balance should have decreased by the deposit amount")
+	suite.Require().Equal(oldTestAddrBalance.Amount.Uint64()-depositStruct.Coin.Amount.Uint64(), testAddrBalance.Amount.Uint64(), "Addresses token balance should have decreased by the deposit amount")
 
 	// Check that the amount in the bank module has increased by the deposit amount (Assuming module account balance starts from 0)
 	moduleAccount = suite.App.AccountKeeper.GetModuleAccount(suite.Ctx, types.ModuleName)
 	oldModuleBalance := moduleBalance
 	moduleBalance = suite.App.BankKeeper.GetBalance(suite.Ctx, moduleAccount.GetAddress(), DefaultTestDenom)
-	suite.Require().Equal(oldModuleBalance.Amount.Uint64()+depositStruct.Amount, moduleBalance.Amount.Uint64(), "Module account balance should have increased by the deposit amount")
+	suite.Require().Equal(oldModuleBalance.Amount.Uint64()+depositStruct.Coin.Amount.Uint64(), moduleBalance.Amount.Uint64(), "Module account balance should have increased by the deposit amount")
 }
 
 // Tests scenario in which the client tries to deposit into an account that has not been initialized.
@@ -360,8 +357,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositUninitialized() {
 	testAddr := privkeyToAddress(testPk)
 	depositStruct := types.MsgDeposit{
 		FromAddress: testAddr.String(),
-		Denom:       DefaultTestDenom,
-		Amount:      20000,
+		Coin:        sdk.NewCoin(DefaultTestDenom, sdk.NewInt(20000)),
 	}
 
 	// Test depositing into uninitialized account
@@ -379,14 +375,13 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositInsufficientFunds() {
 	testAddr := privkeyToAddress(testPk)
 
 	// Initialize an account
-	bankModuleInitialAmount := uint64(1000)
-	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 50, big.NewInt(1000000), big.NewInt(8000), new(big.Int).SetUint64(bankModuleInitialAmount))
+	bankModuleInitialAmount := int64(1000)
+	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 50, big.NewInt(1000000), big.NewInt(8000), new(big.Int).SetInt64(bankModuleInitialAmount))
 
 	// Create a struct where the deposit amount is greater than the amount of token the user has.
 	depositStruct := types.MsgDeposit{
 		FromAddress: testAddr.String(),
-		Denom:       DefaultTestDenom,
-		Amount:      uint64(bankModuleInitialAmount + 1),
+		Coin:        sdk.NewCoin(DefaultTestDenom, sdk.NewInt(bankModuleInitialAmount+1)),
 	}
 
 	// Test depositing into account with insufficient funds
@@ -420,8 +415,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositOversizedDeposit() {
 	// Create a struct where the deposit amount is greater than a 48 bit number
 	depositStruct := types.MsgDeposit{
 		FromAddress: testAddr.String(),
-		Denom:       DefaultTestDenom,
-		Amount:      (1 << 48) + 1,
+		Coin:        sdk.NewCoin(DefaultTestDenom, sdk.NewInt((1<<48)+1)),
 	}
 
 	// Test depositing an amount larger than 48 bits.
@@ -446,8 +440,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositTooManyPendingBalances() {
 	// Create a struct where the deposit amount is greater than a 48 bit number
 	depositStruct := types.MsgDeposit{
 		FromAddress: testAddr.String(),
-		Denom:       DefaultTestDenom,
-		Amount:      20000,
+		Coin:        sdk.NewCoin(DefaultTestDenom, sdk.NewInt(20000)),
 	}
 
 	// Test depositing an amount larger than 48 bits.
@@ -922,8 +915,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceAfterDeposit() {
 	// The same scenario happens when incoming transfers are received.
 	depositMsg := &types.MsgDeposit{
 		testAddr.String(),
-		DefaultTestDenom,
-		1000,
+		sdk.NewCoin(DefaultTestDenom, sdk.NewInt(1000)),
 	}
 	_, err := suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), depositMsg)
 

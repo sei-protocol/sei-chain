@@ -4,6 +4,7 @@ package seiprotocol.seichain.confidentialtransfers;
 
 import "gogoproto/gogo.proto";
 import "confidentialtransfers/cryptography.proto";
+import "cosmos/base/v1beta1/coin.proto";
 import "confidentialtransfers/zk.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types";
@@ -84,8 +85,7 @@ message MsgDeposit {
   option (gogoproto.goproto_getters) = false;
 
   string from_address = 1 [(gogoproto.moretags) = "yaml:\"from_address\""];
-  string denom = 2 [(gogoproto.moretags) = "yaml:\"denom\""];
-  uint64 amount = 3 [(gogoproto.moretags) = "yaml:\"amount\""];
+  cosmos.base.v1beta1.Coin coin = 3 [(gogoproto.nullable) = false, (gogoproto.moretags) = "yaml:\"amount\""];
 }
 
 // MsgDepositResponse defines the Msg/Send response type.
