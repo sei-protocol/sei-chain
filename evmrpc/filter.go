@@ -321,7 +321,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}
 
 	// Parallelize execution
-	numWorkers := int(math.Min(MaxNumOfWorkers, float64(end-begin)))
+	numWorkers := int(math.Min(MaxNumOfWorkers, float64(end-begin+1)))
 	var wg sync.WaitGroup
 	tasksChan := make(chan int64, end-begin+1)
 	resultsChan := make(chan *ethtypes.Log, end-begin+1)
