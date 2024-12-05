@@ -149,7 +149,7 @@ func setupStateStore(t *testing.T, height int64) state.Store {
 		LastValidators:                   valSet,
 		Validators:                       valSet.CopyIncrementProposerPriority(1),
 		NextValidators:                   valSet.CopyIncrementProposerPriority(2),
-		LastHeightValidatorsChanged:      height + 1,
+		LastHeightValidatorsChanged:      height,
 		ConsensusParams:                  *params,
 		LastHeightConsensusParamsChanged: height + 1,
 	}

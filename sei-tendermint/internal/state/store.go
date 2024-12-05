@@ -507,7 +507,6 @@ func (store dbStore) SaveValidatorSets(lowerHeight, upperHeight int64, vals *typ
 // LoadValidators loads the ValidatorSet for a given height.
 // Returns ErrNoValSetForHeight if the validator set can't be found for this height.
 func (store dbStore) LoadValidators(height int64) (*types.ValidatorSet, error) {
-
 	valInfo, err := loadValidatorsInfo(store.db, height)
 	if err != nil {
 		return nil, ErrNoValSetForHeight{Height: height, Err: err}
@@ -554,6 +553,14 @@ func (store dbStore) LoadValidators(height int64) (*types.ValidatorSet, error) {
 func lastStoredHeightFor(height, lastHeightChanged int64) int64 {
 	checkpointHeight := height - height%valSetCheckpointInterval
 	return tmmath.MaxInt64(checkpointHeight, lastHeightChanged)
+}
+
+func (store dbStore) LoadValidatorsInfo(height int64) (*tmstate.ValidatorsInfo, error) {
+	valInfo, err := loadValidatorsInfo(store.db, height)
+	if err != nil {
+		return nil, ErrNoValSetForHeight{Height: height, Err: err}
+	}
+	return valInfo, nil
 }
 
 // CONTRACT: Returned ValidatorsInfo can be mutated.
