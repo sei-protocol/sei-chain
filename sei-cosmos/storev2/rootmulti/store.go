@@ -519,7 +519,17 @@ func (rs *Store) RollbackToVersion(target int64) error {
 	if target > math.MaxUint32 {
 		return fmt.Errorf("rollback height target %d exceeds max uint32", target)
 	}
-	return rs.scStore.Rollback(target)
+	err := rs.scStore.Rollback(target)
+	if err != nil {
+		return err
+	}
+	// We need to update the lastCommitInfo after rollback
+	if rs.scStore.Version() != 0 {
+		fmt.Printf("Rolled back CMS to version %d\n", rs.scStore.Version())
+		rs.lastCommitInfo = convertCommitInfo(rs.scStore.LastCommitInfo())
+		rs.lastCommitInfo = amendCommitInfo(rs.lastCommitInfo, rs.storesParams)
+	}
+	return nil
 }
 
 // getStoreByName performs a lookup of a StoreKey given a store name typically

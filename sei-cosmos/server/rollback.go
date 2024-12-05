@@ -22,7 +22,7 @@ when Tendermint has persisted an incorrect app hash and is thus unable to make
 progress. Rollback overwrites a state at height n with the state at height n - 1.
 The application also roll back to height n - 1. No blocks are removed, so upon
 restarting Tendermint the transactions in block n will be re-executed against the
-application.
+application. If you wanna rollback multiple blocks, please add --hard option.
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := GetServerContextFromCmd(cmd)
@@ -54,7 +54,7 @@ application.
 
 			// rollback the app state
 			lastCommit = app.CommitMultiStore().LastCommitID()
-			fmt.Printf("App state height %d and hash %X\n", lastCommit.GetVersion(), lastCommit.GetHash())
+			fmt.Printf("CMS app state height %d and hash %X\n", lastCommit.GetVersion(), lastCommit.GetHash())
 			fmt.Printf("Attempting to rollback app state to height=%d\n", tmHeight)
 			if err := app.CommitMultiStore().RollbackToVersion(tmHeight); err != nil {
 				return fmt.Errorf("failed to rollback to version: %w", err)
