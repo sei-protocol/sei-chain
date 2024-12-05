@@ -273,7 +273,7 @@ func createTransferPartyParams(
 }
 
 // Verifies the proofs sent in the transfer request. This does not verify proofs for auditors.
-func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipientPubkey *curves.Point, newBalanceCiphertext *elgamal.Ciphertext) error {
+func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipientPubkey *curves.Point, newBalanceCiphertext *elgamal.Ciphertext, rangeVerifier *zkproofs.CachedRangeVerifier) error {
 	// Verify the validity proofs that the ciphertexts sent are valid (encrypted with the correct pubkey).
 	ok := zkproofs.VerifyCiphertextValidity(params.Proofs.RemainingBalanceCommitmentValidityProof, *senderPubkey, params.RemainingBalanceCommitment)
 	if !ok {
@@ -302,7 +302,7 @@ func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipien
 
 	// Verify that the account's remaining balance is greater than zero after this transfer.
 	// This validates the RemainingBalanceCommitment sent by the user, so an additional check is needed to make sure this matches what is calculated by the server.
-	ok, err := zkproofs.VerifyRangeProof(params.Proofs.RemainingBalanceRangeProof, params.RemainingBalanceCommitment, 128)
+	ok, err := rangeVerifier.VerifyRangeProof(params.Proofs.RemainingBalanceRangeProof, params.RemainingBalanceCommitment, 128)
 	if err != nil {
 		return err
 	}

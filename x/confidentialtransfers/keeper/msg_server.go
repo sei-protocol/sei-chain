@@ -16,12 +16,14 @@ import (
 
 type msgServer struct {
 	Keeper
+	*zkproofs.CachedRangeVerifier
 }
 
 // NewMsgServerImpl returns an implementation of the MsgServer interface
 // for the provided Keeper.
 func NewMsgServerImpl(keeper Keeper) types.MsgServer {
-	return msgServer{keeper}
+	rangeVerifier := zkproofs.NewCachedRangeVerifier()
+	return msgServer{keeper, rangeVerifier}
 }
 
 var _ types.MsgServer = msgServer{}
@@ -49,7 +51,7 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 	}
 
 	// Validate the public key
-	validated := zkproofs.VerifyPubKeyValidity(*instruction.Pubkey, *instruction.Proofs.PubkeyValidityProof)
+	validated := zkproofs.VerifyPubKeyValidity(*instruction.Pubkey, instruction.Proofs.PubkeyValidityProof)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid public key")
 	}
@@ -205,7 +207,7 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 	// Verify that the account has sufficient funds (Remaining balance after making the transfer is greater than or equal to zero.)
 	// This range proof verification is performed on the RemainingBalanceCommitment sent by the user.
 	// An additional check is required to ensure that this matches the remaining balance calculated by the server.
-	verified, _ := zkproofs.VerifyRangeProof(instruction.Proofs.RemainingBalanceRangeProof, instruction.RemainingBalanceCommitment, 128)
+	verified, _ := m.CachedRangeVerifier.VerifyRangeProof(instruction.Proofs.RemainingBalanceRangeProof, instruction.RemainingBalanceCommitment, 128)
 	if !verified {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "range proof verification failed")
 	}
@@ -409,7 +411,7 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	}
 
 	// Validate proofs
-	err = types.VerifyTransferProofs(instruction, &senderAccount.PublicKey, &recipientAccount.PublicKey, newSenderBalanceCiphertext)
+	err = types.VerifyTransferProofs(instruction, &senderAccount.PublicKey, &recipientAccount.PublicKey, newSenderBalanceCiphertext, m.CachedRangeVerifier)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
 	}
