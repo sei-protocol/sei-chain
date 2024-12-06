@@ -32,6 +32,7 @@ func TestExportImportGenesis(t *testing.T) {
 	assert.Equal(t, types.DefaultParams().PriorityNormalizer, param.PriorityNormalizer)
 	assert.Equal(t, types.DefaultParams().BaseFeePerGas, param.BaseFeePerGas)
 	assert.Equal(t, types.DefaultParams().MinimumFeePerGas, param.MinimumFeePerGas)
+	assert.Equal(t, types.DefaultParams().MaximumFeePerGas, param.MaximumFeePerGas)
 	assert.Equal(t, types.DefaultParams().WhitelistedCwCodeHashesForDelegateCall, param.WhitelistedCwCodeHashesForDelegateCall)
 	assert.Equal(t, types.DefaultParams().MaxDynamicBaseFeeUpwardAdjustment, param.MaxDynamicBaseFeeUpwardAdjustment)
 	assert.Equal(t, types.DefaultParams().MaxDynamicBaseFeeDownwardAdjustment, param.MaxDynamicBaseFeeDownwardAdjustment)
