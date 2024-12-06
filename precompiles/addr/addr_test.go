@@ -141,7 +141,7 @@ func TestAssociatePubKey(t *testing.T) {
 			require.Nil(t, err)
 
 			// Make the call to associate.
-			ret, err := p.Run(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociatePubKeyID, inputs...), tt.args.value, tt.args.readOnly, false)
+			ret, _, err := p.RunAndCalculateGas(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociatePubKeyID, inputs...), 40000, tt.args.value, nil, tt.args.readOnly, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v %v", err, tt.wantErr, string(ret))
 				return
@@ -166,6 +166,7 @@ func TestAssociate(t *testing.T) {
 
 	pre, _ := addr.NewPrecompile(k, k.BankKeeper(), k.AccountKeeper())
 	associate, err := pre.ABI.MethodById(pre.GetExecutor().(*addr.PrecompileExecutor).AssociateID)
+	require.Nil(t, err)
 
 	// Target refers to the address that the caller is trying to associate.
 	targetPrivKey := testkeeper.MockPrivateKey()
@@ -331,7 +332,7 @@ func TestAssociate(t *testing.T) {
 			require.Nil(t, err)
 
 			// Make the call to associate.
-			ret, err := p.Run(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociateID, inputs...), tt.args.value, tt.args.readOnly, false)
+			ret, _, err := p.RunAndCalculateGas(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociateID, inputs...), 40000, tt.args.value, nil, tt.args.readOnly, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v %v", err, tt.wantErr, string(ret))
 				return
@@ -347,4 +348,40 @@ func TestAssociate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetAddr(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	pre, _ := addr.NewPrecompile(k, k.BankKeeper(), k.AccountKeeper())
+	getSeiAddr, err := pre.ABI.MethodById(pre.GetExecutor().(*addr.PrecompileExecutor).GetSeiAddressID)
+	require.Nil(t, err)
+	getEvmAddr, err := pre.ABI.MethodById(pre.GetExecutor().(*addr.PrecompileExecutor).GetEvmAddressID)
+	require.Nil(t, err)
+
+	seiAddr, evmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+
+	stateDB := &state.DBImpl{}
+	stateDB.WithCtx(ctx)
+
+	getSeiAddrBz, err := getSeiAddr.Inputs.Pack(evmAddr)
+	require.Nil(t, err)
+	res, _, err := pre.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, evmAddr, evmAddr, append(getSeiAddr.ID, getSeiAddrBz...), 20000, common.Big0, nil, true, false)
+	require.Nil(t, err)
+	unpacked, err := getSeiAddr.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(unpacked))
+	require.Equal(t, seiAddr.String(), unpacked[0].(string))
+
+	getEvmAddrBz, err := getEvmAddr.Inputs.Pack(seiAddr.String())
+	require.Nil(t, err)
+	res, _, err = pre.RunAndCalculateGas(&vm.EVM{StateDB: stateDB}, evmAddr, evmAddr, append(getEvmAddr.ID, getEvmAddrBz...), 20000, common.Big0, nil, true, false)
+	require.Nil(t, err)
+	unpacked, err = getEvmAddr.Outputs.Unpack(res)
+	require.Nil(t, err)
+	require.Equal(t, 1, len(unpacked))
+	require.Equal(t, evmAddr, unpacked[0].(common.Address))
 }

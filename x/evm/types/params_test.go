@@ -14,6 +14,7 @@ func TestDefaultParams(t *testing.T) {
 		PriorityNormalizer:                     types.DefaultPriorityNormalizer,
 		BaseFeePerGas:                          types.DefaultBaseFeePerGas,
 		MinimumFeePerGas:                       types.DefaultMinFeePerGas,
+		MaximumFeePerGas:                       types.DefaultMaxFeePerGas,
 		DeliverTxHookWasmGasLimit:              types.DefaultDeliverTxHookWasmGasLimit,
 		WhitelistedCwCodeHashesForDelegateCall: types.DefaultWhitelistedCwCodeHashesForDelegateCall,
 		MaxDynamicBaseFeeUpwardAdjustment:      types.DefaultMaxDynamicBaseFeeUpwardAdjustment,
@@ -85,6 +86,15 @@ func TestValidateParamsInvalidDeliverTxHookWasmGasLimit(t *testing.T) {
 	err := params.Validate()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid deliver_tx_hook_wasm_gas_limit: must be greater than 0")
+}
+
+func TestValidateParamsInvalidMaxFeePerGas(t *testing.T) {
+	params := types.DefaultParams()
+	params.MaximumFeePerGas = sdk.NewDec(-1) // Set to invalid negative value
+
+	err := params.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "negative max fee per gas")
 }
 
 func TestValidateParamsValidDeliverTxHookWasmGasLimit(t *testing.T) {

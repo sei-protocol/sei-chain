@@ -24,6 +24,10 @@ type Contexter interface {
 	Ctx() sdk.Context
 }
 
+type StateEVMKeeperGetter interface {
+	EVMKeeper() state.EVMKeeper
+}
+
 type PrecompileExecutor interface {
 	RequiredGas([]byte, *abi.Method) uint64
 	Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) ([]byte, error)
@@ -160,7 +164,8 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	if err != nil {
 		return nil, 0, err
 	}
-	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, d.executor.EVMKeeper().GetCosmosGasLimitFromEVMGas(ctx, suppliedGas)))
+	gasLimit := d.executor.EVMKeeper().GetCosmosGasLimitFromEVMGas(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), suppliedGas)
+	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
 
 	if hooks != nil && hooks.OnGasChange != nil {
 		defer func() { hooks.OnGasChange(suppliedGas, remainingGas, tracing.GasChangeCallPrecompiledContract) }()

@@ -34,6 +34,10 @@ type AllowanceResponse struct {
 	Expires   json.RawMessage `json:"expires"`
 }
 
+func getOwnerEventKey(contractAddr string, tokenID string) string {
+	return fmt.Sprintf("%s-%s", contractAddr, tokenID)
+}
+
 func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.Tx, checksum [32]byte, response sdk.DeliverTxHookInput) {
 	// hooks will only be called if DeliverTx is successful
 	wasmEvents := GetEventsOfType(response, wasmtypes.WasmModuleEventType)
@@ -45,6 +49,26 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 	// additional gas consumption from EVM receipt generation and event translation
 	wasmToEvmEventGasLimit := app.EvmKeeper.GetDeliverTxHookWasmGasLimit(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)))
 	wasmToEvmEventCtx := ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, wasmToEvmEventGasLimit))
+	// unfortunately CW721 transfer events differ from ERC721 transfer events
+	// in that CW721 include sender (which can be different than owner) whereas
+	// ERC721 always include owner. The following logic refer to the owner
+	// event emitted before the transfer and use that instead to populate the
+	// synthetic ERC721 event.
+	ownerEvents := GetEventsOfType(response, wasmtypes.EventTypeCW721PreTransferOwner)
+	ownerEventsMap := map[string][]abci.Event{}
+	for _, ownerEvent := range ownerEvents {
+		if len(ownerEvent.Attributes) != 3 {
+			ctx.Logger().Error("received owner event with number of attributes != 3")
+			continue
+		}
+		ownerEventKey := getOwnerEventKey(string(ownerEvent.Attributes[0].Value), string(ownerEvent.Attributes[1].Value))
+		if events, ok := ownerEventsMap[ownerEventKey]; ok {
+			ownerEventsMap[ownerEventKey] = append(events, ownerEvent)
+		} else {
+			ownerEventsMap[ownerEventKey] = []abci.Event{ownerEvent}
+		}
+	}
+	cw721TransferCounterMap := map[string]int{}
 	for _, wasmEvent := range wasmEvents {
 		contractAddr, found := GetAttributeValue(wasmEvent, wasmtypes.AttributeKeyContractAddr)
 		if !found {
@@ -62,7 +86,7 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		// check if there is a ERC721 pointer to contract Addr
 		pointerAddr, _, exists = app.EvmKeeper.GetERC721CW721Pointer(wasmToEvmEventCtx, contractAddr)
 		if exists {
-			log, eligible := app.translateCW721Event(wasmToEvmEventCtx, wasmEvent, pointerAddr, contractAddr)
+			log, eligible := app.translateCW721Event(wasmToEvmEventCtx, wasmEvent, pointerAddr, contractAddr, ownerEventsMap, cw721TransferCounterMap)
 			if eligible {
 				log.Index = uint(len(logs))
 				logs = append(logs, log)
@@ -208,7 +232,8 @@ func (app *App) translateCW20Event(ctx sdk.Context, wasmEvent abci.Event, pointe
 	return nil, false
 }
 
-func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string) (*ethtypes.Log, bool) {
+func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string,
+	ownerEventsMap map[string][]abci.Event, cw721TransferCounterMap map[string]int) (*ethtypes.Log, bool) {
 	action, found := GetAttributeValue(wasmEvent, "action")
 	if !found {
 		return nil, false
@@ -219,10 +244,34 @@ func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, point
 		tokenID := GetTokenIDAttribute(wasmEvent)
 		if tokenID == nil {
 			return nil, false
+		} else {
+			ctx.Logger().Error("Translate CW721 error: null token ID")
+		}
+		sender := app.GetEvmAddressAttribute(ctx, wasmEvent, "sender")
+		ownerEventKey := getOwnerEventKey(contractAddr, tokenID.String())
+		var currentCounter int
+		if c, ok := cw721TransferCounterMap[ownerEventKey]; ok {
+			currentCounter = c
+		}
+		cw721TransferCounterMap[ownerEventKey] = currentCounter + 1
+		if ownerEvents, ok := ownerEventsMap[ownerEventKey]; ok {
+			if len(ownerEvents) > currentCounter {
+				ownerSeiAddrStr := string(ownerEvents[currentCounter].Attributes[2].Value)
+				if ownerSeiAddr, err := sdk.AccAddressFromBech32(ownerSeiAddrStr); err == nil {
+					ownerEvmAddr := app.EvmKeeper.GetEVMAddressOrDefault(ctx, ownerSeiAddr)
+					sender = common.BytesToHash(ownerEvmAddr[:])
+				} else {
+					ctx.Logger().Error("Translate CW721 error: invalid bech32 owner", "error", err, "address", ownerSeiAddrStr)
+				}
+			} else {
+				ctx.Logger().Error("Translate CW721 error: insufficient owner events", "key", ownerEventKey, "counter", currentCounter, "events", len(ownerEvents))
+			}
+		} else {
+			ctx.Logger().Error("Translate CW721 error: owner event not found", "key", ownerEventKey)
 		}
 		topics = []common.Hash{
 			ERC721TransferTopic,
-			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+			sender,
 			app.GetEvmAddressAttribute(ctx, wasmEvent, "recipient"),
 			common.BigToHash(tokenID),
 		}

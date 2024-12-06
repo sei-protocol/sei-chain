@@ -27,6 +27,33 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v6.0.1
+sei-chain
+* [#1956](https://github.com/sei-protocol/sei-chain/pull/1956) Assign owner correctly when there are multiple transfers
+* [#1955](https://github.com/sei-protocol/sei-chain/pull/1955) Add missing modules to migration and add command to export IAVL
+* [#1954](https://github.com/sei-protocol/sei-chain/pull/1954) Enable Queries to IAVL for Non-Migrating Nodes
+* [#1952](https://github.com/sei-protocol/sei-chain/pull/1952) Fix for failed txs in block
+* [#1951](https://github.com/sei-protocol/sei-chain/pull/1951) Add max base fee as a param
+* [#1949](https://github.com/sei-protocol/sei-chain/pull/1949) Be resilient to failing txs in debug trace block
+* [#1941](https://github.com/sei-protocol/sei-chain/pull/1941) Fix eth_getLogs missing events early return
+* [#1932](https://github.com/sei-protocol/sei-chain/pull/1932) Use owner event to populate ERC721 transfer topic
+* [#1930](https://github.com/sei-protocol/sei-chain/pull/1930) Exclude cosmos txs from base fee calculation
+* [#1926](https://github.com/sei-protocol/sei-chain/pull/1926) Refactor x/bank precompile to use dynamic gas
+* [#1922](https://github.com/sei-protocol/sei-chain/pull/1922) Use msg server send in bank precompile
+* [#1913](https://github.com/sei-protocol/sei-chain/pull/1913) Use tendermint store to get Tx hashes instead of storing explicitly
+* [#1906](https://github.com/sei-protocol/sei-chain/pull/1906) Remove vue code
+* [#1908](https://github.com/sei-protocol/sei-chain/pull/1908) QuerySmart to always use cached ctx
+
+
+sei-cosmos
+* [#551](https://github.com/sei-protocol/sei-cosmos/pull/551) Param change verification
+* [#553](https://github.com/sei-protocol/sei-cosmos/pull/553) Remove unnecessary serving logs
+
+sei-wasmd
+* [#67](https://github.com/sei-protocol/sei-wasmd/pull/67) Emit CW721 token owner before transfer
+* [#65](https://github.com/sei-protocol/sei-wasmd/pull/65) Add QuerySmartSafe in WasmViewKeeper
+
+
 ## v6.0.0
 sei-chain
 * [#1905](https://github.com/sei-protocol/sei-chain/pull/1905) Use limited wasm gas meter
