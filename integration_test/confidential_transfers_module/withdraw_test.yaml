@@ -37,7 +37,7 @@
       env: INITIAL_BANK_BALANCE
 
     # Withdraw from the confidential token account
-    - cmd: printf "12345678\n" | seid tx ct withdraw uatom $WITHDRAW_AMOUNT --from ctwithdrawtest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct withdraw ${WITHDRAW_AMOUNT}uatom --from ctwithdrawtest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: WITHDRAW_CODE
 
     # Query the account to verify the new account state
@@ -97,7 +97,7 @@
       env: INITIAL_AVAILABLE_BALANCE
 
     # Attempt to withdraw more than the available balance
-    - cmd: printf "12345678\n" | seid tx ct withdraw uatom $((INITIAL_AVAILABLE_BALANCE + 1)) --from ctwithdrawtest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct withdraw $((INITIAL_AVAILABLE_BALANCE + 1))uatom --from ctwithdrawtest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: WITHDRAW_CODE
 
   verifiers:
@@ -114,7 +114,7 @@
       env: TEST_ADDR
 
     # Attempt to withdraw from an uninitialized account
-    - cmd: printf "12345678\n" | seid tx ct withdraw notexists 50000 --from ctwithdrawtest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct withdraw 50000notexists --from ctwithdrawtest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: WITHDRAW_CODE
 
   verifiers:
