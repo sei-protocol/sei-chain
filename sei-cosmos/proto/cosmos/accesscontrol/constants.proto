@@ -124,6 +124,11 @@ enum ResourceType {
     KV_BANK_WEI_BALANCE = 108; // child of KV_BANK
 
     reserved 109, 110; // dex deprecated
+
+    KV_CT = 111; // child of KV
+    KV_CT_ACCOUNT = 112; // child of KV_CT
+
+    reserved 113 to 115; // CT reserved
 }
 
 enum WasmMessageSubtype {
