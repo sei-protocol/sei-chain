@@ -28,6 +28,9 @@ type Keeper interface {
 	GetParams(ctx sdk.Context) types.Params
 	SetParams(ctx sdk.Context, params types.Params)
 
+	IsCtModuleEnabled(ctx sdk.Context) bool
+	GetRangeProofGasMultiplier(ctx sdk.Context) uint32
+
 	BankKeeper() types.BankKeeper
 
 	CreateModuleAccount(ctx sdk.Context)
@@ -173,6 +176,20 @@ func (k BaseKeeper) GetParams(ctx sdk.Context) (params types.Params) {
 // SetParams sets the total set of bank parameters.
 func (k BaseKeeper) SetParams(ctx sdk.Context, params types.Params) {
 	k.paramSpace.SetParamSet(ctx, &params)
+}
+
+// IsCtModuleEnabled retrieves the value of the CtModuleEnabled flag from the param store
+func (k BaseKeeper) IsCtModuleEnabled(ctx sdk.Context) bool {
+	var isCtModuleEnabled bool
+	k.paramSpace.Get(ctx, types.KeyEnableCtModule, &isCtModuleEnabled)
+	return isCtModuleEnabled
+}
+
+// GetRangeProofGasMultiplier retrieves the value of the RangeProofGasMultiplier param from the parameter store
+func (k BaseKeeper) GetRangeProofGasMultiplier(ctx sdk.Context) uint32 {
+	var rangeProofGas uint32
+	k.paramSpace.Get(ctx, types.KeyRangeProofGas, &rangeProofGas)
+	return rangeProofGas
 }
 
 func (k BaseKeeper) BankKeeper() types.BankKeeper {

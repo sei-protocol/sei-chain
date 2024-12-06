@@ -50,7 +50,7 @@
       env: INITIAL_RECIPIENT_AVAILABLE_BALANCE
 
     # Transfer from the confidential token account
-    - cmd: printf "12345678\n" | seid tx ct transfer uatom $RECIPIENT_ADDR $TRANSFER_AMOUNT --from ctsender --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct transfer uatom $RECIPIENT_ADDR $TRANSFER_AMOUNT --from ctsender --fees 40000usei --gas 1500000 --chain-id sei -b block -y --output json | jq -r ".code"
       env: TRANSFER_CODE
 
     # Query the sender account to verify the new account state
@@ -126,7 +126,7 @@
       env: INITIAL_AVAILABLE_BALANCE
 
     # Attempt to transfer more than the available balance
-    - cmd: printf "12345678\n" | seid tx ct transfer uatom $RECIPIENT_ADDR $((INITIAL_AVAILABLE_BALANCE + 1)) --from ctsender --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct transfer uatom $RECIPIENT_ADDR $((INITIAL_AVAILABLE_BALANCE + 1)) --from ctsender --fees 40000usei --gas 1500000 --chain-id sei -b block -y --output json | jq -r ".code"
       env: TRANSFER_CODE
 
   verifiers:
@@ -145,7 +145,7 @@
       env: RECIPIENT_ADDR
 
     # Attempt to transfer from an uninitialized account
-    - cmd: printf "12345678\n" | seid tx ct transfer notexists $RECIPIENT_ADDR 50000 --from ctsender --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct transfer notexists $RECIPIENT_ADDR 50000 --from ctsender --fees 40000usei --gas 1500000 --chain-id sei -b block -y --output json | jq -r ".code"
       env: TRANSFER_CODE
 
   verifiers:
@@ -177,7 +177,7 @@
       env: APPLY_PENDING_BALANCE_CODE
 
     # Attempt to transfer from an uninitialized account
-    - cmd: printf "12345678\n" | seid tx ct transfer uusdc $RECIPIENT_ADDR 50000 --from ctsender --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct transfer uusdc $RECIPIENT_ADDR 50000 --from ctsender --fees 40000usei --gas 1500000 --chain-id sei -b block -y --output json | jq -r ".code"
       env: TRANSFER_CODE
 
   verifiers:
