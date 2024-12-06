@@ -25,6 +25,7 @@ type KeeperTestSuite struct {
 	msgServer   types.MsgServer
 	// defaultDenom is on the suite, as it depends on the creator test address.
 	defaultDenom string
+	decryptor    *elgamal.TwistedElGamal
 
 	PrivKeys []*ecdsa.PrivateKey
 }
