@@ -499,6 +499,7 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	multiplier := m.Keeper.GetRangeProofGasMultiplier(ctx)
 
 	// Consume additional gas according to the multiplier as range proofs are computationally expensive.
+	// gasSoFar + ((multiplier-1) x gasSoFar) = multiplier x gasSoFar
 	if multiplier > 1 {
 		ctx.GasMeter().ConsumeGas(gasSoFar*uint64(multiplier-1), "range proof verification")
 	}

@@ -27,6 +27,14 @@ func DefaultParams() Params {
 
 // Validate validate params.
 func (p *Params) Validate() error {
+	if err := validateEnableCtModule(p.EnableCtModule); err != nil {
+		return err
+	}
+
+	if err := validateRangeProofGasMultiplier(p.RangeProofGasMultiplier); err != nil {
+		return err
+	}
+
 	return nil
 }
 
