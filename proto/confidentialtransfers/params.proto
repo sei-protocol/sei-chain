@@ -4,4 +4,7 @@ package seiprotocol.seichain.confidentialtransfers;
 option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types";
 
 // Params defines the parameters for the confidential tokens module.
-message Params {}
+message Params {
+  bool enable_ct_module = 1;
+  uint32 range_proof_gas_multiplier = 2;
+}

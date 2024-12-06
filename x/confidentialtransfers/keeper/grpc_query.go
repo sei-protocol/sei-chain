@@ -76,5 +76,4 @@ func (k BaseKeeper) GetAllCtAccounts(ctx context.Context, req *types.GetAllCtAcc
 	}
 
 	return &types.GetAllCtAccountsResponse{Accounts: accounts, Pagination: pageRes}, nil
-
 }

@@ -74,7 +74,7 @@
       env: INITIAL_AVAILABLE_BALANCE
 
     # Withdraw all funds from the account
-    - cmd: printf "12345678\n" | seid tx ct withdraw uatom $INITIAL_AVAILABLE_BALANCE --from ctclosetest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct withdraw uatom $INITIAL_AVAILABLE_BALANCE --from ctclosetest --fees 40000usei --gas 1500000 --chain-id sei -b block -y --output json | jq -r ".code"
       env: WITHDRAW_CODE
 
     # Attempt to close the account
