@@ -149,6 +149,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
 
 	// TODO: Confirm that we don't need to define any Migrator here
+	// Register parameter change proposals
 	//m := keeper.NewMigrator(am.keeper)
 	//_ = cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
 	//_ = cfg.RegisterMigration(types.ModuleName, 2, m.Migrate2to3)
