@@ -1165,7 +1165,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceFeatureDisabled()
 
 	// Initialize an account
 	initialAvailableBalance := big.NewInt(2000)
-	initialPendingBalance := big.NewInt(100000)
+	initialPendingBalance := big.NewInt(10)
 	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 10, initialAvailableBalance, initialPendingBalance, big.NewInt(1000))
 
 	// Create an apply pending balance request
