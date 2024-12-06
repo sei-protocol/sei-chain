@@ -210,10 +210,13 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		result.Proofs.RecipientTransferAmountHiValidityProof,
 		destinationKeypair.PublicKey,
 		result.RecipientTransferAmountHi))
-
+	ed25519RangeVerifierFactory := zkproofs.Ed25519RangeVerifierFactory{}
+	rangeVerifierFactory := zkproofs.NewCachedRangeVerifierFactory(&ed25519RangeVerifierFactory)
 	valid, err := zkproofs.VerifyRangeProof(
 		result.Proofs.RemainingBalanceRangeProof,
-		result.RemainingBalanceCommitment, 128)
+		result.RemainingBalanceCommitment,
+		128,
+		rangeVerifierFactory)
 
 	assert.NoError(t, err)
 	assert.True(t, valid)
@@ -464,7 +467,7 @@ func TestMsgInitializeAccount_FromProto(t *testing.T) {
 	// Make sure the proofs are valid
 	assert.True(t, zkproofs.VerifyPubKeyValidity(
 		*result.Pubkey,
-		*result.Proofs.PubkeyValidityProof))
+		result.Proofs.PubkeyValidityProof))
 }
 
 func TestMsgInitializeAccount_ValidateBasic(t *testing.T) {
@@ -606,7 +609,9 @@ func TestMsgWithdraw_FromProto(t *testing.T) {
 	assert.Equal(t, newBalance, decryptedCommitment)
 
 	// Make sure the proofs are valid
-	verified, err := zkproofs.VerifyRangeProof(result.Proofs.RemainingBalanceRangeProof, result.RemainingBalanceCommitment, 128)
+	ed25519RangeVerifierFactory := zkproofs.Ed25519RangeVerifierFactory{}
+	rangeVerifierFactory := zkproofs.NewCachedRangeVerifierFactory(&ed25519RangeVerifierFactory)
+	verified, err := zkproofs.VerifyRangeProof(result.Proofs.RemainingBalanceRangeProof, result.RemainingBalanceCommitment, 128, rangeVerifierFactory)
 	assert.NoError(t, err)
 	assert.True(t, verified)
 

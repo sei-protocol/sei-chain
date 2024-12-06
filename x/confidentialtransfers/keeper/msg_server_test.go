@@ -828,7 +828,6 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHappyPath() {
 	_, err = suite.msgServer.CloseAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error closing account that doesn't exist")
 	suite.Require().ErrorContains(err, "account does not exist")
-
 }
 
 func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHasPendingBalance() {
@@ -858,6 +857,45 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHasPendingBalance() {
 	// Check that the account still exists
 	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 	suite.Require().True(exists, "Account should still exist")
+
+	// Test that applying balances then withdrawing all the available balance results in a successful close account
+	applyStruct, _ := types.NewApplyPendingBalance(
+		*testPk,
+		testAddr.String(),
+		DefaultTestDenom,
+		initialState.DecryptableAvailableBalance,
+		initialState.PendingBalanceCreditCounter,
+		initialState.AvailableBalance,
+		initialState.PendingBalanceLo,
+		initialState.PendingBalanceHi)
+
+	// Apply the pending balances
+	applyReq := types.NewMsgApplyPendingBalanceProto(applyStruct)
+	_, err = suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), applyReq)
+	suite.Require().NoError(err, "Should have no error applying pending balance")
+
+	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
+	aeskey, _ := encryption.GetAESKey(*testPk, DefaultTestDenom)
+	availableBalanceAmount, err := encryption.DecryptAESGCM(account.DecryptableAvailableBalance, aeskey)
+	suite.Require().NoError(err, "Should be able to decrypt available balance")
+
+	withdrawStruct, _ := types.NewWithdraw(*testPk, account.AvailableBalance, DefaultTestDenom, testAddr.String(), account.DecryptableAvailableBalance, availableBalanceAmount)
+	withdrawReq := types.NewMsgWithdrawProto(withdrawStruct)
+	suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), withdrawReq)
+
+	account, _ = suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
+	closeAccountStruct, _ = types.NewCloseAccount(
+		*testPk,
+		testAddr.String(),
+		DefaultTestDenom,
+		account.PendingBalanceLo,
+		account.PendingBalanceHi,
+		account.AvailableBalance)
+
+	// Execute the close account. This should succeed now that all the balances have been withdrawn
+	req = types.NewMsgCloseAccountProto(closeAccountStruct)
+	_, err = suite.msgServer.CloseAccount(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().NoError(err, "Should have no error closing account with no more balance")
 }
 
 // Test the scenario where a close account instruction is applied for an account that still contains available balances.
@@ -868,7 +906,8 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHasAvailableBalance() {
 	testAddr := privkeyToAddress(testPk)
 
 	// Initialize an account
-	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 0, big.NewInt(900), big.NewInt(0), big.NewInt(100))
+	availableBalanceAmount := big.NewInt(900)
+	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 0, availableBalanceAmount, big.NewInt(0), big.NewInt(100))
 
 	// Create a close account request
 	closeAccountStruct, _ := types.NewCloseAccount(
@@ -888,6 +927,25 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHasAvailableBalance() {
 	// Check that the account still exists
 	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 	suite.Require().True(exists, "Account should still exist")
+
+	// Test that withdrawing all the available balance results in a successful close account
+	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, availableBalanceAmount)
+	withdrawReq := types.NewMsgWithdrawProto(withdrawStruct)
+	suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), withdrawReq)
+
+	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
+	closeAccountStruct, _ = types.NewCloseAccount(
+		*testPk,
+		testAddr.String(),
+		DefaultTestDenom,
+		account.PendingBalanceLo,
+		account.PendingBalanceHi,
+		account.AvailableBalance)
+
+	// Execute the close account. This should succeed now that all the balances have been withdrawn
+	req = types.NewMsgCloseAccountProto(closeAccountStruct)
+	_, err = suite.msgServer.CloseAccount(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().NoError(err, "Should have no error closing account with no more balance")
 }
 
 // Test that accounts cannot be closed while the feature is disabled
