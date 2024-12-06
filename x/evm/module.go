@@ -171,7 +171,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 4, func(ctx sdk.Context) error {
-		return migrations.StoreCWPointerCode(ctx, am.keeper, true, true)
+		return migrations.StoreCWPointerCode(ctx, am.keeper, true, true, false)
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 5, func(ctx sdk.Context) error {
@@ -179,11 +179,11 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 6, func(ctx sdk.Context) error {
-		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true)
+		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true, false)
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 7, func(ctx sdk.Context) error {
-		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true)
+		return migrations.StoreCWPointerCode(ctx, am.keeper, false, true, false)
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 8, func(ctx sdk.Context) error {
@@ -197,7 +197,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	})
 
 	_ = cfg.RegisterMigration(types.ModuleName, 9, func(ctx sdk.Context) error {
-		if err := migrations.StoreCWPointerCode(ctx, am.keeper, true, true); err != nil {
+		if err := migrations.StoreCWPointerCode(ctx, am.keeper, true, true, false); err != nil {
 			return err
 		}
 		if err := migrations.MigrateCWERC20Pointers(ctx, am.keeper); err != nil {
@@ -220,6 +220,14 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 
 	_ = cfg.RegisterMigration(types.ModuleName, 13, func(ctx sdk.Context) error {
 		return migrations.MigrateEip1559Params(ctx, am.keeper)
+	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 14, func(ctx sdk.Context) error {
+		return migrations.MigrateEip1559MaxFeePerGas(ctx, am.keeper)
+	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 15, func(ctx sdk.Context) error {
+		return migrations.StoreCWPointerCode(ctx, am.keeper, false, false, true)
 	})
 }
 
@@ -258,7 +266,7 @@ func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 14 }
+func (AppModule) ConsensusVersion() uint64 { return 15 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {

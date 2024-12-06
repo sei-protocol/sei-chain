@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"strings"
 
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -24,12 +25,20 @@ var ERC20TransferTopic = common.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952
 var ERC721TransferTopic = common.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
 var ERC721ApprovalTopic = common.HexToHash("0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925")
 var ERC721ApproveAllTopic = common.HexToHash("0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31")
+var ERC1155TransferSingleTopic = common.HexToHash("0xc3d58168c5ae7397731d063d5bbf3d657854427343f4c083240f7aacaa2d0f62")
+var ERC1155TransferBatchTopic = common.HexToHash("0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb")
+var ERC1155ApprovalForAllTopic = common.HexToHash("0x17307eab39ab6107e8899845ad3d59bd9653f200f220920489ca2b5937696c31")
+var ERC1155URITopic = common.HexToHash("0x6bb7ff708619ba0610cba295a58592e0451dee2622938c8755667688daf3529b")
 var EmptyHash = common.HexToHash("0x0")
 var TrueHash = common.HexToHash("0x1")
 
 type AllowanceResponse struct {
 	Allowance sdk.Int         `json:"allowance"`
 	Expires   json.RawMessage `json:"expires"`
+}
+
+func getOwnerEventKey(contractAddr string, tokenID string) string {
+	return fmt.Sprintf("%s-%s", contractAddr, tokenID)
 }
 
 func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.Tx, checksum [32]byte, response sdk.DeliverTxHookInput) {
@@ -43,6 +52,26 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 	// additional gas consumption from EVM receipt generation and event translation
 	wasmToEvmEventGasLimit := app.EvmKeeper.GetDeliverTxHookWasmGasLimit(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)))
 	wasmToEvmEventCtx := ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, wasmToEvmEventGasLimit))
+	// unfortunately CW721 transfer events differ from ERC721 transfer events
+	// in that CW721 include sender (which can be different than owner) whereas
+	// ERC721 always include owner. The following logic refer to the owner
+	// event emitted before the transfer and use that instead to populate the
+	// synthetic ERC721 event.
+	ownerEvents := GetEventsOfType(response, wasmtypes.EventTypeCW721PreTransferOwner)
+	ownerEventsMap := map[string][]abci.Event{}
+	for _, ownerEvent := range ownerEvents {
+		if len(ownerEvent.Attributes) != 3 {
+			ctx.Logger().Error("received owner event with number of attributes != 3")
+			continue
+		}
+		ownerEventKey := getOwnerEventKey(string(ownerEvent.Attributes[0].Value), string(ownerEvent.Attributes[1].Value))
+		if events, ok := ownerEventsMap[ownerEventKey]; ok {
+			ownerEventsMap[ownerEventKey] = append(events, ownerEvent)
+		} else {
+			ownerEventsMap[ownerEventKey] = []abci.Event{ownerEvent}
+		}
+	}
+	cw721TransferCounterMap := map[string]int{}
 	for _, wasmEvent := range wasmEvents {
 		contractAddr, found := GetAttributeValue(wasmEvent, wasmtypes.AttributeKeyContractAddr)
 		if !found {
@@ -60,7 +89,17 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		// check if there is a ERC721 pointer to contract Addr
 		pointerAddr, _, exists = app.EvmKeeper.GetERC721CW721Pointer(wasmToEvmEventCtx, contractAddr)
 		if exists {
-			log, eligible := app.translateCW721Event(wasmToEvmEventCtx, wasmEvent, pointerAddr, contractAddr, response)
+			log, eligible := app.translateCW721Event(wasmToEvmEventCtx, wasmEvent, pointerAddr, contractAddr, ownerEventsMap, cw721TransferCounterMap)
+			if eligible {
+				log.Index = uint(len(logs))
+				logs = append(logs, log)
+			}
+			continue
+		}
+		// check if there is a ERC1155 pointer to contract Addr
+		pointerAddr, _, exists = app.EvmKeeper.GetERC1155CW1155Pointer(ctx, contractAddr)
+		if exists {
+			log, eligible := app.translateCW1155Event(ctx, wasmEvent, pointerAddr, contractAddr)
 			if eligible {
 				log.Index = uint(len(logs))
 				logs = append(logs, log)
@@ -173,7 +212,8 @@ func (app *App) translateCW20Event(ctx sdk.Context, wasmEvent abci.Event, pointe
 	return nil, false
 }
 
-func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string, response sdk.DeliverTxHookInput) (*ethtypes.Log, bool) {
+func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string,
+	ownerEventsMap map[string][]abci.Event, cw721TransferCounterMap map[string]int) (*ethtypes.Log, bool) {
 	action, found := GetAttributeValue(wasmEvent, "action")
 	if !found {
 		return nil, false
@@ -184,32 +224,30 @@ func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, point
 		tokenID := GetTokenIDAttribute(wasmEvent)
 		if tokenID == nil {
 			return nil, false
+		} else {
+			ctx.Logger().Error("Translate CW721 error: null token ID")
 		}
-		sender := common.Hash{}
-		// unfortunately CW721 transfer events differ from ERC721 transfer events
-		// in that CW721 include sender (which can be different than owner) whereas
-		// ERC721 always include owner. The following logic refer to the owner
-		// event emitted before the transfer and use that instead to populate the
-		// synthetic ERC721 event.
-		ownerEvents := GetEventsOfType(response, wasmtypes.EventTypeCW721PreTransferOwner)
-		for _, ownerEvent := range ownerEvents {
-			if len(ownerEvent.Attributes) != 3 ||
-				string(ownerEvent.Attributes[0].Key) != wasmtypes.AttributeKeyContractAddr ||
-				string(ownerEvent.Attributes[0].Value) != contractAddr {
-				continue
+		sender := app.GetEvmAddressAttribute(ctx, wasmEvent, "sender")
+		ownerEventKey := getOwnerEventKey(contractAddr, tokenID.String())
+		var currentCounter int
+		if c, ok := cw721TransferCounterMap[ownerEventKey]; ok {
+			currentCounter = c
+		}
+		cw721TransferCounterMap[ownerEventKey] = currentCounter + 1
+		if ownerEvents, ok := ownerEventsMap[ownerEventKey]; ok {
+			if len(ownerEvents) > currentCounter {
+				ownerSeiAddrStr := string(ownerEvents[currentCounter].Attributes[2].Value)
+				if ownerSeiAddr, err := sdk.AccAddressFromBech32(ownerSeiAddrStr); err == nil {
+					ownerEvmAddr := app.EvmKeeper.GetEVMAddressOrDefault(ctx, ownerSeiAddr)
+					sender = common.BytesToHash(ownerEvmAddr[:])
+				} else {
+					ctx.Logger().Error("Translate CW721 error: invalid bech32 owner", "error", err, "address", ownerSeiAddrStr)
+				}
+			} else {
+				ctx.Logger().Error("Translate CW721 error: insufficient owner events", "key", ownerEventKey, "counter", currentCounter, "events", len(ownerEvents))
 			}
-			tokenIDStr, _ := GetAttributeValue(wasmEvent, "token_id")
-			if string(ownerEvent.Attributes[1].Key) != wasmtypes.AttributeKeyTokenId ||
-				string(ownerEvent.Attributes[1].Value) != tokenIDStr ||
-				string(ownerEvent.Attributes[2].Key) != wasmtypes.AttributeKeyOwner {
-				continue
-			}
-			ownerAcc, err := sdk.AccAddressFromBech32(string(ownerEvent.Attributes[2].Value))
-			if err != nil {
-				continue
-			}
-			owner := app.EvmKeeper.GetEVMAddressOrDefault(ctx, ownerAcc)
-			sender = common.BytesToHash(owner[:])
+		} else {
+			ctx.Logger().Error("Translate CW721 error: owner event not found", "key", ownerEventKey)
 		}
 		topics = []common.Hash{
 			ERC721TransferTopic,
@@ -296,6 +334,99 @@ func (app *App) translateCW721Event(ctx sdk.Context, wasmEvent abci.Event, point
 	return nil, false
 }
 
+func (app *App) translateCW1155Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string) (*ethtypes.Log, bool) {
+	action, found := GetAttributeValue(wasmEvent, "action")
+	if !found {
+		return nil, false
+	}
+	var topics []common.Hash
+	switch action {
+	case "transfer_single", "mint_single", "burn_single":
+		fromHash := EmptyHash
+		toHash := EmptyHash
+		if action != "mint_single" {
+			fromHash = app.GetEvmAddressAttribute(ctx, wasmEvent, "owner")
+		}
+		if action != "burn_single" {
+			toHash = app.GetEvmAddressAttribute(ctx, wasmEvent, "recipient")
+		}
+		topics = []common.Hash{
+			ERC1155TransferSingleTopic,
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+			fromHash,
+			toHash,
+		}
+		tokenID := GetTokenIDAttribute(wasmEvent)
+		if tokenID == nil {
+			return nil, false
+		}
+		tokenAmount, found := GetAmountAttribute(wasmEvent)
+		if !found {
+			return nil, false
+		}
+		dataHash1 := common.BigToHash(tokenID).Bytes()
+		dataHash2 := common.BigToHash(tokenAmount).Bytes()
+		return &ethtypes.Log{
+			Address: pointerAddr,
+			Topics:  topics,
+			Data:    append(dataHash1, dataHash2...),
+		}, true
+	case "transfer_batch", "mint_batch", "burn_batch":
+		fromHash := EmptyHash
+		toHash := EmptyHash
+		if action != "mint_batch" {
+			fromHash = app.GetEvmAddressAttribute(ctx, wasmEvent, "owner")
+		}
+		if action != "burn_batch" {
+			toHash = app.GetEvmAddressAttribute(ctx, wasmEvent, "recipient")
+		}
+		topics = []common.Hash{
+			ERC1155TransferBatchTopic,
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+			fromHash,
+			toHash,
+		}
+		tokenIDs, found := GetTokenIDsAttribute(wasmEvent)
+		if !found {
+			return nil, false
+		}
+		tokenAmounts, found := GetAmountsAttribute(wasmEvent)
+		if !found {
+			return nil, false
+		}
+		value := EncodeBigIntArray(tokenIDs)
+		value = append(value, EncodeBigIntArray(tokenAmounts)...)
+		return &ethtypes.Log{
+			Address: pointerAddr,
+			Topics:  topics,
+			Data:    value,
+		}, true
+	case "approve_all":
+		topics = []common.Hash{
+			ERC1155ApprovalForAllTopic,
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "operator"),
+		}
+		return &ethtypes.Log{
+			Address: pointerAddr,
+			Topics:  topics,
+			Data:    TrueHash.Bytes(),
+		}, true
+	case "revoke_all":
+		topics = []common.Hash{
+			ERC1155ApprovalForAllTopic,
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "sender"),
+			app.GetEvmAddressAttribute(ctx, wasmEvent, "operator"),
+		}
+		return &ethtypes.Log{
+			Address: pointerAddr,
+			Topics:  topics,
+			Data:    EmptyHash.Bytes(),
+		}, true
+	}
+	return nil, false
+}
+
 func (app *App) GetEvmAddressAttribute(ctx sdk.Context, event abci.Event, attribute string) common.Hash {
 	addrStr, found := GetAttributeValue(event, attribute)
 	if found {
@@ -337,6 +468,22 @@ func GetAmountAttribute(event abci.Event) (*big.Int, bool) {
 	return nil, false
 }
 
+func GetAmountsAttribute(event abci.Event) ([]*big.Int, bool) {
+	results := []*big.Int{}
+	amounts, found := GetAttributeValue(event, "amounts")
+	if !found {
+		return results, false
+	}
+	for _, amt := range strings.Split(amounts, ",") {
+		amtInt, ok := sdk.NewIntFromString(amt)
+		if !ok {
+			return results, false
+		}
+		results = append(results, amtInt.BigInt())
+	}
+	return results, true
+}
+
 func GetTokenIDAttribute(event abci.Event) *big.Int {
 	tokenID, found := GetAttributeValue(event, "token_id")
 	if !found {
@@ -347,4 +494,37 @@ func GetTokenIDAttribute(event abci.Event) *big.Int {
 		return nil
 	}
 	return tokenIDInt.BigInt()
+}
+
+func GetTokenIDsAttribute(event abci.Event) ([]*big.Int, bool) {
+	results := []*big.Int{}
+	tokenIDs, found := GetAttributeValue(event, "token_ids")
+	if !found {
+		return results, false
+	}
+	for _, tid := range strings.Split(tokenIDs, ",") {
+		tidInt, ok := sdk.NewIntFromString(tid)
+		if !ok {
+			return results, false
+		}
+		results = append(results, tidInt.BigInt())
+	}
+	return results, true
+}
+
+func EncodeBigIntArray(inputs []*big.Int) []byte {
+	// Arrays are broken up into components:
+	// - offset byte (always 32)
+	// - length of array
+	// - ...array values
+	offset := big.NewInt(32)
+	length := big.NewInt(int64(len(inputs)))
+	value := append(
+		common.BigToHash(offset).Bytes(),
+		common.BigToHash(length).Bytes()...,
+	)
+	for _, i := range inputs {
+		value = append(value, common.BigToHash(i).Bytes()...)
+	}
+	return value
 }

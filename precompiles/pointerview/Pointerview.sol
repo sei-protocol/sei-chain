@@ -17,4 +17,8 @@ interface IPointerview {
     function getCW721Pointer(
         string memory cwAddr
     ) view external returns (address addr, uint16 version, bool exists);
+
+    function getCW1155Pointer(
+        string memory cwAddr
+    ) view external returns (address addr, uint16 version, bool exists);
 }

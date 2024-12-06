@@ -21,6 +21,7 @@ const (
 	AddNativePointer = "addNativePointer"
 	AddCW20Pointer   = "addCW20Pointer"
 	AddCW721Pointer  = "addCW721Pointer"
+	AddCW1155Pointer = "addCW1155Pointer"
 )
 
 const PointerAddress = "0x000000000000000000000000000000000000100b"
@@ -38,6 +39,7 @@ type PrecompileExecutor struct {
 	AddNativePointerID []byte
 	AddCW20PointerID   []byte
 	AddCW721PointerID  []byte
+	AddCW1155PointerID []byte
 }
 
 func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, wasmdKeeper pcommon.WasmdViewKeeper) (*pcommon.DynamicGasPrecompile, error) {
@@ -57,6 +59,8 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, w
 			p.AddCW20PointerID = m.ID
 		case AddCW721Pointer:
 			p.AddCW721PointerID = m.ID
+		case AddCW1155Pointer:
+			p.AddCW1155PointerID = m.ID
 		}
 	}
 
@@ -78,6 +82,8 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *ethabi.Method, call
 		return p.AddCW20(ctx, method, caller, args, value, evm)
 	case AddCW721Pointer:
 		return p.AddCW721(ctx, method, caller, args, value, evm)
+	case AddCW1155Pointer:
+		return p.AddCW1155(ctx, method, caller, args, value, evm)
 	default:
 		err = fmt.Errorf("unknown method %s", method.Name)
 	}
@@ -176,6 +182,37 @@ func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, cal
 	name := formattedRes["name"].(string)
 	symbol := formattedRes["symbol"].(string)
 	contractAddr, err := p.evmKeeper.UpsertERCCW721Pointer(ctx, evm, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
+	if err != nil {
+		return nil, 0, err
+	}
+	ret, err = method.Outputs.Pack(contractAddr)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) AddCW1155(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) (ret []byte, remainingGas uint64, err error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, 0, err
+	}
+	cwAddr := args[0].(string)
+	cwAddress, err := sdk.AccAddressFromBech32(cwAddr)
+	if err != nil {
+		return nil, 0, err
+	}
+	res, err := p.wasmdKeeper.QuerySmartSafe(ctx, cwAddress, []byte("{\"contract_info\":{}}"))
+	if err != nil {
+		return nil, 0, err
+	}
+	formattedRes := map[string]interface{}{}
+	if err := json.Unmarshal(res, &formattedRes); err != nil {
+		return nil, 0, err
+	}
+	name := formattedRes["name"].(string)
+	symbol := formattedRes["symbol"].(string)
+	contractAddr, err := p.evmKeeper.UpsertERCCW1155Pointer(ctx, evm, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
 	if err != nil {
 		return nil, 0, err
 	}

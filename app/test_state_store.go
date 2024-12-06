@@ -143,7 +143,7 @@ func (s *InMemoryStateStore) GetEarliestVersion() (int64, error) {
 	return s.earliestVersion, nil
 }
 
-func (s *InMemoryStateStore) SetEarliestVersion(version int64) error {
+func (s *InMemoryStateStore) SetEarliestVersion(version int64, ignoreVersion bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

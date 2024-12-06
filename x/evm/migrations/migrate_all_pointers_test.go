@@ -60,10 +60,25 @@ func TestMigrateERCCW721Pointers(t *testing.T) {
 	require.Equal(t, pointerAddr, addr)
 }
 
+func TestMigrateERCCW1155Pointers(t *testing.T) {
+	k := testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	var pointerAddr common.Address
+	require.Nil(t, k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
+		a, err := k.UpsertERCCW1155Pointer(ctx, e, "test", utils.ERCMetadata{Name: "name", Symbol: "symbol"})
+		pointerAddr = a
+		return err
+	}, func(s1, s2 string) {}))
+	require.Nil(t, migrations.MigrateERCCW1155Pointers(ctx, &k))
+	// address should stay the same
+	addr, _, _ := k.GetERC1155CW1155Pointer(ctx, "test")
+	require.Equal(t, pointerAddr, addr)
+}
+
 func TestMigrateCWERC20Pointers(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
-	require.Nil(t, migrations.StoreCWPointerCode(ctx, &k, true, false))
+	require.Nil(t, migrations.StoreCWPointerCode(ctx, &k, true, false, false))
 	msgServer := keeper.NewMsgServerImpl(&k)
 	res, err := msgServer.RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
 		PointerType: types.PointerType_ERC20,
@@ -79,7 +94,7 @@ func TestMigrateCWERC20Pointers(t *testing.T) {
 func TestMigrateCWERC721Pointers(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
-	require.Nil(t, migrations.StoreCWPointerCode(ctx, &k, false, true))
+	require.Nil(t, migrations.StoreCWPointerCode(ctx, &k, false, true, false))
 	msgServer := keeper.NewMsgServerImpl(&k)
 	res, err := msgServer.RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
 		PointerType: types.PointerType_ERC721,
@@ -89,5 +104,21 @@ func TestMigrateCWERC721Pointers(t *testing.T) {
 	require.Nil(t, migrations.MigrateCWERC721Pointers(ctx, &k))
 	// address should stay the same
 	addr, _, _ := k.GetCW721ERC721Pointer(ctx, common.HexToAddress("0x0000000000000000000000000000000000000000"))
+	require.Equal(t, res.PointerAddress, addr.String())
+}
+
+func TestMigrateCWERC1155Pointers(t *testing.T) {
+	k := testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	require.Nil(t, migrations.StoreCWPointerCode(ctx, &k, false, false, true))
+	msgServer := keeper.NewMsgServerImpl(&k)
+	res, err := msgServer.RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		PointerType: types.PointerType_ERC1155,
+		ErcAddress:  "0x0000000000000000000000000000000000000000",
+	})
+	require.Nil(t, err)
+	require.Nil(t, migrations.MigrateCWERC1155Pointers(ctx, &k))
+	// address should stay the same
+	addr, _, _ := k.GetCW1155ERC1155Pointer(ctx, common.HexToAddress("0x0000000000000000000000000000000000000000"))
 	require.Equal(t, res.PointerAddress, addr.String())
 }

@@ -34966,9 +34966,11 @@ paths:
           enum:
             - ERC20
             - ERC721
+            - ERC1155
             - NATIVE
             - CW20
             - CW721
+            - CW1155
           default: ERC20
         - name: pointee
           in: query
@@ -35184,9 +35186,11 @@ paths:
           enum:
             - ERC20
             - ERC721
+            - ERC1155
             - NATIVE
             - CW20
             - CW721
+            - CW1155
           default: ERC20
       tags:
         - Query
@@ -61401,9 +61405,11 @@ definitions:
     enum:
       - ERC20
       - ERC721
+      - ERC1155
       - NATIVE
       - CW20
       - CW721
+      - CW1155
     default: ERC20
   seiprotocol.seichain.evm.QueryEVMAddressBySeiAddressResponse:
     type: object
