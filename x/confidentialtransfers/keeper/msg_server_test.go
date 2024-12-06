@@ -583,7 +583,7 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawSuccessive() {
 	_ = suite.App.BankKeeper.SendCoinsFromAccountToModule(suite.Ctx, suite.TestAccs[0], types.ModuleName, sdk.NewCoins(sdk.NewCoin(DefaultTestDenom, sdk.NewInt(1000000000000))))
 
 	// Initialize an account
-	initialAvailableBalance := big.NewInt(1000000)
+	initialAvailableBalance := big.NewInt(100000)
 	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 50, initialAvailableBalance, big.NewInt(8000), big.NewInt(1000000000000))
 
 	// Create a withdraw request with an invalid amount
