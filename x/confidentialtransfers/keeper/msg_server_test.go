@@ -15,6 +15,8 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
+var teg *elgamal.TwistedElGamal
+
 // Tests the InitializeAccount method of the MsgServer.
 func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountBasic() {
 	testPk := suite.PrivKeys[0]
@@ -91,7 +93,9 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyPubkey() {
 
 	// Modify the pubkey used after.
 	otherPk, _ := crypto.GenerateKey()
-	teg := elgamal.NewTwistedElgamal()
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
 	otherKeyPair, _ := teg.KeyGen(*otherPk, DefaultTestDenom)
 	initializeStruct.Pubkey = &otherKeyPair.PublicKey
 
@@ -124,7 +128,9 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyBalances() {
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
 
 	// Create a ciphertext on a non zero value.
-	teg := elgamal.NewTwistedElgamal()
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
 	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
 	nonZeroCiphertext, _, _ := teg.Encrypt(keyPair.PublicKey, big.NewInt(100000))
 
@@ -279,7 +285,9 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountFeatureDisabled() {
 func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
 
-	teg := elgamal.NewTwistedElgamal()
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
 	testPk := suite.PrivKeys[0]
 
 	// Generate the address from the private key
@@ -365,7 +373,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	testAddrBalance = suite.App.BankKeeper.GetBalance(suite.Ctx, testAddr, DefaultTestDenom)
 	suite.Require().Equal(oldTestAddrBalance.Amount.Uint64()-depositStruct.Amount, testAddrBalance.Amount.Uint64(), "Addresses token balance should have decreased by the deposit amount")
 
-	// Check that the amount in the bank module has increased by the deposit amount (Assuming module account balance starts from 0)
+	// Check that the amount in the bank module has increased by the deposit amount
 	moduleAccount = suite.App.AccountKeeper.GetModuleAccount(suite.Ctx, types.ModuleName)
 	oldModuleBalance := moduleBalance
 	moduleBalance = suite.App.BankKeeper.GetBalance(suite.Ctx, moduleAccount.GetAddress(), DefaultTestDenom)
@@ -550,7 +558,9 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawHappyPath() {
 	suite.Require().Equal(initialState.PendingBalanceCreditCounter, account.PendingBalanceCreditCounter, "PendingBalanceCreditCounter should not have been modified by withdraw")
 
 	// Check that available balances were updated correctly
-	teg := elgamal.NewTwistedElgamal()
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
 	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
 	oldBalanceDecrypted, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, initialState.AvailableBalance, elgamal.MaxBits32)
 	newBalanceDecrypted, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, account.AvailableBalance, elgamal.MaxBits32)
@@ -638,7 +648,9 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawInvalidAmount() {
 	suite.Require().ErrorContains(err, "ciphertext commitment equality verification failed")
 
 	// Try creating proofs on the new withdraw amount. This should not work since range proofs cannnot be generated on negative numbers.
-	teg := elgamal.NewTwistedElgamal()
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
 	keys, _ := teg.KeyGen(*testPk, DefaultTestDenom)
 	newBalanceNegative := new(big.Int).Sub(initialAvailableBalance, withdrawStruct.Amount)
 
@@ -728,7 +740,9 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 
 	// First get the actual balance in the account by decrypting the available balance.
 	// This will only work if the encrypted value is small enough to be decrypted.
-	teg := elgamal.NewTwistedElgamal()
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
 	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
 	actualBalance, err := teg.DecryptLargeNumber(keyPair.PrivateKey, accountState.AvailableBalance, elgamal.MaxBits32)
 	suite.Require().NoError(err, "Should be able to decrypt actual balance since the encrypted value is small")
@@ -828,7 +842,6 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHappyPath() {
 	_, err = suite.msgServer.CloseAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error closing account that doesn't exist")
 	suite.Require().ErrorContains(err, "account does not exist")
-
 }
 
 func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHasPendingBalance() {
@@ -858,6 +871,45 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHasPendingBalance() {
 	// Check that the account still exists
 	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 	suite.Require().True(exists, "Account should still exist")
+
+	// Test that applying balances then withdrawing all the available balance results in a successful close account
+	applyStruct, _ := types.NewApplyPendingBalance(
+		*testPk,
+		testAddr.String(),
+		DefaultTestDenom,
+		initialState.DecryptableAvailableBalance,
+		initialState.PendingBalanceCreditCounter,
+		initialState.AvailableBalance,
+		initialState.PendingBalanceLo,
+		initialState.PendingBalanceHi)
+
+	// Apply the pending balances
+	applyReq := types.NewMsgApplyPendingBalanceProto(applyStruct)
+	_, err = suite.msgServer.ApplyPendingBalance(sdk.WrapSDKContext(suite.Ctx), applyReq)
+	suite.Require().NoError(err, "Should have no error applying pending balance")
+
+	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
+	aeskey, _ := encryption.GetAESKey(*testPk, DefaultTestDenom)
+	availableBalanceAmount, err := encryption.DecryptAESGCM(account.DecryptableAvailableBalance, aeskey)
+	suite.Require().NoError(err, "Should be able to decrypt available balance")
+
+	withdrawStruct, _ := types.NewWithdraw(*testPk, account.AvailableBalance, DefaultTestDenom, testAddr.String(), account.DecryptableAvailableBalance, availableBalanceAmount)
+	withdrawReq := types.NewMsgWithdrawProto(withdrawStruct)
+	suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), withdrawReq)
+
+	account, _ = suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
+	closeAccountStruct, _ = types.NewCloseAccount(
+		*testPk,
+		testAddr.String(),
+		DefaultTestDenom,
+		account.PendingBalanceLo,
+		account.PendingBalanceHi,
+		account.AvailableBalance)
+
+	// Execute the close account. This should succeed now that all the balances have been withdrawn
+	req = types.NewMsgCloseAccountProto(closeAccountStruct)
+	_, err = suite.msgServer.CloseAccount(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().NoError(err, "Should have no error closing account with no more balance")
 }
 
 // Test the scenario where a close account instruction is applied for an account that still contains available balances.
@@ -868,7 +920,8 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHasAvailableBalance() {
 	testAddr := privkeyToAddress(testPk)
 
 	// Initialize an account
-	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 0, big.NewInt(900), big.NewInt(0), big.NewInt(100))
+	availableBalanceAmount := big.NewInt(900)
+	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 0, availableBalanceAmount, big.NewInt(0), big.NewInt(100))
 
 	// Create a close account request
 	closeAccountStruct, _ := types.NewCloseAccount(
@@ -960,7 +1013,9 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalance() {
 	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
 
 	// Decrypt and check balances
-	teg := elgamal.NewTwistedElgamal()
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
 	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
 
 	expectedNewBalance := new(big.Int).Add(initialPendingBalance, initialAvailableBalance)
@@ -1110,7 +1165,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceFeatureDisabled()
 
 	// Initialize an account
 	initialAvailableBalance := big.NewInt(2000)
-	initialPendingBalance := big.NewInt(100000)
+	initialPendingBalance := big.NewInt(10)
 	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 10, initialAvailableBalance, initialPendingBalance, big.NewInt(1000))
 
 	// Create an apply pending balance request
@@ -1156,7 +1211,9 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 	initialRecipientState, _ := suite.SetupAccountState(recipientPk, DefaultTestDenom, 12, big.NewInt(5000), big.NewInt(21000), big.NewInt(201000))
 	initialAuditorState, _ := suite.SetupAccountState(auditorPk, DefaultTestDenom, 12, big.NewInt(5000), big.NewInt(21000), big.NewInt(201000))
 
-	teg := elgamal.NewTwistedElgamal()
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
 	senderKeypair, _ := teg.KeyGen(*senderPk, DefaultTestDenom)
 
 	recipientKeypair, _ := teg.KeyGen(*recipientPk, DefaultTestDenom)
@@ -1316,7 +1373,9 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferInsufficientBalance() {
 	// Split the transfer amount into bottom 16 bits and top 32 bits.
 	transferLoBits, transferHiBits, _ := utils.SplitTransferBalance(initialBalance.Uint64())
 
-	teg := elgamal.NewTwistedElgamal()
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
 	transferLoBigInt := new(big.Int).SetUint64(uint64(transferLoBits))
 	transferHiBigInt := new(big.Int).SetUint64(uint64(transferHiBits))
 	senderAmountLo, senderLoRandomness, _ := teg.Encrypt(initialSenderState.PublicKey, transferLoBigInt)
@@ -1403,7 +1462,9 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferWrongRecipient() {
 func (suite *KeeperTestSuite) TestMsgServer_TransferDifferentAmounts() {
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
 
-	teg := elgamal.NewTwistedElgamal()
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
 
 	// Setup the accounts used for the test
 	senderPk := suite.PrivKeys[0]

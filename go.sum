@@ -1361,6 +1361,14 @@ github.com/sei-protocol/sei-cosmos v0.3.45-0.20241115235001-4097fc2030b6 h1:nE0X
 github.com/sei-protocol/sei-cosmos v0.3.45-0.20241115235001-4097fc2030b6/go.mod h1:ZwWxF/69WlcLEn4BzVjPPToTFkE2sjPanU8PNNyKoOk=
 github.com/sei-protocol/sei-cryptography v0.0.0-20241125231012-ef88c69ce5e4 h1:F+hB6PsrrHRvP73LZioV4rahKnNHEyBbTIJVECMggNE=
 github.com/sei-protocol/sei-cryptography v0.0.0-20241125231012-ef88c69ce5e4/go.mod h1:UKxRsOe0NunPs9SY0JFYqcTH5KMWwfLAZHtPEVNGqbk=
+github.com/sei-protocol/sei-cryptography v0.0.0-20241204203950-d9cc801d84fe h1:rZGOMKKTbXefWqEc3HgzcprviwL2lBXJiQT+rwOLxiM=
+github.com/sei-protocol/sei-cryptography v0.0.0-20241204203950-d9cc801d84fe/go.mod h1:UKxRsOe0NunPs9SY0JFYqcTH5KMWwfLAZHtPEVNGqbk=
+github.com/sei-protocol/sei-cryptography v0.0.0-20241204205525-c1759b5f04b5 h1:UdlRX8p/VXdgu5HVMqTLoG3jIlNk2vrGEwMygC2BaBI=
+github.com/sei-protocol/sei-cryptography v0.0.0-20241204205525-c1759b5f04b5/go.mod h1:UKxRsOe0NunPs9SY0JFYqcTH5KMWwfLAZHtPEVNGqbk=
+github.com/sei-protocol/sei-cryptography v0.0.0-20241206005626-4debb1ae1155 h1:nCkJreD3eMho/CkuyBC4gTgtd4TU7Eg9Z9/mA3xmhGs=
+github.com/sei-protocol/sei-cryptography v0.0.0-20241206005626-4debb1ae1155/go.mod h1:UKxRsOe0NunPs9SY0JFYqcTH5KMWwfLAZHtPEVNGqbk=
+github.com/sei-protocol/sei-cryptography v0.0.0-20241206165503-8d08733726ea h1:Nvm8DqAmNEnnmzP+86V2YIjmtz7vSTymjseQ6kAuleE=
+github.com/sei-protocol/sei-cryptography v0.0.0-20241206165503-8d08733726ea/go.mod h1:UKxRsOe0NunPs9SY0JFYqcTH5KMWwfLAZHtPEVNGqbk=
 github.com/sei-protocol/sei-db v0.0.45 h1:95ygzGFMyvaGwEUmzlKi8MxwXfbluoNzbaIjy9zOG6o=
 github.com/sei-protocol/sei-db v0.0.45/go.mod h1:m5g7p0QeAS3dNJHIl28zQpzOgxQmvYqPb7t4hwgIOCA=
 github.com/sei-protocol/sei-iavl v0.2.0 h1:OisPjXiDT+oe+aeckzDEFgkZCYuUjHgs/PP8DPicN+I=
