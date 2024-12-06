@@ -314,7 +314,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 
 	var coinbaseEVMAddress common.Address
 	if evmHooks != nil {
-		coinbaseEVMAddress = am.keeper.GetEVMAddressOrDefault(ctx, coinbase)
+		coinbaseEVMAddress = tracers.GetEVMAddress(ctx, am.keeper, coinbase)
 	}
 	denom := am.keeper.GetBaseDenom(ctx)
 	surplus := am.keeper.GetAnteSurplusSum(ctx)
@@ -360,7 +360,9 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 
 		if evmHooks != nil && evmHooks.OnBalanceChange != nil && (surplusUsei.GT(sdk.ZeroInt()) || surplusWei.GT(sdk.ZeroInt())) {
 			evmModuleAddress := am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName)
-			tracers.TraceBlockReward(ctx, evmHooks, am.keeper.BankKeeper(), evmModuleAddress, am.keeper.GetEVMAddressOrDefault(ctx, evmModuleAddress), surplusUsei, surplusWei)
+			evmModuleAddressETH := tracers.GetEVMAddress(ctx, am.keeper, evmModuleAddress)
+
+			tracers.TraceBlockReward(ctx, evmHooks, am.keeper.BankKeeper(), evmModuleAddress, evmModuleAddressETH, surplusUsei, surplusWei)
 		}
 	}
 	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Filter(utils.Map(evmTxDeferredInfoList, func(i *types.DeferredInfo) common.Hash { return common.BytesToHash(i.TxHash) }), func(h common.Hash) bool { return h.Cmp(ethtypes.EmptyTxsHash) != 0 }))
