@@ -3,6 +3,7 @@ package tracers
 import (
 	"math/big"
 
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -11,7 +12,7 @@ import (
 
 type BankBalanceKeeper interface {
 	GetBalance(sdk.Context, sdk.AccAddress, string) sdk.Coin
-	GetWeiBalance(ctx sdk.Context, addr sdk.AccAddress) sdk.Int
+	GetWeiBalance(sdk.Context, sdk.AccAddress) sdk.Int
 }
 
 // TraceTransactionRewards is a helper function to trace the payment of the transaction rewards
@@ -25,9 +26,11 @@ func TraceTransactionRewards(
 	usei sdk.Int,
 	wei sdk.Int,
 ) {
+	noGasBillingCtx := ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
+
 	value := usei.Mul(state.SdkUseiToSweiMultiplier).Add(wei).BigInt()
 
-	newBalance := getEVMBalance(ctx, bankKeeper, toSeiAddr)
+	newBalance := getEVMBalance(noGasBillingCtx, bankKeeper, toSeiAddr)
 	oldBalance := new(big.Int).Sub(newBalance, value)
 
 	hooks.OnBalanceChange(toEVMAddr, oldBalance, newBalance, tracing.BalanceIncreaseRewardTransactionFee)
@@ -43,14 +46,16 @@ func TraceTransferEVMValue(
 	toEVMAddr common.Address,
 	value *big.Int,
 ) {
+	noGasBillingCtx := ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
+
 	// From address got value removed from it
-	newBalance := getEVMBalance(ctx, bankKeeper, fromSeiAddr)
+	newBalance := getEVMBalance(noGasBillingCtx, bankKeeper, fromSeiAddr)
 	oldBalance := new(big.Int).Add(newBalance, value)
 
 	hooks.OnBalanceChange(fromEVMAddr, oldBalance, newBalance, tracing.BalanceChangeTransfer)
 
 	// To received valye from the sender
-	newBalance = getEVMBalance(ctx, bankKeeper, toSeiAddr)
+	newBalance = getEVMBalance(noGasBillingCtx, bankKeeper, toSeiAddr)
 	oldBalance = new(big.Int).Sub(newBalance, value)
 
 	hooks.OnBalanceChange(toEVMAddr, oldBalance, newBalance, tracing.BalanceChangeTransfer)
@@ -65,10 +70,12 @@ func TraceBlockReward(
 	usei sdk.Int,
 	wei sdk.Int,
 ) {
+	noGasBillingCtx := ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
+
 	value := usei.Mul(state.SdkUseiToSweiMultiplier).Add(wei).BigInt()
 
 	// To received value
-	newBalance := getEVMBalance(ctx, bankKeeper, toSeiAddr)
+	newBalance := getEVMBalance(noGasBillingCtx, bankKeeper, toSeiAddr)
 	oldBalance := new(big.Int).Sub(newBalance, value)
 
 	hooks.OnBalanceChange(toEVMAddr, oldBalance, newBalance, tracing.BalanceIncreaseRewardMineBlock)
