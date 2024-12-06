@@ -6,9 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math/big"
-	"strconv"
-
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/tx"
@@ -19,10 +16,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/spf13/cobra"
-)
-
-const (
-	FlagPrivateKey = "private-key"
 )
 
 // NewTxCmd returns a root CLI command handler for all x/confidentialtransfers transaction commands.
@@ -187,11 +180,11 @@ func makeCloseAccountCmd(cmd *cobra.Command, args []string) error {
 // NewTransferTxCmd returns a CLI command handler for creating a MsgTransfer transaction.
 func NewTransferTxCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "transfer [denom] [to_address] [amount] [flags]",
+		Use:   "transfer [to_address] [amount] [flags]",
 		Short: "Make a confidential transfer to another address",
 		Long: `Transfer command create a confidential transfer of the specified amount of the specified denomination to the specified address. 
         passed in. To add auditors to the transaction, pass the --auditors flag with a comma separated list of auditor addresses.`,
-		Args: cobra.ExactArgs(3),
+		Args: cobra.ExactArgs(2),
 		RunE: makeTransferCmd,
 	}
 
@@ -220,29 +213,23 @@ func makeTransferCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	fromAddress := clientCtx.GetFromAddress().String()
-	denom := args[0]
-	err = sdk.ValidateDenom(denom)
-	if err != nil {
-		return fmt.Errorf("invalid denom: %v", err)
-	}
 
-	toAddress := args[1]
+	toAddress := args[0]
 	_, err = sdk.AccAddressFromBech32(toAddress)
 	if err != nil {
 		return fmt.Errorf("invalid address: %v", err)
 	}
 
-	amount, err := strconv.ParseUint(args[2], 10, 64)
+	coin, err := sdk.ParseCoinNormalized(args[1])
+	if err != nil {
+		return err
+	}
+	senderAccount, err := getAccount(queryClient, fromAddress, coin.Denom)
 	if err != nil {
 		return err
 	}
 
-	senderAccount, err := getAccount(queryClient, fromAddress, denom)
-	if err != nil {
-		return err
-	}
-
-	recipientAccount, err := getAccount(queryClient, toAddress, denom)
+	recipientAccount, err := getAccount(queryClient, toAddress, coin.Denom)
 	if err != nil {
 		return err
 	}
@@ -254,7 +241,7 @@ func makeTransferCmd(cmd *cobra.Command, args []string) error {
 
 	auditors := make([]types.AuditorInput, len(auditorAddrs))
 	for i, auditorAddr := range auditorAddrs {
-		auditorAccount, err := getAccount(queryClient, auditorAddr, denom)
+		auditorAccount, err := getAccount(queryClient, auditorAddr, coin.Denom)
 		if err != nil {
 			return err
 		}
@@ -268,10 +255,10 @@ func makeTransferCmd(cmd *cobra.Command, args []string) error {
 		privKey,
 		fromAddress,
 		toAddress,
-		denom,
+		coin.Denom,
 		senderAccount.DecryptableAvailableBalance,
 		senderAccount.AvailableBalance,
-		amount,
+		coin.Amount.Uint64(),
 		&recipientAccount.PublicKey,
 		auditors)
 
@@ -291,11 +278,11 @@ func makeTransferCmd(cmd *cobra.Command, args []string) error {
 // NewWithdrawTxCmd returns a CLI command handler for creating a MsgWithdraw transaction.
 func NewWithdrawTxCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "withdraw [denom] [amount] [flags]",
+		Use:   "withdraw [amount] [flags]",
 		Short: "Withdraw from confidential transfers account",
 		Long: `Withdraws the specified amount from the confidential transfers account for the specified denomination and address 
         passed in --from flag.`,
-		Args: cobra.ExactArgs(2),
+		Args: cobra.ExactArgs(1),
 		RunE: makeWithdrawCmd,
 	}
 
@@ -323,18 +310,12 @@ func makeWithdrawCmd(cmd *cobra.Command, args []string) error {
 	}
 	address := clientCtx.GetFromAddress().String()
 
-	denom := args[0]
-	err = sdk.ValidateDenom(denom)
+	coin, err := sdk.ParseCoinNormalized(args[0])
 	if err != nil {
-		return fmt.Errorf("invalid denom: %v", err)
+		return err
 	}
 
-	amount, isValid := new(big.Int).SetString(args[1], 10)
-	if !isValid {
-		return fmt.Errorf("invalid amount: %v", args[1])
-	}
-
-	account, err := getAccount(queryClient, address, denom)
+	account, err := getAccount(queryClient, address, coin.Denom)
 	if err != nil {
 		return err
 	}
@@ -342,10 +323,10 @@ func makeWithdrawCmd(cmd *cobra.Command, args []string) error {
 	withdraw, err := types.NewWithdraw(
 		*privKey,
 		account.AvailableBalance,
-		denom,
+		coin.Denom,
 		address,
 		account.DecryptableAvailableBalance,
-		amount)
+		coin.Amount.BigInt())
 
 	if err != nil {
 		return err
@@ -363,11 +344,11 @@ func makeWithdrawCmd(cmd *cobra.Command, args []string) error {
 // NewDepositTxCmd returns a CLI command handler for creating a MsgDeposit transaction.
 func NewDepositTxCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "deposit [denom] [amount] [flags]",
+		Use:   "deposit [amount] [flags]",
 		Short: "Deposit funds into confidential transfers account",
 		Long: `Deposit the specified amount into the confidential transfers account for the specified denomination and address 
         passed in --from flag.`,
-		Args: cobra.ExactArgs(2),
+		Args: cobra.ExactArgs(1),
 		RunE: makeDepositCmd,
 	}
 
@@ -383,21 +364,15 @@ func makeDepositCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	address := clientCtx.GetFromAddress().String()
-	denom := args[0]
-	err = sdk.ValidateDenom(denom)
-	if err != nil {
-		return fmt.Errorf("invalid denom: %v", err)
-	}
-
-	amount, err := strconv.ParseUint(args[1], 10, 64)
+	coin, err := sdk.ParseCoinNormalized(args[0])
 	if err != nil {
 		return err
 	}
 
 	msg := &types.MsgDeposit{
 		FromAddress: address,
-		Denom:       denom,
-		Amount:      amount,
+		Denom:       coin.Denom,
+		Amount:      coin.Amount.Uint64(),
 	}
 
 	if err = msg.ValidateBasic(); err != nil {
