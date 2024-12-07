@@ -1361,6 +1361,7 @@ github.com/sei-protocol/sei-cosmos v0.3.48 h1:kSDweeTaLZ4TByLqAD6/hmtgAhAJHwXU1b
 github.com/sei-protocol/sei-cosmos v0.3.48/go.mod h1:XC417pB6NwxP/cQ2XTSZLzVnP8dMZ//4uCXS3SxFgoM=
 github.com/sei-protocol/sei-cryptography v0.0.0-20241024110230-878abf648f70 h1:aFRMQdZiJyXvw3kycnIRSoH7KCGc23ADjkqZtkv8FlU=
 github.com/sei-protocol/sei-cryptography v0.0.0-20241024110230-878abf648f70/go.mod h1:UKxRsOe0NunPs9SY0JFYqcTH5KMWwfLAZHtPEVNGqbk=
+github.com/sei-protocol/sei-cryptography v0.0.0-20241206165503-8d08733726ea/go.mod h1:UKxRsOe0NunPs9SY0JFYqcTH5KMWwfLAZHtPEVNGqbk=
 github.com/sei-protocol/sei-db v0.0.46 h1:naXfSp1I3UgJJm/iSvXpdFzr9nofEOxp/EekcAVj7wY=
 github.com/sei-protocol/sei-db v0.0.46/go.mod h1:m5g7p0QeAS3dNJHIl28zQpzOgxQmvYqPb7t4hwgIOCA=
 github.com/sei-protocol/sei-iavl v0.2.0 h1:OisPjXiDT+oe+aeckzDEFgkZCYuUjHgs/PP8DPicN+I=
