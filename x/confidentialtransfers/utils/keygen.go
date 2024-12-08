@@ -41,9 +41,7 @@ func GetSignedDenom(privateKey *ecdsa.PrivateKey, denom string) ([]byte, error) 
 
 	signatureWithV := append(signature[:64], v)
 
-	// Hash the signature one more time to prevent malleability
-	derivedKey := crypto.Keccak256Hash(signatureWithV)
-	return derivedKey.Bytes(), nil
+	return signatureWithV, nil
 }
 
 func GetElGamalKeyPair(pk ecdsa.PrivateKey, denom string) (*elgamal.KeyPair, error) {
