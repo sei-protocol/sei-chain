@@ -6,7 +6,6 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/aws/smithy-go/rand"
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -21,9 +20,9 @@ import (
 
 func TestMsgTransfer_FromProto(t *testing.T) {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
-	destPrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
-	auditorPrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), crand.Reader)
+	destPrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), crand.Reader)
+	auditorPrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), crand.Reader)
 	eg := elgamal.NewTwistedElgamal()
 	sourceKeypair, _ := utils.GetElGamalKeyPair(*sourcePrivateKey, testDenom)
 	destinationKeypair, _ := utils.GetElGamalKeyPair(*destPrivateKey, testDenom)
@@ -403,7 +402,7 @@ func TestMsgTransfer_ValidateBasic(t *testing.T) {
 
 func TestMsgInitializeAccount_FromProto(t *testing.T) {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), crand.Reader)
 	eg := elgamal.NewTwistedElgamal()
 	sourceKeypair, _ := utils.GetElGamalKeyPair(*sourcePrivateKey, testDenom)
 	aesPK, err := utils.GetAESKey(*sourcePrivateKey, testDenom)
@@ -540,7 +539,7 @@ func TestMsgInitializeAccount_ValidateBasic(t *testing.T) {
 
 func TestMsgWithdraw_FromProto(t *testing.T) {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), crand.Reader)
 	eg := elgamal.NewTwistedElgamal()
 	sourceKeypair, _ := utils.GetElGamalKeyPair(*sourcePrivateKey, testDenom)
 	aesPK, err := utils.GetAESKey(*sourcePrivateKey, testDenom)
@@ -734,7 +733,7 @@ func TestMsgWithdraw_ValidateBasic(t *testing.T) {
 func TestMsgCloseAccount_FromProto(t *testing.T) {
 	address := sdk.AccAddress("address1")
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	privateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	privateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), crand.Reader)
 	zeroBigInt := big.NewInt(0)
 	eg := elgamal.NewTwistedElgamal()
 	keypair, _ := utils.GetElGamalKeyPair(*privateKey, testDenom)
