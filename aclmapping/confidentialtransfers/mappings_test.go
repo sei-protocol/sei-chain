@@ -73,13 +73,13 @@ func cacheTxContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
 }
 
 func (suite *KeeperTestSuite) SetupAccountState(privateKey *ecdsa.PrivateKey, denom string, pendingBalanceCreditCounter uint16, initialAvailableBalance, initialPendingBalance, bankAmount uint64) (types.Account, error) {
-	aesKey, err := encryption.GetAESKey(*privateKey, denom)
+	aesKey, err := utils.GetAESKey(*privateKey, denom)
 	if err != nil {
 		return types.Account{}, err
 	}
 
 	teg := elgamal.NewTwistedElgamal()
-	keypair, err := teg.KeyGen(*privateKey, denom)
+	keypair, err := utils.GetElGamalKeyPair(*privateKey, denom)
 	if err != nil {
 		return types.Account{}, err
 	}

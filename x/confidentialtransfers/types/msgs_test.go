@@ -1,13 +1,17 @@
 package types
 
 import (
+	"crypto/ecdsa"
 	crand "crypto/rand"
 	"math/big"
 	"testing"
 
+	"github.com/aws/smithy-go/rand"
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/ethereum/go-ethereum/crypto/secp256k1"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
@@ -21,9 +25,9 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 	destPrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	auditorPrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	eg := elgamal.NewTwistedElgamal()
-	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
-	destinationKeypair, _ := eg.KeyGen(*destPrivateKey, testDenom)
-	auditorKeypair, _ := eg.KeyGen(*auditorPrivateKey, testDenom)
+	sourceKeypair, _ := utils.GetElGamalKeyPair(*sourcePrivateKey, testDenom)
+	destinationKeypair, _ := utils.GetElGamalKeyPair(*destPrivateKey, testDenom)
+	auditorKeypair, _ := utils.GetElGamalKeyPair(*auditorPrivateKey, testDenom)
 	aesPK, err := utils.GetAESKey(*sourcePrivateKey, testDenom)
 	require.NoError(t, err)
 
@@ -401,7 +405,7 @@ func TestMsgInitializeAccount_FromProto(t *testing.T) {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
 	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	eg := elgamal.NewTwistedElgamal()
-	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
+	sourceKeypair, _ := utils.GetElGamalKeyPair(*sourcePrivateKey, testDenom)
 	aesPK, err := utils.GetAESKey(*sourcePrivateKey, testDenom)
 	require.NoError(t, err)
 	bigIntZero := big.NewInt(0)
@@ -538,7 +542,7 @@ func TestMsgWithdraw_FromProto(t *testing.T) {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
 	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	eg := elgamal.NewTwistedElgamal()
-	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
+	sourceKeypair, _ := utils.GetElGamalKeyPair(*sourcePrivateKey, testDenom)
 	aesPK, err := utils.GetAESKey(*sourcePrivateKey, testDenom)
 	require.NoError(t, err)
 
@@ -733,7 +737,7 @@ func TestMsgCloseAccount_FromProto(t *testing.T) {
 	privateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	zeroBigInt := big.NewInt(0)
 	eg := elgamal.NewTwistedElgamal()
-	keypair, _ := eg.KeyGen(*privateKey, testDenom)
+	keypair, _ := utils.GetElGamalKeyPair(*privateKey, testDenom)
 	availableBalanceCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, zeroBigInt)
 	pendingBalanceLoCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, zeroBigInt)
 	pendingBalanceHiCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, zeroBigInt)
