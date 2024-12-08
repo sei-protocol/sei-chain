@@ -3,7 +3,6 @@ package utils
 import (
 	"crypto/ecdsa"
 	"fmt"
-	"log"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -20,6 +19,14 @@ func signHash(data []byte) common.Hash {
 
 // Signs a denom with the provided private key. Returns the signature hex that an ethereum wallet would produce.
 func GetSignedDenom(privateKey *ecdsa.PrivateKey, denom string) ([]byte, error) {
+	if privateKey == nil || privateKey.D == nil {
+		return nil, fmt.Errorf("private key is nil")
+	}
+
+	if denom == "" {
+		return nil, fmt.Errorf("denom is empty")
+	}
+
 	// Hash the prefixed message
 	hash := crypto.Keccak256Hash([]byte(denom))
 
@@ -33,7 +40,7 @@ func GetSignedDenom(privateKey *ecdsa.PrivateKey, denom string) ([]byte, error) 
 	// Sign the payload
 	signature, err := crypto.Sign(signedHash.Bytes(), privateKey)
 	if err != nil {
-		log.Fatalf("Failed to sign payload: %v", err)
+		return nil, err
 	}
 
 	// Add 27 for Ethereum compatibility
