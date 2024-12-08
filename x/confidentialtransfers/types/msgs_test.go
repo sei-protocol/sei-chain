@@ -17,14 +17,14 @@ import (
 
 func TestMsgTransfer_FromProto(t *testing.T) {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	sourcePrivateKey, _ := encryption.GenerateKey()
-	destPrivateKey, _ := encryption.GenerateKey()
-	auditorPrivateKey, _ := encryption.GenerateKey()
+	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	destPrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	auditorPrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	eg := elgamal.NewTwistedElgamal()
 	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
 	destinationKeypair, _ := eg.KeyGen(*destPrivateKey, testDenom)
 	auditorKeypair, _ := eg.KeyGen(*auditorPrivateKey, testDenom)
-	aesPK, err := encryption.GetAESKey(*sourcePrivateKey, testDenom)
+	aesPK, err := utils.GetAESKey(*sourcePrivateKey, testDenom)
 	require.NoError(t, err)
 
 	amountLo := big.NewInt(100)
@@ -399,10 +399,10 @@ func TestMsgTransfer_ValidateBasic(t *testing.T) {
 
 func TestMsgInitializeAccount_FromProto(t *testing.T) {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	sourcePrivateKey, _ := encryption.GenerateKey()
+	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	eg := elgamal.NewTwistedElgamal()
 	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
-	aesPK, err := encryption.GetAESKey(*sourcePrivateKey, testDenom)
+	aesPK, err := utils.GetAESKey(*sourcePrivateKey, testDenom)
 	require.NoError(t, err)
 	bigIntZero := big.NewInt(0)
 
@@ -536,10 +536,10 @@ func TestMsgInitializeAccount_ValidateBasic(t *testing.T) {
 
 func TestMsgWithdraw_FromProto(t *testing.T) {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	sourcePrivateKey, _ := encryption.GenerateKey()
+	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	eg := elgamal.NewTwistedElgamal()
 	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
-	aesPK, err := encryption.GetAESKey(*sourcePrivateKey, testDenom)
+	aesPK, err := utils.GetAESKey(*sourcePrivateKey, testDenom)
 	require.NoError(t, err)
 
 	currentBalance := big.NewInt(500000000)
@@ -730,7 +730,7 @@ func TestMsgWithdraw_ValidateBasic(t *testing.T) {
 func TestMsgCloseAccount_FromProto(t *testing.T) {
 	address := sdk.AccAddress("address1")
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	privateKey, _ := encryption.GenerateKey()
+	privateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	zeroBigInt := big.NewInt(0)
 	eg := elgamal.NewTwistedElgamal()
 	keypair, _ := eg.KeyGen(*privateKey, testDenom)

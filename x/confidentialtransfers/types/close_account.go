@@ -3,6 +3,7 @@ package types
 import (
 	"crypto/ecdsa"
 
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
 )
@@ -26,8 +27,7 @@ type CloseAccountProofs struct {
 }
 
 func NewCloseAccount(privateKey ecdsa.PrivateKey, address, denom string, currPendingBalanceLo, currPendingBalanceHi, currAvailableBalance *elgamal.Ciphertext) (*CloseAccount, error) {
-	teg := elgamal.NewTwistedElgamal()
-	keyPair, err := teg.KeyGen(privateKey, denom)
+	keyPair, err := utils.GetElGamalKeyPair(privateKey, denom)
 	if err != nil {
 		return nil, err
 	}

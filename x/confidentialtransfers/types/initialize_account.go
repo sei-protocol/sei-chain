@@ -6,6 +6,7 @@ import (
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
@@ -31,12 +32,12 @@ type InitializeAccountProofs struct {
 
 func NewInitializeAccount(address, denom string, privateKey ecdsa.PrivateKey) (*InitializeAccount, error) {
 	teg := elgamal.NewTwistedElgamal()
-	keys, err := teg.KeyGen(privateKey, denom)
+	keys, err := utils.GetElGamalKeyPair(privateKey, denom)
 	if err != nil {
 		return &InitializeAccount{}, err
 	}
 
-	aesKey, err := encryption.GetAESKey(privateKey, denom)
+	aesKey, err := utils.GetAESKey(privateKey, denom)
 	if err != nil {
 		return &InitializeAccount{}, err
 	}
@@ -109,12 +110,12 @@ func (r InitializeAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ec
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptor is required")
 	}
 
-	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
+	keyPair, err := utils.GetElGamalKeyPair(privKey, r.Denom)
 	if err != nil {
 		return &InitializeAccountDecrypted{}, err
 	}
 
-	aesKey, err := encryption.GetAESKey(privKey, r.Denom)
+	aesKey, err := utils.GetAESKey(privKey, r.Denom)
 	if err != nil {
 		return &InitializeAccountDecrypted{}, err
 	}

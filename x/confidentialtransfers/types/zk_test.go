@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
-	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
 	"github.com/stretchr/testify/require"
@@ -473,7 +472,7 @@ func TestInitializeAccountMsgProofs_FromProto(t *testing.T) {
 
 func TestWithdrawMsgProofs_FromProto(t *testing.T) {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	sourcePrivateKey, _ := encryption.GenerateKey()
+	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	eg := elgamal.NewTwistedElgamal()
 	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
 	value := big.NewInt(100)
@@ -532,7 +531,7 @@ func TestWithdrawMsgProofs_FromProto(t *testing.T) {
 
 func TestWithdrawMsgProofs_Validate(t *testing.T) {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	sourcePrivateKey, _ := encryption.GenerateKey()
+	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	eg := elgamal.NewTwistedElgamal()
 	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
 	value := big.NewInt(100)

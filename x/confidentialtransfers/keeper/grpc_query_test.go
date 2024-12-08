@@ -1,13 +1,15 @@
 package keeper_test
 
 import (
+	"crypto/ecdsa"
+	"crypto/rand"
 	"fmt"
 	"math/big"
 
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	"github.com/cosmos/cosmos-sdk/types/query"
+	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
-	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 )
 
 func (suite *KeeperTestSuite) TestAccountQuery() {
@@ -16,7 +18,7 @@ func (suite *KeeperTestSuite) TestAccountQuery() {
 	testDenom := fmt.Sprintf("factory/%s/TEST", addr.String())
 	nonExistingDenom := fmt.Sprintf("factory/%s/NONEXISTING", addr.String())
 
-	pk1, _ := encryption.GenerateKey()
+	pk1, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	ctAccount := generateCtAccount(pk1, testDenom, big.NewInt(1000))
 	account, _ := ctAccount.FromProto()
 
@@ -92,8 +94,8 @@ func (suite *KeeperTestSuite) TestAllAccountsQuery() {
 	testDenom1 := fmt.Sprintf("factory/%s/FIRST", addr.String())
 	testDenom2 := fmt.Sprintf("factory/%s/SECOND", addr.String())
 
-	pk1, _ := encryption.GenerateKey()
-	pk2, _ := encryption.GenerateKey()
+	pk1, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	pk2, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	ctAccount1 := generateCtAccount(pk1, testDenom1, big.NewInt(1000))
 	ctAccount2 := generateCtAccount(pk2, testDenom2, big.NewInt(2000))
 	account1, _ := ctAccount1.FromProto()

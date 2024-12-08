@@ -71,7 +71,7 @@ func NewTransfer(
 	}
 
 	// Get the current balance of the account from the decryptableBalance
-	aesKey, err := encryption.GetAESKey(*privateKey, denom)
+	aesKey, err := utils.GetAESKey(*privateKey, denom)
 	if err != nil {
 		return &Transfer{}, err
 	}
@@ -96,7 +96,7 @@ func NewTransfer(
 
 	// Now we want to encrypt the commitment to the new balance. This is used to generate the range proof.
 	teg := elgamal.NewTwistedElgamal()
-	senderKeyPair, err := teg.KeyGen(*privateKey, denom)
+	senderKeyPair, err := utils.GetElGamalKeyPair(*privateKey, denom)
 	if err != nil {
 		return &Transfer{}, err
 	}
@@ -391,7 +391,7 @@ func (r *Transfer) decryptWithAvailableBalanceAsSender(decryptor *elgamal.Twiste
 		return nil, err
 	}
 
-	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
+	keyPair, err := utils.GetElGamalKeyPair(privKey, r.Denom)
 	if err != nil {
 		return nil, err
 	}
@@ -407,7 +407,7 @@ func (r *Transfer) decryptWithAvailableBalanceAsSender(decryptor *elgamal.Twiste
 
 // Decrypts the Transfer object as a sender,
 func (r *Transfer) decryptAsSender(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey) (*TransferDecrypted, error) {
-	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
+	keyPair, err := utils.GetElGamalKeyPair(privKey, r.Denom)
 	if err != nil {
 		return nil, err
 	}
@@ -422,7 +422,7 @@ func (r *Transfer) decryptAsSender(decryptor *elgamal.TwistedElGamal, privKey ec
 		return &TransferDecrypted{}, err
 	}
 
-	aesKey, err := encryption.GetAESKey(privKey, r.Denom)
+	aesKey, err := utils.GetAESKey(privKey, r.Denom)
 	if err != nil {
 		return nil, err
 	}
@@ -437,7 +437,7 @@ func (r *Transfer) decryptAsSender(decryptor *elgamal.TwistedElGamal, privKey ec
 
 // Decrypts the Transfer object as the listed recipient in the transfer
 func (r *Transfer) decryptAsRecipient(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey) (*TransferDecrypted, error) {
-	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
+	keyPair, err := utils.GetElGamalKeyPair(privKey, r.Denom)
 	if err != nil {
 		return nil, err
 	}
@@ -457,7 +457,7 @@ func (r *Transfer) decryptAsRecipient(decryptor *elgamal.TwistedElGamal, privKey
 
 // Decrypts the Transfer object as one of the auditors on the transaction.
 func (r *Transfer) decryptAsAuditor(decryptor *elgamal.TwistedElGamal, privKey ecdsa.PrivateKey, decryptorAddress string) (*TransferDecrypted, error) {
-	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
+	keyPair, err := utils.GetElGamalKeyPair(privKey, r.Denom)
 	if err != nil {
 		return nil, err
 	}

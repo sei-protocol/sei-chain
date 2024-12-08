@@ -96,7 +96,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyPubkey() {
 	if teg == nil {
 		teg = elgamal.NewTwistedElgamal()
 	}
-	otherKeyPair, _ := teg.KeyGen(*otherPk, DefaultTestDenom)
+	otherKeyPair, _ := utils.GetElGamalKeyPair(*otherPk, DefaultTestDenom)
 	initializeStruct.Pubkey = &otherKeyPair.PublicKey
 
 	req := types.NewMsgInitializeAccountProto(initializeStruct)
@@ -131,7 +131,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyBalances() {
 	if teg == nil {
 		teg = elgamal.NewTwistedElgamal()
 	}
-	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
+	keyPair, _ := utils.GetElGamalKeyPair(*testPk, DefaultTestDenom)
 	nonZeroCiphertext, _, _ := teg.Encrypt(keyPair.PublicKey, big.NewInt(100000))
 
 	// Generate a 'ZeroBalanceProof' on the non-zero balance
@@ -328,7 +328,7 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	suite.Require().Equal(initialState.PendingBalanceCreditCounter+1, account.PendingBalanceCreditCounter, "PendingBalanceCreditCounter should have increased by 1")
 
 	// Check that pending balances were increased by the deposit amount
-	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
+	keyPair, _ := utils.GetElGamalKeyPair(*testPk, DefaultTestDenom)
 	oldPendingBalancePlaintext, _, _, _ := initialState.GetPendingBalancePlaintext(teg, keyPair)
 
 	newPendingBalancePlaintext, _, _, _ := account.GetPendingBalancePlaintext(teg, keyPair)
@@ -561,7 +561,7 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawHappyPath() {
 	if teg == nil {
 		teg = elgamal.NewTwistedElgamal()
 	}
-	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
+	keyPair, _ := utils.GetElGamalKeyPair(*testPk, DefaultTestDenom)
 	oldBalanceDecrypted, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, initialState.AvailableBalance, elgamal.MaxBits32)
 	newBalanceDecrypted, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, account.AvailableBalance, elgamal.MaxBits32)
 	newTotal := new(big.Int).Sub(oldBalanceDecrypted, withdrawAmount)
@@ -651,7 +651,7 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawInvalidAmount() {
 	if teg == nil {
 		teg = elgamal.NewTwistedElgamal()
 	}
-	keys, _ := teg.KeyGen(*testPk, DefaultTestDenom)
+	keys, _ := utils.GetElGamalKeyPair(*testPk, DefaultTestDenom)
 	newBalanceNegative := new(big.Int).Sub(initialAvailableBalance, withdrawStruct.Amount)
 
 	// NOTE: This should be encrypting a negative number, but this cannot be done using the teg library.
@@ -716,7 +716,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
 
 	// Modify the decryptable balance
-	aesKey, _ := encryption.GetAESKey(*testPk, DefaultTestDenom)
+	aesKey, _ := utils.GetAESKey(*testPk, DefaultTestDenom)
 	fraudulentDecryptableBalance, _ := encryption.EncryptAESGCM(big.NewInt(10000000000), aesKey)
 	withdrawStruct.DecryptableBalance = fraudulentDecryptableBalance
 
@@ -743,7 +743,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 	if teg == nil {
 		teg = elgamal.NewTwistedElgamal()
 	}
-	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
+	keyPair, _ := utils.GetElGamalKeyPair(*testPk, DefaultTestDenom)
 	actualBalance, err := teg.DecryptLargeNumber(keyPair.PrivateKey, accountState.AvailableBalance, elgamal.MaxBits32)
 	suite.Require().NoError(err, "Should be able to decrypt actual balance since the encrypted value is small")
 
@@ -889,7 +889,7 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHasPendingBalance() {
 	suite.Require().NoError(err, "Should have no error applying pending balance")
 
 	account, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
-	aeskey, _ := encryption.GetAESKey(*testPk, DefaultTestDenom)
+	aeskey, _ := utils.GetAESKey(*testPk, DefaultTestDenom)
 	availableBalanceAmount, err := encryption.DecryptAESGCM(account.DecryptableAvailableBalance, aeskey)
 	suite.Require().NoError(err, "Should be able to decrypt available balance")
 
@@ -1016,7 +1016,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalance() {
 	if teg == nil {
 		teg = elgamal.NewTwistedElgamal()
 	}
-	keyPair, _ := teg.KeyGen(*testPk, DefaultTestDenom)
+	keyPair, _ := utils.GetElGamalKeyPair(*testPk, DefaultTestDenom)
 
 	expectedNewBalance := new(big.Int).Add(initialPendingBalance, initialAvailableBalance)
 
@@ -1024,7 +1024,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalance() {
 	actualAvailableBalance, _ := teg.DecryptLargeNumber(keyPair.PrivateKey, account.AvailableBalance, elgamal.MaxBits32)
 	suite.Require().Equal(expectedNewBalance, actualAvailableBalance, "Available balance should match")
 
-	aesKey, _ := encryption.GetAESKey(*testPk, DefaultTestDenom)
+	aesKey, _ := utils.GetAESKey(*testPk, DefaultTestDenom)
 	actualDecryptableAvailableBalance, _ := encryption.DecryptAESGCM(account.DecryptableAvailableBalance, aesKey)
 	suite.Require().Equal(expectedNewBalance, actualDecryptableAvailableBalance, "Decryptable available balance should match")
 
@@ -1214,9 +1214,9 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 	if teg == nil {
 		teg = elgamal.NewTwistedElgamal()
 	}
-	senderKeypair, _ := teg.KeyGen(*senderPk, DefaultTestDenom)
+	senderKeypair, _ := utils.GetElGamalKeyPair(*senderPk, DefaultTestDenom)
 
-	recipientKeypair, _ := teg.KeyGen(*recipientPk, DefaultTestDenom)
+	recipientKeypair, _ := utils.GetElGamalKeyPair(*recipientPk, DefaultTestDenom)
 
 	transferAmount := uint64(500)
 
@@ -1257,7 +1257,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 	suite.Require().Equal(new(big.Int).Sub(senderOldBalanceDecrypted, transferAmountBigInt), senderNewBalanceDecrypted, "AvailableBalance of sender should be decreased")
 
 	// Verify that the DecryptableAvailableBalances were updated as well and that they match the available balances.
-	senderAesKey, _ := encryption.GetAESKey(*senderPk, DefaultTestDenom)
+	senderAesKey, _ := utils.GetAESKey(*senderPk, DefaultTestDenom)
 	senderOldDecryptableBalanceDecrypted, _ := encryption.DecryptAESGCM(initialSenderState.DecryptableAvailableBalance, senderAesKey)
 	senderNewDecryptableBalanceDecrypted, _ := encryption.DecryptAESGCM(senderAccountState.DecryptableAvailableBalance, senderAesKey)
 	suite.Require().Equal(new(big.Int).Sub(senderOldDecryptableBalanceDecrypted, transferAmountBigInt), senderNewDecryptableBalanceDecrypted)
@@ -1333,7 +1333,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferInsufficientBalance() {
 	// Initialize the recipient account
 	recipientAccountState, _ := suite.SetupAccountState(recipientPk, DefaultTestDenom, 10, big.NewInt(2000), big.NewInt(3000), big.NewInt(1000))
 
-	senderAesKey, _ := encryption.GetAESKey(*senderPk, DefaultTestDenom)
+	senderAesKey, _ := utils.GetAESKey(*senderPk, DefaultTestDenom)
 
 	initialBalance, _ := encryption.DecryptAESGCM(initialSenderState.DecryptableAvailableBalance, senderAesKey)
 
@@ -1431,7 +1431,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferWrongRecipient() {
 	initialRecipientState, _ := suite.SetupAccountState(recipientPk, DefaultTestDenom, 10, big.NewInt(2000), big.NewInt(3000), big.NewInt(1000))
 	suite.SetupAccountState(otherPk, DefaultTestDenom, 10, big.NewInt(2000), big.NewInt(3000), big.NewInt(1000))
 
-	senderAesKey, _ := encryption.GetAESKey(*senderPk, DefaultTestDenom)
+	senderAesKey, _ := utils.GetAESKey(*senderPk, DefaultTestDenom)
 
 	initialBalance, _ := encryption.DecryptAESGCM(initialSenderState.DecryptableAvailableBalance, senderAesKey)
 
@@ -1476,7 +1476,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferDifferentAmounts() {
 	initialSenderState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 10, big.NewInt(2000), big.NewInt(3000), big.NewInt(1000))
 	initialRecipientState, _ := suite.SetupAccountState(recipientPk, DefaultTestDenom, 10, big.NewInt(2000), big.NewInt(3000), big.NewInt(1000))
 
-	senderAesKey, _ := encryption.GetAESKey(*senderPk, DefaultTestDenom)
+	senderAesKey, _ := utils.GetAESKey(*senderPk, DefaultTestDenom)
 
 	initialBalance, _ := encryption.DecryptAESGCM(initialSenderState.DecryptableAvailableBalance, senderAesKey)
 
@@ -1503,7 +1503,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferDifferentAmounts() {
 	transferHiBigInt := new(big.Int).SetUint64(uint64(transferHiBits))
 
 	// Encrypt the transfer amounts for the recipient
-	recipientKeyPair, _ := teg.KeyGen(*recipientPk, DefaultTestDenom)
+	recipientKeyPair, _ := utils.GetElGamalKeyPair(*recipientPk, DefaultTestDenom)
 
 	encryptedTransferLoBits, loBitsRandomness, _ := teg.Encrypt(recipientKeyPair.PublicKey, transferLoBigInt)
 
@@ -1537,7 +1537,7 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferDifferentAmounts() {
 
 	hiBitsScalar, _ := curves.ED25519().Scalar.SetBigInt(transferHiBigInt)
 
-	senderKeyPair, _ := teg.KeyGen(*senderPk, DefaultTestDenom)
+	senderKeyPair, _ := utils.GetElGamalKeyPair(*senderPk, DefaultTestDenom)
 
 	ciphertextEqualityLoProof, err := zkproofs.NewCiphertextCiphertextEqualityProof(senderKeyPair, &recipientKeyPair.PublicKey, transferStruct.SenderTransferAmountLo, &loBitsRandomness, &loBitsScalar)
 	suite.Require().NoError(err, "Should have no error generating lo bits equality proof despite mismatch in transfer amounts")

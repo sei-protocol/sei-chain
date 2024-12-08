@@ -7,6 +7,7 @@ import (
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
@@ -39,13 +40,13 @@ func NewWithdraw(
 	address,
 	currentDecryptableBalance string,
 	amount *big.Int) (*Withdraw, error) {
-	aesKey, err := encryption.GetAESKey(privateKey, denom)
+	aesKey, err := utils.GetAESKey(privateKey, denom)
 	if err != nil {
 		return &Withdraw{}, err
 	}
 
 	teg := elgamal.NewTwistedElgamal()
-	keyPair, err := teg.KeyGen(privateKey, denom)
+	keyPair, err := utils.GetElGamalKeyPair(privateKey, denom)
 	if err != nil {
 		return &Withdraw{}, err
 	}
@@ -115,12 +116,12 @@ func (r *Withdraw) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ecdsa.Priv
 	}
 
 	availableBalanceString := NotDecrypted
-	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
+	keyPair, err := utils.GetElGamalKeyPair(privKey, r.Denom)
 	if err != nil {
 		return &WithdrawDecrypted{}, err
 	}
 
-	aesKey, err := encryption.GetAESKey(privKey, r.Denom)
+	aesKey, err := utils.GetAESKey(privKey, r.Denom)
 	if err != nil {
 		return &WithdrawDecrypted{}, err
 	}
