@@ -78,9 +78,11 @@ func (q Keeper) ClientStates(c context.Context, req *types.QueryClientStatesRequ
 		if err := host.ClientIdentifierValidator(clientID); err != nil {
 			return false, err
 		}
-
-		identifiedClient := types.NewIdentifiedClientState(clientID, clientState)
-		clientStates = append(clientStates, identifiedClient)
+		// only append to the list if it's accumulating
+		if accumulate {
+			identifiedClient := types.NewIdentifiedClientState(clientID, clientState)
+			clientStates = append(clientStates, identifiedClient)
+		}
 		return true, nil
 	})
 	if err != nil {
