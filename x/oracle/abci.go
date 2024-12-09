@@ -66,6 +66,10 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 			voteMapRD := ballotRD.ToMap()
 
 			exchangeRateRD := ballotRD.WeightedMedianWithAssertion()
+			// handle case where exchange rate is 0
+			if exchangeRateRD.IsZero() {
+				// TODO: do stuff
+			}
 
 			// Iterate through ballots and update exchange rates; drop if not enough votes have been achieved.
 			keys := make([]string, len(voteMap))
@@ -84,6 +88,12 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 
 				// Get weighted median of cross exchange rates
 				exchangeRate := Tally(ctx, ballot, params.RewardBand, validatorClaimMap)
+
+				// if exchange rate is somehow 0, exclude it from ballot?
+				if exchangeRate.IsZero() {
+					// skip this denom
+					continue
+				}
 
 				// Transform into the original form base/quote
 				if denom != referenceDenom {
