@@ -78,6 +78,31 @@ func TestNewTransferFailsIfInsufficientBalance(t *testing.T) {
 	assert.EqualError(t, err, "insufficient balance")
 }
 
+func TestNewTransferFailsWithWrongPrivateKey(t *testing.T) {
+	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+	senderPk, _ := encryption.GenerateKey()
+	wrongPk, _ := encryption.GenerateKey()
+	aesKey, _ := encryption.GetAESKey(*senderPk, testDenom)
+	teg := elgamal.NewTwistedElgamal()
+	decryptableBalance, err := encryption.EncryptAESGCM(big.NewInt(100), aesKey)
+	senderKeyPair, _ := teg.KeyGen(*senderPk, testDenom)
+	transferAmount := uint64(100)
+	ct, _, _ := teg.Encrypt(senderKeyPair.PublicKey, big.NewInt(0))
+
+	_, err = NewTransfer(
+		wrongPk,
+		"sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w",
+		"sei12nqhfjuurt90p6yqkk2txnptrmuta40dl8mk3d",
+		testDenom,
+		decryptableBalance,
+		ct,
+		transferAmount,
+		nil,
+		nil,
+	)
+	assert.EqualError(t, err, "cipher: message authentication failed")
+}
+
 func TestNewTransfer(t *testing.T) {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
 	senderPk, _ := encryption.GenerateKey()
