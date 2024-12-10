@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"os"
 	"runtime/debug"
 	"strings"
 
@@ -243,8 +244,16 @@ func (k *Keeper) applyEVMTx(ctx sdk.Context, tx *ethtypes.Transaction, msg *core
 		onEnd = func(res *core.ExecutionResult, err error) {
 			var receipt *ethtypes.Receipt
 			if res != nil {
-				// Try to build a receipt if as soon as we have an ExecutionResult set
 				receipt = getEthReceipt(ctx, tx, msg, res, stateDB)
+			} else if err != nil {
+				receipt = getEthFailedReceipt(ctx, tx, msg)
+			} else {
+				panic("onEnd called with nil result and nil error")
+			}
+
+			out, err := json.Marshal(receipt)
+			if err == nil {
+				fmt.Fprintf(os.Stderr, "[Firehose] Receipt %s", string(out))
 			}
 
 			var txErr = err
@@ -315,12 +324,7 @@ func (k *Keeper) applyEVMMessageWithTracing(
 					recoveredErr = fmt.Errorf("%v", r)
 				}
 
-				onEnd(&core.ExecutionResult{
-					UsedGas:     msg.GasLimit,
-					RefundedGas: 0,
-					ReturnData:  nil,
-					Err:         recoveredErr,
-				}, recoveredErr)
+				onEnd(nil, recoveredErr)
 				panic(r)
 			} else {
 				onEnd(res, err)
@@ -431,17 +435,39 @@ func (server msgServer) AssociateContractAddress(goCtx context.Context, msg *typ
 }
 
 func getEthReceipt(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message, res *core.ExecutionResult, stateDB *state.DBImpl) *ethtypes.Receipt {
-	ethLogs := stateDB.GetAllLogs()
+	receipt := getEthCommonReceipt(ctx, tx, msg)
+	receipt.GasUsed = res.UsedGas
+	receipt.Logs = stateDB.GetAllLogs()
+	receipt.Bloom = ethtypes.CreateBloom(ethtypes.Receipts{receipt})
+
+	if res.Err == nil {
+		receipt.Status = ethtypes.ReceiptStatusSuccessful
+	} else {
+		receipt.Status = ethtypes.ReceiptStatusFailed
+	}
+
+	return receipt
+}
+
+// getEthFailedReceipt returns a receipt for a transaction that had no execution result and ended with an error. This
+// usually happens when the transaction panicked due to out of gas error and later recovered.
+func getEthFailedReceipt(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message) *ethtypes.Receipt {
+	receipt := getEthCommonReceipt(ctx, tx, msg)
+	receipt.Status = ethtypes.ReceiptStatusFailed
+
+	return receipt
+}
+
+// getEthFailedReceipt returns a receipt for a transaction that had no execution result and ended with an error. This
+// usually happens when the transaction panicked due to out of gas error and later recovered.
+func getEthCommonReceipt(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message) *ethtypes.Receipt {
 	receipt := &ethtypes.Receipt{
 		Type:              tx.Type(),
 		CumulativeGasUsed: uint64(0),
-		Logs:              ethLogs,
 		TxHash:            tx.Hash(),
-		GasUsed:           res.UsedGas,
 		EffectiveGasPrice: tx.GasPrice(),
 		TransactionIndex:  uint(ctx.TxIndex()),
 	}
-	receipt.Bloom = ethtypes.CreateBloom(ethtypes.Receipts{receipt})
 
 	if msg.To == nil {
 		receipt.ContractAddress = crypto.CreateAddress(msg.From, msg.Nonce)
@@ -449,12 +475,6 @@ func getEthReceipt(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message,
 		if len(msg.Data) > 0 {
 			receipt.ContractAddress = *msg.To
 		}
-	}
-
-	if res.Err == nil {
-		receipt.Status = ethtypes.ReceiptStatusSuccessful
-	} else {
-		receipt.Status = ethtypes.ReceiptStatusFailed
 	}
 
 	return receipt
