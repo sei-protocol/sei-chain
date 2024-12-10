@@ -52,7 +52,6 @@ func TestNewTransfer(t *testing.T) {
 				senderCurrentAvailableBalance:   ct,
 				amount:                          transferAmount,
 				recipientPubkey:                 &receiverKeyPair.PublicKey,
-				auditors:                        nil,
 			},
 			wantError: false,
 		},
@@ -92,6 +91,7 @@ func TestNewTransfer(t *testing.T) {
 				recipientAddr:                   testAddress2,
 				denom:                           testDenom,
 				senderCurrentDecryptableBalance: "invalid",
+				senderCurrentAvailableBalance:   ct,
 			},
 			wantError:  true,
 			wantErrMsg: "illegal base64 data at input byte 4",
@@ -105,7 +105,7 @@ func TestNewTransfer(t *testing.T) {
 				denom:         "",
 			},
 			wantError:  true,
-			wantErrMsg: "denom is empty",
+			wantErrMsg: "denom is required",
 		},
 		{
 			name: "transfer object creation fails if sender and recipient are the same",
@@ -116,6 +116,56 @@ func TestNewTransfer(t *testing.T) {
 			},
 			wantError:  true,
 			wantErrMsg: "sender and recipient addresses cannot be the same",
+		},
+		{
+			name:       "transfer object creation fails if private key is nil",
+			args:       args{},
+			wantError:  true,
+			wantErrMsg: "private key is required",
+		},
+		{
+			name: "transfer object creation fails if sender address is empty",
+			args: args{
+				privateKey: senderPk,
+			},
+			wantError:  true,
+			wantErrMsg: "sender address is required",
+		},
+		{
+			name: "transfer object creation fails if recipient address is empty",
+			args: args{
+				privateKey: senderPk,
+				senderAddr: testAddress1,
+			},
+			wantError:  true,
+			wantErrMsg: "recipient address is required",
+		},
+		{
+			name: "transfer object creation fails if available balance is nil",
+			args: args{
+				privateKey:                      senderPk,
+				senderAddr:                      testAddress1,
+				recipientAddr:                   testAddress2,
+				denom:                           testDenom,
+				senderCurrentDecryptableBalance: decryptableBalance,
+			},
+			wantError:  true,
+			wantErrMsg: "available balance is required",
+		},
+		{
+			name: "transfer object creation fails if recipientPubkey is nil",
+			args: args{
+				privateKey:                      senderPk,
+				senderAddr:                      testAddress1,
+				recipientAddr:                   testAddress2,
+				denom:                           testDenom,
+				senderCurrentDecryptableBalance: decryptableBalance,
+				senderCurrentAvailableBalance:   ct,
+				amount:                          transferAmount,
+				recipientPubkey:                 nil,
+			},
+			wantError:  true,
+			wantErrMsg: "recipient public key is required",
 		},
 	}
 	for _, tt := range tests {

@@ -65,9 +65,32 @@ func NewTransfer(
 	amount uint64,
 	recipientPubkey *curves.Point,
 	auditors []AuditorInput) (*Transfer, error) {
+	if privateKey == nil {
+		return &Transfer{}, errors.New("private key is required")
+	}
+
+	if senderAddr == "" {
+		return &Transfer{}, errors.New("sender address is required")
+	}
+
+	if recipientAddr == "" {
+		return &Transfer{}, errors.New("recipient address is required")
+	}
 
 	if senderAddr == recipientAddr {
 		return &Transfer{}, errors.New("sender and recipient addresses cannot be the same")
+	}
+
+	if denom == "" {
+		return &Transfer{}, errors.New("denom is required")
+	}
+
+	if senderCurrentAvailableBalance == nil {
+		return &Transfer{}, errors.New("available balance is required")
+	}
+
+	if recipientPubkey == nil {
+		return &Transfer{}, errors.New("recipient public key is required")
 	}
 
 	// Get the current balance of the account from the decryptableBalance
@@ -272,7 +295,7 @@ func createTransferPartyParams(
 	}, nil
 }
 
-// Verifies the proofs sent in the transfer request. This does not verify proofs for auditors.
+// VerifyTransferProofs Verifies the proofs sent in the transfer request. This does not verify proofs for auditors.
 func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipientPubkey *curves.Point, newBalanceCiphertext *elgamal.Ciphertext, rangeVerifierFactory *zkproofs.CachedRangeVerifierFactory) error {
 	// Verify the validity proofs that the ciphertexts sent are valid (encrypted with the correct pubkey).
 	ok := zkproofs.VerifyCiphertextValidity(params.Proofs.RemainingBalanceCommitmentValidityProof, *senderPubkey, params.RemainingBalanceCommitment)
