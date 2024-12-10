@@ -127,38 +127,6 @@ func (k BaseKeeper) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("module", fmt.Sprintf("x/%s", types.ModuleName))
 }
 
-// GetAccountsForAddress iterates over all accounts associated with a given address
-// and returns a mapping of denom:account
-func (k BaseKeeper) GetAccountsForAddress(ctx sdk.Context, address sdk.AccAddress) (map[string]*types.Account, error) {
-	// Create a prefix store scoped to the address
-	store := k.getAccountStoreForAddress(ctx, address)
-
-	// Iterate over all keys in the prefix store
-	iterator := sdk.KVStorePrefixIterator(store, []byte{})
-	defer func(iterator sdk.Iterator) {
-		err := iterator.Close()
-		if err != nil {
-			k.Logger(ctx).Error("failed to close iterator", "error", err)
-		}
-	}(iterator)
-
-	accounts := make(map[string]*types.Account)
-	for ; iterator.Valid(); iterator.Next() {
-		var ctAccount types.CtAccount
-		k.cdc.MustUnmarshal(iterator.Value(), &ctAccount)
-		account, err := ctAccount.FromProto()
-		if err != nil {
-			return nil, err
-		}
-
-		key := iterator.Key()
-
-		accounts[string(key)] = account
-	}
-
-	return accounts, nil
-}
-
 // CreateModuleAccount creates the module account for confidentialtransfers
 func (k BaseKeeper) CreateModuleAccount(ctx sdk.Context) {
 	account := k.accountKeeper.GetModuleAccount(ctx, types.ModuleName)
