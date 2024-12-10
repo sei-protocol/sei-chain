@@ -38,7 +38,7 @@ func TestGetExchangeRate(t *testing.T) {
 
 	query, err := p.ABI.MethodById(p.GetExecutor().(*oracle.PrecompileExecutor).GetExchangeRatesId)
 	require.Nil(t, err)
-	precompileRes, err := p.Run(&evm, common.Address{}, common.Address{}, p.GetExecutor().(*oracle.PrecompileExecutor).GetExchangeRatesId, nil, true, false)
+	precompileRes, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, p.GetExecutor().(*oracle.PrecompileExecutor).GetExchangeRatesId, 100000, nil, nil, true, false)
 	require.Nil(t, err)
 	exchangeRates, err := query.Outputs.Unpack(precompileRes)
 	require.Nil(t, err)
@@ -114,7 +114,7 @@ func TestGetOracleTwaps(t *testing.T) {
 	require.Nil(t, err)
 	args, err := query.Inputs.Pack(uint64(3600))
 	require.Nil(t, err)
-	precompileRes, err := p.Run(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*oracle.PrecompileExecutor).GetOracleTwapsId, args...), nil, true, false)
+	precompileRes, _, err := p.RunAndCalculateGas(&evm, common.Address{}, common.Address{}, append(p.GetExecutor().(*oracle.PrecompileExecutor).GetOracleTwapsId, args...), 100000, nil, nil, true, false)
 	require.Nil(t, err)
 	twap, err := query.Outputs.Unpack(precompileRes)
 	require.Nil(t, err)

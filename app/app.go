@@ -368,6 +368,7 @@ type App struct {
 
 	genesisImportConfig genesistypes.GenesisImportConfig
 
+	stateStore   seidb.StateStore
 	receiptStore seidb.StateStore
 }
 
@@ -396,7 +397,7 @@ func New(
 	cdc := encodingConfig.Amino
 	interfaceRegistry := encodingConfig.InterfaceRegistry
 
-	bAppOptions := SetupSeiDB(logger, homePath, appOpts, baseAppOptions)
+	bAppOptions, stateStore := SetupSeiDB(logger, homePath, appOpts, baseAppOptions)
 
 	bApp := baseapp.NewBaseApp(AppName, logger, db, encodingConfig.TxConfig.TxDecoder(), tmConfig, appOpts, bAppOptions...)
 	bApp.SetCommitMultiStoreTracer(traceStore)
@@ -429,6 +430,7 @@ func New(
 		versionInfo:       version.NewInfo(),
 		metricCounter:     &map[string]float32{},
 		encodingConfig:    encodingConfig,
+		stateStore:        stateStore,
 	}
 
 	for _, option := range appOptions {
@@ -532,11 +534,6 @@ func New(
 	).SetHooks(epochmoduletypes.NewMultiEpochHooks(
 		app.MintKeeper.Hooks()))
 
-	tokenFactoryConfig, err := tokenfactorykeeper.ReadConfig(appOpts)
-	if err != nil {
-		panic(fmt.Sprintf("error reading token factory config due to %s", err))
-	}
-
 	app.TokenFactoryKeeper = tokenfactorykeeper.NewKeeper(
 		appCodec,
 		app.keys[tokenfactorytypes.StoreKey],
@@ -544,7 +541,6 @@ func New(
 		app.AccountKeeper,
 		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
 		app.DistrKeeper,
-		tokenFactoryConfig,
 	)
 
 	// The last arguments can contain custom message handlers, and custom query handlers,
@@ -678,7 +674,7 @@ func New(
 
 	app.GovKeeper = govkeeper.NewKeeper(
 		appCodec, keys[govtypes.StoreKey], app.GetSubspace(govtypes.ModuleName), app.AccountKeeper, app.BankKeeper,
-		&stakingKeeper, govRouter,
+		&stakingKeeper, app.ParamsKeeper, govRouter,
 	)
 
 	// this line is used by starport scaffolding # stargate/app/keeperDefinition
@@ -695,6 +691,7 @@ func New(
 			false,
 			&app.EvmKeeper,
 			app.BankKeeper,
+			bankkeeper.NewMsgServerImpl(app.BankKeeper),
 			wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper),
 			app.WasmKeeper,
 			stakingkeeper.NewMsgServerImpl(app.StakingKeeper),
@@ -1063,6 +1060,9 @@ func (app *App) Name() string { return app.BaseApp.Name() }
 
 // GetBaseApp returns the base app of the application
 func (app App) GetBaseApp() *baseapp.BaseApp { return app.BaseApp }
+
+// GetStateStore returns the state store of the application
+func (app App) GetStateStore() seidb.StateStore { return app.stateStore }
 
 // BeginBlocker application updates every begin block
 func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
@@ -1599,15 +1599,17 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
 	events = append(events, lazyWriteEvents...)
 
-	// Sum up total used per block
-	blockTotalGasUsed := int64(0)
+	// Sum up total used per block only for evm transactions
+	evmTotalGasUsed := int64(0)
 	for _, txResult := range txResults {
-		blockTotalGasUsed += txResult.GasUsed
+		if txResult.EvmTxInfo != nil {
+			evmTotalGasUsed += txResult.GasUsed
+		}
 	}
 
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
 		Height:       req.GetHeight(),
-		BlockGasUsed: blockTotalGasUsed,
+		BlockGasUsed: evmTotalGasUsed,
 	})
 
 	events = append(events, endBlockResp.Events...)

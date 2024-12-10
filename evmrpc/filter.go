@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"sort"
 	"sync"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -21,6 +24,8 @@ import (
 )
 
 const TxSearchPerPage = 10
+
+const MaxNumOfWorkers = 500
 
 type FilterType byte
 
@@ -63,8 +68,8 @@ type EventItemDataWrapper struct {
 	Value json.RawMessage `json:"value"`
 }
 
-func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, filterConfig *FilterConfig, connectionType ConnectionType, namespace string) *FilterAPI {
-	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, filterConfig: filterConfig, includeSyntheticReceipts: shouldIncludeSynthetic(namespace)}
+func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, filterConfig *FilterConfig, connectionType ConnectionType, namespace string) *FilterAPI {
+	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, txConfig: txConfig, filterConfig: filterConfig, includeSyntheticReceipts: shouldIncludeSynthetic(namespace)}
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
 		namespace:      namespace,
@@ -276,19 +281,20 @@ func (a *FilterAPI) UninstallFilter(
 type LogFetcher struct {
 	tmClient                 rpcclient.Client
 	k                        *keeper.Keeper
+	txConfig                 client.TxConfig
 	ctxProvider              func(int64) sdk.Context
 	filterConfig             *FilterConfig
 	includeSyntheticReceipts bool
 }
 
-func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) ([]*ethtypes.Log, int64, error) {
+func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
 	bloomIndexes := EncodeFilters(crit.Addresses, crit.Topics)
 	if crit.BlockHash != nil {
 		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:], 1)
 		if err != nil {
 			return nil, 0, err
 		}
-		return f.GetLogsForBlock(ctx, block, crit, bloomIndexes), block.Block.Height, nil
+		return f.GetLogsForBlock(block, crit, bloomIndexes), block.Block.Height, nil
 	}
 	applyOpenEndedLogLimit := f.filterConfig.maxLog > 0 && (crit.FromBlock == nil || crit.ToBlock == nil)
 	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
@@ -313,26 +319,84 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	if begin > end {
 		return nil, 0, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
 	}
-	blockHeights := f.FindBlockesByBloom(begin, end, bloomIndexes)
-	res := []*ethtypes.Log{}
-	for _, height := range blockHeights {
-		h := height
-		block, err := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
-		if err != nil {
-			return nil, 0, err
+
+	// Parallelize execution
+	numWorkers := int(math.Min(MaxNumOfWorkers, float64(end-begin+1)))
+	var wg sync.WaitGroup
+	tasksChan := make(chan int64, end-begin+1)
+	resultsChan := make(chan *ethtypes.Log, end-begin+1)
+	res = []*ethtypes.Log{}
+	defer func() {
+		if e := recover(); e != nil {
+			err = fmt.Errorf("%s", e)
 		}
-		res = append(res, f.GetLogsForBlock(ctx, block, crit, bloomIndexes)...)
-		if applyOpenEndedLogLimit && int64(len(res)) >= f.filterConfig.maxLog {
-			res = res[:int(f.filterConfig.maxLog)]
-			break
+	}()
+	// Send tasks
+	go func() {
+		for height := begin; height <= end; height++ {
+			if height == 0 {
+				continue // Skip genesis height
+			}
+			tasksChan <- height
 		}
+		close(tasksChan) // Close the tasks channel to signal workers
+	}()
+
+	// Worker function
+	worker := func() {
+		defer wg.Done()
+		for height := range tasksChan {
+			if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
+				providerCtx := f.ctxProvider(height)
+				blockBloom := f.k.GetBlockBloom(providerCtx)
+				if !MatchFilters(blockBloom, bloomIndexes) {
+					continue
+				}
+			}
+			h := height
+			block, berr := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
+			if berr != nil {
+				panic(berr)
+			}
+			matchedLogs := f.GetLogsForBlock(block, crit, bloomIndexes)
+			for _, log := range matchedLogs {
+				resultsChan <- log
+			}
+		}
+	}
+
+	// Start workers
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go worker()
+	}
+
+	// Collect results
+	go func() {
+		wg.Wait()
+		close(resultsChan) // Close the results channel after workers finish
+	}()
+
+	// Aggregate results into the final slice
+	for result := range resultsChan {
+		res = append(res, result)
+	}
+
+	// Sorting res in ascending order
+	sort.Slice(res, func(i, j int) bool {
+		return res[i].BlockNumber < res[j].BlockNumber
+	})
+
+	// Apply rate limit
+	if applyOpenEndedLogLimit && int64(len(res)) >= f.filterConfig.maxLog {
+		res = res[:int(f.filterConfig.maxLog)]
 	}
 
 	return res, end, nil
 }
 
-func (f *LogFetcher) GetLogsForBlock(ctx context.Context, block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes) []*ethtypes.Log {
-	possibleLogs := f.FindLogsByBloom(block.Block.Height, filters)
+func (f *LogFetcher) GetLogsForBlock(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes) []*ethtypes.Log {
+	possibleLogs := f.FindLogsByBloom(block, filters)
 	matchedLogs := utils.Filter(possibleLogs, func(l *ethtypes.Log) bool { return f.IsLogExactMatch(l, crit) })
 	for _, l := range matchedLogs {
 		l.BlockHash = common.Hash(block.BlockID.Hash)
@@ -340,37 +404,17 @@ func (f *LogFetcher) GetLogsForBlock(ctx context.Context, block *coretypes.Resul
 	return matchedLogs
 }
 
-func (f *LogFetcher) FindBlockesByBloom(begin, end int64, filters [][]bloomIndexes) (res []int64) {
-	//TODO: parallelize
-	for height := begin; height <= end; height++ {
-		if height == 0 {
-			// no block bloom on genesis height
-			continue
-		}
-		ctx := f.ctxProvider(height)
-		blockBloom := f.k.GetBlockBloom(ctx)
-		if MatchFilters(blockBloom, filters) {
-			res = append(res, height)
-		}
-	}
-	return
-}
-
-func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (res []*ethtypes.Log) {
+func (f *LogFetcher) FindLogsByBloom(block *coretypes.ResultBlock, filters [][]bloomIndexes) (res []*ethtypes.Log) {
 	ctx := f.ctxProvider(LatestCtxHeight)
-	txHashes := f.k.GetTxHashesOnHeight(ctx, height)
-	for _, hash := range txHashes {
+
+	for _, hash := range getEvmTxHashesFromBlock(block, f.txConfig) {
 		receipt, err := f.k.GetReceipt(ctx, hash)
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
 			continue
 		}
-		// if includeShellReceipts is false, include receipts with synthetic logs but exclude shell tx receipts
-		if !f.includeSyntheticReceipts && receipt.TxType == ShellEVMTxType {
+		if !f.includeSyntheticReceipts && (receipt.TxType == ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
 			continue
-		}
-		if !f.includeSyntheticReceipts && receipt.EffectiveGasPrice == 0 {
-			return
 		}
 		if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
 			res = append(res, keeper.GetLogsForTx(receipt)...)

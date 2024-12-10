@@ -3,12 +3,12 @@ package ss
 import (
 	"bytes"
 	"fmt"
+	"time"
 
+	"github.com/armon/go-metrics"
 	"github.com/cosmos/iavl"
-	"github.com/sei-protocol/sei-db/config"
-	"github.com/sei-protocol/sei-db/ss"
+	"github.com/sei-protocol/sei-chain/tools/migration/utils"
 	"github.com/sei-protocol/sei-db/ss/types"
-	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 )
 
@@ -22,20 +22,7 @@ const (
 	DefaultCacheSize int = 10000
 )
 
-var modules = []string{
-	"wasm", "aclaccesscontrol", "oracle", "epoch", "mint", "acc", "bank", "feegrant", "staking", "distribution", "slashing", "gov", "params", "ibc", "upgrade", "evidence", "transfer", "tokenfactory",
-}
-
-func NewMigrator(homeDir string, db dbm.DB) *Migrator {
-	// TODO: Pass in more configs outside default, in particular ImportNumWorkers
-	ssConfig := config.DefaultStateStoreConfig()
-	ssConfig.Enable = true
-
-	stateStore, err := ss.NewStateStore(log.NewNopLogger(), homeDir, ssConfig)
-	if err != nil {
-		panic(err)
-	}
-
+func NewMigrator(db dbm.DB, stateStore types.StateStore) *Migrator {
 	return &Migrator{
 		iavlDB:     db,
 		stateStore: stateStore,
@@ -43,42 +30,53 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 }
 
 func (m *Migrator) Migrate(version int64, homeDir string) error {
-	// TODO: Read in capacity of this buffered channel as param
 	ch := make(chan types.RawSnapshotNode, 1000)
 	errCh := make(chan error, 2)
 
-	fmt.Println("Beginning Migration...")
+	// Get the latest key, if any, to resume from
+	latestKey, err := m.stateStore.GetLatestMigratedKey()
+	if err != nil {
+		return fmt.Errorf("failed to get latest key: %w", err)
+	}
 
-	// Goroutine to iterate through iavl and export leaf nodes
+	latestModule, err := m.stateStore.GetLatestMigratedModule()
+	if err != nil {
+		return fmt.Errorf("failed to get latest module: %w", err)
+	}
+
+	fmt.Println("Starting migration...")
+
+	// Goroutine to iterate through IAVL and export leaf nodes
 	go func() {
 		defer close(ch)
-		errCh <- ExportLeafNodes(m.iavlDB, ch)
+		errCh <- ExportLeafNodesFromKey(m.iavlDB, ch, latestKey, latestModule)
 	}()
 
+	// Import nodes into PebbleDB
 	go func() {
 		errCh <- m.stateStore.RawImport(ch)
 	}()
 
-	// Block on completion of both goroutines
+	// Block until both processes complete
 	for i := 0; i < 2; i++ {
 		if err := <-errCh; err != nil {
 			return err
 		}
 	}
 
-	// Set latest version
-	err := m.stateStore.SetLatestVersion(version)
+	// Set earliest and latest version in the database
+	err = m.stateStore.SetEarliestVersion(1, true)
 	if err != nil {
 		return err
 	}
 
-	return nil
+	return m.stateStore.SetLatestVersion(version)
 }
 
 func (m *Migrator) Verify(version int64) error {
 	var verifyErr error
-	for _, module := range modules {
-		tree, err := ReadTree(m.iavlDB, version, []byte(buildTreePrefix(module)))
+	for _, module := range utils.Modules {
+		tree, err := ReadTree(m.iavlDB, version, []byte(utils.BuildTreePrefix(module)))
 		if err != nil {
 			fmt.Printf("Error reading tree %s: %s\n", module, err.Error())
 			return err
@@ -96,57 +94,78 @@ func (m *Migrator) Verify(version int64) error {
 				return true
 			}
 			if !bytes.Equal(val, value) {
-				verifyErr = fmt.Errorf("verification error: value doesn't match for key %s", string(key))
+				verifyErr = fmt.Errorf("verification error: value doesn't match for key %s. Expected %s, got %s", string(key), string(value), string(val))
+				return true
 			}
 			count++
-			if count%10000 == 0 {
-				fmt.Printf("Verified %d keys in for module %s\n", count, module)
+			if count%1000000 == 0 {
+				fmt.Printf("SeiDB Archive Migration: Verified %d keys in for module %s\n", count, module)
 			}
 			return false
 		})
 		if err != nil {
-			fmt.Printf("Failed to iterate the tree %s: %s\n", module, err.Error())
+			fmt.Printf("SeiDB Archive Migration: Failed to iterate the tree %s: %s\n", module, err.Error())
 			return err
 		}
-		fmt.Printf("Finished verifying module %s, total scanned: %d keys\n", module, count)
+		fmt.Printf("SeiDB Archive Migration:: Finished verifying module %s, total scanned: %d keys\n", module, count)
 	}
 	return verifyErr
 }
 
-// Export leaf nodes of iavl
-func ExportLeafNodes(db dbm.DB, ch chan<- types.RawSnapshotNode) error {
-	// Module by module, TODO: Potentially parallelize
+func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey []byte, startModule string) error {
 	count := 0
 	leafNodeCount := 0
-	fmt.Println("Scanning database and exporting leaf nodes...")
+	fmt.Println("SeiDB Archive Migration: Scanning database and exporting leaf nodes...")
 
-	for _, module := range modules {
-		fmt.Printf("Iterating through %s module...\n", module)
+	startTimeTotal := time.Now() // Start measuring total time
 
-		// Can't use the previous, have to create an inner
-		prefixDB := dbm.NewPrefixDB(db, []byte(buildRawPrefix(module)))
-		itr, err := prefixDB.Iterator(nil, nil)
+	var batchLeafNodeCount int
+	startModuleFound := startModule == "" // true if no start module specified
+
+	for _, module := range utils.Modules {
+		if !startModuleFound {
+			if module == startModule {
+				startModuleFound = true
+			} else {
+				continue
+			}
+		}
+		startTimeModule := time.Now() // Measure time for each module
+		fmt.Printf("SeiDB Archive Migration: Iterating through %s module...\n", module)
+
+		prefixDB := dbm.NewPrefixDB(db, []byte(utils.BuildRawPrefix(module)))
+		var itr dbm.Iterator
+		var err error
+
+		// If there is a starting key, seek to it, otherwise start from the beginning
+		if startKey != nil && bytes.HasPrefix(startKey, []byte(utils.BuildRawPrefix(module))) {
+			itr, err = prefixDB.Iterator(startKey, nil) // Start from the latest key
+		} else {
+			itr, err = prefixDB.Iterator(nil, nil) // Start from the beginning
+		}
+
 		if err != nil {
-			fmt.Printf("error Export Leaf Nodes %+v\n", err)
+			fmt.Printf("SeiDB Archive Migration: Error creating iterator: %+v\n", err)
 			return fmt.Errorf("failed to create iterator: %w", err)
 		}
 		defer itr.Close()
+
+		startTimeBatch := time.Now() // Measure time for every 10,000 iterations
 
 		for ; itr.Valid(); itr.Next() {
 			value := bytes.Clone(itr.Value())
 
 			node, err := iavl.MakeNode(value)
-
 			if err != nil {
-				fmt.Printf("failed to make node err: %+v\n", err)
+				fmt.Printf("SeiDB Archive Migration: Failed to make node: %+v\n", err)
 				return fmt.Errorf("failed to make node: %w", err)
 			}
 
-			// leaf node
+			// Only export leaf nodes
 			if node.GetHeight() == 0 {
 				leafNodeCount++
+				batchLeafNodeCount++
 				ch <- types.RawSnapshotNode{
-					// TODO: Likely need to clone
 					StoreKey: module,
 					Key:      node.GetNodeKey(),
 					Value:    node.GetValue(),
@@ -155,30 +174,31 @@ func ExportLeafNodes(db dbm.DB, ch chan<- types.RawSnapshotNode) error {
 			}
 
 			count++
-			if count%10000 == 0 {
-				fmt.Printf("Total scanned: %d, leaf nodes exported: %d\n", count, leafNodeCount)
+			if count%1000000 == 0 {
+				batchDuration := time.Since(startTimeBatch)
+				fmt.Printf("SeiDB Archive Migration: Last 1,000,000 iterations took: %v. Total scanned: %d, leaf nodes exported: %d\n", batchDuration, count, leafNodeCount)
+				metrics.IncrCounterWithLabels([]string{"sei", "migration", "leaf_nodes_exported"}, float32(batchLeafNodeCount), []metrics.Label{
+					{Name: "module", Value: module},
+				})
+
+				batchLeafNodeCount = 0
+				startTimeBatch = time.Now()
 			}
 		}
 
-		fmt.Printf("Finished scanning module %s Total scanned: %d, leaf nodes exported: %d\n", module, count, leafNodeCount)
-
 		if err := itr.Error(); err != nil {
-			fmt.Printf("iterator error: %+v\n", err)
+			fmt.Printf("Iterator error: %+v\n", err)
 			return fmt.Errorf("iterator error: %w", err)
 		}
 
+		moduleDuration := time.Since(startTimeModule)
+		fmt.Printf("SeiDB Archive Migration: Finished scanning module %s. Time taken: %v. Total scanned: %d, leaf nodes exported: %d\n", module, moduleDuration, count, leafNodeCount)
 	}
 
-	fmt.Printf("DB contains %d entries, exported %d leaf nodes\n", count, leafNodeCount)
+	totalDuration := time.Since(startTimeTotal)
+	fmt.Printf("SeiDB Archive Migration: DB scanning completed. Total time taken: %v. Total entries scanned: %d, leaf nodes exported: %d\n", totalDuration, count, leafNodeCount)
+
 	return nil
-}
-
-func buildRawPrefix(moduleName string) string {
-	return fmt.Sprintf("s/k:%s/n", moduleName)
-}
-
-func buildTreePrefix(moduleName string) string {
-	return fmt.Sprintf("s/k:%s/", moduleName)
 }
 
 func ReadTree(db dbm.DB, version int64, prefix []byte) (*iavl.MutableTree, error) {

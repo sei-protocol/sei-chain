@@ -44,8 +44,10 @@ func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 		&AddERCNativePointerProposal{},
 		&AddERCCW20PointerProposal{},
 		&AddERCCW721PointerProposal{},
+		&AddERCCW1155PointerProposal{},
 		&AddCWERC20PointerProposal{},
 		&AddCWERC721PointerProposal{},
+		&AddCWERC1155PointerProposal{},
 		&AddERCNativePointerProposalV2{},
 	)
 	registry.RegisterImplementations(

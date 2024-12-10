@@ -7,6 +7,7 @@ import (
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	"github.com/cosmos/cosmos-sdk/storev2/rootmulti"
 	"github.com/sei-protocol/sei-db/config"
+	seidb "github.com/sei-protocol/sei-db/ss/types"
 	"github.com/spf13/cast"
 	"github.com/tendermint/tendermint/libs/log"
 )
@@ -33,6 +34,8 @@ const (
 
 	// Other configs
 	FlagSnapshotInterval = "state-sync.snapshot-interval"
+	FlagMigrateIAVL      = "migrate-iavl"
+	FlagMigrateHeight    = "migrate-height"
 )
 
 func SetupSeiDB(
@@ -40,11 +43,11 @@ func SetupSeiDB(
 	homePath string,
 	appOpts servertypes.AppOptions,
 	baseAppOptions []func(*baseapp.BaseApp),
-) []func(*baseapp.BaseApp) {
+) ([]func(*baseapp.BaseApp), seidb.StateStore) {
 	scEnabled := cast.ToBool(appOpts.Get(FlagSCEnable))
 	if !scEnabled {
 		logger.Info("SeiDB is disabled, falling back to IAVL")
-		return baseAppOptions
+		return baseAppOptions, nil
 	}
 	logger.Info("SeiDB SC is enabled, running node with StoreV2 commit store")
 	scConfig := parseSCConfigs(appOpts)
@@ -56,14 +59,21 @@ func SetupSeiDB(
 
 	// cms must be overridden before the other options, because they may use the cms,
 	// make sure the cms aren't be overridden by the other options later on.
-	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig)
+	cms := rootmulti.NewStore(homePath, logger, scConfig, ssConfig, cast.ToBool(appOpts.Get("migrate-iavl")))
+	migrationEnabled := cast.ToBool(appOpts.Get(FlagMigrateIAVL))
+	migrationHeight := cast.ToInt64(appOpts.Get(FlagMigrateHeight))
 	baseAppOptions = append([]func(*baseapp.BaseApp){
 		func(baseApp *baseapp.BaseApp) {
+			if migrationEnabled || migrationHeight > 0 {
+				originalCMS := baseApp.CommitMultiStore()
+				baseApp.SetQueryMultiStore(originalCMS)
+				baseApp.SetMigrationHeight(migrationHeight)
+			}
 			baseApp.SetCMS(cms)
 		},
 	}, baseAppOptions...)
 
-	return baseAppOptions
+	return baseAppOptions, cms.GetStateStore()
 }
 
 func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
