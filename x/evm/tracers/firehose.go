@@ -451,6 +451,10 @@ func getActivePrecompilesChecker(rules params.Rules) func(addr common.Address) b
 }
 
 func (f *Firehose) OnBlockEnd(err error) {
+	if f.block.Number >= 119822071 {
+		panic("Block number is too high for now")
+	}
+
 	blockNumber := f.block.Number
 	firehoseInfo("block ending (number=%d, trx=%d, err=%s)", blockNumber, len(f.block.TransactionTraces), errorView(err))
 
@@ -632,10 +636,10 @@ func (f *Firehose) onTxStart(tx *types.Transaction, hash common.Hash, from, to c
 }
 
 func (f *Firehose) OnTxEnd(receipt *types.Receipt, err error) {
-	firehoseInfo("trx ending (tracer=%s)", f.tracerID)
+	firehoseInfo("trx ending (tracer=%s, err=%s)", f.tracerID, errorView(err))
 	f.ensureInBlockAndInTrx()
 
-	trxTrace := f.completeTransaction(receipt)
+	trxTrace := f.completeTransaction(receipt, err)
 
 	// In this case, we are in some kind of parallel processing and we must simply add the transaction
 	// to a transient storage (and not in the block directly). Adding it to the block will be done by the
@@ -656,8 +660,8 @@ func (f *Firehose) OnTxEnd(receipt *types.Receipt, err error) {
 	firehoseInfo("trx end (tracer=%s)", f.tracerID)
 }
 
-func (f *Firehose) completeTransaction(receipt *types.Receipt) *pbeth.TransactionTrace {
-	firehoseInfo("completing transaction (call_count=%d receipt=%s)", len(f.transaction.Calls), (*receiptView)(receipt))
+func (f *Firehose) completeTransaction(receipt *types.Receipt, err error) *pbeth.TransactionTrace {
+	firehoseInfo("completing transaction (call_count=%d receipt=%s, err=%s)", len(f.transaction.Calls), (*receiptView)(receipt), errorView(err))
 
 	// Sorting needs to happen first, before we populate the state reverted
 	slices.SortFunc(f.transaction.Calls, func(i, j *pbeth.Call) int {
@@ -665,6 +669,14 @@ func (f *Firehose) completeTransaction(receipt *types.Receipt) *pbeth.Transactio
 	})
 
 	rootCall := f.transaction.Calls[0]
+
+	// It happens in Sei that transactions can be reverted using panic, those cases will exhibit themselves
+	// as `OnTxEnd(..., err)` being called with a non-nil error. In that case, we must force the root call
+	// to be reverted so that the state reverted is properly propagated down the call chain.
+	if err != nil {
+		rootCall.StatusFailed = true
+		rootCall.FailureReason = err.Error()
+	}
 
 	if !f.deferredCallState.IsEmpty() {
 		if err := f.deferredCallState.MaybePopulateCallAndReset(callSourceRoot, rootCall); err != nil {
