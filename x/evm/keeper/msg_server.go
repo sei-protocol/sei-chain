@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"os"
 	"runtime/debug"
 	"strings"
 
@@ -249,11 +248,6 @@ func (k *Keeper) applyEVMTx(ctx sdk.Context, tx *ethtypes.Transaction, msg *core
 				receipt = getEthFailedReceipt(ctx, tx, msg)
 			} else {
 				panic("onEnd called with nil result and nil error")
-			}
-
-			out, err := json.Marshal(receipt)
-			if err == nil {
-				fmt.Fprintf(os.Stderr, "[Firehose] Receipt %s", string(out))
 			}
 
 			var txErr = err
