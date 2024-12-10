@@ -2026,6 +2026,8 @@ func TmBlockHeaderToEVM(
 	block tmproto.Header,
 	k *evmkeeper.Keeper,
 ) (header *ethtypes.Header) {
+	noGasBillingCtx := ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
+
 	number := big.NewInt(block.Height)
 	lastHash := ethcommon.BytesToHash(block.LastBlockId.Hash)
 	appHash := ethcommon.BytesToHash(block.AppHash)
@@ -2040,7 +2042,7 @@ func TmBlockHeaderToEVM(
 		Nonce:       ethtypes.BlockNonce{},   // inapplicable to Sei
 		MixDigest:   ethcommon.Hash{},        // inapplicable to Sei
 		UncleHash:   ethtypes.EmptyUncleHash, // inapplicable to Sei
-		Bloom:       k.GetBlockBloom(ctx),
+		Bloom:       k.GetBlockBloom(noGasBillingCtx),
 		Root:        appHash,
 		Coinbase:    miner,
 		Difficulty:  big.NewInt(0),      // inapplicable to Sei
@@ -2050,7 +2052,7 @@ func TmBlockHeaderToEVM(
 		Time:        uint64(block.Time.Unix()),
 		TxHash:      txHash,
 		ReceiptHash: resultHash,
-		BaseFee:     k.GetBaseFeePerGas(ctx).RoundInt().BigInt(),
+		BaseFee:     k.GetBaseFeePerGas(noGasBillingCtx).RoundInt().BigInt(),
 	}
 
 	return

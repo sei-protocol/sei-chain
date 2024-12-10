@@ -7,6 +7,7 @@ import (
 	"math/big"
 
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	"github.com/ethereum/go-ethereum/common"
@@ -157,6 +158,8 @@ func (app *App) traceSeiPostTxCosmosEvents(
 	newReceipt *evmtypes.Receipt,
 	onEvmTransaction bool,
 ) {
+	noGasBillingCtx := ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
+
 	tracer.OnSeiPostTxCosmosEvents(tracing.SeiPostTxCosmosEvent{
 		TxHash:           txHash,
 		Tx:               tx,
@@ -164,7 +167,7 @@ func (app *App) traceSeiPostTxCosmosEvents(
 		NewReceipt:       newReceipt,
 		OnEVMTransaction: onEvmTransaction,
 		EVMAddressOrDefault: func(address sdk.AccAddress) common.Address {
-			return app.EvmKeeper.GetEVMAddressOrDefault(ctx, address)
+			return app.EvmKeeper.GetEVMAddressOrDefault(noGasBillingCtx, address)
 		},
 	})
 }
