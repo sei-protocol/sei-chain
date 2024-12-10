@@ -40,7 +40,6 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -454,15 +453,6 @@ func getActivePrecompilesChecker(rules params.Rules) func(addr common.Address) b
 func (f *Firehose) OnBlockEnd(err error) {
 	blockNumber := f.block.Number
 	firehoseInfo("block ending (number=%d, trx=%d, err=%s)", blockNumber, len(f.block.TransactionTraces), errorView(err))
-
-	marshalled, marshalErr := protojson.MarshalOptions{}.Marshal(f.block)
-	if marshalErr == nil {
-		fmt.Fprintf(os.Stderr, "[Firehose] %s", string(marshalled))
-	}
-
-	if f.block.Number >= 119822071 {
-		panic("Block number is too high for now")
-	}
 
 	if err == nil {
 		f.ensureInBlockAndNotInTrx()
