@@ -66,10 +66,6 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 			voteMapRD := ballotRD.ToMap()
 
 			exchangeRateRD := ballotRD.WeightedMedianWithAssertion()
-			// handle case where exchange rate is 0
-			if exchangeRateRD.IsZero() {
-				// TODO: do stuff
-			}
 
 			// Iterate through ballots and update exchange rates; drop if not enough votes have been achieved.
 			keys := make([]string, len(voteMap))
