@@ -139,3 +139,120 @@ func TestNewTransfer(t *testing.T) {
 		})
 	}
 }
+
+func Test_createTransferPartyParams(t *testing.T) {
+	partyAddress := "sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w"
+	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+	partyPk, _ := encryption.GenerateKey()
+	senderPk, _ := encryption.GenerateKey()
+	teg := elgamal.NewTwistedElgamal()
+	partyKeyPair, _ := teg.KeyGen(*partyPk, testDenom)
+	senderKeyPair, _ := teg.KeyGen(*senderPk, testDenom)
+	transferLoBits := big.NewInt(100)
+	transferHiBits := big.NewInt(100)
+	loBitsCt, _, _ := teg.Encrypt(senderKeyPair.PublicKey, transferLoBits)
+	hiBitsCt, _, _ := teg.Encrypt(senderKeyPair.PublicKey, transferHiBits)
+	type args struct {
+		partyAddress                  string
+		transferLoBits                *big.Int
+		transferHiBits                *big.Int
+		senderKeyPair                 *elgamal.KeyPair
+		senderEncryptedTransferLoBits *elgamal.Ciphertext
+		senderEncryptedTransferHiBits *elgamal.Ciphertext
+		partyPubkey                   *curves.Point
+	}
+	tests := []struct {
+		name       string
+		args       args
+		wantError  bool
+		wantErrMsg string
+	}{
+		{
+			name: "transfer party params created successfully",
+			args: args{
+				partyAddress:                  partyAddress,
+				transferLoBits:                transferLoBits,
+				transferHiBits:                transferHiBits,
+				senderKeyPair:                 senderKeyPair,
+				senderEncryptedTransferLoBits: loBitsCt,
+				senderEncryptedTransferHiBits: hiBitsCt,
+				partyPubkey:                   &partyKeyPair.PublicKey,
+			},
+			wantError: false,
+		},
+		{
+			name: "transfer party params creation fails with invalid lo bits",
+			args: args{
+				partyAddress:                  partyAddress,
+				transferLoBits:                nil,
+				transferHiBits:                transferHiBits,
+				senderKeyPair:                 senderKeyPair,
+				senderEncryptedTransferLoBits: loBitsCt,
+				senderEncryptedTransferHiBits: hiBitsCt,
+				partyPubkey:                   &partyKeyPair.PublicKey,
+			},
+			wantError:  true,
+			wantErrMsg: "invalid ciphertext",
+		},
+		{
+			name: "transfer party params creation fails with invalid hi bits",
+			args: args{
+				partyAddress:                  partyAddress,
+				transferLoBits:                transferLoBits,
+				transferHiBits:                nil,
+				senderKeyPair:                 senderKeyPair,
+				senderEncryptedTransferLoBits: loBitsCt,
+				senderEncryptedTransferHiBits: hiBitsCt,
+				partyPubkey:                   &partyKeyPair.PublicKey,
+			},
+			wantError:  true,
+			wantErrMsg: "invalid ciphertext",
+		},
+		{
+			name: "transfer party params creation fails with invalid lo bits ciphertext",
+			args: args{
+				partyAddress:                  partyAddress,
+				transferLoBits:                transferLoBits,
+				transferHiBits:                transferHiBits,
+				senderKeyPair:                 senderKeyPair,
+				senderEncryptedTransferLoBits: nil,
+				senderEncryptedTransferHiBits: hiBitsCt,
+				partyPubkey:                   &partyKeyPair.PublicKey,
+			},
+			wantError:  true,
+			wantErrMsg: "sourceCiphertext is invalid",
+		},
+		{
+			name: "transfer party params creation fails with invalid hi bits ciphertext",
+			args: args{
+				partyAddress:                  partyAddress,
+				transferLoBits:                transferLoBits,
+				transferHiBits:                transferHiBits,
+				senderKeyPair:                 senderKeyPair,
+				senderEncryptedTransferLoBits: loBitsCt,
+				senderEncryptedTransferHiBits: nil,
+				partyPubkey:                   &partyKeyPair.PublicKey,
+			},
+			wantError:  true,
+			wantErrMsg: "sourceCiphertext is invalid",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := createTransferPartyParams(
+				tt.args.partyAddress,
+				tt.args.transferLoBits,
+				tt.args.transferHiBits,
+				tt.args.senderKeyPair,
+				tt.args.senderEncryptedTransferLoBits,
+				tt.args.senderEncryptedTransferHiBits,
+				tt.args.partyPubkey)
+			if tt.wantError {
+				assert.EqualError(t, err, tt.wantErrMsg)
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, got)
+			}
+		})
+	}
+}
