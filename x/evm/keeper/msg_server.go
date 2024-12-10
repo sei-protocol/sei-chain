@@ -303,7 +303,22 @@ func (k *Keeper) applyEVMMessageWithTracing(
 	}
 	if onEnd != nil {
 		defer func() {
-			onEnd(res, err)
+			r := recover()
+
+			if r != nil {
+				var recoveredErr error
+				if err, ok := r.(error); ok {
+					recoveredErr = err
+				} else {
+					// Not of type error, create a new dummy one
+					recoveredErr = fmt.Errorf("%v", r)
+				}
+
+				onEnd(nil, recoveredErr)
+				panic(r)
+			} else {
+				onEnd(res, err)
+			}
 		}()
 	}
 
