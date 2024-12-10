@@ -242,11 +242,12 @@ func (k *Keeper) applyEVMTx(ctx sdk.Context, tx *ethtypes.Transaction, msg *core
 	if evmHooks != nil && evmHooks.OnTxEnd != nil {
 		onEnd = func(res *core.ExecutionResult, err error) {
 			var receipt *ethtypes.Receipt
-			if err == nil {
+			if res != nil {
+				// Try to build a receipt if as soon as we have an ExecutionResult set
 				receipt = getEthReceipt(ctx, tx, msg, res, stateDB)
 			}
 
-			var txErr error
+			var txErr = err
 			if res != nil {
 				txErr = res.Err
 			}
@@ -314,7 +315,12 @@ func (k *Keeper) applyEVMMessageWithTracing(
 					recoveredErr = fmt.Errorf("%v", r)
 				}
 
-				onEnd(nil, recoveredErr)
+				onEnd(&core.ExecutionResult{
+					UsedGas:     msg.GasLimit,
+					RefundedGas: 0,
+					ReturnData:  nil,
+					Err:         recoveredErr,
+				}, recoveredErr)
 				panic(r)
 			} else {
 				onEnd(res, err)
