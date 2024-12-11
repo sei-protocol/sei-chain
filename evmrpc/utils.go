@@ -3,7 +3,6 @@ package evmrpc
 import (
 	"context"
 	"crypto/ecdsa"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"math/big"
@@ -216,7 +215,6 @@ func getEvmTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxCon
 			continue
 		}
 		if len(sdkTx.GetMsgs()) == 0 {
-			txHashes = append(txHashes, sha256.Sum256(tx))
 			continue
 		}
 		if evmTx, ok := sdkTx.GetMsgs()[0].(*types.MsgEVMTransaction); ok {
@@ -226,7 +224,6 @@ func getEvmTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxCon
 			ethtx, _ := evmTx.AsTransaction()
 			txHashes = append(txHashes, ethtx.Hash())
 		}
-		txHashes = append(txHashes, sha256.Sum256(tx))
 	}
 	return txHashes
 }
