@@ -297,6 +297,21 @@ func createTransferPartyParams(
 
 // VerifyTransferProofs Verifies the proofs sent in the transfer request. This does not verify proofs for auditors.
 func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipientPubkey *curves.Point, newBalanceCiphertext *elgamal.Ciphertext, rangeVerifierFactory *zkproofs.CachedRangeVerifierFactory) error {
+	if params == nil {
+		return errors.New("transfer params are required")
+	}
+	if senderPubkey == nil {
+		return errors.New("sender public key is required")
+	}
+	if recipientPubkey == nil {
+		return errors.New("recipient public key is required")
+	}
+	if newBalanceCiphertext == nil {
+		return errors.New("new balance ciphertext is required")
+	}
+	if rangeVerifierFactory == nil {
+		return errors.New("range verifier factory is required")
+	}
 	// Verify the validity proofs that the ciphertexts sent are valid (encrypted with the correct pubkey).
 	ok := zkproofs.VerifyCiphertextValidity(params.Proofs.RemainingBalanceCommitmentValidityProof, *senderPubkey, params.RemainingBalanceCommitment)
 	if !ok {
