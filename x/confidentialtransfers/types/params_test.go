@@ -17,8 +17,8 @@ func TestDefaultParams(t *testing.T) {
 		{
 			name: "default params",
 			want: Params{
-				EnableCtModule:          DefaultEnableCtModule,
-				RangeProofGasMultiplier: DefaultRangeProofGasMultiplier,
+				EnableCtModule:    DefaultEnableCtModule,
+				RangeProofGasCost: DefaultRangeProofGasCost,
 			},
 		},
 	}
@@ -33,8 +33,8 @@ func TestDefaultParams(t *testing.T) {
 
 func TestParams_Validate(t *testing.T) {
 	type fields struct {
-		EnableCtModule          bool
-		RangeProofGasMultiplier uint32
+		EnableCtModule    bool
+		RangeProofGasCost uint32
 	}
 	tests := []struct {
 		name    string
@@ -45,26 +45,17 @@ func TestParams_Validate(t *testing.T) {
 		{
 			name: "valid params",
 			fields: fields{
-				EnableCtModule:          true,
-				RangeProofGasMultiplier: 10,
+				EnableCtModule:    true,
+				RangeProofGasCost: 1000000,
 			},
 			wantErr: false,
-		},
-		{
-			name: "invalid params",
-			fields: fields{
-				EnableCtModule:          true,
-				RangeProofGasMultiplier: 0,
-			},
-			wantErr: true,
-			errMsg:  "range proof gas multiplier must be greater than 0",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := Params{
-				EnableCtModule:          tt.fields.EnableCtModule,
-				RangeProofGasMultiplier: tt.fields.RangeProofGasMultiplier,
+				EnableCtModule:    tt.fields.EnableCtModule,
+				RangeProofGasCost: tt.fields.RangeProofGasCost,
 			}
 			err := p.Validate()
 			if (err != nil) != tt.wantErr {
@@ -91,34 +82,34 @@ func TestValidateEnableCtModule(t *testing.T) {
 	})
 }
 
-func TestValidateRangeProofGasMultiplier(t *testing.T) {
-	t.Run("valid multiplier", func(t *testing.T) {
-		multiplier := uint32(10)
-		err := validateRangeProofGasMultiplier(multiplier)
+func TestValidateRangeProofGasCost(t *testing.T) {
+	t.Run("valid cost", func(t *testing.T) {
+		cost := uint32(1000000)
+		err := validateRangeProofGasCost(cost)
 		assert.Nil(t, err)
 	})
 
-	t.Run("valid but useless multiplier value", func(t *testing.T) {
-		flag := uint32(1)
-		err := validateRangeProofGasMultiplier(flag)
-		assert.Nil(t, err)
-	})
-
-	t.Run("invalid multiplier value", func(t *testing.T) {
+	t.Run("valid but useless gas cost", func(t *testing.T) {
 		flag := uint32(0)
-		err := validateRangeProofGasMultiplier(flag)
+		err := validateRangeProofGasCost(flag)
+		assert.Nil(t, err)
+	})
+
+	t.Run("invalid gas cost", func(t *testing.T) {
+		flag := -1
+		err := validateRangeProofGasCost(flag)
 		assert.Error(t, err)
 	})
 
-	t.Run("invalid multiplier type", func(t *testing.T) {
+	t.Run("invalid gas cost type", func(t *testing.T) {
 		flag := "True"
-		err := validateRangeProofGasMultiplier(flag)
+		err := validateRangeProofGasCost(flag)
 		assert.Error(t, err)
 	})
 }
 
 func TestParams_ParamSetPairs(t *testing.T) {
-	params := &Params{EnableCtModule: DefaultEnableCtModule, RangeProofGasMultiplier: DefaultRangeProofGasMultiplier}
+	params := &Params{EnableCtModule: DefaultEnableCtModule, RangeProofGasCost: DefaultRangeProofGasCost}
 	tests := []struct {
 		name string
 		want types.ParamSetPairs
@@ -127,7 +118,7 @@ func TestParams_ParamSetPairs(t *testing.T) {
 			name: "valid param set pairs",
 			want: types.ParamSetPairs{
 				types.NewParamSetPair(KeyEnableCtModule, &params.EnableCtModule, validateEnableCtModule),
-				types.NewParamSetPair(KeyRangeProofGas, &params.RangeProofGasMultiplier, validateRangeProofGasMultiplier),
+				types.NewParamSetPair(KeyRangeProofGas, &params.RangeProofGasCost, validateRangeProofGasCost),
 			},
 		},
 	}

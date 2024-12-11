@@ -220,6 +220,13 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 	// Verify that the account has sufficient funds (Remaining balance after making the transfer is greater than or equal to zero.)
 	// This range proof verification is performed on the RemainingBalanceCommitment sent by the user.
 	// An additional check is required to ensure that this matches the remaining balance calculated by the server.
+
+	// Consume additional gas as range proofs are computationally expensive.
+	cost := m.Keeper.GetRangeProofGasCost(ctx)
+	if cost > 0 {
+		ctx.GasMeter().ConsumeGas(uint64(cost), "range proof verification")
+	}
+
 	verified, _ := zkproofs.VerifyRangeProof(instruction.Proofs.RemainingBalanceRangeProof, instruction.RemainingBalanceCommitment, 128, m.CachedRangeVerifierFactory)
 	if !verified {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "range proof verification failed")
@@ -255,14 +262,6 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 	coins := sdk.NewCoins(coin)
 	if err := m.Keeper.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, address, coins); err != nil {
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to withdraw %s %s", req.Amount, req.Denom)
-	}
-
-	gasSoFar := ctx.GasMeter().GasConsumed()
-	multiplier := m.Keeper.GetRangeProofGasMultiplier(ctx)
-
-	// Consume additional gas according to the multiplier as range proofs are computationally expensive.
-	if multiplier > 1 {
-		ctx.GasMeter().ConsumeGas(gasSoFar*uint64(multiplier-1), "range proof verification")
 	}
 
 	// Emit any required events
@@ -444,6 +443,13 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	}
 
 	// Validate proofs
+	rangeProofGasCost := uint64(m.Keeper.GetRangeProofGasCost(ctx))
+
+	// Consume additional gas as range proofs are computationally expensive.
+	if rangeProofGasCost > 0 {
+		ctx.GasMeter().ConsumeGas(rangeProofGasCost, "range proof verification")
+	}
+
 	err = types.VerifyTransferProofs(instruction, &senderAccount.PublicKey, &recipientAccount.PublicKey, newSenderBalanceCiphertext, m.CachedRangeVerifierFactory)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
@@ -496,15 +502,6 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	err = m.Keeper.SetAccount(ctx, req.ToAddress, req.Denom, recipientAccount)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting recipient account")
-	}
-
-	gasSoFar := ctx.GasMeter().GasConsumed()
-	multiplier := m.Keeper.GetRangeProofGasMultiplier(ctx)
-
-	// Consume additional gas according to the multiplier as range proofs are computationally expensive.
-	// gasSoFar + ((multiplier-1) x gasSoFar) = multiplier x gasSoFar
-	if multiplier > 1 {
-		ctx.GasMeter().ConsumeGas(gasSoFar*uint64(multiplier-1), "range proof verification")
 	}
 
 	// Emit any required events
