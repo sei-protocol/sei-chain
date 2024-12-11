@@ -66,6 +66,7 @@ type StakingKeeper interface {
 	// HasReceivingRedelegation check if validator is receiving a redelegation
 	HasReceivingRedelegation(ctx sdk.Context,
 		delAddr sdk.AccAddress, valDstAddr sdk.ValAddress) bool
+	GetUnbondingDelegation(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) (stakingtypes.UnbondingDelegation, bool)
 }
 
 // ChannelKeeper defines the expected IBC channel keeper
