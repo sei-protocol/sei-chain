@@ -77,7 +77,7 @@ func (a *Account) Decrypt(decryptor *elgamal.TwistedElGamal, keypair *elgamal.Ke
 
 	return &DecryptedCtAccount{
 		PublicKey:                   a.PublicKey.ToAffineCompressed(),
-		PendingBalanceLo:            uint32(pendingBalanceLo.Uint64()),
+		PendingBalanceLo:            pendingBalanceLo.Uint64(),
 		PendingBalanceHi:            pendingBalanceHi.Uint64(),
 		CombinedPendingBalance:      pendingBalanceCombined.String(),
 		PendingBalanceCreditCounter: uint32(a.PendingBalanceCreditCounter),
