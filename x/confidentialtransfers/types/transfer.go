@@ -368,7 +368,7 @@ func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipien
 	return nil
 }
 
-// Verifies the proofs sent for an individual auditor.
+// VerifyAuditorProof Verifies the proofs sent for an individual auditor.
 func VerifyAuditorProof(
 	senderTransferAmountLo,
 	senderTransferAmountHi *elgamal.Ciphertext,

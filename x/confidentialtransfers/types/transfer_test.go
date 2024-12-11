@@ -308,7 +308,7 @@ func Test_createTransferPartyParams(t *testing.T) {
 	}
 }
 
-func TestVerifyTransferProofs(t *testing.T) {
+func Test_VerifyTransferProofs(t *testing.T) {
 	testAddress1 := "sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w"
 	testAddress2 := "sei12nqhfjuurt90p6yqkk2txnptrmuta40dl8mk3d"
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
@@ -316,11 +316,11 @@ func TestVerifyTransferProofs(t *testing.T) {
 	receiverPk, _ := encryption.GenerateKey()
 	aesKey, _ := encryption.GetAESKey(*senderPk, testDenom)
 	teg := elgamal.NewTwistedElgamal()
-	decryptableBalance, _ := encryption.EncryptAESGCM(big.NewInt(100), aesKey)
+	decryptableBalance, _ := encryption.EncryptAESGCM(big.NewInt(200), aesKey)
 	senderKeyPair, _ := teg.KeyGen(*senderPk, testDenom)
 	receiverKeyPair, _ := teg.KeyGen(*receiverPk, testDenom)
 	transferAmount := uint64(100)
-	ct, _, _ := teg.Encrypt(senderKeyPair.PublicKey, big.NewInt(100))
+	ct, _, _ := teg.Encrypt(senderKeyPair.PublicKey, big.NewInt(200))
 	ed25519RangeVerifierFactory := zkproofs.Ed25519RangeVerifierFactory{}
 	rangeVerifierFactory := zkproofs.NewCachedRangeVerifierFactory(&ed25519RangeVerifierFactory)
 
@@ -328,9 +328,9 @@ func TestVerifyTransferProofs(t *testing.T) {
 		params               *Transfer
 		senderPubkey         *curves.Point
 		recipientPubkey      *curves.Point
-		newBalanceCiphertext *elgamal.Ciphertext
 		rangeVerifierFactory *zkproofs.CachedRangeVerifierFactory
 		setup                func(params *Transfer) *Transfer
+		setupNewBalance      func() *elgamal.Ciphertext
 	}
 	tests := []struct {
 		name           string
@@ -365,6 +365,7 @@ func TestVerifyTransferProofs(t *testing.T) {
 		{
 			name: "transfer proofs verification error if new balance ciphertext is nil",
 			args: args{
+				setupNewBalance: func() *elgamal.Ciphertext { return nil },
 				senderPubkey:    &senderKeyPair.PublicKey,
 				recipientPubkey: &receiverKeyPair.PublicKey,
 			},
@@ -374,41 +375,21 @@ func TestVerifyTransferProofs(t *testing.T) {
 		{
 			name: "transfer proofs verification error if range verifier factory is nil",
 			args: args{
-				senderPubkey:         &senderKeyPair.PublicKey,
-				recipientPubkey:      &receiverKeyPair.PublicKey,
-				newBalanceCiphertext: ct,
+				senderPubkey:    &senderKeyPair.PublicKey,
+				recipientPubkey: &receiverKeyPair.PublicKey,
 			},
 			wantErr:        true,
 			wantErrMessage: "range verifier factory is required",
 		},
 		{
-			name: "transfer proofs verification error if transfer amount hi equality proof is invalid",
-			args: args{
-				setup: func(params *Transfer) *Transfer {
-					params.Proofs.TransferAmountHiEqualityProof = &zkproofs.CiphertextCiphertextEqualityProof{}
-					return params
-
-				},
-				senderPubkey:         &senderKeyPair.PublicKey,
-				recipientPubkey:      &receiverKeyPair.PublicKey,
-				newBalanceCiphertext: ct,
-				rangeVerifierFactory: rangeVerifierFactory,
-			},
-			wantErr:        true,
-			wantErrMessage: "ciphertext commitment equality verification failed",
-		},
-		{
 			name: "transfer proofs verification error if transfer remaining balance commitment validity proof is invalid",
 			args: args{
 				setup: func(params *Transfer) *Transfer {
-					copiedProofs := copyProofs(params.Proofs)
-					copiedProofs.RemainingBalanceCommitmentValidityProof = &zkproofs.CiphertextValidityProof{}
-					params.Proofs = copiedProofs
+					params.Proofs.RemainingBalanceCommitmentValidityProof = &zkproofs.CiphertextValidityProof{}
 					return params
 				},
 				senderPubkey:         &senderKeyPair.PublicKey,
 				recipientPubkey:      &receiverKeyPair.PublicKey,
-				newBalanceCiphertext: ct,
 				rangeVerifierFactory: rangeVerifierFactory,
 			},
 			wantErr:        true,
@@ -418,18 +399,122 @@ func TestVerifyTransferProofs(t *testing.T) {
 			name: "transfer proofs verification error if transfer sender transfer amount lo validity proof is invalid",
 			args: args{
 				setup: func(params *Transfer) *Transfer {
-					copiedProofs := copyProofs(params.Proofs)
-					copiedProofs.SenderTransferAmountLoValidityProof = &zkproofs.CiphertextValidityProof{}
-					params.Proofs = copiedProofs
+					params.Proofs.SenderTransferAmountLoValidityProof = &zkproofs.CiphertextValidityProof{}
 					return params
 				},
 				senderPubkey:         &senderKeyPair.PublicKey,
 				recipientPubkey:      &receiverKeyPair.PublicKey,
-				newBalanceCiphertext: ct,
 				rangeVerifierFactory: rangeVerifierFactory,
 			},
 			wantErr:        true,
 			wantErrMessage: "failed to verify sender transfer amount lo",
+		},
+		{
+			name: "transfer proofs verification error if transfer sender transfer amount hi validity proof is invalid",
+			args: args{
+				setup: func(params *Transfer) *Transfer {
+					params.Proofs.SenderTransferAmountHiValidityProof = &zkproofs.CiphertextValidityProof{}
+					return params
+				},
+				senderPubkey:         &senderKeyPair.PublicKey,
+				recipientPubkey:      &receiverKeyPair.PublicKey,
+				rangeVerifierFactory: rangeVerifierFactory,
+			},
+			wantErr:        true,
+			wantErrMessage: "failed to verify sender transfer amount hi",
+		},
+		{
+			name: "transfer proofs verification error if transfer recipient transfer amount lo validity proof is invalid",
+			args: args{
+				setup: func(params *Transfer) *Transfer {
+					params.Proofs.RecipientTransferAmountLoValidityProof = &zkproofs.CiphertextValidityProof{}
+					return params
+				},
+				senderPubkey:         &senderKeyPair.PublicKey,
+				recipientPubkey:      &receiverKeyPair.PublicKey,
+				rangeVerifierFactory: rangeVerifierFactory,
+			},
+			wantErr:        true,
+			wantErrMessage: "failed to verify recipient transfer amount lo",
+		},
+		{
+			name: "transfer proofs verification error if transfer recipient transfer amount hi validity proof is invalid",
+			args: args{
+				setup: func(params *Transfer) *Transfer {
+					params.Proofs.RecipientTransferAmountHiValidityProof = &zkproofs.CiphertextValidityProof{}
+					return params
+				},
+				senderPubkey:         &senderKeyPair.PublicKey,
+				recipientPubkey:      &receiverKeyPair.PublicKey,
+				rangeVerifierFactory: rangeVerifierFactory,
+			},
+			wantErr:        true,
+			wantErrMessage: "failed to verify recipient transfer amount hi",
+		},
+		{
+			name: "transfer proofs verification error if remaining balance range proof is invalid",
+			args: args{
+				setup: func(params *Transfer) *Transfer {
+					params.Proofs.RemainingBalanceRangeProof = &zkproofs.RangeProof{}
+					return params
+				},
+				senderPubkey:         &senderKeyPair.PublicKey,
+				recipientPubkey:      &receiverKeyPair.PublicKey,
+				rangeVerifierFactory: rangeVerifierFactory,
+			},
+			wantErr:        true,
+			wantErrMessage: "invalid proof",
+		},
+		{
+			name: "transfer proofs verification error if transfer remaining balance equality proof is invalid",
+			args: args{
+				setup: func(params *Transfer) *Transfer {
+					params.Proofs.RemainingBalanceEqualityProof = &zkproofs.CiphertextCommitmentEqualityProof{}
+					return params
+				},
+				senderPubkey:         &senderKeyPair.PublicKey,
+				recipientPubkey:      &receiverKeyPair.PublicKey,
+				rangeVerifierFactory: rangeVerifierFactory,
+			},
+			wantErr:        true,
+			wantErrMessage: "ciphertext commitment equality verification failed",
+		},
+		{
+			name: "transfer proofs verification error if transfer amount lo equality proof is invalid",
+			args: args{
+				setup: func(params *Transfer) *Transfer {
+					params.Proofs.TransferAmountLoEqualityProof = &zkproofs.CiphertextCiphertextEqualityProof{}
+					return params
+				},
+				senderPubkey:         &senderKeyPair.PublicKey,
+				recipientPubkey:      &receiverKeyPair.PublicKey,
+				rangeVerifierFactory: rangeVerifierFactory,
+			},
+			wantErr:        true,
+			wantErrMessage: "ciphertext ciphertext equality verification on transfer amount lo failed",
+		},
+		{
+			name: "transfer proofs verification error if transfer amount hi equality proof is invalid",
+			args: args{
+				setup: func(params *Transfer) *Transfer {
+					params.Proofs.TransferAmountHiEqualityProof = &zkproofs.CiphertextCiphertextEqualityProof{}
+					return params
+				},
+				senderPubkey:         &senderKeyPair.PublicKey,
+				recipientPubkey:      &receiverKeyPair.PublicKey,
+				rangeVerifierFactory: rangeVerifierFactory,
+			},
+			wantErr:        true,
+			wantErrMessage: "ciphertext ciphertext equality verification on transfer amount hi failed",
+		},
+		{
+			name: "transfer proofs verification succeeds if all proofs are valid",
+			args: args{
+				senderPubkey:         &senderKeyPair.PublicKey,
+				recipientPubkey:      &receiverKeyPair.PublicKey,
+				rangeVerifierFactory: rangeVerifierFactory,
+			},
+			wantErr: false,
 		},
 	}
 	for _, tt := range tests {
@@ -443,15 +528,19 @@ func TestVerifyTransferProofs(t *testing.T) {
 			transferAmount,
 			&receiverKeyPair.PublicKey,
 			nil)
+		newSenderBalanceCiphertext, _ := teg.SubWithLoHi(ct, transfer.SenderTransferAmountLo, transfer.SenderTransferAmountHi)
 		if tt.args.setup != nil {
 			transfer = tt.args.setup(transfer)
+		}
+		if tt.args.setupNewBalance != nil {
+			newSenderBalanceCiphertext = tt.args.setupNewBalance()
 		}
 		t.Run(tt.name, func(t *testing.T) {
 			err := VerifyTransferProofs(
 				transfer,
 				tt.args.senderPubkey,
 				tt.args.recipientPubkey,
-				tt.args.newBalanceCiphertext,
+				newSenderBalanceCiphertext,
 				tt.args.rangeVerifierFactory)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -460,19 +549,5 @@ func TestVerifyTransferProofs(t *testing.T) {
 				assert.NoError(t, err)
 			}
 		})
-	}
-}
-
-func copyProofs(proofs *TransferProofs) *TransferProofs {
-	return &TransferProofs{
-		RemainingBalanceCommitmentValidityProof: proofs.RemainingBalanceCommitmentValidityProof,
-		SenderTransferAmountLoValidityProof:     proofs.SenderTransferAmountLoValidityProof,
-		SenderTransferAmountHiValidityProof:     proofs.SenderTransferAmountHiValidityProof,
-		RecipientTransferAmountLoValidityProof:  proofs.RecipientTransferAmountLoValidityProof,
-		RecipientTransferAmountHiValidityProof:  proofs.RecipientTransferAmountHiValidityProof,
-		RemainingBalanceRangeProof:              proofs.RemainingBalanceRangeProof,
-		RemainingBalanceEqualityProof:           proofs.RemainingBalanceEqualityProof,
-		TransferAmountLoEqualityProof:           proofs.TransferAmountLoEqualityProof,
-		TransferAmountHiEqualityProof:           proofs.TransferAmountHiEqualityProof,
 	}
 }
