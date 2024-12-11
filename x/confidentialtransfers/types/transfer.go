@@ -375,10 +375,26 @@ func VerifyAuditorProof(
 	auditorParams *TransferAuditor,
 	senderPubkey *curves.Point,
 	auditorPubkey *curves.Point) error {
+	if senderTransferAmountLo == nil {
+		return errors.New("sender transfer amount lo is required")
+	}
+	if senderTransferAmountHi == nil {
+		return errors.New("sender transfer amount hi is required")
+	}
+	if auditorParams == nil {
+		return errors.New("auditor params are required")
+	}
+	if senderPubkey == nil {
+		return errors.New("sender public key is required")
+	}
+	if auditorPubkey == nil {
+		return errors.New("auditor public key is required")
+	}
+
 	// Verify that the transfer amounts are valid (encrypted with the correct pubkey).
 	ok := zkproofs.VerifyCiphertextValidity(auditorParams.TransferAmountLoValidityProof, *auditorPubkey, auditorParams.EncryptedTransferAmountLo)
 	if !ok {
-		return errors.New("failed to verify auditor transfer amoun lo")
+		return errors.New("failed to verify auditor transfer amount lo")
 	}
 
 	ok = zkproofs.VerifyCiphertextValidity(auditorParams.TransferAmountHiValidityProof, *auditorPubkey, auditorParams.EncryptedTransferAmountHi)

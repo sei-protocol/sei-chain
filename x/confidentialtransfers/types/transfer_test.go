@@ -554,3 +554,226 @@ func Test_VerifyTransferProofs(t *testing.T) {
 		})
 	}
 }
+
+func TestVerifyAuditorProof(t *testing.T) {
+	// Common setup for all test cases
+	senderPk, err := encryption.GenerateKey()
+	assert.NoError(t, err, "failed to generate sender private key")
+
+	auditorPk, err := encryption.GenerateKey()
+	assert.NoError(t, err, "failed to generate auditor private key")
+
+	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+	teg := elgamal.NewTwistedElgamal()
+
+	senderKeyPair, err := teg.KeyGen(*senderPk, testDenom)
+	assert.NoError(t, err, "failed to generate sender key pair")
+
+	auditorKeyPair, err := teg.KeyGen(*auditorPk, testDenom)
+	assert.NoError(t, err, "failed to generate auditor key pair")
+
+	// Placeholder values for sender and auditor transfer amounts
+	senderTransferAmountLo, _, _ := teg.Encrypt(senderKeyPair.PublicKey, big.NewInt(100))
+	senderTransferAmountHi, _, _ := teg.Encrypt(senderKeyPair.PublicKey, big.NewInt(0))
+
+	auditorParams, _ := createTransferPartyParams(
+		"sei196wyjlvma8zxpz5u2r5h4lstkmyjc7knuakpws",
+		big.NewInt(100),
+		big.NewInt(0),
+		senderKeyPair,
+		senderTransferAmountLo,
+		senderTransferAmountHi,
+		&auditorKeyPair.PublicKey)
+
+	type args struct {
+		senderTransferAmountLo *elgamal.Ciphertext
+		senderTransferAmountHi *elgamal.Ciphertext
+		auditorParams          *TransferAuditor
+		senderPubkey           *curves.Point
+		auditorPubkey          *curves.Point
+	}
+
+	tests := []struct {
+		name           string
+		args           args
+		setup          func(*args) // Additional setup if needed
+		wantErr        bool
+		wantErrMessage string
+	}{
+		{
+			name: "valid auditor proof",
+			args: args{
+				senderTransferAmountLo: senderTransferAmountLo,
+				senderTransferAmountHi: senderTransferAmountHi,
+				auditorParams:          auditorParams,
+				senderPubkey:           &senderKeyPair.PublicKey,
+				auditorPubkey:          &auditorKeyPair.PublicKey,
+			},
+			wantErr: false,
+		},
+		{
+			name: "auditorParams is nil",
+			args: args{
+				senderTransferAmountLo: senderTransferAmountLo,
+				senderTransferAmountHi: senderTransferAmountHi,
+				senderPubkey:           &senderKeyPair.PublicKey,
+				auditorPubkey:          &auditorKeyPair.PublicKey,
+			},
+			wantErr:        true,
+			wantErrMessage: "auditor params are required",
+		},
+		{
+			name: "sender public key is nil",
+			args: args{
+				senderTransferAmountLo: senderTransferAmountLo,
+				senderTransferAmountHi: senderTransferAmountHi,
+				auditorParams:          auditorParams,
+				auditorPubkey:          &auditorKeyPair.PublicKey,
+			},
+			wantErr:        true,
+			wantErrMessage: "sender public key is required",
+		},
+		{
+			name: "auditor public key is nil",
+			args: args{
+				senderTransferAmountLo: senderTransferAmountLo,
+				senderTransferAmountHi: senderTransferAmountHi,
+				auditorParams:          auditorParams,
+				senderPubkey:           &senderKeyPair.PublicKey,
+			},
+			wantErr:        true,
+			wantErrMessage: "auditor public key is required",
+		},
+		{
+			name: "sender transfer amount is nil",
+			args: args{
+				senderTransferAmountHi: senderTransferAmountHi,
+				auditorParams:          auditorParams,
+				senderPubkey:           &senderKeyPair.PublicKey,
+				auditorPubkey:          &auditorKeyPair.PublicKey,
+			},
+			wantErr:        true,
+			wantErrMessage: "sender transfer amount lo is required",
+		},
+		{
+			name: "invalid sender transfer amount lo",
+			args: args{
+				senderTransferAmountLo: &elgamal.Ciphertext{}, // Assuming 0 is invalid
+				senderTransferAmountHi: senderTransferAmountHi,
+				auditorParams:          auditorParams,
+				senderPubkey:           &senderKeyPair.PublicKey,
+				auditorPubkey:          &auditorKeyPair.PublicKey,
+			},
+			wantErr:        true,
+			wantErrMessage: "ciphertext ciphertext equality verification on auditor transfer amount lo failed",
+		},
+		{
+			name: "sender transfer amount hi is nil",
+			args: args{
+				senderTransferAmountLo: senderTransferAmountLo,
+				auditorParams:          auditorParams,
+				senderPubkey:           &senderKeyPair.PublicKey,
+				auditorPubkey:          &auditorKeyPair.PublicKey,
+			},
+			wantErr:        true,
+			wantErrMessage: "sender transfer amount hi is required",
+		},
+		{
+			name: "invalid sender transfer amount hi",
+			args: args{
+				senderTransferAmountLo: senderTransferAmountLo,
+				senderTransferAmountHi: &elgamal.Ciphertext{}, // Assuming 0 is invalid
+				auditorParams:          auditorParams,
+				senderPubkey:           &senderKeyPair.PublicKey,
+				auditorPubkey:          &auditorKeyPair.PublicKey,
+			},
+			wantErr:        true,
+			wantErrMessage: "ciphertext ciphertext equality verification on auditor transfer amount hi failed",
+		},
+		{
+			name: "invalid auditorParams - invalid encrypted transfer amount lo",
+			args: args{
+				senderTransferAmountLo: senderTransferAmountLo,
+				senderTransferAmountHi: senderTransferAmountHi,
+				auditorParams:          &TransferAuditor{},
+				senderPubkey:           &senderKeyPair.PublicKey,
+				auditorPubkey:          &auditorKeyPair.PublicKey,
+			},
+			wantErr:        true,
+			wantErrMessage: "failed to verify auditor transfer amount lo",
+		},
+		{
+			name: "invalid auditorParams - invalid transfer amount hi validity proof",
+			args: args{
+				senderTransferAmountLo: senderTransferAmountLo,
+				senderTransferAmountHi: senderTransferAmountHi,
+				auditorParams: &TransferAuditor{
+					EncryptedTransferAmountLo:     auditorParams.EncryptedTransferAmountLo,
+					TransferAmountLoValidityProof: auditorParams.TransferAmountLoValidityProof,
+				},
+				senderPubkey:  &senderKeyPair.PublicKey,
+				auditorPubkey: &auditorKeyPair.PublicKey,
+			},
+			wantErr:        true,
+			wantErrMessage: "failed to verify auditor transfer amount hi",
+		},
+		{
+			name: "invalid auditorParams - invalid transfer ciphertext equality verification amount lo",
+			args: args{
+				senderTransferAmountLo: senderTransferAmountLo,
+				senderTransferAmountHi: senderTransferAmountHi,
+				auditorParams: &TransferAuditor{
+					EncryptedTransferAmountLo:     auditorParams.EncryptedTransferAmountLo,
+					TransferAmountLoValidityProof: auditorParams.TransferAmountLoValidityProof,
+					EncryptedTransferAmountHi:     auditorParams.EncryptedTransferAmountHi,
+					TransferAmountHiValidityProof: auditorParams.TransferAmountHiValidityProof,
+				},
+				senderPubkey:  &senderKeyPair.PublicKey,
+				auditorPubkey: &auditorKeyPair.PublicKey,
+			},
+			wantErr:        true,
+			wantErrMessage: "ciphertext ciphertext equality verification on auditor transfer amount lo failed",
+		},
+		{
+			name: "invalid auditorParams - invalid transfer ciphertext equality verification amount hi",
+			args: args{
+				senderTransferAmountLo: senderTransferAmountLo,
+				senderTransferAmountHi: senderTransferAmountHi,
+				auditorParams: &TransferAuditor{
+					EncryptedTransferAmountLo:     auditorParams.EncryptedTransferAmountLo,
+					TransferAmountLoValidityProof: auditorParams.TransferAmountLoValidityProof,
+					EncryptedTransferAmountHi:     auditorParams.EncryptedTransferAmountHi,
+					TransferAmountHiValidityProof: auditorParams.TransferAmountHiValidityProof,
+					TransferAmountLoEqualityProof: auditorParams.TransferAmountLoEqualityProof,
+				},
+				senderPubkey:  &senderKeyPair.PublicKey,
+				auditorPubkey: &auditorKeyPair.PublicKey,
+			},
+			wantErr:        true,
+			wantErrMessage: "ciphertext ciphertext equality verification on auditor transfer amount hi failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setup != nil {
+				tt.setup(&tt.args)
+			}
+
+			err = VerifyAuditorProof(
+				tt.args.senderTransferAmountLo,
+				tt.args.senderTransferAmountHi,
+				tt.args.auditorParams,
+				tt.args.senderPubkey,
+				tt.args.auditorPubkey,
+			)
+
+			if tt.wantErr {
+				assert.Error(t, err, "expected an error but got none")
+				assert.EqualError(t, err, tt.wantErrMessage, "error message mismatch")
+			} else {
+				assert.NoError(t, err, "did not expect an error but got one")
+			}
+		})
+	}
+}
