@@ -385,6 +385,22 @@ func TestMsgTransfer_ValidateBasic(t *testing.T) {
 			wantErr: true,
 			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
 		},
+		{
+			name: "missing proofs",
+			msg: MsgTransfer{
+				FromAddress:        validAddress,
+				ToAddress:          validAddress,
+				Denom:              validDenom,
+				FromAmountLo:       &Ciphertext{},
+				FromAmountHi:       &Ciphertext{},
+				ToAmountLo:         &Ciphertext{},
+				ToAmountHi:         &Ciphertext{},
+				RemainingBalance:   &Ciphertext{},
+				DecryptableBalance: "decryptable_balance",
+			},
+			wantErr: true,
+			errMsg:  sdkerrors.ErrInvalidRequest.Error(),
+		},
 	}
 
 	for _, tt := range tests {
@@ -1010,6 +1026,134 @@ func TestMsgApplyPendingBalance_ValidateBasic(t *testing.T) {
 			if tt.wantErr {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestMsgInitializeAccount_ValidateBasic1(t *testing.T) {
+	validAddress := sdk.AccAddress{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}.String()
+	type fields struct {
+		FromAddress        string
+		Denom              string
+		PublicKey          []byte
+		DecryptableBalance string
+		PendingBalanceLo   *Ciphertext
+		PendingBalanceHi   *Ciphertext
+		AvailableBalance   *Ciphertext
+		Proofs             *InitializeAccountMsgProofs
+	}
+	tests := []struct {
+		name       string
+		fields     fields
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "invalid from address",
+			fields: fields{
+				FromAddress: "invalid_address",
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid sender address (decoding bech32 failed: invalid separator index -1): invalid address",
+		},
+		{
+			name: "invalid denom",
+			fields: fields{
+				FromAddress: validAddress,
+				Denom:       "",
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid denom: ",
+		},
+		{
+			name: "missing pubkey",
+			fields: fields{
+				FromAddress: validAddress,
+				Denom:       "denom",
+			},
+			wantErr:    true,
+			wantErrMsg: "public key is required: invalid request",
+		},
+		{
+			name: "missing DecryptableBalance",
+			fields: fields{
+				FromAddress: validAddress,
+				Denom:       "denom",
+				PublicKey:   []byte{1, 2, 3},
+			},
+			wantErr:    true,
+			wantErrMsg: "decryptable balance is required: invalid request",
+		},
+		{
+			name: "missing PendingBalanceLo",
+			fields: fields{
+				FromAddress:        validAddress,
+				Denom:              "denom",
+				PublicKey:          []byte{1, 2, 3},
+				DecryptableBalance: "decryptable_balance",
+			},
+			wantErr:    true,
+			wantErrMsg: "pending amount lo is required: invalid request",
+		},
+		{
+			name: "missing PendingBalanceHi",
+			fields: fields{
+				FromAddress:        validAddress,
+				Denom:              "denom",
+				PublicKey:          []byte{1, 2, 3},
+				DecryptableBalance: "decryptable_balance",
+				PendingBalanceLo:   &Ciphertext{},
+			},
+			wantErr:    true,
+			wantErrMsg: "pending amount hi is required: invalid request",
+		},
+		{
+			name: "missing AvailableBalance",
+			fields: fields{
+				FromAddress:        validAddress,
+				Denom:              "denom",
+				PublicKey:          []byte{1, 2, 3},
+				DecryptableBalance: "decryptable_balance",
+				PendingBalanceLo:   &Ciphertext{},
+				PendingBalanceHi:   &Ciphertext{},
+			},
+			wantErr:    true,
+			wantErrMsg: "available balance is required: invalid request",
+		},
+		{
+			name: "missing Proofs",
+			fields: fields{
+				FromAddress:        validAddress,
+				Denom:              "denom",
+				PublicKey:          []byte{1, 2, 3},
+				DecryptableBalance: "decryptable_balance",
+				PendingBalanceLo:   &Ciphertext{},
+				PendingBalanceHi:   &Ciphertext{},
+				AvailableBalance:   &Ciphertext{},
+			},
+			wantErr:    true,
+			wantErrMsg: "proofs is required: invalid request",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &MsgInitializeAccount{
+				FromAddress:        tt.fields.FromAddress,
+				Denom:              tt.fields.Denom,
+				PublicKey:          tt.fields.PublicKey,
+				DecryptableBalance: tt.fields.DecryptableBalance,
+				PendingBalanceLo:   tt.fields.PendingBalanceLo,
+				PendingBalanceHi:   tt.fields.PendingBalanceHi,
+				AvailableBalance:   tt.fields.AvailableBalance,
+				Proofs:             tt.fields.Proofs,
+			}
+			err := m.ValidateBasic()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Equal(t, tt.wantErrMsg, err.Error())
 			} else {
 				require.NoError(t, err)
 			}
