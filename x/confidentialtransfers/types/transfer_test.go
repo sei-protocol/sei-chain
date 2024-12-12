@@ -2,27 +2,31 @@ package types
 
 import (
 	"crypto/ecdsa"
+	"crypto/rand"
+	"math/big"
+	"testing"
+
 	"github.com/coinbase/kryptology/pkg/core/curves"
+	"github.com/ethereum/go-ethereum/crypto/secp256k1"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
 	"github.com/stretchr/testify/assert"
-	"math/big"
-	"testing"
 )
 
 func TestNewTransfer(t *testing.T) {
 	testAddress1 := "sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w"
 	testAddress2 := "sei12nqhfjuurt90p6yqkk2txnptrmuta40dl8mk3d"
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	senderPk, _ := encryption.GenerateKey()
-	wrongPk, _ := encryption.GenerateKey()
-	receiverPk, _ := encryption.GenerateKey()
-	aesKey, _ := encryption.GetAESKey(*senderPk, testDenom)
+	senderPk, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	wrongPk, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	receiverPk, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	aesKey, _ := utils.GetAESKey(*senderPk, testDenom)
 	teg := elgamal.NewTwistedElgamal()
 	decryptableBalance, _ := encryption.EncryptAESGCM(big.NewInt(100), aesKey)
-	senderKeyPair, _ := teg.KeyGen(*senderPk, testDenom)
-	receiverKeyPair, _ := teg.KeyGen(*receiverPk, testDenom)
+	senderKeyPair, _ := utils.GetElGamalKeyPair(*senderPk, testDenom)
+	receiverKeyPair, _ := utils.GetElGamalKeyPair(*receiverPk, testDenom)
 	transferAmount := uint64(100)
 	ct, _, _ := teg.Encrypt(senderKeyPair.PublicKey, big.NewInt(0))
 	type args struct {
@@ -197,11 +201,11 @@ func TestNewTransfer(t *testing.T) {
 func Test_createTransferPartyParams(t *testing.T) {
 	partyAddress := "sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w"
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	partyPk, _ := encryption.GenerateKey()
-	senderPk, _ := encryption.GenerateKey()
+	partyPk, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	senderPk, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	teg := elgamal.NewTwistedElgamal()
-	partyKeyPair, _ := teg.KeyGen(*partyPk, testDenom)
-	senderKeyPair, _ := teg.KeyGen(*senderPk, testDenom)
+	partyKeyPair, _ := utils.GetElGamalKeyPair(*partyPk, testDenom)
+	senderKeyPair, _ := utils.GetElGamalKeyPair(*senderPk, testDenom)
 	transferLoBits := big.NewInt(100)
 	transferHiBits := big.NewInt(100)
 	loBitsCt, _, _ := teg.Encrypt(senderKeyPair.PublicKey, transferLoBits)
@@ -315,13 +319,13 @@ func Test_VerifyTransferProofs(t *testing.T) {
 	testAddress1 := "sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w"
 	testAddress2 := "sei12nqhfjuurt90p6yqkk2txnptrmuta40dl8mk3d"
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	senderPk, _ := encryption.GenerateKey()
-	receiverPk, _ := encryption.GenerateKey()
-	aesKey, _ := encryption.GetAESKey(*senderPk, testDenom)
+	senderPk, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	receiverPk, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	aesKey, _ := utils.GetAESKey(*senderPk, testDenom)
 	teg := elgamal.NewTwistedElgamal()
 	decryptableBalance, _ := encryption.EncryptAESGCM(big.NewInt(200), aesKey)
-	senderKeyPair, _ := teg.KeyGen(*senderPk, testDenom)
-	receiverKeyPair, _ := teg.KeyGen(*receiverPk, testDenom)
+	senderKeyPair, _ := utils.GetElGamalKeyPair(*senderPk, testDenom)
+	receiverKeyPair, _ := utils.GetElGamalKeyPair(*receiverPk, testDenom)
 	transferAmount := uint64(100)
 	ct, _, _ := teg.Encrypt(senderKeyPair.PublicKey, big.NewInt(200))
 	ed25519RangeVerifierFactory := zkproofs.Ed25519RangeVerifierFactory{}
@@ -557,19 +561,19 @@ func Test_VerifyTransferProofs(t *testing.T) {
 
 func TestVerifyAuditorProof(t *testing.T) {
 	// Common setup for all test cases
-	senderPk, err := encryption.GenerateKey()
+	senderPk, err := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	assert.NoError(t, err, "failed to generate sender private key")
 
-	auditorPk, err := encryption.GenerateKey()
+	auditorPk, err := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	assert.NoError(t, err, "failed to generate auditor private key")
 
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
 	teg := elgamal.NewTwistedElgamal()
 
-	senderKeyPair, err := teg.KeyGen(*senderPk, testDenom)
+	senderKeyPair, err := utils.GetElGamalKeyPair(*senderPk, testDenom)
 	assert.NoError(t, err, "failed to generate sender key pair")
 
-	auditorKeyPair, err := teg.KeyGen(*auditorPk, testDenom)
+	auditorKeyPair, err := utils.GetElGamalKeyPair(*auditorPk, testDenom)
 	assert.NoError(t, err, "failed to generate auditor key pair")
 
 	// Placeholder values for sender and auditor transfer amounts
