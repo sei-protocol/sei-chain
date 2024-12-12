@@ -1458,3 +1458,125 @@ func TestMsgTransfer_Decrypt(t *testing.T) {
 		})
 	}
 }
+
+func TestMsgInitializeAccount_FromProtoInvalidInputs(t *testing.T) {
+	tests := []struct {
+		name       string
+		setUp      func(msg *MsgInitializeAccount) *MsgInitializeAccount
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "ValidateBasic fails",
+			setUp: func(msg *MsgInitializeAccount) *MsgInitializeAccount {
+				msg.FromAddress = ""
+				return msg
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid sender address (empty address string is not allowed): invalid address",
+		},
+		{
+			name: "invalid PublicKey",
+			setUp: func(msg *MsgInitializeAccount) *MsgInitializeAccount {
+				msg.PublicKey = []byte{1, 2, 3}
+				return msg
+			},
+			wantErr:    true,
+			wantErrMsg: "edwards25519: invalid point encoding length",
+		},
+		{
+			name: "invalid PendingBalanceLo",
+			setUp: func(msg *MsgInitializeAccount) *MsgInitializeAccount {
+				msg.PendingBalanceLo = &Ciphertext{}
+				return msg
+			},
+			wantErr:    true,
+			wantErrMsg: "edwards25519: invalid point encoding length",
+		},
+		{
+			name: "invalid PendingBalanceHi",
+			setUp: func(msg *MsgInitializeAccount) *MsgInitializeAccount {
+				msg.PendingBalanceHi = &Ciphertext{}
+				return msg
+			},
+			wantErr:    true,
+			wantErrMsg: "edwards25519: invalid point encoding length",
+		},
+		{
+			name: "invalid AvailableBalance",
+			setUp: func(msg *MsgInitializeAccount) *MsgInitializeAccount {
+				msg.AvailableBalance = &Ciphertext{}
+				return msg
+			},
+			wantErr:    true,
+			wantErrMsg: "edwards25519: invalid point encoding length",
+		},
+		{
+			name: "invalid Proofs",
+			setUp: func(msg *MsgInitializeAccount) *MsgInitializeAccount {
+				msg.Proofs.ZeroPendingBalanceHiProof = &ZeroBalanceProof{}
+				return msg
+			},
+			wantErr:    true,
+			wantErrMsg: "zero proof is invalid: invalid request",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := getMsgInitializeAccount()
+			if tt.setUp != nil {
+				m = tt.setUp(m)
+			}
+			got, err := m.FromProto()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Equal(t, tt.wantErrMsg, err.Error())
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, got)
+			}
+		})
+	}
+}
+
+func getMsgInitializeAccount() *MsgInitializeAccount {
+	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+	sourcePrivateKey, _ := encryption.GenerateKey()
+	eg := elgamal.NewTwistedElgamal()
+	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
+	aesPK, _ := encryption.GetAESKey(*sourcePrivateKey, testDenom)
+	bigIntZero := big.NewInt(0)
+
+	decryptableBalance, _ := encryption.EncryptAESGCM(bigIntZero, aesPK)
+	encryptedZero, _, _ := eg.Encrypt(sourceKeypair.PublicKey, bigIntZero)
+
+	// Generate the proof
+	pubkeyValidityProof, _ := zkproofs.NewPubKeyValidityProof(
+		sourceKeypair.PublicKey,
+		sourceKeypair.PrivateKey)
+
+	zeroBalProof, _ := zkproofs.NewZeroBalanceProof(
+		sourceKeypair,
+		encryptedZero)
+
+	proofs := &InitializeAccountProofs{
+		pubkeyValidityProof,
+		zeroBalProof,
+		zeroBalProof,
+		zeroBalProof,
+	}
+	address1 := sdk.AccAddress("address1")
+
+	encryptedZeroProto := NewCiphertextProto(encryptedZero)
+	proofsProto := NewInitializeAccountMsgProofs(proofs)
+	return &MsgInitializeAccount{
+		FromAddress:        address1.String(),
+		Denom:              testDenom,
+		PublicKey:          sourceKeypair.PublicKey.ToAffineCompressed(),
+		DecryptableBalance: decryptableBalance,
+		PendingBalanceLo:   encryptedZeroProto,
+		PendingBalanceHi:   encryptedZeroProto,
+		AvailableBalance:   encryptedZeroProto,
+		Proofs:             proofsProto,
+	}
+}
