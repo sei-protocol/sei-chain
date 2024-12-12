@@ -672,3 +672,63 @@ func TestEndWindowClearExcessFeeds(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, len(response2.Actives))
 }
+
+func TestOverflowAndDivByZero(t *testing.T) {
+	input, h := setup(t)
+	params := input.OracleKeeper.GetParams(input.Ctx)
+	params.Whitelist = types.DenomList{
+		{Name: utils.MicroAtomDenom},
+		{Name: utils.MicroEthDenom},
+	}
+	input.OracleKeeper.SetParams(input.Ctx, params)
+
+	// Set vote targets
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroEthDenom)
+
+	// Test overflow case
+	overflowRate := sdk.MustNewDecFromStr("7896044618658097711785492504343953926634992332820282019728792003956564819967.999999999999999999")
+	smallRate := sdk.MustNewDecFromStr("0.000000000000000001")
+	overflowVote := sdk.DecCoins{
+		sdk.NewDecCoinFromDec(utils.MicroAtomDenom, overflowRate),
+		sdk.NewDecCoinFromDec(utils.MicroEthDenom, smallRate),
+	}
+	makeAggregateVote(t, input, h, 0, overflowVote, 0)
+	makeAggregateVote(t, input, h, 0, overflowVote, 1)
+	makeAggregateVote(t, input, h, 0, overflowVote, 2)
+
+	// This should not panic
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
+	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
+
+	// Verify no exchange rates were set for overflowed one
+	rate, _, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	require.NoError(t, err)
+	require.Equal(t, overflowRate, rate)
+	_, _, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
+	require.Error(t, err)
+
+	input.Ctx = input.Ctx.WithBlockHeight(1)
+
+	// Test divide by zero case
+	zeroVote := sdk.DecCoins{
+		sdk.NewDecCoinFromDec(utils.MicroAtomDenom, smallRate),
+		sdk.NewDecCoinFromDec(utils.MicroEthDenom, overflowRate),
+	}
+	makeAggregateVote(t, input, h, 1, zeroVote, 0)
+	makeAggregateVote(t, input, h, 1, zeroVote, 1)
+	makeAggregateVote(t, input, h, 1, zeroVote, 2)
+
+	// This should not panic
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
+	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
+
+	// Verify no exchange rates were set for either case
+	rate, height, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	require.NoError(t, err)
+	require.Equal(t, smallRate, rate)
+	require.Equal(t, int64(1), height.Int64())
+	_, _, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
+	require.Error(t, err)
+}

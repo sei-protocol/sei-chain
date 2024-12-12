@@ -274,6 +274,209 @@ func TestHandleERC721RoyaltyInfo(t *testing.T) {
 	require.True(t, match)
 }
 
+// 1155
+func TestERC1155TransferPayload(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	addr1, e1 := testkeeper.MockAddressPair()
+	addr2, e2 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	k.SetAddressMapping(ctx, addr2, e2)
+	h := wasm.NewEVMQueryHandler(k)
+	value := sdk.NewInt(5)
+	res, err := h.HandleERC1155TransferPayload(ctx, addr1.String(), addr2.String(), "1", &value)
+	require.Nil(t, err)
+	require.NotEmpty(t, res)
+}
+
+func TestERC1155BatchTransferPayload(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	addr1, e1 := testkeeper.MockAddressPair()
+	addr2, e2 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	k.SetAddressMapping(ctx, addr2, e2)
+	h := wasm.NewEVMQueryHandler(k)
+	value := sdk.NewInt(5)
+	res, err := h.HandleERC1155BatchTransferPayload(ctx, addr1.String(), addr2.String(), []string{"0", "1", "2"}, []*sdk.Int{&value, &value, &value})
+	require.Nil(t, err)
+	require.NotEmpty(t, res)
+}
+
+func TestERC1155ApproveAllPayload(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	addr1, e1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	h := wasm.NewEVMQueryHandler(k)
+	res, err := h.HandleERC1155SetApprovalAllPayload(ctx, addr1.String(), true)
+	require.Nil(t, err)
+	require.NotEmpty(t, res)
+}
+
+func TestHandleERC1155IsApprovedForAll(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc1155/ERC1155Example.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	addr2, e2 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	k.SetAddressMapping(ctx, addr2, e2)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC1155IsApprovedForAll(ctx, addr1.String(), contractAddr.String(), addr2.String(), addr2.String())
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
+	require.Equal(t, `{"is_approved":false}`, string(res2))
+}
+
+func TestHandleERC1155BalanceOf(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc1155/ERC1155Example.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC1155BalanceOf(ctx, addr1.String(), contractAddr.String(), addr1.String(), "1")
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
+	match, _ := regexp.MatchString(`{"balance":"\d+"}`, string(res2))
+	require.True(t, match)
+}
+
+func TestHandleERC1155BalanceOfBatch(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc1155/ERC1155Example.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC1155BalanceOfBatch(ctx, addr1.String(), contractAddr.String(), []string{addr1.String(), addr1.String()}, []string{"1", "2"})
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
+	match, _ := regexp.MatchString(`{"balances":\["\d+","\d+"\]}`, string(res2))
+	require.True(t, match)
+}
+
+func TestHandleERC1155TotalSupply(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc1155/ERC1155Example.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC1155TotalSupply(ctx, addr1.String(), contractAddr.String())
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
+	require.Equal(t, "{\"supply\":\"150\"}", string(res2))
+}
+
+func TestHandleERC1155TotalSupplyForToken(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc1155/ERC1155Example.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC1155TotalSupplyForToken(ctx, addr1.String(), contractAddr.String(), "4")
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
+	require.Equal(t, "{\"supply\":\"24\"}", string(res2))
+}
+
+func TestHandleERC1155TokenExists(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc1155/ERC1155Example.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC1155TokenExists(ctx, addr1.String(), contractAddr.String(), "4")
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
+	require.Equal(t, "{\"exists\":true}", string(res2))
+	res3, err := h.HandleERC1155TokenExists(ctx, addr1.String(), contractAddr.String(), "10")
+	require.Nil(t, err)
+	require.NotEmpty(t, res3)
+	require.Equal(t, "{\"exists\":false}", string(res3))
+}
+
+func TestHandleERC1155NameSymbol(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc1155/ERC1155Example.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC1155NameSymbol(ctx, addr1.String(), contractAddr.String())
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
+	require.Equal(t, "{\"name\":\"DummyERC1155\",\"symbol\":\"DUMMY\"}", string(res2))
+}
+
+func TestHandleERC1155Uri(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc1155/ERC1155Example.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	res2, err := h.HandleERC1155Uri(ctx, addr1.String(), contractAddr.String(), "1")
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
+	require.Equal(t, "{\"uri\":\"https://example.com/{id}\"}", string(res2))
+}
+
+func TestHandleERC1155RoyaltyInfo(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	privKey := testkeeper.MockPrivateKey()
+	res, _ := deployContract(t, ctx, k, "../../../../example/contracts/erc1155/ERC1155Example.bin", privKey)
+	addr1, e1 := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, addr1, e1)
+	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
+	require.Nil(t, err)
+	contractAddr := common.HexToAddress(receipt.ContractAddress)
+	h := wasm.NewEVMQueryHandler(k)
+	value := sdk.NewInt(100)
+	res2, err := h.HandleERC1155RoyaltyInfo(ctx, addr1.String(), contractAddr.String(), "1", &value)
+	require.Nil(t, err)
+	require.NotEmpty(t, res2)
+	match, _ := regexp.MatchString(`{"receiver":"sei\w{39}","royalty_amount":"5"}`, string(res2))
+	require.True(t, match)
+}
+
 func TestGetAddress(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
@@ -324,7 +527,7 @@ func deployContract(t *testing.T, ctx sdk.Context, k *keeper.Keeper, path string
 	require.Nil(t, err)
 	txData := ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
-		Gas:      2000000,
+		Gas:      4000000,
 		To:       nil,
 		Value:    big.NewInt(0),
 		Data:     bz,

@@ -1,13 +1,10 @@
 package evmrpc_test
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	// ethtypes "github.com/ethereum/go-ethereum/core/types"
-	// "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -202,8 +199,8 @@ func TestFilterSeiGetLogs(t *testing.T) {
 	testFilterGetLogs(t, "sei", []GetFilterLogTests{
 		{
 			name:      "filter by single synthetic address",
-			fromBlock: "0x8",
-			toBlock:   "0x8",
+			fromBlock: "0x64",
+			toBlock:   "0x64",
 			addrs:     []common.Address{common.HexToAddress("0x1111111111111111111111111111111111111116")},
 			wantErr:   false,
 			check: func(t *testing.T, log map[string]interface{}) {
@@ -212,21 +209,18 @@ func TestFilterSeiGetLogs(t *testing.T) {
 			wantLen: 1,
 		},
 		{
-			name:    "filter by single topic with default range, include synethetic logs",
-			topics:  [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234")}},
-			wantErr: false,
+			name:      "filter by single topic, include synethetic logs",
+			topics:    [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234")}},
+			wantErr:   false,
+			fromBlock: "0x64",
+			toBlock:   "0x64",
 			check: func(t *testing.T, log map[string]interface{}) {
 				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000234", log["topics"].([]interface{})[0].(string))
 			},
 			wantLen: 1,
 		},
-	})
-}
-
-func TestFilterEthEndpointCanReturnSyntheticLogs(t *testing.T) {
-	testFilterGetLogs(t, "eth", []GetFilterLogTests{
 		{
-			name:    "filter by single topic with default range, still include synthetic logs",
+			name:    "filter by single topic with default range, include synethetic logs",
 			topics:  [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234")}},
 			wantErr: false,
 			check: func(t *testing.T, log map[string]interface{}) {
@@ -257,7 +251,6 @@ func TestFilterEthEndpointReturnsNormalEvmLogEvenIfSyntheticLogIsInSameBlock(t *
 func testFilterGetLogs(t *testing.T, namespace string, tests []GetFilterLogTests) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fmt.Println(tt.name)
 			filterCriteria := map[string]interface{}{
 				"address": tt.addrs,
 				"topics":  tt.topics,
@@ -302,7 +295,7 @@ func TestFilterGetFilterLogs(t *testing.T) {
 
 	resObj = sendRequest(t, TestPort, "getFilterLogs", filterId)
 	logs := resObj["result"].([]interface{})
-	require.Equal(t, 6, len(logs))
+	require.Equal(t, 4, len(logs))
 	for _, log := range logs {
 		logObj := log.(map[string]interface{})
 		require.Equal(t, "0x2", logObj["blockNumber"].(string))
