@@ -406,11 +406,13 @@ func (f *LogFetcher) GetLogsForBlock(block *coretypes.ResultBlock, crit filters.
 
 func (f *LogFetcher) FindLogsByBloom(block *coretypes.ResultBlock, filters [][]bloomIndexes) (res []*ethtypes.Log) {
 	ctx := f.ctxProvider(LatestCtxHeight)
-
-	for _, hash := range getEvmTxHashesFromBlock(block, f.txConfig) {
+	for _, hash := range getTxHashesFromBlock(block, f.txConfig, f.includeSyntheticReceipts) {
 		receipt, err := f.k.GetReceipt(ctx, hash)
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
+			// ignore the error if receipt is not found when includeSyntheticReceipts is true
+			if !f.includeSyntheticReceipts {
+				ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
+			}
 			continue
 		}
 		if !f.includeSyntheticReceipts && (receipt.TxType == ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
