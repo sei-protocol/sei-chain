@@ -210,7 +210,7 @@ func TestGetProof(t *testing.T) {
 	_, evmAddr := testkeeper.MockAddressPair()
 	key, val := []byte("test"), []byte("abc")
 	testApp.EvmKeeper.SetState(testApp.GetContextForDeliverTx([]byte{}), evmAddr, common.BytesToHash(key), common.BytesToHash(val))
-	for i := 0; i < MockHeight; i++ {
+	for i := 0; i < MockHeight8; i++ {
 		testApp.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: int64(i + 1)})
 		testApp.SetDeliverStateToCommit()
 		_, err := testApp.Commit(context.Background())

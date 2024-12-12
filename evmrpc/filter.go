@@ -360,16 +360,13 @@ func (f *LogFetcher) FindBlockesByBloom(begin, end int64, filters [][]bloomIndex
 
 func (f *LogFetcher) FindLogsByBloom(height int64, filters [][]bloomIndexes) (res []*ethtypes.Log) {
 	ctx := f.ctxProvider(LatestCtxHeight)
-	block, err := blockByNumberWithRetry(context.Background(), f.tmClient, &height, 1)
-	if err != nil {
-		fmt.Printf("error getting block when querying logs: %s\n", err)
-		return
-	}
-
-	for _, hash := range getEvmTxHashesFromBlock(block, f.txConfig) {
+	for _, hash := range getTxHashesFromBlock(block, f.txConfig, f.includeSyntheticReceipts) {
 		receipt, err := f.k.GetReceipt(ctx, hash)
 		if err != nil {
-			ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
+			// ignore the error if receipt is not found when includeSyntheticReceipts is true
+			if !f.includeSyntheticReceipts {
+				ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
+			}
 			continue
 		}
 		if !f.includeSyntheticReceipts && (receipt.TxType == ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
