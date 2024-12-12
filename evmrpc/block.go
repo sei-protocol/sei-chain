@@ -40,7 +40,15 @@ type BlockAPI struct {
 }
 
 func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, connectionType ConnectionType, namespace string) *BlockAPI {
-	return &BlockAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig, connectionType: connectionType, includeShellReceipts: shouldIncludeSynthetic(namespace)}
+	return &BlockAPI{
+		tmClient:             tmClient,
+		keeper:               k,
+		ctxProvider:          ctxProvider,
+		txConfig:             txConfig,
+		connectionType:       connectionType,
+		namespace:            namespace,
+		includeShellReceipts: shouldIncludeSynthetic(namespace),
+	}
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
@@ -150,7 +158,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 
 	// Get all tx hashes for the block
 	height := block.Block.Header.Height
-	txHashes := getEvmTxHashesFromBlock(block, a.txConfig)
+	txHashes := getTxHashesFromBlock(block, a.txConfig, shouldIncludeSynthetic(a.namespace))
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}

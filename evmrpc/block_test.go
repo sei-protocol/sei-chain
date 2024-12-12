@@ -93,7 +93,7 @@ func TestGetBlockReceipts(t *testing.T) {
 
 	resObjSei := sendSeiRequestGood(t, "getBlockReceipts", "0x2")
 	result = resObjSei["result"].([]interface{})
-	require.Equal(t, 4, len(result))
+	require.Equal(t, 6, len(result))
 
 	// Query by block hash
 	resObj2 := sendRequestGood(t, "getBlockReceipts", "0x0000000000000000000000000000000000000000000000000000000000000002")
