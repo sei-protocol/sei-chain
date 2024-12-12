@@ -84,13 +84,13 @@ func TestValidateEnableCtModule(t *testing.T) {
 
 func TestValidateRangeProofGasCost(t *testing.T) {
 	t.Run("valid cost", func(t *testing.T) {
-		cost := uint32(1000000)
+		cost := uint64(1000000)
 		err := validateRangeProofGasCost(cost)
 		assert.Nil(t, err)
 	})
 
 	t.Run("valid but useless gas cost", func(t *testing.T) {
-		flag := uint32(0)
+		flag := uint64(0)
 		err := validateRangeProofGasCost(flag)
 		assert.Nil(t, err)
 	})
