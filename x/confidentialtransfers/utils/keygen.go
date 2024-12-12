@@ -28,7 +28,8 @@ func GetSignedDenom(privateKey *ecdsa.PrivateKey, denom string) ([]byte, error) 
 	}
 
 	// Hash the prefixed message
-	hash := crypto.Keccak256Hash([]byte(denom))
+	prefixedDenom := fmt.Sprintf("ct:%s", denom)
+	hash := crypto.Keccak256Hash([]byte(prefixedDenom))
 
 	// Hex encode the hash
 	hexData := hexutil.Encode(hash.Bytes())
