@@ -63,7 +63,11 @@ func (k *Keeper) GetDynamicBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.BaseFeePerGasPrefix)
 	if bz == nil {
-		return k.GetMinimumFeePerGas(ctx)
+		minFeePerGas := k.GetMinimumFeePerGas(ctx)
+		if minFeePerGas.IsNil() {
+			minFeePerGas = types.DefaultParams().MinimumFeePerGas
+		}
+		return minFeePerGas
 	}
 	d := sdk.Dec{}
 	err := d.UnmarshalJSON(bz)
