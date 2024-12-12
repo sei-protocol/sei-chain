@@ -80,16 +80,16 @@ func TestGetBlockReceipts(t *testing.T) {
 	// Query by block height
 	resObj := sendRequestGood(t, "getBlockReceipts", "0x2")
 	result := resObj["result"].([]interface{})
-	require.Equal(t, 5, len(result))
+	require.Equal(t, 3, len(result))
 	receipt1 := result[0].(map[string]interface{})
 	require.Equal(t, "0x2", receipt1["blockNumber"])
-	require.Equal(t, "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", receipt1["transactionHash"])
+	require.Equal(t, multiTxBlockTx1.Hash().Hex(), receipt1["transactionHash"])
 	receipt2 := result[1].(map[string]interface{})
 	require.Equal(t, "0x2", receipt2["blockNumber"])
-	require.Equal(t, multiTxBlockTx1.Hash().Hex(), receipt2["transactionHash"])
+	require.Equal(t, multiTxBlockTx2.Hash().Hex(), receipt2["transactionHash"])
 	receipt3 := result[2].(map[string]interface{})
 	require.Equal(t, "0x2", receipt3["blockNumber"])
-	require.Equal(t, "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", receipt3["transactionHash"])
+	require.Equal(t, multiTxBlockTx3.Hash().Hex(), receipt3["transactionHash"])
 
 	resObjSei := sendSeiRequestGood(t, "getBlockReceipts", "0x2")
 	result = resObjSei["result"].([]interface{})
@@ -98,21 +98,21 @@ func TestGetBlockReceipts(t *testing.T) {
 	// Query by block hash
 	resObj2 := sendRequestGood(t, "getBlockReceipts", "0x0000000000000000000000000000000000000000000000000000000000000002")
 	result = resObj2["result"].([]interface{})
-	require.Equal(t, 5, len(result))
+	require.Equal(t, 3, len(result))
 	receipt1 = result[0].(map[string]interface{})
 	require.Equal(t, "0x2", receipt1["blockNumber"])
-	require.Equal(t, "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", receipt1["transactionHash"])
+	require.Equal(t, multiTxBlockTx1.Hash().Hex(), receipt1["transactionHash"])
 	receipt2 = result[1].(map[string]interface{})
 	require.Equal(t, "0x2", receipt2["blockNumber"])
-	require.Equal(t, multiTxBlockTx1.Hash().Hex(), receipt2["transactionHash"])
+	require.Equal(t, multiTxBlockTx2.Hash().Hex(), receipt2["transactionHash"])
 	receipt3 = result[2].(map[string]interface{})
 	require.Equal(t, "0x2", receipt3["blockNumber"])
-	require.Equal(t, "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", receipt3["transactionHash"])
+	require.Equal(t, multiTxBlockTx3.Hash().Hex(), receipt3["transactionHash"])
 
 	// Query by tag latest => retrieves block 8
 	resObj3 := sendRequestGood(t, "getBlockReceipts", "latest")
 	result = resObj3["result"].([]interface{})
-	require.Equal(t, 2, len(result))
+	require.Equal(t, 1, len(result))
 	receipt1 = result[0].(map[string]interface{})
 	require.Equal(t, "0x8", receipt1["blockNumber"])
 	require.Equal(t, tx1.Hash().Hex(), receipt1["transactionHash"])
@@ -192,10 +192,10 @@ func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
 	block := &coretypes.ResultBlock{
 		BlockID: MockBlockID,
 		Block: &tmtypes.Block{
-			Header: mockBlockHeader(MockHeight),
+			Header: mockBlockHeader(MockHeight8),
 			Data:   tmtypes.Data{},
 			LastCommit: &tmtypes.Commit{
-				Height: MockHeight - 1,
+				Height: MockHeight8 - 1,
 			},
 		},
 	}
@@ -228,7 +228,7 @@ func TestEncodeBankMsg(t *testing.T) {
 	resBlock := coretypes.ResultBlock{
 		BlockID: MockBlockID,
 		Block: &tmtypes.Block{
-			Header: mockBlockHeader(MockHeight),
+			Header: mockBlockHeader(MockHeight8),
 			Data: tmtypes.Data{
 				Txs: []tmtypes.Tx{func() []byte {
 					bz, _ := Encoder(tx)
@@ -236,7 +236,7 @@ func TestEncodeBankMsg(t *testing.T) {
 				}()},
 			},
 			LastCommit: &tmtypes.Commit{
-				Height: MockHeight - 1,
+				Height: MockHeight8 - 1,
 			},
 		},
 	}
@@ -282,12 +282,12 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 	resBlock := coretypes.ResultBlock{
 		BlockID: MockBlockID,
 		Block: &tmtypes.Block{
-			Header: mockBlockHeader(MockHeight),
+			Header: mockBlockHeader(MockHeight8),
 			Data: tmtypes.Data{
 				Txs: []tmtypes.Tx{bz},
 			},
 			LastCommit: &tmtypes.Commit{
-				Height: MockHeight - 1,
+				Height: MockHeight8 - 1,
 			},
 		},
 	}
@@ -313,7 +313,7 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 	to := common.Address(toSeiAddr)
 	require.Equal(t, &ethapi.RPCTransaction{
 		BlockHash:        &bh,
-		BlockNumber:      (*hexutil.Big)(big.NewInt(MockHeight)),
+		BlockNumber:      (*hexutil.Big)(big.NewInt(MockHeight8)),
 		From:             fromEvmAddr,
 		To:               &to,
 		Input:            []byte{1, 2, 3},

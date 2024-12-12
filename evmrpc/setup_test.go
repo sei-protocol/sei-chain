@@ -47,10 +47,10 @@ const TestPort = 7777
 const TestWSPort = 7778
 const TestBadPort = 7779
 
-const MockHeight = 8
-const MultiTxBlockHeight = 2
-const DebugTraceMockHeight = 101
-const SyntheticBlockHeight = 100
+const MockHeight8 = 8
+const MockHeight2 = 2
+const MockHeight101 = 101
+const MockHeight100 = 100
 
 var DebugTraceHashHex = "0x1234567890123456789023456789012345678901234567890123456789000004"
 var DebugTraceBlockHash = "BE17E0261E539CB7E9A91E123A6D794E0163D656FCF9B8EAC07823F7ED28512B"
@@ -129,7 +129,7 @@ func mockBlockHeader(height int64) tmtypes.Header {
 }
 
 func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
-	if height == MultiTxBlockHeight {
+	if height == MockHeight2 {
 		return &coretypes.ResultBlock{
 			BlockID: MockBlockIDMultiTx,
 			Block: &tmtypes.Block{
@@ -168,7 +168,7 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 			},
 		}
 	}
-	if height == SyntheticBlockHeight {
+	if height == MockHeight100 {
 		return &coretypes.ResultBlock{
 			BlockID: MockBlockID,
 			Block: &tmtypes.Block{
@@ -205,11 +205,11 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 				},
 			},
 			LastCommit: &tmtypes.Commit{
-				Height: MockHeight - 1,
+				Height: MockHeight8 - 1,
 			},
 		},
 	}
-	if height == DebugTraceMockHeight {
+	if height == MockHeight101 {
 		res.Block.Data.Txs = []tmtypes.Tx{
 			func() []byte {
 				bz, _ := Encoder(DebugTraceTx)
@@ -278,7 +278,7 @@ func (c *MockClient) Genesis(context.Context) (*coretypes.ResultGenesis, error) 
 }
 
 func (c *MockClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock, error) {
-	height := int64(MockHeight)
+	height := int64(MockHeight8)
 	if h != nil {
 		height = *h
 	}
@@ -287,12 +287,12 @@ func (c *MockClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock,
 
 func (c *MockClient) BlockByHash(_ context.Context, hash bytes.HexBytes) (*coretypes.ResultBlock, error) {
 	if hash.String() == DebugTraceBlockHash {
-		return c.mockBlock(DebugTraceMockHeight), nil
+		return c.mockBlock(MockHeight101), nil
 	}
 	if hash.String() == MultiTxBlockHash {
-		return c.mockBlock(MultiTxBlockHeight), nil
+		return c.mockBlock(MockHeight2), nil
 	}
-	return c.mockBlock(MockHeight), nil
+	return c.mockBlock(MockHeight8), nil
 }
 
 func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.ResultBlockResults, error) {
@@ -351,7 +351,7 @@ func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*c
 				panic("invalid cursor")
 			}
 		} else {
-			cursor = MockHeight
+			cursor = MockHeight8
 		}
 		resultBlock := c.mockBlock(int64(cursor))
 		data := tmtypes.EventDataNewBlock{
@@ -397,7 +397,7 @@ func (c *MockClient) BroadcastTx(context.Context, tmtypes.Tx) (*coretypes.Result
 }
 
 func (c *MockClient) Tx(context.Context, bytes.HexBytes, bool) (*coretypes.ResultTx, error) {
-	return &coretypes.ResultTx{Hash: bytes.HexBytes(TestCosmosTxHash), Height: MockHeight, TxResult: abci.ExecTxResult{EvmTxInfo: &abci.EvmTxInfo{TxHash: TestEvmTxHash}}}, nil
+	return &coretypes.ResultTx{Hash: bytes.HexBytes(TestCosmosTxHash), Height: MockHeight8, TxResult: abci.ExecTxResult{EvmTxInfo: &abci.EvmTxInfo{TxHash: TestEvmTxHash}}}, nil
 }
 
 func (c *MockClient) UnconfirmedTxs(ctx context.Context, page, perPage *int) (*coretypes.ResultUnconfirmedTxs, error) {
@@ -459,7 +459,7 @@ func init() {
 	}
 	testApp.Commit(context.Background())
 	ctxProvider := func(height int64) sdk.Context {
-		if height == MultiTxBlockHeight {
+		if height == MockHeight2 {
 			return MultiTxCtx
 		}
 		return Ctx
@@ -597,12 +597,12 @@ func generateTxData() {
 		From:              "0x1234567890123456789012345678901234567890",
 		To:                "0x1234567890123456789012345678901234567890",
 		TransactionIndex:  0,
-		BlockNumber:       MockHeight,
+		BlockNumber:       MockHeight8,
 		TxType:            1,
 		ContractAddress:   "0x1234567890123456789012345678901234567890",
-		CumulativeGasUsed: 123,
+		CumulativeGasUsed: 124,
 		TxHashHex:         tx1.Hash().Hex(),
-		GasUsed:           55,
+		GasUsed:           56,
 		Status:            0,
 		EffectiveGasPrice: 100000000000,
 		Logs: []*types.Log{{
@@ -700,9 +700,9 @@ func setupLogs() {
 			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
 		},
 	}}}})
-	CtxMultiTx := Ctx.WithBlockHeight(MultiTxBlockHeight)
+	CtxMultiTx := Ctx.WithBlockHeight(MockHeight2)
 	EVMKeeper.MockReceipt(CtxMultiTx, multiTxBlockTx1.Hash(), &types.Receipt{
-		BlockNumber:      MultiTxBlockHeight,
+		BlockNumber:      MockHeight2,
 		TransactionIndex: 1, // start at 1 bc 0 is the non-evm tx
 		TxHashHex:        multiTxBlockTx1.Hash().Hex(),
 		LogsBloom:        bloom1[:],
@@ -723,7 +723,7 @@ func setupLogs() {
 		},
 	}}}})
 	EVMKeeper.MockReceipt(CtxMultiTx, multiTxBlockTx2.Hash(), &types.Receipt{
-		BlockNumber:      MultiTxBlockHeight,
+		BlockNumber:      MockHeight2,
 		TransactionIndex: 3,
 		TxHashHex:        multiTxBlockTx2.Hash().Hex(),
 		LogsBloom:        bloom2[:],
@@ -741,7 +741,7 @@ func setupLogs() {
 		},
 	}}}})
 	EVMKeeper.MockReceipt(CtxMultiTx, multiTxBlockTx3.Hash(), &types.Receipt{
-		BlockNumber:      MultiTxBlockHeight,
+		BlockNumber:      MockHeight2,
 		TransactionIndex: 4,
 		TxHashHex:        multiTxBlockTx3.Hash().Hex(),
 		LogsBloom:        bloom3[:],
@@ -758,9 +758,9 @@ func setupLogs() {
 			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
 		},
 	}}}})
-	CtxMock := Ctx.WithBlockHeight(MockHeight)
+	CtxMock := Ctx.WithBlockHeight(MockHeight8)
 	EVMKeeper.MockReceipt(CtxMock, multiTxBlockTx4.Hash(), &types.Receipt{
-		BlockNumber:      MockHeight,
+		BlockNumber:      MockHeight8,
 		TransactionIndex: 1,
 		TxHashHex:        multiTxBlockTx4.Hash().Hex(),
 		LogsBloom:        bloom4[:],
@@ -780,7 +780,7 @@ func setupLogs() {
 	}}}})
 	EVMKeeper.MockReceipt(CtxMock, multiTxBlockSynthTx.Hash(), &types.Receipt{
 		TxType:           evmrpc.ShellEVMTxType,
-		BlockNumber:      MockHeight,
+		BlockNumber:      MockHeight100,
 		TransactionIndex: 0,
 		TxHashHex:        multiTxBlockSynthTx.Hash().Hex(),
 		LogsBloom:        bloomSynth[:],
@@ -791,16 +791,16 @@ func setupLogs() {
 		}},
 		EffectiveGasPrice: 0,
 	})
-	CtxDebugTrace := Ctx.WithBlockHeight(DebugTraceMockHeight)
+	CtxDebugTrace := Ctx.WithBlockHeight(MockHeight101)
 	EVMKeeper.MockReceipt(CtxDebugTrace, common.HexToHash(DebugTraceHashHex), &types.Receipt{
-		BlockNumber:      DebugTraceMockHeight,
+		BlockNumber:      MockHeight101,
 		TransactionIndex: 0,
 		TxHashHex:        DebugTraceHashHex,
 	})
 	txNonEvmBz, _ := Encoder(TxNonEvmWithSyntheticLog)
 	txNonEvmHash := sha256.Sum256(txNonEvmBz)
 	EVMKeeper.MockReceipt(CtxMultiTx, txNonEvmHash, &types.Receipt{
-		BlockNumber:      MultiTxBlockHeight,
+		BlockNumber:      MockHeight2,
 		TransactionIndex: 1,
 		TxHashHex:        common.Hash(txNonEvmHash).Hex(),
 		LogsBloom:        bloomSynth[:],
@@ -812,16 +812,16 @@ func setupLogs() {
 		EffectiveGasPrice: 100,
 	})
 
-	// block 8
-	EVMKeeper.SetTxHashesOnHeight(Ctx, MultiTxBlockHeight, []common.Hash{
+	// block 2
+	EVMKeeper.SetTxHashesOnHeight(Ctx, MockHeight2, []common.Hash{
 		multiTxBlockTx1.Hash(),
 		multiTxBlockTx2.Hash(),
 		multiTxBlockTx3.Hash(),
 	})
 	EVMKeeper.SetBlockBloom(MultiTxCtx, []ethtypes.Bloom{bloom1, bloom2, bloom3})
 
-	// block 2
-	EVMKeeper.SetTxHashesOnHeight(Ctx, MockHeight, []common.Hash{
+	// block 8
+	EVMKeeper.SetTxHashesOnHeight(Ctx, MockHeight8, []common.Hash{
 		multiTxBlockSynthTx.Hash(),
 		multiTxBlockTx4.Hash(),
 	})
