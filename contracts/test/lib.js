@@ -89,18 +89,18 @@ async function fundAddress(addr, amount="1000000000000000000000") {
 }
 
 async function evmSend(addr, fromKey, amount="10000000000000000000000000") {
-    const output = await execute(`seid tx evm send ${addr} ${amount} --from ${fromKey} --fees 200000usei -b block -y`);
+    const output = await execute(`seid tx evm send ${addr} ${amount} --from ${fromKey} -b block -y`);
     return output.replace(/.*0x/, "0x").trim()
 }
 
 async function bankSend(toAddr, fromKey, amount="100000000000", denom="usei") {
-    const result = await execute(`seid tx bank send ${fromKey} ${toAddr} ${amount}${denom} -b block --fees 200000usei -y`);
+    const result = await execute(`seid tx bank send ${fromKey} ${toAddr} ${amount}${denom} -b block --fees 20000usei -y`);
     await delay()
     return result
 }
 
 async function fundSeiAddress(seiAddr, amount="100000000000", denom="usei", funder=adminKeyName) {
-    return await execute(`seid tx bank send ${funder} ${seiAddr} ${amount}${denom} -b block --fees 200000usei -y`);
+    return await execute(`seid tx bank send ${funder} ${seiAddr} ${amount}${denom} -b block --fees 20000usei -y`);
 }
 
 async function getSeiBalance(seiAddr, denom="usei") {
