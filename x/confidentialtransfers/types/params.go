@@ -10,7 +10,7 @@ import (
 const DefaultEnableCtModule = true
 
 // DefaultRangeProofGasCost is the default value for RangeProofGasCost param.
-const DefaultRangeProofGasCost = uint32(1000000)
+const DefaultRangeProofGasCost = uint64(1000000)
 
 // ParamKeyTable ParamTable for confidential transfers module.
 func ParamKeyTable() paramtypes.KeyTable {
@@ -57,7 +57,7 @@ func validateEnableCtModule(i interface{}) error {
 
 // Validator for the parameter.
 func validateRangeProofGasCost(i interface{}) error {
-	_, ok := i.(uint32)
+	_, ok := i.(uint64)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}

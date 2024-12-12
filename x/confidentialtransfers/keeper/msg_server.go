@@ -224,7 +224,7 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 	// Consume additional gas as range proofs are computationally expensive.
 	cost := m.Keeper.GetRangeProofGasCost(ctx)
 	if cost > 0 {
-		ctx.GasMeter().ConsumeGas(uint64(cost), "range proof verification")
+		ctx.GasMeter().ConsumeGas(cost, "range proof verification")
 	}
 
 	verified, _ := zkproofs.VerifyRangeProof(instruction.Proofs.RemainingBalanceRangeProof, instruction.RemainingBalanceCommitment, 128, m.CachedRangeVerifierFactory)
@@ -443,7 +443,7 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	}
 
 	// Validate proofs
-	rangeProofGasCost := uint64(m.Keeper.GetRangeProofGasCost(ctx))
+	rangeProofGasCost := m.Keeper.GetRangeProofGasCost(ctx)
 
 	// Consume additional gas as range proofs are computationally expensive.
 	if rangeProofGasCost > 0 {

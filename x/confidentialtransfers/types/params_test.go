@@ -34,7 +34,7 @@ func TestDefaultParams(t *testing.T) {
 func TestParams_Validate(t *testing.T) {
 	type fields struct {
 		EnableCtModule    bool
-		RangeProofGasCost uint32
+		RangeProofGasCost uint64
 	}
 	tests := []struct {
 		name    string
