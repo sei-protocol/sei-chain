@@ -1580,3 +1580,56 @@ func getMsgInitializeAccount() *MsgInitializeAccount {
 		Proofs:             proofsProto,
 	}
 }
+
+func TestMsgInitializeAccount_Decrypt(t *testing.T) {
+	type fields struct {
+		msg *MsgInitializeAccount
+	}
+	type args struct {
+		decryptor               *elgamal.TwistedElGamal
+		privKey                 ecdsa.PrivateKey
+		decryptAvailableBalance bool
+	}
+	tests := []struct {
+		name       string
+		fields     fields
+		args       args
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "nil decryptor",
+			fields: fields{
+				msg: getMsgInitializeAccount(),
+			},
+			args: args{
+				decryptor: nil,
+			},
+			wantErr:    true,
+			wantErrMsg: "decryptor is required: invalid request",
+		},
+		{
+			name: "invalid message",
+			fields: fields{
+				msg: &MsgInitializeAccount{},
+			},
+			args: args{
+				decryptor: elgamal.NewTwistedElgamal(),
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid sender address (empty address string is not allowed): invalid address",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.fields.msg.Decrypt(tt.args.decryptor, tt.args.privKey, tt.args.decryptAvailableBalance)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Equal(t, tt.wantErrMsg, err.Error())
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, got)
+			}
+		})
+	}
+}
