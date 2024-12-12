@@ -1633,3 +1633,125 @@ func TestMsgInitializeAccount_Decrypt(t *testing.T) {
 		})
 	}
 }
+
+func TestMsgApplyPendingBalance_FromProto(t *testing.T) {
+	tests := []struct {
+		name       string
+		setUp      func(msg *MsgApplyPendingBalance) *MsgApplyPendingBalance
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name:    "fromProto returns if message is valid",
+			wantErr: false,
+		},
+		{
+			name: "ValidateBasic fails",
+			setUp: func(msg *MsgApplyPendingBalance) *MsgApplyPendingBalance {
+				msg.Address = ""
+				return msg
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid address (empty address string is not allowed): invalid address",
+		},
+		{
+			name: "invalid CurrentAvailableBalance",
+			setUp: func(msg *MsgApplyPendingBalance) *MsgApplyPendingBalance {
+				msg.CurrentAvailableBalance = &Ciphertext{}
+				return msg
+			},
+			wantErr:    true,
+			wantErrMsg: "edwards25519: invalid point encoding length",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := getMsgApplyPendingBalance()
+			if tt.setUp != nil {
+				m = tt.setUp(m)
+			}
+			_, err := m.FromProto()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Equal(t, tt.wantErrMsg, err.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func getMsgApplyPendingBalance() *MsgApplyPendingBalance {
+	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+	sourcePrivateKey, _ := encryption.GenerateKey()
+	eg := elgamal.NewTwistedElgamal()
+	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
+	aesPK, _ := encryption.GetAESKey(*sourcePrivateKey, testDenom)
+	balance := big.NewInt(100)
+
+	decryptableBalance, _ := encryption.EncryptAESGCM(balance, aesPK)
+	encryptedBalance, _, _ := eg.Encrypt(sourceKeypair.PublicKey, balance)
+
+	address1 := sdk.AccAddress("address1")
+
+	encryptedProto := NewCiphertextProto(encryptedBalance)
+	return &MsgApplyPendingBalance{
+		Address:                        address1.String(),
+		Denom:                          testDenom,
+		NewDecryptableAvailableBalance: decryptableBalance,
+		CurrentPendingBalanceCounter:   2,
+		CurrentAvailableBalance:        encryptedProto,
+	}
+}
+
+func TestMsgApplyPendingBalance_Decrypt(t *testing.T) {
+	type fields struct {
+		msg *MsgApplyPendingBalance
+	}
+	type args struct {
+		decryptor               *elgamal.TwistedElGamal
+		privKey                 ecdsa.PrivateKey
+		decryptAvailableBalance bool
+	}
+	tests := []struct {
+		name       string
+		fields     fields
+		args       args
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "nil decryptor",
+			fields: fields{
+				msg: getMsgApplyPendingBalance(),
+			},
+			args: args{
+				decryptor: nil,
+			},
+			wantErr:    true,
+			wantErrMsg: "decryptor is required: invalid request",
+		},
+		{
+			name: "invalid message",
+			fields: fields{
+				msg: &MsgApplyPendingBalance{},
+			},
+			args: args{
+				decryptor: elgamal.NewTwistedElgamal(),
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid address (empty address string is not allowed): invalid address",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.fields.msg.Decrypt(tt.args.decryptor, tt.args.privKey, tt.args.decryptAvailableBalance)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Equal(t, tt.wantErrMsg, err.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
