@@ -410,8 +410,9 @@ func (f *LogFetcher) FindLogsByBloom(block *coretypes.ResultBlock, filters [][]b
 		receipt, err := f.k.GetReceipt(ctx, hash)
 		if err != nil {
 			// ignore the error if receipt is not found when includeSyntheticReceipts is true
-			// since it's expected receipt are not found for most cosmos txs
-			ctx.Logger().Debug(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
+			if !f.includeSyntheticReceipts {
+				ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
+			}
 			continue
 		}
 		if !f.includeSyntheticReceipts && (receipt.TxType == ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
