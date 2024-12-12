@@ -219,6 +219,15 @@ func TestFilterSeiGetLogs(t *testing.T) {
 			},
 			wantLen: 1,
 		},
+		{
+			name:    "filter by single topic with default range, include synethetic logs",
+			topics:  [][]common.Hash{{common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234")}},
+			wantErr: false,
+			check: func(t *testing.T, log map[string]interface{}) {
+				require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000234", log["topics"].([]interface{})[0].(string))
+			},
+			wantLen: 1,
+		},
 	})
 }
 
