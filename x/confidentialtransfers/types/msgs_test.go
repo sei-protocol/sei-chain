@@ -264,6 +264,7 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		&auditorKeypair.PublicKey,
 		result.SenderTransferAmountHi,
 		result.Auditors[0].EncryptedTransferAmountHi))
+
 }
 
 func TestMsgTransfer_ValidateBasic(t *testing.T) {
@@ -1156,4 +1157,246 @@ func TestMsgInitializeAccount_ValidateBasic1(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMsgTransfer_FromProtoInvalidInputs(t *testing.T) {
+	type fields struct {
+		f func(m *MsgTransfer) *MsgTransfer
+	}
+	tests := []struct {
+		name       string
+		fields     fields
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "invalid FromAmountLo",
+			fields: fields{
+				f: func(m *MsgTransfer) *MsgTransfer {
+					m.FromAmountLo = &Ciphertext{}
+					return m
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "edwards25519: invalid point encoding length",
+		},
+		{
+			name: "invalid FromAmountHi",
+			fields: fields{
+				f: func(m *MsgTransfer) *MsgTransfer {
+					m.FromAmountHi = &Ciphertext{}
+					return m
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "edwards25519: invalid point encoding length",
+		},
+		{
+			name: "invalid ToAmountLo",
+			fields: fields{
+				f: func(m *MsgTransfer) *MsgTransfer {
+					m.ToAmountLo = &Ciphertext{}
+					return m
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "edwards25519: invalid point encoding length",
+		},
+		{
+			name: "invalid ToAmountHi",
+			fields: fields{
+				f: func(m *MsgTransfer) *MsgTransfer {
+					m.ToAmountHi = &Ciphertext{}
+					return m
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "edwards25519: invalid point encoding length",
+		},
+		{
+			name: "invalid RemainingBalance",
+			fields: fields{
+				f: func(m *MsgTransfer) *MsgTransfer {
+					m.RemainingBalance = &Ciphertext{}
+					return m
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "edwards25519: invalid point encoding length",
+		},
+		{
+			name: "invalid Proofs",
+			fields: fields{
+				f: func(m *MsgTransfer) *MsgTransfer {
+					m.Proofs.RemainingBalanceCommitmentValidityProof = &CiphertextValidityProof{}
+					return m
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "ciphertext validity proof is invalid: invalid request",
+		},
+		{
+			name: "invalid Auditor Proofs",
+			fields: fields{
+				f: func(m *MsgTransfer) *MsgTransfer {
+					m.Auditors[0].TransferAmountHiValidityProof = &CiphertextValidityProof{}
+					return m
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "ciphertext validity proof is invalid: invalid request",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := getValidTransferMsg()
+			if tt.fields.f != nil {
+				m = tt.fields.f(m)
+			}
+			got, err := m.FromProto()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Equal(t, tt.wantErrMsg, err.Error())
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, got)
+			}
+		})
+	}
+}
+
+func getValidTransferMsg() *MsgTransfer {
+	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+	sourcePrivateKey, _ := encryption.GenerateKey()
+	destPrivateKey, _ := encryption.GenerateKey()
+	auditorPrivateKey, _ := encryption.GenerateKey()
+	eg := elgamal.NewTwistedElgamal()
+	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
+	destinationKeypair, _ := eg.KeyGen(*destPrivateKey, testDenom)
+	auditorKeypair, _ := eg.KeyGen(*auditorPrivateKey, testDenom)
+	aesPK, _ := encryption.GetAESKey(*sourcePrivateKey, testDenom)
+
+	amountLo := big.NewInt(100)
+	amountHi := big.NewInt(0)
+
+	remainingBalance := big.NewInt(200)
+
+	decryptableBalance, _ := encryption.EncryptAESGCM(remainingBalance, aesPK)
+
+	// Encrypt the amount using source and destination public keys
+	sourceCiphertextAmountLo, sourceCiphertextAmountLoR, _ := eg.Encrypt(sourceKeypair.PublicKey, amountLo)
+	sourceCiphertextAmountLoValidityProof, _ :=
+		zkproofs.NewCiphertextValidityProof(&sourceCiphertextAmountLoR, sourceKeypair.PublicKey, sourceCiphertextAmountLo, amountLo)
+	sourceCiphertextAmountHi, sourceCiphertextAmountHiR, _ := eg.Encrypt(sourceKeypair.PublicKey, amountHi)
+	sourceCiphertextAmountHiValidityProof, _ :=
+		zkproofs.NewCiphertextValidityProof(&sourceCiphertextAmountHiR, sourceKeypair.PublicKey, sourceCiphertextAmountHi, amountHi)
+
+	fromAmountLo := NewCiphertextProto(sourceCiphertextAmountLo)
+	fromAmountHi := NewCiphertextProto(sourceCiphertextAmountHi)
+
+	destinationCipherAmountLo, destinationCipherAmountLoR, _ := eg.Encrypt(destinationKeypair.PublicKey, amountLo)
+	destinationCipherAmountLoValidityProof, _ :=
+		zkproofs.NewCiphertextValidityProof(&destinationCipherAmountLoR, destinationKeypair.PublicKey, destinationCipherAmountLo, amountLo)
+	destinationCipherAmountHi, destinationCipherAmountHiR, _ := eg.Encrypt(destinationKeypair.PublicKey, amountHi)
+	destinationCipherAmountHiValidityProof, _ :=
+		zkproofs.NewCiphertextValidityProof(&destinationCipherAmountHiR, destinationKeypair.PublicKey, destinationCipherAmountHi, amountHi)
+
+	destinationAmountLo := NewCiphertextProto(destinationCipherAmountLo)
+	destinationAmountHi := NewCiphertextProto(destinationCipherAmountHi)
+
+	remainingBalanceCiphertext, remainingBalanceRandomness, _ := eg.Encrypt(sourceKeypair.PublicKey, remainingBalance)
+	remainingBalanceProto := NewCiphertextProto(remainingBalanceCiphertext)
+
+	remainingBalanceCommitmentValidityProof, _ := zkproofs.NewCiphertextValidityProof(&remainingBalanceRandomness, sourceKeypair.PublicKey, remainingBalanceCiphertext, remainingBalance)
+
+	remainingBalanceRangeProof, _ := zkproofs.NewRangeProof(128, remainingBalance, remainingBalanceRandomness)
+
+	ed25519Curve := curves.ED25519()
+
+	scalarAmount, _ := ed25519Curve.Scalar.SetBigInt(remainingBalance)
+	remainingBalanceEqualityProof, _ := zkproofs.NewCiphertextCommitmentEqualityProof(
+		sourceKeypair, remainingBalanceCiphertext, &remainingBalanceRandomness, &scalarAmount)
+
+	scalarAmountLo, _ := ed25519Curve.Scalar.SetBigInt(amountLo)
+
+	transferAmountLoEqualityProof, _ := zkproofs.NewCiphertextCiphertextEqualityProof(
+		sourceKeypair,
+		&destinationKeypair.PublicKey,
+		sourceCiphertextAmountLo,
+		&destinationCipherAmountLoR,
+		&scalarAmountLo)
+
+	scalarAmountHi, _ := ed25519Curve.Scalar.SetBigInt(amountHi)
+
+	transferAmountHiEqualityProof, _ := zkproofs.NewCiphertextCiphertextEqualityProof(
+		sourceKeypair,
+		&destinationKeypair.PublicKey,
+		sourceCiphertextAmountHi,
+		&destinationCipherAmountHiR,
+		&scalarAmountHi)
+
+	proofs := &TransferProofs{
+		RemainingBalanceCommitmentValidityProof: remainingBalanceCommitmentValidityProof,
+		SenderTransferAmountLoValidityProof:     sourceCiphertextAmountLoValidityProof,
+		SenderTransferAmountHiValidityProof:     sourceCiphertextAmountHiValidityProof,
+		RecipientTransferAmountLoValidityProof:  destinationCipherAmountLoValidityProof,
+		RecipientTransferAmountHiValidityProof:  destinationCipherAmountHiValidityProof,
+		RemainingBalanceRangeProof:              remainingBalanceRangeProof,
+		RemainingBalanceEqualityProof:           remainingBalanceEqualityProof,
+		TransferAmountLoEqualityProof:           transferAmountLoEqualityProof,
+		TransferAmountHiEqualityProof:           transferAmountHiEqualityProof,
+	}
+
+	proofsProto := NewTransferMsgProofs(proofs)
+	address1 := sdk.AccAddress("address1")
+	address2 := sdk.AccAddress("address2")
+	auditorAddress := sdk.AccAddress("auditor")
+
+	// Auditor data
+	auditorCipherAmountLo, auditorCipherAmountLoR, _ := eg.Encrypt(auditorKeypair.PublicKey, amountLo)
+	auditorCipherAmountLoValidityProof, _ :=
+		zkproofs.NewCiphertextValidityProof(&auditorCipherAmountLoR, auditorKeypair.PublicKey, auditorCipherAmountLo, amountLo)
+	auditorCipherAmountHi, auditorCipherAmountHiR, _ := eg.Encrypt(auditorKeypair.PublicKey, amountHi)
+	auditorCipherAmountHiValidityProof, _ :=
+		zkproofs.NewCiphertextValidityProof(&auditorCipherAmountHiR, auditorKeypair.PublicKey, auditorCipherAmountHi, amountHi)
+
+	auditorTransferAmountLoEqualityProof, _ := zkproofs.NewCiphertextCiphertextEqualityProof(
+		sourceKeypair,
+		&auditorKeypair.PublicKey,
+		sourceCiphertextAmountLo,
+		&auditorCipherAmountLoR,
+		&scalarAmountLo)
+
+	auditorTransferAmountHiEqualityProof, _ := zkproofs.NewCiphertextCiphertextEqualityProof(
+		sourceKeypair,
+		&auditorKeypair.PublicKey,
+		sourceCiphertextAmountHi,
+		&auditorCipherAmountHiR,
+		&scalarAmountHi)
+
+	transferAuditor := &TransferAuditor{
+		Address:                       auditorAddress.String(),
+		EncryptedTransferAmountLo:     auditorCipherAmountLo,
+		EncryptedTransferAmountHi:     auditorCipherAmountHi,
+		TransferAmountLoValidityProof: auditorCipherAmountLoValidityProof,
+		TransferAmountHiValidityProof: auditorCipherAmountHiValidityProof,
+		TransferAmountLoEqualityProof: auditorTransferAmountLoEqualityProof,
+		TransferAmountHiEqualityProof: auditorTransferAmountHiEqualityProof,
+	}
+	auditorProto := NewAuditorProto(transferAuditor)
+
+	return &MsgTransfer{
+		FromAddress:        address1.String(),
+		ToAddress:          address2.String(),
+		Denom:              testDenom,
+		FromAmountLo:       fromAmountLo,
+		FromAmountHi:       fromAmountHi,
+		ToAmountLo:         destinationAmountLo,
+		ToAmountHi:         destinationAmountHi,
+		RemainingBalance:   remainingBalanceProto,
+		DecryptableBalance: decryptableBalance,
+		Proofs:             proofsProto,
+		Auditors:           []*Auditor{auditorProto},
+	}
+
 }
