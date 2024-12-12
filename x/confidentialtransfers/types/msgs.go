@@ -312,7 +312,7 @@ func (m *MsgInitializeAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKe
 	return initialize.Decrypt(decryptor, privKey, decryptAvailableBalance)
 }
 
-// convert the InitializeAccount to MsgInitializeAccount
+// NewMsgInitializeAccountProto converts the InitializeAccount to MsgInitializeAccount
 func NewMsgInitializeAccountProto(initializeAccount *InitializeAccount) *MsgInitializeAccount {
 	pubkeyRaw := *initializeAccount.Pubkey
 	pubkey := pubkeyRaw.ToAffineCompressed()

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"crypto/ecdsa"
 	crand "crypto/rand"
 	"math/big"
 	"testing"
@@ -1170,6 +1171,17 @@ func TestMsgTransfer_FromProtoInvalidInputs(t *testing.T) {
 		wantErrMsg string
 	}{
 		{
+			name: "ValidateBasic fails",
+			fields: fields{
+				f: func(m *MsgTransfer) *MsgTransfer {
+					m = &MsgTransfer{}
+					return m
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid sender address (empty address string is not allowed): invalid address",
+		},
+		{
 			name: "invalid FromAmountLo",
 			fields: fields{
 				f: func(m *MsgTransfer) *MsgTransfer {
@@ -1399,4 +1411,50 @@ func getValidTransferMsg() *MsgTransfer {
 		Auditors:           []*Auditor{auditorProto},
 	}
 
+}
+
+func TestMsgTransfer_Decrypt(t *testing.T) {
+	type args struct {
+		decryptor               *elgamal.TwistedElGamal
+		privKey                 ecdsa.PrivateKey
+		decryptAvailableBalance bool
+		address                 string
+		msg                     *MsgTransfer
+	}
+	tests := []struct {
+		name       string
+		args       args
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name: "nil decryptor",
+			args: args{
+				decryptor: nil,
+				msg:       getValidTransferMsg(),
+			},
+			wantErr:    true,
+			wantErrMsg: "decryptor is required: invalid request",
+		},
+		{
+			name: "invalid transfer message",
+			args: args{
+				decryptor: elgamal.NewTwistedElgamal(),
+				msg:       &MsgTransfer{},
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid sender address (empty address string is not allowed): invalid address",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.args.msg.Decrypt(tt.args.decryptor, tt.args.privKey, tt.args.decryptAvailableBalance, tt.args.address)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Equal(t, tt.wantErrMsg, err.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
