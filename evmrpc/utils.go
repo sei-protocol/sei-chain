@@ -207,7 +207,7 @@ func shouldIncludeSynthetic(namespace string) bool {
 	return namespace == "sei"
 }
 
-func getEvmTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig) []common.Hash {
+func getTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig, shouldIncludeSynthetic bool) []common.Hash {
 	txHashes := []common.Hash{}
 	for i, tx := range block.Block.Data.Txs {
 		sdkTx, err := txConfig.TxDecoder()(tx)
@@ -215,18 +215,18 @@ func getEvmTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxCon
 			fmt.Printf("error decoding tx %d in block %d, skipping\n", i, block.Block.Height)
 			continue
 		}
-		if len(sdkTx.GetMsgs()) == 0 {
-			txHashes = append(txHashes, sha256.Sum256(tx))
-			continue
-		}
-		if evmTx, ok := sdkTx.GetMsgs()[0].(*types.MsgEVMTransaction); ok {
-			if evmTx.IsAssociateTx() {
-				continue
+		if len(sdkTx.GetMsgs()) > 0 {
+			if evmTx, ok := sdkTx.GetMsgs()[0].(*types.MsgEVMTransaction); ok {
+				if evmTx.IsAssociateTx() {
+					continue
+				}
+				ethtx, _ := evmTx.AsTransaction()
+				txHashes = append(txHashes, ethtx.Hash())
 			}
-			ethtx, _ := evmTx.AsTransaction()
-			txHashes = append(txHashes, ethtx.Hash())
 		}
-		txHashes = append(txHashes, sha256.Sum256(tx))
+		if shouldIncludeSynthetic {
+			txHashes = append(txHashes, sha256.Sum256(tx))
+		}
 	}
 	return txHashes
 }
