@@ -1992,3 +1992,53 @@ func TestMsgWithdraw_Decrypt(t *testing.T) {
 		})
 	}
 }
+
+func TestMsgTransfer_Route(t *testing.T) {
+	msg := &MsgTransfer{}
+	require.Equal(t, "confidentialtransfers", msg.Route())
+}
+
+func TestMsgTransfer_Type(t *testing.T) {
+	msg := &MsgTransfer{}
+	require.Equal(t, "transfer", msg.Type())
+}
+
+func TestNewMsgInitializeAccount_Route(t *testing.T) {
+	msg := &MsgInitializeAccount{}
+	require.Equal(t, "confidentialtransfers", msg.Route())
+}
+
+func TestNewMsgInitializeAccount_Type(t *testing.T) {
+	msg := &MsgInitializeAccount{}
+	require.Equal(t, "initialize_account", msg.Type())
+}
+
+func TestNewMsgApplyPendingBalance_Route(t *testing.T) {
+	msg := &MsgApplyPendingBalance{}
+	require.Equal(t, "confidentialtransfers", msg.Route())
+}
+
+func TestNewMsgApplyPendingBalance_Type(t *testing.T) {
+	msg := &MsgApplyPendingBalance{}
+	require.Equal(t, "apply_pending_balance", msg.Type())
+}
+
+func TestNewMsgCloseAccount_Route(t *testing.T) {
+	msg := &MsgCloseAccount{}
+	require.Equal(t, "confidentialtransfers", msg.Route())
+}
+
+func TestNewMsgCloseAccount_Type(t *testing.T) {
+	msg := &MsgCloseAccount{}
+	require.Equal(t, "close_account", msg.Type())
+}
+
+func TestNewMsgWithdraw_Route(t *testing.T) {
+	msg := &MsgWithdraw{}
+	require.Equal(t, "confidentialtransfers", msg.Route())
+}
+
+func TestNewMsgWithdraw_Type(t *testing.T) {
+	msg := &MsgWithdraw{}
+	require.Equal(t, "withdraw", msg.Type())
+}
