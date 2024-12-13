@@ -1755,3 +1755,240 @@ func TestMsgApplyPendingBalance_Decrypt(t *testing.T) {
 		})
 	}
 }
+
+func TestMsgCloseAccount_FromProtoInvalidInputs(t *testing.T) {
+	tests := []struct {
+		name       string
+		setUp      func(msg *MsgCloseAccount) *MsgCloseAccount
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name:    "fromProto returns if message is valid",
+			wantErr: false,
+		},
+		{
+			name: "ValidateBasic fails",
+			setUp: func(msg *MsgCloseAccount) *MsgCloseAccount {
+				msg.Address = ""
+				return msg
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid address (empty address string is not allowed): invalid address",
+		},
+		{
+			name: "invalid CloseAccountMsgProofs",
+			setUp: func(msg *MsgCloseAccount) *MsgCloseAccount {
+				msg.Proofs.ZeroAvailableBalanceProof = &ZeroBalanceProof{}
+				return msg
+			},
+			wantErr:    true,
+			wantErrMsg: "zero proof is invalid: invalid request",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := getMsgCloseAccount()
+			if tt.setUp != nil {
+				m = tt.setUp(m)
+			}
+			_, err := m.FromProto()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.wantErrMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func getMsgCloseAccount() *MsgCloseAccount {
+	address := sdk.AccAddress("address1")
+	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+	privateKey, _ := encryption.GenerateKey()
+	zeroBigInt := big.NewInt(0)
+	eg := elgamal.NewTwistedElgamal()
+	keypair, _ := eg.KeyGen(*privateKey, testDenom)
+	availableBalanceCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, zeroBigInt)
+	pendingBalanceLoCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, zeroBigInt)
+	pendingBalanceHiCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, zeroBigInt)
+
+	availableBalanceProof, _ := zkproofs.NewZeroBalanceProof(keypair, availableBalanceCiphertext)
+	pendingBalanceProofLo, _ := zkproofs.NewZeroBalanceProof(keypair, pendingBalanceLoCiphertext)
+	pendingBalanceProofHi, _ := zkproofs.NewZeroBalanceProof(keypair, pendingBalanceHiCiphertext)
+
+	closeAccountProofs := &CloseAccountProofs{
+		ZeroAvailableBalanceProof: availableBalanceProof,
+		ZeroPendingBalanceLoProof: pendingBalanceProofLo,
+		ZeroPendingBalanceHiProof: pendingBalanceProofHi,
+	}
+
+	proof := NewCloseAccountMsgProofs(closeAccountProofs)
+
+	return &MsgCloseAccount{
+		Address: address.String(),
+		Denom:   testDenom,
+		Proofs:  proof,
+	}
+}
+
+func TestMsgWithdraw_FromProtoInvalidInputs(t *testing.T) {
+	tests := []struct {
+		name       string
+		setUp      func(msg *MsgWithdraw) *MsgWithdraw
+		wantErr    bool
+		wantErrMsg string
+	}{
+		{
+			name:    "fromProto returns if message is valid",
+			wantErr: false,
+		},
+		{
+			name: "ValidateBasic fails",
+			setUp: func(msg *MsgWithdraw) *MsgWithdraw {
+				msg.FromAddress = ""
+				return msg
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid sender address (empty address string is not allowed): invalid address",
+		},
+		{
+			name: "invalid RemainingBalanceCommitment",
+			setUp: func(msg *MsgWithdraw) *MsgWithdraw {
+				msg.RemainingBalanceCommitment = &Ciphertext{}
+				return msg
+			},
+			wantErr:    true,
+			wantErrMsg: "edwards25519: invalid point encoding length",
+		},
+		{
+			name: "invalid Proofs",
+			setUp: func(msg *MsgWithdraw) *MsgWithdraw {
+				msg.Proofs.RemainingBalanceEqualityProof = &CiphertextCommitmentEqualityProof{}
+				return msg
+			},
+			wantErr:    true,
+			wantErrMsg: "ciphertext commitment equality proof is invalid: invalid request",
+		},
+		{
+			name: "invalid amount",
+			setUp: func(msg *MsgWithdraw) *MsgWithdraw {
+				msg.Amount = ""
+				return msg
+			},
+			wantErr:    true,
+			wantErrMsg: "amount is not valid: invalid request",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := getMsgWithdraw()
+			if tt.setUp != nil {
+				m = tt.setUp(m)
+			}
+			_, err := m.FromProto()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Equal(t, tt.wantErrMsg, err.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func getMsgWithdraw() *MsgWithdraw {
+	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
+	sourcePrivateKey, _ := encryption.GenerateKey()
+	eg := elgamal.NewTwistedElgamal()
+	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
+	aesPK, _ := encryption.GetAESKey(*sourcePrivateKey, testDenom)
+
+	currentBalance := big.NewInt(500000000)
+	currentBalanceCt, _, _ := eg.Encrypt(sourceKeypair.PublicKey, currentBalance)
+	withdrawAmount := big.NewInt(10000)
+	withdrawAmountCt, _ := eg.SubScalar(currentBalanceCt, withdrawAmount)
+	newBalance := new(big.Int).Sub(currentBalance, withdrawAmount)
+	newBalanceScalar, _ := curves.ED25519().Scalar.SetBigInt(newBalance)
+	decryptableBalance, _ := encryption.EncryptAESGCM(newBalance, aesPK)
+	newBalanceCommitment, randomness, _ := eg.Encrypt(sourceKeypair.PublicKey, newBalance)
+
+	// Generate the proofs
+	rangeProof, _ := zkproofs.NewRangeProof(128, newBalance, randomness)
+	ciphertextCommitmentEqualityProof, _ := zkproofs.NewCiphertextCommitmentEqualityProof(
+		sourceKeypair,
+		withdrawAmountCt,
+		&randomness,
+		&newBalanceScalar)
+
+	proofs := &WithdrawProofs{
+		rangeProof,
+		ciphertextCommitmentEqualityProof,
+	}
+	address1 := sdk.AccAddress("address1")
+
+	newBalanceProto := NewCiphertextProto(newBalanceCommitment)
+
+	proofsProto := NewWithdrawMsgProofs(proofs)
+	return &MsgWithdraw{
+		FromAddress:                address1.String(),
+		Denom:                      testDenom,
+		Amount:                     withdrawAmount.String(),
+		RemainingBalanceCommitment: newBalanceProto,
+		DecryptableBalance:         decryptableBalance,
+		Proofs:                     proofsProto,
+	}
+}
+
+func TestMsgWithdraw_Decrypt(t *testing.T) {
+	type fields struct {
+		msg *MsgWithdraw
+	}
+	type args struct {
+		decryptor               *elgamal.TwistedElGamal
+		privKey                 ecdsa.PrivateKey
+		decryptAvailableBalance bool
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		wantErr bool
+		wantMsg string
+	}{
+		{
+			name: "nil decryptor",
+			fields: fields{
+				msg: getMsgWithdraw(),
+			},
+			args: args{
+				decryptor: nil,
+			},
+			wantErr: true,
+			wantMsg: "decryptor is required: invalid request",
+		},
+		{
+			name: "invalid message",
+			fields: fields{
+				msg: &MsgWithdraw{},
+			},
+			args: args{
+				decryptor: elgamal.NewTwistedElgamal(),
+			},
+			wantErr: true,
+			wantMsg: "invalid sender address (empty address string is not allowed): invalid address",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.fields.msg.Decrypt(tt.args.decryptor, tt.args.privKey, tt.args.decryptAvailableBalance)
+			if wantErr := tt.wantErr; wantErr {
+				require.Error(t, err)
+				require.Equal(t, tt.wantMsg, err.Error())
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
