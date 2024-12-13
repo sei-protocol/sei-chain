@@ -1281,14 +1281,14 @@ func TestMsgTransfer_FromProtoInvalidInputs(t *testing.T) {
 
 func getValidTransferMsg() *MsgTransfer {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	sourcePrivateKey, _ := encryption.GenerateKey()
-	destPrivateKey, _ := encryption.GenerateKey()
-	auditorPrivateKey, _ := encryption.GenerateKey()
+	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), crand.Reader)
+	destPrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), crand.Reader)
+	auditorPrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), crand.Reader)
 	eg := elgamal.NewTwistedElgamal()
-	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
-	destinationKeypair, _ := eg.KeyGen(*destPrivateKey, testDenom)
-	auditorKeypair, _ := eg.KeyGen(*auditorPrivateKey, testDenom)
-	aesPK, _ := encryption.GetAESKey(*sourcePrivateKey, testDenom)
+	sourceKeypair, _ := utils.GetElGamalKeyPair(*sourcePrivateKey, testDenom)
+	destinationKeypair, _ := utils.GetElGamalKeyPair(*destPrivateKey, testDenom)
+	auditorKeypair, _ := utils.GetElGamalKeyPair(*auditorPrivateKey, testDenom)
+	aesPK, _ := utils.GetAESKey(*sourcePrivateKey, testDenom)
 
 	amountLo := big.NewInt(100)
 	amountHi := big.NewInt(0)
@@ -1543,10 +1543,10 @@ func TestMsgInitializeAccount_FromProtoInvalidInputs(t *testing.T) {
 
 func getMsgInitializeAccount() *MsgInitializeAccount {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	sourcePrivateKey, _ := encryption.GenerateKey()
+	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), crand.Reader)
 	eg := elgamal.NewTwistedElgamal()
-	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
-	aesPK, _ := encryption.GetAESKey(*sourcePrivateKey, testDenom)
+	sourceKeypair, _ := utils.GetElGamalKeyPair(*sourcePrivateKey, testDenom)
+	aesPK, _ := utils.GetAESKey(*sourcePrivateKey, testDenom)
 	bigIntZero := big.NewInt(0)
 
 	decryptableBalance, _ := encryption.EncryptAESGCM(bigIntZero, aesPK)
@@ -1685,10 +1685,10 @@ func TestMsgApplyPendingBalance_FromProto(t *testing.T) {
 
 func getMsgApplyPendingBalance() *MsgApplyPendingBalance {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	sourcePrivateKey, _ := encryption.GenerateKey()
+	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), crand.Reader)
 	eg := elgamal.NewTwistedElgamal()
-	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
-	aesPK, _ := encryption.GetAESKey(*sourcePrivateKey, testDenom)
+	sourceKeypair, _ := utils.GetElGamalKeyPair(*sourcePrivateKey, testDenom)
+	aesPK, _ := utils.GetAESKey(*sourcePrivateKey, testDenom)
 	balance := big.NewInt(100)
 
 	decryptableBalance, _ := encryption.EncryptAESGCM(balance, aesPK)
@@ -1808,10 +1808,10 @@ func TestMsgCloseAccount_FromProtoInvalidInputs(t *testing.T) {
 func getMsgCloseAccount() *MsgCloseAccount {
 	address := sdk.AccAddress("address1")
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	privateKey, _ := encryption.GenerateKey()
+	privateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), crand.Reader)
 	zeroBigInt := big.NewInt(0)
 	eg := elgamal.NewTwistedElgamal()
-	keypair, _ := eg.KeyGen(*privateKey, testDenom)
+	keypair, _ := utils.GetElGamalKeyPair(*privateKey, testDenom)
 	availableBalanceCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, zeroBigInt)
 	pendingBalanceLoCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, zeroBigInt)
 	pendingBalanceHiCiphertext, _, _ := eg.Encrypt(keypair.PublicKey, zeroBigInt)
@@ -1902,10 +1902,10 @@ func TestMsgWithdraw_FromProtoInvalidInputs(t *testing.T) {
 
 func getMsgWithdraw() *MsgWithdraw {
 	testDenom := "factory/sei1ft98au55a24vnu9tvd92cz09pzcfqkm5vlx99w/TEST"
-	sourcePrivateKey, _ := encryption.GenerateKey()
+	sourcePrivateKey, _ := ecdsa.GenerateKey(secp256k1.S256(), crand.Reader)
 	eg := elgamal.NewTwistedElgamal()
-	sourceKeypair, _ := eg.KeyGen(*sourcePrivateKey, testDenom)
-	aesPK, _ := encryption.GetAESKey(*sourcePrivateKey, testDenom)
+	sourceKeypair, _ := utils.GetElGamalKeyPair(*sourcePrivateKey, testDenom)
+	aesPK, _ := utils.GetAESKey(*sourcePrivateKey, testDenom)
 
 	currentBalance := big.NewInt(500000000)
 	currentBalanceCt, _, _ := eg.Encrypt(sourceKeypair.PublicKey, currentBalance)
