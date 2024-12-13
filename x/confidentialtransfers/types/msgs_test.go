@@ -2044,3 +2044,63 @@ func TestNewMsgWithdraw_Type(t *testing.T) {
 	msg := &MsgWithdraw{}
 	require.Equal(t, "withdraw", msg.Type())
 }
+
+func TestMsgTransfer_GetSignBytes(t *testing.T) {
+	msg := &MsgTransfer{}
+	res := msg.GetSignBytes()
+	require.NotNil(t, res)
+}
+
+func TestMsgTransfer_GetSigners(t *testing.T) {
+	msg := &MsgTransfer{}
+	res := msg.GetSigners()
+	require.NotNil(t, res)
+}
+
+func TestMsgInitializeAccount_GetSignBytes(t *testing.T) {
+	msg := &MsgInitializeAccount{}
+	res := msg.GetSignBytes()
+	require.NotNil(t, res)
+}
+
+func TestMsgInitializeAccount_GetSigners(t *testing.T) {
+	msg := &MsgInitializeAccount{}
+	res := msg.GetSigners()
+	require.NotNil(t, res)
+}
+
+func TestMsgApplyPendingBalance_GetSignBytes(t *testing.T) {
+	msg := &MsgApplyPendingBalance{}
+	res := msg.GetSignBytes()
+	require.NotNil(t, res)
+}
+
+func TestMsgApplyPendingBalance_GetSigners(t *testing.T) {
+	msg := &MsgApplyPendingBalance{}
+	res := msg.GetSigners()
+	require.NotNil(t, res)
+}
+
+func TestMsgCloseAccount_GetSignBytes(t *testing.T) {
+	msg := &MsgCloseAccount{}
+	res := msg.GetSignBytes()
+	require.NotNil(t, res)
+}
+
+func TestMsgCloseAccount_GetSigners(t *testing.T) {
+	msg := &MsgCloseAccount{}
+	res := msg.GetSigners()
+	require.NotNil(t, res)
+}
+
+func TestMsgWithdraw_GetSignBytes(t *testing.T) {
+	msg := &MsgWithdraw{}
+	res := msg.GetSignBytes()
+	require.NotNil(t, res)
+}
+
+func TestMsgWithdraw_GetSigners(t *testing.T) {
+	msg := &MsgWithdraw{}
+	res := msg.GetSigners()
+	require.NotNil(t, res)
+}
