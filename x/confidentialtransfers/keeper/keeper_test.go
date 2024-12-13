@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/keeper"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/stretchr/testify/suite"
@@ -69,13 +70,13 @@ func (suite *KeeperTestSuite) SetupAccount() {
 }
 
 func (suite *KeeperTestSuite) SetupAccountState(privateKey *ecdsa.PrivateKey, denom string, pendingBalanceCreditCounter uint16, initialAvailableBalance, initialPendingBalance, bankAmount *big.Int) (types.Account, error) {
-	aesKey, err := encryption.GetAESKey(*privateKey, denom)
+	aesKey, err := utils.GetAESKey(*privateKey, denom)
 	if err != nil {
 		return types.Account{}, err
 	}
 
 	teg := elgamal.NewTwistedElgamal()
-	keypair, err := teg.KeyGen(*privateKey, denom)
+	keypair, err := utils.GetElGamalKeyPair(*privateKey, denom)
 	if err != nil {
 		return types.Account{}, err
 	}

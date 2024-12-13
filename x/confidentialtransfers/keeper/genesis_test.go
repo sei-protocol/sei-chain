@@ -2,11 +2,14 @@ package keeper_test
 
 import (
 	"crypto/ecdsa"
+	"crypto/rand"
 	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/crypto/secp256k1"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -25,8 +28,8 @@ func (suite *KeeperTestSuite) TestDefaultGenesisState() {
 }
 
 func (suite *KeeperTestSuite) TestGenesisExportImportState() {
-	pk1, _ := encryption.GenerateKey()
-	pk2, _ := encryption.GenerateKey()
+	pk1, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	pk2, _ := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
 	addr1 := sdk.AccAddress("addr1")
 	addr2 := sdk.AccAddress("addr2")
 	testDenom1 := fmt.Sprintf("factory/%s/TEST1", addr1.String())
@@ -58,9 +61,9 @@ func (suite *KeeperTestSuite) TestGenesisExportImportState() {
 
 func generateCtAccount(pk *ecdsa.PrivateKey, testDenom string, balance *big.Int) types.CtAccount {
 	eg := elgamal.NewTwistedElgamal()
-	keyPair, _ := eg.KeyGen(*pk, testDenom)
+	keyPair, _ := utils.GetElGamalKeyPair(*pk, testDenom)
 
-	aesPK1, _ := encryption.GetAESKey(*pk, testDenom)
+	aesPK1, _ := utils.GetAESKey(*pk, testDenom)
 
 	amountLo := big.NewInt(100)
 	amountHi := big.NewInt(0)

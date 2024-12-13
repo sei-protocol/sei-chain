@@ -14,7 +14,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
-	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
+	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/spf13/cobra"
 )
@@ -109,13 +109,13 @@ func queryAccount(cmd *cobra.Command, args []string) error {
 			return err
 		}
 
-		aesKey, err := encryption.GetAESKey(*privateKey, denom)
+		aesKey, err := utils.GetAESKey(*privateKey, denom)
 		if err != nil {
 			return err
 		}
 
 		decryptor := elgamal.NewTwistedElgamal()
-		keyPair, err := decryptor.KeyGen(*privateKey, denom)
+		keyPair, err := utils.GetElGamalKeyPair(*privateKey, denom)
 		if err != nil {
 			return err
 		}

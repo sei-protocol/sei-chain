@@ -204,7 +204,7 @@ docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 # Stop 4-node docker containers
 docker-cluster-stop:
 	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose down
-.PHONY: localnet-stop
+.PHONY: localnet-stop ddd
 
 
 # Implements test splitting and running. This is pulled directly from

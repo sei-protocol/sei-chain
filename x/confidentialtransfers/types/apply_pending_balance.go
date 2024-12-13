@@ -28,7 +28,7 @@ func NewApplyPendingBalance(
 	currentAvailableBalance,
 	currentPendingBalanceLo,
 	currentPendingBalanceHi *elgamal.Ciphertext) (*ApplyPendingBalance, error) {
-	aesKey, err := encryption.GetAESKey(privKey, denom)
+	aesKey, err := utils.GetAESKey(privKey, denom)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +40,7 @@ func NewApplyPendingBalance(
 	}
 
 	teg := elgamal.NewTwistedElgamal()
-	keyPair, err := teg.KeyGen(privKey, denom)
+	keyPair, err := utils.GetElGamalKeyPair(privKey, denom)
 	if err != nil {
 		return nil, err
 	}
@@ -84,12 +84,12 @@ func (r *ApplyPendingBalance) Decrypt(decryptor *elgamal.TwistedElGamal, privKey
 	}
 
 	availableBalanceString := NotDecrypted
-	keyPair, err := decryptor.KeyGen(privKey, r.Denom)
+	keyPair, err := utils.GetElGamalKeyPair(privKey, r.Denom)
 	if err != nil {
 		return &ApplyPendingBalanceDecrypted{}, err
 	}
 
-	aesKey, err := encryption.GetAESKey(privKey, r.Denom)
+	aesKey, err := utils.GetAESKey(privKey, r.Denom)
 	if err != nil {
 		return &ApplyPendingBalanceDecrypted{}, err
 	}

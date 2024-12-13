@@ -22,9 +22,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
-
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
@@ -37,6 +34,7 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/time/rate"
@@ -45,6 +43,8 @@ import (
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
+
+	ctutils "github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 )
 
 var TestConfig EncodingConfig
@@ -579,8 +579,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		receiverPrivHex := hex.EncodeToString(receiverKey.Bytes())
 		receiverEcdsaKey, _ := crypto.HexToECDSA(receiverPrivHex)
 
-		teg := elgamal.NewTwistedElgamal()
-		receiverKeyPair, _ := teg.KeyGen(*receiverEcdsaKey, CtDefaultDenom)
+		receiverKeyPair, _ := ctutils.GetElGamalKeyPair(*receiverEcdsaKey, CtDefaultDenom)
 		senderAddress := sdk.AccAddress(key.PubKey().Address()).String()
 		receiverAddress := sdk.AccAddress(receiverKey.PubKey().Address()).String()
 		senderAccount := c.getCtAccount(senderAddress, CtDefaultDenom)
