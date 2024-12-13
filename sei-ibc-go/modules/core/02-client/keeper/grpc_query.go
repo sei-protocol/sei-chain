@@ -63,25 +63,27 @@ func (q Keeper) ClientStates(c context.Context, req *types.QueryClientStatesRequ
 	clientStates := types.IdentifiedClientStates{}
 	store := prefix.NewStore(ctx.KVStore(q.storeKey), host.KeyClientStorePrefix)
 
-	pageRes, err := query.Paginate(store, req.Pagination, func(key, value []byte) error {
+	pageRes, err := query.FilteredPaginate(store, req.Pagination, func(key, value []byte, accumulate bool) (bool, error) {
 		keySplit := strings.Split(string(key), "/")
 		if keySplit[len(keySplit)-1] != "clientState" {
-			return nil
+			return false, nil
 		}
 
 		clientState, err := q.UnmarshalClientState(value)
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		clientID := keySplit[1]
 		if err := host.ClientIdentifierValidator(clientID); err != nil {
-			return err
+			return false, err
 		}
-
-		identifiedClient := types.NewIdentifiedClientState(clientID, clientState)
-		clientStates = append(clientStates, identifiedClient)
-		return nil
+		// only append to the list if it's accumulating
+		if accumulate {
+			identifiedClient := types.NewIdentifiedClientState(clientID, clientState)
+			clientStates = append(clientStates, identifiedClient)
+		}
+		return true, nil
 	})
 	if err != nil {
 		return nil, err
