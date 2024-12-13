@@ -9,8 +9,8 @@ import (
 // DefaultEnableCtModule is the default value for the EnableCtModule flag.
 const DefaultEnableCtModule = true
 
-// DefaultRangeProofGasMultiplier is the default value for RangeProofGasMultiplier param.
-const DefaultRangeProofGasMultiplier = uint32(10)
+// DefaultRangeProofGasCost is the default value for RangeProofGasCost param.
+const DefaultRangeProofGasCost = uint64(1000000)
 
 // ParamKeyTable ParamTable for confidential transfers module.
 func ParamKeyTable() paramtypes.KeyTable {
@@ -20,8 +20,8 @@ func ParamKeyTable() paramtypes.KeyTable {
 // DefaultParams default confidential transfers module parameters.
 func DefaultParams() Params {
 	return Params{
-		EnableCtModule:          DefaultEnableCtModule,
-		RangeProofGasMultiplier: DefaultRangeProofGasMultiplier,
+		EnableCtModule:    DefaultEnableCtModule,
+		RangeProofGasCost: DefaultRangeProofGasCost,
 	}
 }
 
@@ -31,7 +31,7 @@ func (p *Params) Validate() error {
 		return err
 	}
 
-	if err := validateRangeProofGasMultiplier(p.RangeProofGasMultiplier); err != nil {
+	if err := validateRangeProofGasCost(p.RangeProofGasCost); err != nil {
 		return err
 	}
 
@@ -42,7 +42,7 @@ func (p *Params) Validate() error {
 func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyEnableCtModule, &p.EnableCtModule, validateEnableCtModule),
-		paramtypes.NewParamSetPair(KeyRangeProofGas, &p.RangeProofGasMultiplier, validateRangeProofGasMultiplier),
+		paramtypes.NewParamSetPair(KeyRangeProofGas, &p.RangeProofGasCost, validateRangeProofGasCost),
 	}
 }
 
@@ -56,14 +56,11 @@ func validateEnableCtModule(i interface{}) error {
 }
 
 // Validator for the parameter.
-func validateRangeProofGasMultiplier(i interface{}) error {
-	multiplier, ok := i.(uint32)
+func validateRangeProofGasCost(i interface{}) error {
+	_, ok := i.(uint64)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}
 
-	if multiplier < 1 {
-		return fmt.Errorf("range proof gas multiplier must be greater than 0")
-	}
 	return nil
 }
