@@ -58,7 +58,7 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if err != nil {
 		return nil, err
 	}
-	block, err := blockByNumberWithRetry(ctx, a.tmClient, numberPtr, 1)
+	block, err := blockByNumberWithRetry(ctx, a.tmClient, numberPtr, 3)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +130,7 @@ func (a *BlockAPI) getBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 	if err != nil {
 		return nil, err
 	}
-	block, err := blockByNumberWithRetry(ctx, a.tmClient, numberPtr, 1)
+	block, err := blockByNumberWithRetry(ctx, a.tmClient, numberPtr, 3)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		return nil, err
 	}
 
-	block, err := blockByNumberWithRetry(ctx, a.tmClient, heightPtr, 1)
+	block, err := blockByNumberWithRetry(ctx, a.tmClient, heightPtr, 3)
 	if err != nil {
 		return nil, err
 	}
