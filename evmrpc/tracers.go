@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -34,6 +35,21 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	defer recordMetrics("debug_traceTransaction", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceTransaction(ctx, hash, config)
 	return
+}
+
+func (api *DebugAPI) isPanicTx(ctx context.Context, hash common.Hash) (bool, error) {
+	result, err := api.TraceTransaction(ctx, hash, nil)
+	if err != nil {
+		return false, err
+	}
+	var resultMap map[string]interface{}
+	if err := json.Unmarshal(result.([]byte), &resultMap); err != nil {
+		return false, err
+	}
+	if _, ok := resultMap["error"]; ok {
+		return true, nil
+	}
+	return false, nil
 }
 
 func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
