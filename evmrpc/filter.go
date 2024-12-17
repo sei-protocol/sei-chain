@@ -356,7 +356,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 			h := height
 			block, berr := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
 			if berr != nil {
-				panic(berr)
+				err = berr
 			}
 			matchedLogs := f.GetLogsForBlock(block, crit, bloomIndexes)
 			for _, log := range matchedLogs {
