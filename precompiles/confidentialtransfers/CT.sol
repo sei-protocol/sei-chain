@@ -34,7 +34,12 @@ interface ICT {
     ) external returns (bool success);
 
     struct Auditor {
-        string auditorAddress;
-        bytes pubKey;
+        address addr;
+        bytes encryptedTransferAmountLo;
+        bytes encryptedTransferAmountHi;
+        bytes transferAmountLoValidityProof;
+        bytes transferAmountHiValidityProof;
+        bytes transferAmountLoEqualityProof;
+        bytes transferAmountHiEqualityProof;
     }
 }

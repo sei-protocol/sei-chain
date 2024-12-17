@@ -2,6 +2,7 @@ package confidentialtransfers
 
 import (
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -151,11 +152,22 @@ func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Me
 		rerr = err
 		return
 	}
+
+	var auditors []*cttypes.Auditor
+	auditorsBz := args[10].([]byte)
+	err = json.Unmarshal(auditorsBz, &auditors)
+	if err != nil {
+		rerr = err
+		return
+	}
+	msg.Auditors = auditors
+
 	_, err = p.ctKeeper.Transfer(sdk.WrapSDKContext(ctx), msg)
 	if err != nil {
 		rerr = err
 		return
 	}
+
 	ret, rerr = method.Outputs.Pack(true)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
