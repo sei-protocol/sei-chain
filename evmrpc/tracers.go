@@ -2,7 +2,8 @@ package evmrpc
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -42,13 +43,11 @@ func NewSeiDebugAPI(
 	txDecoder sdk.TxDecoder,
 	config *SimulateConfig,
 	connectionType ConnectionType,
-	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 ) *SeiDebugAPI {
 	backend := NewBackend(ctxProvider, k, txDecoder, tmClient, config)
 	tracersAPI := tracers.NewAPI(backend)
 	return &SeiDebugAPI{
-		DebugAPI:  &DebugAPI{tracersAPI: tracersAPI, tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, connectionType: connectionType},
-		isPanicTx: isPanicTx,
+		DebugAPI: &DebugAPI{tracersAPI: tracersAPI, tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, connectionType: connectionType},
 	}
 }
 
@@ -63,34 +62,30 @@ func (api *SeiDebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.Block
 	startTime := time.Now()
 	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
-	var resultMap map[string]interface{}
-	if err := json.Unmarshal(result.([]byte), &resultMap); err != nil {
-		return nil, err
+	traces, ok := result.([]*tracers.TxTraceResult)
+	if !ok {
+		return nil, fmt.Errorf("unexpected type: %T", result)
 	}
-	// iterate over the resultMap and skip any txHash is a panic tx
-	var filteredResult []interface{}
-	for _, txTraceResult := range resultMap {
-		if _, ok := resultMap["error"]; ok {
+	// iterate through and look for error "tracing failed"
+	finalTraces := make([]*tracers.TxTraceResult, 0)
+	for _, trace := range traces {
+		if strings.Contains(trace.Error, "tracing failed") {
 			continue
 		}
-		filteredResult = append(filteredResult, txTraceResult)
+		finalTraces = append(finalTraces, trace)
 	}
-	return filteredResult, nil
+	return finalTraces, nil
 }
 
 func (api *DebugAPI) isPanicTx(ctx context.Context, hash common.Hash) (bool, error) {
-	result, err := api.TraceTransaction(ctx, hash, nil)
-	if err != nil {
-		return false, err
-	}
-	var resultMap map[string]interface{}
-	if err := json.Unmarshal(result.([]byte), &resultMap); err != nil {
-		return false, err
-	}
-	if _, ok := resultMap["error"]; ok {
+	callTracer := "callTracer"
+	_, err := api.TraceTransaction(ctx, hash, &tracers.TraceConfig{
+		Tracer: &callTracer,
+	})
+	if strings.Contains(err.Error(), "tracing failed") {
 		return true, nil
 	}
-	return false, nil
+	return false, err
 }
 
 func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {

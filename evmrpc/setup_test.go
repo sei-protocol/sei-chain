@@ -49,15 +49,19 @@ const TestBadPort = 7779
 
 const MockHeight8 = 8
 const MockHeight2 = 2
+const MockHeight103 = 103
 const MockHeight101 = 101
 const MockHeight100 = 100
 
 var DebugTraceHashHex = "0x1234567890123456789023456789012345678901234567890123456789000004"
 var DebugTraceBlockHash = "BE17E0261E539CB7E9A91E123A6D794E0163D656FCF9B8EAC07823F7ED28512B"
+var DebugTracePanicBlockHash = "0000000000000000000000000000000000000000000000000000000000000002"
 var MultiTxBlockHash = "0000000000000000000000000000000000000000000000000000000000000002"
 
 var TestCosmosTxHash = "690D39ADF56D4C811B766DFCD729A415C36C4BFFE80D63E305373B9518EBFB14"
 var TestEvmTxHash = "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"
+var TestNonPanicTxHash = "0x1111111111111111111111111111111111111111111111111111111111111112"
+var TestPanicTxHash = "0x1111111111111111111111111111111111111111111111111111111111111111"
 
 var EncodingConfig = app.MakeEncodingConfig()
 var TxConfig = EncodingConfig.TxConfig
@@ -77,6 +81,8 @@ var multiTxBlockTx4 *ethtypes.Transaction
 var multiTxBlockSynthTx *ethtypes.Transaction
 
 var DebugTraceTx sdk.Tx
+var DebugTracePanicTx sdk.Tx
+var DebugTraceNonPanicTx sdk.Tx
 var TxNonEvm sdk.Tx
 var TxNonEvmWithSyntheticLog sdk.Tx
 var UnconfirmedTx sdk.Tx
@@ -217,6 +223,18 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 			}(),
 		}
 	}
+	if height == MockHeight103 {
+		res.Block.Data.Txs = []tmtypes.Tx{
+			func() []byte {
+				bz, _ := Encoder(DebugTraceTx) // reuse the same tx for non-panic tx
+				return bz
+			}(),
+			func() []byte {
+				bz, _ := Encoder(DebugTracePanicTx)
+				return bz
+			}(),
+		}
+	}
 	return res
 }
 
@@ -289,6 +307,9 @@ func (c *MockClient) BlockByHash(_ context.Context, hash bytes.HexBytes) (*coret
 	if hash.String() == DebugTraceBlockHash {
 		return c.mockBlock(MockHeight101), nil
 	}
+	if hash.String() == DebugTracePanicBlockHash {
+		return c.mockBlock(MockHeight103), nil
+	}
 	if hash.String() == MultiTxBlockHash {
 		return c.mockBlock(MockHeight2), nil
 	}
@@ -296,6 +317,27 @@ func (c *MockClient) BlockByHash(_ context.Context, hash bytes.HexBytes) (*coret
 }
 
 func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.ResultBlockResults, error) {
+	if *height == MockHeight103 {
+		TxResults := []*abci.ExecTxResult{
+			{
+				Data: func() []byte {
+					bz, _ := Encoder(DebugTraceTx)
+					return bz
+				}(),
+				GasWanted: 10,
+				GasUsed:   5,
+			},
+			{
+				Data: func() []byte {
+					bz, _ := Encoder(DebugTracePanicTx)
+					return bz
+				}(),
+				GasWanted: 10,
+				GasUsed:   5,
+			},
+		}
+		return &coretypes.ResultBlockResults{TxsResults: TxResults}, nil
+	}
 	return &coretypes.ResultBlockResults{
 		TxsResults: []*abci.ExecTxResult{
 			{
@@ -579,6 +621,15 @@ func generateTxData() {
 		Data:      []byte("abc"),
 		ChainID:   chainId,
 	})
+	debugTracePanicTxBuilder, _ := buildTx(ethtypes.DynamicFeeTx{
+		Nonce:     100, // set a high nonce to make sure it will panic upon simulation
+		GasFeeCap: big.NewInt(10),
+		Gas:       22000,
+		To:        &to,
+		Value:     big.NewInt(1000),
+		Data:      []byte("abc"),
+		ChainID:   chainId,
+	})
 	Tx1 = txBuilder1.GetTx()
 	MultiTxBlockTx1 = txBuilder1_5.GetTx()
 	MultiTxBlockTx2 = txBuilder2.GetTx()
@@ -586,6 +637,7 @@ func generateTxData() {
 	MultiTxBlockTx4 = txBuilder4.GetTx()
 	MultiTxBlockSynthTx = synthTxBuilder.GetTx()
 	DebugTraceTx = debugTraceTxBuilder.GetTx()
+	DebugTracePanicTx = debugTracePanicTxBuilder.GetTx()
 	TxNonEvm = app.TestTx{}
 	TxNonEvmWithSyntheticLog = app.TestTx{}
 	bloomTx1 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
@@ -796,6 +848,17 @@ func setupLogs() {
 		BlockNumber:      MockHeight101,
 		TransactionIndex: 0,
 		TxHashHex:        DebugTraceHashHex,
+	})
+	CtxDebugTracePanic := Ctx.WithBlockHeight(MockHeight103)
+	EVMKeeper.MockReceipt(CtxDebugTracePanic, common.HexToHash(TestPanicTxHash), &types.Receipt{
+		BlockNumber:      MockHeight103,
+		TransactionIndex: 0,
+		TxHashHex:        TestPanicTxHash,
+	})
+	EVMKeeper.MockReceipt(CtxDebugTracePanic, common.HexToHash(TestNonPanicTxHash), &types.Receipt{
+		BlockNumber:      MockHeight103,
+		TransactionIndex: 1,
+		TxHashHex:        TestNonPanicTxHash,
 	})
 	txNonEvmBz, _ := Encoder(TxNonEvmWithSyntheticLog)
 	txNonEvmHash := sha256.Sum256(txNonEvmBz)

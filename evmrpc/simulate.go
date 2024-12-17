@@ -206,6 +206,7 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 
 func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *ethtypes.Transaction, blockHash common.Hash, blockNumber uint64, index uint64, err error) {
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
+	fmt.Println("In GetTransaction, txHash", txHash.Hex())
 	receipt, err := b.keeper.GetReceipt(sdkCtx, txHash)
 	if err != nil {
 		return nil, common.Hash{}, 0, 0, err

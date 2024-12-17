@@ -25,6 +25,8 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
+var ErrPanicTx = errors.New("transaction is panic tx")
+
 const UnconfirmedTxQueryMaxPage = 20
 const UnconfirmedTxQueryPerPage = 30
 
@@ -82,7 +84,7 @@ func getTransactionReceipt(
 			return nil, fmt.Errorf("failed to check if tx is panic tx: %w", err)
 		}
 		if isPanicTx {
-			return nil, fmt.Errorf("transaction is panic tx")
+			return nil, ErrPanicTx
 		}
 	}
 

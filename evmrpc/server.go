@@ -53,7 +53,7 @@ func NewEVMHTTPServer(
 		return debugAPI.isPanicTx(ctx, hash)
 	}
 	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP, isPanicTxFunc)
-	seiDebugAPI := NewSeiDebugAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), simulateConfig, ConnectionTypeHTTP, isPanicTxFunc)
+	seiDebugAPI := NewSeiDebugAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), simulateConfig, ConnectionTypeHTTP)
 
 	apis := []rpc.API{
 		{
