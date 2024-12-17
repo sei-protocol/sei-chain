@@ -51,7 +51,7 @@ func GetQueryCmd(_ string) *cobra.Command {
 	cmd.AddCommand(CmdQueryPointer())
 	cmd.AddCommand(CmdQueryPointerVersion())
 	cmd.AddCommand(CmdQueryPointee())
-	cmd.AddCommand(GetCmdQueryTransferEvmAccount())
+	cmd.AddCommand(GetCmdQueryCtTransferPayload())
 
 	return cmd
 }
@@ -466,12 +466,12 @@ func CmdQueryPointee() *cobra.Command {
 	return cmd
 }
 
-func GetCmdQueryTransferEvmAccount() *cobra.Command {
+func GetCmdQueryCtTransferPayload() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "transfer-evm-payload [abi-filepath] [from_evm_address] [to_evm_address] [amount] [flags]",
-		Short: "Query all the confidential token accounts associated with the address",
+		Use:   "ct-transfer-payload [abi-filepath] [from_evm_address] [to_evm_address] [amount] [flags]",
+		Short: "get hex payload for the confidential transfer",
 		Args:  cobra.ExactArgs(4),
-		RunE:  queryTransferEvmPayload,
+		RunE:  queryCtTransferPayload,
 	}
 
 	flags.AddQueryFlagsToCmd(cmd)
@@ -479,7 +479,7 @@ func GetCmdQueryTransferEvmAccount() *cobra.Command {
 	return cmd
 }
 
-func queryTransferEvmPayload(cmd *cobra.Command, args []string) error {
+func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 	queryClientCtx, err := client.GetClientQueryContext(cmd)
 	if err != nil {
 		return err

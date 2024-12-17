@@ -19,9 +19,4 @@ interface ICT {
         bytes remainingBalance,
         bytes proofs
     ) external returns (bool success);
-
-//    struct Auditor {
-//        string auditorAddress;
-//        bytes pubKey;
-//    }
 }
