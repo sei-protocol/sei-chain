@@ -6,11 +6,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/precompiles/confidentialtransfers"
-	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"math/big"
 	"os"
 	"strings"
+
+	"github.com/sei-protocol/sei-chain/precompiles/confidentialtransfers"
+	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -539,6 +540,10 @@ func queryTransferEvmPayload(cmd *cobra.Command, args []string) error {
 		coin.Amount.Uint64(),
 		&recipientAccount.PublicKey,
 		nil)
+
+	if err != nil {
+		return err
+	}
 
 	transferProto := cttypes.NewMsgTransferProto(transfer)
 	fromAmountLo, _ := transferProto.FromAmountLo.Marshal()

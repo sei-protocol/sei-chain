@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+
 	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"

@@ -1,8 +1,9 @@
 package precompiles
 
 import (
-	"github.com/sei-protocol/sei-chain/precompiles/confidentialtransfers"
 	"sync"
+
+	"github.com/sei-protocol/sei-chain/precompiles/confidentialtransfers"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	ecommon "github.com/ethereum/go-ethereum/common"

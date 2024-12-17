@@ -4,13 +4,14 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"math/big"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
-	"math/big"
 )
 
 const (
