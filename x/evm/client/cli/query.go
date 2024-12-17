@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/precompiles/confidentialtransfers"
+	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"math/big"
 	"os"
 	"strings"
@@ -48,6 +50,7 @@ func GetQueryCmd(_ string) *cobra.Command {
 	cmd.AddCommand(CmdQueryPointer())
 	cmd.AddCommand(CmdQueryPointerVersion())
 	cmd.AddCommand(CmdQueryPointee())
+	cmd.AddCommand(GetCmdQueryTransferEvmAccount())
 
 	return cmd
 }
@@ -460,4 +463,130 @@ func CmdQueryPointee() *cobra.Command {
 	flags.AddQueryFlagsToCmd(cmd)
 
 	return cmd
+}
+
+func GetCmdQueryTransferEvmAccount() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "transfer-evm-payload [abi-filepath] [from_evm_address] [to_evm_address] [amount] [flags]",
+		Short: "Query all the confidential token accounts associated with the address",
+		Args:  cobra.ExactArgs(4),
+		RunE:  queryTransferEvmPayload,
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func queryTransferEvmPayload(cmd *cobra.Command, args []string) error {
+	queryClientCtx, err := client.GetClientQueryContext(cmd)
+	if err != nil {
+		return err
+	}
+
+	queryClient := types.NewQueryClient(queryClientCtx)
+	ctQueryClient := cttypes.NewQueryClient(queryClientCtx)
+
+	fromEvmAddress := common.HexToAddress(args[1])
+	fromRes, err := queryClient.SeiAddressByEVMAddress(context.Background(), &types.QuerySeiAddressByEVMAddressRequest{EvmAddress: fromEvmAddress.String()})
+	if err != nil {
+		return err
+	}
+	if !fromRes.Associated {
+		return errors.New("from address not associated with a Sei address")
+	}
+
+	_, name, _, err := client.GetFromFields(queryClientCtx, queryClientCtx.Keyring, fromRes.SeiAddress)
+	if err != nil {
+		return err
+	}
+	privKey, err := getPrivateKeyForName(cmd, name)
+	if err != nil {
+		return err
+	}
+
+	toEvmAddress := common.HexToAddress(args[2])
+	toRes, err := queryClient.SeiAddressByEVMAddress(context.Background(), &types.QuerySeiAddressByEVMAddressRequest{EvmAddress: toEvmAddress.String()})
+	if err != nil {
+		return err
+	}
+	if !toRes.Associated {
+		return errors.New("to address not associated with a Sei address")
+	}
+
+	coin, err := sdk.ParseCoinNormalized(args[3])
+	if err != nil {
+		return err
+	}
+
+	senderAccount, err := getCtAccount(ctQueryClient, fromRes.SeiAddress, coin.Denom)
+	if err != nil {
+		return err
+	}
+
+	recipientAccount, err := getCtAccount(ctQueryClient, toRes.SeiAddress, coin.Denom)
+	if err != nil {
+		return err
+	}
+
+	transfer, err := cttypes.NewTransfer(
+		privKey,
+		fromRes.SeiAddress,
+		toRes.SeiAddress,
+		coin.Denom,
+		senderAccount.DecryptableAvailableBalance,
+		senderAccount.AvailableBalance,
+		coin.Amount.Uint64(),
+		&recipientAccount.PublicKey,
+		nil)
+
+	transferProto := cttypes.NewMsgTransferProto(transfer)
+	fromAmountLo, _ := transferProto.FromAmountLo.Marshal()
+	fromAmountHi, _ := transferProto.FromAmountHi.Marshal()
+	toAmountLo, _ := transferProto.ToAmountLo.Marshal()
+	toAmountHi, _ := transferProto.ToAmountHi.Marshal()
+	remainingBalance, _ := transferProto.RemainingBalance.Marshal()
+	proofs, _ := transferProto.Proofs.Marshal()
+	dat, err := os.ReadFile(args[0])
+	if err != nil {
+		return err
+	}
+
+	newAbi, err := abi.JSON(bytes.NewReader(dat))
+	if err != nil {
+		return err
+	}
+	bz, err := newAbi.Pack(
+		confidentialtransfers.TransferMethod,
+		fromEvmAddress,
+		toEvmAddress,
+		coin.Denom,
+		fromAmountLo,
+		fromAmountHi,
+		toAmountLo,
+		toAmountHi,
+		remainingBalance,
+		transferProto.DecryptableBalance,
+		proofs)
+	if err != nil {
+		return err
+	}
+	return queryClientCtx.PrintString(hex.EncodeToString(bz))
+}
+
+func getCtAccount(queryClient cttypes.QueryClient, address, denom string) (*cttypes.Account, error) {
+	ctAccount, err := queryClient.GetCtAccount(context.Background(), &cttypes.GetCtAccountRequest{
+		Address: address,
+		Denom:   denom,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	account, err := ctAccount.GetAccount().FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	return account, nil
 }

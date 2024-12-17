@@ -1,6 +1,7 @@
 package precompiles
 
 import (
+	"github.com/sei-protocol/sei-chain/precompiles/confidentialtransfers"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -55,6 +56,7 @@ func InitializePrecompiles(
 	connectionKeeper common.ConnectionKeeper,
 	channelKeeper common.ChannelKeeper,
 	accountKeeper common.AccountKeeper,
+	ctKeeper common.ConfidentialTransfersKeeper,
 ) error {
 	SetupMtx.Lock()
 	defer SetupMtx.Unlock()
@@ -105,6 +107,10 @@ func InitializePrecompiles(
 	if err != nil {
 		return err
 	}
+	ctpr, err := confidentialtransfers.NewPrecompile(ctKeeper, evmKeeper)
+	if err != nil {
+		return err
+	}
 	PrecompileNamesToInfo[bankp.GetName()] = PrecompileInfo{ABI: bankp.GetABI(), Address: bankp.Address()}
 	PrecompileNamesToInfo[wasmdp.GetName()] = PrecompileInfo{ABI: wasmdp.GetABI(), Address: wasmdp.Address()}
 	PrecompileNamesToInfo[jsonp.GetName()] = PrecompileInfo{ABI: jsonp.GetABI(), Address: jsonp.Address()}
@@ -116,6 +122,7 @@ func InitializePrecompiles(
 	PrecompileNamesToInfo[ibcp.GetName()] = PrecompileInfo{ABI: ibcp.GetABI(), Address: ibcp.Address()}
 	PrecompileNamesToInfo[pointerp.GetName()] = PrecompileInfo{ABI: pointerp.GetABI(), Address: pointerp.Address()}
 	PrecompileNamesToInfo[pointerviewp.GetName()] = PrecompileInfo{ABI: pointerviewp.GetABI(), Address: pointerviewp.Address()}
+	PrecompileNamesToInfo[ctpr.GetName()] = PrecompileInfo{ABI: ctpr.GetABI(), Address: ctpr.Address()}
 	if !dryRun {
 		addPrecompileToVM(bankp)
 		addPrecompileToVM(wasmdp)
@@ -128,6 +135,7 @@ func InitializePrecompiles(
 		addPrecompileToVM(ibcp)
 		addPrecompileToVM(pointerp)
 		addPrecompileToVM(pointerviewp)
+		addPrecompileToVM(ctpr)
 		Initialized = true
 	}
 	return nil
@@ -136,7 +144,7 @@ func InitializePrecompiles(
 func GetPrecompileInfo(name string) PrecompileInfo {
 	if !Initialized {
 		// Precompile Info does not require any keeper state
-		_ = InitializePrecompiles(true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		_ = InitializePrecompiles(true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	}
 	i, ok := PrecompileNamesToInfo[name]
 	if !ok {
