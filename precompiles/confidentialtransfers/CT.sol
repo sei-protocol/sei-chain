@@ -20,8 +20,21 @@ interface ICT {
         bytes proofs
     ) external returns (bool success);
 
-//    struct Auditor {
-//        string auditorAddress;
-//        bytes pubKey;
-//    }
+    function transferWithAuditors(
+        address fromAddress,
+        address toAddress,
+        string denom,
+        bytes fromAmountLo,
+        bytes fromAmountHi,
+        bytes toAmountLo,
+        bytes toAmountHi,
+        bytes remainingBalance,
+        bytes proofs,
+        Auditor[] auditors
+    ) external returns (bool success);
+
+    struct Auditor {
+        string auditorAddress;
+        bytes pubKey;
+    }
 }

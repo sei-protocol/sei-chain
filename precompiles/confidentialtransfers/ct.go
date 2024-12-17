@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	TransferMethod = "transfer"
+	TransferMethod             = "transfer"
+	TransferWithAuditorsMethod = "transferWithAuditors"
 )
 
 const (
@@ -32,7 +33,8 @@ type PrecompileExecutor struct {
 	ctKeeper  pcommon.ConfidentialTransfersKeeper
 	address   common.Address
 
-	TransferID []byte
+	TransferID             []byte
+	TransferWithAuditorsID []byte
 }
 
 func NewPrecompile(ctkeeper pcommon.ConfidentialTransfersKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
@@ -48,6 +50,8 @@ func NewPrecompile(ctkeeper pcommon.ConfidentialTransfersKeeper, evmKeeper pcomm
 		switch name {
 		case TransferMethod:
 			p.TransferID = m.ID
+		case TransferWithAuditorsMethod:
+			p.TransferWithAuditorsID = m.ID
 		}
 	}
 
@@ -64,6 +68,11 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			return nil, 0, errors.New("cannot call ct precompile from staticcall")
 		}
 		return p.transfer(ctx, method, caller, args, value)
+	case TransferWithAuditorsMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call ct precompile from staticcall")
+		}
+		return p.transferWithAuditors(ctx, method, caller, args, value)
 	}
 	return
 }
@@ -91,83 +100,10 @@ func (p PrecompileExecutor) transfer(ctx sdk.Context, method *abi.Method, caller
 		return
 	}
 
-	fromAddr, err := p.accAddressFromArg(ctx, args[0])
+	msg, err := p.getTransferMessageFromArgs(ctx, args)
 	if err != nil {
 		rerr = err
 		return
-	}
-
-	toAddress, err := p.accAddressFromArg(ctx, args[1])
-	if err != nil {
-		rerr = err
-		return
-	}
-
-	denom := args[2].(string)
-	if denom == "" {
-		rerr = errors.New("invalid denom")
-		return
-	}
-
-	var fromAmountLo cttypes.Ciphertext
-	err = fromAmountLo.Unmarshal(args[3].([]byte))
-	if err != nil {
-		rerr = err
-		return
-	}
-
-	var fromAmountHi cttypes.Ciphertext
-	err = fromAmountHi.Unmarshal(args[4].([]byte))
-	if err != nil {
-		rerr = err
-		return
-	}
-
-	var toAmountLo cttypes.Ciphertext
-	err = toAmountLo.Unmarshal(args[5].([]byte))
-	if err != nil {
-		rerr = err
-		return
-	}
-
-	var toAmountHi cttypes.Ciphertext
-	err = toAmountHi.Unmarshal(args[6].([]byte))
-	if err != nil {
-		rerr = err
-		return
-	}
-
-	var remainingBalance cttypes.Ciphertext
-	err = remainingBalance.Unmarshal(args[7].([]byte))
-	if err != nil {
-		rerr = err
-		return
-	}
-
-	decryptableBalance := args[8].(string)
-	if decryptableBalance == "" {
-		rerr = errors.New("invalid decryptable balance")
-		return
-	}
-
-	var transferMessageProofs cttypes.TransferMsgProofs
-	err = transferMessageProofs.Unmarshal(args[9].([]byte))
-	if err != nil {
-		rerr = err
-		return
-	}
-
-	msg := &cttypes.MsgTransfer{
-		FromAddress:        fromAddr.String(),
-		ToAddress:          toAddress.String(),
-		Denom:              denom,
-		FromAmountLo:       &fromAmountLo,
-		FromAmountHi:       &fromAmountHi,
-		ToAmountLo:         &toAmountLo,
-		ToAmountHi:         &toAmountHi,
-		RemainingBalance:   &remainingBalance,
-		DecryptableBalance: decryptableBalance,
-		Proofs:             &transferMessageProofs,
 	}
 
 	err = msg.ValidateBasic()
@@ -183,6 +119,117 @@ func (p PrecompileExecutor) transfer(ctx sdk.Context, method *abi.Method, caller
 	ret, rerr = method.Outputs.Pack(true)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
+}
+
+func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		rerr = err
+		return
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 11); err != nil {
+		rerr = err
+		return
+	}
+
+	msg, err := p.getTransferMessageFromArgs(ctx, args)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	err = msg.ValidateBasic()
+	if err != nil {
+		rerr = err
+		return
+	}
+	_, err = p.ctKeeper.Transfer(sdk.WrapSDKContext(ctx), msg)
+	if err != nil {
+		rerr = err
+		return
+	}
+	ret, rerr = method.Outputs.Pack(true)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) getTransferMessageFromArgs(ctx sdk.Context, args []interface{}) (*cttypes.MsgTransfer, error) {
+	fromAddr, err := p.accAddressFromArg(ctx, args[0])
+	if err != nil {
+		return nil, err
+	}
+
+	toAddress, err := p.accAddressFromArg(ctx, args[1])
+	if err != nil {
+		return nil, err
+	}
+
+	denom := args[2].(string)
+	if denom == "" {
+		return nil, errors.New("invalid denom")
+	}
+
+	var fromAmountLo cttypes.Ciphertext
+	err = fromAmountLo.Unmarshal(args[3].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	var fromAmountHi cttypes.Ciphertext
+	err = fromAmountHi.Unmarshal(args[4].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	var toAmountLo cttypes.Ciphertext
+	err = toAmountLo.Unmarshal(args[5].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	var toAmountHi cttypes.Ciphertext
+	err = toAmountHi.Unmarshal(args[6].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	var remainingBalance cttypes.Ciphertext
+	err = remainingBalance.Unmarshal(args[7].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	decryptableBalance := args[8].(string)
+	if decryptableBalance == "" {
+		return nil, errors.New("invalid decryptable balance")
+	}
+
+	var transferMessageProofs cttypes.TransferMsgProofs
+	err = transferMessageProofs.Unmarshal(args[9].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	return &cttypes.MsgTransfer{
+		FromAddress:        fromAddr.String(),
+		ToAddress:          toAddress.String(),
+		Denom:              denom,
+		FromAmountLo:       &fromAmountLo,
+		FromAmountHi:       &fromAmountHi,
+		ToAmountLo:         &toAmountLo,
+		ToAmountHi:         &toAmountHi,
+		RemainingBalance:   &remainingBalance,
+		DecryptableBalance: decryptableBalance,
+		Proofs:             &transferMessageProofs,
+	}, nil
 }
 
 func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, error) {
