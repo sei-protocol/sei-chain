@@ -134,12 +134,14 @@ func (p PrecompileExecutor) transfer(ctx sdk.Context, method *abi.Method, caller
 	err = toAmountHi.Unmarshal(args[6].([]byte))
 	if err != nil {
 		rerr = err
+		return
 	}
 
 	var remainingBalance cttypes.Ciphertext
 	err = remainingBalance.Unmarshal(args[7].([]byte))
 	if err != nil {
 		rerr = err
+		return
 	}
 
 	decryptableBalance := args[8].(string)
