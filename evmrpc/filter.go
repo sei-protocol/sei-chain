@@ -321,6 +321,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}
 
 	// Parallelize execution
+	var mu = sync.Mutex{}
 	numWorkers := int(math.Min(MaxNumOfWorkers, float64(end-begin+1)))
 	var wg sync.WaitGroup
 	tasksChan := make(chan int64, end-begin+1)
@@ -345,6 +346,11 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	// Worker function
 	worker := func() {
 		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic in GetLogsByFilters worker: %v", r)
+			}
+		}()
 		for height := range tasksChan {
 			if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
 				providerCtx := f.ctxProvider(height)
@@ -356,7 +362,9 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 			h := height
 			block, berr := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
 			if berr != nil {
+				mu.Lock()
 				err = berr
+				mu.Unlock()
 			}
 			matchedLogs := f.GetLogsForBlock(block, crit, bloomIndexes)
 			for _, log := range matchedLogs {
@@ -376,6 +384,11 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		wg.Wait()
 		close(resultsChan) // Close the results channel after workers finish
 	}()
+
+	// Check err after all work is done
+	if err != nil {
+		return nil, 0, err
+	}
 
 	// Aggregate results into the final slice
 	for result := range resultsChan {
