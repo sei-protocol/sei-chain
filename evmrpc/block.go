@@ -108,12 +108,16 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 }
 
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
-	startTime := time.Now()
-	defer recordMetrics(fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr == nil)
-	return a.getBlockByHash(ctx, blockHash, fullTx)
+	return a.getBlockByHash(ctx, blockHash, fullTx, true, nil)
 }
 
-func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
+func (a *SeiBlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
+	return a.getBlockByHash(ctx, blockHash, fullTx, false, a.isPanicTx)
+}
+
+func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includePanicTx bool, isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)) (result map[string]interface{}, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics(fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr == nil)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
 	if err != nil {
 		return nil, err
@@ -123,7 +127,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 		return nil, err
 	}
 	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	return EncodeTmBlock(a.ctxProvider(block.Block.Height), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeShellReceipts)
+	return EncodeTmBlock(a.ctxProvider(block.Block.Height), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeShellReceipts, includePanicTx, isPanicTx)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {

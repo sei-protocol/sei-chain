@@ -171,7 +171,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeWS, "eth"),
+			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeWS),
 		},
 		{
 			Namespace: "eth",
