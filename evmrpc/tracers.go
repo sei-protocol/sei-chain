@@ -24,10 +24,32 @@ type DebugAPI struct {
 	connectionType ConnectionType
 }
 
+type SeiDebugAPI struct {
+	*DebugAPI
+	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
+}
+
 func NewDebugAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, config *SimulateConfig, connectionType ConnectionType) *DebugAPI {
 	backend := NewBackend(ctxProvider, k, txDecoder, tmClient, config)
 	tracersAPI := tracers.NewAPI(backend)
 	return &DebugAPI{tracersAPI: tracersAPI, tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, connectionType: connectionType}
+}
+
+func NewSeiDebugAPI(
+	tmClient rpcclient.Client,
+	k *keeper.Keeper,
+	ctxProvider func(int64) sdk.Context,
+	txDecoder sdk.TxDecoder,
+	config *SimulateConfig,
+	connectionType ConnectionType,
+	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
+) *SeiDebugAPI {
+	backend := NewBackend(ctxProvider, k, txDecoder, tmClient, config)
+	tracersAPI := tracers.NewAPI(backend)
+	return &SeiDebugAPI{
+		DebugAPI:  &DebugAPI{tracersAPI: tracersAPI, tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, connectionType: connectionType},
+		isPanicTx: isPanicTx,
+	}
 }
 
 func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
@@ -35,6 +57,25 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	defer recordMetrics("debug_traceTransaction", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceTransaction(ctx, hash, config)
 	return
+}
+
+func (api *SeiDebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime, returnErr == nil)
+	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	var resultMap map[string]interface{}
+	if err := json.Unmarshal(result.([]byte), &resultMap); err != nil {
+		return nil, err
+	}
+	// iterate over the resultMap and skip any txHash is a panic tx
+	var filteredResult []interface{}
+	for _, txTraceResult := range resultMap {
+		if _, ok := resultMap["error"]; ok {
+			continue
+		}
+		filteredResult = append(filteredResult, txTraceResult)
+	}
+	return filteredResult, nil
 }
 
 func (api *DebugAPI) isPanicTx(ctx context.Context, hash common.Hash) (bool, error) {

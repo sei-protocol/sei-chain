@@ -1,10 +1,12 @@
 package evmrpc
 
 import (
+	"context"
 	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
 	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -46,7 +48,12 @@ func NewEVMHTTPServer(
 	ctx := ctxProvider(LatestCtxHeight)
 
 	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP)
-	// filterAPI := NewFilterAPI(tmClient, &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeHTTP)
+	debugAPI := NewDebugAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), simulateConfig, ConnectionTypeHTTP)
+	isPanicTxFunc := func(ctx context.Context, hash common.Hash) (bool, error) {
+		return debugAPI.isPanicTx(ctx, hash)
+	}
+	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP, isPanicTxFunc)
+	seiDebugAPI := NewSeiDebugAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), simulateConfig, ConnectionTypeHTTP, isPanicTxFunc)
 
 	apis := []rpc.API{
 		{
@@ -55,15 +62,19 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeHTTP, "eth"),
+			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeHTTP),
 		},
 		{
 			Namespace: "sei",
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeHTTP, "sei"),
+			Service:   NewSeiBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeHTTP, isPanicTxFunc),
 		},
 		{
 			Namespace: "eth",
 			Service:   txAPI,
+		},
+		{
+			Namespace: "sei",
+			Service:   seiTxAPI,
 		},
 		{
 			Namespace: "eth",
@@ -107,7 +118,11 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "debug",
-			Service:   NewDebugAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), simulateConfig, ConnectionTypeHTTP),
+			Service:   debugAPI,
+		},
+		{
+			Namespace: "sei",
+			Service:   seiDebugAPI,
 		},
 	}
 	// Test API can only exist on non-live chain IDs.  These APIs instrument certain overrides.
