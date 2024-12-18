@@ -33,6 +33,7 @@ func NewEVMHTTPServer(
 	ctxProvider func(int64) sdk.Context,
 	txConfig client.TxConfig,
 	homeDir string,
+	isPanicTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // optional - for testing
 ) (EVMServer, error) {
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
@@ -49,8 +50,10 @@ func NewEVMHTTPServer(
 
 	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP)
 	debugAPI := NewDebugAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), simulateConfig, ConnectionTypeHTTP)
-	isPanicTxFunc := func(ctx context.Context, hash common.Hash) (bool, error) {
-		return debugAPI.isPanicTx(ctx, hash)
+	if isPanicTxFunc == nil {
+		isPanicTxFunc = func(ctx context.Context, hash common.Hash) (bool, error) {
+			return debugAPI.isPanicTx(ctx, hash)
+		}
 	}
 	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP, isPanicTxFunc)
 	seiDebugAPI := NewSeiDebugAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), simulateConfig, ConnectionTypeHTTP)

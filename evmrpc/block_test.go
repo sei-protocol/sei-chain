@@ -34,6 +34,13 @@ func TestGetSeiBlockByHash(t *testing.T) {
 	verifyBlockResult(t, resObj)
 }
 
+func TestGetSeiBlockByNumberExcludePanicTx(t *testing.T) {
+	resObj := sendSeiRequestGood(t, "getBlockByNumberExcludePanicTx", "0x67", true)
+	// first tx is not a panic tx, second tx is a panic tx
+	expectedNumTxs := 1
+	require.Equal(t, expectedNumTxs, len(resObj["result"].(map[string]interface{})["transactions"].([]interface{})))
+}
+
 func TestGetBlockByNumber(t *testing.T) {
 	resObjEarliest := sendSeiRequestGood(t, "getBlockByNumber", "earliest", true)
 	verifyGenesisBlockResult(t, resObjEarliest)

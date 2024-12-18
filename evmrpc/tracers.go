@@ -82,7 +82,7 @@ func (api *DebugAPI) isPanicTx(ctx context.Context, hash common.Hash) (bool, err
 	_, err := api.TraceTransaction(ctx, hash, &tracers.TraceConfig{
 		Tracer: &callTracer,
 	})
-	if strings.Contains(err.Error(), "tracing failed") {
+	if strings.Contains(err.Error(), "failed") {
 		return true, nil
 	}
 	return false, err

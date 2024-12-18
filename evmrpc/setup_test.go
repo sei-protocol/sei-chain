@@ -62,7 +62,8 @@ var MultiTxBlockHash = "0x000000000000000000000000000000000000000000000000000000
 var TestCosmosTxHash = "690D39ADF56D4C811B766DFCD729A415C36C4BFFE80D63E305373B9518EBFB14"
 var TestEvmTxHash = "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"
 
-var TestPanicTxHash = "0x1111111111111111111111111111111111111111111111111111111111111111"
+var TestNonPanicTxHash = "0x566f1c956c74b089643a1e6f880ac65745de0e5cd8cfc3c7482d20a486576219"
+var TestPanicTxHash = "0x0ea197de8403de9c2e8cf9ec724e43734e9dbd3a8294a09d031acd67914b73e4"
 var TestBlockHash = "0x0000000000000000000000000000000000000000000000000000000000000001"
 
 var EncodingConfig = app.MakeEncodingConfig()
@@ -228,7 +229,7 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 	if height == MockHeight103 {
 		res.Block.Data.Txs = []tmtypes.Tx{
 			func() []byte {
-				bz, _ := Encoder(DebugTraceTx) // reuse the same tx for non-panic tx
+				bz, _ := Encoder(DebugTraceNonPanicTx) // reuse the same tx for non-panic tx
 				return bz
 			}(),
 			func() []byte {
@@ -354,7 +355,11 @@ func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.
 				GasUsed:   5,
 			},
 		}
-		return &coretypes.ResultBlockResults{TxsResults: TxResults}, nil
+		return &coretypes.ResultBlockResults{TxsResults: TxResults, ConsensusParamUpdates: &types2.ConsensusParams{
+			Block: &types2.BlockParams{
+				MaxGas: 100000000,
+			},
+		}}, nil
 	}
 	return &coretypes.ResultBlockResults{
 		TxsResults: []*abci.ExecTxResult{
@@ -534,7 +539,7 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, ctxProvider, TxConfig, "")
+	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, ctxProvider, TxConfig, "", isPanicTxFunc)
 	if err != nil {
 		panic(err)
 	}
@@ -546,7 +551,7 @@ func init() {
 	badConfig := evmrpc.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, ctxProvider, TxConfig, "")
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, ctxProvider, TxConfig, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -639,6 +644,15 @@ func generateTxData() {
 		Data:      []byte("abc"),
 		ChainID:   chainId,
 	})
+	debugTraceNonPanicTxBuilder, _ := buildTx(ethtypes.DynamicFeeTx{
+		Nonce:     0,
+		GasFeeCap: big.NewInt(10),
+		Gas:       22000,
+		To:        &to,
+		Value:     big.NewInt(1000),
+		Data:      []byte("abc"),
+		ChainID:   chainId,
+	})
 	debugTracePanicTxBuilder, _ := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     100, // set a high nonce to make sure it will panic upon simulation
 		GasFeeCap: big.NewInt(10),
@@ -656,6 +670,7 @@ func generateTxData() {
 	MultiTxBlockSynthTx = synthTxBuilder.GetTx()
 	DebugTraceTx = debugTraceTxBuilder.GetTx()
 	DebugTracePanicTx = debugTracePanicTxBuilder.GetTx()
+	DebugTraceNonPanicTx = debugTraceNonPanicTxBuilder.GetTx()
 	TxNonEvm = app.TestTx{}
 	TxNonEvmWithSyntheticLog = app.TestTx{}
 	bloomTx1 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
@@ -868,9 +883,14 @@ func setupLogs() {
 		TxHashHex:        DebugTraceHashHex,
 	})
 	CtxDebugTracePanic := Ctx.WithBlockHeight(MockHeight103)
-	EVMKeeper.MockReceipt(CtxDebugTracePanic, common.HexToHash(TestPanicTxHash), &types.Receipt{
+	EVMKeeper.MockReceipt(CtxDebugTracePanic, common.HexToHash(TestNonPanicTxHash), &types.Receipt{
 		BlockNumber:      MockHeight103,
 		TransactionIndex: 0,
+		TxHashHex:        TestNonPanicTxHash,
+	})
+	EVMKeeper.MockReceipt(CtxDebugTracePanic, common.HexToHash(TestPanicTxHash), &types.Receipt{
+		BlockNumber:      MockHeight103,
+		TransactionIndex: 1,
 		TxHashHex:        TestPanicTxHash,
 	})
 	txNonEvmBz, _ := Encoder(TxNonEvmWithSyntheticLog)
@@ -1100,4 +1120,12 @@ func TestEcho(t *testing.T) {
 	_, buf, err := conn.ReadMessage()
 	require.Nil(t, err)
 	require.Equal(t, "{\"jsonrpc\":\"2.0\",\"id\":\"test\",\"result\":\"something\"}\n", string(buf))
+}
+
+func isPanicTxFunc(ctx context.Context, hash common.Hash) (bool, error) {
+	fmt.Println("In isPanicTx, hash = ", hash)
+	if hash == common.HexToHash(TestPanicTxHash) {
+		return true, nil
+	}
+	return false, nil
 }

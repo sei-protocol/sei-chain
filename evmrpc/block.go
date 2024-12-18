@@ -126,7 +126,6 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("in getBlockByHash, block.Block.Height", block.Block.Height)
 	blockRes, err := blockResultsWithRetry(ctx, a.tmClient, &block.Block.Height)
 	if err != nil {
 		return nil, err
@@ -280,6 +279,7 @@ func EncodeTmBlock(
 					}
 					if !includePanicTx {
 						panic, err := isPanicTx(ctx.Context(), hash)
+						fmt.Printf("in EncodeTmBlock, hash = %+v, panic = %+v, err = %+v\n", hash, panic, err)
 						if err != nil {
 							return nil, fmt.Errorf("failed to check if tx is panic tx: %w", err)
 						}
