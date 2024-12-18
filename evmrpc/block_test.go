@@ -2,7 +2,6 @@ package evmrpc_test
 
 import (
 	"crypto/sha256"
-	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -120,7 +119,6 @@ func TestGetBlockReceipts(t *testing.T) {
 }
 
 func verifyGenesisBlockResult(t *testing.T, resObj map[string]interface{}) {
-	fmt.Println("In verifyGenesisBlockResult, resObj", resObj)
 	resObj = resObj["result"].(map[string]interface{})
 	require.Equal(t, "0x3b9aca00", resObj["baseFeePerGas"])
 	require.Equal(t, "0x0", resObj["difficulty"])

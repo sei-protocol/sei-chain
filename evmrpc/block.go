@@ -174,7 +174,6 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		return nil, err
 	}
 
-	// fmt.Println("in getBlockReceipts, heightPtr height", *heightPtr)
 	block, err := blockByNumberWithRetry(ctx, a.tmClient, heightPtr, 1)
 	if err != nil {
 		return nil, err
@@ -182,9 +181,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 
 	// Get all tx hashes for the block
 	height := block.Block.Header.Height
-	fmt.Println("in getBlockReceipts, height", height)
 	txHashes := getTxHashesFromBlock(block, a.txConfig, shouldIncludeSynthetic(a.namespace))
-	fmt.Println("in getBlockReceipts, txHashes", txHashes)
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}
