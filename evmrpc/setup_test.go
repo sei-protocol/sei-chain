@@ -47,6 +47,7 @@ const TestPort = 7777
 const TestWSPort = 7778
 const TestBadPort = 7779
 
+const GenesisBlockHeight = 1
 const MockHeight8 = 8
 const MockHeight2 = 2
 const MockHeight103 = 103
@@ -55,13 +56,14 @@ const MockHeight100 = 100
 
 var DebugTraceHashHex = "0x1234567890123456789023456789012345678901234567890123456789000004"
 var DebugTraceBlockHash = "BE17E0261E539CB7E9A91E123A6D794E0163D656FCF9B8EAC07823F7ED28512B"
-var DebugTracePanicBlockHash = "0000000000000000000000000000000000000000000000000000000000000002"
-var MultiTxBlockHash = "0000000000000000000000000000000000000000000000000000000000000002"
+var DebugTracePanicBlockHash = "0x0000000000000000000000000000000000000000000000000000000000000003"
+var MultiTxBlockHash = "0x0000000000000000000000000000000000000000000000000000000000000002"
 
 var TestCosmosTxHash = "690D39ADF56D4C811B766DFCD729A415C36C4BFFE80D63E305373B9518EBFB14"
 var TestEvmTxHash = "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"
 var TestNonPanicTxHash = "0x1111111111111111111111111111111111111111111111111111111111111112"
 var TestPanicTxHash = "0x1111111111111111111111111111111111111111111111111111111111111111"
+var TestBlockHash = "0x0000000000000000000000000000000000000000000000000000000000000001"
 
 var EncodingConfig = app.MakeEncodingConfig()
 var TxConfig = EncodingConfig.TxConfig
@@ -93,11 +95,11 @@ var filterTimeoutDuration = 500 * time.Millisecond
 var TotalTxCount int = 11
 
 var MockBlockID = tmtypes.BlockID{
-	Hash: bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000001")),
+	Hash: bytes.HexBytes(mustHexToBytes(TestBlockHash[2:])),
 }
 
 var MockBlockIDMultiTx = tmtypes.BlockID{
-	Hash: bytes.HexBytes(mustHexToBytes(MultiTxBlockHash)),
+	Hash: bytes.HexBytes(mustHexToBytes(MultiTxBlockHash[2:])),
 }
 
 var NewHeadsCalled = make(chan struct{})
@@ -135,6 +137,7 @@ func mockBlockHeader(height int64) tmtypes.Header {
 }
 
 func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
+	fmt.Println("in mockBlock, height", height)
 	if height == MockHeight2 {
 		return &coretypes.ResultBlock{
 			BlockID: MockBlockIDMultiTx,
@@ -296,27 +299,44 @@ func (c *MockClient) Genesis(context.Context) (*coretypes.ResultGenesis, error) 
 }
 
 func (c *MockClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock, error) {
-	height := int64(MockHeight8)
-	if h != nil {
-		height = *h
+	if h == nil {
+		return c.mockBlock(MockHeight8), nil
 	}
-	return c.mockBlock(height), nil
+	return c.mockBlock(*h), nil
 }
 
 func (c *MockClient) BlockByHash(_ context.Context, hash bytes.HexBytes) (*coretypes.ResultBlock, error) {
-	if hash.String() == DebugTraceBlockHash {
+	if hash.String() == DebugTraceBlockHash[2:] {
 		return c.mockBlock(MockHeight101), nil
 	}
-	if hash.String() == DebugTracePanicBlockHash {
+	if hash.String() == DebugTracePanicBlockHash[2:] {
 		return c.mockBlock(MockHeight103), nil
 	}
-	if hash.String() == MultiTxBlockHash {
+	if hash.String() == MultiTxBlockHash[2:] {
 		return c.mockBlock(MockHeight2), nil
 	}
 	return c.mockBlock(MockHeight8), nil
 }
 
 func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.ResultBlockResults, error) {
+	fmt.Println("in BlockResults, height", *height)
+	if *height == GenesisBlockHeight {
+		return &coretypes.ResultBlockResults{
+			TxsResults: []*abci.ExecTxResult{
+				{
+					Data:      []byte{},
+					GasWanted: 0,
+					GasUsed:   0,
+				},
+			},
+			ConsensusParamUpdates: &types2.ConsensusParams{
+				Block: &types2.BlockParams{
+					MaxBytes: 100000000,
+					MaxGas:   200000000,
+				},
+			},
+		}, nil
+	}
 	if *height == MockHeight103 {
 		TxResults := []*abci.ExecTxResult{
 			{
@@ -338,6 +358,7 @@ func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.
 		}
 		return &coretypes.ResultBlockResults{TxsResults: TxResults}, nil
 	}
+	fmt.Println("returning default BlockResults")
 	return &coretypes.ResultBlockResults{
 		TxsResults: []*abci.ExecTxResult{
 			{

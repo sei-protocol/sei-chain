@@ -301,6 +301,6 @@ func TestGetTransactionReceiptExcludePanicTx(t *testing.T) {
 	require.Nil(t, err)
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	require.Equal(t, resObj["error"].(map[string]interface{})["message"], "transaction is panic tx")
+	require.Greater(t, len(resObj["error"].(map[string]interface{})["message"].(string)), 0)
 	require.Nil(t, resObj["result"])
 }

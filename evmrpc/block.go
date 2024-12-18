@@ -112,6 +112,10 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 }
 
 func (a *SeiBlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
+	return a.getBlockByHash(ctx, blockHash, fullTx, true, nil)
+}
+
+func (a *SeiBlockAPI) GetBlockByHashExcludePanicTx(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
 	return a.getBlockByHash(ctx, blockHash, fullTx, false, a.isPanicTx)
 }
 
@@ -122,6 +126,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("in getBlockByHash, block.Block.Height", block.Block.Height)
 	blockRes, err := blockResultsWithRetry(ctx, a.tmClient, &block.Block.Height)
 	if err != nil {
 		return nil, err
@@ -131,7 +136,8 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
-	return a.getBlockByNumber(ctx, number, fullTx, true, nil)
+	res, err := a.getBlockByNumber(ctx, number, fullTx, true, nil)
+	return res, err
 }
 
 func (a *BlockAPI) getBlockByNumber(
@@ -168,6 +174,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		return nil, err
 	}
 
+	// fmt.Println("in getBlockReceipts, heightPtr height", *heightPtr)
 	block, err := blockByNumberWithRetry(ctx, a.tmClient, heightPtr, 1)
 	if err != nil {
 		return nil, err
@@ -175,7 +182,9 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 
 	// Get all tx hashes for the block
 	height := block.Block.Header.Height
+	fmt.Println("in getBlockReceipts, height", height)
 	txHashes := getTxHashesFromBlock(block, a.txConfig, shouldIncludeSynthetic(a.namespace))
+	fmt.Println("in getBlockReceipts, txHashes", txHashes)
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}

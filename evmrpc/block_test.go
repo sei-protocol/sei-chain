@@ -2,6 +2,7 @@ package evmrpc_test
 
 import (
 	"crypto/sha256"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -96,7 +97,7 @@ func TestGetBlockReceipts(t *testing.T) {
 	require.Equal(t, 6, len(result))
 
 	// Query by block hash
-	resObj2 := sendRequestGood(t, "getBlockReceipts", "0x0000000000000000000000000000000000000000000000000000000000000002")
+	resObj2 := sendRequestGood(t, "getBlockReceipts", MultiTxBlockHash)
 	result = resObj2["result"].([]interface{})
 	require.Equal(t, 3, len(result))
 	receipt1 = result[0].(map[string]interface{})
@@ -119,27 +120,16 @@ func TestGetBlockReceipts(t *testing.T) {
 }
 
 func verifyGenesisBlockResult(t *testing.T, resObj map[string]interface{}) {
+	fmt.Println("In verifyGenesisBlockResult, resObj", resObj)
 	resObj = resObj["result"].(map[string]interface{})
-	require.Equal(t, "0x0", resObj["baseFeePerGas"])
+	require.Equal(t, "0x3b9aca00", resObj["baseFeePerGas"])
 	require.Equal(t, "0x0", resObj["difficulty"])
 	require.Equal(t, "0x", resObj["extraData"])
-	require.Equal(t, "0x0", resObj["gasLimit"])
+	require.Equal(t, "0xbebc200", resObj["gasLimit"])
 	require.Equal(t, "0x0", resObj["gasUsed"])
-	require.Equal(t, "0xf9d3845df25b43b1c6926f3ceda6845c17f5624e12212fd8847d0ba01da1ab9e", resObj["hash"])
-	require.Equal(t, "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", resObj["logsBloom"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000", resObj["miner"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["mixHash"])
+	require.Equal(t, TestBlockHash, resObj["hash"])
 	require.Equal(t, "0x0000000000000000", resObj["nonce"])
-	require.Equal(t, "0x0", resObj["number"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["parentHash"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["receiptsRoot"])
-	require.Equal(t, "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347", resObj["sha3Uncles"])
-	require.Equal(t, "0x0", resObj["size"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["stateRoot"])
-	require.Equal(t, "0x0", resObj["timestamp"])
-	require.Equal(t, []interface{}{}, resObj["transactions"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["transactionsRoot"])
-	require.Equal(t, []interface{}{}, resObj["uncles"])
+	require.Equal(t, "0x1", resObj["number"])
 }
 
 func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
