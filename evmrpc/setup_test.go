@@ -1123,7 +1123,6 @@ func TestEcho(t *testing.T) {
 }
 
 func isPanicTxFunc(ctx context.Context, hash common.Hash) (bool, error) {
-	fmt.Println("In isPanicTx, hash = ", hash)
 	if hash == common.HexToHash(TestPanicTxHash) {
 		return true, nil
 	}

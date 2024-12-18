@@ -141,7 +141,6 @@ func getTransactionReceipt(
 	if err != nil {
 		return nil, err
 	}
-
 	return encodeReceipt(receipt, t.txConfig.TxDecoder(), block, func(h common.Hash) bool {
 		_, err := t.keeper.GetReceipt(sdkctx, h)
 		return err == nil

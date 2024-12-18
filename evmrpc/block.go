@@ -304,7 +304,6 @@ func EncodeTmBlock(
 					}
 					if isPanicTx != nil {
 						panic, err := isPanicTx(ctx.Context(), hash)
-						fmt.Printf("in EncodeTmBlock, hash = %+v, panic = %+v, err = %+v\n", hash, panic, err)
 						if err != nil {
 							return nil, fmt.Errorf("failed to check if tx is panic tx: %w", err)
 						}
