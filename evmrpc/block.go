@@ -28,6 +28,7 @@ import (
 )
 
 const ShellEVMTxType = math.MaxUint32
+const TestGenesisBlockHash = "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E"
 
 type BlockAPI struct {
 	tmClient             rpcclient.Client
@@ -135,8 +136,34 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
-	res, err := a.getBlockByNumber(ctx, number, fullTx, true, nil)
-	return res, err
+	startTime := time.Now()
+	defer recordMetrics(fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr == nil)
+	if number == 0 {
+		// for compatibility with the graph, always return genesis block
+		return map[string]interface{}{
+			"number":           (*hexutil.Big)(big.NewInt(0)),
+			"hash":             TestGenesisBlockHash,
+			"parentHash":       common.Hash{},
+			"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
+			"mixHash":          common.Hash{},           // inapplicable to Sei
+			"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
+			"logsBloom":        ethtypes.Bloom{},
+			"stateRoot":        common.Hash{},
+			"miner":            common.Address{},
+			"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
+			"extraData":        hexutil.Bytes{},               // inapplicable to Sei
+			"gasLimit":         hexutil.Uint64(0),
+			"gasUsed":          hexutil.Uint64(0),
+			"timestamp":        hexutil.Uint64(0),
+			"transactionsRoot": common.Hash{},
+			"receiptsRoot":     common.Hash{},
+			"size":             hexutil.Uint64(0),
+			"uncles":           []common.Hash{}, // inapplicable to Sei
+			"transactions":     []interface{}{},
+			"baseFeePerGas":    (*hexutil.Big)(big.NewInt(0)),
+		}, nil
+	}
+	return a.getBlockByNumber(ctx, number, fullTx, true, nil)
 }
 
 func (a *BlockAPI) getBlockByNumber(

@@ -47,7 +47,7 @@ const TestPort = 7777
 const TestWSPort = 7778
 const TestBadPort = 7779
 
-const GenesisBlockHeight = 1
+const GenesisBlockHeight = 0
 const MockHeight8 = 8
 const MockHeight2 = 2
 const MockHeight103 = 103

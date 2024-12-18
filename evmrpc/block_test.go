@@ -127,14 +127,14 @@ func TestGetBlockReceipts(t *testing.T) {
 
 func verifyGenesisBlockResult(t *testing.T, resObj map[string]interface{}) {
 	resObj = resObj["result"].(map[string]interface{})
-	require.Equal(t, "0x3b9aca00", resObj["baseFeePerGas"])
+	require.Equal(t, "0x0", resObj["baseFeePerGas"])
 	require.Equal(t, "0x0", resObj["difficulty"])
 	require.Equal(t, "0x", resObj["extraData"])
-	require.Equal(t, "0xbebc200", resObj["gasLimit"])
+	require.Equal(t, "0x0", resObj["gasLimit"])
 	require.Equal(t, "0x0", resObj["gasUsed"])
-	require.Equal(t, TestBlockHash, resObj["hash"])
+	require.Equal(t, evmrpc.TestGenesisBlockHash, resObj["hash"])
 	require.Equal(t, "0x0000000000000000", resObj["nonce"])
-	require.Equal(t, "0x1", resObj["number"])
+	require.Equal(t, "0x0", resObj["number"])
 }
 
 func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
