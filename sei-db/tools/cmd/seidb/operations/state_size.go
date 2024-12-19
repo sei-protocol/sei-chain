@@ -65,8 +65,8 @@ func PrintStateSize(module string, db *memiavl.DB) error {
 			fmt.Printf("Tree does not exist for module %s \n", moduleName)
 		} else {
 			fmt.Printf("Calculating for module: %s \n", moduleName)
-			keySizeByPrefix := map[string]int{}
-			valueSizeByPrefix := map[string]int{}
+			keySizeByPrefix := map[string]int64{}
+			valueSizeByPrefix := map[string]int64{}
 			tree.ScanPostOrder(func(node memiavl.Node) bool {
 				if node.IsLeaf() {
 					totalNumKeys++
@@ -77,8 +77,8 @@ func PrintStateSize(module string, db *memiavl.DB) error {
 					totalSize += keySize + valueSize
 					prefix := fmt.Sprintf("%X", node.Key())
 					prefix = prefix[:2]
-					keySizeByPrefix[prefix] += keySize
-					valueSizeByPrefix[prefix] += valueSize
+					keySizeByPrefix[prefix] += int64(keySize)
+					valueSizeByPrefix[prefix] += int64(valueSize)
 				}
 				return true
 			})
