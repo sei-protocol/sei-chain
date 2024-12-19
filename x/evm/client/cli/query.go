@@ -479,7 +479,7 @@ func GetCmdQueryCtTransferPayload() *cobra.Command {
 	}
 
 	flags.AddQueryFlagsToCmd(cmd)
-	cmd.Flags().StringSlice(auditorsFlag, []string{}, "List of auditors")
+	cmd.Flags().StringSlice(auditorsFlag, []string{}, "List of auditor EVM addresses")
 
 	return cmd
 }
@@ -535,7 +535,7 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	auditorAddrs, err := cmd.Flags().GetStringSlice(auditorsFlag)
+	auditorEvmAddrs, err := cmd.Flags().GetStringSlice(auditorsFlag)
 	if err != nil {
 		return err
 	}
@@ -543,15 +543,25 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 	var auditors []cttypes.AuditorInput
 	transferMethod := confidentialtransfers.TransferMethod
 
-	if auditorAddrs != nil && len(auditorAddrs) > 0 {
-		auditors = make([]cttypes.AuditorInput, len(auditorAddrs))
-		for i, auditorAddr := range auditorAddrs {
-			auditorAccount, err := cttutils.GetAccount(ctQueryClient, auditorAddr, coin.Denom)
+	seiToEvmAddressMap := make(map[string]string)
+
+	if auditorEvmAddrs != nil && len(auditorEvmAddrs) > 0 {
+		auditors = make([]cttypes.AuditorInput, len(auditorEvmAddrs))
+		for i, auditorEvmAddr := range auditorEvmAddrs {
+			auditorRes, err := queryClient.SeiAddressByEVMAddress(context.Background(), &types.QuerySeiAddressByEVMAddressRequest{EvmAddress: auditorEvmAddr})
+			if err != nil {
+				return err
+			}
+			if !auditorRes.Associated {
+				return errors.New(fmt.Sprintf("auditor address %s is not associated with a Sei address", auditorEvmAddr))
+			}
+			seiToEvmAddressMap[auditorRes.SeiAddress] = auditorEvmAddr
+			auditorAccount, err := cttutils.GetAccount(ctQueryClient, auditorRes.SeiAddress, coin.Denom)
 			if err != nil {
 				return err
 			}
 			auditors[i] = cttypes.AuditorInput{
-				Address: auditorAddr,
+				Address: auditorRes.SeiAddress,
 				Pubkey:  &auditorAccount.PublicKey,
 			}
 		}
@@ -593,8 +603,6 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 	inputArgs := []interface{}{
 		fromEvmAddress,
 		toEvmAddress,
-		fromEvmAddress,
-		toEvmAddress,
 		coin.Denom,
 		fromAmountLo,
 		fromAmountHi,
@@ -615,24 +623,21 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 			transferAmountHiValidityProof, _ := auditorProto.TransferAmountHiValidityProof.Marshal()
 			transferAmountLoEqualityProof, _ := auditorProto.TransferAmountLoEqualityProof.Marshal()
 			transferAmountHiEqualityProof, _ := auditorProto.TransferAmountHiEqualityProof.Marshal()
-			evmAddressRequest := &types.QueryEVMAddressBySeiAddressRequest{SeiAddress: auditorProto.AuditorAddress}
-			evmAddress, err := queryClient.EVMAddressBySeiAddress(context.Background(), evmAddressRequest)
-			if err != nil {
-				return err
+			// check if the auditor address does not exist in the map
+			if auditorEvmAddress, exists := seiToEvmAddressMap[auditorProto.AuditorAddress]; !exists {
+				return errors.New(fmt.Sprintf("auditor address %s is not associated with an EVM address", auditorProto.AuditorAddress))
+			} else {
+				evmAuditor := cttypes.EvmAuditor{
+					AuditorAddress:                common.HexToAddress(auditorEvmAddress),
+					EncryptedTransferAmountLo:     encryptedTransferAmountLo,
+					EncryptedTransferAmountHi:     encryptedTransferAmountHi,
+					TransferAmountLoValidityProof: transferAmountLoValidityProof,
+					TransferAmountHiValidityProof: transferAmountHiValidityProof,
+					TransferAmountLoEqualityProof: transferAmountLoEqualityProof,
+					TransferAmountHiEqualityProof: transferAmountHiEqualityProof,
+				}
+				evmAuditors = append(evmAuditors, evmAuditor)
 			}
-			if !evmAddress.Associated {
-				return errors.New("auditor address not associated with an EVM address")
-			}
-			evmAuditor := cttypes.EvmAuditor{
-				AuditorAddress:                common.HexToAddress(evmAddress.EvmAddress),
-				EncryptedTransferAmountLo:     encryptedTransferAmountLo,
-				EncryptedTransferAmountHi:     encryptedTransferAmountHi,
-				TransferAmountLoValidityProof: transferAmountLoValidityProof,
-				TransferAmountHiValidityProof: transferAmountHiValidityProof,
-				TransferAmountLoEqualityProof: transferAmountLoEqualityProof,
-				TransferAmountHiEqualityProof: transferAmountHiEqualityProof,
-			}
-			evmAuditors = append(evmAuditors, evmAuditor)
 		}
 		inputArgs = append(inputArgs, evmAuditors)
 	}
