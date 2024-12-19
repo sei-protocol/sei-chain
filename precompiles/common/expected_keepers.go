@@ -3,6 +3,8 @@ package common
 import (
 	"context"
 
+	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
+
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	"github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 	"github.com/cosmos/ibc-go/v3/modules/core/exported"
@@ -127,4 +129,8 @@ type ConnectionKeeper interface {
 
 type ChannelKeeper interface {
 	GetChannel(ctx sdk.Context, portID, channelID string) (types.Channel, bool)
+}
+
+type ConfidentialTransfersKeeper interface {
+	Transfer(goCtx context.Context, req *cttypes.MsgTransfer) (*cttypes.MsgTransferResponse, error)
 }

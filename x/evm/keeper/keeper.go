@@ -29,6 +29,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/tests"
+	ctkeeper "github.com/sei-protocol/sei-chain/x/confidentialtransfers/keeper"
 	seidbtypes "github.com/sei-protocol/sei-db/ss/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -56,6 +57,7 @@ type Keeper struct {
 	transferKeeper ibctransferkeeper.Keeper
 	wasmKeeper     *wasmkeeper.PermissionedKeeper
 	wasmViewKeeper *wasmkeeper.Keeper
+	ctKeeper       *ctkeeper.Keeper
 
 	cachedFeeCollectorAddressMtx *sync.RWMutex
 	cachedFeeCollectorAddress    *common.Address
@@ -113,7 +115,8 @@ func (ctx *ReplayChainContext) GetHeader(hash common.Hash, number uint64) *ethty
 func NewKeeper(
 	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStateStore seidbtypes.StateStore,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
-	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper) *Keeper {
+	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper,
+	ctKeeper *ctkeeper.Keeper) *Keeper {
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
@@ -127,6 +130,7 @@ func NewKeeper(
 		transferKeeper:               transferKeeper,
 		wasmKeeper:                   wasmKeeper,
 		wasmViewKeeper:               wasmViewKeeper,
+		ctKeeper:                     ctKeeper,
 		pendingTxs:                   make(map[string][]*PendingTx),
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
@@ -146,6 +150,10 @@ func (k *Keeper) BankKeeper() bankkeeper.Keeper {
 
 func (k *Keeper) WasmKeeper() *wasmkeeper.PermissionedKeeper {
 	return k.wasmKeeper
+}
+
+func (k *Keeper) CtKeeper() ctkeeper.Keeper {
+	return *k.ctKeeper
 }
 
 func (k *Keeper) GetStoreKey() sdk.StoreKey {

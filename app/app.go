@@ -617,7 +617,7 @@ func New(
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
 		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
-		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
+		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.ConfidentialTransfersKeeper)
 	app.BankKeeper.RegisterRecipientChecker(app.EvmKeeper.CanAddressReceive)
 
 	bApp.SetPreCommitHandler(app.HandlePreCommit)
@@ -722,6 +722,7 @@ func New(
 			app.IBCKeeper.ConnectionKeeper,
 			app.IBCKeeper.ChannelKeeper,
 			app.AccountKeeper,
+			ctkeeper.NewMsgServerImpl(app.ConfidentialTransfersKeeper),
 		); err != nil {
 			panic(err)
 		}
