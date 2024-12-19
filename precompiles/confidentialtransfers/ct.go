@@ -146,79 +146,11 @@ func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Me
 		return
 	}
 
-	res := args[10].([]struct {
-		AuditorAddress                common.Address `json:"auditorAddress"`
-		EncryptedTransferAmountLo     []byte         `json:"encryptedTransferAmountLo"`
-		EncryptedTransferAmountHi     []byte         `json:"encryptedTransferAmountHi"`
-		TransferAmountLoValidityProof []byte         `json:"transferAmountLoValidityProof"`
-		TransferAmountHiValidityProof []byte         `json:"transferAmountHiValidityProof"`
-		TransferAmountLoEqualityProof []byte         `json:"transferAmountLoEqualityProof"`
-		TransferAmountHiEqualityProof []byte         `json:"transferAmountHiEqualityProof"`
-	})
-
-	var auditors []*cttypes.Auditor
-	for _, auditor := range res {
-		auditorAddr, err := p.accAddressFromArg(ctx, auditor.AuditorAddress)
-		if err != nil {
-			rerr = err
-			return
-		}
-
-		var encryptedTransferAmountLo cttypes.Ciphertext
-		err = encryptedTransferAmountLo.Unmarshal(auditor.EncryptedTransferAmountLo)
-		if err != nil {
-			rerr = err
-			return
-		}
-
-		var encryptedTransferAmountHi cttypes.Ciphertext
-		err = encryptedTransferAmountHi.Unmarshal(auditor.EncryptedTransferAmountHi)
-		if err != nil {
-			rerr = err
-			return
-		}
-
-		var transferAmountLoValidityProof cttypes.CiphertextValidityProof
-		err = transferAmountLoValidityProof.Unmarshal(auditor.TransferAmountLoValidityProof)
-		if err != nil {
-			rerr = err
-			return
-		}
-
-		var transferAmountHiValidityProof cttypes.CiphertextValidityProof
-		err = transferAmountHiValidityProof.Unmarshal(auditor.TransferAmountHiValidityProof)
-		if err != nil {
-			rerr = err
-			return
-		}
-
-		var transferAmountLoEqualityProof cttypes.CiphertextCiphertextEqualityProof
-		err = transferAmountLoEqualityProof.Unmarshal(auditor.TransferAmountLoEqualityProof)
-		if err != nil {
-			rerr = err
-			return
-		}
-
-		var transferAmountHiEqualityProof cttypes.CiphertextCiphertextEqualityProof
-		err = transferAmountHiEqualityProof.Unmarshal(auditor.TransferAmountHiEqualityProof)
-		if err != nil {
-			rerr = err
-			return
-		}
-
-		a := &cttypes.Auditor{
-			AuditorAddress:                auditorAddr.String(),
-			EncryptedTransferAmountLo:     &encryptedTransferAmountLo,
-			EncryptedTransferAmountHi:     &encryptedTransferAmountHi,
-			TransferAmountLoValidityProof: &transferAmountLoValidityProof,
-			TransferAmountHiValidityProof: &transferAmountHiValidityProof,
-			TransferAmountLoEqualityProof: &transferAmountLoEqualityProof,
-			TransferAmountHiEqualityProof: &transferAmountHiEqualityProof,
-		}
-		auditors = append(auditors, a)
+	msg.Auditors, err = p.getAuditorsFromArg(ctx, args[10])
+	if err != nil {
+		rerr = err
+		return
 	}
-
-	msg.Auditors = auditors
 
 	err = msg.ValidateBasic()
 	if err != nil {
@@ -318,4 +250,71 @@ func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) 
 		return nil, errors.New("cannot use an unassociated address as transfer address")
 	}
 	return seiAddr, nil
+}
+
+func (p PrecompileExecutor) getAuditorsFromArg(ctx sdk.Context, arg interface{}) ([]*cttypes.Auditor, error) {
+	res := arg.([]struct {
+		AuditorAddress                common.Address `json:"auditorAddress"`
+		EncryptedTransferAmountLo     []byte         `json:"encryptedTransferAmountLo"`
+		EncryptedTransferAmountHi     []byte         `json:"encryptedTransferAmountHi"`
+		TransferAmountLoValidityProof []byte         `json:"transferAmountLoValidityProof"`
+		TransferAmountHiValidityProof []byte         `json:"transferAmountHiValidityProof"`
+		TransferAmountLoEqualityProof []byte         `json:"transferAmountLoEqualityProof"`
+		TransferAmountHiEqualityProof []byte         `json:"transferAmountHiEqualityProof"`
+	})
+
+	var auditors []*cttypes.Auditor
+	for _, auditor := range res {
+		auditorAddr, err := p.accAddressFromArg(ctx, auditor.AuditorAddress)
+		if err != nil {
+			return nil, err
+		}
+
+		var encryptedTransferAmountLo cttypes.Ciphertext
+		err = encryptedTransferAmountLo.Unmarshal(auditor.EncryptedTransferAmountLo)
+		if err != nil {
+			return nil, err
+		}
+
+		var encryptedTransferAmountHi cttypes.Ciphertext
+		err = encryptedTransferAmountHi.Unmarshal(auditor.EncryptedTransferAmountHi)
+		if err != nil {
+			return nil, err
+		}
+
+		var transferAmountLoValidityProof cttypes.CiphertextValidityProof
+		err = transferAmountLoValidityProof.Unmarshal(auditor.TransferAmountLoValidityProof)
+		if err != nil {
+			return nil, err
+		}
+		var transferAmountHiValidityProof cttypes.CiphertextValidityProof
+		err = transferAmountHiValidityProof.Unmarshal(auditor.TransferAmountHiValidityProof)
+		if err != nil {
+			return nil, err
+		}
+
+		var transferAmountLoEqualityProof cttypes.CiphertextCiphertextEqualityProof
+		err = transferAmountLoEqualityProof.Unmarshal(auditor.TransferAmountLoEqualityProof)
+		if err != nil {
+			return nil, err
+		}
+
+		var transferAmountHiEqualityProof cttypes.CiphertextCiphertextEqualityProof
+		err = transferAmountHiEqualityProof.Unmarshal(auditor.TransferAmountHiEqualityProof)
+		if err != nil {
+			return nil, err
+		}
+
+		a := &cttypes.Auditor{
+			AuditorAddress:                auditorAddr.String(),
+			EncryptedTransferAmountLo:     &encryptedTransferAmountLo,
+			EncryptedTransferAmountHi:     &encryptedTransferAmountHi,
+			TransferAmountLoValidityProof: &transferAmountLoValidityProof,
+			TransferAmountHiValidityProof: &transferAmountHiValidityProof,
+			TransferAmountLoEqualityProof: &transferAmountLoEqualityProof,
+			TransferAmountHiEqualityProof: &transferAmountHiEqualityProof,
+		}
+		auditors = append(auditors, a)
+	}
+	return auditors, nil
 }
