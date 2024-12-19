@@ -86,3 +86,8 @@ func TestTraceCall(t *testing.T) {
 	require.Equal(t, float64(21000), result["gas"])
 	require.Equal(t, false, result["failed"])
 }
+
+func TestTraceTransactionPanic(t *testing.T) {
+	// try to make a NewDebugAPI here and just call that
+	
+}
