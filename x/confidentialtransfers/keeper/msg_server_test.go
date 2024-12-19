@@ -540,7 +540,7 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawHappyPath() {
 
 	// Create a withdraw request
 	withdrawAmount := new(big.Int).Div(initialAvailableBalance, big.NewInt(2))
-	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
+	withdrawStruct, _ := types.NewWithdrawFromPrivateKey(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
 
 	// Execute the withdraw
 	req := types.NewMsgWithdrawProto(withdrawStruct)
@@ -598,13 +598,13 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawSuccessive() {
 
 	// Create a withdraw request with an invalid amount
 	withdrawAmount := new(big.Int).Add(initialAvailableBalance, big.NewInt(1))
-	_, err := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
+	_, err := types.NewWithdrawFromPrivateKey(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
 	suite.Require().Error(err, "Cannot use client to create withdraw for more than the account balance")
 	suite.Require().ErrorContains(err, "insufficient balance")
 
 	// Create two withdraw requests for the entire balance
-	withdrawStruct1, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, initialAvailableBalance)
-	withdrawStruct2, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, initialAvailableBalance)
+	withdrawStruct1, _ := types.NewWithdrawFromPrivateKey(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, initialAvailableBalance)
+	withdrawStruct2, _ := types.NewWithdrawFromPrivateKey(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, initialAvailableBalance)
 
 	// Execute the first withdraw
 	req1 := types.NewMsgWithdrawProto(withdrawStruct1)
@@ -636,7 +636,7 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawInvalidAmount() {
 	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 50, initialAvailableBalance, big.NewInt(8000), big.NewInt(1000000000000))
 
 	// Create a withdraw request
-	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, initialAvailableBalance)
+	withdrawStruct, _ := types.NewWithdrawFromPrivateKey(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, initialAvailableBalance)
 
 	// Manually modify the withdraw struct to have an invalid amount (since we can't do that via the client)
 	withdrawStruct.Amount = new(big.Int).Add(initialAvailableBalance, big.NewInt(1))
@@ -681,7 +681,7 @@ func (suite *KeeperTestSuite) TestMsgServer_RepeatWithdraw() {
 
 	// Create a withdraw request
 	withdrawAmount := new(big.Int).Div(initialAvailableBalance, big.NewInt(5))
-	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
+	withdrawStruct, _ := types.NewWithdrawFromPrivateKey(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
 
 	// Execute the first withdraw
 	req := types.NewMsgWithdrawProto(withdrawStruct)
@@ -713,7 +713,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 
 	// Create a withdraw request
 	withdrawAmount := new(big.Int).Div(initialAvailableBalance, big.NewInt(5))
-	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
+	withdrawStruct, _ := types.NewWithdrawFromPrivateKey(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
 
 	// Modify the decryptable balance
 	aesKey, _ := utils.GetAESKey(*testPk, DefaultTestDenom)
@@ -728,7 +728,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 	// At this point, the decryptable available balance is corrupted.
 	// Any withdraw struct we create based on the decryptable balance in the account will be invalid.
 	accountState, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
-	nextWithdrawStruct, err := types.NewWithdraw(*testPk, accountState.AvailableBalance, DefaultTestDenom, testAddr.String(), accountState.DecryptableAvailableBalance, withdrawAmount)
+	nextWithdrawStruct, err := types.NewWithdrawFromPrivateKey(*testPk, accountState.AvailableBalance, DefaultTestDenom, testAddr.String(), accountState.DecryptableAvailableBalance, withdrawAmount)
 	req = types.NewMsgWithdrawProto(nextWithdrawStruct)
 	_, err = suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error withdrawing since withdraw struct is invalid")
@@ -751,7 +751,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 	aesEncryptedActualBalance, _ := encryption.EncryptAESGCM(actualBalance, aesKey)
 
 	// Then create the correct struct for the withdraw
-	correctedWithdrawStruct, err := types.NewWithdraw(*testPk, accountState.AvailableBalance, DefaultTestDenom, testAddr.String(), aesEncryptedActualBalance, withdrawAmount)
+	correctedWithdrawStruct, err := types.NewWithdrawFromPrivateKey(*testPk, accountState.AvailableBalance, DefaultTestDenom, testAddr.String(), aesEncryptedActualBalance, withdrawAmount)
 
 	// Execute the withdraw
 	req = types.NewMsgWithdrawProto(correctedWithdrawStruct)
@@ -766,7 +766,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ModifiedDecryptableBalance() {
 	suite.Require().Equal(decryptedAvailableBalance, newBalance, "New account value should have been updated")
 
 	// Validate that I can create regular transactions with the account again
-	nextWithdrawStruct, err = types.NewWithdraw(*testPk, accountState.AvailableBalance, DefaultTestDenom, testAddr.String(), accountState.DecryptableAvailableBalance, big.NewInt(1))
+	nextWithdrawStruct, err = types.NewWithdrawFromPrivateKey(*testPk, accountState.AvailableBalance, DefaultTestDenom, testAddr.String(), accountState.DecryptableAvailableBalance, big.NewInt(1))
 	req = types.NewMsgWithdrawProto(nextWithdrawStruct)
 	_, err = suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().NoError(err, "Should not have error withdrawing since decryptable balance is no longer corrupted")
@@ -791,7 +791,7 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawFeatureDisabled() {
 
 	// Create a withdraw request
 	withdrawAmount := new(big.Int).Div(initialAvailableBalance, big.NewInt(5))
-	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
+	withdrawStruct, _ := types.NewWithdrawFromPrivateKey(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
 
 	// Disable the confidential tokens module via params
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
@@ -893,7 +893,7 @@ func (suite *KeeperTestSuite) TestMsgServer_CloseAccountHasPendingBalance() {
 	availableBalanceAmount, err := encryption.DecryptAESGCM(account.DecryptableAvailableBalance, aeskey)
 	suite.Require().NoError(err, "Should be able to decrypt available balance")
 
-	withdrawStruct, _ := types.NewWithdraw(*testPk, account.AvailableBalance, DefaultTestDenom, testAddr.String(), account.DecryptableAvailableBalance, availableBalanceAmount)
+	withdrawStruct, _ := types.NewWithdrawFromPrivateKey(*testPk, account.AvailableBalance, DefaultTestDenom, testAddr.String(), account.DecryptableAvailableBalance, availableBalanceAmount)
 	withdrawReq := types.NewMsgWithdrawProto(withdrawStruct)
 	suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), withdrawReq)
 
@@ -1067,7 +1067,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceAfterWithdraw() {
 
 	// Before the pending balance is applied, a withdrawal is made, changing the available balance in the account.
 	withdrawAmount := new(big.Int).Div(initialAvailableBalance, big.NewInt(2))
-	withdrawReq, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
+	withdrawReq, _ := types.NewWithdrawFromPrivateKey(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
 	withdrawMsg := types.NewMsgWithdrawProto(withdrawReq)
 	_, err := suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), withdrawMsg)
 

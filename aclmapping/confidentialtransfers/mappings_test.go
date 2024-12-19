@@ -430,7 +430,7 @@ func (suite *KeeperTestSuite) TestMsgWithdrawDependencies() {
 	initialState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 10, 2000, 3000, 1000)
 
 	withdrawAmount := new(big.Int).SetUint64(500)
-	withdraw, _ := types.NewWithdraw(*senderPk,
+	withdraw, _ := types.NewWithdrawFromPrivateKey(*senderPk,
 		initialState.AvailableBalance,
 		DefaultTestDenom,
 		senderAddr.String(),

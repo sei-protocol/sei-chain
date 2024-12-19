@@ -33,7 +33,7 @@ type WithdrawProofs struct {
 	RemainingBalanceEqualityProof *zkproofs.CiphertextCommitmentEqualityProof `json:"remaining_balance_equality_proof"`
 }
 
-func NewWithdraw(
+func NewWithdrawFromPrivateKey(
 	privateKey ecdsa.PrivateKey,
 	currentAvailableBalance *elgamal.Ciphertext,
 	denom,
@@ -51,6 +51,18 @@ func NewWithdraw(
 		return &Withdraw{}, err
 	}
 
+	return NewWithdraw(teg, keyPair, aesKey, amount, address, denom, currentAvailableBalance, currentDecryptableBalance)
+}
+
+func NewWithdraw(
+	teg *elgamal.TwistedElGamal,
+	keyPair *elgamal.KeyPair,
+	aesKey []byte,
+	amount *big.Int,
+	address,
+	denom string,
+	currentAvailableBalance *elgamal.Ciphertext,
+	currentDecryptableBalance string) (*Withdraw, error) {
 	currentBalance, err := encryption.DecryptAESGCM(currentDecryptableBalance, aesKey)
 	if err != nil {
 		return &Withdraw{}, err

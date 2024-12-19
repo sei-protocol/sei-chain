@@ -529,7 +529,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		senderEcdsaKey, _ := crypto.HexToECDSA(senderPrivHex)
 		address := sdk.AccAddress(key.PubKey().Address()).String()
 		account := c.getCtAccount(address, CtDefaultDenom)
-		withdraw, err := cttypes.NewWithdraw(
+		withdraw, err := cttypes.NewWithdrawFromPrivateKey(
 			*senderEcdsaKey,
 			account.AvailableBalance,
 			CtDefaultDenom,

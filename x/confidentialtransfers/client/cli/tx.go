@@ -321,7 +321,7 @@ func makeWithdrawCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	withdraw, err := types.NewWithdraw(
+	withdraw, err := types.NewWithdrawFromPrivateKey(
 		*privKey,
 		account.AvailableBalance,
 		coin.Denom,
