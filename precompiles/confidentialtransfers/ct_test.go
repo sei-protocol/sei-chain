@@ -34,9 +34,6 @@ func TestPrecompileExecutor_Execute(t *testing.T) {
 	senderAddr, senderEVMAddr := testkeeper.PrivateKeyToAddresses(senderPrivateKey)
 	k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
 	// Setup receiver addresses and environment
-	receiverPrivateKey := testkeeper.MockPrivateKey()
-	receiverAddr, receiverEVMAddr := testkeeper.PrivateKeyToAddresses(receiverPrivateKey)
-	k.SetAddressMapping(ctx, receiverAddr, receiverEVMAddr)
 
 	err := k.BankKeeper().MintCoins(
 		ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
@@ -67,19 +64,7 @@ func TestPrecompileExecutor_Execute(t *testing.T) {
 	err = ctKeeper.SetAccount(ctx, senderAddr.String(), testDenom, senderAccount)
 	require.NoError(t, err)
 
-	privHex = hex.EncodeToString(receiverPrivateKey.Bytes())
-	receiverKey, _ := crypto.HexToECDSA(privHex)
-	initReceiverAccount, err := cttypes.NewInitializeAccount(senderAddr.String(), testDenom, *receiverKey)
-	require.NoError(t, err)
-	receiverAccount := cttypes.Account{
-		PublicKey:                   *initReceiverAccount.Pubkey,
-		PendingBalanceLo:            initReceiverAccount.PendingBalanceLo,
-		PendingBalanceHi:            initReceiverAccount.PendingBalanceHi,
-		PendingBalanceCreditCounter: 0,
-		AvailableBalance:            initReceiverAccount.AvailableBalance,
-		DecryptableAvailableBalance: initReceiverAccount.DecryptableBalance,
-	}
-	err = ctKeeper.SetAccount(ctx, receiverAddr.String(), testDenom, receiverAccount)
+	receiverAddr, receiverEVMAddr, receiverPubKey, err := setUpCtAccount(k, ctx, testDenom)
 	require.NoError(t, err)
 	p, err := confidentialtransfers.NewPrecompile(ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
 	require.Nil(t, err)
@@ -100,7 +85,7 @@ func TestPrecompileExecutor_Execute(t *testing.T) {
 		senderAccount.DecryptableAvailableBalance,
 		senderAccount.AvailableBalance,
 		100,
-		&receiverAccount.PublicKey,
+		receiverPubKey,
 		nil)
 	trProto := cttypes.NewMsgTransferProto(tr)
 	fromAmountLo, _ := trProto.FromAmountLo.Marshal()
@@ -178,6 +163,61 @@ func TestPrecompileExecutor_Execute(t *testing.T) {
 			},
 			wantErr:    true,
 			wantErrMsg: "invalid denom",
+		},
+		{
+			name: "precompile should return error if fromAmountLo is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.fromAmountLo = []byte("invalid")
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "unexpected EOF",
+		},
+		{
+			name: "precompile should return error if fromAmountHi is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.fromAmountHi = []byte("invalid")
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "unexpected EOF",
+		},
+		{
+			name: "precompile should return error if toAmountLo is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.toAmountLo = []byte("invalid")
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "unexpected EOF",
+		},
+		{
+			name: "precompile should return error if toAmountHi is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.toAmountHi = []byte("invalid")
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "unexpected EOF",
+		},
+		{
+			name: "precompile should return error if remaining balance is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.remainingBalance = []byte("invalid")
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "unexpected EOF",
 		},
 		{
 			name: "precompile should return error if decryptable balance is invalid",
@@ -355,29 +395,6 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 		TransferAmountHiEqualityProof []byte         `json:"transferAmountHiEqualityProof"`
 	}
 
-	var auditors []Auditor
-
-	for _, auditorProto := range auditorsProto {
-		encryptedTransferAmountLo, _ := auditorProto.EncryptedTransferAmountLo.Marshal()
-		encryptedTransferAmountHi, _ := auditorProto.EncryptedTransferAmountHi.Marshal()
-		transferAmountLoValidityProof, _ := auditorProto.TransferAmountLoValidityProof.Marshal()
-		transferAmountHiValidityProof, _ := auditorProto.TransferAmountHiValidityProof.Marshal()
-		transferAmountLoEqualityProof, _ := auditorProto.TransferAmountLoEqualityProof.Marshal()
-		transferAmountHiEqualityProof, _ := auditorProto.TransferAmountHiEqualityProof.Marshal()
-		auditor := Auditor{
-			EncryptedTransferAmountLo:     encryptedTransferAmountLo,
-			EncryptedTransferAmountHi:     encryptedTransferAmountHi,
-			TransferAmountLoValidityProof: transferAmountLoValidityProof,
-			TransferAmountHiValidityProof: transferAmountHiValidityProof,
-			TransferAmountLoEqualityProof: transferAmountLoEqualityProof,
-			TransferAmountHiEqualityProof: transferAmountHiEqualityProof,
-		}
-		auditors = append(auditors, auditor)
-	}
-
-	auditors[0].AuditorAddress = auditorOneEVMAddr
-	auditors[1].AuditorAddress = auditorTwoEVMAddr
-
 	transferPrecompile, _ := confidentialtransfers.NewPrecompile(nil, nil)
 	transferMethod, _ := transferPrecompile.ABI.MethodById(transferPrecompile.GetExecutor().(*confidentialtransfers.PrecompileExecutor).TransferID)
 	expectedTrueResponse, _ := transferMethod.Outputs.Pack(true)
@@ -416,64 +433,119 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 			wantRemainingGas: 0xea100,
 			wantErr:          false,
 		},
-		//{
-		//	name: "precompile should return error if address is invalid",
-		//	args: args{
-		//		setUp: func(in inputs) inputs {
-		//			in.senderEVMAddr = common.Address{}
-		//			return in
-		//		}},
-		//	wantErr:    true,
-		//	wantErrMsg: "invalid addr",
-		//},
-		//{
-		//	name: "precompile should return error if receiver address is invalid",
-		//	args: args{
-		//		setUp: func(in inputs) inputs {
-		//			in.receiverEVMAddr = common.Address{}
-		//			return in
-		//		},
-		//	},
-		//	wantErr:    true,
-		//	wantErrMsg: "invalid addr",
-		//},
-		//{
-		//	name: "precompile should return error if denom is invalid",
-		//	args: args{
-		//		setUp: func(in inputs) inputs {
-		//			in.Denom = ""
-		//			return in
-		//		},
-		//	},
-		//	wantErr:    true,
-		//	wantErrMsg: "invalid denom",
-		//},
-		//{
-		//	name: "precompile should return error if decryptable balance is invalid",
-		//	args: args{
-		//		setUp: func(in inputs) inputs {
-		//			in.DecryptableBalance = ""
-		//			return in
-		//		},
-		//	},
-		//	wantErr:    true,
-		//	wantErrMsg: "invalid decryptable balance",
-		//},
-		//{
-		//	name:       "precompile should return error if called from static call",
-		//	args:       args{isReadOnly: true},
-		//	wantErr:    true,
-		//	wantErrMsg: "cannot call ct precompile from staticcall",
-		//},
-		//{
-		//	name:       "precompile should return error if value is not nil",
-		//	args:       args{value: big.NewInt(100)},
-		//	wantErr:    true,
-		//	wantErrMsg: "sending funds to a non-payable function",
-		//},
+		{
+			name: "precompile should return error if auditor address is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.auditors[0].AuditorAddress = common.Address{}
+					return in
+				}},
+			wantErr:    true,
+			wantErrMsg: "invalid addr",
+		},
+		{
+			name: "precompile should return error if auditor EncryptedTransferAmountLo is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.auditors[0].EncryptedTransferAmountLo = []byte("invalid")
+					return in
+				}},
+			wantErr:    true,
+			wantErrMsg: "unexpected EOF",
+		},
+		{
+			name: "precompile should return error if auditor EncryptedTransferAmountHi is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.auditors[0].EncryptedTransferAmountHi = []byte("invalid")
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "unexpected EOF",
+		},
+		{
+			name: "precompile should return error if auditor TransferAmountLoValidityProof is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.auditors[0].TransferAmountLoValidityProof = []byte("invalid")
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "unexpected EOF",
+		},
+		{
+			name: "precompile should return error if auditor TransferAmountHiValidityProof is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.auditors[0].TransferAmountHiValidityProof = []byte("invalid")
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "unexpected EOF",
+		},
+		{
+			name: "precompile should return error if auditor TransferAmountLoEqualityProof is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.auditors[0].TransferAmountLoEqualityProof = []byte("invalid")
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "unexpected EOF",
+		},
+		{
+			name: "precompile should return error if auditor TransferAmountHiEqualityProof is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.auditors[0].TransferAmountHiEqualityProof = []byte("invalid")
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "unexpected EOF",
+		},
+		{
+			name:       "precompile should return error if called from static call",
+			args:       args{isReadOnly: true},
+			wantErr:    true,
+			wantErrMsg: "cannot call ct precompile from staticcall",
+		},
+		{
+			name:       "precompile should return error if value is not nil",
+			args:       args{value: big.NewInt(100)},
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			var auditors []Auditor
+
+			for _, auditorProto := range auditorsProto {
+				encryptedTransferAmountLo, _ := auditorProto.EncryptedTransferAmountLo.Marshal()
+				encryptedTransferAmountHi, _ := auditorProto.EncryptedTransferAmountHi.Marshal()
+				transferAmountLoValidityProof, _ := auditorProto.TransferAmountLoValidityProof.Marshal()
+				transferAmountHiValidityProof, _ := auditorProto.TransferAmountHiValidityProof.Marshal()
+				transferAmountLoEqualityProof, _ := auditorProto.TransferAmountLoEqualityProof.Marshal()
+				transferAmountHiEqualityProof, _ := auditorProto.TransferAmountHiEqualityProof.Marshal()
+				auditor := Auditor{
+					EncryptedTransferAmountLo:     encryptedTransferAmountLo,
+					EncryptedTransferAmountHi:     encryptedTransferAmountHi,
+					TransferAmountLoValidityProof: transferAmountLoValidityProof,
+					TransferAmountHiValidityProof: transferAmountHiValidityProof,
+					TransferAmountLoEqualityProof: transferAmountLoEqualityProof,
+					TransferAmountHiEqualityProof: transferAmountHiEqualityProof,
+				}
+				auditors = append(auditors, auditor)
+			}
+
+			auditors[0].AuditorAddress = auditorOneEVMAddr
+			auditors[1].AuditorAddress = auditorTwoEVMAddr
+
 			in := inputs{
 				senderEVMAddr:      senderEVMAddr,
 				receiverEVMAddr:    receiverEVMAddr,
