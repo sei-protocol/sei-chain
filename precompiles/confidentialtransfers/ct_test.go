@@ -347,8 +347,8 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 		TxContext: vm.TxContext{Origin: senderEVMAddr},
 	}
 
-	auditorOneAddr, auditorOneEVMAddr, auditorOenPubKey, err := setUpCtAccount(k, ctx, testDenom)
-	auditorTwoAddr, auditorTwoEVMAddr, auditorTwoPubKey, err := setUpCtAccount(k, ctx, testDenom)
+	auditorOneAddr, _, auditorOenPubKey, err := setUpCtAccount(k, ctx, testDenom)
+	auditorTwoAddr, _, auditorTwoPubKey, err := setUpCtAccount(k, ctx, testDenom)
 
 	transferWithAuditorsMethod, err :=
 		p.ABI.MethodById(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).TransferWithAuditorsID)
@@ -385,16 +385,6 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 	proofs, _ := trProto.Proofs.Marshal()
 	auditorsProto := trProto.Auditors
 
-	type Auditor struct {
-		AuditorAddress                common.Address `json:"auditorAddress"`
-		EncryptedTransferAmountLo     []byte         `json:"encryptedTransferAmountLo"`
-		EncryptedTransferAmountHi     []byte         `json:"encryptedTransferAmountHi"`
-		TransferAmountLoValidityProof []byte         `json:"transferAmountLoValidityProof"`
-		TransferAmountHiValidityProof []byte         `json:"transferAmountHiValidityProof"`
-		TransferAmountLoEqualityProof []byte         `json:"transferAmountLoEqualityProof"`
-		TransferAmountHiEqualityProof []byte         `json:"transferAmountHiEqualityProof"`
-	}
-
 	transferPrecompile, _ := confidentialtransfers.NewPrecompile(nil, nil)
 	transferMethod, _ := transferPrecompile.ABI.MethodById(transferPrecompile.GetExecutor().(*confidentialtransfers.PrecompileExecutor).TransferID)
 	expectedTrueResponse, _ := transferMethod.Outputs.Pack(true)
@@ -410,7 +400,7 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 		remainingBalance   []byte
 		DecryptableBalance string
 		proofs             []byte
-		auditors           []Auditor
+		auditors           []cttypes.EvmAuditor
 	}
 
 	type args struct {
@@ -523,7 +513,7 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var auditors []Auditor
+			var auditors []cttypes.EvmAuditor
 
 			for _, auditorProto := range auditorsProto {
 				encryptedTransferAmountLo, _ := auditorProto.EncryptedTransferAmountLo.Marshal()
@@ -532,7 +522,9 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 				transferAmountHiValidityProof, _ := auditorProto.TransferAmountHiValidityProof.Marshal()
 				transferAmountLoEqualityProof, _ := auditorProto.TransferAmountLoEqualityProof.Marshal()
 				transferAmountHiEqualityProof, _ := auditorProto.TransferAmountHiEqualityProof.Marshal()
-				auditor := Auditor{
+				evmAddress, _ := k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(auditorProto.AuditorAddress))
+				auditor := cttypes.EvmAuditor{
+					AuditorAddress:                evmAddress,
 					EncryptedTransferAmountLo:     encryptedTransferAmountLo,
 					EncryptedTransferAmountHi:     encryptedTransferAmountHi,
 					TransferAmountLoValidityProof: transferAmountLoValidityProof,
@@ -542,9 +534,6 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 				}
 				auditors = append(auditors, auditor)
 			}
-
-			auditors[0].AuditorAddress = auditorOneEVMAddr
-			auditors[1].AuditorAddress = auditorTwoEVMAddr
 
 			in := inputs{
 				senderEVMAddr:      senderEVMAddr,

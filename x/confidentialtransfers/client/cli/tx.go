@@ -18,6 +18,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const auditorsFlag = "auditors"
+
 // NewTxCmd returns a root CLI command handler for all x/confidentialtransfers transaction commands.
 func NewTxCmd() *cobra.Command {
 	txCmd := &cobra.Command{
@@ -189,7 +191,7 @@ func NewTransferTxCmd() *cobra.Command {
 	}
 
 	flags.AddTxFlagsToCmd(cmd)
-	cmd.Flags().StringSlice("auditors", []string{}, "List of auditors")
+	cmd.Flags().StringSlice(auditorsFlag, []string{}, "List of auditors")
 
 	return cmd
 }
@@ -234,7 +236,7 @@ func makeTransferCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	auditorAddrs, err := cmd.Flags().GetStringSlice("auditors")
+	auditorAddrs, err := cmd.Flags().GetStringSlice(auditorsFlag)
 	if err != nil {
 		return err
 	}
