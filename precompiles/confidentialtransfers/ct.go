@@ -264,7 +264,7 @@ func (p PrecompileExecutor) getAuditorsFromArg(ctx sdk.Context, arg interface{})
 		TransferAmountHiEqualityProof []byte         `json:"transferAmountHiEqualityProof"`
 	})
 
-	var auditors []*cttypes.Auditor
+	auditors := make([]*cttypes.Auditor, len(res))
 	for _, auditor := range res {
 		auditorAddr, err := p.accAddressFromArg(ctx, auditor.AuditorAddress)
 		if err != nil {

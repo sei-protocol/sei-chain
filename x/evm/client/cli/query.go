@@ -545,7 +545,7 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 
 	seiToEvmAddressMap := make(map[string]string)
 
-	if auditorEvmAddrs != nil && len(auditorEvmAddrs) > 0 {
+	if len(auditorEvmAddrs) > 0 {
 		auditors = make([]cttypes.AuditorInput, len(auditorEvmAddrs))
 		for i, auditorEvmAddr := range auditorEvmAddrs {
 			auditorRes, err := queryClient.SeiAddressByEVMAddress(context.Background(), &types.QuerySeiAddressByEVMAddressRequest{EvmAddress: auditorEvmAddr})
@@ -553,7 +553,7 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 				return err
 			}
 			if !auditorRes.Associated {
-				return errors.New(fmt.Sprintf("auditor address %s is not associated with a Sei address", auditorEvmAddr))
+				return fmt.Errorf("auditor address %s is not associated with a Sei address", auditorEvmAddr)
 			}
 			seiToEvmAddressMap[auditorRes.SeiAddress] = auditorEvmAddr
 			auditorAccount, err := cttutils.GetAccount(ctQueryClient, auditorRes.SeiAddress, coin.Denom)
@@ -613,7 +613,7 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 		proofs,
 	}
 
-	if auditors != nil && len(auditors) > 0 {
+	if len(auditors) > 0 {
 		var evmAuditors []cttypes.EvmAuditor
 		auditorsProto := transferProto.Auditors
 		for _, auditorProto := range auditorsProto {
@@ -625,7 +625,7 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 			transferAmountHiEqualityProof, _ := auditorProto.TransferAmountHiEqualityProof.Marshal()
 			// check if the auditor address does not exist in the map
 			if auditorEvmAddress, exists := seiToEvmAddressMap[auditorProto.AuditorAddress]; !exists {
-				return errors.New(fmt.Sprintf("auditor address %s is not associated with an EVM address", auditorProto.AuditorAddress))
+				return fmt.Errorf("auditor address %s is not associated with an EVM address", auditorProto.AuditorAddress)
 			} else {
 				evmAuditor := cttypes.EvmAuditor{
 					AuditorAddress:                common.HexToAddress(auditorEvmAddress),
