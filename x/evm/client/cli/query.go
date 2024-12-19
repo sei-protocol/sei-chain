@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/precompiles/confidentialtransfers"
+	cttutils "github.com/sei-protocol/sei-chain/x/confidentialtransfers/client/cli"
 	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -520,12 +521,12 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	senderAccount, err := getCtAccount(ctQueryClient, fromRes.SeiAddress, coin.Denom)
+	senderAccount, err := cttutils.GetAccount(ctQueryClient, fromRes.SeiAddress, coin.Denom)
 	if err != nil {
 		return err
 	}
 
-	recipientAccount, err := getCtAccount(ctQueryClient, toRes.SeiAddress, coin.Denom)
+	recipientAccount, err := cttutils.GetAccount(ctQueryClient, toRes.SeiAddress, coin.Denom)
 	if err != nil {
 		return err
 	}
@@ -577,21 +578,4 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	return queryClientCtx.PrintString(hex.EncodeToString(bz))
-}
-
-func getCtAccount(queryClient cttypes.QueryClient, address, denom string) (*cttypes.Account, error) {
-	ctAccount, err := queryClient.GetCtAccount(context.Background(), &cttypes.GetCtAccountRequest{
-		Address: address,
-		Denom:   denom,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	account, err := ctAccount.GetAccount().FromProto()
-	if err != nil {
-		return nil, err
-	}
-
-	return account, nil
 }
