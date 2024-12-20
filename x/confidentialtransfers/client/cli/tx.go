@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"errors"
@@ -18,6 +17,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/spf13/cobra"
 )
+
+const auditorsFlag = "auditors"
 
 // NewTxCmd returns a root CLI command handler for all x/confidentialtransfers transaction commands.
 func NewTxCmd() *cobra.Command {
@@ -152,7 +153,7 @@ func makeCloseAccountCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	account, err := getAccount(queryClient, clientCtx.GetFromAddress().String(), denom)
+	account, err := GetAccount(queryClient, clientCtx.GetFromAddress().String(), denom)
 	if err != nil {
 		return err
 	}
@@ -190,7 +191,7 @@ func NewTransferTxCmd() *cobra.Command {
 	}
 
 	flags.AddTxFlagsToCmd(cmd)
-	cmd.Flags().StringSlice("auditors", []string{}, "List of auditors")
+	cmd.Flags().StringSlice(auditorsFlag, []string{}, "List of auditors")
 
 	return cmd
 }
@@ -225,24 +226,24 @@ func makeTransferCmd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	senderAccount, err := getAccount(queryClient, fromAddress, coin.Denom)
+	senderAccount, err := GetAccount(queryClient, fromAddress, coin.Denom)
 	if err != nil {
 		return err
 	}
 
-	recipientAccount, err := getAccount(queryClient, toAddress, coin.Denom)
+	recipientAccount, err := GetAccount(queryClient, toAddress, coin.Denom)
 	if err != nil {
 		return err
 	}
 
-	auditorAddrs, err := cmd.Flags().GetStringSlice("auditors")
+	auditorAddrs, err := cmd.Flags().GetStringSlice(auditorsFlag)
 	if err != nil {
 		return err
 	}
 
 	auditors := make([]types.AuditorInput, len(auditorAddrs))
 	for i, auditorAddr := range auditorAddrs {
-		auditorAccount, err := getAccount(queryClient, auditorAddr, coin.Denom)
+		auditorAccount, err := GetAccount(queryClient, auditorAddr, coin.Denom)
 		if err != nil {
 			return err
 		}
@@ -316,7 +317,7 @@ func makeWithdrawCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	account, err := getAccount(queryClient, address, coin.Denom)
+	account, err := GetAccount(queryClient, address, coin.Denom)
 	if err != nil {
 		return err
 	}
@@ -423,7 +424,7 @@ func makeApplyPendingBalanceCmd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid denom: %v", err)
 	}
 
-	account, err := getAccount(queryClient, clientCtx.GetFromAddress().String(), denom)
+	account, err := GetAccount(queryClient, clientCtx.GetFromAddress().String(), denom)
 	if err != nil {
 		return err
 	}
@@ -449,22 +450,4 @@ func makeApplyPendingBalanceCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
-}
-
-// Uses the query client to get the account data for the given address and denomination.
-func getAccount(queryClient types.QueryClient, address, denom string) (*types.Account, error) {
-	ctAccount, err := queryClient.GetCtAccount(context.Background(), &types.GetCtAccountRequest{
-		Address: address,
-		Denom:   denom,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	account, err := ctAccount.GetAccount().FromProto()
-	if err != nil {
-		return nil, err
-	}
-
-	return account, nil
 }

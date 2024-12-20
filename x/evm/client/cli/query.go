@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/sei-protocol/sei-chain/precompiles/confidentialtransfers"
+	cttutils "github.com/sei-protocol/sei-chain/x/confidentialtransfers/client/cli"
 	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -27,8 +28,11 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-const TrueStr = "true"
-const FalseStr = "false"
+const (
+	TrueStr      = "true"
+	FalseStr     = "false"
+	auditorsFlag = "auditors"
+)
 
 // GetQueryCmd returns the cli query commands for this module
 func GetQueryCmd(_ string) *cobra.Command {
@@ -475,6 +479,7 @@ func GetCmdQueryCtTransferPayload() *cobra.Command {
 	}
 
 	flags.AddQueryFlagsToCmd(cmd)
+	cmd.Flags().StringSlice(auditorsFlag, []string{}, "List of auditor EVM addresses")
 
 	return cmd
 }
@@ -520,14 +525,47 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	senderAccount, err := getCtAccount(ctQueryClient, fromRes.SeiAddress, coin.Denom)
+	senderAccount, err := cttutils.GetAccount(ctQueryClient, fromRes.SeiAddress, coin.Denom)
 	if err != nil {
 		return err
 	}
 
-	recipientAccount, err := getCtAccount(ctQueryClient, toRes.SeiAddress, coin.Denom)
+	recipientAccount, err := cttutils.GetAccount(ctQueryClient, toRes.SeiAddress, coin.Denom)
 	if err != nil {
 		return err
+	}
+
+	auditorEvmAddrs, err := cmd.Flags().GetStringSlice(auditorsFlag)
+	if err != nil {
+		return err
+	}
+
+	var auditors []cttypes.AuditorInput
+	transferMethod := confidentialtransfers.TransferMethod
+
+	seiToEvmAddressMap := make(map[string]string)
+
+	if len(auditorEvmAddrs) > 0 {
+		auditors = make([]cttypes.AuditorInput, len(auditorEvmAddrs))
+		for i, auditorEvmAddr := range auditorEvmAddrs {
+			auditorRes, err := queryClient.SeiAddressByEVMAddress(context.Background(), &types.QuerySeiAddressByEVMAddressRequest{EvmAddress: auditorEvmAddr})
+			if err != nil {
+				return err
+			}
+			if !auditorRes.Associated {
+				return fmt.Errorf("auditor address %s is not associated with a Sei address", auditorEvmAddr)
+			}
+			seiToEvmAddressMap[auditorRes.SeiAddress] = auditorEvmAddr
+			auditorAccount, err := cttutils.GetAccount(ctQueryClient, auditorRes.SeiAddress, coin.Denom)
+			if err != nil {
+				return err
+			}
+			auditors[i] = cttypes.AuditorInput{
+				Address: auditorRes.SeiAddress,
+				Pubkey:  &auditorAccount.PublicKey,
+			}
+		}
+		transferMethod = confidentialtransfers.TransferWithAuditorsMethod
 	}
 
 	transfer, err := cttypes.NewTransfer(
@@ -539,7 +577,7 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 		senderAccount.AvailableBalance,
 		coin.Amount.Uint64(),
 		&recipientAccount.PublicKey,
-		nil)
+		auditors)
 
 	if err != nil {
 		return err
@@ -561,8 +599,8 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	bz, err := newAbi.Pack(
-		confidentialtransfers.TransferMethod,
+
+	inputArgs := []interface{}{
 		fromEvmAddress,
 		toEvmAddress,
 		coin.Denom,
@@ -572,26 +610,43 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 		toAmountHi,
 		remainingBalance,
 		transferProto.DecryptableBalance,
-		proofs)
+		proofs,
+	}
+
+	if len(auditors) > 0 {
+		var evmAuditors []cttypes.EvmAuditor
+		auditorsProto := transferProto.Auditors
+		for _, auditorProto := range auditorsProto {
+			encryptedTransferAmountLo, _ := auditorProto.EncryptedTransferAmountLo.Marshal()
+			encryptedTransferAmountHi, _ := auditorProto.EncryptedTransferAmountHi.Marshal()
+			transferAmountLoValidityProof, _ := auditorProto.TransferAmountLoValidityProof.Marshal()
+			transferAmountHiValidityProof, _ := auditorProto.TransferAmountHiValidityProof.Marshal()
+			transferAmountLoEqualityProof, _ := auditorProto.TransferAmountLoEqualityProof.Marshal()
+			transferAmountHiEqualityProof, _ := auditorProto.TransferAmountHiEqualityProof.Marshal()
+			// check if the auditor address does not exist in the map
+			if auditorEvmAddress, exists := seiToEvmAddressMap[auditorProto.AuditorAddress]; !exists {
+				return fmt.Errorf("auditor address %s is not associated with an EVM address", auditorProto.AuditorAddress)
+			} else {
+				evmAuditor := cttypes.EvmAuditor{
+					AuditorAddress:                common.HexToAddress(auditorEvmAddress),
+					EncryptedTransferAmountLo:     encryptedTransferAmountLo,
+					EncryptedTransferAmountHi:     encryptedTransferAmountHi,
+					TransferAmountLoValidityProof: transferAmountLoValidityProof,
+					TransferAmountHiValidityProof: transferAmountHiValidityProof,
+					TransferAmountLoEqualityProof: transferAmountLoEqualityProof,
+					TransferAmountHiEqualityProof: transferAmountHiEqualityProof,
+				}
+				evmAuditors = append(evmAuditors, evmAuditor)
+			}
+		}
+		inputArgs = append(inputArgs, evmAuditors)
+	}
+
+	bz, err := newAbi.Pack(
+		transferMethod,
+		inputArgs...)
 	if err != nil {
 		return err
 	}
 	return queryClientCtx.PrintString(hex.EncodeToString(bz))
-}
-
-func getCtAccount(queryClient cttypes.QueryClient, address, denom string) (*cttypes.Account, error) {
-	ctAccount, err := queryClient.GetCtAccount(context.Background(), &cttypes.GetCtAccountRequest{
-		Address: address,
-		Denom:   denom,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	account, err := ctAccount.GetAccount().FromProto()
-	if err != nil {
-		return nil, err
-	}
-
-	return account, nil
 }
