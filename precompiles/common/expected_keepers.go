@@ -133,4 +133,5 @@ type ChannelKeeper interface {
 
 type ConfidentialTransfersKeeper interface {
 	Transfer(goCtx context.Context, req *cttypes.MsgTransfer) (*cttypes.MsgTransferResponse, error)
+	InitializeAccount(context.Context, *cttypes.MsgInitializeAccount) (*cttypes.MsgInitializeAccountResponse, error)
 }
