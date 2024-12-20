@@ -344,11 +344,12 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}()
 
 	// Worker function
+	var errorsList []error
 	worker := func() {
 		defer wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				err = fmt.Errorf("panic in GetLogsByFilters worker: %v", r)
+				err = fmt.Errorf("unexpected panic caught in GetLogsByFilters worker: %v", r)
 			}
 		}()
 		for height := range tasksChan {
@@ -363,12 +364,13 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 			block, berr := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
 			if berr != nil {
 				mu.Lock()
-				err = berr
+				errorsList = append(errorsList, berr)
 				mu.Unlock()
-			}
-			matchedLogs := f.GetLogsForBlock(block, crit, bloomIndexes)
-			for _, log := range matchedLogs {
-				resultsChan <- log
+			} else {
+				matchedLogs := f.GetLogsForBlock(block, crit, bloomIndexes)
+				for _, log := range matchedLogs {
+					resultsChan <- log
+				}
 			}
 		}
 	}
@@ -386,8 +388,8 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}()
 
 	// Check err after all work is done
-	if err != nil {
-		return nil, 0, err
+	if len(errorsList) > 0 {
+		err = errors.Join(errorsList...)
 	}
 
 	// Aggregate results into the final slice
@@ -405,7 +407,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		res = res[:int(f.filterConfig.maxLog)]
 	}
 
-	return res, end, nil
+	return res, end, err
 }
 
 func (f *LogFetcher) GetLogsForBlock(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes) []*ethtypes.Log {
