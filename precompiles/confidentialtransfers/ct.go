@@ -254,7 +254,7 @@ func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) 
 
 func (p PrecompileExecutor) getAuditorsFromArg(ctx sdk.Context, arg interface{}) ([]*cttypes.Auditor, error) {
 	// we need to define an anonymous struct similar to types.EvmAuditor because the ABI returns an anonymous struct
-	res := arg.([]struct {
+	evmAuditors := arg.([]struct {
 		AuditorAddress                common.Address `json:"auditorAddress"`
 		EncryptedTransferAmountLo     []byte         `json:"encryptedTransferAmountLo"`
 		EncryptedTransferAmountHi     []byte         `json:"encryptedTransferAmountHi"`
@@ -264,8 +264,12 @@ func (p PrecompileExecutor) getAuditorsFromArg(ctx sdk.Context, arg interface{})
 		TransferAmountHiEqualityProof []byte         `json:"transferAmountHiEqualityProof"`
 	})
 
+	if len(evmAuditors) == 0 {
+		return nil, errors.New("auditors array cannot be empty")
+	}
+
 	auditors := make([]*cttypes.Auditor, 0)
-	for _, auditor := range res {
+	for _, auditor := range evmAuditors {
 		auditorAddr, err := p.accAddressFromArg(ctx, auditor.AuditorAddress)
 		if err != nil {
 			return nil, err

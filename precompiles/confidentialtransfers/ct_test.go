@@ -424,6 +424,16 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 			wantErr:          false,
 		},
 		{
+			name: "precompile should return error if auditor array is empty",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.auditors = []cttypes.EvmAuditor{}
+					return in
+				}},
+			wantErr:    true,
+			wantErrMsg: "auditors array cannot be empty",
+		},
+		{
 			name: "precompile should return error if auditor address is invalid",
 			args: args{
 				setUp: func(in inputs) inputs {
