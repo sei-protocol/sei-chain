@@ -19,8 +19,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const decryptAvailableBalanceFlag = "decrypt-available-balance"
-const decryptorFlag = "decryptor"
+const (
+	decryptAvailableBalanceFlag = "decrypt-available-balance"
+	decryptorFlag               = "decryptor"
+)
 
 // GetQueryCmd returns the cli query commands for the minting module.
 func GetQueryCmd() *cobra.Command {
