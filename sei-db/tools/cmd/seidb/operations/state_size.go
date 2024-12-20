@@ -65,22 +65,28 @@ func PrintStateSize(module string, db *memiavl.DB) error {
 			fmt.Printf("Tree does not exist for module %s \n", moduleName)
 		} else {
 			fmt.Printf("Calculating for module: %s \n", moduleName)
-			sizeByPrefix := map[string]int{}
+			keySizeByPrefix := map[string]int64{}
+			valueSizeByPrefix := map[string]int64{}
 			tree.ScanPostOrder(func(node memiavl.Node) bool {
 				if node.IsLeaf() {
 					totalNumKeys++
-					totalKeySize += len(node.Key())
-					totalValueSize += len(node.Value())
-					totalSize += len(node.Key()) + len(node.Value())
+					keySize := len(node.Key())
+					valueSize := len(node.Value())
+					totalKeySize += keySize
+					totalValueSize += valueSize
+					totalSize += keySize + valueSize
 					prefix := fmt.Sprintf("%X", node.Key())
 					prefix = prefix[:2]
-					sizeByPrefix[prefix] += len(node.Value())
+					keySizeByPrefix[prefix] += int64(keySize)
+					valueSizeByPrefix[prefix] += int64(valueSize)
 				}
 				return true
 			})
 			fmt.Printf("Module %s total numKeys:%d, total keySize:%d, total valueSize:%d, totalSize: %d \n", moduleName, totalNumKeys, totalKeySize, totalValueSize, totalSize)
-			result, _ := json.MarshalIndent(sizeByPrefix, "", "  ")
-			fmt.Printf("Module %s prefix breakdown: %s \n", moduleName, result)
+			prefixKeyResult, _ := json.MarshalIndent(keySizeByPrefix, "", "  ")
+			fmt.Printf("Module %s prefix key size breakdown (bytes): %s \n", moduleName, prefixKeyResult)
+			prefixValueResult, _ := json.MarshalIndent(valueSizeByPrefix, "", "  ")
+			fmt.Printf("Module %s prefix value size breakdown (bytes): %s \n", moduleName, prefixValueResult)
 		}
 	}
 	return nil
