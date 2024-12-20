@@ -128,18 +128,48 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 func (a *BlockAPI) getBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get block number: %w", err)
 	}
+
 	block, err := blockByNumberWithRetry(ctx, a.tmClient, numberPtr, 1)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to fetch block: %w", err)
 	}
+	if block == nil || block.Block == nil {
+		return nil, errors.New("block data is nil or invalid")
+	}
+
 	blockRes, err := blockResultsWithRetry(ctx, a.tmClient, &block.Block.Height)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to fetch block results: %w", err)
 	}
+	if blockRes == nil {
+		return nil, errors.New("block results are nil or invalid")
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			returnErr = fmt.Errorf("unexpected error during block encoding: %v", r)
+		}
+	}()
+
 	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	return EncodeTmBlock(a.ctxProvider(block.Block.Height), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeShellReceipts)
+
+	result, err = EncodeTmBlock(
+		a.ctxProvider(block.Block.Height),
+		block,
+		blockRes,
+		blockBloom,
+		a.keeper,
+		a.txConfig.TxDecoder(),
+		fullTx,
+		a.includeShellReceipts,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode Tendermint block: %w", err)
+	}
+
+	return result, nil
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
@@ -207,151 +237,150 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 }
 
 func EncodeTmBlock(
-    ctx sdk.Context,
-    block *coretypes.ResultBlock,
-    blockRes *coretypes.ResultBlockResults,
-    blockBloom ethtypes.Bloom,
-    k *keeper.Keeper,
-    txDecoder sdk.TxDecoder,
-    fullTx bool,
-    includeSyntheticTxs bool,
+	ctx sdk.Context,
+	block *coretypes.ResultBlock,
+	blockRes *coretypes.ResultBlockResults,
+	blockBloom ethtypes.Bloom,
+	k *keeper.Keeper,
+	txDecoder sdk.TxDecoder,
+	fullTx bool,
+	includeSyntheticTxs bool,
 ) (map[string]interface{}, error) {
-    // Validate block and block data
-    if block == nil || block.Block == nil {
-        return nil, errors.New("block or block data is nil")
-    }
-    if blockRes == nil || blockRes.TxsResults == nil {
-        return nil, errors.New("block results or transaction results are nil")
-    }
-    if len(block.Block.Txs) != len(blockRes.TxsResults) {
-        return nil, errors.New("mismatch between block transactions and transaction results")
-    }
+	// Validate block and block data
+	if block == nil || block.Block == nil {
+		return nil, errors.New("block or block data is nil")
+	}
+	if blockRes == nil || blockRes.TxsResults == nil {
+		return nil, errors.New("block results or transaction results are nil")
+	}
+	if len(block.Block.Txs) != len(blockRes.TxsResults) {
+		return nil, errors.New("mismatch between block transactions and transaction results")
+	}
 
-    // Block metadata
-    number := big.NewInt(block.Block.Height)
-    blockhash := common.HexToHash(block.BlockID.Hash.String())
-    blockTime := block.Block.Time
-    lastHash := common.HexToHash(block.Block.LastBlockID.Hash.String())
-    appHash := common.HexToHash(block.Block.AppHash.String())
-    txHash := common.HexToHash(block.Block.DataHash.String())
-    resultHash := common.HexToHash(block.Block.LastResultsHash.String())
-    miner := common.HexToAddress(block.Block.ProposerAddress.String())
+	// Block metadata
+	number := big.NewInt(block.Block.Height)
+	blockhash := common.HexToHash(block.BlockID.Hash.String())
+	blockTime := block.Block.Time
+	lastHash := common.HexToHash(block.Block.LastBlockID.Hash.String())
+	appHash := common.HexToHash(block.Block.AppHash.String())
+	txHash := common.HexToHash(block.Block.DataHash.String())
+	resultHash := common.HexToHash(block.Block.LastResultsHash.String())
+	miner := common.HexToAddress(block.Block.ProposerAddress.String())
 
-    // Safeguard against nil or invalid base fee
-    baseFee := k.GetDynamicBaseFeePerGas(ctx)
-    var baseFeePerGas *big.Int
-    if baseFee.IsNil() {
-        baseFeePerGas = big.NewInt(0)
-    } else {
-        baseFeePerGas = baseFee.BigInt()
-    }
+	// Safeguard against nil or invalid base fee
+	baseFee := k.GetDynamicBaseFeePerGas(ctx)
+	var baseFeePerGas *big.Int
+	if baseFee.IsNil() {
+		baseFeePerGas = big.NewInt(0)
+	} else {
+		baseFeePerGas = baseFee.BigInt()
+	}
 
-    var blockGasUsed int64
-    chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
-    transactions := []interface{}{}
+	var blockGasUsed int64
+	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
+	transactions := []interface{}{}
 
-    // Process transactions
-    for i, txRes := range blockRes.TxsResults {
-        if txRes == nil {
-            continue // Skip invalid transaction results
-        }
-        blockGasUsed += txRes.GasUsed
+	// Process transactions
+	for i, txRes := range blockRes.TxsResults {
+		if txRes == nil {
+			continue // Skip invalid transaction results
+		}
+		blockGasUsed += txRes.GasUsed
 
-        if i >= len(block.Block.Txs) {
-            return nil, errors.New("transaction index out of range for block transactions")
-        }
+		if i >= len(block.Block.Txs) {
+			return nil, errors.New("transaction index out of range for block transactions")
+		}
 
-        decoded, err := txDecoder(block.Block.Txs[i])
-        if err != nil || decoded == nil {
-            continue // Skip transactions that fail decoding
-        }
+		decoded, err := txDecoder(block.Block.Txs[i])
+		if err != nil || decoded == nil {
+			continue // Skip transactions that fail decoding
+		}
 
-        for _, msg := range decoded.GetMsgs() {
-            switch m := msg.(type) {
-            case *types.MsgEVMTransaction:
-                if m.IsAssociateTx() {
-                    continue
-                }
-                ethtx, _ := m.AsTransaction()
-                hash := ethtx.Hash()
-                if !fullTx {
-                    transactions = append(transactions, hash)
-                } else {
-                    receipt, err := k.GetReceipt(ctx, hash)
-                    if err != nil {
-                        continue
-                    }
-                    if !includeSyntheticTxs && receipt.TxType == ShellEVMTxType {
-                        continue
-                    }
-                    newTx := ethapi.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
-                    transactions = append(transactions, newTx)
-                }
-            case *wasmtypes.MsgExecuteContract:
-                if !includeSyntheticTxs {
-                    continue
-                }
-                if i >= len(block.Block.Txs) {
-                    return nil, errors.New("transaction index out of range for contract execution")
-                }
-                th := sha256.Sum256(block.Block.Txs[i])
-                receipt, err := k.GetReceipt(ctx, th)
-                if err != nil {
-                    continue
-                }
-                if !fullTx {
-                    transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
-                } else {
-                    ti := uint64(receipt.TransactionIndex)
-                    to := k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
-                    transactions = append(transactions, &ethapi.RPCTransaction{
-                        BlockHash:        &blockhash,
-                        BlockNumber:      (*hexutil.Big)(number),
-                        From:             common.HexToAddress(receipt.From),
-                        To:               &to,
-                        Input:            m.Msg.Bytes(),
-                        Hash:             th,
-                        TransactionIndex: (*hexutil.Uint64)(&ti),
-                    })
-                }
-            }
-        }
-    }
+		for _, msg := range decoded.GetMsgs() {
+			switch m := msg.(type) {
+			case *types.MsgEVMTransaction:
+				if m.IsAssociateTx() {
+					continue
+				}
+				ethtx, _ := m.AsTransaction()
+				hash := ethtx.Hash()
+				if !fullTx {
+					transactions = append(transactions, hash)
+				} else {
+					receipt, err := k.GetReceipt(ctx, hash)
+					if err != nil {
+						continue
+					}
+					if !includeSyntheticTxs && receipt.TxType == ShellEVMTxType {
+						continue
+					}
+					newTx := ethapi.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
+					transactions = append(transactions, newTx)
+				}
+			case *wasmtypes.MsgExecuteContract:
+				if !includeSyntheticTxs {
+					continue
+				}
+				if i >= len(block.Block.Txs) {
+					return nil, errors.New("transaction index out of range for contract execution")
+				}
+				th := sha256.Sum256(block.Block.Txs[i])
+				receipt, err := k.GetReceipt(ctx, th)
+				if err != nil {
+					continue
+				}
+				if !fullTx {
+					transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
+				} else {
+					ti := uint64(receipt.TransactionIndex)
+					to := k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
+					transactions = append(transactions, &ethapi.RPCTransaction{
+						BlockHash:        &blockhash,
+						BlockNumber:      (*hexutil.Big)(number),
+						From:             common.HexToAddress(receipt.From),
+						To:               &to,
+						Input:            m.Msg.Bytes(),
+						Hash:             th,
+						TransactionIndex: (*hexutil.Uint64)(&ti),
+					})
+				}
+			}
+		}
+	}
 
-    if len(transactions) == 0 {
-        txHash = ethtypes.EmptyTxsHash
-    }
+	if len(transactions) == 0 {
+		txHash = ethtypes.EmptyTxsHash
+	}
 
-    gasLimit := blockRes.ConsensusParamUpdates.Block.MaxGas
-    result := map[string]interface{}{
-        "number":           (*hexutil.Big)(number),
-        "hash":             blockhash,
-        "parentHash":       lastHash,
-        "nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
-        "mixHash":          common.Hash{},           // inapplicable to Sei
-        "sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
-        "logsBloom":        blockBloom,
-        "stateRoot":        appHash,
-        "miner":            miner,
-        "difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
-        "extraData":        hexutil.Bytes{},               // inapplicable to Sei
-        "gasLimit":         hexutil.Uint64(gasLimit),
-        "gasUsed":          hexutil.Uint64(blockGasUsed),
-        "timestamp":        hexutil.Uint64(block.Block.Time.Unix()),
-        "transactionsRoot": txHash,
-        "receiptsRoot":     resultHash,
-        "size":             hexutil.Uint64(block.Block.Size()),
-        "uncles":           []common.Hash{}, // inapplicable to Sei
-        "transactions":     transactions,
-        "baseFeePerGas":    (*hexutil.Big)(baseFeePerGas),
-    }
+	gasLimit := blockRes.ConsensusParamUpdates.Block.MaxGas
+	result := map[string]interface{}{
+		"number":           (*hexutil.Big)(number),
+		"hash":             blockhash,
+		"parentHash":       lastHash,
+		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
+		"mixHash":          common.Hash{},           // inapplicable to Sei
+		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
+		"logsBloom":        blockBloom,
+		"stateRoot":        appHash,
+		"miner":            miner,
+		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
+		"extraData":        hexutil.Bytes{},               // inapplicable to Sei
+		"gasLimit":         hexutil.Uint64(gasLimit),
+		"gasUsed":          hexutil.Uint64(blockGasUsed),
+		"timestamp":        hexutil.Uint64(block.Block.Time.Unix()),
+		"transactionsRoot": txHash,
+		"receiptsRoot":     resultHash,
+		"size":             hexutil.Uint64(block.Block.Size()),
+		"uncles":           []common.Hash{}, // inapplicable to Sei
+		"transactions":     transactions,
+		"baseFeePerGas":    (*hexutil.Big)(baseFeePerGas),
+	}
 
-    if fullTx {
-        result["totalDifficulty"] = (*hexutil.Big)(big.NewInt(0)) // inapplicable to Sei
-    }
-    return result, nil
+	if fullTx {
+		result["totalDifficulty"] = (*hexutil.Big)(big.NewInt(0)) // inapplicable to Sei
+	}
+	return result, nil
 }
-
 
 func FullBloom() ethtypes.Bloom {
 	bz := []byte{}
