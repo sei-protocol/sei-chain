@@ -1,4 +1,5 @@
 services:
+
   node0:
     platform: linux/amd64
     container_name: sei-node-0
@@ -21,8 +22,9 @@ services:
       - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${PROJECT_HOME}/../sei-db:/sei-protocol/sei-db:Z"
       - "${PROJECT_HOME}/../go-ethereum:/sei-protocol/go-ethereum:Z"
-      - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
+      - "${GO_MOD_CACHE}:/root/go/pkg/mod:Z"
       - "${GOCACHE}:/root/.cache/go-build:Z"
+      - "${PROJECT_HOME}/../../sei-protocol/mev-demo/:/sei-protocol/mev/"
     networks:
       localnet:
         ipv4_address: 192.168.10.10
@@ -48,8 +50,9 @@ services:
       - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${PROJECT_HOME}/../sei-db:/sei-protocol/sei-db:Z"
       - "${PROJECT_HOME}/../go-ethereum:/sei-protocol/go-ethereum:Z"
-      - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
+      - "${GO_MOD_CACHE}:/root/go/pkg/mod:Z"
       - "${GOCACHE}:/root/.cache/go-build:Z"
+      - "${PROJECT_HOME}/../../sei-protocol/mev-demo/:/sei-protocol/mev/"
     networks:
       localnet:
         ipv4_address: 192.168.10.11
@@ -75,8 +78,9 @@ services:
       - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${PROJECT_HOME}/../sei-db:/sei-protocol/sei-db:Z"
       - "${PROJECT_HOME}/../go-ethereum:/sei-protocol/go-ethereum:Z"
-      - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
+      - "${GO_MOD_CACHE}:/root/go/pkg/mod:Z"
       - "${GOCACHE}:/root/.cache/go-build:Z"
+      - "${PROJECT_HOME}/../../sei-protocol/mev-demo/:/sei-protocol/mev/"
     networks:
       localnet:
         ipv4_address: 192.168.10.12
@@ -102,8 +106,9 @@ services:
       - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${PROJECT_HOME}/../sei-db:/sei-protocol/sei-db:Z"
       - "${PROJECT_HOME}/../go-ethereum:/sei-protocol/go-ethereum:Z"
-      - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
+      - "${GO_MOD_CACHE}:/root/go/pkg/mod:Z"
       - "${GOCACHE}:/root/.cache/go-build:Z"
+      - "${PROJECT_HOME}/../../sei-protocol/mev-demo/:/sei-protocol/mev/"
     networks:
       localnet:
         ipv4_address: 192.168.10.13

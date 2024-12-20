@@ -66,4 +66,11 @@ echo "$PRIV_KEY" >> build/generated/exported_keys/"$SEIVALOPER_INFO".txt
 sed -i.bak -e "s|^address *=.*|address = \"$GENESIS_ACCOUNT_ADDRESS\"|" $ORACLE_CONFIG_FILE
 sed -i.bak -e "s|^validator *=.*|validator = \"$SEIVALOPER_INFO\"|" $ORACLE_CONFIG_FILE
 
+
+# Override MEV server address
+echo "Setting MEV server address to $MEV_SERVER_ADDR"
+sed -i'' -e 's/enabled = false/enabled = true/g' "$APP_CONFIG_FILE"
+sed -i'' -e 's/server_addr = ""/server_addr = "'"$MEV_SERVER_ADDR"'"/g' "$APP_CONFIG_FILE"
+
+
 echo "DONE" >> build/generated/init.complete

@@ -69,15 +69,15 @@ type TestWrapper struct {
 	Ctx sdk.Context
 }
 
-func NewTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
-	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, false, baseAppOptions...)
+func NewTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, enableMEV bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
+	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, enableMEV, false, baseAppOptions...)
 }
 
-func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
-	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, baseAppOptions...)
+func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, enableMEV bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
+	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, enableMEV, true, baseAppOptions...)
 }
 
-func newTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, useSc bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
+func newTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, enableMEV bool, useSc bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
 	var appPtr *App
 	if useSc {
 		appPtr = SetupWithSc(false, enableEVMCustomPrecompiles, baseAppOptions...)
@@ -91,6 +91,10 @@ func newTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enable
 	}
 	wrapper.SetT(t)
 	wrapper.setupValidator(stakingtypes.Unbonded, valPub)
+
+	if enableMEV {
+		wrapper.App.mevConfig.Enabled = true
+	}
 	return wrapper
 }
 

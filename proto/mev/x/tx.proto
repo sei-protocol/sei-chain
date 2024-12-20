@@ -1,0 +1,14 @@
+syntax = "proto3";
+package seiprotocol.seichain.mev;
+
+import "gogoproto/gogo.proto";
+import "cosmos/base/v1beta1/coin.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/mev/types";
+
+// empty, as there are no Tendermint-aware transactions for MEV, but it's likely this will be used
+
+service Msg {
+
+}
+

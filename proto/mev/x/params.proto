@@ -1,0 +1,11 @@
+syntax = "proto3";
+package seiprotocol.seichain.mev;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/mev/types";
+
+// Params defines the parameters for the module.
+message Params {
+  option (gogoproto.goproto_stringer) = true;
+}
