@@ -80,11 +80,11 @@ func getTransactionReceipt(
 
 	if excludePanicTxs {
 		isPanicTx, err := isPanicTx(ctx, hash)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check if tx is panic tx: %w", err)
-		}
 		if isPanicTx {
 			return nil, ErrPanicTx
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to check if tx is panic tx: %w", err)
 		}
 	}
 

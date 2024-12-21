@@ -292,25 +292,25 @@ func EncodeTmBlock(
 				}
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
+				if isPanicTx != nil {
+					isPanic, err := isPanicTx(ctx.Context(), hash)
+					if err != nil {
+						return nil, fmt.Errorf("failed to check if tx is panic tx: %w", err)
+					}
+					if isPanic {
+						continue
+					}
+				}
+				receipt, err := k.GetReceipt(ctx, hash)
+				if err != nil {
+					continue
+				}
+				if !includeSyntheticTxs && receipt.TxType == ShellEVMTxType {
+					continue
+				}
 				if !fullTx {
 					transactions = append(transactions, hash)
 				} else {
-					receipt, err := k.GetReceipt(ctx, hash)
-					if err != nil {
-						continue
-					}
-					if !includeSyntheticTxs && receipt.TxType == ShellEVMTxType {
-						continue
-					}
-					if isPanicTx != nil {
-						panic, err := isPanicTx(ctx.Context(), hash)
-						if err != nil {
-							return nil, fmt.Errorf("failed to check if tx is panic tx: %w", err)
-						}
-						if panic {
-							continue
-						}
-					}
 					newTx := ethapi.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
 					transactions = append(transactions, newTx)
 				}
