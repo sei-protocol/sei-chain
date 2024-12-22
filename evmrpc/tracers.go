@@ -3,7 +3,6 @@ package evmrpc
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -85,7 +84,7 @@ func (api *SeiDebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.Block
 	// iterate through and look for error "tracing failed"
 	finalTraces := make([]*tracers.TxTraceResult, 0)
 	for _, trace := range traces {
-		if strings.Contains(trace.Error, "tracing failed") {
+		if len(trace.Error) > 0 {
 			continue
 		}
 		finalTraces = append(finalTraces, trace)
