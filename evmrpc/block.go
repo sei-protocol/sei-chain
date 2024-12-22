@@ -28,7 +28,6 @@ import (
 )
 
 const ShellEVMTxType = math.MaxUint32
-const TestGenesisBlockHash = "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E"
 
 type BlockAPI struct {
 	tmClient             rpcclient.Client
@@ -142,7 +141,7 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 		// for compatibility with the graph, always return genesis block
 		return map[string]interface{}{
 			"number":           (*hexutil.Big)(big.NewInt(0)),
-			"hash":             TestGenesisBlockHash,
+			"hash":             "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E",
 			"parentHash":       common.Hash{},
 			"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
 			"mixHash":          common.Hash{},           // inapplicable to Sei

@@ -132,7 +132,7 @@ func verifyGenesisBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x", resObj["extraData"])
 	require.Equal(t, "0x0", resObj["gasLimit"])
 	require.Equal(t, "0x0", resObj["gasUsed"])
-	require.Equal(t, evmrpc.TestGenesisBlockHash, resObj["hash"])
+	require.Equal(t, "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E", resObj["hash"])
 	require.Equal(t, "0x0000000000000000", resObj["nonce"])
 	require.Equal(t, "0x0", resObj["number"])
 }
