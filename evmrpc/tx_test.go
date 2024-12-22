@@ -290,8 +290,8 @@ func TestGetTransactionReceiptFailedTx(t *testing.T) {
 	require.Nil(t, resObj["contractAddress"])
 }
 
-func TestGetTransactionReceiptExcludePanicTx(t *testing.T) {
-	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_getTransactionReceipt\",\"params\":[\"%s\"],\"id\":\"test\"}", "sei", TestPanicTxHash)
+func TestGetTransactionReceiptExcludeTraceFail(t *testing.T) {
+	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_getTransactionReceiptExcludeTraceFail\",\"params\":[\"%s\"],\"id\":\"test\"}", "sei", TestPanicTxHash)
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")

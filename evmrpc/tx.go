@@ -59,7 +59,7 @@ func NewSeiTransactionAPI(
 	return &SeiTransactionAPI{TransactionAPI: NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, connectionType), isPanicTx: isPanicTx}
 }
 
-func (t *SeiTransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
+func (t *SeiTransactionAPI) GetTransactionReceiptExcludeTraceFail(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
 	return getTransactionReceipt(ctx, t.TransactionAPI, hash, true, t.isPanicTx)
 }
 

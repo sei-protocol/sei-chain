@@ -73,15 +73,14 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	return
 }
 
-func (api *SeiDebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
+func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime, returnErr == nil)
+	defer recordMetrics("sei_traceBlockByNumberExcludeTraceFail", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
 	traces, ok := result.([]*tracers.TxTraceResult)
 	if !ok {
 		return nil, fmt.Errorf("unexpected type: %T", result)
 	}
-	// iterate through and look for error "tracing failed"
 	finalTraces := make([]*tracers.TxTraceResult, 0)
 	for _, trace := range traces {
 		if len(trace.Error) > 0 {
