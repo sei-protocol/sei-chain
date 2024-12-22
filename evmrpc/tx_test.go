@@ -289,3 +289,18 @@ func TestGetTransactionReceiptFailedTx(t *testing.T) {
 	require.Equal(t, "0x0000000000000000000000000000000000010203", resObj["to"].(string))
 	require.Nil(t, resObj["contractAddress"])
 }
+
+func TestGetTransactionReceiptExcludeTraceFail(t *testing.T) {
+	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_getTransactionReceiptExcludeTraceFail\",\"params\":[\"%s\"],\"id\":\"test\"}", "sei", TestPanicTxHash)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err := io.ReadAll(res.Body)
+	require.Nil(t, err)
+	resObj := map[string]interface{}{}
+	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	require.Greater(t, len(resObj["error"].(map[string]interface{})["message"].(string)), 0)
+	require.Nil(t, resObj["result"])
+}

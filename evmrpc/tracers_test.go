@@ -86,3 +86,15 @@ func TestTraceCall(t *testing.T) {
 	require.Equal(t, float64(21000), result["gas"])
 	require.Equal(t, false, result["failed"])
 }
+
+func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
+	args := map[string]interface{}{}
+	args["tracer"] = "callTracer"
+	seiResObj := sendRequestGoodWithNamespace(t, "sei", "traceBlockByNumberExcludeTraceFail", "0x67", args)
+	result := seiResObj["result"].([]interface{})
+	// sei_traceBlockByNumber returns 1 trace, and removes the panic tx
+	require.Equal(t, 1, len(result))
+	ethResObj := sendRequestGoodWithNamespace(t, "debug", "traceBlockByNumber", "0x67", args)
+	// eth_traceBlockByNumber returns 2 traces, including the panic tx
+	require.Equal(t, 2, len(ethResObj["result"].([]interface{})))
+}

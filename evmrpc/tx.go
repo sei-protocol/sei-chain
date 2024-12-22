@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 	"time"
@@ -24,6 +25,8 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
+var ErrPanicTx = errors.New("transaction is panic tx")
+
 const UnconfirmedTxQueryMaxPage = 20
 const UnconfirmedTxQueryPerPage = 30
 
@@ -36,14 +39,55 @@ type TransactionAPI struct {
 	connectionType ConnectionType
 }
 
+type SeiTransactionAPI struct {
+	*TransactionAPI
+	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
+}
+
 func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, homeDir string, connectionType ConnectionType) *TransactionAPI {
 	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig, homeDir: homeDir, connectionType: connectionType}
 }
 
+func NewSeiTransactionAPI(
+	tmClient rpcclient.Client,
+	k *keeper.Keeper,
+	ctxProvider func(int64) sdk.Context, txConfig client.TxConfig,
+	homeDir string,
+	connectionType ConnectionType,
+	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
+) *SeiTransactionAPI {
+	return &SeiTransactionAPI{TransactionAPI: NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, connectionType), isPanicTx: isPanicTx}
+}
+
+func (t *SeiTransactionAPI) GetTransactionReceiptExcludeTraceFail(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
+	return getTransactionReceipt(ctx, t.TransactionAPI, hash, true, t.isPanicTx)
+}
+
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
+	return getTransactionReceipt(ctx, t, hash, false, nil)
+}
+
+func getTransactionReceipt(
+	ctx context.Context,
+	t *TransactionAPI,
+	hash common.Hash,
+	excludePanicTxs bool,
+	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
+) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getTransactionReceipt", t.connectionType, startTime, returnErr == nil)
 	sdkctx := t.ctxProvider(LatestCtxHeight)
+
+	if excludePanicTxs {
+		isPanicTx, err := isPanicTx(ctx, hash)
+		if isPanicTx {
+			return nil, ErrPanicTx
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to check if tx is panic tx: %w", err)
+		}
+	}
+
 	receipt, err := t.keeper.GetReceipt(sdkctx, hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
