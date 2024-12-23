@@ -2,7 +2,6 @@ package evmrpc_test
 
 import (
 	"errors"
-	"fmt"
 	"math/big"
 	"testing"
 
@@ -113,7 +112,6 @@ func TestFeeHistory(t *testing.T) {
 				reward, ok := rewards[0].([]interface{})
 				require.True(t, ok, "Expected reward to be a slice of interfaces")
 				require.Equal(t, 1, len(reward), "Expected exactly one sub-item in reward")
-				fmt.Println("resObj", resObj)
 
 				require.Equal(t, tc.expectedReward, reward[0].(string), "Reward does not match expected value")
 
