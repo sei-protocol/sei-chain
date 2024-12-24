@@ -2,12 +2,10 @@ package keeper
 
 import (
 	"bytes"
-	"strconv"
-	"time"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
+	"strconv"
 
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
@@ -98,7 +96,10 @@ func (k Keeper) SendPacket(
 		}
 
 		if packet.GetTimeoutTimestamp() != 0 && latestTimestamp >= packet.GetTimeoutTimestamp() {
-			return GetPacketTimeoutErrorMessage(latestTimestamp, packet.GetTimeoutTimestamp())
+			return GetPacketTimeoutErrorMessage(
+				"receiving chain block timestamp >= packet timeout timestamp (%d >= %d)",
+				latestTimestamp,
+				packet.GetTimeoutTimestamp())
 		}
 	}
 
@@ -137,10 +138,10 @@ func (k Keeper) SendPacket(
 	return nil
 }
 
-func GetPacketTimeoutErrorMessage(latestTimestamp uint64, timeoutTimestamp uint64) error {
+func GetPacketTimeoutErrorMessage(message string, latestTimestamp uint64, timeoutTimestamp uint64) error {
 	return sdkerrors.Wrapf(
 		types.ErrPacketTimeout,
-		"receiving chain block timestamp >= packet timeout timestamp (%d >= %d)",
+		message,
 		latestTimestamp,
 		timeoutTimestamp,
 	)
@@ -218,10 +219,10 @@ func (k Keeper) RecvPacket(
 
 	// check if packet timeouted by comparing it with the latest timestamp of the chain
 	if packet.GetTimeoutTimestamp() != 0 && uint64(ctx.BlockTime().UnixNano()) >= packet.GetTimeoutTimestamp() {
-		return sdkerrors.Wrapf(
-			types.ErrPacketTimeout,
-			"block timestamp >= packet timeout timestamp (%s >= %s)", ctx.BlockTime(), time.Unix(0, int64(packet.GetTimeoutTimestamp())),
-		)
+		return GetPacketTimeoutErrorMessage(
+			"block timestamp >= packet timeout timestamp (%d >= %d)",
+			uint64(ctx.BlockTime().UTC().UnixNano()),
+			packet.GetTimeoutTimestamp())
 	}
 
 	commitment := types.CommitPacket(k.cdc, packet)
