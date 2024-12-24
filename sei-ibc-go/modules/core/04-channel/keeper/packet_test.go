@@ -3,6 +3,9 @@ package keeper_test
 import (
 	"errors"
 	"fmt"
+	"github.com/cosmos/ibc-go/v3/modules/core/04-channel/keeper"
+	"github.com/stretchr/testify/require"
+	"testing"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	capabilitytypes "github.com/cosmos/cosmos-sdk/x/capability/types"
@@ -865,6 +868,35 @@ func (suite *KeeperTestSuite) TestAcknowledgePacket() {
 					suite.Require().True(errors.Is(err, expError))
 				}
 			}
+		})
+	}
+}
+
+func TestGetPacketTimeoutErrorMessage(t *testing.T) {
+	type args struct {
+		latestTimestamp  uint64
+		timeoutTimestamp uint64
+	}
+	tests := []struct {
+		name       string
+		args       args
+		wantErrMsg string
+	}{
+		{"error message is returned",
+			args{30, 20},
+			"receiving chain block timestamp >= packet timeout timestamp (30 >= 20): packet timeout",
+		},
+		{
+			"error message is returned",
+			args{-1, 30},
+			"receiving chain block timestamp >= packet timeout timestamp (30 >= 30): packet timeout",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := keeper.GetPacketTimeoutErrorMessage(tt.args.latestTimestamp, tt.args.timeoutTimestamp)
+			require.Error(t, err)
+			require.Equal(t, tt.wantErrMsg, err.Error())
 		})
 	}
 }

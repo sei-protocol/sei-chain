@@ -98,10 +98,7 @@ func (k Keeper) SendPacket(
 		}
 
 		if packet.GetTimeoutTimestamp() != 0 && latestTimestamp >= packet.GetTimeoutTimestamp() {
-			return sdkerrors.Wrapf(
-				types.ErrPacketTimeout,
-				"receiving chain block timestamp >= packet timeout timestamp (%s >= %s)", time.Unix(0, int64(latestTimestamp)), time.Unix(0, int64(packet.GetTimeoutTimestamp())),
-			)
+			return GetPacketTimeoutErrorMessage(latestTimestamp, packet.GetTimeoutTimestamp())
 		}
 	}
 
@@ -138,6 +135,15 @@ func (k Keeper) SendPacket(
 	)
 
 	return nil
+}
+
+func GetPacketTimeoutErrorMessage(latestTimestamp uint64, timeoutTimestamp uint64) error {
+	return sdkerrors.Wrapf(
+		types.ErrPacketTimeout,
+		"receiving chain block timestamp >= packet timeout timestamp (%d >= %d)",
+		latestTimestamp,
+		timeoutTimestamp,
+	)
 }
 
 // RecvPacket is called by a module in order to receive & process an IBC packet
