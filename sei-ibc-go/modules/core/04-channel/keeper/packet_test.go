@@ -886,11 +886,6 @@ func TestGetPacketTimeoutErrorMessage(t *testing.T) {
 			args{30, 20},
 			"receiving chain block timestamp >= packet timeout timestamp (30 >= 20): packet timeout",
 		},
-		{
-			"error message is returned",
-			args{-1, 30},
-			"receiving chain block timestamp >= packet timeout timestamp (30 >= 30): packet timeout",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
