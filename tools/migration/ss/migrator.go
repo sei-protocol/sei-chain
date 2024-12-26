@@ -30,47 +30,83 @@ func NewMigrator(db dbm.DB, stateStore types.StateStore) *Migrator {
 }
 
 func (m *Migrator) Migrate(version int64, homeDir string) error {
+	// Channel to send RawSnapshotNodes to the importer.
 	ch := make(chan types.RawSnapshotNode, 1000)
+	// Channel to capture errors from both goroutines below.
 	errCh := make(chan error, 2)
 
-	// Get the latest key, if any, to resume from
-	latestKey, err := m.stateStore.GetLatestMigratedKey()
-	if err != nil {
-		return fmt.Errorf("failed to get latest key: %w", err)
-	}
+	fmt.Printf("Starting migration for 'distribution' module from version %d to %d...\n", 100215000, 106789896)
 
-	latestModule, err := m.stateStore.GetLatestMigratedModule()
-	if err != nil {
-		return fmt.Errorf("failed to get latest module: %w", err)
-	}
-
-	fmt.Println("Starting migration...")
-
-	// Goroutine to iterate through IAVL and export leaf nodes
+	// Goroutine #1: Export distribution leaf nodes into ch
 	go func() {
 		defer close(ch)
-		errCh <- ExportLeafNodesFromKey(m.iavlDB, ch, latestKey, latestModule)
+		errCh <- exportDistributionLeafNodes(m.iavlDB, ch, 100215000, 106789896)
 	}()
 
-	// Import nodes into PebbleDB
+	// Goroutine #2: Import those leaf nodes into PebbleDB
 	go func() {
 		errCh <- m.stateStore.RawImport(ch)
 	}()
 
-	// Block until both processes complete
+	// Wait for both goroutines to complete
 	for i := 0; i < 2; i++ {
 		if err := <-errCh; err != nil {
 			return err
 		}
 	}
 
-	// Set earliest and latest version in the database
-	err = m.stateStore.SetEarliestVersion(1, true)
-	if err != nil {
-		return err
+	return nil
+}
+
+func exportDistributionLeafNodes(
+	db dbm.DB,
+	ch chan<- types.RawSnapshotNode,
+	startVersion, endVersion int64,
+) error {
+	// Total counters for logging.
+	totalExported := 0
+	startTime := time.Now()
+
+	for ver := startVersion; ver <= endVersion; ver++ {
+		// Load only the distribution module prefix at this version.
+		tree, err := ReadTree(db, ver, []byte(utils.BuildTreePrefix("distribution")))
+		if err != nil {
+			fmt.Printf("Error loading distribution tree at version %d: %s\n", ver, err.Error())
+			return err
+		}
+
+		var count int
+		_, err = tree.Iterate(func(key, value []byte) bool {
+			// Each leaf node is a single K/V for this version
+			ch <- types.RawSnapshotNode{
+				StoreKey: "distribution",
+				Key:      key,
+				Value:    value,
+				Version:  ver,
+			}
+			count++
+			totalExported++
+			if count%1000000 == 0 {
+				fmt.Printf("Exported %d distribution keys at version %d so far\n", count, ver)
+				// Optionally add metrics here if desired.
+				metrics.IncrCounterWithLabels([]string{"sei", "migration", "leaf_nodes_exported"}, float32(count), []metrics.Label{
+					{Name: "module", Value: "distribution"},
+				})
+			}
+			return false // continue iteration
+		})
+		if err != nil {
+			fmt.Printf("Error iterating distribution tree for version %d: %s\n", ver, err.Error())
+			return err
+		}
+		fmt.Printf("Finished version %d: exported %d distribution keys.\n", ver, count)
 	}
 
-	return m.stateStore.SetLatestVersion(version)
+	fmt.Printf(
+		"Completed exporting distribution module from %d to %d. Total keys: %d. Duration: %s\n",
+		startVersion, endVersion, totalExported, time.Since(startTime),
+	)
+	return nil
 }
 
 func (m *Migrator) Verify(version int64) error {
