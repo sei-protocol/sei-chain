@@ -172,6 +172,11 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 				if !a.includeShellReceipts && receipt.TxType == ShellEVMTxType {
 					return
 				}
+				// tx hash is included in a future block (because it failed in the current block due to
+				// checks before the account's nonce is updated)
+				if receipt.BlockNumber != uint64(height) {
+					return
+				}
 				encodedReceipt, err := encodeReceipt(receipt, a.txConfig.TxDecoder(), block, func(h common.Hash) bool {
 					_, err := a.keeper.GetReceipt(a.ctxProvider(height), h)
 					return err == nil
