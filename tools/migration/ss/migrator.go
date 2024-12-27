@@ -62,7 +62,6 @@ func exportDistributionLeafNodes(
 	db dbm.DB,
 	ch chan<- types.RawSnapshotNode,
 	startVersion, endVersion int64,
-	numGoroutines int,
 ) error {
 	fmt.Printf("Starting export at time: %s\n", time.Now().Format(time.RFC3339))
 
