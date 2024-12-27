@@ -73,7 +73,7 @@ func exportDistributionLeafNodes(
 		// Load only the distribution module prefix at this version.
 		tree, err := ReadTree(db, ver, []byte(utils.BuildTreePrefix("distribution")))
 		if err != nil {
-			fmt.Printf("Error loading distribution tree at version %d: %s\n", ver, err.Error())
+			fmt.Printf("[%s] Error loading distribution tree at version %d: %s\n", time.Now().Format(time.RFC3339), ver, err.Error())
 			return err
 		}
 
@@ -89,7 +89,7 @@ func exportDistributionLeafNodes(
 			count++
 			totalExported++
 			if count%1000000 == 0 {
-				fmt.Printf("Exported %d distribution keys at version %d so far\n", count, ver)
+				fmt.Printf("[%s] Exported %d distribution keys at version %d so far\n", time.Now().Format(time.RFC3339), count, ver)
 				// Optionally add metrics here if desired.
 				metrics.IncrCounterWithLabels([]string{"sei", "migration", "leaf_nodes_exported"}, float32(count), []metrics.Label{
 					{Name: "module", Value: "distribution"},
@@ -98,15 +98,15 @@ func exportDistributionLeafNodes(
 			return false // continue iteration
 		})
 		if err != nil {
-			fmt.Printf("Error iterating distribution tree for version %d: %s\n", ver, err.Error())
+			fmt.Printf("[%s] Error iterating distribution tree for version %d: %s\n", time.Now().Format(time.RFC3339), ver, err.Error())
 			return err
 		}
-		fmt.Printf("Finished version %d: exported %d distribution keys.\n", ver, count)
+		fmt.Printf("[%s] Finished version %d: exported %d distribution keys.\n", time.Now().Format(time.RFC3339), ver, count)
 	}
 
 	fmt.Printf(
-		"Completed exporting distribution module from %d to %d. Total keys: %d. Duration: %s\n",
-		startVersion, endVersion, totalExported, time.Since(startTime),
+		"[%s] Completed exporting distribution module from %d to %d. Total keys: %d. Duration: %s\n",
+		time.Now().Format(time.RFC3339), startVersion, endVersion, totalExported, time.Since(startTime),
 	)
 	fmt.Printf("Finished export at time: %s\n", time.Now().Format(time.RFC3339))
 	return nil
