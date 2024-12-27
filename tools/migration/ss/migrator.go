@@ -78,12 +78,12 @@ func exportDistributionLeafNodes(
 		var count int
 		_, err = tree.Iterate(func(key, value []byte) bool {
 			// Each leaf node is a single K/V for this version
-			ch <- types.RawSnapshotNode{
-				StoreKey: "distribution",
-				Key:      key,
-				Value:    value,
-				Version:  ver,
-			}
+			// ch <- types.RawSnapshotNode{
+			// 	StoreKey: "distribution",
+			// 	Key:      key,
+			// 	Value:    value,
+			// 	Version:  ver,
+			// }
 			count++
 			totalExported++
 			if count%1000000 == 0 {
