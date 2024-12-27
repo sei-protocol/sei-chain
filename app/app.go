@@ -1703,8 +1703,9 @@ func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, tx
 		}),
 		ConsensusParamUpdates: &tmproto.ConsensusParams{
 			Block: &tmproto.BlockParams{
-				MaxBytes: endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
-				MaxGas:   endBlockResp.ConsensusParamUpdates.Block.MaxGas,
+				MaxBytes:      endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
+				MaxGas:        endBlockResp.ConsensusParamUpdates.Block.MaxGas,
+				MinTxsInBlock: endBlockResp.ConsensusParamUpdates.Block.MinTxsInBlock,
 			},
 			Evidence: &tmproto.EvidenceParams{
 				MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,
@@ -1910,8 +1911,10 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 
 		totalGasWanted += gasWanted
 		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGas) {
-			// early return
-			return false
+			if len(txs) > int(ctx.ConsensusParams().Block.MinTxsInBlock) {
+				// early return
+				return false
+			}
 		}
 	}
 	return true
