@@ -63,6 +63,8 @@ func exportDistributionLeafNodes(
 	ch chan<- types.RawSnapshotNode,
 	startVersion, endVersion int64,
 ) error {
+	fmt.Printf("Starting export at time: %s\n", time.Now().Format(time.RFC3339))
+
 	// Total counters for logging.
 	totalExported := 0
 	startTime := time.Now()
@@ -106,6 +108,7 @@ func exportDistributionLeafNodes(
 		"Completed exporting distribution module from %d to %d. Total keys: %d. Duration: %s\n",
 		startVersion, endVersion, totalExported, time.Since(startTime),
 	)
+	fmt.Printf("Finished export at time: %s\n", time.Now().Format(time.RFC3339))
 	return nil
 }
 
