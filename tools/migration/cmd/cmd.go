@@ -48,6 +48,45 @@ func migrateSC(version int64, homeDir string, db dbm.DB) error {
 	return migrator.Migrate(version)
 }
 
+func MigrateSSCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "migrate-ss",
+		Short: "A tool to migrate full ss distribution module",
+		Run:   executeSS,
+	}
+	cmd.PersistentFlags().String("home-dir", "/root/.sei", "Sei home directory")
+	return cmd
+}
+
+func executeSS(cmd *cobra.Command, _ []string) {
+	homeDir, _ := cmd.Flags().GetString("home-dir")
+	dataDir := filepath.Join(homeDir, "data")
+	db, err := dbm.NewGoLevelDB("application", dataDir)
+	if err != nil {
+		panic(err)
+	}
+	latestVersion := rootmulti.GetLatestVersion(db)
+	fmt.Printf("latest version: %d\n", latestVersion)
+
+	if err = migrateSS(latestVersion, homeDir, db); err != nil {
+		panic(err)
+	}
+}
+
+func migrateSS(version int64, homeDir string, db dbm.DB) error {
+	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig.Enable = true
+	ssConfig.KeepRecent = 0
+
+	stateStore, err := sstypes.NewStateStore(log.NewNopLogger(), homeDir, ssConfig)
+	if err != nil {
+		return err
+	}
+
+	migrator := ss.NewMigrator(db, stateStore)
+	return migrator.Migrate(version, homeDir)
+}
+
 func VerifyMigrationCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "verify-migration",
