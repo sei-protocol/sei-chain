@@ -76,7 +76,7 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 	baseFee := i.keeper.GetDynamicBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	// increase base fee by 10% to get the gas price to get a tx included in a timely manner
 	// legacy txs will use this gas price to get included
-	// eip-1669 txs will use this as the max fee per gas to get included
+	// eip-1559 txs will use this as the max fee per gas to get included
 	gasPrice := new(big.Int).Mul(baseFee, big.NewInt(110))
 	gasPrice.Div(gasPrice, big.NewInt(100))
 	return (*hexutil.Big)(gasPrice), nil
