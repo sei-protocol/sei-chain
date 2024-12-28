@@ -61,8 +61,8 @@ func TestGasPrice(t *testing.T) {
 	resObj := sendRequestGood(t, "gasPrice")
 	Ctx = Ctx.WithBlockHeight(8)
 	result := resObj["result"].(string)
-	oneGwei := "0x3b9aca00"
-	require.Equal(t, oneGwei, result)
+	onePointOneGwei := "0x4190ab00"
+	require.Equal(t, onePointOneGwei, result)
 }
 
 func TestFeeHistory(t *testing.T) {

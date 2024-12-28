@@ -73,22 +73,13 @@ func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
 func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_GasPrice", i.connectionType, startTime, returnErr == nil)
-	// get fee history of the most recent block with 50% reward percentile
-	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{0.5})
-	if err != nil {
-		return nil, err
-	}
-	if len(feeHist.Reward) == 0 || len(feeHist.Reward[0]) == 0 {
-		// if there is no EVM tx in the most recent block, return the minimum fee param
-		baseFee := i.keeper.GetMinimumFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
-		return (*hexutil.Big)(baseFee), nil
-	}
 	baseFee := i.keeper.GetDynamicBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
-	sum := new(big.Int).Add(
-		feeHist.Reward[0][0].ToInt(),
-		baseFee,
-	)
-	return (*hexutil.Big)(sum), nil
+	// increase base fee by 10% to get the gas price to get a tx included in a timely manner
+	// legacy txs will use this gas price to get included
+	// eip-1669 txs will use this as the max fee per gas to get included
+	gasPrice := new(big.Int).Mul(baseFee, big.NewInt(110))
+	gasPrice.Div(gasPrice, big.NewInt(100))
+	return (*hexutil.Big)(gasPrice), nil
 }
 
 // lastBlock is inclusive
