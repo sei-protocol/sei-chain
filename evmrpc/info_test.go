@@ -166,5 +166,5 @@ func TestMaxPriorityFeePerGas(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(1)
 	// Mimic request sending and handle the response
 	resObj := sendRequestGood(t, "maxPriorityFeePerGas")
-	assert.Equal(t, "0x170cdc1e00", resObj["result"])
+	assert.Equal(t, "0x3b9aca00", resObj["result"])
 }
