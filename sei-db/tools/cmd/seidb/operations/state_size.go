@@ -90,6 +90,7 @@ func PrintStateSize(module string, db *memiavl.DB) error {
 			prefixValueResult, _ := json.MarshalIndent(valueSizeByPrefix, "", "  ")
 			fmt.Printf("Module %s prefix value size breakdown (bytes): %s \n", moduleName, prefixValueResult)
 
+			// Print top 20 contracts by total size
 			if valueSizeByPrefix["03"] > 0 || keySizeByPrefix["03"] > 0 {
 				type contractSizeEntry struct {
 					Address   string
