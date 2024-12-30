@@ -85,7 +85,12 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 	if err != nil {
 		return nil, err
 	}
-	medianRewardPrevBlock := feeHist.Reward[0][0].ToInt()
+	var medianRewardPrevBlock *big.Int
+	if len(feeHist.Reward) == 0 || len(feeHist.Reward[0]) == 0 {
+		medianRewardPrevBlock = big.NewInt(defaultPriorityFeePerGas)
+	} else {
+		medianRewardPrevBlock = feeHist.Reward[0][0].ToInt()
+	}
 	return i.GasPriceHelper(ctx, baseFee, totalGasUsed, medianRewardPrevBlock)
 }
 
