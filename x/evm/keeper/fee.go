@@ -85,3 +85,50 @@ func (k *Keeper) SetDynamicBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec)
 	}
 	store.Set(types.BaseFeePerGasPrefix, bz)
 }
+
+func (k *Keeper) SetPrevBlockGasUsed(ctx sdk.Context, blockGasUsed uint64) {
+	store := ctx.KVStore(k.storeKey)
+	gasUsed := sdk.NewInt(int64(blockGasUsed))
+	bz, err := gasUsed.MarshalJSON()
+	if err != nil {
+		panic(err)
+	}
+	store.Set(types.PrevBlockGasUsedPrefix, bz)
+}
+
+func (k *Keeper) GetPrevBlockGasUsed(ctx sdk.Context) sdk.Int {
+	store := ctx.KVStore(k.storeKey)
+	bz := store.Get(types.PrevBlockGasUsedPrefix)
+	if bz == nil {
+		return sdk.NewInt(0)
+	}
+	d := sdk.Int{}
+	err := d.UnmarshalJSON(bz)
+	if err != nil {
+		panic(err)
+	}
+	return d
+}
+
+func (k *Keeper) SetPrevBlockBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec) {
+	store := ctx.KVStore(k.storeKey)
+	bz, err := baseFeePerGas.MarshalJSON()
+	if err != nil {
+		panic(err)
+	}
+	store.Set(types.PrevBlockBaseFeePerGasPrefix, bz)
+}
+
+func (k *Keeper) GetPrevBlockBaseFeePerGas(ctx sdk.Context) sdk.Dec {
+	store := ctx.KVStore(k.storeKey)
+	bz := store.Get(types.PrevBlockBaseFeePerGasPrefix)
+	if bz == nil {
+		return sdk.Dec{}
+	}
+	d := sdk.Dec{}
+	err := d.UnmarshalJSON(bz)
+	if err != nil {
+		panic(err)
+	}
+	return d
+}
