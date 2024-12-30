@@ -17,6 +17,9 @@ import (
 	"github.com/tendermint/tendermint/rpc/coretypes"
 )
 
+const highTotalGasUsedThreshold = 8500000
+const defaultPriorityFeePerGas = 1000000000 // 1gwei
+
 type InfoAPI struct {
 	tmClient       rpcclient.Client
 	keeper         *keeper.Keeper
@@ -73,22 +76,37 @@ func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
 func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_GasPrice", i.connectionType, startTime, returnErr == nil)
-	// get fee history of the most recent block with 50% reward percentile
+	baseFee := i.keeper.GetDynamicBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+	totalGasUsed, err := i.getCongestionData(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
 	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{0.5})
 	if err != nil {
 		return nil, err
 	}
+	var medianRewardPrevBlock *big.Int
 	if len(feeHist.Reward) == 0 || len(feeHist.Reward[0]) == 0 {
-		// if there is no EVM tx in the most recent block, return the minimum fee param
-		baseFee := i.keeper.GetMinimumFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
-		return (*hexutil.Big)(baseFee), nil
+		medianRewardPrevBlock = big.NewInt(defaultPriorityFeePerGas)
+	} else {
+		medianRewardPrevBlock = feeHist.Reward[0][0].ToInt()
 	}
-	baseFee := i.keeper.GetDynamicBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
-	sum := new(big.Int).Add(
-		feeHist.Reward[0][0].ToInt(),
-		baseFee,
-	)
-	return (*hexutil.Big)(sum), nil
+	return i.GasPriceHelper(ctx, baseFee, totalGasUsed, medianRewardPrevBlock)
+}
+
+// Helper function useful for testing
+func (i *InfoAPI) GasPriceHelper(ctx context.Context, baseFee *big.Int, totalGasUsedPrevBlock uint64, medianRewardPrevBlock *big.Int) (*hexutil.Big, error) {
+	isChainCongested := totalGasUsedPrevBlock > highTotalGasUsedThreshold
+	if !isChainCongested {
+		// chain is not congested, increase base fee by 10% to get the gas price to get a tx included in a timely manner
+		gasPrice := new(big.Int).Mul(baseFee, big.NewInt(110))
+		gasPrice.Div(gasPrice, big.NewInt(100))
+		return (*hexutil.Big)(gasPrice), nil
+	}
+	// chain is congested, return the 50%-tile reward as the priority fee per gas
+	gasPrice := new(big.Int).Add(medianRewardPrevBlock, baseFee)
+	return (*hexutil.Big)(gasPrice), nil
+
 }
 
 // lastBlock is inclusive
@@ -179,8 +197,21 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 }
 
 func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, error) {
+	// Checks the most recent block. If it has high gas used, it will return the reward of the 50% percentile.
+	// Otherwise, since the previous block has low gas used, a user shouldn't need to tip a high amount to get included,
+	// so a default value is returned.
 	startTime := time.Now()
 	defer recordMetrics("eth_maxPriorityFeePerGas", i.connectionType, startTime, true)
+	totalGasUsed, err := i.getCongestionData(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	isChainCongested := totalGasUsed > highTotalGasUsedThreshold
+	if !isChainCongested {
+		// chain is not congested, return 1gwei as the default priority fee per gas
+		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
+	}
+	// chain is congested, return the 50%-tile reward as the priority fee per gas
 	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{0.5})
 	if err != nil {
 		return nil, err
@@ -227,6 +258,34 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 		totalEVMGasUsed += receipt.GasUsed
 	}
 	return CalculatePercentiles(rewardPercentiles, GasAndRewards, totalEVMGasUsed), nil
+}
+
+func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGasUsed uint64, err error) {
+	block, err := blockByNumber(ctx, i.tmClient, height)
+	if err != nil {
+		// block pruned from tendermint store. Skipping
+		return 0, err
+	}
+	totalEVMGasUsed := uint64(0)
+	for _, txbz := range block.Block.Txs {
+		ethtx := getEthTxForTxBz(txbz, i.txDecoder)
+		if ethtx == nil {
+			// not evm tx
+			continue
+		}
+		// okay to get from latest since receipt is immutable
+		receipt, err := i.keeper.GetReceipt(i.ctxProvider(LatestCtxHeight), ethtx.Hash())
+		if err != nil {
+			return 0, err
+		}
+		// We've had issues where is included in a block and fails but then is retried and included in a later block, overwriting the receipt.
+		// This is a temporary fix to ensure we only consider receipts that are included in the block we're querying.
+		if receipt.BlockNumber != uint64(block.Block.Height) {
+			continue
+		}
+		totalEVMGasUsed += receipt.GasUsed
+	}
+	return totalEVMGasUsed, nil
 }
 
 // Following go-ethereum implementation
