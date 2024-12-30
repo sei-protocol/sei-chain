@@ -1,6 +1,7 @@
 package evmrpc_test
 
 import (
+	"context"
 	"errors"
 	"math/big"
 	"testing"
@@ -167,4 +168,49 @@ func TestMaxPriorityFeePerGas(t *testing.T) {
 	// Mimic request sending and handle the response
 	resObj := sendRequestGood(t, "maxPriorityFeePerGas")
 	assert.Equal(t, "0x3b9aca00", resObj["result"])
+}
+
+func TestGasPriceLogic(t *testing.T) {
+	oneGwei := big.NewInt(1000000000)
+	onePointOneGwei := big.NewInt(1100000000)
+	tests := []struct {
+		name                  string
+		baseFee               *big.Int
+		totalGasUsedPrevBlock uint64
+		medianRewardPrevBlock *big.Int
+		expectedGasPrice      *big.Int
+	}{
+		{
+			name:                  "chain is not congested",
+			baseFee:               oneGwei,
+			totalGasUsedPrevBlock: 21000,
+			medianRewardPrevBlock: oneGwei,
+			expectedGasPrice:      onePointOneGwei,
+		},
+		{
+			name:                  "chain is congested",
+			baseFee:               oneGwei,
+			totalGasUsedPrevBlock: 9000000, // 9mil
+			medianRewardPrevBlock: big.NewInt(2000000000),
+			expectedGasPrice:      big.NewInt(3000000000),
+		},
+		{
+			name:                  "prev block has 1 tx with very high reward",
+			baseFee:               oneGwei,
+			totalGasUsedPrevBlock: 21000,                   // not congested
+			medianRewardPrevBlock: big.NewInt(99000000000), // very high reward
+			expectedGasPrice:      onePointOneGwei,         // gas price doesn't spike
+		},
+	}
+	for _, test := range tests {
+		i := evmrpc.NewInfoAPI(nil, nil, nil, nil, t.TempDir(), 1024, evmrpc.ConnectionTypeHTTP)
+		gasPrice, err := i.GasPriceHelper(
+			context.Background(),
+			test.baseFee,
+			test.totalGasUsedPrevBlock,
+			test.medianRewardPrevBlock,
+		)
+		require.Nil(t, err)
+		require.Equal(t, test.expectedGasPrice, gasPrice.ToInt())
+	}
 }

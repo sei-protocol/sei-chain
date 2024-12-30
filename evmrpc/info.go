@@ -81,7 +81,17 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 	if err != nil {
 		return nil, err
 	}
-	isChainCongested := totalGasUsed > highTotalGasUsedThreshold
+	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{0.5})
+	if err != nil {
+		return nil, err
+	}
+	medianRewardPrevBlock := feeHist.Reward[0][0].ToInt()
+	return i.GasPriceHelper(ctx, baseFee, totalGasUsed, medianRewardPrevBlock)
+}
+
+// Helper function useful for testing
+func (i *InfoAPI) GasPriceHelper(ctx context.Context, baseFee *big.Int, totalGasUsedPrevBlock uint64, medianRewardPrevBlock *big.Int) (*hexutil.Big, error) {
+	isChainCongested := totalGasUsedPrevBlock > highTotalGasUsedThreshold
 	if !isChainCongested {
 		// chain is not congested, increase base fee by 10% to get the gas price to get a tx included in a timely manner
 		gasPrice := new(big.Int).Mul(baseFee, big.NewInt(110))
@@ -89,12 +99,9 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 		return (*hexutil.Big)(gasPrice), nil
 	}
 	// chain is congested, return the 50%-tile reward as the priority fee per gas
-	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{0.5})
-	if err != nil {
-		return nil, err
-	}
-	gasPrice := new(big.Int).Add(feeHist.Reward[0][0].ToInt(), baseFee)
+	gasPrice := new(big.Int).Add(medianRewardPrevBlock, baseFee)
 	return (*hexutil.Big)(gasPrice), nil
+
 }
 
 // lastBlock is inclusive
