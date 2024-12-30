@@ -59,103 +59,6 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 	return nil
 }
 
-// func exportDistributionLeafNodes(
-// 	db dbm.DB,
-// 	ch chan<- types.RawSnapshotNode,
-// 	startVersion, endVersion int64,
-// ) error {
-// 	fmt.Printf("Starting export at time: %s\n", time.Now().Format(time.RFC3339))
-
-// 	// Total counters for logging.
-// 	startTime := time.Now()
-
-// 	// for ver := startVersion; ver <= endVersion; ver++ {
-// 	// 	// Load only the distribution module prefix at this version.
-// 	// 	tree, err := ReadTree(db, ver, []byte(utils.BuildTreePrefix("distribution")))
-// 	// 	if err != nil {
-// 	// 		fmt.Printf("[%s] Error loading distribution tree at version %d: %s\n", time.Now().Format(time.RFC3339), ver, err.Error())
-// 	// 		return err
-// 	// 	}
-
-// 	// 	var count int
-// 	// 	_, err = tree.Iterate(func(key, value []byte) bool {
-// 	// 		// Each leaf node is a single K/V for this version
-// 	// 		// ch <- types.RawSnapshotNode{
-// 	// 		// 	StoreKey: "distribution",
-// 	// 		// 	Key:      key,
-// 	// 		// 	Value:    value,
-// 	// 		// 	Version:  ver,
-// 	// 		// }
-// 	// 		count++
-// 	// 		totalExported++
-// 	// 		if count%1000000 == 0 {
-// 	// 			fmt.Printf("[%s] Exported %d distribution keys at version %d so far\n", time.Now().Format(time.RFC3339), count, ver)
-// 	// 			// Optionally add metrics here if desired.
-// 	// 			metrics.IncrCounterWithLabels([]string{"sei", "migration", "leaf_nodes_exported"}, float32(count), []metrics.Label{
-// 	// 				{Name: "module", Value: "distribution"},
-// 	// 			})
-// 	// 		}
-// 	// 		return false // continue iteration
-// 	// 	})
-// 	// 	if err != nil {
-// 	// 		fmt.Printf("[%s] Error iterating distribution tree for version %d: %s\n", time.Now().Format(time.RFC3339), ver, err.Error())
-// 	// 		return err
-// 	// 	}
-// 	// 	fmt.Printf("[%s] Finished version %d: exported %d distribution keys.\n", time.Now().Format(time.RFC3339), ver, count)
-// 	// }
-
-// 	prefixDB := dbm.NewPrefixDB(db, []byte(utils.BuildRawPrefix("distribution")))
-// 	var itr dbm.Iterator
-// 	var err error
-// 	leafNodeCount := 0
-// 	count := 0
-
-// 	// If there is a starting key, seek to it, otherwise start from the beginning
-// 	itr, err = prefixDB.Iterator(nil, nil)
-
-// 	if err != nil {
-// 		fmt.Printf("SeiDB Archive Migration: Error creating iterator: %+v\n", err)
-// 		return fmt.Errorf("failed to create iterator: %w", err)
-// 	}
-// 	defer itr.Close()
-
-// 	for ; itr.Valid(); itr.Next() {
-// 		value := bytes.Clone(itr.Value())
-
-// 		node, err := iavl.MakeNode(value)
-// 		if err != nil {
-// 			fmt.Printf("SeiDB Archive Migration: Failed to make node: %+v\n", err)
-// 			return fmt.Errorf("failed to make node: %w", err)
-// 		}
-
-// 		// Only export leaf nodes
-// 		if node.GetHeight() == 0 {
-// 			version := node.GetVersion()
-// 			if version < startVersion || version > endVersion {
-// 				continue
-// 			}
-// 			leafNodeCount++
-// 		}
-
-// 		count++
-// 		if count%1000000 == 0 {
-// 			fmt.Printf("[%s] SeiDB Archive Migration: Last 1,000,000 iterations. Total scanned: %d, leaf nodes exported: %d\n", time.Now().Format(time.RFC3339), count, leafNodeCount)
-// 		}
-// 	}
-
-// 	if err := itr.Error(); err != nil {
-// 		fmt.Printf("Iterator error: %+v\n", err)
-// 		return fmt.Errorf("iterator error: %w", err)
-// 	}
-
-// 	fmt.Printf(
-// 		"[%s] Completed exporting distribution module from %d to %d. Total keys: %d. Duration: %s\n",
-// 		time.Now().Format(time.RFC3339), startVersion, endVersion, leafNodeCount, time.Since(startTime),
-// 	)
-// 	fmt.Printf("Finished export at time: %s\n", time.Now().Format(time.RFC3339))
-// 	return nil
-// }
-
 func exportDistributionLeafNodes(
 	db dbm.DB,
 	ch chan<- types.RawSnapshotNode,
@@ -204,12 +107,12 @@ func exportDistributionLeafNodes(
 
 			var count int
 			_, err = tree.Iterate(func(key, value []byte) bool {
-				// ch <- types.RawSnapshotNode{
-				// 	StoreKey: "distribution",
-				// 	Key:      key,
-				// 	Value:    value,
-				// 	Version:  ver,
-				// }
+				ch <- types.RawSnapshotNode{
+					StoreKey: "distribution",
+					Key:      key,
+					Value:    value,
+					Version:  ver,
+				}
 				count++
 				// Use a lock when incrementing total counters
 				mu.Lock()
