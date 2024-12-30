@@ -10,10 +10,12 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 	if ctx.ConsensusParams() == nil || ctx.ConsensusParams().Block == nil {
 		return nil
 	}
-	currentBaseFee := k.GetDynamicBaseFeePerGas(ctx)
+	prevBaseFee := k.GetPrevBlockBaseFeePerGas(ctx)
+	// set the resulting base fee for block n-1 on block n
+	k.SetDynamicBaseFeePerGas(ctx, prevBaseFee)
 	targetGasUsed := sdk.NewDec(int64(k.GetTargetGasUsedPerBlock(ctx)))
 	if targetGasUsed.IsZero() {
-		return &currentBaseFee
+		return &prevBaseFee
 	}
 	minimumFeePerGas := k.GetParams(ctx).MinimumFeePerGas
 	maximumFeePerGas := k.GetParams(ctx).MaximumFeePerGas
@@ -32,14 +34,14 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 		denominator := blockGasLimit.Sub(targetGasUsed)
 		percentageFull := numerator.Quo(denominator)
 		adjustmentFactor := k.GetMaxDynamicBaseFeeUpwardAdjustment(ctx).Mul(percentageFull)
-		newBaseFee = currentBaseFee.Mul(sdk.NewDec(1).Add(adjustmentFactor))
+		newBaseFee = prevBaseFee.Mul(sdk.NewDec(1).Add(adjustmentFactor))
 	} else {
 		// downward adjustment
 		numerator := targetGasUsed.Sub(blockGasUsedDec)
 		denominator := targetGasUsed
 		percentageEmpty := numerator.Quo(denominator)
 		adjustmentFactor := k.GetMaxDynamicBaseFeeDownwardAdjustment(ctx).Mul(percentageEmpty)
-		newBaseFee = currentBaseFee.Mul(sdk.NewDec(1).Sub(adjustmentFactor))
+		newBaseFee = prevBaseFee.Mul(sdk.NewDec(1).Sub(adjustmentFactor))
 	}
 
 	// Ensure the new base fee is not lower than the minimum fee
@@ -53,7 +55,7 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 	}
 
 	// Set the new base fee for the next height
-	k.SetDynamicBaseFeePerGas(ctx.WithBlockHeight(ctx.BlockHeight()+1), newBaseFee)
+	k.SetPrevBlockBaseFeePerGas(ctx, newBaseFee)
 
 	return &newBaseFee
 }
@@ -84,30 +86,6 @@ func (k *Keeper) SetDynamicBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec)
 		panic(err)
 	}
 	store.Set(types.BaseFeePerGasPrefix, bz)
-}
-
-func (k *Keeper) SetPrevBlockGasUsed(ctx sdk.Context, blockGasUsed uint64) {
-	store := ctx.KVStore(k.storeKey)
-	gasUsed := sdk.NewInt(int64(blockGasUsed))
-	bz, err := gasUsed.MarshalJSON()
-	if err != nil {
-		panic(err)
-	}
-	store.Set(types.PrevBlockGasUsedPrefix, bz)
-}
-
-func (k *Keeper) GetPrevBlockGasUsed(ctx sdk.Context) sdk.Int {
-	store := ctx.KVStore(k.storeKey)
-	bz := store.Get(types.PrevBlockGasUsedPrefix)
-	if bz == nil {
-		return sdk.NewInt(0)
-	}
-	d := sdk.Int{}
-	err := d.UnmarshalJSON(bz)
-	if err != nil {
-		panic(err)
-	}
-	return d
 }
 
 func (k *Keeper) SetPrevBlockBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec) {
