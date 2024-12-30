@@ -241,11 +241,6 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 		if err != nil {
 			return nil, err
 		}
-		// We've had issues where is included in a block and fails but then is retried and included in a later block, overwriting the receipt.
-		// This is a temporary fix to ensure we only consider receipts that are included in the block we're querying.
-		if receipt.BlockNumber != uint64(block.Block.Height) {
-			continue
-		}
 		reward := new(big.Int).Sub(new(big.Int).SetUint64(receipt.EffectiveGasPrice), baseFee)
 		GasAndRewards = append(GasAndRewards, GasAndReward{GasUsed: receipt.GasUsed, Reward: reward})
 		totalEVMGasUsed += receipt.GasUsed
