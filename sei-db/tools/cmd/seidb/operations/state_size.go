@@ -91,6 +91,7 @@ func PrintStateSize(module string, db *memiavl.DB) error {
 			fmt.Printf("Module %s prefix value size breakdown (bytes): %s \n", moduleName, prefixValueResult)
 
 			// Print top 20 contracts by total size
+			numToShow := 20
 			if valueSizeByPrefix["03"] > 0 || keySizeByPrefix["03"] > 0 {
 				type contractSizeEntry struct {
 					Address   string
@@ -122,22 +123,25 @@ func PrintStateSize(module string, db *memiavl.DB) error {
 					return true
 				})
 
-				// Convert to slice and sort
-				var sortedContracts []contractSizeEntry
-				for _, info := range contractSizes {
-					sortedContracts = append(sortedContracts, *info)
+				// Convert map to slice in a deterministic way
+				var addresses []string
+				for addr := range contractSizes {
+					addresses = append(addresses, addr)
 				}
+				// Sort the addresses
+				sort.Strings(addresses)
 
-				sort.Slice(sortedContracts, func(i, j int) bool {
-					return sortedContracts[i].TotalSize > sortedContracts[j].TotalSize
-				})
+				// Use sorted addresses to build sortedContracts
+				var sortedContracts []contractSizeEntry
+				for _, addr := range addresses {
+					sortedContracts = append(sortedContracts, *contractSizes[addr])
+				}
 
 				fmt.Printf("\nDetailed breakdown for 0x03 prefix (top 20 contracts by total size):\n")
 				fmt.Printf("%-42s %15s %15s %15s %10s\n", "Contract Address", "Key Size", "Value Size", "Total Size", "Key Count")
 				fmt.Printf("%s\n", strings.Repeat("-", 100))
 
-				numToShow := 20
-				if len(sortedContracts) < 20 {
+				if len(sortedContracts) < numToShow {
 					numToShow = len(sortedContracts)
 				}
 				for i := 0; i < numToShow; i++ {
