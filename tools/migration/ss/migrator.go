@@ -76,7 +76,7 @@ func exportDistributionLeafNodes(
 	// We'll filter them by version in the callback.
 	stop, err := oldStateStore.RawIterate("distribution", func(key, value []byte, version int64) bool {
 		// If the record's version is outside our desired range, skip it.
-		// fmt.Printf("Processing key: %s, value: %s, version: %d\n", string(key), string(value), version)
+		fmt.Printf("Processing key: %s, value: %s, version: %d\n", string(key), string(value), version)
 		if version < startVersion || version > endVersion {
 			return false
 		}
