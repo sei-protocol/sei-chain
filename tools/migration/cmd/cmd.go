@@ -83,7 +83,12 @@ func migrateSS(version int64, homeDir string, db dbm.DB) error {
 		return err
 	}
 
-	migrator := ss.NewMigrator(db, stateStore)
+	oldStateStore, err := sstypes.NewStateStore(log.NewNopLogger(), "/root/.old_sei", ssConfig)
+	if err != nil {
+		return err
+	}
+
+	migrator := ss.NewMigrator(db, stateStore, oldStateStore)
 	return migrator.Migrate(version, homeDir)
 }
 
@@ -134,7 +139,7 @@ func verifySS(version int64, homeDir string, db dbm.DB) error {
 		return err
 	}
 
-	migrator := ss.NewMigrator(db, stateStore)
+	migrator := ss.NewMigrator(db, stateStore, stateStore)
 	return migrator.Verify(version)
 }
 

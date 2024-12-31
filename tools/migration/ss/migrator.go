@@ -3,7 +3,6 @@ package ss
 import (
 	"bytes"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/armon/go-metrics"
@@ -14,8 +13,9 @@ import (
 )
 
 type Migrator struct {
-	iavlDB     dbm.DB
-	stateStore types.StateStore
+	iavlDB        dbm.DB
+	stateStore    types.StateStore
+	oldStateStore types.StateStore
 }
 
 // TODO: make this configurable?
@@ -23,10 +23,11 @@ const (
 	DefaultCacheSize int = 10000
 )
 
-func NewMigrator(db dbm.DB, stateStore types.StateStore) *Migrator {
+func NewMigrator(db dbm.DB, stateStore types.StateStore, oldStateStore types.StateStore) *Migrator {
 	return &Migrator{
-		iavlDB:     db,
-		stateStore: stateStore,
+		iavlDB:        db,
+		stateStore:    stateStore,
+		oldStateStore: oldStateStore,
 	}
 }
 
@@ -41,7 +42,7 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 	// Goroutine #1: Export distribution leaf nodes into ch
 	go func() {
 		defer close(ch)
-		errCh <- exportDistributionLeafNodes(m.iavlDB, ch, 100215000, 106789896, 30)
+		errCh <- exportDistributionLeafNodes(m.oldStateStore, ch, 100215000, 106789896)
 	}()
 
 	// Goroutine #2: Import those leaf nodes into PebbleDB
@@ -60,136 +61,57 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 }
 
 func exportDistributionLeafNodes(
-	db dbm.DB,
+	oldStateStore types.StateStore,
 	ch chan<- types.RawSnapshotNode,
 	startVersion, endVersion int64,
-	concurrency int,
 ) error {
-	fmt.Printf("Starting export at time: %s with concurrency=%d\n", time.Now().Format(time.RFC3339), concurrency)
+	fmt.Printf("Starting export at %s for versions [%d..%d]\n",
+		time.Now().Format(time.RFC3339), startVersion, endVersion,
+	)
 
-	if concurrency < 1 {
-		concurrency = 1
-	}
-
-	// We'll collect errors from each goroutine in a separate error channel
-	errCh := make(chan error, concurrency)
-
-	totalVersions := endVersion - startVersion + 1
-	// Basic integer division to split up the version range
-	chunkSize := totalVersions / int64(concurrency)
-	remainder := totalVersions % int64(concurrency)
-
-	var wg sync.WaitGroup
-	wg.Add(concurrency)
-
+	var totalExported int
 	startTime := time.Now()
-	// Atomic or shared counters for tracking exports
-	var mu sync.Mutex
-	totalExported := 0
 
-	// Helper function that each goroutine will run
-	workerFunc := func(workerID int, vStart, vEnd int64) {
-		defer wg.Done()
-
-		// Local counter
-		localExportCount := 0
-
-		for ver := vStart; ver <= vEnd; ver++ {
-			// Load only the distribution module prefix at this version.
-			tree, err := ReadTree(db, ver, []byte(utils.BuildTreePrefix("distribution")))
-			if err != nil {
-				errCh <- fmt.Errorf(
-					"[worker %d] Error loading distribution tree at version %d: %w",
-					workerID, ver, err,
-				)
-				return
-			}
-
-			var count int
-			_, err = tree.Iterate(func(key, value []byte) bool {
-				ch <- types.RawSnapshotNode{
-					StoreKey: "distribution",
-					Key:      key,
-					Value:    value,
-					Version:  ver,
-				}
-				count++
-				// Use a lock when incrementing total counters
-				mu.Lock()
-				totalExported++
-				mu.Unlock()
-
-				// Logging / metrics every 1,000,000 keys in this version subset
-				if count%1000000 == 0 {
-					fmt.Printf("[worker %d][%s] Exported %d distribution keys at version %d so far\n",
-						workerID, time.Now().Format(time.RFC3339), count, ver,
-					)
-					metrics.IncrCounterWithLabels(
-						[]string{"sei", "migration", "leaf_nodes_exported"},
-						float32(count),
-						[]metrics.Label{
-							{Name: "module", Value: "distribution"},
-						},
-					)
-				}
-				return false // continue iteration
-			})
-			if err != nil {
-				errCh <- fmt.Errorf(
-					"[worker %d] Error iterating distribution tree for version %d: %w",
-					workerID, ver, err,
-				)
-				return
-			}
-
-			localExportCount += count
-
-			fmt.Printf("[worker %d][%s] Finished versions %d: exported %d distribution keys.\n",
-				workerID, time.Now().Format(time.RFC3339), ver, localExportCount)
+	// RawIterate will scan *all* keys in the "distribution" store.
+	// We'll filter them by version in the callback.
+	stop, err := oldStateStore.RawIterate("distribution", func(key, value []byte, version int64) bool {
+		// If the record’s version is outside our desired range, skip it.
+		if version < startVersion || version > endVersion {
+			return false // false => keep iterating
 		}
 
-		fmt.Printf("[worker %d][%s]  Finished versions [%d - %d]: exported %d distribution keys.\n",
-			workerID, time.Now().Format(time.RFC3339), vStart, vEnd, localExportCount)
-		// Signal that we're done successfully (no error).
-		errCh <- nil
+		// Otherwise, export it via the channel.
+		ch <- types.RawSnapshotNode{
+			StoreKey: "distribution",
+			Key:      key,
+			Value:    value,
+			Version:  version,
+		}
+
+		totalExported++
+		// Optional progress logging every 1,000,000 keys:
+		if totalExported%1_000_000 == 0 {
+			fmt.Printf("[SingleWorker][%s] Exported %d distribution keys so far\n",
+				time.Now().Format(time.RFC3339), totalExported,
+			)
+		}
+		// Return false to continue iterating
+		return false
+	})
+	if err != nil {
+		return fmt.Errorf("RawIterate error: %w", err)
 	}
-
-	// Spawn the workers
-	var currentVersion int64 = startVersion
-	for i := 0; i < concurrency; i++ {
-		// Each goroutine gets a range: [currentVersion, currentVersion+chunkSize-1]
-		// plus we handle any remainder in the last chunk(s).
-		extra := int64(0)
-		if i < int(remainder) {
-			extra = 1
-		}
-		workerStart := currentVersion
-		workerEnd := currentVersion + chunkSize + extra - 1
-		if i == concurrency-1 {
-			// Make sure the last one includes everything up to endVersion
-			workerEnd = endVersion
-		}
-		currentVersion = workerEnd + 1
-
-		go workerFunc(i, workerStart, workerEnd)
-	}
-
-	// Wait for all goroutines to finish
-	wg.Wait()
-
-	// Check error channel. If any goroutine returned a non-nil error, return that.
-	close(errCh)
-	for err := range errCh {
-		if err != nil {
-			return err
-		}
+	if stop {
+		fmt.Printf("[SingleWorker][%s] Iteration stopped early; callback returned true at some point.\n",
+			time.Now().Format(time.RFC3339),
+		)
 	}
 
 	fmt.Printf(
-		"[%s] Completed exporting distribution module from %d to %d. Total keys: %d. Duration: %s\n",
+		"[%s] Completed exporting distribution store for versions [%d..%d]. Total keys: %d. Duration: %s\n",
 		time.Now().Format(time.RFC3339), startVersion, endVersion, totalExported, time.Since(startTime),
 	)
-	fmt.Printf("Finished export at time: %s\n", time.Now().Format(time.RFC3339))
+	fmt.Printf("Finished export at %s\n", time.Now().Format(time.RFC3339))
 	return nil
 }
 
