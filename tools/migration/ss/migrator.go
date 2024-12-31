@@ -90,7 +90,7 @@ func exportDistributionLeafNodes(
 
 		totalExported++
 		// Optional progress logging every 1,000,000 keys:
-		if totalExported%10_000 == 0 {
+		if totalExported%1_000_000 == 0 {
 			fmt.Printf("[SingleWorker][%s] Exported %d distribution keys so far\n",
 				time.Now().Format(time.RFC3339), totalExported,
 			)
