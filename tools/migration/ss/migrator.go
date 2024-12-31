@@ -81,12 +81,12 @@ func exportDistributionLeafNodes(
 		}
 
 		// Otherwise, export it via the channel.
-		// ch <- types.RawSnapshotNode{
-		// 	StoreKey: "distribution",
-		// 	Key:      key,
-		// 	Value:    value,
-		// 	Version:  version,
-		// }
+		ch <- types.RawSnapshotNode{
+			StoreKey: "distribution",
+			Key:      key,
+			Value:    value,
+			Version:  version,
+		}
 
 		totalExported++
 		// Optional progress logging every 1,000,000 keys:
