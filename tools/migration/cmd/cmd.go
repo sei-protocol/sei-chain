@@ -54,7 +54,7 @@ func MigrateSSCmd() *cobra.Command {
 		Short: "A tool to migrate full ss distribution module",
 		Run:   executeSS,
 	}
-	cmd.PersistentFlags().String("home-dir", "/root/.sei", "Sei home directory")
+	cmd.PersistentFlags().String("home-dir", "/root/.old_sei", "Sei home directory")
 	return cmd
 }
 
