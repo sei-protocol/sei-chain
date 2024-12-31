@@ -24,7 +24,7 @@ func MigrateCmd() *cobra.Command {
 		Short: "A tool to migrate full IAVL data store to SeiDB. Use this tool to migrate IAVL to SeiDB SC and SS database.",
 		Run:   execute,
 	}
-	cmd.PersistentFlags().String("home-dir", "/root/.sei", "Sei home directory")
+	cmd.PersistentFlags().String("home-dir", "/root/.old_sei", "Sei home directory")
 	return cmd
 }
 
@@ -83,7 +83,7 @@ func migrateSS(version int64, homeDir string, db dbm.DB) error {
 		return err
 	}
 
-	oldStateStore, err := sstypes.NewStateStore(log.NewNopLogger(), "/root/.old_sei", ssConfig)
+	oldStateStore, err := sstypes.NewStateStore(log.NewNopLogger(), "/root/.sei", ssConfig)
 	if err != nil {
 		return err
 	}
