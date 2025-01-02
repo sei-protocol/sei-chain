@@ -690,7 +690,7 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 		wantErrMsg       string
 	}{
 		{
-			name:             "precompile should return true of input is valid",
+			name:             "precompile should return true if input is valid",
 			wantRet:          expectedTrueResponse,
 			wantRemainingGas: 0x1e47ed,
 			wantErr:          false,
