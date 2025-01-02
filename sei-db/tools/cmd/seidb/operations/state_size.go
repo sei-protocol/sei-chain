@@ -123,19 +123,16 @@ func PrintStateSize(module string, db *memiavl.DB) error {
 					return true
 				})
 
-				// Convert map to slice in a deterministic way
-				var addresses []string
-				for addr := range contractSizes {
-					addresses = append(addresses, addr)
-				}
-				// Sort the addresses
-				sort.Strings(addresses)
-
-				// Use sorted addresses to build sortedContracts
+				// Convert map to slice
 				var sortedContracts []contractSizeEntry
-				for _, addr := range addresses {
-					sortedContracts = append(sortedContracts, *contractSizes[addr])
+				for _, entry := range contractSizes {
+					sortedContracts = append(sortedContracts, *entry)
 				}
+
+				// Sort by total size in descending order
+				sort.Slice(sortedContracts, func(i, j int) bool {
+					return sortedContracts[i].TotalSize > sortedContracts[j].TotalSize
+				})
 
 				fmt.Printf("\nDetailed breakdown for 0x03 prefix (top 20 contracts by total size):\n")
 				fmt.Printf("%-42s %15s %15s %15s %10s\n", "Contract Address", "Key Size", "Value Size", "Total Size", "Key Count")
