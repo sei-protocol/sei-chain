@@ -279,8 +279,12 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 	if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
 		return rs.CacheMultiStore(), nil
 	}
+	// Open SC stores for wasm snapshot, this op is blocking and could take a long time
+	scStore, err := rs.scStore.LoadVersion(version, true)
+	if err != nil {
+		return nil, err
+	}
 	rs.mtx.RLock()
-	defer rs.mtx.RUnlock()
 	stores := make(map[types.StoreKey]types.CacheWrapper)
 	// add the transient/mem stores registered in current app.
 	for k, store := range rs.ckvStores {
@@ -288,17 +292,13 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 			stores[k] = store
 		}
 	}
-	// add SC stores for historical queries
-	scStore, err := rs.scStore.LoadVersion(version, true)
-	if err != nil {
-		return nil, err
-	}
 	for k, store := range rs.ckvStores {
 		if store.GetStoreType() == types.StoreTypeIAVL {
 			tree := scStore.GetTreeByName(k.Name())
 			stores[k] = commitment.NewStore(tree, rs.logger)
 		}
 	}
+	rs.mtx.RUnlock()
 	cacheMs := cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil)
 	// We need this because we need to make sure sc is closed after being used to release the resources
 	cacheMs.AddCloser(scStore)
