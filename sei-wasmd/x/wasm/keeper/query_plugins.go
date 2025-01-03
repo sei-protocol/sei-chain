@@ -3,6 +3,7 @@ package keeper
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -376,6 +377,26 @@ func StakingQuerier(keeper types.StakingKeeper, distKeeper types.DistributionKee
 					}
 				}
 				res.Entries = entries
+			}
+			return json.Marshal(res)
+		}
+		if request.UnbondingDelegations != nil {
+			delegator, err := sdk.AccAddressFromBech32(request.UnbondingDelegations.Delegator)
+			if err != nil {
+				return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, request.UnbondingDelegations.Delegator)
+			}
+
+			delegations := keeper.GetUnbondingDelegations(ctx, delegator, math.MaxUint16)
+			var res wasmvmtypes.UnbondingDelegationsResponse
+			for _, delegation := range delegations {
+				for _, e := range delegation.Entries {
+					res.Entries = append(res.Entries, wasmvmtypes.UnbondingDelegationEntry{
+						CreationHeight: e.CreationHeight,
+						CompletionTime: e.CompletionTime.Format(time.RFC3339),
+						InitialBalance: e.InitialBalance.String(),
+						Balance:        e.Balance.String(),
+					})
+				}
 			}
 			return json.Marshal(res)
 		}

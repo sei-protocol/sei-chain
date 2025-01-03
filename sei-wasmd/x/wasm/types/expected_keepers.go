@@ -67,6 +67,7 @@ type StakingKeeper interface {
 	HasReceivingRedelegation(ctx sdk.Context,
 		delAddr sdk.AccAddress, valDstAddr sdk.ValAddress) bool
 	GetUnbondingDelegation(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) (stakingtypes.UnbondingDelegation, bool)
+	GetUnbondingDelegations(ctx sdk.Context, delegator sdk.AccAddress, maxRetrieve uint16) []stakingtypes.UnbondingDelegation
 }
 
 // ChannelKeeper defines the expected IBC channel keeper
