@@ -909,18 +909,9 @@ func setupLogs() {
 	})
 
 	// block 2
-	EVMKeeper.SetTxHashesOnHeight(Ctx, MockHeight2, []common.Hash{
-		multiTxBlockTx1.Hash(),
-		multiTxBlockTx2.Hash(),
-		multiTxBlockTx3.Hash(),
-	})
 	EVMKeeper.SetBlockBloom(MultiTxCtx, []ethtypes.Bloom{bloom1, bloom2, bloom3})
 
 	// block 8
-	EVMKeeper.SetTxHashesOnHeight(Ctx, MockHeight8, []common.Hash{
-		multiTxBlockSynthTx.Hash(),
-		multiTxBlockTx4.Hash(),
-	})
 	bloomTx1 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
 		Address: common.HexToAddress("0x1111111111111111111111111111111111111111"),
 		Topics: []common.Hash{common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
