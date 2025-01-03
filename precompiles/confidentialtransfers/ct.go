@@ -74,12 +74,12 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		if readOnly {
 			return nil, 0, errors.New("cannot call ct precompile from staticcall")
 		}
-		return p.transfer(ctx, method, args)
+		return p.transfer(ctx, method, caller, args)
 	case TransferWithAuditorsMethod:
 		if readOnly {
 			return nil, 0, errors.New("cannot call ct precompile from staticcall")
 		}
-		return p.transferWithAuditors(ctx, method, args)
+		return p.transferWithAuditors(ctx, method, caller, args)
 
 	case InitializeAccountMethod:
 		if readOnly {
@@ -94,7 +94,7 @@ func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
 	return p.evmKeeper
 }
 
-func (p PrecompileExecutor) transfer(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) transfer(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -109,7 +109,7 @@ func (p PrecompileExecutor) transfer(ctx sdk.Context, method *abi.Method, args [
 		return
 	}
 
-	msg, err := p.getTransferMessageFromArgs(ctx, args)
+	msg, err := p.getTransferMessageFromArgs(ctx, caller, args)
 	if err != nil {
 		rerr = err
 		return
@@ -130,7 +130,7 @@ func (p PrecompileExecutor) transfer(ctx sdk.Context, method *abi.Method, args [
 	return
 }
 
-func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -145,7 +145,7 @@ func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Me
 		return
 	}
 
-	msg, err := p.getTransferMessageFromArgs(ctx, args)
+	msg, err := p.getTransferMessageFromArgs(ctx, caller, args)
 	if err != nil {
 		rerr = err
 		return
@@ -174,13 +174,17 @@ func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Me
 	return
 }
 
-func (p PrecompileExecutor) getTransferMessageFromArgs(ctx sdk.Context, args []interface{}) (*cttypes.MsgTransfer, error) {
-	fromAddr, err := p.accAddressFromArg(ctx, args[0])
+func (p PrecompileExecutor) getTransferMessageFromArgs(ctx sdk.Context, caller common.Address, args []interface{}) (*cttypes.MsgTransfer, error) {
+	fromAddr, evmAddr, err := p.accAddressesFromArg(ctx, args[0])
 	if err != nil {
 		return nil, err
 	}
 
-	toAddress, err := p.accAddressFromArg(ctx, args[1])
+	if evmAddr != caller {
+		return nil, errors.New("caller is not the same as the sender address")
+	}
+
+	toAddress, _, err := p.accAddressesFromArg(ctx, args[1])
 	if err != nil {
 		return nil, err
 	}
@@ -245,16 +249,16 @@ func (p PrecompileExecutor) getTransferMessageFromArgs(ctx sdk.Context, args []i
 	}, nil
 }
 
-func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, error) {
+func (p PrecompileExecutor) accAddressesFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, common.Address, error) {
 	addr := arg.(common.Address)
 	if addr == (common.Address{}) {
-		return nil, errors.New("invalid addr")
+		return nil, common.Address{}, errors.New("invalid addr")
 	}
 	seiAddr, associated := p.evmKeeper.GetSeiAddress(ctx, addr)
 	if !associated {
-		return nil, errors.New("cannot use an unassociated address as transfer address")
+		return nil, common.Address{}, errors.New("cannot use an unassociated address as transfer address")
 	}
-	return seiAddr, nil
+	return seiAddr, addr, nil
 }
 
 func (p PrecompileExecutor) getValidAddressesFromString(ctx sdk.Context, addr string) (sdk.AccAddress, common.Address, error) {
@@ -300,7 +304,7 @@ func (p PrecompileExecutor) getAuditorsFromArg(ctx sdk.Context, arg interface{})
 
 	auditors := make([]*cttypes.Auditor, 0)
 	for _, auditor := range evmAuditors {
-		auditorAddr, err := p.accAddressFromArg(ctx, auditor.AuditorAddress)
+		auditorAddr, _, err := p.accAddressesFromArg(ctx, auditor.AuditorAddress)
 		if err != nil {
 			return nil, err
 		}

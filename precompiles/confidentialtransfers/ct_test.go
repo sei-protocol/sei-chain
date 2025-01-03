@@ -32,7 +32,9 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 	// Setup sender addresses and environment
 	senderPrivateKey := testkeeper.MockPrivateKey()
 	senderAddr, senderEVMAddr := testkeeper.PrivateKeyToAddresses(senderPrivateKey)
+	otherSenderAddr, otherSenderEVMAddr := testkeeper.PrivateKeyToAddresses(testkeeper.MockPrivateKey())
 	k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
+	k.SetAddressMapping(ctx, otherSenderAddr, otherSenderEVMAddr)
 	// Setup receiver addresses and environment
 
 	err := k.BankKeeper().MintCoins(
@@ -152,6 +154,17 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 			},
 			wantErr:    true,
 			wantErrMsg: "invalid addr",
+		},
+		{
+			name: "precompile should return error if caller is not the sender",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.senderEVMAddr = otherSenderEVMAddr
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "caller is not the same as the sender address",
 		},
 		{
 			name: "precompile should return error if denom is invalid",
