@@ -263,20 +263,36 @@ func (p PrecompileExecutor) accAddressesFromArg(ctx sdk.Context, arg interface{}
 
 func (p PrecompileExecutor) getValidAddressesFromString(ctx sdk.Context, addr string) (sdk.AccAddress, common.Address, error) {
 	if common.IsHexAddress(addr) {
-		evmAddr := common.HexToAddress(addr)
-		seiAddr, associated := p.evmKeeper.GetSeiAddress(ctx, evmAddr)
-		if associated {
-			return seiAddr, evmAddr, nil
-		} else {
-			return nil, common.Address{}, fmt.Errorf("address %s is not associated", addr)
-		}
+		return p.getAssociatedAddressesByEVMAddress(ctx, common.HexToAddress(addr))
 	}
-	if seiAddress, err := sdk.AccAddressFromBech32(addr); err != nil {
+	return p.getAssociatedAddressesBySeiAddress(ctx, addr)
+}
+
+// getAssociatedAddressesByEVMAddress returns the associated Sei and EVM addresses given an EVM address
+// It returns an error if the Sei address is not associated
+func (p PrecompileExecutor) getAssociatedAddressesByEVMAddress(ctx sdk.Context, evmAddr common.Address) (sdk.AccAddress, common.Address, error) {
+	seiAddr, associated := p.evmKeeper.GetSeiAddress(ctx, evmAddr)
+	if !associated {
+		return nil, common.Address{}, fmt.Errorf("address %s is not associated", evmAddr)
+	}
+	return seiAddr, evmAddr, nil
+}
+
+// getAssociatedAddressesBySeiAddress returns the associated Sei and EVM addresses given a Sei address
+// It returns an error if the address is not associated or if the address is invalid
+// Situation where EVM address is not associated with Sei address is unlikely to happen in this layer, since when EVM
+// transaction is sent, the EVM address should be associated with SEI address in ante handler. We add the check anyway
+// for safety and in case we hit this edge case it's clear what the error is.
+func (p PrecompileExecutor) getAssociatedAddressesBySeiAddress(ctx sdk.Context, addr string) (sdk.AccAddress, common.Address, error) {
+	seiAddr, err := sdk.AccAddressFromBech32(addr)
+	if err != nil {
 		return nil, common.Address{}, fmt.Errorf("invalid address %s: %w", addr, err)
-	} else {
-		evmAddr, _ := p.evmKeeper.GetEVMAddress(ctx, seiAddress)
-		return seiAddress, evmAddr, nil
 	}
+	evmAddr, associated := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
+	if !associated {
+		return nil, common.Address{}, fmt.Errorf("address %s is not associated", addr)
+	}
+	return seiAddr, evmAddr, nil
 }
 
 func (p PrecompileExecutor) getAuditorsFromArg(ctx sdk.Context, arg interface{}) (auditorsArray []*cttypes.Auditor, rerr error) {

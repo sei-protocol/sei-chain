@@ -2,6 +2,7 @@ package confidentialtransfers_test
 
 import (
 	"encoding/hex"
+	"fmt"
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -649,9 +650,12 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 
 	userPrivateKey := testkeeper.MockPrivateKey()
 	userAddr, userEVMAddr := testkeeper.PrivateKeyToAddresses(userPrivateKey)
+	notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
+	notAssociatedUserAddr, notAssociatedUserEVMAddr := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
 	otherUserPrivateKey := testkeeper.MockPrivateKey()
-	otherUserAddr, _ := testkeeper.PrivateKeyToAddresses(otherUserPrivateKey)
+	otherUserAddr, otherUserEVMAddr := testkeeper.PrivateKeyToAddresses(otherUserPrivateKey)
 	k.SetAddressMapping(ctx, userAddr, userEVMAddr)
+	k.SetAddressMapping(ctx, otherUserAddr, otherUserEVMAddr)
 
 	privHex := hex.EncodeToString(userPrivateKey.Bytes())
 	userKey, _ := crypto.HexToECDSA(privHex)
@@ -719,6 +723,28 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 				}},
 			wantErr:    true,
 			wantErrMsg: "invalid address : empty address string is not allowed",
+		},
+		{
+			name: "precompile should return error if Sei address is not associated with an EVM address",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.UserAddress = notAssociatedUserAddr.String()
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedUserAddr.String()),
+		},
+		{
+			name: "precompile should return error if EVM address is not associated with a Sei address",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.UserAddress = notAssociatedUserEVMAddr.String()
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedUserEVMAddr.String()),
 		},
 		{
 			name: "precompile should return error if caller is not the same as the user",
