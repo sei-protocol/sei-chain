@@ -85,7 +85,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		if readOnly {
 			return nil, 0, errors.New("cannot call ct precompile from staticcall")
 		}
-		return p.initializeAccount(ctx, method, args)
+		return p.initializeAccount(ctx, method, caller, args)
 	}
 	return
 }
@@ -257,20 +257,21 @@ func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) 
 	return seiAddr, nil
 }
 
-func (p PrecompileExecutor) getSeiAddressFromString(ctx sdk.Context, addr string) (sdk.AccAddress, error) {
+func (p PrecompileExecutor) getValidAddressesFromString(ctx sdk.Context, addr string) (sdk.AccAddress, common.Address, error) {
 	if common.IsHexAddress(addr) {
 		evmAddr := common.HexToAddress(addr)
 		seiAddr, associated := p.evmKeeper.GetSeiAddress(ctx, evmAddr)
 		if associated {
-			return seiAddr, nil
+			return seiAddr, evmAddr, nil
 		} else {
-			return nil, fmt.Errorf("address %s is not associated", addr)
+			return nil, common.Address{}, fmt.Errorf("address %s is not associated", addr)
 		}
 	}
 	if seiAddress, err := sdk.AccAddressFromBech32(addr); err != nil {
-		return nil, fmt.Errorf("invalid address %s: %w", addr, err)
+		return nil, common.Address{}, fmt.Errorf("invalid address %s: %w", addr, err)
 	} else {
-		return seiAddress, nil
+		evmAddr, _ := p.evmKeeper.GetEVMAddress(ctx, seiAddress)
+		return seiAddress, evmAddr, nil
 	}
 }
 
@@ -353,7 +354,7 @@ func (p PrecompileExecutor) getAuditorsFromArg(ctx sdk.Context, arg interface{})
 	return auditors, nil
 }
 
-func (p PrecompileExecutor) initializeAccount(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) initializeAccount(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -368,9 +369,14 @@ func (p PrecompileExecutor) initializeAccount(ctx sdk.Context, method *abi.Metho
 		return
 	}
 
-	userAddr, err := p.getSeiAddressFromString(ctx, args[0].(string))
+	seiAddr, evmAddr, err := p.getValidAddressesFromString(ctx, args[0].(string))
 	if err != nil {
 		rerr = err
+		return
+	}
+
+	if evmAddr != caller {
+		rerr = errors.New("caller is not the same as the user address")
 		return
 	}
 
@@ -421,7 +427,7 @@ func (p PrecompileExecutor) initializeAccount(ctx sdk.Context, method *abi.Metho
 	}
 
 	msg := &cttypes.MsgInitializeAccount{
-		FromAddress:        userAddr.String(),
+		FromAddress:        seiAddr.String(),
 		Denom:              denom,
 		PublicKey:          publicKey,
 		DecryptableBalance: decryptableBalance,

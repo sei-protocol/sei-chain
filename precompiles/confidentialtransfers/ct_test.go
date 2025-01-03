@@ -636,6 +636,8 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 
 	userPrivateKey := testkeeper.MockPrivateKey()
 	userAddr, userEVMAddr := testkeeper.PrivateKeyToAddresses(userPrivateKey)
+	otherUserPrivateKey := testkeeper.MockPrivateKey()
+	otherUserAddr, _ := testkeeper.PrivateKeyToAddresses(otherUserPrivateKey)
 	k.SetAddressMapping(ctx, userAddr, userEVMAddr)
 
 	privHex := hex.EncodeToString(userPrivateKey.Bytes())
@@ -692,7 +694,7 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 		{
 			name:             "precompile should return true if input is valid",
 			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0x1e47ed,
+			wantRemainingGas: 0x1e438a,
 			wantErr:          false,
 		},
 		{
@@ -704,6 +706,17 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 				}},
 			wantErr:    true,
 			wantErrMsg: "invalid address : empty address string is not allowed",
+		},
+		{
+			name: "precompile should return error if caller is not the same as the user",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.UserAddress = otherUserAddr.String()
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "caller is not the same as the user address",
 		},
 		{
 			name: "precompile should return error if denom is invalid",
@@ -809,7 +822,7 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 			resp, remainingGas, err := p.RunAndCalculateGas(
 				&evm,
 				userEVMAddr,
-				userEVMAddr,
+				common.Address{},
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).InitializeAccountID, inputArgs...),
 				2000000,
 				tt.args.value,
