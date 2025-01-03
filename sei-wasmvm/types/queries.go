@@ -258,12 +258,13 @@ type ChannelResponse struct {
 }
 
 type StakingQuery struct {
-	AllValidators       *AllValidatorsQuery       `json:"all_validators,omitempty"`
-	Validator           *ValidatorQuery           `json:"validator,omitempty"`
-	AllDelegations      *AllDelegationsQuery      `json:"all_delegations,omitempty"`
-	Delegation          *DelegationQuery          `json:"delegation,omitempty"`
-	BondedDenom         *struct{}                 `json:"bonded_denom,omitempty"`
-	UnbondingDelegation *UnbondingDelegationQuery `json:"unbonding_delegation,omitempty"`
+	AllValidators        *AllValidatorsQuery        `json:"all_validators,omitempty"`
+	Validator            *ValidatorQuery            `json:"validator,omitempty"`
+	AllDelegations       *AllDelegationsQuery       `json:"all_delegations,omitempty"`
+	Delegation           *DelegationQuery           `json:"delegation,omitempty"`
+	BondedDenom          *struct{}                  `json:"bonded_denom,omitempty"`
+	UnbondingDelegation  *UnbondingDelegationQuery  `json:"unbonding_delegation,omitempty"`
+	UnbondingDelegations *UnbondingDelegationsQuery `json:"unbonding_delegations,omitempty"`
 }
 
 type AllValidatorsQuery struct{}
@@ -440,6 +441,15 @@ type UnbondingDelegationQuery struct {
 }
 
 type UnbondingDelegationResponse struct {
+	Entries []UnbondingDelegationEntry `json:"entries"`
+}
+
+type UnbondingDelegationsQuery struct {
+	Delegator string `json:"delegator"`
+	Validator string `json:"validator"`
+}
+
+type UnbondingDelegationsResponse struct {
 	Entries []UnbondingDelegationEntry `json:"entries"`
 }
 
