@@ -103,8 +103,8 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 	expectedTrueResponse, _ := transferMethod.Outputs.Pack(true)
 
 	type inputs struct {
-		senderEVMAddr      common.Address
-		receiverEVMAddr    common.Address
+		senderAddr         string
+		receiverAddr       string
 		Denom              string
 		fromAmountLo       []byte
 		fromAmountHi       []byte
@@ -139,28 +139,28 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 			name: "precompile should return error if address is invalid",
 			args: args{
 				setUp: func(in inputs) inputs {
-					in.senderEVMAddr = common.Address{}
+					in.senderAddr = ""
 					return in
 				}},
 			wantErr:    true,
-			wantErrMsg: "invalid addr",
+			wantErrMsg: "invalid from addr",
 		},
 		{
 			name: "precompile should return error if receiver address is invalid",
 			args: args{
 				setUp: func(in inputs) inputs {
-					in.receiverEVMAddr = common.Address{}
+					in.receiverAddr = ""
 					return in
 				},
 			},
 			wantErr:    true,
-			wantErrMsg: "invalid addr",
+			wantErrMsg: "invalid to addr",
 		},
 		{
 			name: "precompile should return error if caller is not the sender",
 			args: args{
 				setUp: func(in inputs) inputs {
-					in.senderEVMAddr = otherSenderEVMAddr
+					in.senderAddr = otherSenderEVMAddr.String()
 					return in
 				},
 			},
@@ -260,8 +260,8 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			in := inputs{
-				senderEVMAddr:      senderEVMAddr,
-				receiverEVMAddr:    receiverEVMAddr,
+				senderAddr:         senderEVMAddr.String(),
+				receiverAddr:       receiverEVMAddr.String(),
 				Denom:              testDenom,
 				fromAmountLo:       fromAmountLo,
 				fromAmountHi:       fromAmountHi,
@@ -275,8 +275,8 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 				in = tt.args.setUp(in)
 			}
 			inputArgs, err := transfer.Inputs.Pack(
-				in.senderEVMAddr,
-				in.receiverEVMAddr,
+				in.senderAddr,
+				in.receiverAddr,
 				in.Denom,
 				in.fromAmountLo,
 				in.fromAmountHi,
@@ -404,8 +404,8 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 	expectedTrueResponse, _ := transferMethod.Outputs.Pack(true)
 
 	type inputs struct {
-		senderEVMAddr      common.Address
-		receiverEVMAddr    common.Address
+		senderAddr         string
+		receiverAddr       string
 		Denom              string
 		fromAmountLo       []byte
 		fromAmountHi       []byte
@@ -414,7 +414,7 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 		remainingBalance   []byte
 		DecryptableBalance string
 		proofs             []byte
-		auditors           []cttypes.EvmAuditor
+		auditors           []cttypes.CtAuditor
 	}
 
 	type args struct {
@@ -441,7 +441,7 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 			name: "precompile should return error if auditor array is empty",
 			args: args{
 				setUp: func(in inputs) inputs {
-					in.auditors = []cttypes.EvmAuditor{}
+					in.auditors = []cttypes.CtAuditor{}
 					return in
 				}},
 			wantErr:    true,
@@ -451,11 +451,11 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 			name: "precompile should return error if auditor address is invalid",
 			args: args{
 				setUp: func(in inputs) inputs {
-					in.auditors[0].AuditorAddress = common.Address{}
+					in.auditors[0].AuditorAddress = ""
 					return in
 				}},
 			wantErr:    true,
-			wantErrMsg: "invalid addr",
+			wantErrMsg: "invalid address : empty address string is not allowed",
 		},
 		{
 			name: "precompile should return error if auditor EncryptedTransferAmountLo is invalid",
@@ -537,7 +537,7 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var auditors []cttypes.EvmAuditor
+			var auditors []cttypes.CtAuditor
 
 			for _, auditorProto := range auditorsProto {
 				encryptedTransferAmountLo, _ := auditorProto.EncryptedTransferAmountLo.Marshal()
@@ -547,8 +547,8 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 				transferAmountLoEqualityProof, _ := auditorProto.TransferAmountLoEqualityProof.Marshal()
 				transferAmountHiEqualityProof, _ := auditorProto.TransferAmountHiEqualityProof.Marshal()
 				evmAddress, _ := k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(auditorProto.AuditorAddress))
-				auditor := cttypes.EvmAuditor{
-					AuditorAddress:                evmAddress,
+				auditor := cttypes.CtAuditor{
+					AuditorAddress:                evmAddress.String(),
 					EncryptedTransferAmountLo:     encryptedTransferAmountLo,
 					EncryptedTransferAmountHi:     encryptedTransferAmountHi,
 					TransferAmountLoValidityProof: transferAmountLoValidityProof,
@@ -560,8 +560,8 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 			}
 
 			in := inputs{
-				senderEVMAddr:      senderEVMAddr,
-				receiverEVMAddr:    receiverEVMAddr,
+				senderAddr:         senderEVMAddr.String(),
+				receiverAddr:       receiverEVMAddr.String(),
 				Denom:              testDenom,
 				fromAmountLo:       fromAmountLo,
 				fromAmountHi:       fromAmountHi,
@@ -576,8 +576,8 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 				in = tt.args.setUp(in)
 			}
 			inputArgs, err := transferWithAuditorsMethod.Inputs.Pack(
-				in.senderEVMAddr,
-				in.receiverEVMAddr,
+				in.senderAddr,
+				in.receiverAddr,
 				in.Denom,
 				in.fromAmountLo,
 				in.fromAmountHi,

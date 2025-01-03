@@ -5,8 +5,6 @@ import (
 	"errors"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/common"
-
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
@@ -51,14 +49,14 @@ type TransferAuditor struct {
 	TransferAmountHiEqualityProof *zkproofs.CiphertextCiphertextEqualityProof `json:"transfer_amount_hi_equality_proof"`
 }
 
-type EvmAuditor struct {
-	AuditorAddress                common.Address `json:"auditorAddress"`
-	EncryptedTransferAmountLo     []byte         `json:"encryptedTransferAmountLo"`
-	EncryptedTransferAmountHi     []byte         `json:"encryptedTransferAmountHi"`
-	TransferAmountLoValidityProof []byte         `json:"transferAmountLoValidityProof"`
-	TransferAmountHiValidityProof []byte         `json:"transferAmountHiValidityProof"`
-	TransferAmountLoEqualityProof []byte         `json:"transferAmountLoEqualityProof"`
-	TransferAmountHiEqualityProof []byte         `json:"transferAmountHiEqualityProof"`
+type CtAuditor struct {
+	AuditorAddress                string `json:"auditorAddress"`
+	EncryptedTransferAmountLo     []byte `json:"encryptedTransferAmountLo"`
+	EncryptedTransferAmountHi     []byte `json:"encryptedTransferAmountHi"`
+	TransferAmountLoValidityProof []byte `json:"transferAmountLoValidityProof"`
+	TransferAmountHiValidityProof []byte `json:"transferAmountHiValidityProof"`
+	TransferAmountLoEqualityProof []byte `json:"transferAmountLoEqualityProof"`
+	TransferAmountHiEqualityProof []byte `json:"transferAmountHiEqualityProof"`
 }
 
 type AuditorInput struct {
