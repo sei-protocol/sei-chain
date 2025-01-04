@@ -25,82 +25,12 @@ import (
 )
 
 func TestPrecompileTransfer_Execute(t *testing.T) {
-	testDenom := "usei"
-	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
-	k := &testApp.EvmKeeper
-
-	// Setup sender addresses and environment
-	senderPrivateKey := testkeeper.MockPrivateKey()
-	senderAddr, senderEVMAddr := testkeeper.PrivateKeyToAddresses(senderPrivateKey)
-	otherSenderAddr, otherSenderEVMAddr := testkeeper.PrivateKeyToAddresses(testkeeper.MockPrivateKey())
-	k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
-	k.SetAddressMapping(ctx, otherSenderAddr, otherSenderEVMAddr)
-	// Setup receiver addresses and environment
-
-	err := k.BankKeeper().MintCoins(
-		ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
-	require.Nil(t, err)
-	err = k.BankKeeper().SendCoinsFromModuleToAccount(
-		ctx, types.ModuleName, senderAddr, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
-	require.Nil(t, err)
-
-	// setup sender and receiver ct accounts
-	ctKeeper := k.CtKeeper()
-	privHex := hex.EncodeToString(senderPrivateKey.Bytes())
-	senderKey, _ := crypto.HexToECDSA(privHex)
-	initSenderAccount, err := cttypes.NewInitializeAccount(senderAddr.String(), testDenom, *senderKey)
-	require.NoError(t, err)
-	teg := elgamal.NewTwistedElgamal()
-	newSenderBalance, err := teg.AddScalar(initSenderAccount.AvailableBalance, big.NewInt(1000))
-	senderAesKey, err := utils.GetAESKey(*senderKey, testDenom)
-	sennderDecryptableBalance, err := encryption.EncryptAESGCM(big.NewInt(1000), senderAesKey)
-	require.NoError(t, err)
-	senderAccount := cttypes.Account{
-		PublicKey:                   *initSenderAccount.Pubkey,
-		PendingBalanceLo:            initSenderAccount.PendingBalanceLo,
-		PendingBalanceHi:            initSenderAccount.PendingBalanceHi,
-		PendingBalanceCreditCounter: 0,
-		AvailableBalance:            newSenderBalance,
-		DecryptableAvailableBalance: sennderDecryptableBalance,
-	}
-	err = ctKeeper.SetAccount(ctx, senderAddr.String(), testDenom, senderAccount)
-	require.NoError(t, err)
-
-	receiverAddr, receiverEVMAddr, receiverPubKey, err := setUpCtAccount(k, ctx, testDenom)
-	require.NoError(t, err)
-	p, err := confidentialtransfers.NewPrecompile(ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
-	require.Nil(t, err)
-	statedb := state.NewDBImpl(ctx, k, true)
-	evm := vm.EVM{
-		StateDB:   statedb,
-		TxContext: vm.TxContext{Origin: senderEVMAddr},
-	}
-
-	transfer, err := p.ABI.MethodById(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).TransferID)
-	require.Nil(t, err)
-
-	tr, err := cttypes.NewTransfer(
-		senderKey,
-		senderAddr.String(),
-		receiverAddr.String(),
-		testDenom,
-		senderAccount.DecryptableAvailableBalance,
-		senderAccount.AvailableBalance,
-		100,
-		receiverPubKey,
-		nil)
-	trProto := cttypes.NewMsgTransferProto(tr)
-	fromAmountLo, _ := trProto.FromAmountLo.Marshal()
-	fromAmountHi, _ := trProto.FromAmountHi.Marshal()
-	toAmountLo, _ := trProto.ToAmountLo.Marshal()
-	toAmountHi, _ := trProto.ToAmountHi.Marshal()
-	remainingBalance, _ := trProto.RemainingBalance.Marshal()
-	proofs, _ := trProto.Proofs.Marshal()
-
 	transferPrecompile, _ := confidentialtransfers.NewPrecompile(nil, nil)
 	transferMethod, _ := transferPrecompile.ABI.MethodById(transferPrecompile.GetExecutor().(*confidentialtransfers.PrecompileExecutor).TransferID)
 	expectedTrueResponse, _ := transferMethod.Outputs.Pack(true)
+	var senderAddr, receiverAddr, otherSenderAddr sdk.AccAddress
+	var senderEVMAddr, receiverEVMAddr, otherSenderEVMAddr common.Address
+	var receiverPubKey *curves.Point
 
 	type inputs struct {
 		senderAddr         string
@@ -133,6 +63,26 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 			name:             "precompile should return true of input is valid",
 			wantRet:          expectedTrueResponse,
 			wantRemainingGas: 0xec0b6,
+			wantErr:          false,
+		},
+		{
+			name: "precompile should return true of input is valid and sender is Sei address",
+			args: args{setUp: func(in inputs) inputs {
+				in.senderAddr = senderAddr.String()
+				return in
+			}},
+			wantRet:          expectedTrueResponse,
+			wantRemainingGas: 0xec0b6,
+			wantErr:          false,
+		},
+		{
+			name: "precompile should return true of input is valid and receiver is Sei address",
+			args: args{setUp: func(in inputs) inputs {
+				in.receiverAddr = receiverAddr.String()
+				return in
+			}},
+			wantRet:          expectedTrueResponse,
+			wantRemainingGas: 0xec519,
 			wantErr:          false,
 		},
 		{
@@ -258,6 +208,80 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		testDenom := "usei"
+		testApp := testkeeper.EVMTestApp
+		ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+		k := &testApp.EvmKeeper
+
+		// Setup sender addresses and environment
+		senderPrivateKey := testkeeper.MockPrivateKey()
+		senderAddr, senderEVMAddr = testkeeper.PrivateKeyToAddresses(senderPrivateKey)
+		otherSenderAddr, otherSenderEVMAddr = testkeeper.PrivateKeyToAddresses(testkeeper.MockPrivateKey())
+		k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
+		k.SetAddressMapping(ctx, otherSenderAddr, otherSenderEVMAddr)
+		// Setup receiver addresses and environment
+
+		err := k.BankKeeper().MintCoins(
+			ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
+		require.Nil(t, err)
+		err = k.BankKeeper().SendCoinsFromModuleToAccount(
+			ctx, types.ModuleName, senderAddr, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
+		require.Nil(t, err)
+
+		// setup sender and receiver ct accounts
+		ctKeeper := k.CtKeeper()
+		privHex := hex.EncodeToString(senderPrivateKey.Bytes())
+		senderKey, _ := crypto.HexToECDSA(privHex)
+		initSenderAccount, err := cttypes.NewInitializeAccount(senderAddr.String(), testDenom, *senderKey)
+		require.NoError(t, err)
+		teg := elgamal.NewTwistedElgamal()
+		newSenderBalance, err := teg.AddScalar(initSenderAccount.AvailableBalance, big.NewInt(1000))
+		senderAesKey, err := utils.GetAESKey(*senderKey, testDenom)
+		sennderDecryptableBalance, err := encryption.EncryptAESGCM(big.NewInt(1000), senderAesKey)
+		require.NoError(t, err)
+		senderAccount := cttypes.Account{
+			PublicKey:                   *initSenderAccount.Pubkey,
+			PendingBalanceLo:            initSenderAccount.PendingBalanceLo,
+			PendingBalanceHi:            initSenderAccount.PendingBalanceHi,
+			PendingBalanceCreditCounter: 0,
+			AvailableBalance:            newSenderBalance,
+			DecryptableAvailableBalance: sennderDecryptableBalance,
+		}
+		err = ctKeeper.SetAccount(ctx, senderAddr.String(), testDenom, senderAccount)
+		require.NoError(t, err)
+
+		receiverAddr, receiverEVMAddr, receiverPubKey, err = setUpCtAccount(k, ctx, testDenom)
+		require.NoError(t, err)
+		p, err := confidentialtransfers.NewPrecompile(ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
+		require.Nil(t, err)
+		statedb := state.NewDBImpl(ctx, k, true)
+		evm := vm.EVM{
+			StateDB:   statedb,
+			TxContext: vm.TxContext{Origin: senderEVMAddr},
+		}
+
+		transfer, err := p.ABI.MethodById(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).TransferID)
+		require.Nil(t, err)
+
+		tr, _ := cttypes.NewTransfer(
+			senderKey,
+			senderAddr.String(),
+			receiverAddr.String(),
+			testDenom,
+			senderAccount.DecryptableAvailableBalance,
+			senderAccount.AvailableBalance,
+			100,
+			receiverPubKey,
+			nil)
+
+		trProto := cttypes.NewMsgTransferProto(tr)
+		fromAmountLo, _ := trProto.FromAmountLo.Marshal()
+		fromAmountHi, _ := trProto.FromAmountHi.Marshal()
+		toAmountLo, _ := trProto.ToAmountLo.Marshal()
+		toAmountHi, _ := trProto.ToAmountHi.Marshal()
+		remainingBalance, _ := trProto.RemainingBalance.Marshal()
+		proofs, _ := trProto.Proofs.Marshal()
+
 		t.Run(tt.name, func(t *testing.T) {
 			in := inputs{
 				senderAddr:         senderEVMAddr.String(),
