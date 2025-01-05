@@ -13,8 +13,9 @@ import (
 )
 
 type Migrator struct {
-	iavlDB     dbm.DB
-	stateStore types.StateStore
+	iavlDB        dbm.DB
+	stateStore    types.StateStore
+	oldStateStore types.StateStore
 }
 
 // TODO: make this configurable?
@@ -22,55 +23,96 @@ const (
 	DefaultCacheSize int = 10000
 )
 
-func NewMigrator(db dbm.DB, stateStore types.StateStore) *Migrator {
+func NewMigrator(db dbm.DB, stateStore types.StateStore, oldStateStore types.StateStore) *Migrator {
 	return &Migrator{
-		iavlDB:     db,
-		stateStore: stateStore,
+		iavlDB:        db,
+		stateStore:    stateStore,
+		oldStateStore: oldStateStore,
 	}
 }
 
 func (m *Migrator) Migrate(version int64, homeDir string) error {
+	// Channel to send RawSnapshotNodes to the importer.
 	ch := make(chan types.RawSnapshotNode, 1000)
+	// Channel to capture errors from both goroutines below.
 	errCh := make(chan error, 2)
 
-	// Get the latest key, if any, to resume from
-	latestKey, err := m.stateStore.GetLatestMigratedKey()
-	if err != nil {
-		return fmt.Errorf("failed to get latest key: %w", err)
-	}
+	fmt.Printf("Starting migration for 'distribution' module from version %d to %d...\n", 100215000, 106789896)
 
-	latestModule, err := m.stateStore.GetLatestMigratedModule()
-	if err != nil {
-		return fmt.Errorf("failed to get latest module: %w", err)
-	}
-
-	fmt.Println("Starting migration...")
-
-	// Goroutine to iterate through IAVL and export leaf nodes
+	// Goroutine #1: Export distribution leaf nodes into ch
 	go func() {
 		defer close(ch)
-		errCh <- ExportLeafNodesFromKey(m.iavlDB, ch, latestKey, latestModule)
+		errCh <- exportDistributionLeafNodes(m.oldStateStore, ch, 100215000, 106789896)
 	}()
 
-	// Import nodes into PebbleDB
+	// Goroutine #2: Import those leaf nodes into PebbleDB
 	go func() {
 		errCh <- m.stateStore.RawImport(ch)
 	}()
 
-	// Block until both processes complete
+	// Wait for both goroutines to complete
 	for i := 0; i < 2; i++ {
 		if err := <-errCh; err != nil {
 			return err
 		}
 	}
 
-	// Set earliest and latest version in the database
-	err = m.stateStore.SetEarliestVersion(1, true)
+	return nil
+}
+
+func exportDistributionLeafNodes(
+	oldStateStore types.StateStore,
+	ch chan<- types.RawSnapshotNode,
+	startVersion, endVersion int64,
+) error {
+	fmt.Printf("Starting export at %s for versions [%d..%d]\n",
+		time.Now().Format(time.RFC3339), startVersion, endVersion,
+	)
+
+	var totalExported int
+	startTime := time.Now()
+
+	// RawIterate will scan *all* keys in the "distribution" store.
+	// We'll filter them by version in the callback.
+	stop, err := oldStateStore.RawIterate("distribution", func(key, value []byte, version int64) bool {
+		// If the record's version is outside our desired range, skip it.
+		// if version < startVersion || version > endVersion {
+		// 	return false
+		// }
+
+		// Otherwise, export it via the channel.
+		ch <- types.RawSnapshotNode{
+			StoreKey: "distribution",
+			Key:      key,
+			Value:    value,
+			Version:  version,
+		}
+
+		totalExported++
+		// Optional progress logging every 1,000,000 keys:
+		if totalExported%1_000_000 == 0 {
+			fmt.Printf("[SingleWorker][%s] Exported %d distribution keys so far\n",
+				time.Now().Format(time.RFC3339), totalExported,
+			)
+		}
+		// Return false to continue iterating
+		return false
+	})
 	if err != nil {
-		return err
+		return fmt.Errorf("RawIterate error: %w", err)
+	}
+	if stop {
+		fmt.Printf("[SingleWorker][%s] Iteration stopped early; callback returned true at some point.\n",
+			time.Now().Format(time.RFC3339),
+		)
 	}
 
-	return m.stateStore.SetLatestVersion(version)
+	fmt.Printf(
+		"[%s] Completed exporting distribution store for versions [%d..%d]. Total keys: %d. Duration: %s\n",
+		time.Now().Format(time.RFC3339), startVersion, endVersion, totalExported, time.Since(startTime),
+	)
+	fmt.Printf("Finished export at %s\n", time.Now().Format(time.RFC3339))
+	return nil
 }
 
 func (m *Migrator) Verify(version int64) error {

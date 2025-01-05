@@ -312,7 +312,7 @@ func newApp(
 			homeDir := cast.ToString(appOpts.Get(flags.FlagHome))
 			stateStore := app.GetStateStore()
 			migrationHeight := cast.ToInt64(appOpts.Get("migrate-height"))
-			migrator := ss.NewMigrator(db, stateStore)
+			migrator := ss.NewMigrator(db, stateStore, stateStore)
 			if err := migrator.Migrate(migrationHeight, homeDir); err != nil {
 				panic(err)
 			}

@@ -24,7 +24,7 @@ func MigrateCmd() *cobra.Command {
 		Short: "A tool to migrate full IAVL data store to SeiDB. Use this tool to migrate IAVL to SeiDB SC and SS database.",
 		Run:   execute,
 	}
-	cmd.PersistentFlags().String("home-dir", "/root/.sei", "Sei home directory")
+	cmd.PersistentFlags().String("home-dir", "/root/.old_sei", "Sei home directory")
 	return cmd
 }
 
@@ -46,6 +46,50 @@ func execute(cmd *cobra.Command, _ []string) {
 func migrateSC(version int64, homeDir string, db dbm.DB) error {
 	migrator := sc.NewMigrator(homeDir, db)
 	return migrator.Migrate(version)
+}
+
+func MigrateSSCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "migrate-ss",
+		Short: "A tool to migrate full ss distribution module",
+		Run:   executeSS,
+	}
+	cmd.PersistentFlags().String("home-dir", "/root/.old_sei", "Sei home directory")
+	return cmd
+}
+
+func executeSS(cmd *cobra.Command, _ []string) {
+	homeDir, _ := cmd.Flags().GetString("home-dir")
+	dataDir := filepath.Join(homeDir, "data")
+	db, err := dbm.NewGoLevelDB("application", dataDir)
+	if err != nil {
+		panic(err)
+	}
+	latestVersion := rootmulti.GetLatestVersion(db)
+	fmt.Printf("latest version: %d\n", latestVersion)
+
+	if err = migrateSS(latestVersion, homeDir, db); err != nil {
+		panic(err)
+	}
+}
+
+func migrateSS(version int64, homeDir string, db dbm.DB) error {
+	ssConfig := config.DefaultStateStoreConfig()
+	ssConfig.Enable = true
+	ssConfig.KeepRecent = 0
+
+	stateStore, err := sstypes.NewStateStore(log.NewNopLogger(), homeDir, ssConfig)
+	if err != nil {
+		return err
+	}
+
+	oldStateStore, err := sstypes.NewStateStore(log.NewNopLogger(), "/root/.sei", ssConfig)
+	if err != nil {
+		return err
+	}
+
+	migrator := ss.NewMigrator(db, stateStore, oldStateStore)
+	return migrator.Migrate(version, homeDir)
 }
 
 func VerifyMigrationCmd() *cobra.Command {
@@ -95,7 +139,7 @@ func verifySS(version int64, homeDir string, db dbm.DB) error {
 		return err
 	}
 
-	migrator := ss.NewMigrator(db, stateStore)
+	migrator := ss.NewMigrator(db, stateStore, stateStore)
 	return migrator.Verify(version)
 }
 
