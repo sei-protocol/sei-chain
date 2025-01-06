@@ -15,6 +15,7 @@ import (
 )
 
 const (
+	InitializeAccountMethod    = "initializeAccount"
 	TransferMethod             = "transfer"
 	TransferWithAuditorsMethod = "transferWithAuditors"
 )
@@ -35,6 +36,7 @@ type PrecompileExecutor struct {
 
 	TransferID             []byte
 	TransferWithAuditorsID []byte
+	InitializeAccountID    []byte
 }
 
 func NewPrecompile(ctkeeper pcommon.ConfidentialTransfersKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
@@ -52,6 +54,8 @@ func NewPrecompile(ctkeeper pcommon.ConfidentialTransfersKeeper, evmKeeper pcomm
 			p.TransferID = m.ID
 		case TransferWithAuditorsMethod:
 			p.TransferWithAuditorsID = m.ID
+		case InitializeAccountMethod:
+			p.InitializeAccountID = m.ID
 		}
 	}
 
@@ -62,17 +66,26 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	if ctx.EVMPrecompileCalledFromDelegateCall() {
 		return nil, 0, errors.New("cannot delegatecall ct")
 	}
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
 	switch method.Name {
 	case TransferMethod:
 		if readOnly {
 			return nil, 0, errors.New("cannot call ct precompile from staticcall")
 		}
-		return p.transfer(ctx, method, caller, args, value)
+		return p.transfer(ctx, method, caller, args)
 	case TransferWithAuditorsMethod:
 		if readOnly {
 			return nil, 0, errors.New("cannot call ct precompile from staticcall")
 		}
-		return p.transferWithAuditors(ctx, method, caller, args, value)
+		return p.transferWithAuditors(ctx, method, caller, args)
+
+	case InitializeAccountMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call ct precompile from staticcall")
+		}
+		return p.initializeAccount(ctx, method, caller, args)
 	}
 	return
 }
@@ -81,7 +94,7 @@ func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
 	return p.evmKeeper
 }
 
-func (p PrecompileExecutor) transfer(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) transfer(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -90,17 +103,13 @@ func (p PrecompileExecutor) transfer(ctx sdk.Context, method *abi.Method, caller
 			return
 		}
 	}()
-	if err := pcommon.ValidateNonPayable(value); err != nil {
-		rerr = err
-		return
-	}
 
 	if err := pcommon.ValidateArgsLength(args, 10); err != nil {
 		rerr = err
 		return
 	}
 
-	msg, err := p.getTransferMessageFromArgs(ctx, args)
+	msg, err := p.getTransferMessageFromArgs(ctx, caller, args)
 	if err != nil {
 		rerr = err
 		return
@@ -121,7 +130,7 @@ func (p PrecompileExecutor) transfer(ctx sdk.Context, method *abi.Method, caller
 	return
 }
 
-func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -130,17 +139,13 @@ func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Me
 			return
 		}
 	}()
-	if err := pcommon.ValidateNonPayable(value); err != nil {
-		rerr = err
-		return
-	}
 
 	if err := pcommon.ValidateArgsLength(args, 11); err != nil {
 		rerr = err
 		return
 	}
 
-	msg, err := p.getTransferMessageFromArgs(ctx, args)
+	msg, err := p.getTransferMessageFromArgs(ctx, caller, args)
 	if err != nil {
 		rerr = err
 		return
@@ -169,13 +174,17 @@ func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Me
 	return
 }
 
-func (p PrecompileExecutor) getTransferMessageFromArgs(ctx sdk.Context, args []interface{}) (*cttypes.MsgTransfer, error) {
-	fromAddr, err := p.accAddressFromArg(ctx, args[0])
+func (p PrecompileExecutor) getTransferMessageFromArgs(ctx sdk.Context, caller common.Address, args []interface{}) (*cttypes.MsgTransfer, error) {
+	fromAddr, evmAddr, err := p.accAddressesFromArg(ctx, args[0])
 	if err != nil {
 		return nil, err
 	}
 
-	toAddress, err := p.accAddressFromArg(ctx, args[1])
+	if evmAddr != caller {
+		return nil, errors.New("caller is not the same as the sender address")
+	}
+
+	toAddress, _, err := p.accAddressesFromArg(ctx, args[1])
 	if err != nil {
 		return nil, err
 	}
@@ -240,16 +249,50 @@ func (p PrecompileExecutor) getTransferMessageFromArgs(ctx sdk.Context, args []i
 	}, nil
 }
 
-func (p PrecompileExecutor) accAddressFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, error) {
+func (p PrecompileExecutor) accAddressesFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, common.Address, error) {
 	addr := arg.(common.Address)
 	if addr == (common.Address{}) {
-		return nil, errors.New("invalid addr")
+		return nil, common.Address{}, errors.New("invalid addr")
 	}
 	seiAddr, associated := p.evmKeeper.GetSeiAddress(ctx, addr)
 	if !associated {
-		return nil, errors.New("cannot use an unassociated address as transfer address")
+		return nil, common.Address{}, errors.New("cannot use an unassociated address as transfer address")
 	}
-	return seiAddr, nil
+	return seiAddr, addr, nil
+}
+
+func (p PrecompileExecutor) getValidAddressesFromString(ctx sdk.Context, addr string) (sdk.AccAddress, common.Address, error) {
+	if common.IsHexAddress(addr) {
+		return p.getAssociatedAddressesByEVMAddress(ctx, common.HexToAddress(addr))
+	}
+	return p.getAssociatedAddressesBySeiAddress(ctx, addr)
+}
+
+// getAssociatedAddressesByEVMAddress returns the associated Sei and EVM addresses given an EVM address
+// It returns an error if the Sei address is not associated
+func (p PrecompileExecutor) getAssociatedAddressesByEVMAddress(ctx sdk.Context, evmAddr common.Address) (sdk.AccAddress, common.Address, error) {
+	seiAddr, associated := p.evmKeeper.GetSeiAddress(ctx, evmAddr)
+	if !associated {
+		return nil, common.Address{}, fmt.Errorf("address %s is not associated", evmAddr)
+	}
+	return seiAddr, evmAddr, nil
+}
+
+// getAssociatedAddressesBySeiAddress returns the associated Sei and EVM addresses given a Sei address
+// It returns an error if the address is not associated or if the address is invalid
+// Situation where EVM address is not associated with Sei address is unlikely to happen in this layer, since when EVM
+// transaction is sent, the EVM address should be associated with SEI address in ante handler. We add the check anyway
+// for safety and in case we hit this edge case it's clear what the error is.
+func (p PrecompileExecutor) getAssociatedAddressesBySeiAddress(ctx sdk.Context, addr string) (sdk.AccAddress, common.Address, error) {
+	seiAddr, err := sdk.AccAddressFromBech32(addr)
+	if err != nil {
+		return nil, common.Address{}, fmt.Errorf("invalid address %s: %w", addr, err)
+	}
+	evmAddr, associated := p.evmKeeper.GetEVMAddress(ctx, seiAddr)
+	if !associated {
+		return nil, common.Address{}, fmt.Errorf("address %s is not associated", addr)
+	}
+	return seiAddr, evmAddr, nil
 }
 
 func (p PrecompileExecutor) getAuditorsFromArg(ctx sdk.Context, arg interface{}) (auditorsArray []*cttypes.Auditor, rerr error) {
@@ -277,7 +320,7 @@ func (p PrecompileExecutor) getAuditorsFromArg(ctx sdk.Context, arg interface{})
 
 	auditors := make([]*cttypes.Auditor, 0)
 	for _, auditor := range evmAuditors {
-		auditorAddr, err := p.accAddressFromArg(ctx, auditor.AuditorAddress)
+		auditorAddr, _, err := p.accAddressesFromArg(ctx, auditor.AuditorAddress)
 		if err != nil {
 			return nil, err
 		}
@@ -329,4 +372,97 @@ func (p PrecompileExecutor) getAuditorsFromArg(ctx sdk.Context, arg interface{})
 		auditors = append(auditors, a)
 	}
 	return auditors, nil
+}
+
+func (p PrecompileExecutor) initializeAccount(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := pcommon.ValidateArgsLength(args, 8); err != nil {
+		rerr = err
+		return
+	}
+
+	seiAddr, evmAddr, err := p.getValidAddressesFromString(ctx, args[0].(string))
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	if evmAddr != caller {
+		rerr = errors.New("caller is not the same as the user address")
+		return
+	}
+
+	denom := args[1].(string)
+	if denom == "" {
+		rerr = errors.New("invalid denom")
+		return
+	}
+
+	publicKey, ok := args[2].([]byte)
+	if !ok {
+		rerr = errors.New("invalid public key")
+		return
+	}
+
+	decryptableBalance := args[3].(string)
+	if decryptableBalance == "" {
+		rerr = errors.New("invalid decryptable balance")
+		return
+	}
+
+	var pendingBalanceLo cttypes.Ciphertext
+	err = pendingBalanceLo.Unmarshal(args[4].([]byte))
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	var pendingBalanceHi cttypes.Ciphertext
+	err = pendingBalanceHi.Unmarshal(args[5].([]byte))
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	var availableBalance cttypes.Ciphertext
+	err = availableBalance.Unmarshal(args[6].([]byte))
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	var initializeAccountProofs cttypes.InitializeAccountMsgProofs
+	err = initializeAccountProofs.Unmarshal(args[7].([]byte))
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	msg := &cttypes.MsgInitializeAccount{
+		FromAddress:        seiAddr.String(),
+		Denom:              denom,
+		PublicKey:          publicKey,
+		DecryptableBalance: decryptableBalance,
+		PendingBalanceLo:   &pendingBalanceLo,
+		PendingBalanceHi:   &pendingBalanceHi,
+		AvailableBalance:   &availableBalance,
+		Proofs:             &initializeAccountProofs,
+	}
+
+	_, err = p.ctKeeper.InitializeAccount(sdk.WrapSDKContext(ctx), msg)
+	if err != nil {
+		rerr = err
+		return
+	}
+	ret, rerr = method.Outputs.Pack(true)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
 }

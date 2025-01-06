@@ -2,6 +2,7 @@ package confidentialtransfers_test
 
 import (
 	"encoding/hex"
+	"fmt"
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -23,7 +24,7 @@ import (
 	"testing"
 )
 
-func TestPrecompileExecutor_Execute(t *testing.T) {
+func TestPrecompileTransfer_Execute(t *testing.T) {
 	testDenom := "usei"
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
@@ -32,7 +33,9 @@ func TestPrecompileExecutor_Execute(t *testing.T) {
 	// Setup sender addresses and environment
 	senderPrivateKey := testkeeper.MockPrivateKey()
 	senderAddr, senderEVMAddr := testkeeper.PrivateKeyToAddresses(senderPrivateKey)
+	otherSenderAddr, otherSenderEVMAddr := testkeeper.PrivateKeyToAddresses(testkeeper.MockPrivateKey())
 	k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
+	k.SetAddressMapping(ctx, otherSenderAddr, otherSenderEVMAddr)
 	// Setup receiver addresses and environment
 
 	err := k.BankKeeper().MintCoins(
@@ -152,6 +155,17 @@ func TestPrecompileExecutor_Execute(t *testing.T) {
 			},
 			wantErr:    true,
 			wantErrMsg: "invalid addr",
+		},
+		{
+			name: "precompile should return error if caller is not the sender",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.senderEVMAddr = otherSenderEVMAddr
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "caller is not the same as the sender address",
 		},
 		{
 			name: "precompile should return error if denom is invalid",
@@ -622,4 +636,247 @@ func setUpCtAccount(k *evmkeeper.Keeper, ctx sdk.Context, testDenom string) (sdk
 		return nil, common.Address{}, nil, err
 	}
 	return addr, EVMAddr, initializeAccount.Pubkey, nil
+}
+
+func TestPrecompileInitializeAccount_Execute(t *testing.T) {
+	testDenom := "usei"
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	err := k.BankKeeper().MintCoins(
+		ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
+	require.Nil(t, err)
+
+	userPrivateKey := testkeeper.MockPrivateKey()
+	userAddr, userEVMAddr := testkeeper.PrivateKeyToAddresses(userPrivateKey)
+	notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
+	notAssociatedUserAddr, notAssociatedUserEVMAddr := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
+	otherUserPrivateKey := testkeeper.MockPrivateKey()
+	otherUserAddr, otherUserEVMAddr := testkeeper.PrivateKeyToAddresses(otherUserPrivateKey)
+	k.SetAddressMapping(ctx, userAddr, userEVMAddr)
+	k.SetAddressMapping(ctx, otherUserAddr, otherUserEVMAddr)
+
+	privHex := hex.EncodeToString(userPrivateKey.Bytes())
+	userKey, _ := crypto.HexToECDSA(privHex)
+
+	statedb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{
+		StateDB:   statedb,
+		TxContext: vm.TxContext{Origin: userEVMAddr},
+	}
+
+	p, err := confidentialtransfers.NewPrecompile(ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
+	require.Nil(t, err)
+
+	initAccount, err := cttypes.NewInitializeAccount(
+		userAddr.String(),
+		testDenom,
+		*userKey)
+
+	iaProto := cttypes.NewMsgInitializeAccountProto(initAccount)
+	pendingBalanceLo, _ := iaProto.PendingBalanceLo.Marshal()
+	pendingBalanceHi, _ := iaProto.PendingBalanceHi.Marshal()
+	availableBalance, _ := iaProto.AvailableBalance.Marshal()
+	proofs, _ := iaProto.Proofs.Marshal()
+
+	InitializeAccountMethod, _ := p.ABI.MethodById(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).InitializeAccountID)
+	expectedTrueResponse, _ := InitializeAccountMethod.Outputs.Pack(true)
+
+	type inputs struct {
+		UserAddress        string
+		Denom              string
+		PublicKey          []byte
+		DecryptableBalance string
+		PendingBalanceLo   []byte
+		PendingBalanceHi   []byte
+		AvailableBalance   []byte
+		proofs             []byte
+	}
+
+	type args struct {
+		isReadOnly         bool
+		isFromDelegateCall bool
+		value              *big.Int
+		setUp              func(in inputs) inputs
+	}
+	tests := []struct {
+		name             string
+		args             args
+		wantRet          []byte
+		wantRemainingGas uint64
+		wantErr          bool
+		wantErrMsg       string
+	}{
+		{
+			name:             "precompile should return true if input is valid",
+			wantRet:          expectedTrueResponse,
+			wantRemainingGas: 0x1e438a,
+			wantErr:          false,
+		},
+		{
+			name: "precompile should return error if address is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.UserAddress = ""
+					return in
+				}},
+			wantErr:    true,
+			wantErrMsg: "invalid address : empty address string is not allowed",
+		},
+		{
+			name: "precompile should return error if Sei address is not associated with an EVM address",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.UserAddress = notAssociatedUserAddr.String()
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedUserAddr.String()),
+		},
+		{
+			name: "precompile should return error if EVM address is not associated with a Sei address",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.UserAddress = notAssociatedUserEVMAddr.String()
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedUserEVMAddr.String()),
+		},
+		{
+			name: "precompile should return error if caller is not the same as the user",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.UserAddress = otherUserAddr.String()
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "caller is not the same as the user address",
+		},
+		{
+			name: "precompile should return error if denom is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.Denom = ""
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid denom",
+		},
+		{
+			name: "precompile should return error if decryptableBalance is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.DecryptableBalance = ""
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid decryptable balance",
+		},
+		{
+			name: "precompile should return error if pendingBalanceLo is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.PendingBalanceLo = []byte("invalid")
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "unexpected EOF",
+		},
+		{
+			name: "precompile should return error if pendingBalanceHi is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.PendingBalanceHi = []byte("invalid")
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "unexpected EOF",
+		},
+		{
+			name: "precompile should return error if availableBalance is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.AvailableBalance = []byte("invalid")
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "unexpected EOF",
+		},
+		{
+			name: "precompile should return error if proofs is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.proofs = []byte("invalid")
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "unexpected EOF",
+		},
+		{
+			name:       "precompile should return error if called from static call",
+			args:       args{isReadOnly: true},
+			wantErr:    true,
+			wantErrMsg: "cannot call ct precompile from staticcall",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := inputs{
+				UserAddress:        userAddr.String(),
+				Denom:              testDenom,
+				PublicKey:          iaProto.PublicKey,
+				DecryptableBalance: iaProto.DecryptableBalance,
+				PendingBalanceLo:   pendingBalanceLo,
+				PendingBalanceHi:   pendingBalanceHi,
+				AvailableBalance:   availableBalance,
+				proofs:             proofs,
+			}
+			if tt.args.setUp != nil {
+				in = tt.args.setUp(in)
+			}
+
+			inputArgs, err := InitializeAccountMethod.Inputs.Pack(
+				in.UserAddress,
+				in.Denom,
+				in.PublicKey,
+				in.DecryptableBalance,
+				in.PendingBalanceLo,
+				in.PendingBalanceHi,
+				in.AvailableBalance,
+				in.proofs)
+
+			require.Nil(t, err)
+
+			resp, remainingGas, err := p.RunAndCalculateGas(
+				&evm,
+				userEVMAddr,
+				common.Address{},
+				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).InitializeAccountID, inputArgs...),
+				2000000,
+				tt.args.value,
+				nil,
+				tt.args.isReadOnly,
+				tt.args.isFromDelegateCall)
+			if tt.wantErr {
+				require.NotNil(t, err)
+				require.Equal(t, tt.wantErrMsg, string(resp))
+				return
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.wantRet, resp)
+				require.Equal(t, tt.wantRemainingGas, remainingGas)
+			}
+		})
+	}
 }

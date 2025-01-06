@@ -8,6 +8,17 @@ ICT constant CT_CONTRACT = ICT(
 
 interface ICT {
     // Transactions
+    function initializeAccount(
+        string fromAddress,
+        string denom,
+        bytes publicKey,
+        string decryptableBalance,
+        bytes pendingBalanceLo,
+        bytes pendingBalanceHi,
+        bytes availableBalance,
+        bytes proofs
+    ) external returns (bool success);
+
     function transfer(
         address fromAddress,
         address toAddress,
