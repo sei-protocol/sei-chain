@@ -1865,6 +1865,7 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 
 func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 	totalGasWanted := uint64(0)
+	nonzeroTxsCnt := 0
 	for _, tx := range txs {
 		decodedTx, err := app.txDecoder(tx)
 		if err != nil {
@@ -1909,9 +1910,13 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 			return false
 		}
 
+		if gasWanted > 0 {
+			nonzeroTxsCnt++
+		}
+
 		totalGasWanted += gasWanted
 		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGas) {
-			if len(txs) > int(ctx.ConsensusParams().Block.MinTxsInBlock) {
+			if nonzeroTxsCnt > int(ctx.ConsensusParams().Block.MinTxsInBlock) {
 				// early return
 				return false
 			}
