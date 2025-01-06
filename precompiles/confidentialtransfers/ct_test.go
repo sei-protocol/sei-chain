@@ -60,13 +60,13 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 		wantErrMsg       string
 	}{
 		{
-			name:             "precompile should return true of input is valid",
+			name:             "precompile should return true if input is valid",
 			wantRet:          expectedTrueResponse,
 			wantRemainingGas: 0xec0b6,
 			wantErr:          false,
 		},
 		{
-			name: "precompile should return true of input is valid and sender is Sei address",
+			name: "precompile should return true if input is valid and sender is Sei address",
 			args: args{setUp: func(in inputs) inputs {
 				in.senderAddr = senderAddr.String()
 				return in
@@ -76,7 +76,7 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 			wantErr:          false,
 		},
 		{
-			name: "precompile should return true of input is valid and receiver is Sei address",
+			name: "precompile should return true if input is valid and receiver is Sei address",
 			args: args{setUp: func(in inputs) inputs {
 				in.receiverAddr = receiverAddr.String()
 				return in

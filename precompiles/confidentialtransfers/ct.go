@@ -268,7 +268,7 @@ func (p PrecompileExecutor) getValidAddressesFromString(ctx sdk.Context, addr st
 	return p.getAssociatedAddressesBySeiAddress(ctx, addr)
 }
 
-// getValidSeiAddressFromString returns the associated Sei address given an EVM or Sei address
+// getValidSeiAddressFromString returns the validated Sei address given an (EVM or native Sei) address string
 // This method is for the case when we need to get the Sei address, but do not require it to be associated with an EVM
 // address (unless EVM address is provided as an argument)
 func (p PrecompileExecutor) getValidSeiAddressFromString(ctx sdk.Context, addr string) (sdk.AccAddress, error) {
