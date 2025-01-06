@@ -132,9 +132,8 @@ func DefaultBlockParams() BlockParams {
 	return BlockParams{
 		MaxBytes: 22020096, // 21MB
 		// Default, can be increased and tuned as needed
-		// match sei-devnet-3 and atlantic-2 current values
 		MaxGas:        100000000,
-		MinTxsInBlock: 0,
+		MinTxsInBlock: 10,
 	}
 }
 
