@@ -20,8 +20,8 @@ interface ICT {
     ) external returns (bool success);
 
     function transfer(
-        address fromAddress,
-        address toAddress,
+        string fromAddress,
+        string toAddress,
         string denom,
         bytes fromAmountLo,
         bytes fromAmountHi,
@@ -32,8 +32,8 @@ interface ICT {
     ) external returns (bool success);
 
     function transferWithAuditors(
-        address fromAddress,
-        address toAddress,
+        string fromAddress,
+        string toAddress,
         string denom,
         bytes fromAmountLo,
         bytes fromAmountHi,
@@ -45,7 +45,7 @@ interface ICT {
     ) external returns (bool success);
 
     struct Auditor {
-        address auditorAddress;
+        string auditorAddress;
         bytes encryptedTransferAmountLo;
         bytes encryptedTransferAmountHi;
         bytes transferAmountLoValidityProof;

@@ -175,7 +175,12 @@ func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Me
 }
 
 func (p PrecompileExecutor) getTransferMessageFromArgs(ctx sdk.Context, caller common.Address, args []interface{}) (*cttypes.MsgTransfer, error) {
-	fromAddr, evmAddr, err := p.accAddressesFromArg(ctx, args[0])
+	fromAddrString, ok := (args[0]).(string)
+	if !ok || fromAddrString == "" {
+		return nil, errors.New("invalid from addr")
+	}
+
+	fromAddr, evmAddr, err := p.getValidAddressesFromString(ctx, fromAddrString)
 	if err != nil {
 		return nil, err
 	}
@@ -184,13 +189,18 @@ func (p PrecompileExecutor) getTransferMessageFromArgs(ctx sdk.Context, caller c
 		return nil, errors.New("caller is not the same as the sender address")
 	}
 
-	toAddress, _, err := p.accAddressesFromArg(ctx, args[1])
+	toAddrString, ok := (args[1]).(string)
+	if !ok || toAddrString == "" {
+		return nil, errors.New("invalid to addr")
+	}
+
+	toAddress, err := p.getValidSeiAddressFromString(ctx, toAddrString)
 	if err != nil {
 		return nil, err
 	}
 
-	denom := args[2].(string)
-	if denom == "" {
+	denom, ok := args[2].(string)
+	if !ok || denom == "" {
 		return nil, errors.New("invalid denom")
 	}
 
@@ -224,8 +234,8 @@ func (p PrecompileExecutor) getTransferMessageFromArgs(ctx sdk.Context, caller c
 		return nil, err
 	}
 
-	decryptableBalance := args[8].(string)
-	if decryptableBalance == "" {
+	decryptableBalance, ok := args[8].(string)
+	if !ok || decryptableBalance == "" {
 		return nil, errors.New("invalid decryptable balance")
 	}
 
@@ -249,23 +259,28 @@ func (p PrecompileExecutor) getTransferMessageFromArgs(ctx sdk.Context, caller c
 	}, nil
 }
 
-func (p PrecompileExecutor) accAddressesFromArg(ctx sdk.Context, arg interface{}) (sdk.AccAddress, common.Address, error) {
-	addr := arg.(common.Address)
-	if addr == (common.Address{}) {
-		return nil, common.Address{}, errors.New("invalid addr")
-	}
-	seiAddr, associated := p.evmKeeper.GetSeiAddress(ctx, addr)
-	if !associated {
-		return nil, common.Address{}, errors.New("cannot use an unassociated address as transfer address")
-	}
-	return seiAddr, addr, nil
-}
-
+// getValidAddressesFromString returns the associated Sei and EVM addresses given an EVM address
+// It returns an error if the Sei or EVM address is not associated
 func (p PrecompileExecutor) getValidAddressesFromString(ctx sdk.Context, addr string) (sdk.AccAddress, common.Address, error) {
 	if common.IsHexAddress(addr) {
 		return p.getAssociatedAddressesByEVMAddress(ctx, common.HexToAddress(addr))
 	}
 	return p.getAssociatedAddressesBySeiAddress(ctx, addr)
+}
+
+// getValidSeiAddressFromString returns the validated Sei address given an (EVM or native Sei) address string
+// This method is for the case when we need to get the Sei address, but do not require it to be associated with an EVM
+// address (unless EVM address is provided as an argument)
+func (p PrecompileExecutor) getValidSeiAddressFromString(ctx sdk.Context, addr string) (sdk.AccAddress, error) {
+	if common.IsHexAddress(addr) {
+		seiAddr, _, err := p.getAssociatedAddressesByEVMAddress(ctx, common.HexToAddress(addr))
+		return seiAddr, err
+	}
+	seiAddr, err := sdk.AccAddressFromBech32(addr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address %s: %w", addr, err)
+	}
+	return seiAddr, nil
 }
 
 // getAssociatedAddressesByEVMAddress returns the associated Sei and EVM addresses given an EVM address
@@ -303,15 +318,15 @@ func (p PrecompileExecutor) getAuditorsFromArg(ctx sdk.Context, arg interface{})
 			return
 		}
 	}()
-	// we need to define an anonymous struct similar to types.EvmAuditor because the ABI returns an anonymous struct
+	// we need to define an anonymous struct similar to types.CtAuditor because the ABI returns an anonymous struct
 	evmAuditors := arg.([]struct {
-		AuditorAddress                common.Address `json:"auditorAddress"`
-		EncryptedTransferAmountLo     []byte         `json:"encryptedTransferAmountLo"`
-		EncryptedTransferAmountHi     []byte         `json:"encryptedTransferAmountHi"`
-		TransferAmountLoValidityProof []byte         `json:"transferAmountLoValidityProof"`
-		TransferAmountHiValidityProof []byte         `json:"transferAmountHiValidityProof"`
-		TransferAmountLoEqualityProof []byte         `json:"transferAmountLoEqualityProof"`
-		TransferAmountHiEqualityProof []byte         `json:"transferAmountHiEqualityProof"`
+		AuditorAddress                string `json:"auditorAddress"`
+		EncryptedTransferAmountLo     []byte `json:"encryptedTransferAmountLo"`
+		EncryptedTransferAmountHi     []byte `json:"encryptedTransferAmountHi"`
+		TransferAmountLoValidityProof []byte `json:"transferAmountLoValidityProof"`
+		TransferAmountHiValidityProof []byte `json:"transferAmountHiValidityProof"`
+		TransferAmountLoEqualityProof []byte `json:"transferAmountLoEqualityProof"`
+		TransferAmountHiEqualityProof []byte `json:"transferAmountHiEqualityProof"`
 	})
 
 	if len(evmAuditors) == 0 {
@@ -320,7 +335,7 @@ func (p PrecompileExecutor) getAuditorsFromArg(ctx sdk.Context, arg interface{})
 
 	auditors := make([]*cttypes.Auditor, 0)
 	for _, auditor := range evmAuditors {
-		auditorAddr, _, err := p.accAddressesFromArg(ctx, auditor.AuditorAddress)
+		auditorAddr, err := p.getValidSeiAddressFromString(ctx, auditor.AuditorAddress)
 		if err != nil {
 			return nil, err
 		}
