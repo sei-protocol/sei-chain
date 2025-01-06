@@ -57,8 +57,9 @@ type HashedParams struct {
 // BlockParams define limits on the block size and gas plus minimum time
 // between blocks.
 type BlockParams struct {
-	MaxBytes int64 `json:"max_bytes,string"`
-	MaxGas   int64 `json:"max_gas,string"`
+	MaxBytes      int64 `json:"max_bytes,string"`
+	MaxGas        int64 `json:"max_gas,string"`
+	MinTxsInBlock int64 `json:"min_txs_in_block,string"`
 }
 
 // EvidenceParams determine how we handle evidence of malfeasance.
@@ -132,7 +133,8 @@ func DefaultBlockParams() BlockParams {
 		MaxBytes: 22020096, // 21MB
 		// Default, can be increased and tuned as needed
 		// match sei-devnet-3 and atlantic-2 current values
-		MaxGas:   100000000,
+		MaxGas:        100000000,
+		MinTxsInBlock: 0,
 	}
 }
 
@@ -286,6 +288,11 @@ func (params ConsensusParams) ValidateConsensusParams() error {
 			params.Block.MaxGas)
 	}
 
+	if params.Block.MinTxsInBlock < 0 {
+		return fmt.Errorf("block.MinTxsInBlock must be non-negative. Got %d",
+			params.Block.MinTxsInBlock)
+	}
+
 	if params.Evidence.MaxAgeNumBlocks <= 0 {
 		return fmt.Errorf("evidence.MaxAgeNumBlocks must be greater than 0. Got %d",
 			params.Evidence.MaxAgeNumBlocks)
@@ -423,6 +430,7 @@ func (params ConsensusParams) UpdateConsensusParams(params2 *tmproto.ConsensusPa
 	if params2.Block != nil {
 		res.Block.MaxBytes = params2.Block.MaxBytes
 		res.Block.MaxGas = params2.Block.MaxGas
+		res.Block.MinTxsInBlock = params2.Block.MinTxsInBlock
 	}
 	if params2.Evidence != nil {
 		res.Evidence.MaxAgeNumBlocks = params2.Evidence.MaxAgeNumBlocks
@@ -473,8 +481,9 @@ func (params ConsensusParams) UpdateConsensusParams(params2 *tmproto.ConsensusPa
 func (params *ConsensusParams) ToProto() tmproto.ConsensusParams {
 	return tmproto.ConsensusParams{
 		Block: &tmproto.BlockParams{
-			MaxBytes: params.Block.MaxBytes,
-			MaxGas:   params.Block.MaxGas,
+			MaxBytes:      params.Block.MaxBytes,
+			MaxGas:        params.Block.MaxGas,
+			MinTxsInBlock: params.Block.MinTxsInBlock,
 		},
 		Evidence: &tmproto.EvidenceParams{
 			MaxAgeNumBlocks: params.Evidence.MaxAgeNumBlocks,
@@ -509,8 +518,9 @@ func (params *ConsensusParams) ToProto() tmproto.ConsensusParams {
 func ConsensusParamsFromProto(pbParams tmproto.ConsensusParams) ConsensusParams {
 	c := ConsensusParams{
 		Block: BlockParams{
-			MaxBytes: pbParams.Block.MaxBytes,
-			MaxGas:   pbParams.Block.MaxGas,
+			MaxBytes:      pbParams.Block.MaxBytes,
+			MaxGas:        pbParams.Block.MaxGas,
+			MinTxsInBlock: pbParams.Block.MinTxsInBlock,
 		},
 		Evidence: EvidenceParams{
 			MaxAgeNumBlocks: pbParams.Evidence.MaxAgeNumBlocks,
