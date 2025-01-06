@@ -17,7 +17,7 @@ async function delay() {
 
 function debug(msg) {
   // leaving commented out to make output readable (unless debugging)
-  // console.log(msg)
+  console.log(msg)
 }
 
 async function sendTransactionAndCheckGas(sender, recipient, amount) {
@@ -312,7 +312,6 @@ describe("EVM Test", function () {
         expect(found).to.be.true;
       });
 
-
       it("Should set the string correctly and emit an event", async function () {
         await delay()
         const txResponse = await evmTester.setStringVar("test", { gasPrice: ethers.parseUnits('100', 'gwei') });
@@ -495,16 +494,56 @@ describe("EVM Test", function () {
         expect(success).to.be.true
       });
 
-      describe("EIP-1559", async function() {
+      describe.only("EIP-1559", async function() {
         const zero = ethers.parseUnits('0', 'ether')
         const highgp = ethers.parseUnits("400", "gwei");
         const gp = ethers.parseUnits("100", "gwei");
+        const oneGwei = ethers.parseUnits("1", "gwei");
 
         const testCases = [
           ["No truncation from max priority fee", gp, gp],
           ["With truncation from max priority fee", gp, highgp],
           ["With complete truncation from max priority fee", zero, highgp]
         ];
+
+        it("Check base fee on the right block", async function () {
+          await delay()
+          // check if base fee is 1gwei, otherwise wait
+          let iterations = 0
+          while (true) {
+            const block = await ethers.provider.getBlock("latest");
+            const baseFee = Number(block.baseFeePerGas);
+            if (baseFee === Number(oneGwei)) {
+              break;
+            }
+            iterations += 1
+            if(iterations > 10) {
+              throw new Error("base fee hasn't dropped to 1gwei in 10 iterations")
+            }
+            await sleep(1000);
+          }
+          // use at least 1000000 gas to increase base fee
+          const txResponse = await evmTester.useGas(1000000, { gasPrice: ethers.parseUnits('100', 'gwei') });
+          const receipt = await txResponse.wait();
+          const blockHeight = receipt.blockNumber;
+
+          // make sure block base fee is 1gwei and the block after
+          // has a base fee higher than 1gwei
+          const block = await ethers.provider.getBlock(blockHeight);
+          const baseFee = Number(block.baseFeePerGas);
+          expect(baseFee).to.equal(oneGwei);
+          // wait for the next block
+          while (true) {
+            const bn = await ethers.provider.getBlockNumber();
+            if(bn !== blockHeight){
+              break
+            }
+            await sleep(500)
+          }
+          const nextBlock = await ethers.provider.getBlock(blockHeight + 1);
+          const nextBaseFee = Number(nextBlock.baseFeePerGas);
+          expect(nextBaseFee).to.be.greaterThan(oneGwei);
+        });
 
         it("Should be able to send many EIP-1559 txs", async function () {
           const gp = ethers.parseUnits("100", "gwei");

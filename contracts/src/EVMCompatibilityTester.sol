@@ -7,6 +7,7 @@ import "./TestToken.sol";
 
 contract EVMCompatibilityTester {
     // verify different events with var types
+    mapping(uint256 => uint256) public gasGuzzler;
     event DummyEvent(string indexed str, bool flag, address indexed addr, uint256 indexed num, bytes data);
     event ActionPerformed(string action, address indexed performer);
     event BoolSet(address performer, bool value);
@@ -179,6 +180,21 @@ contract EVMCompatibilityTester {
             fee := blobbasefee()
         }
         return fee;
+    }
+
+    // useGas will at least use gasToUse amount of gas
+    function useGas(uint256 gasToUse) public {
+        // while gasleft() > gasUse, use use storage to use gas
+        uint256 counter = 0;
+        uint256 startGas = gasleft();
+        uint256 gasUsed = 0;
+        while (gasUsed < gasToUse) {
+            uint256 randomNumber = uint256(keccak256(abi.encodePacked(block.number, block.prevrandao, counter)));
+            counter++;
+            gasGuzzler[randomNumber] = randomNumber;
+            uint256 endGas = gasleft();
+            gasUsed = startGas - endGas;
+        }
     }
 }
 
