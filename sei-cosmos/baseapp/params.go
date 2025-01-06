@@ -48,6 +48,10 @@ func ValidateBlockParams(i interface{}) error {
 		return fmt.Errorf("block maximum gas must be greater than or equal to -1: %d", v.MaxGas)
 	}
 
+	if v.MinTxsInBlock < 0 {
+		return fmt.Errorf("block min txs in block must be non-negative: %d", v.MinTxsInBlock)
+	}
+
 	return nil
 }
 

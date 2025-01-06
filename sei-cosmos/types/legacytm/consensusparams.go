@@ -10,6 +10,7 @@ func ABCIToLegacyConsensusParams(params *tmproto.ConsensusParams) *abci.Consensu
 	if params.Block != nil {
 		block.MaxBytes = params.Block.MaxBytes
 		block.MaxGas = params.Block.MaxGas
+		block.MinTxsInBlock = params.Block.MinTxsInBlock
 	}
 	return &abci.ConsensusParams{
 		Block:     &block,

@@ -116,8 +116,9 @@ func ExportCmd(appExporter types.AppExporter, defaultNodeHome string) *cobra.Com
 					InitialHeight: exported.Height,
 					ConsensusParams: &tmtypes.ConsensusParams{
 						Block: tmtypes.BlockParams{
-							MaxBytes: exported.ConsensusParams.Block.MaxBytes,
-							MaxGas:   exported.ConsensusParams.Block.MaxGas,
+							MaxBytes:      exported.ConsensusParams.Block.MaxBytes,
+							MaxGas:        exported.ConsensusParams.Block.MaxGas,
+							MinTxsInBlock: exported.ConsensusParams.Block.MinTxsInBlock,
 						},
 						Evidence: tmtypes.EvidenceParams{
 							MaxAgeNumBlocks: exported.ConsensusParams.Evidence.MaxAgeNumBlocks,
@@ -158,8 +159,9 @@ func ExportCmd(appExporter types.AppExporter, defaultNodeHome string) *cobra.Com
 			doc.InitialHeight = exported.Height
 			doc.ConsensusParams = &tmtypes.ConsensusParams{
 				Block: tmtypes.BlockParams{
-					MaxBytes: exported.ConsensusParams.Block.MaxBytes,
-					MaxGas:   exported.ConsensusParams.Block.MaxGas,
+					MaxBytes:      exported.ConsensusParams.Block.MaxBytes,
+					MaxGas:        exported.ConsensusParams.Block.MaxGas,
+					MinTxsInBlock: exported.ConsensusParams.Block.MinTxsInBlock,
 				},
 				Evidence: tmtypes.EvidenceParams{
 					MaxAgeNumBlocks: exported.ConsensusParams.Evidence.MaxAgeNumBlocks,
