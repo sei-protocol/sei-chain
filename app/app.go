@@ -1703,8 +1703,9 @@ func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, tx
 		}),
 		ConsensusParamUpdates: &tmproto.ConsensusParams{
 			Block: &tmproto.BlockParams{
-				MaxBytes: endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
-				MaxGas:   endBlockResp.ConsensusParamUpdates.Block.MaxGas,
+				MaxBytes:      endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
+				MaxGas:        endBlockResp.ConsensusParamUpdates.Block.MaxGas,
+				MinTxsInBlock: endBlockResp.ConsensusParamUpdates.Block.MinTxsInBlock,
 			},
 			Evidence: &tmproto.EvidenceParams{
 				MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,
@@ -1864,6 +1865,7 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 
 func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 	totalGasWanted := uint64(0)
+	nonzeroTxsCnt := 0
 	for _, tx := range txs {
 		decodedTx, err := app.txDecoder(tx)
 		if err != nil {
@@ -1908,10 +1910,16 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 			return false
 		}
 
+		if gasWanted > 0 {
+			nonzeroTxsCnt++
+		}
+
 		totalGasWanted += gasWanted
 		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGas) {
-			// early return
-			return false
+			if nonzeroTxsCnt > int(ctx.ConsensusParams().Block.MinTxsInBlock) {
+				// early return
+				return false
+			}
 		}
 	}
 	return true
