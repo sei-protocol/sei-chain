@@ -46,8 +46,6 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 		denominator := targetGasUsed
 		percentageEmpty := numerator.Quo(denominator)
 		adjustmentFactor := k.GetMaxDynamicBaseFeeDownwardAdjustment(ctx).Mul(percentageEmpty)
-		fmt.Println("[DEBUG] prevBaseFee", prevBaseFee)
-		fmt.Println("[DEBUG] adjustmentFactor", adjustmentFactor)
 		newBaseFee = prevBaseFee.Mul(sdk.NewDec(1).Sub(adjustmentFactor))
 	}
 

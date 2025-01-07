@@ -17,7 +17,7 @@ async function delay() {
 
 function debug(msg) {
   // leaving commented out to make output readable (unless debugging)
-  console.log(msg)
+  // console.log(msg)
 }
 
 async function sendTransactionAndCheckGas(sender, recipient, amount) {
@@ -494,7 +494,7 @@ describe("EVM Test", function () {
         expect(success).to.be.true
       });
 
-      describe.only("EIP-1559", async function() {
+      describe("EIP-1559", async function() {
         const zero = ethers.parseUnits('0', 'ether')
         const highgp = ethers.parseUnits("400", "gwei");
         const gp = ethers.parseUnits("100", "gwei");
