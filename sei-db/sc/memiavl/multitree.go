@@ -355,7 +355,7 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 		}
 		for _, tree := range t.trees {
 			if _, found := updatedTrees[tree.Name]; !found {
-				tree.SaveVersion(false)
+				tree.ApplyChangeSetAsync(iavl.ChangeSet{})
 			}
 		}
 		t.lastCommitInfo.Version = utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion)
