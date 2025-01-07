@@ -11,14 +11,11 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 		return nil
 	}
 	prevBaseFee := k.GetPrevBlockBaseFeePerGas(ctx)
-	if prevBaseFee.IsNil() {
-		prevBaseFee = types.DefaultParams().MinimumFeePerGas
-	}
 	// set the resulting base fee for block n-1 on block n
 	k.SetDynamicBaseFeePerGas(ctx, prevBaseFee)
 	targetGasUsed := sdk.NewDec(int64(k.GetTargetGasUsedPerBlock(ctx)))
-	if targetGasUsed.IsZero() {
-		return &prevBaseFee
+	if targetGasUsed.IsZero() { // avoid division by zero
+		return &prevBaseFee // return the previous base fee as is
 	}
 	minimumFeePerGas := k.GetParams(ctx).MinimumFeePerGas
 	maximumFeePerGas := k.GetParams(ctx).MaximumFeePerGas
@@ -104,7 +101,11 @@ func (k *Keeper) GetPrevBlockBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.PrevBlockBaseFeePerGasPrefix)
 	if bz == nil {
-		return sdk.Dec{}
+		minFeePerGas := k.GetMinimumFeePerGas(ctx)
+		if minFeePerGas.IsNil() {
+			minFeePerGas = types.DefaultParams().MinimumFeePerGas
+		}
+		return minFeePerGas
 	}
 	d := sdk.Dec{}
 	err := d.UnmarshalJSON(bz)

@@ -202,3 +202,16 @@ func TestGetDynamicBaseFeePerGasWithNilMinFee(t *testing.T) {
 	require.Equal(t, expectedFee, fee)
 	require.False(t, fee.IsNil())
 }
+
+func TestGetPrevBlockBaseFeePerGasWithNilMinFee(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+
+	// Test case 1: When dynamic base fee doesn't exist and minimum fee is nil
+	store := ctx.KVStore(k.GetStoreKey())
+	store.Delete(types.BaseFeePerGasPrefix)
+
+	// Clear the dynamic base fee from store
+	fee := k.GetDynamicBaseFeePerGas(ctx)
+	require.Equal(t, types.DefaultParams().MinimumFeePerGas, fee)
+	require.False(t, fee.IsNil())
+}
