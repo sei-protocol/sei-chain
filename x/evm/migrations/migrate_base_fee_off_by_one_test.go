@@ -14,7 +14,7 @@ func TestMigrateBaseFeeOffByOne(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
 	bf := sdk.NewDec(100)
 	k.SetDynamicBaseFeePerGas(ctx, bf)
-	require.Equal(t, sdk.Dec{}, k.GetPrevBlockBaseFeePerGas(ctx))
+	require.Equal(t, k.GetMinimumFeePerGas(ctx), k.GetPrevBlockBaseFeePerGas(ctx))
 	// do the migration
 	require.Nil(t, migrations.MigrateBaseFeeOffByOne(ctx, &k))
 	require.Equal(t, bf, k.GetPrevBlockBaseFeePerGas(ctx))
