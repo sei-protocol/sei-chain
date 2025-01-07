@@ -347,10 +347,16 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 		if err := t.ApplyUpgrades(entry.Upgrades); err != nil {
 			return err
 		}
+		updatedTrees := make(map[string]bool)
 		for _, cs := range entry.Changesets {
 			treeName := cs.Name
-			fmt.Printf("[Debug] Changeset for version %d and tree %s\n", index, treeName)
 			t.TreeByName(treeName).ApplyChangeSetAsync(cs.Changeset)
+			updatedTrees[treeName] = true
+		}
+		for _, tree := range t.trees {
+			if _, found := updatedTrees[tree.Name]; !found {
+				tree.SaveVersion(false)
+			}
 		}
 		t.lastCommitInfo.Version = utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion)
 		t.lastCommitInfo.StoreInfos = []proto.StoreInfo{}
