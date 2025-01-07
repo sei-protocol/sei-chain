@@ -349,9 +349,11 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 		}
 		for _, cs := range entry.Changesets {
 			treeName := cs.Name
+			fmt.Printf("[Debug] Changeset for version %d and tree %s\n", index, treeName)
 			t.TreeByName(treeName).ApplyChangeSetAsync(cs.Changeset)
 		}
 		t.lastCommitInfo.Version = utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion)
+		t.lastCommitInfo.StoreInfos = []proto.StoreInfo{}
 		replayCount++
 		if replayCount%1000 == 0 {
 			fmt.Printf("Replayed %d changelog entries\n", replayCount)
@@ -366,7 +368,6 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 	if err != nil {
 		return err
 	}
-	t.lastCommitInfo.StoreInfos = []proto.StoreInfo{}
 	t.UpdateCommitInfo()
 	return nil
 }
