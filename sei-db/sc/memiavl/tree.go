@@ -132,6 +132,7 @@ func (t *Tree) StartBackgroundWrite() {
 		defer t.pendingWg.Done()
 		for nextChange := range t.pendingChanges {
 			t.ApplyChangeSet(nextChange)
+			t.SaveVersion(false)
 		}
 	}()
 }

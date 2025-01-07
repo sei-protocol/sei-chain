@@ -351,9 +351,7 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 			treeName := cs.Name
 			t.TreeByName(treeName).ApplyChangeSetAsync(cs.Changeset)
 		}
-		if _, err := t.SaveVersion(false); err != nil {
-			return fmt.Errorf("replay changeset failed to save version, %w", err)
-		}
+		t.lastCommitInfo.Version = utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion)
 		replayCount++
 		if replayCount%1000 == 0 {
 			fmt.Printf("Replayed %d changelog entries\n", replayCount)
@@ -368,7 +366,7 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 	if err != nil {
 		return err
 	}
-
+	t.lastCommitInfo.StoreInfos = []proto.StoreInfo{}
 	t.UpdateCommitInfo()
 	return nil
 }
