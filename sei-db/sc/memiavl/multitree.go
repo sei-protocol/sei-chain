@@ -339,15 +339,32 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 		return fmt.Errorf("target index %d is in the future, latest index: %d", endIndex, lastIndex)
 	}
 
+	var replayCount = 0
+	for _, tree := range t.trees {
+		tree.StartBackgroundWrite()
+	}
 	err = stream.Replay(firstIndex, endIndex, func(index uint64, entry proto.ChangelogEntry) error {
-		if err := t.apply(entry); err != nil {
-			return fmt.Errorf("apply rlog entry failed, %w", err)
+		if err := t.ApplyUpgrades(entry.Upgrades); err != nil {
+			return err
+		}
+		for _, cs := range entry.Changesets {
+			treeName := cs.Name
+			t.TreeByName(treeName).ApplyChangeSetAsync(cs.Changeset)
 		}
 		if _, err := t.SaveVersion(false); err != nil {
 			return fmt.Errorf("replay changeset failed to save version, %w", err)
 		}
+		replayCount++
+		if replayCount%1000 == 0 {
+			fmt.Printf("Replayed %d changelog entries\n", replayCount)
+		}
 		return nil
 	})
+
+	for _, tree := range t.trees {
+		tree.WaitToCompleteAsyncWrite()
+	}
+
 	if err != nil {
 		return err
 	}
