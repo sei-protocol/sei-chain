@@ -122,6 +122,9 @@ func (t *Tree) ApplyChangeSet(changeSet iavl.ChangeSet) {
 }
 
 func (t *Tree) ApplyChangeSetAsync(changeSet iavl.ChangeSet) {
+	if t.pendingChanges == nil {
+		t.StartBackgroundWrite()
+	}
 	t.pendingChanges <- changeSet
 }
 

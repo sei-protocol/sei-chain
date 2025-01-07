@@ -340,9 +340,6 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 	}
 
 	var replayCount = 0
-	for _, tree := range t.trees {
-		tree.StartBackgroundWrite()
-	}
 	err = stream.Replay(firstIndex, endIndex, func(index uint64, entry proto.ChangelogEntry) error {
 		if err := t.ApplyUpgrades(entry.Upgrades); err != nil {
 			return err
