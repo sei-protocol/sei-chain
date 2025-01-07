@@ -924,8 +924,8 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
-	userPrivateKey := testkeeper.MockPrivateKey()
-	userAddr, userEVMAddr := testkeeper.PrivateKeyToAddresses(userPrivateKey)
+	userAddr, userEVMAddr, _, _ := setUpCtAccount(k, ctx, testDenom)
+
 	k.SetAddressMapping(ctx, userAddr, userEVMAddr)
 
 	notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
@@ -948,7 +948,6 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 		TxContext: vm.TxContext{Origin: userEVMAddr},
 	}
 
-	err = setUpUserAccount(ctx, k.CtKeeper(), userAddr, userPrivateKey.Bytes(), testDenom)
 	require.NoError(t, err)
 
 	p, err := confidentialtransfers.NewPrecompile(ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
@@ -1090,33 +1089,4 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 			}
 		})
 	}
-}
-
-func setUpUserAccount(ctx sdk.Context, keeper ctkeeper.Keeper, userAddress sdk.AccAddress, privKeyBytes []byte, denom string) error {
-	privHex := hex.EncodeToString(privKeyBytes)
-	userKey, _ := crypto.HexToECDSA(privHex)
-	initUserAccount, err := cttypes.NewInitializeAccount(userAddress.String(), denom, *userKey)
-	if err != nil {
-		return err
-	}
-	teg := elgamal.NewTwistedElgamal()
-	newUserBalance, err := teg.AddScalar(initUserAccount.AvailableBalance, big.NewInt(0))
-	userAesKey, err := utils.GetAESKey(*userKey, denom)
-	userDecryptableBalance, err := encryption.EncryptAESGCM(big.NewInt(0), userAesKey)
-	if err != nil {
-		return err
-	}
-	userAccount := cttypes.Account{
-		PublicKey:                   *initUserAccount.Pubkey,
-		PendingBalanceLo:            initUserAccount.PendingBalanceLo,
-		PendingBalanceHi:            initUserAccount.PendingBalanceHi,
-		PendingBalanceCreditCounter: 0,
-		AvailableBalance:            newUserBalance,
-		DecryptableAvailableBalance: userDecryptableBalance,
-	}
-	err = keeper.SetAccount(ctx, userAddress.String(), denom, userAccount)
-	if err != nil {
-		return err
-	}
-	return nil
 }
