@@ -7,7 +7,6 @@ import "./TestToken.sol";
 
 contract EVMCompatibilityTester {
     // verify different events with var types
-    mapping(uint256 => uint256) public gasGuzzler;
     event DummyEvent(string indexed str, bool flag, address indexed addr, uint256 indexed num, bytes data);
     event ActionPerformed(string action, address indexed performer);
     event BoolSet(address performer, bool value);
@@ -16,6 +15,8 @@ contract EVMCompatibilityTester {
     event StringSet(address indexed performer, string value);
     event LogIndexEvent(address indexed performer, uint256 value);
     event BytesSet(address indexed performer, bytes value);
+    uint256 public dummyStorage; // used in test storage -- reserve storage slot 0
+    mapping(uint256 => uint256) public gasGuzzler;
 
     struct MsgDetails {
         address sender;
