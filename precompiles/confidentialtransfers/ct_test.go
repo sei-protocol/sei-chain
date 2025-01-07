@@ -917,3 +917,206 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 		})
 	}
 }
+
+func TestPrecompileDeposit_Execute(t *testing.T) {
+	testDenom := "usei"
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	userPrivateKey := testkeeper.MockPrivateKey()
+	userAddr, userEVMAddr := testkeeper.PrivateKeyToAddresses(userPrivateKey)
+	k.SetAddressMapping(ctx, userAddr, userEVMAddr)
+
+	notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
+	notAssociatedUserAddr, _ := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
+
+	otherUserPrivateKey := testkeeper.MockPrivateKey()
+	otherUserAddr, otherUserEVMAddr := testkeeper.PrivateKeyToAddresses(otherUserPrivateKey)
+	k.SetAddressMapping(ctx, otherUserAddr, otherUserEVMAddr)
+
+	err := k.BankKeeper().MintCoins(
+		ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
+	require.Nil(t, err)
+	err = k.BankKeeper().SendCoinsFromModuleToAccount(
+		ctx, types.ModuleName, userAddr, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
+	require.Nil(t, err)
+
+	statedb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{
+		StateDB:   statedb,
+		TxContext: vm.TxContext{Origin: userEVMAddr},
+	}
+
+	err = setUpUserAccount(ctx, k.CtKeeper(), userAddr, userPrivateKey.Bytes(), testDenom)
+	require.NoError(t, err)
+
+	p, err := confidentialtransfers.NewPrecompile(ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
+	require.Nil(t, err)
+	DepositMethod, _ := p.ABI.MethodById(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).DepositID)
+	expectedTrueResponse, _ := DepositMethod.Outputs.Pack(true)
+
+	type inputs struct {
+		UserAddress string
+		Denom       string
+		Amount      uint64
+	}
+
+	type args struct {
+		isReadOnly         bool
+		isFromDelegateCall bool
+		value              *big.Int
+		setUp              func(in inputs) inputs
+	}
+	tests := []struct {
+		name             string
+		args             args
+		wantRet          []byte
+		wantRemainingGas uint64
+		wantErr          bool
+		wantErrMsg       string
+	}{
+		{
+			name:             "precompile should return true if input is valid",
+			wantRet:          expectedTrueResponse,
+			wantRemainingGas: 0x1e0fb5,
+			wantErr:          false,
+		},
+		{
+			name: "precompile should return true if input is valid using EVM address",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.UserAddress = userEVMAddr.String()
+					return in
+				},
+			},
+			wantRet:          expectedTrueResponse,
+			wantRemainingGas: 0x1e0f91,
+			wantErr:          false,
+		},
+		{
+			name: "precompile should return error if address is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.UserAddress = ""
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid address : empty address string is not allowed",
+		},
+		{
+			name: "precompile should return error if Sei address is not associated with an EVM address",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.UserAddress = notAssociatedUserAddr.String()
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedUserAddr.String()),
+		},
+		{
+			name: "precompile should return error if denom is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.Denom = ""
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid denom",
+		},
+		{
+			name: "precompile should return error if caller is not the same as the user",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.UserAddress = otherUserAddr.String()
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "caller is not the same as the user address",
+		},
+		{
+			name:       "precompile should return error if called from static call",
+			args:       args{isReadOnly: true},
+			wantErr:    true,
+			wantErrMsg: "cannot call ct precompile from staticcall",
+		},
+		{
+			name:       "precompile should return error if value is not nil",
+			args:       args{value: big.NewInt(100)},
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := inputs{
+				UserAddress: userAddr.String(),
+				Denom:       testDenom,
+				Amount:      100,
+			}
+			if tt.args.setUp != nil {
+				in = tt.args.setUp(in)
+			}
+
+			inputArgs, err := DepositMethod.Inputs.Pack(
+				in.UserAddress,
+				in.Denom,
+				in.Amount)
+
+			require.Nil(t, err)
+
+			resp, remainingGas, err := p.RunAndCalculateGas(
+				&evm,
+				userEVMAddr,
+				common.Address{},
+				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).DepositID, inputArgs...),
+				2000000,
+				tt.args.value,
+				nil,
+				tt.args.isReadOnly,
+				tt.args.isFromDelegateCall)
+			if tt.wantErr {
+				require.NotNil(t, err)
+				require.Equal(t, tt.wantErrMsg, string(resp))
+				return
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.wantRet, resp)
+				require.Equal(t, tt.wantRemainingGas, remainingGas)
+			}
+		})
+	}
+}
+
+func setUpUserAccount(ctx sdk.Context, keeper ctkeeper.Keeper, userAddress sdk.AccAddress, privKeyBytes []byte, denom string) error {
+	privHex := hex.EncodeToString(privKeyBytes)
+	userKey, _ := crypto.HexToECDSA(privHex)
+	initUserAccount, err := cttypes.NewInitializeAccount(userAddress.String(), denom, *userKey)
+	if err != nil {
+		return err
+	}
+	teg := elgamal.NewTwistedElgamal()
+	newUserBalance, err := teg.AddScalar(initUserAccount.AvailableBalance, big.NewInt(0))
+	userAesKey, err := utils.GetAESKey(*userKey, denom)
+	userDecryptableBalance, err := encryption.EncryptAESGCM(big.NewInt(0), userAesKey)
+	if err != nil {
+		return err
+	}
+	userAccount := cttypes.Account{
+		PublicKey:                   *initUserAccount.Pubkey,
+		PendingBalanceLo:            initUserAccount.PendingBalanceLo,
+		PendingBalanceHi:            initUserAccount.PendingBalanceHi,
+		PendingBalanceCreditCounter: 0,
+		AvailableBalance:            newUserBalance,
+		DecryptableAvailableBalance: userDecryptableBalance,
+	}
+	err = keeper.SetAccount(ctx, userAddress.String(), denom, userAccount)
+	if err != nil {
+		return err
+	}
+	return nil
+}
