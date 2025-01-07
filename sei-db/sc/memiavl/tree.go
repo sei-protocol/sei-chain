@@ -33,7 +33,7 @@ type Tree struct {
 	mtx *sync.RWMutex
 
 	pendingChanges chan iavl.ChangeSet
-	pendingWg      sync.WaitGroup
+	pendingWg      *sync.WaitGroup
 }
 
 // NewEmptyTree creates an empty tree at an arbitrary version.
@@ -48,7 +48,7 @@ func NewEmptyTree(version uint64, initialVersion uint32) *Tree {
 		// no need to copy if the tree is not backed by snapshot
 		zeroCopy:  true,
 		mtx:       &sync.RWMutex{},
-		pendingWg: sync.WaitGroup{},
+		pendingWg: &sync.WaitGroup{},
 	}
 }
 
@@ -70,7 +70,7 @@ func NewFromSnapshot(snapshot *Snapshot, zeroCopy bool, _ int) *Tree {
 		snapshot:  snapshot,
 		zeroCopy:  zeroCopy,
 		mtx:       &sync.RWMutex{},
-		pendingWg: sync.WaitGroup{},
+		pendingWg: &sync.WaitGroup{},
 	}
 
 	if !snapshot.IsEmpty() {
