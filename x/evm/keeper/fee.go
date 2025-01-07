@@ -1,8 +1,6 @@
 package keeper
 
 import (
-	"fmt"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -105,11 +103,9 @@ func (k *Keeper) SetPrevBlockBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.De
 func (k *Keeper) GetPrevBlockBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.PrevBlockBaseFeePerGasPrefix)
-	fmt.Println("[DEBUG] GetPrevBlockBaseFeePerGas", bz)
 	if bz == nil {
 		return sdk.Dec{}
 	}
-	fmt.Println("[DEBUG] GetPrevBlockBaseFeePerGas 2", bz)
 	d := sdk.Dec{}
 	err := d.UnmarshalJSON(bz)
 	if err != nil {
