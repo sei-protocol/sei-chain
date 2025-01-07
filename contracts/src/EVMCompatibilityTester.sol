@@ -15,7 +15,8 @@ contract EVMCompatibilityTester {
     event StringSet(address indexed performer, string value);
     event LogIndexEvent(address indexed performer, uint256 value);
     event BytesSet(address indexed performer, bytes value);
-    uint256 public dummyStorage; // used in test storage -- reserve storage slot 0
+    // Example of contract storing and retrieving data
+    uint256 private storedData; // needs to be first storage variable
     mapping(uint256 => uint256) public gasGuzzler;
 
     struct MsgDetails {
@@ -24,9 +25,6 @@ contract EVMCompatibilityTester {
         bytes data;
         uint256 gas;
     }
-
-    // Example of contract storing and retrieving data
-    uint256 private storedData;
 
     // deployer of the contract
     address public owner;
