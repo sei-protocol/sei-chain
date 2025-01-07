@@ -10,9 +10,9 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 	if ctx.ConsensusParams() == nil || ctx.ConsensusParams().Block == nil {
 		return nil
 	}
-	prevBaseFee := k.GetPrevBlockBaseFeePerGas(ctx)
+	prevBaseFee := k.GetNextBaseFeePerGas(ctx)
 	// set the resulting base fee for block n-1 on block n
-	k.SetDynamicBaseFeePerGas(ctx, prevBaseFee)
+	k.SetCurrBaseFeePerGas(ctx, prevBaseFee)
 	targetGasUsed := sdk.NewDec(int64(k.GetTargetGasUsedPerBlock(ctx)))
 	if targetGasUsed.IsZero() { // avoid division by zero
 		return &prevBaseFee // return the previous base fee as is
@@ -55,13 +55,13 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 	}
 
 	// Set the new base fee for the next height
-	k.SetPrevBlockBaseFeePerGas(ctx, newBaseFee)
+	k.SetNextBaseFeePerGas(ctx, newBaseFee)
 
 	return &newBaseFee
 }
 
 // dont have height be a prefix, just store the current base fee directly
-func (k *Keeper) GetDynamicBaseFeePerGas(ctx sdk.Context) sdk.Dec {
+func (k *Keeper) GetCurrBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.BaseFeePerGasPrefix)
 	if bz == nil {
@@ -79,7 +79,7 @@ func (k *Keeper) GetDynamicBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 	return d
 }
 
-func (k *Keeper) SetDynamicBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec) {
+func (k *Keeper) SetCurrBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec) {
 	store := ctx.KVStore(k.storeKey)
 	bz, err := baseFeePerGas.MarshalJSON()
 	if err != nil {
@@ -88,18 +88,18 @@ func (k *Keeper) SetDynamicBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec)
 	store.Set(types.BaseFeePerGasPrefix, bz)
 }
 
-func (k *Keeper) SetPrevBlockBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec) {
+func (k *Keeper) SetNextBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec) {
 	store := ctx.KVStore(k.storeKey)
 	bz, err := baseFeePerGas.MarshalJSON()
 	if err != nil {
 		panic(err)
 	}
-	store.Set(types.PrevBlockBaseFeePerGasPrefix, bz)
+	store.Set(types.NextBaseFeePerGasPrefix, bz)
 }
 
-func (k *Keeper) GetPrevBlockBaseFeePerGas(ctx sdk.Context) sdk.Dec {
+func (k *Keeper) GetNextBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 	store := ctx.KVStore(k.storeKey)
-	bz := store.Get(types.PrevBlockBaseFeePerGasPrefix)
+	bz := store.Get(types.NextBaseFeePerGasPrefix)
 	if bz == nil {
 		minFeePerGas := k.GetMinimumFeePerGas(ctx)
 		if minFeePerGas.IsNil() {

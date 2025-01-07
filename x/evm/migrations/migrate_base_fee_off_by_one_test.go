@@ -13,10 +13,10 @@ func TestMigrateBaseFeeOffByOne(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
 	bf := sdk.NewDec(100)
-	k.SetDynamicBaseFeePerGas(ctx, bf)
-	require.Equal(t, k.GetMinimumFeePerGas(ctx), k.GetPrevBlockBaseFeePerGas(ctx))
+	k.SetCurrBaseFeePerGas(ctx, bf)
+	require.Equal(t, k.GetMinimumFeePerGas(ctx), k.GetNextBaseFeePerGas(ctx))
 	// do the migration
 	require.Nil(t, migrations.MigrateBaseFeeOffByOne(ctx, &k))
-	require.Equal(t, bf, k.GetPrevBlockBaseFeePerGas(ctx))
-	require.Equal(t, bf, k.GetDynamicBaseFeePerGas(ctx))
+	require.Equal(t, bf, k.GetNextBaseFeePerGas(ctx))
+	require.Equal(t, bf, k.GetCurrBaseFeePerGas(ctx))
 }

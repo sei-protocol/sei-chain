@@ -57,7 +57,7 @@ var (
 
 	LegacyBlockBloomCutoffHeightKey = []byte{0x1a}
 	BaseFeePerGasPrefix             = []byte{0x1b}
-	PrevBlockBaseFeePerGasPrefix    = []byte{0x1c}
+	NextBaseFeePerGasPrefix         = []byte{0x1c}
 )
 
 var (

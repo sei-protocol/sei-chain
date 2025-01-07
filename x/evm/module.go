@@ -233,6 +233,10 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 16, func(ctx sdk.Context) error {
 		return migrations.RemoveTxHashes(ctx, am.keeper)
 	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 17, func(ctx sdk.Context) error {
+		return migrations.MigrateBaseFeeOffByOne(ctx, am.keeper)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -270,7 +274,7 @@ func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 16 }
+func (AppModule) ConsensusVersion() uint64 { return 17 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {

@@ -13,12 +13,12 @@ import (
 func TestBaseFeePerGas(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
-	require.Equal(t, k.GetMinimumFeePerGas(ctx), k.GetDynamicBaseFeePerGas(ctx))
-	require.True(t, k.GetDynamicBaseFeePerGas(ctx).LTE(k.GetMaximumFeePerGas(ctx)))
-	originalbf := k.GetDynamicBaseFeePerGas(ctx)
-	k.SetDynamicBaseFeePerGas(ctx, sdk.OneDec())
-	require.Equal(t, sdk.NewDecFromInt(sdk.NewInt(1)), k.GetDynamicBaseFeePerGas(ctx))
-	k.SetDynamicBaseFeePerGas(ctx, originalbf)
+	require.Equal(t, k.GetMinimumFeePerGas(ctx), k.GetCurrBaseFeePerGas(ctx))
+	require.True(t, k.GetCurrBaseFeePerGas(ctx).LTE(k.GetMaximumFeePerGas(ctx)))
+	originalbf := k.GetCurrBaseFeePerGas(ctx)
+	k.SetCurrBaseFeePerGas(ctx, sdk.OneDec())
+	require.Equal(t, sdk.NewDecFromInt(sdk.NewInt(1)), k.GetCurrBaseFeePerGas(ctx))
+	k.SetCurrBaseFeePerGas(ctx, originalbf)
 }
 
 func TestAdjustBaseFeePerGas(t *testing.T) {
@@ -163,7 +163,7 @@ func TestAdjustBaseFeePerGas(t *testing.T) {
 			ctx = ctx.WithConsensusParams(&tmproto.ConsensusParams{
 				Block: &tmproto.BlockParams{MaxGas: int64(tc.blockGasLimit)},
 			})
-			k.SetPrevBlockBaseFeePerGas(ctx, sdk.NewDecFromInt(sdk.NewInt(int64(tc.currentBaseFee))))
+			k.SetNextBaseFeePerGas(ctx, sdk.NewDecFromInt(sdk.NewInt(int64(tc.currentBaseFee))))
 			p := k.GetParams(ctx)
 			p.MinimumFeePerGas = sdk.NewDec(int64(tc.minimumFee))
 			p.MaximumFeePerGas = sdk.NewDec(int64(tc.maximumFee))
@@ -174,9 +174,9 @@ func TestAdjustBaseFeePerGas(t *testing.T) {
 			k.AdjustDynamicBaseFeePerGas(ctx, tc.blockGasUsed)
 			expected := sdk.NewDecFromInt(sdk.NewInt(int64(tc.expectedBaseFee)))
 			height := ctx.BlockHeight()
-			gotCurrentBaseFee := k.GetDynamicBaseFeePerGas(ctx.WithBlockHeight(height))
+			gotCurrentBaseFee := k.GetCurrBaseFeePerGas(ctx.WithBlockHeight(height))
 			require.InDelta(t, tc.currentBaseFee, gotCurrentBaseFee.MustFloat64(), 0.001, "base fee did not match expected value")
-			gotPrevBlockBaseFee := k.GetPrevBlockBaseFeePerGas(ctx.WithBlockHeight(height))
+			gotPrevBlockBaseFee := k.GetNextBaseFeePerGas(ctx.WithBlockHeight(height))
 			require.Equal(t, expected, gotPrevBlockBaseFee, 0.001, "prev block base fee did not match expected value")
 		})
 	}
@@ -190,15 +190,15 @@ func TestGetDynamicBaseFeePerGasWithNilMinFee(t *testing.T) {
 	store.Delete(types.BaseFeePerGasPrefix)
 
 	// Clear the dynamic base fee from store
-	fee := k.GetDynamicBaseFeePerGas(ctx)
+	fee := k.GetCurrBaseFeePerGas(ctx)
 	require.Equal(t, types.DefaultParams().MinimumFeePerGas, fee)
 	require.False(t, fee.IsNil())
 
 	// Test case 2: When dynamic base fee exists
 	expectedFee := sdk.NewDec(100)
-	k.SetDynamicBaseFeePerGas(ctx, expectedFee)
+	k.SetCurrBaseFeePerGas(ctx, expectedFee)
 
-	fee = k.GetDynamicBaseFeePerGas(ctx)
+	fee = k.GetCurrBaseFeePerGas(ctx)
 	require.Equal(t, expectedFee, fee)
 	require.False(t, fee.IsNil())
 }
@@ -211,7 +211,7 @@ func TestGetPrevBlockBaseFeePerGasWithNilMinFee(t *testing.T) {
 	store.Delete(types.BaseFeePerGasPrefix)
 
 	// Clear the dynamic base fee from store
-	fee := k.GetDynamicBaseFeePerGas(ctx)
+	fee := k.GetCurrBaseFeePerGas(ctx)
 	require.Equal(t, types.DefaultParams().MinimumFeePerGas, fee)
 	require.False(t, fee.IsNil())
 }
