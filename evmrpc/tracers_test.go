@@ -90,7 +90,7 @@ func TestTraceCall(t *testing.T) {
 func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
 	args := map[string]interface{}{}
 	args["tracer"] = "callTracer"
-  blockNumber := fmt.Sprintf("%#x",MockHeight103)
+	blockNumber := fmt.Sprintf("%#x", MockHeight103)
 	seiResObj := sendRequestGoodWithNamespace(t, "sei", "traceBlockByNumberExcludeTraceFail", blockNumber, args)
 	result := seiResObj["result"].([]interface{})
 	// sei_traceBlockByNumberExcludeTraceFail returns 1 trace, and removes the panic tx
