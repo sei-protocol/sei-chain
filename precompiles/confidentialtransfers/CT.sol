@@ -9,7 +9,6 @@ ICT constant CT_CONTRACT = ICT(
 interface ICT {
     // Transactions
     function initializeAccount(
-        string fromAddress,
         string denom,
         bytes publicKey,
         string decryptableBalance,
@@ -55,7 +54,6 @@ interface ICT {
     }
 
     function deposit(
-        string fromAddress,
         string denom,
         uint64 amount
     ) external returns (bool success);

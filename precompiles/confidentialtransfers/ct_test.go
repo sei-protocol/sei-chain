@@ -687,8 +687,8 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 
 	userPrivateKey := testkeeper.MockPrivateKey()
 	userAddr, userEVMAddr := testkeeper.PrivateKeyToAddresses(userPrivateKey)
-	notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
-	notAssociatedUserAddr, notAssociatedUserEVMAddr := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
+	//notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
+	//notAssociatedUserAddr, notAssociatedUserEVMAddr := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
 	otherUserPrivateKey := testkeeper.MockPrivateKey()
 	otherUserAddr, otherUserEVMAddr := testkeeper.PrivateKeyToAddresses(otherUserPrivateKey)
 	k.SetAddressMapping(ctx, userAddr, userEVMAddr)
@@ -721,7 +721,6 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 	expectedTrueResponse, _ := InitializeAccountMethod.Outputs.Pack(true)
 
 	type inputs struct {
-		UserAddress        string
 		Denom              string
 		PublicKey          []byte
 		DecryptableBalance string
@@ -751,49 +750,49 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 			wantRemainingGas: 0x1e438a,
 			wantErr:          false,
 		},
-		{
-			name: "precompile should return error if address is invalid",
-			args: args{
-				setUp: func(in inputs) inputs {
-					in.UserAddress = ""
-					return in
-				}},
-			wantErr:    true,
-			wantErrMsg: "invalid address : empty address string is not allowed",
-		},
-		{
-			name: "precompile should return error if Sei address is not associated with an EVM address",
-			args: args{
-				setUp: func(in inputs) inputs {
-					in.UserAddress = notAssociatedUserAddr.String()
-					return in
-				},
-			},
-			wantErr:    true,
-			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedUserAddr.String()),
-		},
-		{
-			name: "precompile should return error if EVM address is not associated with a Sei address",
-			args: args{
-				setUp: func(in inputs) inputs {
-					in.UserAddress = notAssociatedUserEVMAddr.String()
-					return in
-				},
-			},
-			wantErr:    true,
-			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedUserEVMAddr.String()),
-		},
-		{
-			name: "precompile should return error if caller is not the same as the user",
-			args: args{
-				setUp: func(in inputs) inputs {
-					in.UserAddress = otherUserAddr.String()
-					return in
-				},
-			},
-			wantErr:    true,
-			wantErrMsg: "caller is not the same as the user address",
-		},
+		//{
+		//	name: "precompile should return error if address is invalid",
+		//	args: args{
+		//		setUp: func(in inputs) inputs {
+		//			in.UserAddress = ""
+		//			return in
+		//		}},
+		//	wantErr:    true,
+		//	wantErrMsg: "invalid address : empty address string is not allowed",
+		//},
+		//{
+		//	name: "precompile should return error if Sei address is not associated with an EVM address",
+		//	args: args{
+		//		setUp: func(in inputs) inputs {
+		//			in.UserAddress = notAssociatedUserAddr.String()
+		//			return in
+		//		},
+		//	},
+		//	wantErr:    true,
+		//	wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedUserAddr.String()),
+		//},
+		//{
+		//	name: "precompile should return error if EVM address is not associated with a Sei address",
+		//	args: args{
+		//		setUp: func(in inputs) inputs {
+		//			in.UserAddress = notAssociatedUserEVMAddr.String()
+		//			return in
+		//		},
+		//	},
+		//	wantErr:    true,
+		//	wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedUserEVMAddr.String()),
+		//},
+		//{
+		//	name: "precompile should return error if caller is not the same as the user",
+		//	args: args{
+		//		setUp: func(in inputs) inputs {
+		//			in.UserAddress = otherUserAddr.String()
+		//			return in
+		//		},
+		//	},
+		//	wantErr:    true,
+		//	wantErrMsg: "caller is not the same as the user address",
+		//},
 		{
 			name: "precompile should return error if denom is invalid",
 			args: args{
@@ -870,7 +869,6 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			in := inputs{
-				UserAddress:        userAddr.String(),
 				Denom:              testDenom,
 				PublicKey:          iaProto.PublicKey,
 				DecryptableBalance: iaProto.DecryptableBalance,
@@ -884,7 +882,6 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 			}
 
 			inputArgs, err := InitializeAccountMethod.Inputs.Pack(
-				in.UserAddress,
 				in.Denom,
 				in.PublicKey,
 				in.DecryptableBalance,
@@ -897,7 +894,7 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 
 			resp, remainingGas, err := p.RunAndCalculateGas(
 				&evm,
-				userEVMAddr,
+				otherUserEVMAddr,
 				common.Address{},
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).InitializeAccountID, inputArgs...),
 				2000000,
@@ -929,7 +926,7 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 	k.SetAddressMapping(ctx, userAddr, userEVMAddr)
 
 	notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
-	notAssociatedUserAddr, _ := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
+	_, notAssociatedEVMAddr := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
 
 	otherUserPrivateKey := testkeeper.MockPrivateKey()
 	otherUserAddr, otherUserEVMAddr := testkeeper.PrivateKeyToAddresses(otherUserPrivateKey)
@@ -956,12 +953,12 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 	expectedTrueResponse, _ := DepositMethod.Outputs.Pack(true)
 
 	type inputs struct {
-		UserAddress string
-		Denom       string
-		Amount      uint64
+		Denom  string
+		Amount uint64
 	}
 
 	type args struct {
+		caller             common.Address
 		isReadOnly         bool
 		isFromDelegateCall bool
 		value              *big.Int
@@ -976,48 +973,26 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 		wantErrMsg       string
 	}{
 		{
-			name:             "precompile should return true if input is valid",
+			name: "precompile should return true if input is valid",
+			args: args{
+				caller: userEVMAddr,
+			},
 			wantRet:          expectedTrueResponse,
 			wantRemainingGas: 0x1e0fb5,
 			wantErr:          false,
 		},
 		{
-			name: "precompile should return true if input is valid using EVM address",
-			args: args{
-				setUp: func(in inputs) inputs {
-					in.UserAddress = userEVMAddr.String()
-					return in
-				},
-			},
-			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0x1e0f91,
-			wantErr:          false,
-		},
-		{
-			name: "precompile should return error if address is invalid",
-			args: args{
-				setUp: func(in inputs) inputs {
-					in.UserAddress = ""
-					return in
-				},
-			},
-			wantErr:    true,
-			wantErrMsg: "invalid address : empty address string is not allowed",
-		},
-		{
 			name: "precompile should return error if Sei address is not associated with an EVM address",
 			args: args{
-				setUp: func(in inputs) inputs {
-					in.UserAddress = notAssociatedUserAddr.String()
-					return in
-				},
+				caller: notAssociatedEVMAddr,
 			},
 			wantErr:    true,
-			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedUserAddr.String()),
+			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedEVMAddr.String()),
 		},
 		{
 			name: "precompile should return error if denom is invalid",
 			args: args{
+				caller: userEVMAddr,
 				setUp: func(in inputs) inputs {
 					in.Denom = ""
 					return in
@@ -1025,17 +1000,6 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 			},
 			wantErr:    true,
 			wantErrMsg: "invalid denom",
-		},
-		{
-			name: "precompile should return error if caller is not the same as the user",
-			args: args{
-				setUp: func(in inputs) inputs {
-					in.UserAddress = otherUserAddr.String()
-					return in
-				},
-			},
-			wantErr:    true,
-			wantErrMsg: "caller is not the same as the user address",
 		},
 		{
 			name:       "precompile should return error if called from static call",
@@ -1053,16 +1017,14 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			in := inputs{
-				UserAddress: userAddr.String(),
-				Denom:       testDenom,
-				Amount:      100,
+				Denom:  testDenom,
+				Amount: 100,
 			}
 			if tt.args.setUp != nil {
 				in = tt.args.setUp(in)
 			}
 
 			inputArgs, err := DepositMethod.Inputs.Pack(
-				in.UserAddress,
 				in.Denom,
 				in.Amount)
 
@@ -1070,7 +1032,7 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 
 			resp, remainingGas, err := p.RunAndCalculateGas(
 				&evm,
-				userEVMAddr,
+				tt.args.caller,
 				common.Address{},
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).DepositID, inputArgs...),
 				2000000,

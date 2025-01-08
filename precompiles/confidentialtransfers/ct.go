@@ -407,63 +407,58 @@ func (p PrecompileExecutor) initializeAccount(ctx sdk.Context, method *abi.Metho
 		}
 	}()
 
-	if err := pcommon.ValidateArgsLength(args, 8); err != nil {
+	if err := pcommon.ValidateArgsLength(args, 7); err != nil {
 		rerr = err
 		return
 	}
 
-	seiAddr, evmAddr, err := p.getValidAddressesFromString(ctx, args[0].(string))
+	seiAddr, _, err := p.getValidAddressesFromString(ctx, caller.String())
 	if err != nil {
 		rerr = err
 		return
 	}
 
-	if evmAddr != caller {
-		rerr = errors.New("caller is not the same as the user address")
-		return
-	}
-
-	denom := args[1].(string)
+	denom := args[0].(string)
 	if denom == "" {
 		rerr = errors.New("invalid denom")
 		return
 	}
 
-	publicKey, ok := args[2].([]byte)
+	publicKey, ok := args[1].([]byte)
 	if !ok {
 		rerr = errors.New("invalid public key")
 		return
 	}
 
-	decryptableBalance := args[3].(string)
+	decryptableBalance := args[2].(string)
 	if decryptableBalance == "" {
 		rerr = errors.New("invalid decryptable balance")
 		return
 	}
 
 	var pendingBalanceLo cttypes.Ciphertext
-	err = pendingBalanceLo.Unmarshal(args[4].([]byte))
+	err = pendingBalanceLo.Unmarshal(args[3].([]byte))
 	if err != nil {
 		rerr = err
 		return
 	}
 
 	var pendingBalanceHi cttypes.Ciphertext
-	err = pendingBalanceHi.Unmarshal(args[5].([]byte))
+	err = pendingBalanceHi.Unmarshal(args[4].([]byte))
 	if err != nil {
 		rerr = err
 		return
 	}
 
 	var availableBalance cttypes.Ciphertext
-	err = availableBalance.Unmarshal(args[6].([]byte))
+	err = availableBalance.Unmarshal(args[5].([]byte))
 	if err != nil {
 		rerr = err
 		return
 	}
 
 	var initializeAccountProofs cttypes.InitializeAccountMsgProofs
-	err = initializeAccountProofs.Unmarshal(args[7].([]byte))
+	err = initializeAccountProofs.Unmarshal(args[6].([]byte))
 	if err != nil {
 		rerr = err
 		return
@@ -500,29 +495,24 @@ func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller 
 		}
 	}()
 
-	if err := pcommon.ValidateArgsLength(args, 3); err != nil {
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
 		rerr = err
 		return
 	}
 
-	seiAddr, evmAddr, err := p.getValidAddressesFromString(ctx, args[0].(string))
+	seiAddr, _, err := p.getAssociatedAddressesByEVMAddress(ctx, caller)
 	if err != nil {
 		rerr = err
 		return
 	}
 
-	if evmAddr != caller {
-		rerr = errors.New("caller is not the same as the user address")
-		return
-	}
-
-	denom := args[1].(string)
+	denom := args[0].(string)
 	if denom == "" {
 		rerr = errors.New("invalid denom")
 		return
 	}
 
-	amount, ok := args[2].(uint64)
+	amount, ok := args[1].(uint64)
 	if !ok {
 		rerr = errors.New("invalid amount")
 		return
