@@ -81,7 +81,7 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 	if !ok {
 		return nil, fmt.Errorf("unexpected type: %T", result)
 	}
-	finalTraces := make([]*tracers.TxTraceResult, 0)
+	finalTraces := make([]*tracers.TxTraceResult, 0, len(traces))
 	for _, trace := range traces {
 		if len(trace.Error) > 0 {
 			continue
@@ -99,7 +99,7 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 	if !ok {
 		return nil, fmt.Errorf("unexpected type: %T", result)
 	}
-	var finalTraces []*tracers.TxTraceResult
+	finalTraces := make([]*tracers.TxTraceResult, 0, len(traces))
 	for _, trace := range traces {
 		if len(trace.Error) > 0 {
 			continue
