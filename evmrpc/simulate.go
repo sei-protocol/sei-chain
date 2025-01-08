@@ -436,7 +436,7 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 	header := &ethtypes.Header{
 		Difficulty:    common.Big0,
 		Number:        blockNumber,
-		BaseFee:       b.keeper.GetDynamicBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt(),
+		BaseFee:       b.keeper.GetCurrBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt(),
 		GasLimit:      b.config.GasCap,
 		Time:          uint64(time.Now().Unix()),
 		ExcessBlobGas: &zeroExcessBlobGas,
