@@ -97,9 +97,9 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 			continue
 		}
 		// check if there is a ERC1155 pointer to contract Addr
-		pointerAddr, _, exists = app.EvmKeeper.GetERC1155CW1155Pointer(wasmToEvmEventCtx, contractAddr)
+		pointerAddr, _, exists = app.EvmKeeper.GetERC1155CW1155Pointer(ctx, contractAddr)
 		if exists {
-			log, eligible := app.translateCW1155Event(wasmToEvmEventCtx, wasmEvent, pointerAddr, contractAddr)
+			log, eligible := app.translateCW1155Event(ctx, wasmEvent, pointerAddr, contractAddr)
 			if eligible {
 				log.Index = uint(len(logs))
 				logs = append(logs, log)
