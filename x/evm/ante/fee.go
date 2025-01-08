@@ -104,7 +104,7 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 
 // minimum fee per gas required for a tx to be processed
 func (fc EVMFeeCheckDecorator) getBaseFee(ctx sdk.Context) *big.Int {
-	return fc.evmKeeper.GetDynamicBaseFeePerGas(ctx).TruncateInt().BigInt()
+	return fc.evmKeeper.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt()
 }
 
 // lowest allowed fee per gas, base fee will not be lower than this
