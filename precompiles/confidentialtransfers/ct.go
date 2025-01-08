@@ -512,6 +512,7 @@ func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller 
 		return
 	}
 
+	// for usei denom amount should be treated as 6 decimal instead of 19 decimal
 	amount, ok := args[1].(uint64)
 	if !ok {
 		rerr = errors.New("invalid amount")

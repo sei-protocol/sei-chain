@@ -53,6 +53,7 @@ interface ICT {
         bytes transferAmountHiEqualityProof;
     }
 
+    // for usei denom amount should be treated as 6 decimal instead of 19 decimal
     function deposit(
         string denom,
         uint64 amount
