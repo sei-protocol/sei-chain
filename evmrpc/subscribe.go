@@ -115,8 +115,7 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 		for {
 			select {
 			case res, ok := <-listener:
-				err = notifier.Notify(rpcSub.ID, res)
-				if err != nil {
+        if err := notifier.Notify(rpcSub.ID, res); err != nil {
 					break OUTER
 				}
 				if !ok {
