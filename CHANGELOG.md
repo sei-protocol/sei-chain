@@ -45,7 +45,6 @@ sei-chain
 * [#1974](https://github.com/sei-protocol/sei-chain/pull/1974) Optimize getLogs with parallelization
 * [#1971](https://github.com/sei-protocol/sei-chain/pull/1971) Remove tokenfactory config
 * [#1970](https://github.com/sei-protocol/sei-chain/pull/1970) Add unbonding delegation query
-* [#1755](https://github.com/sei-protocol/sei-chain/pull/1755) Pointer contracts: support for ERC1155 and CW1155 contracts
 
 sei-cosmos
 * [#559](https://github.com/sei-protocol/sei-cosmos/pull/559) Fix state sync halt issue
