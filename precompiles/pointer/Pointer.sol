@@ -17,8 +17,4 @@ interface IPointer {
     function addCW721Pointer(
         string memory cwAddr
     ) external returns (address ret);
-
-    function addCW1155Pointer(
-        string memory cwAddr
-    ) external returns (address ret);
 }

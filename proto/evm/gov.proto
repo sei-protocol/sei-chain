@@ -41,18 +41,6 @@ message AddERCCW721PointerProposal {
     uint32 version = 5 [(gogoproto.moretags) = "yaml:\"version\""];
 }
 
-message AddERCCW1155PointerProposal {
-    option (gogoproto.equal) = false;
-    option (gogoproto.goproto_getters) = false;
-    option (gogoproto.goproto_stringer) = false;
-
-    string title = 1 [ (gogoproto.moretags) = "yaml:\"title\"" ];
-    string description = 2 [ (gogoproto.moretags) = "yaml:\"description\"" ];
-    string pointee = 3 [(gogoproto.moretags) = "yaml:\"pointee\""];
-    string pointer = 4 [(gogoproto.moretags) = "yaml:\"pointer\""];
-    uint32 version = 5 [(gogoproto.moretags) = "yaml:\"version\""];
-}
-
 message AddCWERC20PointerProposal {
     option (gogoproto.equal) = false;
     option (gogoproto.goproto_getters) = false;
@@ -66,18 +54,6 @@ message AddCWERC20PointerProposal {
 }
 
 message AddCWERC721PointerProposal {
-    option (gogoproto.equal) = false;
-    option (gogoproto.goproto_getters) = false;
-    option (gogoproto.goproto_stringer) = false;
-
-    string title = 1 [ (gogoproto.moretags) = "yaml:\"title\"" ];
-    string description = 2 [ (gogoproto.moretags) = "yaml:\"description\"" ];
-    string pointee = 3 [(gogoproto.moretags) = "yaml:\"pointee\""];
-    string pointer = 4 [(gogoproto.moretags) = "yaml:\"pointer\""];
-    uint32 version = 5 [(gogoproto.moretags) = "yaml:\"version\""];
-}
-
-message AddCWERC1155PointerProposal {
     option (gogoproto.equal) = false;
     option (gogoproto.goproto_getters) = false;
     option (gogoproto.goproto_stringer) = false;

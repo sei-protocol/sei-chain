@@ -14,7 +14,6 @@ import (
 	"github.com/ethereum/go-ethereum/trie/triedb/hashdb"
 	"github.com/ethereum/go-ethereum/trie/triedb/pathdb"
 
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
 	artifactsutils "github.com/sei-protocol/sei-chain/x/evm/artifacts/utils"
@@ -53,16 +52,6 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 		prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW721ERC721Prefix).Set(
 			artifactsutils.GetVersionBz(erc721.CurrentVersion),
 			artifactsutils.GetCodeIDBz(erc721CodeID),
-		)
-	}
-
-	erc1155CodeID, err := k.wasmKeeper.Create(ctx, k.accountKeeper.GetModuleAddress(types.ModuleName), erc1155.GetBin(), nil)
-	if err != nil {
-		ctx.Logger().Error(fmt.Sprintf("error creating CWERC1155 pointer code due to %s", err))
-	} else {
-		prefix.NewStore(k.PrefixStore(ctx, types.PointerCWCodePrefix), types.PointerCW1155ERC1155Prefix).Set(
-			artifactsutils.GetVersionBz(erc1155.CurrentVersion),
-			artifactsutils.GetCodeIDBz(erc1155CodeID),
 		)
 	}
 

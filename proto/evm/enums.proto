@@ -9,6 +9,4 @@ enum PointerType {
     NATIVE = 2;
     CW20 = 3;
     CW721 = 4;
-    ERC1155 = 5;
-    CW1155 = 6;
   }

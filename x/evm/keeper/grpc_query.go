@@ -7,10 +7,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
@@ -100,13 +98,6 @@ func (q Querier) Pointer(c context.Context, req *types.QueryPointerRequest) (*ty
 			Version: uint32(v),
 			Exists:  e,
 		}, nil
-	case types.PointerType_CW1155:
-		p, v, e := q.Keeper.GetERC1155CW1155Pointer(ctx, req.Pointee)
-		return &types.QueryPointerResponse{
-			Pointer: p.Hex(),
-			Version: uint32(v),
-			Exists:  e,
-		}, nil
 	case types.PointerType_ERC20:
 		p, v, e := q.Keeper.GetCW20ERC20Pointer(ctx, common.HexToAddress(req.Pointee))
 		return &types.QueryPointerResponse{
@@ -116,13 +107,6 @@ func (q Querier) Pointer(c context.Context, req *types.QueryPointerRequest) (*ty
 		}, nil
 	case types.PointerType_ERC721:
 		p, v, e := q.Keeper.GetCW721ERC721Pointer(ctx, common.HexToAddress(req.Pointee))
-		return &types.QueryPointerResponse{
-			Pointer: p.String(),
-			Version: uint32(v),
-			Exists:  e,
-		}, nil
-	case types.PointerType_ERC1155:
-		p, v, e := q.Keeper.GetCW1155ERC1155Pointer(ctx, common.HexToAddress(req.Pointee))
 		return &types.QueryPointerResponse{
 			Pointer: p.String(),
 			Version: uint32(v),
@@ -148,10 +132,6 @@ func (q Querier) PointerVersion(c context.Context, req *types.QueryPointerVersio
 		return &types.QueryPointerVersionResponse{
 			Version: uint32(cw721.CurrentVersion),
 		}, nil
-	case types.PointerType_CW1155:
-		return &types.QueryPointerVersionResponse{
-			Version: uint32(cw1155.CurrentVersion),
-		}, nil
 	case types.PointerType_ERC20:
 		return &types.QueryPointerVersionResponse{
 			Version:  uint32(erc20.CurrentVersion),
@@ -161,11 +141,6 @@ func (q Querier) PointerVersion(c context.Context, req *types.QueryPointerVersio
 		return &types.QueryPointerVersionResponse{
 			Version:  uint32(erc721.CurrentVersion),
 			CwCodeId: q.GetStoredPointerCodeID(ctx, types.PointerType_ERC721),
-		}, nil
-	case types.PointerType_ERC1155:
-		return &types.QueryPointerVersionResponse{
-			Version:  uint32(erc1155.CurrentVersion),
-			CwCodeId: q.GetStoredPointerCodeID(ctx, types.PointerType_ERC1155),
 		}, nil
 	default:
 		return nil, errors.ErrUnsupported
@@ -196,13 +171,6 @@ func (q Querier) Pointee(c context.Context, req *types.QueryPointeeRequest) (*ty
 			Version: uint32(v),
 			Exists:  e,
 		}, nil
-	case types.PointerType_CW1155:
-		p, v, e := q.Keeper.GetCW1155Pointee(ctx, common.HexToAddress(req.Pointer))
-		return &types.QueryPointeeResponse{
-			Pointee: p,
-			Version: uint32(v),
-			Exists:  e,
-		}, nil
 	case types.PointerType_ERC20:
 		p, v, e := q.Keeper.GetERC20Pointee(ctx, req.Pointer)
 		return &types.QueryPointeeResponse{
@@ -212,13 +180,6 @@ func (q Querier) Pointee(c context.Context, req *types.QueryPointeeRequest) (*ty
 		}, nil
 	case types.PointerType_ERC721:
 		p, v, e := q.Keeper.GetERC721Pointee(ctx, req.Pointer)
-		return &types.QueryPointeeResponse{
-			Pointee: p.Hex(),
-			Version: uint32(v),
-			Exists:  e,
-		}, nil
-	case types.PointerType_ERC1155:
-		p, v, e := q.Keeper.GetERC1155Pointee(ctx, req.Pointer)
 		return &types.QueryPointeeResponse{
 			Pointee: p.Hex(),
 			Version: uint32(v),

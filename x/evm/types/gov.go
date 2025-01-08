@@ -15,10 +15,8 @@ const (
 	ProposalTypeAddERCNativePointer   = "AddERCNativePointer"
 	ProposalTypeAddERCCW20Pointer     = "AddERCCW20Pointer"
 	ProposalTypeAddERCCW721Pointer    = "AddERCCW721Pointer"
-	ProposalTypeAddERCCW1155Pointer   = "AddERCCW1155Pointer"
 	ProposalTypeAddCWERC20Pointer     = "AddCWERC20Pointer"
 	ProposalTypeAddCWERC721Pointer    = "AddCWERC721Pointer"
-	ProposalTypeAddCWERC1155Pointer   = "AddCWERC1155Pointer"
 	ProposalTypeAddERCNativePointerV2 = "AddERCNativePointerV2"
 )
 
@@ -27,21 +25,17 @@ func init() {
 	govtypes.RegisterProposalType(ProposalTypeAddERCNativePointer)
 	govtypes.RegisterProposalType(ProposalTypeAddERCCW20Pointer)
 	govtypes.RegisterProposalType(ProposalTypeAddERCCW721Pointer)
-	govtypes.RegisterProposalType(ProposalTypeAddERCCW1155Pointer)
 	govtypes.RegisterProposalType(ProposalTypeAddCWERC20Pointer)
 	govtypes.RegisterProposalType(ProposalTypeAddCWERC721Pointer)
-	govtypes.RegisterProposalType(ProposalTypeAddCWERC1155Pointer)
 	govtypes.RegisterProposalType(ProposalTypeAddERCNativePointerV2)
 
 	// for marshal and unmarshal
 	govtypes.RegisterProposalTypeCodec(&AddERCNativePointerProposal{}, "evm/AddERCNativePointerProposal")
 	govtypes.RegisterProposalTypeCodec(&AddERCCW20PointerProposal{}, "evm/AddERCCW20PointerProposal")
 	govtypes.RegisterProposalTypeCodec(&AddERCCW721PointerProposal{}, "evm/AddERCCW721PointerProposal")
-	govtypes.RegisterProposalTypeCodec(&AddERCCW1155PointerProposal{}, "evm/AddERCCW1155PointerProposal")
 	govtypes.RegisterProposalTypeCodec(&AddCWERC20PointerProposal{}, "evm/AddCWERC20PointerProposal")
 	govtypes.RegisterProposalTypeCodec(&AddCWERC721PointerProposal{}, "evm/AddCWERC721PointerProposal")
-	govtypes.RegisterProposalTypeCodec(&AddCWERC1155PointerProposal{}, "evm/AddCWERC1155PointerProposal")
-	govtypes.RegisterProposalTypeCodec(&AddERCNativePointerProposalV2{}, "evm/AddERCNativePointerProposalV2")
+	govtypes.RegisterProposalTypeCodec(&AddERCNativePointerProposalV2{}, "evm/AddCWERC721PointerProposalV2")
 }
 
 func (p *AddERCNativePointerProposal) GetTitle() string { return p.Title }
@@ -154,44 +148,6 @@ func (p AddERCCW721PointerProposal) String() string {
 	return b.String()
 }
 
-func (p *AddERCCW1155PointerProposal) GetTitle() string { return p.Title }
-
-func (p *AddERCCW1155PointerProposal) GetDescription() string { return p.Description }
-
-func (p *AddERCCW1155PointerProposal) ProposalRoute() string { return RouterKey }
-
-func (p *AddERCCW1155PointerProposal) ProposalType() string {
-	return ProposalTypeAddERCCW1155Pointer
-}
-
-func (p *AddERCCW1155PointerProposal) ValidateBasic() error {
-	if _, err := sdk.AccAddressFromBech32(p.Pointee); err != nil {
-		return err
-	}
-
-	if p.Pointer != "" && !common.IsHexAddress(p.Pointer) {
-		return errors.New("pointer address must be either empty or a valid hex-encoded string")
-	}
-
-	if p.Version > math.MaxUint16 {
-		return errors.New("pointer version must be <= 65535")
-	}
-
-	return govtypes.ValidateAbstract(p)
-}
-
-func (p AddERCCW1155PointerProposal) String() string {
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add ERC CW1155 pointer Proposal:
-  Title:       %s
-  Description: %s
-  Pointee:     %s
-  Pointer:     %s
-  Version:     %d
-`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version))
-	return b.String()
-}
-
 func (p *AddCWERC20PointerProposal) GetTitle() string { return p.Title }
 
 func (p *AddCWERC20PointerProposal) GetDescription() string { return p.Description }
@@ -261,45 +217,6 @@ func (p *AddCWERC721PointerProposal) ValidateBasic() error {
 func (p AddCWERC721PointerProposal) String() string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf(`Add CW ERC721 pointer Proposal:
-  Title:       %s
-  Description: %s
-  Pointee:     %s
-  Pointer:     %s
-  Version:     %d
-`, p.Title, p.Description, p.Pointee, p.Pointer, p.Version))
-	return b.String()
-}
-
-func (p *AddCWERC1155PointerProposal) GetTitle() string { return p.Title }
-
-func (p *AddCWERC1155PointerProposal) GetDescription() string { return p.Description }
-
-func (p *AddCWERC1155PointerProposal) ProposalRoute() string { return RouterKey }
-
-func (p *AddCWERC1155PointerProposal) ProposalType() string {
-	return ProposalTypeAddCWERC1155Pointer
-}
-
-func (p *AddCWERC1155PointerProposal) ValidateBasic() error {
-	if p.Pointer != "" {
-		if _, err := sdk.AccAddressFromBech32(p.Pointer); err != nil {
-			return err
-		}
-	}
-	if !common.IsHexAddress(p.Pointee) {
-		return errors.New("pointee address must be either empty or a valid hex-encoded string")
-	}
-
-	if p.Version > math.MaxUint16 {
-		return errors.New("pointer version must be <= 65535")
-	}
-
-	return govtypes.ValidateAbstract(p)
-}
-
-func (p AddCWERC1155PointerProposal) String() string {
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf(`Add CW ERC1155 pointer Proposal:
   Title:       %s
   Description: %s
   Pointee:     %s

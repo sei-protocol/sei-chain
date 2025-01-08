@@ -16,7 +16,6 @@ const (
 	GetNativePointer = "getNativePointer"
 	GetCW20Pointer   = "getCW20Pointer"
 	GetCW721Pointer  = "getCW721Pointer"
-	GetCW1155Pointer = "getCW1155Pointer"
 )
 
 const PointerViewAddress = "0x000000000000000000000000000000000000100A"
@@ -32,7 +31,6 @@ type PrecompileExecutor struct {
 	GetNativePointerID []byte
 	GetCW20PointerID   []byte
 	GetCW721PointerID  []byte
-	GetCW1155PointerID []byte
 }
 
 func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*pcommon.Precompile, error) {
@@ -50,8 +48,6 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*pcommon.Precompile, error) {
 			p.GetCW20PointerID = m.ID
 		case GetCW721Pointer:
 			p.GetCW721PointerID = m.ID
-		case GetCW1155Pointer:
-			p.GetCW1155PointerID = m.ID
 		}
 	}
 
@@ -74,8 +70,6 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		return p.GetCW20(ctx, method, args)
 	case GetCW721Pointer:
 		return p.GetCW721(ctx, method, args)
-	case GetCW1155Pointer:
-		return p.GetCW1155(ctx, method, args)
 	default:
 		err = fmt.Errorf("unknown method %s", method.Name)
 	}
@@ -106,14 +100,5 @@ func (p PrecompileExecutor) GetCW721(ctx sdk.Context, method *abi.Method, args [
 	}
 	addr := args[0].(string)
 	existingAddr, existingVersion, exists := p.evmKeeper.GetERC721CW721Pointer(ctx, addr)
-	return method.Outputs.Pack(existingAddr, existingVersion, exists)
-}
-
-func (p PrecompileExecutor) GetCW1155(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, err error) {
-	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, err
-	}
-	addr := args[0].(string)
-	existingAddr, existingVersion, exists := p.evmKeeper.GetERC1155CW1155Pointer(ctx, addr)
 	return method.Outputs.Pack(existingAddr, existingVersion, exists)
 }

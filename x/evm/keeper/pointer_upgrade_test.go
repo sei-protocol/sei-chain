@@ -121,30 +121,3 @@ func TestUpsertERC721Pointer(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, addr, newAddr)
 }
-
-func TestUpsertERC1155Pointer(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
-	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
-	var addr common.Address
-	err := k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-		a, err := k.UpsertERCCW1155Pointer(ctx, e, "test", utils.ERCMetadata{
-			Name:   "test",
-			Symbol: "test",
-		})
-		addr = a
-		return err
-	}, func(s1, s2 string) {})
-	require.Nil(t, err)
-	var newAddr common.Address
-	err = k.RunWithOneOffEVMInstance(ctx, func(e *vm.EVM) error {
-		a, err := k.UpsertERCCW1155Pointer(ctx, e, "test", utils.ERCMetadata{
-			Name:   "test2",
-			Symbol: "test2",
-		})
-		newAddr = a
-		return err
-	}, func(s1, s2 string) {})
-	require.Nil(t, err)
-	require.Equal(t, addr, newAddr)
-}

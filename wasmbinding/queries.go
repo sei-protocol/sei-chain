@@ -189,42 +189,6 @@ func (qp QueryPlugin) HandleEVMQuery(ctx sdk.Context, queryData json.RawMessage)
 	case evmbindings.ERC721RoyaltyInfoType:
 		c := parsedQuery.ERC721RoyaltyInfo
 		return qp.evmHandler.HandleERC721RoyaltyInfo(ctx, c.Caller, c.ContractAddress, c.TokenID, c.SalePrice)
-	case evmbindings.ERC1155TransferType:
-		c := parsedQuery.ERC1155TransferPayload
-		return qp.evmHandler.HandleERC1155TransferPayload(ctx, c.From, c.Recipient, c.TokenID, c.Amount)
-	case evmbindings.ERC1155BatchTransferType:
-		c := parsedQuery.ERC1155BatchTransferPayload
-		return qp.evmHandler.HandleERC1155BatchTransferPayload(ctx, c.From, c.Recipient, c.TokenIDs, c.Amounts)
-	case evmbindings.ERC1155SetApprovalAllType:
-		c := parsedQuery.ERC1155SetApprovalAllPayload
-		return qp.evmHandler.HandleERC1155SetApprovalAllPayload(ctx, c.To, c.Approved)
-	case evmbindings.ERC1155IsApprovedForAllType:
-		c := parsedQuery.ERC1155IsApprovedForAll
-		return qp.evmHandler.HandleERC1155IsApprovedForAll(ctx, c.Caller, c.ContractAddress, c.Owner, c.Operator)
-	case evmbindings.ERC1155BalanceOfType:
-		c := parsedQuery.ERC1155BalanceOf
-		return qp.evmHandler.HandleERC1155BalanceOf(ctx, c.Caller, c.ContractAddress, c.Account, c.TokenID)
-	case evmbindings.ERC1155BalanceOfBatchType:
-		c := parsedQuery.ERC1155BalanceOfBatch
-		return qp.evmHandler.HandleERC1155BalanceOfBatch(ctx, c.Caller, c.ContractAddress, c.Accounts, c.TokenIDs)
-	case evmbindings.ERC1155UriType:
-		c := parsedQuery.ERC1155Uri
-		return qp.evmHandler.HandleERC1155Uri(ctx, c.Caller, c.ContractAddress, c.TokenID)
-	case evmbindings.ERC1155TotalSupplyType:
-		c := parsedQuery.ERC1155TotalSupply
-		return qp.evmHandler.HandleERC1155TotalSupply(ctx, c.Caller, c.ContractAddress)
-	case evmbindings.ERC1155TotalSupplyForTokenType:
-		c := parsedQuery.ERC1155TotalSupplyForToken
-		return qp.evmHandler.HandleERC1155TotalSupplyForToken(ctx, c.Caller, c.ContractAddress, c.TokenID)
-	case evmbindings.ERC1155TokenExistsType:
-		c := parsedQuery.ERC1155TokenExists
-		return qp.evmHandler.HandleERC1155TokenExists(ctx, c.Caller, c.ContractAddress, c.TokenID)
-	case evmbindings.ERC1155NameSymbolType:
-		c := parsedQuery.ERC1155NameSymbol
-		return qp.evmHandler.HandleERC1155NameSymbol(ctx, c.Caller, c.ContractAddress)
-	case evmbindings.ERC1155RoyaltyInfoType:
-		c := parsedQuery.ERC1155RoyaltyInfo
-		return qp.evmHandler.HandleERC1155RoyaltyInfo(ctx, c.Caller, c.ContractAddress, c.TokenID, c.SalePrice)
 	case evmbindings.GetEvmAddressType:
 		c := parsedQuery.GetEvmAddress
 		return qp.evmHandler.HandleGetEvmAddress(ctx, c.SeiAddress)

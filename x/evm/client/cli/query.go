@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math/big"
 	"os"
-	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -17,7 +16,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/native"
@@ -42,7 +40,6 @@ func GetQueryCmd(_ string) *cobra.Command {
 	cmd.AddCommand(CmdQueryEVMAddress())
 	cmd.AddCommand(CmdQueryERC20Payload())
 	cmd.AddCommand(CmdQueryERC721Payload())
-	cmd.AddCommand(CmdQueryERC1155Payload())
 	cmd.AddCommand(CmdQueryERC20())
 	cmd.AddCommand(CmdQueryPayload())
 	cmd.AddCommand(CmdQueryPointer())
@@ -269,95 +266,15 @@ func CmdQueryERC721Payload() *cobra.Command {
 			var bz []byte
 			switch args[0] {
 			case "approve":
-				if len(args) != 3 {
-					return errors.New("expected usage: `seid tx evm erc721-payload approve [spender] [tokenId]`")
-				}
 				spender := common.HexToAddress(args[1])
 				id, _ := sdk.NewIntFromString(args[2])
 				bz, err = abi.Pack(args[0], spender, id.BigInt())
 			case "transferFrom":
-				if len(args) != 4 {
-					return errors.New("expected usage: `seid tx evm erc721-payload transferFrom [from] [to] [tokenId]`")
-				}
 				from := common.HexToAddress(args[1])
 				to := common.HexToAddress(args[2])
 				id, _ := sdk.NewIntFromString(args[3])
 				bz, err = abi.Pack(args[0], from, to, id.BigInt())
 			case "setApprovalForAll":
-				if len(args) != 3 {
-					return errors.New("expected usage: `seid tx evm erc721-payload setApprovalForAll [spender] [ture|false]`")
-				}
-				op := common.HexToAddress(args[1])
-				approved := args[2] == "true"
-				bz, err = abi.Pack(args[0], op, approved)
-			}
-			if err != nil {
-				return err
-			}
-
-			return clientCtx.PrintString(hex.EncodeToString(bz))
-		},
-	}
-
-	flags.AddQueryFlagsToCmd(cmd)
-
-	return cmd
-}
-
-func CmdQueryERC1155Payload() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "erc1155-payload [method] [arguments...]",
-		Short: "get hex payload for the given inputs",
-		Args:  cobra.MinimumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, err := client.GetClientQueryContext(cmd)
-			if err != nil {
-				return err
-			}
-			abi, err := cw1155.Cw1155MetaData.GetAbi()
-			if err != nil {
-				return err
-			}
-			var bz []byte
-			switch args[0] {
-			case "safeTransferFrom":
-				if len(args) != 6 {
-					return errors.New("expected usage: `seid tx evm erc1155-payload safeTransferFrom [from] [to] [tokenId] [amount] [data]`")
-				}
-				from := common.HexToAddress(args[1])
-				to := common.HexToAddress(args[2])
-				id, _ := sdk.NewIntFromString(args[3])
-				amt, _ := sdk.NewIntFromString(args[4])
-				bz, err = abi.Pack(args[0], from, to, id.BigInt(), amt.BigInt(), []byte(args[5]))
-			case "safeBatchTransferFrom":
-				if len(args) != 6 {
-					return errors.New("expected usage: `seid tx evm erc1155-payload safeBatchTransferFrom [from] [to] [tokenIds] [amounts] [data]`")
-				}
-				from := common.HexToAddress(args[1])
-				to := common.HexToAddress(args[2])
-				idsRaw := strings.Split(strings.ReplaceAll(strings.ReplaceAll(args[3], "[", ""), "]", ""), ",")
-				var ids []*big.Int
-				for _, n := range idsRaw {
-					id, ok := sdk.NewIntFromString(strings.Trim(n, " "))
-					if !ok {
-						return errors.New("cannot parse array of int from: " + args[3])
-					}
-					ids = append(ids, id.BigInt())
-				}
-				amtsRaw := strings.Split(strings.ReplaceAll(strings.ReplaceAll(args[4], "[", ""), "]", ""), ",")
-				var amts []*big.Int
-				for _, n := range amtsRaw {
-					amt, ok := sdk.NewIntFromString(strings.Trim(n, " "))
-					if !ok {
-						return errors.New("cannot parse array of int from: " + args[4])
-					}
-					amts = append(amts, amt.BigInt())
-				}
-				bz, err = abi.Pack(args[0], from, to, ids, amts, []byte(args[5]))
-			case "setApprovalForAll":
-				if len(args) != 3 {
-					return errors.New("expected usage: `seid tx evm erc1155-payload setApprovalForAll [spender] [ture|false]`")
-				}
 				op := common.HexToAddress(args[1])
 				approved := args[2] == "true"
 				bz, err = abi.Pack(args[0], op, approved)
@@ -378,7 +295,7 @@ func CmdQueryERC1155Payload() *cobra.Command {
 func CmdQueryPointer() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pointer [type] [pointee]",
-		Short: "get pointer address of the specified type (one of [NATIVE, CW20, CW721, CW1155, ERC20, ERC721, ERC1155]) and pointee",
+		Short: "get pointer address of the specified type (one of [NATIVE, CW20, CW721, ERC20, ERC721]) and pointee",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientQueryContext(cmd)
