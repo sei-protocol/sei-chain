@@ -149,6 +149,18 @@ func (app App) RegisterUpgradeHandlers() {
 				return newVM, err
 			}
 
+			if upgradeName == "v6.0.2" {
+				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
+				if err != nil {
+					return newVM, err
+				}
+
+				cp := app.GetConsensusParams(ctx)
+				cp.Block.MinTxsInBlock = 10
+				app.StoreConsensusParams(ctx, cp)
+				return newVM, err
+			}
+
 			return app.mm.RunMigrations(ctx, app.configurator, fromVM)
 		})
 	}
