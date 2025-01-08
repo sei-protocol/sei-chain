@@ -15,6 +15,9 @@ contract EVMCompatibilityTester {
     event StringSet(address indexed performer, string value);
     event LogIndexEvent(address indexed performer, uint256 value);
     event BytesSet(address indexed performer, bytes value);
+    // Example of contract storing and retrieving data
+    uint256 private storedData; // needs to be first storage variable
+    mapping(uint256 => uint256) public gasGuzzler;
 
     struct MsgDetails {
         address sender;
@@ -22,9 +25,6 @@ contract EVMCompatibilityTester {
         bytes data;
         uint256 gas;
     }
-
-    // Example of contract storing and retrieving data
-    uint256 private storedData;
 
     // deployer of the contract
     address public owner;
@@ -179,6 +179,21 @@ contract EVMCompatibilityTester {
             fee := blobbasefee()
         }
         return fee;
+    }
+
+    // useGas will at least use gasToUse amount of gas
+    function useGas(uint256 gasToUse) public {
+        // while gasleft() > gasUse, use use storage to use gas
+        uint256 counter = 0;
+        uint256 startGas = gasleft();
+        uint256 gasUsed = 0;
+        while (gasUsed < gasToUse) {
+            uint256 randomNumber = uint256(keccak256(abi.encodePacked(block.number, block.prevrandao, counter)));
+            counter++;
+            gasGuzzler[randomNumber] = randomNumber;
+            uint256 endGas = gasleft();
+            gasUsed = startGas - endGas;
+        }
     }
 }
 
