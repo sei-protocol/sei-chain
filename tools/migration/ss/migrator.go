@@ -42,16 +42,11 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 	// Goroutine #1: Export distribution leaf nodes into ch
 	go func() {
 		defer close(ch)
-		errCh <- exportDistributionLeafNodes(m.oldStateStore, ch, 100215000, 106789896)
-	}()
-
-	// Goroutine #2: Import those leaf nodes into PebbleDB
-	go func() {
-		errCh <- m.stateStore.RawImport(ch)
+		errCh <- exportDistributionLeafNodes(m.oldStateStore, m.stateStore, ch, 100215000, 106789896)
 	}()
 
 	// Wait for both goroutines to complete
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 1; i++ {
 		if err := <-errCh; err != nil {
 			return err
 		}
@@ -62,6 +57,7 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 
 func exportDistributionLeafNodes(
 	oldStateStore types.StateStore,
+	newStateStore types.StateStore,
 	ch chan<- types.RawSnapshotNode,
 	startVersion, endVersion int64,
 ) error {
@@ -70,29 +66,27 @@ func exportDistributionLeafNodes(
 	)
 
 	var totalExported int
+	var totalMismatch int
 	startTime := time.Now()
 
 	// RawIterate will scan *all* keys in the "distribution" store.
 	// We'll filter them by version in the callback.
 	stop, err := oldStateStore.RawIterate("distribution", func(key, value []byte, version int64) bool {
-		// If the record's version is outside our desired range, skip it.
-		// if version < startVersion || version > endVersion {
-		// 	return false
-		// }
+		bz, errorInner := newStateStore.Get("distribution", version, key)
+		if errorInner != nil {
+			panic(errorInner)
+		}
 
-		// Otherwise, export it via the channel.
-		ch <- types.RawSnapshotNode{
-			StoreKey: "distribution",
-			Key:      key,
-			Value:    value,
-			Version:  version,
+		if !bytes.Equal(bz, value) {
+			totalMismatch++
+			fmt.Printf("values don't match for key %x: expected %s, got %s\n", key, string(value), string(bz))
 		}
 
 		totalExported++
 		// Optional progress logging every 1,000,000 keys:
 		if totalExported%1_000_000 == 0 {
-			fmt.Printf("[SingleWorker][%s] Exported %d distribution keys so far\n",
-				time.Now().Format(time.RFC3339), totalExported,
+			fmt.Printf("[SingleWorker][%s] Verified %d distribution keys so far mismatch %d\n",
+				time.Now().Format(time.RFC3339), totalExported, totalMismatch,
 			)
 		}
 		// Return false to continue iterating
