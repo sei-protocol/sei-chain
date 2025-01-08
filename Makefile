@@ -46,7 +46,9 @@ build_tags_comma_sep := $(subst $(whitespace),$(comma),$(build_tags))
 
 # process linker flags
 
-ldflags = -X github.com/cosmos/cosmos-sdk/version.Name=sei \
+# go 1.23+ needs a workaround (checklinkname=0) to link memsize (see https://github.com/fjl/memsize).
+ldflags = -checklinkname=0 \
+			-X github.com/cosmos/cosmos-sdk/version.Name=sei \
 			-X github.com/cosmos/cosmos-sdk/version.ServerName=seid \
 			-X github.com/cosmos/cosmos-sdk/version.Version=$(VERSION) \
 			-X github.com/cosmos/cosmos-sdk/version.Commit=$(COMMIT) \
