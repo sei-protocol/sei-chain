@@ -65,6 +65,10 @@ func (s *InMemoryStateStore) Has(storeKey string, version int64, key []byte) (bo
 	return ok, nil
 }
 
+func (db *InMemoryStateStore) Set(storeKey string, key, value []byte, version int64) error {
+	return nil
+}
+
 func (s *InMemoryStateStore) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

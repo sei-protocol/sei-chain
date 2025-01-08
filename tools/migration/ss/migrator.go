@@ -79,7 +79,20 @@ func exportDistributionLeafNodes(
 
 		if !bytes.Equal(bz, value) {
 			totalMismatch++
-			fmt.Printf("values don't match for key %x: expected %s, got %s\n", key, string(value), string(bz))
+			fmt.Printf("values don't match for key %s: expected %s, got %s\n", string(key), string(value), string(bz))
+
+			if err := newStateStore.Set("distribution", key, value, version); err != nil {
+				panic(err)
+			}
+
+			// Verify the write was successful
+			verifyBz, verifyErr := newStateStore.Get("distribution", version, key)
+			if verifyErr != nil {
+				panic(fmt.Errorf("failed to verify write: %w", verifyErr))
+			}
+			if !bytes.Equal(verifyBz, value) {
+				panic(fmt.Errorf("write verification failed: value mismatch after Set"))
+			}
 		}
 
 		totalExported++
