@@ -56,7 +56,7 @@ func TestTraceBlockByHash(t *testing.T) {
 	args := map[string]interface{}{}
 	// test callTracer
 	args["tracer"] = "callTracer"
-	resObj := sendRequestGoodWithNamespace(t, "debug", "traceBlockByHash", "0xBE17E0261E539CB7E9A91E123A6D794E0163D656FCF9B8EAC07823F7ED28512B", args)
+	resObj := sendRequestGoodWithNamespace(t, "debug", "traceBlockByHash", DebugTraceBlockHash, args)
 	result := resObj["result"].([]interface{})[0].(map[string]interface{})["result"].(map[string]interface{})
 	require.Equal(t, "0x5b4eba929f3811980f5ae0c5d04fa200f837df4e", result["from"])
 	require.Equal(t, "0x55f0", result["gas"])
@@ -67,7 +67,7 @@ func TestTraceBlockByHash(t *testing.T) {
 
 	// test prestateTracer
 	args["tracer"] = "prestateTracer"
-	resObj = sendRequestGoodWithNamespace(t, "debug", "traceBlockByHash", "0xBE17E0261E539CB7E9A91E123A6D794E0163D656FCF9B8EAC07823F7ED28512B", args)
+	resObj = sendRequestGoodWithNamespace(t, "debug", "traceBlockByHash", DebugTraceBlockHash, args)
 	result = resObj["result"].([]interface{})[0].(map[string]interface{})["result"].(map[string]interface{})
 	require.Equal(t, 3, len(result))
 }
@@ -90,11 +90,24 @@ func TestTraceCall(t *testing.T) {
 func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
 	args := map[string]interface{}{}
 	args["tracer"] = "callTracer"
-	seiResObj := sendRequestGoodWithNamespace(t, "sei", "traceBlockByNumberExcludeTraceFail", "0x67", args)
+  blockNumber := fmt.Sprintf("%#x",MockHeight103)
+	seiResObj := sendRequestGoodWithNamespace(t, "sei", "traceBlockByNumberExcludeTraceFail", blockNumber, args)
 	result := seiResObj["result"].([]interface{})
-	// sei_traceBlockByNumber returns 1 trace, and removes the panic tx
+	// sei_traceBlockByNumberExcludeTraceFail returns 1 trace, and removes the panic tx
 	require.Equal(t, 1, len(result))
-	ethResObj := sendRequestGoodWithNamespace(t, "debug", "traceBlockByNumber", "0x67", args)
+	ethResObj := sendRequestGoodWithNamespace(t, "debug", "traceBlockByNumber", blockNumber, args)
 	// eth_traceBlockByNumber returns 2 traces, including the panic tx
+	require.Equal(t, 2, len(ethResObj["result"].([]interface{})))
+}
+
+func TestTraceBlockByHashExcludeTraceFail(t *testing.T) {
+	args := map[string]interface{}{}
+	args["tracer"] = "callTracer"
+	seiResObj := sendRequestGoodWithNamespace(t, "sei", "traceBlockByHashExcludeTraceFail", DebugTracePanicBlockHash, args)
+	result := seiResObj["result"].([]interface{})
+	// sei_traceBlockByHashExcludeTraceFail returns 1 trace, and removes the panic tx
+	require.Equal(t, 1, len(result))
+	ethResObj := sendRequestGoodWithNamespace(t, "debug", "traceBlockByHash", DebugTracePanicBlockHash, args)
+	// eth_traceBlockByHash returns 2 traces, including the panic tx
 	require.Equal(t, 2, len(ethResObj["result"].([]interface{})))
 }

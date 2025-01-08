@@ -91,6 +91,24 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 	return finalTraces, nil
 }
 
+func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr == nil)
+	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	traces, ok := result.([]*tracers.TxTraceResult)
+	if !ok {
+		return nil, fmt.Errorf("unexpected type: %T", result)
+	}
+	var finalTraces []*tracers.TxTraceResult
+	for _, trace := range traces {
+		if len(trace.Error) > 0 {
+			continue
+		}
+		finalTraces = append(finalTraces, trace)
+	}
+	return finalTraces, nil
+}
+
 func (api *DebugAPI) isPanicTx(ctx context.Context, hash common.Hash) (isPanic bool, err error) {
 	sdkctx := api.ctxProvider(LatestCtxHeight)
 	receipt, err := api.keeper.GetReceipt(sdkctx, hash)
