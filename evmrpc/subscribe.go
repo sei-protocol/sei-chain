@@ -148,12 +148,13 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 		filter = &filters.FilterCriteria{}
 	}
 
-	// when fromBlock is 0 and toBlock is latest, treat it as
-	// no fromBlock and toBlock specified
+	// when fromBlock is 0 and toBlock is latest, adjust the filter
+	// to unbounded filter
 	if filter.FromBlock != nil && filter.FromBlock.Int64() == 0 &&
 		filter.ToBlock != nil && filter.ToBlock.Int64() < 0 {
 		unboundedFilter := &filters.FilterCriteria{
-			BlockHash: nil,
+			FromBlock: filter.FromBlock, // keep "0x0" to fetch historical logs
+			ToBlock:   nil,              // set to nil to continue listening
 			Addresses: filter.Addresses,
 			Topics:    filter.Topics,
 		}
