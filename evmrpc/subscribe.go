@@ -148,12 +148,16 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 		filter = &filters.FilterCriteria{}
 	}
 
-	// convert "fromBlock":"0x0","toBlock":"latest" to default subscription behavior
-	// by clearing both fromBlock and toBlock
+	// when fromBlock is 0 and toBlock is latest, treat it as
+	// no fromBlock and toBlock specified
 	if filter.FromBlock != nil && filter.FromBlock.Int64() == 0 &&
 		filter.ToBlock != nil && filter.ToBlock.Int64() < 0 {
-		filter.FromBlock = nil
-		filter.ToBlock = nil
+		unboundedFilter := &filters.FilterCriteria{
+			BlockHash: nil,
+			Addresses: filter.Addresses,
+			Topics:    filter.Topics,
+		}
+		filter = unboundedFilter
 	}
 
 	rpcSub := notifier.CreateSubscription()
