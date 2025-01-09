@@ -730,6 +730,7 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 		AvailableBalance   []byte
 		proofs             []byte
 	}
+
 	type args struct {
 		isReadOnly         bool
 		isFromDelegateCall bool
