@@ -16,6 +16,7 @@ import (
 
 const (
 	InitializeAccountMethod    = "initializeAccount"
+	DepositMethod              = "deposit"
 	TransferMethod             = "transfer"
 	TransferWithAuditorsMethod = "transferWithAuditors"
 )
@@ -34,9 +35,10 @@ type PrecompileExecutor struct {
 	ctKeeper  pcommon.ConfidentialTransfersKeeper
 	address   common.Address
 
+	InitializeAccountID    []byte
+	DepositID              []byte
 	TransferID             []byte
 	TransferWithAuditorsID []byte
-	InitializeAccountID    []byte
 }
 
 func NewPrecompile(ctkeeper pcommon.ConfidentialTransfersKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
@@ -50,12 +52,14 @@ func NewPrecompile(ctkeeper pcommon.ConfidentialTransfersKeeper, evmKeeper pcomm
 
 	for name, m := range newAbi.Methods {
 		switch name {
+		case DepositMethod:
+			p.DepositID = m.ID
+		case InitializeAccountMethod:
+			p.InitializeAccountID = m.ID
 		case TransferMethod:
 			p.TransferID = m.ID
 		case TransferWithAuditorsMethod:
 			p.TransferWithAuditorsID = m.ID
-		case InitializeAccountMethod:
-			p.InitializeAccountID = m.ID
 		}
 	}
 
@@ -70,6 +74,16 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		return nil, 0, err
 	}
 	switch method.Name {
+	case DepositMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call ct precompile from staticcall")
+		}
+		return p.deposit(ctx, method, caller, args)
+	case InitializeAccountMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call ct precompile from staticcall")
+		}
+		return p.initializeAccount(ctx, method, caller, args)
 	case TransferMethod:
 		if readOnly {
 			return nil, 0, errors.New("cannot call ct precompile from staticcall")
@@ -80,12 +94,6 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			return nil, 0, errors.New("cannot call ct precompile from staticcall")
 		}
 		return p.transferWithAuditors(ctx, method, caller, args)
-
-	case InitializeAccountMethod:
-		if readOnly {
-			return nil, 0, errors.New("cannot call ct precompile from staticcall")
-		}
-		return p.initializeAccount(ctx, method, caller, args)
 	}
 	return
 }
@@ -473,6 +481,60 @@ func (p PrecompileExecutor) initializeAccount(ctx sdk.Context, method *abi.Metho
 	}
 
 	_, err = p.ctKeeper.InitializeAccount(sdk.WrapSDKContext(ctx), msg)
+	if err != nil {
+		rerr = err
+		return
+	}
+	ret, rerr = method.Outputs.Pack(true)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := pcommon.ValidateArgsLength(args, 3); err != nil {
+		rerr = err
+		return
+	}
+
+	seiAddr, evmAddr, err := p.getValidAddressesFromString(ctx, args[0].(string))
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	if evmAddr != caller {
+		rerr = errors.New("caller is not the same as the user address")
+		return
+	}
+
+	denom := args[1].(string)
+	if denom == "" {
+		rerr = errors.New("invalid denom")
+		return
+	}
+
+	amount, ok := args[2].(uint64)
+	if !ok {
+		rerr = errors.New("invalid amount")
+		return
+	}
+
+	msg := &cttypes.MsgDeposit{
+		FromAddress: seiAddr.String(),
+		Denom:       denom,
+		Amount:      amount,
+	}
+
+	_, err = p.ctKeeper.Deposit(sdk.WrapSDKContext(ctx), msg)
 	if err != nil {
 		rerr = err
 		return

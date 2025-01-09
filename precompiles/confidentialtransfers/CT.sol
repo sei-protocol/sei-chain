@@ -53,4 +53,10 @@ interface ICT {
         bytes transferAmountLoEqualityProof;
         bytes transferAmountHiEqualityProof;
     }
+
+    function deposit(
+        string fromAddress,
+        string denom,
+        uint64 amount
+    ) external returns (bool success);
 }
