@@ -104,7 +104,6 @@ func exportDistributionLeafNodes(
 			}
 		}
 
-		totalExported++
 		// Optional progress logging every 1,000,000 keys:
 		if totalExported%1_000_000 == 0 {
 			fmt.Printf("[SingleWorker][%s] Verified %d distribution keys so far mismatch %d currVersion %d\n",
