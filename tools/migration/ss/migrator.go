@@ -72,9 +72,6 @@ func exportDistributionLeafNodes(
 	// RawIterate will scan *all* keys in the "distribution" store.
 	// We'll filter them by version in the callback.
 	stop, err := oldStateStore.RawIterate("distribution", func(key, value []byte, version int64) bool {
-		if version >= 121234732 {
-			return false
-		}
 		bz, errorInner := newStateStore.Get("distribution", version, key)
 		if errorInner != nil {
 			panic(errorInner)
@@ -101,8 +98,8 @@ func exportDistributionLeafNodes(
 		totalExported++
 		// Optional progress logging every 1,000,000 keys:
 		if totalExported%1_000_000 == 0 {
-			fmt.Printf("[SingleWorker][%s] Verified %d distribution keys so far mismatch %d\n",
-				time.Now().Format(time.RFC3339), totalExported, totalMismatch,
+			fmt.Printf("[SingleWorker][%s] Verified %d distribution keys so far mismatch %d currVersion %d\n",
+				time.Now().Format(time.RFC3339), totalExported, totalMismatch, version,
 			)
 		}
 		// Return false to continue iterating
