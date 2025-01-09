@@ -407,63 +407,67 @@ func (p PrecompileExecutor) initializeAccount(ctx sdk.Context, method *abi.Metho
 		}
 	}()
 
-	if err := pcommon.ValidateArgsLength(args, 7); err != nil {
+	if err := pcommon.ValidateArgsLength(args, 8); err != nil {
 		rerr = err
 		return
 	}
 
-	seiAddr, _, err := p.getValidAddressesFromString(ctx, caller.String())
+	seiAddr, evmAddr, err := p.getValidAddressesFromString(ctx, args[0].(string))
 	if err != nil {
 		rerr = err
 		return
 	}
 
-	denom := args[0].(string)
+	if evmAddr != caller {
+		rerr = errors.New("caller is not the same as the user address")
+		return
+	}
+
+	denom := args[1].(string)
 	if denom == "" {
 		rerr = errors.New("invalid denom")
 		return
 	}
 
-	publicKey, ok := args[1].([]byte)
+	publicKey, ok := args[2].([]byte)
 	if !ok {
 		rerr = errors.New("invalid public key")
 		return
 	}
 
-	decryptableBalance := args[2].(string)
+	decryptableBalance := args[3].(string)
 	if decryptableBalance == "" {
 		rerr = errors.New("invalid decryptable balance")
 		return
 	}
 
 	var pendingBalanceLo cttypes.Ciphertext
-	err = pendingBalanceLo.Unmarshal(args[3].([]byte))
+	err = pendingBalanceLo.Unmarshal(args[4].([]byte))
 	if err != nil {
 		rerr = err
 		return
 	}
 
 	var pendingBalanceHi cttypes.Ciphertext
-	err = pendingBalanceHi.Unmarshal(args[4].([]byte))
+	err = pendingBalanceHi.Unmarshal(args[5].([]byte))
 	if err != nil {
 		rerr = err
 		return
 	}
 
 	var availableBalance cttypes.Ciphertext
-	err = availableBalance.Unmarshal(args[5].([]byte))
+	err = availableBalance.Unmarshal(args[6].([]byte))
 	if err != nil {
 		rerr = err
 		return
 	}
 
 	var initializeAccountProofs cttypes.InitializeAccountMsgProofs
-	err = initializeAccountProofs.Unmarshal(args[6].([]byte))
+	err = initializeAccountProofs.Unmarshal(args[7].([]byte))
 	if err != nil {
 		rerr = err
 		return
 	}
-
 	msg := &cttypes.MsgInitializeAccount{
 		FromAddress:        seiAddr.String(),
 		Denom:              denom,

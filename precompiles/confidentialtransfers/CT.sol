@@ -9,6 +9,7 @@ ICT constant CT_CONTRACT = ICT(
 interface ICT {
     // Transactions
     function initializeAccount(
+        string fromAddress,
         string denom,
         bytes publicKey,
         string decryptableBalance,

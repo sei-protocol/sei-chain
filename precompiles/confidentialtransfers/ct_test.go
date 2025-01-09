@@ -680,48 +680,42 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
-
 	err := k.BankKeeper().MintCoins(
 		ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
 	require.Nil(t, err)
 
 	userPrivateKey := testkeeper.MockPrivateKey()
 	userAddr, userEVMAddr := testkeeper.PrivateKeyToAddresses(userPrivateKey)
-	//notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
-	//notAssociatedUserAddr, notAssociatedUserEVMAddr := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
+	notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
+	notAssociatedUserAddr, notAssociatedUserEVMAddr := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
 	otherUserPrivateKey := testkeeper.MockPrivateKey()
 	otherUserAddr, otherUserEVMAddr := testkeeper.PrivateKeyToAddresses(otherUserPrivateKey)
 	k.SetAddressMapping(ctx, userAddr, userEVMAddr)
 	k.SetAddressMapping(ctx, otherUserAddr, otherUserEVMAddr)
-
 	privHex := hex.EncodeToString(userPrivateKey.Bytes())
 	userKey, _ := crypto.HexToECDSA(privHex)
-
 	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
 		StateDB:   statedb,
 		TxContext: vm.TxContext{Origin: userEVMAddr},
 	}
-
 	p, err := confidentialtransfers.NewPrecompile(ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
 	require.Nil(t, err)
-
 	initAccount, err := cttypes.NewInitializeAccount(
 		userAddr.String(),
 		testDenom,
 		*userKey)
-	require.NoError(t, err)
 
 	iaProto := cttypes.NewMsgInitializeAccountProto(initAccount)
 	pendingBalanceLo, _ := iaProto.PendingBalanceLo.Marshal()
 	pendingBalanceHi, _ := iaProto.PendingBalanceHi.Marshal()
 	availableBalance, _ := iaProto.AvailableBalance.Marshal()
 	proofs, _ := iaProto.Proofs.Marshal()
-
 	InitializeAccountMethod, _ := p.ABI.MethodById(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).InitializeAccountID)
 	expectedTrueResponse, _ := InitializeAccountMethod.Outputs.Pack(true)
 
 	type inputs struct {
+		UserAddress        string
 		Denom              string
 		PublicKey          []byte
 		DecryptableBalance string
@@ -730,7 +724,6 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 		AvailableBalance   []byte
 		proofs             []byte
 	}
-
 	type args struct {
 		isReadOnly         bool
 		isFromDelegateCall bool
@@ -751,49 +744,49 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 			wantRemainingGas: 0x1e438a,
 			wantErr:          false,
 		},
-		//{
-		//	name: "precompile should return error if address is invalid",
-		//	args: args{
-		//		setUp: func(in inputs) inputs {
-		//			in.UserAddress = ""
-		//			return in
-		//		}},
-		//	wantErr:    true,
-		//	wantErrMsg: "invalid address : empty address string is not allowed",
-		//},
-		//{
-		//	name: "precompile should return error if Sei address is not associated with an EVM address",
-		//	args: args{
-		//		setUp: func(in inputs) inputs {
-		//			in.UserAddress = notAssociatedUserAddr.String()
-		//			return in
-		//		},
-		//	},
-		//	wantErr:    true,
-		//	wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedUserAddr.String()),
-		//},
-		//{
-		//	name: "precompile should return error if EVM address is not associated with a Sei address",
-		//	args: args{
-		//		setUp: func(in inputs) inputs {
-		//			in.UserAddress = notAssociatedUserEVMAddr.String()
-		//			return in
-		//		},
-		//	},
-		//	wantErr:    true,
-		//	wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedUserEVMAddr.String()),
-		//},
-		//{
-		//	name: "precompile should return error if caller is not the same as the user",
-		//	args: args{
-		//		setUp: func(in inputs) inputs {
-		//			in.UserAddress = otherUserAddr.String()
-		//			return in
-		//		},
-		//	},
-		//	wantErr:    true,
-		//	wantErrMsg: "caller is not the same as the user address",
-		//},
+		{
+			name: "precompile should return error if address is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.UserAddress = ""
+					return in
+				}},
+			wantErr:    true,
+			wantErrMsg: "invalid address : empty address string is not allowed",
+		},
+		{
+			name: "precompile should return error if Sei address is not associated with an EVM address",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.UserAddress = notAssociatedUserAddr.String()
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedUserAddr.String()),
+		},
+		{
+			name: "precompile should return error if EVM address is not associated with a Sei address",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.UserAddress = notAssociatedUserEVMAddr.String()
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedUserEVMAddr.String()),
+		},
+		{
+			name: "precompile should return error if caller is not the same as the user",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.UserAddress = otherUserAddr.String()
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "caller is not the same as the user address",
+		},
 		{
 			name: "precompile should return error if denom is invalid",
 			args: args{
@@ -870,6 +863,7 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			in := inputs{
+				UserAddress:        userAddr.String(),
 				Denom:              testDenom,
 				PublicKey:          iaProto.PublicKey,
 				DecryptableBalance: iaProto.DecryptableBalance,
@@ -883,6 +877,7 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 			}
 
 			inputArgs, err := InitializeAccountMethod.Inputs.Pack(
+				in.UserAddress,
 				in.Denom,
 				in.PublicKey,
 				in.DecryptableBalance,
@@ -890,12 +885,11 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 				in.PendingBalanceHi,
 				in.AvailableBalance,
 				in.proofs)
-
 			require.Nil(t, err)
 
 			resp, remainingGas, err := p.RunAndCalculateGas(
 				&evm,
-				otherUserEVMAddr,
+				userEVMAddr,
 				common.Address{},
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).InitializeAccountID, inputArgs...),
 				2000000,

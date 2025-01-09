@@ -173,6 +173,11 @@
     "inputs": [
       {
         "internalType": "string",
+        "name": "fromAddress",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
         "name": "denom",
         "type": "string"
       },
