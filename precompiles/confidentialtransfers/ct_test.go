@@ -710,6 +710,7 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 		userAddr.String(),
 		testDenom,
 		*userKey)
+	require.NoError(t, err)
 
 	iaProto := cttypes.NewMsgInitializeAccountProto(initAccount)
 	pendingBalanceLo, _ := iaProto.PendingBalanceLo.Marshal()
