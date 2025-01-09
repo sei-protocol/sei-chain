@@ -680,6 +680,7 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
+
 	err := k.BankKeeper().MintCoins(
 		ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
 	require.Nil(t, err)
@@ -692,15 +693,19 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 	otherUserAddr, otherUserEVMAddr := testkeeper.PrivateKeyToAddresses(otherUserPrivateKey)
 	k.SetAddressMapping(ctx, userAddr, userEVMAddr)
 	k.SetAddressMapping(ctx, otherUserAddr, otherUserEVMAddr)
+
 	privHex := hex.EncodeToString(userPrivateKey.Bytes())
 	userKey, _ := crypto.HexToECDSA(privHex)
+
 	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
 		StateDB:   statedb,
 		TxContext: vm.TxContext{Origin: userEVMAddr},
 	}
+
 	p, err := confidentialtransfers.NewPrecompile(ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
 	require.Nil(t, err)
+
 	initAccount, err := cttypes.NewInitializeAccount(
 		userAddr.String(),
 		testDenom,
@@ -711,6 +716,7 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 	pendingBalanceHi, _ := iaProto.PendingBalanceHi.Marshal()
 	availableBalance, _ := iaProto.AvailableBalance.Marshal()
 	proofs, _ := iaProto.Proofs.Marshal()
+
 	InitializeAccountMethod, _ := p.ABI.MethodById(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).InitializeAccountID)
 	expectedTrueResponse, _ := InitializeAccountMethod.Outputs.Pack(true)
 
@@ -885,6 +891,7 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 				in.PendingBalanceHi,
 				in.AvailableBalance,
 				in.proofs)
+
 			require.Nil(t, err)
 
 			resp, remainingGas, err := p.RunAndCalculateGas(

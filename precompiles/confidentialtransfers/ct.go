@@ -468,6 +468,7 @@ func (p PrecompileExecutor) initializeAccount(ctx sdk.Context, method *abi.Metho
 		rerr = err
 		return
 	}
+
 	msg := &cttypes.MsgInitializeAccount{
 		FromAddress:        seiAddr.String(),
 		Denom:              denom,
