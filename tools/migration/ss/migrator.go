@@ -79,7 +79,7 @@ func exportDistributionLeafNodes(
 				time.Now().Format(time.RFC3339), catchupCounter,
 			)
 		}
-		if catchupCounter < 437000000 {
+		if catchupCounter < 446000000 {
 			return false
 		}
 		if version >= 121234732 {
