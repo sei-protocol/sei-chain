@@ -67,11 +67,24 @@ func exportDistributionLeafNodes(
 
 	var totalExported int
 	var totalMismatch int
+	var catchupCounter int
 	startTime := time.Now()
 
 	// RawIterate will scan *all* keys in the "distribution" store.
 	// We'll filter them by version in the callback.
 	stop, err := oldStateStore.RawIterate("distribution", func(key, value []byte, version int64) bool {
+		catchupCounter++
+		if catchupCounter%1_000_000 == 0 {
+			fmt.Printf("[%s] Caught up %d distribution keys\n",
+				time.Now().Format(time.RFC3339), catchupCounter,
+			)
+		}
+		if catchupCounter < 437000000 {
+			return false
+		}
+		if version >= 121234732 {
+			return false
+		}
 		bz, errorInner := newStateStore.Get("distribution", version, key)
 		if errorInner != nil {
 			panic(errorInner)
