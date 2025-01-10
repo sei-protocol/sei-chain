@@ -66,20 +66,13 @@ func exportDistributionLeafNodes(
 	)
 
 	var totalExported int
-	var totalMismatch int
+	// var totalMismatch int
 	startTime := time.Now()
 
 	// RawIterate will scan *all* keys in the "distribution" store.
 	// We'll filter them by version in the callback.
 	stop, err := oldStateStore.RawIterate("distribution", func(key, value []byte, version int64) bool {
 		totalExported++
-		if totalExported < 475000000 {
-			return false
-		}
-
-		if version >= 121234732 {
-			return false
-		}
 
 		bz, errorInner := newStateStore.Get("distribution", version, key)
 		if errorInner != nil {
@@ -87,27 +80,27 @@ func exportDistributionLeafNodes(
 		}
 
 		if !bytes.Equal(bz, value) {
-			totalMismatch++
-			fmt.Printf("values don't match for key %s: expected %s, got %s\n", string(key), string(value), string(bz))
+			// totalMismatch++
+			panic(fmt.Errorf("values don't match for key %s: expected %s, got %s\n", string(key), string(value), string(bz)))
 
-			if err := newStateStore.Set("distribution", key, value, version); err != nil {
-				panic(err)
-			}
+			// if err := newStateStore.Set("distribution", key, value, version); err != nil {
+			// 	panic(err)
+			// }
 
-			// Verify the write was successful
-			verifyBz, verifyErr := newStateStore.Get("distribution", version, key)
-			if verifyErr != nil {
-				panic(fmt.Errorf("failed to verify write: %w", verifyErr))
-			}
-			if !bytes.Equal(verifyBz, value) {
-				panic(fmt.Errorf("write verification failed: value mismatch after Set"))
-			}
+			// // Verify the write was successful
+			// verifyBz, verifyErr := newStateStore.Get("distribution", version, key)
+			// if verifyErr != nil {
+			// 	panic(fmt.Errorf("failed to verify write: %w", verifyErr))
+			// }
+			// if !bytes.Equal(verifyBz, value) {
+			// 	panic(fmt.Errorf("write verification failed: value mismatch after Set"))
+			// }
 		}
 
 		// Optional progress logging every 1,000,000 keys:
 		if totalExported%1_000_000 == 0 {
-			fmt.Printf("[SingleWorker][%s] Verified %d distribution keys so far mismatch %d currVersion %d\n",
-				time.Now().Format(time.RFC3339), totalExported, totalMismatch,
+			fmt.Printf("[SingleWorker][%s] Verified %d distribution keys so far\n",
+				time.Now().Format(time.RFC3339), totalExported,
 			)
 		}
 		// Return false to continue iterating
