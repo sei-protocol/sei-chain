@@ -88,7 +88,7 @@ func exportDistributionLeafNodes(
 				panic("done with check")
 			}
 			// panic(fmt.Errorf("values don't match for key %s: expected %s, got %s\n", string(key), string(value), string(bz)))
-			fmt.Printf("values don't match for key %s: expected %s, got %s\n", string(key), string(value), string(bz))
+			fmt.Printf("values don't match for key %s: expected %s, got %s\n\n", string(key), string(value), string(bz))
 
 			if err := newStateStore.Set("distribution", key, value, version); err != nil {
 				panic(err)
