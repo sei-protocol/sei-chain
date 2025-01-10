@@ -73,6 +73,9 @@ func exportDistributionLeafNodes(
 	// We'll filter them by version in the callback.
 	stop, err := oldStateStore.RawIterate("distribution", func(key, value []byte, version int64) bool {
 		totalExported++
+		if totalExported < 420000000 {
+			return false
+		}
 
 		bz, errorInner := newStateStore.Get("distribution", version, key)
 		if errorInner != nil {
@@ -81,20 +84,21 @@ func exportDistributionLeafNodes(
 
 		if !bytes.Equal(bz, value) {
 			// totalMismatch++
-			panic(fmt.Errorf("values don't match for key %s: expected %s, got %s\n", string(key), string(value), string(bz)))
+			// panic(fmt.Errorf("values don't match for key %s: expected %s, got %s\n", string(key), string(value), string(bz)))
+			fmt.Printf("values don't match for key %s: expected %s, got %s\n", string(key), string(value), string(bz))
 
-			// if err := newStateStore.Set("distribution", key, value, version); err != nil {
-			// 	panic(err)
-			// }
+			if err := newStateStore.Set("distribution", key, value, version); err != nil {
+				panic(err)
+			}
 
-			// // Verify the write was successful
-			// verifyBz, verifyErr := newStateStore.Get("distribution", version, key)
-			// if verifyErr != nil {
-			// 	panic(fmt.Errorf("failed to verify write: %w", verifyErr))
-			// }
-			// if !bytes.Equal(verifyBz, value) {
-			// 	panic(fmt.Errorf("write verification failed: value mismatch after Set"))
-			// }
+			// Verify the write was successful
+			verifyBz, verifyErr := newStateStore.Get("distribution", version, key)
+			if verifyErr != nil {
+				panic(fmt.Errorf("failed to verify write: %w", verifyErr))
+			}
+			if !bytes.Equal(verifyBz, value) {
+				panic(fmt.Errorf("write verification failed: value mismatch after Set"))
+			}
 		}
 
 		// Optional progress logging every 1,000,000 keys:
