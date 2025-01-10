@@ -66,7 +66,7 @@ func exportDistributionLeafNodes(
 	)
 
 	var totalExported int
-	// var totalMismatch int
+	var totalMismatch int
 	startTime := time.Now()
 
 	// RawIterate will scan *all* keys in the "distribution" store.
@@ -83,7 +83,10 @@ func exportDistributionLeafNodes(
 		}
 
 		if !bytes.Equal(bz, value) {
-			// totalMismatch++
+			totalMismatch++
+			if totalMismatch > 3 {
+				panic("done with check")
+			}
 			// panic(fmt.Errorf("values don't match for key %s: expected %s, got %s\n", string(key), string(value), string(bz)))
 			fmt.Printf("values don't match for key %s: expected %s, got %s\n", string(key), string(value), string(bz))
 
@@ -102,11 +105,11 @@ func exportDistributionLeafNodes(
 		}
 
 		// Optional progress logging every 1,000,000 keys:
-		if totalExported%1_000_000 == 0 {
-			fmt.Printf("[SingleWorker][%s] Verified %d distribution keys so far\n",
-				time.Now().Format(time.RFC3339), totalExported,
-			)
-		}
+		// if totalExported%1_000_000 == 0 {
+		// 	fmt.Printf("[SingleWorker][%s] Verified %d distribution keys so far\n",
+		// 		time.Now().Format(time.RFC3339), totalExported,
+		// 	)
+		// }
 		// Return false to continue iterating
 		return false
 	})
