@@ -20,7 +20,6 @@ interface ICT {
     ) external returns (bool success);
 
     function transfer(
-        string fromAddress,
         string toAddress,
         string denom,
         bytes fromAmountLo,
@@ -32,7 +31,6 @@ interface ICT {
     ) external returns (bool success);
 
     function transferWithAuditors(
-        string fromAddress,
         string toAddress,
         string denom,
         bytes fromAmountLo,

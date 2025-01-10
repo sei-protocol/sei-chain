@@ -3,11 +3,6 @@
     "inputs": [
       {
         "internalType": "string",
-        "name": "fromAddress",
-        "type": "string"
-      },
-      {
-        "internalType": "string",
         "name": "toAddress",
         "type": "string"
       },
@@ -65,11 +60,6 @@
   },
   {
     "inputs": [
-      {
-        "internalType": "string",
-        "name": "fromAddress",
-        "type": "string"
-      },
       {
         "internalType": "string",
         "name": "toAddress",

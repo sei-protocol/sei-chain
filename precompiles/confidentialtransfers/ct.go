@@ -112,7 +112,7 @@ func (p PrecompileExecutor) transfer(ctx sdk.Context, method *abi.Method, caller
 		}
 	}()
 
-	if err := pcommon.ValidateArgsLength(args, 10); err != nil {
+	if err := pcommon.ValidateArgsLength(args, 9); err != nil {
 		rerr = err
 		return
 	}
@@ -148,7 +148,7 @@ func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Me
 		}
 	}()
 
-	if err := pcommon.ValidateArgsLength(args, 11); err != nil {
+	if err := pcommon.ValidateArgsLength(args, 10); err != nil {
 		rerr = err
 		return
 	}
@@ -159,7 +159,7 @@ func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Me
 		return
 	}
 
-	msg.Auditors, err = p.getAuditorsFromArg(ctx, args[10])
+	msg.Auditors, err = p.getAuditorsFromArg(ctx, args[9])
 	if err != nil {
 		rerr = err
 		return
@@ -183,21 +183,12 @@ func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Me
 }
 
 func (p PrecompileExecutor) getTransferMessageFromArgs(ctx sdk.Context, caller common.Address, args []interface{}) (*cttypes.MsgTransfer, error) {
-	fromAddrString, ok := (args[0]).(string)
-	if !ok || fromAddrString == "" {
-		return nil, errors.New("invalid from addr")
-	}
-
-	fromAddr, evmAddr, err := p.getValidAddressesFromString(ctx, fromAddrString)
+	fromAddr, _, err := p.getAssociatedAddressesByEVMAddress(ctx, caller)
 	if err != nil {
 		return nil, err
 	}
 
-	if evmAddr != caller {
-		return nil, errors.New("caller is not the same as the sender address")
-	}
-
-	toAddrString, ok := (args[1]).(string)
+	toAddrString, ok := (args[0]).(string)
 	if !ok || toAddrString == "" {
 		return nil, errors.New("invalid to addr")
 	}
@@ -207,48 +198,48 @@ func (p PrecompileExecutor) getTransferMessageFromArgs(ctx sdk.Context, caller c
 		return nil, err
 	}
 
-	denom, ok := args[2].(string)
+	denom, ok := args[1].(string)
 	if !ok || denom == "" {
 		return nil, errors.New("invalid denom")
 	}
 
 	var fromAmountLo cttypes.Ciphertext
-	err = fromAmountLo.Unmarshal(args[3].([]byte))
+	err = fromAmountLo.Unmarshal(args[2].([]byte))
 	if err != nil {
 		return nil, err
 	}
 
 	var fromAmountHi cttypes.Ciphertext
-	err = fromAmountHi.Unmarshal(args[4].([]byte))
+	err = fromAmountHi.Unmarshal(args[3].([]byte))
 	if err != nil {
 		return nil, err
 	}
 
 	var toAmountLo cttypes.Ciphertext
-	err = toAmountLo.Unmarshal(args[5].([]byte))
+	err = toAmountLo.Unmarshal(args[4].([]byte))
 	if err != nil {
 		return nil, err
 	}
 
 	var toAmountHi cttypes.Ciphertext
-	err = toAmountHi.Unmarshal(args[6].([]byte))
+	err = toAmountHi.Unmarshal(args[5].([]byte))
 	if err != nil {
 		return nil, err
 	}
 
 	var remainingBalance cttypes.Ciphertext
-	err = remainingBalance.Unmarshal(args[7].([]byte))
+	err = remainingBalance.Unmarshal(args[6].([]byte))
 	if err != nil {
 		return nil, err
 	}
 
-	decryptableBalance, ok := args[8].(string)
+	decryptableBalance, ok := args[7].(string)
 	if !ok || decryptableBalance == "" {
 		return nil, errors.New("invalid decryptable balance")
 	}
 
 	var transferMessageProofs cttypes.TransferMsgProofs
-	err = transferMessageProofs.Unmarshal(args[9].([]byte))
+	err = transferMessageProofs.Unmarshal(args[8].([]byte))
 	if err != nil {
 		return nil, err
 	}
