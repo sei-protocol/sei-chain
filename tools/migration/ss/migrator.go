@@ -73,7 +73,7 @@ func exportDistributionLeafNodes(
 	// We'll filter them by version in the callback.
 	stop, err := oldStateStore.RawIterate("distribution", func(key, value []byte, version int64) bool {
 		totalExported++
-		if totalExported < 420000000 {
+		if totalExported < 426000000 {
 			return false
 		}
 
