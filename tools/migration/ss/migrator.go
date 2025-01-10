@@ -33,20 +33,24 @@ func NewMigrator(db dbm.DB, stateStore types.StateStore, oldStateStore types.Sta
 
 func (m *Migrator) Migrate(version int64, homeDir string) error {
 	// Channel to send RawSnapshotNodes to the importer.
-	ch := make(chan types.RawSnapshotNode, 1000)
+	ch := make(chan types.RawSnapshotNode, 10000)
 	// Channel to capture errors from both goroutines below.
 	errCh := make(chan error, 2)
 
-	fmt.Printf("Starting migration for 'distribution' module from version %d to %d...\n", 100215000, 106789896)
+	fmt.Printf("Starting migration for 'distribution' module from version\n")
 
 	// Goroutine #1: Export distribution leaf nodes into ch
 	go func() {
 		defer close(ch)
-		errCh <- exportDistributionLeafNodes(m.oldStateStore, m.stateStore, ch, 100215000, 106789896)
+		errCh <- exportDistributionLeafNodes(m.oldStateStore, ch)
+	}()
+
+	go func() {
+		errCh <- m.stateStore.RawImport(ch)
 	}()
 
 	// Wait for both goroutines to complete
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 2; i++ {
 		if err := <-errCh; err != nil {
 			return err
 		}
@@ -57,59 +61,29 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 
 func exportDistributionLeafNodes(
 	oldStateStore types.StateStore,
-	newStateStore types.StateStore,
 	ch chan<- types.RawSnapshotNode,
-	startVersion, endVersion int64,
 ) error {
-	fmt.Printf("Starting export at %s for versions [%d..%d]\n",
-		time.Now().Format(time.RFC3339), startVersion, endVersion,
-	)
 
 	var totalExported int
-	var totalMismatch int
 	startTime := time.Now()
 
 	// RawIterate will scan *all* keys in the "distribution" store.
 	// We'll filter them by version in the callback.
 	stop, err := oldStateStore.RawIterate("distribution", func(key, value []byte, version int64) bool {
 		totalExported++
-		if totalExported < 426000000 {
-			return false
-		}
-
-		bz, errorInner := newStateStore.Get("distribution", version, key)
-		if errorInner != nil {
-			panic(errorInner)
-		}
-
-		if !bytes.Equal(bz, value) {
-			totalMismatch++
-			if totalMismatch > 3 {
-				panic("done with check")
-			}
-			// panic(fmt.Errorf("values don't match for key %s: expected %s, got %s\n", string(key), string(value), string(bz)))
-			fmt.Printf("values don't match for key %s: expected %s, got %s\n\n", string(key), string(value), string(bz))
-
-			if err := newStateStore.Set("distribution", key, value, version); err != nil {
-				panic(err)
-			}
-
-			// Verify the write was successful
-			verifyBz, verifyErr := newStateStore.Get("distribution", version, key)
-			if verifyErr != nil {
-				panic(fmt.Errorf("failed to verify write: %w", verifyErr))
-			}
-			if !bytes.Equal(verifyBz, value) {
-				panic(fmt.Errorf("write verification failed: value mismatch after Set"))
-			}
+		ch <- types.RawSnapshotNode{
+			StoreKey: "distribution",
+			Key:      key,
+			Value:    value,
+			Version:  version,
 		}
 
 		// Optional progress logging every 1,000,000 keys:
-		// if totalExported%1_000_000 == 0 {
-		// 	fmt.Printf("[SingleWorker][%s] Verified %d distribution keys so far\n",
-		// 		time.Now().Format(time.RFC3339), totalExported,
-		// 	)
-		// }
+		if totalExported%1_000_000 == 0 {
+			fmt.Printf("[SingleWorker][%s] Verified %d distribution keys so far\n",
+				time.Now().Format(time.RFC3339), totalExported,
+			)
+		}
 		// Return false to continue iterating
 		return false
 	})
@@ -123,8 +97,8 @@ func exportDistributionLeafNodes(
 	}
 
 	fmt.Printf(
-		"[%s] Completed exporting distribution store for versions [%d..%d]. Total keys: %d. Duration: %s\n",
-		time.Now().Format(time.RFC3339), startVersion, endVersion, totalExported, time.Since(startTime),
+		"[%s] Completed exporting distribution store for versions. Total keys: %d. Duration: %s\n",
+		time.Now().Format(time.RFC3339), totalExported, time.Since(startTime),
 	)
 	fmt.Printf("Finished export at %s\n", time.Now().Format(time.RFC3339))
 	return nil
