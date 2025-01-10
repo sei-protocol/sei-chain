@@ -1347,8 +1347,8 @@ github.com/sei-protocol/goutils v0.0.2 h1:Bfa7Sv+4CVLNM20QcpvGb81B8C5HkQC/kW1CQp
 github.com/sei-protocol/goutils v0.0.2/go.mod h1:iYE2DuJfEnM+APPehr2gOUXfuLuPsVxorcDO+Tzq9q8=
 github.com/sei-protocol/sei-cosmos v0.3.48 h1:kSDweeTaLZ4TByLqAD6/hmtgAhAJHwXU1beyqsVXJkQ=
 github.com/sei-protocol/sei-cosmos v0.3.48/go.mod h1:XC417pB6NwxP/cQ2XTSZLzVnP8dMZ//4uCXS3SxFgoM=
-github.com/sei-protocol/sei-db v0.0.47-0.20250110162845-55a9817222f4 h1:QTAxIhtd0AWSeZJaS4cwEaG+86gwi8G6iXldTdM+jeY=
-github.com/sei-protocol/sei-db v0.0.47-0.20250110162845-55a9817222f4/go.mod h1:m5g7p0QeAS3dNJHIl28zQpzOgxQmvYqPb7t4hwgIOCA=
+github.com/sei-protocol/sei-db v0.0.47-0.20250110200519-f9adcc7607b2 h1:HpKG/FvqQYGnGU5ypdDb7Yk0ScME1gw9Gb3nLFh8wdE=
+github.com/sei-protocol/sei-db v0.0.47-0.20250110200519-f9adcc7607b2/go.mod h1:m5g7p0QeAS3dNJHIl28zQpzOgxQmvYqPb7t4hwgIOCA=
 github.com/sei-protocol/sei-iavl v0.2.0 h1:OisPjXiDT+oe+aeckzDEFgkZCYuUjHgs/PP8DPicN+I=
 github.com/sei-protocol/sei-iavl v0.2.0/go.mod h1:qRf8QYUPfrAO7K6VDB2B2l/N7K5L76OorioGBcJBIbw=
 github.com/sei-protocol/sei-ibc-go/v3 v3.3.3 h1:0kg1giMHiKMLXOCFLqH/9kqdl5bH+unzI8qRF6qwXzw=
