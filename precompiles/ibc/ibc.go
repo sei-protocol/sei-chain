@@ -73,6 +73,10 @@ func NewPrecompile(
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+	if err = pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+
 	if readOnly {
 		return nil, 0, errors.New("cannot call IBC precompile from staticcall")
 	}
