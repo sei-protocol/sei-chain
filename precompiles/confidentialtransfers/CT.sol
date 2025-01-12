@@ -59,4 +59,12 @@ interface ICT {
         string denom,
         uint64 amount
     ) external returns (bool success);
+
+    function applyPendingBalance(
+        string fromAddress,
+        string denom,
+        string decryptableBalance,
+        uint32 pendingBalanceCreditCounter,
+        bytes availableBalance,
+    ) external returns (bool success);
 }

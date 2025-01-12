@@ -17,6 +17,7 @@ import (
 const (
 	InitializeAccountMethod    = "initializeAccount"
 	DepositMethod              = "deposit"
+	ApplyPendingBalanceMethod  = "applyPendingBalance"
 	TransferMethod             = "transfer"
 	TransferWithAuditorsMethod = "transferWithAuditors"
 )
@@ -37,6 +38,7 @@ type PrecompileExecutor struct {
 
 	InitializeAccountID    []byte
 	DepositID              []byte
+	ApplyPendingBalanceID  []byte
 	TransferID             []byte
 	TransferWithAuditorsID []byte
 }
@@ -56,6 +58,8 @@ func NewPrecompile(ctkeeper pcommon.ConfidentialTransfersKeeper, evmKeeper pcomm
 			p.DepositID = m.ID
 		case InitializeAccountMethod:
 			p.InitializeAccountID = m.ID
+		case ApplyPendingBalanceMethod:
+			p.ApplyPendingBalanceID = m.ID
 		case TransferMethod:
 			p.TransferID = m.ID
 		case TransferWithAuditorsMethod:
@@ -74,6 +78,11 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		return nil, 0, err
 	}
 	switch method.Name {
+	case ApplyPendingBalanceMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call ct precompile from staticcall")
+		}
+		return p.applyPendingBalance(ctx, method, caller, args)
 	case DepositMethod:
 		if readOnly {
 			return nil, 0, errors.New("cannot call ct precompile from staticcall")
@@ -539,6 +548,76 @@ func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller 
 		rerr = err
 		return
 	}
+	ret, rerr = method.Outputs.Pack(true)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) applyPendingBalance(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := pcommon.ValidateArgsLength(args, 5); err != nil {
+		rerr = err
+		return
+	}
+
+	seiAddr, evmAddr, err := p.getValidAddressesFromString(ctx, args[0].(string))
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	if evmAddr != caller {
+		rerr = errors.New("caller is not the same as the user address")
+		return
+	}
+
+	denom := args[1].(string)
+	if denom == "" {
+		rerr = errors.New("invalid denom")
+		return
+	}
+
+	decryptableBalance := args[2].(string)
+	if decryptableBalance == "" {
+		rerr = errors.New("invalid decryptable balance")
+		return
+	}
+
+	pendingBalanceCreditCounter, ok := args[3].(uint32)
+	if !ok {
+		rerr = errors.New("invalid pendingBalanceCreditCounter")
+		return
+	}
+
+	var availableBalance cttypes.Ciphertext
+	err = availableBalance.Unmarshal(args[4].([]byte))
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	msg := &cttypes.MsgApplyPendingBalance{
+		Address:                        seiAddr.String(),
+		Denom:                          denom,
+		NewDecryptableAvailableBalance: decryptableBalance,
+		CurrentPendingBalanceCounter:   pendingBalanceCreditCounter,
+		CurrentAvailableBalance:        &availableBalance,
+	}
+
+	_, err = p.ctKeeper.ApplyPendingBalance(sdk.WrapSDKContext(ctx), msg)
+	if err != nil {
+		rerr = err
+		return
+	}
+
 	ret, rerr = method.Outputs.Pack(true)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return

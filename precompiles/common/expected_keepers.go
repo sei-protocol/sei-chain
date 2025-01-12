@@ -132,6 +132,7 @@ type ChannelKeeper interface {
 }
 
 type ConfidentialTransfersKeeper interface {
+	ApplyPendingBalance(context.Context, *cttypes.MsgApplyPendingBalance) (*cttypes.MsgApplyPendingBalanceResponse, error)
 	Deposit(context.Context, *cttypes.MsgDeposit) (*cttypes.MsgDepositResponse, error)
 	InitializeAccount(context.Context, *cttypes.MsgInitializeAccount) (*cttypes.MsgInitializeAccountResponse, error)
 	Transfer(goCtx context.Context, req *cttypes.MsgTransfer) (*cttypes.MsgTransferResponse, error)
