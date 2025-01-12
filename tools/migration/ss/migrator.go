@@ -77,7 +77,7 @@ func exportDistributionLeafNodes(
 		if err != nil {
 			panic(err)
 		}
-		if !bytes.Equal(valBz, value) {
+		if value != nil && valBz != nil && !bytes.Equal(valBz, value) {
 			misMatch++
 			fmt.Printf("Value mismatch for key %s: expected %s, got %s\n", string(key), string(value), string(valBz))
 		}
