@@ -67,4 +67,13 @@ interface ICT {
         uint32 pendingBalanceCreditCounter,
         bytes availableBalance,
     ) external returns (bool success);
+
+    function withdraw(
+        string fromAddress,
+        string denom,
+        uint256 amount,
+        string decryptableBalance,
+        bytes remainingBalanceCommitment,
+        bytes proofs
+    ) external returns (bool success);
 }

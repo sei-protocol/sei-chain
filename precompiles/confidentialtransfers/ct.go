@@ -20,6 +20,7 @@ const (
 	ApplyPendingBalanceMethod  = "applyPendingBalance"
 	TransferMethod             = "transfer"
 	TransferWithAuditorsMethod = "transferWithAuditors"
+	WithdrawMethod             = "withdraw"
 )
 
 const (
@@ -41,6 +42,7 @@ type PrecompileExecutor struct {
 	ApplyPendingBalanceID  []byte
 	TransferID             []byte
 	TransferWithAuditorsID []byte
+	WithdrawID             []byte
 }
 
 func NewPrecompile(ctkeeper pcommon.ConfidentialTransfersKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
@@ -64,6 +66,8 @@ func NewPrecompile(ctkeeper pcommon.ConfidentialTransfersKeeper, evmKeeper pcomm
 			p.TransferID = m.ID
 		case TransferWithAuditorsMethod:
 			p.TransferWithAuditorsID = m.ID
+		case WithdrawMethod:
+			p.WithdrawID = m.ID
 		}
 	}
 
@@ -103,6 +107,11 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			return nil, 0, errors.New("cannot call ct precompile from staticcall")
 		}
 		return p.transferWithAuditors(ctx, method, caller, args)
+	case WithdrawMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call ct precompile from staticcall")
+		}
+		return p.withdraw(ctx, method, caller, args)
 	}
 	return
 }
@@ -613,6 +622,84 @@ func (p PrecompileExecutor) applyPendingBalance(ctx sdk.Context, method *abi.Met
 	}
 
 	_, err = p.ctKeeper.ApplyPendingBalance(sdk.WrapSDKContext(ctx), msg)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	ret, rerr = method.Outputs.Pack(true)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) withdraw(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := pcommon.ValidateArgsLength(args, 6); err != nil {
+		rerr = err
+		return
+	}
+
+	seiAddr, evmAddr, err := p.getValidAddressesFromString(ctx, args[0].(string))
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	if evmAddr != caller {
+		rerr = errors.New("caller is not the same as the user address")
+		return
+	}
+
+	denom := args[1].(string)
+	if denom == "" {
+		rerr = errors.New("invalid denom")
+		return
+	}
+
+	amount, ok := args[2].(*big.Int)
+	if !ok {
+		rerr = errors.New("invalid amount")
+		return
+	}
+
+	decryptableBalance := args[3].(string)
+	if decryptableBalance == "" {
+		rerr = errors.New("invalid decryptable balance")
+		return
+	}
+
+	var remainingBalanceCommitment cttypes.Ciphertext
+	err = remainingBalanceCommitment.Unmarshal(args[4].([]byte))
+	if err != nil {
+		rerr = errors.New("invalid remainingBalanceCommitment")
+		return
+	}
+
+	var withdrawProofs cttypes.WithdrawMsgProofs
+	err = withdrawProofs.Unmarshal(args[5].([]byte))
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	msg := &cttypes.MsgWithdraw{
+		FromAddress:                seiAddr.String(),
+		Denom:                      denom,
+		Amount:                     amount.String(),
+		DecryptableBalance:         decryptableBalance,
+		RemainingBalanceCommitment: &remainingBalanceCommitment,
+		Proofs:                     &withdrawProofs,
+	}
+
+	_, err = p.ctKeeper.Withdraw(sdk.WrapSDKContext(ctx), msg)
 	if err != nil {
 		rerr = err
 		return
