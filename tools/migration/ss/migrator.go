@@ -42,15 +42,15 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 	// Goroutine #1: Export distribution leaf nodes into ch
 	go func() {
 		defer close(ch)
-		errCh <- exportDistributionLeafNodes(m.oldStateStore, ch)
+		errCh <- exportDistributionLeafNodes(m.oldStateStore, m.stateStore, ch)
 	}()
 
-	go func() {
-		errCh <- m.stateStore.RawImport(ch)
-	}()
+	// go func() {
+	// 	errCh <- m.stateStore.RawImport(ch)
+	// }()
 
 	// Wait for both goroutines to complete
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 1; i++ {
 		if err := <-errCh; err != nil {
 			return err
 		}
@@ -61,6 +61,7 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 
 func exportDistributionLeafNodes(
 	oldStateStore types.StateStore,
+	newStateStore types.StateStore,
 	ch chan<- types.RawSnapshotNode,
 ) error {
 
@@ -69,14 +70,26 @@ func exportDistributionLeafNodes(
 
 	// RawIterate will scan *all* keys in the "distribution" store.
 	// We'll filter them by version in the callback.
+	var misMatch int
 	stop, err := oldStateStore.RawIterate("distribution", func(key, value []byte, version int64) bool {
 		totalExported++
-		ch <- types.RawSnapshotNode{
-			StoreKey: "distribution",
-			Key:      key,
-			Value:    value,
-			Version:  version,
+		valBz, err := newStateStore.Get("distribution", version, key)
+		if err != nil {
+			panic(err)
 		}
+		if !bytes.Equal(valBz, value) {
+			misMatch++
+			fmt.Printf("Value mismatch for key %s: expected %s, got %s\n", string(key), string(value), string(valBz))
+		}
+		if misMatch > 3 {
+			panic("3 mismatches")
+		}
+		// ch <- types.RawSnapshotNode{
+		// 	StoreKey: "distribution",
+		// 	Key:      key,
+		// 	Value:    value,
+		// 	Version:  version,
+		// }
 
 		// Optional progress logging every 1,000,000 keys:
 		if totalExported%1_000_000 == 0 {
