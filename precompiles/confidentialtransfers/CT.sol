@@ -28,6 +28,7 @@ interface ICT {
         bytes toAmountLo,
         bytes toAmountHi,
         bytes remainingBalance,
+        string decryptableBalance,
         bytes proofs
     ) external returns (bool success);
 
@@ -40,6 +41,7 @@ interface ICT {
         bytes toAmountLo,
         bytes toAmountHi,
         bytes remainingBalance,
+        string decryptableBalance,
         bytes proofs,
         Auditor[] auditors
     ) external returns (bool success);
