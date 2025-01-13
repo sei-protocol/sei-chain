@@ -73,7 +73,7 @@ func exportDistributionLeafNodes(
 	var misMatch int
 	stop, err := oldStateStore.RawIterate("distribution", func(key, value []byte, version int64) bool {
 		totalExported++
-		if totalExported < 45000000 {
+		if totalExported < 4787000000 {
 			return false
 		}
 		valBz, err := newStateStore.Get("distribution", version, key)
