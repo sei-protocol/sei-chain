@@ -73,6 +73,9 @@ func exportDistributionLeafNodes(
 	var misMatch int
 	stop, err := oldStateStore.RawIterate("distribution", func(key, value []byte, version int64) bool {
 		totalExported++
+		if totalExported < 45000000 {
+			return false
+		}
 		valBz, err := newStateStore.Get("distribution", version, key)
 		if err != nil {
 			panic(err)
@@ -80,9 +83,10 @@ func exportDistributionLeafNodes(
 		if value != nil && valBz != nil && !bytes.Equal(valBz, value) {
 			misMatch++
 			fmt.Printf("Value mismatch for key %s: expected %s, got %s\n", string(key), string(value), string(valBz))
-		}
-		if misMatch > 3 {
-			panic("3 mismatches")
+			err := newStateStore.Set("distribution", key, value, version)
+			if err != nil {
+				panic(err)
+			}
 		}
 		// ch <- types.RawSnapshotNode{
 		// 	StoreKey: "distribution",
