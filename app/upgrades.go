@@ -113,6 +113,7 @@ var upgradesList = []string{
 	"v5.9.0",
 	"v6.0.0",
 	"v6.0.1",
+	"v6.0.2",
 }
 
 // if there is an override list, use that instead, for integration tests
@@ -146,6 +147,18 @@ func (app App) RegisterUpgradeHandlers() {
 				params.CommunityTax = sdk.NewDec(0)
 				app.DistrKeeper.SetParams(ctx, params)
 
+				return newVM, err
+			}
+
+			if upgradeName == "v6.0.2" {
+				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
+				if err != nil {
+					return newVM, err
+				}
+
+				cp := app.GetConsensusParams(ctx)
+				cp.Block.MinTxsInBlock = 10
+				app.StoreConsensusParams(ctx, cp)
 				return newVM, err
 			}
 

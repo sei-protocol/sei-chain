@@ -43,10 +43,10 @@ func testGetTxReceipt(t *testing.T, namespace string) {
 	resObj = resObj["result"].(map[string]interface{})
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", resObj["blockHash"].(string))
 	require.Equal(t, "0x8", resObj["blockNumber"].(string))
-	require.Equal(t, "0x7b", resObj["cumulativeGasUsed"].(string))
+	require.Equal(t, "0x7c", resObj["cumulativeGasUsed"].(string))
 	require.Equal(t, "0x174876e800", resObj["effectiveGasPrice"].(string))
 	require.Equal(t, "0x1234567890123456789012345678901234567890", resObj["from"].(string))
-	require.Equal(t, "0x37", resObj["gasUsed"].(string))
+	require.Equal(t, "0x38", resObj["gasUsed"].(string))
 	logs := resObj["logs"].([]interface{})
 	require.Equal(t, 1, len(logs))
 	log := logs[0].(map[string]interface{})
@@ -288,4 +288,19 @@ func TestGetTransactionReceiptFailedTx(t *testing.T) {
 	// For contract creation transaction
 	require.Equal(t, "0x0000000000000000000000000000000000010203", resObj["to"].(string))
 	require.Nil(t, resObj["contractAddress"])
+}
+
+func TestGetTransactionReceiptExcludeTraceFail(t *testing.T) {
+	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_getTransactionReceiptExcludeTraceFail\",\"params\":[\"%s\"],\"id\":\"test\"}", "sei", TestPanicTxHash)
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
+	require.Nil(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	require.Nil(t, err)
+	resBody, err := io.ReadAll(res.Body)
+	require.Nil(t, err)
+	resObj := map[string]interface{}{}
+	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	require.Greater(t, len(resObj["error"].(map[string]interface{})["message"].(string)), 0)
+	require.Nil(t, resObj["result"])
 }

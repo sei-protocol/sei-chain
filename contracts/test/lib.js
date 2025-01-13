@@ -287,14 +287,14 @@ async function instantiateWasm(codeId, adminAddr, label, args = {}, from=adminKe
     return getEventAttribute(response, "instantiate", "_contract_address");
 }
 
-async function proposeCW20toERC20Upgrade(erc20Address, cw20Address, title="erc20-pointer", version=99, description="erc20 pointer",fees="20000usei", from=adminKeyName) {
+async function proposeCW20toERC20Upgrade(erc20Address, cw20Address, title="erc20-pointer", version=99, description="erc20 pointer",fees="200000usei", from=adminKeyName) {
     const command = `seid tx evm add-cw-erc20-pointer "${title}" "${description}" ${erc20Address} ${version} 200000000usei ${cw20Address} --from ${from} --fees ${fees} -y -o json --broadcast-mode=block`
     const output = await execute(command);
     const proposalId = getEventAttribute(JSON.parse(output), "submit_proposal", "proposal_id")
     return await passProposal(proposalId)
 }
 
-async function passProposal(proposalId,  desposit="200000000usei", fees="20000usei", from=adminKeyName) {
+async function passProposal(proposalId,  desposit="200000000usei", fees="200000usei", from=adminKeyName) {
     if(await isDocker()) {
         await executeOnAllNodes(`seid tx gov vote ${proposalId} yes --from node_admin -b block -y --fees ${fees}`)
     } else {
@@ -330,7 +330,6 @@ async function registerPointerForERC721(erc721Address, fees="20000usei", from=ad
     }
     return getEventAttribute(response, "pointer_registered", "pointer_address")
 }
-
 
 async function getSeiAddress(evmAddress) {
     const command = `seid q evm sei-addr ${evmAddress} -o json`

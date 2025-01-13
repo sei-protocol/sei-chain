@@ -365,7 +365,6 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 			tracers.TraceBlockReward(ctx, evmHooks, am.keeper.BankKeeper(), evmModuleAddress, evmModuleAddressETH, surplusUsei, surplusWei)
 		}
 	}
-	am.keeper.SetTxHashesOnHeight(ctx, ctx.BlockHeight(), utils.Filter(utils.Map(evmTxDeferredInfoList, func(i *types.DeferredInfo) common.Hash { return common.BytesToHash(i.TxHash) }), func(h common.Hash) bool { return h.Cmp(ethtypes.EmptyTxsHash) != 0 }))
 	am.keeper.SetBlockBloom(ctx, utils.Map(evmTxDeferredInfoList, func(i *types.DeferredInfo) ethtypes.Bloom { return ethtypes.BytesToBloom(i.TxBloom) }))
 	return []abci.ValidatorUpdate{}
 }

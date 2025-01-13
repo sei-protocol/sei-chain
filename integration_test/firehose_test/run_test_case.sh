@@ -48,6 +48,8 @@ main() {
             reader-node,relayer,merger,firehose \
             -c '' \
             -d "$data_dir" \
+            --advertise-chain-name=battlefield \
+            --ignore-advertise-validation \
             --common-first-streamable-block=1 \
             --reader-node-path="$seid" \
             --reader-node-arguments="$seid_args" \
@@ -85,13 +87,13 @@ cleanup() {
 wait_for_firehose_ready() {
     firehose_log="$1"
 
-    for i in {1..8}; do
+    for i in {1..10}; do
         if grep -q '(firehose) launching gRPC server' "$firehose_log"; then
             break
         fi
 
-        if [[ $i -eq 8 ]]; then
-            >&2 echo "The 'fireeth' instance did not start within ~30s which is not expected."
+        if [[ $i -eq 10 ]]; then
+            >&2 echo "The 'fireeth' instance did not start within ~45s which is not expected."
             >&2 echo ""
             show_logs_preview "$firehose_log"
             kill -s TERM $TOP_PID

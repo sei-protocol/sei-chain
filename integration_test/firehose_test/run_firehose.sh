@@ -27,6 +27,8 @@ main() {
         reader-node,relayer,merger,firehose \
         -c '' \
         -d "$data_dir" \
+        --advertise-chain-name=battlefield \
+        --ignore-advertise-validation \
         --common-first-streamable-block=1 \
         --reader-node-path="$seid" \
         --reader-node-arguments="$seid_args" \

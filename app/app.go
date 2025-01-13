@@ -541,11 +541,6 @@ func New(
 	).SetHooks(epochmoduletypes.NewMultiEpochHooks(
 		app.MintKeeper.Hooks()))
 
-	tokenFactoryConfig, err := tokenfactorykeeper.ReadConfig(appOpts)
-	if err != nil {
-		panic(fmt.Sprintf("error reading token factory config due to %s", err))
-	}
-
 	app.TokenFactoryKeeper = tokenfactorykeeper.NewKeeper(
 		appCodec,
 		app.keys[tokenfactorytypes.StoreKey],
@@ -553,7 +548,6 @@ func New(
 		app.AccountKeeper,
 		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
 		app.DistrKeeper,
-		tokenFactoryConfig,
 	)
 
 	// The last arguments can contain custom message handlers, and custom query handlers,
@@ -1745,8 +1739,9 @@ func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, tx
 		}),
 		ConsensusParamUpdates: &tmproto.ConsensusParams{
 			Block: &tmproto.BlockParams{
-				MaxBytes: endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
-				MaxGas:   endBlockResp.ConsensusParamUpdates.Block.MaxGas,
+				MaxBytes:      endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
+				MaxGas:        endBlockResp.ConsensusParamUpdates.Block.MaxGas,
+				MinTxsInBlock: endBlockResp.ConsensusParamUpdates.Block.MinTxsInBlock,
 			},
 			Evidence: &tmproto.EvidenceParams{
 				MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,
@@ -1873,7 +1868,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 		return ctx.WithIsEVM(true)
 	}
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, ctxProvider, app.encodingConfig.TxConfig, DefaultNodeHome)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, ctxProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil)
 		if err != nil {
 			panic(err)
 		}
@@ -1906,6 +1901,7 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 
 func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 	totalGasWanted := uint64(0)
+	nonzeroTxsCnt := 0
 	for _, tx := range txs {
 		decodedTx, err := app.txDecoder(tx)
 		if err != nil {
@@ -1950,10 +1946,16 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 			return false
 		}
 
+		if gasWanted > 0 {
+			nonzeroTxsCnt++
+		}
+
 		totalGasWanted += gasWanted
 		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGas) {
-			// early return
-			return false
+			if nonzeroTxsCnt > int(ctx.ConsensusParams().Block.MinTxsInBlock) {
+				// early return
+				return false
+			}
 		}
 	}
 	return true
