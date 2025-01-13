@@ -70,23 +70,16 @@ func exportDistributionLeafNodes(
 
 	// RawIterate will scan *all* keys in the "distribution" store.
 	// We'll filter them by version in the callback.
-	var misMatch int
+	// var misMatch int
 	stop, err := oldStateStore.RawIterate("distribution", func(key, value []byte, version int64) bool {
 		totalExported++
-		if totalExported < 4787000000 {
-			return false
-		}
 		valBz, err := newStateStore.Get("distribution", version, key)
 		if err != nil {
 			panic(err)
 		}
 		if value != nil && valBz != nil && !bytes.Equal(valBz, value) {
-			misMatch++
-			fmt.Printf("Value mismatch for key %s: expected %s, got %s\n", string(key), string(value), string(valBz))
-			err := newStateStore.Set("distribution", key, value, version)
-			if err != nil {
-				panic(err)
-			}
+			// misMatch++
+			panic(fmt.Errorf("Value mismatch for key %s: expected %s, got %s\n", string(key), string(value), string(valBz)))
 		}
 		// ch <- types.RawSnapshotNode{
 		// 	StoreKey: "distribution",
