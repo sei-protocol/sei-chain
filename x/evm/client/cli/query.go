@@ -603,7 +603,6 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 	}
 
 	inputArgs := []interface{}{
-		fromSeiAddress,
 		toSeiAddress,
 		coin.Denom,
 		fromAmountLo,

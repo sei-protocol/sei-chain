@@ -20,7 +20,6 @@ interface ICT {
     ) external returns (bool success);
 
     function transfer(
-        string fromAddress,
         string toAddress,
         string denom,
         bytes fromAmountLo,
@@ -32,7 +31,6 @@ interface ICT {
     ) external returns (bool success);
 
     function transferWithAuditors(
-        string fromAddress,
         string toAddress,
         string denom,
         bytes fromAmountLo,
@@ -54,8 +52,8 @@ interface ICT {
         bytes transferAmountHiEqualityProof;
     }
 
+    // for usei denom amount should be treated as 6 decimal instead of 19 decimal
     function deposit(
-        string fromAddress,
         string denom,
         uint64 amount
     ) external returns (bool success);
