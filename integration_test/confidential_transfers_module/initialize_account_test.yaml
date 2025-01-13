@@ -59,3 +59,39 @@
     # Verify that the account initialization was unsuccessful
     - type: eval
       expr: INIT_ACCOUNT_CODE == 18
+
+- name: Test initializing confidential token account via precompile
+  inputs:
+    # Setup test account
+    - cmd: printf "12345678\n" | seid keys add ctpr
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a ctpr
+      env: TEST_PRECOMPILE_ADDR
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_PRECOMPILE_ADDR 10sei -b block --fees 2000usei --chain-id sei -y
+
+    - cmd: |
+        printf "12345678\n" | seid tx evm call-contract --from ctpr --fees=40000usei --gas=2000000 0x0000000000000000000000000000000000001010 -b block "$(printf "12345678\n" | seid q evm ct-init-account-payload precompiles/confidentialtransfers/abi.json "${TEST_PRECOMPILE_ADDR}" usei)" | sed "s/.*: //"
+      env: TX_HASH
+    - cmd: sleep 2
+    # Query the Cosmos tx hash
+    - cmd: |
+        curl --location --request GET "localhost:8545/" --header "Content-Type: application/json" --data "{\"jsonrpc\":\"2.0\",\"method\":\"sei_getCosmosTx\",\"params\":[\"$TX_HASH\"],\"id\":788}" | jq -r ".result"
+      env: COSMOS_TX_HASH
+
+    # Query the Cosmos tx result
+    - cmd: seid q tx $COSMOS_TX_HASH --output json | jq -r ".code"
+      env: COSMOS_TX_RESULT
+
+    # Query the account to verify it was set up
+    - cmd: seid q ct account usei $TEST_PRECOMPILE_ADDR --output json | jq -r ".pending_balance_credit_counter"
+      env: ACCOUNT_PENDING_BALANCE_COUNTER
+
+  verifiers:
+    # Verify that the account initialization was successful
+    - type: eval
+      expr: COSMOS_TX_RESULT == 0
+
+    # Verify that the account exists
+    - type: eval
+      expr: ACCOUNT_PENDING_BALANCE_COUNTER == 0
