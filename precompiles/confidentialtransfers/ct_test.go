@@ -1064,8 +1064,8 @@ func TestPrecompileAccount_Execute(t *testing.T) {
 
 	k.SetAddressMapping(ctx, userAddr, userEVMAddr)
 
-	//notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
-	//_, notAssociatedEVMAddr := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
+	notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
+	_, notAssociatedEVMAddr := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
 
 	otherUserPrivateKey := testkeeper.MockPrivateKey()
 	otherUserAddr, otherUserEVMAddr := testkeeper.PrivateKeyToAddresses(otherUserPrivateKey)
@@ -1111,7 +1111,6 @@ func TestPrecompileAccount_Execute(t *testing.T) {
 	}
 
 	type args struct {
-		caller             common.Address
 		isReadOnly         bool
 		isFromDelegateCall bool
 		value              *big.Int
@@ -1128,11 +1127,115 @@ func TestPrecompileAccount_Execute(t *testing.T) {
 		{
 			name: "precompile should return abi-encoded account if input is valid",
 			args: args{
-				caller: userEVMAddr,
+				isReadOnly: true,
 			},
 			wantRet:          expectedResponse,
 			wantRemainingGas: 0x1e7908,
 			wantErr:          false,
+		},
+		{
+			name: "precompile should return abi-encoded account if input is valid and EVM address is used",
+			args: args{
+				isReadOnly: true,
+				setUp: func(in inputs) inputs {
+					in.Account = userEVMAddr.String()
+					return in
+				},
+			},
+			wantRet:          expectedResponse,
+			wantRemainingGas: 0x1e74a5,
+			wantErr:          false,
+		},
+		{
+			name: "precompile should return abi-encoded account if input is valid and the call is not read-only",
+			args: args{
+				isReadOnly: false,
+			},
+			wantRet:          expectedResponse,
+			wantRemainingGas: 0x1e7908,
+			wantErr:          false,
+		},
+		{
+			name: "precompile should return error if account not found",
+			args: args{
+				isReadOnly: true,
+				setUp: func(in inputs) inputs {
+					in.Account = otherUserAddr.String()
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "account not found",
+		},
+		{
+			name: "precompile should return error if address is empty",
+			args: args{
+				isReadOnly: true,
+				setUp: func(in inputs) inputs {
+					in.Account = ""
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid address",
+		},
+		{
+			name: "precompile should return error if address is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.Account = "invalid"
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid address invalid: decoding bech32 failed: invalid bech32 string length 7",
+		},
+		{
+			name: "precompile should return error if address is not associated",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.Account = notAssociatedEVMAddr.String()
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedEVMAddr.String()),
+		},
+		{
+			name: "precompile should return error if denom is empty",
+			args: args{
+				isReadOnly: true,
+				setUp: func(in inputs) inputs {
+					in.Denom = ""
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid denom",
+		},
+		{
+			name: "precompile should return error if denom is invalid",
+			args: args{
+				isReadOnly: true,
+				setUp: func(in inputs) inputs {
+					in.Denom = "invalid"
+					return in
+				},
+			},
+			wantErr:    true,
+			wantErrMsg: "account not found",
+		},
+		{
+			name:       "precompile should return error if called from delegate call",
+			args:       args{isFromDelegateCall: true},
+			wantErr:    true,
+			wantErrMsg: "cannot delegatecall ct",
+		},
+		{
+			name:       "precompile should return error if value is not nil",
+			args:       args{value: big.NewInt(100)},
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
 		},
 	}
 	for _, tt := range tests {
@@ -1150,7 +1253,7 @@ func TestPrecompileAccount_Execute(t *testing.T) {
 
 			resp, remainingGas, err := p.RunAndCalculateGas(
 				&evm,
-				tt.args.caller,
+				common.Address{},
 				common.Address{},
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).AccountID, inputArgs...),
 				2000000,

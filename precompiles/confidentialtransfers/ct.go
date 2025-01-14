@@ -105,7 +105,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		}
 		return p.transferWithAuditors(ctx, method, caller, args)
 	case AccountMethod:
-		return p.account(ctx, method, caller, args)
+		return p.account(ctx, method, args)
 	}
 	return
 }
@@ -552,7 +552,7 @@ type CtAccount struct {
 	DecryptableAvailableBalance string
 }
 
-func (p PrecompileExecutor) account(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) account(ctx sdk.Context, method *abi.Method, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
