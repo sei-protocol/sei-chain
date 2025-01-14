@@ -19,6 +19,7 @@ const (
 	DepositMethod              = "deposit"
 	TransferMethod             = "transfer"
 	TransferWithAuditorsMethod = "transferWithAuditors"
+	AccountMethod              = "account"
 )
 
 const (
@@ -31,23 +32,30 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	evmKeeper pcommon.EVMKeeper
-	ctKeeper  pcommon.ConfidentialTransfersKeeper
-	address   common.Address
+	evmKeeper    pcommon.EVMKeeper
+	ctViewKeeper pcommon.ConfidentialTransfersViewKeeper
+	ctKeeper     pcommon.ConfidentialTransfersKeeper
+	address      common.Address
 
 	InitializeAccountID    []byte
 	DepositID              []byte
 	TransferID             []byte
 	TransferWithAuditorsID []byte
+	AccountID              []byte
 }
 
-func NewPrecompile(ctkeeper pcommon.ConfidentialTransfersKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
+func NewPrecompile(
+	ctViewKeeper pcommon.ConfidentialTransfersViewKeeper,
+	ctKeeper pcommon.ConfidentialTransfersKeeper,
+	evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
+
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		evmKeeper: evmKeeper,
-		ctKeeper:  ctkeeper,
-		address:   common.HexToAddress(CtAddress),
+		evmKeeper:    evmKeeper,
+		ctViewKeeper: ctViewKeeper,
+		ctKeeper:     ctKeeper,
+		address:      common.HexToAddress(CtAddress),
 	}
 
 	for name, m := range newAbi.Methods {
@@ -60,6 +68,8 @@ func NewPrecompile(ctkeeper pcommon.ConfidentialTransfersKeeper, evmKeeper pcomm
 			p.TransferID = m.ID
 		case TransferWithAuditorsMethod:
 			p.TransferWithAuditorsID = m.ID
+		case AccountMethod:
+			p.AccountID = m.ID
 		}
 	}
 
@@ -94,6 +104,8 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			return nil, 0, errors.New("cannot call ct precompile from staticcall")
 		}
 		return p.transferWithAuditors(ctx, method, caller, args)
+	case AccountMethod:
+		return p.account(ctx, method, caller, args)
 	}
 	return
 }
@@ -527,6 +539,87 @@ func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller 
 		return
 	}
 	ret, rerr = method.Outputs.Pack(true)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+type CtAccount struct {
+	PublicKey                   []byte
+	PendingBalanceLo            []byte
+	PendingBalanceHi            []byte
+	PendingBalanceCreditCounter uint32
+	AvailableBalance            []byte
+	DecryptableAvailableBalance string
+}
+
+func (p PrecompileExecutor) account(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		rerr = err
+		return
+	}
+
+	addrString, ok := (args[0]).(string)
+	if !ok || addrString == "" {
+		rerr = errors.New("invalid address")
+		return
+	}
+
+	seiAddr, err := p.getValidSeiAddressFromString(ctx, addrString)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	denom, ok := args[1].(string)
+	if !ok || denom == "" {
+		rerr = errors.New("invalid denom")
+		return
+	}
+
+	account, found := p.ctViewKeeper.GetAccount(ctx, seiAddr.String(), denom)
+	if !found {
+		rerr = errors.New("account not found")
+		return
+	}
+
+	accountProto := cttypes.NewCtAccount(&account)
+	pendingBalanceLo, err := accountProto.PendingBalanceLo.Marshal()
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	pendingBalanceHi, err := accountProto.PendingBalanceHi.Marshal()
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	availableBalance, err := accountProto.AvailableBalance.Marshal()
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	ctAccount := &CtAccount{
+		PublicKey:                   accountProto.PublicKey,
+		PendingBalanceLo:            pendingBalanceLo,
+		PendingBalanceHi:            pendingBalanceHi,
+		PendingBalanceCreditCounter: accountProto.PendingBalanceCreditCounter,
+		AvailableBalance:            availableBalance,
+		DecryptableAvailableBalance: accountProto.DecryptableAvailableBalance,
+	}
+
+	ret, rerr = method.Outputs.Pack(ctAccount)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }

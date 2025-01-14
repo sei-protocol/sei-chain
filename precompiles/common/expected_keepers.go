@@ -136,3 +136,7 @@ type ConfidentialTransfersKeeper interface {
 	InitializeAccount(context.Context, *cttypes.MsgInitializeAccount) (*cttypes.MsgInitializeAccountResponse, error)
 	Transfer(goCtx context.Context, req *cttypes.MsgTransfer) (*cttypes.MsgTransferResponse, error)
 }
+
+type ConfidentialTransfersViewKeeper interface {
+	GetAccount(ctx sdk.Context, address string, denom string) (cttypes.Account, bool)
+}

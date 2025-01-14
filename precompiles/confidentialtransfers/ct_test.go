@@ -25,7 +25,7 @@ import (
 )
 
 func TestPrecompileTransfer_Execute(t *testing.T) {
-	transferPrecompile, _ := confidentialtransfers.NewPrecompile(nil, nil)
+	transferPrecompile, _ := confidentialtransfers.NewPrecompile(nil, nil, nil)
 	transferMethod, _ := transferPrecompile.ABI.MethodById(transferPrecompile.GetExecutor().(*confidentialtransfers.PrecompileExecutor).TransferID)
 	expectedTrueResponse, _ := transferMethod.Outputs.Pack(true)
 	var senderAddr, receiverAddr, otherSenderAddr sdk.AccAddress
@@ -244,9 +244,11 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 		err = ctKeeper.SetAccount(ctx, senderAddr.String(), testDenom, senderAccount)
 		require.NoError(t, err)
 
-		receiverAddr, receiverEVMAddr, receiverPubKey, err = setUpCtAccount(k, ctx, testDenom)
+		var account *cttypes.Account
+		receiverAddr, receiverEVMAddr, account, err = setUpCtAccount(k, ctx, testDenom)
 		require.NoError(t, err)
-		p, err := confidentialtransfers.NewPrecompile(ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
+		receiverPubKey = &account.PublicKey
+		p, err := confidentialtransfers.NewPrecompile(k.CtKeeper(), ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
 		require.Nil(t, err)
 		statedb := state.NewDBImpl(ctx, k, true)
 		evm := vm.EVM{
@@ -329,7 +331,7 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 
 func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 	var auditorOneAddr, auditorTwoAddr sdk.AccAddress
-	transferPrecompile, _ := confidentialtransfers.NewPrecompile(nil, nil)
+	transferPrecompile, _ := confidentialtransfers.NewPrecompile(nil, nil, nil)
 	transferMethod, _ := transferPrecompile.ABI.MethodById(transferPrecompile.GetExecutor().(*confidentialtransfers.PrecompileExecutor).TransferID)
 	expectedTrueResponse, _ := transferMethod.Outputs.Pack(true)
 
@@ -516,9 +518,11 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 		err = ctKeeper.SetAccount(ctx, senderAddr.String(), testDenom, senderAccount)
 		require.NoError(t, err)
 
-		receiverAddr, receiverEVMAddr, receiverPubKey, err := setUpCtAccount(k, ctx, testDenom)
+		var receiverAccount *cttypes.Account
+		receiverAddr, receiverEVMAddr, receiverAccount, err := setUpCtAccount(k, ctx, testDenom)
+		require.NoError(t, err)
 
-		p, err := confidentialtransfers.NewPrecompile(ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
+		p, err := confidentialtransfers.NewPrecompile(k.CtKeeper(), ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
 		require.Nil(t, err)
 		statedb := state.NewDBImpl(ctx, k, true)
 		evm := vm.EVM{
@@ -526,8 +530,13 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 			TxContext: vm.TxContext{Origin: senderEVMAddr},
 		}
 		var auditorOenPubKey, auditorTwoPubKey *curves.Point
-		auditorOneAddr, _, auditorOenPubKey, err = setUpCtAccount(k, ctx, testDenom)
-		auditorTwoAddr, _, auditorTwoPubKey, err = setUpCtAccount(k, ctx, testDenom)
+		var auditorOneAccount, auditorTwoAccount *cttypes.Account
+		auditorOneAddr, _, auditorOneAccount, err = setUpCtAccount(k, ctx, testDenom)
+		require.NoError(t, err)
+		auditorTwoAddr, _, auditorTwoAccount, err = setUpCtAccount(k, ctx, testDenom)
+		require.NoError(t, err)
+		auditorOenPubKey = &auditorOneAccount.PublicKey
+		auditorTwoPubKey = &auditorTwoAccount.PublicKey
 
 		transferWithAuditorsMethod, err :=
 			p.ABI.MethodById(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).TransferWithAuditorsID)
@@ -552,7 +561,7 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 			senderAccount.DecryptableAvailableBalance,
 			senderAccount.AvailableBalance,
 			100,
-			receiverPubKey,
+			&receiverAccount.PublicKey,
 			auditorsInput)
 
 		trProto := cttypes.NewMsgTransferProto(tr)
@@ -639,7 +648,7 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 	}
 }
 
-func setUpCtAccount(k *evmkeeper.Keeper, ctx sdk.Context, testDenom string) (sdk.AccAddress, common.Address, *curves.Point, error) {
+func setUpCtAccount(k *evmkeeper.Keeper, ctx sdk.Context, testDenom string) (sdk.AccAddress, common.Address, *cttypes.Account, error) {
 	privateKey := testkeeper.MockPrivateKey()
 	addr, EVMAddr := testkeeper.PrivateKeyToAddresses(privateKey)
 	k.SetAddressMapping(ctx, addr, EVMAddr)
@@ -649,7 +658,7 @@ func setUpCtAccount(k *evmkeeper.Keeper, ctx sdk.Context, testDenom string) (sdk
 	if err != nil {
 		return nil, common.Address{}, nil, err
 	}
-	account := cttypes.Account{
+	account := &cttypes.Account{
 		PublicKey:                   *initializeAccount.Pubkey,
 		PendingBalanceLo:            initializeAccount.PendingBalanceLo,
 		PendingBalanceHi:            initializeAccount.PendingBalanceHi,
@@ -657,11 +666,11 @@ func setUpCtAccount(k *evmkeeper.Keeper, ctx sdk.Context, testDenom string) (sdk
 		AvailableBalance:            initializeAccount.AvailableBalance,
 		DecryptableAvailableBalance: initializeAccount.DecryptableBalance,
 	}
-	err = k.CtKeeper().SetAccount(ctx, addr.String(), testDenom, account)
+	err = k.CtKeeper().SetAccount(ctx, addr.String(), testDenom, *account)
 	if err != nil {
 		return nil, common.Address{}, nil, err
 	}
-	return addr, EVMAddr, initializeAccount.Pubkey, nil
+	return addr, EVMAddr, account, nil
 }
 
 func TestPrecompileInitializeAccount_Execute(t *testing.T) {
@@ -692,7 +701,7 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 		TxContext: vm.TxContext{Origin: userEVMAddr},
 	}
 
-	p, err := confidentialtransfers.NewPrecompile(ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
+	p, err := confidentialtransfers.NewPrecompile(k.CtKeeper(), ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
 	require.Nil(t, err)
 
 	initAccount, err := cttypes.NewInitializeAccount(
@@ -939,7 +948,7 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 
 	require.NoError(t, err)
 
-	p, err := confidentialtransfers.NewPrecompile(ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
+	p, err := confidentialtransfers.NewPrecompile(k.CtKeeper(), ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
 	require.Nil(t, err)
 	DepositMethod, _ := p.ABI.MethodById(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).DepositID)
 	expectedTrueResponse, _ := DepositMethod.Outputs.Pack(true)
@@ -1027,6 +1036,123 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 				tt.args.caller,
 				common.Address{},
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).DepositID, inputArgs...),
+				2000000,
+				tt.args.value,
+				nil,
+				tt.args.isReadOnly,
+				tt.args.isFromDelegateCall)
+			if tt.wantErr {
+				require.NotNil(t, err)
+				require.Equal(t, tt.wantErrMsg, string(resp))
+				return
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.wantRet, resp)
+				require.Equal(t, tt.wantRemainingGas, remainingGas)
+			}
+		})
+	}
+}
+
+func TestPrecompileAccount_Execute(t *testing.T) {
+	testDenom := "usei"
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	userAddr, userEVMAddr, account, _ := setUpCtAccount(k, ctx, testDenom)
+
+	k.SetAddressMapping(ctx, userAddr, userEVMAddr)
+
+	//notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
+	//_, notAssociatedEVMAddr := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
+
+	otherUserPrivateKey := testkeeper.MockPrivateKey()
+	otherUserAddr, otherUserEVMAddr := testkeeper.PrivateKeyToAddresses(otherUserPrivateKey)
+	k.SetAddressMapping(ctx, otherUserAddr, otherUserEVMAddr)
+
+	err := k.BankKeeper().MintCoins(
+		ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
+	require.Nil(t, err)
+	err = k.BankKeeper().SendCoinsFromModuleToAccount(
+		ctx, types.ModuleName, userAddr, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
+	require.Nil(t, err)
+
+	statedb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{
+		StateDB:   statedb,
+		TxContext: vm.TxContext{Origin: userEVMAddr},
+	}
+
+	require.NoError(t, err)
+
+	p, err := confidentialtransfers.NewPrecompile(k.CtKeeper(), ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
+	require.Nil(t, err)
+	AccountMethod, _ := p.ABI.MethodById(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).AccountID)
+	accountProto := cttypes.NewCtAccount(account)
+	pendingBalanceLo, _ := accountProto.PendingBalanceLo.Marshal()
+	pendingBalanceHi, _ := accountProto.PendingBalanceHi.Marshal()
+	availableBalance, _ := accountProto.AvailableBalance.Marshal()
+
+	ctAccount := &confidentialtransfers.CtAccount{
+		PublicKey:                   accountProto.PublicKey,
+		PendingBalanceLo:            pendingBalanceLo,
+		PendingBalanceHi:            pendingBalanceHi,
+		PendingBalanceCreditCounter: accountProto.PendingBalanceCreditCounter,
+		AvailableBalance:            availableBalance,
+		DecryptableAvailableBalance: accountProto.DecryptableAvailableBalance,
+	}
+
+	expectedResponse, _ := AccountMethod.Outputs.Pack(ctAccount)
+
+	type inputs struct {
+		Account string
+		Denom   string
+	}
+
+	type args struct {
+		caller             common.Address
+		isReadOnly         bool
+		isFromDelegateCall bool
+		value              *big.Int
+		setUp              func(in inputs) inputs
+	}
+	tests := []struct {
+		name             string
+		args             args
+		wantRet          []byte
+		wantRemainingGas uint64
+		wantErr          bool
+		wantErrMsg       string
+	}{
+		{
+			name: "precompile should return abi-encoded account if input is valid",
+			args: args{
+				caller: userEVMAddr,
+			},
+			wantRet:          expectedResponse,
+			wantRemainingGas: 0x1e7908,
+			wantErr:          false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := inputs{
+				Account: userAddr.String(),
+				Denom:   testDenom,
+			}
+			if tt.args.setUp != nil {
+				in = tt.args.setUp(in)
+			}
+
+			inputArgs, err := AccountMethod.Inputs.Pack(in.Account, in.Denom)
+			require.Nil(t, err)
+
+			resp, remainingGas, err := p.RunAndCalculateGas(
+				&evm,
+				tt.args.caller,
+				common.Address{},
+				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).AccountID, inputArgs...),
 				2000000,
 				tt.args.value,
 				nil,
