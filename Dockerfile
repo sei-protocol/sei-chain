@@ -19,7 +19,12 @@ WORKDIR /code
 ADD go.mod go.sum ./
 RUN set -eux; \
     export ARCH=$(uname -m); \
-    WASM_VERSION=$(go list -m all | grep github.com/CosmWasm/wasmvm | awk '{print $2}'); \
+    # Currently github.com/CosmWasm/wasmvm is being overriden by github.com/sei-protocol/sei-wasmvm
+    # (see go.mod). However the rust precompiles are still fetched from the upstream repository.
+    # Here we assume that the sei-wasm release version is prefixed with the wasmvm release version
+    # with the matching precompiles. Therefore, to compute the download url, we just strip the suffix
+    # of the sei-wasm release version.
+    WASM_VERSION=$(go list -f {{.Replace.Version}} -m github.com/CosmWasm/wasmvm | sed s/-.*//); \
     if [ ! -z "${WASM_VERSION}" ]; then \
       wget -O /lib/libwasmvm_muslc.a https://github.com/CosmWasm/wasmvm/releases/download/${WASM_VERSION}/libwasmvm_muslc.${ARCH}.a; \
     fi; \
