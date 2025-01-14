@@ -572,49 +572,44 @@ func (p PrecompileExecutor) applyPendingBalance(ctx sdk.Context, method *abi.Met
 		}
 	}()
 
-	if err := pcommon.ValidateArgsLength(args, 5); err != nil {
+	if err := pcommon.ValidateArgsLength(args, 4); err != nil {
 		rerr = err
 		return
 	}
 
-	seiAddr, evmAddr, err := p.getValidAddressesFromString(ctx, args[0].(string))
+	fromAddr, _, err := p.getAssociatedAddressesByEVMAddress(ctx, caller)
 	if err != nil {
 		rerr = err
 		return
 	}
 
-	if evmAddr != caller {
-		rerr = errors.New("caller is not the same as the user address")
-		return
-	}
-
-	denom := args[1].(string)
+	denom := args[0].(string)
 	if denom == "" {
 		rerr = errors.New("invalid denom")
 		return
 	}
 
-	decryptableBalance := args[2].(string)
+	decryptableBalance := args[1].(string)
 	if decryptableBalance == "" {
 		rerr = errors.New("invalid decryptable balance")
 		return
 	}
 
-	pendingBalanceCreditCounter, ok := args[3].(uint32)
+	pendingBalanceCreditCounter, ok := args[2].(uint32)
 	if !ok {
 		rerr = errors.New("invalid pendingBalanceCreditCounter")
 		return
 	}
 
 	var availableBalance cttypes.Ciphertext
-	err = availableBalance.Unmarshal(args[4].([]byte))
+	err = availableBalance.Unmarshal(args[3].([]byte))
 	if err != nil {
 		rerr = err
 		return
 	}
 
 	msg := &cttypes.MsgApplyPendingBalance{
-		Address:                        seiAddr.String(),
+		Address:                        fromAddr.String(),
 		Denom:                          denom,
 		NewDecryptableAvailableBalance: decryptableBalance,
 		CurrentPendingBalanceCounter:   pendingBalanceCreditCounter,
@@ -642,56 +637,51 @@ func (p PrecompileExecutor) withdraw(ctx sdk.Context, method *abi.Method, caller
 		}
 	}()
 
-	if err := pcommon.ValidateArgsLength(args, 6); err != nil {
+	if err := pcommon.ValidateArgsLength(args, 5); err != nil {
 		rerr = err
 		return
 	}
 
-	seiAddr, evmAddr, err := p.getValidAddressesFromString(ctx, args[0].(string))
+	fromAddr, _, err := p.getAssociatedAddressesByEVMAddress(ctx, caller)
 	if err != nil {
 		rerr = err
 		return
 	}
 
-	if evmAddr != caller {
-		rerr = errors.New("caller is not the same as the user address")
-		return
-	}
-
-	denom := args[1].(string)
+	denom := args[0].(string)
 	if denom == "" {
 		rerr = errors.New("invalid denom")
 		return
 	}
 
-	amount, ok := args[2].(*big.Int)
+	amount, ok := args[1].(*big.Int)
 	if !ok {
 		rerr = errors.New("invalid amount")
 		return
 	}
 
-	decryptableBalance := args[3].(string)
+	decryptableBalance := args[2].(string)
 	if decryptableBalance == "" {
 		rerr = errors.New("invalid decryptable balance")
 		return
 	}
 
 	var remainingBalanceCommitment cttypes.Ciphertext
-	err = remainingBalanceCommitment.Unmarshal(args[4].([]byte))
+	err = remainingBalanceCommitment.Unmarshal(args[3].([]byte))
 	if err != nil {
 		rerr = errors.New("invalid remainingBalanceCommitment")
 		return
 	}
 
 	var withdrawProofs cttypes.WithdrawMsgProofs
-	err = withdrawProofs.Unmarshal(args[5].([]byte))
+	err = withdrawProofs.Unmarshal(args[4].([]byte))
 	if err != nil {
 		rerr = err
 		return
 	}
 
 	msg := &cttypes.MsgWithdraw{
-		FromAddress:                seiAddr.String(),
+		FromAddress:                fromAddr.String(),
 		Denom:                      denom,
 		Amount:                     amount.String(),
 		DecryptableBalance:         decryptableBalance,

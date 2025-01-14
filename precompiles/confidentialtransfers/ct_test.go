@@ -1104,9 +1104,10 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 	expectedTrueResponse, _ := ApplyPendingBalanceMethod.Outputs.Pack(true)
 	var senderAddr, otherAddr sdk.AccAddress
 	var senderEVMAddr, otherEVMAddr common.Address
+	notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
+	_, notAssociatedEVMAddr := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
 
 	type inputs struct {
-		senderAddr            string
 		Denom                 string
 		pendingBalanceCounter uint32
 		availableBalance      []byte
@@ -1118,6 +1119,7 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 		isFromDelegateCall bool
 		value              *big.Int
 		setUp              func(in inputs) inputs
+		caller             *common.Address
 	}
 	tests := []struct {
 		name             string
@@ -1128,41 +1130,28 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 		wantErrMsg       string
 	}{
 		{
-			name:             "precompile should return true if input is valid",
+			name: "precompile should return true if input is valid",
+			args: args{
+				caller: &senderEVMAddr,
+			},
 			wantRet:          expectedTrueResponse,
 			wantRemainingGas: 0x1e43df,
 			wantErr:          false,
 		},
+		// Technically this is possible, although both accounts would have to have the same pendingBalanceCreditCounter and AvailableBalance, which is highly improbable.
 		{
-			name: "precompile should return true if input is valid and sender is Sei address",
-			args: args{setUp: func(in inputs) inputs {
-				in.senderAddr = senderAddr.String()
-				return in
-			}},
-			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0x1e43df,
-			wantErr:          false,
-		},
-		{
-			name: "precompile should return error if address is empty",
+			name: "precompile should return error if calldata was not created by the sender",
 			args: args{
-				setUp: func(in inputs) inputs {
-					in.senderAddr = ""
-					return in
-				}},
-			wantErr:    true,
-			wantErrMsg: "invalid address : empty address string is not allowed",
-		},
-		{
-			name: "precompile should return error if caller is not the sender",
-			args: args{
-				setUp: func(in inputs) inputs {
-					in.senderAddr = otherEVMAddr.String()
-					return in
-				},
+				caller: &otherEVMAddr,
 			},
 			wantErr:    true,
-			wantErrMsg: "caller is not the same as the user address",
+			wantErrMsg: "available balance mismatch: invalid request",
+		},
+		{
+			name:       "precompile should return error if Sei address is not associated with an EVM address",
+			args:       args{caller: &notAssociatedEVMAddr},
+			wantErr:    true,
+			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedEVMAddr),
 		},
 		{
 			name: "precompile should return error if denom is invalid",
@@ -1171,6 +1160,7 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 					in.Denom = ""
 					return in
 				},
+				caller: &senderEVMAddr,
 			},
 			wantErr:    true,
 			wantErrMsg: "invalid denom",
@@ -1182,6 +1172,7 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 					in.availableBalance = []byte("invalid")
 					return in
 				},
+				caller: &senderEVMAddr,
 			},
 			wantErr:    true,
 			wantErrMsg: "unexpected EOF",
@@ -1193,19 +1184,26 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 					in.DecryptableBalance = ""
 					return in
 				},
+				caller: &senderEVMAddr,
 			},
 			wantErr:    true,
 			wantErrMsg: "invalid decryptable balance",
 		},
 		{
-			name:       "precompile should return error if called from static call",
-			args:       args{isReadOnly: true},
+			name: "precompile should return error if called from static call",
+			args: args{
+				isReadOnly: true,
+				caller:     &senderEVMAddr,
+			},
 			wantErr:    true,
 			wantErrMsg: "cannot call ct precompile from staticcall",
 		},
 		{
-			name:       "precompile should return error if value is not nil",
-			args:       args{value: big.NewInt(100)},
+			name: "precompile should return error if value is not nil",
+			args: args{
+				value:  big.NewInt(100),
+				caller: &senderEVMAddr,
+			},
 			wantErr:    true,
 			wantErrMsg: "sending funds to a non-payable function",
 		},
@@ -1214,7 +1212,7 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 		// Setup sender addresses and environment
 		senderPrivateKey := testkeeper.MockPrivateKey()
 		senderAddr, senderEVMAddr = testkeeper.PrivateKeyToAddresses(senderPrivateKey)
-		otherAddr, otherEVMAddr = testkeeper.PrivateKeyToAddresses(testkeeper.MockPrivateKey())
+		otherAddr, otherEVMAddr, _, _ = setUpCtAccount(k, ctx, testDenom)
 		k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
 		k.SetAddressMapping(ctx, otherAddr, otherEVMAddr)
 
@@ -1225,7 +1223,7 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 			ctx, types.ModuleName, senderAddr, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
 		require.Nil(t, err)
 
-		// setup sender and receiver ct accounts
+		// setup sender ct account
 		ctKeeper := k.CtKeeper()
 		privHex := hex.EncodeToString(senderPrivateKey.Bytes())
 		senderKey, _ := crypto.HexToECDSA(privHex)
@@ -1248,6 +1246,11 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 		}
 		err = ctKeeper.SetAccount(ctx, senderAddr.String(), testDenom, senderAccount)
 		require.NoError(t, err)
+
+		otherAccount, _ := k.CtKeeper().GetAccount(ctx, otherAddr.String(), testDenom)
+		otherAccount.PendingBalanceLo, _ = teg.AddScalar(otherAccount.PendingBalanceLo, big.NewInt(1000))
+		otherAccount.PendingBalanceCreditCounter = 3
+		err = ctKeeper.SetAccount(ctx, otherAddr.String(), testDenom, otherAccount)
 
 		p, err := confidentialtransfers.NewPrecompile(ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
 		require.Nil(t, err)
@@ -1275,7 +1278,6 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 
 		t.Run(tt.name, func(t *testing.T) {
 			in := inputs{
-				senderAddr:            senderEVMAddr.String(),
 				Denom:                 testDenom,
 				pendingBalanceCounter: uint32(senderAccount.PendingBalanceCreditCounter),
 				availableBalance:      availableBalance,
@@ -1285,7 +1287,6 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 				in = tt.args.setUp(in)
 			}
 			inputArgs, err := applyPendingBalance.Inputs.Pack(
-				in.senderAddr,
 				in.Denom,
 				in.DecryptableBalance,
 				in.pendingBalanceCounter,
@@ -1294,7 +1295,7 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 
 			resp, remainingGas, err := p.RunAndCalculateGas(
 				&evm,
-				senderEVMAddr,
+				*tt.args.caller,
 				senderEVMAddr,
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).ApplyPendingBalanceID, inputArgs...),
 				2000000,
@@ -1328,9 +1329,10 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 	expectedTrueResponse, _ := ApplyPendingBalanceMethod.Outputs.Pack(true)
 	var senderAddr, otherAddr sdk.AccAddress
 	var senderEVMAddr, otherEVMAddr common.Address
+	notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
+	_, notAssociatedEVMAddr := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
 
 	type inputs struct {
-		senderAddr                 string
 		denom                      string
 		amount                     *big.Int
 		decryptableBalance         string
@@ -1343,6 +1345,7 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 		isFromDelegateCall bool
 		value              *big.Int
 		setUp              func(in inputs) inputs
+		caller             *common.Address
 	}
 	tests := []struct {
 		name             string
@@ -1353,41 +1356,27 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 		wantErrMsg       string
 	}{
 		{
-			name:             "precompile should return true if input is valid",
+			name: "precompile should return true if input is valid",
+			args: args{
+				caller: &senderEVMAddr,
+			},
 			wantRet:          expectedTrueResponse,
 			wantRemainingGas: 0xecd4e,
 			wantErr:          false,
 		},
 		{
-			name: "precompile should return true if input is valid and sender is Sei address",
-			args: args{setUp: func(in inputs) inputs {
-				in.senderAddr = senderAddr.String()
-				return in
-			}},
-			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0xecd30,
-			wantErr:          false,
-		},
-		{
-			name: "precompile should return error if address is empty",
+			name: "precompile should return error if caller did not create calldata",
 			args: args{
-				setUp: func(in inputs) inputs {
-					in.senderAddr = ""
-					return in
-				}},
-			wantErr:    true,
-			wantErrMsg: "invalid address : empty address string is not allowed",
-		},
-		{
-			name: "precompile should return error if caller is not the sender",
-			args: args{
-				setUp: func(in inputs) inputs {
-					in.senderAddr = otherEVMAddr.String()
-					return in
-				},
+				caller: &otherEVMAddr,
 			},
 			wantErr:    true,
-			wantErrMsg: "caller is not the same as the user address",
+			wantErrMsg: "ciphertext commitment equality verification failed: invalid request",
+		},
+		{
+			name:       "precompile should return error if Sei address is not associated with an EVM address",
+			args:       args{caller: &notAssociatedEVMAddr},
+			wantErr:    true,
+			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedEVMAddr),
 		},
 		{
 			name: "precompile should return error if denom is invalid",
@@ -1396,6 +1385,7 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 					in.denom = ""
 					return in
 				},
+				caller: &senderEVMAddr,
 			},
 			wantErr:    true,
 			wantErrMsg: "invalid denom",
@@ -1407,6 +1397,7 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 					in.amount = big.NewInt(0)
 					return in
 				},
+				caller: &senderEVMAddr,
 			},
 			wantErr:    true,
 			wantErrMsg: "invalid msg: invalid request",
@@ -1418,6 +1409,7 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 					in.decryptableBalance = ""
 					return in
 				},
+				caller: &senderEVMAddr,
 			},
 			wantErr:    true,
 			wantErrMsg: "invalid decryptable balance",
@@ -1429,6 +1421,7 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 					in.remainingBalanceCommitment = []byte("invalid")
 					return in
 				},
+				caller: &senderEVMAddr,
 			},
 			wantErr:    true,
 			wantErrMsg: "invalid remainingBalanceCommitment",
@@ -1440,19 +1433,26 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 					in.proofs = []byte("invalid")
 					return in
 				},
+				caller: &senderEVMAddr,
 			},
 			wantErr:    true,
 			wantErrMsg: "unexpected EOF",
 		},
 		{
-			name:       "precompile should return error if called from static call",
-			args:       args{isReadOnly: true},
+			name: "precompile should return error if called from static call",
+			args: args{
+				isReadOnly: true,
+				caller:     &senderEVMAddr,
+			},
 			wantErr:    true,
 			wantErrMsg: "cannot call ct precompile from staticcall",
 		},
 		{
-			name:       "precompile should return error if value is not nil",
-			args:       args{value: big.NewInt(100)},
+			name: "precompile should return error if value is not nil",
+			args: args{
+				value:  big.NewInt(100),
+				caller: &senderEVMAddr,
+			},
 			wantErr:    true,
 			wantErrMsg: "sending funds to a non-payable function",
 		},
@@ -1461,7 +1461,7 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 		// Setup sender addresses and environment
 		senderPrivateKey := testkeeper.MockPrivateKey()
 		senderAddr, senderEVMAddr = testkeeper.PrivateKeyToAddresses(senderPrivateKey)
-		otherAddr, otherEVMAddr = testkeeper.PrivateKeyToAddresses(testkeeper.MockPrivateKey())
+		otherAddr, otherEVMAddr, _, _ = setUpCtAccount(k, ctx, testDenom)
 		k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
 		k.SetAddressMapping(ctx, otherAddr, otherEVMAddr)
 
@@ -1523,7 +1523,6 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 
 		t.Run(tt.name, func(t *testing.T) {
 			in := inputs{
-				senderAddr:                 senderEVMAddr.String(),
 				denom:                      testDenom,
 				amount:                     withdrawAmount,
 				decryptableBalance:         senderAccount.DecryptableAvailableBalance,
@@ -1534,7 +1533,6 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 				in = tt.args.setUp(in)
 			}
 			inputArgs, err := withdrawMethod.Inputs.Pack(
-				in.senderAddr,
 				in.denom,
 				in.amount,
 				in.decryptableBalance,
@@ -1544,7 +1542,7 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 
 			resp, remainingGas, err := p.RunAndCalculateGas(
 				&evm,
-				senderEVMAddr,
+				*tt.args.caller,
 				senderEVMAddr,
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).WithdrawID, inputArgs...),
 				2000000,

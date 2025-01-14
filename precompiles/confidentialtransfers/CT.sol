@@ -63,7 +63,6 @@ interface ICT {
     ) external returns (bool success);
 
     function applyPendingBalance(
-        string fromAddress,
         string denom,
         string decryptableBalance,
         uint32 pendingBalanceCreditCounter,
@@ -71,7 +70,6 @@ interface ICT {
     ) external returns (bool success);
 
     function withdraw(
-        string fromAddress,
         string denom,
         uint256 amount,
         string decryptableBalance,
