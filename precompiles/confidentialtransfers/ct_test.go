@@ -33,8 +33,10 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 	var senderEVMAddr, receiverEVMAddr, otherSenderEVMAddr common.Address
 	var receiverPubKey *curves.Point
 
+	notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
+	_, notAssociatedEVMAddr := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
+
 	type inputs struct {
-		senderAddr         string
 		receiverAddr       string
 		Denom              string
 		fromAmountLo       []byte
@@ -51,6 +53,7 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 		isFromDelegateCall bool
 		value              *big.Int
 		setUp              func(in inputs) inputs
+		caller             *common.Address
 	}
 	tests := []struct {
 		name             string
@@ -62,43 +65,39 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 	}{
 		{
 			name:             "precompile should return true if input is valid",
+			args:             args{caller: &senderEVMAddr},
 			wantRet:          expectedTrueResponse,
 			wantRemainingGas: 0xec0b6,
 			wantErr:          false,
 		},
 		{
-			name: "precompile should return true if input is valid and sender is Sei address",
-			args: args{setUp: func(in inputs) inputs {
-				in.senderAddr = senderAddr.String()
-				return in
-			}},
-			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0xec0b6,
-			wantErr:          false,
+			name:       "precompile should return error if caller did not create call data",
+			args:       args{caller: &otherSenderEVMAddr},
+			wantErr:    true,
+			wantErrMsg: "failed to verify remaining balance commitment: invalid request",
+		},
+		{
+			name:       "precompile should return error if Sei address is not associated with an EVM address",
+			args:       args{caller: &notAssociatedEVMAddr},
+			wantErr:    true,
+			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedEVMAddr),
 		},
 		{
 			name: "precompile should return true if input is valid and receiver is Sei address",
-			args: args{setUp: func(in inputs) inputs {
-				in.receiverAddr = receiverAddr.String()
-				return in
-			}},
+			args: args{
+				caller: &senderEVMAddr,
+				setUp: func(in inputs) inputs {
+					in.receiverAddr = receiverAddr.String()
+					return in
+				}},
 			wantRet:          expectedTrueResponse,
 			wantRemainingGas: 0xec519,
 			wantErr:          false,
 		},
 		{
-			name: "precompile should return error if address is invalid",
-			args: args{
-				setUp: func(in inputs) inputs {
-					in.senderAddr = ""
-					return in
-				}},
-			wantErr:    true,
-			wantErrMsg: "invalid from addr",
-		},
-		{
 			name: "precompile should return error if receiver address is invalid",
 			args: args{
+				caller: &senderEVMAddr,
 				setUp: func(in inputs) inputs {
 					in.receiverAddr = ""
 					return in
@@ -108,19 +107,9 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 			wantErrMsg: "invalid to addr",
 		},
 		{
-			name: "precompile should return error if caller is not the sender",
-			args: args{
-				setUp: func(in inputs) inputs {
-					in.senderAddr = otherSenderEVMAddr.String()
-					return in
-				},
-			},
-			wantErr:    true,
-			wantErrMsg: "caller is not the same as the sender address",
-		},
-		{
 			name: "precompile should return error if denom is invalid",
 			args: args{
+				caller: &senderEVMAddr,
 				setUp: func(in inputs) inputs {
 					in.Denom = ""
 					return in
@@ -132,6 +121,7 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 		{
 			name: "precompile should return error if fromAmountLo is invalid",
 			args: args{
+				caller: &senderEVMAddr,
 				setUp: func(in inputs) inputs {
 					in.fromAmountLo = []byte("invalid")
 					return in
@@ -143,6 +133,7 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 		{
 			name: "precompile should return error if fromAmountHi is invalid",
 			args: args{
+				caller: &senderEVMAddr,
 				setUp: func(in inputs) inputs {
 					in.fromAmountHi = []byte("invalid")
 					return in
@@ -154,6 +145,7 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 		{
 			name: "precompile should return error if toAmountLo is invalid",
 			args: args{
+				caller: &senderEVMAddr,
 				setUp: func(in inputs) inputs {
 					in.toAmountLo = []byte("invalid")
 					return in
@@ -165,6 +157,7 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 		{
 			name: "precompile should return error if toAmountHi is invalid",
 			args: args{
+				caller: &senderEVMAddr,
 				setUp: func(in inputs) inputs {
 					in.toAmountHi = []byte("invalid")
 					return in
@@ -176,6 +169,7 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 		{
 			name: "precompile should return error if remaining balance is invalid",
 			args: args{
+				caller: &senderEVMAddr,
 				setUp: func(in inputs) inputs {
 					in.remainingBalance = []byte("invalid")
 					return in
@@ -187,6 +181,7 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 		{
 			name: "precompile should return error if decryptable balance is invalid",
 			args: args{
+				caller: &senderEVMAddr,
 				setUp: func(in inputs) inputs {
 					in.DecryptableBalance = ""
 					return in
@@ -197,13 +192,13 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 		},
 		{
 			name:       "precompile should return error if called from static call",
-			args:       args{isReadOnly: true},
+			args:       args{caller: &senderEVMAddr, isReadOnly: true},
 			wantErr:    true,
 			wantErrMsg: "cannot call ct precompile from staticcall",
 		},
 		{
 			name:       "precompile should return error if value is not nil",
-			args:       args{value: big.NewInt(100)},
+			args:       args{caller: &senderEVMAddr, value: big.NewInt(100)},
 			wantErr:    true,
 			wantErrMsg: "sending funds to a non-payable function",
 		},
@@ -217,10 +212,9 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 		// Setup sender addresses and environment
 		senderPrivateKey := testkeeper.MockPrivateKey()
 		senderAddr, senderEVMAddr = testkeeper.PrivateKeyToAddresses(senderPrivateKey)
-		otherSenderAddr, otherSenderEVMAddr = testkeeper.PrivateKeyToAddresses(testkeeper.MockPrivateKey())
+		otherSenderAddr, otherSenderEVMAddr, _, _ = setUpCtAccount(k, ctx, testDenom)
 		k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
 		k.SetAddressMapping(ctx, otherSenderAddr, otherSenderEVMAddr)
-		// Setup receiver addresses and environment
 
 		err := k.BankKeeper().MintCoins(
 			ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
@@ -285,7 +279,6 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 
 		t.Run(tt.name, func(t *testing.T) {
 			in := inputs{
-				senderAddr:         senderEVMAddr.String(),
 				receiverAddr:       receiverEVMAddr.String(),
 				Denom:              testDenom,
 				fromAmountLo:       fromAmountLo,
@@ -300,7 +293,6 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 				in = tt.args.setUp(in)
 			}
 			inputArgs, err := transfer.Inputs.Pack(
-				in.senderAddr,
 				in.receiverAddr,
 				in.Denom,
 				in.fromAmountLo,
@@ -314,7 +306,7 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 
 			resp, remainingGas, err := p.RunAndCalculateGas(
 				&evm,
-				senderEVMAddr,
+				*tt.args.caller,
 				senderEVMAddr,
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).TransferID, inputArgs...),
 				2000000,
@@ -343,7 +335,6 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 	expectedTrueResponse, _ := transferMethod.Outputs.Pack(true)
 
 	type inputs struct {
-		senderAddr         string
 		receiverAddr       string
 		Denom              string
 		fromAmountLo       []byte
@@ -598,7 +589,6 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 			}
 
 			in := inputs{
-				senderAddr:         senderEVMAddr.String(),
 				receiverAddr:       receiverEVMAddr.String(),
 				Denom:              testDenom,
 				fromAmountLo:       fromAmountLo,
@@ -614,7 +604,6 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 				in = tt.args.setUp(in)
 			}
 			inputArgs, err := transferWithAuditorsMethod.Inputs.Pack(
-				in.senderAddr,
 				in.receiverAddr,
 				in.Denom,
 				in.fromAmountLo,
@@ -930,7 +919,7 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 	k.SetAddressMapping(ctx, userAddr, userEVMAddr)
 
 	notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
-	notAssociatedUserAddr, _ := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
+	_, notAssociatedEVMAddr := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
 
 	otherUserPrivateKey := testkeeper.MockPrivateKey()
 	otherUserAddr, otherUserEVMAddr := testkeeper.PrivateKeyToAddresses(otherUserPrivateKey)
@@ -957,12 +946,12 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 	expectedTrueResponse, _ := DepositMethod.Outputs.Pack(true)
 
 	type inputs struct {
-		UserAddress string
-		Denom       string
-		Amount      uint64
+		Denom  string
+		Amount uint64
 	}
 
 	type args struct {
+		caller             common.Address
 		isReadOnly         bool
 		isFromDelegateCall bool
 		value              *big.Int
@@ -977,48 +966,26 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 		wantErrMsg       string
 	}{
 		{
-			name:             "precompile should return true if input is valid",
+			name: "precompile should return true if input is valid",
+			args: args{
+				caller: userEVMAddr,
+			},
 			wantRet:          expectedTrueResponse,
 			wantRemainingGas: 0x1e0fb5,
 			wantErr:          false,
 		},
 		{
-			name: "precompile should return true if input is valid using EVM address",
-			args: args{
-				setUp: func(in inputs) inputs {
-					in.UserAddress = userEVMAddr.String()
-					return in
-				},
-			},
-			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0x1e0f91,
-			wantErr:          false,
-		},
-		{
-			name: "precompile should return error if address is invalid",
-			args: args{
-				setUp: func(in inputs) inputs {
-					in.UserAddress = ""
-					return in
-				},
-			},
-			wantErr:    true,
-			wantErrMsg: "invalid address : empty address string is not allowed",
-		},
-		{
 			name: "precompile should return error if Sei address is not associated with an EVM address",
 			args: args{
-				setUp: func(in inputs) inputs {
-					in.UserAddress = notAssociatedUserAddr.String()
-					return in
-				},
+				caller: notAssociatedEVMAddr,
 			},
 			wantErr:    true,
-			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedUserAddr.String()),
+			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedEVMAddr.String()),
 		},
 		{
 			name: "precompile should return error if denom is invalid",
 			args: args{
+				caller: userEVMAddr,
 				setUp: func(in inputs) inputs {
 					in.Denom = ""
 					return in
@@ -1026,17 +993,6 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 			},
 			wantErr:    true,
 			wantErrMsg: "invalid denom",
-		},
-		{
-			name: "precompile should return error if caller is not the same as the user",
-			args: args{
-				setUp: func(in inputs) inputs {
-					in.UserAddress = otherUserAddr.String()
-					return in
-				},
-			},
-			wantErr:    true,
-			wantErrMsg: "caller is not the same as the user address",
 		},
 		{
 			name:       "precompile should return error if called from static call",
@@ -1054,16 +1010,14 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			in := inputs{
-				UserAddress: userAddr.String(),
-				Denom:       testDenom,
-				Amount:      100,
+				Denom:  testDenom,
+				Amount: 100,
 			}
 			if tt.args.setUp != nil {
 				in = tt.args.setUp(in)
 			}
 
 			inputArgs, err := DepositMethod.Inputs.Pack(
-				in.UserAddress,
 				in.Denom,
 				in.Amount)
 
@@ -1071,7 +1025,7 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 
 			resp, remainingGas, err := p.RunAndCalculateGas(
 				&evm,
-				userEVMAddr,
+				tt.args.caller,
 				common.Address{},
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).DepositID, inputArgs...),
 				2000000,

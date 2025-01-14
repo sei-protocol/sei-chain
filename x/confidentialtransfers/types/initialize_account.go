@@ -34,55 +34,55 @@ func NewInitializeAccount(address, denom string, privateKey ecdsa.PrivateKey) (*
 	teg := elgamal.NewTwistedElgamal()
 	keys, err := utils.GetElGamalKeyPair(privateKey, denom)
 	if err != nil {
-		return &InitializeAccount{}, err
+		return nil, err
 	}
 
 	aesKey, err := utils.GetAESKey(privateKey, denom)
 	if err != nil {
-		return &InitializeAccount{}, err
+		return nil, err
 	}
 
 	// Encrypt the 0 value using the aesKey
 	decryptableBalance, err := encryption.EncryptAESGCM(big.NewInt(0), aesKey)
 	if err != nil {
-		return &InitializeAccount{}, err
+		return nil, err
 	}
 
 	// Encrypt the 0 value thrice using the public key for the account balances.
 	zeroCiphertextLo, _, err := teg.Encrypt(keys.PublicKey, big.NewInt(0))
 	if err != nil {
-		return &InitializeAccount{}, err
+		return nil, err
 	}
 
 	zeroCiphertextHi, _, err := teg.Encrypt(keys.PublicKey, big.NewInt(0))
 	if err != nil {
-		return &InitializeAccount{}, err
+		return nil, err
 	}
 
 	zeroCiphertextAvailable, _, err := teg.Encrypt(keys.PublicKey, big.NewInt(0))
 	if err != nil {
-		return &InitializeAccount{}, err
+		return nil, err
 	}
 
 	pubkeyValidityProof, err := zkproofs.NewPubKeyValidityProof(keys.PublicKey, keys.PrivateKey)
 	if err != nil {
-		return &InitializeAccount{}, err
+		return nil, err
 	}
 
 	// Generate proofs for the zero values
 	proofLo, err := zkproofs.NewZeroBalanceProof(keys, zeroCiphertextLo)
 	if err != nil {
-		return &InitializeAccount{}, err
+		return nil, err
 	}
 
 	proofHi, err := zkproofs.NewZeroBalanceProof(keys, zeroCiphertextHi)
 	if err != nil {
-		return &InitializeAccount{}, err
+		return nil, err
 	}
 
 	proofAvailable, err := zkproofs.NewZeroBalanceProof(keys, zeroCiphertextAvailable)
 	if err != nil {
-		return &InitializeAccount{}, err
+		return nil, err
 	}
 
 	proofs := InitializeAccountProofs{
@@ -112,12 +112,12 @@ func (r InitializeAccount) Decrypt(decryptor *elgamal.TwistedElGamal, privKey ec
 
 	keyPair, err := utils.GetElGamalKeyPair(privKey, r.Denom)
 	if err != nil {
-		return &InitializeAccountDecrypted{}, err
+		return nil, err
 	}
 
 	aesKey, err := utils.GetAESKey(privKey, r.Denom)
 	if err != nil {
-		return &InitializeAccountDecrypted{}, err
+		return nil, err
 	}
 
 	pendingBalanceLo, err := decryptor.DecryptLargeNumber(keyPair.PrivateKey, r.PendingBalanceLo, elgamal.MaxBits32)
