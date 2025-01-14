@@ -74,4 +74,9 @@ interface ICT {
         bytes remainingBalanceCommitment,
         bytes proofs
     ) external returns (bool success);
+
+    function closeAccount(
+        string denom,
+        bytes proofs
+    ) external returns (bool success);
 }

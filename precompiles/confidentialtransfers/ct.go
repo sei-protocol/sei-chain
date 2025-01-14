@@ -21,6 +21,7 @@ const (
 	TransferMethod             = "transfer"
 	TransferWithAuditorsMethod = "transferWithAuditors"
 	WithdrawMethod             = "withdraw"
+	CloseAccountMethod         = "closeAccount"
 )
 
 const (
@@ -43,6 +44,7 @@ type PrecompileExecutor struct {
 	TransferID             []byte
 	TransferWithAuditorsID []byte
 	WithdrawID             []byte
+	CloseAccountID         []byte
 }
 
 func NewPrecompile(ctkeeper pcommon.ConfidentialTransfersKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
@@ -68,6 +70,8 @@ func NewPrecompile(ctkeeper pcommon.ConfidentialTransfersKeeper, evmKeeper pcomm
 			p.TransferWithAuditorsID = m.ID
 		case WithdrawMethod:
 			p.WithdrawID = m.ID
+		case CloseAccountMethod:
+			p.CloseAccountID = m.ID
 		}
 	}
 
@@ -112,6 +116,11 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			return nil, 0, errors.New("cannot call ct precompile from staticcall")
 		}
 		return p.withdraw(ctx, method, caller, args)
+	case CloseAccountMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call ct precompile from staticcall")
+		}
+		return p.closeAccount(ctx, method, caller, args)
 	}
 	return
 }
@@ -682,6 +691,56 @@ func (p PrecompileExecutor) withdraw(ctx sdk.Context, method *abi.Method, caller
 		return
 	}
 
+	ret, rerr = method.Outputs.Pack(true)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) closeAccount(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		rerr = err
+		return
+	}
+
+	fromAddr, _, err := p.getAssociatedAddressesByEVMAddress(ctx, caller)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	denom := args[0].(string)
+	if denom == "" {
+		rerr = errors.New("invalid denom")
+		return
+	}
+
+	var closeAccountProofs cttypes.CloseAccountMsgProofs
+	err = closeAccountProofs.Unmarshal(args[1].([]byte))
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	msg := &cttypes.MsgCloseAccount{
+		Address: fromAddr.String(),
+		Denom:   denom,
+		Proofs:  &closeAccountProofs,
+	}
+
+	_, err = p.ctKeeper.CloseAccount(sdk.WrapSDKContext(ctx), msg)
+	if err != nil {
+		rerr = err
+		return
+	}
 	ret, rerr = method.Outputs.Pack(true)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return

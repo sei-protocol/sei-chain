@@ -59,6 +59,7 @@ func GetQueryCmd(_ string) *cobra.Command {
 	cmd.AddCommand(GetCmdQueryCtInitAccountPayload())
 	cmd.AddCommand(GetCmdQueryCtApplyPendingBalancePayload())
 	cmd.AddCommand(GetCmdQueryCtWithdrawPayload())
+	cmd.AddCommand(GetCmdQueryCtCloseAccountPayload())
 
 	return cmd
 }
@@ -837,7 +838,6 @@ func queryCtApplyPendingBalancePayload(cmd *cobra.Command, args []string) error 
 
 	bz, err := newAbi.Pack(
 		confidentialtransfers.ApplyPendingBalanceMethod,
-		applyPendingBalanceProto.Address,
 		applyPendingBalanceProto.Denom,
 		applyPendingBalanceProto.NewDecryptableAvailableBalance,
 		applyPendingBalanceProto.CurrentPendingBalanceCounter,
@@ -936,11 +936,104 @@ func queryCtWithdrawPayload(cmd *cobra.Command, args []string) error {
 
 	bz, err := newAbi.Pack(
 		confidentialtransfers.WithdrawMethod,
-		withdrawProto.FromAddress,
 		withdrawProto.Denom,
-		withdrawProto.Amount,
+		coin.Amount.BigInt(),
 		withdrawProto.DecryptableBalance,
 		remainingBalanceCommitment,
+		proofs)
+
+	if err != nil {
+		return err
+	}
+	return queryClientCtx.PrintString(hex.EncodeToString(bz))
+}
+
+func GetCmdQueryCtCloseAccountPayload() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ct-close-account-payload [abi-filepath] [from_address] [denom]",
+		Short: "get hex payload for the confidential transfers close account method",
+		Args:  cobra.ExactArgs(3),
+		RunE:  queryCtCloseAccountPayload,
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func queryCtCloseAccountPayload(cmd *cobra.Command, args []string) error {
+	queryClientCtx, err := client.GetClientQueryContext(cmd)
+	if err != nil {
+		return err
+	}
+	queryClient := types.NewQueryClient(queryClientCtx)
+
+	dat, err := os.ReadFile(args[0])
+	if err != nil {
+		return err
+	}
+
+	newAbi, err := abi.JSON(bytes.NewReader(dat))
+	if err != nil {
+		return err
+	}
+
+	fromAddress := args[1]
+	if fromAddress == "" {
+		return errors.New("from address cannot be empty")
+	}
+
+	seiAddress, err := getSeiAddress(queryClient, fromAddress)
+	if err != nil {
+		return err
+	}
+
+	denom := args[2]
+	if denom == "" {
+		return errors.New("denom cannot be empty")
+	}
+
+	_, name, _, err := client.GetFromFields(queryClientCtx, queryClientCtx.Keyring, seiAddress)
+	if err != nil {
+		return err
+	}
+
+	privKey, err := getPrivateKeyForName(cmd, name)
+	if err != nil {
+		return err
+	}
+
+	ctQueryClient := cttypes.NewQueryClient(queryClientCtx)
+	fromAccount, err := ctcliutils.GetAccount(ctQueryClient, seiAddress, denom)
+	if err != nil {
+		return err
+	}
+
+	closeAccount, err := cttypes.NewCloseAccount(
+		*privKey,
+		seiAddress,
+		denom,
+		fromAccount.PendingBalanceLo,
+		fromAccount.PendingBalanceHi,
+		fromAccount.AvailableBalance)
+	if err != nil {
+		return err
+	}
+
+	closeAccountProto := cttypes.NewMsgCloseAccountProto(closeAccount)
+
+	if err = closeAccountProto.ValidateBasic(); err != nil {
+		return err
+	}
+
+	proofs, err := closeAccountProto.Proofs.Marshal()
+	if err != nil {
+		return err
+	}
+
+	bz, err := newAbi.Pack(
+		confidentialtransfers.CloseAccountMethod,
+		closeAccountProto.Denom,
 		proofs)
 
 	if err != nil {

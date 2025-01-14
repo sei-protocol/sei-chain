@@ -1517,3 +1517,195 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 		})
 	}
 }
+
+func TestPrecompileCloseAccount_Execute(t *testing.T) {
+	testDenom := "usei"
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	p, err := confidentialtransfers.NewPrecompile(ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
+	require.Nil(t, err)
+	CloseAccountMethod, _ := p.ABI.MethodById(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).CloseAccountID)
+	expectedTrueResponse, _ := CloseAccountMethod.Outputs.Pack(true)
+	var senderAddr, otherAddr sdk.AccAddress
+	var senderEVMAddr, otherEVMAddr common.Address
+	notAssociatedUserPrivateKey := testkeeper.MockPrivateKey()
+	_, notAssociatedEVMAddr := testkeeper.PrivateKeyToAddresses(notAssociatedUserPrivateKey)
+
+	type inputs struct {
+		denom  string
+		proofs []byte
+	}
+
+	type args struct {
+		isReadOnly         bool
+		isFromDelegateCall bool
+		value              *big.Int
+		setUp              func(in inputs) inputs
+		caller             *common.Address
+	}
+	tests := []struct {
+		name             string
+		args             args
+		wantRet          []byte
+		wantRemainingGas uint64
+		wantErr          bool
+		wantErrMsg       string
+	}{
+		{
+			name: "precompile should return true if input is valid",
+			args: args{
+				caller: &senderEVMAddr,
+			},
+			wantRet:          expectedTrueResponse,
+			wantRemainingGas: 0x1e6c5d,
+			wantErr:          false,
+		},
+		{
+			name: "precompile should return error if caller did not create calldata",
+			args: args{
+				caller: &otherEVMAddr,
+			},
+			wantErr:    true,
+			wantErrMsg: "pending balance lo must be 0: invalid request",
+		},
+		{
+			name:       "precompile should return error if Sei address is not associated with an EVM address",
+			args:       args{caller: &notAssociatedEVMAddr},
+			wantErr:    true,
+			wantErrMsg: fmt.Sprintf("address %s is not associated", notAssociatedEVMAddr),
+		},
+		{
+			name: "precompile should return error if denom is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.denom = ""
+					return in
+				},
+				caller: &senderEVMAddr,
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid denom",
+		},
+		{
+			name: "precompile should return error if proofs is invalid",
+			args: args{
+				setUp: func(in inputs) inputs {
+					in.proofs = []byte("invalid")
+					return in
+				},
+				caller: &senderEVMAddr,
+			},
+			wantErr:    true,
+			wantErrMsg: "unexpected EOF",
+		},
+		{
+			name: "precompile should return error if called from static call",
+			args: args{
+				isReadOnly: true,
+				caller:     &senderEVMAddr,
+			},
+			wantErr:    true,
+			wantErrMsg: "cannot call ct precompile from staticcall",
+		},
+		{
+			name: "precompile should return error if value is not nil",
+			args: args{
+				value:  big.NewInt(100),
+				caller: &senderEVMAddr,
+			},
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+	}
+	for _, tt := range tests {
+		// Setup sender addresses and environment
+		senderPrivateKey := testkeeper.MockPrivateKey()
+		senderAddr, senderEVMAddr = testkeeper.PrivateKeyToAddresses(senderPrivateKey)
+		otherAddr, otherEVMAddr, _, _ = setUpCtAccount(k, ctx, testDenom)
+		k.SetAddressMapping(ctx, senderAddr, senderEVMAddr)
+		k.SetAddressMapping(ctx, otherAddr, otherEVMAddr)
+
+		err := k.BankKeeper().MintCoins(
+			ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(20000000))))
+		require.Nil(t, err)
+		err = k.BankKeeper().SendCoinsFromModuleToModule(ctx, types.ModuleName, cttypes.ModuleName, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
+		err = k.BankKeeper().SendCoinsFromModuleToAccount(
+			ctx, types.ModuleName, senderAddr, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
+		require.Nil(t, err)
+
+		// setup sender and receiver ct accounts
+		ctKeeper := k.CtKeeper()
+		privHex := hex.EncodeToString(senderPrivateKey.Bytes())
+		senderKey, _ := crypto.HexToECDSA(privHex)
+		initSenderAccount, err := cttypes.NewInitializeAccount(senderAddr.String(), testDenom, *senderKey)
+		require.NoError(t, err)
+		senderAccount := cttypes.Account{
+			PublicKey:                   *initSenderAccount.Pubkey,
+			PendingBalanceLo:            initSenderAccount.PendingBalanceLo,
+			PendingBalanceHi:            initSenderAccount.PendingBalanceHi,
+			PendingBalanceCreditCounter: 0,
+			AvailableBalance:            initSenderAccount.AvailableBalance,
+			DecryptableAvailableBalance: initSenderAccount.DecryptableBalance,
+		}
+		err = ctKeeper.SetAccount(ctx, senderAddr.String(), testDenom, senderAccount)
+		require.NoError(t, err)
+
+		p, err := confidentialtransfers.NewPrecompile(ctkeeper.NewMsgServerImpl(k.CtKeeper()), k)
+		require.Nil(t, err)
+		statedb := state.NewDBImpl(ctx, k, true)
+		evm := vm.EVM{
+			StateDB:   statedb,
+			TxContext: vm.TxContext{Origin: senderEVMAddr},
+		}
+
+		closeAccountMethod, err := p.ABI.MethodById(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).CloseAccountID)
+		require.Nil(t, err)
+
+		closeAccount, _ := cttypes.NewCloseAccount(
+			*senderKey,
+			senderAddr.String(),
+			testDenom,
+			senderAccount.PendingBalanceLo,
+			senderAccount.PendingBalanceHi,
+			senderAccount.AvailableBalance)
+
+		clProto := cttypes.NewMsgCloseAccountProto(closeAccount)
+		proofs, _ := clProto.Proofs.Marshal()
+
+		t.Run(tt.name, func(t *testing.T) {
+			in := inputs{
+				denom:  testDenom,
+				proofs: proofs,
+			}
+			if tt.args.setUp != nil {
+				in = tt.args.setUp(in)
+			}
+			inputArgs, err := closeAccountMethod.Inputs.Pack(
+				in.denom,
+				in.proofs)
+			require.Nil(t, err)
+
+			resp, remainingGas, err := p.RunAndCalculateGas(
+				&evm,
+				*tt.args.caller,
+				senderEVMAddr,
+				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).CloseAccountID, inputArgs...),
+				2000000,
+				tt.args.value,
+				nil,
+				tt.args.isReadOnly,
+				tt.args.isFromDelegateCall)
+			if tt.wantErr {
+				require.NotNil(t, err)
+				require.Equal(t, tt.wantErrMsg, string(resp))
+				return
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.wantRet, resp)
+				require.Equal(t, tt.wantRemainingGas, remainingGas)
+			}
+		})
+	}
+}

@@ -137,4 +137,5 @@ type ConfidentialTransfersKeeper interface {
 	InitializeAccount(context.Context, *cttypes.MsgInitializeAccount) (*cttypes.MsgInitializeAccountResponse, error)
 	Transfer(goCtx context.Context, req *cttypes.MsgTransfer) (*cttypes.MsgTransferResponse, error)
 	Withdraw(goCtx context.Context, req *cttypes.MsgWithdraw) (*cttypes.MsgWithdrawResponse, error)
+	CloseAccount(goCtx context.Context, req *cttypes.MsgCloseAccount) (*cttypes.MsgCloseAccountResponse, error)
 }
