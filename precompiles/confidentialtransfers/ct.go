@@ -17,8 +17,11 @@ import (
 const (
 	InitializeAccountMethod    = "initializeAccount"
 	DepositMethod              = "deposit"
+	ApplyPendingBalanceMethod  = "applyPendingBalance"
 	TransferMethod             = "transfer"
 	TransferWithAuditorsMethod = "transferWithAuditors"
+	WithdrawMethod             = "withdraw"
+	CloseAccountMethod         = "closeAccount"
 )
 
 const (
@@ -37,8 +40,11 @@ type PrecompileExecutor struct {
 
 	InitializeAccountID    []byte
 	DepositID              []byte
+	ApplyPendingBalanceID  []byte
 	TransferID             []byte
 	TransferWithAuditorsID []byte
+	WithdrawID             []byte
+	CloseAccountID         []byte
 }
 
 func NewPrecompile(ctkeeper pcommon.ConfidentialTransfersKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
@@ -56,10 +62,16 @@ func NewPrecompile(ctkeeper pcommon.ConfidentialTransfersKeeper, evmKeeper pcomm
 			p.DepositID = m.ID
 		case InitializeAccountMethod:
 			p.InitializeAccountID = m.ID
+		case ApplyPendingBalanceMethod:
+			p.ApplyPendingBalanceID = m.ID
 		case TransferMethod:
 			p.TransferID = m.ID
 		case TransferWithAuditorsMethod:
 			p.TransferWithAuditorsID = m.ID
+		case WithdrawMethod:
+			p.WithdrawID = m.ID
+		case CloseAccountMethod:
+			p.CloseAccountID = m.ID
 		}
 	}
 
@@ -74,6 +86,11 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		return nil, 0, err
 	}
 	switch method.Name {
+	case ApplyPendingBalanceMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call ct precompile from staticcall")
+		}
+		return p.applyPendingBalance(ctx, method, caller, args)
 	case DepositMethod:
 		if readOnly {
 			return nil, 0, errors.New("cannot call ct precompile from staticcall")
@@ -94,6 +111,16 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			return nil, 0, errors.New("cannot call ct precompile from staticcall")
 		}
 		return p.transferWithAuditors(ctx, method, caller, args)
+	case WithdrawMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call ct precompile from staticcall")
+		}
+		return p.withdraw(ctx, method, caller, args)
+	case CloseAccountMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call ct precompile from staticcall")
+		}
+		return p.closeAccount(ctx, method, caller, args)
 	}
 	return
 }
@@ -522,6 +549,194 @@ func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller 
 	}
 
 	_, err = p.ctKeeper.Deposit(sdk.WrapSDKContext(ctx), msg)
+	if err != nil {
+		rerr = err
+		return
+	}
+	ret, rerr = method.Outputs.Pack(true)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) applyPendingBalance(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := pcommon.ValidateArgsLength(args, 4); err != nil {
+		rerr = err
+		return
+	}
+
+	fromAddr, _, err := p.getAssociatedAddressesByEVMAddress(ctx, caller)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	denom := args[0].(string)
+	if denom == "" {
+		rerr = errors.New("invalid denom")
+		return
+	}
+
+	decryptableBalance := args[1].(string)
+	if decryptableBalance == "" {
+		rerr = errors.New("invalid decryptable balance")
+		return
+	}
+
+	pendingBalanceCreditCounter, ok := args[2].(uint32)
+	if !ok {
+		rerr = errors.New("invalid pendingBalanceCreditCounter")
+		return
+	}
+
+	var availableBalance cttypes.Ciphertext
+	err = availableBalance.Unmarshal(args[3].([]byte))
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	msg := &cttypes.MsgApplyPendingBalance{
+		Address:                        fromAddr.String(),
+		Denom:                          denom,
+		NewDecryptableAvailableBalance: decryptableBalance,
+		CurrentPendingBalanceCounter:   pendingBalanceCreditCounter,
+		CurrentAvailableBalance:        &availableBalance,
+	}
+
+	_, err = p.ctKeeper.ApplyPendingBalance(sdk.WrapSDKContext(ctx), msg)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	ret, rerr = method.Outputs.Pack(true)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) withdraw(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := pcommon.ValidateArgsLength(args, 5); err != nil {
+		rerr = err
+		return
+	}
+
+	fromAddr, _, err := p.getAssociatedAddressesByEVMAddress(ctx, caller)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	denom := args[0].(string)
+	if denom == "" {
+		rerr = errors.New("invalid denom")
+		return
+	}
+
+	amount, ok := args[1].(*big.Int)
+	if !ok {
+		rerr = errors.New("invalid amount")
+		return
+	}
+
+	decryptableBalance := args[2].(string)
+	if decryptableBalance == "" {
+		rerr = errors.New("invalid decryptable balance")
+		return
+	}
+
+	var remainingBalanceCommitment cttypes.Ciphertext
+	err = remainingBalanceCommitment.Unmarshal(args[3].([]byte))
+	if err != nil {
+		rerr = errors.New("invalid remainingBalanceCommitment")
+		return
+	}
+
+	var withdrawProofs cttypes.WithdrawMsgProofs
+	err = withdrawProofs.Unmarshal(args[4].([]byte))
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	msg := &cttypes.MsgWithdraw{
+		FromAddress:                fromAddr.String(),
+		Denom:                      denom,
+		Amount:                     amount.String(),
+		DecryptableBalance:         decryptableBalance,
+		RemainingBalanceCommitment: &remainingBalanceCommitment,
+		Proofs:                     &withdrawProofs,
+	}
+
+	_, err = p.ctKeeper.Withdraw(sdk.WrapSDKContext(ctx), msg)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	ret, rerr = method.Outputs.Pack(true)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) closeAccount(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		rerr = err
+		return
+	}
+
+	fromAddr, _, err := p.getAssociatedAddressesByEVMAddress(ctx, caller)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	denom := args[0].(string)
+	if denom == "" {
+		rerr = errors.New("invalid denom")
+		return
+	}
+
+	var closeAccountProofs cttypes.CloseAccountMsgProofs
+	err = closeAccountProofs.Unmarshal(args[1].([]byte))
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	msg := &cttypes.MsgCloseAccount{
+		Address: fromAddr.String(),
+		Denom:   denom,
+		Proofs:  &closeAccountProofs,
+	}
+
+	_, err = p.ctKeeper.CloseAccount(sdk.WrapSDKContext(ctx), msg)
 	if err != nil {
 		rerr = err
 		return

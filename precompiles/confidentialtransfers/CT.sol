@@ -27,6 +27,7 @@ interface ICT {
         bytes toAmountLo,
         bytes toAmountHi,
         bytes remainingBalance,
+        string decryptableBalance,
         bytes proofs
     ) external returns (bool success);
 
@@ -38,6 +39,7 @@ interface ICT {
         bytes toAmountLo,
         bytes toAmountHi,
         bytes remainingBalance,
+        string decryptableBalance,
         bytes proofs,
         Auditor[] auditors
     ) external returns (bool success);
@@ -56,5 +58,25 @@ interface ICT {
     function deposit(
         string denom,
         uint64 amount
+    ) external returns (bool success);
+
+    function applyPendingBalance(
+        string denom,
+        string decryptableBalance,
+        uint32 pendingBalanceCreditCounter,
+        bytes availableBalance,
+    ) external returns (bool success);
+
+    function withdraw(
+        string denom,
+        uint256 amount,
+        string decryptableBalance,
+        bytes remainingBalanceCommitment,
+        bytes proofs
+    ) external returns (bool success);
+
+    function closeAccount(
+        string denom,
+        bytes proofs
     ) external returns (bool success);
 }
