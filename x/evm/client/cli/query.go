@@ -929,6 +929,10 @@ func queryCtWithdrawPayload(cmd *cobra.Command, args []string) error {
 	}
 
 	remainingBalanceCommitment, err := withdrawProto.RemainingBalanceCommitment.Marshal()
+	if err != nil {
+		return err
+	}
+
 	proofs, err := withdrawProto.Proofs.Marshal()
 	if err != nil {
 		return err
