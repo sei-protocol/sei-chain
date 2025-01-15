@@ -121,3 +121,81 @@
     # Verify that the withdraw was unsuccessful due to uninitialized account
     - type: eval
       expr: WITHDRAW_CODE != 0
+
+- name: Test withdrawing on confidential token account via precompile
+  inputs:
+    # Setup test account
+    - cmd: printf "12345678\n" | seid keys add ctprwithdraw
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a ctprwithdraw
+      env: TEST_PRECOMPILE_ADDR
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_PRECOMPILE_ADDR 10sei -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_PRECOMPILE_ADDR 20000uatom -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+
+    - cmd: echo 10000
+      env: WITHDRAW_AMOUNT
+
+    # Initialize confidential token account for denom uatom for ctprwithdraw
+    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctprwithdraw --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: INIT_ACCOUNT_CODE
+
+    # Deposit to the confidential token account
+    - cmd: printf "12345678\n" | seid tx ct deposit ${WITHDRAW_AMOUNT}uatom --from ctprwithdraw --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: DEPOSIT_CODE
+
+    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance uatom --from ctprwithdraw --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: APPLY_PENDING_BALANCE_CODE
+
+    # Query the initial account state
+    - cmd: printf "12345678\n" | seid q ct account uatom $TEST_PRECOMPILE_ADDR --decryptor ctprwithdraw --output json
+      env: INITIAL_ACCOUNT_STATE
+    - cmd: echo $INITIAL_ACCOUNT_STATE | jq -r ".combined_pending_balance"
+      env: INITIAL_PENDING_BALANCE
+    - cmd: echo $(( $(echo $INITIAL_ACCOUNT_STATE | jq -r ".decryptable_available_balance") )) # Convert to integer
+      env: INITIAL_AVAILABLE_BALANCE
+
+    # Withdraw from the confidential token account via precompile
+    - cmd: |
+        printf "12345678\n" | seid tx evm call-contract --from ctprwithdraw --fees=40000usei --gas=2000000 0x0000000000000000000000000000000000001010 -b block "$(printf "12345678\n" | seid q evm ct-withdraw-payload precompiles/confidentialtransfers/abi.json $TEST_PRECOMPILE_ADDR ${WITHDRAW_AMOUNT}uatom)" | sed "s/.*: //"
+      env: TX_HASH
+    - cmd: sleep 2
+    # Query the Cosmos tx hash
+    - cmd: |
+        curl --location --request GET "localhost:8545/" --header "Content-Type: application/json" --data "{\"jsonrpc\":\"2.0\",\"method\":\"sei_getCosmosTx\",\"params\":[\"$TX_HASH\"],\"id\":788}" | jq -r ".result"
+      env: COSMOS_TX_HASH
+
+    # Query the Cosmos tx result
+    - cmd: seid q tx $COSMOS_TX_HASH --output json | jq -r ".code"
+      env: WITHDRAW_CODE
+
+    # Query the account to verify the new account state
+    - cmd: printf "12345678\n" | seid q ct account uatom $TEST_PRECOMPILE_ADDR --decryptor ctprwithdraw --output json
+      env: FINAL_ACCOUNT_STATE
+    - cmd: echo $FINAL_ACCOUNT_STATE | jq -r ".combined_pending_balance"
+      env: FINAL_PENDING_BALANCE
+    - cmd: echo $FINAL_ACCOUNT_STATE | jq -r ".pending_balance_credit_counter"
+      env: FINAL_PENDING_BALANCE_COUNTER
+    - cmd: echo $FINAL_ACCOUNT_STATE | jq -r ".decryptable_available_balance"
+      env: FINAL_AVAILABLE_BALANCE
+
+  verifiers:
+    # Verify that the account exists after the instruction is executed.
+    - type: eval
+      expr: INIT_ACCOUNT_CODE == 0 or INIT_ACCOUNT_CODE == 38
+
+    # Verify that the deposit was successful
+    - type: eval
+      expr: DEPOSIT_CODE == 0
+
+    # Verify that the apply balances operation was successful
+    - type: eval
+      expr: APPLY_PENDING_BALANCE_CODE == 0
+
+    # Verify that the withdraw was successful
+    - type: eval
+      expr: WITHDRAW_CODE == 0
+
+    # Verify that the available balance is the difference between the initial pending balance and withdraw amount
+    - type: eval
+      expr: INITIAL_AVAILABLE_BALANCE - WITHDRAW_AMOUNT == FINAL_AVAILABLE_BALANCE
