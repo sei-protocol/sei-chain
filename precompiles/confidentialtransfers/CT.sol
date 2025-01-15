@@ -64,7 +64,7 @@ interface ICT {
         string denom,
         string decryptableBalance,
         uint32 pendingBalanceCreditCounter,
-        bytes availableBalance,
+        bytes availableBalance
     ) external returns (bool success);
 
     function withdraw(
@@ -79,4 +79,19 @@ interface ICT {
         string denom,
         bytes proofs
     ) external returns (bool success);
+
+    // Queries
+    function account(
+        string addr,
+        string denom
+    ) external view returns (CtAccount account);
+
+    struct CtAccount {
+        bytes publicKey;  // serialized public key
+        bytes pendingBalanceLo;  // lo bits of the pending balance
+        bytes pendingBalanceHi; // hi bits of the pending balance
+        uint32 pendingBalanceCreditCounter;
+        bytes availableBalance; // elgamal encoded balance
+        string decryptableAvailableBalance; // aes encoded balance
+    }
 }

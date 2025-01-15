@@ -722,6 +722,7 @@ func New(
 			app.IBCKeeper.ConnectionKeeper,
 			app.IBCKeeper.ChannelKeeper,
 			app.AccountKeeper,
+			app.ConfidentialTransfersKeeper,
 			ctkeeper.NewMsgServerImpl(app.ConfidentialTransfersKeeper),
 		); err != nil {
 			panic(err)

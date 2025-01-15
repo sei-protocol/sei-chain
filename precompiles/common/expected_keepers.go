@@ -139,3 +139,7 @@ type ConfidentialTransfersKeeper interface {
 	Withdraw(goCtx context.Context, req *cttypes.MsgWithdraw) (*cttypes.MsgWithdrawResponse, error)
 	CloseAccount(goCtx context.Context, req *cttypes.MsgCloseAccount) (*cttypes.MsgCloseAccountResponse, error)
 }
+
+type ConfidentialTransfersViewKeeper interface {
+	GetAccount(ctx sdk.Context, address string, denom string) (cttypes.Account, bool)
+}
