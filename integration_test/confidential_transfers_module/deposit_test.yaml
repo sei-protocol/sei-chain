@@ -49,7 +49,7 @@
   verifiers:
     # Verify that the account exists after the instruction is executed.
     - type: eval
-      expr: INIT_ACCOUNT_CODE == 0 or INIT_ACCOUNT_CODE == 38
+      expr: INIT_ACCOUNT_CODE == 0 or INIT_ACCOUNT_CODE == 18
 
     # Verify that the deposit was successful
     - type: eval
@@ -135,7 +135,7 @@
   verifiers:
     # Verify that the account exists after the instruction is executed.
     - type: eval
-      expr: INIT_ACCOUNT_CODE_USDC == 0 or INIT_ACCOUNT_CODE_USDC == 38
+      expr: INIT_ACCOUNT_CODE_USDC == 0 or INIT_ACCOUNT_CODE_USDC == 18
 
     # Verify that the deposit was unsuccessful
     - type: eval
@@ -201,7 +201,7 @@
   verifiers:
     # Verify that the account exists after the instruction is executed.
     - type: eval
-      expr: INIT_ACCOUNT_CODE == 0 or INIT_ACCOUNT_CODE == 38
+      expr: INIT_ACCOUNT_CODE == 0 or INIT_ACCOUNT_CODE == 18
 
     # Verify that the deposit was successful
     - type: eval

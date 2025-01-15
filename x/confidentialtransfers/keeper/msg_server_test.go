@@ -59,8 +59,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountBasic() {
 
 	// Try to initialize the account again - this should produce an error
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
-	suite.Require().Error(err, "Should have error initializing account that already exists")
-	suite.Require().ErrorContains(err, "account already exists")
+	suite.Require().EqualError(err, "account already exists: invalid request")
 
 	// Try to initialize another account for a different denom
 	otherDenom := DefaultOtherDenom
