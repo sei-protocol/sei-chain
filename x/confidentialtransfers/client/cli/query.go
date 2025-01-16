@@ -1,10 +1,14 @@
 package cli
 
 import (
-	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	pre "github.com/sei-protocol/sei-chain/precompiles/common"
+	ctpre "github.com/sei-protocol/sei-chain/precompiles/confidentialtransfers"
+	ethtxtypes "github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
+	"reflect"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -12,11 +16,14 @@ import (
 	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx"
+	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/spf13/cobra"
+	tmtypes "github.com/tendermint/tendermint/abci/types"
 )
 
 const (
@@ -251,27 +258,17 @@ func queryDecryptedTx(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Decode the transaction hash from hex to bytes
-	txHash, err := hex.DecodeString(txHashHex)
+	txResponse, err := authtx.QueryTx(clientCtx, txHashHex)
 	if err != nil {
-		return fmt.Errorf("failed to decode transaction hash: %w", err)
+		return err
 	}
-
-	// Connect to the gRPC client
-	node, err := clientCtx.GetNode()
-	if err != nil {
-		return fmt.Errorf("failed to connect to node: %w", err)
-	}
-
-	// Query the transaction using Tendermint's Tx endpoint
-	res, err := node.Tx(context.Background(), txHash, false)
-	if err != nil {
-		return fmt.Errorf("failed to fetch transaction: %w", err)
+	if txResponse.Tx == nil {
+		return fmt.Errorf("transaction not found")
 	}
 
 	// Decode the transaction
 	var rawTx tx.Tx
-	if err := clientCtx.Codec.Unmarshal(res.Tx, &rawTx); err != nil {
+	if err := clientCtx.Codec.Unmarshal(txResponse.Tx.Value, &rawTx); err != nil {
 		return fmt.Errorf("failed to unmarshal transaction: %w", err)
 	}
 
@@ -283,7 +280,7 @@ func queryDecryptedTx(cmd *cobra.Command, args []string) error {
 	}
 	msgPrinted := false
 	for _, msg := range rawTx.Body.Messages {
-		result, foundMsg, err := handleDecryptableMessage(clientCtx.Codec, msg, decryptor, privateKey, decryptAvailableBalance, fromAddr.String())
+		result, foundMsg, err := handleDecryptableMessage(clientCtx.Codec, msg, txResponse.Events, decryptor, privateKey, decryptAvailableBalance, fromAddr.String())
 		if !foundMsg {
 			continue
 		} else {
@@ -309,6 +306,7 @@ func queryDecryptedTx(cmd *cobra.Command, args []string) error {
 func handleDecryptableMessage(
 	cdc codec.Codec,
 	msgAny *cdctypes.Any,
+	events []tmtypes.Event,
 	decryptor *elgamal.TwistedElGamal,
 	privKey *ecdsa.PrivateKey,
 	decryptAvailableBalance bool,
@@ -318,6 +316,15 @@ func handleDecryptableMessage(
 	err := cdc.UnpackAny(msgAny, &sdkmsg)
 	if err != nil {
 		return nil, false, nil
+	}
+
+	// If the message is of MsgEVMTransaction type, convert it to a corresponding confidential transfer message
+	// e.g. MsgTransfer
+	if isEvmMsg(sdkmsg) {
+		sdkmsg, err = convertEvmMsgToCtMsg(sdkmsg, events)
+		if err != nil {
+			return nil, false, err
+		}
 	}
 
 	var result proto.Message
@@ -339,4 +346,121 @@ func handleDecryptableMessage(
 	}
 
 	return result, true, err
+}
+
+func isEvmHash(hash string) bool {
+	if len(hash) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(hash)
+	return err == nil
+}
+
+func isEvmMsg(msg sdk.Msg) bool {
+	return reflect.TypeOf(msg) == reflect.TypeOf(&evmtypes.MsgEVMTransaction{})
+}
+
+func convertEvmMsgToCtMsg(sdkmsg sdk.Msg, events []tmtypes.Event) (sdk.Msg, error) {
+	message := sdkmsg.(*evmtypes.MsgEVMTransaction)
+	var dyanmicFeeTx ethtxtypes.DynamicFeeTx
+	data := message.GetData()
+	err := proto.Unmarshal(data.Value, &dyanmicFeeTx)
+	if err != nil {
+		return nil, err
+	}
+
+	methodID, err := pre.ExtractMethodID(dyanmicFeeTx.Data)
+	if err != nil {
+		return nil, err
+	}
+	ctPrecompile, _ := ctpre.NewPrecompile(nil, nil, nil)
+	method, err := ctPrecompile.ABI.MethodById(methodID)
+	if err != nil {
+		return nil, err
+	}
+	argsBz := dyanmicFeeTx.Data[4:]
+	args, err := method.Inputs.Unpack(argsBz)
+	if err != nil {
+		return nil, err
+	}
+
+	switch method.Name {
+	case ctpre.ApplyPendingBalanceMethod:
+	case ctpre.DepositMethod:
+	case ctpre.InitializeAccountMethod:
+	case ctpre.TransferMethod:
+		transferMsg, err := getTransferMessageFromArgs(args)
+		if err != nil {
+			return nil, err
+		}
+		for _, event := range events {
+			if event.Type == "transfer" {
+				for _, attr := range event.Attributes {
+					if string(attr.Key) == "sender" {
+						transferMsg.FromAddress = string(attr.Value)
+					}
+				}
+			}
+		}
+		transferMsg.ToAddress = args[0].(string)
+		return transferMsg, nil
+	case ctpre.TransferWithAuditorsMethod:
+	case ctpre.WithdrawMethod:
+	case ctpre.CloseAccountMethod:
+	default:
+		return nil, fmt.Errorf("unknown method %s", method.Name)
+	}
+	return nil, errors.New("no confidential transfer message found")
+}
+
+func getTransferMessageFromArgs(args []interface{}) (*types.MsgTransfer, error) {
+	denom := args[1].(string)
+	var fromAmountLo types.Ciphertext
+	err := fromAmountLo.Unmarshal(args[2].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	var fromAmountHi types.Ciphertext
+	err = fromAmountHi.Unmarshal(args[3].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	var toAmountLo types.Ciphertext
+	err = toAmountLo.Unmarshal(args[4].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	var toAmountHi types.Ciphertext
+	err = toAmountHi.Unmarshal(args[5].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	var remainingBalance types.Ciphertext
+	err = remainingBalance.Unmarshal(args[6].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	decryptableBalance := args[7].(string)
+
+	var transferMessageProofs types.TransferMsgProofs
+	err = transferMessageProofs.Unmarshal(args[8].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	return &types.MsgTransfer{
+		Denom:              denom,
+		FromAmountLo:       &fromAmountLo,
+		FromAmountHi:       &fromAmountHi,
+		ToAmountLo:         &toAmountLo,
+		ToAmountHi:         &toAmountHi,
+		RemainingBalance:   &remainingBalance,
+		DecryptableBalance: decryptableBalance,
+		Proofs:             &transferMessageProofs,
+	}, nil
 }
