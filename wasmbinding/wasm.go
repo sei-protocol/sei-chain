@@ -7,6 +7,7 @@ import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
+	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
 	epochkeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"
@@ -30,12 +31,13 @@ func RegisterCustomPlugins(
 	portSource wasmtypes.ICS20TransferPortSource,
 	aclKeeper aclkeeper.Keeper,
 	evmKeeper *evmkeeper.Keeper,
+	stakingKeeper stakingkeeper.Keeper,
 ) []wasmkeeper.Option {
 	oracleHandler := oraclewasm.NewOracleWasmQueryHandler(oracle)
 	epochHandler := epochwasm.NewEpochWasmQueryHandler(epoch)
 	tokenfactoryHandler := tokenfactorywasm.NewTokenFactoryWasmQueryHandler(tokenfactory)
 	evmHandler := evmwasm.NewEVMQueryHandler(evmKeeper)
-	wasmQueryPlugin := NewQueryPlugin(oracleHandler, epochHandler, tokenfactoryHandler, evmHandler)
+	wasmQueryPlugin := NewQueryPlugin(oracleHandler, epochHandler, tokenfactoryHandler, evmHandler, stakingKeeper)
 
 	queryPluginOpt := wasmkeeper.WithQueryPlugins(&wasmkeeper.QueryPlugins{
 		Custom: CustomQuerier(wasmQueryPlugin),
