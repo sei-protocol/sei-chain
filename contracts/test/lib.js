@@ -484,7 +484,6 @@ async function executeOnAllNodes(command, interaction=`printf "12345678\\n"`){
 }
 
 async function execute(command, interaction=`printf "12345678\\n"`){
-    console.log("executing command: ", command);
     if (await isDocker()) {
         command = command.replace(/\.\.\//g, "/sei-protocol/sei-chain/");
         command = command.replace("/sei-protocol/sei-chain//sei-protocol/sei-chain/", "/sei-protocol/sei-chain/")
