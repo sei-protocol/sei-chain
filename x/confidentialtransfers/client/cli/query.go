@@ -2,14 +2,9 @@ package cli
 
 import (
 	"crypto/ecdsa"
-	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
-	pre "github.com/sei-protocol/sei-chain/precompiles/common"
-	ctpre "github.com/sei-protocol/sei-chain/precompiles/confidentialtransfers"
-	ethtxtypes "github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
-	"reflect"
-
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -18,17 +13,25 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx"
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 	"github.com/gogo/protobuf/proto"
+	pre "github.com/sei-protocol/sei-chain/precompiles/common"
+	ctpre "github.com/sei-protocol/sei-chain/precompiles/confidentialtransfers"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	ethtxtypes "github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/spf13/cobra"
 	tmtypes "github.com/tendermint/tendermint/abci/types"
+	"io"
+	"net/http"
+	"reflect"
+	"strings"
 )
 
 const (
 	decryptAvailableBalanceFlag = "decrypt-available-balance"
 	decryptorFlag               = "decryptor"
+	flagRPC                     = "evm-rpc"
 )
 
 // GetQueryCmd returns the cli query commands for the minting module.
@@ -220,6 +223,7 @@ func GetCmdQueryTx() *cobra.Command {
 	flags.AddQueryFlagsToCmd(cmd)
 	cmd.Flags().String(decryptorFlag, "", "Name or address of private key to decrypt the account")
 	cmd.Flags().Bool(decryptAvailableBalanceFlag, false, "Set this to attempt to decrypt the available balance")
+	cmd.Flags().String(flagRPC, "", "EVM RPC endpoint e.g. http://localhost:8545")
 	return cmd
 }
 
@@ -231,6 +235,18 @@ func queryDecryptedTx(cmd *cobra.Command, args []string) error {
 
 	// Get the transaction hash
 	txHashHex := args[0]
+
+	evmRpc, err := cmd.Flags().GetString(flagRPC)
+	if err != nil {
+		return err
+	}
+
+	if evmRpc != "" {
+		txHashHex, err = getTxHashByEvmHash(evmRpc, txHashHex)
+		if err != nil {
+			return err
+		}
+	}
 
 	decryptorAccount, err := cmd.Flags().GetString(decryptorFlag)
 	if err != nil {
@@ -348,12 +364,35 @@ func handleDecryptableMessage(
 	return result, true, err
 }
 
-func isEvmHash(hash string) bool {
-	if len(hash) != 64 {
-		return false
+type RpcResponse struct {
+	JSONRPC string `json:"jsonrpc"`
+	ID      string `json:"id"`
+	Result  string `json:"result"`
+}
+
+func getTxHashByEvmHash(evmRpc string, ethHash string) (string, error) {
+	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"sei_getCosmosTx\",\"params\":[\"%s\"],\"id\":\"cosmos_tx\"}", ethHash)
+
+	req, err := http.NewRequest(http.MethodGet, evmRpc, strings.NewReader(body))
+	if err != nil {
+		return "", err
 	}
-	_, err := hex.DecodeString(hash)
-	return err == nil
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	resBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", err
+	}
+	var response RpcResponse
+	err = json.Unmarshal(resBody, &response)
+	if err != nil {
+		return "", err
+	}
+	return response.Result, nil
 }
 
 func isEvmMsg(msg sdk.Msg) bool {
