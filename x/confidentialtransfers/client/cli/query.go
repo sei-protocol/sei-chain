@@ -399,10 +399,12 @@ func convertEvmMsgToCtMsg(sdkmsg sdk.Msg, events []tmtypes.Event) (sdk.Msg, erro
 					if string(attr.Key) == "sender" {
 						transferMsg.FromAddress = string(attr.Value)
 					}
+					if string(attr.Key) == "recipient" {
+						transferMsg.ToAddress = string(attr.Value)
+					}
 				}
 			}
 		}
-		transferMsg.ToAddress = args[0].(string)
 		return transferMsg, nil
 	case ctpre.TransferWithAuditorsMethod:
 	case ctpre.WithdrawMethod:
