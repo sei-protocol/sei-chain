@@ -40,6 +40,14 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
     }
 
     // Queries
+    // owner of the entire collection, not specific to a token id
+    function owner() public view returns (address) {
+        string memory req = _curlyBrace(_formatPayload("ownership", "{}"));
+        bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(req));
+        bytes memory owner_bytes = JsonPrecompile.extractAsBytes(response, "owner");
+        return AddrPrecompile.getEvmAddr(string(owner_bytes));
+    }
+
     function balanceOf(address owner) public view override returns (uint256) {
         if (owner == address(0)) {
             revert ERC721InvalidOwner(address(0));
