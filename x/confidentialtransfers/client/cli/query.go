@@ -12,6 +12,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx"
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/gogo/protobuf/proto"
 	pre "github.com/sei-protocol/sei-chain/precompiles/common"
 	ctpre "github.com/sei-protocol/sei-chain/precompiles/confidentialtransfers"
@@ -296,7 +297,7 @@ func queryDecryptedTx(cmd *cobra.Command, args []string) error {
 	}
 	msgPrinted := false
 	for _, msg := range rawTx.Body.Messages {
-		result, foundMsg, err := handleDecryptableMessage(clientCtx.Codec, msg, txResponse.Events, decryptor, privateKey, decryptAvailableBalance, fromAddr.String())
+		result, foundMsg, err := handleDecryptableMessage(clientCtx.Codec, msg, txResponse.Events, decryptor, privateKey, decryptAvailableBalance, fromAddr.String(), evmRpc)
 		if !foundMsg {
 			continue
 		} else {
@@ -326,7 +327,8 @@ func handleDecryptableMessage(
 	decryptor *elgamal.TwistedElGamal,
 	privKey *ecdsa.PrivateKey,
 	decryptAvailableBalance bool,
-	address string) (msg proto.Message, foundDecryptableMsg bool, error error) {
+	address string,
+	evmRpc string) (msg proto.Message, foundDecryptableMsg bool, error error) {
 	// Try to unmarshal the message as one of the known types
 	var sdkmsg sdk.Msg
 	err := cdc.UnpackAny(msgAny, &sdkmsg)
@@ -337,7 +339,7 @@ func handleDecryptableMessage(
 	// If the message is of MsgEVMTransaction type, convert it to a corresponding confidential transfer message
 	// e.g. MsgTransfer
 	if isEvmMsg(sdkmsg) {
-		sdkmsg, err = convertEvmMsgToCtMsg(sdkmsg, events)
+		sdkmsg, err = convertEvmMsgToCtMsg(sdkmsg, events, evmRpc)
 		if err != nil {
 			return nil, false, err
 		}
@@ -395,11 +397,36 @@ func getTxHashByEvmHash(evmRpc string, ethHash string) (string, error) {
 	return response.Result, nil
 }
 
+func getSeiAddress(evmRpc string, evmAddress string) (string, error) {
+	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"sei_getSeiAddress\",\"params\":[\"%s\"],\"id\":\"1\"}", evmAddress)
+
+	req, err := http.NewRequest(http.MethodGet, evmRpc, strings.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	resBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", err
+	}
+	var response RpcResponse
+	err = json.Unmarshal(resBody, &response)
+	if err != nil {
+		return "", err
+	}
+	return response.Result, nil
+}
+
 func isEvmMsg(msg sdk.Msg) bool {
 	return reflect.TypeOf(msg) == reflect.TypeOf(&evmtypes.MsgEVMTransaction{})
 }
 
-func convertEvmMsgToCtMsg(sdkmsg sdk.Msg, events []tmtypes.Event) (sdk.Msg, error) {
+func convertEvmMsgToCtMsg(sdkmsg sdk.Msg, events []tmtypes.Event, evmRpc string) (sdk.Msg, error) {
 	message := sdkmsg.(*evmtypes.MsgEVMTransaction)
 	var dyanmicFeeTx ethtxtypes.DynamicFeeTx
 	data := message.GetData()
@@ -443,22 +470,21 @@ func convertEvmMsgToCtMsg(sdkmsg sdk.Msg, events []tmtypes.Event) (sdk.Msg, erro
 		}
 		return msg, nil
 	case ctpre.DepositMethod:
-		denom := args[0].(string)
-		amount := args[1].(uint64)
-		msg := &types.MsgDeposit{
-			Denom:  denom,
-			Amount: amount,
-		}
+		var address string
 		for _, event := range events {
 			if event.Type == types.EventTypeDeposit {
 				for _, attr := range event.Attributes {
 					if string(attr.Key) == types.AttributeAddress {
-						msg.FromAddress = string(attr.Value)
+						address = string(attr.Value)
 						break
 					}
 				}
 				break
 			}
+		}
+		msg, err := ctpre.BuildDepositMsgFromArgs(address, args)
+		if err != nil {
+			return nil, err
 		}
 		return msg, nil
 	case ctpre.InitializeAccountMethod:
@@ -480,80 +506,130 @@ func convertEvmMsgToCtMsg(sdkmsg sdk.Msg, events []tmtypes.Event) (sdk.Msg, erro
 		}
 		return msg, nil
 	case ctpre.TransferMethod:
-		msg, err := getTransferMessageFromArgs(args)
-		if err != nil {
-			return nil, err
-		}
+		var fromAddress, toAddress string
 		for _, event := range events {
 			if event.Type == types.TypeMsgTransfer {
 				for _, attr := range event.Attributes {
 					if string(attr.Key) == types.AttributeSender {
-						msg.FromAddress = string(attr.Value)
+						fromAddress = string(attr.Value)
 					}
 					if string(attr.Key) == types.AttributeRecipient {
-						msg.ToAddress = string(attr.Value)
+						toAddress = string(attr.Value)
 					}
 				}
+				break
 			}
+		}
+		msg, err := ctpre.BuildTransferMsgFromArgs(fromAddress, toAddress, args)
+		if err != nil {
+			return nil, err
 		}
 		return msg, nil
 	case ctpre.TransferWithAuditorsMethod:
+		var fromAddress, toAddress string
+		for _, event := range events {
+			if event.Type == types.EventTypeTransfer {
+				for _, attr := range event.Attributes {
+					if string(attr.Key) == types.AttributeSender {
+						fromAddress = string(attr.Value)
+					}
+					if string(attr.Key) == types.AttributeRecipient {
+						toAddress = string(attr.Value)
+					}
+				}
+				break
+			}
+		}
+		msg, err := ctpre.BuildTransferMsgFromArgs(fromAddress, toAddress, args)
+		if err != nil {
+			return nil, err
+		}
+
+		auditors, err := getAuditorsFromArg(evmRpc, args[9])
+		if err != nil {
+			return nil, err
+		}
+		msg.Auditors = auditors
+		return msg, nil
 	case ctpre.WithdrawMethod:
+		var address string
+		for _, event := range events {
+			if event.Type == types.EventTypeWithdraw {
+				for _, attr := range event.Attributes {
+					if string(attr.Key) == types.AttributeAddress {
+						address = string(attr.Value)
+						break
+					}
+				}
+				break
+			}
+		}
+		msg, err := ctpre.BuildWithdrawMsgFromArgs(address, args)
+		if err != nil {
+			return nil, err
+		}
+		return msg, nil
 	case ctpre.CloseAccountMethod:
+		var address string
+		for _, event := range events {
+			if event.Type == types.EventTypeCloseAccount {
+				for _, attr := range event.Attributes {
+					if string(attr.Key) == types.AttributeAddress {
+						address = string(attr.Value)
+						break
+					}
+				}
+				break
+			}
+		}
+		msg, err := ctpre.BuildCloseAccountMsgFromArgs(address, args)
+		if err != nil {
+			return nil, err
+		}
+		return msg, nil
 	default:
 		return nil, fmt.Errorf("unknown method %s", method.Name)
 	}
-	return nil, errors.New("no confidential transfer message found")
 }
 
-func getTransferMessageFromArgs(args []interface{}) (*types.MsgTransfer, error) {
-	denom := args[1].(string)
-	var fromAmountLo types.Ciphertext
-	err := fromAmountLo.Unmarshal(args[2].([]byte))
+func getAuditorsFromArg(evmRpc string, arg interface{}) ([]*types.Auditor, error) {
+	ctAuditors, err := ctpre.GetCtAuditors(arg)
 	if err != nil {
 		return nil, err
 	}
 
-	var fromAmountHi types.Ciphertext
-	err = fromAmountHi.Unmarshal(args[3].([]byte))
-	if err != nil {
-		return nil, err
+	if len(ctAuditors) == 0 {
+		return nil, errors.New("auditors array cannot be empty")
 	}
 
-	var toAmountLo types.Ciphertext
-	err = toAmountLo.Unmarshal(args[4].([]byte))
-	if err != nil {
-		return nil, err
+	auditors := make([]*types.Auditor, 0)
+	for _, auditor := range ctAuditors {
+		auditorAddr, err := getValidSeiAddressFromString(evmRpc, auditor.AuditorAddress)
+		if err != nil {
+			return nil, err
+		}
+
+		a, err := ctpre.GetAuditorFromCtAuditor(auditorAddr, auditor)
+		if err != nil {
+			return nil, err
+		}
+		auditors = append(auditors, a)
 	}
+	return auditors, nil
+}
 
-	var toAmountHi types.Ciphertext
-	err = toAmountHi.Unmarshal(args[5].([]byte))
-	if err != nil {
-		return nil, err
+func getValidSeiAddressFromString(evmRpc string, addr string) (string, error) {
+	if common.IsHexAddress(addr) {
+		evmAddr := common.HexToAddress(addr)
+		res, err := getSeiAddress(evmRpc, evmAddr.String())
+		if err != nil {
+			return "", err
+		}
+		return res, nil
 	}
-
-	var remainingBalance types.Ciphertext
-	err = remainingBalance.Unmarshal(args[6].([]byte))
-	if err != nil {
-		return nil, err
+	if seiAddress, err := sdk.AccAddressFromBech32(addr); err != nil {
+		return "", fmt.Errorf("invalid address %s: %w", addr, err)
+	} else {
+		return seiAddress.String(), nil
 	}
-
-	decryptableBalance := args[7].(string)
-
-	var transferMessageProofs types.TransferMsgProofs
-	err = transferMessageProofs.Unmarshal(args[8].([]byte))
-	if err != nil {
-		return nil, err
-	}
-
-	return &types.MsgTransfer{
-		Denom:              denom,
-		FromAmountLo:       &fromAmountLo,
-		FromAmountHi:       &fromAmountHi,
-		ToAmountLo:         &toAmountLo,
-		ToAmountHi:         &toAmountHi,
-		RemainingBalance:   &remainingBalance,
-		DecryptableBalance: decryptableBalance,
-		Proofs:             &transferMessageProofs,
-	}, nil
 }
