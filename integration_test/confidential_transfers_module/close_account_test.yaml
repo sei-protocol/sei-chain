@@ -122,7 +122,7 @@
   verifiers:
     # Verify that the account exists after the instruction is executed.
     - type: eval
-      expr: INIT_ACCOUNT_CODE == 0 or INIT_ACCOUNT_CODE == 38
+      expr: INIT_ACCOUNT_CODE == 0 or INIT_ACCOUNT_CODE == 18
 
     # Verify that closing the account was successful
     - type: eval

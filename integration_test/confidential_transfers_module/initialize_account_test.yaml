@@ -39,7 +39,7 @@
 
     # Verify that the account initialization was successful
     - type: eval
-      expr: INIT_ACCOUNT_CODE_REPEAT == 38
+      expr: INIT_ACCOUNT_CODE_REPEAT == 18
 
     # Verify that the account initialization for a different denom was successful
     - type: eval

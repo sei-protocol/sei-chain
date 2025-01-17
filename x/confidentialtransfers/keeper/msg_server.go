@@ -45,7 +45,7 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 	// Check if the account already exists
 	_, exists := m.Keeper.GetAccount(ctx, req.FromAddress, instruction.Denom)
 	if exists {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrNotFound, "account already exists")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already exists")
 	}
 
 	// Check if denom already exists.
