@@ -5,6 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"reflect"
+	"strings"
+
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -23,10 +28,6 @@ import (
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/spf13/cobra"
 	tmtypes "github.com/tendermint/tendermint/abci/types"
-	"io"
-	"net/http"
-	"reflect"
-	"strings"
 )
 
 const (
