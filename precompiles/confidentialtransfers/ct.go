@@ -198,7 +198,7 @@ func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Me
 		return
 	}
 
-	msg.Auditors, err = p.getAuditorsFromArgs(ctx, args[9])
+	msg.Auditors, err = p.getAuditorsFromArg(ctx, args[9])
 	if err != nil {
 		rerr = err
 		return
@@ -388,7 +388,7 @@ func GetCtAuditors(arg interface{}) (ctAuditors []struct {
 	return ctAuditors, nil
 }
 
-func (p PrecompileExecutor) getAuditorsFromArgs(ctx sdk.Context, arg interface{}) (auditorsArray []*cttypes.Auditor, rerr error) {
+func (p PrecompileExecutor) getAuditorsFromArg(ctx sdk.Context, arg interface{}) (auditorsArray []*cttypes.Auditor, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			auditorsArray = nil

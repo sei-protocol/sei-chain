@@ -374,33 +374,16 @@ type RpcResponse struct {
 
 func getTxHashByEvmHash(evmRpc string, ethHash string) (string, error) {
 	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"sei_getCosmosTx\",\"params\":[\"%s\"],\"id\":\"cosmos_tx\"}", ethHash)
-
-	req, err := http.NewRequest(http.MethodGet, evmRpc, strings.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer res.Body.Close()
-	resBody, err := io.ReadAll(res.Body)
-	if err != nil {
-		return "", err
-	}
-	var response RpcResponse
-	err = json.Unmarshal(resBody, &response)
-	if err != nil {
-		return "", err
-	}
-	return response.Result, nil
+	return executeRpcCall(evmRpc, body)
 }
 
 func getSeiAddress(evmRpc string, evmAddress string) (string, error) {
 	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"sei_getSeiAddress\",\"params\":[\"%s\"],\"id\":\"1\"}", evmAddress)
+	return executeRpcCall(evmRpc, body)
+}
 
-	req, err := http.NewRequest(http.MethodGet, evmRpc, strings.NewReader(body))
+func executeRpcCall(evmRpc string, requestBody string) (string, error) {
+	req, err := http.NewRequest(http.MethodGet, evmRpc, strings.NewReader(requestBody))
 	if err != nil {
 		return "", err
 	}
@@ -450,19 +433,24 @@ func convertEvmMsgToCtMsg(sdkmsg sdk.Msg, events []tmtypes.Event, evmRpc string)
 		return nil, err
 	}
 
-	switch method.Name {
-	case ctpre.ApplyPendingBalanceMethod:
-		var address string
+	getAddressFromEvent := func(eventType, attrKey string) (string, error) {
 		for _, event := range events {
-			if event.Type == types.EventTypeApplyPendingBalance {
+			if event.Type == eventType {
 				for _, attr := range event.Attributes {
-					if string(attr.Key) == types.AttributeAddress {
-						address = string(attr.Value)
-						break
+					if string(attr.Key) == attrKey {
+						return string(attr.Value), nil
 					}
 				}
-				break
 			}
+		}
+		return "", fmt.Errorf("address not found for event type %s", eventType)
+	}
+
+	switch method.Name {
+	case ctpre.ApplyPendingBalanceMethod:
+		address, err := getAddressFromEvent(types.EventTypeApplyPendingBalance, types.AttributeAddress)
+		if err != nil {
+			return nil, err
 		}
 		msg, err := ctpre.BuildApplyPendingBalanceMsgFromArgs(address, args)
 		if err != nil {
@@ -470,17 +458,9 @@ func convertEvmMsgToCtMsg(sdkmsg sdk.Msg, events []tmtypes.Event, evmRpc string)
 		}
 		return msg, nil
 	case ctpre.DepositMethod:
-		var address string
-		for _, event := range events {
-			if event.Type == types.EventTypeDeposit {
-				for _, attr := range event.Attributes {
-					if string(attr.Key) == types.AttributeAddress {
-						address = string(attr.Value)
-						break
-					}
-				}
-				break
-			}
+		address, err := getAddressFromEvent(types.EventTypeDeposit, types.AttributeAddress)
+		if err != nil {
+			return nil, err
 		}
 		msg, err := ctpre.BuildDepositMsgFromArgs(address, args)
 		if err != nil {
@@ -488,17 +468,9 @@ func convertEvmMsgToCtMsg(sdkmsg sdk.Msg, events []tmtypes.Event, evmRpc string)
 		}
 		return msg, nil
 	case ctpre.InitializeAccountMethod:
-		var address string
-		for _, event := range events {
-			if event.Type == types.EventTypeInitializeAccount {
-				for _, attr := range event.Attributes {
-					if string(attr.Key) == types.AttributeAddress {
-						address = string(attr.Value)
-						break
-					}
-				}
-				break
-			}
+		address, err := getAddressFromEvent(types.EventTypeInitializeAccount, types.AttributeAddress)
+		if err != nil {
+			return nil, err
 		}
 		msg, err := ctpre.BuildInitializeAccountMsgFromArgs(address, args)
 		if err != nil {
@@ -506,19 +478,13 @@ func convertEvmMsgToCtMsg(sdkmsg sdk.Msg, events []tmtypes.Event, evmRpc string)
 		}
 		return msg, nil
 	case ctpre.TransferMethod:
-		var fromAddress, toAddress string
-		for _, event := range events {
-			if event.Type == types.TypeMsgTransfer {
-				for _, attr := range event.Attributes {
-					if string(attr.Key) == types.AttributeSender {
-						fromAddress = string(attr.Value)
-					}
-					if string(attr.Key) == types.AttributeRecipient {
-						toAddress = string(attr.Value)
-					}
-				}
-				break
-			}
+		fromAddress, err := getAddressFromEvent(types.TypeMsgTransfer, types.AttributeSender)
+		if err != nil {
+			return nil, err
+		}
+		toAddress, err := getAddressFromEvent(types.TypeMsgTransfer, types.AttributeRecipient)
+		if err != nil {
+			return nil, err
 		}
 		msg, err := ctpre.BuildTransferMsgFromArgs(fromAddress, toAddress, args)
 		if err != nil {
@@ -526,19 +492,13 @@ func convertEvmMsgToCtMsg(sdkmsg sdk.Msg, events []tmtypes.Event, evmRpc string)
 		}
 		return msg, nil
 	case ctpre.TransferWithAuditorsMethod:
-		var fromAddress, toAddress string
-		for _, event := range events {
-			if event.Type == types.EventTypeTransfer {
-				for _, attr := range event.Attributes {
-					if string(attr.Key) == types.AttributeSender {
-						fromAddress = string(attr.Value)
-					}
-					if string(attr.Key) == types.AttributeRecipient {
-						toAddress = string(attr.Value)
-					}
-				}
-				break
-			}
+		fromAddress, err := getAddressFromEvent(types.EventTypeTransfer, types.AttributeSender)
+		if err != nil {
+			return nil, err
+		}
+		toAddress, err := getAddressFromEvent(types.EventTypeTransfer, types.AttributeRecipient)
+		if err != nil {
+			return nil, err
 		}
 		msg, err := ctpre.BuildTransferMsgFromArgs(fromAddress, toAddress, args)
 		if err != nil {
@@ -552,17 +512,9 @@ func convertEvmMsgToCtMsg(sdkmsg sdk.Msg, events []tmtypes.Event, evmRpc string)
 		msg.Auditors = auditors
 		return msg, nil
 	case ctpre.WithdrawMethod:
-		var address string
-		for _, event := range events {
-			if event.Type == types.EventTypeWithdraw {
-				for _, attr := range event.Attributes {
-					if string(attr.Key) == types.AttributeAddress {
-						address = string(attr.Value)
-						break
-					}
-				}
-				break
-			}
+		address, err := getAddressFromEvent(types.EventTypeWithdraw, types.AttributeAddress)
+		if err != nil {
+			return nil, err
 		}
 		msg, err := ctpre.BuildWithdrawMsgFromArgs(address, args)
 		if err != nil {
@@ -570,17 +522,9 @@ func convertEvmMsgToCtMsg(sdkmsg sdk.Msg, events []tmtypes.Event, evmRpc string)
 		}
 		return msg, nil
 	case ctpre.CloseAccountMethod:
-		var address string
-		for _, event := range events {
-			if event.Type == types.EventTypeCloseAccount {
-				for _, attr := range event.Attributes {
-					if string(attr.Key) == types.AttributeAddress {
-						address = string(attr.Value)
-						break
-					}
-				}
-				break
-			}
+		address, err := getAddressFromEvent(types.EventTypeCloseAccount, types.AttributeAddress)
+		if err != nil {
+			return nil, err
 		}
 		msg, err := ctpre.BuildCloseAccountMsgFromArgs(address, args)
 		if err != nil {
