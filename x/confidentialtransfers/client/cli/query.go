@@ -425,26 +425,78 @@ func convertEvmMsgToCtMsg(sdkmsg sdk.Msg, events []tmtypes.Event) (sdk.Msg, erro
 
 	switch method.Name {
 	case ctpre.ApplyPendingBalanceMethod:
+		var address string
+		for _, event := range events {
+			if event.Type == types.EventTypeApplyPendingBalance {
+				for _, attr := range event.Attributes {
+					if string(attr.Key) == types.AttributeAddress {
+						address = string(attr.Value)
+						break
+					}
+				}
+				break
+			}
+		}
+		msg, err := ctpre.BuildApplyPendingBalanceMsgFromArgs(address, args)
+		if err != nil {
+			return nil, err
+		}
+		return msg, nil
 	case ctpre.DepositMethod:
+		denom := args[0].(string)
+		amount := args[1].(uint64)
+		msg := &types.MsgDeposit{
+			Denom:  denom,
+			Amount: amount,
+		}
+		for _, event := range events {
+			if event.Type == types.EventTypeDeposit {
+				for _, attr := range event.Attributes {
+					if string(attr.Key) == types.AttributeAddress {
+						msg.FromAddress = string(attr.Value)
+						break
+					}
+				}
+				break
+			}
+		}
+		return msg, nil
 	case ctpre.InitializeAccountMethod:
+		var address string
+		for _, event := range events {
+			if event.Type == types.EventTypeInitializeAccount {
+				for _, attr := range event.Attributes {
+					if string(attr.Key) == types.AttributeAddress {
+						address = string(attr.Value)
+						break
+					}
+				}
+				break
+			}
+		}
+		msg, err := ctpre.BuildInitializeAccountMsgFromArgs(address, args)
+		if err != nil {
+			return nil, err
+		}
+		return msg, nil
 	case ctpre.TransferMethod:
-		transferMsg, err := getTransferMessageFromArgs(args)
+		msg, err := getTransferMessageFromArgs(args)
 		if err != nil {
 			return nil, err
 		}
 		for _, event := range events {
-			if event.Type == "transfer" {
+			if event.Type == types.TypeMsgTransfer {
 				for _, attr := range event.Attributes {
-					if string(attr.Key) == "sender" {
-						transferMsg.FromAddress = string(attr.Value)
+					if string(attr.Key) == types.AttributeSender {
+						msg.FromAddress = string(attr.Value)
 					}
-					if string(attr.Key) == "recipient" {
-						transferMsg.ToAddress = string(attr.Value)
+					if string(attr.Key) == types.AttributeRecipient {
+						msg.ToAddress = string(attr.Value)
 					}
 				}
 			}
 		}
-		return transferMsg, nil
+		return msg, nil
 	case ctpre.TransferWithAuditorsMethod:
 	case ctpre.WithdrawMethod:
 	case ctpre.CloseAccountMethod:

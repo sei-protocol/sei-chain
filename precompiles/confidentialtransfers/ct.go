@@ -198,7 +198,7 @@ func (p PrecompileExecutor) transferWithAuditors(ctx sdk.Context, method *abi.Me
 		return
 	}
 
-	msg.Auditors, err = p.getAuditorsFromArg(ctx, args[9])
+	msg.Auditors, err = GetAuditorsFromArgs(ctx, args[9], p.getValidSeiAddressFromString)
 	if err != nil {
 		rerr = err
 		return
@@ -237,13 +237,17 @@ func (p PrecompileExecutor) getTransferMessageFromArgs(ctx sdk.Context, caller c
 		return nil, err
 	}
 
+	return BuildTransferMsgFromArgs(fromAddr.String(), toAddress.String(), args)
+}
+
+func BuildTransferMsgFromArgs(fromAddress string, toAddress string, args []interface{}) (*cttypes.MsgTransfer, error) {
 	denom, ok := args[1].(string)
 	if !ok || denom == "" {
 		return nil, errors.New("invalid denom")
 	}
 
 	var fromAmountLo cttypes.Ciphertext
-	err = fromAmountLo.Unmarshal(args[2].([]byte))
+	err := fromAmountLo.Unmarshal(args[2].([]byte))
 	if err != nil {
 		return nil, err
 	}
@@ -284,8 +288,8 @@ func (p PrecompileExecutor) getTransferMessageFromArgs(ctx sdk.Context, caller c
 	}
 
 	return &cttypes.MsgTransfer{
-		FromAddress:        fromAddr.String(),
-		ToAddress:          toAddress.String(),
+		FromAddress:        fromAddress,
+		ToAddress:          toAddress,
 		Denom:              denom,
 		FromAmountLo:       &fromAmountLo,
 		FromAmountHi:       &fromAmountHi,
@@ -348,7 +352,7 @@ func (p PrecompileExecutor) getAssociatedAddressesBySeiAddress(ctx sdk.Context, 
 	return seiAddr, evmAddr, nil
 }
 
-func (p PrecompileExecutor) getAuditorsFromArg(ctx sdk.Context, arg interface{}) (auditorsArray []*cttypes.Auditor, rerr error) {
+func GetAuditorsFromArgs(ctx sdk.Context, arg interface{}, getValidSeiAddressFromString func(ctx sdk.Context, addr string) (sdk.AccAddress, error)) (auditorsArray []*cttypes.Auditor, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			auditorsArray = nil
@@ -373,7 +377,7 @@ func (p PrecompileExecutor) getAuditorsFromArg(ctx sdk.Context, arg interface{})
 
 	auditors := make([]*cttypes.Auditor, 0)
 	for _, auditor := range evmAuditors {
-		auditorAddr, err := p.getValidSeiAddressFromString(ctx, auditor.AuditorAddress)
+		auditorAddr, err := getValidSeiAddressFromString(ctx, auditor.AuditorAddress)
 		if err != nil {
 			return nil, err
 		}
@@ -453,61 +457,10 @@ func (p PrecompileExecutor) initializeAccount(ctx sdk.Context, method *abi.Metho
 		return
 	}
 
-	denom := args[1].(string)
-	if denom == "" {
-		rerr = errors.New("invalid denom")
-		return
-	}
-
-	publicKey, ok := args[2].([]byte)
-	if !ok {
-		rerr = errors.New("invalid public key")
-		return
-	}
-
-	decryptableBalance := args[3].(string)
-	if decryptableBalance == "" {
-		rerr = errors.New("invalid decryptable balance")
-		return
-	}
-
-	var pendingBalanceLo cttypes.Ciphertext
-	err = pendingBalanceLo.Unmarshal(args[4].([]byte))
+	msg, err := BuildInitializeAccountMsgFromArgs(seiAddr.String(), args)
 	if err != nil {
 		rerr = err
 		return
-	}
-
-	var pendingBalanceHi cttypes.Ciphertext
-	err = pendingBalanceHi.Unmarshal(args[5].([]byte))
-	if err != nil {
-		rerr = err
-		return
-	}
-
-	var availableBalance cttypes.Ciphertext
-	err = availableBalance.Unmarshal(args[6].([]byte))
-	if err != nil {
-		rerr = err
-		return
-	}
-
-	var initializeAccountProofs cttypes.InitializeAccountMsgProofs
-	err = initializeAccountProofs.Unmarshal(args[7].([]byte))
-	if err != nil {
-		rerr = err
-		return
-	}
-
-	msg := &cttypes.MsgInitializeAccount{
-		FromAddress:        seiAddr.String(),
-		Denom:              denom,
-		PublicKey:          publicKey,
-		DecryptableBalance: decryptableBalance,
-		PendingBalanceLo:   &pendingBalanceLo,
-		PendingBalanceHi:   &pendingBalanceHi,
-		AvailableBalance:   &availableBalance,
-		Proofs:             &initializeAccountProofs,
 	}
 
 	_, err = p.ctKeeper.InitializeAccount(sdk.WrapSDKContext(ctx), msg)
@@ -518,6 +471,58 @@ func (p PrecompileExecutor) initializeAccount(ctx sdk.Context, method *abi.Metho
 	ret, rerr = method.Outputs.Pack(true)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
+}
+
+func BuildInitializeAccountMsgFromArgs(address string, args []interface{}) (*cttypes.MsgInitializeAccount, error) {
+	denom := args[1].(string)
+	if denom == "" {
+		return nil, errors.New("invalid denom")
+	}
+
+	publicKey, ok := args[2].([]byte)
+	if !ok {
+		return nil, errors.New("invalid public key")
+	}
+
+	decryptableBalance := args[3].(string)
+	if decryptableBalance == "" {
+		return nil, errors.New("invalid decryptable balance")
+	}
+
+	var pendingBalanceLo cttypes.Ciphertext
+	err := pendingBalanceLo.Unmarshal(args[4].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	var pendingBalanceHi cttypes.Ciphertext
+	err = pendingBalanceHi.Unmarshal(args[5].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	var availableBalance cttypes.Ciphertext
+	err = availableBalance.Unmarshal(args[6].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	var initializeAccountProofs cttypes.InitializeAccountMsgProofs
+	err = initializeAccountProofs.Unmarshal(args[7].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	return &cttypes.MsgInitializeAccount{
+		FromAddress:        address,
+		Denom:              denom,
+		PublicKey:          publicKey,
+		DecryptableBalance: decryptableBalance,
+		PendingBalanceLo:   &pendingBalanceLo,
+		PendingBalanceHi:   &pendingBalanceHi,
+		AvailableBalance:   &availableBalance,
+		Proofs:             &initializeAccountProofs,
+	}, nil
 }
 
 func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
@@ -541,25 +546,11 @@ func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller 
 		return
 	}
 
-	denom := args[0].(string)
-	if denom == "" {
-		rerr = errors.New("invalid denom")
+	msg, err := BuildDepositMsgFromArgs(seiAddr.String(), args)
+	if err != nil {
+		rerr = err
 		return
 	}
-
-	// for usei denom amount should be treated as 6 decimal instead of 19 decimal
-	amount, ok := args[1].(uint64)
-	if !ok {
-		rerr = errors.New("invalid amount")
-		return
-	}
-
-	msg := &cttypes.MsgDeposit{
-		FromAddress: seiAddr.String(),
-		Denom:       denom,
-		Amount:      amount,
-	}
-
 	_, err = p.ctKeeper.Deposit(sdk.WrapSDKContext(ctx), msg)
 	if err != nil {
 		rerr = err
@@ -568,6 +559,25 @@ func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller 
 	ret, rerr = method.Outputs.Pack(true)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
+}
+
+func BuildDepositMsgFromArgs(address string, args []interface{}) (*cttypes.MsgDeposit, error) {
+	denom := args[0].(string)
+	if denom == "" {
+		return nil, errors.New("invalid denom")
+	}
+
+	// for usei denom amount should be treated as 6 decimal instead of 19 decimal
+	amount, ok := args[1].(uint64)
+	if !ok {
+		return nil, errors.New("invalid amount")
+	}
+
+	return &cttypes.MsgDeposit{
+		FromAddress: address,
+		Denom:       denom,
+		Amount:      amount,
+	}, nil
 }
 
 func (p PrecompileExecutor) applyPendingBalance(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
@@ -591,37 +601,10 @@ func (p PrecompileExecutor) applyPendingBalance(ctx sdk.Context, method *abi.Met
 		return
 	}
 
-	denom := args[0].(string)
-	if denom == "" {
-		rerr = errors.New("invalid denom")
-		return
-	}
-
-	decryptableBalance := args[1].(string)
-	if decryptableBalance == "" {
-		rerr = errors.New("invalid decryptable balance")
-		return
-	}
-
-	pendingBalanceCreditCounter, ok := args[2].(uint32)
-	if !ok {
-		rerr = errors.New("invalid pendingBalanceCreditCounter")
-		return
-	}
-
-	var availableBalance cttypes.Ciphertext
-	err = availableBalance.Unmarshal(args[3].([]byte))
+	msg, err := BuildApplyPendingBalanceMsgFromArgs(fromAddr.String(), args)
 	if err != nil {
 		rerr = err
 		return
-	}
-
-	msg := &cttypes.MsgApplyPendingBalance{
-		Address:                        fromAddr.String(),
-		Denom:                          denom,
-		NewDecryptableAvailableBalance: decryptableBalance,
-		CurrentPendingBalanceCounter:   pendingBalanceCreditCounter,
-		CurrentAvailableBalance:        &availableBalance,
 	}
 
 	_, err = p.ctKeeper.ApplyPendingBalance(sdk.WrapSDKContext(ctx), msg)
@@ -633,6 +616,37 @@ func (p PrecompileExecutor) applyPendingBalance(ctx sdk.Context, method *abi.Met
 	ret, rerr = method.Outputs.Pack(true)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
+}
+
+func BuildApplyPendingBalanceMsgFromArgs(address string, args []interface{}) (*cttypes.MsgApplyPendingBalance, error) {
+	denom := args[0].(string)
+	if denom == "" {
+		return nil, errors.New("invalid denom")
+	}
+
+	decryptableBalance := args[1].(string)
+	if decryptableBalance == "" {
+		return nil, errors.New("invalid decryptable balance")
+	}
+
+	pendingBalanceCreditCounter, ok := args[2].(uint32)
+	if !ok {
+		return nil, errors.New("invalid pendingBalanceCreditCounter")
+	}
+
+	var availableBalance cttypes.Ciphertext
+	err := availableBalance.Unmarshal(args[3].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	return &cttypes.MsgApplyPendingBalance{
+		Address:                        address,
+		Denom:                          denom,
+		NewDecryptableAvailableBalance: decryptableBalance,
+		CurrentPendingBalanceCounter:   pendingBalanceCreditCounter,
+		CurrentAvailableBalance:        &availableBalance,
+	}, nil
 }
 
 func (p PrecompileExecutor) withdraw(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
@@ -656,47 +670,11 @@ func (p PrecompileExecutor) withdraw(ctx sdk.Context, method *abi.Method, caller
 		return
 	}
 
-	denom := args[0].(string)
-	if denom == "" {
-		rerr = errors.New("invalid denom")
-		return
-	}
-
-	amount, ok := args[1].(*big.Int)
-	if !ok {
-		rerr = errors.New("invalid amount")
-		return
-	}
-
-	decryptableBalance := args[2].(string)
-	if decryptableBalance == "" {
-		rerr = errors.New("invalid decryptable balance")
-		return
-	}
-
-	var remainingBalanceCommitment cttypes.Ciphertext
-	err = remainingBalanceCommitment.Unmarshal(args[3].([]byte))
-	if err != nil {
-		rerr = errors.New("invalid remainingBalanceCommitment")
-		return
-	}
-
-	var withdrawProofs cttypes.WithdrawMsgProofs
-	err = withdrawProofs.Unmarshal(args[4].([]byte))
+	msg, err := BuildWithdrawMsgFromArgs(fromAddr.String(), args)
 	if err != nil {
 		rerr = err
 		return
 	}
-
-	msg := &cttypes.MsgWithdraw{
-		FromAddress:                fromAddr.String(),
-		Denom:                      denom,
-		Amount:                     amount.String(),
-		DecryptableBalance:         decryptableBalance,
-		RemainingBalanceCommitment: &remainingBalanceCommitment,
-		Proofs:                     &withdrawProofs,
-	}
-
 	_, err = p.ctKeeper.Withdraw(sdk.WrapSDKContext(ctx), msg)
 	if err != nil {
 		rerr = err
@@ -706,6 +684,45 @@ func (p PrecompileExecutor) withdraw(ctx sdk.Context, method *abi.Method, caller
 	ret, rerr = method.Outputs.Pack(true)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
+}
+
+func BuildWithdrawMsgFromArgs(address string, args []interface{}) (*cttypes.MsgWithdraw, error) {
+	denom, ok := args[0].(string)
+	if !ok || denom == "" {
+		return nil, errors.New("invalid denom")
+	}
+
+	amount, ok := args[1].(*big.Int)
+	if !ok {
+		return nil, errors.New("invalid amount")
+	}
+
+	decryptableBalance := args[2].(string)
+	if decryptableBalance == "" {
+		return nil, errors.New("invalid decryptable balance")
+	}
+
+	var remainingBalanceCommitment cttypes.Ciphertext
+	err := remainingBalanceCommitment.Unmarshal(args[3].([]byte))
+	if err != nil {
+		return nil, errors.New("invalid remainingBalanceCommitment")
+	}
+
+	var withdrawProofs cttypes.WithdrawMsgProofs
+	err = withdrawProofs.Unmarshal(args[4].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	return &cttypes.MsgWithdraw{
+		FromAddress:                address,
+		Denom:                      denom,
+		Amount:                     amount.String(),
+		DecryptableBalance:         decryptableBalance,
+		RemainingBalanceCommitment: &remainingBalanceCommitment,
+		Proofs:                     &withdrawProofs,
+	}, nil
+
 }
 
 func (p PrecompileExecutor) closeAccount(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}) (ret []byte, remainingGas uint64, rerr error) {
@@ -729,23 +746,10 @@ func (p PrecompileExecutor) closeAccount(ctx sdk.Context, method *abi.Method, ca
 		return
 	}
 
-	denom := args[0].(string)
-	if denom == "" {
-		rerr = errors.New("invalid denom")
-		return
-	}
-
-	var closeAccountProofs cttypes.CloseAccountMsgProofs
-	err = closeAccountProofs.Unmarshal(args[1].([]byte))
+	msg, err := BuildCloseAccountMsgFromArgs(fromAddr.String(), args)
 	if err != nil {
 		rerr = err
 		return
-	}
-
-	msg := &cttypes.MsgCloseAccount{
-		Address: fromAddr.String(),
-		Denom:   denom,
-		Proofs:  &closeAccountProofs,
 	}
 
 	_, err = p.ctKeeper.CloseAccount(sdk.WrapSDKContext(ctx), msg)
@@ -756,6 +760,25 @@ func (p PrecompileExecutor) closeAccount(ctx sdk.Context, method *abi.Method, ca
 	ret, rerr = method.Outputs.Pack(true)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
+}
+
+func BuildCloseAccountMsgFromArgs(address string, args []interface{}) (*cttypes.MsgCloseAccount, error) {
+	denom, ok := args[0].(string)
+	if !ok || denom == "" {
+		return nil, errors.New("invalid denom")
+	}
+
+	var closeAccountProofs cttypes.CloseAccountMsgProofs
+	err := closeAccountProofs.Unmarshal(args[1].([]byte))
+	if err != nil {
+		return nil, err
+	}
+
+	return &cttypes.MsgCloseAccount{
+		Address: address,
+		Denom:   denom,
+		Proofs:  &closeAccountProofs,
+	}, nil
 }
 
 type CtAccount struct {
