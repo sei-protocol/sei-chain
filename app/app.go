@@ -560,6 +560,7 @@ func New(
 			app.TransferKeeper,
 			app.AccessControlKeeper,
 			&app.EvmKeeper,
+			app.StakingKeeper,
 		),
 		wasmOpts...,
 	)
