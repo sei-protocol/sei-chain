@@ -191,6 +191,13 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
     }
 
     // Queries
+    function owner() public view returns (address) {
+        string memory req = _curlyBrace(_formatPayload("ownership", "{}"));
+        bytes memory response = WasmdPrecompile.query(Cw1155Address, bytes(req));
+        bytes memory owner_bytes = JsonPrecompile.extractAsBytes(response, "owner");
+        return AddrPrecompile.getEvmAddr(string(owner_bytes));
+    }
+
     function balanceOf(address account, uint256 id) public view override returns (uint256) {
         require(account != address(0), "ERC1155: cannot query balance of zero address");
         string memory own = _formatPayload("owner", _doubleQuotes(AddrPrecompile.getSeiAddr(account)));
