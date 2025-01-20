@@ -85,6 +85,9 @@ type Config struct {
 
 	// test api enables certain override apis for integration test situations
 	EnableTestAPI bool `mapstructure:"enable_test_api"`
+
+	// enable report api allows for exporting data to temp directory for analysis
+	EnableReportAPI bool `mapstructure:"enable_report_api"`
 }
 
 var DefaultConfig = Config{
@@ -109,6 +112,7 @@ var DefaultConfig = Config{
 	MaxBlocksForLog:         2000,
 	MaxSubscriptionsNewHead: 10000,
 	EnableTestAPI:           false,
+	EnableReportAPI:         true,
 }
 
 const (
@@ -133,6 +137,7 @@ const (
 	flagMaxBlocksForLog         = "evm.max_blocks_for_log"
 	flagMaxSubscriptionsNewHead = "evm.max_subscriptions_new_head"
 	flagEnableTestAPI           = "evm.enable_test_api"
+	flagEnableReportAPI         = "evm.enable_report_api"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -240,6 +245,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagEnableTestAPI); v != nil {
 		if cfg.EnableTestAPI, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagEnableReportAPI); v != nil {
+		if cfg.EnableReportAPI, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}
