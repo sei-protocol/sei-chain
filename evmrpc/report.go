@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -95,6 +96,8 @@ func (r *ReportAPI) StartReport() (string, error) {
 
 	s := report.NewService(bk, ak, r.k, r.wk)
 	r.reports[s.Name()] = s
+
+	ctx = ctx.WithBlockTime(time.Now())
 	go func() {
 		err := s.Start(ctx)
 		if err != nil {

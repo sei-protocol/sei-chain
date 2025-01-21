@@ -61,11 +61,23 @@ func (s *service) queryContract(addr sdk.AccAddress, ctx sdk.Context, query []by
 
 func (s *service) writeCW721Owners(ctx sdk.Context, addr sdk.AccAddress, t *Token, f *os.File) error {
 	var resp TokensResponse
+	var tokens []string
 	if err := s.queryContract(addr, ctx, []byte(`{"all_tokens":{}}`), &resp); err != nil {
 		ctx.Logger().Error("error querying cw721 contract", "error", err)
 		return nil
 	}
-	for _, tokenID := range resp.Tokens {
+
+	for len(resp.Tokens) > 0 {
+		paginationKey := resp.Tokens[len(resp.Tokens)-1]
+		query := []byte(fmt.Sprintf(`{"all_tokens":{ "start_after": "%s"}}`, paginationKey))
+		if err := s.queryContract(addr, ctx, query, &resp); err != nil {
+			ctx.Logger().Error("error querying page of cw721 contract", "error", err, "start_after", paginationKey)
+			return err
+		}
+		tokens = append(tokens, resp.Tokens...)
+	}
+
+	for _, tokenID := range tokens {
 		var ownerResp OwnerResponse
 		query := []byte(fmt.Sprintf(`{"owner_of":{"token_id":"%s"}}`, tokenID))
 		if err := s.queryContract(addr, ctx, query, &ownerResp); err != nil {
@@ -88,7 +100,7 @@ func (s *service) writeCW20Owners(ctx sdk.Context, addr sdk.AccAddress, t *Token
 	var owners []string
 
 	// get first page
-	if err := s.queryContract(addr, ctx, []byte(`{"all_tokens":{}}`), &resp); err != nil {
+	if err := s.queryContract(addr, ctx, []byte(`{"all_accounts":{}}`), &resp); err != nil {
 		return err
 	}
 	owners = append(owners, resp.Accounts...)
@@ -96,7 +108,7 @@ func (s *service) writeCW20Owners(ctx sdk.Context, addr sdk.AccAddress, t *Token
 	// get rest of pages if any
 	for len(resp.Accounts) > 0 {
 		paginationKey := resp.Accounts[len(resp.Accounts)-1]
-		query := []byte(fmt.Sprintf(`{"all_tokens":{ "start_after": "%s"}}`, paginationKey))
+		query := []byte(fmt.Sprintf(`{"all_accounts":{ "start_after": "%s"}}`, paginationKey))
 		if err := s.queryContract(addr, ctx, query, &resp); err != nil {
 			return err
 		}
