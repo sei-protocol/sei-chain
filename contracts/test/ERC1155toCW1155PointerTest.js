@@ -44,6 +44,11 @@ describe("ERC1155 to CW1155 Pointer", function () {
     })
 
     describe("read", function(){
+        it("owner of collection", async function () {
+            const owner = await pointerAcc0.owner();
+            expect(owner).to.equal(admin.evmAddress);
+        });
+
         it("get name", async function () {
             const name = await pointerAcc0.name();
             expect(name).to.equal("Test");

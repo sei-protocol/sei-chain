@@ -52,6 +52,11 @@ describe("ERC721 to CW721 Pointer", function () {
             expect(symbol).to.equal("TEST");
         });
 
+        it("owner of collection", async function () {
+            const owner = await pointerAcc0.owner();
+            expect(owner).to.equal(admin.evmAddress);
+        });
+
         it("owner of", async function () {
             const owner = await pointerAcc0.ownerOf(1);
             expect(owner).to.equal(admin.evmAddress);
