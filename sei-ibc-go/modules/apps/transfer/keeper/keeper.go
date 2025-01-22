@@ -32,8 +32,6 @@ type Keeper struct {
 }
 
 // NewKeeper creates a new IBC transfer Keeper instance
-
-// NewKeeper creates a new IBC transfer Keeper instance
 func NewKeeper(
 	cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Subspace,
 	ics4Wrapper types.ICS4Wrapper, channelKeeper types.ChannelKeeper, portKeeper types.PortKeeper,
@@ -63,6 +61,7 @@ func NewKeeper(
 	}
 }
 
+// NewKeeperWithAddressHandler creates a new IBC transfer Keeper instance with an address handler
 func NewKeeperWithAddressHandler(
 	cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Subspace,
 	ics4Wrapper types.ICS4Wrapper, channelKeeper types.ChannelKeeper, portKeeper types.PortKeeper,
