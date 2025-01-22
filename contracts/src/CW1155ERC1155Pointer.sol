@@ -245,8 +245,8 @@ contract CW1155ERC1155Pointer is ERC1155, ERC2981 {
         return string(JsonPrecompile.extractAsBytes(response, "token_uri"));
     }
 
-    function isApprovedForAll(address owner, address operator) public view override returns (bool) {
-        string memory own = _formatPayload("owner", _doubleQuotes(AddrPrecompile.getSeiAddr(owner)));
+    function isApprovedForAll(address owner_, address operator) public view override returns (bool) {
+        string memory own = _formatPayload("owner", _doubleQuotes(AddrPrecompile.getSeiAddr(owner_)));
         string memory op = _formatPayload("operator", _doubleQuotes(AddrPrecompile.getSeiAddr(operator)));
         string memory req = _curlyBrace(_formatPayload("is_approved_for_all", _curlyBrace(_join(own, ",", op))));
         bytes32 response = keccak256(WasmdPrecompile.query(Cw1155Address, bytes(req)));
