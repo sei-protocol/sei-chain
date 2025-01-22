@@ -27,7 +27,11 @@ type Keeper struct {
 	authKeeper    types.AccountKeeper
 	bankKeeper    types.BankKeeper
 	scopedKeeper  capabilitykeeper.ScopedKeeper
+
+	addressHandler types.AddressHandler
 }
+
+// NewKeeper creates a new IBC transfer Keeper instance
 
 // NewKeeper creates a new IBC transfer Keeper instance
 func NewKeeper(
@@ -46,16 +50,30 @@ func NewKeeper(
 	}
 
 	return Keeper{
-		cdc:           cdc,
-		storeKey:      key,
-		paramSpace:    paramSpace,
-		ics4Wrapper:   ics4Wrapper,
-		channelKeeper: channelKeeper,
-		portKeeper:    portKeeper,
-		authKeeper:    authKeeper,
-		bankKeeper:    bankKeeper,
-		scopedKeeper:  scopedKeeper,
+		cdc:            cdc,
+		storeKey:       key,
+		paramSpace:     paramSpace,
+		ics4Wrapper:    ics4Wrapper,
+		channelKeeper:  channelKeeper,
+		portKeeper:     portKeeper,
+		authKeeper:     authKeeper,
+		bankKeeper:     bankKeeper,
+		scopedKeeper:   scopedKeeper,
+		addressHandler: types.SeiAddressHandler{},
 	}
+}
+
+func NewKeeperWithAddressHandler(
+	cdc codec.BinaryCodec, key sdk.StoreKey, paramSpace paramtypes.Subspace,
+	ics4Wrapper types.ICS4Wrapper, channelKeeper types.ChannelKeeper, portKeeper types.PortKeeper,
+	authKeeper types.AccountKeeper, bankKeeper types.BankKeeper, scopedKeeper capabilitykeeper.ScopedKeeper,
+	addressHandler types.AddressHandler,
+) Keeper {
+	keeper := NewKeeper(cdc, key, paramSpace, ics4Wrapper, channelKeeper, portKeeper, authKeeper, bankKeeper, scopedKeeper)
+	if keeper.addressHandler = addressHandler; keeper.addressHandler == nil {
+		panic("the IBC transfer module address handler has not been set")
+	}
+	return keeper
 }
 
 // Logger returns a module-specific logger.
