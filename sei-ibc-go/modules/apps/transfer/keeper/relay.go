@@ -233,7 +233,7 @@ func (k Keeper) OnRecvPacket(ctx sdk.Context, packet channeltypes.Packet, data t
 	}
 
 	// decode the receiver address
-	receiver, err := k.addressHandler.GetSeiAddressFromString(data.Receiver)
+	receiver, err := k.addressHandler.GetSeiAddressFromString(ctx, data.Receiver)
 	if err != nil {
 		return err
 	}

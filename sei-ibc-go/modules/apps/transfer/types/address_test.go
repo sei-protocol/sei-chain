@@ -43,7 +43,7 @@ func TestSeiAddressHandler_GetSeiAddressFromString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := SeiAddressHandler{}
-			got, err := h.GetSeiAddressFromString(tt.args.address)
+			got, err := h.GetSeiAddressFromString(types.Context{}, tt.args.address)
 			if tt.wantErr {
 				require.NotNil(t, err)
 				require.Equal(t, tt.wantErrMsg, err.Error())
