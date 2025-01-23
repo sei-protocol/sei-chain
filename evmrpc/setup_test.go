@@ -2,6 +2,7 @@ package evmrpc_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -213,7 +214,7 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 				},
 			},
 			LastCommit: &tmtypes.Commit{
-				Height: height - 1,
+				Height: MockHeight8 - 1,
 			},
 		},
 	}
@@ -673,16 +674,15 @@ func generateTxData() {
 	TxNonEvm = app.TestTx{}
 	TxNonEvmWithSyntheticLog = app.TestTx{}
 	bloomTx1 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
-		Address: common.HexToAddress("0x1111111111111111111111111111111111111112"),
-		Topics: []common.Hash{
-			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
-		},
+		Address: common.HexToAddress("0x1111111111111111111111111111111111111111"),
+		Topics: []common.Hash{common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+			common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111112")},
 	}}}})
 	if err := EVMKeeper.MockReceipt(Ctx, tx1.Hash(), &types.Receipt{
 		From:              "0x1234567890123456789012345678901234567890",
 		To:                "0x1234567890123456789012345678901234567890",
 		TransactionIndex:  0,
-		BlockNumber:       9,
+		BlockNumber:       MockHeight8,
 		TxType:            1,
 		ContractAddress:   "0x1234567890123456789012345678901234567890",
 		CumulativeGasUsed: 124,
@@ -691,8 +691,8 @@ func generateTxData() {
 		Status:            0,
 		EffectiveGasPrice: 100000000000,
 		Logs: []*types.Log{{
-			Address: "0x1111111111111111111111111111111111111112",
-			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123"},
+			Address: "0x1111111111111111111111111111111111111111",
+			Topics:  []string{"0x1111111111111111111111111111111111111111111111111111111111111111", "0x1111111111111111111111111111111111111111111111111111111111111112"},
 		}},
 		LogsBloom: bloomTx1[:],
 	}); err != nil {
@@ -771,56 +771,91 @@ func buildTx(txData ethtypes.DynamicFeeTx) (client.TxBuilder, *ethtypes.Transact
 	return builder, tx
 }
 
-func setupLogsAtHeight(height int64) {
-	ctx := Ctx.WithBlockHeight(height)
-
-	// Create bloom and logs for this block
-	log := &ethtypes.Log{
+func setupLogs() {
+	// block height 2
+	bloom1 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
+		Address: common.HexToAddress("0x1111111111111111111111111111111111111112"),
+		Topics: []common.Hash{
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
+		},
+	}, {
 		Address: common.HexToAddress("0x1111111111111111111111111111111111111112"),
 		Topics: []common.Hash{
 			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
 		},
-	}
-	receipt := &ethtypes.Receipt{
-		Logs: []*ethtypes.Log{log},
-	}
-	bloom := ethtypes.CreateBloom(ethtypes.Receipts{receipt})
-	to := common.HexToAddress("010203")
-	// Create a new transaction for this block
-	_, tx := buildTx(ethtypes.DynamicFeeTx{
-		Nonce:     uint64(height),
-		GasFeeCap: big.NewInt(10),
-		Gas:       1000,
-		To:        &to,
-		Value:     big.NewInt(1000),
-		Data:      []byte("abc"),
-		ChainID:   big.NewInt(config.DefaultChainID),
-	})
-
-	// Mock the receipt with
-	EVMKeeper.MockReceipt(ctx, tx.Hash(), &types.Receipt{
-		BlockNumber:      uint64(height),
-		TransactionIndex: 0,
-		TxHashHex:        tx.Hash().Hex(),
-		LogsBloom:        bloom[:],
+	}}}})
+	CtxMultiTx := Ctx.WithBlockHeight(MockHeight2)
+	EVMKeeper.MockReceipt(CtxMultiTx, multiTxBlockTx1.Hash(), &types.Receipt{
+		BlockNumber:      MockHeight2,
+		TransactionIndex: 1, // start at 1 bc 0 is the non-evm tx
+		TxHashHex:        multiTxBlockTx1.Hash().Hex(),
+		LogsBloom:        bloom1[:],
 		Logs: []*types.Log{{
-			Address: log.Address.Hex(),
-			Topics:  []string{log.Topics[0].Hex()},
+			Address: "0x1111111111111111111111111111111111111112",
+			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
+		}, {
+			Address: "0x1111111111111111111111111111111111111112",
+			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123"},
 		}},
 		EffectiveGasPrice: 100,
 	})
-
-	EVMKeeper.SetBlockBloom(ctx, []ethtypes.Bloom{bloom})
-}
-
-func setupLogs() {
-	// Setup logs for block 2
-	setupLogsAtHeight(MockHeight2)
-
-	// Setup logs for block 8
-	setupLogsAtHeight(MockHeight8)
-
-	// Setup synthetic logs for block 100
+	bloom2 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
+		Address: common.HexToAddress("0x1111111111111111111111111111111111111113"),
+		Topics: []common.Hash{
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
+		},
+	}}}})
+	EVMKeeper.MockReceipt(CtxMultiTx, multiTxBlockTx2.Hash(), &types.Receipt{
+		BlockNumber:      MockHeight2,
+		TransactionIndex: 3,
+		TxHashHex:        multiTxBlockTx2.Hash().Hex(),
+		LogsBloom:        bloom2[:],
+		Logs: []*types.Log{{
+			Address: "0x1111111111111111111111111111111111111113",
+			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
+		}},
+		EffectiveGasPrice: 100,
+	})
+	bloom3 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
+		Address: common.HexToAddress("0x1111111111111111111111111111111111111114"),
+		Topics: []common.Hash{
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
+		},
+	}}}})
+	EVMKeeper.MockReceipt(CtxMultiTx, multiTxBlockTx3.Hash(), &types.Receipt{
+		BlockNumber:      MockHeight2,
+		TransactionIndex: 4,
+		TxHashHex:        multiTxBlockTx3.Hash().Hex(),
+		LogsBloom:        bloom3[:],
+		Logs: []*types.Log{{
+			Address: "0x1111111111111111111111111111111111111114",
+			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
+		}},
+		EffectiveGasPrice: 100,
+	})
+	bloom4 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
+		Address: common.HexToAddress("0x1111111111111111111111111111111111111115"),
+		Topics: []common.Hash{
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
+			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
+		},
+	}}}})
+	CtxMock := Ctx.WithBlockHeight(MockHeight8)
+	EVMKeeper.MockReceipt(CtxMock, multiTxBlockTx4.Hash(), &types.Receipt{
+		BlockNumber:      MockHeight8,
+		TransactionIndex: 1,
+		TxHashHex:        multiTxBlockTx4.Hash().Hex(),
+		LogsBloom:        bloom4[:],
+		Logs: []*types.Log{{
+			Address: "0x1111111111111111111111111111111111111115",
+			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
+		}},
+		EffectiveGasPrice: 100,
+	})
+	// create a receipt with a synthetic log
 	bloomSynth := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
 		Address: common.HexToAddress("0x1111111111111111111111111111111111111116"),
 		Topics: []common.Hash{
@@ -828,8 +863,6 @@ func setupLogs() {
 			common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000456"),
 		},
 	}}}})
-
-	CtxMock := Ctx.WithBlockHeight(MockHeight100)
 	EVMKeeper.MockReceipt(CtxMock, multiTxBlockSynthTx.Hash(), &types.Receipt{
 		TxType:           evmrpc.ShellEVMTxType,
 		BlockNumber:      MockHeight100,
@@ -843,7 +876,48 @@ func setupLogs() {
 		}},
 		EffectiveGasPrice: 0,
 	})
+	CtxDebugTrace := Ctx.WithBlockHeight(MockHeight101)
+	EVMKeeper.MockReceipt(CtxDebugTrace, common.HexToHash(DebugTraceHashHex), &types.Receipt{
+		BlockNumber:      MockHeight101,
+		TransactionIndex: 0,
+		TxHashHex:        DebugTraceHashHex,
+	})
+	CtxDebugTracePanic := Ctx.WithBlockHeight(MockHeight103)
+	EVMKeeper.MockReceipt(CtxDebugTracePanic, common.HexToHash(TestNonPanicTxHash), &types.Receipt{
+		BlockNumber:      MockHeight103,
+		TransactionIndex: 0,
+		TxHashHex:        TestNonPanicTxHash,
+	})
+	EVMKeeper.MockReceipt(CtxDebugTracePanic, common.HexToHash(TestPanicTxHash), &types.Receipt{
+		BlockNumber:      MockHeight103,
+		TransactionIndex: 1,
+		TxHashHex:        TestPanicTxHash,
+	})
+	txNonEvmBz, _ := Encoder(TxNonEvmWithSyntheticLog)
+	txNonEvmHash := sha256.Sum256(txNonEvmBz)
+	EVMKeeper.MockReceipt(CtxMultiTx, txNonEvmHash, &types.Receipt{
+		BlockNumber:      MockHeight2,
+		TransactionIndex: 1,
+		TxHashHex:        common.Hash(txNonEvmHash).Hex(),
+		LogsBloom:        bloomSynth[:],
+		Logs: []*types.Log{{
+			Address:   "0x1111111111111111111111111111111111111116",
+			Topics:    []string{"0x0000000000000000000000000000000000000000000000000000000000000234", "0x0000000000000000000000000000000000000000000000000000000000000789"},
+			Synthetic: true,
+		}},
+		EffectiveGasPrice: 100,
+	})
 
+	// block 2
+	EVMKeeper.SetBlockBloom(MultiTxCtx, []ethtypes.Bloom{bloom1, bloom2, bloom3})
+
+	// block 8
+	bloomTx1 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
+		Address: common.HexToAddress("0x1111111111111111111111111111111111111111"),
+		Topics: []common.Hash{common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+			common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111112")},
+	}}}})
+	EVMKeeper.SetBlockBloom(Ctx, []ethtypes.Bloom{bloomSynth, bloom4, bloomTx1})
 }
 
 //nolint:deadcode

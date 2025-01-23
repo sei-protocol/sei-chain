@@ -102,42 +102,25 @@ func TestSubscribeEmptyLogs(t *testing.T) {
 }
 
 func TestSubscribeNewLogs(t *testing.T) {
-	t.Parallel()
 	data := map[string]interface{}{
 		"fromBlock": "0x0",
 		"toBlock":   "latest",
 		"address": []common.Address{
-			common.HexToAddress("0x1111111111111111111111111111111111111112"),
+			common.HexToAddress("0x1111111111111111111111111111111111111111"),
 		},
 		"topics": [][]common.Hash{
 			{
-				common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
+				common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+				common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111112"),
 			},
 		},
 	}
-
-	// Create buffered channels to prevent deadlock
 	recvCh, done := sendWSRequestGood(t, "subscribe", "logs", data)
-	defer func() {
-		select {
-		case done <- struct{}{}:
-		default:
-		}
-	}()
-
-	// After subscription is set up, create new logs at height 9
-	setupLogsAtHeight(MockHeight8 + 1) // Setup at height 9
-
-	// Use non-blocking send for NewHeadsCalled
-	select {
-	case NewHeadsCalled <- struct{}{}:
-	default:
-	}
+	defer func() { done <- struct{}{} }()
 
 	receivedSubMsg := false
 	receivedEvents := false
 	timer := time.NewTimer(2 * time.Second)
-	defer timer.Stop()
 
 	var subscriptionId string
 
@@ -149,6 +132,7 @@ func TestSubscribeNewLogs(t *testing.T) {
 				t.Fatal("Received error:", resObj["error"])
 			}
 			if !receivedSubMsg {
+				// get subscriptionId from first message
 				subscriptionId = resObj["result"].(string)
 				receivedSubMsg = true
 				continue
@@ -163,26 +147,16 @@ func TestSubscribeNewLogs(t *testing.T) {
 				t.Fatal("Subscription ID does not match")
 			}
 			resultMap := paramMap["result"].(map[string]interface{})
-
-			// Verify block number is 9 (MockHeight8 + 1)
-			blockNum := resultMap["blockNumber"].(string)
-			if blockNum != "0x9" { // height 9 in hex
-				t.Fatalf("Expected block number 0x9, got %s", blockNum)
-			}
-
-			if resultMap["address"] != "0x1111111111111111111111111111111111111112" {
+			if resultMap["address"] != "0x1111111111111111111111111111111111111111" && resultMap["address"] != "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" {
 				t.Fatalf("Unexpected address, got %v", resultMap["address"])
 			}
 			firstTopic := resultMap["topics"].([]interface{})[0].(string)
-			if firstTopic != "0x0000000000000000000000000000000000000000000000000000000000000123" {
+			if firstTopic != "0x1111111111111111111111111111111111111111111111111111111111111111" {
 				t.Fatalf("Unexpected topic, got %v", firstTopic)
 			}
 		case <-timer.C:
-			if !receivedSubMsg {
-				t.Fatal("No subscription message received within 5 seconds")
-			}
-			if !receivedEvents {
-				t.Fatal("No events received within 5 seconds")
+			if !receivedSubMsg || !receivedEvents {
+				t.Fatal("No message received within 5 seconds")
 			}
 			return
 		}
