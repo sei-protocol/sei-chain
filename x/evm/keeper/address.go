@@ -86,10 +86,10 @@ func (k *Keeper) CanAddressReceive(ctx sdk.Context, addr sdk.AccAddress) bool {
 }
 
 type EvmAddressHandler struct {
-	evmKeeper Keeper
+	evmKeeper *Keeper
 }
 
-func NewEvmAddressHandler(evmKeeper Keeper) EvmAddressHandler {
+func NewEvmAddressHandler(evmKeeper *Keeper) EvmAddressHandler {
 	return EvmAddressHandler{evmKeeper: evmKeeper}
 }
 

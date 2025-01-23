@@ -504,7 +504,7 @@ func New(
 		app.AccountKeeper,
 		app.BankKeeper,
 		scopedTransferKeeper,
-		evmkeeper.NewEvmAddressHandler(app.EvmKeeper),
+		evmkeeper.NewEvmAddressHandler(&app.EvmKeeper),
 	)
 	transferModule := transfer.NewAppModule(app.TransferKeeper)
 	transferIBCModule := transfer.NewIBCModule(app.TransferKeeper)
