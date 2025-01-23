@@ -60,7 +60,7 @@ func TestModuleExportGenesis(t *testing.T) {
 func TestConsensusVersion(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper()
 	module := evm.NewAppModule(nil, k)
-	assert.Equal(t, uint64(16), module.ConsensusVersion())
+	assert.Equal(t, uint64(18), module.ConsensusVersion())
 }
 
 func TestABCI(t *testing.T) {
