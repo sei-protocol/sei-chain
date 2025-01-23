@@ -102,17 +102,16 @@ func TestSubscribeEmptyLogs(t *testing.T) {
 }
 
 func TestSubscribeNewLogs(t *testing.T) {
-	t.Parallel()
 	data := map[string]interface{}{
 		"fromBlock": "0x0",
 		"toBlock":   "latest",
 		"address": []common.Address{
-			common.HexToAddress("0x1111111111111111111111111111111111111112"),
-			common.HexToAddress("0xc0ffee254729296a45a3885639AC7E10F9d54979"),
+			common.HexToAddress("0x1111111111111111111111111111111111111111"),
 		},
 		"topics": [][]common.Hash{
 			{
-				common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123"),
+				common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+				common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111112"),
 			},
 		},
 	}
@@ -148,11 +147,11 @@ func TestSubscribeNewLogs(t *testing.T) {
 				t.Fatal("Subscription ID does not match")
 			}
 			resultMap := paramMap["result"].(map[string]interface{})
-			if resultMap["address"] != "0x1111111111111111111111111111111111111112" && resultMap["address"] != "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" {
+			if resultMap["address"] != "0x1111111111111111111111111111111111111111" && resultMap["address"] != "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" {
 				t.Fatalf("Unexpected address, got %v", resultMap["address"])
 			}
 			firstTopic := resultMap["topics"].([]interface{})[0].(string)
-			if firstTopic != "0x0000000000000000000000000000000000000000000000000000000000000123" {
+			if firstTopic != "0x1111111111111111111111111111111111111111111111111111111111111111" {
 				t.Fatalf("Unexpected topic, got %v", firstTopic)
 			}
 		case <-timer.C:
