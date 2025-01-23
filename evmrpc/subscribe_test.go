@@ -108,7 +108,6 @@ func TestSubscribeNewLogs(t *testing.T) {
 		"toBlock":   "latest",
 		"address": []common.Address{
 			common.HexToAddress("0x1111111111111111111111111111111111111112"),
-			common.HexToAddress("0xc0ffee254729296a45a3885639AC7E10F9d54979"),
 		},
 		"topics": [][]common.Hash{
 			{
@@ -116,12 +115,29 @@ func TestSubscribeNewLogs(t *testing.T) {
 			},
 		},
 	}
+
+	// Create buffered channels to prevent deadlock
 	recvCh, done := sendWSRequestGood(t, "subscribe", "logs", data)
-	defer func() { done <- struct{}{} }()
+	defer func() {
+		select {
+		case done <- struct{}{}:
+		default:
+		}
+	}()
+
+	// After subscription is set up, create new logs at height 9
+	setupLogsAtHeight(MockHeight8 + 1) // Setup at height 9
+
+	// Use non-blocking send for NewHeadsCalled
+	select {
+	case NewHeadsCalled <- struct{}{}:
+	default:
+	}
 
 	receivedSubMsg := false
 	receivedEvents := false
 	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
 
 	var subscriptionId string
 
@@ -133,7 +149,6 @@ func TestSubscribeNewLogs(t *testing.T) {
 				t.Fatal("Received error:", resObj["error"])
 			}
 			if !receivedSubMsg {
-				// get subscriptionId from first message
 				subscriptionId = resObj["result"].(string)
 				receivedSubMsg = true
 				continue
@@ -148,7 +163,14 @@ func TestSubscribeNewLogs(t *testing.T) {
 				t.Fatal("Subscription ID does not match")
 			}
 			resultMap := paramMap["result"].(map[string]interface{})
-			if resultMap["address"] != "0x1111111111111111111111111111111111111112" && resultMap["address"] != "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" {
+
+			// Verify block number is 9 (MockHeight8 + 1)
+			blockNum := resultMap["blockNumber"].(string)
+			if blockNum != "0x9" { // height 9 in hex
+				t.Fatalf("Expected block number 0x9, got %s", blockNum)
+			}
+
+			if resultMap["address"] != "0x1111111111111111111111111111111111111112" {
 				t.Fatalf("Unexpected address, got %v", resultMap["address"])
 			}
 			firstTopic := resultMap["topics"].([]interface{})[0].(string)
@@ -156,8 +178,11 @@ func TestSubscribeNewLogs(t *testing.T) {
 				t.Fatalf("Unexpected topic, got %v", firstTopic)
 			}
 		case <-timer.C:
-			if !receivedSubMsg || !receivedEvents {
-				t.Fatal("No message received within 5 seconds")
+			if !receivedSubMsg {
+				t.Fatal("No subscription message received within 5 seconds")
+			}
+			if !receivedEvents {
+				t.Fatal("No events received within 5 seconds")
 			}
 			return
 		}

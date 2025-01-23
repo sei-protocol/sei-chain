@@ -197,7 +197,6 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 			}
 			begin = lastToHeight
 			filter.FromBlock = big.NewInt(lastToHeight + 1)
-
 			time.Sleep(SleepInterval)
 		}
 	}()
