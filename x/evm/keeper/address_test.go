@@ -139,7 +139,7 @@ func TestEvmAddressHandler_GetSeiAddressFromString(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := evmkeeper.NewEvmAddressHandler(a.EvmKeeper)
+			h := evmkeeper.NewEvmAddressHandler(&a.EvmKeeper)
 			got, err := h.GetSeiAddressFromString(tt.args.ctx, tt.args.address)
 			if tt.wantErr {
 				require.NotNil(t, err)
