@@ -68,6 +68,7 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(NewAddERCNativePointerProposalTxCmd())
 	cmd.AddCommand(AssociateContractAddressCmd())
 	cmd.AddCommand(NativeAssociateCmd())
+	cmd.AddCommand(CmdQueryTxByHash())
 
 	return cmd
 }
@@ -699,4 +700,32 @@ func sendTx(txData *ethtypes.DynamicFeeTx, rpcUrl string, key *ecdsa.PrivateKey)
 	}
 
 	return signedTx.Hash(), nil
+}
+
+func CmdQueryTxByHash() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "tx [hash]",
+		Short: "Query information about a transaction by tx hash",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			hash := common.BytesToHash([]byte(args[0]))
+			rpc, err := cmd.Flags().GetString(FlagRPC)
+			if err != nil {
+				return err
+			}
+			ethClient, err := ethclient.Dial(rpc)
+			transaction, _, err := ethClient.TransactionByHash(context.Background(), hash)
+			if err != nil {
+				return err
+			}
+			result, err := json.MarshalIndent(transaction, "", "  ")
+			fmt.Printf("%s\n", result)
+			return err
+		},
+	}
+
+	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
 }
