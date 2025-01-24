@@ -82,7 +82,7 @@ func PrintStateSize(module string, db *memiavl.DB) error {
 					prefix = prefix[:2]
 					keySizeByPrefix[prefix] += int64(keySize)
 					valueSizeByPrefix[prefix] += int64(valueSize)
-					numKeysByPrefix[prefix] += 1
+					numKeysByPrefix[prefix]++
 				}
 				return true
 			})
