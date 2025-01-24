@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"io"
 	"math/big"
 	"net/http"
@@ -69,7 +68,6 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(NewAddERCNativePointerProposalTxCmd())
 	cmd.AddCommand(AssociateContractAddressCmd())
 	cmd.AddCommand(NativeAssociateCmd())
-	cmd.AddCommand(CmdQueryTxByHash())
 
 	return cmd
 }
@@ -701,33 +699,4 @@ func sendTx(txData *ethtypes.DynamicFeeTx, rpcUrl string, key *ecdsa.PrivateKey)
 	}
 
 	return signedTx.Hash(), nil
-}
-
-func CmdQueryTxByHash() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "tx [hash]",
-		Short: "Query information about a transaction by tx hash",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			hash := common.HexToHash(args[0])
-			rpc, err := cmd.Flags().GetString(FlagRPC)
-			if err != nil {
-				return err
-			}
-			ethClient, err := ethclient.Dial(rpc)
-			var response *ethapi.RPCTransaction
-			err = ethClient.Client().CallContext(context.Background(), &response, "eth_getTransactionByHash", hash)
-			if err != nil {
-				return err
-			}
-			result, err := json.MarshalIndent(response, "", "  ")
-			fmt.Printf("%s\n", result)
-			return err
-		},
-	}
-
-	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
-	flags.AddQueryFlagsToCmd(cmd)
-
-	return cmd
 }

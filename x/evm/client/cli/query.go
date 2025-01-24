@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+
 	"math/big"
 	"os"
 	"strings"
@@ -13,10 +15,13 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
@@ -48,6 +53,7 @@ func GetQueryCmd(_ string) *cobra.Command {
 	cmd.AddCommand(CmdQueryPointer())
 	cmd.AddCommand(CmdQueryPointerVersion())
 	cmd.AddCommand(CmdQueryPointee())
+	cmd.AddCommand(CmdQueryTxByHash())
 
 	return cmd
 }
@@ -458,6 +464,34 @@ func CmdQueryPointee() *cobra.Command {
 	}
 
 	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func CmdQueryTxByHash() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "tx [hash]",
+		Short: "Query information about a transaction by tx hash",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			hash := common.HexToHash(args[0])
+			rpc, err := cmd.Flags().GetString(FlagRPC)
+			if err != nil {
+				return err
+			}
+			ethClient, err := ethclient.Dial(rpc)
+			var response *ethapi.RPCTransaction
+			err = ethClient.Client().CallContext(context.Background(), &response, "eth_getTransactionByHash", hash)
+			if err != nil {
+				return err
+			}
+			result, err := json.MarshalIndent(response, "", "  ")
+			fmt.Printf("%s\n", result)
+			return err
+		},
+	}
+
+	cmd.Flags().String(FlagRPC, fmt.Sprintf("http://%s:8545", evmrpc.LocalAddress), "RPC endpoint to send request to")
 
 	return cmd
 }
