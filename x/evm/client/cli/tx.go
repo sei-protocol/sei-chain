@@ -714,6 +714,7 @@ func CmdQueryTxByHash() *cobra.Command {
 				return err
 			}
 			ethClient, err := ethclient.Dial(rpc)
+			fmt.Printf("Hash is %v\n:", hash)
 			transaction, _, err := ethClient.TransactionByHash(context.Background(), hash)
 			if err != nil {
 				return err
