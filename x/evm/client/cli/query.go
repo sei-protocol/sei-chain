@@ -13,10 +13,12 @@ import (
 	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/lib/ethapi"
+
 	"github.com/spf13/cobra"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -471,7 +473,7 @@ func CmdQueryPointee() *cobra.Command {
 func CmdQueryTxByHash() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tx [hash]",
-		Short: "Query information about a transaction by tx hash",
+		Short: "Query for a transaction by tx hash, same as eth_getTransactionByHash",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			hash := common.HexToHash(args[0])
@@ -484,6 +486,8 @@ func CmdQueryTxByHash() *cobra.Command {
 			err = ethClient.Client().CallContext(context.Background(), &response, "eth_getTransactionByHash", hash)
 			if err != nil {
 				return err
+			} else if response == nil {
+				return ethereum.NotFound
 			}
 			result, err := json.MarshalIndent(response, "", "  ")
 			fmt.Printf("%s\n", result)
