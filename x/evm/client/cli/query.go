@@ -482,6 +482,9 @@ func CmdQueryTxByHash() *cobra.Command {
 				return err
 			}
 			ethClient, err := ethclient.Dial(rpc)
+			if err != nil {
+				return err
+			}
 			var response *ethapi.RPCTransaction
 			err = ethClient.Client().CallContext(context.Background(), &response, "eth_getTransactionByHash", hash)
 			if err != nil {
