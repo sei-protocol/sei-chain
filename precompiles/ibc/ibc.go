@@ -7,7 +7,6 @@ import (
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/bech32"
 	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
@@ -356,16 +355,8 @@ func (p PrecompileExecutor) validateCommonArgs(ctx sdk.Context, args []interface
 	}
 
 	receiverAddressString, ok := args[0].(string)
-	if !ok {
-		return nil, errors.New("receiverAddress is not a string")
-	}
-	_, bz, err := bech32.DecodeAndConvert(receiverAddressString)
-	if err != nil {
-		return nil, err
-	}
-	err = sdk.VerifyAddressFormat(bz)
-	if err != nil {
-		return nil, err
+	if !ok || receiverAddressString == "" {
+		return nil, errors.New("receiverAddress is not a string or empty")
 	}
 
 	port, ok := args[1].(string)
