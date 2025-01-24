@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"io"
 	"math/big"
 	"net/http"
@@ -714,12 +715,12 @@ func CmdQueryTxByHash() *cobra.Command {
 				return err
 			}
 			ethClient, err := ethclient.Dial(rpc)
-			fmt.Printf("Hash is %v\n:", hash)
-			transaction, _, err := ethClient.TransactionByHash(context.Background(), hash)
+			var response *ethapi.RPCTransaction
+			err = ethClient.Client().CallContext(context.Background(), &response, "eth_getTransactionByHash", hash)
 			if err != nil {
 				return err
 			}
-			result, err := json.MarshalIndent(transaction, "", "  ")
+			result, err := json.MarshalIndent(response, "", "  ")
 			fmt.Printf("%s\n", result)
 			return err
 		},
