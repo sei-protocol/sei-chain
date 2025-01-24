@@ -168,7 +168,7 @@ func makeNode(
 		return nil, combineCloseError(fmt.Errorf("error in genesis doc: %w", err), makeCloser(closers))
 	}
 
-	state, err := loadStateFromDBOrGenesisDocProvider(stateStore, genDoc)
+	state, err := LoadStateFromDBOrGenesisDocProvider(stateStore, genDoc)
 	if err != nil {
 		return nil, combineCloseError(err, makeCloser(closers))
 	}
@@ -778,10 +778,10 @@ func DefaultMetricsProvider(cfg *config.InstrumentationConfig) metricsProvider {
 
 //------------------------------------------------------------------------------
 
-// loadStateFromDBOrGenesisDocProvider attempts to load the state from the
+// LoadStateFromDBOrGenesisDocProvider attempts to load the state from the
 // database, or creates one using the given genesisDocProvider. On success this also
 // returns the genesis doc loaded through the given provider.
-func loadStateFromDBOrGenesisDocProvider(stateStore sm.Store, genDoc *types.GenesisDoc) (sm.State, error) {
+func LoadStateFromDBOrGenesisDocProvider(stateStore sm.Store, genDoc *types.GenesisDoc) (sm.State, error) {
 
 	// 1. Attempt to load state form the database
 	state, err := stateStore.Load()
