@@ -69,6 +69,7 @@ func PrintStateSize(module string, db *memiavl.DB) error {
 			fmt.Printf("Calculating for module: %s \n", moduleName)
 			keySizeByPrefix := map[string]int64{}
 			valueSizeByPrefix := map[string]int64{}
+			numKeysByPrefix := map[string]int64{}
 			tree.ScanPostOrder(func(node memiavl.Node) bool {
 				if node.IsLeaf() {
 					totalNumKeys++
@@ -81,6 +82,7 @@ func PrintStateSize(module string, db *memiavl.DB) error {
 					prefix = prefix[:2]
 					keySizeByPrefix[prefix] += int64(keySize)
 					valueSizeByPrefix[prefix] += int64(valueSize)
+					numKeysByPrefix[prefix]++
 				}
 				return true
 			})
@@ -89,6 +91,8 @@ func PrintStateSize(module string, db *memiavl.DB) error {
 			fmt.Printf("Module %s prefix key size breakdown (bytes): %s \n", moduleName, prefixKeyResult)
 			prefixValueResult, _ := json.MarshalIndent(valueSizeByPrefix, "", "  ")
 			fmt.Printf("Module %s prefix value size breakdown (bytes): %s \n", moduleName, prefixValueResult)
+			numKeysResult, _ := json.MarshalIndent(numKeysByPrefix, "", "  ")
+			fmt.Printf("Module %s prefix num of keys breakdown: %s \n", moduleName, numKeysResult)
 
 			// Print top 20 contracts by total size
 			numToShow := 20
