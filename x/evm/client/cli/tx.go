@@ -708,7 +708,7 @@ func CmdQueryTxByHash() *cobra.Command {
 		Short: "Query information about a transaction by tx hash",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			hash := common.BytesToHash([]byte(args[0]))
+			hash := common.HexToHash(args[0])
 			rpc, err := cmd.Flags().GetString(FlagRPC)
 			if err != nil {
 				return err
