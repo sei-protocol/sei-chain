@@ -198,7 +198,7 @@ func (p PrecompileExecutor) extractAsBytesFromArray(_ sdk.Context, method *abi.M
 	if !ok {
 		return nil, errors.New("index must be uint16")
 	}
-	if int(index) >= len(decoded) {
+	if index >= uint16(len(decoded)) {
 		return nil, fmt.Errorf("index %d is out of bounds", index)
 	}
 	result := decoded[index]
