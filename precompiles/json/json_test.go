@@ -259,6 +259,14 @@ func TestPrecompileExecutor_extractAsBytesFromArray(t *testing.T) {
 			wantErr:    true,
 			wantErrMsg: "input array is larger than 2^16",
 		},
+		{
+			name: "should error out if json is invalid",
+			input: input{
+				body: []byte("invalid json"),
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid character 'i' looking for beginning of value",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
