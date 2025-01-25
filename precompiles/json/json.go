@@ -194,11 +194,14 @@ func (p PrecompileExecutor) extractAsBytesFromArray(_ sdk.Context, method *abi.M
 	if err := gjson.Unmarshal(bz, &decoded); err != nil {
 		return nil, err
 	}
+	if len(decoded) > 1<<16 {
+		return nil, errors.New("input array is larger than 2^16")
+	}
 	index, ok := args[1].(uint16)
 	if !ok {
 		return nil, errors.New("index must be uint16")
 	}
-	if index >= uint16(len(decoded)) {
+	if int(index) >= len(decoded) {
 		return nil, fmt.Errorf("index %d is out of bounds", index)
 	}
 	result := decoded[index]

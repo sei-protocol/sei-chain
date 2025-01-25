@@ -1,8 +1,10 @@
 package json_test
 
 import (
+	"fmt"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"math/big"
+	"strings"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -240,6 +242,23 @@ func TestPrecompileExecutor_extractAsBytesFromArray(t *testing.T) {
 			wantErr:    true,
 			wantErrMsg: "sending funds to a non-payable function",
 		},
+		{
+			name: "extracts last element from 2^16 el size array",
+			input: input{
+				body:       generateLargeArray(65536),
+				indexArray: 65535,
+			},
+			want: []byte("65535"),
+		},
+		{
+			name: "should error out if size of array is greater than 65536", // 65536 as we can have 2^16 elements in array 0 to 65535
+			input: input{
+				body:       generateLargeArray(65537),
+				indexArray: 65535,
+			},
+			wantErr:    true,
+			wantErrMsg: "input array is larger than 2^16",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -262,6 +281,14 @@ func TestPrecompileExecutor_extractAsBytesFromArray(t *testing.T) {
 			}
 		})
 	}
+}
+
+func generateLargeArray(size int) []byte {
+	array := make([]string, size)
+	for i := 0; i < size; i++ {
+		array[i] = fmt.Sprintf("\"%d\"", i)
+	}
+	return []byte(fmt.Sprintf("[%s]", strings.Join(array, ",")))
 }
 
 func TestExtractElementFromNestedArray(t *testing.T) {
