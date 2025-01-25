@@ -19,6 +19,15 @@ module.exports = {
     seilocal: {
       url: "http://127.0.0.1:8545",
       accounts: {
+        mnemonic: "potato beach spawn early pole peanut insect bus addict orient camp refuse news robust drive napkin race summer toss oppose cream grit gadget clever",
+        path: "m/44'/118'/0'/0/0",
+        initialIndex: 0,
+        count: 1
+      },
+    },
+    seiCluster: {
+      url: "",
+      accounts: {
         mnemonic: process.env.DAPP_TESTS_MNEMONIC,
         path: "m/44'/118'/0'/0/0",
         initialIndex: 0,

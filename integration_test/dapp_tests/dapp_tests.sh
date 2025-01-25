@@ -6,6 +6,18 @@ if [ -z "$1" ]; then
   exit 1
 fi
 
+IS_FAST_TRACK=false
+
+# Check if -fast track enabled is present
+for arg in "$@"; do
+    if [[ "$arg" == "-f" ]]; then
+        IS_FAST_TRACK=true
+        break
+    fi
+done
+
+export IS_FAST_TRACK
+
 set -e
 
 # Define the paths to the test files

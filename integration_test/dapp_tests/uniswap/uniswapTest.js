@@ -1,17 +1,23 @@
 const hre = require("hardhat"); // Require Hardhat Runtime Environment
 
-const { abi: WETH9_ABI, bytecode: WETH9_BYTECODE } = require("@uniswap/v2-periphery/build/WETH9.json");
-const { abi: FACTORY_ABI, bytecode: FACTORY_BYTECODE } = require("@uniswap/v3-core/artifacts/contracts/UniswapV3Factory.sol/UniswapV3Factory.json");
-const { abi: DESCRIPTOR_ABI, bytecode: DESCRIPTOR_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/libraries/NFTDescriptor.sol/NFTDescriptor.json");
-const { abi: MANAGER_ABI, bytecode: MANAGER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json");
-const { abi: SWAP_ROUTER_ABI, bytecode: SWAP_ROUTER_BYTECODE } = require("@uniswap/v3-periphery/artifacts/contracts/SwapRouter.sol/SwapRouter.json");
-const {exec} = require("child_process");
-const { fundAddress, createTokenFactoryTokenAndMint, deployErc20PointerNative, execute, getSeiAddress, queryWasm, getSeiBalance, isDocker, ABI } = require("../../../contracts/test/lib.js");
-const { deployTokenPool, supplyLiquidity, deployCw20WithPointer, deployEthersContract, sendFunds, pollBalance, setupAccountWithMnemonic, estimateAndCall } = require("../utils")
-const { rpcUrls, chainIds, evmRpcUrls} = require("../constants")
-const { expect } = require("chai");
+const {
+    execute,
+    getSeiAddress,
+    queryWasm,
+    getSeiBalance,
+} = require("../../../contracts/test/lib.js");
+const {
+    deployTokenPool,
+    supplyLiquidity,
+    sendFunds,
+    pollBalance,
+    estimateAndCall,
+    deployAndReturnUniswapContracts, setDaemonConfig
+} = require("../utils")
+const {expect} = require("chai");
 
 const testChain = process.env.DAPP_TEST_ENV;
+const isFastTrackEnabled = process.env.IS_FAST_TRACK;
 
 describe("Uniswap Test", function () {
     let weth9;
@@ -26,105 +32,39 @@ describe("Uniswap Test", function () {
     let deployer;
     let user;
     let originalSeidConfig;
+
     before(async function () {
-        const accounts = hre.config.networks[testChain].accounts
+        originalSeidConfig = await setDaemonConfig(testChain);
+        const accounts = hre.config.networks[testChain].accounts;
         const deployerWallet = hre.ethers.Wallet.fromMnemonic(accounts.mnemonic, accounts.path);
         deployer = deployerWallet.connect(hre.ethers.provider);
 
-        const seidConfig = await execute('seid config');
-        originalSeidConfig = JSON.parse(seidConfig);
+        ({
+            router,
+            manager,
+            erc20cw20,
+            erc20TokenFactory,
+            weth9,
+            token,
+            tokenFactoryDenom,
+            cw20Address
+        } = await deployAndReturnUniswapContracts(deployer, testChain, accounts, isFastTrackEnabled));
 
-        if (testChain === 'seilocal') {
-            await fundAddress(deployer.address, amount="2000000000000000000000");
-        } else {
-            // Set default seid config to the specified rpc url.
-            await execute(`seid config chain-id ${chainIds[testChain]}`)
-            await execute(`seid config node ${rpcUrls[testChain]}`)
-        }
-
-        // Set the config keyring to 'test' since we're using the key added to test from here.
-        await execute(`seid config keyring-backend test`)
-
-        await sendFunds('0.01', deployer.address, deployer)
-        await setupAccountWithMnemonic("dapptest", accounts.mnemonic, deployer);
-
-
-        // Fund user account
         const userWallet = hre.ethers.Wallet.createRandom();
         user = userWallet.connect(hre.ethers.provider);
 
         await sendFunds("1", user.address, deployer)
 
-        const deployerSeiAddr = await getSeiAddress(deployer.address);
-
-        // Deploy Required Tokens
-        const time = Date.now().toString();
-
-        // Deploy TokenFactory token with ERC20 pointer
-        const tokenName = `dappTests${time}`
-        tokenFactoryDenom = await createTokenFactoryTokenAndMint(tokenName, hre.ethers.utils.parseEther("1000000").toString(), deployerSeiAddr, deployerSeiAddr)
-        console.log("DENOM", tokenFactoryDenom)
-        const pointerAddr = await deployErc20PointerNative(hre.ethers.provider, tokenFactoryDenom, deployerSeiAddr, evmRpcUrls[testChain])
-        console.log("Pointer Addr", pointerAddr);
-        erc20TokenFactory = new hre.ethers.Contract(pointerAddr, ABI.ERC20, deployer);
-
-        // Deploy CW20 token with ERC20 pointer
-        const cw20Details = await deployCw20WithPointer(deployerSeiAddr, deployer, time, evmRpcUrls[testChain])
-        erc20cw20 = cw20Details.pointerContract;
-        cw20Address = cw20Details.cw20Address;
-
-        // Deploy WETH9 Token (ETH representation on Uniswap)
-        weth9 = await deployEthersContract("WETH9", WETH9_ABI, WETH9_BYTECODE, deployer);
-
-        // Deploy MockToken
-        console.log("Deploying MockToken with the account:", deployer.address);
-        const contractArtifact = await hre.artifacts.readArtifact("MockERC20");
-        token = await deployEthersContract("MockToken", contractArtifact.abi, contractArtifact.bytecode, deployer, ["MockToken", "MKT", hre.ethers.utils.parseEther("1000000")])
-
-        // Deploy NFT Descriptor. These NFTs are used by the NonFungiblePositionManager to represent liquidity positions.
-        const descriptor = await deployEthersContract("NFT Descriptor", DESCRIPTOR_ABI, DESCRIPTOR_BYTECODE, deployer);
-
-        // Deploy Uniswap Contracts
-        // Create UniswapV3 Factory
-        factory = await deployEthersContract("Uniswap V3 Factory", FACTORY_ABI, FACTORY_BYTECODE, deployer);
-
-        // Deploy NonFungiblePositionManager
-        manager = await deployEthersContract("NonfungiblePositionManager", MANAGER_ABI, MANAGER_BYTECODE, deployer, deployParams=[factory.address, weth9.address, descriptor.address]);
-
-        // Deploy SwapRouter
-        router = await deployEthersContract("SwapRouter", SWAP_ROUTER_ABI, SWAP_ROUTER_BYTECODE, deployer, deployParams=[factory.address, weth9.address]);
-
-        const amountETH = hre.ethers.utils.parseEther("3")
-
-        // Gets the amount of WETH9 required to instantiate pools by depositing Sei to the contract
-        let gasEstimate = await weth9.estimateGas.deposit({ value: amountETH })
-        let gasPrice = await deployer.getGasPrice();
-        const txWrap = await weth9.deposit({ value: amountETH, gasPrice, gasLimit: gasEstimate });
-        await txWrap.wait();
-        console.log(`Deposited ${amountETH.toString()} to WETH9`);
-
-        // Create liquidity pools
-        await deployTokenPool(manager, weth9.address, token.address)
-        await deployTokenPool(manager, weth9.address, erc20TokenFactory.address)
-        await deployTokenPool(manager, weth9.address, erc20cw20.address)
-
-        // Add Liquidity to pools
-        await supplyLiquidity(manager, deployer.address, weth9, token, hre.ethers.utils.parseEther("1"), hre.ethers.utils.parseEther("1"))
-        await supplyLiquidity(manager, deployer.address, weth9, erc20TokenFactory, hre.ethers.utils.parseEther("1"), hre.ethers.utils.parseEther("1"))
-        await supplyLiquidity(manager, deployer.address, weth9, erc20cw20, hre.ethers.utils.parseEther("1"), hre.ethers.utils.parseEther("1"))
     })
 
     describe("Swaps", function () {
         // Swaps token1 for token2.
-        async function basicSwapTestAssociated(token1, token2, expectSwapFail=false) {
+        async function basicSwapTestAssociated(token1, token2, expectSwapFail = false) {
             const fee = 3000; // Fee tier (0.3%)
 
             // Perform a Swap
             const amountIn = hre.ethers.utils.parseEther("0.1");
             const amountOutMin = hre.ethers.utils.parseEther("0"); // Minimum amount of MockToken expected
-
-            // const gasLimit = hre.ethers.utils.hexlify(1000000); // Example gas limit
-            // const gasPrice = await hre.ethers.provider.getGasPrice();
 
             await estimateAndCall(token1.connect(user), "deposit", [], amountIn)
 
@@ -167,7 +107,7 @@ describe("Uniswap Test", function () {
             }
         }
 
-        async function basicSwapTestUnassociated(token1, token2, expectSwapFail=false) {
+        async function basicSwapTestUnassociated(token1, token2, expectSwapFail = false) {
             const unassocUserWallet = ethers.Wallet.createRandom();
             const unassocUser = unassocUserWallet.connect(ethers.provider);
 
@@ -211,7 +151,9 @@ describe("Uniswap Test", function () {
                 await estimateAndCall(router, "exactInputSingle", [txParams])
 
                 // Check User's MockToken Balance
-                const balance = await pollBalance(token2, unassocUser.address, function(bal) {return bal === 0});
+                const balance = await pollBalance(token2, unassocUser.address, function (bal) {
+                    return bal === 0
+                });
 
                 // Check that it's more than 0 (no specified amount since there might be slippage)
                 expect(Number(balance)).to.greaterThan(0, "User should have received some token2")
@@ -258,20 +200,20 @@ describe("Uniswap Test", function () {
         })
 
         it("Unassociated account should not be able to receive erc20cw20 tokens successfully", async function () {
-            await basicSwapTestUnassociated(weth9, erc20cw20, expectSwapFail=true)
+            await basicSwapTestUnassociated(weth9, erc20cw20, expectSwapFail = true)
         });
     })
 
     // We've already tested that an associated account (deployer) can deploy pools and supply liquidity in the Before() step.
     describe("Pools", function () {
         it("Unssosciated account should be able to deploy pools successfully", async function () {
-          const unassocUserWallet = hre.ethers.Wallet.createRandom();
-          const unassocUser = unassocUserWallet.connect(hre.ethers.provider);
+            const unassocUserWallet = hre.ethers.Wallet.createRandom();
+            const unassocUser = unassocUserWallet.connect(hre.ethers.provider);
 
-          // Fund the user account. Creating pools is a expensive operation so we supply more funds here for gas.
-          await sendFunds("0.5", unassocUser.address, deployer)
+            // Fund the user account. Creating pools is a expensive operation so we supply more funds here for gas.
+            await sendFunds("0.5", unassocUser.address, deployer)
 
-          await deployTokenPool(manager.connect(unassocUser), erc20TokenFactory.address, token.address)
+            await deployTokenPool(manager.connect(unassocUser), erc20TokenFactory.address, token.address)
         })
 
         it("Unssosciated account should be able to supply liquidity pools successfully", async function () {
@@ -291,7 +233,7 @@ describe("Uniswap Test", function () {
             const managerConnected = manager.connect(unassocUser);
             const erc20TokenFactoryConnected = erc20TokenFactory.connect(unassocUser);
             const mockTokenConnected = token.connect(unassocUser);
-            await supplyLiquidity(managerConnected, unassocUser.address, erc20TokenFactoryConnected, mockTokenConnected, Number(erc20TokenFactoryAmount)/2, Number(mockTokenAmount)/2)
+            await supplyLiquidity(managerConnected, unassocUser.address, erc20TokenFactoryConnected, mockTokenConnected, Number(erc20TokenFactoryAmount) / 2, Number(mockTokenAmount) / 2)
         })
     })
 
