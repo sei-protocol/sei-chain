@@ -18,12 +18,14 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	xauthsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	eabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
@@ -570,14 +572,13 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, creatorHash, receipt.Logs[0].Topics[1])
 	require.Equal(t, common.HexToHash("0x0").Hex(), receipt.Logs[0].Topics[2])
 	require.Equal(t, creatorHash, receipt.Logs[0].Topics[3])
-	expectedData = append([]byte{}, common.BigToHash(big.NewInt(32)).Bytes()...)     // offset for token_ids array (always 32)
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of token_ids array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // token id 1
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // token id 2
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(32)).Bytes()...) // offset for token_ids array (always 32)
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of amounts array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(30)).Bytes()...) // amount 30
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(40)).Bytes()...) // amount 40
+	tokenIDsArg := cw1155.GetParsedABI().Events["TransferBatch"].Inputs[3]
+	tokenAmountsArg := cw1155.GetParsedABI().Events["TransferBatch"].Inputs[4]
+	require.Equal(t, "ids", tokenIDsArg.Name)
+	require.Equal(t, "values", tokenAmountsArg.Name)
+	dataArgs := eabi.Arguments{tokenIDsArg, tokenAmountsArg}
+	expectedData, err = dataArgs.Pack([]*big.Int{big.NewInt(1), big.NewInt(2)}, []*big.Int{big.NewInt(30), big.NewInt(40)})
+	require.Nil(t, err)
 	require.Equal(t, expectedData, receipt.Logs[0].Data)
 
 	// send
@@ -637,14 +638,8 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, creatorHash, receipt.Logs[0].Topics[1])
 	require.Equal(t, creatorHash, receipt.Logs[0].Topics[2])
 	require.Equal(t, recipientHash, receipt.Logs[0].Topics[3])
-	expectedData = append([]byte{}, common.BigToHash(big.NewInt(32)).Bytes()...)     // offset for token_ids array (always 32)
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of token_ids array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // token id 1
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // token id 2
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(32)).Bytes()...) // offset for token_ids array (always 32)
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of amounts array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // amount 1
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // amount 2
+	expectedData, err = dataArgs.Pack([]*big.Int{big.NewInt(1), big.NewInt(2)}, []*big.Int{big.NewInt(1), big.NewInt(2)})
+	require.Nil(t, err)
 	require.Equal(t, expectedData, receipt.Logs[0].Data)
 
 	// approve all
@@ -728,14 +723,8 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, recipientHash, receipt.Logs[0].Topics[1])
 	require.Equal(t, creatorHash, receipt.Logs[0].Topics[2])
 	require.Equal(t, recipientHash, receipt.Logs[0].Topics[3])
-	expectedData = append([]byte{}, common.BigToHash(big.NewInt(32)).Bytes()...)     // offset for token_ids array (always 32)
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of token_ids array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // token id 1
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // token id 2
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(32)).Bytes()...) // offset for token_ids array (always 32)
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of amounts array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // amount 1
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // amount 1
+	expectedData, err = dataArgs.Pack([]*big.Int{big.NewInt(1), big.NewInt(2)}, []*big.Int{big.NewInt(1), big.NewInt(1)})
+	require.Nil(t, err)
 	require.Equal(t, expectedData, receipt.Logs[0].Data)
 
 	// burn on behalf
@@ -791,14 +780,8 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, recipientHash, receipt.Logs[0].Topics[1])
 	require.Equal(t, creatorHash, receipt.Logs[0].Topics[2])
 	require.Equal(t, common.HexToHash("0x0").Hex(), receipt.Logs[0].Topics[3])
-	expectedData = append([]byte{}, common.BigToHash(big.NewInt(32)).Bytes()...)     // offset for token_ids array (always 32)
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of token_ids array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // token id 1
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // token id 2
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(32)).Bytes()...) // offset for token_ids array (always 32)
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of amounts array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // amount 1
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // amount 1
+	expectedData, err = dataArgs.Pack([]*big.Int{big.NewInt(1), big.NewInt(2)}, []*big.Int{big.NewInt(1), big.NewInt(1)})
+	require.Nil(t, err)
 	require.Equal(t, expectedData, receipt.Logs[0].Data)
 
 	// revoke all
@@ -886,14 +869,8 @@ func TestEvmEventsForCw1155(t *testing.T) {
 	require.Equal(t, creatorHash, receipt.Logs[0].Topics[1])
 	require.Equal(t, creatorHash, receipt.Logs[0].Topics[2])
 	require.Equal(t, common.HexToHash("0x0").Hex(), receipt.Logs[0].Topics[3])
-	expectedData = append([]byte{}, common.BigToHash(big.NewInt(32)).Bytes()...)     // offset for token_ids array (always 32)
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of token_ids array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // token id 1
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // token id 2
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(32)).Bytes()...) // offset for token_ids array (always 32)
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(2)).Bytes()...)  // length of amounts array
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // amount 1
-	expectedData = append(expectedData, common.BigToHash(big.NewInt(1)).Bytes()...)  // amount 1
+	expectedData, err = dataArgs.Pack([]*big.Int{big.NewInt(1), big.NewInt(2)}, []*big.Int{big.NewInt(1), big.NewInt(1)})
+	require.Nil(t, err)
 	require.Equal(t, expectedData, receipt.Logs[0].Data)
 }
 
