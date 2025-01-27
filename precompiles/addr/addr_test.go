@@ -45,11 +45,12 @@ func TestAssociatePubKey(t *testing.T) {
 	happyPathOutput, _ := associatePubKey.Outputs.Pack(targetSeiAddress.String(), targetEvmAddress)
 
 	type args struct {
-		evm      *vm.EVM
-		caller   common.Address
-		pubKey   string
-		value    *big.Int
-		readOnly bool
+		evm         *vm.EVM
+		caller      common.Address
+		pubKey      string
+		value       *big.Int
+		readOnly    bool
+		suppliedGas uint64
 	}
 	tests := []struct {
 		name       string
@@ -117,6 +118,21 @@ func TestAssociatePubKey(t *testing.T) {
 			wantErrMsg: fmt.Sprintf("address %s is already associated with evm address %s", callerSeiAddress, callerEvmAddress),
 		},
 		{
+			name: "fails if insufficient gas provided",
+			args: args{
+				evm: &vm.EVM{
+					StateDB:   state.NewDBImpl(ctx, k, true),
+					TxContext: vm.TxContext{Origin: callerEvmAddress},
+				},
+				caller:      callerEvmAddress,
+				pubKey:      targetPubKeyHex,
+				value:       big.NewInt(0),
+				suppliedGas: 1,
+			},
+			wantErr:    true,
+			wantErrMsg: "execution reverted: {ReadFlat}",
+		},
+		{
 			name: "happy path - associates addresses if signature is correct",
 			args: args{
 				evm: &vm.EVM{
@@ -141,7 +157,11 @@ func TestAssociatePubKey(t *testing.T) {
 			require.Nil(t, err)
 
 			// Make the call to associate.
-			ret, _, err := p.RunAndCalculateGas(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociatePubKeyID, inputs...), 40000, tt.args.value, nil, tt.args.readOnly, false)
+			suppliedGas := uint64(40000)
+			if tt.args.suppliedGas != 0 {
+				suppliedGas = tt.args.suppliedGas
+			}
+			ret, _, err := p.RunAndCalculateGas(tt.args.evm, tt.args.caller, tt.args.caller, append(p.GetExecutor().(*addr.PrecompileExecutor).AssociatePubKeyID, inputs...), suppliedGas, tt.args.value, nil, tt.args.readOnly, false)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v %v", err, tt.wantErr, string(ret))
 				return
