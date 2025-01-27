@@ -147,6 +147,20 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	if filter == nil {
 		filter = &filters.FilterCriteria{}
 	}
+	// when fromBlock is 0 and toBlock is latest, adjust the filter
+	// to unbounded filter
+	if filter.FromBlock != nil && filter.FromBlock.Int64() == 0 &&
+		filter.ToBlock != nil && filter.ToBlock.Int64() < 0 {
+		latest := big.NewInt(a.logFetcher.ctxProvider(LatestCtxHeight).BlockHeight())
+		unboundedFilter := &filters.FilterCriteria{
+			FromBlock: latest, // set to latest block height
+			ToBlock:   nil,    // set to nil to continue listening
+			Addresses: filter.Addresses,
+			Topics:    filter.Topics,
+		}
+		filter = unboundedFilter
+	}
+
 	rpcSub := notifier.CreateSubscription()
 
 	if filter.BlockHash != nil {
@@ -183,7 +197,6 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 			}
 			begin = lastToHeight
 			filter.FromBlock = big.NewInt(lastToHeight + 1)
-
 			time.Sleep(SleepInterval)
 		}
 	}()
