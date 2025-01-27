@@ -428,6 +428,7 @@ func convertEvmMsgToCtMsg(sdkmsg sdk.Msg, events []tmtypes.Event, evmRpc string)
 	if err != nil {
 		return nil, err
 	}
+	// In Ethereum transactions, the first 4 bytes of the Data field typically represent the method ID
 	argsBz := dyanmicFeeTx.Data[4:]
 	args, err := method.Inputs.Unpack(argsBz)
 	if err != nil {

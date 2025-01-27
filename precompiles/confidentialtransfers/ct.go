@@ -421,6 +421,7 @@ func (p PrecompileExecutor) getAuditorsFromArg(ctx sdk.Context, arg interface{})
 	return auditors, nil
 }
 
+// GetAuditorFromCtAuditor translates auditor payload from the format that Solidity understands to the internal format
 func GetAuditorFromCtAuditor(address string, ctAuditor cttypes.CtAuditor) (*cttypes.Auditor, error) {
 	var encryptedTransferAmountLo cttypes.Ciphertext
 	err := encryptedTransferAmountLo.Unmarshal(ctAuditor.EncryptedTransferAmountLo)
