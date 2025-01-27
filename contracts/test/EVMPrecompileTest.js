@@ -72,7 +72,27 @@ describe("EVM Precompile Tester", function () {
             const seiAddr = await addr.getSeiAddr(unassociatedWallet.address);
             expect(seiAddr).to.not.be.null;
         });
+
+        it.only("Fails gracefully even when insufficient gas is provided", async function () {
+            const unassociatedWallet = hre.ethers.Wallet.createRandom();
+            console.log("DEBUG: unassociatedWallet", unassociatedWallet.publicKey.slice(2));
+            await expectRevert(
+                addr.associatePubKey(unassociatedWallet.publicKey.slice(2), {gasLimit: 52603}),
+                "execution reverted"
+            )
+            const associatedAddrs = await addr.associatePubKey(unassociatedWallet.publicKey.slice(2), {gasLimit: 52603});
+            const receipt = await associatedAddrs.wait();
+            const hash = receipt.transactionHash;
+            // ensure that the transaction's trace doesn't have "panic" in it
+            // make http call to debug_traceTransaction
+            const trace = await hre.ethers.provider.send("debug_traceTransaction", [hash]);
+            // expect trace to not contain the word "panic"
+            expect(trace).to.not.have.property('panic');
+        });
     });
+
+    // used to send a transaction that goes directly to SendTransaction
+    function sendCustomTransaction()
 
     describe("EVM Gov Precompile Tester", function () {
         const GovPrecompileContract = '0x0000000000000000000000000000000000001006';

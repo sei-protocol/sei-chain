@@ -89,6 +89,11 @@ func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, _ common.Address, _ common.Address, args []interface{}, value *big.Int, readOnly bool, _ *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("execution reverted: %v", r)
+		}
+	}()
 	switch method.Name {
 	case GetSeiAddressMethod:
 		return p.getSeiAddr(ctx, method, args, value)

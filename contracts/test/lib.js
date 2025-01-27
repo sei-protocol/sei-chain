@@ -211,6 +211,28 @@ async function createTokenFactoryTokenAndMint(name, amount, recipient, from=admi
     return token_denom
 }
 
+async function getChainId() {
+    const nodeUrl = 'http://localhost:8545';
+    const response = await axios.post(nodeUrl, {
+        method: 'eth_chainId',
+        params: [],
+        id: 1,
+        jsonrpc: "2.0"
+    })
+    return response.data.result;
+}
+
+async function getGasPrice() {
+    const nodeUrl = 'http://localhost:8545';
+    const response = await axios.post(nodeUrl, {
+        method: 'eth_gasPrice',
+        params: [],
+        id: 1,
+        jsonrpc: "2.0"
+    })
+    return response.data.result;
+}
+
 async function getPointerForNative(name) {
     const command = `seid query evm pointer NATIVE ${name} -o json`
     const output = await execute(command);
@@ -417,6 +439,31 @@ async function deployEvmContract(name, args=[]) {
     return contract;
 }
 
+async function sendNonSimulatedLegacyTransaction(signer, to, value, gasLimit) {
+    const chainId = await getChainId();
+    const gasPrice = await getGasPrice();
+    const nonce = await signer.getTransactionCount("pending");
+    const signedTx = await signer.signTransaction({
+        to: to,
+        value: value,
+        gasLimit: gasLimit,
+        gasPrice: gasPrice,
+        nonce: nonce,
+        maxPriorityFeePerGas: maxPriorityFeePerGas,
+        maxFeePerGas: maxFeePerGas,
+        chainId: chainId
+    });
+    // send the transaction
+    const nodeUrl = 'http://localhost:8545';
+    const response = await axios.post(nodeUrl, {
+        method: 'eth_sendRawTransaction',
+        params: [signedTx],
+        id: 1,
+        jsonrpc: "2.0"
+    })
+    return response.data.result;
+}
+
 async function setupSigners(signers) {
     const result = []
     for(let signer of signers) {
@@ -526,6 +573,8 @@ module.exports = {
     deployWasm,
     instantiateWasm,
     createTokenFactoryTokenAndMint,
+    getChainId,
+    getGasPrice,
     execute,
     getSeiAddress,
     getEvmAddress,
