@@ -49,6 +49,7 @@ type TransferAuditor struct {
 	TransferAmountHiEqualityProof *zkproofs.CiphertextCiphertextEqualityProof `json:"transfer_amount_hi_equality_proof"`
 }
 
+// CtAuditor is a struct that represents the auditor's view of a transfer and is used in precompiles/solidity.
 type CtAuditor struct {
 	AuditorAddress                string `json:"auditorAddress"`
 	EncryptedTransferAmountLo     []byte `json:"encryptedTransferAmountLo"`
