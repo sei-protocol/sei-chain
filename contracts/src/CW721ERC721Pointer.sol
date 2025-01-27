@@ -40,14 +40,22 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
     }
 
     // Queries
-    function balanceOf(address owner) public view override returns (uint256) {
-        if (owner == address(0)) {
+    // owner of the entire collection, not specific to a token id
+    function owner() public view returns (address) {
+        string memory req = _curlyBrace(_formatPayload("ownership", "{}"));
+        bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(req));
+        bytes memory owner_bytes = JsonPrecompile.extractAsBytes(response, "owner");
+        return AddrPrecompile.getEvmAddr(string(owner_bytes));
+    }
+
+    function balanceOf(address owner_) public view override returns (uint256) {
+        if (owner_ == address(0)) {
             revert ERC721InvalidOwner(address(0));
         }
         uint256 numTokens = 0;
         string memory startAfter;
         string memory qb = string.concat(
-            string.concat("\"limit\":1000,\"owner\":\"", AddrPrecompile.getSeiAddr(owner)),
+            string.concat("\"limit\":1000,\"owner\":\"", AddrPrecompile.getSeiAddr(owner_)),
             "\""
         );
         bytes32 terminator = keccak256("{\"tokens\":[]}");
@@ -74,8 +82,8 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
         string memory tId = _formatPayload("token_id", _doubleQuotes(Strings.toString(tokenId)));
         string memory req = _curlyBrace(_formatPayload("owner_of", _curlyBrace(tId)));
         bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(req));
-        bytes memory owner = JsonPrecompile.extractAsBytes(response, "owner");
-        return AddrPrecompile.getEvmAddr(string(owner));
+        bytes memory owner_ = JsonPrecompile.extractAsBytes(response, "owner");
+        return AddrPrecompile.getEvmAddr(string(owner_));
     }
 
     function getApproved(uint256 tokenId) public view override returns (address) {
@@ -90,8 +98,8 @@ contract CW721ERC721Pointer is ERC721,ERC2981 {
         return address(0);
     }
 
-    function isApprovedForAll(address owner, address operator) public view override returns (bool) {
-        string memory o = _formatPayload("owner", _doubleQuotes(AddrPrecompile.getSeiAddr(owner)));
+    function isApprovedForAll(address owner_, address operator) public view override returns (bool) {
+        string memory o = _formatPayload("owner", _doubleQuotes(AddrPrecompile.getSeiAddr(owner_)));
         string memory req = _curlyBrace(_formatPayload("all_operators", _curlyBrace(o)));
         bytes memory response = WasmdPrecompile.query(Cw721Address, bytes(req));
         bytes[] memory approvals = JsonPrecompile.extractAsBytesList(response, "operators");

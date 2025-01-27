@@ -31,7 +31,7 @@ jobs:
       - name: Run Forge build
         run: |
           forge --version
-          forge build --sizes --evm-version=cancun
+          forge build --evm-version=cancun
         id: build
 
       - name: Run Forge tests

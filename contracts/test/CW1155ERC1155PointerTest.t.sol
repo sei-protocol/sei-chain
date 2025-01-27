@@ -155,6 +155,15 @@ contract CW1155ERC1155PointerTest is Test {
         pointer.balanceOf(MockZeroAddress, 1);
     }
 
+    function testOwner() public {
+        vm.mockCall(
+            WASMD_PRECOMPILE_ADDRESS,
+            abi.encodeWithSignature("query(string,bytes)", MockCWContractAddress, bytes("{\"ownership\":{}}")),
+            abi.encode("{\"owner\":\"sei19zhelek4q5lt4zam8mcarmgv92vzgqd3ux32jw\"}")
+        );
+        assertEq(pointer.owner(), MockOperatorEVMAddr);
+    }
+
     function testBalanceOfBatch() public {
         vm.mockCall(
             ADDR_PRECOMPILE_ADDRESS,
