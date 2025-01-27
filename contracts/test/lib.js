@@ -1,5 +1,6 @@
 const { exec } = require("child_process");
 const {ethers} = require("hardhat"); // Importing exec from child_process
+const axios = require("axios");
 
 const adminKeyName = "admin"
 
@@ -196,6 +197,19 @@ async function incrementPointerVersion(provider, pointerType, offset) {
     } else {
        await provider.send("test_incrementPointerVersion", [pointerType, offset]);
     }
+}
+
+async function rawHttpDebugTraceWithCallTracer(txHash) {
+    const payload = {
+        jsonrpc: "2.0",
+        method: "debug_traceTransaction",
+        params: [txHash, {"tracer": "callTracer"}], // The second parameter is an optional trace config object
+        id: 1,
+    };
+    const response = await axios.post("http://localhost:8545", payload, {
+        headers: { "Content-Type": "application/json" },
+    });
+    return response.data;
 }
 
 async function createTokenFactoryTokenAndMint(name, amount, recipient, from=adminKeyName) {
@@ -439,31 +453,6 @@ async function deployEvmContract(name, args=[]) {
     return contract;
 }
 
-async function sendNonSimulatedLegacyTransaction(signer, to, value, gasLimit) {
-    const chainId = await getChainId();
-    const gasPrice = await getGasPrice();
-    const nonce = await signer.getTransactionCount("pending");
-    const signedTx = await signer.signTransaction({
-        to: to,
-        value: value,
-        gasLimit: gasLimit,
-        gasPrice: gasPrice,
-        nonce: nonce,
-        maxPriorityFeePerGas: maxPriorityFeePerGas,
-        maxFeePerGas: maxFeePerGas,
-        chainId: chainId
-    });
-    // send the transaction
-    const nodeUrl = 'http://localhost:8545';
-    const response = await axios.post(nodeUrl, {
-        method: 'eth_sendRawTransaction',
-        params: [signedTx],
-        id: 1,
-        jsonrpc: "2.0"
-    })
-    return response.data.result;
-}
-
 async function setupSigners(signers) {
     const result = []
     for(let signer of signers) {
@@ -579,6 +568,7 @@ module.exports = {
     getSeiAddress,
     getEvmAddress,
     queryWasm,
+    rawHttpDebugTraceWithCallTracer,
     executeWasm,
     getAdmin,
     setupSigners,
