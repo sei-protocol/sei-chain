@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -394,8 +395,12 @@ func (app *App) translateCW1155Event(ctx sdk.Context, wasmEvent abci.Event, poin
 		if !found {
 			return nil, false
 		}
-		value := EncodeBigIntArray(tokenIDs)
-		value = append(value, EncodeBigIntArray(tokenAmounts)...)
+		dataArgs := cw1155.GetParsedABI().Events["TransferBatch"].Inputs.NonIndexed()
+		value, err := dataArgs.Pack(tokenIDs, tokenAmounts)
+		if err != nil {
+			ctx.Logger().Error(fmt.Sprintf("failed to parse TransferBatch event data due to %s", err))
+			return nil, false
+		}
 		return &ethtypes.Log{
 			Address: pointerAddr,
 			Topics:  topics,
@@ -510,21 +515,4 @@ func GetTokenIDsAttribute(event abci.Event) ([]*big.Int, bool) {
 		results = append(results, tidInt.BigInt())
 	}
 	return results, true
-}
-
-func EncodeBigIntArray(inputs []*big.Int) []byte {
-	// Arrays are broken up into components:
-	// - offset byte (always 32)
-	// - length of array
-	// - ...array values
-	offset := big.NewInt(32)
-	length := big.NewInt(int64(len(inputs)))
-	value := append(
-		common.BigToHash(offset).Bytes(),
-		common.BigToHash(length).Bytes()...,
-	)
-	for _, i := range inputs {
-		value = append(value, common.BigToHash(i).Bytes()...)
-	}
-	return value
 }
