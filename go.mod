@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/BurntSushi/toml v1.3.2
 	github.com/CosmWasm/wasmd v0.27.0
-	github.com/CosmWasm/wasmvm v1.5.5
+	github.com/CosmWasm/wasmvm v1.5.4
 	github.com/armon/go-metrics v0.4.1
 	github.com/btcsuite/btcd v0.22.1
 	github.com/cosmos/cosmos-sdk v0.45.10
