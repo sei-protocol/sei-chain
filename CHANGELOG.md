@@ -29,6 +29,8 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.0.3
 sei-chain
+* [#2057](https://github.com/sei-protocol/sei-chain/pull/2057) Avoid panic tx error message in debug trace
+* [#2056](https://github.com/sei-protocol/sei-chain/pull/2056) Properly encode ERC1155 translated batch event data
 * [#2051](https://github.com/sei-protocol/sei-chain/pull/2051) Add IBC support for 0x addresses
 * [#2027](https://github.com/sei-protocol/sei-chain/pull/2027) Fix eth_subscribe with geth open ended range
 * [#2043](https://github.com/sei-protocol/sei-chain/pull/2043) Query owner on ERC-721 and ERC-1155 pointers
