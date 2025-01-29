@@ -267,7 +267,7 @@ func EncodeTmBlock(
 	txDecoder sdk.TxDecoder,
 	fullTx bool,
 	includeSyntheticTxs bool,
-	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
+	isPanicOrSynthetic func(ctx context.Context, hash common.Hash) (bool, error),
 ) (map[string]interface{}, error) {
 	number := big.NewInt(block.Block.Height)
 	blockhash := common.HexToHash(block.BlockID.Hash.String())
@@ -296,12 +296,12 @@ func EncodeTmBlock(
 				}
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
-				if isPanicTx != nil {
-					isPanic, err := isPanicTx(ctx.Context(), hash)
+				if isPanicOrSynthetic != nil {
+					isPanicOrSynthetic, err := isPanicOrSynthetic(ctx.Context(), hash)
 					if err != nil {
 						return nil, fmt.Errorf("failed to check if tx is panic tx: %w", err)
 					}
-					if isPanic {
+					if isPanicOrSynthetic {
 						continue
 					}
 				}
