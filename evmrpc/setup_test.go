@@ -360,14 +360,6 @@ func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.
 				GasWanted: 10,
 				GasUsed:   5,
 			},
-			{
-				Data: func() []byte {
-					bz, _ := Encoder(DebugTraceSyntheticTx)
-					return bz
-				}(),
-				GasWanted: 10,
-				GasUsed:   5,
-			},
 		}
 		return &coretypes.ResultBlockResults{TxsResults: TxResults, ConsensusParamUpdates: &types2.ConsensusParams{
 			Block: &types2.BlockParams{
@@ -676,7 +668,7 @@ func generateTxData() {
 		Data:      []byte("abc"),
 		ChainID:   chainId,
 	})
-	debugTraceSyntheticTxBuilder, debugTraceSyntheticTx := buildTx(ethtypes.DynamicFeeTx{
+	debugTraceSyntheticTxBuilder, _ := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     0,
 		GasFeeCap: big.NewInt(10),
 		Gas:       25000,
@@ -899,6 +891,12 @@ func setupLogs() {
 			Synthetic: true,
 		}},
 		EffectiveGasPrice: 0,
+	})
+	EVMKeeper.MockReceipt(CtxMock, common.HexToHash(TestSyntheticTxHash), &types.Receipt{
+		TxType:           evmrpc.ShellEVMTxType,
+		BlockNumber:      MockHeight103,
+		TransactionIndex: 2,
+		TxHashHex:        TestSyntheticTxHash,
 	})
 	CtxDebugTrace := Ctx.WithBlockHeight(MockHeight101)
 	EVMKeeper.MockReceipt(CtxDebugTrace, common.HexToHash(DebugTraceHashHex), &types.Receipt{

@@ -2,7 +2,6 @@ package evmrpc
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"

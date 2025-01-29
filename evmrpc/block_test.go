@@ -36,7 +36,7 @@ func TestGetSeiBlockByHash(t *testing.T) {
 
 func TestGetSeiBlockByNumberExcludeTraceFail(t *testing.T) {
 	resObj := sendSeiRequestGood(t, "getBlockByNumberExcludeTraceFail", "0x67", true)
-	// first tx is not a panic tx, second tx is a panic tx
+	// first tx is not a panic tx, second tx is a panic tx, third tx is a synthetic tx
 	expectedNumTxs := 1
 	require.Equal(t, expectedNumTxs, len(resObj["result"].(map[string]interface{})["transactions"].([]interface{})))
 }
