@@ -148,7 +148,6 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 	}
 
 	if !found { // likely a synthetic tx
-		// we will label it as a panic tx so it is excluded
 		return true, nil
 	}
 
