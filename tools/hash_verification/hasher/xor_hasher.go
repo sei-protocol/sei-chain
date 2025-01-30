@@ -88,6 +88,6 @@ func (x XorHashCalculator) ComputeHashes() [][]byte {
 
 func Serialize(node types.RawSnapshotNode) []byte {
 	buf := new(bytes.Buffer)
-	binary.Write(buf, binary.LittleEndian, node)
+	_ = binary.Write(buf, binary.LittleEndian, node)
 	return buf.Bytes()
 }
