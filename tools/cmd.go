@@ -18,5 +18,6 @@ func ToolCmd() *cobra.Command {
 	toolsCmd.AddCommand(migration.VerifyMigrationCmd())
 	toolsCmd.AddCommand(migration.GenerateStats())
 	toolsCmd.AddCommand(hasher.GenerateIavlHashCmd())
+	toolsCmd.AddCommand(hasher.GeneratePebbleHashCmd())
 	return toolsCmd
 }
