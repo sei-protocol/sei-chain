@@ -36,9 +36,9 @@ var ModuleKeys = sdk.NewKVStoreKeys(
 )
 
 var Modules = []string{
-	"acc",
 	"aclaccesscontrol",
 	"authz",
+	"acc",
 	"bank",
 	"capability",
 	"distribution",
