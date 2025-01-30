@@ -20,7 +20,7 @@ func NewHashScanner(db types.StateStore, blocksInterval int64) *HashScanner {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("Detected IAVL latest version: %d\n", latestVersion)
+	fmt.Printf("Detected Pebbledb latest version: %d\n", latestVersion)
 	return &HashScanner{
 		db:             db,
 		latestVersion:  latestVersion,
