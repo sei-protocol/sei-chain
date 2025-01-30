@@ -10,7 +10,7 @@ import (
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/tools/migration/sc"
 	"github.com/sei-protocol/sei-chain/tools/migration/ss"
-	"github.com/sei-protocol/sei-chain/tools/migration/utils"
+	"github.com/sei-protocol/sei-chain/tools/utils"
 	"github.com/sei-protocol/sei-db/config"
 	sstypes "github.com/sei-protocol/sei-db/ss"
 	"github.com/spf13/cobra"
