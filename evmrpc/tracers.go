@@ -112,10 +112,6 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 
 // isPanicOrSyntheticTx returns true if the tx is a panic tx or if it is a synthetic tx. Used in the *ExcludeTraceFail endpoints.
 func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash) (isPanic bool, err error) {
-	fmt.Println("DEBUG: In isPanicOrSyntheticTx, hash = ", hash)
-	defer func() {
-		fmt.Println("DEBUG: Exiting isPanicOrSyntheticTx for hash = ", hash, ", isPanic = ", isPanic, ", err = ", err)
-	}()
 	sdkctx := api.ctxProvider(LatestCtxHeight)
 	receipt, err := api.keeper.GetReceipt(sdkctx, hash)
 	if err != nil {

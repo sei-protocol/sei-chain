@@ -80,7 +80,6 @@ func NewSeiBlockAPI(
 }
 
 func (a *SeiBlockAPI) GetBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
-	fmt.Println("DEBUG: In GetBlockByNumberExcludeTraceFail, number = ", number)
 	// exclude synthetic txs
 	return a.getBlockByNumber(ctx, number, fullTx, false, a.isPanicTx)
 }
@@ -292,14 +291,12 @@ func EncodeTmBlock(
 		for _, msg := range decoded.GetMsgs() {
 			switch m := msg.(type) {
 			case *types.MsgEVMTransaction:
-				fmt.Println("DEBUG: In EncodeTmBlock, got MsgEVMTransaction")
 				if m.IsAssociateTx() {
 					continue
 				}
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
 				if isPanicOrSynthetic != nil {
-					fmt.Println("DEBUG: In getBlockByNumber, calling isPanicOrSynthetic for hash = ", hash)
 					isPanicOrSynthetic, err := isPanicOrSynthetic(ctx.Context(), hash)
 					if err != nil {
 						return nil, fmt.Errorf("failed to check if tx is panic tx: %w", err)
@@ -307,8 +304,6 @@ func EncodeTmBlock(
 					if isPanicOrSynthetic {
 						continue
 					}
-				} else {
-					fmt.Println("DEBUG: In getBlockByNumber, isPanicOrSynthetic is nil for hash = ", hash)
 				}
 				receipt, err := k.GetReceipt(ctx, hash)
 				if err != nil {
