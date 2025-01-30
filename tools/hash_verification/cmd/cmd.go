@@ -1,8 +1,9 @@
 package cmd
 
 import (
-	"github.com/spf13/cobra"
 	"path/filepath"
+
+	"github.com/spf13/cobra"
 
 	"github.com/sei-protocol/sei-chain/tools/hash_verification/iavl"
 	dbm "github.com/tendermint/tm-db"

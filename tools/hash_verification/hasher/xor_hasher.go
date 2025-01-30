@@ -1,7 +1,6 @@
 package hasher
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"sync"
@@ -87,7 +86,14 @@ func (x XorHashCalculator) ComputeHashes() [][]byte {
 }
 
 func Serialize(node types.RawSnapshotNode) []byte {
-	buf := new(bytes.Buffer)
-	_ = binary.Write(buf, binary.LittleEndian, node)
-	return buf.Bytes()
+	keySize := len(node.Key)
+	valueSize := len(node.Value)
+	versionSize := 8
+	buf := make([]byte, keySize+valueSize+versionSize)
+	copy(buf[:keySize], node.Key)
+	offset := keySize
+	copy(buf[offset:offset+valueSize], node.Value)
+	offset += valueSize
+	binary.LittleEndian.PutUint64(buf[offset:offset+versionSize], uint64(node.Version))
+	return buf
 }
