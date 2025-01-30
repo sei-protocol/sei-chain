@@ -40,7 +40,7 @@ func GeneratePebbleHashCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "generate-pebble-hash",
 		Short: "A tool to scan full Pebble archive database and generate a hash for every N blocks per module",
-		Run:   generateIavlHash,
+		Run:   generatePebbleHash,
 	}
 	cmd.PersistentFlags().String("home-dir", "/root/.sei", "Sei home directory")
 	cmd.PersistentFlags().Int64("blocks-interval", 1_000_000, "Generate a hash every N blocks")
