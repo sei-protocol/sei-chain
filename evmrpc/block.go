@@ -80,7 +80,14 @@ func NewSeiBlockAPI(
 }
 
 func (a *SeiBlockAPI) GetBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
-	return a.getBlockByNumber(ctx, number, fullTx, a.isPanicTx)
+	fmt.Println("DEBUG: In GetBlockByNumberExcludeTraceFail, number = ", number)
+	// exclude synthetic txs
+	return a.getBlockByNumber(ctx, number, fullTx, false, a.isPanicTx)
+}
+
+func (a *SeiBlockAPI) GetBlockByHashExcludeTraceFail(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
+	// exclude synthetic txs
+	return a.getBlockByHash(ctx, blockHash, fullTx, false, a.isPanicTx)
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
@@ -108,18 +115,11 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 }
 
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
-	return a.getBlockByHash(ctx, blockHash, fullTx, nil)
+	// used for both: eth_ and sei_ namespaces
+	return a.getBlockByHash(ctx, blockHash, fullTx, a.includeShellReceipts, nil)
 }
 
-func (a *SeiBlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
-	return a.getBlockByHash(ctx, blockHash, fullTx, nil)
-}
-
-func (a *SeiBlockAPI) GetBlockByHashExcludeTraceFail(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
-	return a.getBlockByHash(ctx, blockHash, fullTx, a.isPanicTx)
-}
-
-func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)) (result map[string]interface{}, returnErr error) {
+func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool, isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics(fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr == nil)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
@@ -162,13 +162,14 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 			"baseFeePerGas":    (*hexutil.Big)(big.NewInt(0)),
 		}, nil
 	}
-	return a.getBlockByNumber(ctx, number, fullTx, nil)
+	return a.getBlockByNumber(ctx, number, fullTx, a.includeShellReceipts, nil)
 }
 
 func (a *BlockAPI) getBlockByNumber(
 	ctx context.Context,
 	number rpc.BlockNumber,
 	fullTx bool,
+	includeSyntheticTxs bool,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 ) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
@@ -186,7 +187,7 @@ func (a *BlockAPI) getBlockByNumber(
 		return nil, err
 	}
 	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	return EncodeTmBlock(a.ctxProvider(block.Block.Height), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeShellReceipts, isPanicTx)
+	return EncodeTmBlock(a.ctxProvider(block.Block.Height), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, includeSyntheticTxs, isPanicTx)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
@@ -291,12 +292,14 @@ func EncodeTmBlock(
 		for _, msg := range decoded.GetMsgs() {
 			switch m := msg.(type) {
 			case *types.MsgEVMTransaction:
+				fmt.Println("DEBUG: In EncodeTmBlock, got MsgEVMTransaction")
 				if m.IsAssociateTx() {
 					continue
 				}
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
 				if isPanicOrSynthetic != nil {
+					fmt.Println("DEBUG: In getBlockByNumber, calling isPanicOrSynthetic for hash = ", hash)
 					isPanicOrSynthetic, err := isPanicOrSynthetic(ctx.Context(), hash)
 					if err != nil {
 						return nil, fmt.Errorf("failed to check if tx is panic tx: %w", err)
@@ -304,6 +307,8 @@ func EncodeTmBlock(
 					if isPanicOrSynthetic {
 						continue
 					}
+				} else {
+					fmt.Println("DEBUG: In getBlockByNumber, isPanicOrSynthetic is nil for hash = ", hash)
 				}
 				receipt, err := k.GetReceipt(ctx, hash)
 				if err != nil {
