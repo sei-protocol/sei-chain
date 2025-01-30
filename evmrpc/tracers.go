@@ -155,7 +155,6 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 }
 
 func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
-	fmt.Println("In TraceBlockByNumber, number = ", number)
 	startTime := time.Now()
 	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
