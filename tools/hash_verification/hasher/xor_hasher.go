@@ -63,7 +63,7 @@ func (x XorHashCalculator) ComputeHashes() [][]byte {
 					hashResult = x.HashTwo(hashResult, entryHash)
 				}
 			}
-			allHashes[i] = hashResult
+			allHashes[index] = hashResult
 		}(i, subsetChan)
 		allChannels[i] = subsetChan
 	}
