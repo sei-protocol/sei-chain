@@ -91,8 +91,8 @@ func SetTendermintConfigs(config *tmcfg.Config) {
 	config.Mempool.Size = 1000
 	config.Mempool.MaxTxsBytes = 10737418240
 	config.Mempool.MaxTxBytes = 2048576
-	config.Mempool.TTLDuration = 15 * time.Second
-	config.Mempool.TTLNumBlocks = 30
+	config.Mempool.TTLDuration = 5 * time.Second
+	config.Mempool.TTLNumBlocks = 10
 	// Consensus Configs
 	config.Consensus.GossipTransactionKeyOnly = true
 	config.Consensus.UnsafeProposeTimeoutOverride = 300 * time.Millisecond

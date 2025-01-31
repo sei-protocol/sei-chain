@@ -27,6 +27,17 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v6.0.3
+sei-chain
+* [#2057](https://github.com/sei-protocol/sei-chain/pull/2057) Avoid panic tx error message in debug trace
+* [#2056](https://github.com/sei-protocol/sei-chain/pull/2056) Properly encode ERC1155 translated batch event data
+* [#2051](https://github.com/sei-protocol/sei-chain/pull/2051) Add IBC support for 0x addresses
+* [#2027](https://github.com/sei-protocol/sei-chain/pull/2027) Fix eth_subscribe with geth open ended range
+* [#2043](https://github.com/sei-protocol/sei-chain/pull/2043) Query owner on ERC-721 and ERC-1155 pointers
+* [#2044](https://github.com/sei-protocol/sei-chain/pull/2044) Support JS tracers
+* [#2031](https://github.com/sei-protocol/sei-chain/pull/2031) Add custom query handling for unbonding balances
+* [#1755](https://github.com/sei-protocol/sei-chain/pull/1755) Pointer contracts: support for ERC1155 and CW1155 contracts
+
 ## v6.0.2
 sei-chain
 * [#2018](https://github.com/sei-protocol/sei-chain/pull/2018) Remove TxHashes from EVM module
@@ -45,7 +56,6 @@ sei-chain
 * [#1974](https://github.com/sei-protocol/sei-chain/pull/1974) Optimize getLogs with parallelization
 * [#1971](https://github.com/sei-protocol/sei-chain/pull/1971) Remove tokenfactory config
 * [#1970](https://github.com/sei-protocol/sei-chain/pull/1970) Add unbonding delegation query
-* [#1755](https://github.com/sei-protocol/sei-chain/pull/1755) Pointer contracts: support for ERC1155 and CW1155 contracts
 
 sei-cosmos
 * [#559](https://github.com/sei-protocol/sei-cosmos/pull/559) Fix state sync halt issue
