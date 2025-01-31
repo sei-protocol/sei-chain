@@ -33,7 +33,16 @@ func (s *HashScanner) ScanAllModules() {
 	for _, moduleName := range utils.Modules {
 		result := s.scanAllHeights(moduleName)
 		for i, hashResult := range result {
-			fmt.Printf("Module %s height %d hash is: %X\n", moduleName, s.blocksInterval*(int64(i)+1), hashResult)
+			// Calculate the block range for this hash.
+			beginBlockRange := s.blocksInterval * int64(i)
+			endBlockRange := s.blocksInterval * (int64(i) + 1)
+
+			fmt.Printf("Module %s block range %d-%d hash is: %X\n", moduleName, beginBlockRange, endBlockRange, hashResult)
+
+			// Write the block range hash to the database.
+			if err := s.db.WriteBlockRangeHash(moduleName, beginBlockRange, endBlockRange, hashResult); err != nil {
+				panic(fmt.Errorf("failed to write block range hash: %w", err))
+			}
 		}
 	}
 }
