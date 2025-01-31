@@ -230,6 +230,11 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 		},
 	}
 
+	addStartNodeFlags(cmd, defaultNodeHome)
+	return cmd
+}
+
+func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The application home directory")
 	cmd.Flags().Bool(flagWithTendermint, true, "Run abci app embedded in-process with tendermint")
 	cmd.Flags().String(flagAddress, "tcp://0.0.0.0:26658", "Listen address")
@@ -277,7 +282,6 @@ is performed. Note, when enabled, gRPC will also be automatically enabled.
 
 	// add support for all Tendermint-specific command line options
 	tcmd.AddNodeFlags(cmd, NewDefaultContext().Config)
-	return cmd
 }
 
 func startStandAlone(ctx *Context, appCreator types.AppCreator) error {

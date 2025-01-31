@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/gogo/protobuf/grpc"
 	"github.com/spf13/cobra"
@@ -61,6 +62,8 @@ type (
 
 		// Close any open resources
 		Close() error
+
+		InplaceTestnetInitialize(cryptotypes.PubKey)
 	}
 
 	// AppCreator is a function that allows us to lazily initialize an

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -87,14 +88,15 @@ type BaseApp struct { //nolint: maligned
 	interfaceRegistry types.InterfaceRegistry
 	txDecoder         sdk.TxDecoder // unmarshal []byte into sdk.Tx
 
-	anteDepGenerator       sdk.AnteDepGenerator // ante dep generator for parallelization
-	prepareProposalHandler sdk.PrepareProposalHandler
-	processProposalHandler sdk.ProcessProposalHandler
-	finalizeBlocker        sdk.FinalizeBlocker
-	anteHandler            sdk.AnteHandler // ante handler for fee and auth
-	loadVersionHandler     sdk.LoadVersionHandler
-	preCommitHandler       sdk.PreCommitHandler
-	closeHandler           sdk.CloseHandler
+	anteDepGenerator          sdk.AnteDepGenerator // ante dep generator for parallelization
+	prepareProposalHandler    sdk.PrepareProposalHandler
+	processProposalHandler    sdk.ProcessProposalHandler
+	finalizeBlocker           sdk.FinalizeBlocker
+	anteHandler               sdk.AnteHandler // ante handler for fee and auth
+	loadVersionHandler        sdk.LoadVersionHandler
+	preCommitHandler          sdk.PreCommitHandler
+	closeHandler              sdk.CloseHandler
+	inplaceTestnetInitializer sdk.InplaceTestnetInitializer
 
 	appStore
 	baseappVersions
@@ -1250,4 +1252,8 @@ func (app *BaseApp) GetCheckCtx() sdk.Context {
 
 func (app *BaseApp) RegisterDeliverTxHook(hook DeliverTxHook) {
 	app.deliverTxHooks = append(app.deliverTxHooks, hook)
+}
+
+func (app *BaseApp) InplaceTestnetInitialize(pk cryptotypes.PubKey) {
+	app.inplaceTestnetInitializer(pk)
 }

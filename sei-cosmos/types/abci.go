@@ -1,6 +1,7 @@
 package types
 
 import (
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
 
@@ -35,3 +36,4 @@ type LoadVersionHandler func() error
 
 type PreCommitHandler func(ctx Context) error
 type CloseHandler func() error
+type InplaceTestnetInitializer func(cryptotypes.PubKey) error

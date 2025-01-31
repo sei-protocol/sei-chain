@@ -231,6 +231,14 @@ func (app *BaseApp) SetLoadVersionHandler(loadVersionHandler sdk.LoadVersionHand
 	app.loadVersionHandler = loadVersionHandler
 }
 
+func (app *BaseApp) SetInplaceTestnetInitializer(inplaceTestnetInitializer sdk.InplaceTestnetInitializer) {
+	if app.sealed {
+		panic("SetInplaceTestnetInitializer() on sealed BaseApp")
+	}
+
+	app.inplaceTestnetInitializer = inplaceTestnetInitializer
+}
+
 func (app *BaseApp) SetAnteHandler(ah sdk.AnteHandler) {
 	if app.sealed {
 		panic("SetAnteHandler() on sealed BaseApp")
