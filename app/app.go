@@ -22,6 +22,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/rpc"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/server"
 	"github.com/cosmos/cosmos-sdk/server/api"
 	"github.com/cosmos/cosmos-sdk/server/config"
@@ -370,6 +371,8 @@ type App struct {
 
 	stateStore   seidb.StateStore
 	receiptStore seidb.StateStore
+
+	forkInitializer func(sdk.Context)
 }
 
 type AppOption func(*App)
@@ -927,6 +930,7 @@ func New(
 	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
 	app.SetFinalizeBlocker(app.FinalizeBlocker)
+	app.SetInplaceTestnetInitializer(app.inplacetestnetInitializer)
 
 	// Register snapshot extensions to enable state-sync for wasm.
 	if manager := app.SnapshotManager(); manager != nil {
@@ -1070,6 +1074,10 @@ func (app App) GetStateStore() seidb.StateStore { return app.stateStore }
 func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
 	metrics.GaugeSeidVersionAndCommit(app.versionInfo.Version, app.versionInfo.GitCommit)
 	// check if we've reached a target height, if so, execute any applicable handlers
+	if app.forkInitializer != nil {
+		app.forkInitializer(ctx)
+		app.forkInitializer = nil
+	}
 	if app.HardForkManager.TargetHeightReached(ctx) {
 		app.HardForkManager.ExecuteForTargetHeight(ctx)
 	}
@@ -1982,6 +1990,25 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 // test-only
 func (app *App) SetTxDecoder(txDecoder sdk.TxDecoder) {
 	app.txDecoder = txDecoder
+}
+
+func (app *App) inplacetestnetInitializer(pk cryptotypes.PubKey) error {
+	app.forkInitializer = func(ctx sdk.Context) {
+		val, _ := stakingtypes.NewValidator(
+			sdk.ValAddress(pk.Address()), pk, stakingtypes.NewDescription("test", "test", "test", "test", "test"))
+		app.StakingKeeper.SetValidator(ctx, val)
+		app.StakingKeeper.SetValidatorByConsAddr(ctx, val)
+		app.StakingKeeper.SetValidatorByPowerIndex(ctx, val)
+		app.SlashingKeeper.AddPubkey(ctx, pk)
+		app.SlashingKeeper.SetValidatorSigningInfo(
+			ctx,
+			sdk.ConsAddress(pk.Address()),
+			slashingtypes.NewValidatorSigningInfo(
+				sdk.ConsAddress(pk.Address()), 0, 0, time.Unix(0, 0), false, 0,
+			),
+		)
+	}
+	return nil
 }
 
 func init() {
