@@ -93,10 +93,10 @@ func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
 	blockNumber := fmt.Sprintf("%#x", MockHeight103)
 	seiResObj := sendRequestGoodWithNamespace(t, "sei", "traceBlockByNumberExcludeTraceFail", blockNumber, args)
 	result := seiResObj["result"].([]interface{})
-	// sei_traceBlockByNumberExcludeTraceFail returns 1 trace, and removes the panic tx
+	// sei_traceBlockByNumberExcludeTraceFail returns 1 trace, and removes the panic tx and synthetic tx
 	require.Equal(t, 1, len(result))
-	ethResObj := sendRequestGoodWithNamespace(t, "debug", "traceBlockByNumber", blockNumber, args)
-	// eth_traceBlockByNumber returns 2 traces, including the panic tx
+	ethResObj := sendRequestGoodWithNamespace(t, "debug", "traceBlockByNumber", "0x67", args)
+	// eth_traceBlockByNumber returns 2 traces, including the panic tx, but excludes the synthetic tx
 	require.Equal(t, 2, len(ethResObj["result"].([]interface{})))
 }
 
