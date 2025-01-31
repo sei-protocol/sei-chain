@@ -80,7 +80,9 @@ func (x XorHashCalculator) ComputeHashes() [][]byte {
 	wg.Wait()
 	// Now modify sub hashes to hash again with previous hash
 	for i := 1; i < len(allHashes); i++ {
-		allHashes[i] = x.HashTwo(allHashes[i-1], allHashes[i])
+		if len(allHashes[i-1]) > 0 && len(allHashes[i]) > 0 {
+			allHashes[i] = x.HashTwo(allHashes[i-1], allHashes[i])
+		}
 	}
 	return allHashes
 }
