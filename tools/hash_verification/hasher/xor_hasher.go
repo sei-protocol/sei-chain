@@ -82,6 +82,8 @@ func (x XorHashCalculator) ComputeHashes() [][]byte {
 	for i := 1; i < len(allHashes); i++ {
 		if len(allHashes[i-1]) > 0 && len(allHashes[i]) > 0 {
 			allHashes[i] = x.HashTwo(allHashes[i-1], allHashes[i])
+		} else if len(allHashes[i-1]) > 0 && len(allHashes[i]) == 0 {
+			allHashes[i] = allHashes[i-1]
 		}
 	}
 	return allHashes
