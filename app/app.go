@@ -1997,9 +1997,9 @@ func (app *App) inplacetestnetInitializer(pk cryptotypes.PubKey) error {
 		val, _ := stakingtypes.NewValidator(
 			sdk.ValAddress(pk.Address()), pk, stakingtypes.NewDescription("test", "test", "test", "test", "test"))
 		app.StakingKeeper.SetValidator(ctx, val)
-		app.StakingKeeper.SetValidatorByConsAddr(ctx, val)
+		_ = app.StakingKeeper.SetValidatorByConsAddr(ctx, val)
 		app.StakingKeeper.SetValidatorByPowerIndex(ctx, val)
-		app.SlashingKeeper.AddPubkey(ctx, pk)
+		_ = app.SlashingKeeper.AddPubkey(ctx, pk)
 		app.SlashingKeeper.SetValidatorSigningInfo(
 			ctx,
 			sdk.ConsAddress(pk.Address()),
