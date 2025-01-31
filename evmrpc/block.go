@@ -149,7 +149,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 		return nil, err
 	}
 	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	return EncodeTmBlock(a.ctxProvider(block.Block.Height), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeBankTransfers, a.includeShellReceipts, isPanicTx)
+	return EncodeTmBlock(a.ctxProvider(block.Block.Height), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
@@ -370,42 +370,25 @@ func EncodeTmBlock(
 				if !fullTx {
 					transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 				} else {
-				OUTER:
-					for _, event := range txRes.Events {
-						if event.Type == "transfer" {
-							rpcTx := &ethapi.RPCTransaction{
-								BlockHash:   &blockhash,
-								BlockNumber: (*hexutil.Big)(number),
-								Hash:        th,
-							}
-							for _, attribute := range event.Attributes {
-								switch string(attribute.Key) {
-								case "sender":
-									senderSeiAddr, err := sdk.AccAddressFromBech32(string(attribute.Value))
-									if err != nil {
-										continue OUTER
-									}
-									rpcTx.From = k.GetEVMAddressOrDefault(ctx, senderSeiAddr)
-								case "recipient":
-									recipientSeiAddr, err := sdk.AccAddressFromBech32(string(attribute.Value))
-									if err != nil {
-										continue OUTER
-									}
-									recipientEvmAddr := k.GetEVMAddressOrDefault(ctx, recipientSeiAddr)
-									rpcTx.To = &recipientEvmAddr
-								case "amount":
-									amt, err := sdk.ParseCoinNormalized(string(attribute.Value))
-									if err != nil || amt.Denom != "usei" {
-										continue OUTER
-									}
-									amtInWei := amt.Amount.Mul(state.SdkUseiToSweiMultiplier)
-									rpcTx.Input = amtInWei.BigInt().Bytes()
-								}
-							}
-							transactions = append(transactions, rpcTx)
-							break
-						}
+					rpcTx := &ethapi.RPCTransaction{
+						BlockHash:   &blockhash,
+						BlockNumber: (*hexutil.Big)(number),
+						Hash:        th,
 					}
+					senderSeiAddr, err := sdk.AccAddressFromBech32(m.FromAddress)
+					if err != nil {
+						continue
+					}
+					rpcTx.From = k.GetEVMAddressOrDefault(ctx, senderSeiAddr)
+					recipientSeiAddr, err := sdk.AccAddressFromBech32(m.ToAddress)
+					if err != nil {
+						continue
+					}
+					recipientEvmAddr := k.GetEVMAddressOrDefault(ctx, recipientSeiAddr)
+					rpcTx.To = &recipientEvmAddr
+					amt := m.Amount.AmountOf("usei").Mul(state.SdkUseiToSweiMultiplier)
+					rpcTx.Value = (*hexutil.Big)(amt.BigInt())
+					transactions = append(transactions, rpcTx)
 				}
 			}
 		}

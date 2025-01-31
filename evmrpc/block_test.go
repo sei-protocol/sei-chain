@@ -319,3 +319,61 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 		S:                nil,
 	}, txs[0].(*ethapi.RPCTransaction))
 }
+
+func TestEncodeBankTransferMsg(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	fromSeiAddr, fromEvmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, fromSeiAddr, fromEvmAddr)
+	toSeiAddr, _ := testkeeper.MockAddressPair()
+	b := TxConfig.NewTxBuilder()
+	b.SetMsgs(&banktypes.MsgSend{
+		FromAddress: fromSeiAddr.String(),
+		ToAddress:   toSeiAddr.String(),
+		Amount:      sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())),
+	})
+	tx := b.GetTx()
+	bz, _ := Encoder(tx)
+	resBlock := coretypes.ResultBlock{
+		BlockID: MockBlockID,
+		Block: &tmtypes.Block{
+			Header: mockBlockHeader(MockHeight8),
+			Data: tmtypes.Data{
+				Txs: []tmtypes.Tx{bz},
+			},
+			LastCommit: &tmtypes.Commit{
+				Height: MockHeight8 - 1,
+			},
+		},
+	}
+	resBlockRes := coretypes.ResultBlockResults{
+		TxsResults: []*abci.ExecTxResult{
+			{
+				Data: bz,
+			},
+		},
+		ConsensusParamUpdates: &types2.ConsensusParams{
+			Block: &types2.BlockParams{
+				MaxBytes: 100000000,
+				MaxGas:   200000000,
+			},
+		},
+	}
+	res, err := evmrpc.EncodeTmBlock(ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, true, false, nil)
+	require.Nil(t, err)
+	txs := res["transactions"].([]interface{})
+	require.Equal(t, 1, len(txs))
+	bh := common.HexToHash(MockBlockID.Hash.String())
+	to := common.Address(toSeiAddr)
+	require.Equal(t, &ethapi.RPCTransaction{
+		BlockHash:   &bh,
+		BlockNumber: (*hexutil.Big)(big.NewInt(MockHeight8)),
+		From:        fromEvmAddr,
+		To:          &to,
+		Value:       (*hexutil.Big)(big.NewInt(1_000_000_000_000)),
+		Hash:        common.Hash(sha256.Sum256(bz)),
+		V:           nil,
+		R:           nil,
+		S:           nil,
+	}, txs[0].(*ethapi.RPCTransaction))
+}
