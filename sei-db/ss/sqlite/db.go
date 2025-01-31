@@ -338,3 +338,8 @@ func execPragmas(db *sql.DB, pragmas []string) error {
 func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
 	panic("implement me")
 }
+
+// WriteBlockRangeHash writes a hash for a range of blocks to the database
+func (db *Database) WriteBlockRangeHash(beginBlockRange, endBlockRange int64, hash []byte) error {
+	panic("implement me")
+}
