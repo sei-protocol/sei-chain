@@ -72,6 +72,10 @@ func NewEVMHTTPServer(
 			Service:   NewSeiBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc),
 		},
 		{
+			Namespace: "sei2",
+			Service:   NewSei2BlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc),
+		},
+		{
 			Namespace: "eth",
 			Service:   txAPI,
 		},
