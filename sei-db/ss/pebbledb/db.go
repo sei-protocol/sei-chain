@@ -28,8 +28,9 @@ const (
 
 	PrefixStore                  = "s/k:"
 	LenPrefixStore               = 4
-	StorePrefixTpl               = "s/k:%s/"   // s/k:<storeKey>
-	latestVersionKey             = "s/_latest" // NB: latestVersionKey key must be lexically smaller than StorePrefixTpl
+	StorePrefixTpl               = "s/k:%s/"          // s/k:<storeKey>
+	HashTpl                      = "s/_hash:%s:%d-%d" // "s/_hash:<storeKey>:%d-%d"
+	latestVersionKey             = "s/_latest"        // NB: latestVersionKey key must be lexically smaller than StorePrefixTpl
 	earliestVersionKey           = "s/_earliest"
 	latestMigratedKeyMetadata    = "s/_latestMigratedKey"
 	latestMigratedModuleMetadata = "s/_latestMigratedModule"
@@ -807,4 +808,14 @@ func valTombstoned(value []byte) bool {
 	}
 
 	return true
+}
+
+// WriteBlockRangeHash writes a hash for a range of blocks to the database
+func (db *Database) WriteBlockRangeHash(storeKey string, beginBlockRange, endBlockRange int64, hash []byte) error {
+	key := []byte(fmt.Sprintf(HashTpl, storeKey, beginBlockRange, endBlockRange))
+	err := db.storage.Set(key, hash, defaultWriteOpts)
+	if err != nil {
+		return fmt.Errorf("failed to write block range hash: %w", err)
+	}
+	return nil
 }
