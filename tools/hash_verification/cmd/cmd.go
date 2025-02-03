@@ -44,12 +44,14 @@ func GeneratePebbleHashCmd() *cobra.Command {
 	}
 	cmd.PersistentFlags().String("home-dir", "/root/.sei", "Sei home directory")
 	cmd.PersistentFlags().Int64("blocks-interval", 1_000_000, "Generate a hash every N blocks")
+	cmd.PersistentFlags().Bool("backfill", false, "Whether to write block range hashes back to the database")
 	return cmd
 }
 
 func generatePebbleHash(cmd *cobra.Command, _ []string) {
 	homeDir, _ := cmd.Flags().GetString("home-dir")
 	blocksInterval, _ := cmd.Flags().GetInt64("blocks-interval")
+	backfill, _ := cmd.Flags().GetBool("backfill")
 
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Enable = true
@@ -60,6 +62,6 @@ func generatePebbleHash(cmd *cobra.Command, _ []string) {
 		panic(err)
 	}
 
-	scanner := pebbledb.NewHashScanner(stateStore, blocksInterval)
+	scanner := pebbledb.NewHashScanner(stateStore, blocksInterval, backfill)
 	scanner.ScanAllModules()
 }

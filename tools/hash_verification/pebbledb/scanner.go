@@ -13,9 +13,10 @@ type HashScanner struct {
 	latestVersion  int64
 	blocksInterval int64
 	hashResult     map[string][][]byte
+	backfill       bool
 }
 
-func NewHashScanner(db types.StateStore, blocksInterval int64) *HashScanner {
+func NewHashScanner(db types.StateStore, blocksInterval int64, backfill bool) *HashScanner {
 	latestVersion, err := db.GetLatestVersion()
 	if err != nil {
 		panic(err)
@@ -26,6 +27,7 @@ func NewHashScanner(db types.StateStore, blocksInterval int64) *HashScanner {
 		latestVersion:  latestVersion,
 		blocksInterval: blocksInterval,
 		hashResult:     make(map[string][][]byte),
+		backfill:       backfill,
 	}
 }
 
@@ -39,9 +41,11 @@ func (s *HashScanner) ScanAllModules() {
 
 			fmt.Printf("Module %s block range %d-%d hash is: %X\n", moduleName, beginBlockRange, endBlockRange, hashResult)
 
-			// Write the block range hash to the database.
-			if err := s.db.WriteBlockRangeHash(moduleName, beginBlockRange, endBlockRange, hashResult); err != nil {
-				panic(fmt.Errorf("failed to write block range hash: %w", err))
+			// Write the block range hash to the database only if backfill is enabled
+			if s.backfill {
+				if err := s.db.WriteBlockRangeHash(moduleName, beginBlockRange, endBlockRange, hashResult); err != nil {
+					panic(fmt.Errorf("failed to write block range hash: %w", err))
+				}
 			}
 		}
 	}
