@@ -29,7 +29,7 @@ const (
 	PrefixStore                  = "s/k:"
 	LenPrefixStore               = 4
 	StorePrefixTpl               = "s/k:%s/"          // s/k:<storeKey>
-	HashTpl                      = "s_/hash:%s:%d-%d" // "s_/hash:<storeKey>:%d-%d"
+	HashTpl                      = "s/_hash:%s:%d-%d" // "s/_hash:<storeKey>:%d-%d"
 	latestVersionKey             = "s/_latest"        // NB: latestVersionKey key must be lexically smaller than StorePrefixTpl
 	earliestVersionKey           = "s/_earliest"
 	latestMigratedKeyMetadata    = "s/_latestMigratedKey"
