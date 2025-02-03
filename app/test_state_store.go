@@ -294,6 +294,10 @@ func (s *InMemoryStateStore) Close() error {
 	return nil
 }
 
+func (s *InMemoryStateStore) WriteBlockRangeHash(storeKey string, beginBlockRange, endBlockRange int64, hash []byte) error {
+	panic("implement me")
+}
+
 type InMemoryIterator struct {
 	data    map[string][]byte
 	keys    []string
