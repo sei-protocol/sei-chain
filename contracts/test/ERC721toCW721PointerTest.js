@@ -1,9 +1,7 @@
-const {setupSigners, deployErc721PointerForCw721, getAdmin, deployWasm,  executeWasm, ABI, registerPointerForERC20,
+const {setupSigners, deployErc721PointerForCw721, getAdmin, deployWasm,  executeWasm, ABI, WASM,
     registerPointerForERC721
 } = require("./lib");
 const {expect} = require("chai");
-
-const CW721_BASE_WASM_LOCATION = "../contracts/wasm/cw721_base.wasm";
 
 describe("ERC721 to CW721 Pointer", function () {
     let accounts;
@@ -16,7 +14,7 @@ describe("ERC721 to CW721 Pointer", function () {
         accounts = await setupSigners(await hre.ethers.getSigners())
         admin = await getAdmin()
 
-        cw721Address = await deployWasm(CW721_BASE_WASM_LOCATION, admin.seiAddress, "cw721", {
+        cw721Address = await deployWasm(WASM.CW721, admin.seiAddress, "cw721", {
             name: "Test",
             symbol: "TEST",
             minter: admin.seiAddress

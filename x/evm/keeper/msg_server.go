@@ -24,6 +24,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -357,6 +358,9 @@ func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgReg
 	case types.PointerType_ERC721:
 		currentVersion = erc721.CurrentVersion
 		existingPointer, existingVersion, exists = server.GetCW721ERC721Pointer(ctx, common.HexToAddress(msg.ErcAddress))
+	case types.PointerType_ERC1155:
+		currentVersion = erc1155.CurrentVersion
+		existingPointer, existingVersion, exists = server.GetCW1155ERC1155Pointer(ctx, common.HexToAddress(msg.ErcAddress))
 	default:
 		panic("unknown pointer type")
 	}
@@ -369,6 +373,8 @@ func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgReg
 		payload["erc20_address"] = msg.ErcAddress
 	case types.PointerType_ERC721:
 		payload["erc721_address"] = msg.ErcAddress
+	case types.PointerType_ERC1155:
+		payload["erc1155_address"] = msg.ErcAddress
 	default:
 		panic("unknown pointer type")
 	}
@@ -403,6 +409,12 @@ func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgReg
 			types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "erc721"),
 			sdk.NewAttribute(types.AttributeKeyPointerAddress, pointerAddr.String()), sdk.NewAttribute(types.AttributeKeyPointee, msg.ErcAddress),
 			sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", erc721.CurrentVersion))))
+	case types.PointerType_ERC1155:
+		err = server.SetCW1155ERC1155Pointer(ctx, common.HexToAddress(msg.ErcAddress), pointerAddr.String())
+		ctx.EventManager().EmitEvent(sdk.NewEvent(
+			types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "erc1155"),
+			sdk.NewAttribute(types.AttributeKeyPointerAddress, pointerAddr.String()), sdk.NewAttribute(types.AttributeKeyPointee, msg.ErcAddress),
+			sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", erc1155.CurrentVersion))))
 	default:
 		panic("unknown pointer type")
 	}
