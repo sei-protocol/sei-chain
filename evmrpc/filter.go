@@ -349,8 +349,6 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		defer wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				mu.Lock()
-				defer mu.Unlock()
 				err = fmt.Errorf("unexpected panic caught in GetLogsByFilters worker: %v", r)
 			}
 		}()
@@ -389,14 +387,14 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		close(resultsChan) // Close the results channel after workers finish
 	}()
 
-	// Aggregate results into the final slice
-	for result := range resultsChan {
-		res = append(res, result)
-	}
-
 	// Check err after all work is done
 	if len(errorsList) > 0 {
 		err = errors.Join(errorsList...)
+	}
+
+	// Aggregate results into the final slice
+	for result := range resultsChan {
+		res = append(res, result)
 	}
 
 	// Sorting res in ascending order
