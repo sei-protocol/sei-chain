@@ -88,7 +88,7 @@ wait_for_firehose_ready() {
     firehose_log="$1"
 
     for i in {1..10}; do
-        if grep -q '(firehose) launching gRPC server' "$firehose_log"; then
+        if grep -Eq '\(firehose\) launching (gRPC)? *server' "$firehose_log"; then
             break
         fi
 
