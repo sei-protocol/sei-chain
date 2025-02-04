@@ -112,6 +112,8 @@ require (
 	github.com/desertbit/timer v0.0.0-20180107155436-c41aec40b27f // indirect
 	github.com/dgraph-io/badger/v3 v3.2103.2 // indirect
 	github.com/dgraph-io/ristretto v0.1.1 // indirect
+	github.com/dlclark/regexp2 v1.7.0 // indirect
+	github.com/dop251/goja v0.0.0-20230806174421-c933cf95e127 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/dvsekhvalnov/jose2go v1.5.0 // indirect
 	github.com/esimonov/ifshort v1.0.4 // indirect
@@ -135,6 +137,7 @@ require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-playground/locales v0.13.0 // indirect
 	github.com/go-playground/universal-translator v0.17.0 // indirect
+	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/go-toolsmith/astcast v1.0.0 // indirect
 	github.com/go-toolsmith/astcopy v1.0.0 // indirect
 	github.com/go-toolsmith/astequal v1.0.1 // indirect
@@ -164,6 +167,7 @@ require (
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/orderedcode v0.0.1 // indirect
+	github.com/google/pprof v0.0.0-20230207041349-798e818bf904 // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/gordonklaus/ineffassign v0.0.0-20210914165742-4cc7213b9bc8 // indirect
 	github.com/gorilla/handlers v1.5.1 // indirect
@@ -349,13 +353,13 @@ replace (
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
 	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.51
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.2.0
-	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.4
+	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.5
 	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.5-sei-9.0.20241224143343-21ee50facc96
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.46
 	// Latest goleveldb is broken, we have to stick to this version
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
-	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.4.5
+	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.4.6
 	github.com/tendermint/tm-db => github.com/sei-protocol/tm-db v0.0.4
 	google.golang.org/grpc => google.golang.org/grpc v1.33.2
 )

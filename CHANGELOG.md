@@ -27,6 +27,46 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v6.0.3
+sei-chain
+* [#2057](https://github.com/sei-protocol/sei-chain/pull/2057) Avoid panic tx error message in debug trace
+* [#2056](https://github.com/sei-protocol/sei-chain/pull/2056) Properly encode ERC1155 translated batch event data
+* [#2051](https://github.com/sei-protocol/sei-chain/pull/2051) Add IBC support for 0x addresses
+* [#2027](https://github.com/sei-protocol/sei-chain/pull/2027) Fix eth_subscribe with geth open ended range
+* [#2043](https://github.com/sei-protocol/sei-chain/pull/2043) Query owner on ERC-721 and ERC-1155 pointers
+* [#2044](https://github.com/sei-protocol/sei-chain/pull/2044) Support JS tracers
+* [#2031](https://github.com/sei-protocol/sei-chain/pull/2031) Add custom query handling for unbonding balances
+* [#1755](https://github.com/sei-protocol/sei-chain/pull/1755) Pointer contracts: support for ERC1155 and CW1155 contracts
+
+## v6.0.2
+sei-chain
+* [#2018](https://github.com/sei-protocol/sei-chain/pull/2018) Remove TxHashes from EVM module
+* [#2006](https://github.com/sei-protocol/sei-chain/pull/2006) Fix volatile eth_gasPrice
+* [#2005](https://github.com/sei-protocol/sei-chain/pull/2005) Exclude block receipts whose block number do not match
+* [#2004](https://github.com/sei-protocol/sei-chain/pull/2004) Integrate with MinTxsInBlock
+* [#1983](https://github.com/sei-protocol/sei-chain/pull/1983) Handle oracle overflow and rounding to zero
+* [#2002](https://github.com/sei-protocol/sei-chain/pull/2002) Update IBC version to use utc on error msg
+* [#2000](https://github.com/sei-protocol/sei-chain/pull/2000) Catch panic in trace transaction / trace call
+* [#1995](https://github.com/sei-protocol/sei-chain/pull/1995) RPC endpoints for excluding tracing failures
+* [#1993](https://github.com/sei-protocol/sei-chain/pull/1993) Avoid panic in getLogs
+* [#1991](https://github.com/sei-protocol/sei-chain/pull/1991) Add defer recovery for failed txs when tracing and estimating gas
+* [#1988](https://github.com/sei-protocol/sei-chain/pull/1988) getLogs endpoint should check whether or not to include cosmos txs based on namespace
+* [#1984](https://github.com/sei-protocol/sei-chain/pull/1984) Client state pagniation by using filtered pagination
+* [#1982](https://github.com/sei-protocol/sei-chain/pull/1982) Fix method handler crash due to nil min fee per gas
+* [#1974](https://github.com/sei-protocol/sei-chain/pull/1974) Optimize getLogs with parallelization
+* [#1971](https://github.com/sei-protocol/sei-chain/pull/1971) Remove tokenfactory config
+* [#1970](https://github.com/sei-protocol/sei-chain/pull/1970) Add unbonding delegation query
+
+sei-cosmos
+* [#559](https://github.com/sei-protocol/sei-cosmos/pull/559) Fix state sync halt issue
+* [#558](https://github.com/sei-protocol/sei-cosmos/pull/558) Integrate with MinTxsInBlock
+* [#557](https://github.com/sei-protocol/sei-cosmos/pull/557) Fix seid rollback state mismatch error
+* [#555](https://github.com/sei-protocol/sei-cosmos/pull/555) Set earliest version update
+* [#552](https://github.com/sei-protocol/sei-cosmos/pull/552) Add confidential transfer constants
+
+sei-tendermint
+* [#252](https://github.com/sei-protocol/sei-tendermint/pull/252) Add new MinTxsInBlock consensus param
+
 ## v6.0.1
 sei-chain
 * [#1956](https://github.com/sei-protocol/sei-chain/pull/1956) Assign owner correctly when there are multiple transfers

@@ -501,7 +501,7 @@ func New(
 	)
 
 	// Create Transfer Keepers
-	app.TransferKeeper = ibctransferkeeper.NewKeeper(
+	app.TransferKeeper = ibctransferkeeper.NewKeeperWithAddressHandler(
 		appCodec,
 		keys[ibctransfertypes.StoreKey],
 		app.GetSubspace(ibctransfertypes.ModuleName),
@@ -511,6 +511,7 @@ func New(
 		app.AccountKeeper,
 		app.BankKeeper,
 		scopedTransferKeeper,
+		evmkeeper.NewEvmAddressHandler(&app.EvmKeeper),
 	)
 	transferModule := transfer.NewAppModule(app.TransferKeeper)
 	transferIBCModule := transfer.NewIBCModule(app.TransferKeeper)
@@ -567,6 +568,7 @@ func New(
 			app.TransferKeeper,
 			app.AccessControlKeeper,
 			&app.EvmKeeper,
+			app.StakingKeeper,
 		),
 		wasmOpts...,
 	)

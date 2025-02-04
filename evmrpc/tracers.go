@@ -8,6 +8,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/tracers"
+	_ "github.com/ethereum/go-ethereum/eth/tracers/js"     // run init()s to register JS tracers
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // run init()s to register native tracers
 	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -81,7 +82,25 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 	if !ok {
 		return nil, fmt.Errorf("unexpected type: %T", result)
 	}
-	finalTraces := make([]*tracers.TxTraceResult, 0)
+	finalTraces := make([]*tracers.TxTraceResult, 0, len(traces))
+	for _, trace := range traces {
+		if len(trace.Error) > 0 {
+			continue
+		}
+		finalTraces = append(finalTraces, trace)
+	}
+	return finalTraces, nil
+}
+
+func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
+	startTime := time.Now()
+	defer recordMetrics("sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr == nil)
+	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	traces, ok := result.([]*tracers.TxTraceResult)
+	if !ok {
+		return nil, fmt.Errorf("unexpected type: %T", result)
+	}
+	finalTraces := make([]*tracers.TxTraceResult, 0, len(traces))
 	for _, trace := range traces {
 		if len(trace.Error) > 0 {
 			continue

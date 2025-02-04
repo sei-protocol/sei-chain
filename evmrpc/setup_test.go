@@ -1114,8 +1114,5 @@ func TestEcho(t *testing.T) {
 }
 
 func isPanicTxFunc(ctx context.Context, hash common.Hash) (bool, error) {
-	if hash == common.HexToHash(TestPanicTxHash) {
-		return true, nil
-	}
-	return false, nil
+	return hash == common.HexToHash(TestPanicTxHash), nil
 }
