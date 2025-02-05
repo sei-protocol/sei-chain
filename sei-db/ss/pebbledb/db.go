@@ -672,6 +672,7 @@ func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
 func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte, version int64) bool) (bool, error) {
 	// Iterate through all keys and values for a store
 	lowerBound := MVCCEncode(prependStoreKey(storeKey, nil), 0)
+	prefix := storePrefix(storeKey)
 
 	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: lowerBound})
 	if err != nil {
@@ -694,9 +695,12 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 		}
 
 		// Only iterate through module
-		if storeKey != "" && !bytes.HasPrefix(currKey, storePrefix(storeKey)) {
+		if storeKey != "" && !bytes.HasPrefix(currKey, prefix) {
 			break
 		}
+
+		// Parse prefix out of the key
+		parsedKey := currKey[len(prefix):]
 
 		currVersionDecoded, err := decodeUint64Ascending(currVersion)
 		if err != nil {
@@ -714,7 +718,7 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 		}
 
 		// Call callback fn
-		if fn(currKey, valBz, currVersionDecoded) {
+		if fn(parsedKey, valBz, currVersionDecoded) {
 			return true, nil
 		}
 
@@ -751,6 +755,25 @@ func parseStoreKey(key []byte) (string, error) {
 
 	// Return the substring between the prefix and the first "/"
 	return keyStr[LenPrefixStore : LenPrefixStore+slashIndex], nil
+}
+
+// Parses actual key from key with format "s/k:{store}/{actualKey}"
+func parseKey(key []byte) ([]byte, error) {
+	// Convert byte slice to string only once
+	keyStr := string(key)
+
+	if !strings.HasPrefix(keyStr, PrefixStore) {
+		return nil, fmt.Errorf("not a valid store key")
+	}
+
+	// Find the first occurrence of "/" after the prefix
+	slashIndex := strings.Index(keyStr[LenPrefixStore:], "/")
+	if slashIndex == -1 {
+		return nil, fmt.Errorf("not a valid store key")
+	}
+
+	// Return everything after the first "/" as bytes
+	return []byte(keyStr[LenPrefixStore+slashIndex+1:]), nil
 }
 
 func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64) ([]byte, error) {
