@@ -32,26 +32,19 @@ func TestGetReceiptWithRetry(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	txHash := common.HexToHash("0x0750333eac0be1203864220893d8080dd8a8fd7a2ed098dfd92a718c99d437f2")
 
-	// Test initial failure
-	_, err := k.GetReceiptWithRetry(ctx, txHash, 3)
+	// Test max retries exceeded first
+	nonExistentHash := common.Hash{1}
+	_, err := k.GetReceiptWithRetry(ctx, nonExistentHash, 2)
 	require.NotNil(t, err)
 	require.Equal(t, "not found", err.Error())
 
-	// Test successful retry
-	// Simulate async receipt creation after a delay
+	// Then test successful retry
 	go func() {
-		time.Sleep(300 * time.Millisecond) // Wait for first retry to fail
+		time.Sleep(300 * time.Millisecond)
 		k.MockReceipt(ctx, txHash, &types.Receipt{TxHashHex: txHash.Hex()})
 	}()
 
-	// This should succeed after retry
 	r, err := k.GetReceiptWithRetry(ctx, txHash, 3)
 	require.Nil(t, err)
 	require.Equal(t, txHash.Hex(), r.TxHashHex)
-
-	// Test max retries exceeded
-	nonExistentHash := common.Hash{1}
-	_, err = k.GetReceiptWithRetry(ctx, nonExistentHash, 2)
-	require.NotNil(t, err)
-	require.Equal(t, "not found", err.Error())
 }
