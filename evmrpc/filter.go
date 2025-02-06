@@ -423,6 +423,7 @@ func (f *LogFetcher) GetLogsForBlock(block *coretypes.ResultBlock, crit filters.
 
 func (f *LogFetcher) FindLogsByBloom(block *coretypes.ResultBlock, filters [][]bloomIndexes) (res []*ethtypes.Log) {
 	ctx := f.ctxProvider(LatestCtxHeight)
+	totalLogs := uint(0)
 	for _, hash := range getTxHashesFromBlock(block, f.txConfig, f.includeSyntheticReceipts) {
 		receipt, err := f.k.GetReceipt(ctx, hash)
 		if err != nil {
@@ -436,8 +437,9 @@ func (f *LogFetcher) FindLogsByBloom(block *coretypes.ResultBlock, filters [][]b
 			continue
 		}
 		if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
-			res = append(res, keeper.GetLogsForTx(receipt)...)
+			res = append(res, keeper.GetLogsForTx(receipt, totalLogs)...)
 		}
+		totalLogs += uint(len(receipt.Logs))
 	}
 	return
 }
