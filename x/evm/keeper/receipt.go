@@ -3,6 +3,7 @@ package keeper
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -78,6 +79,28 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 		return nil, err
 	}
 	return &r, nil
+}
+
+// GetReceiptWithRetry attempts to get a receipt with retries to handle race conditions
+// where the receipt might not be immediately available after the transaction.
+func (k *Keeper) GetReceiptWithRetry(ctx sdk.Context, txHash common.Hash, maxRetries int) (*types.Receipt, error) {
+	var lastErr error
+	for i := 0; i < maxRetries; i++ {
+		receipt, err := k.GetReceipt(ctx, txHash)
+		if err == nil {
+			return receipt, nil
+		}
+
+		// If it's not a "not found" error, return immediately
+		if err.Error() != "not found" {
+			return nil, err
+		}
+
+		// Wait before retrying, with increasing delay, 200ms, 400ms, 600ms, etc.
+		time.Sleep(time.Millisecond * 200 * time.Duration(i+1))
+		lastErr = err
+	}
+	return nil, lastErr
 }
 
 //	MockReceipt sets a data structure that stores EVM specific transaction metadata.
