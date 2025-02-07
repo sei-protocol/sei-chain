@@ -268,3 +268,6 @@ ss-import-num-workers = 1
 
 # EnableTestAPI enables the EVM test API
 enable_test_api = true
+
+# EnableReportAPI enables the EVM report API
+enable_report_api = true
