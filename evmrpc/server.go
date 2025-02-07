@@ -45,7 +45,8 @@ func NewEVMHTTPServer(
 		return nil, err
 	}
 	simulateConfig := &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}
-	sendAPI := NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig, ConnectionTypeHTTP)
+	sendConfig := &SendConfig{slow: config.Slow, simulationGasThreshold: 1000000, gasWantedVsGasUsedPercentDiff: 0.8}
+	sendAPI := NewSendAPI(tmClient, txConfig, sendConfig, k, ctxProvider, homeDir, simulateConfig, ConnectionTypeHTTP)
 	ctx := ctxProvider(LatestCtxHeight)
 
 	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP)
@@ -171,6 +172,7 @@ func NewEVMWebSocketServer(
 		return nil, err
 	}
 	simulateConfig := &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}
+	sendConfig := &SendConfig{slow: config.Slow, simulationGasThreshold: 1000000, gasWantedVsGasUsedPercentDiff: 0.8}
 	apis := []rpc.API{
 		{
 			Namespace: "echo",
@@ -194,7 +196,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig, ConnectionTypeWS),
+			Service:   NewSendAPI(tmClient, txConfig, sendConfig, k, ctxProvider, homeDir, simulateConfig, ConnectionTypeWS),
 		},
 		{
 			Namespace: "eth",

@@ -93,7 +93,10 @@ describe("EVM Test", function () {
       testToken = await TestToken.deploy("TestToken", "TTK");
 
       const EVMCompatibilityTester = await ethers.getContractFactory("EVMCompatibilityTester");
+      console.log("DEBUG: deploying evmTester")
       evmTester = await EVMCompatibilityTester.deploy({ gasPrice: ethers.parseUnits('100', 'gwei') });
+      // evmTester = await EVMCompatibilityTester.deploy();
+      console.log("DEBUG: deployed evmTester")
 
       await Promise.all([evmTester.waitForDeployment(), testToken.waitForDeployment()])
 
@@ -1221,7 +1224,7 @@ describe("EVM throughput", function(){
 
   it("send 100 transactions from one account", async function(){
     const wallet = generateWallet()
-    const toAddress =await wallet.getAddress()
+    const toAddress = await wallet.getAddress()
     const sender = accounts[0].signer
     const address = accounts[0].evmAddress;
     const txCount = 100;
