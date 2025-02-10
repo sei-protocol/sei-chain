@@ -224,10 +224,10 @@ type Response struct {
 
 func CmdDeployContract() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "deploy [path to binary] --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
+		Use:   "deploy [path to binary] ([constructor payload hex]) --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
 		Short: "Deploy an EVM contract for binary at specified path",
 		Long:  "",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			code, err := os.ReadFile(args[0])
 			if err != nil {
@@ -264,6 +264,15 @@ func CmdDeployContract() *cobra.Command {
 			txData.Nonce = nonce
 			txData.Value = utils.Big0
 			txData.Data = bz
+
+			if len(args) == 2 {
+				payload, err := hex.DecodeString(args[1])
+				if err != nil {
+					return err
+				}
+
+				txData.Data = append(txData.Data, payload...)
+			}
 
 			resp, err := sendTx(txData, rpc, key)
 			if err != nil {
