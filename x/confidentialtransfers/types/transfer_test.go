@@ -431,6 +431,34 @@ func Test_VerifyTransferProofs(t *testing.T) {
 			wantErrMessage: "failed to verify sender transfer amount hi",
 		},
 		{
+			name: "transfer proofs verification error if transfer transfer amount lo range proof is invalid",
+			args: args{
+				setup: func(params *Transfer) *Transfer {
+					params.Proofs.TransferAmountLoRangeProof = &zkproofs.RangeProof{}
+					return params
+				},
+				senderPubkey:         &senderKeyPair.PublicKey,
+				recipientPubkey:      &receiverKeyPair.PublicKey,
+				rangeVerifierFactory: rangeVerifierFactory,
+			},
+			wantErr:        true,
+			wantErrMessage: "failed to verify transfer amount lo range proof",
+		},
+		{
+			name: "transfer proofs verification error if transfer transfer amount hi range proof is invalid",
+			args: args{
+				setup: func(params *Transfer) *Transfer {
+					params.Proofs.TransferAmountLoRangeProof = &zkproofs.RangeProof{}
+					return params
+				},
+				senderPubkey:         &senderKeyPair.PublicKey,
+				recipientPubkey:      &receiverKeyPair.PublicKey,
+				rangeVerifierFactory: rangeVerifierFactory,
+			},
+			wantErr:        true,
+			wantErrMessage: "failed to verify transfer amount hi range proof",
+		},
+		{
 			name: "transfer proofs verification error if transfer recipient transfer amount lo validity proof is invalid",
 			args: args{
 				setup: func(params *Transfer) *Transfer {
