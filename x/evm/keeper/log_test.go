@@ -69,7 +69,7 @@ func TestGetLogsForTx(t *testing.T) {
 	}
 
 	// Convert the types.Receipt to a list of ethtypes.Log objects
-	logs := keeper.GetLogsForTx(receipt)
+	logs := keeper.GetLogsForTx(receipt, 0)
 
 	// Check that the fields match
 	require.Equal(t, len(receipt.Logs), len(logs))
@@ -81,6 +81,13 @@ func TestGetLogsForTx(t *testing.T) {
 		}
 		require.Equal(t, receipt.Logs[i].Data, log.Data)
 		require.Equal(t, uint(receipt.Logs[i].Index), log.Index)
+	}
+
+	// non-zero starting index
+	logs = keeper.GetLogsForTx(receipt, 5)
+	require.Equal(t, len(receipt.Logs), len(logs))
+	for i, log := range logs {
+		require.Equal(t, uint(receipt.Logs[i].Index+5), log.Index)
 	}
 }
 

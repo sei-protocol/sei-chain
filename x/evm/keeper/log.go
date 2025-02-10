@@ -61,11 +61,11 @@ func (k *Keeper) GetLegacyBlockBloomCutoffHeight(ctx sdk.Context) int64 {
 	return int64(binary.BigEndian.Uint64(bz))
 }
 
-func GetLogsForTx(receipt *types.Receipt) []*ethtypes.Log {
-	return utils.Map(receipt.Logs, func(l *types.Log) *ethtypes.Log { return convertLog(l, receipt) })
+func GetLogsForTx(receipt *types.Receipt, logStartIndex uint) []*ethtypes.Log {
+	return utils.Map(receipt.Logs, func(l *types.Log) *ethtypes.Log { return convertLog(l, receipt, logStartIndex) })
 }
 
-func convertLog(l *types.Log, receipt *types.Receipt) *ethtypes.Log {
+func convertLog(l *types.Log, receipt *types.Receipt, logStartIndex uint) *ethtypes.Log {
 	return &ethtypes.Log{
 		Address:     common.HexToAddress(l.Address),
 		Topics:      utils.Map(l.Topics, common.HexToHash),
@@ -73,7 +73,7 @@ func convertLog(l *types.Log, receipt *types.Receipt) *ethtypes.Log {
 		BlockNumber: receipt.BlockNumber,
 		TxHash:      common.HexToHash(receipt.TxHashHex),
 		TxIndex:     uint(receipt.TransactionIndex),
-		Index:       uint(l.Index)}
+		Index:       uint(l.Index) + logStartIndex}
 }
 
 func ConvertEthLog(l *ethtypes.Log) *types.Log {
