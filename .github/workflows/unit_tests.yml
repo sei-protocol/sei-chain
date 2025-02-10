@@ -43,7 +43,7 @@ jobs:
           NUM_SPLIT=20
           make test-group-${{matrix.part}} NUM_SPLIT=20
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-${{ matrix.part }}-coverage"
           path: ./${{ matrix.part }}.profile.out
