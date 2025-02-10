@@ -2,6 +2,7 @@ package evmrpc_test
 
 import (
 	"encoding/hex"
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -35,20 +36,7 @@ func TestSendRawTransaction(t *testing.T) {
 		Data:      []byte("abc"),
 		ChainID:   EVMKeeper.ChainID(Ctx),
 	}
-	mnemonic := "fish mention unlock february marble dove vintage sand hub ordinary fade found inject room embark supply fabric improve spike stem give current similar glimpse"
-	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
-	privKey := hd.Secp256k1.Generate()(derivedPriv)
-	testPrivHex := hex.EncodeToString(privKey.Bytes())
-	key, _ := crypto.HexToECDSA(testPrivHex)
-	ethCfg := types.DefaultChainConfig().EthereumConfig(EVMKeeper.ChainID(Ctx))
-	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(Ctx.BlockHeight()), uint64(Ctx.BlockTime().Unix()))
-	tx := ethtypes.NewTx(&txData)
-	tx, err := ethtypes.SignTx(tx, signer, key)
-	require.Nil(t, err)
-	bz, err := tx.MarshalBinary()
-	require.Nil(t, err)
-	payload := "0x" + hex.EncodeToString(bz)
-
+	tx, payload := signTxData(t, txData)
 	resObj := sendRequestGood(t, "sendRawTransaction", payload)
 	result := resObj["result"].(string)
 	require.Equal(t, tx.Hash().Hex(), result)
@@ -62,4 +50,41 @@ func TestSendRawTransaction(t *testing.T) {
 	resObj = sendRequestBad(t, "sendRawTransaction", payload)
 	errMap = resObj["error"].(map[string]interface{})
 	require.Equal(t, ": invalid sequence", errMap["message"].(string))
+}
+
+func TestSendRawTransactionHighGasWanted(t *testing.T) {
+	to := common.HexToAddress("010203")
+	txData := ethtypes.DynamicFeeTx{
+		Nonce:     1,
+		GasFeeCap: big.NewInt(10),
+		Gas:       1200000,
+		To:        &to,
+		Value:     big.NewInt(1000),
+		Data:      []byte("abc"),
+		ChainID:   EVMKeeper.ChainID(Ctx),
+	}
+	_, payload := signTxData(t, txData)
+	resObj := sendRequestGood(t, "sendRawTransaction", payload)
+	fmt.Println(resObj)
+	require.NotNil(t, resObj["error"])
+	// expect an error
+	errMap := resObj["error"].(map[string]interface{})
+	require.Equal(t, "Estimated gas used (1200000) differs too much from gas limit (1000000). Please try again with a more accurate gas limit.", errMap["message"].(string))
+}
+
+func signTxData(t *testing.T, txData ethtypes.DynamicFeeTx) (*ethtypes.Transaction, string) {
+	mnemonic := "fish mention unlock february marble dove vintage sand hub ordinary fade found inject room embark supply fabric improve spike stem give current similar glimpse"
+	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
+	privKey := hd.Secp256k1.Generate()(derivedPriv)
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	ethCfg := types.DefaultChainConfig().EthereumConfig(EVMKeeper.ChainID(Ctx))
+	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(Ctx.BlockHeight()), uint64(Ctx.BlockTime().Unix()))
+	tx := ethtypes.NewTx(&txData)
+	tx, err := ethtypes.SignTx(tx, signer, key)
+	require.Nil(t, err)
+	bz, err := tx.MarshalBinary()
+	require.Nil(t, err)
+	payload := "0x" + hex.EncodeToString(bz)
+	return tx, payload
 }
