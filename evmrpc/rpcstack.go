@@ -118,7 +118,7 @@ func (h *HTTPServer) SetListenAddr(host string, port int) error {
 	return nil
 }
 
-// listenAddr returns the listening address of the server.
+// ListenAddr returns the listening address of the server.
 func (h *HTTPServer) ListenAddr() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
