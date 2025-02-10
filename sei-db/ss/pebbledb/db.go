@@ -39,6 +39,7 @@ const (
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
 	PruneCommitBatchSize  = 50
+	DeleteCommitBatchSize = 50
 )
 
 var (
@@ -725,6 +726,50 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 	}
 
 	return false, nil
+}
+
+func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
+
+	batch, err := NewBatch(db.storage, version)
+	if err != nil {
+		return fmt.Errorf("failed to create deletion batch for module %q: %w", module, err)
+	}
+
+	deleteCounter := 0
+
+	_, err = db.RawIterate(module, func(key, value []byte, ver int64) bool {
+		if ver == version {
+			if err := batch.HardDelete(module, key); err != nil {
+				fmt.Printf("Error physically deleting key %q in module %q: %v\n", key, module, err)
+				return true // stop iteration on error
+			}
+			deleteCounter++
+			if deleteCounter >= DeleteCommitBatchSize {
+				if err := batch.Write(); err != nil {
+					fmt.Printf("Error writing deletion batch for module %q: %v\n", module, err)
+					return true
+				}
+				deleteCounter = 0
+				batch, err = NewBatch(db.storage, version)
+				if err != nil {
+					fmt.Printf("Error creating a new deletion batch for module %q: %v\n", module, err)
+					return true
+				}
+			}
+		}
+		return false
+	})
+	if err != nil {
+		return fmt.Errorf("error iterating module %q for deletion: %w", module, err)
+	}
+
+	// Commit any remaining deletions.
+	if batch.Size() > 0 {
+		if err := batch.Write(); err != nil {
+			return fmt.Errorf("error writing final deletion batch for module %q: %w", module, err)
+		}
+	}
+	return nil
 }
 
 func storePrefix(storeKey string) []byte {

@@ -108,6 +108,16 @@ func (b *RawBatch) Delete(storeKey string, key []byte, version int64) error {
 	return b.set(storeKey, version, key, []byte(tombstoneVal), version)
 }
 
+// HardDelete physically removes the key by encoding it with the batch’s version
+// and calling the underlying pebble.Batch.Delete.
+func (b *Batch) HardDelete(storeKey string, key []byte) error {
+	fullKey := MVCCEncode(prependStoreKey(storeKey, key), b.version)
+	if err := b.batch.Delete(fullKey, nil); err != nil {
+		return fmt.Errorf("failed to hard delete key: %w", err)
+	}
+	return nil
+}
+
 func (b *RawBatch) Write() (err error) {
 	defer func() {
 		err = errors.Join(err, b.batch.Close())
