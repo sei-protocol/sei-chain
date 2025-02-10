@@ -299,8 +299,8 @@ async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, fro
     throw new Error("contract deployment failed")
 }
 
-async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm call-precompile pointer addNativePointer ${name} --from=${from} -b block`
+async function deployErc20PointerNative(provider, name, from=adminKeyName, evmRpc="", gasLimit=300000) {
+    let command = `seid tx evm call-precompile pointer addNativePointer ${name} --gas-limit=${gasLimit} --from=${from} -b block`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
     }

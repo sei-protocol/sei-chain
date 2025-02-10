@@ -436,7 +436,7 @@ func CmdERC20Send() *cobra.Command {
 
 func CmdCallPrecompile() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "call-precompile [precompile name] [method] [args...] --value=<payment> --from=<sender> --gas-fee-cap=<cap> --gas-limt=<limit> --evm-rpc=<url>",
+		Use:   "call-precompile [precompile name] [method] [args...] --value=<payment> --from=<sender> --gas-fee-cap=<cap> --gas-limit=<limit> --evm-rpc=<url>",
 		Short: "call method on precompile",
 		Long:  "",
 		Args:  cobra.MinimumNArgs(2),
