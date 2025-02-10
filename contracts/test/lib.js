@@ -278,8 +278,8 @@ async function getPointerForCw1155(cw1155Address) {
     return JSON.parse(output);
 }
 
-async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, from=adminKeyName, evmRpc="") {
-    let command = `seid tx evm register-evm-pointer CW20 ${cw20Address} --from=${from} -b block`
+async function deployErc20PointerForCw20(provider, cw20Address, attempts=10, from=adminKeyName, evmRpc="", gasLimit=2700000) {
+    let command = `seid tx evm register-evm-pointer CW20 ${cw20Address} --gas-limit=${gasLimit} --from=${from} -b block`
     if (evmRpc) {
         command = command + ` --evm-rpc=${evmRpc}`
     }
