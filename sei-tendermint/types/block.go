@@ -11,12 +11,14 @@ import (
 	"github.com/gogo/protobuf/proto"
 	gogotypes "github.com/gogo/protobuf/types"
 
+	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/merkle"
 	"github.com/tendermint/tendermint/libs/bits"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	tmmath "github.com/tendermint/tendermint/libs/math"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/tendermint/tendermint/utils"
 	"github.com/tendermint/tendermint/version"
 )
 
@@ -231,6 +233,30 @@ func (b *Block) ToProto() (*tmproto.Block, error) {
 	pb.Evidence = *protoEvidence
 
 	return pb, nil
+}
+
+func (b *Block) ToReqBeginBlock(vals []*Validator) abci.RequestBeginBlock {
+	tmHeader := b.Header.ToProto()
+	votes := make([]abci.VoteInfo, b.LastCommit.Size())
+	for i, val := range vals {
+		commitSig := b.LastCommit.Signatures[i]
+		votes[i] = abci.VoteInfo{
+			Validator:       TM2PB.Validator(val),
+			SignedLastBlock: commitSig.BlockIDFlag != BlockIDFlagAbsent,
+		}
+	}
+	abciEvidence := b.Evidence.ToABCI()
+	return abci.RequestBeginBlock{
+		Hash:   b.hash,
+		Header: *tmHeader,
+		LastCommitInfo: abci.LastCommitInfo{
+			Round: b.LastCommit.Round,
+			Votes: votes,
+		},
+		ByzantineValidators: utils.Map(abciEvidence, func(e abci.Misbehavior) abci.Evidence {
+			return abci.Evidence(e)
+		}),
+	}
 }
 
 // FromProto sets a protobuf Block to the given pointer.
