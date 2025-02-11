@@ -442,7 +442,7 @@ func Test_VerifyTransferProofs(t *testing.T) {
 				rangeVerifierFactory: rangeVerifierFactory,
 			},
 			wantErr:        true,
-			wantErrMessage: "failed to verify transfer amount lo range proof",
+			wantErrMessage: "invalid proof",
 		},
 		{
 			name: "transfer proofs verification error if transfer transfer amount hi range proof is invalid",
@@ -456,7 +456,7 @@ func Test_VerifyTransferProofs(t *testing.T) {
 				rangeVerifierFactory: rangeVerifierFactory,
 			},
 			wantErr:        true,
-			wantErrMessage: "failed to verify transfer amount hi range proof",
+			wantErrMessage: "invalid proof",
 		},
 		{
 			name: "transfer proofs verification error if transfer recipient transfer amount lo validity proof is invalid",
