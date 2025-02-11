@@ -75,10 +75,7 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 
 func (m *Migrator) MigrateAtHeight(migrationHeight int64, homeDir string) error {
 	// Delete at migration height
-	for _, module := range []string{
-		"authz",
-		"capability",
-		"evm"} {
+	for _, module := range utils.Modules {
 		fmt.Printf("Deleting keys for module %q at version %d...\n", module, migrationHeight)
 		if err := m.stateStore.DeleteKeysAtVersion(module, migrationHeight); err != nil {
 			return fmt.Errorf("failed to delete keys for module %q: %w", module, err)
@@ -118,7 +115,7 @@ func (m *Migrator) MigrateAtHeight(migrationHeight int64, homeDir string) error 
 	ch := make(chan types.RawSnapshotNode, 1000)
 	errCh = make(chan error, 2)
 
-	// Re-migrate evm + capability
+	// Re-migrate evm + capability + authz
 	go func() {
 		defer close(ch)
 		errCh <- ExportLeafNodesFromKey(m.iavlDB, ch, []byte{}, "")
@@ -190,7 +187,10 @@ func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey
 	var batchLeafNodeCount int
 	startModuleFound := startModule == "" // true if no start module specified
 
-	for _, module := range utils.Modules {
+	for _, module := range []string{
+		"authz",
+		"capability",
+		"evm"} {
 		if !startModuleFound {
 			if module == startModule {
 				startModuleFound = true
