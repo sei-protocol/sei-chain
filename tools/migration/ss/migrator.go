@@ -73,6 +73,74 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 	return m.stateStore.SetLatestVersion(version)
 }
 
+func (m *Migrator) MigrateAtHeight(migrationHeight int64, homeDir string) error {
+	// Delete at migration height
+	for _, module := range []string{
+		"authz",
+		"capability",
+		"evm"} {
+		fmt.Printf("Deleting keys for module %q at version %d...\n", module, migrationHeight)
+		if err := m.stateStore.DeleteKeysAtVersion(module, migrationHeight); err != nil {
+			return fmt.Errorf("failed to delete keys for module %q: %w", module, err)
+		}
+		fmt.Printf("Finished deletion for module %q\n", module)
+	}
+
+	rawCh := make(chan types.RawSnapshotNode, 1000)
+	errCh := make(chan error, 2)
+
+	// Re-export at migration height
+	go func() {
+		for _, module := range utils.Modules {
+			if err := ExportLeafNodesAtVersion(m.iavlDB, migrationHeight, module, rawCh); err != nil {
+				errCh <- fmt.Errorf("export error for module %q: %w", module, err)
+				return
+			}
+		}
+		close(rawCh)
+		errCh <- nil
+	}()
+
+	// Launch a goroutine to import the exported nodes into PebbleDB using RawImport.
+	go func() {
+		errCh <- m.stateStore.RawImport(rawCh)
+	}()
+
+	// Wait for both export and import to complete.
+	for i := 0; i < 2; i++ {
+		if err := <-errCh; err != nil {
+			return err
+		}
+	}
+
+	fmt.Printf("Migration at height %d completed successfully\n", migrationHeight)
+
+	ch := make(chan types.RawSnapshotNode, 1000)
+	errCh = make(chan error, 2)
+
+	// Re-migrate evm + capability
+	go func() {
+		defer close(ch)
+		errCh <- ExportLeafNodesFromKey(m.iavlDB, ch, []byte{}, "")
+	}()
+
+	// Import nodes into PebbleDB
+	go func() {
+		errCh <- m.stateStore.RawImport(ch)
+	}()
+
+	// Block until both processes complete
+	for i := 0; i < 2; i++ {
+		if err := <-errCh; err != nil {
+			return err
+		}
+	}
+
+	fmt.Printf("Migration for evm, capability and authz at height %d completed successfully\n", migrationHeight)
+
+	return nil
+}
+
 func (m *Migrator) Verify(version int64) error {
 	var verifyErr error
 	for _, module := range utils.Modules {
@@ -198,6 +266,40 @@ func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey
 	totalDuration := time.Since(startTimeTotal)
 	fmt.Printf("SeiDB Archive Migration: DB scanning completed. Total time taken: %v. Total entries scanned: %d, leaf nodes exported: %d\n", totalDuration, count, leafNodeCount)
 
+	return nil
+}
+
+func ExportLeafNodesAtVersion(db dbm.DB, migrationVersion int64, module string, ch chan<- types.RawSnapshotNode) error {
+	// Use the module-specific prefix.
+	prefix := []byte(utils.BuildTreePrefix(module))
+	tree, err := ReadTree(db, migrationVersion, prefix)
+	if err != nil {
+		return fmt.Errorf("failed to load IAVL tree for module %q at version %d: %w", module, migrationVersion, err)
+	}
+
+	stopped, err := tree.Iterate(func(key, value []byte) bool {
+		node, err := iavl.MakeNode(value)
+		if err != nil {
+			fmt.Printf("failed to decode node for key %q in module %q: %v\n", key, module, err)
+			return false // continue iteration
+		}
+		// Only export leaf nodes with height 0 and matching migrationVersion.
+		if node.GetHeight() == 0 && node.GetVersion() == migrationVersion {
+			ch <- types.RawSnapshotNode{
+				StoreKey: module,
+				Key:      node.GetNodeKey(),
+				Value:    node.GetValue(),
+				Version:  node.GetVersion(),
+			}
+		}
+		return false
+	})
+	if stopped {
+		return fmt.Errorf("iteration stopped unexpectedly")
+	}
+	if err != nil {
+		return fmt.Errorf("error iterating IAVL tree for module %q: %w", module, err)
+	}
 	return nil
 }
 
