@@ -1921,7 +1921,7 @@ func TestPrecompileAccount_Execute(t *testing.T) {
 				common.Address{},
 				common.Address{},
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).AccountID, inputArgs...),
-				2000000,
+				4000000,
 				tt.args.value,
 				nil,
 				tt.args.isReadOnly,
