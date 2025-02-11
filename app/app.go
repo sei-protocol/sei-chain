@@ -352,7 +352,8 @@ type App struct {
 	optimisticProcessingInfo *OptimisticProcessingInfo
 
 	// batchVerifier *ante.SR25519BatchVerifier
-	txDecoder sdk.TxDecoder
+	txDecoder   sdk.TxDecoder
+	AnteHandler sdk.AnteHandler
 
 	versionInfo version.Info
 
@@ -922,6 +923,7 @@ func New(
 	if err != nil {
 		panic(err)
 	}
+	app.AnteHandler = anteHandler
 
 	app.SetAnteHandler(anteHandler)
 	app.SetAnteDepGenerator(anteDepGenerator)
@@ -1842,7 +1844,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 		return ctx.WithIsEVM(true)
 	}
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, ctxProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.AnteHandler, ctxProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil)
 		if err != nil {
 			panic(err)
 		}
@@ -1852,7 +1854,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, ctxProvider, app.encodingConfig.TxConfig, DefaultNodeHome)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.AnteHandler, ctxProvider, app.encodingConfig.TxConfig, DefaultNodeHome)
 		if err != nil {
 			panic(err)
 		}
