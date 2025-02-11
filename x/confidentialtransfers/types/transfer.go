@@ -365,33 +365,7 @@ func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipien
 		return errors.New("failed to verify recipient transfer amount hi")
 	}
 
-	ok, err := zkproofs.VerifyRangeProof(params.Proofs.TransferAmountLoRangeProof, params.SenderTransferAmountLo, 16, rangeVerifierFactory)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return errors.New("transfer amount lo range proof verification failed")
-	}
-
-	ok, err = zkproofs.VerifyRangeProof(params.Proofs.TransferAmountHiRangeProof, params.SenderTransferAmountHi, 32, rangeVerifierFactory)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return errors.New("transfer amount hi range proof verification failed")
-	}
-
-	// Verify that the account's remaining balance is greater than zero after this transfer.
-	// This validates the RemainingBalanceCommitment sent by the user, so an additional check is needed to make sure this matches what is calculated by the server.
-	ok, err = zkproofs.VerifyRangeProof(params.Proofs.RemainingBalanceRangeProof, params.RemainingBalanceCommitment, 128, rangeVerifierFactory)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return errors.New("remaining balance range proof verification failed")
-	}
-
-	// As part of the range proof above, we verify that the RemainingBalanceCommitment sent by the user is equal to the remaining balance calculated by the server.
+	// As part of the range proof later, we verify that the RemainingBalanceCommitment sent by the user is equal to the remaining balance calculated by the server.
 	ok = zkproofs.VerifyCiphertextCommitmentEquality(params.Proofs.RemainingBalanceEqualityProof, senderPubkey, newBalanceCiphertext, &params.RemainingBalanceCommitment.C)
 	if !ok {
 		return errors.New("ciphertext commitment equality verification failed")
@@ -408,7 +382,35 @@ func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipien
 		return errors.New("ciphertext ciphertext equality verification on transfer amount hi failed")
 	}
 
+	// Verify that the account's remaining balance is greater than zero after this transfer.
+	// This validates the RemainingBalanceCommitment sent by the user, so an additional check is needed to make sure this matches what is calculated by the server.
+	ok, err := zkproofs.VerifyRangeProof(params.Proofs.RemainingBalanceRangeProof, params.RemainingBalanceCommitment, 128, rangeVerifierFactory)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("remaining balance range proof verification failed")
+	}
+
+	// Verify that the transfer amounts are within the correct range.
+	ok, err = zkproofs.VerifyRangeProof(params.Proofs.TransferAmountLoRangeProof, params.SenderTransferAmountLo, 16, rangeVerifierFactory)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("transfer amount lo range proof verification failed")
+	}
+
+	ok, err = zkproofs.VerifyRangeProof(params.Proofs.TransferAmountHiRangeProof, params.SenderTransferAmountHi, 32, rangeVerifierFactory)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("transfer amount hi range proof verification failed")
+	}
+
 	return nil
+
 }
 
 // VerifyAuditorProof Verifies the proofs sent for an individual auditor.
