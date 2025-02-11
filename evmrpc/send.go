@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -34,7 +35,8 @@ type SendConfig struct {
 	slow bool
 }
 
-func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig *SendConfig, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, homeDir string, simulateConfig *SimulateConfig, connectionType ConnectionType) *SendAPI {
+func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig *SendConfig, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, homeDir string, simulateConfig *SimulateConfig, app *baseapp.BaseApp,
+	antehandler sdk.AnteHandler, connectionType ConnectionType) *SendAPI {
 	return &SendAPI{
 		tmClient:       tmClient,
 		txConfig:       txConfig,
@@ -42,7 +44,7 @@ func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig 
 		keeper:         k,
 		ctxProvider:    ctxProvider,
 		homeDir:        homeDir,
-		backend:        NewBackend(ctxProvider, k, txConfig.TxDecoder(), tmClient, simulateConfig),
+		backend:        NewBackend(ctxProvider, k, txConfig.TxDecoder(), tmClient, simulateConfig, app, antehandler),
 		connectionType: connectionType,
 	}
 }

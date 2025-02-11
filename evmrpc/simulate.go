@@ -2,15 +2,17 @@ package evmrpc
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"math/big"
+	"runtime/debug"
 	"strings"
 	"time"
 
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
-	"github.com/sei-protocol/sei-chain/utils/helpers"
 
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -27,10 +29,10 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	abci "github.com/tendermint/tendermint/abci/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 )
@@ -50,10 +52,12 @@ func NewSimulationAPI(
 	txDecoder sdk.TxDecoder,
 	tmClient rpcclient.Client,
 	config *SimulateConfig,
+	app *baseapp.BaseApp,
+	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 ) *SimulationAPI {
 	return &SimulationAPI{
-		backend:        NewBackend(ctxProvider, keeper, txDecoder, tmClient, config),
+		backend:        NewBackend(ctxProvider, keeper, txDecoder, tmClient, config, app, antehandler),
 		connectionType: connectionType,
 	}
 }
@@ -179,15 +183,19 @@ type Backend struct {
 	keeper      *keeper.Keeper
 	tmClient    rpcclient.Client
 	config      *SimulateConfig
+	app         *baseapp.BaseApp
+	antehandler sdk.AnteHandler
 }
 
-func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txDecoder sdk.TxDecoder, tmClient rpcclient.Client, config *SimulateConfig) *Backend {
+func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txDecoder sdk.TxDecoder, tmClient rpcclient.Client, config *SimulateConfig, app *baseapp.BaseApp, antehandler sdk.AnteHandler) *Backend {
 	return &Backend{
 		ctxProvider: ctxProvider,
 		keeper:      keeper,
 		txDecoder:   txDecoder,
 		tmClient:    tmClient,
 		config:      config,
+		app:         app,
+		antehandler: antehandler,
 	}
 }
 
@@ -217,17 +225,9 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *e
 	}
 	txIndex := hexutil.Uint(receipt.TransactionIndex)
 	tmTx := block.Block.Txs[int(txIndex)]
-	// We need to find the ethIndex
-	evmTxIndex, found := GetEvmTxIndex(block.Block.Txs, receipt.TransactionIndex, b.txDecoder, func(h common.Hash) bool {
-		_, err := b.keeper.GetReceipt(sdkCtx, h)
-		return err == nil
-	})
-	if !found {
-		return nil, common.Hash{}, 0, 0, errors.New("failed to find transaction in block")
-	}
 	tx = getEthTxForTxBz(tmTx, b.txDecoder)
 	blockHash = common.BytesToHash(block.Block.Header.Hash().Bytes())
-	return tx, blockHash, uint64(txHeight), uint64(evmTxIndex), nil
+	return tx, blockHash, uint64(txHeight), uint64(txIndex), nil
 }
 
 func (b *Backend) ChainDb() ethdb.Database {
@@ -304,6 +304,11 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 }
 
 func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
+	defer func() {
+		if e := recover(); e != nil {
+			debug.PrintStack()
+		}
+	}()
 	emptyRelease := func() {}
 	// Short circuit if it's genesis block.
 	if block.Number().Int64() == 0 {
@@ -311,55 +316,47 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 	}
 	// get the parent block using block.parentHash
 	prevBlockHeight := block.Number().Int64() - 1
-	// Get statedb of parent block from the store
-	statedb := state.NewDBImpl(b.ctxProvider(prevBlockHeight).WithIsEVM(true), b.keeper, true)
-	if txIndex == 0 && len(block.Transactions()) == 0 {
-		return nil, vm.BlockContext{}, statedb, emptyRelease, nil
+
+	blockNumber := block.Number().Int64()
+	tmBlock, err := b.tmClient.Block(ctx, &blockNumber)
+	if err != nil {
+		return nil, vm.BlockContext{}, nil, emptyRelease, fmt.Errorf("cannot find block %d from tendermint", blockNumber)
 	}
-	// Recompute transactions up to the target index. (only doing EVM at the moment, but should do both EVM + Cosmos)
-	signer := ethtypes.MakeSigner(b.ChainConfig(), block.Number(), block.Time())
-	for idx, tx := range block.Transactions() {
-		msg, err := core.TransactionToMessage(tx, signer, block.BaseFee())
+	res, err := b.tmClient.Validators(ctx, &prevBlockHeight, nil, nil) // todo: load all
+	if err != nil {
+		return nil, vm.BlockContext{}, nil, emptyRelease, fmt.Errorf("failed to load validators for block %d from tendermint", prevBlockHeight)
+	}
+	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(res.Validators)
+	sdkCtx := b.ctxProvider(prevBlockHeight)
+	_ = b.app.BeginBlock(sdkCtx, reqBeginBlock)
+	blockContext, err := b.keeper.GetVMBlockContext(sdkCtx, core.GasPool(b.RPCGasCap()))
+	if err != nil {
+		return nil, vm.BlockContext{}, nil, emptyRelease, err
+	}
+	for idx, tx := range tmBlock.Block.Txs {
+		sdkTx, err := b.txDecoder(tx)
 		if err != nil {
-			return nil, vm.BlockContext{}, nil, nil, err
+			panic(err)
 		}
-		txContext := core.NewEVMTxContext(msg)
-		blockContext, err := b.keeper.GetVMBlockContext(b.ctxProvider(prevBlockHeight), core.GasPool(b.RPCGasCap()))
-		if err != nil {
-			return nil, vm.BlockContext{}, nil, nil, err
-		}
-		// set block context time as of the block time (block time is the time of the CURRENT block)
-		blockContext.Time = block.Time()
-
-		// set address association for the sender if not present. Note that here we take the shortcut
-		// of querying from the latest height with the assumption that if this tx has been processed
-		// at all then its association must be present in the latest height
-		_, associated := b.keeper.GetSeiAddress(statedb.Ctx(), msg.From)
-		if !associated {
-			seiAddr, associatedNow := b.keeper.GetSeiAddress(b.ctxProvider(LatestCtxHeight), msg.From)
-			if !associatedNow {
-				err := types.NewAssociationMissingErr(msg.From.Hex())
-				metrics.IncrementAssociationError("state_at_tx", err)
-				return nil, vm.BlockContext{}, nil, nil, err
-			}
-			if err := helpers.NewAssociationHelper(b.keeper, b.keeper.BankKeeper(), b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
-				return nil, vm.BlockContext{}, nil, nil, err
-			}
-		}
-
 		if idx == txIndex {
-			return tx, *blockContext, statedb, emptyRelease, nil
+			// Only run antehandlers as Geth will perform the actual execution
+			newCtx, err := b.antehandler(sdkCtx, sdkTx, false)
+			if err != nil {
+				return nil, vm.BlockContext{}, nil, emptyRelease, fmt.Errorf("transaction failed ante handler due to %s", err)
+			}
+			sdkCtx = newCtx
+			var evmMsg *types.MsgEVMTransaction
+			if msgs := sdkTx.GetMsgs(); len(msgs) != 1 {
+				return nil, vm.BlockContext{}, nil, emptyRelease, fmt.Errorf("cannot replay non-EVM transaction %d at block %d", idx, blockNumber)
+			} else if msg, ok := msgs[0].(*types.MsgEVMTransaction); !ok {
+				return nil, vm.BlockContext{}, nil, emptyRelease, fmt.Errorf("cannot replay non-EVM transaction %d at block %d", idx, blockNumber)
+			} else {
+				evmMsg = msg
+			}
+			ethTx, _ := evmMsg.AsTransaction()
+			return ethTx, *blockContext, state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), emptyRelease, nil
 		}
-		statedb.WithCtx(statedb.Ctx().WithEVMEntryViaWasmdPrecompile(wasmd.IsWasmdCall(tx.To())))
-		// Not yet the searched for transaction, execute on top of the current state
-		vmenv := vm.NewEVM(*blockContext, txContext, statedb, b.ChainConfig(), vm.Config{})
-		statedb.SetTxContext(tx.Hash(), idx)
-		if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas())); err != nil {
-			return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
-		}
-		// Ensure any modifications are committed to the state
-		// Only delete empty objects if EIP158/161 (a.k.a Spurious Dragon) is in effect
-		statedb.Finalise(vmenv.ChainConfig().IsEIP158(block.Number()))
+		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTx{}, sdkTx, sha256.Sum256(tx))
 	}
 	return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("transaction index %d out of range for block %#x", txIndex, block.Hash())
 }
@@ -367,26 +364,6 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexec uint64, base vm.StateDB, readOnly bool, preferDisk bool) (vm.StateDB, tracers.StateReleaseFunc, error) {
 	emptyRelease := func() {}
 	statedb := state.NewDBImpl(b.ctxProvider(block.Number().Int64()-1), b.keeper, true)
-	signer := ethtypes.MakeSigner(b.ChainConfig(), block.Number(), block.Time())
-	for _, tx := range block.Transactions() {
-		msg, _ := core.TransactionToMessage(tx, signer, block.BaseFee())
-
-		// set address association for the sender if not present. Note that here we take the shortcut
-		// of querying from the latest height with the assumption that if this tx has been processed
-		// at all then its association must be present in the latest height
-		_, associated := b.keeper.GetSeiAddress(statedb.Ctx(), msg.From)
-		if !associated {
-			seiAddr, associatedNow := b.keeper.GetSeiAddress(b.ctxProvider(LatestCtxHeight), msg.From)
-			if !associatedNow {
-				err := types.NewAssociationMissingErr(msg.From.Hex())
-				metrics.IncrementAssociationError("state_at_block", err)
-				continue // don't return error, just continue bc we want to process the rest of the txs and return the statedb
-			}
-			if err := helpers.NewAssociationHelper(b.keeper, b.keeper.BankKeeper(), b.keeper.AccountKeeper()).AssociateAddresses(statedb.Ctx(), seiAddr, msg.From, nil); err != nil {
-				return nil, emptyRelease, err
-			}
-		}
-	}
 	return statedb, emptyRelease, nil
 }
 
