@@ -298,6 +298,10 @@ func (s *InMemoryStateStore) WriteBlockRangeHash(storeKey string, beginBlockRang
 	panic("implement me")
 }
 
+func (db *InMemoryStateStore) DeleteKeysAtVersion(module string, version int64) error {
+	panic("implement me")
+}
+
 type InMemoryIterator struct {
 	data    map[string][]byte
 	keys    []string
