@@ -43,7 +43,7 @@ jobs:
           NUM_SPLIT=20
           make test-group-${{matrix.part}} NUM_SPLIT=20
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-${{ matrix.part }}-coverage"
           path: ./${{ matrix.part }}.profile.out
@@ -59,7 +59,7 @@ jobs:
 
       # Download all coverage reports from the 'tests' job
       - name: Download coverage reports
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
 
       - name: Set GOPATH
         run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
