@@ -303,7 +303,7 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 				in.proofs)
 			require.Nil(t, err)
 
-			resp, remainingGas, err := p.RunAndCalculateGas(
+			resp, _, err := p.RunAndCalculateGas(
 				&evm,
 				*tt.args.caller,
 				senderEVMAddr,
@@ -618,7 +618,7 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 				in.auditors)
 			require.Nil(t, err)
 
-			resp, remainingGas, err := p.RunAndCalculateGas(
+			resp, _, err := p.RunAndCalculateGas(
 				&evm,
 				senderEVMAddr,
 				senderEVMAddr,
@@ -884,7 +884,7 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 
 			require.Nil(t, err)
 
-			resp, remainingGas, err := p.RunAndCalculateGas(
+			resp, _, err := p.RunAndCalculateGas(
 				&evm,
 				userEVMAddr,
 				common.Address{},
@@ -1019,7 +1019,7 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 
 			require.Nil(t, err)
 
-			resp, remainingGas, err := p.RunAndCalculateGas(
+			resp, _, err := p.RunAndCalculateGas(
 				&evm,
 				tt.args.caller,
 				common.Address{},
@@ -1240,7 +1240,7 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 				in.availableBalance)
 			require.Nil(t, err)
 
-			resp, remainingGas, err := p.RunAndCalculateGas(
+			resp, _, err := p.RunAndCalculateGas(
 				&evm,
 				*tt.args.caller,
 				senderEVMAddr,
@@ -1484,7 +1484,7 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 				in.proofs)
 			require.Nil(t, err)
 
-			resp, remainingGas, err := p.RunAndCalculateGas(
+			resp, _, err := p.RunAndCalculateGas(
 				&evm,
 				*tt.args.caller,
 				senderEVMAddr,
@@ -1674,7 +1674,7 @@ func TestPrecompileCloseAccount_Execute(t *testing.T) {
 				in.proofs)
 			require.Nil(t, err)
 
-			resp, remainingGas, err := p.RunAndCalculateGas(
+			resp, _, err := p.RunAndCalculateGas(
 				&evm,
 				*tt.args.caller,
 				senderEVMAddr,
@@ -1889,7 +1889,7 @@ func TestPrecompileAccount_Execute(t *testing.T) {
 			inputArgs, err := AccountMethod.Inputs.Pack(in.Account, in.Denom)
 			require.Nil(t, err)
 
-			resp, remainingGas, err := p.RunAndCalculateGas(
+			resp, _, err := p.RunAndCalculateGas(
 				&evm,
 				common.Address{},
 				common.Address{},
