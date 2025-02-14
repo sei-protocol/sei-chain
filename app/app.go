@@ -157,6 +157,10 @@ import (
 	// unnamed import of statik for openapi/swagger UI support
 	_ "github.com/sei-protocol/sei-chain/docs/swagger"
 	ssconfig "github.com/sei-protocol/sei-db/config"
+
+	mev "github.com/sei-protocol/sei-chain/x/mev"
+	mevkeeper "github.com/sei-protocol/sei-chain/x/mev/keeper"
+	mevtypes "github.com/sei-protocol/sei-chain/x/mev/types"
 )
 
 // this line is used by starport scaffolding # stargate/wasm/app/enabledProposals
@@ -331,6 +335,7 @@ type App struct {
 	WasmKeeper          wasm.Keeper
 	OracleKeeper        oraclekeeper.Keeper
 	EvmKeeper           evmkeeper.Keeper
+	MevKeeper           mevkeeper.Keeper
 
 	// make scoped keepers public for test purposes
 	ScopedIBCKeeper      capabilitykeeper.ScopedKeeper
@@ -547,6 +552,13 @@ func New(
 		app.DistrKeeper,
 	)
 
+	keys[mevtypes.StoreKey] = storetypes.NewKVStoreKey(mevtypes.StoreKey)
+
+	app.MevKeeper = mevkeeper.NewKeeper(
+		appCodec,
+		keys[mevtypes.StoreKey],
+	)
+
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks
 	supportedFeatures := "iterator,staking,stargate,sei"
@@ -752,6 +764,7 @@ func New(
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
 		authzmodule.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
 		// this line is used by starport scaffolding # stargate/app/appModule
+		mev.NewAppModule(appCodec, app.MevKeeper),
 	)
 
 	// During begin block slashing happens after distr.BeginBlocker so that
@@ -783,6 +796,7 @@ func New(
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
 		acltypes.ModuleName,
+		mevtypes.ModuleName, // Add here
 	)
 
 	app.mm.SetOrderMidBlockers(
@@ -814,6 +828,7 @@ func New(
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
 		acltypes.ModuleName,
+		mevtypes.ModuleName, // Add here
 	)
 
 	// NOTE: The genutils module must occur after staking so that pools are
@@ -847,6 +862,7 @@ func New(
 		evmtypes.ModuleName,
 		acltypes.ModuleName,
 		// this line is used by starport scaffolding # stargate/app/initGenesis
+		mevtypes.ModuleName, // Add here
 	)
 
 	app.mm.RegisterInvariants(&app.CrisisKeeper)
