@@ -30,7 +30,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -528,7 +527,7 @@ func init() {
 	Ctx = testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
 	MultiTxCtx, _ = Ctx.CacheContext()
 	EVMKeeper = &testApp.EvmKeeper
-	EVMKeeper.InitGenesis(Ctx, *evmtypes.DefaultGenesis())
+	EVMKeeper.InitGenesis(Ctx, *types.DefaultGenesis())
 	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
 	if err != nil {
 		panic(err)
@@ -714,7 +713,7 @@ func generateTxData() {
 	})
 	debugTraceNonPanicTxBuilder, _ := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     0,
-		GasFeeCap: big.NewInt(10),
+		GasFeeCap: big.NewInt(1000000000),
 		Gas:       22000,
 		To:        &to,
 		Value:     big.NewInt(1000),
@@ -747,8 +746,14 @@ func generateTxData() {
 	MultiTxBlockSynthTx = synthTxBuilder.GetTx()
 	DebugTraceTx = debugTraceTxBuilder.GetTx()
 	DebugTracePanicTx = debugTracePanicTxBuilder.GetTx()
+	panicEthTx, _ := DebugTracePanicTx.GetMsgs()[0].(*types.MsgEVMTransaction).AsTransaction()
+	TestPanicTxHash = panicEthTx.Hash().Hex()
 	DebugTraceNonPanicTx = debugTraceNonPanicTxBuilder.GetTx()
+	nonPanicEthTx, _ := DebugTraceNonPanicTx.GetMsgs()[0].(*types.MsgEVMTransaction).AsTransaction()
+	TestNonPanicTxHash = nonPanicEthTx.Hash().Hex()
 	DebugTraceSyntheticTx = debugTraceSyntheticTxBuilder.GetTx()
+	syntheticEthTx, _ := DebugTraceSyntheticTx.GetMsgs()[0].(*types.MsgEVMTransaction).AsTransaction()
+	TestSyntheticTxHash = syntheticEthTx.Hash().Hex()
 	TxNonEvm = app.TestTx{}
 	TxNonEvmWithSyntheticLog = app.TestTx{}
 	bloomTx1 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{

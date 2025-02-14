@@ -92,16 +92,15 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	stateDB := state.NewDBImpl(executionCtx, k, false)
 	gp := k.GetGasPool()
 	evmMsg := &core.Message{
-		Nonce:             stateDB.GetNonce(from), // replay attack is prevented by the AccountSequence number set on the CW transaction that triggered this call
-		GasLimit:          k.getEvmGasLimitFromCtx(ctx),
-		GasPrice:          utils.Big0, // fees are already paid on the CW transaction
-		GasFeeCap:         utils.Big0,
-		GasTipCap:         utils.Big0,
-		To:                to,
-		Value:             value,
-		Data:              data,
-		SkipAccountChecks: false,
-		From:              from,
+		Nonce:     stateDB.GetNonce(from), // replay attack is prevented by the AccountSequence number set on the CW transaction that triggered this call
+		GasLimit:  k.getEvmGasLimitFromCtx(ctx),
+		GasPrice:  utils.Big0, // fees are already paid on the CW transaction
+		GasFeeCap: utils.Big0,
+		GasTipCap: utils.Big0,
+		To:        to,
+		Value:     value,
+		Data:      data,
+		From:      from,
 	}
 	res, err := k.applyEVMMessage(ctx, evmMsg, stateDB, gp)
 	if err != nil {
@@ -181,7 +180,8 @@ func (k *Keeper) createReadOnlyEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EV
 	}
 	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	txCtx := vm.TxContext{Origin: k.GetEVMAddressOrDefault(ctx, from)}
-	return vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx)), nil
+	evm := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
+	return evm, nil
 }
 
 func (k *Keeper) getEvmGasLimitFromCtx(ctx sdk.Context) uint64 {

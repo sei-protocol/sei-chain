@@ -7,6 +7,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -35,14 +36,16 @@ func (s *DBImpl) getState(ctx sdk.Context, addr common.Address, hash common.Hash
 	return s.k.GetState(ctx, addr, hash)
 }
 
-func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) {
+func (s *DBImpl) SetState(addr common.Address, key common.Hash, val common.Hash) common.Hash {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
 
+	old := s.GetState(addr, key)
 	if s.logger != nil && s.logger.OnStorageChange != nil {
-		s.logger.OnStorageChange(addr, key, s.GetState(addr, key), val)
+		s.logger.OnStorageChange(addr, key, old, val)
 	}
 
 	s.k.SetState(s.ctx, addr, key, val)
+	return old
 }
 
 func (s *DBImpl) GetTransientState(addr common.Address, key common.Hash) common.Hash {
@@ -66,24 +69,26 @@ func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
 // https://github.com/sei-protocol/go-ethereum/blob/master/core/vm/instructions.go#L825
 // clear account's state except the transient state (in Ethereum transient states are
 // still available even after self destruction in the same tx)
-func (s *DBImpl) SelfDestruct(acc common.Address) {
+func (s *DBImpl) SelfDestruct(acc common.Address) uint256.Int {
 	s.k.PrepareReplayedAddr(s.ctx, acc)
 	if seiAddr, ok := s.k.GetSeiAddress(s.ctx, acc); ok {
 		// remove the association
 		s.k.DeleteAddressMapping(s.ctx, seiAddr, acc)
 	}
-
-	s.SubBalance(acc, s.GetBalance(acc), tracing.BalanceDecreaseSelfdestruct)
+	b := s.GetBalance(acc)
+	s.SubBalance(acc, b, tracing.BalanceDecreaseSelfdestruct)
 
 	// mark account as self-destructed
 	s.MarkAccount(acc, AccountDeleted)
+	return *b
 }
 
-func (s *DBImpl) Selfdestruct6780(acc common.Address) {
+func (s *DBImpl) SelfDestruct6780(acc common.Address) (uint256.Int, bool) {
 	// only self-destruct if acc is newly created in the same block
 	if s.Created(acc) {
-		s.SelfDestruct(acc)
+		return s.SelfDestruct(acc), true
 	}
+	return *uint256.NewInt(0), false
 }
 
 // the Ethereum semantics of HasSelfDestructed checks if the account is self destructed in the
@@ -120,7 +125,7 @@ func (s *DBImpl) handleResidualFundsInDestructedAccounts(st *TemporaryState) {
 		}
 		acc := common.HexToAddress(a)
 		residual := s.GetBalance(acc)
-		if residual.Cmp(utils.Big0) == 0 {
+		if residual.ToBig().Cmp(utils.Big0) == 0 {
 			continue
 		}
 		s.SubBalance(acc, residual, tracing.BalanceDecreaseSelfdestructBurn)

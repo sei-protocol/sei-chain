@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -26,7 +27,8 @@ func (k *Keeper) RunWithOneOffEVMInstance(
 	}
 	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(&core.Message{From: evmModuleAddress, GasPrice: utils.Big0})
-	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
+	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
+	evmInstance.SetTxContext(txCtx)
 	err = runner(evmInstance)
 	if err != nil {
 		logger("upserting pointer", err.Error())
@@ -104,7 +106,7 @@ func (k *Keeper) UpsertERCPointer(
 		ret, remainingGas, err = evm.GetDeploymentCode(vm.AccountRef(evmModuleAddress), bin, suppliedGas, utils.Big0, existingAddr)
 		k.SetCode(ctx, contractAddr, ret)
 	} else {
-		_, contractAddr, remainingGas, err = evm.Create(vm.AccountRef(evmModuleAddress), bin, suppliedGas, utils.Big0)
+		_, contractAddr, remainingGas, err = evm.Create(vm.AccountRef(evmModuleAddress), bin, suppliedGas, uint256.NewInt(0))
 	}
 	if err != nil {
 		return
