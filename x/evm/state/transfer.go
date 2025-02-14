@@ -1,14 +1,13 @@
 package state
 
 import (
-	"math/big"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/holiman/uint256"
 )
 
-func TransferWithoutEvents(db vm.StateDB, sender, recipient common.Address, amount *big.Int) {
+func TransferWithoutEvents(db vm.StateDB, sender, recipient common.Address, amount *uint256.Int) {
 	sdb, ok := db.(*DBImpl)
 	if !ok {
 		panic("EventlessTransfer only works with DBImpl")
