@@ -17,7 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ethereum/go-ethereum/lib/ethapi"
+	"github.com/ethereum/go-ethereum/export"
 
 	"github.com/spf13/cobra"
 
@@ -485,7 +485,7 @@ func CmdQueryTxByHash() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var response *ethapi.RPCTransaction
+			var response *export.RPCTransaction
 			err = ethClient.Client().CallContext(context.Background(), &response, "eth_getTransactionByHash", hash)
 			if err != nil {
 				return err

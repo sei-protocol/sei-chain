@@ -17,6 +17,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 	ethtests "github.com/ethereum/go-ethereum/tests"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -85,7 +86,7 @@ func Replay(a *App) {
 		for _, w := range b.Withdrawals() {
 			amount := new(big.Int).SetUint64(w.Amount)
 			amount = amount.Mul(amount, big.NewInt(params.GWei))
-			s.AddBalance(w.Address, amount, tracing.BalanceIncreaseWithdrawal)
+			s.AddBalance(w.Address, uint256.MustFromBig(amount), tracing.BalanceIncreaseWithdrawal)
 		}
 		_, _ = s.Finalize()
 		for _, tx := range b.Txs {
@@ -183,7 +184,7 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 			continue
 		}
 		// Not checking compliance with EIP-4788
-		if addr == params.BeaconRootsStorageAddress {
+		if addr == params.BeaconRootsAddress {
 			fmt.Println("Skipping beacon roots storage address: ", addr)
 			continue
 		}
