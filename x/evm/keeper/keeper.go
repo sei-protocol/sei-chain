@@ -28,7 +28,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/tests"
+	"github.com/holiman/uint256"
 	seidbtypes "github.com/sei-protocol/sei-db/ss/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -76,6 +78,7 @@ type Keeper struct {
 	// used for both ETH replay and block tests. Not used in chain critical path.
 	Trie        ethstate.Trie
 	DB          ethstate.Database
+	CachingDB   *ethstate.CachingDB
 	Root        common.Hash
 	ReplayBlock *ethtypes.Block
 
@@ -98,6 +101,7 @@ type PendingTx struct {
 // only used during ETH replay
 type ReplayChainContext struct {
 	ethClient *ethclient.Client
+	chainID   *big.Int
 }
 
 func (ctx *ReplayChainContext) Engine() consensus.Engine {
@@ -110,6 +114,10 @@ func (ctx *ReplayChainContext) GetHeader(hash common.Hash, number uint64) *ethty
 		return nil
 	}
 	return res.Header_
+}
+
+func (ctx *ReplayChainContext) Config() *params.ChainConfig {
+	return types.DefaultChainConfig().EthereumConfig(ctx.chainID)
 }
 
 func NewKeeper(
@@ -203,7 +211,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 	}
 	rh := crypto.Keccak256Hash(r)
 
-	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *big.Int) {
+	txfer := func(db vm.StateDB, sender, recipient common.Address, amount *uint256.Int) {
 		if IsPayablePrecompile(&recipient) {
 			state.TransferWithoutEvents(db, sender, recipient, amount)
 		} else {
@@ -396,8 +404,8 @@ func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
 		return
 	}
 	store.Set(addr[:], a.Root[:])
-	if a.Balance != nil && a.Balance.Cmp(utils.Big0) != 0 {
-		usei, wei := state.SplitUseiWeiAmount(a.Balance)
+	if a.Balance != nil && a.Balance.CmpBig(utils.Big0) != 0 {
+		usei, wei := state.SplitUseiWeiAmount(a.Balance.ToBig())
 		err = k.BankKeeper().AddCoins(ctx, k.GetSeiAddressOrDefault(ctx, addr), sdk.NewCoins(sdk.NewCoin("usei", usei)), true)
 		if err != nil {
 			panic(err)
@@ -410,10 +418,7 @@ func (k *Keeper) PrepareReplayedAddr(ctx sdk.Context, addr common.Address) {
 	k.SetNonce(ctx, addr, a.Nonce)
 	if !bytes.Equal(a.CodeHash, ethtypes.EmptyCodeHash.Bytes()) {
 		k.PrefixStore(ctx, types.CodeHashKeyPrefix).Set(addr[:], a.CodeHash)
-		code, err := k.DB.ContractCode(addr, common.BytesToHash(a.CodeHash))
-		if err != nil {
-			panic(err)
-		}
+		code := k.CachingDB.ContractCodeWithPrefix(addr, common.BytesToHash(a.CodeHash))
 		if len(code) > 0 {
 			k.PrefixStore(ctx, types.CodeKeyPrefix).Set(addr[:], code)
 			length := make([]byte, 8)
@@ -494,11 +499,8 @@ func (k *Keeper) getBlockTestBlockCtx(ctx sdk.Context) (*vm.BlockContext, error)
 	if header.BaseFee != nil {
 		baseFee = new(big.Int).Set(header.BaseFee)
 	}
-	if header.ExcessBlobGas != nil {
-		blobBaseFee = eip4844.CalcBlobFee(*header.ExcessBlobGas)
-	} else {
-		blobBaseFee = eip4844.CalcBlobFee(0)
-	}
+	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
+	blobBaseFee = eip4844.CalcBlobFee(chainConfig, header)
 	if header.Difficulty.Cmp(common.Big0) == 0 {
 		random = &header.MixDigest
 	}
@@ -519,7 +521,8 @@ func (k *Keeper) getBlockTestBlockCtx(ctx sdk.Context) (*vm.BlockContext, error)
 
 func (k *Keeper) getReplayBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
 	header := k.ReplayBlock.Header_
-	getHash := core.GetHashFn(header, &ReplayChainContext{ethClient: k.EthClient})
+	replayCtx := &ReplayChainContext{ethClient: k.EthClient, chainID: k.ChainID(ctx)}
+	getHash := core.GetHashFn(header, replayCtx)
 	var (
 		baseFee     *big.Int
 		blobBaseFee *big.Int
@@ -527,9 +530,13 @@ func (k *Keeper) getReplayBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
 	)
 	if header.BaseFee != nil {
 		baseFee = new(big.Int).Set(header.BaseFee)
+	} else {
+		baseFee = big.NewInt(0)
 	}
 	if header.ExcessBlobGas != nil {
-		blobBaseFee = eip4844.CalcBlobFee(*header.ExcessBlobGas)
+		blobBaseFee = eip4844.CalcBlobFee(replayCtx.Config(), header)
+	} else {
+		blobBaseFee = big.NewInt(0)
 	}
 	if header.Difficulty.Cmp(common.Big0) == 0 {
 		random = &header.MixDigest

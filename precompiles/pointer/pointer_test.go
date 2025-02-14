@@ -41,7 +41,6 @@ func TestAddNative(t *testing.T) {
 	require.Equal(t, uint64(0), g)
 	_, _, exists := testApp.EvmKeeper.GetERC20NativePointer(statedb.Ctx(), "test")
 	require.False(t, exists)
-
 	// token has metadata
 	testApp.BankKeeper.SetDenomMetaData(ctx, banktypes.Metadata{
 		Base:   "test",
