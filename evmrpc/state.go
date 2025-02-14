@@ -49,7 +49,7 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 		}
 	}
 	statedb := state.NewDBImpl(sdkCtx, a.keeper, true)
-	return (*hexutil.Big)(statedb.GetBalance(address)), nil
+	return (*hexutil.Big)(statedb.GetBalance(address).ToBig()), nil
 }
 
 func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {

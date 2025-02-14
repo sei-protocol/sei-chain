@@ -42,6 +42,7 @@ func (cc ChainConfig) EthereumConfig(chainID *big.Int) *params.ChainConfig {
 		CancunTime:          getUpgradeTimestamp(cc.CancunTime),
 		PragueTime:          getUpgradeTimestamp(cc.PragueTime),
 		VerkleTime:          getUpgradeTimestamp(cc.VerkleTime),
+		BlobScheduleConfig:  params.DefaultBlobSchedule,
 	}
 }
 
