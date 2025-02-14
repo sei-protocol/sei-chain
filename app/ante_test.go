@@ -27,7 +27,6 @@ import (
 	app "github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
@@ -243,7 +242,7 @@ func TestEvmAnteErrorHandler(t *testing.T) {
 	require.Nil(t, err)
 	txwrapper, err := ethtx.NewLegacyTx(tx)
 	require.Nil(t, err)
-	req, err := types.NewMsgEVMTransaction(txwrapper)
+	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 	builder := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
 	builder.SetMsgs(req)
