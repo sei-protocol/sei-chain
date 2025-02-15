@@ -258,6 +258,10 @@ func (m MockTxIncompatible) ValidateBasic() error {
 	return nil
 }
 
+func (m MockTxIncompatible) GetGasEstimate() uint64 {
+	return 0
+}
+
 func TestEVMAddressDecoratorContinueDespiteErrors(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
