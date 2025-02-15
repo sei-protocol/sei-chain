@@ -74,6 +74,7 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	if err = txBuilder.SetMsgs(msg); err != nil {
 		return
 	}
+	fmt.Printf("DEBUG: [SendRawTransaction] setting gas estimate of %+v on tx builder\n", gasUsedEstimate)
 	txBuilder.SetGasEstimate(gasUsedEstimate)
 	txbz, encodeErr := s.txConfig.TxEncoder()(txBuilder.GetTx())
 	if encodeErr != nil {
@@ -103,9 +104,6 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 }
 
 func (s *SendAPI) simulateTx(ctx context.Context, tx *ethtypes.Transaction) (estimate uint64, err error) {
-	defer func() {
-		fmt.Println("DEBUG: estimate = ", estimate, "err = ", err)
-	}()
 	var from common.Address
 	if tx.Type() == ethtypes.DynamicFeeTxType {
 		signer := ethtypes.NewLondonSigner(s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
