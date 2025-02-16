@@ -30,9 +30,9 @@ func (gl GasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, nex
 	fmt.Printf("[DEBUG]: In x/evm/ante/gas.go/NewGasLimitDecorator: gasMeter limit = %+v\n", gasMeter.Limit())
 	ctx = ctx.WithGasMeter(gasMeter)
 	if tx.GetGasEstimate() >= 21000 {
-		ctx = ctx.WithGasUsedEstimate(tx.GetGasEstimate())
+		ctx = ctx.WithGasEstimate(tx.GetGasEstimate())
 	} else {
-		ctx = ctx.WithGasUsedEstimate(gasMeter.GasConsumed())
+		ctx = ctx.WithGasEstimate(gasMeter.GasConsumed())
 	}
 	return next(ctx, tx, simulate)
 }
