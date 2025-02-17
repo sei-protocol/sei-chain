@@ -34,14 +34,13 @@ func TestAddNative(t *testing.T) {
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
 	blockCtx, _ := testApp.EvmKeeper.GetVMBlockContext(ctx, core.GasPool(suppliedGas))
-	evm := vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{})
+	evm := vm.NewEVM(*blockCtx, statedb, cfg, vm.Config{})
 	_, g, err := p.RunAndCalculateGas(evm, caller, caller, append(p.GetExecutor().(*pointer.PrecompileExecutor).AddNativePointerID, args...), suppliedGas, nil, nil, false, false)
 	require.NotNil(t, err)
 	require.NotNil(t, statedb.GetPrecompileError())
 	require.Equal(t, uint64(0), g)
 	_, _, exists := testApp.EvmKeeper.GetERC20NativePointer(statedb.Ctx(), "test")
 	require.False(t, exists)
-
 	// token has metadata
 	testApp.BankKeeper.SetDenomMetaData(ctx, banktypes.Metadata{
 		Base:   "test",
@@ -54,7 +53,7 @@ func TestAddNative(t *testing.T) {
 		}},
 	})
 	statedb = state.NewDBImpl(ctx, &testApp.EvmKeeper, false)
-	evm = vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{})
+	evm = vm.NewEVM(*blockCtx, statedb, cfg, vm.Config{})
 	ret, g, err := p.RunAndCalculateGas(evm, caller, caller, append(p.GetExecutor().(*pointer.PrecompileExecutor).AddNativePointerID, args...), suppliedGas, nil, nil, false, false)
 	require.Nil(t, err)
 	require.Equal(t, uint64(8889527), g)
@@ -83,7 +82,7 @@ func TestAddNative(t *testing.T) {
 	testApp.EvmKeeper.DeleteERC20NativePointer(statedb.Ctx(), "test", version)
 	testApp.EvmKeeper.SetERC20NativePointerWithVersion(statedb.Ctx(), "test", pointerAddr, version-1)
 	statedb = state.NewDBImpl(statedb.Ctx(), &testApp.EvmKeeper, true)
-	evm = vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{})
+	evm = vm.NewEVM(*blockCtx, statedb, cfg, vm.Config{})
 	_, _, err = p.RunAndCalculateGas(evm, caller, caller, append(p.GetExecutor().(*pointer.PrecompileExecutor).AddNativePointerID, args...), suppliedGas, nil, nil, false, false)
 	require.Nil(t, err)
 	require.Nil(t, statedb.GetPrecompileError())
