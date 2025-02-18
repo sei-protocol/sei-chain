@@ -44,6 +44,10 @@ func (t TestTx) ValidateBasic() error {
 	return nil
 }
 
+func (t TestTx) GetGasEstimate() uint64 {
+	return 0
+}
+
 type TestAppOpts struct {
 	useSc bool
 }
