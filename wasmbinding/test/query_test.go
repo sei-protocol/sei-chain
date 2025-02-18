@@ -129,7 +129,7 @@ func TestWasmGetOracleTwaps(t *testing.T) {
 	var parsedRes2 oracletypes.QueryTwapsResponse
 	err = json.Unmarshal(res, &parsedRes2)
 	require.NoError(t, err)
-	// should be 100 isntead of 200 because thats the oldest data timestamp we have
+	// should be 100 instead of 200 because thats the oldest data timestamp we have
 	require.Equal(t, oracletypes.QueryTwapsResponse{OracleTwaps: oracletypes.OracleTwaps{
 		oracletypes.OracleTwap{Denom: oracleutils.MicroAtomDenom, Twap: sdk.NewDec(20), LookbackSeconds: 100},
 	}}, parsedRes2)
