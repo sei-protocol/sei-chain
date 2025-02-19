@@ -23,7 +23,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth"
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/lib/ethapi"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -64,7 +64,7 @@ type AccessListResult struct {
 	GasUsed    hexutil.Uint64       `json:"gasUsed"`
 }
 
-func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (result *AccessListResult, returnErr error) {
+func (s *SimulationAPI) CreateAccessList(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (result *AccessListResult, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_createAccessList", s.connectionType, startTime, returnErr == nil)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
@@ -72,7 +72,7 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.Transa
 		bNrOrHash = *blockNrOrHash
 	}
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
-	acl, gasUsed, vmerr, err := ethapi.AccessList(ctx, s.backend, bNrOrHash, args)
+	acl, gasUsed, vmerr, err := export.AccessList(ctx, s.backend, bNrOrHash, args)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.Transa
 	return result, nil
 }
 
-func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride) (result hexutil.Uint64, returnErr error) {
+func (s *SimulationAPI) EstimateGas(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_estimateGas", s.connectionType, startTime, returnErr)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
@@ -91,11 +91,11 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.Transaction
 		bNrOrHash = *blockNrOrHash
 	}
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
-	estimate, err := ethapi.DoEstimateGas(ctx, s.backend, args, bNrOrHash, overrides, s.backend.RPCGasCap())
+	estimate, err := export.DoEstimateGas(ctx, s.backend, args, bNrOrHash, overrides, nil, s.backend.RPCGasCap())
 	return estimate, err
 }
 
-func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args ethapi.TransactionArgs, calls []ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride) (result hexutil.Uint64, returnErr error) {
+func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.TransactionArgs, calls []export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_estimateGasAfterCalls", s.connectionType, startTime, returnErr)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
@@ -103,11 +103,11 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args ethapi.T
 		bNrOrHash = *blockNrOrHash
 	}
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
-	estimate, err := ethapi.DoEstimateGasAfterCalls(ctx, s.backend, args, calls, bNrOrHash, overrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
+	estimate, err := export.DoEstimateGasAfterCalls(ctx, s.backend, args, calls, bNrOrHash, overrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
 	return estimate, err
 }
 
-func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride, blockOverrides *ethapi.BlockOverrides) (result hexutil.Bytes, returnErr error) {
+func (s *SimulationAPI) Call(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride, blockOverrides *export.BlockOverrides) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
 	defer func() {
@@ -124,7 +124,7 @@ func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, b
 		blockNrOrHash = &latest
 	}
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
-	callResult, err := ethapi.DoCall(ctx, s.backend, args, *blockNrOrHash, overrides, blockOverrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
+	callResult, err := export.DoCall(ctx, s.backend, args, *blockNrOrHash, overrides, blockOverrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
 	if err != nil {
 		return nil, err
 	}
@@ -204,16 +204,16 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 	return state.NewDBImpl(sdkCtx, b.keeper, true), b.getHeader(big.NewInt(height)), nil
 }
 
-func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *ethtypes.Transaction, blockHash common.Hash, blockNumber uint64, index uint64, err error) {
+func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found bool, tx *ethtypes.Transaction, blockHash common.Hash, blockNumber uint64, index uint64, err error) {
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
 	receipt, err := b.keeper.GetReceipt(sdkCtx, txHash)
 	if err != nil {
-		return nil, common.Hash{}, 0, 0, err
+		return false, nil, common.Hash{}, 0, 0, err
 	}
 	txHeight := int64(receipt.BlockNumber)
 	block, err := blockByNumber(ctx, b.tmClient, &txHeight)
 	if err != nil {
-		return nil, common.Hash{}, 0, 0, err
+		return false, nil, common.Hash{}, 0, 0, err
 	}
 	txIndex := hexutil.Uint(receipt.TransactionIndex)
 	tmTx := block.Block.Txs[int(txIndex)]
@@ -223,11 +223,11 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *e
 		return err == nil
 	})
 	if !found {
-		return nil, common.Hash{}, 0, 0, errors.New("failed to find transaction in block")
+		return false, nil, common.Hash{}, 0, 0, errors.New("failed to find transaction in block")
 	}
 	tx = getEthTxForTxBz(tmTx, b.txDecoder)
 	blockHash = common.BytesToHash(block.Block.Header.Hash().Bytes())
-	return tx, blockHash, uint64(txHeight), uint64(evmTxIndex), nil
+	return true, tx, blockHash, uint64(txHeight), uint64(evmTxIndex), nil
 }
 
 func (b *Backend) ChainDb() ethdb.Database {
@@ -352,7 +352,8 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		}
 		statedb.WithCtx(statedb.Ctx().WithEVMEntryViaWasmdPrecompile(wasmd.IsWasmdCall(tx.To())))
 		// Not yet the searched for transaction, execute on top of the current state
-		vmenv := vm.NewEVM(*blockContext, txContext, statedb, b.ChainConfig(), vm.Config{})
+		vmenv := vm.NewEVM(*blockContext, statedb, b.ChainConfig(), vm.Config{})
+		vmenv.SetTxContext(txContext)
 		statedb.SetTxContext(tx.Hash(), idx)
 		if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.Gas())); err != nil {
 			return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("transaction %#x failed: %v", tx.Hash(), err)
@@ -395,7 +396,9 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 	if blockCtx == nil {
 		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(wasmd.IsWasmdCall(msg.To)), core.GasPool(b.RPCGasCap()))
 	}
-	return vm.NewEVM(*blockCtx, txContext, stateDB, b.ChainConfig(), *vmConfig)
+	evm := vm.NewEVM(*blockCtx, stateDB, b.ChainConfig(), *vmConfig)
+	evm.SetTxContext(txContext)
+	return evm
 }
 
 func (b *Backend) CurrentHeader() *ethtypes.Header {

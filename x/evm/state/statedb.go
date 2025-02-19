@@ -3,9 +3,12 @@ package state
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/core/stateless"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	ethutils "github.com/ethereum/go-ethereum/trie/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
@@ -139,7 +142,7 @@ func (s *DBImpl) Error() error {
 }
 
 func (s *DBImpl) GetStorageRoot(common.Address) common.Hash {
-	panic("GetStorageRoot is not implemented and called unexpectedly")
+	return common.Hash{}
 }
 
 func (s *DBImpl) Copy() vm.StateDB {
@@ -163,13 +166,23 @@ func (s *DBImpl) Finalise(bool) {
 	s.ctx.Logger().Info("Finalise should only be called during simulation and will no-op")
 }
 
-func (s *DBImpl) Commit(uint64, bool) (common.Hash, error) {
+func (s *DBImpl) Commit(uint64, bool, bool) (common.Hash, error) {
 	panic("Commit is not implemented and called unexpectedly")
 }
 
 func (s *DBImpl) SetTxContext(common.Hash, int) {
 	//noop
 }
+
+func (s *DBImpl) AccessEvents() *vm.AccessEvents { return nil }
+
+func (s *DBImpl) CreateContract(common.Address) {}
+
+func (s *DBImpl) PointCache() *ethutils.PointCache {
+	return nil
+}
+
+func (s *DBImpl) Witness() *stateless.Witness { return nil }
 
 func (s *DBImpl) IntermediateRoot(bool) common.Hash {
 	panic("IntermediateRoot is not implemented and called unexpectedly")
@@ -228,4 +241,14 @@ func NewTemporaryState() *TemporaryState {
 		transientAccessLists:  &accessList{Addresses: make(map[common.Address]int), Slots: []map[common.Hash]struct{}{}},
 		surplus:               utils.Sdk0,
 	}
+}
+
+func GetDBImpl(vmsdb vm.StateDB) *DBImpl {
+	if sdb, ok := vmsdb.(*DBImpl); ok {
+		return sdb
+	}
+	if hdb, ok := vmsdb.(*state.HookedStateDB); ok {
+		return GetDBImpl(hdb.StateDB)
+	}
+	return nil
 }

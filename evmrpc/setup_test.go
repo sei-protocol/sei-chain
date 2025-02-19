@@ -29,7 +29,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -62,9 +61,9 @@ var MultiTxBlockHash = "0x000000000000000000000000000000000000000000000000000000
 var TestCosmosTxHash = "690D39ADF56D4C811B766DFCD729A415C36C4BFFE80D63E305373B9518EBFB14"
 var TestEvmTxHash = "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"
 
-var TestNonPanicTxHash = "0x566f1c956c74b089643a1e6f880ac65745de0e5cd8cfc3c7482d20a486576219"
-var TestPanicTxHash = "0x0ea197de8403de9c2e8cf9ec724e43734e9dbd3a8294a09d031acd67914b73e4"
-var TestSyntheticTxHash = "0x3ca69dcca32f435b642fcb13e50a1c6934b04c6f901deffa42cec6eb58c40f20"
+var TestNonPanicTxHash string
+var TestPanicTxHash string
+var TestSyntheticTxHash string
 var TestBlockHash = "0x0000000000000000000000000000000000000000000000000000000000000001"
 
 var EncodingConfig = app.MakeEncodingConfig()
@@ -515,7 +514,7 @@ func init() {
 	Ctx = testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
 	MultiTxCtx, _ = Ctx.CacheContext()
 	EVMKeeper = &testApp.EvmKeeper
-	EVMKeeper.InitGenesis(Ctx, *evmtypes.DefaultGenesis())
+	EVMKeeper.InitGenesis(Ctx, *types.DefaultGenesis())
 	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
 	if err != nil {
 		panic(err)
@@ -643,7 +642,7 @@ func generateTxData() {
 	})
 	debugTraceTxBuilder, _ := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     0,
-		GasFeeCap: big.NewInt(10),
+		GasFeeCap: big.NewInt(1000000000),
 		Gas:       22000,
 		To:        &to,
 		Value:     big.NewInt(1000),
@@ -652,7 +651,7 @@ func generateTxData() {
 	})
 	debugTraceNonPanicTxBuilder, _ := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     0,
-		GasFeeCap: big.NewInt(10),
+		GasFeeCap: big.NewInt(1000000000),
 		Gas:       22000,
 		To:        &to,
 		Value:     big.NewInt(1000),
@@ -685,8 +684,14 @@ func generateTxData() {
 	MultiTxBlockSynthTx = synthTxBuilder.GetTx()
 	DebugTraceTx = debugTraceTxBuilder.GetTx()
 	DebugTracePanicTx = debugTracePanicTxBuilder.GetTx()
+	panicEthTx, _ := DebugTracePanicTx.GetMsgs()[0].(*types.MsgEVMTransaction).AsTransaction()
+	TestPanicTxHash = panicEthTx.Hash().Hex()
 	DebugTraceNonPanicTx = debugTraceNonPanicTxBuilder.GetTx()
+	nonPanicEthTx, _ := DebugTraceNonPanicTx.GetMsgs()[0].(*types.MsgEVMTransaction).AsTransaction()
+	TestNonPanicTxHash = nonPanicEthTx.Hash().Hex()
 	DebugTraceSyntheticTx = debugTraceSyntheticTxBuilder.GetTx()
+	syntheticEthTx, _ := DebugTraceSyntheticTx.GetMsgs()[0].(*types.MsgEVMTransaction).AsTransaction()
+	TestSyntheticTxHash = syntheticEthTx.Hash().Hex()
 	TxNonEvm = app.TestTx{}
 	TxNonEvmWithSyntheticLog = app.TestTx{}
 	bloomTx1 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
