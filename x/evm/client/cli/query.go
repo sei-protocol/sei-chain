@@ -589,12 +589,36 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fromAmountLo, _ := transferProto.FromAmountLo.Marshal()
-	fromAmountHi, _ := transferProto.FromAmountHi.Marshal()
-	toAmountLo, _ := transferProto.ToAmountLo.Marshal()
-	toAmountHi, _ := transferProto.ToAmountHi.Marshal()
-	remainingBalance, _ := transferProto.RemainingBalance.Marshal()
-	proofs, _ := transferProto.Proofs.Marshal()
+	fromAmountLo, err := transferProto.FromAmountLo.Marshal()
+	if err != nil {
+		return err
+	}
+
+	fromAmountHi, err := transferProto.FromAmountHi.Marshal()
+	if err != nil {
+		return err
+	}
+
+	toAmountLo, err := transferProto.ToAmountLo.Marshal()
+	if err != nil {
+		return err
+	}
+
+	toAmountHi, err := transferProto.ToAmountHi.Marshal()
+	if err != nil {
+		return err
+	}
+
+	remainingBalance, err := transferProto.RemainingBalance.Marshal()
+	if err != nil {
+		return err
+	}
+
+	proofs, err := transferProto.Proofs.Marshal()
+	if err != nil {
+		return err
+	}
+
 	dat, err := os.ReadFile(args[0])
 	if err != nil {
 		return err
@@ -621,12 +645,36 @@ func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
 		var ctAuditors []cttypes.CtAuditor
 		auditorsProto := transferProto.Auditors
 		for _, auditorProto := range auditorsProto {
-			encryptedTransferAmountLo, _ := auditorProto.EncryptedTransferAmountLo.Marshal()
-			encryptedTransferAmountHi, _ := auditorProto.EncryptedTransferAmountHi.Marshal()
-			transferAmountLoValidityProof, _ := auditorProto.TransferAmountLoValidityProof.Marshal()
-			transferAmountHiValidityProof, _ := auditorProto.TransferAmountHiValidityProof.Marshal()
-			transferAmountLoEqualityProof, _ := auditorProto.TransferAmountLoEqualityProof.Marshal()
-			transferAmountHiEqualityProof, _ := auditorProto.TransferAmountHiEqualityProof.Marshal()
+			encryptedTransferAmountLo, err := auditorProto.EncryptedTransferAmountLo.Marshal()
+			if err != nil {
+				return err
+			}
+
+			encryptedTransferAmountHi, err := auditorProto.EncryptedTransferAmountHi.Marshal()
+			if err != nil {
+				return err
+			}
+
+			transferAmountLoValidityProof, err := auditorProto.TransferAmountLoValidityProof.Marshal()
+			if err != nil {
+				return err
+			}
+
+			transferAmountHiValidityProof, err := auditorProto.TransferAmountHiValidityProof.Marshal()
+			if err != nil {
+				return err
+			}
+
+			transferAmountLoEqualityProof, err := auditorProto.TransferAmountLoEqualityProof.Marshal()
+			if err != nil {
+				return err
+			}
+
+			transferAmountHiEqualityProof, err := auditorProto.TransferAmountHiEqualityProof.Marshal()
+			if err != nil {
+				return err
+			}
+
 			evmAuditor := cttypes.CtAuditor{
 				AuditorAddress:                auditorProto.AuditorAddress,
 				EncryptedTransferAmountLo:     encryptedTransferAmountLo,
