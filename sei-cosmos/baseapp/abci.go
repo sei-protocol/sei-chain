@@ -134,8 +134,10 @@ func (app *BaseApp) Info(ctx context.Context, req *abci.RequestInfo) (*abci.Resp
 func (app *BaseApp) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res abci.ResponseBeginBlock) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "begin_block")
 
-	if err := app.validateHeight(req); err != nil {
-		panic(err)
+	if !req.Simulate {
+		if err := app.validateHeight(req); err != nil {
+			panic(err)
+		}
 	}
 
 	if app.beginBlocker != nil {
@@ -144,9 +146,11 @@ func (app *BaseApp) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res
 	}
 
 	// call the streaming service hooks with the EndBlock messages
-	for _, streamingListener := range app.abciListeners {
-		if err := streamingListener.ListenBeginBlock(app.deliverState.ctx, req, res); err != nil {
-			app.logger.Error("EndBlock listening hook failed", "height", req.Header.Height, "err", err)
+	if !req.Simulate {
+		for _, streamingListener := range app.abciListeners {
+			if err := streamingListener.ListenBeginBlock(app.deliverState.ctx, req, res); err != nil {
+				app.logger.Error("EndBlock listening hook failed", "height", req.Header.Height, "err", err)
+			}
 		}
 	}
 	return res
