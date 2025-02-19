@@ -43,6 +43,9 @@ func MsgInitializeAccountDependencyGenerator(_ aclkeeper.Keeper, _ sdk.Context, 
 	}
 
 	fromAddrIdentifier := hex.EncodeToString(types.GetAccountPrefixFromBech32(msgInitializeAccount.FromAddress))
+	denom := msgInitializeAccount.Denom
+	supplyKey := hex.EncodeToString(append(banktypes.SupplyKey, []byte(denom)...))
+	bankDenomMetaDataKey := hex.EncodeToString(banktypes.DenomMetadataKey(denom))
 
 	accessOperations := []sdkacltypes.AccessOperation{
 		// Checks if the account already exists
@@ -56,6 +59,16 @@ func MsgInitializeAccountDependencyGenerator(_ aclkeeper.Keeper, _ sdk.Context, 
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_CT_ACCOUNT,
 			IdentifierTemplate: fromAddrIdentifier,
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_SUPPLY,
+			IdentifierTemplate: supplyKey,
+		},
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_DENOM,
+			IdentifierTemplate: bankDenomMetaDataKey,
 		},
 
 		*acltypes.CommitAccessOp(),
