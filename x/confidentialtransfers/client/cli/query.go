@@ -371,6 +371,7 @@ type RpcResponse struct {
 	JSONRPC string `json:"jsonrpc"`
 	ID      string `json:"id"`
 	Result  string `json:"result"`
+	Error   string `json:"error"`
 }
 
 func getTxHashByEvmHash(evmRpc string, ethHash string) (string, error) {
