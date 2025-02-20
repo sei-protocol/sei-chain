@@ -68,7 +68,8 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	}
 	gasUsedEstimate, err := s.simulateTx(ctx, tx)
 	if err != nil {
-		return
+		tx, _ = msg.AsTransaction()
+		gasUsedEstimate = tx.Gas() // if issue simulating, fallback to gas limit
 	}
 	txBuilder := s.txConfig.NewTxBuilder()
 	if err = txBuilder.SetMsgs(msg); err != nil {
