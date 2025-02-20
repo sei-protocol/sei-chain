@@ -91,7 +91,9 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 
 func HandlePrecompileError(err error, evm *vm.EVM, operation string) {
 	if err != nil {
-		evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+		if sdb := state.GetDBImpl(evm.StateDB); sdb != nil {
+			sdb.SetPrecompileError(err)
+		}
 		metrics.IncrementErrorMetrics(operation, err)
 	}
 }

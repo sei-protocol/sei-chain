@@ -292,8 +292,8 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 				panic(err)
 			}
 			statedb := state.NewDBImpl(ctx, am.keeper, false)
-			vmenv := vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{})
-			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv, statedb)
+			vmenv := vm.NewEVM(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{})
+			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv)
 			_, err = statedb.Finalize()
 			if err != nil {
 				panic(err)

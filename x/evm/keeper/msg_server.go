@@ -17,7 +17,6 @@ import (
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
-	cmath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -207,24 +206,26 @@ func (k *Keeper) GetGasPool() core.GasPool {
 
 func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender common.Address) *core.Message {
 	msg := &core.Message{
-		Nonce:             tx.Nonce(),
-		GasLimit:          tx.Gas(),
-		GasPrice:          new(big.Int).Set(tx.GasPrice()),
-		GasFeeCap:         new(big.Int).Set(tx.GasFeeCap()),
-		GasTipCap:         new(big.Int).Set(tx.GasTipCap()),
-		To:                tx.To(),
-		Value:             tx.Value(),
-		Data:              tx.Data(),
-		AccessList:        tx.AccessList(),
-		SkipAccountChecks: false,
-		BlobHashes:        tx.BlobHashes(),
-		BlobGasFeeCap:     tx.BlobGasFeeCap(),
-		From:              sender,
+		Nonce:         tx.Nonce(),
+		GasLimit:      tx.Gas(),
+		GasPrice:      new(big.Int).Set(tx.GasPrice()),
+		GasFeeCap:     new(big.Int).Set(tx.GasFeeCap()),
+		GasTipCap:     new(big.Int).Set(tx.GasTipCap()),
+		To:            tx.To(),
+		Value:         tx.Value(),
+		Data:          tx.Data(),
+		AccessList:    tx.AccessList(),
+		BlobHashes:    tx.BlobHashes(),
+		BlobGasFeeCap: tx.BlobGasFeeCap(),
+		From:          sender,
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	baseFee := k.GetBaseFee(ctx)
 	if baseFee != nil {
-		msg.GasPrice = cmath.BigMin(msg.GasPrice.Add(msg.GasTipCap, baseFee), msg.GasFeeCap)
+		msg.GasPrice = msg.GasPrice.Add(msg.GasTipCap, baseFee)
+		if msg.GasPrice.Cmp(msg.GasFeeCap) > 0 {
+			msg.GasPrice = msg.GasFeeCap
+		}
 	}
 	return msg
 }
@@ -236,9 +237,10 @@ func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *sta
 	}
 	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(msg)
-	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
+	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{})
+	evmInstance.SetTxContext(txCtx)
 	st := core.NewStateTransition(evmInstance, msg, &gp, true) // fee already charged in ante handler
-	return st.TransitionDb()
+	return st.Execute()
 }
 
 func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSendResponse, error) {

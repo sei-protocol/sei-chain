@@ -6,17 +6,19 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
+	"github.com/holiman/uint256"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing.BalanceChangeReason) {
+func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
+	amt := amtUint256.ToBig()
+	old := s.GetBalance(evmAddr)
 	if amt.Sign() == 0 {
-		return
+		return *old
 	}
 	if amt.Sign() < 0 {
-		s.AddBalance(evmAddr, new(big.Int).Neg(amt), reason)
-		return
+		return s.AddBalance(evmAddr, new(uint256.Int).Neg(amtUint256), reason)
 	}
 
 	ctx := s.ctx
@@ -31,33 +33,35 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing
 	err := s.k.BankKeeper().SubUnlockedCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
 	if err != nil {
 		s.err = err
-		return
+		return *old
 	}
 	err = s.k.BankKeeper().SubWei(ctx, addr, wei)
 	if err != nil {
 		s.err = err
-		return
+		return *old
 	}
 
 	if s.logger != nil && s.logger.OnBalanceChange != nil {
 		// We could modify AddWei instead so it returns us the old/new balance directly.
-		newBalance := s.GetBalance(evmAddr)
+		newBalance := s.GetBalance(evmAddr).ToBig()
 		oldBalance := new(big.Int).Add(newBalance, amt)
 
 		s.logger.OnBalanceChange(evmAddr, oldBalance, newBalance, reason)
 	}
 
 	s.tempStateCurrent.surplus = s.tempStateCurrent.surplus.Add(sdk.NewIntFromBigInt(amt))
+	return *old
 }
 
-func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing.BalanceChangeReason) {
+func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
+	amt := amtUint256.ToBig()
+	old := s.GetBalance(evmAddr)
 	if amt.Sign() == 0 {
-		return
+		return *old
 	}
 	if amt.Sign() < 0 {
-		s.SubBalance(evmAddr, new(big.Int).Neg(amt), reason)
-		return
+		return s.SubBalance(evmAddr, new(uint256.Int).Neg(amtUint256), reason)
 	}
 
 	ctx := s.ctx
@@ -71,39 +75,48 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing
 	err := s.k.BankKeeper().AddCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
 	if err != nil {
 		s.err = err
-		return
+		return *old
 	}
 	err = s.k.BankKeeper().AddWei(ctx, addr, wei)
 	if err != nil {
 		s.err = err
-		return
+		return *old
 	}
 
 	if s.logger != nil && s.logger.OnBalanceChange != nil {
 		// We could modify AddWei instead so it returns us the old/new balance directly.
-		newBalance := s.GetBalance(evmAddr)
+		newBalance := s.GetBalance(evmAddr).ToBig()
 		oldBalance := new(big.Int).Sub(newBalance, amt)
 
 		s.logger.OnBalanceChange(evmAddr, oldBalance, newBalance, reason)
 	}
 
 	s.tempStateCurrent.surplus = s.tempStateCurrent.surplus.Sub(sdk.NewIntFromBigInt(amt))
+	return *old
 }
 
-func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
+func (s *DBImpl) GetBalance(evmAddr common.Address) *uint256.Int {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	seiAddr := s.getSeiAddress(evmAddr)
-	return s.k.GetBalance(s.ctx, seiAddr)
+	res, overflow := uint256.FromBig(s.k.GetBalance(s.ctx, seiAddr))
+	if overflow {
+		panic("balance overflow")
+	}
+	if res == nil {
+		return uint256.NewInt(0)
+	}
+	return res
 }
 
 // should only be called during simulation
-func (s *DBImpl) SetBalance(evmAddr common.Address, amt *big.Int, reason tracing.BalanceChangeReason) {
+func (s *DBImpl) SetBalance(evmAddr common.Address, amtUint256 *uint256.Int, reason tracing.BalanceChangeReason) {
 	if !s.simulation {
 		panic("should never call SetBalance in a non-simulation setting")
 	}
+	amt := amtUint256.ToBig()
 	seiAddr := s.getSeiAddress(evmAddr)
 	moduleAddr := s.k.AccountKeeper().GetModuleAddress(types.ModuleName)
-	s.send(seiAddr, moduleAddr, s.GetBalance(evmAddr))
+	s.send(seiAddr, moduleAddr, s.GetBalance(evmAddr).ToBig())
 	if s.err != nil {
 		panic(s.err)
 	}
