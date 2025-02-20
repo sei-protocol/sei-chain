@@ -15,11 +15,11 @@ func TestRemoveFirstNTxHashes(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 
-	for i := byte(1); i <= 11; i++ {
-		setTxHash(ctx, k, i, 12-i)
+	for i := byte(1); i <= 101; i++ {
+		setTxHash(ctx, k, i, 102-i)
 	}
 
-	require.Equal(t, 11, getTxHashCount(ctx, k))
+	require.Equal(t, 101, getTxHashCount(ctx, k))
 	k.RemoveFirstNTxHashes(ctx, keeper.DefaultTxHashesToRemove)
 	require.Equal(t, 1, getTxHashCount(ctx, k))
 	k.RemoveFirstNTxHashes(ctx, keeper.DefaultTxHashesToRemove)
