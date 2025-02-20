@@ -1,6 +1,7 @@
 const {setupSigners, deployErc20PointerNative, getAdmin, createTokenFactoryTokenAndMint, ABI, generateWallet,
     fundAddress, getSeiAddress,
-    delay
+    delay,
+    adminKeyName
 } = require("./lib");
 const {expect} = require("chai");
 
@@ -20,7 +21,7 @@ describe("ERC20 to Native Pointer", function () {
         denom = await createTokenFactoryTokenAndMint(`native-pointer-test-${random_num}`, 1000, accounts[0].seiAddress)
 
         // deploy TestToken
-        const pointerAddr = await deployErc20PointerNative(hre.ethers.provider, denom)
+        const pointerAddr = await deployErc20PointerNative(hre.ethers.provider, denom, from=adminKeyName, evmRpc="", gasLimit=1370000)
         const contract = new hre.ethers.Contract(pointerAddr, ABI.ERC20, hre.ethers.provider);
         pointer = contract.connect(accounts[0].signer)
     })

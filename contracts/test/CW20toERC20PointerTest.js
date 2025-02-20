@@ -60,7 +60,7 @@ describe("CW20 to ERC20 Pointer", function () {
                         await deployErc20PointerForCw20(hre.ethers.provider, pointer, 5);
                         expect.fail(`Expected to be prevented from creating a pointer`);
                     } catch(e){
-                        expect(e.message).to.include("contract deployment failed");
+                        expect(e.message).to.include("execution reverted");
                     }
                 });
             });
