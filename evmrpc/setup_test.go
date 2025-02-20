@@ -25,6 +25,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -647,8 +648,8 @@ func generateTxData() {
 	})
 	debugTraceTxBuilder, _ := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     0,
-		GasFeeCap: big.NewInt(10),
-		Gas:       22000,
+		GasFeeCap: big.NewInt(1000000000),
+		Gas:       200000,
 		To:        &to,
 		Value:     big.NewInt(1000),
 		Data:      []byte("abc"),
@@ -767,6 +768,8 @@ func buildTx(txData ethtypes.DynamicFeeTx) (client.TxBuilder, *ethtypes.Transact
 	derivedPriv, _ := hd.Secp256k1.Derive()(mnemonic, "", "")
 	privKey := hd.Secp256k1.Generate()(derivedPriv)
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	_, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	EVMKeeper.BankKeeper().AddCoins(Ctx, sdk.AccAddress(evmAddr[:]), sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000))), false)
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	ethCfg := types.DefaultChainConfig().EthereumConfig(chainId)
 	signer := ethtypes.MakeSigner(ethCfg, big.NewInt(Ctx.BlockHeight()), uint64(Ctx.BlockTime().Unix()))

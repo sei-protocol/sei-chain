@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"runtime/debug"
 	"strings"
 	"time"
 
@@ -304,11 +303,6 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 }
 
 func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
-	defer func() {
-		if e := recover(); e != nil {
-			debug.PrintStack()
-		}
-	}()
 	emptyRelease := func() {}
 	// Short circuit if it's genesis block.
 	if block.Number().Int64() == 0 {
@@ -327,6 +321,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		return nil, vm.BlockContext{}, nil, emptyRelease, fmt.Errorf("failed to load validators for block %d from tendermint", prevBlockHeight)
 	}
 	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(res.Validators)
+	reqBeginBlock.Simulate = true
 	sdkCtx := b.ctxProvider(prevBlockHeight)
 	_ = b.app.BeginBlock(sdkCtx, reqBeginBlock)
 	blockContext, err := b.keeper.GetVMBlockContext(sdkCtx, core.GasPool(b.RPCGasCap()))
@@ -354,6 +349,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 				evmMsg = msg
 			}
 			ethTx, _ := evmMsg.AsTransaction()
+			sdkCtx, _ = b.keeper.PrepareCtxForEVMTransaction(sdkCtx, ethTx)
 			return ethTx, *blockContext, state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), emptyRelease, nil
 		}
 		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTx{}, sdkTx, sha256.Sum256(tx))
