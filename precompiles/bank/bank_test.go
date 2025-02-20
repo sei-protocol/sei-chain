@@ -44,6 +44,7 @@ func (tx mockTx) ValidateBasic() error                            { return nil }
 func (tx mockTx) GetSigners() []sdk.AccAddress                    { return tx.signers }
 func (tx mockTx) GetPubKeys() ([]cryptotypes.PubKey, error)       { return nil, nil }
 func (tx mockTx) GetSignaturesV2() ([]signing.SignatureV2, error) { return nil, nil }
+func (tx mockTx) GetGasEstimate() uint64                          { return 0 }
 
 func TestRun(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
