@@ -19,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/ss/types"
+	"github.com/sei-protocol/sei-db/ss/util"
 	"github.com/sei-protocol/sei-db/stream/changelog"
 	"golang.org/x/exp/slices"
 )
@@ -34,6 +35,7 @@ const (
 	earliestVersionKey           = "s/_earliest"
 	latestMigratedKeyMetadata    = "s/_latestMigratedKey"
 	latestMigratedModuleMetadata = "s/_latestMigratedModule"
+	lastRangeHashKey             = "s/_hash:latestRange"
 	tombstoneVal                 = "TOMBSTONE"
 
 	// TODO: Make configurable
@@ -198,6 +200,30 @@ func (db *Database) GetEarliestVersion() (int64, error) {
 	return db.earliestVersion, nil
 }
 
+func (db *Database) SetLastRangeHashed(latestHashed int64) error {
+	var ts [VersionSize]byte
+	binary.LittleEndian.PutUint64(ts[:], uint64(latestHashed))
+	return db.storage.Set([]byte(lastRangeHashKey), ts[:], defaultWriteOpts)
+}
+
+// GetLastRangeHashed returns the highest block that has been fully hashed in ranges.
+func (db *Database) GetLastRangeHashed() (int64, error) {
+	bz, closer, err := db.storage.Get([]byte(lastRangeHashKey))
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			// means we haven't hashed anything yet
+			return 0, nil
+		}
+		return 0, err
+	}
+	defer closer.Close()
+
+	if len(bz) == 0 {
+		return 0, nil
+	}
+	return int64(binary.LittleEndian.Uint64(bz)), nil
+}
+
 // Retrieves earliest version from db
 func retrieveEarliestVersion(db *pebble.DB) (int64, error) {
 	bz, closer, err := db.Get([]byte(earliestVersionKey))
@@ -355,6 +381,135 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 		Version:    version,
 		Changesets: changesets,
 	}
+
+	if db.config.HashRange > 0 {
+		go func(ver int64) {
+			if err := db.computeMissingRanges(ver); err != nil {
+				// handle error, e.g. log or panic in dev
+				fmt.Printf("maybeComputeMissingRanges error: %v\n", err)
+			}
+		}(version)
+	}
+
+	return nil
+}
+
+func (db *Database) computeMissingRanges(latestVersion int64) error {
+	lastHashed, err := db.GetLastRangeHashed()
+	if err != nil {
+		return fmt.Errorf("failed to get last hashed range: %w", err)
+	}
+
+	// If the last hashed block is already near or beyond the current version, there's nothing to do.
+	if lastHashed >= latestVersion {
+		return nil
+	}
+
+	// We'll compute enough chunk(s) until we catch up close to `latestVersion`.
+	for {
+		nextTarget := lastHashed + db.config.HashRange
+		if nextTarget > latestVersion {
+			// You can decide:
+			// 1) If you want partial intervals: do lastHashed+1 -> latestVersion
+			// 2) Or skip if you ONLY want full intervals.
+
+			// Example #1: Do partial chunk from (lastHashed+1) to latestVersion
+			if latestVersion-lastHashed >= db.config.HashRange/2 {
+				// only do partial chunk if it's somewhat large
+				// or do it unconditionally if you want *every* block hashed
+				begin := lastHashed + 1
+				end := latestVersion
+				if err := db.computeHashForRange(begin, end); err != nil {
+					return err
+				}
+				lastHashed = end
+				if err := db.SetLastRangeHashed(lastHashed); err != nil {
+					return err
+				}
+			}
+			break
+		} else {
+			// Full chunk
+			begin := lastHashed + 1
+			end := nextTarget
+			if err := db.computeHashForRange(begin, end); err != nil {
+				return err
+			}
+			lastHashed = end
+			if err := db.SetLastRangeHashed(lastHashed); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (db *Database) computeHashForRange(beginBlock, endBlock int64) error {
+	fmt.Printf("Computing hash for chunk [%d, %d]\n", beginBlock, endBlock)
+
+	chunkSize := endBlock - beginBlock + 1
+	if chunkSize <= 0 {
+		// Nothing to do
+		return nil
+	}
+
+	numOfWorkers := int(endBlock/chunkSize) + 1
+
+	for _, moduleName := range util.Modules {
+		// 1) Create a data channel:
+		dataCh := make(chan types.RawSnapshotNode, 10_000)
+
+		// 2) Create XorHashCalculator with the parameters explained:
+		hashCalculator := util.NewXorHashCalculator(chunkSize, numOfWorkers, dataCh)
+
+		// 3) Launch a goroutine that feeds data from RawIterate into dataCh:
+		go func(mod string) {
+			defer close(dataCh)
+
+			_, err := db.RawIterate(mod, func(key, value []byte, ver int64) bool {
+				// Only feed data whose version is in [beginBlock..endBlock]
+				if ver >= beginBlock && ver <= endBlock {
+					dataCh <- types.RawSnapshotNode{
+						StoreKey: mod,
+						Key:      key,
+						Value:    value,
+						Version:  ver,
+					}
+				}
+				// false => keep iterating
+				return false
+			})
+			if err != nil {
+				// In your environment, you might want to handle errors differently:
+				panic(fmt.Errorf("error scanning module %s: %w", mod, err))
+			}
+		}(moduleName)
+
+		// 4) Compute the sub-hashes. The aggregator blocks until dataCh is drained.
+		allHashes := hashCalculator.ComputeHashes()
+		if len(allHashes) == 0 {
+			fmt.Printf("No data found for module %q in [%d..%d], skipping.\n",
+				moduleName, beginBlock, endBlock)
+			continue
+		}
+
+		// Our aggregator merges sub-hashes in a chain, so the final sub-hash
+		// is the last element in allHashes:
+		finalHash := allHashes[len(allHashes)-1]
+
+		// 5) Store the module-specific range hash in Pebble:
+		if err := db.WriteBlockRangeHash(moduleName, beginBlock, endBlock, finalHash); err != nil {
+			return fmt.Errorf(
+				"failed to write block-range hash for module %q in [%d..%d]: %w",
+				moduleName, beginBlock, endBlock, err,
+			)
+		}
+
+		fmt.Printf("Wrote block-range hash for module=%q range=[%d..%d]: %X\n",
+			moduleName, beginBlock, endBlock, finalHash)
+	}
+
 	return nil
 }
 

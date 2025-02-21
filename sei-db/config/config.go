@@ -87,6 +87,10 @@ type StateStoreConfig struct {
 	// Whether to keep last version of a key during pruning or delete
 	// defaults to true
 	KeepLastVersion bool `mapstructure:"keep-last-version"`
+
+	// Range of blocks after which a XOR hash is computed and stored
+	// defaults to 1,000,000 blocks
+	HashRange int64 `json:"hash_range"`
 }
 
 func DefaultStateCommitConfig() StateCommitConfig {
