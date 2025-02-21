@@ -385,7 +385,6 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 	if db.config.HashRange > 0 {
 		go func(ver int64) {
 			if err := db.computeMissingRanges(ver); err != nil {
-				// handle error, e.g. log or panic in dev
 				fmt.Printf("maybeComputeMissingRanges error: %v\n", err)
 			}
 		}(version)
@@ -400,45 +399,28 @@ func (db *Database) computeMissingRanges(latestVersion int64) error {
 		return fmt.Errorf("failed to get last hashed range: %w", err)
 	}
 
-	// If the last hashed block is already near or beyond the current version, there's nothing to do.
-	if lastHashed >= latestVersion {
-		return nil
-	}
-
-	// We'll compute enough chunk(s) until we catch up close to `latestVersion`.
+	// Keep filling full chunks until we can't
 	for {
 		nextTarget := lastHashed + db.config.HashRange
-		if nextTarget > latestVersion {
-			// You can decide:
-			// 1) If you want partial intervals: do lastHashed+1 -> latestVersion
-			// 2) Or skip if you ONLY want full intervals.
 
-			// Example #1: Do partial chunk from (lastHashed+1) to latestVersion
-			if latestVersion-lastHashed >= db.config.HashRange/2 {
-				// only do partial chunk if it's somewhat large
-				// or do it unconditionally if you want *every* block hashed
-				begin := lastHashed + 1
-				end := latestVersion
-				if err := db.computeHashForRange(begin, end); err != nil {
-					return err
-				}
-				lastHashed = end
-				if err := db.SetLastRangeHashed(lastHashed); err != nil {
-					return err
-				}
-			}
+		// If we haven't reached the next full chunk boundary yet, stop.
+		// We do NOT do partial chunks.
+		if nextTarget > latestVersion {
 			break
-		} else {
-			// Full chunk
-			begin := lastHashed + 1
-			end := nextTarget
-			if err := db.computeHashForRange(begin, end); err != nil {
-				return err
-			}
-			lastHashed = end
-			if err := db.SetLastRangeHashed(lastHashed); err != nil {
-				return err
-			}
+		}
+
+		// We have a full chunk from (lastHashed+1) .. nextTarget
+		begin := lastHashed + 1
+		end := nextTarget
+
+		if err := db.computeHashForRange(begin, end); err != nil {
+			return err
+		}
+
+		// Mark that we've completed that chunk
+		lastHashed = end
+		if err := db.SetLastRangeHashed(lastHashed); err != nil {
+			return err
 		}
 	}
 
