@@ -3,21 +3,35 @@ package keeper
 import (
 	"bytes"
 	"context"
-	"math"
-	"math/big"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
+	"math"
+	"math/big"
 )
 
 type msgServer struct {
 	Keeper
 	*zkproofs.CachedRangeVerifierFactory
 }
+
+const (
+	MaxAuditors = 5
+
+	// Gas costs for operations
+	ScalarOpGasCost            = 10000
+	ProofVerificationOpGasCost = 20000
+
+	AddScalarDescriptor                                = "add scalar"
+	AddCiphertextDescriptor                            = "add ciphertext"
+	SubScalarDescriptor                                = "subtract scalar"
+	SubCiphertextDescriptor                            = "subtract ciphertext"
+	CiphertextCommitmentEqualityVerificationDescriptor = "ciphertext commitment equality verification"
+	ZeroBalanceVerificationDescriptor                  = "zero balance verification"
+)
 
 // NewMsgServerImpl returns an implementation of the MsgServer interface
 // for the provided Keeper.
@@ -56,24 +70,28 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 	}
 
 	// Validate the public key
+	ctx.GasMeter().ConsumeGas(ProofVerificationOpGasCost, "public key verification")
 	validated := zkproofs.VerifyPubKeyValidity(*instruction.Pubkey, instruction.Proofs.PubkeyValidityProof)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid public key")
 	}
 
 	// Validate the pending balance lo is zero.
+	ctx.GasMeter().ConsumeGas(ProofVerificationOpGasCost, ZeroBalanceVerificationDescriptor)
 	validated = zkproofs.VerifyZeroBalance(instruction.Proofs.ZeroPendingBalanceLoProof, instruction.Pubkey, instruction.PendingBalanceLo)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid pending balance lo")
 	}
 
 	// Validate the pending balance hi is zero.
+	ctx.GasMeter().ConsumeGas(ProofVerificationOpGasCost, ZeroBalanceVerificationDescriptor)
 	validated = zkproofs.VerifyZeroBalance(instruction.Proofs.ZeroPendingBalanceHiProof, instruction.Pubkey, instruction.PendingBalanceHi)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid pending balance hi")
 	}
 
 	// Validate the available balance is zero.
+	ctx.GasMeter().ConsumeGas(ProofVerificationOpGasCost, ZeroBalanceVerificationDescriptor)
 	validated = zkproofs.VerifyZeroBalance(instruction.Proofs.ZeroAvailableBalanceProof, instruction.Pubkey, instruction.AvailableBalance)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid available balance")
@@ -158,11 +176,13 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 
 	// Compute the new balances
 	teg := elgamal.NewTwistedElgamal()
+	ctx.GasMeter().ConsumeGas(ScalarOpGasCost, AddScalarDescriptor)
 	newPendingBalanceLo, err := teg.AddScalar(account.PendingBalanceLo, new(big.Int).SetUint64(uint64(bottom16)))
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding pending balance lo")
 	}
 
+	ctx.GasMeter().ConsumeGas(ScalarOpGasCost, AddScalarDescriptor)
 	newPendingBalanceHi, err := teg.AddScalar(account.PendingBalanceHi, new(big.Int).SetUint64(uint64(next32)))
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding pending balance hi")
@@ -234,11 +254,13 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 
 	// Verify that the remaining balance sent by the user matches the remaining balance calculated by the server.
 	teg := elgamal.NewTwistedElgamal()
+	ctx.GasMeter().ConsumeGas(ScalarOpGasCost, SubScalarDescriptor)
 	remainingBalanceCalculated, err := teg.SubScalar(account.AvailableBalance, instruction.Amount)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error subtracting amount")
 	}
 
+	ctx.GasMeter().ConsumeGas(ProofVerificationOpGasCost, CiphertextCommitmentEqualityVerificationDescriptor)
 	verified = zkproofs.VerifyCiphertextCommitmentEquality(
 		instruction.Proofs.RemainingBalanceEqualityProof,
 		&account.PublicKey, remainingBalanceCalculated,
@@ -310,15 +332,18 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 
 	// Calculate updated balances
 	teg := elgamal.NewTwistedElgamal()
+	ctx.GasMeter().ConsumeGas(ScalarOpGasCost, AddScalarDescriptor)
 	newAvailableBalance, err := teg.AddWithLoHi(account.AvailableBalance, account.PendingBalanceLo, account.PendingBalanceHi)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error summing balances")
 	}
 
+	ctx.GasMeter().ConsumeGas(ScalarOpGasCost, SubCiphertextDescriptor)
 	zeroCiphertextLo, err := elgamal.SubtractCiphertext(account.PendingBalanceLo, account.PendingBalanceLo)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error zeroing pending balance lo")
 	}
+	ctx.GasMeter().ConsumeGas(ScalarOpGasCost, SubCiphertextDescriptor)
 	zeroCiphertextHi, err := elgamal.SubtractCiphertext(account.PendingBalanceHi, account.PendingBalanceHi)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error zeroing pending balance hi")
@@ -368,18 +393,21 @@ func (m msgServer) CloseAccount(goCtx context.Context, req *types.MsgCloseAccoun
 	}
 
 	// Validate proof that pending balance lo is zero.
+	ctx.GasMeter().ConsumeGas(ProofVerificationOpGasCost, ZeroBalanceVerificationDescriptor)
 	validated := zkproofs.VerifyZeroBalance(instruction.Proofs.ZeroPendingBalanceLoProof, &account.PublicKey, account.PendingBalanceLo)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "pending balance lo must be 0")
 	}
 
 	// Validate proof that pending balance hi is zero.
+	ctx.GasMeter().ConsumeGas(ProofVerificationOpGasCost, ZeroBalanceVerificationDescriptor)
 	validated = zkproofs.VerifyZeroBalance(instruction.Proofs.ZeroPendingBalanceHiProof, &account.PublicKey, account.PendingBalanceHi)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "pending balance hi must be 0")
 	}
 
 	// Validate proof that available balance is zero.
+	ctx.GasMeter().ConsumeGas(ProofVerificationOpGasCost, ZeroBalanceVerificationDescriptor)
 	validated = zkproofs.VerifyZeroBalance(instruction.Proofs.ZeroAvailableBalanceProof, &account.PublicKey, account.AvailableBalance)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "available balance must be 0")
@@ -435,6 +463,10 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "recipient account has too many pending transactions")
 	}
 
+	if req.Auditors != nil && len(req.Auditors) > MaxAuditors {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "maximum number of auditors exceeded")
+	}
+
 	// Calculate senders new available balance.
 	teg := elgamal.NewTwistedElgamal()
 	newSenderBalanceCiphertext, err := teg.SubWithLoHi(senderAccount.AvailableBalance, instruction.SenderTransferAmountLo, instruction.SenderTransferAmountHi)
@@ -449,7 +481,8 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	if rangeProofGasCost > 0 {
 		ctx.GasMeter().ConsumeGas(rangeProofGasCost, "range proof verification")
 	}
-
+	// 8 more verification operations are required for the transfer proof.
+	ctx.GasMeter().ConsumeGas(ProofVerificationOpGasCost*8, "transfer proof verification")
 	err = types.VerifyTransferProofs(instruction, &senderAccount.PublicKey, &recipientAccount.PublicKey, newSenderBalanceCiphertext, m.CachedRangeVerifierFactory)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
@@ -463,6 +496,8 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 			return nil, sdkerrors.Wrap(sdkerrors.ErrNotFound, "auditor account does not exist")
 		}
 
+		// the auditor proof verification involves 4 proofs.
+		ctx.GasMeter().ConsumeGas(ProofVerificationOpGasCost*4, "auditor proof verification")
 		err = types.VerifyAuditorProof(
 			instruction.SenderTransferAmountLo,
 			instruction.SenderTransferAmountHi,
@@ -476,11 +511,13 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	}
 
 	// Calculate and Update the account states.
+	ctx.GasMeter().ConsumeGas(ScalarOpGasCost, AddCiphertextDescriptor)
 	recipientPendingBalanceLo, err := elgamal.AddCiphertext(recipientAccount.PendingBalanceLo, instruction.RecipientTransferAmountLo)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding recipient transfer amount lo")
 	}
 
+	ctx.GasMeter().ConsumeGas(ScalarOpGasCost, AddCiphertextDescriptor)
 	recipientPendingBalanceHi, err := elgamal.AddCiphertext(recipientAccount.PendingBalanceHi, instruction.RecipientTransferAmountHi)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding recipient transfer amount hi")
