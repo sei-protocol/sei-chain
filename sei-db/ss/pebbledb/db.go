@@ -439,13 +439,10 @@ func (db *Database) computeHashForRange(beginBlock, endBlock int64) error {
 	numOfWorkers := int(endBlock/chunkSize) + 1
 
 	for _, moduleName := range util.Modules {
-		// 1) Create a data channel:
 		dataCh := make(chan types.RawSnapshotNode, 10_000)
 
-		// 2) Create XorHashCalculator with the parameters explained:
 		hashCalculator := util.NewXorHashCalculator(chunkSize, numOfWorkers, dataCh)
 
-		// 3) Launch a goroutine that feeds data from RawIterate into dataCh:
 		go func(mod string) {
 			defer close(dataCh)
 
@@ -459,16 +456,13 @@ func (db *Database) computeHashForRange(beginBlock, endBlock int64) error {
 						Version:  ver,
 					}
 				}
-				// false => keep iterating
 				return false
 			})
 			if err != nil {
-				// In your environment, you might want to handle errors differently:
 				panic(fmt.Errorf("error scanning module %s: %w", mod, err))
 			}
 		}(moduleName)
 
-		// 4) Compute the sub-hashes. The aggregator blocks until dataCh is drained.
 		allHashes := hashCalculator.ComputeHashes()
 		if len(allHashes) == 0 {
 			fmt.Printf("No data found for module %q in [%d..%d], skipping.\n",
@@ -476,11 +470,8 @@ func (db *Database) computeHashForRange(beginBlock, endBlock int64) error {
 			continue
 		}
 
-		// Our aggregator merges sub-hashes in a chain, so the final sub-hash
-		// is the last element in allHashes:
 		finalHash := allHashes[len(allHashes)-1]
 
-		// 5) Store the module-specific range hash in Pebble:
 		if err := db.WriteBlockRangeHash(moduleName, beginBlock, endBlock, finalHash); err != nil {
 			return fmt.Errorf(
 				"failed to write block-range hash for module %q in [%d..%d]: %w",
