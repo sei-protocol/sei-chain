@@ -21,16 +21,20 @@ type msgServer struct {
 const (
 	MaxAuditors = 5
 
-	// Gas costs for operations
-	ScalarOpGasCost            = 10000
+	CiphertextOpGasCost        = 10000
 	ProofVerificationOpGasCost = 20000
 
 	AddScalarDescriptor                                = "add scalar"
+	AddWithLoHiDescriptor                              = "add with lo hi"
 	AddCiphertextDescriptor                            = "add ciphertext"
 	SubScalarDescriptor                                = "subtract scalar"
 	SubCiphertextDescriptor                            = "subtract ciphertext"
+	PubKeyVerificationDescriptor                       = "public key verification"
 	CiphertextCommitmentEqualityVerificationDescriptor = "ciphertext commitment equality verification"
 	ZeroBalanceVerificationDescriptor                  = "zero balance verification"
+	TransferProofVerificationDescriptor                = "transfer proof verification"
+	AuditorProofVerificationDescriptor                 = "auditor proof verification"
+	RangedProofVerificationDescriptor                  = "range proof verification"
 )
 
 // NewMsgServerImpl returns an implementation of the MsgServer interface
@@ -70,7 +74,7 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 	}
 
 	// Validate the public key
-	ctx.GasMeter().ConsumeGas(ProofVerificationOpGasCost, "public key verification")
+	ctx.GasMeter().ConsumeGas(ProofVerificationOpGasCost, PubKeyVerificationDescriptor)
 	validated := zkproofs.VerifyPubKeyValidity(*instruction.Pubkey, instruction.Proofs.PubkeyValidityProof)
 	if !validated {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid public key")
@@ -176,13 +180,13 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 
 	// Compute the new balances
 	teg := elgamal.NewTwistedElgamal()
-	ctx.GasMeter().ConsumeGas(ScalarOpGasCost, AddScalarDescriptor)
+	ctx.GasMeter().ConsumeGas(CiphertextOpGasCost, AddScalarDescriptor)
 	newPendingBalanceLo, err := teg.AddScalar(account.PendingBalanceLo, new(big.Int).SetUint64(uint64(bottom16)))
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding pending balance lo")
 	}
 
-	ctx.GasMeter().ConsumeGas(ScalarOpGasCost, AddScalarDescriptor)
+	ctx.GasMeter().ConsumeGas(CiphertextOpGasCost, AddScalarDescriptor)
 	newPendingBalanceHi, err := teg.AddScalar(account.PendingBalanceHi, new(big.Int).SetUint64(uint64(next32)))
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding pending balance hi")
@@ -244,7 +248,7 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 	// Consume additional gas as range proofs are computationally expensive.
 	cost := m.Keeper.GetRangeProofGasCost(ctx)
 	if cost > 0 {
-		ctx.GasMeter().ConsumeGas(cost, "range proof verification")
+		ctx.GasMeter().ConsumeGas(cost, RangedProofVerificationDescriptor)
 	}
 
 	verified, _ := zkproofs.VerifyRangeProof(instruction.Proofs.RemainingBalanceRangeProof, instruction.RemainingBalanceCommitment, 128, m.CachedRangeVerifierFactory)
@@ -254,7 +258,7 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 
 	// Verify that the remaining balance sent by the user matches the remaining balance calculated by the server.
 	teg := elgamal.NewTwistedElgamal()
-	ctx.GasMeter().ConsumeGas(ScalarOpGasCost, SubScalarDescriptor)
+	ctx.GasMeter().ConsumeGas(CiphertextOpGasCost, SubScalarDescriptor)
 	remainingBalanceCalculated, err := teg.SubScalar(account.AvailableBalance, instruction.Amount)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error subtracting amount")
@@ -332,18 +336,19 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 
 	// Calculate updated balances
 	teg := elgamal.NewTwistedElgamal()
-	ctx.GasMeter().ConsumeGas(ScalarOpGasCost, AddScalarDescriptor)
+	// AddWithLoHi uses 3 operations
+	ctx.GasMeter().ConsumeGas(CiphertextOpGasCost*3, AddWithLoHiDescriptor)
 	newAvailableBalance, err := teg.AddWithLoHi(account.AvailableBalance, account.PendingBalanceLo, account.PendingBalanceHi)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error summing balances")
 	}
 
-	ctx.GasMeter().ConsumeGas(ScalarOpGasCost, SubCiphertextDescriptor)
+	ctx.GasMeter().ConsumeGas(CiphertextOpGasCost, SubCiphertextDescriptor)
 	zeroCiphertextLo, err := elgamal.SubtractCiphertext(account.PendingBalanceLo, account.PendingBalanceLo)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error zeroing pending balance lo")
 	}
-	ctx.GasMeter().ConsumeGas(ScalarOpGasCost, SubCiphertextDescriptor)
+	ctx.GasMeter().ConsumeGas(CiphertextOpGasCost, SubCiphertextDescriptor)
 	zeroCiphertextHi, err := elgamal.SubtractCiphertext(account.PendingBalanceHi, account.PendingBalanceHi)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error zeroing pending balance hi")
@@ -479,10 +484,10 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 
 	// Consume additional gas as range proofs are computationally expensive.
 	if rangeProofGasCost > 0 {
-		ctx.GasMeter().ConsumeGas(rangeProofGasCost, "range proof verification")
+		ctx.GasMeter().ConsumeGas(rangeProofGasCost, RangedProofVerificationDescriptor)
 	}
 	// 8 more verification operations are required for the transfer proof.
-	ctx.GasMeter().ConsumeGas(ProofVerificationOpGasCost*8, "transfer proof verification")
+	ctx.GasMeter().ConsumeGas(ProofVerificationOpGasCost*8, TransferProofVerificationDescriptor)
 	err = types.VerifyTransferProofs(instruction, &senderAccount.PublicKey, &recipientAccount.PublicKey, newSenderBalanceCiphertext, m.CachedRangeVerifierFactory)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
@@ -497,7 +502,7 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 		}
 
 		// the auditor proof verification involves 4 proofs.
-		ctx.GasMeter().ConsumeGas(ProofVerificationOpGasCost*4, "auditor proof verification")
+		ctx.GasMeter().ConsumeGas(ProofVerificationOpGasCost*4, AuditorProofVerificationDescriptor)
 		err = types.VerifyAuditorProof(
 			instruction.SenderTransferAmountLo,
 			instruction.SenderTransferAmountHi,
@@ -511,13 +516,13 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 	}
 
 	// Calculate and Update the account states.
-	ctx.GasMeter().ConsumeGas(ScalarOpGasCost, AddCiphertextDescriptor)
+	ctx.GasMeter().ConsumeGas(CiphertextOpGasCost, AddCiphertextDescriptor)
 	recipientPendingBalanceLo, err := elgamal.AddCiphertext(recipientAccount.PendingBalanceLo, instruction.RecipientTransferAmountLo)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding recipient transfer amount lo")
 	}
 
-	ctx.GasMeter().ConsumeGas(ScalarOpGasCost, AddCiphertextDescriptor)
+	ctx.GasMeter().ConsumeGas(CiphertextOpGasCost, AddCiphertextDescriptor)
 	recipientPendingBalanceHi, err := elgamal.AddCiphertext(recipientAccount.PendingBalanceHi, instruction.RecipientTransferAmountHi)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error adding recipient transfer amount hi")
