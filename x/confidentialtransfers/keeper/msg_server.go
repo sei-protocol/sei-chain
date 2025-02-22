@@ -469,7 +469,7 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "recipient account has too many pending transactions")
 	}
 
-	if req.Auditors != nil && len(req.Auditors) > MaxAuditors {
+	if len(req.Auditors) > MaxAuditors {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "maximum number of auditors exceeded")
 	}
 
