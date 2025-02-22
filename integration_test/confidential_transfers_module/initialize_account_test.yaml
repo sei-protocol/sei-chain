@@ -9,7 +9,7 @@
     - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 1sei -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
 
     # Initialize confidential token account for denom uatom for admin
-    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from cttest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: INIT_ACCOUNT_CODE
 
     # Query the account to verify it was set up
@@ -17,11 +17,11 @@
       env: ACCOUNT_PENDING_BALANCE
 
     # Initialize confidential token account for denom uatom for admin again. This should fail as the account already exists
-    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from cttest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: INIT_ACCOUNT_CODE_REPEAT
 
     # Initialize confidential token account for different denom uusdc for admin
-    - cmd: printf "12345678\n" | seid tx ct init-account uusdc --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct init-account uusdc --from cttest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: INIT_ACCOUNT_CODE_USDC
 
     # Query the account to verify it was set up
@@ -52,7 +52,7 @@
 - name: Test initializing confidential token account for a denom that doesn't exist
   inputs:
     # Initialize confidential token account for denom uatom for admin
-    - cmd: printf "12345678\n" | seid tx ct init-account notexist --from cttest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct init-account notexist --from cttest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: INIT_ACCOUNT_CODE
 
   verifiers:

@@ -15,13 +15,13 @@
       env: WITHDRAW_AMOUNT
 
     # Initialize confidential token account for denom uatom
-    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctwithdrawtest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctwithdrawtest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: INIT_ACCOUNT_CODE
 
     # Deposit to the confidential token account and apply the pending balance
-    - cmd: printf "12345678\n" | seid tx ct deposit ${WITHDRAW_AMOUNT}uatom --from ctwithdrawtest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct deposit ${WITHDRAW_AMOUNT}uatom --from ctwithdrawtest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: DEPOSIT_CODE
-    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance uatom --from ctwithdrawtest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance uatom --from ctwithdrawtest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: APPLY_PENDING_BALANCE_CODE
 
     # Query the initial account state
@@ -137,14 +137,14 @@
       env: WITHDRAW_AMOUNT
 
     # Initialize confidential token account for denom uatom for ctprwithdraw
-    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctprwithdraw --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctprwithdraw --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: INIT_ACCOUNT_CODE
 
     # Deposit to the confidential token account
-    - cmd: printf "12345678\n" | seid tx ct deposit ${WITHDRAW_AMOUNT}uatom --from ctprwithdraw --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct deposit ${WITHDRAW_AMOUNT}uatom --from ctprwithdraw --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: DEPOSIT_CODE
 
-    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance uatom --from ctprwithdraw --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance uatom --from ctprwithdraw --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: APPLY_PENDING_BALANCE_CODE
 
     # Query the initial account state
