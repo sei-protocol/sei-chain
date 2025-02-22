@@ -1281,6 +1281,10 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 	suite.Require().Equal(newTotal, newRecipientPendingBalance, "New pending balance should be equal to transfer amount added to old pending balance")
 }
 
+func (suite *KeeperTestSuite) TestMsgServer_TransferWithAllowlist() {
+	suite.App.BankKeeper.SetDenomAllowList(suite.Ctx, "factory/creator/allow", banktypes.AllowList{Addresses: suite.AllowListAddresses})
+}
+
 func (suite *KeeperTestSuite) TestMsgServer_TransferToMaxPendingRecipient() {
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
 

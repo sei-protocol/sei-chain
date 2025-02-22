@@ -8,6 +8,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
@@ -415,8 +416,28 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid msg")
 	}
 
+	from, err := sdk.AccAddressFromBech32(req.FromAddress)
+	if err != nil {
+		return nil, err
+	}
+	to, err := sdk.AccAddressFromBech32(req.ToAddress)
+	if err != nil {
+		return nil, err
+	}
+
 	if instruction.FromAddress == instruction.ToAddress {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "sender and recipient addresses must be different")
+	}
+
+	// wrap denom in a coin for allow list check
+	coin := sdk.NewCoins(sdk.NewCoin(req.Denom, sdk.NewInt(1)))
+
+	allowListCache := make(map[string]bankkeeper.AllowedAddresses)
+	if !m.BankKeeper().IsInDenomAllowList(ctx, from, coin, allowListCache) {
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to send funds", from.String())
+	}
+	if m.BankKeeper().BlockedAddr(to) || !m.BankKeeper().IsInDenomAllowList(ctx, to, coin, allowListCache) {
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to receive funds", to.String())
 	}
 
 	// Check that sender and recipient accounts exist.
