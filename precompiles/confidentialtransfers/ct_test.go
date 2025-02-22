@@ -67,7 +67,7 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 			name:             "precompile should return true if input is valid",
 			args:             args{caller: &senderEVMAddr},
 			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0xec0b6,
+			wantRemainingGas: 0xc0196,
 			wantErr:          false,
 		},
 		{
@@ -91,7 +91,7 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 					return in
 				}},
 			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0xec519,
+			wantRemainingGas: 0xc05f9,
 			wantErr:          false,
 		},
 		{
@@ -366,7 +366,7 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 		{
 			name:             "precompile should return true of input is valid",
 			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0xea100,
+			wantRemainingGas: 0x970e0,
 			wantErr:          false,
 		},
 		{
@@ -378,7 +378,7 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 					return in
 				}},
 			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0xea9c6,
+			wantRemainingGas: 0x979a6,
 			wantErr:          false,
 		},
 		{
@@ -747,7 +747,7 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 		{
 			name:             "precompile should return true if input is valid",
 			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0x1e438a,
+			wantRemainingGas: 0x1d0b0a,
 			wantErr:          false,
 		},
 		{
@@ -980,7 +980,7 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 				caller: userEVMAddr,
 			},
 			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0x1e0fb5,
+			wantRemainingGas: 0x1dc195,
 			wantErr:          false,
 		},
 		{
@@ -1098,7 +1098,7 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 				caller: &senderEVMAddr,
 			},
 			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0x1e43df,
+			wantRemainingGas: 0x1d808f,
 			wantErr:          false,
 		},
 		// Technically this is possible, although both accounts would have to have the same pendingBalanceCreditCounter and AvailableBalance, which is highly improbable.
@@ -1324,7 +1324,7 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 				caller: &senderEVMAddr,
 			},
 			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0xecd4e,
+			wantRemainingGas: 0xe581e,
 			wantErr:          false,
 		},
 		{
@@ -1568,7 +1568,7 @@ func TestPrecompileCloseAccount_Execute(t *testing.T) {
 				caller: &senderEVMAddr,
 			},
 			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0x1e6c5d,
+			wantRemainingGas: 0x1d81fd,
 			wantErr:          false,
 		},
 		{
