@@ -97,7 +97,13 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 
 	// calculate the priority by dividing the total fee with the native gas limit (i.e. the effective native gas price)
 	priority := fc.CalculatePriority(ctx, txData)
-	ctx = ctx.WithPriority(priority.Int64())
+
+	// only set priority if it is valid
+	if priority.IsInt64() {
+		ctx = ctx.WithPriority(priority.Int64())
+	} else {
+		ctx = ctx.WithPriority(0)
+	}
 
 	return next(ctx, tx, simulate)
 }
@@ -121,6 +127,8 @@ func (fc EVMFeeCheckDecorator) CalculatePriority(ctx sdk.Context, txData ethtx.T
 	priority := sdk.NewDecFromBigInt(gp).Quo(fc.evmKeeper.GetPriorityNormalizer(ctx)).TruncateInt().BigInt()
 	if priority.Cmp(big.NewInt(antedecorators.MaxPriority)) > 0 {
 		priority = big.NewInt(antedecorators.MaxPriority)
+	} else if priority.Sign() < 0 {
+		priority = big.NewInt(0)
 	}
 	return priority
 }
