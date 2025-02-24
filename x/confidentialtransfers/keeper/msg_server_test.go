@@ -6,6 +6,7 @@ import (
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
@@ -1282,7 +1283,81 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 }
 
 func (suite *KeeperTestSuite) TestMsgServer_TransferWithAllowlist() {
-	suite.App.BankKeeper.SetDenomAllowList(suite.Ctx, "factory/creator/allow", banktypes.AllowList{Addresses: suite.AllowListAddresses})
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+	testDenom := "factory/creator/allow"
+
+	// Setup the accounts used for the test
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+	recipientPk := suite.PrivKeys[1]
+	recipientAddr := privkeyToAddress(recipientPk)
+
+	suite.App.BankKeeper.SetDenomAllowList(suite.Ctx, testDenom, banktypes.AllowList{Addresses: []string{senderAddr.String(), recipientAddr.String()}})
+
+	// Initialize an account
+	initialSenderState, _ := suite.SetupAccountState(senderPk, testDenom, 10, big.NewInt(2000), big.NewInt(3000), big.NewInt(1000))
+	initialRecipientState, _ := suite.SetupAccountState(recipientPk, testDenom, 12, big.NewInt(5000), big.NewInt(21000), big.NewInt(201000))
+
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
+
+	transferAmount := uint64(500)
+
+	// Happy Path
+	transferStruct, err := types.NewTransfer(
+		senderPk,
+		senderAddr.String(),
+		recipientAddr.String(),
+		testDenom,
+		initialSenderState.DecryptableAvailableBalance,
+		initialSenderState.AvailableBalance,
+		transferAmount,
+		&initialRecipientState.PublicKey,
+		nil)
+	suite.Require().NoError(err, "Should not have error creating valid transfer struct")
+
+	req := types.NewMsgTransferProto(transferStruct)
+	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().NoError(err, "Should not have error calling valid transfer")
+
+	// Remove recipient from allowlist
+	suite.App.BankKeeper.SetDenomAllowList(suite.Ctx, testDenom, banktypes.AllowList{Addresses: []string{senderAddr.String()}})
+
+	transferStruct, err = types.NewTransfer(
+		senderPk,
+		senderAddr.String(),
+		recipientAddr.String(),
+		testDenom,
+		initialSenderState.DecryptableAvailableBalance,
+		initialSenderState.AvailableBalance,
+		transferAmount,
+		&initialRecipientState.PublicKey,
+		nil)
+	suite.Require().NoError(err, "Should not have error creating valid transfer struct")
+
+	req = types.NewMsgTransferProto(transferStruct)
+	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().Equal(recipientAddr.String()+" is not allowed to receive funds: unauthorized", err.Error())
+
+	// Remove sender from allowlist
+	suite.App.BankKeeper.SetDenomAllowList(suite.Ctx, testDenom, banktypes.AllowList{Addresses: []string{recipientAddr.String()}})
+
+	transferStruct, err = types.NewTransfer(
+		senderPk,
+		senderAddr.String(),
+		recipientAddr.String(),
+		testDenom,
+		initialSenderState.DecryptableAvailableBalance,
+		initialSenderState.AvailableBalance,
+		transferAmount,
+		&initialRecipientState.PublicKey,
+		nil)
+	suite.Require().NoError(err, "Should not have error creating valid transfer struct")
+
+	req = types.NewMsgTransferProto(transferStruct)
+	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().Equal(senderAddr.String()+" is not allowed to send funds: unauthorized", err.Error())
 }
 
 func (suite *KeeperTestSuite) TestMsgServer_TransferToMaxPendingRecipient() {
