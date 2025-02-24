@@ -145,6 +145,12 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 	// Define the amount to be transferred as sdk.Coins
 	coins := sdk.NewCoins(sdk.NewCoin(req.Denom, sdk.NewIntFromUint64(req.Amount)))
 
+	// Check if the address is allowed to deposit funds
+	allowListCache := make(map[string]bankkeeper.AllowedAddresses)
+	if !m.BankKeeper().IsInDenomAllowList(ctx, address, coins, allowListCache) {
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to deposit funds", address.String())
+	}
+
 	// Transfer the amount from the sender's account to the module account
 	if err := m.Keeper.BankKeeper().SendCoinsFromAccountToModule(ctx, address, types.ModuleName, coins); err != nil {
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to deposit %d %s", req.Amount, req.Denom)
@@ -261,6 +267,12 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 	// Return the tokens to the sender
 	coin := sdk.NewCoin(instruction.Denom, sdk.NewIntFromBigInt(instruction.Amount))
 	coins := sdk.NewCoins(coin)
+
+	// Check if the address is allowed to withdraw funds
+	allowListCache := make(map[string]bankkeeper.AllowedAddresses)
+	if !m.BankKeeper().IsInDenomAllowList(ctx, address, coins, allowListCache) {
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to withdraw funds", address.String())
+	}
 	if err := m.Keeper.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, address, coins); err != nil {
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to withdraw %s %s", req.Amount, req.Denom)
 	}

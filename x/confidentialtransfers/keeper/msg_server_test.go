@@ -380,6 +380,61 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	suite.Require().Equal(oldModuleBalance.Amount.Uint64()+depositStruct.Amount, moduleBalance.Amount.Uint64(), "Module account balance should have increased by the deposit amount")
 }
 
+func (suite *KeeperTestSuite) TestMsgServer_DepositWithAllowList() {
+	testDenom := "factory/sei1gxskuzvhr4s8sdm2rpruaf7yx2dnmjn0zfdu9q/NEWCOIN"
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
+	testPk := suite.PrivKeys[0]
+
+	// Generate the address from the private key
+	testAddr := privkeyToAddress(testPk)
+
+	// Initialize an account
+	bankModuleInitialAmount := big.NewInt(1000000000000)
+	suite.SetupAccountState(testPk, testDenom, 50, big.NewInt(1000000), big.NewInt(8000), bankModuleInitialAmount)
+
+	// Create an allow list for the denom
+	allowList := banktypes.AllowList{
+		Addresses: []string{testAddr.String()},
+	}
+	suite.App.BankKeeper.SetDenomAllowList(suite.Ctx, testDenom, allowList)
+
+	// Test empty request
+	req := &types.MsgDeposit{
+		FromAddress: testAddr.String(),
+		Denom:       testDenom,
+	}
+	_, err := suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().Error(err, "Should have error depositing without amount")
+	suite.Require().ErrorContains(err, "invalid request")
+
+	// Happy path
+	depositStruct := types.MsgDeposit{
+		FromAddress: testAddr.String(),
+		Denom:       testDenom,
+		Amount:      20000,
+	}
+
+	_, err = suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), &depositStruct)
+	suite.Require().NoError(err, "Should not have error depositing with valid request")
+
+	// Remove the address from the allow list
+	allowList.Addresses = []string{"sei1gxskuzvhr4s8sdm2rpruaf7yx2dnmjn0zfdu8q"}
+	suite.App.BankKeeper.SetDenomAllowList(suite.Ctx, testDenom, allowList)
+
+	depositStruct = types.MsgDeposit{
+		FromAddress: testAddr.String(),
+		Denom:       testDenom,
+		Amount:      20000,
+	}
+
+	_, err = suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), &depositStruct)
+	suite.Require().Equal(testAddr.String()+" is not allowed to deposit funds: unauthorized", err.Error())
+}
+
 // Tests scenario in which the client tries to deposit into an account that has not been initialized.
 func (suite *KeeperTestSuite) TestMsgServer_DepositUninitialized() {
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
@@ -577,6 +632,52 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawHappyPath() {
 
 	userBalance := suite.App.BankKeeper.GetBalance(suite.Ctx, testAddr, DefaultTestDenom)
 	suite.Require().Equal(new(big.Int).Add(bankModuleInitialAmount, withdrawAmount).String(), userBalance.Amount.String(), "User balance should have increased by the withdraw amount")
+}
+
+func (suite *KeeperTestSuite) TestMsgServer_WithdrawWithAllowList() {
+	testDenom := "factory/sei1gxskuzvhr4s8sdm2rpruaf7yx2dnmjn0zfdu9q/NEWCOIN"
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	// Fund the module account
+	initialModuleBalance := big.NewInt(1000000000000)
+	suite.FundAcc(suite.TestAccs[0], sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewIntFromBigInt(initialModuleBalance))))
+
+	_ = suite.App.BankKeeper.SendCoinsFromAccountToModule(suite.Ctx, suite.TestAccs[0], types.ModuleName, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(1000000000000))))
+
+	testPk := suite.PrivKeys[0]
+	testAddr := privkeyToAddress(testPk)
+
+	// Initialize an account
+	bankModuleInitialAmount := big.NewInt(1000000000000)
+	initialAvailableBalance := big.NewInt(1000)
+	initialState, _ := suite.SetupAccountState(testPk, testDenom, 50, initialAvailableBalance, big.NewInt(8000), bankModuleInitialAmount)
+
+	// Create a withdraw request
+	withdrawAmount := new(big.Int).Div(initialAvailableBalance, big.NewInt(2))
+	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, testDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
+
+	// Create an allow list for the denom
+	allowList := banktypes.AllowList{
+		Addresses: []string{testAddr.String()},
+	}
+	suite.App.BankKeeper.SetDenomAllowList(suite.Ctx, testDenom, allowList)
+
+	// Execute the withdraw
+	req := types.NewMsgWithdrawProto(withdrawStruct)
+	_, err := suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().NoError(err, "Should not have error calling valid withdraw")
+
+	// Remove the address from the allow list
+	allowList.Addresses = []string{"sei1gxskuzvhr4s8sdm2rpruaf7yx2dnmjn0zfdu8q"}
+	suite.App.BankKeeper.SetDenomAllowList(suite.Ctx, testDenom, allowList)
+
+	// Execute the withdraw
+	accountState, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), testDenom)
+	withdrawStruct, _ = types.NewWithdraw(*testPk, accountState.AvailableBalance, testDenom, testAddr.String(), accountState.DecryptableAvailableBalance, withdrawAmount)
+	req = types.NewMsgWithdrawProto(withdrawStruct)
+	_, err = suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().Equal(testAddr.String()+" is not allowed to withdraw funds: unauthorized", err.Error())
+
 }
 
 // Test that we cannot perform successive withdraws. The second withdraw struct is invalidated after the first withdraw.
