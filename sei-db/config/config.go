@@ -10,6 +10,7 @@ const (
 	DefaultSSPruneInterval     = 600
 	DefaultSSImportWorkers     = 1
 	DefaultSSAsyncBuffer       = 100
+	DefaultSSHashRange         = 1000000
 )
 
 type StateCommitConfig struct {
@@ -110,5 +111,6 @@ func DefaultStateStoreConfig() StateStoreConfig {
 		PruneIntervalSeconds: DefaultSSPruneInterval,
 		ImportNumWorkers:     DefaultSSImportWorkers,
 		KeepLastVersion:      true,
+		HashRange:            DefaultSSHashRange,
 	}
 }
