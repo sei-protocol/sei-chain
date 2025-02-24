@@ -460,7 +460,8 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 
 		auditorAccount, exists := m.Keeper.GetAccount(ctx, auditorParams.Address, instruction.Denom)
 		if !exists {
-			return nil, sdkerrors.Wrap(sdkerrors.ErrNotFound, "auditor account does not exist")
+			ctx.Logger().Error("auditor account does not exist", "address", auditorParams.Address)
+			continue
 		}
 
 		err = types.VerifyAuditorProof(
