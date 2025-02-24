@@ -27,6 +27,26 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v6.0.4
+sei-chain
+* [#2075](https://github.com/sei-protocol/sei-chain/pull/2075) Imporve pointer/pointee query UX
+* [#2071](https://github.com/sei-protocol/sei-chain/pull/2071) Improve tracer/simulation RPC
+* [#2068](https://github.com/sei-protocol/sei-chain/pull/2068) Fix eth_gasPrice not found
+* [#2067](https://github.com/sei-protocol/sei-chain/pull/2067) Set log index across all transactions in a block
+* [#2065](https://github.com/sei-protocol/sei-chain/pull/2064) Add sei2_getBlock endpoints to include bank transfers
+* [#2059](https://github.com/sei-protocol/sei-chain/pull/2059) Add tools to scan and compute hash for IAVL db
+* [#2058](https://github.com/sei-protocol/sei-chain/pull/2058) Exclude Synthetic txs from *ExcludePanicTx endpoints
+* [#2054](https://github.com/sei-protocol/sei-chain/pull/2054) Add extractAsBytesFromArray method for JSON precompile
+* [#2050](https://github.com/sei-protocol/sei-chain/pull/2050) Extract multiple EVM logs from a single WASM event
+* [#2048](https://github.com/sei-protocol/sei-chain/pull/2048) Add logic to remove a small number of tx hashes each block
+
+sei-cosmos
+* [#565](https://github.com/sei-protocol/sei-cosmos/pull/565) Bypass unnecessary logics in BeginBlock for simulate
+
+sei-tendermint
+* [#259](https://github.com/sei-protocol/sei-tendermint/pull/259) Add simulate flag to RequestBeginBlock
+* [#258](https://github.com/sei-protocol/sei-tendermint/pull/258) Add utils to get RequestBeginBlock
+
 ## v6.0.3
 sei-chain
 * [#2057](https://github.com/sei-protocol/sei-chain/pull/2057) Avoid panic tx error message in debug trace
