@@ -1,7 +1,6 @@
 package keeper
 
 import (
-	"bytes"
 	"context"
 	"math"
 	"math/big"
@@ -51,7 +50,7 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 	// Check if denom already exists.
 	denomHasSupply := m.Keeper.BankKeeper().HasSupply(ctx, instruction.Denom)
 	_, denomMetadataExists := m.Keeper.BankKeeper().GetDenomMetaData(ctx, instruction.Denom)
-	if !denomMetadataExists && !denomHasSupply {
+	if !denomMetadataExists || !denomHasSupply {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "denom does not exist")
 	}
 
@@ -285,8 +284,13 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 		return nil, sdkerrors.Wrap(sdkerrors.ErrUnauthorized, "feature is disabled by governance")
 	}
 
+	instruction, err := req.FromProto()
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid msg")
+	}
+
 	// Check if the account exists
-	account, exists := m.Keeper.GetAccount(ctx, req.Address, req.Denom)
+	account, exists := m.Keeper.GetAccount(ctx, instruction.Address, instruction.Denom)
 	if !exists {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrNotFound, "account does not exist")
 	}
@@ -298,13 +302,12 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 	// Validate that the balances sent by the user match the balances stored on the server.
 	// If the balances do not match, the state has changed since the user created the apply balances.
 	// If the pending balance has changed, the account received a transfer or deposit after the user created the apply balances.
-	if uint16(req.CurrentPendingBalanceCounter) != account.PendingBalanceCreditCounter {
+	if uint16(instruction.CurrentPendingBalanceCounter) != account.PendingBalanceCreditCounter {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "pending balance mismatch")
 	}
 	// If the available balance has changed, the account submitted a withdraw after the user created the apply balances.
-	protoAvailableBalance := types.NewCiphertextProto(account.AvailableBalance)
-	if !bytes.Equal(protoAvailableBalance.GetC(), req.CurrentAvailableBalance.C) ||
-		!bytes.Equal(protoAvailableBalance.GetD(), req.CurrentAvailableBalance.D) {
+	if !account.AvailableBalance.C.Equal(instruction.CurrentAvailableBalance.C) ||
+		!account.AvailableBalance.D.Equal(instruction.CurrentAvailableBalance.D) {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "available balance mismatch")
 	}
 
@@ -332,7 +335,7 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 	account.PendingBalanceCreditCounter = 0
 
 	// Save the changes to the account state
-	err = m.Keeper.SetAccount(ctx, req.Address, req.Denom, account)
+	err = m.Keeper.SetAccount(ctx, instruction.Address, instruction.Denom, account)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error setting account")
 	}
