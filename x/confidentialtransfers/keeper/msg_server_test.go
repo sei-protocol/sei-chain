@@ -634,15 +634,20 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawInvalidAmount() {
 	initialAvailableBalance := big.NewInt(1000000)
 	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 50, initialAvailableBalance, big.NewInt(8000), big.NewInt(1000000000000))
 
+	// Create a negative amount withdraw request
+	withdrawStruct, err := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, big.NewInt(-1))
+	suite.Require().Error(err, "Should not be able to create withdraw with negative amount")
+	suite.Require().Equal("amount cannot be negative", err.Error())
+
 	// Create a withdraw request
-	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, initialAvailableBalance)
+	withdrawStruct, _ = types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, initialAvailableBalance)
 
 	// Manually modify the withdraw struct to have an invalid amount (since we can't do that via the client)
 	withdrawStruct.Amount = new(big.Int).Add(initialAvailableBalance, big.NewInt(1))
 
 	// Try executing the withdraw. This should fail since the proofs generated before are invalid
 	req := types.NewMsgWithdrawProto(withdrawStruct)
-	_, err := suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
+	_, err = suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "The withdraw should have failed since the withdraw struct has an invalid amount")
 	suite.Require().ErrorContains(err, "ciphertext commitment equality verification failed")
 
