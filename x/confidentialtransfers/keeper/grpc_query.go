@@ -27,7 +27,8 @@ func (k BaseKeeper) GetCtAccount(ctx context.Context, req *types.GetCtAccountReq
 		return nil, status.Errorf(codes.InvalidArgument, "invalid address: %s", err.Error())
 	}
 
-	if req.Denom == "" {
+	err = sdk.ValidateDenom(req.Denom)
+	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid denom")
 	}
 

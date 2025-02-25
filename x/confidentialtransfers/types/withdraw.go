@@ -45,6 +45,11 @@ func NewWithdraw(
 		return &Withdraw{}, err
 	}
 
+	// Check if the amount is negative
+	if amount.Cmp(big.NewInt(0)) == -1 {
+		return &Withdraw{}, errors.New("amount cannot be negative")
+	}
+
 	teg := elgamal.NewTwistedElgamal()
 	keyPair, err := utils.GetElGamalKeyPair(privateKey, denom)
 	if err != nil {

@@ -75,6 +75,11 @@ func (k BaseKeeper) GetAccount(ctx sdk.Context, address string, denom string) (t
 	if err != nil {
 		return types.Account{}, false
 	}
+	err = sdk.ValidateDenom(denom)
+	if err != nil {
+		return types.Account{}, false
+	}
+
 	ctAccount, found := k.getCtAccount(ctx, addr, denom)
 	if !found {
 		return types.Account{}, false

@@ -146,6 +146,9 @@ func (suite *KeeperTestSuite) TestMsgInitializeAccountDependencies() {
 	)
 	suite.Require().NoError(err)
 
+	_, err = suite.tfMsgServer.Mint(sdk.WrapSDKContext(suite.Ctx), tokenfactorytypes.NewMsgMint(suite.TestAccs[0].String(), sdk.NewInt64Coin(res.NewTokenDenom, 10000000)))
+	suite.Require().NoError(err)
+
 	initAccount, _ := types.NewInitializeAccount(senderAddr.String(), res.NewTokenDenom, *senderPk)
 	initializeAccountStruct := types.NewMsgInitializeAccountProto(initAccount)
 
