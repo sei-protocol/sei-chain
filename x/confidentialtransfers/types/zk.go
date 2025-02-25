@@ -280,6 +280,11 @@ func (c *CiphertextValidityProof) FromProto() (*zkproofs.CiphertextValidityProof
 }
 
 func (r *RangeProof) Validate() error {
+	// check that upper bound is positive
+	if r.UpperBound <= 0 {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "upper bound must be positive")
+	}
+
 	if r.Proof == nil || r.Randomness == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "range proof is invalid")
 	}

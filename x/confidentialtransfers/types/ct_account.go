@@ -31,7 +31,10 @@ func (m *CtAccount) ValidateBasic() error {
 }
 
 func (m *CtAccount) FromProto() (*Account, error) {
-	var err error
+	err := m.ValidateBasic()
+	if err != nil {
+		return nil, err
+	}
 
 	ed25519Curve := curves.ED25519()
 	pubkey, err := ed25519Curve.Point.FromAffineCompressed(m.PublicKey)
