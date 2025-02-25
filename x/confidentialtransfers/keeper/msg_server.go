@@ -286,7 +286,7 @@ func (m msgServer) ApplyPendingBalance(goCtx context.Context, req *types.MsgAppl
 
 	instruction, err := req.FromProto()
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid msg")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
 	}
 
 	// Check if the account exists
