@@ -3,6 +3,7 @@ package types
 import (
 	"github.com/coinbase/kryptology/pkg/bulletproof"
 	"github.com/coinbase/kryptology/pkg/core/curves"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
 )
@@ -456,6 +457,11 @@ func (c *CiphertextCiphertextEqualityProof) FromProto() (*zkproofs.CiphertextCip
 }
 
 func (a *Auditor) Validate() error {
+	_, err := sdk.AccAddressFromBech32(a.AuditorAddress)
+	if err != nil {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid address")
+	}
+
 	if a.EncryptedTransferAmountLo == nil || a.EncryptedTransferAmountHi == nil || a.TransferAmountLoValidityProof == nil || a.TransferAmountHiValidityProof == nil || a.TransferAmountLoEqualityProof == nil || a.TransferAmountHiEqualityProof == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "auditor is invalid")
 	}
