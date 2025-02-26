@@ -29,6 +29,7 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.0.4
 sei-chain
+* [#2085](https://github.com/sei-protocol/sei-chain/pull/2085) Allow safe/latest/final to be passed as block number to trace/simulate endpoints
 * [#2075](https://github.com/sei-protocol/sei-chain/pull/2075) Imporve pointer/pointee query UX
 * [#2071](https://github.com/sei-protocol/sei-chain/pull/2071) Improve tracer/simulation RPC
 * [#2068](https://github.com/sei-protocol/sei-chain/pull/2068) Fix eth_gasPrice not found
@@ -44,6 +45,7 @@ sei-cosmos
 * [#565](https://github.com/sei-protocol/sei-cosmos/pull/565) Bypass unnecessary logics in BeginBlock for simulate
 
 sei-tendermint
+* [#265](https://github.com/sei-protocol/sei-tendermint/pull/264) Fix: peer manager nil pointer
 * [#259](https://github.com/sei-protocol/sei-tendermint/pull/259) Add simulate flag to RequestBeginBlock
 * [#258](https://github.com/sei-protocol/sei-tendermint/pull/258) Add utils to get RequestBeginBlock
 
