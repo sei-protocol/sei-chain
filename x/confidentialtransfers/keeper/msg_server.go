@@ -50,9 +50,16 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 
 	// Check if denom already exists.
 	denomHasSupply := m.Keeper.BankKeeper().HasSupply(ctx, instruction.Denom)
-	_, denomMetadataExists := m.Keeper.BankKeeper().GetDenomMetaData(ctx, instruction.Denom)
+	metadata, denomMetadataExists := m.Keeper.BankKeeper().GetDenomMetaData(ctx, instruction.Denom)
 	if !denomMetadataExists && !denomHasSupply {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "denom does not exist")
+	}
+
+	// Check that the denom exponent is not too large. This could lead to bad behavior.
+	for _, denomUnit := range metadata.DenomUnits {
+		if denomUnit.Exponent > 20 {
+			return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "denom unit exponent is too large")
+		}
 	}
 
 	// Validate the public key
