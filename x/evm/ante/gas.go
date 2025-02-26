@@ -6,6 +6,10 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+const (
+	MinGasEVMTx = 21000
+)
+
 type GasDecorator struct {
 	evmKeeper *evmkeeper.Keeper
 }
@@ -25,7 +29,7 @@ func (gl GasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, nex
 	adjustedGasLimit := gl.evmKeeper.GetPriorityNormalizer(ctx).MulInt64(int64(txData.GetGas()))
 	gasMeter := sdk.NewGasMeterWithMultiplier(ctx, adjustedGasLimit.TruncateInt().Uint64())
 	ctx = ctx.WithGasMeter(gasMeter)
-	if tx.GetGasEstimate() >= 21000 {
+	if tx.GetGasEstimate() >= MinGasEVMTx {
 		ctx = ctx.WithGasEstimate(tx.GetGasEstimate())
 	} else {
 		ctx = ctx.WithGasEstimate(gasMeter.GasConsumed())

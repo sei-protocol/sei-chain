@@ -262,6 +262,10 @@ var (
 	_ simapp.App              = (*App)(nil)
 )
 
+const (
+	MinGasEVMTx = 21000
+)
+
 func init() {
 	userHomeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -1126,12 +1130,12 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
 
-	// if !app.checkTotalBlockGasWanted(ctx, req.Txs) {
-	// 	metrics.IncrFailedTotalGasWantedCheck(string(req.GetProposerAddress()))
-	// 	return &abci.ResponseProcessProposal{
-	// 		Status: abci.ResponseProcessProposal_REJECT,
-	// 	}, nil
-	// }
+	if !app.checkTotalBlockGas(ctx, req.Txs) {
+		metrics.IncrFailedTotalGasWantedCheck(string(req.GetProposerAddress()))
+		return &abci.ResponseProcessProposal{
+			Status: abci.ResponseProcessProposal_REJECT,
+		}, nil
+	}
 	if app.optimisticProcessingInfo == nil {
 		completionSignal := make(chan struct{}, 1)
 		optimisticProcessingInfo := &OptimisticProcessingInfo{
@@ -1873,8 +1877,11 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 	rtr.PathPrefix("/swagger/").Handler(http.StripPrefix("/swagger/", staticServer))
 }
 
-func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
-	totalGasWanted := uint64(0)
+// checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of
+// the total gas by the txs in the block. The gas of a tx is either the gas estimate if it's an EVM tx,
+// or the gas wanted if it's a Cosmos tx.
+func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
+	totalGas := uint64(0)
 	nonzeroTxsCnt := 0
 	for _, tx := range txs {
 		decodedTx, err := app.txDecoder(tx)
@@ -1916,7 +1923,7 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 			gasWanted = feeTx.GetGas()
 		}
 
-		if int64(gasWanted) < 0 || int64(totalGasWanted) > math.MaxInt64-int64(gasWanted) {
+		if int64(gasWanted) < 0 || int64(totalGas) > math.MaxInt64-int64(gasWanted) {
 			return false
 		}
 
@@ -1924,8 +1931,15 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 			nonzeroTxsCnt++
 		}
 
-		totalGasWanted += gasWanted
-		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGas) {
+		// If the gas estimate is set and at least 21k (the minimum gas needed for an EVM tx), use the gas estimate.
+		// Otherwise, use the gas wanted. Typically the gas estimate is set for EVM txs and not set for Cosmos txs.
+		if decodedTx.GetGasEstimate() >= MinGasEVMTx {
+			totalGas += decodedTx.GetGasEstimate()
+		} else {
+			totalGas += gasWanted
+		}
+
+		if totalGas > uint64(ctx.ConsensusParams().Block.MaxGas) {
 			if nonzeroTxsCnt > int(ctx.ConsensusParams().Block.MinTxsInBlock) {
 				// early return
 				return false
