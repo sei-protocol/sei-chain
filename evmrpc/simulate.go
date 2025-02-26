@@ -233,8 +233,17 @@ func (b *Backend) ChainDb() ethdb.Database {
 	panic("implement me")
 }
 
-func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, error) {
+func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) int64 {
 	blockNum := bn.Int64()
+	switch blockNum {
+	case rpc.SafeBlockNumber.Int64(), rpc.FinalizedBlockNumber.Int64(), rpc.LatestBlockNumber.Int64():
+		blockNum = b.ctxProvider(LatestCtxHeight).BlockHeight()
+	}
+	return blockNum
+}
+
+func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, error) {
+	blockNum := b.ConvertBlockNumber(bn)
 	tmBlock, err := blockByNumber(ctx, b.tmClient, &blockNum)
 	if err != nil {
 		return nil, err
