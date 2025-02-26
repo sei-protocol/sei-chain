@@ -30,7 +30,7 @@ const (
 	// FlagOverwrite defines a flag to overwrite an existing genesis JSON file.
 	FlagOverwrite = "overwrite"
 
-	// FlagSeed defines a flag to initialize the private validator key from a specific seed.
+	// FlagRecover defines a flag to initialize the private validator key from a specific seed.
 	FlagRecover = "recover"
 )
 
