@@ -1154,7 +1154,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			app.optimisticProcessingInfo.Completion <- struct{}{}
 		} else {
 			go func() {
-				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
+				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit, false)
 				optimisticProcessingInfo.Events = events
 				optimisticProcessingInfo.TxRes = txResults
 				optimisticProcessingInfo.EndBlockResp = endBlockResp
@@ -1193,7 +1193,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}
 	metrics.IncrementOptimisticProcessingCounter(false)
 	ctx.Logger().Info("optimistic processing ineligible")
-	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
+	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit, false)
 
 	app.SetDeliverStateToCommit()
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
@@ -1555,7 +1555,7 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedT
 	return app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices), ctx
 }
 
-func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
 	events := []abci.Event{}
@@ -1579,6 +1579,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			Time:            req.GetTime(),
 			ProposerAddress: ctx.BlockHeader().ProposerAddress,
 		},
+		Simulate: simulate,
 	}
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)

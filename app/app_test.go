@@ -258,6 +258,7 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 		txs,
 		req,
 		req.DecidedLastCommit,
+		false,
 	)
 	fmt.Println("txResults1", txResults)
 
@@ -280,6 +281,7 @@ func TestProcessOracleAndOtherTxsSuccess(t *testing.T) {
 		diffOrderTxs,
 		req,
 		req.DecidedLastCommit,
+		false,
 	)
 	fmt.Println("txResults2", txResults2)
 
