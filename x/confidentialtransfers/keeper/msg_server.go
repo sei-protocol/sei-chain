@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
+	"golang.org/x/exp/slices"
 )
 
 type msgServer struct {
@@ -40,6 +41,11 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 	instruction, err := req.FromProto()
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid msg")
+	}
+
+	enabledDenoms := m.Keeper.GetEnabledDenoms(ctx)
+	if len(enabledDenoms) > 0 && !slices.Contains(enabledDenoms, instruction.Denom) {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "denom not enabled for confidential transfesr")
 	}
 
 	// Check if the account already exists

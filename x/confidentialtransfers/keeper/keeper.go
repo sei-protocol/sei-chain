@@ -30,6 +30,7 @@ type Keeper interface {
 
 	IsCtModuleEnabled(ctx sdk.Context) bool
 	GetRangeProofGasCost(ctx sdk.Context) uint64
+	GetEnabledDenoms(ctx sdk.Context) []string
 
 	BankKeeper() types.BankKeeper
 
@@ -158,6 +159,13 @@ func (k BaseKeeper) GetRangeProofGasCost(ctx sdk.Context) uint64 {
 	var rangeProofGas uint64
 	k.paramSpace.Get(ctx, types.KeyRangeProofGas, &rangeProofGas)
 	return rangeProofGas
+}
+
+// GetEnabledDenoms retrieves the value of the EnabledDenoms param from the parameter store
+func (k BaseKeeper) GetEnabledDenoms(ctx sdk.Context) []string {
+	var enabledDenoms []string
+	k.paramSpace.Get(ctx, types.KeyEnabledDenoms, &enabledDenoms)
+	return enabledDenoms
 }
 
 func (k BaseKeeper) BankKeeper() types.BankKeeper {
