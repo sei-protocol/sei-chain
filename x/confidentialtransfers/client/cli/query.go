@@ -385,7 +385,7 @@ func getSeiAddress(evmRpc string, evmAddress string) (string, error) {
 }
 
 func executeRpcCall(evmRpc string, requestBody string) (string, error) {
-	req, err := http.NewRequest(http.MethodGet, evmRpc, strings.NewReader(requestBody))
+	req, err := http.NewRequest(http.MethodPost, evmRpc, strings.NewReader(requestBody))
 	if err != nil {
 		return "", err
 	}
@@ -403,6 +403,9 @@ func executeRpcCall(evmRpc string, requestBody string) (string, error) {
 	err = json.Unmarshal(resBody, &response)
 	if err != nil {
 		return "", err
+	}
+	if response.Error != "" {
+		return "", errors.New(response.Error)
 	}
 	return response.Result, nil
 }
