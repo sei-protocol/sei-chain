@@ -42,6 +42,9 @@ const (
 	ImportCommitBatchSize = 10000
 	PruneCommitBatchSize  = 50
 	DeleteCommitBatchSize = 50
+
+	// Number of workers to use for hash computation
+	HashComputationWorkers = 10
 )
 
 var (
@@ -436,12 +439,19 @@ func (db *Database) computeHashForRange(beginBlock, endBlock int64) error {
 		return nil
 	}
 
-	numOfWorkers := int(endBlock/chunkSize) + 1
+	// Use constant number of workers
+	numOfWorkers := HashComputationWorkers
+
+	// Calculate blocks per worker
+	blocksPerWorker := chunkSize / int64(numOfWorkers)
+	if blocksPerWorker < 1 {
+		blocksPerWorker = 1
+	}
 
 	for _, moduleName := range util.Modules {
 		dataCh := make(chan types.RawSnapshotNode, 10_000)
 
-		hashCalculator := util.NewXorHashCalculator(chunkSize, numOfWorkers, dataCh)
+		hashCalculator := util.NewXorHashCalculator(blocksPerWorker, numOfWorkers, dataCh)
 
 		go func(mod string) {
 			defer close(dataCh)
