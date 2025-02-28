@@ -72,6 +72,7 @@ func MsgDepositDependencyGenerator(aclkeeper aclkeeper.Keeper, _ sdk.Context, ms
 	moduleAddress := aclkeeper.AccountKeeper.GetModuleAddress(types.ModuleName)
 
 	fromAddrIdentifier := hex.EncodeToString(types.GetAccountPrefixFromBech32(msgDeposit.FromAddress))
+	denom := hex.EncodeToString([]byte(msgDeposit.Denom))
 
 	accessOperations := []sdkacltypes.AccessOperation{
 		// Gets account state
@@ -102,6 +103,13 @@ func MsgDepositDependencyGenerator(aclkeeper aclkeeper.Keeper, _ sdk.Context, ms
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
 			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(moduleAddress.String())),
+		},
+
+		// Read allowlist
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_DENOM,
+			IdentifierTemplate: denom,
 		},
 
 		// Modifies account state
@@ -151,6 +159,7 @@ func MsgTransferDependencyGenerator(_ aclkeeper.Keeper, _ sdk.Context, msg sdk.M
 
 	fromAddrIdentifier := hex.EncodeToString(types.GetAccountPrefixFromBech32(msgTransfer.FromAddress))
 	toAddrIdentifier := hex.EncodeToString(types.GetAccountPrefixFromBech32(msgTransfer.ToAddress))
+	denom := hex.EncodeToString([]byte(msgTransfer.Denom))
 
 	accessOperations := []sdkacltypes.AccessOperation{
 		// Checks balance of sender
@@ -179,6 +188,13 @@ func MsgTransferDependencyGenerator(_ aclkeeper.Keeper, _ sdk.Context, msg sdk.M
 			IdentifierTemplate: toAddrIdentifier,
 		},
 
+		// Read allowlist
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_DENOM,
+			IdentifierTemplate: denom,
+		},
+
 		*acltypes.CommitAccessOp(),
 	}
 	return accessOperations, nil
@@ -193,6 +209,7 @@ func MsgWithdrawDependencyGenerator(aclkeeper aclkeeper.Keeper, _ sdk.Context, m
 	moduleAddress := aclkeeper.AccountKeeper.GetModuleAddress(types.ModuleName)
 
 	addrIdentifier := hex.EncodeToString(types.GetAccountPrefixFromBech32(msgWithdraw.FromAddress))
+	denom := hex.EncodeToString([]byte(msgWithdraw.Denom))
 
 	accessOperations := []sdkacltypes.AccessOperation{
 		// Get account state
@@ -222,6 +239,13 @@ func MsgWithdrawDependencyGenerator(aclkeeper aclkeeper.Keeper, _ sdk.Context, m
 			AccessType:         sdkacltypes.AccessType_WRITE,
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
 			IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefixFromBech32(msgWithdraw.FromAddress)),
+		},
+
+		// Read allowlist
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK_DENOM,
+			IdentifierTemplate: denom,
 		},
 
 		// Modifies account state
