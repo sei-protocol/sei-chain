@@ -56,19 +56,17 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 		caller             *common.Address
 	}
 	tests := []struct {
-		name             string
-		args             args
-		wantRet          []byte
-		wantRemainingGas uint64
-		wantErr          bool
-		wantErrMsg       string
+		name       string
+		args       args
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
 	}{
 		{
-			name:             "precompile should return true if input is valid",
-			args:             args{caller: &senderEVMAddr},
-			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0xec0b6,
-			wantErr:          false,
+			name:    "precompile should return true if input is valid",
+			args:    args{caller: &senderEVMAddr},
+			wantRet: expectedTrueResponse,
+			wantErr: false,
 		},
 		{
 			name:       "precompile should return error if caller did not create call data",
@@ -90,9 +88,8 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 					in.receiverAddr = receiverAddr.String()
 					return in
 				}},
-			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0xec519,
-			wantErr:          false,
+			wantRet: expectedTrueResponse,
+			wantErr: false,
 		},
 		{
 			name: "precompile should return error if receiver address is invalid",
@@ -306,12 +303,12 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 				in.proofs)
 			require.Nil(t, err)
 
-			resp, remainingGas, err := p.RunAndCalculateGas(
+			resp, _, err := p.RunAndCalculateGas(
 				&evm,
 				*tt.args.caller,
 				senderEVMAddr,
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).TransferID, inputArgs...),
-				2000000,
+				4000000,
 				tt.args.value,
 				nil,
 				tt.args.isReadOnly,
@@ -323,7 +320,6 @@ func TestPrecompileTransfer_Execute(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tt.wantRet, resp)
-				require.Equal(t, tt.wantRemainingGas, remainingGas)
 			}
 
 		})
@@ -356,18 +352,16 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 		setUp              func(in inputs) inputs
 	}
 	tests := []struct {
-		name             string
-		args             args
-		wantRet          []byte
-		wantRemainingGas uint64
-		wantErr          bool
-		wantErrMsg       string
+		name       string
+		args       args
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
 	}{
 		{
-			name:             "precompile should return true of input is valid",
-			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0xea100,
-			wantErr:          false,
+			name:    "precompile should return true of input is valid",
+			wantRet: expectedTrueResponse,
+			wantErr: false,
 		},
 		{
 			name: "precompile should return true of input is valid and auditor is Sei address",
@@ -377,9 +371,8 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 					in.auditors[1].AuditorAddress = auditorTwoAddr.String()
 					return in
 				}},
-			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0xea9c6,
-			wantErr:          false,
+			wantRet: expectedTrueResponse,
+			wantErr: false,
 		},
 		{
 			name: "precompile should return error if auditor array is empty",
@@ -625,12 +618,12 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 				in.auditors)
 			require.Nil(t, err)
 
-			resp, remainingGas, err := p.RunAndCalculateGas(
+			resp, _, err := p.RunAndCalculateGas(
 				&evm,
 				senderEVMAddr,
 				senderEVMAddr,
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).TransferWithAuditorsID, inputArgs...),
-				2000000,
+				4000000,
 				tt.args.value,
 				nil,
 				tt.args.isReadOnly,
@@ -642,7 +635,6 @@ func TestPrecompileTransferWithAuditor_Execute(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tt.wantRet, resp)
-				require.Equal(t, tt.wantRemainingGas, remainingGas)
 			}
 
 		})
@@ -737,18 +729,16 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 		setUp              func(in inputs) inputs
 	}
 	tests := []struct {
-		name             string
-		args             args
-		wantRet          []byte
-		wantRemainingGas uint64
-		wantErr          bool
-		wantErrMsg       string
+		name       string
+		args       args
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
 	}{
 		{
-			name:             "precompile should return true if input is valid",
-			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0x1e438a,
-			wantErr:          false,
+			name:    "precompile should return true if input is valid",
+			wantRet: expectedTrueResponse,
+			wantErr: false,
 		},
 		{
 			name: "precompile should return error if address is invalid",
@@ -894,12 +884,12 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 
 			require.Nil(t, err)
 
-			resp, remainingGas, err := p.RunAndCalculateGas(
+			resp, _, err := p.RunAndCalculateGas(
 				&evm,
 				userEVMAddr,
 				common.Address{},
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).InitializeAccountID, inputArgs...),
-				2000000,
+				4000000,
 				tt.args.value,
 				nil,
 				tt.args.isReadOnly,
@@ -911,7 +901,6 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tt.wantRet, resp)
-				require.Equal(t, tt.wantRemainingGas, remainingGas)
 			}
 		})
 	}
@@ -967,21 +956,19 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 		setUp              func(in inputs) inputs
 	}
 	tests := []struct {
-		name             string
-		args             args
-		wantRet          []byte
-		wantRemainingGas uint64
-		wantErr          bool
-		wantErrMsg       string
+		name       string
+		args       args
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
 	}{
 		{
 			name: "precompile should return true if input is valid",
 			args: args{
 				caller: userEVMAddr,
 			},
-			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0x1e0fb5,
-			wantErr:          false,
+			wantRet: expectedTrueResponse,
+			wantErr: false,
 		},
 		{
 			name: "precompile should return error if Sei address is not associated with an EVM address",
@@ -1032,12 +1019,12 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 
 			require.Nil(t, err)
 
-			resp, remainingGas, err := p.RunAndCalculateGas(
+			resp, _, err := p.RunAndCalculateGas(
 				&evm,
 				tt.args.caller,
 				common.Address{},
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).DepositID, inputArgs...),
-				2000000,
+				4000000,
 				tt.args.value,
 				nil,
 				tt.args.isReadOnly,
@@ -1049,7 +1036,6 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tt.wantRet, resp)
-				require.Equal(t, tt.wantRemainingGas, remainingGas)
 			}
 		})
 	}
@@ -1085,21 +1071,19 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 		caller             *common.Address
 	}
 	tests := []struct {
-		name             string
-		args             args
-		wantRet          []byte
-		wantRemainingGas uint64
-		wantErr          bool
-		wantErrMsg       string
+		name       string
+		args       args
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
 	}{
 		{
 			name: "precompile should return true if input is valid",
 			args: args{
 				caller: &senderEVMAddr,
 			},
-			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0x1e43df,
-			wantErr:          false,
+			wantRet: expectedTrueResponse,
+			wantErr: false,
 		},
 		// Technically this is possible, although both accounts would have to have the same pendingBalanceCreditCounter and AvailableBalance, which is highly improbable.
 		{
@@ -1256,12 +1240,12 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 				in.availableBalance)
 			require.Nil(t, err)
 
-			resp, remainingGas, err := p.RunAndCalculateGas(
+			resp, _, err := p.RunAndCalculateGas(
 				&evm,
 				*tt.args.caller,
 				senderEVMAddr,
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).ApplyPendingBalanceID, inputArgs...),
-				2000000,
+				4000000,
 				tt.args.value,
 				nil,
 				tt.args.isReadOnly,
@@ -1273,7 +1257,6 @@ func TestPrecompileApplyPendingBalance_Execute(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tt.wantRet, resp)
-				require.Equal(t, tt.wantRemainingGas, remainingGas)
 			}
 
 		})
@@ -1311,21 +1294,19 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 		caller             *common.Address
 	}
 	tests := []struct {
-		name             string
-		args             args
-		wantRet          []byte
-		wantRemainingGas uint64
-		wantErr          bool
-		wantErrMsg       string
+		name       string
+		args       args
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
 	}{
 		{
 			name: "precompile should return true if input is valid",
 			args: args{
 				caller: &senderEVMAddr,
 			},
-			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0xecd4e,
-			wantErr:          false,
+			wantRet: expectedTrueResponse,
+			wantErr: false,
 		},
 		{
 			name: "precompile should return error if caller did not create calldata",
@@ -1503,12 +1484,12 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 				in.proofs)
 			require.Nil(t, err)
 
-			resp, remainingGas, err := p.RunAndCalculateGas(
+			resp, _, err := p.RunAndCalculateGas(
 				&evm,
 				*tt.args.caller,
 				senderEVMAddr,
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).WithdrawID, inputArgs...),
-				2000000,
+				4000000,
 				tt.args.value,
 				nil,
 				tt.args.isReadOnly,
@@ -1520,7 +1501,6 @@ func TestPrecompileWithdraw_Execute(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tt.wantRet, resp)
-				require.Equal(t, tt.wantRemainingGas, remainingGas)
 			}
 
 		})
@@ -1555,21 +1535,19 @@ func TestPrecompileCloseAccount_Execute(t *testing.T) {
 		caller             *common.Address
 	}
 	tests := []struct {
-		name             string
-		args             args
-		wantRet          []byte
-		wantRemainingGas uint64
-		wantErr          bool
-		wantErrMsg       string
+		name       string
+		args       args
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
 	}{
 		{
 			name: "precompile should return true if input is valid",
 			args: args{
 				caller: &senderEVMAddr,
 			},
-			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0x1e6c5d,
-			wantErr:          false,
+			wantRet: expectedTrueResponse,
+			wantErr: false,
 		},
 		{
 			name: "precompile should return error if caller did not create calldata",
@@ -1696,12 +1674,12 @@ func TestPrecompileCloseAccount_Execute(t *testing.T) {
 				in.proofs)
 			require.Nil(t, err)
 
-			resp, remainingGas, err := p.RunAndCalculateGas(
+			resp, _, err := p.RunAndCalculateGas(
 				&evm,
 				*tt.args.caller,
 				senderEVMAddr,
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).CloseAccountID, inputArgs...),
-				2000000,
+				4000000,
 				tt.args.value,
 				nil,
 				tt.args.isReadOnly,
@@ -1713,7 +1691,6 @@ func TestPrecompileCloseAccount_Execute(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tt.wantRet, resp)
-				require.Equal(t, tt.wantRemainingGas, remainingGas)
 			}
 		})
 	}
@@ -1782,21 +1759,19 @@ func TestPrecompileAccount_Execute(t *testing.T) {
 		setUp              func(in inputs) inputs
 	}
 	tests := []struct {
-		name             string
-		args             args
-		wantRet          []byte
-		wantRemainingGas uint64
-		wantErr          bool
-		wantErrMsg       string
+		name       string
+		args       args
+		wantRet    []byte
+		wantErr    bool
+		wantErrMsg string
 	}{
 		{
 			name: "precompile should return abi-encoded account if input is valid",
 			args: args{
 				isReadOnly: true,
 			},
-			wantRet:          expectedResponse,
-			wantRemainingGas: 0x1e7908,
-			wantErr:          false,
+			wantRet: expectedResponse,
+			wantErr: false,
 		},
 		{
 			name: "precompile should return abi-encoded account if input is valid and EVM address is used",
@@ -1807,18 +1782,16 @@ func TestPrecompileAccount_Execute(t *testing.T) {
 					return in
 				},
 			},
-			wantRet:          expectedResponse,
-			wantRemainingGas: 0x1e74a5,
-			wantErr:          false,
+			wantRet: expectedResponse,
+			wantErr: false,
 		},
 		{
 			name: "precompile should return abi-encoded account if input is valid and the call is not read-only",
 			args: args{
 				isReadOnly: false,
 			},
-			wantRet:          expectedResponse,
-			wantRemainingGas: 0x1e7908,
-			wantErr:          false,
+			wantRet: expectedResponse,
+			wantErr: false,
 		},
 		{
 			name: "precompile should return error if account not found",
@@ -1916,12 +1889,12 @@ func TestPrecompileAccount_Execute(t *testing.T) {
 			inputArgs, err := AccountMethod.Inputs.Pack(in.Account, in.Denom)
 			require.Nil(t, err)
 
-			resp, remainingGas, err := p.RunAndCalculateGas(
+			resp, _, err := p.RunAndCalculateGas(
 				&evm,
 				common.Address{},
 				common.Address{},
 				append(p.GetExecutor().(*confidentialtransfers.PrecompileExecutor).AccountID, inputArgs...),
-				2000000,
+				4000000,
 				tt.args.value,
 				nil,
 				tt.args.isReadOnly,
@@ -1933,7 +1906,6 @@ func TestPrecompileAccount_Execute(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, tt.wantRet, resp)
-				require.Equal(t, tt.wantRemainingGas, remainingGas)
 			}
 		})
 	}

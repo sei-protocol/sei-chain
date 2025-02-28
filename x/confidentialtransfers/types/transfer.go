@@ -33,6 +33,8 @@ type TransferProofs struct {
 	SenderTransferAmountHiValidityProof     *zkproofs.CiphertextValidityProof           `json:"sender_transfer_amount_hi_validity_proof"`
 	RecipientTransferAmountLoValidityProof  *zkproofs.CiphertextValidityProof           `json:"recipient_transfer_amount_lo_validity_proof"`
 	RecipientTransferAmountHiValidityProof  *zkproofs.CiphertextValidityProof           `json:"recipient_transfer_amount_hi_validity_proof"`
+	TransferAmountLoRangeProof              *zkproofs.RangeProof                        `json:"transfer_amount_lo_range_proof"`
+	TransferAmountHiRangeProof              *zkproofs.RangeProof                        `json:"transfer_amount_hi_range_proof"`
 	RemainingBalanceRangeProof              *zkproofs.RangeProof                        `json:"remaining_balance_range_proof"`
 	RemainingBalanceEqualityProof           *zkproofs.CiphertextCommitmentEqualityProof `json:"remaining_balance_equality_proof"`
 	TransferAmountLoEqualityProof           *zkproofs.CiphertextCiphertextEqualityProof `json:"transfer_amount_lo_equality_proof"`
@@ -177,6 +179,17 @@ func NewTransfer(
 		return &Transfer{}, err
 	}
 
+	// We also need to generate Range Proofs to prove that the TransferAmountLo is less than 2^16 and TransferAmountHi is less than 2^32.
+	senderLoRangeProof, err := zkproofs.NewRangeProof(16, loBitsBigInt, senderLoBitsRandomness)
+	if err != nil {
+		return &Transfer{}, err
+	}
+
+	senderHiRangeProof, err := zkproofs.NewRangeProof(32, hiBitsBigInt, senderHiBitsRandomness)
+	if err != nil {
+		return &Transfer{}, err
+	}
+
 	// Secondly, we generate a Range Proof to prove that the PedersonCommitment to the new balance is greater than zero.
 	newBalanceRangeProof, err := zkproofs.NewRangeProof(128, newBalance, newBalanceRandomness)
 	if err != nil {
@@ -215,6 +228,8 @@ func NewTransfer(
 		RemainingBalanceEqualityProof:           commitmentCiphertextEqualityProof,
 		TransferAmountLoEqualityProof:           recipientParams.TransferAmountLoEqualityProof,
 		TransferAmountHiEqualityProof:           recipientParams.TransferAmountHiEqualityProof,
+		TransferAmountLoRangeProof:              senderLoRangeProof,
+		TransferAmountHiRangeProof:              senderHiRangeProof,
 	}
 
 	// Lastly we generate the Auditor parameters, if required.
@@ -323,6 +338,7 @@ func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipien
 	if rangeVerifierFactory == nil {
 		return errors.New("range verifier factory is required")
 	}
+
 	// Verify the validity proofs that the ciphertexts sent are valid (encrypted with the correct pubkey).
 	ok := zkproofs.VerifyCiphertextValidity(params.Proofs.RemainingBalanceCommitmentValidityProof, *senderPubkey, params.RemainingBalanceCommitment)
 	if !ok {
@@ -356,10 +372,10 @@ func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipien
 		return err
 	}
 	if !ok {
-		return errors.New("range proof verification failed")
+		return errors.New("remaining balance range proof verification failed")
 	}
 
-	// As part of the range proof above, we verify that the RemainingBalanceCommitment sent by the user is equal to the remaining balance calculated by the server.
+	// As part of the range proof earlier, we verify that the RemainingBalanceCommitment sent by the user is equal to the remaining balance calculated by the server.
 	ok = zkproofs.VerifyCiphertextCommitmentEquality(params.Proofs.RemainingBalanceEqualityProof, senderPubkey, newBalanceCiphertext, &params.RemainingBalanceCommitment.C)
 	if !ok {
 		return errors.New("ciphertext commitment equality verification failed")
@@ -376,7 +392,25 @@ func VerifyTransferProofs(params *Transfer, senderPubkey *curves.Point, recipien
 		return errors.New("ciphertext ciphertext equality verification on transfer amount hi failed")
 	}
 
+	// Verify that the transfer amounts are within the correct range.
+	ok, err = zkproofs.VerifyRangeProof(params.Proofs.TransferAmountLoRangeProof, params.SenderTransferAmountLo, 16, rangeVerifierFactory)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("transfer amount lo range proof verification failed")
+	}
+
+	ok, err = zkproofs.VerifyRangeProof(params.Proofs.TransferAmountHiRangeProof, params.SenderTransferAmountHi, 32, rangeVerifierFactory)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("transfer amount hi range proof verification failed")
+	}
+
 	return nil
+
 }
 
 // VerifyAuditorProof Verifies the proofs sent for an individual auditor.

@@ -89,10 +89,14 @@ func TestMsgTransfer_FromProto(t *testing.T) {
 		&destinationCipherAmountHiR,
 		&scalarAmountHi)
 
+	transferAmountLoRangeProof, _ := zkproofs.NewRangeProof(16, amountLo, sourceCiphertextAmountLoR)
+	transferAmountHiRangeProof, _ := zkproofs.NewRangeProof(32, amountHi, sourceCiphertextAmountHiR)
 	proofs := &TransferProofs{
 		RemainingBalanceCommitmentValidityProof: remainingBalanceCommitmentValidityProof,
 		SenderTransferAmountLoValidityProof:     sourceCiphertextAmountLoValidityProof,
 		SenderTransferAmountHiValidityProof:     sourceCiphertextAmountHiValidityProof,
+		TransferAmountLoRangeProof:              transferAmountLoRangeProof,
+		TransferAmountHiRangeProof:              transferAmountHiRangeProof,
 		RecipientTransferAmountLoValidityProof:  destinationCipherAmountLoValidityProof,
 		RecipientTransferAmountHiValidityProof:  destinationCipherAmountHiValidityProof,
 		RemainingBalanceRangeProof:              remainingBalanceRangeProof,
@@ -1349,10 +1353,15 @@ func getValidTransferMsg() *MsgTransfer {
 		&destinationCipherAmountHiR,
 		&scalarAmountHi)
 
+	transferAmountLoRangeProof, _ := zkproofs.NewRangeProof(16, amountLo, sourceCiphertextAmountLoR)
+	transferAmountHiRangeProof, _ := zkproofs.NewRangeProof(32, amountHi, sourceCiphertextAmountHiR)
+
 	proofs := &TransferProofs{
 		RemainingBalanceCommitmentValidityProof: remainingBalanceCommitmentValidityProof,
 		SenderTransferAmountLoValidityProof:     sourceCiphertextAmountLoValidityProof,
 		SenderTransferAmountHiValidityProof:     sourceCiphertextAmountHiValidityProof,
+		TransferAmountLoRangeProof:              transferAmountLoRangeProof,
+		TransferAmountHiRangeProof:              transferAmountHiRangeProof,
 		RecipientTransferAmountLoValidityProof:  destinationCipherAmountLoValidityProof,
 		RecipientTransferAmountHiValidityProof:  destinationCipherAmountHiValidityProof,
 		RemainingBalanceRangeProof:              remainingBalanceRangeProof,
