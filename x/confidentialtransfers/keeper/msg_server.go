@@ -448,14 +448,16 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error subtracting sender transfer amount")
 	}
 
-	// Validate proofs
+	// Get the cost of a standard range proof verification
 	rangeProofGasCost := m.Keeper.GetRangeProofGasCost(ctx)
 
 	// Consume additional gas as range proofs are computationally expensive.
 	if rangeProofGasCost > 0 {
-		ctx.GasMeter().ConsumeGas(rangeProofGasCost, "range proof verification")
+		// We charge for 2x for range proof verifications since we verify the available balance range proof and the smaller transfer amount range proofs
+		ctx.GasMeter().ConsumeGas(rangeProofGasCost*2, "range proof verification")
 	}
 
+	// Validate proofs
 	err = types.VerifyTransferProofs(instruction, &senderAccount.PublicKey, &recipientAccount.PublicKey, newSenderBalanceCiphertext, m.CachedRangeVerifierFactory)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, err.Error())

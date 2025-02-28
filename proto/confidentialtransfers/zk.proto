@@ -14,6 +14,8 @@ message TransferMsgProofs {
   CiphertextCommitmentEqualityProof remaining_balance_equality_proof = 7;
   CiphertextCiphertextEqualityProof transfer_amount_lo_equality_proof = 8;
   CiphertextCiphertextEqualityProof transfer_amount_hi_equality_proof = 9;
+  RangeProof transfer_amount_lo_range_proof = 10;
+  RangeProof transfer_amount_hi_range_proof = 11;
 }
 
 message InitializeAccountMsgProofs {

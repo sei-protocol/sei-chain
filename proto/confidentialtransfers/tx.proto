@@ -41,7 +41,7 @@ message MsgTransfer {
   Ciphertext from_amount_hi = 5 [(gogoproto.moretags) = "yaml:\"from_amount_hi\""];
   Ciphertext to_amount_lo = 6 [(gogoproto.moretags) = "yaml:\"to_amount_lo\""];
   Ciphertext to_amount_hi = 7 [(gogoproto.moretags) = "yaml:\"to_amount_hi\""];
-  Ciphertext remaining_balance = 8 [(gogoproto.moretags) = "yaml:\"decryptable_balance\""];
+  Ciphertext remaining_balance = 8 [(gogoproto.moretags) = "yaml:\"remaining_balance\""];
   string decryptable_balance = 9 [(gogoproto.moretags) = "yaml:\"decryptable_balance\""];
   TransferMsgProofs proofs = 10 [(gogoproto.moretags) = "yaml:\"proofs\""];
   repeated Auditor auditors = 11 [(gogoproto.moretags) = "yaml:\"auditors\""];
