@@ -3,6 +3,7 @@ package types
 import (
 	"bytes"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/x/params/types"
@@ -10,6 +11,7 @@ import (
 )
 
 func TestDefaultParams(t *testing.T) {
+	defaultEnabledDenoms := strings.Split(DefaultEnabledDenoms, ",")
 	tests := []struct {
 		name string
 		want Params
@@ -19,6 +21,7 @@ func TestDefaultParams(t *testing.T) {
 			want: Params{
 				EnableCtModule:    DefaultEnableCtModule,
 				RangeProofGasCost: DefaultRangeProofGasCost,
+				EnabledDenoms:     defaultEnabledDenoms,
 			},
 		},
 	}
@@ -109,7 +112,8 @@ func TestValidateRangeProofGasCost(t *testing.T) {
 }
 
 func TestParams_ParamSetPairs(t *testing.T) {
-	params := &Params{EnableCtModule: DefaultEnableCtModule, RangeProofGasCost: DefaultRangeProofGasCost}
+	defaultEnabledDenoms := strings.Split(DefaultEnabledDenoms, ",")
+	params := &Params{EnableCtModule: DefaultEnableCtModule, RangeProofGasCost: DefaultRangeProofGasCost, EnabledDenoms: defaultEnabledDenoms}
 	tests := []struct {
 		name string
 		want types.ParamSetPairs
@@ -119,6 +123,7 @@ func TestParams_ParamSetPairs(t *testing.T) {
 			want: types.ParamSetPairs{
 				types.NewParamSetPair(KeyEnableCtModule, &params.EnableCtModule, validateEnableCtModule),
 				types.NewParamSetPair(KeyRangeProofGas, &params.RangeProofGasCost, validateRangeProofGasCost),
+				types.NewParamSetPair(KeyEnabledDenoms, &params.EnabledDenoms, validateEnabledDenoms),
 			},
 		},
 	}
