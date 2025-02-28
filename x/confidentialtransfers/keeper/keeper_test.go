@@ -53,6 +53,10 @@ func (suite *KeeperTestSuite) SetupTest() {
 	suite.PrivKeys = apptesting.CreateRandomAccountKeys(3)
 	suite.App.TokenFactoryKeeper.CreateDenom(suite.Ctx, "creator", "test")
 	suite.App.TokenFactoryKeeper.CreateDenom(suite.Ctx, "creator", "other")
+
+	params := suite.App.ConfidentialTransfersKeeper.GetParams(suite.Ctx)
+	params.EnabledDenoms = append(params.EnabledDenoms, DefaultTestDenom, DefaultOtherDenom)
+	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
 }
 
 func (suite *KeeperTestSuite) SetupAccount() {
