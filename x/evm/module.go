@@ -342,7 +342,9 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 		}
 		idx := int(deferredInfo.TxIndex)
 		coinbaseAddress := state.GetCoinbaseAddress(idx)
-		balance := am.keeper.BankKeeper().SpendableCoins(ctx, coinbaseAddress).AmountOf(denom)
+		useiBalance := am.keeper.BankKeeper().GetBalance(ctx, coinbaseAddress, denom).Amount
+		lockedUseiBalance := am.keeper.BankKeeper().LockedCoins(ctx, coinbaseAddress).AmountOf(denom)
+		balance := useiBalance.Sub(lockedUseiBalance)
 		weiBalance := am.keeper.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
 		if !balance.IsZero() || !weiBalance.IsZero() {
 			if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, coinbase, balance, weiBalance); err != nil {
