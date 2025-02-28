@@ -43,22 +43,16 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid msg")
 	}
 
-	enabledDenoms := m.Keeper.GetEnabledDenoms(ctx)
-	if len(enabledDenoms) > 0 && !slices.Contains(enabledDenoms, instruction.Denom) {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "denom not enabled for confidential transfesr")
-	}
-
-	// Check if the account already exists
-	_, exists := m.Keeper.GetAccount(ctx, req.FromAddress, instruction.Denom)
-	if exists {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already exists")
-	}
-
-	// Check if denom already exists.
+	// Check if denom exists.
 	denomHasSupply := m.Keeper.BankKeeper().HasSupply(ctx, instruction.Denom)
 	metadata, denomMetadataExists := m.Keeper.BankKeeper().GetDenomMetaData(ctx, instruction.Denom)
 	if !denomMetadataExists && !denomHasSupply {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "denom does not exist")
+	}
+
+	enabledDenoms := m.Keeper.GetEnabledDenoms(ctx)
+	if len(enabledDenoms) > 0 && !slices.Contains(enabledDenoms, instruction.Denom) {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "denom not enabled for confidential transfers")
 	}
 
 	// Check that the denom exponent is not too large. This could lead to bad behavior.
@@ -66,6 +60,12 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 		if denomUnit.Exponent > 20 {
 			return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "denom unit exponent is too large")
 		}
+	}
+
+	// Check if the account already exists
+	_, exists := m.Keeper.GetAccount(ctx, req.FromAddress, instruction.Denom)
+	if exists {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already exists")
 	}
 
 	// Validate the public key

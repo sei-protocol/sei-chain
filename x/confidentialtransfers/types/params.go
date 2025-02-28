@@ -13,7 +13,8 @@ const DefaultEnableCtModule = true
 // DefaultRangeProofGasCost is the default value for RangeProofGasCost param.
 const DefaultRangeProofGasCost = uint64(1000000)
 
-const DefaultEnabledDenoms = "sei"
+// Enable usei and canonical usdc by default
+const DefaultEnabledDenoms = "usei,uatom,uusdc,ibc/CA6FBFAF399474A06263E10D0CE5AEBBE15189D6D4B2DD9ADE61007E68EB9DB0"
 
 // ParamKeyTable ParamTable for confidential transfers module.
 func ParamKeyTable() paramtypes.KeyTable {
@@ -73,7 +74,7 @@ func validateRangeProofGasCost(i interface{}) error {
 
 // Validator for the parameter.
 func validateEnabledDenoms(i interface{}) error {
-	_, ok := i.(*[]string)
+	_, ok := i.([]string)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}

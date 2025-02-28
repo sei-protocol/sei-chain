@@ -198,7 +198,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyBalances() {
 }
 
 // Tests scenarios where the client tries to initialize an account on a denom that doesn't exist.
-func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountDenomDoesnExist() {
+func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountDenomDoesntExist() {
 	testPk := suite.PrivKeys[0]
 
 	// Generate the address from the private key
@@ -213,8 +213,29 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountDenomDoesnExist() {
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 
 	// Test that submitting an initialization request for a non-existent denom will fail.
-	suite.Require().Error(err, "Should not be able to create denom on non-existent denom")
+	suite.Require().Error(err, "Should not be able to create account on non-existent denom")
 	suite.Require().ErrorContains(err, "denom does not exist")
+}
+
+// Tests scenarios where the client tries to initialize an account on a denom that doesn't exist.
+func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountDenomNotEnabled() {
+	testPk := suite.PrivKeys[0]
+
+	// Generate the address from the private key
+	testAddr := privkeyToAddress(testPk)
+
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	// Create the denom so it actually exists
+	notEnabledDenom, err := suite.App.TokenFactoryKeeper.CreateDenom(suite.Ctx, testAddr.String(), "notenabled")
+
+	initialize, err := types.NewInitializeAccount(testAddr.String(), notEnabledDenom, *testPk)
+	req := types.NewMsgInitializeAccountProto(initialize)
+	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
+
+	// Test that submitting an initialization request for a non-existent denom will fail.
+	suite.Require().Error(err, "Should not be able to create account on non whitelisted denom")
+	suite.Require().ErrorContains(err, "denom not enabled for confidential transfers")
 }
 
 // Validate alternate scenarios that are technically allowed, but will cause incompatibility with the client.

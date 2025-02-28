@@ -142,7 +142,7 @@ func (k BaseKeeper) GetParams(ctx sdk.Context) (params types.Params) {
 	return params
 }
 
-// SetParams sets the total set of bank parameters.
+// SetParams sets the total set of confidential transfer parameters.
 func (k BaseKeeper) SetParams(ctx sdk.Context, params types.Params) {
 	k.paramSpace.SetParamSet(ctx, &params)
 }
