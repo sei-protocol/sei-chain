@@ -463,7 +463,7 @@ func (db *Database) computeHashForRange(beginBlock, endBlock int64) error {
 						StoreKey: mod,
 						Key:      key,
 						Value:    value,
-						Version:  ver,
+						Version:  ver - beginBlock,
 					}
 				}
 				return false
