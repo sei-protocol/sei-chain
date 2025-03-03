@@ -3,8 +3,13 @@ package tests
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	seiutils "github.com/sei-protocol/sei-chain/utils"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/libs/bytes"
@@ -61,26 +66,62 @@ func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.
 	}, nil
 }
 
-func (c *MockClient) recordBlockResult(txResults []*abci.ExecTxResult, consParamUpdates *abci.ConsensusParams, events []abci.Event) {
+func (c *MockClient) recordBlockResult(txResults []*abci.ExecTxResult, consParamUpdates *tmproto.ConsensusParams, events []abci.Event) {
 	c.txResults = append(c.txResults, txResults)
-	cp := &tmproto.ConsensusParams{
-		Evidence:  consParamUpdates.Evidence,
-		Validator: consParamUpdates.Validator,
-		Version:   consParamUpdates.Version,
-	}
-	if consParamUpdates.Block != nil {
-		cp.Block = &tmproto.BlockParams{
-			MaxBytes:      consParamUpdates.Block.MaxBytes,
-			MaxGas:        consParamUpdates.Block.MaxGas,
-			MinTxsInBlock: consParamUpdates.Block.MinTxsInBlock,
-		}
-	}
-	c.consParamUpdates = append(c.consParamUpdates, cp)
+	c.consParamUpdates = append(c.consParamUpdates, consParamUpdates)
 	c.events = append(c.events, events)
 }
 
 func (c *MockClient) Validators(ctx context.Context, height *int64, page, perPage *int) (*coretypes.ResultValidators, error) {
 	return &coretypes.ResultValidators{}, nil
+}
+
+func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
+	if strings.Contains(req.Filter.Query, "tm.event = 'NewBlock'") {
+		var cursor int
+		var err error
+		if req.After != "" {
+			cursor, err = strconv.Atoi(req.After)
+			if err != nil {
+				panic("invalid cursor")
+			}
+		} else {
+			cursor = 0
+		}
+		res := &coretypes.ResultEvents{Oldest: strconv.FormatInt(int64(cursor), 10), Items: make([]*coretypes.EventItem, 0, req.MaxItems)}
+		for ; cursor < len(c.blocks); cursor++ {
+			if len(res.Items) >= req.MaxItems {
+				res.More = true
+				break
+			}
+			block := c.getBlock(int64(cursor + 1))
+			data := tmtypes.EventDataNewBlock{
+				Block:   block.Block,
+				BlockID: block.BlockID,
+			}
+			eventData, err := json.Marshal(data)
+			if err != nil {
+				panic(err)
+			}
+			wrappedData := evmrpc.EventItemDataWrapper{
+				Type:  "NewBlock",
+				Value: eventData,
+			}
+			bz, err := json.Marshal(wrappedData)
+			if err != nil {
+				panic(err)
+			}
+			res.Items = append(res.Items, &coretypes.EventItem{
+				Cursor: strconv.FormatInt(int64(cursor), 10),
+				Data:   bz,
+				Event:  "event",
+			})
+		}
+		res.Newest = strconv.FormatInt(int64(cursor-1), 10)
+		return res, nil
+	} else {
+		panic(fmt.Sprintf("event query %s is not expected to be made by EVM RPC", req.Filter.Query))
+	}
 }
 
 func mockHash(height int64, prefix int64) bytes.HexBytes {

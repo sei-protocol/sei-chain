@@ -34,7 +34,11 @@ func TestAddNative(t *testing.T) {
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
 	blockCtx, _ := testApp.EvmKeeper.GetVMBlockContext(ctx, core.GasPool(suppliedGas))
+<<<<<<< HEAD
 	evm := vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{}, nil)
+=======
+	evm := vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles())
+>>>>>>> d6cbdbd2 (refactor RPC tests)
 	_, g, err := p.RunAndCalculateGas(evm, caller, caller, append(p.GetExecutor().(*pointer.PrecompileExecutor).AddNativePointerID, args...), suppliedGas, nil, nil, false, false)
 	require.NotNil(t, err)
 	require.NotNil(t, statedb.GetPrecompileError())
@@ -54,7 +58,11 @@ func TestAddNative(t *testing.T) {
 		}},
 	})
 	statedb = state.NewDBImpl(ctx, &testApp.EvmKeeper, false)
+<<<<<<< HEAD
 	evm = vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{}, nil)
+=======
+	evm = vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles())
+>>>>>>> d6cbdbd2 (refactor RPC tests)
 	ret, g, err := p.RunAndCalculateGas(evm, caller, caller, append(p.GetExecutor().(*pointer.PrecompileExecutor).AddNativePointerID, args...), suppliedGas, nil, nil, false, false)
 	require.Nil(t, err)
 	require.Equal(t, uint64(8889527), g)
@@ -83,7 +91,7 @@ func TestAddNative(t *testing.T) {
 	testApp.EvmKeeper.DeleteERC20NativePointer(statedb.Ctx(), "test", version)
 	testApp.EvmKeeper.SetERC20NativePointerWithVersion(statedb.Ctx(), "test", pointerAddr, version-1)
 	statedb = state.NewDBImpl(statedb.Ctx(), &testApp.EvmKeeper, true)
-	evm = vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{}, nil)
+	evm = vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles())
 	_, _, err = p.RunAndCalculateGas(evm, caller, caller, append(p.GetExecutor().(*pointer.PrecompileExecutor).AddNativePointerID, args...), suppliedGas, nil, nil, false, false)
 	require.Nil(t, err)
 	require.Nil(t, statedb.GetPrecompileError())

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -25,42 +26,60 @@ import (
 
 const testAddr = "127.0.0.1"
 
-func RunWithServer(s evmrpc.EVMServer, r func()) {
-	s.Start()
-	defer s.Stop()
-	r()
+var portProvider = atomic.Int32{}
+
+func init() {
+	portProvider.Store(7800)
 }
 
-func forkCtx(ctx sdk.Context) sdk.Context {
-	ms := ctx.MultiStore()
-	msCache := ms.CacheMultiStore()
-	return ctx.WithMultiStore(msCache)
+type TestServer struct {
+	evmrpc.EVMServer
+	port int
+}
+
+func (ts TestServer) Run(r func(port int)) {
+	ts.Start()
+	defer ts.Stop()
+	r(ts.port)
 }
 
 func SetupTestServer(
-	port int,
 	blocks [][][]byte,
 	initializer ...func(sdk.Context, *app.App),
-) evmrpc.EVMServer {
-	mockClient := MockClient{blocks: blocks}
-	a := testkeeper.EVMTestApp
-	ctx := forkCtx(a.GetContextForDeliverTx(nil)).WithBlockTime(time.Now()).WithChainID("sei-test")
+) TestServer {
+	port := int(portProvider.Add(1))
+	mockClient := MockClient{blocks: append([][][]byte{{}}, blocks...)}
+	a := app.Setup(false, true)
+	a.ChainID = "sei-test"
+	res, err := a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+		Txs:    [][]byte{},
+		Hash:   mockHash(1, 0),
+		Height: 1,
+		Time:   time.Now(),
+	})
+	if err != nil {
+		panic(err)
+	}
+	ctx := a.GetContextForDeliverTx(nil)
 	for _, i := range initializer {
 		i(ctx, a)
 	}
-	ctxList := []sdk.Context{}
+	a.Commit(context.Background())
+	mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	for i, block := range blocks {
-		ctxList = append(ctxList, ctx)
-		ctx = forkCtx(ctx).WithBlockHeight(int64(i + 1)).WithBlockTime(time.Now()).WithChainID("sei-test")
-		e, t, c, err := a.ProcessBlock(ctx, block, &abci.RequestProcessProposal{
-			Height: int64(i + 1),
-		}, abci.CommitInfo{}, true)
-		// fmt.Println(t)
+		height := int64(i + 2)
+		blockTime := time.Now()
+		res, err := a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+			Txs:    block,
+			Hash:   mockHash(height, 0),
+			Height: height,
+			Time:   blockTime,
+		})
 		if err != nil {
 			panic(err)
 		}
-		a.EvmKeeper.FlushTransientReceipts(ctx)
-		mockClient.recordBlockResult(t, c.ConsensusParamUpdates, e)
+		a.Commit(context.Background())
+		mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	}
 	cfg := evmrpc.DefaultConfig
 	cfg.HTTPEnabled = true
@@ -72,12 +91,7 @@ func SetupTestServer(
 		&a.EvmKeeper,
 		a.BaseApp,
 		a.AnteHandler,
-		func(i int64) sdk.Context {
-			if i == evmrpc.LatestCtxHeight {
-				return ctxList[len(ctxList)-1]
-			}
-			return ctxList[i-1]
-		},
+		a.RPCContextProvider,
 		a.GetTxConfig(),
 		"",
 		func(ctx context.Context, hash common.Hash) (bool, error) {
@@ -87,7 +101,7 @@ func SetupTestServer(
 	if err != nil {
 		panic(err)
 	}
-	return s
+	return TestServer{EVMServer: s, port: port}
 }
 
 func sendRequestWithNamespace(namespace string, port int, method string, params ...interface{}) map[string]interface{} {
@@ -98,7 +112,10 @@ func sendRequestWithNamespace(namespace string, port int, method string, params 
 	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_%s\",\"params\":[%s],\"id\":\"test\"}", namespace, method, paramsFormatted)
 	req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", testAddr, port), strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	res, _ := http.DefaultClient.Do(req)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		panic(err)
+	}
 	defer res.Body.Close()
 	resBody, _ := io.ReadAll(res.Body)
 	resObj := map[string]interface{}{}
@@ -181,6 +198,12 @@ func signAndEncodeTx(txData ethtypes.TxData, mnemonic string) []byte {
 	builder := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
 	builder.SetMsgs(msg)
 	tx := builder.GetTx()
+	txBz, _ := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
+	return txBz
+}
+
+func signAndEncodeCosmosTx(msg sdk.Msg, mnemonic string, acctN uint64, seq uint64) []byte {
+	tx := signCosmosTxWithMnemonic(msg, mnemonic1, acctN, seq)
 	txBz, _ := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
 	return txBz
 }
