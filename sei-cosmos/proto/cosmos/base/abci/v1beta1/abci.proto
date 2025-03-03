@@ -83,6 +83,9 @@ message GasInfo {
 
   // GasUsed is the amount of gas actually consumed.
   uint64 gas_used = 2 [(gogoproto.moretags) = "yaml:\"gas_used\""];
+
+  // GasEstimate is the estimated gas used by the transaction.
+  uint64 gas_estimate = 3 [(gogoproto.moretags) = "yaml:\"gas_estimate\""];
 }
 
 // Result is the union of ResponseFormat and ResponseCheckTx.

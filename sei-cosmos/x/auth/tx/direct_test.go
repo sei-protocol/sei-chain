@@ -151,6 +151,7 @@ type nonProtoTx int
 
 func (npt *nonProtoTx) GetMsgs() []sdk.Msg   { return nil }
 func (npt *nonProtoTx) ValidateBasic() error { return nil }
+func (npt *nonProtoTx) GetGasEstimate() uint64 { return 0 }
 
 var _ sdk.Tx = (*nonProtoTx)(nil)
 

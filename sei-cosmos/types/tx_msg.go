@@ -43,6 +43,9 @@ type (
 		// ValidateBasic does a simple and lightweight validation check that doesn't
 		// require access to any other information.
 		ValidateBasic() error
+
+		// GetGasEstimate returns the estimated gas used by the transaction.
+		GetGasEstimate() uint64
 	}
 
 	// FeeTx defines the interface to be implemented by Tx to use the FeeDecorators

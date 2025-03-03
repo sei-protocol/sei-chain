@@ -236,9 +236,10 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abc
 
 	res := &abci.ResponseCheckTxV2{
 		ResponseCheckTx: &abci.ResponseCheckTx{
-			GasWanted: int64(gInfo.GasWanted), // TODO: Should type accept unsigned ints?
-			Data:      result.Data,
-			Priority:  priority,
+			GasWanted:    int64(gInfo.GasWanted), // TODO: Should type accept unsigned ints?
+			Data:         result.Data,
+			Priority:     priority,
+			GasEstimated: int64(gInfo.GasEstimate),
 		},
 		ExpireTxHandler:  expireTxHandler,
 		EVMNonce:         txCtx.EVMNonce(),

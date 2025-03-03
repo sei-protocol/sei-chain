@@ -56,6 +56,10 @@ func (s *StdTxBuilder) SetGasLimit(limit uint64) {
 	s.StdTx.Fee.Gas = limit
 }
 
+func (s *StdTxBuilder) SetGasEstimate(estimate uint64) {
+	s.StdTx.GasEstimate = estimate
+}
+
 // SetMemo implements TxBuilder.SetMemo
 func (s *StdTxBuilder) SetMemo(memo string) {
 	s.Memo = memo

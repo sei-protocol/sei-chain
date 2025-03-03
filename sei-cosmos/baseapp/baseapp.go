@@ -897,6 +897,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	// determined by the GasMeter. We need access to the context to get the gas
 	// meter so we initialize upfront.
 	var gasWanted uint64
+	var gasEstimate uint64
 
 	ms := ctx.MultiStore()
 
@@ -910,7 +911,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 				ctx.MultiStore().ResetEvents()
 			}
 		}
-		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed()}
+		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed(), GasEstimate: gasEstimate}
 	}()
 
 	if tx == nil {
@@ -969,6 +970,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 
 		// GasMeter expected to be set in AnteHandler
 		gasWanted = ctx.GasMeter().Limit()
+		gasEstimate = ctx.GasEstimate()
 		if err != nil {
 			return gInfo, nil, nil, 0, nil, nil, ctx, err
 		}

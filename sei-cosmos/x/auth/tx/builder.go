@@ -64,6 +64,10 @@ func (w *wrapper) ValidateBasic() error {
 	return w.tx.ValidateBasic()
 }
 
+func (w *wrapper) GetGasEstimate() uint64 {
+	return w.tx.GetGasEstimate()
+}
+
 func (w *wrapper) getBodyBytes() []byte {
 	if len(w.bodyBz) == 0 {
 		// if bodyBz is empty, then marshal the body. bodyBz will generally
@@ -234,6 +238,14 @@ func (w *wrapper) SetGasLimit(limit uint64) {
 
 	// set authInfoBz to nil because the cached authInfoBz no longer matches tx.AuthInfo
 	w.authInfoBz = nil
+}
+
+func (w *wrapper) SetGasEstimate(estimate uint64) {
+	if w.tx.AuthInfo.Fee == nil {
+		w.tx.AuthInfo.Fee = &tx.Fee{}
+	}
+
+	w.tx.AuthInfo.Fee.GasEstimate = estimate
 }
 
 func (w *wrapper) SetFeeAmount(coins sdk.Coins) {

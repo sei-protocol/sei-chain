@@ -62,6 +62,10 @@ func (tx kvstoreTx) GetSigners() []sdk.AccAddress {
 	return nil
 }
 
+func (tx kvstoreTx) GetGasEstimate() uint64 {
+	return 0
+}
+
 // takes raw transaction bytes and decodes them into an sdk.Tx. An sdk.Tx has
 // all the signatures and can be used to authenticate.
 func decodeTx(txBytes []byte) (sdk.Tx, error) {

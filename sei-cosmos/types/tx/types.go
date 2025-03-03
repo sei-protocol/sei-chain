@@ -101,6 +101,10 @@ func (t *Tx) ValidateBasic() error {
 	return nil
 }
 
+func (t *Tx) GetGasEstimate() uint64 {
+	return t.AuthInfo.Fee.GasEstimate
+}
+
 // GetSigners retrieves all the signers of a tx.
 // This includes all unique signers of the messages (in order),
 // as well as the FeePayer (if specified and not already included).
