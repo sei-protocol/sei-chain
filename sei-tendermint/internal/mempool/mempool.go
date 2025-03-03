@@ -198,7 +198,7 @@ func (txmp *TxMempool) BytesNotPending() int64 {
 }
 
 func (txmp *TxMempool) TotalTxsBytesSize() int64 {
-	return txmp.BytesNotPending() + int64(txmp.pendingTxs.sizeBytes)
+	return txmp.BytesNotPending() + int64(txmp.pendingTxs.SizeBytes())
 }
 
 // PendingSize returns the number of pending transactions in the mempool.
@@ -335,6 +335,7 @@ func (txmp *TxMempool) CheckTx(
 		evmAddress:    res.EVMSenderAddress,
 		isEVM:         res.IsEVM,
 		removeHandler: removeHandler,
+		estimatedGas:  res.GasEstimated,
 	}
 
 	if err == nil {
@@ -452,9 +453,19 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGas, minTxsInBlock int64)
 		if maxBytes > -1 && totalSize+size > maxBytes {
 			return false
 		}
+
+		// if the tx doesn't have a gas estimate, fallback to gas wanted
+		var gasEstimateOrWanted int64
+		if wtx.estimatedGas > 0 {
+			gasEstimateOrWanted = wtx.estimatedGas
+		} else {
+			gasEstimateOrWanted = wtx.gasWanted
+		}
+
 		totalSize += size
-		gas := totalGas + wtx.gasWanted
-		if nonzeroGasTxCnt >= minTxsInBlock && maxGas > -1 && gas > maxGas {
+		gas := totalGas + gasEstimateOrWanted
+		maxGasExceeded := maxGas > -1 && gas > maxGas
+		if nonzeroGasTxCnt >= minTxsInBlock && maxGasExceeded {
 			return false
 		}
 
@@ -679,6 +690,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 	}
 
 	wtx.gasWanted = res.GasWanted
+	wtx.estimatedGas = res.GasEstimated
 	wtx.priority = priority
 	wtx.sender = sender
 	wtx.peers = map[uint16]struct{}{

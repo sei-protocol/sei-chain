@@ -93,7 +93,7 @@ func (_m *Mempool) Lock() {
 }
 
 // ReapMaxBytesMaxGas provides a mock function with given fields: maxBytes, maxGas
-func (_m *Mempool) ReapMaxBytesMaxGas(maxBytes int64, maxGas int64, minTxsInBlock int64) types.Txs {
+func (_m *Mempool) ReapMaxBytesMaxGas(maxBytes int64, maxGas int64,minTxsInBlock int64) types.Txs {
 	ret := _m.Called(maxBytes, maxGas)
 
 	var r0 types.Txs

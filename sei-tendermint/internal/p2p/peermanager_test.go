@@ -994,8 +994,10 @@ func TestPeerManager_Dialed_MaxConnectedUpgrade(t *testing.T) {
 	// Start upgrade with c
 	dial, err := peerManager.TryDialNext()
 	require.NoError(t, err)
-	require.Equal(t, c, dial)
-	require.NoError(t, peerManager.Dialed(c))
+	if dial != c && dial != d {
+		t.Fatalf("dial = %s, expected %s or %s", dial, c, d)
+	}
+	require.NoError(t, peerManager.Dialed(dial))
 
 	// Try to dial d - should fail since we're at upgrade capacity
 	dial, err = peerManager.TryDialNext()

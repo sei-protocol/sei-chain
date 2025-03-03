@@ -39,6 +39,9 @@ type WrappedTx struct {
 	// gasWanted defines the amount of gas the transaction sender requires
 	gasWanted int64
 
+	// estimatedGas defines the amount of gas that the transaction is estimated to use
+	estimatedGas int64
+
 	// priority defines the transaction's priority as specified by the application
 	// in the ResponseCheckTx response.
 	priority int64
@@ -395,6 +398,12 @@ func (p *PendingTxs) Insert(tx *WrappedTx, resCheckTx *abci.ResponseCheckTxV2, t
 	})
 	p.sizeBytes += uint64(tx.Size())
 	return nil
+}
+
+func (p *PendingTxs) SizeBytes() uint64 {
+	p.mtx.RLock()
+	defer p.mtx.RUnlock()
+	return p.sizeBytes
 }
 
 func (p *PendingTxs) Peek(max int) []TxWithResponse {

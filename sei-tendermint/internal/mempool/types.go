@@ -44,9 +44,9 @@ type Mempool interface {
 
 	// ReapMaxBytesMaxGas reaps transactions from the mempool up to maxBytes
 	// bytes total with the condition that the total gasWanted must be less than
-	// maxGas.
+	// maxGas and that the total estimated gas used is less than maxGasEstimated.
 	//
-	// If both maxes are negative, there is no cap on the size of all returned
+	// If all 3 maxes are negative, there is no cap on the size of all returned
 	// transactions (~ all available transactions).
 	ReapMaxBytesMaxGas(maxBytes, maxGas, minTxsInBlock int64) types.Txs
 
