@@ -32,7 +32,7 @@ func (gl GasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, nex
 	if tx.GetGasEstimate() >= MinGasEVMTx {
 		ctx = ctx.WithGasEstimate(tx.GetGasEstimate())
 	} else {
-		ctx = ctx.WithGasEstimate(gasMeter.GasConsumed())
+		ctx = ctx.WithGasEstimate(gasMeter.Limit())
 	}
 	return next(ctx, tx, simulate)
 }
