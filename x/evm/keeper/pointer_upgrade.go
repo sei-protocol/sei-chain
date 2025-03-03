@@ -26,7 +26,7 @@ func (k *Keeper) RunWithOneOffEVMInstance(
 	}
 	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(&core.Message{From: evmModuleAddress, GasPrice: utils.Big0})
-	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
+	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}, nil)
 	err = runner(evmInstance)
 	if err != nil {
 		logger("upserting pointer", err.Error())
