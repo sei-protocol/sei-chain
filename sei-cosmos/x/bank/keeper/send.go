@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"bytes"
 	"strings"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -15,6 +16,8 @@ import (
 const (
 	TokenFactoryPrefix = "factory"
 )
+
+var CoinbaseAddressPrefix = []byte("evm_coinbase")
 
 // SendKeeper defines a module interface that facilitates the transfer of coins
 // between accounts without the possibility of creating coins.
@@ -343,6 +346,11 @@ func (k BaseSendKeeper) IsSendEnabledCoin(ctx sdk.Context, coin sdk.Coin) bool {
 // BlockedAddr checks if a given address is restricted from
 // receiving funds.
 func (k BaseSendKeeper) BlockedAddr(addr sdk.AccAddress) bool {
+	if len(addr) == len(CoinbaseAddressPrefix)+8 {
+		if bytes.Equal(CoinbaseAddressPrefix, addr[:len(CoinbaseAddressPrefix)]) {
+			return true
+		}
+	}
 	return k.blockedAddrs[addr.String()]
 }
 
