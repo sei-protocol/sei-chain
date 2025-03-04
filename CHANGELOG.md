@@ -29,6 +29,8 @@ Ref: https://keepachangelog.com/en/1.0.0/
 # Changelog
 ## v6.0.4
 sei-chain
+* [#2089](https://github.com/sei-protocol/sei-chain/pull/2089) Tracer RPC fixes
+* [#2087](https://github.com/sei-protocol/sei-chain/pull/2087) Make coinbase distribution in EndBlock more efficient
 * [#2085](https://github.com/sei-protocol/sei-chain/pull/2085) Allow safe/latest/final to be passed as block number to trace/simulate endpoints
 * [#2075](https://github.com/sei-protocol/sei-chain/pull/2075) Imporve pointer/pointee query UX
 * [#2071](https://github.com/sei-protocol/sei-chain/pull/2071) Improve tracer/simulation RPC
@@ -42,7 +44,9 @@ sei-chain
 * [#2048](https://github.com/sei-protocol/sei-chain/pull/2048) Add logic to remove a small number of tx hashes each block
 
 sei-cosmos
+* [#568](https://github.com/sei-protocol/sei-cosmos/pull/568) Blacklist evm coinbase address from receiving
 * [#565](https://github.com/sei-protocol/sei-cosmos/pull/565) Bypass unnecessary logics in BeginBlock for simulate
+* [#564](https://github.com/sei-protocol/sei-cosmos/pull/564) Add whitelist for fee denoms
 
 sei-tendermint
 * [#265](https://github.com/sei-protocol/sei-tendermint/pull/264) Fix: peer manager nil pointer
