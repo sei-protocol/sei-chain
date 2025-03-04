@@ -38,7 +38,7 @@ type TestServer struct {
 }
 
 func (ts TestServer) Run(r func(port int)) {
-	ts.Start()
+	_ = ts.Start()
 	defer ts.Stop()
 	r(ts.port)
 }
@@ -64,7 +64,7 @@ func SetupTestServer(
 	for _, i := range initializer {
 		i(ctx, a)
 	}
-	a.Commit(context.Background())
+	_, _ = a.Commit(context.Background())
 	mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	for i, block := range blocks {
 		height := int64(i + 2)
@@ -78,7 +78,7 @@ func SetupTestServer(
 		if err != nil {
 			panic(err)
 		}
-		a.Commit(context.Background())
+		_, _ = a.Commit(context.Background())
 		mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	}
 	cfg := evmrpc.DefaultConfig
@@ -196,7 +196,7 @@ func signAndEncodeTx(txData ethtypes.TxData, mnemonic string) []byte {
 	}
 	msg, _ := types.NewMsgEVMTransaction(typedTx)
 	builder := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
-	builder.SetMsgs(msg)
+	_ = builder.SetMsgs(msg)
 	tx := builder.GetTx()
 	txBz, _ := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
 	return txBz
