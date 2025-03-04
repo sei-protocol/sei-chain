@@ -32,7 +32,8 @@ sei-chain
 * [#2089](https://github.com/sei-protocol/sei-chain/pull/2089) Tracer RPC fixes
 * [#2087](https://github.com/sei-protocol/sei-chain/pull/2087) Make coinbase distribution in EndBlock more efficient
 * [#2085](https://github.com/sei-protocol/sei-chain/pull/2085) Allow safe/latest/final to be passed as block number to trace/simulate endpoints
-* [#2075](https://github.com/sei-protocol/sei-chain/pull/2075) Imporve pointer/pointee query UX
+* [#2075](https://github.com/sei-protocol/sei-chain/pull/2075) Improve pointer/pointee query UX
+* [#2073](https://github.com/sei-protocol/sei-chain/pull/2073) RPC simulation with gas used estimate tagging
 * [#2071](https://github.com/sei-protocol/sei-chain/pull/2071) Improve tracer/simulation RPC
 * [#2068](https://github.com/sei-protocol/sei-chain/pull/2068) Fix eth_gasPrice not found
 * [#2067](https://github.com/sei-protocol/sei-chain/pull/2067) Set log index across all transactions in a block
