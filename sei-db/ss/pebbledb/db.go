@@ -69,6 +69,10 @@ type Database struct {
 
 	// Pending changes to be written to the DB
 	pendingChanges chan VersionedChangesets
+
+	// Cache for last range hashed
+	lastRangeHashedCache int64
+	lastRangeHashedMu    sync.RWMutex
 }
 
 type VersionedChangesets struct {
@@ -126,6 +130,14 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		earliestVersion: earliestVersion,
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
 	}
+
+	// Initialize the lastRangeHashed cache
+	lastHashed, err := retrieveLastRangeHashed(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve last range hashed: %w", err)
+	}
+	database.lastRangeHashedCache = lastHashed
+
 	if config.DedicatedChangelog {
 		streamHandler, _ := changelog.NewStream(
 			logger.NewNopLogger(),
@@ -206,25 +218,23 @@ func (db *Database) GetEarliestVersion() (int64, error) {
 func (db *Database) SetLastRangeHashed(latestHashed int64) error {
 	var ts [VersionSize]byte
 	binary.LittleEndian.PutUint64(ts[:], uint64(latestHashed))
+
+	// Update the cache first
+	db.lastRangeHashedMu.Lock()
+	db.lastRangeHashedCache = latestHashed
+	db.lastRangeHashedMu.Unlock()
+
 	return db.storage.Set([]byte(lastRangeHashKey), ts[:], defaultWriteOpts)
 }
 
 // GetLastRangeHashed returns the highest block that has been fully hashed in ranges.
 func (db *Database) GetLastRangeHashed() (int64, error) {
-	bz, closer, err := db.storage.Get([]byte(lastRangeHashKey))
-	if err != nil {
-		if errors.Is(err, pebble.ErrNotFound) {
-			// means we haven't hashed anything yet
-			return 0, nil
-		}
-		return 0, err
-	}
-	defer closer.Close()
+	// Return the cached value
+	db.lastRangeHashedMu.RLock()
+	cachedValue := db.lastRangeHashedCache
+	db.lastRangeHashedMu.RUnlock()
 
-	if len(bz) == 0 {
-		return 0, nil
-	}
-	return int64(binary.LittleEndian.Uint64(bz)), nil
+	return cachedValue, nil
 }
 
 // Retrieves earliest version from db
@@ -1024,4 +1034,21 @@ func (db *Database) WriteBlockRangeHash(storeKey string, beginBlockRange, endBlo
 		return fmt.Errorf("failed to write block range hash: %w", err)
 	}
 	return nil
+}
+
+func retrieveLastRangeHashed(db *pebble.DB) (int64, error) {
+	bz, closer, err := db.Get([]byte(lastRangeHashKey))
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			// means we haven't hashed anything yet
+			return 0, nil
+		}
+		return 0, err
+	}
+	defer closer.Close()
+
+	if len(bz) == 0 {
+		return 0, nil
+	}
+	return int64(binary.LittleEndian.Uint64(bz)), nil
 }
