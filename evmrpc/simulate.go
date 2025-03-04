@@ -269,7 +269,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 			}
 		}
 	}
-	header := b.getHeader(big.NewInt(bn.Int64()))
+	header := b.getHeader(big.NewInt(blockNum))
 	block := &ethtypes.Block{
 		Header_: header,
 		Txs:     txs,
@@ -331,7 +331,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 	}
 	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(res.Validators)
 	reqBeginBlock.Simulate = true
-	sdkCtx := b.ctxProvider(prevBlockHeight)
+	sdkCtx := b.ctxProvider(prevBlockHeight).WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
 	_ = b.app.BeginBlock(sdkCtx, reqBeginBlock)
 	blockContext, err := b.keeper.GetVMBlockContext(sdkCtx, core.GasPool(b.RPCGasCap()))
 	if err != nil {
