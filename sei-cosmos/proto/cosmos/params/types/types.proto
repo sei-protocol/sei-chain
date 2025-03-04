@@ -11,6 +11,7 @@ import "cosmos/base/v1beta1/coin.proto";
 message FeesParams {
   repeated cosmos.base.v1beta1.DecCoin global_minimum_gas_prices = 1
       [(gogoproto.nullable) = false, (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.DecCoins"];
+  repeated string allowed_fee_denoms = 2;
 }
 
 message CosmosGasParams {

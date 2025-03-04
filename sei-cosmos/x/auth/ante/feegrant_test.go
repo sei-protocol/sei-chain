@@ -46,22 +46,22 @@ func (suite *AnteTestSuite) TestDeductFeesNoDelegation() {
 	priv5, _, addr5 := testdata.KeyTestPubAddr()
 
 	// Set addr1 with insufficient funds
-	err := simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, []sdk.Coin{sdk.NewCoin("atom", sdk.NewInt(10))})
+	err := simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, []sdk.Coin{sdk.NewCoin("usei", sdk.NewInt(10))})
 	suite.Require().NoError(err)
 
 	// Set addr2 with more funds
-	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr2, []sdk.Coin{sdk.NewCoin("atom", sdk.NewInt(99999))})
+	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr2, []sdk.Coin{sdk.NewCoin("usei", sdk.NewInt(99999))})
 	suite.Require().NoError(err)
 
 	// grant fee allowance from `addr2` to `addr3` (plenty to pay)
 	err = app.FeeGrantKeeper.GrantAllowance(ctx, addr2, addr3, &feegrant.BasicAllowance{
-		SpendLimit: sdk.NewCoins(sdk.NewInt64Coin("atom", 500)),
+		SpendLimit: sdk.NewCoins(sdk.NewInt64Coin("usei", 500)),
 	})
 	suite.Require().NoError(err)
 
 	// grant low fee allowance (20atom), to check the tx requesting more than allowed.
 	err = app.FeeGrantKeeper.GrantAllowance(ctx, addr2, addr4, &feegrant.BasicAllowance{
-		SpendLimit: sdk.NewCoins(sdk.NewInt64Coin("atom", 20)),
+		SpendLimit: sdk.NewCoins(sdk.NewInt64Coin("usei", 20)),
 	})
 	suite.Require().NoError(err)
 
@@ -135,7 +135,7 @@ func (suite *AnteTestSuite) TestDeductFeesNoDelegation() {
 	for name, stc := range cases {
 		tc := stc // to make scopelint happy
 		suite.T().Run(name, func(t *testing.T) {
-			fee := sdk.NewCoins(sdk.NewInt64Coin("atom", tc.fee))
+			fee := sdk.NewCoins(sdk.NewInt64Coin("usei", tc.fee))
 			msgs := []sdk.Msg{testdata.NewTestMsg(tc.signer)}
 
 			acc := app.AccountKeeper.GetAccount(ctx, tc.signer)

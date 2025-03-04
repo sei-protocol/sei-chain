@@ -170,14 +170,18 @@ func (s Subspace) checkType(key []byte, value interface{}) {
 // transient KVStore to mark the parameter as modified.
 func (s Subspace) Set(ctx sdk.Context, key []byte, value interface{}) {
 	s.checkType(key, value)
-	store := s.kvStore(ctx)
 
 	bz, err := s.legacyAmino.MarshalJSON(value)
 	if err != nil {
 		panic(err)
 	}
 
-	store.Set(key, bz)
+	s.SetRaw(ctx, key, bz)
+}
+
+func (s Subspace) SetRaw(ctx sdk.Context, key []byte, value []byte) {
+	store := s.kvStore(ctx)
+	store.Set(key, value)
 
 	tstore := s.transientStore(ctx)
 	tstore.Set(key, []byte{})

@@ -30,7 +30,7 @@ func KeyTestPubAddrSecp256R1(require *require.Assertions) (cryptotypes.PrivKey, 
 
 // NewTestFeeAmount is a test fee amount.
 func NewTestFeeAmount() sdk.Coins {
-	return sdk.NewCoins(sdk.NewInt64Coin("atom", 150))
+	return sdk.NewCoins(sdk.NewInt64Coin("usei", 150))
 }
 
 // NewTestGasLimit is a test fee gas limit.

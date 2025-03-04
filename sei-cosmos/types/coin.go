@@ -638,6 +638,18 @@ func (coins Coins) AmountOf(denom string) Int {
 	return coins.AmountOfNoDenomValidation(denom)
 }
 
+// NonZeroAmountsOf returns non-zero coins for provided denoms
+func (coins Coins) NonZeroAmountsOf(denoms []string) (subset Coins) {
+	subset = Coins{}
+	for _, denom := range denoms {
+		amt := coins.AmountOf(denom)
+		if amt.IsPositive() {
+			subset = append(subset, NewCoin(denom, amt))
+		}
+	}
+	return
+}
+
 // AmountOfNoDenomValidation returns the amount of a denom from coins
 // without validating the denomination.
 func (coins Coins) AmountOfNoDenomValidation(denom string) Int {

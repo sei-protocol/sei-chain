@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"encoding/hex"
 	"fmt"
 	"reflect"
 	"testing"
@@ -279,4 +280,17 @@ func TestUpdateCosmosGasParams(t *testing.T) {
 	cosmosGasParams = keeper.GetCosmosGasParams(ctx)
 	require.Equal(t, uint64(1), cosmosGasParams.CosmosGasMultiplierNumerator)
 	require.Equal(t, uint64(4), cosmosGasParams.CosmosGasMultiplierDenominator)
+}
+
+func TestFeeParams(t *testing.T) {
+	_, ctx, _, _, keeper := testComponents()
+	oldFeeParamsBz := "7B22676C6F62616C5F6D696E696D756D5F6761735F707269636573223A5B7B2264656E6F6D223A2275736569222C22616D6F756E74223A22302E303130303030303030303030303030303030227D5D7D"
+	subspace, exist := keeper.GetSubspace(types.ModuleName)
+	require.True(t, exist)
+	val, err := hex.DecodeString(oldFeeParamsBz)
+	require.Nil(t, err)
+	subspace.SetRaw(ctx, types.ParamStoreKeyFeesParams, val)
+	feeParams := keeper.GetFeesParams(ctx)
+	require.Equal(t, sdk.DecCoins{sdk.NewDecCoinFromDec("usei", sdk.NewDecWithPrec(1, 2))}, feeParams.GlobalMinimumGasPrices)
+	require.Empty(t, feeParams.AllowedFeeDenoms)
 }

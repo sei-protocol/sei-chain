@@ -19,13 +19,14 @@ func CheckTxFeeWithValidatorMinGasPrices(ctx sdk.Context, tx sdk.Tx, simulate bo
 	}
 
 	feeCoins := feeTx.GetFee()
+	feeParams := paramsKeeper.GetFeesParams(ctx)
+	feeCoins = feeCoins.NonZeroAmountsOf(append([]string{sdk.DefaultBondDenom}, feeParams.GetAllowedFeeDenoms()...))
 	gas := feeTx.GetGas()
 
 	// Ensure that the provided fees meet a minimum threshold for the validator,
 	// if this is a CheckTx. This is only for local mempool purposes, and thus
 	// is only ran on check tx.
 	if ctx.IsCheckTx() && !simulate {
-		feeParams := paramsKeeper.GetFeesParams(ctx)
 		minGasPrices := GetMinimumGasPricesWantedSorted(feeParams.GetGlobalMinimumGasPrices(), ctx.MinGasPrices())
 		if !minGasPrices.IsZero() {
 			requiredFees := make(sdk.Coins, len(minGasPrices))

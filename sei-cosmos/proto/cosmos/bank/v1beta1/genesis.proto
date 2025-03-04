@@ -49,5 +49,5 @@ message WeiBalance {
   string address = 1;
 
   // wei balance amount.
-  string amount = 2 [(gogoproto.customtype) = "Int", (gogoproto.nullable) = false];
+  string amount = 2 [(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int", (gogoproto.nullable) = false];
 }

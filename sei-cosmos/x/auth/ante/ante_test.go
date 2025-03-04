@@ -472,7 +472,7 @@ func (suite *AnteTestSuite) TestAnteHandlerFees() {
 		{
 			"signer does not have enough funds to pay the fee",
 			func() {
-				err := simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr0, sdk.NewCoins(sdk.NewInt64Coin("atom", 149)))
+				err := simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr0, sdk.NewCoins(sdk.NewInt64Coin("usei", 149)))
 				suite.Require().NoError(err)
 			},
 			false,
@@ -487,9 +487,9 @@ func (suite *AnteTestSuite) TestAnteHandlerFees() {
 				modAcc := suite.app.AccountKeeper.GetModuleAccount(suite.ctx, types.FeeCollectorName)
 
 				suite.Require().True(suite.app.BankKeeper.GetAllBalances(suite.ctx, modAcc.GetAddress()).Empty())
-				require.True(sdk.IntEq(suite.T(), suite.app.BankKeeper.GetAllBalances(suite.ctx, addr0).AmountOf("atom"), sdk.NewInt(149)))
+				require.True(sdk.IntEq(suite.T(), suite.app.BankKeeper.GetAllBalances(suite.ctx, addr0).AmountOf("usei"), sdk.NewInt(149)))
 
-				err := simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr0, sdk.NewCoins(sdk.NewInt64Coin("atom", 1)))
+				err := simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr0, sdk.NewCoins(sdk.NewInt64Coin("usei", 1)))
 				suite.Require().NoError(err)
 			},
 			false,
@@ -501,8 +501,8 @@ func (suite *AnteTestSuite) TestAnteHandlerFees() {
 			func() {
 				modAcc := suite.app.AccountKeeper.GetModuleAccount(suite.ctx, types.FeeCollectorName)
 
-				require.True(sdk.IntEq(suite.T(), suite.app.BankKeeper.GetAllBalances(suite.ctx, modAcc.GetAddress()).AmountOf("atom"), sdk.NewInt(150)))
-				require.True(sdk.IntEq(suite.T(), suite.app.BankKeeper.GetAllBalances(suite.ctx, addr0).AmountOf("atom"), sdk.NewInt(0)))
+				require.True(sdk.IntEq(suite.T(), suite.app.BankKeeper.GetAllBalances(suite.ctx, modAcc.GetAddress()).AmountOf("usei"), sdk.NewInt(150)))
+				require.True(sdk.IntEq(suite.T(), suite.app.BankKeeper.GetAllBalances(suite.ctx, addr0).AmountOf("usei"), sdk.NewInt(0)))
 			},
 			false,
 			false,
@@ -540,7 +540,7 @@ func (suite *AnteTestSuite) TestAnteHandlerMemoGas() {
 		{
 			"tx does not have enough gas",
 			func() {
-				feeAmount = sdk.NewCoins(sdk.NewInt64Coin("atom", 0))
+				feeAmount = sdk.NewCoins(sdk.NewInt64Coin("usei", 0))
 				gasLimit = 0
 			},
 			false,
@@ -550,7 +550,7 @@ func (suite *AnteTestSuite) TestAnteHandlerMemoGas() {
 		{
 			"tx with memo doesn't have enough gas",
 			func() {
-				feeAmount = sdk.NewCoins(sdk.NewInt64Coin("atom", 0))
+				feeAmount = sdk.NewCoins(sdk.NewInt64Coin("usei", 0))
 				gasLimit = 801
 				suite.txBuilder.SetMemo("abcininasidniandsinasindiansdiansdinaisndiasndiadninsd")
 			},
@@ -561,8 +561,8 @@ func (suite *AnteTestSuite) TestAnteHandlerMemoGas() {
 		{
 			"memo too large",
 			func() {
-				feeAmount = sdk.NewCoins(sdk.NewInt64Coin("atom", 0))
-				gasLimit = 50000
+				feeAmount = sdk.NewCoins(sdk.NewInt64Coin("usei", 0))
+				gasLimit = 60000
 				suite.txBuilder.SetMemo(strings.Repeat("01234567890", 500))
 			},
 			false,
@@ -572,8 +572,8 @@ func (suite *AnteTestSuite) TestAnteHandlerMemoGas() {
 		{
 			"tx with memo has enough gas",
 			func() {
-				feeAmount = sdk.NewCoins(sdk.NewInt64Coin("atom", 0))
-				gasLimit = 50000
+				feeAmount = sdk.NewCoins(sdk.NewInt64Coin("usei", 0))
+				gasLimit = 60000
 				suite.txBuilder.SetMemo(strings.Repeat("0123456789", 10))
 			},
 			false,
@@ -1075,7 +1075,7 @@ func (suite *AnteTestSuite) TestAnteHandlerReCheck() {
 
 	suite.txBuilder = suite.clientCtx.TxConfig.NewTxBuilder()
 	feeParam := suite.app.ParamsKeeper.GetFeesParams(suite.ctx)
-	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("atom", sdk.NewDecWithPrec(1, 5)))
+	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("usei", sdk.NewDecWithPrec(1, 5)))
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, feeParam)
 
 	// Same data for every test cases

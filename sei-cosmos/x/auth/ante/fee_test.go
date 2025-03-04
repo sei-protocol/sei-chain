@@ -42,7 +42,7 @@ func (suite *AnteTestSuite) TestEnsureMempoolFees() {
 
 	// keys and addresses
 	priv1, _, addr1 := testdata.KeyTestPubAddr()
-	coins := sdk.NewCoins(sdk.NewCoin("atom", sdk.NewInt(300)))
+	coins := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(300)))
 	err := simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, coins)
 	suite.Require().NoError(err)
 
@@ -59,7 +59,7 @@ func (suite *AnteTestSuite) TestEnsureMempoolFees() {
 	suite.Require().NoError(err)
 
 	// Set high gas price so standard test fee fails
-	atomPrice := sdk.NewDecCoinFromDec("atom", sdk.NewDec(20))
+	atomPrice := sdk.NewDecCoinFromDec("usei", sdk.NewDec(20))
 	highGasPrice := []sdk.DecCoin{atomPrice}
 	suite.ctx = suite.ctx.WithMinGasPrices(highGasPrice)
 
@@ -80,7 +80,7 @@ func (suite *AnteTestSuite) TestEnsureMempoolFees() {
 	// Set IsCheckTx back to true for testing sufficient mempool fee
 	suite.ctx = suite.ctx.WithIsCheckTx(true)
 
-	atomPrice = sdk.NewDecCoinFromDec("atom", sdk.NewDec(0).Quo(sdk.NewDec(100000)))
+	atomPrice = sdk.NewDecCoinFromDec("usei", sdk.NewDec(0).Quo(sdk.NewDec(100000)))
 	lowGasPrice := []sdk.DecCoin{atomPrice}
 	suite.ctx = suite.ctx.WithMinGasPrices(lowGasPrice)
 
@@ -114,7 +114,7 @@ func (suite *AnteTestSuite) TestDeductFees() {
 	// Set account with insufficient funds
 	acc := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr1)
 	suite.app.AccountKeeper.SetAccount(suite.ctx, acc)
-	coins := sdk.NewCoins(sdk.NewCoin("atom", sdk.NewInt(10)))
+	coins := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))
 	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, coins)
 	suite.Require().NoError(err)
 
@@ -127,7 +127,7 @@ func (suite *AnteTestSuite) TestDeductFees() {
 
 	// Set account with sufficient funds
 	suite.app.AccountKeeper.SetAccount(suite.ctx, acc)
-	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, sdk.NewCoins(sdk.NewCoin("atom", sdk.NewInt(200))))
+	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(200))))
 	suite.Require().NoError(err)
 
 	_, err = antehandler(suite.ctx, tx, false)
@@ -157,11 +157,11 @@ func (suite *AnteTestSuite) TestLazySendToModuleAccount() {
 	// Set account with insufficient funds
 	acc := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr1)
 	suite.app.AccountKeeper.SetAccount(suite.ctx, acc)
-	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, sdk.NewCoins(sdk.NewCoin("atom", sdk.NewInt(900))))
+	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(900))))
 	suite.Require().NoError(err)
 
 	feeCollectorAcc := suite.app.AccountKeeper.GetModuleAccount(suite.ctx, types.FeeCollectorName)
-	expectedFeeCollectorBalance := suite.app.BankKeeper.GetBalance(suite.ctx, feeCollectorAcc.GetAddress(), "atom")
+	expectedFeeCollectorBalance := suite.app.BankKeeper.GetBalance(suite.ctx, feeCollectorAcc.GetAddress(), "usei")
 
 	dfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, nil, suite.app.ParamsKeeper, nil)
 	antehandler, _ := sdk.ChainAnteDecorators(dfd)
@@ -173,7 +173,7 @@ func (suite *AnteTestSuite) TestLazySendToModuleAccount() {
 	suite.Require().Nil(err, "Tx errored after account has been set with sufficient funds")
 
 	// Fee Collector actual account balance should not have increased
-	resultFeeCollectorBalance := suite.app.BankKeeper.GetBalance(suite.ctx, feeCollectorAcc.GetAddress(), "atom")
+	resultFeeCollectorBalance := suite.app.BankKeeper.GetBalance(suite.ctx, feeCollectorAcc.GetAddress(), "usei")
 	suite.Assert().Equal(
 		expectedFeeCollectorBalance,
 		resultFeeCollectorBalance,
@@ -182,13 +182,13 @@ func (suite *AnteTestSuite) TestLazySendToModuleAccount() {
 	// Fee Collector actual account balance deposit coins into the fee collector account
 	suite.app.BankKeeper.WriteDeferredBalances(suite.ctx)
 
-	depositFeeCollectorBalance := suite.app.BankKeeper.GetBalance(suite.ctx, feeCollectorAcc.GetAddress(), "atom")
+	depositFeeCollectorBalance := suite.app.BankKeeper.GetBalance(suite.ctx, feeCollectorAcc.GetAddress(), "usei")
 
-	expectedAtomFee := feeAmount.AmountOf("atom")
+	expectedAtomFee := feeAmount.AmountOf("usei")
 
 	suite.Assert().Equal(
 		// Called antehandler twice, expect fees to be deducted twice
-		expectedFeeCollectorBalance.Add(sdk.NewCoin("atom", expectedAtomFee)).Add(sdk.NewCoin("atom", expectedAtomFee)),
+		expectedFeeCollectorBalance.Add(sdk.NewCoin("usei", expectedAtomFee)).Add(sdk.NewCoin("usei", expectedAtomFee)),
 		depositFeeCollectorBalance,
 	)
 }
@@ -213,74 +213,74 @@ func (suite *AnteTestSuite) TestGlobalMinimumFees() {
 
 	// keys and addresses
 	priv1, _, addr1 := testdata.KeyTestPubAddr()
-	coins := sdk.NewCoins(sdk.NewCoin("atom", sdk.NewInt(3000000000)))
+	coins := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(3000000000)))
 	err := simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, coins)
 	suite.Require().NoError(err)
 
 	// msg and signatures
 	msg := testdata.NewTestMsg(addr1)
-	tx, err := suite.createTestTxWithGas(msg, 1500, 15000, priv1, "atom")
+	tx, err := suite.createTestTxWithGas(msg, 1500, 15000, priv1, "usei")
 	suite.Require().NoError(err)
 
 	// Global minimum gas price is zero, but transaction fee is non-zero
 	feeParam := suite.app.ParamsKeeper.GetFeesParams(suite.ctx)
-	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("atom", sdk.NewDec(0)))
+	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("usei", sdk.NewDec(0)))
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, feeParam)
-	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("atom", sdk.NewDec(1000000000))})
+	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("usei", sdk.NewDec(1000000000))})
 	_, err = antehandler(suite.ctx, tx, false)
 	suite.Assert().ErrorContains(err, "insufficient fees")
 
 	// Global minimum gas price is non-zero, but transaction fee is zero
 	feeParam = suite.app.ParamsKeeper.GetFeesParams(suite.ctx)
-	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("atom", sdk.NewDec(1000000000)))
+	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("usei", sdk.NewDec(1000000000)))
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, feeParam)
-	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("atom", sdk.NewDec(0))})
+	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("usei", sdk.NewDec(0))})
 	_, err = antehandler(suite.ctx, tx, false)
 	suite.Assert().ErrorContains(err, "insufficient fees")
 
 	// Global minimum gas price is non-zero, and transaction fee is non-zero but less than global minimum gas price
 	feeParam = suite.app.ParamsKeeper.GetFeesParams(suite.ctx)
-	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("atom", sdk.NewDec(100)))
+	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("usei", sdk.NewDec(100)))
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, feeParam)
-	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("atom", sdk.NewDec(1))})
+	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("usei", sdk.NewDec(1))})
 	_, err = antehandler(suite.ctx, tx, false)
 	suite.Assert().ErrorContains(err, "insufficient fees")
 
 	// Global minimum gas price is non-zero, and transaction fee is non-zero but less than global minimum gas price
 	feeParam = suite.app.ParamsKeeper.GetFeesParams(suite.ctx)
-	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("atom", sdk.NewDec(1)))
+	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("usei", sdk.NewDec(1)))
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, feeParam)
-	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("atom", sdk.NewDec(100))})
+	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("usei", sdk.NewDec(100))})
 	_, err = antehandler(suite.ctx, tx, false)
 	suite.Assert().ErrorContains(err, "insufficient fees")
 
 	// Global minimum gas price is non-zero, and transaction fee is equal to global minimum gas price
 	feeParam = suite.app.ParamsKeeper.GetFeesParams(suite.ctx)
-	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("atom", sdk.NewDec(50)))
+	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("usei", sdk.NewDec(50)))
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, feeParam)
-	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("atom", sdk.NewDec(50))})
+	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("usei", sdk.NewDec(50))})
 	// 750000 = 15000 * 50
-	tx, _ = suite.createTestTxWithGas(msg, 750000, 15000, priv1, "atom")
+	tx, _ = suite.createTestTxWithGas(msg, 750000, 15000, priv1, "usei")
 	_, err = antehandler(suite.ctx, tx, false)
 	suite.Require().Nil(err, "Decorator should not have errored on equal fee for global gasPrice")
 
 	// Global minimum gas price is non-zero, and transaction fee is greater than global minimum gas price
 	feeParam = suite.app.ParamsKeeper.GetFeesParams(suite.ctx)
-	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("atom", sdk.NewDec(1)))
+	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("usei", sdk.NewDec(1)))
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, feeParam)
-	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("atom", sdk.NewDec(50))})
+	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("usei", sdk.NewDec(50))})
 	// 750000 = 15000 * 50
-	tx, _ = suite.createTestTxWithGas(msg, 750000, 15000, priv1, "atom")
+	tx, _ = suite.createTestTxWithGas(msg, 750000, 15000, priv1, "usei")
 	_, err = antehandler(suite.ctx, tx, false)
 	suite.Require().Nil(err, "Decorator should not have errored on equal fee for global gasPrice")
 
 	// Global minimum gas price is non-zero, and transaction fee is less than global minimum gas price
 	feeParam = suite.app.ParamsKeeper.GetFeesParams(suite.ctx)
-	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("atom", sdk.NewDec(50)))
+	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("usei", sdk.NewDec(50)))
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, feeParam)
-	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("atom", sdk.NewDec(1))})
+	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("usei", sdk.NewDec(1))})
 	// 750000 = 15000 * 50
-	tx, _ = suite.createTestTxWithGas(msg, 750000, 15000, priv1, "atom")
+	tx, _ = suite.createTestTxWithGas(msg, 750000, 15000, priv1, "usei")
 	_, err = antehandler(suite.ctx, tx, false)
 	suite.Require().Nil(err, "Decorator should not have errored on equal fee for global gasPrice")
 }
@@ -313,12 +313,12 @@ func (suite *AnteTestSuite) TestDeductFeeDependency() {
 	// Set account with sufficient funds
 	acc := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr1)
 	suite.app.AccountKeeper.SetAccount(suite.ctx, acc)
-	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, sdk.NewCoins(sdk.NewCoin("atom", sdk.NewInt(200))))
+	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(200))))
 	suite.Require().NoError(err)
 
 	acc2 := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr2)
 	suite.app.AccountKeeper.SetAccount(suite.ctx, acc2)
-	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr2, sdk.NewCoins(sdk.NewCoin("atom", sdk.NewInt(200))))
+	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr2, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(200))))
 	suite.Require().NoError(err)
 	// create fee grant
 	err = suite.app.FeeGrantKeeper.GrantAllowance(suite.ctx, addr2, addr1, &feegrant.BasicAllowance{})
@@ -362,11 +362,12 @@ func (suite *AnteTestSuite) TestMultipleGlobalMinimumFees() {
 
 	// Test case: the fee provided is less than the global minimum gas prices
 	feeParam := suite.app.ParamsKeeper.GetFeesParams(suite.ctx)
-	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("atom", sdk.NewDec(100)))
+	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("usei", sdk.NewDec(100)))
+	feeParam.AllowedFeeDenoms = []string{"atom"}
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, feeParam)
-	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("atom", sdk.NewDec(100)), sdk.NewDecCoinFromDec("usei", sdk.NewDec(1))})
+	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("usei", sdk.NewDec(100))})
 	// 750000 < 15000 * 100
-	tx, _ := suite.createTestTxWithGas(msg, 750000, 15000, priv1, "atom")
+	tx, _ := suite.createTestTxWithGas(msg, 750000, 15000, priv1, "usei")
 	_, err = antehandler(suite.ctx, tx, false)
 	suite.Assert().ErrorContains(err, "insufficient fees")
 
@@ -407,7 +408,7 @@ func (suite *AnteTestSuite) TestMultipleGlobalMinimumFees() {
 
 	// Test case: the fee provided in all denominations is less than the transaction-specific minimum gas prices
 	feeParam = suite.app.ParamsKeeper.GetFeesParams(suite.ctx)
-	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("atom", sdk.NewDec(50)))
+	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("usei", sdk.NewDec(50)))
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, feeParam)
 	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("atom", sdk.NewDec(50)), sdk.NewDecCoinFromDec("usei", sdk.NewDec(1))})
 	// 750000 = 15000 * 50
@@ -417,21 +418,21 @@ func (suite *AnteTestSuite) TestMultipleGlobalMinimumFees() {
 
 	// Test case: enough fee based on max local
 	feeParam = suite.app.ParamsKeeper.GetFeesParams(suite.ctx)
-	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("atom", sdk.NewDec(1)))
+	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("usei", sdk.NewDec(1)))
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, feeParam)
 	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("atom", sdk.NewDec(50)), sdk.NewDecCoinFromDec("usei", sdk.NewDec(1))})
 	// 750000 = 15000 * 50
-	tx, _ = suite.createTestTxWithGas(msg, 750000, 15000, priv1, "atom")
+	tx, _ = suite.createTestTxWithGas(msg, 750000, 15000, priv1, "usei")
 	_, err = antehandler(suite.ctx, tx, false)
 	suite.Require().Nil(err, "Decorator should not have errored on equal fee for global gasPrice")
 
 	// Test case: enough fee based on max global
 	feeParam = suite.app.ParamsKeeper.GetFeesParams(suite.ctx)
-	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("atom", sdk.NewDec(50)))
+	feeParam.GlobalMinimumGasPrices = sdk.NewDecCoins(sdk.NewDecCoinFromDec("usei", sdk.NewDec(50)))
 	suite.app.ParamsKeeper.SetFeesParams(suite.ctx, feeParam)
 	suite.ctx = suite.ctx.WithMinGasPrices([]sdk.DecCoin{sdk.NewDecCoinFromDec("atom", sdk.NewDec(1)), sdk.NewDecCoinFromDec("usei", sdk.NewDec(5))})
 	// 750000 = 15000 * 50
-	tx, _ = suite.createTestTxWithGas(msg, 750000, 15000, priv1, "atom")
+	tx, _ = suite.createTestTxWithGas(msg, 750000, 15000, priv1, "usei")
 	_, err = antehandler(suite.ctx, tx, false)
 	suite.Require().Nil(err, "Decorator should not have errored on equal fee for global gasPrice")
 
