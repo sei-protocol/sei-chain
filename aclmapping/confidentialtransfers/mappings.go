@@ -194,6 +194,12 @@ func MsgTransferDependencyGenerator(_ aclkeeper.Keeper, _ sdk.Context, msg sdk.M
 			ResourceType:       sdkacltypes.ResourceType_KV_BANK_DENOM,
 			IdentifierTemplate: denom,
 		},
+		// Read blocklist
+		{
+			AccessType:         sdkacltypes.AccessType_READ,
+			ResourceType:       sdkacltypes.ResourceType_KV_BANK,
+			IdentifierTemplate: toAddrIdentifier,
+		},
 
 		*acltypes.CommitAccessOp(),
 	}
