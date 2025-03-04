@@ -24,6 +24,7 @@ const LocalAddress = "0.0.0.0"
 
 type EVMServer interface {
 	Start() error
+	Stop()
 }
 
 func NewEVMHTTPServer(

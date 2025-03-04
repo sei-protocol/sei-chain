@@ -181,7 +181,7 @@ func (k *Keeper) createReadOnlyEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EV
 	}
 	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	txCtx := vm.TxContext{Origin: k.GetEVMAddressOrDefault(ctx, from)}
-	return vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}, nil), nil
+	return vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}, k.customPrecompiles), nil
 }
 
 func (k *Keeper) getEvmGasLimitFromCtx(ctx sdk.Context) uint64 {
