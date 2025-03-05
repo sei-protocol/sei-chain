@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -371,6 +372,7 @@ type RpcResponse struct {
 	JSONRPC string `json:"jsonrpc"`
 	ID      string `json:"id"`
 	Result  string `json:"result"`
+	Error   string `json:"error"`
 }
 
 func getTxHashByEvmHash(evmRpc string, ethHash string) (string, error) {
@@ -389,7 +391,9 @@ func executeRpcCall(evmRpc string, requestBody string) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	res, err := http.DefaultClient.Do(req)
+	httpClient := http.DefaultClient
+	httpClient.Timeout = time.Second * 120
+	res, err := httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -402,6 +406,9 @@ func executeRpcCall(evmRpc string, requestBody string) (string, error) {
 	err = json.Unmarshal(resBody, &response)
 	if err != nil {
 		return "", err
+	}
+	if response.Error != "" {
+		return "", errors.New(response.Error)
 	}
 	return response.Result, nil
 }
