@@ -9,6 +9,7 @@ import (
 )
 
 var CancunTime int64 = 0
+var PragueTime int64 = 0
 
 /*
 *
@@ -49,7 +50,7 @@ func (cc ChainConfig) EthereumConfig(chainID *big.Int) *params.ChainConfig {
 func DefaultChainConfig() ChainConfig {
 	return ChainConfig{
 		CancunTime: CancunTime,
-		PragueTime: -1,
+		PragueTime: PragueTime,
 		VerkleTime: -1,
 	}
 }

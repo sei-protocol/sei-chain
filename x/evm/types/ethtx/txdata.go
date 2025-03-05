@@ -61,6 +61,8 @@ func NewTxDataFromTx(tx *ethtypes.Transaction) (TxData, error) {
 		txData, err = NewAccessListTx(tx)
 	case ethtypes.BlobTxType:
 		txData, err = NewBlobTx(tx)
+	case ethtypes.SetCodeTxType:
+		txData, err = NewSetCodeTx(tx)
 	default:
 		txData, err = NewLegacyTx(tx)
 	}
