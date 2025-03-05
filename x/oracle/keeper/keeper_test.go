@@ -25,21 +25,21 @@ func TestExchangeRate(t *testing.T) {
 
 	// Set & get rates
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom, cnyExchangeRate)
-	rate, lastUpdate, _, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom)
+	exchangeRate, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroSeiDenom)
 	require.NoError(t, err)
-	require.Equal(t, cnyExchangeRate, rate)
-	require.Equal(t, sdk.ZeroInt(), lastUpdate)
+	require.Equal(t, cnyExchangeRate, exchangeRate.ExchangeRate)
+	require.Equal(t, sdk.ZeroInt(), exchangeRate.LastUpdate)
 
 	input.Ctx = input.Ctx.WithBlockHeight(3)
 	ts := time.Now()
 	input.Ctx = input.Ctx.WithBlockTime(ts)
 
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroEthDenom, gbpExchangeRate)
-	rate, lastUpdate, lastUpdateTimestamp, err := input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
+	exchangeRate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
 	require.NoError(t, err)
-	require.Equal(t, gbpExchangeRate, rate)
-	require.Equal(t, sdk.NewInt(3), lastUpdate)
-	require.Equal(t, ts.UnixMilli(), lastUpdateTimestamp)
+	require.Equal(t, gbpExchangeRate, exchangeRate.ExchangeRate)
+	require.Equal(t, sdk.NewInt(3), exchangeRate.LastUpdate)
+	require.Equal(t, ts.UnixMilli(), exchangeRate.LastUpdateTimestamp)
 
 	input.Ctx = input.Ctx.WithBlockHeight(15)
 	laterTS := ts.Add(time.Hour)
@@ -47,11 +47,11 @@ func TestExchangeRate(t *testing.T) {
 
 	// verify behavior works with event too
 	input.OracleKeeper.SetBaseExchangeRateWithEvent(input.Ctx, utils.MicroAtomDenom, krwExchangeRate)
-	rate, lastUpdate, lastUpdateTimestamp, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	exchangeRate, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.NoError(t, err)
-	require.Equal(t, krwExchangeRate, rate)
-	require.Equal(t, sdk.NewInt(15), lastUpdate)
-	require.Equal(t, laterTS.UnixMilli(), lastUpdateTimestamp)
+	require.Equal(t, krwExchangeRate, exchangeRate.ExchangeRate)
+	require.Equal(t, sdk.NewInt(15), exchangeRate.LastUpdate)
+	require.Equal(t, laterTS.UnixMilli(), exchangeRate.LastUpdateTimestamp)
 	require.True(t, func() bool {
 		expectedEvent := sdk.NewEvent(types.EventTypeExchangeRateUpdate,
 			sdk.NewAttribute(types.AttributeKeyDenom, utils.MicroAtomDenom),
@@ -73,7 +73,7 @@ func TestExchangeRate(t *testing.T) {
 	}())
 
 	input.OracleKeeper.DeleteBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
-	_, _, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
+	_, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom)
 	require.Error(t, err)
 
 	numExchangeRates := 0
