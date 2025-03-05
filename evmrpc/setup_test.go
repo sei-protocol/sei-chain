@@ -280,6 +280,9 @@ func (c *MockClient) mockEventDataNewBlockHeader(mockHeight uint64) *tmtypes.Eve
 		ResultFinalizeBlock: abci.ResponseFinalizeBlock{
 			TxResults: mockTxResult(),
 			AppHash:   bytes.HexBytes(mustHexToBytes("0000000000000000000000000000000000000000000000000000000000000006")),
+			ConsensusParamUpdates: &types2.ConsensusParams{
+				Block: &types2.BlockParams{MaxGas: 100000},
+			},
 		},
 	}
 }
