@@ -32,7 +32,7 @@ func TestSubscribeNewHeads(t *testing.T) {
 	inapplicableKeys := make(map[string]struct{})
 	for _, key := range []string{
 		"difficulty", "extraData", "logsBloom", "nonce", "sha3Uncles", "mixHash",
-		"excessBlobGas", "parentBeaconBlockRoot", "withdrawlsRoot", "baseFeePerGas",
+		"excessBlobGas", "parentBeaconBlockRoot", "withdrawlsRoot",
 		"withdrawalsRoot", "blobGasUsed",
 	} {
 		inapplicableKeys[key] = struct{}{}
