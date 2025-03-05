@@ -178,7 +178,6 @@ func (db *Database) SetLatestVersion(version int64) error {
 	var ts [VersionSize]byte
 	binary.LittleEndian.PutUint64(ts[:], uint64(version))
 	err := db.storage.Set([]byte(latestVersionKey), ts[:], defaultWriteOpts)
-	fmt.Printf("SetLatestVersion: version=%d, err=%v, latestVersionKey=%s\n", version, err, latestVersionKey)
 	return err
 }
 
@@ -441,8 +440,6 @@ func (db *Database) computeMissingRanges(latestVersion int64) error {
 }
 
 func (db *Database) computeHashForRange(beginBlock, endBlock int64) error {
-	fmt.Printf("Computing hash for chunk [%d, %d]\n", beginBlock, endBlock)
-
 	chunkSize := endBlock - beginBlock + 1
 	if chunkSize <= 0 {
 		// Nothing to do
@@ -485,8 +482,6 @@ func (db *Database) computeHashForRange(beginBlock, endBlock int64) error {
 
 		allHashes := hashCalculator.ComputeHashes()
 		if len(allHashes) == 0 {
-			fmt.Printf("No data found for module %q in [%d..%d], skipping.\n",
-				moduleName, beginBlock, endBlock)
 			continue
 		}
 
@@ -499,8 +494,6 @@ func (db *Database) computeHashForRange(beginBlock, endBlock int64) error {
 			)
 		}
 
-		fmt.Printf("Wrote block-range hash for module=%q range=[%d..%d]: %X\n",
-			moduleName, beginBlock, endBlock, finalHash)
 	}
 
 	return nil
