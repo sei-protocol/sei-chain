@@ -25,6 +25,7 @@ const (
 	AddCiphertextDescriptor                            = "add ciphertext"
 	SubScalarDescriptor                                = "subtract scalar"
 	SubCiphertextDescriptor                            = "subtract ciphertext"
+	SubWithLoHiDescriptor                              = "sub with lo hi"
 	PubKeyVerificationDescriptor                       = "public key verification"
 	CiphertextCommitmentEqualityVerificationDescriptor = "ciphertext commitment equality verification"
 	ZeroBalanceVerificationDescriptor                  = "zero balance verification"
@@ -470,6 +471,7 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 
 	// Calculate senders new available balance.
 	teg := elgamal.NewTwistedElgamal()
+	m.consumeGasForCiphertextWithMultiplier(ctx, 3, SubWithLoHiDescriptor)
 	newSenderBalanceCiphertext, err := teg.SubWithLoHi(senderAccount.AvailableBalance, instruction.SenderTransferAmountLo, instruction.SenderTransferAmountHi)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error subtracting sender transfer amount")
