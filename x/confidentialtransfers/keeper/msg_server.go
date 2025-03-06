@@ -8,6 +8,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
@@ -163,6 +164,12 @@ func (m msgServer) Deposit(goCtx context.Context, req *types.MsgDeposit) (*types
 	// Define the amount to be transferred as sdk.Coins
 	coins := sdk.NewCoins(sdk.NewCoin(req.Denom, sdk.NewIntFromUint64(req.Amount)))
 
+	// Check if the address is allowed to deposit funds
+	allowListCache := make(map[string]bankkeeper.AllowedAddresses)
+	if !m.BankKeeper().IsInDenomAllowList(ctx, address, coins, allowListCache) {
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to deposit funds", address.String())
+	}
+
 	// Transfer the amount from the sender's account to the module account
 	if err := m.Keeper.BankKeeper().SendCoinsFromAccountToModule(ctx, address, types.ModuleName, coins); err != nil {
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to deposit %d %s", req.Amount, req.Denom)
@@ -283,6 +290,12 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 	// Return the tokens to the sender
 	coin := sdk.NewCoin(instruction.Denom, sdk.NewIntFromBigInt(instruction.Amount))
 	coins := sdk.NewCoins(coin)
+
+	// Check if the address is allowed to withdraw funds
+	allowListCache := make(map[string]bankkeeper.AllowedAddresses)
+	if !m.BankKeeper().IsInDenomAllowList(ctx, address, coins, allowListCache) {
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to withdraw funds", address.String())
+	}
 	if err := m.Keeper.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, address, coins); err != nil {
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrInsufficientFunds, "insufficient funds to withdraw %s %s", req.Amount, req.Denom)
 	}
@@ -445,8 +458,28 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, err.Error())
 	}
 
+	from, err := sdk.AccAddressFromBech32(req.FromAddress)
+	if err != nil {
+		return nil, err
+	}
+	to, err := sdk.AccAddressFromBech32(req.ToAddress)
+	if err != nil {
+		return nil, err
+	}
+
 	if instruction.FromAddress == instruction.ToAddress {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "sender and recipient addresses must be different")
+	}
+
+	// wrap denom in a coin for allow list check
+	coin := sdk.NewCoins(sdk.NewCoin(req.Denom, sdk.NewInt(1)))
+
+	allowListCache := make(map[string]bankkeeper.AllowedAddresses)
+	if !m.BankKeeper().IsInDenomAllowList(ctx, from, coin, allowListCache) {
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to send funds", from.String())
+	}
+	if m.BankKeeper().BlockedAddr(to) || !m.BankKeeper().IsInDenomAllowList(ctx, to, coin, allowListCache) {
+		return nil, sdkerrors.Wrapf(sdkerrors.ErrUnauthorized, "%s is not allowed to receive funds", to.String())
 	}
 
 	// Check that sender and recipient accounts exist.
