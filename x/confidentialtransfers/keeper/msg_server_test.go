@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"fmt"
 	"math"
 	"math/big"
 
@@ -1598,6 +1599,159 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferFeatureDisabled() {
 	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should not be able to transfer when feature is disabled")
 	suite.Require().ErrorContains(err, "feature is disabled by governance")
+}
+
+func (suite *KeeperTestSuite) TestMsgServer_TransferNegativeAmount() {
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	// Setup the accounts used for the test
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+	recipientPk := suite.PrivKeys[1]
+	recipientAddr := privkeyToAddress(recipientPk)
+
+	// Initialize the sender account
+	initialAvailableBalance := big.NewInt(2000)
+	initialSenderState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 10, initialAvailableBalance, big.NewInt(3000), big.NewInt(1000))
+	// Initialize the recipient account
+	recipientAccountState, _ := suite.SetupAccountState(recipientPk, DefaultTestDenom, 10, initialAvailableBalance, big.NewInt(3000), big.NewInt(1000))
+
+	senderAesKey, _ := utils.GetAESKey(*senderPk, DefaultTestDenom)
+
+	// Set transfer amount to negative.
+	transferAmount := big.NewInt(int64(-100))
+
+	// First create a regular transfer with a normal transfer amount
+	transferStruct, _ := types.NewTransfer(
+		senderPk,
+		senderAddr.String(),
+		recipientAddr.String(),
+		DefaultTestDenom,
+		initialSenderState.DecryptableAvailableBalance,
+		initialSenderState.AvailableBalance,
+		uint64(0),
+		&recipientAccountState.PublicKey,
+		nil,
+	)
+
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
+	// Make the transfer amounts negative
+	senderAmountLo, senderRandomness, err := teg.Encrypt(initialSenderState.PublicKey, transferAmount)
+	recipientAmountLo, recipientRandomness, err := teg.Encrypt(recipientAccountState.PublicKey, transferAmount)
+	transferStruct.SenderTransferAmountLo = senderAmountLo
+	transferStruct.RecipientTransferAmountLo = recipientAmountLo
+
+	// Regenerate the proofs
+	transferStruct.Proofs.SenderTransferAmountLoValidityProof, _ = zkproofs.NewCiphertextValidityProof(&senderRandomness, initialSenderState.PublicKey, transferStruct.SenderTransferAmountLo, transferAmount)
+	transferStruct.Proofs.RecipientTransferAmountLoValidityProof, _ = zkproofs.NewCiphertextValidityProof(&recipientRandomness, recipientAccountState.PublicKey, transferStruct.RecipientTransferAmountLo, transferAmount)
+
+	newBalance := new(big.Int).Sub(initialAvailableBalance, transferAmount)
+	remainingCommitment, commitmentRandomness, err := teg.Encrypt(initialSenderState.PublicKey, newBalance)
+	transferStruct.RemainingBalanceCommitment = remainingCommitment
+	transferStruct.Proofs.RemainingBalanceCommitmentValidityProof, _ = zkproofs.NewCiphertextValidityProof(&commitmentRandomness, initialSenderState.PublicKey, remainingCommitment, newBalance)
+
+	transferStruct.DecryptableBalance, _ = encryption.EncryptAESGCM(newBalance, senderAesKey)
+
+	senderKeyPair, _ := utils.GetElGamalKeyPair(*senderPk, DefaultTestDenom)
+	loBitsScalar, _ := curves.ED25519().Scalar.SetBigInt(transferAmount)
+	transferStruct.Proofs.TransferAmountLoEqualityProof, err = zkproofs.NewCiphertextCiphertextEqualityProof(senderKeyPair, &recipientAccountState.PublicKey, transferStruct.SenderTransferAmountLo, &recipientRandomness, &loBitsScalar)
+
+	transferStruct.Proofs.RemainingBalanceRangeProof, _ = zkproofs.NewRangeProof(128, newBalance, commitmentRandomness)
+	newBalanceCalculated, _ := teg.SubWithLoHi(initialSenderState.AvailableBalance, transferStruct.SenderTransferAmountLo, transferStruct.SenderTransferAmountHi)
+	newBalanceScalar, _ := curves.ED25519().Scalar.SetBigInt(newBalance)
+	commitmentCiphertextEqualityProof, err := zkproofs.NewCiphertextCommitmentEqualityProof(senderKeyPair, newBalanceCalculated, &commitmentRandomness, &newBalanceScalar)
+	transferStruct.Proofs.RemainingBalanceEqualityProof = commitmentCiphertextEqualityProof
+
+	// Try to execute the modified transfer instruction. This should fail since the balances don't match the proof generated
+	req := types.NewMsgTransferProto(transferStruct)
+	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
+
+	senderAccountState, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, senderAddr.String(), DefaultTestDenom)
+
+	// Next 2 lines are for debugging. Remove after test passes.
+	newAvailableBalance, _ := teg.Decrypt(senderKeyPair.PrivateKey, senderAccountState.AvailableBalance, elgamal.MaxBits32)
+	fmt.Print(newAvailableBalance)
+
+	suite.Require().Error(err, "Should have error transferring negative amount")
+}
+
+func (suite *KeeperTestSuite) TestMsgServer_TransferOverflowAmount() {
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	// Setup the accounts used for the test
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+	recipientPk := suite.PrivKeys[1]
+	recipientAddr := privkeyToAddress(recipientPk)
+
+	// Initialize the sender account
+	initialAvailableBalance := big.NewInt(math.MaxUint32 + math.MaxUint16)
+	initialSenderState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 10, initialAvailableBalance, big.NewInt(3000), big.NewInt(1000))
+	// Initialize the recipient account
+	recipientAccountState, _ := suite.SetupAccountState(recipientPk, DefaultTestDenom, 10, initialAvailableBalance, big.NewInt(3000), big.NewInt(1000))
+
+	senderAesKey, _ := utils.GetAESKey(*senderPk, DefaultTestDenom)
+
+	// First create a regular transfer with a normal transfer amount
+	transferStruct, _ := types.NewTransfer(
+		senderPk,
+		senderAddr.String(),
+		recipientAddr.String(),
+		DefaultTestDenom,
+		initialSenderState.DecryptableAvailableBalance,
+		initialSenderState.AvailableBalance,
+		uint64(0),
+		&recipientAccountState.PublicKey,
+		nil,
+	)
+
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
+	// Set transfer amount lo to a number larger than 32 bits
+	transferAmount := big.NewInt(int64(math.MaxUint32 + 2))
+
+	// Make the transfer amount lo overflow
+	senderAmountLo, senderRandomness, err := teg.Encrypt(initialSenderState.PublicKey, transferAmount)
+	recipientAmountLo, recipientRandomness, err := teg.Encrypt(recipientAccountState.PublicKey, transferAmount)
+	transferStruct.SenderTransferAmountLo = senderAmountLo
+	transferStruct.RecipientTransferAmountLo = recipientAmountLo
+
+	// Regenerate the proofs
+	transferStruct.Proofs.SenderTransferAmountLoValidityProof, _ = zkproofs.NewCiphertextValidityProof(&senderRandomness, initialSenderState.PublicKey, transferStruct.SenderTransferAmountLo, transferAmount)
+	transferStruct.Proofs.RecipientTransferAmountLoValidityProof, _ = zkproofs.NewCiphertextValidityProof(&recipientRandomness, recipientAccountState.PublicKey, transferStruct.RecipientTransferAmountLo, transferAmount)
+
+	newBalance := new(big.Int).Sub(initialAvailableBalance, transferAmount)
+	remainingCommitment, commitmentRandomness, err := teg.Encrypt(initialSenderState.PublicKey, newBalance)
+	transferStruct.RemainingBalanceCommitment = remainingCommitment
+	transferStruct.Proofs.RemainingBalanceCommitmentValidityProof, _ = zkproofs.NewCiphertextValidityProof(&commitmentRandomness, initialSenderState.PublicKey, remainingCommitment, newBalance)
+
+	transferStruct.DecryptableBalance, _ = encryption.EncryptAESGCM(newBalance, senderAesKey)
+
+	senderKeyPair, _ := utils.GetElGamalKeyPair(*senderPk, DefaultTestDenom)
+	loBitsScalar, _ := curves.ED25519().Scalar.SetBigInt(transferAmount)
+	transferStruct.Proofs.TransferAmountLoEqualityProof, err = zkproofs.NewCiphertextCiphertextEqualityProof(senderKeyPair, &recipientAccountState.PublicKey, transferStruct.SenderTransferAmountLo, &recipientRandomness, &loBitsScalar)
+
+	transferStruct.Proofs.RemainingBalanceRangeProof, _ = zkproofs.NewRangeProof(128, newBalance, commitmentRandomness)
+	newBalanceCalculated, _ := teg.SubWithLoHi(initialSenderState.AvailableBalance, transferStruct.SenderTransferAmountLo, transferStruct.SenderTransferAmountHi)
+	newBalanceScalar, _ := curves.ED25519().Scalar.SetBigInt(newBalance)
+	commitmentCiphertextEqualityProof, err := zkproofs.NewCiphertextCommitmentEqualityProof(senderKeyPair, newBalanceCalculated, &commitmentRandomness, &newBalanceScalar)
+	transferStruct.Proofs.RemainingBalanceEqualityProof = commitmentCiphertextEqualityProof
+
+	// Try to execute the modified transfer instruction. This should fail since the balances don't match the proof generated
+	req := types.NewMsgTransferProto(transferStruct)
+	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
+
+	recipientAccountState, _ = suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, recipientAddr.String(), DefaultTestDenom)
+
+	// Next 3 lines are for debugging. Remove after test passes.
+	recipientKeyPair, _ := utils.GetElGamalKeyPair(*recipientPk, DefaultTestDenom)
+	newPendingBalance, err := teg.Decrypt(recipientKeyPair.PrivateKey, recipientAccountState.AvailableBalance, elgamal.MaxBits32)
+	fmt.Print(newPendingBalance)
+
+	suite.Require().Error(err, "Should have error transferring overflow amount")
 }
 
 func (suite *KeeperTestSuite) TestMsgServer_TransferTooManyAuditors() {

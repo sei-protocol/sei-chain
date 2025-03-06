@@ -483,7 +483,8 @@ func (m msgServer) Transfer(goCtx context.Context, req *types.MsgTransfer) (*typ
 
 	// Consume additional gas as range proofs are computationally expensive.
 	if rangeProofGasCost > 0 {
-		ctx.GasMeter().ConsumeGas(rangeProofGasCost, RangedProofVerificationDescriptor)
+		// We charge for 2x for range proof verifications since we verify the available balance range proof and the smaller transfer amount range proofs
+		ctx.GasMeter().ConsumeGas(rangeProofGasCost*2, RangedProofVerificationDescriptor)
 	}
 	// 8 more verification operations are required for the transfer proof.
 	m.consumeGasForProofVerificationWithMultiplier(ctx, 8, TransferProofVerificationDescriptor)
