@@ -14,6 +14,7 @@ import (
 // confidential transfers message types
 const (
 	TypeMsgTransfer            = "transfer"
+	MaxAuditors                = 5
 	TypeMsgInitializeAccount   = "initialize_account"
 	TypeMsgDeposit             = "deposit"
 	TypeMsgWithdraw            = "withdraw"
@@ -82,6 +83,10 @@ func (m *MsgTransfer) ValidateBasic() error {
 	err = m.Proofs.Validate()
 	if err != nil {
 		return err
+	}
+
+	if len(m.Auditors) > 0 && len(m.Auditors) > MaxAuditors {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "maximum number of auditors exceeded")
 	}
 
 	return nil

@@ -11,7 +11,7 @@
     - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 1sei -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
 
     # Initialize confidential token account for denom uatom for admin
-    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctdeposittest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctdeposittest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: INIT_ACCOUNT_CODE
 
     # Query the initial account state
@@ -29,7 +29,7 @@
       env: INITIAL_BANK_BALANCE
 
     # Deposit to the confidential token account
-    - cmd: printf "12345678\n" | seid tx ct deposit 500000uatom --from ctdeposittest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct deposit 500000uatom --from ctdeposittest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: DEPOSIT_CODE
 
     # Query the account to verify the new account state
@@ -80,7 +80,7 @@
       env: TEST_ADDR
 
     # Deposit to the confidential token account
-    - cmd: printf "12345678\n" | seid tx ct deposit 500000notexists --from ctdeposittest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct deposit 500000notexists --from ctdeposittest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: DEPOSIT_CODE
 
   verifiers:
@@ -105,7 +105,7 @@
       env: DEPOSIT_AMOUNT
 
     # Attempt to deposit to the confidential token account
-    - cmd: printf "12345678\n" | seid tx ct deposit ${DEPOSIT_AMOUNT}uatom --from ctdeposittest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct deposit ${DEPOSIT_AMOUNT}uatom --from ctdeposittest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: DEPOSIT_CODE
 
   verifiers:
@@ -122,14 +122,14 @@
       env: TEST_ADDR
 
     # Initialize confidential token account for different denom uusdc for ctdeposittest
-    - cmd: printf "12345678\n" | seid tx ct init-account uusdc --from ctdeposittest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct init-account uusdc --from ctdeposittest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: INIT_ACCOUNT_CODE_USDC
 
     # Send the test account sufficient funds to make the large transfer
     - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 10000000000000000uusdc -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
 
     # Attempt to deposit 2^48 to the confidential token account
-    - cmd: printf "12345678\n" | seid tx ct deposit 281474976710656uusdc --from ctdeposittest --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct deposit 281474976710656uusdc --from ctdeposittest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: DEPOSIT_CODE
 
   verifiers:
@@ -153,7 +153,7 @@
     - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_PRECOMPILE_ADDR 20000uatom -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
 
     # Initialize confidential token account for denom uatom for ctprdeposit
-    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctprdeposit --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctprdeposit --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
       env: INIT_ACCOUNT_CODE
 
     # Query the initial account state

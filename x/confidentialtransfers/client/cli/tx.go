@@ -185,7 +185,7 @@ func NewTransferTxCmd() *cobra.Command {
 		Use:   "transfer [to_address] [amount] [flags]",
 		Short: "Make a confidential transfer to another address",
 		Long: `Transfer command create a confidential transfer of the specified amount of the specified denomination to the specified address. 
-        passed in. To add auditors to the transaction, pass the --auditors flag with a comma separated list of auditor addresses.`,
+        passed in. To add auditors (up to 5) to the transaction, pass the --auditors flag with a comma separated list of auditor addresses.`,
 		Args: cobra.ExactArgs(2),
 		RunE: makeTransferCmd,
 	}
@@ -239,6 +239,10 @@ func makeTransferCmd(cmd *cobra.Command, args []string) error {
 	auditorAddrs, err := cmd.Flags().GetStringSlice(auditorsFlag)
 	if err != nil {
 		return err
+	}
+
+	if len(auditorAddrs) > types.MaxAuditors {
+		return fmt.Errorf("maximum number of auditors is %d", types.MaxAuditors)
 	}
 
 	auditors := make([]types.AuditorInput, len(auditorAddrs))

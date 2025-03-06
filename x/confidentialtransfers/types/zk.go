@@ -59,6 +59,8 @@ func NewTransferMsgProofs(proofs *TransferProofs) *TransferMsgProofs {
 		RemainingBalanceEqualityProof:           NewCiphertextCommitmentEqualityProofProto(proofs.RemainingBalanceEqualityProof),
 		TransferAmountLoEqualityProof:           NewCiphertextCiphertextEqualityProofProto(proofs.TransferAmountLoEqualityProof),
 		TransferAmountHiEqualityProof:           NewCiphertextCiphertextEqualityProofProto(proofs.TransferAmountHiEqualityProof),
+		TransferAmountLoRangeProof:              NewRangeProofProto(proofs.TransferAmountLoRangeProof),
+		TransferAmountHiRangeProof:              NewRangeProofProto(proofs.TransferAmountHiRangeProof),
 	}
 }
 
@@ -112,10 +114,22 @@ func (c *TransferMsgProofs) FromProto() (*TransferProofs, error) {
 		return nil, err
 	}
 
+	transferAmountLoRangeProof, err := c.TransferAmountLoRangeProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
+	transferAmountHiRangeProof, err := c.TransferAmountHiRangeProof.FromProto()
+	if err != nil {
+		return nil, err
+	}
+
 	return &TransferProofs{
 		RemainingBalanceCommitmentValidityProof: remainingBalanceCommitmentValidityProof,
 		SenderTransferAmountLoValidityProof:     senderTransferAmountLoValidityProof,
 		SenderTransferAmountHiValidityProof:     senderTransferAmountHiValidityProof,
+		TransferAmountLoRangeProof:              transferAmountLoRangeProof,
+		TransferAmountHiRangeProof:              transferAmountHiRangeProof,
 		RecipientTransferAmountLoValidityProof:  recipientTransferAmountLoValidityProof,
 		RecipientTransferAmountHiValidityProof:  recipientTransferAmountHiValidityProof,
 		RemainingBalanceRangeProof:              remainingBalanceRangeProof,

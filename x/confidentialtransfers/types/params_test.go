@@ -17,8 +17,10 @@ func TestDefaultParams(t *testing.T) {
 		{
 			name: "default params",
 			want: Params{
-				EnableCtModule:    DefaultEnableCtModule,
-				RangeProofGasCost: DefaultRangeProofGasCost,
+				EnableCtModule:           DefaultEnableCtModule,
+				RangeProofGasCost:        DefaultRangeProofGasCost,
+				CiphertextGasCost:        DefaultCiphertextGasCost,
+				ProofVerificationGasCost: DefaultProofVerificationGasCost,
 			},
 		},
 	}
@@ -109,7 +111,12 @@ func TestValidateRangeProofGasCost(t *testing.T) {
 }
 
 func TestParams_ParamSetPairs(t *testing.T) {
-	params := &Params{EnableCtModule: DefaultEnableCtModule, RangeProofGasCost: DefaultRangeProofGasCost}
+	params := &Params{
+		EnableCtModule:           DefaultEnableCtModule,
+		RangeProofGasCost:        DefaultRangeProofGasCost,
+		CiphertextGasCost:        DefaultCiphertextGasCost,
+		ProofVerificationGasCost: DefaultProofVerificationGasCost,
+	}
 	tests := []struct {
 		name string
 		want types.ParamSetPairs
@@ -119,6 +126,8 @@ func TestParams_ParamSetPairs(t *testing.T) {
 			want: types.ParamSetPairs{
 				types.NewParamSetPair(KeyEnableCtModule, &params.EnableCtModule, validateEnableCtModule),
 				types.NewParamSetPair(KeyRangeProofGas, &params.RangeProofGasCost, validateRangeProofGasCost),
+				types.NewParamSetPair(KeyCiphertextGas, &params.CiphertextGasCost, validateCiphertextGasCost),
+				types.NewParamSetPair(KeyProofVerificationGas, &params.ProofVerificationGasCost, validateProofVerificationGasCost),
 			},
 		},
 	}

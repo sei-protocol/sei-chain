@@ -7,6 +7,7 @@ import (
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
@@ -383,6 +384,61 @@ func (suite *KeeperTestSuite) TestMsgServer_DepositBasic() {
 	suite.Require().Equal(oldModuleBalance.Amount.Uint64()+depositStruct.Amount, moduleBalance.Amount.Uint64(), "Module account balance should have increased by the deposit amount")
 }
 
+func (suite *KeeperTestSuite) TestMsgServer_DepositWithAllowList() {
+	testDenom := "factory/sei1gxskuzvhr4s8sdm2rpruaf7yx2dnmjn0zfdu9q/NEWCOIN"
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
+	testPk := suite.PrivKeys[0]
+
+	// Generate the address from the private key
+	testAddr := privkeyToAddress(testPk)
+
+	// Initialize an account
+	bankModuleInitialAmount := big.NewInt(1000000000000)
+	suite.SetupAccountState(testPk, testDenom, 50, big.NewInt(1000000), big.NewInt(8000), bankModuleInitialAmount)
+
+	// Create an allow list for the denom
+	allowList := banktypes.AllowList{
+		Addresses: []string{testAddr.String()},
+	}
+	suite.App.BankKeeper.SetDenomAllowList(suite.Ctx, testDenom, allowList)
+
+	// Test empty request
+	req := &types.MsgDeposit{
+		FromAddress: testAddr.String(),
+		Denom:       testDenom,
+	}
+	_, err := suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().Error(err, "Should have error depositing without amount")
+	suite.Require().ErrorContains(err, "invalid request")
+
+	// Happy path
+	depositStruct := types.MsgDeposit{
+		FromAddress: testAddr.String(),
+		Denom:       testDenom,
+		Amount:      20000,
+	}
+
+	_, err = suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), &depositStruct)
+	suite.Require().NoError(err, "Should not have error depositing with valid request")
+
+	// Remove the address from the allow list
+	allowList.Addresses = []string{"sei1gxskuzvhr4s8sdm2rpruaf7yx2dnmjn0zfdu8q"}
+	suite.App.BankKeeper.SetDenomAllowList(suite.Ctx, testDenom, allowList)
+
+	depositStruct = types.MsgDeposit{
+		FromAddress: testAddr.String(),
+		Denom:       testDenom,
+		Amount:      20000,
+	}
+
+	_, err = suite.msgServer.Deposit(sdk.WrapSDKContext(suite.Ctx), &depositStruct)
+	suite.Require().Equal(testAddr.String()+" is not allowed to deposit funds: unauthorized", err.Error())
+}
+
 // Tests scenario in which the client tries to deposit into an account that has not been initialized.
 func (suite *KeeperTestSuite) TestMsgServer_DepositUninitialized() {
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
@@ -580,6 +636,52 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawHappyPath() {
 
 	userBalance := suite.App.BankKeeper.GetBalance(suite.Ctx, testAddr, DefaultTestDenom)
 	suite.Require().Equal(new(big.Int).Add(bankModuleInitialAmount, withdrawAmount).String(), userBalance.Amount.String(), "User balance should have increased by the withdraw amount")
+}
+
+func (suite *KeeperTestSuite) TestMsgServer_WithdrawWithAllowList() {
+	testDenom := "factory/sei1gxskuzvhr4s8sdm2rpruaf7yx2dnmjn0zfdu9q/NEWCOIN"
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	// Fund the module account
+	initialModuleBalance := big.NewInt(1000000000000)
+	suite.FundAcc(suite.TestAccs[0], sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewIntFromBigInt(initialModuleBalance))))
+
+	_ = suite.App.BankKeeper.SendCoinsFromAccountToModule(suite.Ctx, suite.TestAccs[0], types.ModuleName, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(1000000000000))))
+
+	testPk := suite.PrivKeys[0]
+	testAddr := privkeyToAddress(testPk)
+
+	// Initialize an account
+	bankModuleInitialAmount := big.NewInt(1000000000000)
+	initialAvailableBalance := big.NewInt(1000)
+	initialState, _ := suite.SetupAccountState(testPk, testDenom, 50, initialAvailableBalance, big.NewInt(8000), bankModuleInitialAmount)
+
+	// Create a withdraw request
+	withdrawAmount := new(big.Int).Div(initialAvailableBalance, big.NewInt(2))
+	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, testDenom, testAddr.String(), initialState.DecryptableAvailableBalance, withdrawAmount)
+
+	// Create an allow list for the denom
+	allowList := banktypes.AllowList{
+		Addresses: []string{testAddr.String()},
+	}
+	suite.App.BankKeeper.SetDenomAllowList(suite.Ctx, testDenom, allowList)
+
+	// Execute the withdraw
+	req := types.NewMsgWithdrawProto(withdrawStruct)
+	_, err := suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().NoError(err, "Should not have error calling valid withdraw")
+
+	// Remove the address from the allow list
+	allowList.Addresses = []string{"sei1gxskuzvhr4s8sdm2rpruaf7yx2dnmjn0zfdu8q"}
+	suite.App.BankKeeper.SetDenomAllowList(suite.Ctx, testDenom, allowList)
+
+	// Execute the withdraw
+	accountState, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), testDenom)
+	withdrawStruct, _ = types.NewWithdraw(*testPk, accountState.AvailableBalance, testDenom, testAddr.String(), accountState.DecryptableAvailableBalance, withdrawAmount)
+	req = types.NewMsgWithdrawProto(withdrawStruct)
+	_, err = suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().Equal(testAddr.String()+" is not allowed to withdraw funds: unauthorized", err.Error())
+
 }
 
 // Test that we cannot perform successive withdraws. The second withdraw struct is invalidated after the first withdraw.
@@ -1290,6 +1392,84 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferHappyPath() {
 	suite.Require().Equal(newTotal, newRecipientPendingBalance, "New pending balance should be equal to transfer amount added to old pending balance")
 }
 
+func (suite *KeeperTestSuite) TestMsgServer_TransferWithAllowlist() {
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+	testDenom := "factory/creator/allow"
+
+	// Setup the accounts used for the test
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+	recipientPk := suite.PrivKeys[1]
+	recipientAddr := privkeyToAddress(recipientPk)
+
+	suite.App.BankKeeper.SetDenomAllowList(suite.Ctx, testDenom, banktypes.AllowList{Addresses: []string{senderAddr.String(), recipientAddr.String()}})
+
+	// Initialize an account
+	initialSenderState, _ := suite.SetupAccountState(senderPk, testDenom, 10, big.NewInt(2000), big.NewInt(3000), big.NewInt(1000))
+	initialRecipientState, _ := suite.SetupAccountState(recipientPk, testDenom, 12, big.NewInt(5000), big.NewInt(21000), big.NewInt(201000))
+
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
+
+	transferAmount := uint64(500)
+
+	// Happy Path
+	transferStruct, err := types.NewTransfer(
+		senderPk,
+		senderAddr.String(),
+		recipientAddr.String(),
+		testDenom,
+		initialSenderState.DecryptableAvailableBalance,
+		initialSenderState.AvailableBalance,
+		transferAmount,
+		&initialRecipientState.PublicKey,
+		nil)
+	suite.Require().NoError(err, "Should not have error creating valid transfer struct")
+
+	req := types.NewMsgTransferProto(transferStruct)
+	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().NoError(err, "Should not have error calling valid transfer")
+
+	// Remove recipient from allowlist
+	suite.App.BankKeeper.SetDenomAllowList(suite.Ctx, testDenom, banktypes.AllowList{Addresses: []string{senderAddr.String()}})
+
+	transferStruct, err = types.NewTransfer(
+		senderPk,
+		senderAddr.String(),
+		recipientAddr.String(),
+		testDenom,
+		initialSenderState.DecryptableAvailableBalance,
+		initialSenderState.AvailableBalance,
+		transferAmount,
+		&initialRecipientState.PublicKey,
+		nil)
+	suite.Require().NoError(err, "Should not have error creating valid transfer struct")
+
+	req = types.NewMsgTransferProto(transferStruct)
+	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().Equal(recipientAddr.String()+" is not allowed to receive funds: unauthorized", err.Error())
+
+	// Remove sender from allowlist
+	suite.App.BankKeeper.SetDenomAllowList(suite.Ctx, testDenom, banktypes.AllowList{Addresses: []string{recipientAddr.String()}})
+
+	transferStruct, err = types.NewTransfer(
+		senderPk,
+		senderAddr.String(),
+		recipientAddr.String(),
+		testDenom,
+		initialSenderState.DecryptableAvailableBalance,
+		initialSenderState.AvailableBalance,
+		transferAmount,
+		&initialRecipientState.PublicKey,
+		nil)
+	suite.Require().NoError(err, "Should not have error creating valid transfer struct")
+
+	req = types.NewMsgTransferProto(transferStruct)
+	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().Equal(senderAddr.String()+" is not allowed to send funds: unauthorized", err.Error())
+}
+
 func (suite *KeeperTestSuite) TestMsgServer_TransferToMaxPendingRecipient() {
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
 
@@ -1607,4 +1787,205 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferFeatureDisabled() {
 	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should not be able to transfer when feature is disabled")
 	suite.Require().ErrorContains(err, "feature is disabled by governance")
+}
+
+func (suite *KeeperTestSuite) TestMsgServer_TransferNegativeAmount() {
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	// Setup the accounts used for the test
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+	recipientPk := suite.PrivKeys[1]
+	recipientAddr := privkeyToAddress(recipientPk)
+
+	// Initialize the sender account
+	initialAvailableBalance := big.NewInt(2000)
+	initialSenderState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 10, initialAvailableBalance, big.NewInt(3000), big.NewInt(1000))
+	// Initialize the recipient account
+	recipientAccountState, _ := suite.SetupAccountState(recipientPk, DefaultTestDenom, 10, initialAvailableBalance, big.NewInt(3000), big.NewInt(1000))
+
+	senderAesKey, _ := utils.GetAESKey(*senderPk, DefaultTestDenom)
+
+	// Set transfer amount to negative.
+	transferAmount := big.NewInt(int64(-100))
+
+	// First create a regular transfer with a normal transfer amount
+	transferStruct, _ := types.NewTransfer(
+		senderPk,
+		senderAddr.String(),
+		recipientAddr.String(),
+		DefaultTestDenom,
+		initialSenderState.DecryptableAvailableBalance,
+		initialSenderState.AvailableBalance,
+		uint64(0),
+		&recipientAccountState.PublicKey,
+		nil,
+	)
+
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
+	// Make the transfer amounts negative
+	senderAmountLo, senderRandomness, err := teg.Encrypt(initialSenderState.PublicKey, transferAmount)
+	recipientAmountLo, recipientRandomness, err := teg.Encrypt(recipientAccountState.PublicKey, transferAmount)
+	transferStruct.SenderTransferAmountLo = senderAmountLo
+	transferStruct.RecipientTransferAmountLo = recipientAmountLo
+
+	// Regenerate the proofs
+	transferStruct.Proofs.SenderTransferAmountLoValidityProof, _ = zkproofs.NewCiphertextValidityProof(&senderRandomness, initialSenderState.PublicKey, transferStruct.SenderTransferAmountLo, transferAmount)
+	transferStruct.Proofs.RecipientTransferAmountLoValidityProof, _ = zkproofs.NewCiphertextValidityProof(&recipientRandomness, recipientAccountState.PublicKey, transferStruct.RecipientTransferAmountLo, transferAmount)
+
+	newBalance := new(big.Int).Sub(initialAvailableBalance, transferAmount)
+	remainingCommitment, commitmentRandomness, err := teg.Encrypt(initialSenderState.PublicKey, newBalance)
+	transferStruct.RemainingBalanceCommitment = remainingCommitment
+	transferStruct.Proofs.RemainingBalanceCommitmentValidityProof, _ = zkproofs.NewCiphertextValidityProof(&commitmentRandomness, initialSenderState.PublicKey, remainingCommitment, newBalance)
+
+	transferStruct.DecryptableBalance, _ = encryption.EncryptAESGCM(newBalance, senderAesKey)
+
+	senderKeyPair, _ := utils.GetElGamalKeyPair(*senderPk, DefaultTestDenom)
+	loBitsScalar, _ := curves.ED25519().Scalar.SetBigInt(transferAmount)
+	transferStruct.Proofs.TransferAmountLoEqualityProof, err = zkproofs.NewCiphertextCiphertextEqualityProof(senderKeyPair, &recipientAccountState.PublicKey, transferStruct.SenderTransferAmountLo, &recipientRandomness, &loBitsScalar)
+
+	transferStruct.Proofs.RemainingBalanceRangeProof, _ = zkproofs.NewRangeProof(128, newBalance, commitmentRandomness)
+	newBalanceCalculated, _ := teg.SubWithLoHi(initialSenderState.AvailableBalance, transferStruct.SenderTransferAmountLo, transferStruct.SenderTransferAmountHi)
+	newBalanceScalar, _ := curves.ED25519().Scalar.SetBigInt(newBalance)
+	commitmentCiphertextEqualityProof, err := zkproofs.NewCiphertextCommitmentEqualityProof(senderKeyPair, newBalanceCalculated, &commitmentRandomness, &newBalanceScalar)
+	transferStruct.Proofs.RemainingBalanceEqualityProof = commitmentCiphertextEqualityProof
+
+	// Try to execute the modified transfer instruction. This should fail since the balances don't match the proof generated
+	req := types.NewMsgTransferProto(transferStruct)
+	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
+
+	senderAccountState, _ := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, senderAddr.String(), DefaultTestDenom)
+
+	// Next 2 lines are for debugging. Remove after test passes.
+	newAvailableBalance, _ := teg.Decrypt(senderKeyPair.PrivateKey, senderAccountState.AvailableBalance, elgamal.MaxBits32)
+	fmt.Print(newAvailableBalance)
+
+	suite.Require().Error(err, "Should have error transferring negative amount")
+}
+
+func (suite *KeeperTestSuite) TestMsgServer_TransferOverflowAmount() {
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	// Setup the accounts used for the test
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+	recipientPk := suite.PrivKeys[1]
+	recipientAddr := privkeyToAddress(recipientPk)
+
+	// Initialize the sender account
+	initialAvailableBalance := big.NewInt(math.MaxUint32 + math.MaxUint16)
+	initialSenderState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 10, initialAvailableBalance, big.NewInt(3000), big.NewInt(1000))
+	// Initialize the recipient account
+	recipientAccountState, _ := suite.SetupAccountState(recipientPk, DefaultTestDenom, 10, initialAvailableBalance, big.NewInt(3000), big.NewInt(1000))
+
+	senderAesKey, _ := utils.GetAESKey(*senderPk, DefaultTestDenom)
+
+	// First create a regular transfer with a normal transfer amount
+	transferStruct, _ := types.NewTransfer(
+		senderPk,
+		senderAddr.String(),
+		recipientAddr.String(),
+		DefaultTestDenom,
+		initialSenderState.DecryptableAvailableBalance,
+		initialSenderState.AvailableBalance,
+		uint64(0),
+		&recipientAccountState.PublicKey,
+		nil,
+	)
+
+	if teg == nil {
+		teg = elgamal.NewTwistedElgamal()
+	}
+	// Set transfer amount lo to a number larger than 32 bits
+	transferAmount := big.NewInt(int64(math.MaxUint32 + 2))
+
+	// Make the transfer amount lo overflow
+	senderAmountLo, senderRandomness, err := teg.Encrypt(initialSenderState.PublicKey, transferAmount)
+	recipientAmountLo, recipientRandomness, err := teg.Encrypt(recipientAccountState.PublicKey, transferAmount)
+	transferStruct.SenderTransferAmountLo = senderAmountLo
+	transferStruct.RecipientTransferAmountLo = recipientAmountLo
+
+	// Regenerate the proofs
+	transferStruct.Proofs.SenderTransferAmountLoValidityProof, _ = zkproofs.NewCiphertextValidityProof(&senderRandomness, initialSenderState.PublicKey, transferStruct.SenderTransferAmountLo, transferAmount)
+	transferStruct.Proofs.RecipientTransferAmountLoValidityProof, _ = zkproofs.NewCiphertextValidityProof(&recipientRandomness, recipientAccountState.PublicKey, transferStruct.RecipientTransferAmountLo, transferAmount)
+
+	newBalance := new(big.Int).Sub(initialAvailableBalance, transferAmount)
+	remainingCommitment, commitmentRandomness, err := teg.Encrypt(initialSenderState.PublicKey, newBalance)
+	transferStruct.RemainingBalanceCommitment = remainingCommitment
+	transferStruct.Proofs.RemainingBalanceCommitmentValidityProof, _ = zkproofs.NewCiphertextValidityProof(&commitmentRandomness, initialSenderState.PublicKey, remainingCommitment, newBalance)
+
+	transferStruct.DecryptableBalance, _ = encryption.EncryptAESGCM(newBalance, senderAesKey)
+
+	senderKeyPair, _ := utils.GetElGamalKeyPair(*senderPk, DefaultTestDenom)
+	loBitsScalar, _ := curves.ED25519().Scalar.SetBigInt(transferAmount)
+	transferStruct.Proofs.TransferAmountLoEqualityProof, err = zkproofs.NewCiphertextCiphertextEqualityProof(senderKeyPair, &recipientAccountState.PublicKey, transferStruct.SenderTransferAmountLo, &recipientRandomness, &loBitsScalar)
+
+	transferStruct.Proofs.RemainingBalanceRangeProof, _ = zkproofs.NewRangeProof(128, newBalance, commitmentRandomness)
+	newBalanceCalculated, _ := teg.SubWithLoHi(initialSenderState.AvailableBalance, transferStruct.SenderTransferAmountLo, transferStruct.SenderTransferAmountHi)
+	newBalanceScalar, _ := curves.ED25519().Scalar.SetBigInt(newBalance)
+	commitmentCiphertextEqualityProof, err := zkproofs.NewCiphertextCommitmentEqualityProof(senderKeyPair, newBalanceCalculated, &commitmentRandomness, &newBalanceScalar)
+	transferStruct.Proofs.RemainingBalanceEqualityProof = commitmentCiphertextEqualityProof
+
+	// Try to execute the modified transfer instruction. This should fail since the balances don't match the proof generated
+	req := types.NewMsgTransferProto(transferStruct)
+	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
+
+	recipientAccountState, _ = suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, recipientAddr.String(), DefaultTestDenom)
+
+	// Next 3 lines are for debugging. Remove after test passes.
+	recipientKeyPair, _ := utils.GetElGamalKeyPair(*recipientPk, DefaultTestDenom)
+	newPendingBalance, err := teg.Decrypt(recipientKeyPair.PrivateKey, recipientAccountState.AvailableBalance, elgamal.MaxBits32)
+	fmt.Print(newPendingBalance)
+
+	suite.Require().Error(err, "Should have error transferring overflow amount")
+}
+
+func (suite *KeeperTestSuite) TestMsgServer_TransferTooManyAuditors() {
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	// Setup the accounts
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+	recipientPk := suite.PrivKeys[1]
+	recipientAddr := privkeyToAddress(recipientPk)
+
+	// Initialize sender and recipient accounts
+	initialSenderState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 10, big.NewInt(2000), big.NewInt(3000), big.NewInt(1000))
+	initialRecipientState, _ := suite.SetupAccountState(recipientPk, DefaultTestDenom, 12, big.NewInt(5000), big.NewInt(21000), big.NewInt(201000))
+
+	// Setup 6 auditor accounts (exceeding MaxAuditors)
+	var auditors []types.AuditorInput
+	for i := 0; i < 8; i++ {
+		auditorPk := suite.PrivKeys[i%2]
+		auditorAddr := privkeyToAddress(auditorPk)
+		auditorState, _ := suite.SetupAccountState(auditorPk, DefaultTestDenom, 12, big.NewInt(5000), big.NewInt(21000), big.NewInt(201000))
+		auditors = append(auditors, types.AuditorInput{
+			Address: auditorAddr.String(),
+			Pubkey:  &auditorState.PublicKey,
+		})
+	}
+
+	transferAmount := uint64(500)
+
+	// Create transfer with too many auditors
+	transferStruct, err := types.NewTransfer(
+		senderPk,
+		senderAddr.String(),
+		recipientAddr.String(),
+		DefaultTestDenom,
+		initialSenderState.DecryptableAvailableBalance,
+		initialSenderState.AvailableBalance,
+		transferAmount,
+		&initialRecipientState.PublicKey,
+		auditors,
+	)
+	suite.Require().NoError(err, "Should be able to create transfer struct")
+
+	// Execute the transfer
+	req := types.NewMsgTransferProto(transferStruct)
+	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().Error(err, "Should fail with too many auditors")
+	suite.Require().ErrorContains(err, "maximum number of auditors exceeded")
 }
