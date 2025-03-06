@@ -1753,3 +1753,51 @@ func (suite *KeeperTestSuite) TestMsgServer_TransferOverflowAmount() {
 
 	suite.Require().Error(err, "Should have error transferring overflow amount")
 }
+
+func (suite *KeeperTestSuite) TestMsgServer_TransferTooManyAuditors() {
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	// Setup the accounts
+	senderPk := suite.PrivKeys[0]
+	senderAddr := privkeyToAddress(senderPk)
+	recipientPk := suite.PrivKeys[1]
+	recipientAddr := privkeyToAddress(recipientPk)
+
+	// Initialize sender and recipient accounts
+	initialSenderState, _ := suite.SetupAccountState(senderPk, DefaultTestDenom, 10, big.NewInt(2000), big.NewInt(3000), big.NewInt(1000))
+	initialRecipientState, _ := suite.SetupAccountState(recipientPk, DefaultTestDenom, 12, big.NewInt(5000), big.NewInt(21000), big.NewInt(201000))
+
+	// Setup 6 auditor accounts (exceeding MaxAuditors)
+	var auditors []types.AuditorInput
+	for i := 0; i < 8; i++ {
+		auditorPk := suite.PrivKeys[i%2]
+		auditorAddr := privkeyToAddress(auditorPk)
+		auditorState, _ := suite.SetupAccountState(auditorPk, DefaultTestDenom, 12, big.NewInt(5000), big.NewInt(21000), big.NewInt(201000))
+		auditors = append(auditors, types.AuditorInput{
+			Address: auditorAddr.String(),
+			Pubkey:  &auditorState.PublicKey,
+		})
+	}
+
+	transferAmount := uint64(500)
+
+	// Create transfer with too many auditors
+	transferStruct, err := types.NewTransfer(
+		senderPk,
+		senderAddr.String(),
+		recipientAddr.String(),
+		DefaultTestDenom,
+		initialSenderState.DecryptableAvailableBalance,
+		initialSenderState.AvailableBalance,
+		transferAmount,
+		&initialRecipientState.PublicKey,
+		auditors,
+	)
+	suite.Require().NoError(err, "Should be able to create transfer struct")
+
+	// Execute the transfer
+	req := types.NewMsgTransferProto(transferStruct)
+	_, err = suite.msgServer.Transfer(sdk.WrapSDKContext(suite.Ctx), req)
+	suite.Require().Error(err, "Should fail with too many auditors")
+	suite.Require().ErrorContains(err, "maximum number of auditors exceeded")
+}
