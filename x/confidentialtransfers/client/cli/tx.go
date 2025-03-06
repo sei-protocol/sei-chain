@@ -241,6 +241,10 @@ func makeTransferCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	if len(auditorAddrs) > types.MaxAuditors {
+		return fmt.Errorf("maximum number of auditors is %d", types.MaxAuditors)
+	}
+
 	auditors := make([]types.AuditorInput, len(auditorAddrs))
 	for i, auditorAddr := range auditorAddrs {
 		auditorAccount, err := GetAccount(queryClient, auditorAddr, coin.Denom)

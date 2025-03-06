@@ -30,6 +30,8 @@ type Keeper interface {
 
 	IsCtModuleEnabled(ctx sdk.Context) bool
 	GetRangeProofGasCost(ctx sdk.Context) uint64
+	GetCipherTextGasCost(ctx sdk.Context) uint64
+	GetProofVerificationGasCost(ctx sdk.Context) uint64
 
 	BankKeeper() types.BankKeeper
 
@@ -158,6 +160,20 @@ func (k BaseKeeper) GetRangeProofGasCost(ctx sdk.Context) uint64 {
 	var rangeProofGas uint64
 	k.paramSpace.Get(ctx, types.KeyRangeProofGas, &rangeProofGas)
 	return rangeProofGas
+}
+
+// GetCipherTextGasCost retrieves the value of the CiphertextGasCost param from the parameter store
+func (k BaseKeeper) GetCipherTextGasCost(ctx sdk.Context) uint64 {
+	var ciphertextGas uint64
+	k.paramSpace.Get(ctx, types.KeyCiphertextGas, &ciphertextGas)
+	return ciphertextGas
+}
+
+// GetProofVerificationGasCost retrieves the value of the ProofVerificationGasCost param from the parameter store
+func (k BaseKeeper) GetProofVerificationGasCost(ctx sdk.Context) uint64 {
+	var proofVerificationGas uint64
+	k.paramSpace.Get(ctx, types.KeyProofVerificationGas, &proofVerificationGas)
+	return proofVerificationGas
 }
 
 func (k BaseKeeper) BankKeeper() types.BankKeeper {

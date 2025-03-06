@@ -22,9 +22,11 @@ const (
 )
 
 var (
-	AccountsKeyPrefix = []byte{0x01}
-	KeyEnableCtModule = []byte("EnableCtModule")
-	KeyRangeProofGas  = []byte("RangeProofGasCost")
+	AccountsKeyPrefix       = []byte{0x01}
+	KeyEnableCtModule       = []byte("EnableCtModule")
+	KeyRangeProofGas        = []byte("RangeProofGasCost")
+	KeyCiphertextGas        = []byte("CiphertextGasCost")
+	KeyProofVerificationGas = []byte("ProofVerificationGasCost")
 )
 
 // GetAddressPrefix generates the prefix for all accounts under a specific address
