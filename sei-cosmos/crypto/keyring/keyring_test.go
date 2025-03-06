@@ -895,7 +895,7 @@ func TestAltKeyring_UnsafeExportPrivKeyHex(t *testing.T) {
 	privKey, err := unsafeKeyring.UnsafeExportPrivKeyHex(uid)
 
 	require.NoError(t, err)
-	require.Equal(t, 74, len(privKey))
+	require.Equal(t, 64, len(privKey))
 
 	_, err = hex.DecodeString(privKey)
 	require.NoError(t, err)
