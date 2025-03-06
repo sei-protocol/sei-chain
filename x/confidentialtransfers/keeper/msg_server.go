@@ -254,10 +254,7 @@ func (m msgServer) Withdraw(goCtx context.Context, req *types.MsgWithdraw) (*typ
 
 	// Verify that the remaining balance sent by the user matches the remaining balance calculated by the server.
 	teg := elgamal.NewTwistedElgamal()
-	cipherTextGasCost := m.Keeper.GetCipherTextGasCost(ctx)
-	if cipherTextGasCost > 0 {
-		ctx.GasMeter().ConsumeGas(cipherTextGasCost, SubScalarDescriptor)
-	}
+	m.consumeGasForCiphertext(ctx, SubScalarDescriptor)
 	remainingBalanceCalculated, err := teg.SubScalar(account.AvailableBalance, instruction.Amount)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "error subtracting amount")
