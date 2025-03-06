@@ -8,6 +8,7 @@ import (
 
 	"github.com/coinbase/kryptology/pkg/core/curves"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -679,7 +680,19 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
-
+	metadata := banktypes.Metadata{
+		Description: "usei",
+		Base:        testDenom,
+		Display:     testDenom,
+		DenomUnits: []*banktypes.DenomUnit{
+			{
+				Denom:    testDenom,
+				Exponent: 0,
+				Aliases:  nil,
+			},
+		},
+	}
+	k.BankKeeper().SetDenomMetaData(ctx, metadata)
 	err := k.BankKeeper().MintCoins(
 		ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin(testDenom, sdk.NewInt(10000000))))
 	require.Nil(t, err)
@@ -747,7 +760,7 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 		{
 			name:             "precompile should return true if input is valid",
 			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0x1cf8ee,
+			wantRemainingGas: 0x1cf8a0,
 			wantErr:          false,
 		},
 		{

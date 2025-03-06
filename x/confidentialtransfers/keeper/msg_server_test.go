@@ -27,24 +27,24 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountBasic() {
 	testAddr := privkeyToAddress(testPk)
 
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
-
+	testDenom := fmt.Sprintf("factory/%s/test", suite.TestAccs[0].String())
 	// Test empty request
 	req := &types.MsgInitializeAccount{
 		FromAddress: testAddr.String(),
-		Denom:       DefaultTestDenom,
+		Denom:       testDenom,
 	}
 	_, err := suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "Should have error initializing using struct with missing fields")
 
 	// Happy Path
-	initializeStruct, _ := types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
+	initializeStruct, _ := types.NewInitializeAccount(testAddr.String(), testDenom, *testPk)
 
 	req = types.NewMsgInitializeAccountProto(initializeStruct)
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().NoError(err, "Should not have error initializing valid account state")
 
 	// Check that account exists in storage now
-	account, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
+	account, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), testDenom)
 	suite.Require().True(exists, "Account should exist after successful initialization")
 
 	// Check that account state matches the one submitted.
@@ -64,7 +64,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountBasic() {
 	suite.Require().EqualError(err, "account already exists: invalid request")
 
 	// Try to initialize another account for a different denom
-	otherDenom := DefaultOtherDenom
+	otherDenom := fmt.Sprintf("factory/%s/other", suite.TestAccs[1].String())
 	initializeStruct, _ = types.NewInitializeAccount(testAddr.String(), otherDenom, *testPk)
 	req = types.NewMsgInitializeAccountProto(initializeStruct)
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
@@ -75,7 +75,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountBasic() {
 	suite.Require().True(exists, "Account should exist after successful initialization")
 
 	// Check that initial account still exists independently and is unchanged.
-	accountAgain, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
+	accountAgain, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), testDenom)
 	suite.Require().True(exists, "Account should still exist")
 	suite.Require().Equal(account, accountAgain, "Account should be unchanged")
 }
@@ -89,15 +89,16 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyPubkey() {
 
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
 
+	testDenom := fmt.Sprintf("factory/%s/test", suite.TestAccs[0].String())
 	// Test that modifying the PublicKey without modifying the proof fails the PubkeyValidityProof test.
-	initializeStruct, _ := types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
+	initializeStruct, _ := types.NewInitializeAccount(testAddr.String(), testDenom, *testPk)
 
 	// Modify the pubkey used after.
 	otherPk, _ := crypto.GenerateKey()
 	if teg == nil {
 		teg = elgamal.NewTwistedElgamal()
 	}
-	otherKeyPair, _ := utils.GetElGamalKeyPair(*otherPk, DefaultTestDenom)
+	otherKeyPair, _ := utils.GetElGamalKeyPair(*otherPk, testDenom)
 	initializeStruct.Pubkey = &otherKeyPair.PublicKey
 
 	req := types.NewMsgInitializeAccountProto(initializeStruct)
@@ -106,7 +107,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyPubkey() {
 	suite.Require().ErrorContains(err, "invalid public key")
 
 	// Check that account does not exist in storage
-	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
+	_, exists := suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), testDenom)
 	suite.Require().False(exists, "Account should not exist after failed initialization")
 
 	// Now try modifying the Pubkey Validity Proof as well.
@@ -132,7 +133,8 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyBalances() {
 	if teg == nil {
 		teg = elgamal.NewTwistedElgamal()
 	}
-	keyPair, _ := utils.GetElGamalKeyPair(*testPk, DefaultTestDenom)
+	testDenom := fmt.Sprintf("factory/%s/test", suite.TestAccs[0].String())
+	keyPair, _ := utils.GetElGamalKeyPair(*testPk, testDenom)
 	nonZeroCiphertext, _, _ := teg.Encrypt(keyPair.PublicKey, big.NewInt(100000))
 
 	// Generate a 'ZeroBalanceProof' on the non-zero balance
@@ -141,7 +143,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyBalances() {
 	suite.Require().NoError(err, "Should not have error creating zero balance proof")
 
 	// Test that submitting an initialization request with non-zero balances will fail.
-	initializeStruct, err := types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
+	initializeStruct, err := types.NewInitializeAccount(testAddr.String(), testDenom, *testPk)
 	suite.Require().NoError(err, "Should not have error creating account state")
 
 	// Modify the available balance. This should fail the zero balance check for the available balance.
@@ -161,7 +163,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyBalances() {
 	suite.Require().ErrorContains(err, "invalid available balance")
 
 	// Repeat tests for PendingAmountLo
-	initializeStruct, _ = types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
+	initializeStruct, _ = types.NewInitializeAccount(testAddr.String(), testDenom, *testPk)
 
 	// Modify the pending balance lo. This should fail the zero balance check for the pendingBalanceLo.
 	initializeStruct.PendingBalanceLo = nonZeroCiphertext
@@ -180,7 +182,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyBalances() {
 	suite.Require().ErrorContains(err, "invalid pending balance lo")
 
 	// Repeat tests for PendingAmountHi
-	initializeStruct, _ = types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
+	initializeStruct, _ = types.NewInitializeAccount(testAddr.String(), testDenom, *testPk)
 
 	// Modify the pending balance hi. This should fail the zero balance check for the pendingBalanceHi.
 	initializeStruct.PendingBalanceHi = nonZeroCiphertext
@@ -227,15 +229,16 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountAlternateHappyPaths
 	testAddr := privkeyToAddress(testPk)
 
 	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+	testDenom := fmt.Sprintf("factory/%s/test", suite.TestAccs[0].String())
+	otherDenom := fmt.Sprintf("factory/%s/other", suite.TestAccs[1].String())
 
 	// Test that tampering with the denom will still lead to a successful initialization.
 	// However, since the client generates the keys based on the denom,
 	// all the fields will be encrypted with a different PublicKe than the one the client would use.
 	// As a result, the client will not be able to use the account.
-	initializeStruct, _ := types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
+	initializeStruct, _ := types.NewInitializeAccount(testAddr.String(), testDenom, *testPk)
 
 	// Modify the denom
-	otherDenom := DefaultOtherDenom
 	initializeStruct.Denom = otherDenom
 	req := types.NewMsgInitializeAccountProto(initializeStruct)
 	_, err := suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
@@ -248,13 +251,13 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountAlternateHappyPaths
 	// The decryptable balance is just a convenience feature that allows the user to keep track of their balance (AvailableBalance)
 	// Corrupting this field will not affect the account's functionality, but will render it unusable by the client.
 	// If the user loses track of their balance, they may be unable to recover their funds from the account since the AvailableBalance may not be decryptable.
-	initializeStruct, _ = types.NewInitializeAccount(testAddr.String(), DefaultTestDenom, *testPk)
+	initializeStruct, _ = types.NewInitializeAccount(testAddr.String(), testDenom, *testPk)
 	initializeStruct.DecryptableBalance = "corrupted"
 	req = types.NewMsgInitializeAccountProto(initializeStruct)
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().NoError(err, "Should not have error initializing account despite corrupted decryptable balance")
 
-	_, exists = suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), DefaultTestDenom)
+	_, exists = suite.App.ConfidentialTransfersKeeper.GetAccount(suite.Ctx, testAddr.String(), testDenom)
 	suite.Require().True(exists, "Account should exist after successful initialization")
 }
 
@@ -737,15 +740,20 @@ func (suite *KeeperTestSuite) TestMsgServer_WithdrawInvalidAmount() {
 	initialAvailableBalance := big.NewInt(1000000)
 	initialState, _ := suite.SetupAccountState(testPk, DefaultTestDenom, 50, initialAvailableBalance, big.NewInt(8000), big.NewInt(1000000000000))
 
+	// Create a negative amount withdraw request
+	withdrawStruct, err := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, big.NewInt(-1))
+	suite.Require().Error(err, "Should not be able to create withdraw with negative amount")
+	suite.Require().Equal("amount cannot be negative", err.Error())
+
 	// Create a withdraw request
-	withdrawStruct, _ := types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, initialAvailableBalance)
+	withdrawStruct, _ = types.NewWithdraw(*testPk, initialState.AvailableBalance, DefaultTestDenom, testAddr.String(), initialState.DecryptableAvailableBalance, initialAvailableBalance)
 
 	// Manually modify the withdraw struct to have an invalid amount (since we can't do that via the client)
 	withdrawStruct.Amount = new(big.Int).Add(initialAvailableBalance, big.NewInt(1))
 
 	// Try executing the withdraw. This should fail since the proofs generated before are invalid
 	req := types.NewMsgWithdrawProto(withdrawStruct)
-	_, err := suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
+	_, err = suite.msgServer.Withdraw(sdk.WrapSDKContext(suite.Ctx), req)
 	suite.Require().Error(err, "The withdraw should have failed since the withdraw struct has an invalid amount")
 	suite.Require().ErrorContains(err, "ciphertext commitment equality verification failed")
 
@@ -1236,7 +1244,7 @@ func (suite *KeeperTestSuite) TestMsgServer_ApplyPendingBalanceNoPendingBalances
 		testAddr.String(),
 		DefaultTestDenom,
 		initialState.DecryptableAvailableBalance,
-		initialState.PendingBalanceCreditCounter,
+		1,
 		initialState.AvailableBalance,
 		initialState.PendingBalanceLo,
 		initialState.PendingBalanceHi)

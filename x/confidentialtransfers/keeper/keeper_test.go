@@ -11,6 +11,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/keeper"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
+	tfkeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
+	tftypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/stretchr/testify/suite"
@@ -24,6 +26,7 @@ type KeeperTestSuite struct {
 
 	queryClient types.QueryClient
 	msgServer   types.MsgServer
+	tfMsgServer tftypes.MsgServer
 	// defaultDenom is on the suite, as it depends on the creator test address.
 	defaultDenom string
 	decryptor    *elgamal.TwistedElGamal
@@ -40,6 +43,7 @@ func (suite *KeeperTestSuite) SetupTest() {
 
 	suite.queryClient = types.NewQueryClient(suite.QueryHelper)
 	suite.msgServer = keeper.NewMsgServerImpl(suite.App.ConfidentialTransfersKeeper)
+	suite.tfMsgServer = tfkeeper.NewMsgServerImpl(suite.App.TokenFactoryKeeper)
 
 	// TODO: remove this once the app initializes confidentialtransfers keeper
 	suite.App.ConfidentialTransfersKeeper = keeper.NewKeeper(
@@ -53,6 +57,12 @@ func (suite *KeeperTestSuite) SetupTest() {
 	suite.PrivKeys = apptesting.CreateRandomAccountKeys(3)
 	suite.App.TokenFactoryKeeper.CreateDenom(suite.Ctx, "creator", "test")
 	suite.App.TokenFactoryKeeper.CreateDenom(suite.Ctx, "creator", "other")
+	testDenom, err := suite.App.TokenFactoryKeeper.CreateDenom(suite.Ctx, suite.TestAccs[0].String(), "test")
+	_, err = suite.tfMsgServer.Mint(sdk.WrapSDKContext(suite.Ctx), tftypes.NewMsgMint(suite.TestAccs[0].String(), sdk.NewInt64Coin(testDenom, 10000000)))
+	suite.Require().NoError(err)
+	otherDenom, err := suite.App.TokenFactoryKeeper.CreateDenom(suite.Ctx, suite.TestAccs[1].String(), "other")
+	_, err = suite.tfMsgServer.Mint(sdk.WrapSDKContext(suite.Ctx), tftypes.NewMsgMint(suite.TestAccs[1].String(), sdk.NewInt64Coin(otherDenom, 10000000)))
+	suite.Require().NoError(err)
 }
 
 func (suite *KeeperTestSuite) SetupAccount() {

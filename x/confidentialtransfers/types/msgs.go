@@ -72,6 +72,10 @@ func (m *MsgTransfer) ValidateBasic() error {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "remaining balance is required")
 	}
 
+	if m.DecryptableBalance == "" {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "decryptable balance is required")
+	}
+
 	if m.Proofs == nil {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "proofs is required")
 	}
