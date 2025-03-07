@@ -157,7 +157,7 @@ func (s *SendAPI) simulateTx(ctx context.Context, tx *ethtypes.Transaction) (est
 		AccessList:           &al,
 		ChainID:              (*hexutil.Big)(tx.ChainId()),
 	}
-	estimate_, err := export.DoEstimateGas(ctx, s.backend, txArgs, bNrOrHash, nil, s.backend.RPCGasCap())
+	estimate_, err := export.DoEstimateGas(ctx, s.backend, txArgs, bNrOrHash, nil, nil, s.backend.RPCGasCap())
 	if err != nil {
 		err = fmt.Errorf("failed to estimate gas: %w", err)
 		return

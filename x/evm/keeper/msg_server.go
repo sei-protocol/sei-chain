@@ -212,18 +212,19 @@ func (k *Keeper) GetGasPool() core.GasPool {
 
 func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender common.Address) *core.Message {
 	msg := &core.Message{
-		Nonce:         tx.Nonce(),
-		GasLimit:      tx.Gas(),
-		GasPrice:      new(big.Int).Set(tx.GasPrice()),
-		GasFeeCap:     new(big.Int).Set(tx.GasFeeCap()),
-		GasTipCap:     new(big.Int).Set(tx.GasTipCap()),
-		To:            tx.To(),
-		Value:         tx.Value(),
-		Data:          tx.Data(),
-		AccessList:    tx.AccessList(),
-		BlobHashes:    tx.BlobHashes(),
-		BlobGasFeeCap: tx.BlobGasFeeCap(),
-		From:          sender,
+		Nonce:                 tx.Nonce(),
+		GasLimit:              tx.Gas(),
+		GasPrice:              new(big.Int).Set(tx.GasPrice()),
+		GasFeeCap:             new(big.Int).Set(tx.GasFeeCap()),
+		GasTipCap:             new(big.Int).Set(tx.GasTipCap()),
+		To:                    tx.To(),
+		Value:                 tx.Value(),
+		Data:                  tx.Data(),
+		AccessList:            tx.AccessList(),
+		BlobHashes:            tx.BlobHashes(),
+		BlobGasFeeCap:         tx.BlobGasFeeCap(),
+		SetCodeAuthorizations: tx.SetCodeAuthorizations(),
+		From:                  sender,
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	baseFee := k.GetBaseFee(ctx)

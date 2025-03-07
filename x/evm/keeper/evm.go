@@ -180,7 +180,8 @@ func (k *Keeper) createReadOnlyEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EV
 	}
 	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	txCtx := vm.TxContext{Origin: k.GetEVMAddressOrDefault(ctx, from)}
-	evm := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
+	evm := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
+	evm.SetTxContext(txCtx)
 	return evm, nil
 }
 

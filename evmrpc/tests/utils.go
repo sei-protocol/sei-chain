@@ -220,6 +220,8 @@ func encodeEvmTx(txData ethtypes.TxData, signed *ethtypes.Transaction) []byte {
 		typedTx, _ = ethtx.NewDynamicFeeTx(signed)
 	case *ethtypes.BlobTx:
 		typedTx, _ = ethtx.NewBlobTx(signed)
+	case *ethtypes.SetCodeTx:
+		typedTx, _ = ethtx.NewSetCodeTx(signed)
 	default:
 		panic("invalid tx type")
 	}
