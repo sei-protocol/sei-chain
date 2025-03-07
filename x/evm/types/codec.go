@@ -70,6 +70,7 @@ func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 		&ethtx.LegacyTx{},
 		&ethtx.BlobTx{},
 		&ethtx.AssociateTx{},
+		&ethtx.SetCodeTx{},
 	)
 
 	msgservice.RegisterMsgServiceDesc(registry, &_Msg_serviceDesc)
@@ -120,6 +121,11 @@ func UnpackTxData(any *codectypes.Any) (ethtx.TxData, error) {
 		if proto.Unmarshal(any.Value, &astx) == nil {
 			// value is an associate tx
 			return &astx, nil
+		}
+		stx := ethtx.SetCodeTx{}
+		if proto.Unmarshal(any.Value, &stx) == nil {
+			// value is a set code tx
+			return &stx, nil
 		}
 		return nil, fmt.Errorf("cannot unpack Any into TxData %T", any)
 	}
