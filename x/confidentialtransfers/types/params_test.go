@@ -19,9 +19,9 @@ func TestDefaultParams(t *testing.T) {
 		{
 			name: "default params",
 			want: Params{
-				EnableCtModule:    DefaultEnableCtModule,
-				RangeProofGasCost: DefaultRangeProofGasCost,
-				EnabledDenoms:     defaultEnabledDenoms,
+				EnableCtModule:           DefaultEnableCtModule,
+				RangeProofGasCost:        DefaultRangeProofGasCost,
+				EnabledDenoms:            defaultEnabledDenoms,
 				CiphertextGasCost:        DefaultCiphertextGasCost,
 				ProofVerificationGasCost: DefaultProofVerificationGasCost,
 			},
@@ -119,7 +119,7 @@ func TestParams_ParamSetPairs(t *testing.T) {
 	params := &Params{
 		EnableCtModule:           DefaultEnableCtModule,
 		RangeProofGasCost:        DefaultRangeProofGasCost,
-		EnabledDenoms: defaultEnabledDenoms
+		EnabledDenoms:            defaultEnabledDenoms,
 		CiphertextGasCost:        DefaultCiphertextGasCost,
 		ProofVerificationGasCost: DefaultProofVerificationGasCost,
 	}
