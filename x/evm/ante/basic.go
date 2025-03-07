@@ -47,7 +47,7 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 		return ctx, sdkerrors.ErrInvalidCoins
 	}
 
-	intrGas, err := core.IntrinsicGas(etx.Data(), etx.AccessList(), nil, etx.To() == nil, true, true, true)
+	intrGas, err := core.IntrinsicGas(etx.Data(), etx.AccessList(), etx.SetCodeAuthorizations(), etx.To() == nil, true, true, true)
 	if err != nil {
 		return ctx, err
 	}

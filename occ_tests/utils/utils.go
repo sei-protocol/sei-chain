@@ -262,7 +262,7 @@ func runTxs(testCtx *TestContext, msgs []*TestMessage, occ bool) ([]types.Event,
 		Height: testCtx.Ctx.BlockHeader().Height,
 	}
 
-	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, req.DecidedLastCommit)
+	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, req.DecidedLastCommit, false)
 }
 
 func JoinMsgs(msgsList ...[]*TestMessage) []*TestMessage {

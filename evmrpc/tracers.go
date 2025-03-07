@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/tracers"
@@ -36,8 +37,9 @@ type SeiDebugAPI struct {
 	*DebugAPI
 }
 
-func NewDebugAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, config *SimulateConfig, connectionType ConnectionType) *DebugAPI {
-	backend := NewBackend(ctxProvider, k, txDecoder, tmClient, config)
+func NewDebugAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, config *SimulateConfig, app *baseapp.BaseApp,
+	antehandler sdk.AnteHandler, connectionType ConnectionType) *DebugAPI {
+	backend := NewBackend(ctxProvider, k, txDecoder, tmClient, config, app, antehandler)
 	tracersAPI := tracers.NewAPI(backend)
 	evictCallback := func(key common.Hash, value bool) {}
 	isPanicCache := expirable.NewLRU[common.Hash, bool](IsPanicCacheSize, evictCallback, IsPanicCacheTTL)
@@ -58,9 +60,11 @@ func NewSeiDebugAPI(
 	ctxProvider func(int64) sdk.Context,
 	txDecoder sdk.TxDecoder,
 	config *SimulateConfig,
+	app *baseapp.BaseApp,
+	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 ) *SeiDebugAPI {
-	backend := NewBackend(ctxProvider, k, txDecoder, tmClient, config)
+	backend := NewBackend(ctxProvider, k, txDecoder, tmClient, config, app, antehandler)
 	tracersAPI := tracers.NewAPI(backend)
 	return &SeiDebugAPI{
 		DebugAPI: &DebugAPI{tracersAPI: tracersAPI, tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, connectionType: connectionType},

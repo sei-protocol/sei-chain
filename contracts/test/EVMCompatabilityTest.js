@@ -279,6 +279,7 @@ describe("EVM Test", function () {
 
       it("Should trace a call with timestamp", async function () {
         await delay()
+        await sleep(1000) // make sure test is run in isolation
         const txResponse = await evmTester.setTimestamp({ gasPrice: ethers.parseUnits('100', 'gwei') });
         const receipt = await txResponse.wait();  // Wait for the transaction to be mined
 

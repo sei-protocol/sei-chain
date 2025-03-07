@@ -74,7 +74,7 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	}
 	cfg := evmtypes.DefaultChainConfig().EthereumConfig(fc.evmKeeper.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(emsg)
-	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{})
+	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, fc.evmKeeper.CustomPrecompiles())
 	evmInstance.SetTxContext(txCtx)
 	st := core.NewStateTransition(evmInstance, emsg, &gp, true)
 	// run stateless checks before charging gas (mimicking Geth behavior)

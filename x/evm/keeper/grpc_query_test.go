@@ -29,6 +29,7 @@ func TestQueryPointer(t *testing.T) {
 	seiAddr5, evmAddr5 := testkeeper.MockAddressPair()
 	seiAddr6, evmAddr6 := testkeeper.MockAddressPair()
 	seiAddr7, evmAddr7 := testkeeper.MockAddressPair()
+	_, evmAddr8 := testkeeper.MockAddressPair()
 	goCtx := sdk.WrapSDKContext(ctx)
 	k.SetERC20NativePointer(ctx, seiAddr1.String(), evmAddr1)
 	k.SetERC20CW20Pointer(ctx, seiAddr2.String(), evmAddr2)
@@ -59,6 +60,29 @@ func TestQueryPointer(t *testing.T) {
 	res, err = q.Pointer(goCtx, &types.QueryPointerRequest{PointerType: types.PointerType_ERC1155, Pointee: evmAddr7.Hex()})
 	require.Nil(t, err)
 	require.Equal(t, types.QueryPointerResponse{Pointer: seiAddr7.String(), Version: uint32(erc1155.CurrentVersion), Exists: true}, *res)
+	_, err = q.Pointer(goCtx, &types.QueryPointerRequest{PointerType: types.PointerType_NATIVE})
+	require.NotNil(t, err)
+	res, err = q.Pointer(goCtx, &types.QueryPointerRequest{PointerType: types.PointerType_NATIVE, Pointee: evmAddr8.Hex()})
+	require.Nil(t, err)
+	require.Equal(t, types.QueryPointerResponse{Exists: false}, *res)
+	res, err = q.Pointer(goCtx, &types.QueryPointerRequest{PointerType: types.PointerType_CW20, Pointee: evmAddr8.Hex()})
+	require.Nil(t, err)
+	require.Equal(t, types.QueryPointerResponse{Exists: false}, *res)
+	res, err = q.Pointer(goCtx, &types.QueryPointerRequest{PointerType: types.PointerType_CW721, Pointee: evmAddr8.Hex()})
+	require.Nil(t, err)
+	require.Equal(t, types.QueryPointerResponse{Exists: false}, *res)
+	res, err = q.Pointer(goCtx, &types.QueryPointerRequest{PointerType: types.PointerType_ERC20, Pointee: evmAddr8.Hex()})
+	require.Nil(t, err)
+	require.Equal(t, types.QueryPointerResponse{Exists: false}, *res)
+	res, err = q.Pointer(goCtx, &types.QueryPointerRequest{PointerType: types.PointerType_ERC721, Pointee: evmAddr8.Hex()})
+	require.Nil(t, err)
+	require.Equal(t, types.QueryPointerResponse{Exists: false}, *res)
+	res, err = q.Pointer(goCtx, &types.QueryPointerRequest{PointerType: types.PointerType_CW1155, Pointee: evmAddr8.Hex()})
+	require.Nil(t, err)
+	require.Equal(t, types.QueryPointerResponse{Exists: false}, *res)
+	res, err = q.Pointer(goCtx, &types.QueryPointerRequest{PointerType: types.PointerType_ERC1155, Pointee: evmAddr8.Hex()})
+	require.Nil(t, err)
+	require.Equal(t, types.QueryPointerResponse{Exists: false}, *res)
 }
 
 func TestQueryPointee(t *testing.T) {
@@ -141,17 +165,20 @@ func TestQueryPointee(t *testing.T) {
 	// Test for not registered ERC20 Pointee
 	res, err = q.Pointee(goCtx, &types.QueryPointeeRequest{PointerType: types.PointerType_ERC20, Pointer: "sei1notregistered"})
 	require.Nil(t, err)
-	require.Equal(t, types.QueryPointeeResponse{Pointee: "0x0000000000000000000000000000000000000000", Version: 0, Exists: false}, *res)
+	require.Equal(t, types.QueryPointeeResponse{Pointee: "", Version: 0, Exists: false}, *res)
 
 	// Test for not registered ERC721 Pointee
 	res, err = q.Pointee(goCtx, &types.QueryPointeeRequest{PointerType: types.PointerType_ERC721, Pointer: "sei1notregistered"})
 	require.Nil(t, err)
-	require.Equal(t, types.QueryPointeeResponse{Pointee: "0x0000000000000000000000000000000000000000", Version: 0, Exists: false}, *res)
+	require.Equal(t, types.QueryPointeeResponse{Pointee: "", Version: 0, Exists: false}, *res)
 
 	// Test for not registered ERC1155 Pointee
 	res, err = q.Pointee(goCtx, &types.QueryPointeeRequest{PointerType: types.PointerType_ERC1155, Pointer: "sei1notregistered"})
 	require.Nil(t, err)
-	require.Equal(t, types.QueryPointeeResponse{Pointee: "0x0000000000000000000000000000000000000000", Version: 0, Exists: false}, *res)
+	require.Equal(t, types.QueryPointeeResponse{Pointee: "", Version: 0, Exists: false}, *res)
+
+	_, err = q.Pointee(goCtx, &types.QueryPointeeRequest{PointerType: types.PointerType_NATIVE})
+	require.NotNil(t, err)
 
 	// Test cases for invalid inputs
 	testCases := []struct {
@@ -169,8 +196,8 @@ func TestQueryPointee(t *testing.T) {
 		{
 			name:        "Empty pointer",
 			req:         &types.QueryPointeeRequest{PointerType: types.PointerType_NATIVE, Pointer: ""},
-			expectedRes: &types.QueryPointeeResponse{Pointee: "", Version: 0, Exists: false},
-			expectedErr: nil,
+			expectedRes: nil,
+			expectedErr: keeper.ErrMustSpecifyPointer,
 		},
 		{
 			name:        "Invalid hex address for EVM-based pointer types",
@@ -181,7 +208,7 @@ func TestQueryPointee(t *testing.T) {
 		{
 			name:        "Invalid bech32 address for Cosmos-based pointer types",
 			req:         &types.QueryPointeeRequest{PointerType: types.PointerType_ERC20, Pointer: "not-a-bech32-address"},
-			expectedRes: &types.QueryPointeeResponse{Pointee: "0x0000000000000000000000000000000000000000", Version: 0, Exists: false},
+			expectedRes: &types.QueryPointeeResponse{Pointee: "", Version: 0, Exists: false},
 			expectedErr: nil,
 		},
 	}
