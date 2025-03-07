@@ -153,6 +153,8 @@ func (suite *KeeperTestSuite) TestMsgInitializeAccountDependencies() {
 	params := suite.App.ConfidentialTransfersKeeper.GetParams(suite.Ctx)
 	params.EnabledDenoms = append(params.EnabledDenoms, res.NewTokenDenom)
 	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
+	_, err = suite.tfMsgServer.Mint(sdk.WrapSDKContext(suite.Ctx), tokenfactorytypes.NewMsgMint(suite.TestAccs[0].String(), sdk.NewInt64Coin(res.NewTokenDenom, 10000000)))
+	suite.Require().NoError(err)
 
 	initAccount, _ := types.NewInitializeAccount(senderAddr.String(), res.NewTokenDenom, *senderPk)
 	initializeAccountStruct := types.NewMsgInitializeAccountProto(initAccount)

@@ -31,6 +31,8 @@ type Keeper interface {
 	IsCtModuleEnabled(ctx sdk.Context) bool
 	GetRangeProofGasCost(ctx sdk.Context) uint64
 	GetEnabledDenoms(ctx sdk.Context) []string
+	GetCipherTextGasCost(ctx sdk.Context) uint64
+	GetProofVerificationGasCost(ctx sdk.Context) uint64
 
 	BankKeeper() types.BankKeeper
 
@@ -76,6 +78,11 @@ func (k BaseKeeper) GetAccount(ctx sdk.Context, address string, denom string) (t
 	if err != nil {
 		return types.Account{}, false
 	}
+	err = sdk.ValidateDenom(denom)
+	if err != nil {
+		return types.Account{}, false
+	}
+
 	ctAccount, found := k.getCtAccount(ctx, addr, denom)
 	if !found {
 		return types.Account{}, false
@@ -166,6 +173,20 @@ func (k BaseKeeper) GetEnabledDenoms(ctx sdk.Context) []string {
 	var enabledDenoms []string
 	k.paramSpace.Get(ctx, types.KeyEnabledDenoms, &enabledDenoms)
 	return enabledDenoms
+}
+
+// GetCipherTextGasCost retrieves the value of the CiphertextGasCost param from the parameter store
+func (k BaseKeeper) GetCipherTextGasCost(ctx sdk.Context) uint64 {
+	var ciphertextGas uint64
+	k.paramSpace.Get(ctx, types.KeyCiphertextGas, &ciphertextGas)
+	return ciphertextGas
+}
+
+// GetProofVerificationGasCost retrieves the value of the ProofVerificationGasCost param from the parameter store
+func (k BaseKeeper) GetProofVerificationGasCost(ctx sdk.Context) uint64 {
+	var proofVerificationGas uint64
+	k.paramSpace.Get(ctx, types.KeyProofVerificationGas, &proofVerificationGas)
+	return proofVerificationGas
 }
 
 func (k BaseKeeper) BankKeeper() types.BankKeeper {

@@ -22,6 +22,8 @@ func TestDefaultParams(t *testing.T) {
 				EnableCtModule:    DefaultEnableCtModule,
 				RangeProofGasCost: DefaultRangeProofGasCost,
 				EnabledDenoms:     defaultEnabledDenoms,
+				CiphertextGasCost:        DefaultCiphertextGasCost,
+				ProofVerificationGasCost: DefaultProofVerificationGasCost,
 			},
 		},
 	}
@@ -113,7 +115,14 @@ func TestValidateRangeProofGasCost(t *testing.T) {
 
 func TestParams_ParamSetPairs(t *testing.T) {
 	defaultEnabledDenoms := strings.Split(DefaultEnabledDenoms, ",")
-	params := &Params{EnableCtModule: DefaultEnableCtModule, RangeProofGasCost: DefaultRangeProofGasCost, EnabledDenoms: defaultEnabledDenoms}
+
+	params := &Params{
+		EnableCtModule:           DefaultEnableCtModule,
+		RangeProofGasCost:        DefaultRangeProofGasCost,
+		EnabledDenoms: defaultEnabledDenoms
+		CiphertextGasCost:        DefaultCiphertextGasCost,
+		ProofVerificationGasCost: DefaultProofVerificationGasCost,
+	}
 	tests := []struct {
 		name string
 		want types.ParamSetPairs
@@ -124,6 +133,8 @@ func TestParams_ParamSetPairs(t *testing.T) {
 				types.NewParamSetPair(KeyEnableCtModule, &params.EnableCtModule, validateEnableCtModule),
 				types.NewParamSetPair(KeyRangeProofGas, &params.RangeProofGasCost, validateRangeProofGasCost),
 				types.NewParamSetPair(KeyEnabledDenoms, &params.EnabledDenoms, validateEnabledDenoms),
+				types.NewParamSetPair(KeyCiphertextGas, &params.CiphertextGasCost, validateCiphertextGasCost),
+				types.NewParamSetPair(KeyProofVerificationGas, &params.ProofVerificationGasCost, validateProofVerificationGasCost),
 			},
 		},
 	}
