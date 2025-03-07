@@ -73,6 +73,7 @@ type Database struct {
 	// Cache for last range hashed
 	lastRangeHashedCache int64
 	lastRangeHashedMu    sync.RWMutex
+	hashComputationMu    sync.Mutex
 }
 
 type VersionedChangesets struct {
@@ -396,6 +397,12 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 
 	if db.config.HashRange > 0 {
 		go func(ver int64) {
+			// Try to acquire lock, return immediately if already locked
+			if !db.hashComputationMu.TryLock() {
+				return
+			}
+			defer db.hashComputationMu.Unlock()
+
 			if err := db.computeMissingRanges(ver); err != nil {
 				fmt.Printf("maybeComputeMissingRanges error: %v\n", err)
 			}
