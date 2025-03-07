@@ -5,7 +5,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	proto "github.com/gogo/protobuf/proto"
+	"github.com/gogo/protobuf/proto"
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
@@ -15,6 +15,7 @@ var (
 	_ TxData = &DynamicFeeTx{}
 	_ TxData = &BlobTx{}
 	_ TxData = &AssociateTx{}
+	_ TxData = &SetCodeTx{}
 )
 
 // Unfortunately `TxData` interface in go-ethereum/core/types defines its functions
