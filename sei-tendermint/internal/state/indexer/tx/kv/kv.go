@@ -224,7 +224,9 @@ hashes:
 		if err != nil {
 			return nil, fmt.Errorf("failed to get Tx{%X}: %w", h, err)
 		}
-		results = append(results, res)
+		if res != nil {
+			results = append(results, res)
+		}
 
 		// Potentially exit early.
 		select {
