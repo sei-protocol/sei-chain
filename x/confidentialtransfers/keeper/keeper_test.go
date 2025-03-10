@@ -58,15 +58,16 @@ func (suite *KeeperTestSuite) SetupTest() {
 	suite.App.TokenFactoryKeeper.CreateDenom(suite.Ctx, "creator", "test")
 	suite.App.TokenFactoryKeeper.CreateDenom(suite.Ctx, "creator", "other")
 
-	params := suite.App.ConfidentialTransfersKeeper.GetParams(suite.Ctx)
-	params.EnabledDenoms = append(params.EnabledDenoms, DefaultTestDenom, DefaultOtherDenom)
-	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
 	testDenom, err := suite.App.TokenFactoryKeeper.CreateDenom(suite.Ctx, suite.TestAccs[0].String(), "test")
 	_, err = suite.tfMsgServer.Mint(sdk.WrapSDKContext(suite.Ctx), tftypes.NewMsgMint(suite.TestAccs[0].String(), sdk.NewInt64Coin(testDenom, 10000000)))
 	suite.Require().NoError(err)
 	otherDenom, err := suite.App.TokenFactoryKeeper.CreateDenom(suite.Ctx, suite.TestAccs[1].String(), "other")
 	_, err = suite.tfMsgServer.Mint(sdk.WrapSDKContext(suite.Ctx), tftypes.NewMsgMint(suite.TestAccs[1].String(), sdk.NewInt64Coin(otherDenom, 10000000)))
 	suite.Require().NoError(err)
+
+	params := suite.App.ConfidentialTransfersKeeper.GetParams(suite.Ctx)
+	params.EnabledDenoms = append(params.EnabledDenoms, DefaultTestDenom, DefaultOtherDenom, testDenom, otherDenom)
+	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
 }
 
 func (suite *KeeperTestSuite) SetupAccount() {

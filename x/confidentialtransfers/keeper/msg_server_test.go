@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
+	tftypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
@@ -232,6 +233,8 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountDenomNotEnabled() {
 
 	// Create the denom so it actually exists
 	notEnabledDenom, err := suite.App.TokenFactoryKeeper.CreateDenom(suite.Ctx, testAddr.String(), "notenabled")
+	_, err = suite.tfMsgServer.Mint(sdk.WrapSDKContext(suite.Ctx), tftypes.NewMsgMint(testAddr.String(), sdk.NewInt64Coin(notEnabledDenom, 10000000)))
+	suite.Require().NoError(err)
 
 	initialize, err := types.NewInitializeAccount(testAddr.String(), notEnabledDenom, *testPk)
 	req := types.NewMsgInitializeAccountProto(initialize)
@@ -255,7 +258,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountAlternateHappyPaths
 
 	// Test that tampering with the denom will still lead to a successful initialization.
 	// However, since the client generates the keys based on the denom,
-	// all the fields will be encrypted with a different PublicKe than the one the client would use.
+	// all the fields will be encrypted with a different PublicKey than the one the client would use.
 	// As a result, the client will not be able to use the account.
 	initializeStruct, _ := types.NewInitializeAccount(testAddr.String(), testDenom, *testPk)
 
