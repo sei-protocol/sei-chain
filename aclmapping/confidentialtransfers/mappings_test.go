@@ -52,6 +52,10 @@ func TestKeeperTestSuite(t *testing.T) {
 // Runs before each test case
 func (suite *KeeperTestSuite) SetupTest() {
 	suite.Setup()
+
+	params := suite.App.ConfidentialTransfersKeeper.GetParams(suite.Ctx)
+	params.EnabledDenoms = append(params.EnabledDenoms, DefaultTestDenom)
+	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
 }
 
 // Explicitly only run once during setup
@@ -146,6 +150,9 @@ func (suite *KeeperTestSuite) TestMsgInitializeAccountDependencies() {
 	)
 	suite.Require().NoError(err)
 
+	params := suite.App.ConfidentialTransfersKeeper.GetParams(suite.Ctx)
+	params.EnabledDenoms = append(params.EnabledDenoms, res.NewTokenDenom)
+	suite.App.ConfidentialTransfersKeeper.SetParams(suite.Ctx, params)
 	_, err = suite.tfMsgServer.Mint(sdk.WrapSDKContext(suite.Ctx), tokenfactorytypes.NewMsgMint(suite.TestAccs[0].String(), sdk.NewInt64Coin(res.NewTokenDenom, 10000000)))
 	suite.Require().NoError(err)
 

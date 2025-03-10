@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
+	"golang.org/x/exp/slices"
 )
 
 type msgServer struct {
@@ -57,17 +58,22 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "invalid msg")
 	}
 
+	// Check if denom exists.
+	denomHasSupply := m.Keeper.BankKeeper().HasSupply(ctx, instruction.Denom)
+	_, denomMetadataExists := m.Keeper.BankKeeper().GetDenomMetaData(ctx, instruction.Denom)
+	if !denomMetadataExists || !denomHasSupply {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "denom does not exist or has no supply")
+	}
+
+	enabledDenoms := m.Keeper.GetEnabledDenoms(ctx)
+	if len(enabledDenoms) > 0 && !slices.Contains(enabledDenoms, instruction.Denom) {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "denom not enabled for confidential transfers")
+	}
+
 	// Check if the account already exists
 	_, exists := m.Keeper.GetAccount(ctx, req.FromAddress, instruction.Denom)
 	if exists {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already exists")
-	}
-
-	// Check if denom already exists.
-	denomHasSupply := m.Keeper.BankKeeper().HasSupply(ctx, instruction.Denom)
-	_, denomMetadataExists := m.Keeper.BankKeeper().GetDenomMetaData(ctx, instruction.Denom)
-	if !denomMetadataExists || !denomHasSupply {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "denom does not exist")
 	}
 
 	// Validate the public key

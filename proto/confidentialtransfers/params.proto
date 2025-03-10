@@ -7,6 +7,7 @@ option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/t
 message Params {
   bool enable_ct_module = 1;
   uint64 range_proof_gas_cost = 2;
-  uint64  ciphertext_gas_cost = 3;
-  uint64 proof_verification_gas_cost = 4;
+  repeated string enabled_denoms = 3;
+  uint64  ciphertext_gas_cost = 4;
+  uint64 proof_verification_gas_cost = 5;
 }

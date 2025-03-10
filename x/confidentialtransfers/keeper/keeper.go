@@ -30,6 +30,7 @@ type Keeper interface {
 
 	IsCtModuleEnabled(ctx sdk.Context) bool
 	GetRangeProofGasCost(ctx sdk.Context) uint64
+	GetEnabledDenoms(ctx sdk.Context) []string
 	GetCipherTextGasCost(ctx sdk.Context) uint64
 	GetProofVerificationGasCost(ctx sdk.Context) uint64
 
@@ -148,7 +149,7 @@ func (k BaseKeeper) GetParams(ctx sdk.Context) (params types.Params) {
 	return params
 }
 
-// SetParams sets the total set of bank parameters.
+// SetParams sets the total set of confidential transfer parameters.
 func (k BaseKeeper) SetParams(ctx sdk.Context, params types.Params) {
 	k.paramSpace.SetParamSet(ctx, &params)
 }
@@ -165,6 +166,13 @@ func (k BaseKeeper) GetRangeProofGasCost(ctx sdk.Context) uint64 {
 	var rangeProofGas uint64
 	k.paramSpace.Get(ctx, types.KeyRangeProofGas, &rangeProofGas)
 	return rangeProofGas
+}
+
+// GetEnabledDenoms retrieves the value of the EnabledDenoms param from the parameter store
+func (k BaseKeeper) GetEnabledDenoms(ctx sdk.Context) []string {
+	var enabledDenoms []string
+	k.paramSpace.Get(ctx, types.KeyEnabledDenoms, &enabledDenoms)
+	return enabledDenoms
 }
 
 // GetCipherTextGasCost retrieves the value of the CiphertextGasCost param from the parameter store

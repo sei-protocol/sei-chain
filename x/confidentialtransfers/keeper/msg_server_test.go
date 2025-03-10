@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	"github.com/sei-protocol/sei-chain/x/confidentialtransfers/utils"
+	tftypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption"
 	"github.com/sei-protocol/sei-cryptography/pkg/encryption/elgamal"
 	"github.com/sei-protocol/sei-cryptography/pkg/zkproofs"
@@ -202,7 +203,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountModifyBalances() {
 }
 
 // Tests scenarios where the client tries to initialize an account on a denom that doesn't exist.
-func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountDenomDoesnExist() {
+func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountDenomDoesntExist() {
 	testPk := suite.PrivKeys[0]
 
 	// Generate the address from the private key
@@ -217,8 +218,31 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountDenomDoesnExist() {
 	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
 
 	// Test that submitting an initialization request for a non-existent denom will fail.
-	suite.Require().Error(err, "Should not be able to create denom on non-existent denom")
+	suite.Require().Error(err, "Should not be able to create account on non-existent denom")
 	suite.Require().ErrorContains(err, "denom does not exist")
+}
+
+// Tests scenarios where the client tries to initialize an account on a denom that doesn't exist.
+func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountDenomNotEnabled() {
+	testPk := suite.PrivKeys[0]
+
+	// Generate the address from the private key
+	testAddr := privkeyToAddress(testPk)
+
+	suite.Ctx = suite.App.BaseApp.NewContext(false, tmproto.Header{})
+
+	// Create the denom so it actually exists
+	notEnabledDenom, err := suite.App.TokenFactoryKeeper.CreateDenom(suite.Ctx, testAddr.String(), "notenabled")
+	_, err = suite.tfMsgServer.Mint(sdk.WrapSDKContext(suite.Ctx), tftypes.NewMsgMint(testAddr.String(), sdk.NewInt64Coin(notEnabledDenom, 10000000)))
+	suite.Require().NoError(err)
+
+	initialize, err := types.NewInitializeAccount(testAddr.String(), notEnabledDenom, *testPk)
+	req := types.NewMsgInitializeAccountProto(initialize)
+	_, err = suite.msgServer.InitializeAccount(sdk.WrapSDKContext(suite.Ctx), req)
+
+	// Test that submitting an initialization request for a non-existent denom will fail.
+	suite.Require().Error(err, "Should not be able to create account on non whitelisted denom")
+	suite.Require().ErrorContains(err, "denom not enabled for confidential transfers")
 }
 
 // Validate alternate scenarios that are technically allowed, but will cause incompatibility with the client.
@@ -234,7 +258,7 @@ func (suite *KeeperTestSuite) TestMsgServer_InitializeAccountAlternateHappyPaths
 
 	// Test that tampering with the denom will still lead to a successful initialization.
 	// However, since the client generates the keys based on the denom,
-	// all the fields will be encrypted with a different PublicKe than the one the client would use.
+	// all the fields will be encrypted with a different PublicKey than the one the client would use.
 	// As a result, the client will not be able to use the account.
 	initializeStruct, _ := types.NewInitializeAccount(testAddr.String(), testDenom, *testPk)
 

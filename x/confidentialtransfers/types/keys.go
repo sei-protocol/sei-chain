@@ -25,6 +25,7 @@ var (
 	AccountsKeyPrefix       = []byte{0x01}
 	KeyEnableCtModule       = []byte("EnableCtModule")
 	KeyRangeProofGas        = []byte("RangeProofGasCost")
+	KeyEnabledDenoms        = []byte("EnabledDenoms")
 	KeyCiphertextGas        = []byte("CiphertextGasCost")
 	KeyProofVerificationGas = []byte("ProofVerificationGasCost")
 )

@@ -3,6 +3,7 @@ package types
 import (
 	"bytes"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/x/params/types"
@@ -10,6 +11,7 @@ import (
 )
 
 func TestDefaultParams(t *testing.T) {
+	defaultEnabledDenoms := strings.Split(DefaultEnabledDenoms, ",")
 	tests := []struct {
 		name string
 		want Params
@@ -19,6 +21,7 @@ func TestDefaultParams(t *testing.T) {
 			want: Params{
 				EnableCtModule:           DefaultEnableCtModule,
 				RangeProofGasCost:        DefaultRangeProofGasCost,
+				EnabledDenoms:            defaultEnabledDenoms,
 				CiphertextGasCost:        DefaultCiphertextGasCost,
 				ProofVerificationGasCost: DefaultProofVerificationGasCost,
 			},
@@ -111,9 +114,12 @@ func TestValidateRangeProofGasCost(t *testing.T) {
 }
 
 func TestParams_ParamSetPairs(t *testing.T) {
+	defaultEnabledDenoms := strings.Split(DefaultEnabledDenoms, ",")
+
 	params := &Params{
 		EnableCtModule:           DefaultEnableCtModule,
 		RangeProofGasCost:        DefaultRangeProofGasCost,
+		EnabledDenoms:            defaultEnabledDenoms,
 		CiphertextGasCost:        DefaultCiphertextGasCost,
 		ProofVerificationGasCost: DefaultProofVerificationGasCost,
 	}
@@ -126,6 +132,7 @@ func TestParams_ParamSetPairs(t *testing.T) {
 			want: types.ParamSetPairs{
 				types.NewParamSetPair(KeyEnableCtModule, &params.EnableCtModule, validateEnableCtModule),
 				types.NewParamSetPair(KeyRangeProofGas, &params.RangeProofGasCost, validateRangeProofGasCost),
+				types.NewParamSetPair(KeyEnabledDenoms, &params.EnabledDenoms, validateEnabledDenoms),
 				types.NewParamSetPair(KeyCiphertextGas, &params.CiphertextGasCost, validateCiphertextGasCost),
 				types.NewParamSetPair(KeyProofVerificationGas, &params.ProofVerificationGasCost, validateProofVerificationGasCost),
 			},
