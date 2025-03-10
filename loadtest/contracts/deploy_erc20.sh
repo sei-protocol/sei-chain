@@ -15,8 +15,8 @@ if (( $(echo "$BALANCE < $THRESHOLD" | bc -l) )); then
 fi
 cd loadtest/contracts/evm || exit 1
 
-./setup.sh > /dev/null
+./setup.sh > /dev/null 2>&1
 
-git submodule update --init --recursive > /dev/null
+git submodule update --init --recursive > /dev/null 2>&1
 
-/root/.foundry/bin/forge create -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/NoopToken.sol:NoopToken --json --constructor-args "NoopToken" "NT" | jq -r '.deployedTo'
+/root/.foundry/bin/forge create --broadcast -r "$evm_endpoint" --private-key 57acb95d82739866a5c29e40b0aa2590742ae50425b7dd5b5d279a986370189e src/NoopToken.sol:NoopToken --json --constructor-args "NoopToken" "NT"  |jq -r '.deployedTo'
