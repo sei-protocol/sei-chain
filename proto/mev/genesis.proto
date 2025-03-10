@@ -1,0 +1,19 @@
+syntax = "proto3";
+package seiprotocol.seichain.mev;
+
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/mev/types";
+
+// GenesisState defines the mev module's genesis state
+message GenesisState {
+  option (gogoproto.equal) = false;
+  option (gogoproto.goproto_getters) = false;
+  
+  Params params = 1 [(gogoproto.nullable) = false];
+}
+
+// Params defines the parameters for the mev module
+message Params {
+  option (gogoproto.goproto_stringer) = false;
+}
