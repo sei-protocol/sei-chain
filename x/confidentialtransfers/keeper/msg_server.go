@@ -62,7 +62,7 @@ func (m msgServer) InitializeAccount(goCtx context.Context, req *types.MsgInitia
 	denomHasSupply := m.Keeper.BankKeeper().HasSupply(ctx, instruction.Denom)
 	_, denomMetadataExists := m.Keeper.BankKeeper().GetDenomMetaData(ctx, instruction.Denom)
 	if !denomMetadataExists || !denomHasSupply {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "denom does not exist")
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "denom does not exist or has no supply")
 	}
 
 	enabledDenoms := m.Keeper.GetEnabledDenoms(ctx)
