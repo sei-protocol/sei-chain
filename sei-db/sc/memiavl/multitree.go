@@ -339,19 +339,38 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 		return fmt.Errorf("target index %d is in the future, latest index: %d", endIndex, lastIndex)
 	}
 
+	var replayCount = 0
 	err = stream.Replay(firstIndex, endIndex, func(index uint64, entry proto.ChangelogEntry) error {
-		if err := t.apply(entry); err != nil {
-			return fmt.Errorf("apply rlog entry failed, %w", err)
+		if err := t.ApplyUpgrades(entry.Upgrades); err != nil {
+			return err
 		}
-		if _, err := t.SaveVersion(false); err != nil {
-			return fmt.Errorf("replay changeset failed to save version, %w", err)
+		updatedTrees := make(map[string]bool)
+		for _, cs := range entry.Changesets {
+			treeName := cs.Name
+			t.TreeByName(treeName).ApplyChangeSetAsync(cs.Changeset)
+			updatedTrees[treeName] = true
+		}
+		for _, tree := range t.trees {
+			if _, found := updatedTrees[tree.Name]; !found {
+				tree.ApplyChangeSetAsync(iavl.ChangeSet{})
+			}
+		}
+		t.lastCommitInfo.Version = utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion)
+		t.lastCommitInfo.StoreInfos = []proto.StoreInfo{}
+		replayCount++
+		if replayCount%1000 == 0 {
+			fmt.Printf("Replayed %d changelog entries\n", replayCount)
 		}
 		return nil
 	})
+
+	for _, tree := range t.trees {
+		tree.WaitToCompleteAsyncWrite()
+	}
+
 	if err != nil {
 		return err
 	}
-
 	t.UpdateCommitInfo()
 	return nil
 }
