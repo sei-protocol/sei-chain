@@ -168,14 +168,16 @@ func BlockTest(a *App, bt *ethtests.BlockTest) {
 		if err != nil {
 			panic(err)
 		}
-		hash := make([]byte, 8)
-		binary.BigEndian.PutUint64(hash, uint64(h))
+		blockHash := b.Hash()
+		parentHash := b.ParentHash()
+		txs := utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) })
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
-			Txs:               utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) }),
+			Txs:               txs,
 			ProposerAddress:   a.EvmKeeper.GetSeiAddressOrDefault(a.GetCheckCtx(), b.Coinbase()),
 			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},
 			Height:            h,
-			Hash:              hash,
+			Hash:              blockHash[:],
+			LastBlockHash:     parentHash[:],
 			Time:              time.Now(),
 		})
 		if err != nil {
