@@ -325,7 +325,6 @@ func EncodeTmBlock(
 	transactions := []interface{}{}
 
 	for i, txRes := range blockRes.TxsResults {
-		fmt.Println(i)
 		blockGasUsed += txRes.GasUsed
 		decoded, err := txDecoder(block.Block.Txs[i])
 		if err != nil {
