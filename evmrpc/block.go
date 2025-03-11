@@ -15,12 +15,14 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -37,6 +39,7 @@ type BlockAPI struct {
 	connectionType       ConnectionType
 	namespace            string
 	includeShellReceipts bool
+	includeBankTransfers bool
 }
 
 type SeiBlockAPI struct {
@@ -52,6 +55,7 @@ func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 		txConfig:             txConfig,
 		connectionType:       connectionType,
 		includeShellReceipts: false,
+		includeBankTransfers: false,
 		namespace:            "eth",
 	}
 }
@@ -71,6 +75,7 @@ func NewSeiBlockAPI(
 		txConfig:             txConfig,
 		connectionType:       connectionType,
 		includeShellReceipts: true,
+		includeBankTransfers: false,
 		namespace:            "sei",
 	}
 	return &SeiBlockAPI{
@@ -79,8 +84,28 @@ func NewSeiBlockAPI(
 	}
 }
 
+func NewSei2BlockAPI(
+	tmClient rpcclient.Client,
+	k *keeper.Keeper,
+	ctxProvider func(int64) sdk.Context,
+	txConfig client.TxConfig,
+	connectionType ConnectionType,
+	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
+) *SeiBlockAPI {
+	blockAPI := NewSeiBlockAPI(tmClient, k, ctxProvider, txConfig, connectionType, isPanicTx)
+	blockAPI.namespace = "sei2"
+	blockAPI.includeBankTransfers = true
+	return blockAPI
+}
+
 func (a *SeiBlockAPI) GetBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
-	return a.getBlockByNumber(ctx, number, fullTx, a.isPanicTx)
+	// exclude synthetic txs
+	return a.getBlockByNumber(ctx, number, fullTx, false, a.isPanicTx)
+}
+
+func (a *SeiBlockAPI) GetBlockByHashExcludeTraceFail(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
+	// exclude synthetic txs
+	return a.getBlockByHash(ctx, blockHash, fullTx, false, a.isPanicTx)
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
@@ -108,18 +133,11 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 }
 
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
-	return a.getBlockByHash(ctx, blockHash, fullTx, nil)
+	// used for both: eth_ and sei_ namespaces
+	return a.getBlockByHash(ctx, blockHash, fullTx, a.includeShellReceipts, nil)
 }
 
-func (a *SeiBlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
-	return a.getBlockByHash(ctx, blockHash, fullTx, nil)
-}
-
-func (a *SeiBlockAPI) GetBlockByHashExcludeTraceFail(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
-	return a.getBlockByHash(ctx, blockHash, fullTx, a.isPanicTx)
-}
-
-func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)) (result map[string]interface{}, returnErr error) {
+func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool, isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics(fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr == nil)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
@@ -131,7 +149,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 		return nil, err
 	}
 	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	return EncodeTmBlock(a.ctxProvider(block.Block.Height), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeShellReceipts, isPanicTx)
+	return EncodeTmBlock(a.ctxProvider(block.Block.Height), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
@@ -162,13 +180,14 @@ func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber,
 			"baseFeePerGas":    (*hexutil.Big)(big.NewInt(0)),
 		}, nil
 	}
-	return a.getBlockByNumber(ctx, number, fullTx, nil)
+	return a.getBlockByNumber(ctx, number, fullTx, a.includeShellReceipts, nil)
 }
 
 func (a *BlockAPI) getBlockByNumber(
 	ctx context.Context,
 	number rpc.BlockNumber,
 	fullTx bool,
+	includeSyntheticTxs bool,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 ) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
@@ -186,7 +205,7 @@ func (a *BlockAPI) getBlockByNumber(
 		return nil, err
 	}
 	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	return EncodeTmBlock(a.ctxProvider(block.Block.Height), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeShellReceipts, isPanicTx)
+	return EncodeTmBlock(a.ctxProvider(block.Block.Height), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
@@ -266,8 +285,9 @@ func EncodeTmBlock(
 	k *keeper.Keeper,
 	txDecoder sdk.TxDecoder,
 	fullTx bool,
+	includeBankTransfers bool,
 	includeSyntheticTxs bool,
-	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
+	isPanicOrSynthetic func(ctx context.Context, hash common.Hash) (bool, error),
 ) (map[string]interface{}, error) {
 	number := big.NewInt(block.Block.Height)
 	blockhash := common.HexToHash(block.BlockID.Hash.String())
@@ -296,12 +316,12 @@ func EncodeTmBlock(
 				}
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
-				if isPanicTx != nil {
-					isPanic, err := isPanicTx(ctx.Context(), hash)
+				if isPanicOrSynthetic != nil {
+					isPanicOrSynthetic, err := isPanicOrSynthetic(ctx.Context(), hash)
 					if err != nil {
 						return nil, fmt.Errorf("failed to check if tx is panic tx: %w", err)
 					}
-					if isPanic {
+					if isPanicOrSynthetic {
 						continue
 					}
 				}
@@ -341,6 +361,34 @@ func EncodeTmBlock(
 						Hash:             th,
 						TransactionIndex: (*hexutil.Uint64)(&ti),
 					})
+				}
+			case *banktypes.MsgSend:
+				if !includeBankTransfers {
+					continue
+				}
+				th := sha256.Sum256(block.Block.Txs[i])
+				if !fullTx {
+					transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
+				} else {
+					rpcTx := &ethapi.RPCTransaction{
+						BlockHash:   &blockhash,
+						BlockNumber: (*hexutil.Big)(number),
+						Hash:        th,
+					}
+					senderSeiAddr, err := sdk.AccAddressFromBech32(m.FromAddress)
+					if err != nil {
+						continue
+					}
+					rpcTx.From = k.GetEVMAddressOrDefault(ctx, senderSeiAddr)
+					recipientSeiAddr, err := sdk.AccAddressFromBech32(m.ToAddress)
+					if err != nil {
+						continue
+					}
+					recipientEvmAddr := k.GetEVMAddressOrDefault(ctx, recipientSeiAddr)
+					rpcTx.To = &recipientEvmAddr
+					amt := m.Amount.AmountOf("usei").Mul(state.SdkUseiToSweiMultiplier)
+					rpcTx.Value = (*hexutil.Big)(amt.BigInt())
+					transactions = append(transactions, rpcTx)
 				}
 			}
 		}

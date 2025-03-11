@@ -16,7 +16,7 @@ func TestTraceTransaction(t *testing.T) {
 	resObj := sendRequestGoodWithNamespace(t, "debug", "traceTransaction", DebugTraceHashHex, args)
 	result := resObj["result"].(map[string]interface{})
 	require.Equal(t, "0x5b4eba929f3811980f5ae0c5d04fa200f837df4e", result["from"])
-	require.Equal(t, "0x55f0", result["gas"])
+	require.Equal(t, "0x30d40", result["gas"])
 	require.Equal(t, "0x616263", result["input"])
 	require.Equal(t, "0x0000000000000000000000000000000000010203", result["to"])
 	require.Equal(t, "CALL", result["type"])
@@ -41,7 +41,7 @@ func TestTraceBlockByNumber(t *testing.T) {
 	resObj := sendRequestGoodWithNamespace(t, "debug", "traceBlockByNumber", "0x65", args)
 	result := resObj["result"].([]interface{})[0].(map[string]interface{})["result"].(map[string]interface{})
 	require.Equal(t, "0x5b4eba929f3811980f5ae0c5d04fa200f837df4e", result["from"])
-	require.Equal(t, "0x55f0", result["gas"])
+	require.Equal(t, "0x30d40", result["gas"])
 	require.Equal(t, "0x616263", result["input"])
 	require.Equal(t, "0x0000000000000000000000000000000000010203", result["to"])
 	require.Equal(t, "CALL", result["type"])
@@ -59,7 +59,7 @@ func TestTraceBlockByHash(t *testing.T) {
 	resObj := sendRequestGoodWithNamespace(t, "debug", "traceBlockByHash", DebugTraceBlockHash, args)
 	result := resObj["result"].([]interface{})[0].(map[string]interface{})["result"].(map[string]interface{})
 	require.Equal(t, "0x5b4eba929f3811980f5ae0c5d04fa200f837df4e", result["from"])
-	require.Equal(t, "0x55f0", result["gas"])
+	require.Equal(t, "0x30d40", result["gas"])
 	require.Equal(t, "0x616263", result["input"])
 	require.Equal(t, "0x0000000000000000000000000000000000010203", result["to"])
 	require.Equal(t, "CALL", result["type"])
@@ -93,10 +93,10 @@ func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
 	blockNumber := fmt.Sprintf("%#x", MockHeight103)
 	seiResObj := sendRequestGoodWithNamespace(t, "sei", "traceBlockByNumberExcludeTraceFail", blockNumber, args)
 	result := seiResObj["result"].([]interface{})
-	// sei_traceBlockByNumberExcludeTraceFail returns 1 trace, and removes the panic tx
+	// sei_traceBlockByNumberExcludeTraceFail returns 1 trace, and removes the panic tx and synthetic tx
 	require.Equal(t, 1, len(result))
 	ethResObj := sendRequestGoodWithNamespace(t, "debug", "traceBlockByNumber", blockNumber, args)
-	// eth_traceBlockByNumber returns 2 traces, including the panic tx
+	// eth_traceBlockByNumber returns 2 traces, including the panic tx, but excludes the synthetic tx
 	require.Equal(t, 2, len(ethResObj["result"].([]interface{})))
 }
 

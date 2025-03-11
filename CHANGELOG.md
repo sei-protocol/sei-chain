@@ -27,6 +27,35 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v6.0.4
+sei-chain
+* [#2091](https://github.com/sei-protocol/sei-chain/pull/2091) Fix RPC subscription fields
+* [#2089](https://github.com/sei-protocol/sei-chain/pull/2089) Tracer RPC fixes
+* [#2087](https://github.com/sei-protocol/sei-chain/pull/2087) Make coinbase distribution in EndBlock more efficient
+* [#2085](https://github.com/sei-protocol/sei-chain/pull/2085) Allow safe/latest/final to be passed as block number to trace/simulate endpoints
+* [#2075](https://github.com/sei-protocol/sei-chain/pull/2075) Improve pointer/pointee query UX
+* [#2073](https://github.com/sei-protocol/sei-chain/pull/2073) RPC simulation with gas used estimate tagging
+* [#2071](https://github.com/sei-protocol/sei-chain/pull/2071) Improve tracer/simulation RPC
+* [#2068](https://github.com/sei-protocol/sei-chain/pull/2068) Fix eth_gasPrice not found
+* [#2067](https://github.com/sei-protocol/sei-chain/pull/2067) Set log index across all transactions in a block
+* [#2065](https://github.com/sei-protocol/sei-chain/pull/2064) Add sei2_getBlock endpoints to include bank transfers
+* [#2059](https://github.com/sei-protocol/sei-chain/pull/2059) Add tools to scan and compute hash for IAVL db
+* [#2058](https://github.com/sei-protocol/sei-chain/pull/2058) Exclude Synthetic txs from *ExcludePanicTx endpoints
+* [#2054](https://github.com/sei-protocol/sei-chain/pull/2054) Add extractAsBytesFromArray method for JSON precompile
+* [#2050](https://github.com/sei-protocol/sei-chain/pull/2050) Extract multiple EVM logs from a single WASM event
+* [#2048](https://github.com/sei-protocol/sei-chain/pull/2048) Add logic to remove a small number of tx hashes each block
+
+sei-cosmos
+* [#568](https://github.com/sei-protocol/sei-cosmos/pull/568) Blacklist evm coinbase address from receiving
+* [#565](https://github.com/sei-protocol/sei-cosmos/pull/565) Bypass unnecessary logics in BeginBlock for simulate
+* [#564](https://github.com/sei-protocol/sei-cosmos/pull/564) Add whitelist for fee denoms
+
+sei-tendermint
+* [#265](https://github.com/sei-protocol/sei-tendermint/pull/264) Fix: peer manager nil pointer
+* [#263](https://github.com/sei-protocol/sei-tendermint/pull/263) Update ReapMaxBytesMaxGas to include estimated gas
+* [#259](https://github.com/sei-protocol/sei-tendermint/pull/259) Add simulate flag to RequestBeginBlock
+* [#258](https://github.com/sei-protocol/sei-tendermint/pull/258) Add utils to get RequestBeginBlock
+
 ## v6.0.3
 sei-chain
 * [#2057](https://github.com/sei-protocol/sei-chain/pull/2057) Avoid panic tx error message in debug trace

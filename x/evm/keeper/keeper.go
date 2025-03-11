@@ -80,6 +80,8 @@ type Keeper struct {
 	ReplayBlock *ethtypes.Block
 
 	receiptStore seidbtypes.StateStore
+
+	customPrecompiles map[common.Address]vm.PrecompiledContract
 }
 
 type AddressNoncePair struct {
@@ -134,6 +136,14 @@ func NewKeeper(
 		receiptStore:                 receiptStateStore,
 	}
 	return k
+}
+
+func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]vm.PrecompiledContract) {
+	k.customPrecompiles = cp
+}
+
+func (k *Keeper) CustomPrecompiles() map[common.Address]vm.PrecompiledContract {
+	return k.customPrecompiles
 }
 
 func (k *Keeper) AccountKeeper() *authkeeper.AccountKeeper {

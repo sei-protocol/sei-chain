@@ -203,3 +203,17 @@ func TestNewRevertError(t *testing.T) {
 	require.Equal(t, 3, err.ErrorCode())
 	require.Equal(t, "0x", err.ErrorData())
 }
+
+func TestConvertBlockNumber(t *testing.T) {
+	backend := evmrpc.NewBackend(func(i int64) sdk.Context {
+		if i == evmrpc.LatestCtxHeight {
+			return sdk.Context{}.WithBlockHeight(1000)
+		}
+		return sdk.Context{}
+	}, nil, nil, &MockClient{}, nil, nil, nil)
+	require.Equal(t, int64(10), backend.ConvertBlockNumber(10))
+	require.Equal(t, int64(1), backend.ConvertBlockNumber(0))
+	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-2))
+	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-3))
+	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-4))
+}

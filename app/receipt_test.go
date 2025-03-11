@@ -467,6 +467,71 @@ func TestEvmEventsForCw721(t *testing.T) {
 	require.Equal(t, common.HexToHash("0x0").Bytes(), receipt.Logs[0].Data)
 }
 
+func TestEvmEventsForMultipleCW721Transfers(t *testing.T) {
+	k := testkeeper.EVMTestApp.EvmKeeper
+	wasmKeeper := k.WasmKeeper()
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now()).WithChainID("sei-test").WithBlockHeight(1)
+
+	code, err := os.ReadFile("../contracts/wasm/cw721_base.wasm")
+	require.Nil(t, err)
+	privKey := testkeeper.MockPrivateKey()
+	creator, _ := testkeeper.PrivateKeyToAddresses(privKey)
+	codeID, err := wasmKeeper.Create(ctx, creator, code, nil)
+	require.Nil(t, err)
+	contractAddr, _, err := wasmKeeper.Instantiate(ctx, codeID, creator, creator, []byte(fmt.Sprintf("{\"name\":\"test\",\"symbol\":\"test\",\"minter\":\"%s\"}", creator.String())), "test", sdk.NewCoins())
+	require.Nil(t, err)
+
+	_, mockPointerAddr := testkeeper.MockAddressPair()
+	k.SetERC721CW721Pointer(ctx, contractAddr.String(), mockPointerAddr)
+
+	amt := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000)))
+	k.BankKeeper().MintCoins(ctx, "evm", amt)
+	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, "evm", creator, amt)
+	privKeyRecipient := testkeeper.MockPrivateKey()
+	recipient, _ := testkeeper.PrivateKeyToAddresses(privKeyRecipient)
+	payload := []byte(fmt.Sprintf("{\"mint\":{\"token_id\":\"1\",\"owner\":\"%s\"}}", recipient.String()))
+	msg := &wasmtypes.MsgExecuteContract{
+		Sender:   creator.String(),
+		Contract: contractAddr.String(),
+		Msg:      payload,
+	}
+	txBuilder := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
+	txBuilder.SetMsgs(msg)
+	txBuilder.SetFeeAmount(sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000))))
+	txBuilder.SetGasLimit(300000)
+	tx := signTx(txBuilder, privKey, k.AccountKeeper().GetAccount(ctx, creator))
+	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
+	require.Nil(t, err)
+	sum := sha256.Sum256(txbz)
+
+	testkeeper.EVMTestApp.AddCosmosEventsToEVMReceiptIfApplicable(ctx, tx, sum, sdk.DeliverTxHookInput{
+		Events: []abci.Event{
+			{
+				Type: "wasm",
+				Attributes: []abci.EventAttribute{
+					{Key: []byte("_contract_address"), Value: []byte(contractAddr.String())},
+					{Key: []byte("action"), Value: []byte("transfer_nft")},
+					{Key: []byte("sender"), Value: []byte("sei1n5n56lvfsda29hm38a2tn5pnf6nx84a3kje530")},
+					{Key: []byte("recipient"), Value: []byte("sei1n5n56lvfsda29hm38a2tn5pnf6nx84a3kje530")},
+					{Key: []byte("token_id"), Value: []byte("0")},
+					{Key: []byte("action"), Value: []byte("transfer_nft")},
+					{Key: []byte("sender"), Value: []byte("sei1xj2la8suyhfxjzdv3fc2w4upag32mc6392suyf")},
+					{Key: []byte("recipient"), Value: []byte("sei1xj2la8suyhfxjzdv3fc2w4upag32mc6392suyf")},
+					{Key: []byte("token_id"), Value: []byte("1")},
+				},
+			},
+		},
+	})
+
+	receipt, err := testkeeper.EVMTestApp.EvmKeeper.GetTransientReceipt(ctx, common.BytesToHash(sum[:]))
+	require.Nil(t, err)
+	require.Equal(t, 2, len(receipt.Logs))
+	require.NotEmpty(t, receipt.LogsBloom)
+	require.Equal(t, mockPointerAddr.Hex(), receipt.Logs[0].Address)
+	_, found := testkeeper.EVMTestApp.EvmKeeper.GetEVMTxDeferredInfo(ctx)
+	require.True(t, found)
+}
+
 func TestEvmEventsForCw1155(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
 	wasmKeeper := k.WasmKeeper()
