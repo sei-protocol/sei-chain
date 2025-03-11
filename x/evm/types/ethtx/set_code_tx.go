@@ -3,11 +3,12 @@ package ethtx
 import (
 	"errors"
 	"fmt"
+	"math/big"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/holiman/uint256"
-	"math/big"
 )
 
 func NewSetCodeTx(tx *ethtypes.Transaction) (*SetCodeTx, error) {

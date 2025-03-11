@@ -31,7 +31,7 @@ func NewAuthList(ethAuthList *[]ethtypes.SetCodeAuthorization) AuthList {
 }
 
 func (al AuthList) ToEthAuthList() *[]ethtypes.SetCodeAuthorization {
-	var ethAuthList []ethtypes.SetCodeAuthorization
+	ethAuthList := make([]ethtypes.SetCodeAuthorization, len(al))
 
 	for _, auth := range al {
 		chainId := new(uint256.Int)
