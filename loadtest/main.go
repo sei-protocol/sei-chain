@@ -96,9 +96,10 @@ func deployEvmContract(scriptPath string, config *Config) (common.Address, error
 	if err != nil {
 		return common.Address{}, err
 	}
-	return common.HexToAddress(out.String()), nil
+	return common.HexToAddress(strings.TrimSpace(out.String())), nil
 }
 
+//nolint:gosec
 func deployEvmContracts(config *Config) {
 	config.EVMAddresses = &EVMAddresses{}
 	if config.ContainsAnyMessageTypes(ERC20) {
@@ -119,32 +120,25 @@ func deployEvmContracts(config *Config) {
 		}
 		config.EVMAddresses.ERC721 = erc721
 	}
-}
-
-//nolint:gosec
-func deployUniswapContracts(client *LoadTestClient, config *Config) {
-	config.EVMAddresses = &EVMAddresses{}
 	if config.ContainsAnyMessageTypes(UNIV2) {
+		//TODO: this really should use `deployEvmContract`
 		fmt.Println("Deploying Uniswap contracts")
 		cmd := exec.Command("loadtest/contracts/deploy_univ2.sh", config.EVMRpcEndpoint())
 		var out bytes.Buffer
 		cmd.Stdout = &out
 		err := cmd.Run()
-		fmt.Println("script output: ", out.String())
 		if err != nil {
 			panic("deploy_univ2.sh failed with error: " + err.Error())
 		}
 		UniV2SwapperRe := regexp.MustCompile(`Swapper Address: "(\w+)"`)
 		match := UniV2SwapperRe.FindStringSubmatch(out.String())
 		uniV2SwapperAddress := common.HexToAddress(match[1])
-		fmt.Println("Found UniV2Swapper Address: ", uniV2SwapperAddress.String())
-		for _, txClient := range client.EvmTxClients {
-			txClient.evmAddresses.UniV2Swapper = uniV2SwapperAddress
-		}
+		config.EVMAddresses.UniV2Swapper = uniV2SwapperAddress
 	}
 }
 
 func run(config *Config) {
+	config.EVMAddresses = &EVMAddresses{}
 	// Start metrics collector in another thread
 	metricsServer := MetricsServer{}
 	go metricsServer.StartMetricsClient(*config)
@@ -152,7 +146,12 @@ func run(config *Config) {
 	client := NewLoadTestClient(*config)
 	client.SetValidators()
 	deployEvmContracts(config)
-	deployUniswapContracts(client, config)
+
+	// initialize clients with addresses on clients
+	for _, txClient := range client.EvmTxClients {
+		txClient.evmAddresses = config.EVMAddresses
+	}
+
 	startLoadtestWorkers(client, *config)
 	runEvmQueries(*config)
 }
@@ -160,7 +159,6 @@ func run(config *Config) {
 // starts loadtest workers. If config.Constant is true, then we don't gather loadtest results and let producer/consumer
 // workers continue running. If config.Constant is false, then we will gather load test results in a file
 func startLoadtestWorkers(client *LoadTestClient, config Config) {
-	fmt.Printf("Starting loadtest workers\n")
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \n", string(configString))
 
