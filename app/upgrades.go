@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"sort"
@@ -116,6 +117,7 @@ var upgradesList = []string{
 	"v6.0.2",
 	"v6.0.3",
 	"v6.0.4",
+	"v6.0.5-hard-max-gas-wanted-check",
 }
 
 // if there is an override list, use that instead, for integration tests
@@ -137,6 +139,7 @@ func (app App) RegisterUpgradeHandlers() {
 	// if there is an override list, use that instead, for integration tests
 	overrideList()
 	for _, upgradeName := range upgradesList {
+		fmt.Println("ADDING UPGRADE LIST")
 		app.UpgradeKeeper.SetUpgradeHandler(upgradeName, func(ctx sdk.Context, plan upgradetypes.Plan, fromVM module.VersionMap) (module.VersionMap, error) {
 			// Set params to Distribution here when migrating
 			if upgradeName == "1.2.3beta" {
@@ -164,7 +167,7 @@ func (app App) RegisterUpgradeHandlers() {
 				return newVM, err
 			}
 
-			if upgradeName == "v6.0.5" {
+			if upgradeName == "v6.0.5-hard-max-gas-wanted-check" {
 				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
 				if err != nil {
 					return newVM, err
