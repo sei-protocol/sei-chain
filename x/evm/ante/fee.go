@@ -1,6 +1,7 @@
 package ante
 
 import (
+	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -89,6 +90,11 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 		}
 	}
 	if err := st.BuyGas(); err != nil {
+		ctx.Logger().Error(fmt.Sprintf("TONYDEBUG: insufficient balance error %s", err.Error()))
+		ctx.Logger().Error(fmt.Sprintf("TONYDEBUG: account %s has a balance of %s at height %d", emsg.From.Hex(), fc.evmKeeper.GetBalance(
+			ctx, fc.evmKeeper.GetSeiAddressOrDefault(ctx, emsg.From),
+		), ctx.BlockHeight()))
+		ctx.Logger().Error(fmt.Sprintf("TONYDEBUG: gas limit is %d, gas price is %s, gas fee cap is %s, value is %s", emsg.GasLimit, emsg.GasPrice, emsg.GasFeeCap, emsg.Value))
 		return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, err.Error())
 	}
 	if !ctx.IsCheckTx() && !ctx.IsReCheckTx() {
