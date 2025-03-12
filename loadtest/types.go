@@ -81,8 +81,8 @@ func (c *Config) EVMRpcEndpoint() string {
 	endpoints := strings.Split(c.EvmRpcEndpoints, ",")
 	return endpoints[0]
 }
-
 func (c *Config) ContainsAnyMessageTypes(types ...string) bool {
+
 	for _, t := range types {
 		for _, mt := range c.MessageTypes {
 			if mt == t {
