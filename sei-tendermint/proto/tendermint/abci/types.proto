@@ -494,6 +494,8 @@ message BlockParams {
   int64 max_gas = 2;
   // Minimum txs to include in a block regardless of gas limit
   int64 min_txs_in_block = 3;
+  // Maximum gas wanted in a block. Must be greater than or equal to -1
+  int64 max_gas_wanted = 4;
 }
 
 message ConsensusParams {

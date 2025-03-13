@@ -3268,6 +3268,7 @@ components:
           type: object
           required:
             - "max_bytes"
+            - "max_gas_wanted"
             - "max_gas"
             - "time_iota_ms"
           properties:

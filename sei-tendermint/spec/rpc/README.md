@@ -711,6 +711,7 @@ curl -X POST https://localhost:26657 -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\
     "consensus_params_updates": {
       "block": {
         "max_bytes": "22020096",
+        "max_gas_wanted": "1000",
         "max_gas": "1000",
         "time_iota_ms": "1000"
       },

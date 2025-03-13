@@ -693,6 +693,7 @@ const testGenesisFmt = `{
 	"consensus_params": {
 		"block": {
 			"max_bytes": "22020096",
+			"max_gas_wanted": "-1",
 			"max_gas": "-1",
 			"time_iota_ms": "10"
 		},

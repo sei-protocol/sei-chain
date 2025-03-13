@@ -216,8 +216,9 @@ func makeParams(args makeParamsArgs) ConsensusParams {
 	}
 	return ConsensusParams{
 		Block: BlockParams{
-			MaxBytes: args.blockBytes,
-			MaxGas:   args.blockGas,
+			MaxBytes:     args.blockBytes,
+			MaxGas:       args.blockGas,
+			MaxGasWanted: args.blockGas,
 		},
 		Evidence: EvidenceParams{
 			MaxAgeNumBlocks: args.evidenceAge,
@@ -344,8 +345,9 @@ func TestConsensusParamsUpdate(t *testing.T) {
 			initialParams: makeParams(makeParamsArgs{blockBytes: 1, blockGas: 2, evidenceAge: 3}),
 			updates: &tmproto.ConsensusParams{
 				Block: &tmproto.BlockParams{
-					MaxBytes: 100,
-					MaxGas:   200,
+					MaxBytes:     100,
+					MaxGas:       200,
+					MaxGasWanted: 200,
 				},
 				Evidence: &tmproto.EvidenceParams{
 					MaxAgeNumBlocks: 300,
@@ -366,8 +368,9 @@ func TestConsensusParamsUpdate(t *testing.T) {
 			initialParams: makeParams(makeParamsArgs{blockBytes: 1, blockGas: 2, evidenceAge: 3}),
 			updates: &tmproto.ConsensusParams{
 				Block: &tmproto.BlockParams{
-					MaxBytes: 100,
-					MaxGas:   200,
+					MaxBytes:     100,
+					MaxGas:       200,
+					MaxGasWanted: 200,
 				},
 				Evidence: &tmproto.EvidenceParams{
 					MaxAgeNumBlocks: 300,

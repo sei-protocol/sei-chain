@@ -25,11 +25,14 @@ message BlockParams {
   // Max block size, in bytes.
   // Note: must be greater than 0
   int64 max_bytes = 1;
-  // Max gas per block.
+  // Max gas estimated per block.
   // Note: must be greater or equal to -1
   int64 max_gas = 2;
   // Minimum txs to include in a block regardless of gas limit
   int64 min_txs_in_block = 3;
+  // Max gas wanted per block
+  // Note: must be greater or equal to -1
+  int64 max_gas_wanted = 4;
 }
 
 // EvidenceParams determine how we handle evidence of malfeasance.

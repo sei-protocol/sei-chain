@@ -367,8 +367,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// gas estimated is 1 so we will use this and not fallback to gas wanted
-	gasEstimated := int64(1)
+	gasEstimated := int64(1) // gas estimated set to 1
 	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated})
 	if err := client.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -407,7 +406,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, 50, 0)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, 50, -1, 0)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -418,7 +417,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(1000, -1, 0)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(1000, -1, -1, 0)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -430,7 +429,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(1500, 30, 0)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(1500, 30, -1, 0)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -441,7 +440,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, 1, 2)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, 1, -1, 2)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 2)
@@ -451,10 +450,32 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, 50, 0)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, -1, 50, 0)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 50)
+	}()
+
+	// Test that minTxsPerBlock is still used even when max gas esimated is exceeded
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// pull minTxsPerBlock even though max gas wanted is hit
+		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, -1, 50, 51)
+		ensurePrioritized(reapedTxs)
+		require.Equal(t, len(tTxs), txmp.Size())
+		require.Len(t, reapedTxs, 51)
+	}()
+
+	// Test that minTxsPerBlock is still used even when max gas wanted is exceeded
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// pull minTxsPerBlock even though max gas wanted is hit
+		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, 50, -1, 51)
+		ensurePrioritized(reapedTxs)
+		require.Equal(t, len(tTxs), txmp.Size())
+		require.Len(t, reapedTxs, 51)
 	}()
 
 	wg.Wait()
@@ -464,8 +485,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// gas estimated is 0 so we will fallback to gas wanted
-	gasEstimated := int64(0)
+	gasEstimated := int64(0) // gas estimated not set so fallback to gas wanted
 	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication(), gasEstimated: &gasEstimated})
 	if err := client.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -501,7 +521,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, 50, 0)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, -1, 50, 0)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 50)

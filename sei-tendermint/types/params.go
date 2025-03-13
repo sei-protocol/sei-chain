@@ -60,6 +60,7 @@ type BlockParams struct {
 	MaxBytes      int64 `json:"max_bytes,string"`
 	MaxGas        int64 `json:"max_gas,string"`
 	MinTxsInBlock int64 `json:"min_txs_in_block,string"`
+	MaxGasWanted  int64 `json:"max_gas_wanted,string"`
 }
 
 // EvidenceParams determine how we handle evidence of malfeasance.
@@ -134,6 +135,7 @@ func DefaultBlockParams() BlockParams {
 		// Default, can be increased and tuned as needed
 		MaxGas:        100000000,
 		MinTxsInBlock: 10,
+		MaxGasWanted:  50000000,
 	}
 }
 
@@ -280,6 +282,11 @@ func (params ConsensusParams) ValidateConsensusParams() error {
 	if params.Block.MaxBytes > MaxBlockSizeBytes {
 		return fmt.Errorf("block.MaxBytes is too big. %d > %d",
 			params.Block.MaxBytes, MaxBlockSizeBytes)
+	}
+
+	if params.Block.MaxGasWanted < -1 {
+		return fmt.Errorf("block.MaxGasWanted must be greater or equal to -1. Got %d",
+			params.Block.MaxGasWanted)
 	}
 
 	if params.Block.MaxGas < -1 {
@@ -430,6 +437,7 @@ func (params ConsensusParams) UpdateConsensusParams(params2 *tmproto.ConsensusPa
 		res.Block.MaxBytes = params2.Block.MaxBytes
 		res.Block.MaxGas = params2.Block.MaxGas
 		res.Block.MinTxsInBlock = params2.Block.MinTxsInBlock
+		res.Block.MaxGasWanted = params2.Block.MaxGasWanted
 	}
 	if params2.Evidence != nil {
 		res.Evidence.MaxAgeNumBlocks = params2.Evidence.MaxAgeNumBlocks
@@ -483,6 +491,7 @@ func (params *ConsensusParams) ToProto() tmproto.ConsensusParams {
 			MaxBytes:      params.Block.MaxBytes,
 			MaxGas:        params.Block.MaxGas,
 			MinTxsInBlock: params.Block.MinTxsInBlock,
+			MaxGasWanted:  params.Block.MaxGasWanted,
 		},
 		Evidence: &tmproto.EvidenceParams{
 			MaxAgeNumBlocks: params.Evidence.MaxAgeNumBlocks,
@@ -520,6 +529,7 @@ func ConsensusParamsFromProto(pbParams tmproto.ConsensusParams) ConsensusParams 
 			MaxBytes:      pbParams.Block.MaxBytes,
 			MaxGas:        pbParams.Block.MaxGas,
 			MinTxsInBlock: pbParams.Block.MinTxsInBlock,
+			MaxGasWanted:  pbParams.Block.MaxGasWanted,
 		},
 		Evidence: EvidenceParams{
 			MaxAgeNumBlocks: pbParams.Evidence.MaxAgeNumBlocks,

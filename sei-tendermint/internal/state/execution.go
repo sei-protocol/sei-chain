@@ -95,13 +95,14 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 
 	maxBytes := state.ConsensusParams.Block.MaxBytes
 	maxGas := state.ConsensusParams.Block.MaxGas
+	maxGasWanted := state.ConsensusParams.Block.MaxGasWanted
 
 	evidence, evSize := blockExec.evpool.PendingEvidence(state.ConsensusParams.Evidence.MaxBytes)
 
 	// Fetch a limited amount of valid txs
 	maxDataBytes := types.MaxDataBytes(maxBytes, evSize, state.Validators.Size())
 
-	txs := blockExec.mempool.ReapMaxBytesMaxGas(maxDataBytes, maxGas, state.ConsensusParams.Block.MinTxsInBlock)
+	txs := blockExec.mempool.ReapMaxBytesMaxGas(maxDataBytes, maxGasWanted, maxGas, state.ConsensusParams.Block.MinTxsInBlock)
 	commit := lastExtCommit.ToCommit()
 	block := state.MakeBlock(height, txs, commit, evidence, proposerAddr)
 	rpp, err := blockExec.appClient.PrepareProposal(
