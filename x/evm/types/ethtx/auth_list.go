@@ -33,7 +33,7 @@ func NewAuthList(ethAuthList *[]ethtypes.SetCodeAuthorization) AuthList {
 func (al AuthList) ToEthAuthList() *[]ethtypes.SetCodeAuthorization {
 	ethAuthList := make([]ethtypes.SetCodeAuthorization, len(al))
 
-	for _, auth := range al {
+	for i, auth := range al {
 		chainId := new(uint256.Int)
 		chainId.SetFromBig(auth.ChainID.BigInt())
 		v := new(uint256.Int)
@@ -42,14 +42,14 @@ func (al AuthList) ToEthAuthList() *[]ethtypes.SetCodeAuthorization {
 		r.SetBytes(auth.R)
 		s := new(uint256.Int)
 		s.SetBytes(auth.S)
-		ethAuthList = append(ethAuthList, ethtypes.SetCodeAuthorization{
+		ethAuthList[i] = ethtypes.SetCodeAuthorization{
 			ChainID: *chainId,
 			Address: common.HexToAddress(auth.Address),
 			Nonce:   auth.Nonce,
 			V:       uint8(v.Uint64()),
 			R:       *r,
 			S:       *s,
-		})
+		}
 	}
 
 	return &ethAuthList

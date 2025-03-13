@@ -87,7 +87,6 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args export.Transa
 }
 
 func (s *SimulationAPI) EstimateGas(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride) (result hexutil.Uint64, returnErr error) {
-	fmt.Print("DEBUG: EstimateGas \n")
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_estimateGas", s.connectionType, startTime, returnErr)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
@@ -96,10 +95,6 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args export.Transaction
 	}
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
 	estimate, err := export.DoEstimateGas(ctx, s.backend, args, bNrOrHash, overrides, nil, s.backend.RPCGasCap())
-	fmt.Printf("DEBUG: estimate: %d\n", estimate)
-	if err != nil {
-		fmt.Printf("DEBUG: error: %s\n", err.Error())
-	}
 	return estimate, err
 }
 
