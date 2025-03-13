@@ -119,6 +119,7 @@ func ExportCmd(appExporter types.AppExporter, defaultNodeHome string) *cobra.Com
 							MaxBytes:      exported.ConsensusParams.Block.MaxBytes,
 							MaxGas:        exported.ConsensusParams.Block.MaxGas,
 							MinTxsInBlock: exported.ConsensusParams.Block.MinTxsInBlock,
+							MaxGasWanted:  exported.ConsensusParams.Block.MaxGasWanted,
 						},
 						Evidence: tmtypes.EvidenceParams{
 							MaxAgeNumBlocks: exported.ConsensusParams.Evidence.MaxAgeNumBlocks,
@@ -162,6 +163,7 @@ func ExportCmd(appExporter types.AppExporter, defaultNodeHome string) *cobra.Com
 					MaxBytes:      exported.ConsensusParams.Block.MaxBytes,
 					MaxGas:        exported.ConsensusParams.Block.MaxGas,
 					MinTxsInBlock: exported.ConsensusParams.Block.MinTxsInBlock,
+					MaxGasWanted:  exported.ConsensusParams.Block.MaxGasWanted,
 				},
 				Evidence: tmtypes.EvidenceParams{
 					MaxAgeNumBlocks: exported.ConsensusParams.Evidence.MaxAgeNumBlocks,
