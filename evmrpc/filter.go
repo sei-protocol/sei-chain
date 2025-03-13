@@ -296,8 +296,9 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	resultsChan := make(chan *ethtypes.Log, 1000)
 	res = []*ethtypes.Log{}
 	for block := range blocks {
+		b := block
 		runner.Queue <- func() {
-			matchedLogs := f.GetLogsForBlock(block, crit, bloomIndexes)
+			matchedLogs := f.GetLogsForBlock(b, crit, bloomIndexes)
 			for _, log := range matchedLogs {
 				resultsChan <- log
 			}
@@ -329,7 +330,7 @@ func (f *LogFetcher) GetLogsForBlock(block *coretypes.ResultBlock, crit filters.
 	possibleLogs := f.FindLogsByBloom(block, filters)
 	matchedLogs := utils.Filter(possibleLogs, func(l *ethtypes.Log) bool { return f.IsLogExactMatch(l, crit) })
 	for _, l := range matchedLogs {
-		l.BlockHash = common.Hash(block.BlockID.Hash)
+		l.BlockHash = common.BytesToHash(block.BlockID.Hash)
 	}
 	return matchedLogs
 }
@@ -408,20 +409,18 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	defer runner.Done.Wait()
 	defer close(runner.Queue)
 	for height := begin; height <= end; height++ {
+		h := height
 		runner.Queue <- func() {
-			if height == 0 {
+			if h == 0 {
 				return
 			}
 			if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
-				providerCtx := f.ctxProvider(height)
+				providerCtx := f.ctxProvider(h)
 				blockBloom := f.k.GetBlockBloom(providerCtx)
-				fmt.Println(bloomIndexes)
-				fmt.Println(blockBloom)
 				if !MatchFilters(blockBloom, bloomIndexes) {
 					return
 				}
 			}
-			h := height
 			block, err := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
 			if err != nil {
 				panic(err)

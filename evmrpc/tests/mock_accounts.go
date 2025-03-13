@@ -92,8 +92,12 @@ func mnemonicInitializer(mnemonic string) func(ctx sdk.Context, a *app.App) {
 		seiAddr := getSeiAddrWithMnemonic(mnemonic)
 		evmAddr := getAddrWithMnemonic(mnemonic)
 		a.EvmKeeper.SetAddressMapping(ctx, seiAddr, evmAddr)
-		amt := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000)))
-		_ = a.BankKeeper.MintCoins(ctx, types.ModuleName, amt)
-		_ = a.BankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, seiAddr, amt)
+		fundSeiAddr(ctx, a, seiAddr)
 	}
+}
+
+func fundSeiAddr(ctx sdk.Context, a *app.App, addr sdk.AccAddress) {
+	amt := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10000000000)))
+	_ = a.BankKeeper.MintCoins(ctx, types.ModuleName, amt)
+	_ = a.BankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, addr, amt)
 }

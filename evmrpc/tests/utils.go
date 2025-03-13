@@ -180,7 +180,7 @@ func formatParam(p interface{}) string {
 }
 
 func signAndEncodeTx(txData ethtypes.TxData, mnemonic string) []byte {
-	signed := signTxWithMnemonic(txData, mnemonic1)
+	signed := signTxWithMnemonic(txData, mnemonic)
 	var typedTx proto.Message
 	switch txData.(type) {
 	case *ethtypes.LegacyTx:
