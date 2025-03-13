@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"sort"
 	"sync"
 	"time"
@@ -289,114 +288,28 @@ type LogFetcher struct {
 
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
 	bloomIndexes := EncodeFilters(crit.Addresses, crit.Topics)
-	if crit.BlockHash != nil {
-		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:], 1)
-		if err != nil {
-			return nil, 0, err
-		}
-		return f.GetLogsForBlock(block, crit, bloomIndexes), block.Block.Height, nil
+	blocks, end, applyOpenEndedLogLimit, err := f.fetchBlocksByCrit(ctx, crit, lastToHeight, bloomIndexes)
+	if err != nil {
+		return nil, 0, err
 	}
-	applyOpenEndedLogLimit := f.filterConfig.maxLog > 0 && (crit.FromBlock == nil || crit.ToBlock == nil)
-	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
-	begin, end := latest, latest
-	if crit.FromBlock != nil {
-		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
-	}
-	if crit.ToBlock != nil {
-		end = getHeightFromBigIntBlockNumber(latest, crit.ToBlock)
-		// only if fromBlock is not specified, default it to end block
-		if crit.FromBlock == nil && begin > end {
-			begin = end
-		}
-	}
-	if lastToHeight > begin {
-		begin = lastToHeight
-	}
-	if !applyOpenEndedLogLimit && f.filterConfig.maxBlock > 0 && end >= (begin+f.filterConfig.maxBlock) {
-		end = begin + f.filterConfig.maxBlock - 1
-	}
-	// begin should always be <= end block at this point
-	if begin > end {
-		return nil, 0, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
-	}
-
-	// Parallelize execution
-	var mu = sync.Mutex{}
-	numWorkers := int(math.Min(MaxNumOfWorkers, float64(end-begin+1)))
-	var wg sync.WaitGroup
-	tasksChan := make(chan int64, end-begin+1)
-	resultsChan := make(chan *ethtypes.Log, end-begin+1)
+	runner := NewParallelRunner(MaxNumOfWorkers, 1000)
+	resultsChan := make(chan *ethtypes.Log, 1000)
 	res = []*ethtypes.Log{}
-	defer func() {
-		if e := recover(); e != nil {
-			err = fmt.Errorf("%s", e)
-		}
-	}()
-	// Send tasks
-	go func() {
-		for height := begin; height <= end; height++ {
-			if height == 0 {
-				continue // Skip genesis height
-			}
-			tasksChan <- height
-		}
-		close(tasksChan) // Close the tasks channel to signal workers
-	}()
-
-	// Worker function
-	var errorsList []error
-	worker := func() {
-		defer wg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				mu.Lock()
-				defer mu.Unlock()
-				err = fmt.Errorf("unexpected panic caught in GetLogsByFilters worker: %v", r)
-			}
-		}()
-		for height := range tasksChan {
-			if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
-				providerCtx := f.ctxProvider(height)
-				blockBloom := f.k.GetBlockBloom(providerCtx)
-				if !MatchFilters(blockBloom, bloomIndexes) {
-					continue
-				}
-			}
-			h := height
-			block, berr := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
-			if berr != nil {
-				mu.Lock()
-				errorsList = append(errorsList, berr)
-				mu.Unlock()
-			} else {
-				matchedLogs := f.GetLogsForBlock(block, crit, bloomIndexes)
-				for _, log := range matchedLogs {
-					resultsChan <- log
-				}
+	for block := range blocks {
+		runner.Queue <- func() {
+			matchedLogs := f.GetLogsForBlock(block, crit, bloomIndexes)
+			for _, log := range matchedLogs {
+				resultsChan <- log
 			}
 		}
 	}
-
-	// Start workers
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go worker()
-	}
-
-	// Collect results
-	go func() {
-		wg.Wait()
-		close(resultsChan) // Close the results channel after workers finish
-	}()
+	close(runner.Queue)
+	runner.Done.Wait()
+	close(resultsChan)
 
 	// Aggregate results into the final slice
 	for result := range resultsChan {
 		res = append(res, result)
-	}
-
-	// Check err after all work is done
-	if len(errorsList) > 0 {
-		err = errors.Join(errorsList...)
 	}
 
 	// Sorting res in ascending order
@@ -453,6 +366,70 @@ func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCrite
 		}
 	}
 	return addrMatch && matchTopics(crit.Topics, log.Topics)
+}
+
+func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]bloomIndexes) (chan *coretypes.ResultBlock, int64, bool, error) {
+	if crit.BlockHash != nil {
+		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:], 1)
+		if err != nil {
+			return nil, 0, false, err
+		}
+		res := make(chan *coretypes.ResultBlock, 1)
+		defer close(res)
+		res <- block
+		return res, 0, false, err
+	}
+	applyOpenEndedLogLimit := f.filterConfig.maxLog > 0 && (crit.FromBlock == nil || crit.ToBlock == nil)
+	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
+	begin, end := latest, latest
+	if crit.FromBlock != nil {
+		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
+	}
+	if crit.ToBlock != nil {
+		end = getHeightFromBigIntBlockNumber(latest, crit.ToBlock)
+		// only if fromBlock is not specified, default it to end block
+		if crit.FromBlock == nil && begin > end {
+			begin = end
+		}
+	}
+	if lastToHeight > begin {
+		begin = lastToHeight
+	}
+	if !applyOpenEndedLogLimit && f.filterConfig.maxBlock > 0 && end >= (begin+f.filterConfig.maxBlock) {
+		end = begin + f.filterConfig.maxBlock - 1
+	}
+	// begin should always be <= end block at this point
+	if begin > end {
+		return nil, 0, false, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
+	}
+	res := make(chan *coretypes.ResultBlock, end-begin+1)
+	defer close(res)
+	runner := NewParallelRunner(MaxNumOfWorkers, int(end-begin+1))
+	defer runner.Done.Wait()
+	defer close(runner.Queue)
+	for height := begin; height <= end; height++ {
+		runner.Queue <- func() {
+			if height == 0 {
+				return
+			}
+			if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
+				providerCtx := f.ctxProvider(height)
+				blockBloom := f.k.GetBlockBloom(providerCtx)
+				fmt.Println(bloomIndexes)
+				fmt.Println(blockBloom)
+				if !MatchFilters(blockBloom, bloomIndexes) {
+					return
+				}
+			}
+			h := height
+			block, err := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
+			if err != nil {
+				panic(err)
+			}
+			res <- block
+		}
+	}
+	return res, end, applyOpenEndedLogLimit, nil
 }
 
 func matchTopics(topics [][]common.Hash, eventTopics []common.Hash) bool {
