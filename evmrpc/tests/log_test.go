@@ -15,7 +15,7 @@ func TestGetLogs(t *testing.T) {
 				"toBlock": "latest",
 				"address": erc20Addr.Hex(),
 			})
-			require.Len(t, res["result"], 1)
+			require.Len(t, res["result"], 2)
 		},
 	)
 }

@@ -32,14 +32,13 @@ func send(nonce uint64) ethtypes.TxData {
 func sendErc20(nonce uint64) ethtypes.TxData {
 	_, recipient := testkeeper.MockAddressPair()
 	parsedABI, _ := abi.JSON(strings.NewReader(string(wsei.GetABI())))
-	parsedABI.Methods["transfer"].Inputs.Pack(recipient, 1)
+	bz, _ := parsedABI.Methods["transfer"].Inputs.Pack(recipient, 1)
 	return &ethtypes.DynamicFeeTx{
 		Nonce:     nonce,
 		GasFeeCap: big.NewInt(1000000000),
-		Gas:       21000,
-		To:        &recipient,
-		Value:     big.NewInt(2000),
-		Data:      []byte{},
+		Gas:       100000,
+		To:        &erc20Addr,
+		Data:      bz,
 		ChainID:   chainId,
 	}
 }
