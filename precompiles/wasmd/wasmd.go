@@ -87,6 +87,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	if method.Name != QueryMethod && !ctx.IsEVM() {
 		return nil, 0, errors.New("sei does not support CW->EVM->CW call pattern")
 	}
+
 	switch method.Name {
 	case InstantiateMethod:
 		return p.instantiate(ctx, method, caller, callingContract, args, value, readOnly)

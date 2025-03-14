@@ -3,8 +3,10 @@ package evm_test
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -15,13 +17,15 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
 	vestingtypes "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/tracing"
+	ethtracing "github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/tracers"
+	"github.com/sei-protocol/sei-chain/x/evm/tracing"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/assert"
@@ -75,19 +79,19 @@ func TestABCI(t *testing.T) {
 	m.BeginBlock(ctx, abci.RequestBeginBlock{})
 	// 1st tx
 	s := state.NewDBImpl(ctx.WithTxIndex(1), k, false)
-	s.SubBalance(evmAddr1, big.NewInt(10000000000000), tracing.BalanceChangeUnspecified)
-	s.AddBalance(evmAddr2, big.NewInt(8000000000000), tracing.BalanceChangeUnspecified)
+	s.SubBalance(evmAddr1, big.NewInt(10000000000000), ethtracing.BalanceChangeUnspecified)
+	s.AddBalance(evmAddr2, big.NewInt(8000000000000), ethtracing.BalanceChangeUnspecified)
 	feeCollectorAddr, err := k.GetFeeCollectorAddress(ctx)
 	require.Nil(t, err)
-	s.AddBalance(feeCollectorAddr, big.NewInt(2000000000000), tracing.BalanceChangeUnspecified)
+	s.AddBalance(feeCollectorAddr, big.NewInt(2000000000000), ethtracing.BalanceChangeUnspecified)
 	surplus, err := s.Finalize()
 	require.Nil(t, err)
 	require.Equal(t, sdk.ZeroInt(), surplus)
 	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(1), ethtypes.Bloom{}, common.Hash{4}, surplus)
 	// 3rd tx
 	s = state.NewDBImpl(ctx.WithTxIndex(3), k, false)
-	s.SubBalance(evmAddr2, big.NewInt(5000000000000), tracing.BalanceChangeUnspecified)
-	s.AddBalance(evmAddr1, big.NewInt(5000000000000), tracing.BalanceChangeUnspecified)
+	s.SubBalance(evmAddr2, big.NewInt(5000000000000), ethtracing.BalanceChangeUnspecified)
+	s.AddBalance(evmAddr1, big.NewInt(5000000000000), ethtracing.BalanceChangeUnspecified)
 	surplus, err = s.Finalize()
 	require.Nil(t, err)
 	require.Equal(t, sdk.ZeroInt(), surplus)
@@ -101,9 +105,12 @@ func TestABCI(t *testing.T) {
 	// second block
 	m.BeginBlock(ctx, abci.RequestBeginBlock{})
 	// 2nd tx
+	var balanceChanges []evmBalanceChange
+	ctx = addTestBalanceChangeTracerToCtx(ctx, &balanceChanges)
+
 	s = state.NewDBImpl(ctx.WithTxIndex(2), k, false)
-	s.SubBalance(evmAddr2, big.NewInt(3000000000000), tracing.BalanceChangeUnspecified)
-	s.AddBalance(evmAddr1, big.NewInt(2000000000000), tracing.BalanceChangeUnspecified)
+	s.SubBalance(evmAddr2, big.NewInt(3000000000000), ethtracing.BalanceChangeUnspecified)
+	s.AddBalance(evmAddr1, big.NewInt(2000000000000), ethtracing.BalanceChangeUnspecified)
 	surplus, err = s.Finalize()
 	require.Nil(t, err)
 	require.Equal(t, sdk.NewInt(1000000000000), surplus)
@@ -113,6 +120,11 @@ func TestABCI(t *testing.T) {
 	m.EndBlock(ctx, abci.RequestEndBlock{})
 	require.Equal(t, uint64(1), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())
 	require.Equal(t, uint64(2), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), "usei").Amount.Uint64())
+
+	require.Equal(t, 1, len(balanceChanges))
+	require.Equal(t, []evmBalanceChange{
+		{"0", "1000000000000", ethtracing.BalanceIncreaseRewardMineBlock},
+	}, balanceChanges, "balance changes do not match, actual are:\n\n%s", balanceChangesValues(balanceChanges))
 
 	// third block
 	m.BeginBlock(ctx, abci.RequestBeginBlock{})
@@ -168,6 +180,31 @@ func TestRoutesAddition(t *testing.T) {
 	require.NotNil(t, appModule)
 }
 
+func addTestBalanceChangeTracerToCtx(ctx sdk.Context, balanceChanges *[]evmBalanceChange) sdk.Context {
+	return tracers.SetCtxBlockchainTracer(ctx, &tracing.Hooks{
+		Hooks: &ethtracing.Hooks{
+			OnBalanceChange: func(addr common.Address, prev, new *big.Int, reason ethtracing.BalanceChangeReason) {
+				*balanceChanges = append(*balanceChanges, evmBalanceChange{prev.String(), new.String(), reason})
+			},
+		},
+	})
+}
+
+type evmBalanceChange struct {
+	// We use string to avoid big.Int equality issues
+	old    string
+	new    string
+	reason ethtracing.BalanceChangeReason
+}
+
+func balanceChangesValues(changes []evmBalanceChange) string {
+	out := make([]string, len(changes))
+	for i, change := range changes {
+		out[i] = fmt.Sprintf("{%q, %q, ethtracing.BalanceChangeReason(%d)}", change.old, change.new, change.reason)
+	}
+
+	return strings.Join(out, "\n")
+}
 func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {
 	k, ctx := testkeeper.MockEVMKeeper()
 	chainID := k.ChainID(ctx)

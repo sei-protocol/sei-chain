@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/tracers"
 	"github.com/tendermint/tendermint/libs/log"
 )
 
@@ -212,9 +213,15 @@ func (p PrecompileExecutor) sendNative(ctx sdk.Context, method *abi.Method, args
 		return nil, 0, err
 	}
 
-	usei, wei, err := pcommon.HandlePaymentUseiWei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderSeiAddr, value, p.bankKeeper)
+	precompiledSeiAddr := p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address)
+
+	usei, wei, err := pcommon.HandlePaymentUseiWei(ctx, precompiledSeiAddr, senderSeiAddr, value, p.bankKeeper)
 	if err != nil {
 		return nil, 0, err
+	}
+
+	if hooks := tracers.GetCtxEthTracingHooks(ctx); hooks != nil && hooks.OnBalanceChange != nil && (value.Sign() != 0) {
+		tracers.TraceTransferEVMValue(ctx, hooks, p.bankKeeper, precompiledSeiAddr, p.address, senderSeiAddr, caller, value)
 	}
 
 	if err := p.bankKeeper.SendCoinsAndWei(ctx, senderSeiAddr, receiverSeiAddr, usei, wei); err != nil {
@@ -224,6 +231,14 @@ func (p PrecompileExecutor) sendNative(ctx sdk.Context, method *abi.Method, args
 	if !accExists {
 		defer telemetry.IncrCounter(1, "new", "account")
 		p.accountKeeper.SetAccount(ctx, p.accountKeeper.NewAccountWithAddress(ctx, receiverSeiAddr))
+	}
+
+	if hooks := tracers.GetCtxEthTracingHooks(ctx); hooks != nil && hooks.OnBalanceChange != nil && (value.Sign() != 0) {
+		// The SendCoinsAndWei function above works with Sei addresses that haven't been associated here. Hence we cannot
+		// use `GetEVMAddress` and enforce to have a mapping. So we use GetEVMAddressOrDefault to get the EVM address.
+		receiverEvmAddr := tracers.GetEVMAddress(ctx, p.evmKeeper, receiverSeiAddr)
+
+		tracers.TraceTransferEVMValue(ctx, hooks, p.bankKeeper, senderSeiAddr, caller, receiverSeiAddr, receiverEvmAddr, value)
 	}
 
 	bz, err := method.Outputs.Pack(true)
