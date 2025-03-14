@@ -993,7 +993,7 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 				caller: userEVMAddr,
 			},
 			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0x1db8b1,
+			wantRemainingGas: 0x1cf31d,
 			wantErr:          false,
 		},
 		{
