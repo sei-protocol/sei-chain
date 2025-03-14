@@ -14,7 +14,7 @@ const DefaultEnableCtModule = true
 const DefaultRangeProofGasCost = uint64(1000000)
 
 // Enable usei and canonical usdc by default
-const DefaultEnabledDenoms = "usei,uatom,uusdc,ibc/CA6FBFAF399474A06263E10D0CE5AEBBE15189D6D4B2DD9ADE61007E68EB9DB0"
+const DefaultEnabledDenoms = "usei,uatom,uusdc,ueth,ibc/CA6FBFAF399474A06263E10D0CE5AEBBE15189D6D4B2DD9ADE61007E68EB9DB0"
 
 // DefaultCiphertextGasCost is the default value for CiphertextGasCost param.
 const DefaultCiphertextGasCost = uint64(10000)
