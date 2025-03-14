@@ -58,6 +58,7 @@ func GetCustomPrecompiles(
 	accountKeeper common.AccountKeeper,
 	ctViewKeeper common.ConfidentialTransfersViewKeeper,
 	ctKeeper common.ConfidentialTransfersKeeper,
+
 ) map[ecommon.Address]vm.PrecompiledContract {
 	bankp, err := bank.NewPrecompile(bankKeeper, bankSender, evmKeeper, accountKeeper)
 	if err != nil {
@@ -103,11 +104,12 @@ func GetCustomPrecompiles(
 	if err != nil {
 		panic(err)
 	}
+
 	ctpr, err := confidentialtransfers.NewPrecompile(ctViewKeeper, ctKeeper, evmKeeper)
 	if err != nil {
 		panic(err)
 	}
-	
+
 	return map[ecommon.Address]vm.PrecompiledContract{
 		bankp.Address():        bankp,
 		wasmdp.Address():       wasmdp,

@@ -734,9 +734,6 @@ func New(
 			app.ConfidentialTransfersKeeper,
 			ctkeeper.NewMsgServerImpl(app.ConfidentialTransfersKeeper),
 		)
-		if err != nil {
-			panic(err)
-		}
 
 		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles)
 	}
