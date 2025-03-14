@@ -38,10 +38,12 @@ var BigBalanceThresholdMinus1 *big.Int = new(big.Int).SetUint64(BalanceThreshold
 var SignerMap = map[derived.SignerVersion]func(*big.Int) ethtypes.Signer{
 	derived.London: ethtypes.NewLondonSigner,
 	derived.Cancun: ethtypes.NewCancunSigner,
+	derived.Prague: ethtypes.NewPragueSigner,
 }
 var AllowedTxTypes = map[derived.SignerVersion][]uint8{
 	derived.London: {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType},
 	derived.Cancun: {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType, ethtypes.BlobTxType},
+	derived.Prague: {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType, ethtypes.BlobTxType, ethtypes.SetCodeTxType},
 }
 
 type EVMPreprocessDecorator struct {
@@ -258,6 +260,8 @@ func GetVersion(ctx sdk.Context, ethCfg *params.ChainConfig) derived.SignerVersi
 	blockNum := big.NewInt(ctx.BlockHeight())
 	ts := uint64(ctx.BlockTime().Unix())
 	switch {
+	case ethCfg.IsPrague(blockNum, ts):
+		return derived.Prague
 	case ethCfg.IsCancun(blockNum, ts):
 		return derived.Cancun
 	default:
