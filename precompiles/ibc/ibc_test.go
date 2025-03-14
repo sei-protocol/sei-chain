@@ -127,6 +127,14 @@ func TestPrecompile_Run(t *testing.T) {
 			wantErrMsg: "cannot delegatecall IBC",
 		},
 		{
+			name:       "failed transfer: value is not nil",
+			fields:     fields{transferKeeper: &MockTransferKeeper{}},
+			args:       args{caller: senderEvmAddress, callingContract: common.Address{}, input: commonArgs.input, suppliedGas: 1000000, value: big.NewInt(100), isFromDelegateCall: true},
+			wantBz:     nil,
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
 			name:   "failed transfer: empty sourcePort",
 			fields: fields{transferKeeper: &MockTransferKeeper{}},
 			args: args{
@@ -202,7 +210,7 @@ func TestPrecompile_Run(t *testing.T) {
 				caller:          senderEvmAddress,
 				callingContract: senderEvmAddress,
 				input: &input{
-					receiverAddr:     "invalid",
+					receiverAddr:     "",
 					sourcePort:       "transfer",
 					sourceChannel:    "channel-0",
 					denom:            "",
@@ -216,7 +224,7 @@ func TestPrecompile_Run(t *testing.T) {
 			},
 			wantBz:     nil,
 			wantErr:    true,
-			wantErrMsg: "decoding bech32 failed: invalid bech32 string length 7",
+			wantErrMsg: "receiverAddress is not a string or empty",
 		},
 		{
 			name:   "memo is added to the transfer if passed",
@@ -358,6 +366,14 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 			wantErrMsg: "cannot delegatecall IBC",
 		},
 		{
+			name:       "failed transfer: value is not nil",
+			fields:     fields{transferKeeper: &MockTransferKeeper{}},
+			args:       args{caller: senderEvmAddress, callingContract: common.Address{}, input: commonArgs.input, suppliedGas: 1000000, value: big.NewInt(100), isFromDelegateCall: true},
+			wantBz:     nil,
+			wantErr:    true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
 			name:   "failed transfer: empty sourcePort",
 			fields: fields{transferKeeper: &MockTransferKeeper{}},
 			args: args{
@@ -424,7 +440,7 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 				caller:          senderEvmAddress,
 				callingContract: senderEvmAddress,
 				input: &input{
-					receiverAddr:  "invalid",
+					receiverAddr:  "",
 					sourcePort:    "transfer",
 					sourceChannel: "channel-0",
 					denom:         "",
@@ -435,7 +451,7 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 			},
 			wantBz:     nil,
 			wantErr:    true,
-			wantErrMsg: "decoding bech32 failed: invalid bech32 string length 7",
+			wantErrMsg: "receiverAddress is not a string or empty",
 		},
 	}
 	for _, tt := range tests {

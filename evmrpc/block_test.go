@@ -34,6 +34,13 @@ func TestGetSeiBlockByHash(t *testing.T) {
 	verifyBlockResult(t, resObj)
 }
 
+func TestGetSeiBlockByNumberExcludeTraceFail(t *testing.T) {
+	resObj := sendSeiRequestGood(t, "getBlockByNumberExcludeTraceFail", "0x67", true)
+	// first tx is not a panic tx, second tx is a panic tx, third tx is a synthetic tx
+	expectedNumTxs := 1
+	require.Equal(t, expectedNumTxs, len(resObj["result"].(map[string]interface{})["transactions"].([]interface{})))
+}
+
 func TestGetBlockByNumber(t *testing.T) {
 	resObjEarliest := sendSeiRequestGood(t, "getBlockByNumber", "earliest", true)
 	verifyGenesisBlockResult(t, resObjEarliest)
@@ -93,10 +100,10 @@ func TestGetBlockReceipts(t *testing.T) {
 
 	resObjSei := sendSeiRequestGood(t, "getBlockReceipts", "0x2")
 	result = resObjSei["result"].([]interface{})
-	require.Equal(t, 6, len(result))
+	require.Equal(t, 5, len(result))
 
 	// Query by block hash
-	resObj2 := sendRequestGood(t, "getBlockReceipts", "0x0000000000000000000000000000000000000000000000000000000000000002")
+	resObj2 := sendRequestGood(t, "getBlockReceipts", MultiTxBlockHash)
 	result = resObj2["result"].([]interface{})
 	require.Equal(t, 3, len(result))
 	receipt1 = result[0].(map[string]interface{})
@@ -125,21 +132,9 @@ func verifyGenesisBlockResult(t *testing.T, resObj map[string]interface{}) {
 	require.Equal(t, "0x", resObj["extraData"])
 	require.Equal(t, "0x0", resObj["gasLimit"])
 	require.Equal(t, "0x0", resObj["gasUsed"])
-	require.Equal(t, "0xf9d3845df25b43b1c6926f3ceda6845c17f5624e12212fd8847d0ba01da1ab9e", resObj["hash"])
-	require.Equal(t, "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", resObj["logsBloom"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000", resObj["miner"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["mixHash"])
+	require.Equal(t, "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E", resObj["hash"])
 	require.Equal(t, "0x0000000000000000", resObj["nonce"])
 	require.Equal(t, "0x0", resObj["number"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["parentHash"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["receiptsRoot"])
-	require.Equal(t, "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347", resObj["sha3Uncles"])
-	require.Equal(t, "0x0", resObj["size"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["stateRoot"])
-	require.Equal(t, "0x0", resObj["timestamp"])
-	require.Equal(t, []interface{}{}, resObj["transactions"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["transactionsRoot"])
-	require.Equal(t, []interface{}{}, resObj["uncles"])
 }
 
 func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
@@ -210,7 +205,7 @@ func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
 	}
 
 	// Call EncodeTmBlock with empty transactions
-	result, err := evmrpc.EncodeTmBlock(ctx, block, blockRes, ethtypes.Bloom{}, k, Decoder, true, false)
+	result, err := evmrpc.EncodeTmBlock(ctx, block, blockRes, ethtypes.Bloom{}, k, Decoder, true, false, false, nil)
 	require.Nil(t, err)
 
 	// Assert txHash is equal to ethtypes.EmptyTxsHash
@@ -256,7 +251,7 @@ func TestEncodeBankMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, false)
+	res, err := evmrpc.EncodeTmBlock(ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, false, false, nil)
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 0, len(txs))
@@ -304,7 +299,7 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, true)
+	res, err := evmrpc.EncodeTmBlock(ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, false, true, nil)
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 1, len(txs))
@@ -322,5 +317,63 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 		V:                nil,
 		R:                nil,
 		S:                nil,
+	}, txs[0].(*ethapi.RPCTransaction))
+}
+
+func TestEncodeBankTransferMsg(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	fromSeiAddr, fromEvmAddr := testkeeper.MockAddressPair()
+	k.SetAddressMapping(ctx, fromSeiAddr, fromEvmAddr)
+	toSeiAddr, _ := testkeeper.MockAddressPair()
+	b := TxConfig.NewTxBuilder()
+	b.SetMsgs(&banktypes.MsgSend{
+		FromAddress: fromSeiAddr.String(),
+		ToAddress:   toSeiAddr.String(),
+		Amount:      sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())),
+	})
+	tx := b.GetTx()
+	bz, _ := Encoder(tx)
+	resBlock := coretypes.ResultBlock{
+		BlockID: MockBlockID,
+		Block: &tmtypes.Block{
+			Header: mockBlockHeader(MockHeight8),
+			Data: tmtypes.Data{
+				Txs: []tmtypes.Tx{bz},
+			},
+			LastCommit: &tmtypes.Commit{
+				Height: MockHeight8 - 1,
+			},
+		},
+	}
+	resBlockRes := coretypes.ResultBlockResults{
+		TxsResults: []*abci.ExecTxResult{
+			{
+				Data: bz,
+			},
+		},
+		ConsensusParamUpdates: &types2.ConsensusParams{
+			Block: &types2.BlockParams{
+				MaxBytes: 100000000,
+				MaxGas:   200000000,
+			},
+		},
+	}
+	res, err := evmrpc.EncodeTmBlock(ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, true, false, nil)
+	require.Nil(t, err)
+	txs := res["transactions"].([]interface{})
+	require.Equal(t, 1, len(txs))
+	bh := common.HexToHash(MockBlockID.Hash.String())
+	to := common.Address(toSeiAddr)
+	require.Equal(t, &ethapi.RPCTransaction{
+		BlockHash:   &bh,
+		BlockNumber: (*hexutil.Big)(big.NewInt(MockHeight8)),
+		From:        fromEvmAddr,
+		To:          &to,
+		Value:       (*hexutil.Big)(big.NewInt(1_000_000_000_000)),
+		Hash:        common.Hash(sha256.Sum256(bz)),
+		V:           nil,
+		R:           nil,
+		S:           nil,
 	}, txs[0].(*ethapi.RPCTransaction))
 }

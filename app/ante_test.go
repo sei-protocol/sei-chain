@@ -58,7 +58,7 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 
 	// keys and addresses
 	suite.testAccPriv, _, suite.testAcc = testdata.KeyTestPubAddr()
-	initalBalance := sdk.Coins{sdk.NewInt64Coin("atom", 100000000000)}
+	initalBalance := sdk.Coins{sdk.NewInt64Coin("usei", 100000000000)}
 	suite.FundAcc(suite.testAcc, initalBalance)
 
 	suite.Ctx = suite.Ctx.WithBlockHeight(1)

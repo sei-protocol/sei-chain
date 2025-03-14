@@ -43,13 +43,7 @@ func NewMsgServerImpl(keeper *Keeper) types.MsgServer {
 
 var _ types.MsgServer = msgServer{}
 
-func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMTransaction) (serverRes *types.MsgEVMTransactionResponse, err error) {
-	if msg.IsAssociateTx() {
-		// no-op in msg server for associate tx; all the work have been done in ante handler
-		return &types.MsgEVMTransactionResponse{}, nil
-	}
-	ctx := sdk.UnwrapSDKContext(goCtx)
-	tx, _ := msg.AsTransaction()
+func (k *Keeper) PrepareCtxForEVMTransaction(ctx sdk.Context, tx *ethtypes.Transaction) (sdk.Context, sdk.GasMeter) {
 	isWasmdPrecompileCall := wasmd.IsWasmdCall(tx.To())
 	if isWasmdPrecompileCall {
 		ctx = ctx.WithEVMEntryViaWasmdPrecompile(true)
@@ -63,6 +57,17 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	// 	4. At the end of message server, gas consumed by EVM is adjusted to Sei's unit and counted in the original gas meter, because that original gas meter will be used to count towards block gas after message server returns
 	originalGasMeter := ctx.GasMeter()
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+	return ctx, originalGasMeter
+}
+
+func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMTransaction) (serverRes *types.MsgEVMTransactionResponse, err error) {
+	if msg.IsAssociateTx() {
+		// no-op in msg server for associate tx; all the work have been done in ante handler
+		return &types.MsgEVMTransactionResponse{}, nil
+	}
+	ctx := sdk.UnwrapSDKContext(goCtx)
+	tx, _ := msg.AsTransaction()
+	ctx, originalGasMeter := server.PrepareCtxForEVMTransaction(ctx, tx)
 
 	stateDB := state.NewDBImpl(ctx, &server, false)
 	emsg := server.GetEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
@@ -105,7 +110,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			)
 			return
 		}
-		if isWasmdPrecompileCall {
+		if ctx.EVMEntryViaWasmdPrecompile() {
 			syntheticReceipt, err := server.GetTransientReceipt(ctx, ctx.TxSum())
 			if err == nil {
 				for _, l := range syntheticReceipt.Logs {
@@ -236,7 +241,7 @@ func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *sta
 	}
 	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(msg)
-	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{})
+	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}, k.customPrecompiles)
 	st := core.NewStateTransition(evmInstance, msg, &gp, true) // fee already charged in ante handler
 	return st.TransitionDb()
 }

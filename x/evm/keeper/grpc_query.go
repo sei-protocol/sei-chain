@@ -19,6 +19,9 @@ import (
 
 var _ types.QueryServer = Querier{}
 
+var ErrMustSpecifyPointer = errors.New("must specify a pointer")
+var ErrMustSpecifyPointee = errors.New("must specify a pointee")
+
 // Querier defines a wrapper around the x/mint keeper providing gRPC method
 // handlers.
 type Querier struct {
@@ -77,10 +80,16 @@ func (q Querier) StaticCall(c context.Context, req *types.QueryStaticCallRequest
 }
 
 func (q Querier) Pointer(c context.Context, req *types.QueryPointerRequest) (*types.QueryPointerResponse, error) {
+	if req.Pointee == "" {
+		return nil, ErrMustSpecifyPointee
+	}
 	ctx := sdk.UnwrapSDKContext(c)
 	switch req.PointerType {
 	case types.PointerType_NATIVE:
 		p, v, e := q.Keeper.GetERC20NativePointer(ctx, req.Pointee)
+		if !e {
+			return &types.QueryPointerResponse{Exists: e}, nil
+		}
 		return &types.QueryPointerResponse{
 			Pointer: p.Hex(),
 			Version: uint32(v),
@@ -88,6 +97,9 @@ func (q Querier) Pointer(c context.Context, req *types.QueryPointerRequest) (*ty
 		}, nil
 	case types.PointerType_CW20:
 		p, v, e := q.Keeper.GetERC20CW20Pointer(ctx, req.Pointee)
+		if !e {
+			return &types.QueryPointerResponse{Exists: e}, nil
+		}
 		return &types.QueryPointerResponse{
 			Pointer: p.Hex(),
 			Version: uint32(v),
@@ -95,6 +107,9 @@ func (q Querier) Pointer(c context.Context, req *types.QueryPointerRequest) (*ty
 		}, nil
 	case types.PointerType_CW721:
 		p, v, e := q.Keeper.GetERC721CW721Pointer(ctx, req.Pointee)
+		if !e {
+			return &types.QueryPointerResponse{Exists: e}, nil
+		}
 		return &types.QueryPointerResponse{
 			Pointer: p.Hex(),
 			Version: uint32(v),
@@ -102,6 +117,9 @@ func (q Querier) Pointer(c context.Context, req *types.QueryPointerRequest) (*ty
 		}, nil
 	case types.PointerType_CW1155:
 		p, v, e := q.Keeper.GetERC1155CW1155Pointer(ctx, req.Pointee)
+		if !e {
+			return &types.QueryPointerResponse{Exists: e}, nil
+		}
 		return &types.QueryPointerResponse{
 			Pointer: p.Hex(),
 			Version: uint32(v),
@@ -109,6 +127,9 @@ func (q Querier) Pointer(c context.Context, req *types.QueryPointerRequest) (*ty
 		}, nil
 	case types.PointerType_ERC20:
 		p, v, e := q.Keeper.GetCW20ERC20Pointer(ctx, common.HexToAddress(req.Pointee))
+		if !e {
+			return &types.QueryPointerResponse{Exists: e}, nil
+		}
 		return &types.QueryPointerResponse{
 			Pointer: p.String(),
 			Version: uint32(v),
@@ -116,6 +137,9 @@ func (q Querier) Pointer(c context.Context, req *types.QueryPointerRequest) (*ty
 		}, nil
 	case types.PointerType_ERC721:
 		p, v, e := q.Keeper.GetCW721ERC721Pointer(ctx, common.HexToAddress(req.Pointee))
+		if !e {
+			return &types.QueryPointerResponse{Exists: e}, nil
+		}
 		return &types.QueryPointerResponse{
 			Pointer: p.String(),
 			Version: uint32(v),
@@ -123,6 +147,9 @@ func (q Querier) Pointer(c context.Context, req *types.QueryPointerRequest) (*ty
 		}, nil
 	case types.PointerType_ERC1155:
 		p, v, e := q.Keeper.GetCW1155ERC1155Pointer(ctx, common.HexToAddress(req.Pointee))
+		if !e {
+			return &types.QueryPointerResponse{Exists: e}, nil
+		}
 		return &types.QueryPointerResponse{
 			Pointer: p.String(),
 			Version: uint32(v),
@@ -173,10 +200,16 @@ func (q Querier) PointerVersion(c context.Context, req *types.QueryPointerVersio
 }
 
 func (q Querier) Pointee(c context.Context, req *types.QueryPointeeRequest) (*types.QueryPointeeResponse, error) {
+	if req.Pointer == "" {
+		return nil, ErrMustSpecifyPointer
+	}
 	ctx := sdk.UnwrapSDKContext(c)
 	switch req.PointerType {
 	case types.PointerType_NATIVE:
 		p, v, e := q.Keeper.GetNativePointee(ctx, req.Pointer)
+		if !e {
+			return &types.QueryPointeeResponse{Exists: e}, nil
+		}
 		return &types.QueryPointeeResponse{
 			Pointee: p,
 			Version: uint32(v),
@@ -184,6 +217,9 @@ func (q Querier) Pointee(c context.Context, req *types.QueryPointeeRequest) (*ty
 		}, nil
 	case types.PointerType_CW20:
 		p, v, e := q.Keeper.GetCW20Pointee(ctx, common.HexToAddress(req.Pointer))
+		if !e {
+			return &types.QueryPointeeResponse{Exists: e}, nil
+		}
 		return &types.QueryPointeeResponse{
 			Pointee: p,
 			Version: uint32(v),
@@ -191,6 +227,9 @@ func (q Querier) Pointee(c context.Context, req *types.QueryPointeeRequest) (*ty
 		}, nil
 	case types.PointerType_CW721:
 		p, v, e := q.Keeper.GetCW721Pointee(ctx, common.HexToAddress(req.Pointer))
+		if !e {
+			return &types.QueryPointeeResponse{Exists: e}, nil
+		}
 		return &types.QueryPointeeResponse{
 			Pointee: p,
 			Version: uint32(v),
@@ -198,6 +237,9 @@ func (q Querier) Pointee(c context.Context, req *types.QueryPointeeRequest) (*ty
 		}, nil
 	case types.PointerType_CW1155:
 		p, v, e := q.Keeper.GetCW1155Pointee(ctx, common.HexToAddress(req.Pointer))
+		if !e {
+			return &types.QueryPointeeResponse{Exists: e}, nil
+		}
 		return &types.QueryPointeeResponse{
 			Pointee: p,
 			Version: uint32(v),
@@ -205,6 +247,9 @@ func (q Querier) Pointee(c context.Context, req *types.QueryPointeeRequest) (*ty
 		}, nil
 	case types.PointerType_ERC20:
 		p, v, e := q.Keeper.GetERC20Pointee(ctx, req.Pointer)
+		if !e {
+			return &types.QueryPointeeResponse{Exists: e}, nil
+		}
 		return &types.QueryPointeeResponse{
 			Pointee: p.Hex(),
 			Version: uint32(v),
@@ -212,6 +257,9 @@ func (q Querier) Pointee(c context.Context, req *types.QueryPointeeRequest) (*ty
 		}, nil
 	case types.PointerType_ERC721:
 		p, v, e := q.Keeper.GetERC721Pointee(ctx, req.Pointer)
+		if !e {
+			return &types.QueryPointeeResponse{Exists: e}, nil
+		}
 		return &types.QueryPointeeResponse{
 			Pointee: p.Hex(),
 			Version: uint32(v),
@@ -219,6 +267,9 @@ func (q Querier) Pointee(c context.Context, req *types.QueryPointeeRequest) (*ty
 		}, nil
 	case types.PointerType_ERC1155:
 		p, v, e := q.Keeper.GetERC1155Pointee(ctx, req.Pointer)
+		if !e {
+			return &types.QueryPointeeResponse{Exists: e}, nil
+		}
 		return &types.QueryPointeeResponse{
 			Pointee: p.Hex(),
 			Version: uint32(v),

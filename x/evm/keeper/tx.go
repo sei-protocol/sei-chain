@@ -1,33 +1,23 @@
 package keeper
 
 import (
+	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-// deprecated
-func (k *Keeper) GetTxHashesOnHeight(ctx sdk.Context, height int64) (res []common.Hash) {
-	store := ctx.KVStore(k.storeKey)
-	bz := store.Get(types.TxHashesKey(height))
-	if bz == nil {
-		return
-	}
-	for i := 0; i <= len(bz)-common.HashLength; i += common.HashLength {
-		res = append(res, common.Hash(bz[i:i+common.HashLength]))
-	}
-	return
-}
+const DefaultTxHashesToRemove = 100
 
-// deprecated
-func (k *Keeper) SetTxHashesOnHeight(ctx sdk.Context, height int64, hashes []common.Hash) {
-	if len(hashes) == 0 {
-		return
+func (k *Keeper) RemoveFirstNTxHashes(ctx sdk.Context, n int) {
+	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), types.TxHashesPrefix)
+	iter := store.Iterator(nil, nil)
+	defer iter.Close()
+	keysToDelete := make([][]byte, 0, n)
+	for ; n > 0 && iter.Valid(); iter.Next() {
+		keysToDelete = append(keysToDelete, iter.Key())
+		n--
 	}
-	store := ctx.KVStore(k.storeKey)
-	bz := []byte{}
-	for _, hash := range hashes {
-		bz = append(bz, hash[:]...)
+	for _, k := range keysToDelete {
+		store.Delete(k)
 	}
-	store.Set(types.TxHashesKey(height), bz)
 }
