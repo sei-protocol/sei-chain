@@ -405,6 +405,23 @@ func (txmp *TxMempool) GetTxsForKeys(txKeys []types.TxKey) types.Txs {
 	return txs
 }
 
+func (txmp *TxMempool) SafeGetTxsForKeys(txKeys []types.TxKey) (types.Txs, []types.TxKey) {
+	txmp.mtx.RLock()
+	defer txmp.mtx.RUnlock()
+
+	txs := make([]types.Tx, 0, len(txKeys))
+	missing := []types.TxKey{}
+	for _, txKey := range txKeys {
+		wtx := txmp.txStore.GetTxByHash(txKey)
+		if wtx == nil {
+			missing = append(missing, txKey)
+			continue
+		}
+		txs = append(txs, wtx.tx)
+	}
+	return txs, missing
+}
+
 // Flush empties the mempool. It acquires a read-lock, fetches all the
 // transactions currently in the transaction store and removes each transaction
 // from the store and all indexes and finally resets the cache.

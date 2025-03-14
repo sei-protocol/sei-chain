@@ -42,6 +42,10 @@ type Mempool interface {
 
 	GetTxsForKeys(txKeys []types.TxKey) types.Txs
 
+	// Similar to GetTxsForKeys except that it would return a list
+	// indicating missing keys.
+	SafeGetTxsForKeys(txKeys []types.TxKey) (types.Txs, []types.TxKey)
+
 	// ReapMaxBytesMaxGas reaps transactions from the mempool up to maxBytes
 	// bytes total with the condition that the total gasWanted must be less than
 	// maxGas and that the total estimated gas used is less than maxGasEstimated.

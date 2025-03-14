@@ -24,6 +24,10 @@ func (m emptyMempool) GetTxsForKeys(txKeys []types.TxKey) types.Txs {
 	return types.Txs{}
 }
 
+func (m emptyMempool) SafeGetTxsForKeys(txKeys []types.TxKey) (types.Txs, []types.TxKey) {
+	return types.Txs{}, []types.TxKey{}
+}
+
 var _ mempool.Mempool = emptyMempool{}
 
 func (emptyMempool) TxStore() *mempool.TxStore { return nil }

@@ -477,6 +477,10 @@ func (blockExec *BlockExecutor) GetMissingTxs(txKeys []types.TxKey) []types.TxKe
 	return missingTxKeys
 }
 
+func (blockExec *BlockExecutor) SafeGetTxsByKeys(txKeys []types.TxKey) (types.Txs, []types.TxKey) {
+	return blockExec.mempool.SafeGetTxsForKeys(txKeys)
+}
+
 func (blockExec *BlockExecutor) CheckTxFromPeerProposal(ctx context.Context, tx types.Tx) {
 	// Ignore errors from CheckTx because there could be benign errors due to the same tx being
 	// inserted into the mempool from gossiping. Since such simultaneous insertion could result in
