@@ -82,6 +82,8 @@ type Keeper struct {
 	ReplayBlock *ethtypes.Block
 
 	receiptStore seidbtypes.StateStore
+
+	customPrecompiles map[common.Address]vm.PrecompiledContract
 }
 
 type AddressNoncePair struct {
@@ -138,6 +140,14 @@ func NewKeeper(
 		receiptStore:                 receiptStateStore,
 	}
 	return k
+}
+
+func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]vm.PrecompiledContract) {
+	k.customPrecompiles = cp
+}
+
+func (k *Keeper) CustomPrecompiles() map[common.Address]vm.PrecompiledContract {
+	return k.customPrecompiles
 }
 
 func (k *Keeper) AccountKeeper() *authkeeper.AccountKeeper {
@@ -218,7 +228,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		BlockNumber: big.NewInt(ctx.BlockHeight()),
 		Time:        uint64(ctx.BlockHeader().Time.Unix()),
 		Difficulty:  utils.Big0, // only needed for PoW
-		BaseFee:     k.GetDynamicBaseFeePerGas(ctx).TruncateInt().BigInt(),
+		BaseFee:     k.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt(),
 		BlobBaseFee: utils.Big1, // Cancun not enabled
 		Random:      &rh,
 	}, nil

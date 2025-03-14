@@ -2,6 +2,7 @@ package oracle
 
 import (
 	"embed"
+	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -79,6 +80,12 @@ func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (bz []byte, remainingGas uint64, err error) {
+	// Needed to catch gas meter panics
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("execution reverted: %v", r)
+		}
+	}()
 	switch method.Name {
 	case GetExchangeRatesMethod:
 		return p.getExchangeRates(ctx, method, args, value)

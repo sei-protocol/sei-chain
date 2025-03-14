@@ -1,5 +1,6 @@
 const { exec } = require("child_process");
 const {ethers} = require("hardhat"); // Importing exec from child_process
+const axios = require("axios");
 
 const adminKeyName = "admin"
 
@@ -22,6 +23,7 @@ const ABI = {
         "event ApprovalForAll(address indexed owner, address indexed operator, bool approved)",
         "function name() view returns (string)",
         "function symbol() view returns (string)",
+        "function owner() view returns (address)",
         "function totalSupply() view returns (uint256)",
         "function tokenURI(uint256 tokenId) view returns (string)",
         "function royaltyInfo(uint256 tokenId, uint256 salePrice) view returns (address, uint256)",
@@ -42,6 +44,7 @@ const ABI = {
         "event URI(string _value, uint256 indexed _id)",
         "function name() view returns (string)",
         "function symbol() view returns (string)",
+        "function owner() view returns (address)",
         "function uri(uint256 _id) view returns (string)",
         "function royaltyInfo(uint256 tokenId, uint256 salePrice) view returns (address, uint256)",
         "function balanceOf(address _owner, uint256 _id) view returns (uint256)",
@@ -196,6 +199,19 @@ async function incrementPointerVersion(provider, pointerType, offset) {
     }
 }
 
+async function rawHttpDebugTraceWithCallTracer(txHash) {
+    const payload = {
+        jsonrpc: "2.0",
+        method: "debug_traceTransaction",
+        params: [txHash, {"tracer": "callTracer"}], // The second parameter is an optional trace config object
+        id: 1,
+    };
+    const response = await axios.post("http://localhost:8545", payload, {
+        headers: { "Content-Type": "application/json" },
+    });
+    return response.data;
+}
+
 async function createTokenFactoryTokenAndMint(name, amount, recipient, from=adminKeyName) {
     const command = `seid tx tokenfactory create-denom ${name} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
     const output = await execute(command);
@@ -207,6 +223,28 @@ async function createTokenFactoryTokenAndMint(name, amount, recipient, from=admi
     const send_command = `seid tx bank send ${from} ${recipient} ${amount}${token_denom} --from ${from} --gas=5000000 --fees=1000000usei -y --broadcast-mode block -o json`
     await execute(send_command);
     return token_denom
+}
+
+async function getChainId() {
+    const nodeUrl = 'http://localhost:8545';
+    const response = await axios.post(nodeUrl, {
+        method: 'eth_chainId',
+        params: [],
+        id: 1,
+        jsonrpc: "2.0"
+    })
+    return response.data.result;
+}
+
+async function getGasPrice() {
+    const nodeUrl = 'http://localhost:8545';
+    const response = await axios.post(nodeUrl, {
+        method: 'eth_gasPrice',
+        params: [],
+        id: 1,
+        jsonrpc: "2.0"
+    })
+    return response.data.result;
 }
 
 async function getPointerForNative(name) {
@@ -524,10 +562,13 @@ module.exports = {
     deployWasm,
     instantiateWasm,
     createTokenFactoryTokenAndMint,
+    getChainId,
+    getGasPrice,
     execute,
     getSeiAddress,
     getEvmAddress,
     queryWasm,
+    rawHttpDebugTraceWithCallTracer,
     executeWasm,
     getAdmin,
     setupSigners,

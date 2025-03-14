@@ -40,6 +40,90 @@ type IPrecompile interface {
 	Address() ecommon.Address
 }
 
+func GetCustomPrecompiles(
+	evmKeeper common.EVMKeeper,
+	bankKeeper common.BankKeeper,
+	bankSender common.BankMsgServer,
+	wasmdKeeper common.WasmdKeeper,
+	wasmdViewKeeper common.WasmdViewKeeper,
+	stakingKeeper common.StakingKeeper,
+	stakingQuerier common.StakingQuerier,
+	govKeeper common.GovKeeper,
+	distrKeeper common.DistributionKeeper,
+	oracleKeeper common.OracleKeeper,
+	transferKeeper common.TransferKeeper,
+	clientKeeper common.ClientKeeper,
+	connectionKeeper common.ConnectionKeeper,
+	channelKeeper common.ChannelKeeper,
+	accountKeeper common.AccountKeeper,
+	ctViewKeeper common.ConfidentialTransfersViewKeeper,
+	ctKeeper common.ConfidentialTransfersKeeper,
+) map[ecommon.Address]vm.PrecompiledContract {
+	bankp, err := bank.NewPrecompile(bankKeeper, bankSender, evmKeeper, accountKeeper)
+	if err != nil {
+		panic(err)
+	}
+	wasmdp, err := wasmd.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)
+	if err != nil {
+		panic(err)
+	}
+	jsonp, err := json.NewPrecompile()
+	if err != nil {
+		panic(err)
+	}
+	addrp, err := addr.NewPrecompile(evmKeeper, bankKeeper, accountKeeper)
+	if err != nil {
+		panic(err)
+	}
+	stakingp, err := staking.NewPrecompile(stakingKeeper, stakingQuerier, evmKeeper, bankKeeper)
+	if err != nil {
+		panic(err)
+	}
+	govp, err := gov.NewPrecompile(govKeeper, evmKeeper, bankKeeper)
+	if err != nil {
+		panic(err)
+	}
+	distrp, err := distribution.NewPrecompile(distrKeeper, evmKeeper)
+	if err != nil {
+		panic(err)
+	}
+	oraclep, err := oracle.NewPrecompile(oracleKeeper, evmKeeper)
+	if err != nil {
+		panic(err)
+	}
+	ibcp, err := ibc.NewPrecompile(transferKeeper, evmKeeper, clientKeeper, connectionKeeper, channelKeeper)
+	if err != nil {
+		panic(err)
+	}
+	pointerp, err := pointer.NewPrecompile(evmKeeper, bankKeeper, wasmdViewKeeper)
+	if err != nil {
+		panic(err)
+	}
+	pointerviewp, err := pointerview.NewPrecompile(evmKeeper)
+	if err != nil {
+		panic(err)
+	}
+	ctpr, err := confidentialtransfers.NewPrecompile(ctViewKeeper, ctKeeper, evmKeeper)
+	if err != nil {
+		panic(err)
+	}
+	
+	return map[ecommon.Address]vm.PrecompiledContract{
+		bankp.Address():        bankp,
+		wasmdp.Address():       wasmdp,
+		jsonp.Address():        jsonp,
+		addrp.Address():        addrp,
+		stakingp.Address():     stakingp,
+		govp.Address():         govp,
+		distrp.Address():       distrp,
+		oraclep.Address():      oraclep,
+		ibcp.Address():         ibcp,
+		pointerp.Address():     pointerp,
+		pointerviewp.Address(): pointerviewp,
+		ctpr.Address():         ctpr,
+	}
+}
+
 func InitializePrecompiles(
 	dryRun bool,
 	evmKeeper common.EVMKeeper,

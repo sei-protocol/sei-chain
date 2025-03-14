@@ -60,7 +60,7 @@ func TestModuleExportGenesis(t *testing.T) {
 func TestConsensusVersion(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper()
 	module := evm.NewAppModule(nil, k)
-	assert.Equal(t, uint64(15), module.ConsensusVersion())
+	assert.Equal(t, uint64(18), module.ConsensusVersion())
 }
 
 func TestABCI(t *testing.T) {
@@ -128,7 +128,7 @@ func TestABCI(t *testing.T) {
 	require.Equal(t, receipt.BlockNumber, uint64(ctx.BlockHeight()))
 	require.Equal(t, receipt.VmError, "test error")
 
-	// fourth block with locked tokens in coinbase address
+	// disallow creating vesting account for coinbase address
 	m.BeginBlock(ctx, abci.RequestBeginBlock{})
 	coinbase := state.GetCoinbaseAddress(2)
 	vms := vesting.NewMsgServerImpl(*k.AccountKeeper(), k.BankKeeper())
@@ -138,20 +138,7 @@ func TestABCI(t *testing.T) {
 		Amount:      sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())),
 		EndTime:     math.MaxInt64,
 	})
-	require.Nil(t, err)
-	s = state.NewDBImpl(ctx.WithTxIndex(2), k, false)
-	s.SubBalance(evmAddr1, big.NewInt(2000000000000), tracing.BalanceChangeUnspecified)
-	s.AddBalance(evmAddr2, big.NewInt(1000000000000), tracing.BalanceChangeUnspecified)
-	s.AddBalance(feeCollectorAddr, big.NewInt(1000000000000), tracing.BalanceChangeUnspecified)
-	surplus, err = s.Finalize()
-	require.Nil(t, err)
-	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(2), ethtypes.Bloom{}, common.Hash{}, surplus)
-	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}})
-	k.SetMsgs([]*types.MsgEVMTransaction{nil, nil, {}})
-	require.Equal(t, sdk.OneInt(), k.BankKeeper().SpendableCoins(ctx, coinbase).AmountOf("usei"))
-	m.EndBlock(ctx, abci.RequestEndBlock{}) // should not crash
-	require.Equal(t, sdk.OneInt(), k.BankKeeper().GetBalance(ctx, coinbase, "usei").Amount)
-	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().SpendableCoins(ctx, coinbase).AmountOf("usei"))
+	require.NotNil(t, err)
 }
 
 func TestAnteSurplus(t *testing.T) {
