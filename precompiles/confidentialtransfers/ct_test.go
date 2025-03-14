@@ -760,7 +760,7 @@ func TestPrecompileInitializeAccount_Execute(t *testing.T) {
 		{
 			name:             "precompile should return true if input is valid",
 			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0x1cf332,
+			wantRemainingGas: 0x1cf31d,
 			wantErr:          false,
 		},
 		{
@@ -993,7 +993,7 @@ func TestPrecompileDeposit_Execute(t *testing.T) {
 				caller: userEVMAddr,
 			},
 			wantRet:          expectedTrueResponse,
-			wantRemainingGas: 0x1cf31d,
+			wantRemainingGas: 0x1db8b1,
 			wantErr:          false,
 		},
 		{
