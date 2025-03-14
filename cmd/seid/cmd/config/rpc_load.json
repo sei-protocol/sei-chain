@@ -1,0 +1,15 @@
+{
+    "endpoint": "http://127.0.0.1:8545",
+    "duration": 60000000000,
+    "load_list": [
+        {
+            "concurrency": 5,
+            "method": "eth_getBalance",
+            "params": [
+                "0x0000000000000000000000000000000000001001",
+                "latest"
+            ],
+            "expected_result": "\"0x0\""
+        }
+    ]
+}
