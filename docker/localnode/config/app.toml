@@ -10,16 +10,18 @@
 # specified in this config (e.g. 0.25token1;0.0001token2).
 minimum-gas-prices = "0.01usei"
 
-# default: the last 100 states are kept in addition to every 500th state; pruning at 10 block intervals
-# nothing: all historic states will be saved, nothing will be deleted (i.e. archiving node)
-# everything: all saved states will be deleted, storing only the current and previous state; pruning at 10 block intervals
-# custom: allow pruning options to be manually specified through 'pruning-keep-recent', 'pruning-keep-every', and 'pruning-interval'
-pruning = "custom"
+# Pruning Strategies:
+# - default: Keep the recent 362880 blocks and prune is triggered every 10 blocks
+# - nothing: all historic states will be saved, nothing will be deleted (i.e. archiving node)
+# - everything: all saved states will be deleted, storing only the recent 2 blocks; pruning at every block
+# - custom: allow pruning options to be manually specified through 'pruning-keep-recent' and 'pruning-interval'
+# Pruning strategy is completely ignored when seidb is enabled
+pruning = "default"
 
-# These are applied if and only if the pruning strategy is custom.
-pruning-keep-recent = "10000"
+# These are applied if and only if the pruning strategy is custom, and seidb is not enabled
+pruning-keep-recent = "0"
 pruning-keep-every = "0"
-pruning-interval = "1000"
+pruning-interval = "3943"
 
 # HaltHeight contains a non-zero block height at which a node will gracefully
 # halt and shutdown that can be used to assist upgrades and testing.
@@ -48,7 +50,7 @@ halt-time = 0
 # with the unbonding (safety threshold) period, state pruning and state sync
 # snapshot parameters to determine the correct minimum value of
 # ResponseCommit.RetainHeight.
-min-retain-blocks = 4000
+min-retain-blocks = 0
 
 # InterBlockCache enables inter-block caching.
 inter-block-cache = true
@@ -63,6 +65,37 @@ index-events = []
 # IavlCacheSize set the size of the iavl tree cache.
 # Default cache size is 50mb.
 iavl-cache-size = 781250
+
+# IAVLDisableFastNode enables or disables the fast node feature of IAVL.
+# Default is true.
+iavl-disable-fastnode = true
+
+# CompactionInterval sets (in seconds) the interval between forced levelDB
+# compaction. A value of 0 means no forced levelDB.
+# Default is 0.
+compaction-interval = 0
+
+# deprecated
+no-versioning = false
+
+# Whether to store orphan data (to-be-deleted data pointers) outside the main
+# application LevelDB
+separate-orphan-storage = false
+
+# if separate-orphan-storage is true, how many versions of orphan data to keep
+separate-orphan-versions-to-keep = 0
+
+# if separate-orphan-storage is true, how many orphans to store in each file
+num-orphan-per-file = 0
+
+# if separate-orphan-storage is true, where to store orphan data
+orphan-dir = ""
+
+# concurrency-workers defines how many workers to run for concurrent transaction execution
+# concurrency-workers = 20
+
+# occ-enabled defines whether OCC is enabled or not for transaction execution
+occ-enabled = false
 
 ###############################################################################
 ###                         Telemetry Configuration                         ###
@@ -88,7 +121,7 @@ enable-hostname-label = false
 enable-service-label = false
 
 # PrometheusRetentionTime, when positive, enables a Prometheus metrics sink.
-prometheus-retention-time = 5
+prometheus-retention-time = 0
 
 # GlobalLabels defines a global set of name/value label tuples applied to all
 # metrics emitted using the wrapper functions defined in telemetry package.
@@ -108,7 +141,7 @@ global-labels = [
 enable = true
 
 # Swagger defines if swagger documentation should automatically be registered.
-swagger = false
+swagger = true
 
 # Address defines the API server to listen on.
 address = "tcp://0.0.0.0:1317"
@@ -126,7 +159,7 @@ rpc-write-timeout = 0
 rpc-max-body-bytes = 1000000
 
 # EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk).
-enabled-unsafe-cors = true
+enabled-unsafe-cors = false
 
 ###############################################################################
 ###                           Rosetta Configuration                         ###
@@ -178,7 +211,7 @@ enable = true
 address = "0.0.0.0:9091"
 
 # EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk).
-enable-unsafe-cors = true
+enable-unsafe-cors = false
 
 ###############################################################################
 ###                        State Sync Configuration                         ###
@@ -190,28 +223,40 @@ enable-unsafe-cors = true
 
 # snapshot-interval specifies the block interval at which local state sync snapshots are
 # taken (0 to disable). Must be a multiple of pruning-keep-every.
-snapshot-interval = 100
+snapshot-interval = 0
 
 # snapshot-keep-recent specifies the number of recent snapshots to keep and serve (0 to keep all).
-snapshot-keep-recent = 3
+snapshot-keep-recent = 2
 
-# snapshot-directory specifies and overrides the directory for where to store the snapshots
+# snapshot-directory sets the directory for where state sync snapshots are persisted.
+# default is emtpy which will then store under the app home directory same as before.
 snapshot-directory = ""
 
-[wasm]
-# This is the maximum sdk gas (wasm and storage) that we allow for any x/wasm "smart" queries
-query_gas_limit = 300000
-# This is the number of wasm vm instances we keep cached in memory for speed-up
-# Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
-lru_size = 0
+###############################################################################
+###                         Genesis Configuration                           ###
+###############################################################################
+
+
+# Genesis config allows configuring whether to stream from an genesis json file in streamed form
+[genesis]
+
+# stream-import specifies whether to the stream the import from the genesis json file. The genesis
+# file must be in stream form and exported in a streaming fashion.
+stream-import = false
+
+# genesis-stream-file specifies the path of the genesis json file to stream from.
+genesis-stream-file = ""
 
 #############################################################################
 ###                             SeiDB Configuration                       ###
 #############################################################################
 
 [state-commit]
-# Enable defines if the state-commit (memiavl) should be enabled to override existing IAVL db backend.
+# Enable defines if the SeiDB should be enabled to override existing IAVL db backend.
 sc-enable = true
+
+# Defines the SC store directory, if not explicitly set, default to application home directory
+sc-directory = ""
 
 # ZeroCopy defines if memiavl should return slices pointing to mmap-ed buffers directly (zero-copy),
 # the zero-copied slices must not be retained beyond current block's execution.
@@ -219,52 +264,143 @@ sc-enable = true
 sc-zero-copy = false
 
 # AsyncCommitBuffer defines the size of asynchronous commit queue, this greatly improve block catching-up
-# performance, <=0 means synchronous commit.
+# performance, setting to 0 means synchronous commit.
 sc-async-commit-buffer = 100
 
-# SnapshotKeepRecent defines how many state-commit snapshots (besides the latest one) to keep
+# KeepRecent defines how many state-commit snapshots (besides the latest one) to keep
 # defaults to 1 to make sure ibc relayers work.
 sc-keep-recent = 1
 
 # SnapshotInterval defines the block interval the snapshot is taken, default to 10000 blocks.
-sc-snapshot-interval = 1000
+sc-snapshot-interval = 10000
 
 # SnapshotWriterLimit defines the max concurrency for taking commit store snapshot
-sc-snapshot-writer-limit = 2
-
-# CacheSize defines the size of the LRU cache for each store on top of the tree, default to 100000.
-sc-cache-size = 1000
+sc-snapshot-writer-limit = 0
 
 [state-store]
-
-# Enable defines if the state-store should be enabled for historical queries.
-# In order to use state-store, you need to make sure to enable state-commit at the same time
+# Enable defines whether the state-store should be enabled for storing historical data.
+# Supporting historical queries or exporting state snapshot requires setting this to true
+# This config only take effect when SeiDB is enabled (sc-enable = true)
 ss-enable = true
 
+# Defines the directory to store the state store db files
+# If not explicitly set, default to application home directory
+ss-db-directory = ""
+
 # DBBackend defines the backend database used for state-store.
-# Supported backends: pebbledb, rocksdb, sqlite
+# Supported backends: pebbledb, rocksdb
 # defaults to pebbledb (recommended)
 ss-backend = "pebbledb"
 
 # AsyncWriteBuffer defines the async queue length for commits to be applied to State Store
 # Set <= 0 for synchronous writes, which means commits also need to wait for data to be persisted in State Store.
-# defaults to 100
+# defaults to 100 for asynchronous writes
 ss-async-write-buffer = 100
 
 # KeepRecent defines the number of versions to keep in state store
-# Setting it to 0 means keep everything, default to 0
-ss-keep-recent = 10000
+# Setting it to 0 means keep everything
+# Default to keep the last 100,000 blocks
+ss-keep-recent = 25000
 
-# PruneIntervalSeconds defines the minimum interval in seconds + some random delay to trigger pruning.
-# It is more efficient to trigger pruning less frequently with large interval.
+# PruneInterval defines the minimum interval in seconds + some random delay to trigger SS pruning.
+# It is recommended to trigger pruning less frequently with a large interval.
 # default to 600 seconds
-ss-prune-interval = 60
+ss-prune-interval = 1800
 
 # ImportNumWorkers defines the concurrency for state sync import
 # defaults to 1
 ss-import-num-workers = 1
 
-[evm]
 
-# EnableTestAPI enables the EVM test API
-enable_test_api = true
+[wasm]
+# This is the maximum sdk gas (wasm and storage) that we allow for any x/wasm "smart" queries
+query_gas_limit = 300000000
+# This is the number of wasm vm instances we keep cached in memory for speed-up
+# Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
+lru_size = 0
+
+[evm]
+# controls whether an HTTP EVM server is enabled
+http_enabled = true
+http_port = 8545
+
+# controls whether a websocket server is enabled
+ws_enabled = true
+ws_port = 8546
+
+# ReadTimeout is the maximum duration for reading the entire
+# request, including the body.
+# Because ReadTimeout does not let Handlers make per-request
+# decisions on each request body's acceptable deadline or
+# upload rate, most users will prefer to use
+# ReadHeaderTimeout. It is valid to use them both.
+read_timeout = "30s"
+
+# ReadHeaderTimeout is the amount of time allowed to read
+# request headers. The connection's read deadline is reset
+# after reading the headers and the Handler can decide what
+# is considered too slow for the body. If ReadHeaderTimeout
+# is zero, the value of ReadTimeout is used. If both are
+# zero, there is no timeout.
+read_header_timeout = "30s"
+
+# WriteTimeout is the maximum duration before timing out
+# writes of the response. It is reset whenever a new
+# request's header is read. Like ReadTimeout, it does not
+# let Handlers make decisions on a per-request basis.
+write_timeout = "30s"
+
+# IdleTimeout is the maximum amount of time to wait for the
+# next request when keep-alives are enabled. If IdleTimeout
+# is zero, the value of ReadTimeout is used. If both are
+# zero, ReadHeaderTimeout is used.
+idle_timeout = "2m0s"
+
+# Maximum gas limit for simulation
+simulation_gas_limit = 10000000
+
+# Timeout for EVM call in simulation
+simulation_evm_timeout = "1m0s"
+
+# list of CORS allowed origins, separated by comma
+cors_origins = ""
+
+# list of WS origins, separated by comma
+ws_origins = ""
+
+# timeout for filters
+filter_timeout = "2m0s"
+
+# checkTx timeout for sig verify
+checktx_timeout = "5s"
+
+# controls whether to have txns go through one by one
+slow = false
+
+# Deny list defines list of methods that EVM RPC should fail fast
+deny_list = []
+
+# max number of logs returned if block range is open-ended
+max_log_no_block = 100000
+
+# max number of blocks to query logs for
+max_blocks_for_log = 20000
+
+# max number of concurrent NewHead subscriptions
+max_subscriptions_new_head = 10000
+
+[eth_replay]
+eth_replay_enabled = false
+eth_rpc = "http://44.234.105.54:18545"
+eth_data_dir = "/root/.ethereum/chaindata"
+eth_replay_contract_state_checks = false
+
+[eth_blocktest]
+eth_blocktest_enabled = false
+eth_blocktest_test_data_path = "~/testdata/"
+
+[evm_query]
+evm_query_gas_limit = 300000000
+
+[light_invariance]
+supply_enabled = true
