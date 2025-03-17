@@ -284,7 +284,7 @@ max-connections = 64
 # Rate limits the number of incoming connection attempts per IP address.
 max-incoming-connection-attempts = 100
 
-# List of node IDs, to which a connection will be (re)established ignoring any existing limits
+# List of node IDs, to which a connection will be (re)established, dropping an existing peer if any existing limit has been reached
 # TODO: Remove once p2p refactor is complete.
 # ref: https://github.com/tendermint/tendermint/issues/5670
 unconditional-peer-ids = ""

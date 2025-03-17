@@ -230,7 +230,7 @@ max_num_inbound_peers = 40
 # Maximum number of outbound peers to connect to, excluding persistent peers
 max_num_outbound_peers = 10
 
-# List of node IDs, to which a connection will be (re)established ignoring any existing limits
+# List of node IDs, to which a connection will be (re)established, dropping an existing peer if any existing limit has been reached
 unconditional_peer_ids = ""
 
 # Maximum pause when redialing a persistent peer (if zero, exponential backoff is used)
