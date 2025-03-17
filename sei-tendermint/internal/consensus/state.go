@@ -2508,7 +2508,7 @@ func (cs *State) buildProposalBlock(height int64, header types.Header, lastCommi
 		cs.logger.Debug("Missing txs when trying to build block", "missing_txs", cs.blockExec.GetMissingTxs(txKeys))
 		return nil
 	}
-	block := cs.state.MakeBlock(height, cs.blockExec.GetTxsForKeys(txKeys), lastCommit, evidence, proposerAddress)
+	block := cs.state.MakeBlock(height, txs, lastCommit, evidence, proposerAddress)
 	block.Version = header.Version
 	block.Data.Txs = txs
 	block.DataHash = block.Data.Hash(true)
