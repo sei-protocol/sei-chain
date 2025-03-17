@@ -321,38 +321,44 @@ func TestInvalidProposalWithExcessiveGasEstimates(t *testing.T) {
 		gasWanted   uint64
 	}
 	tests := []struct {
-		name           string
-		maxBlockGas    int64
-		txs            []TxType
-		expectedStatus abci.ResponseProcessProposal_ProposalStatus
+		name              string
+		maxBlockGas       int64
+		maxBlockGasWanted int64
+		txs               []TxType
+		expectedStatus    abci.ResponseProcessProposal_ProposalStatus
 	}{
 		{
-			name:           "reject when total cosmos tx gas estimates exceed block gas limit",
-			maxBlockGas:    20000,
-			txs:            []TxType{{isEVM: false, gasEstimate: 0, gasWanted: 30000}},
-			expectedStatus: abci.ResponseProcessProposal_REJECT,
+			name:              "reject when total cosmos tx gas estimates exceed block gas limit",
+			maxBlockGas:       20000,
+			maxBlockGasWanted: math.MaxInt64,
+			txs:               []TxType{{isEVM: false, gasEstimate: 0, gasWanted: 30000}},
+			expectedStatus:    abci.ResponseProcessProposal_REJECT,
 		},
 		{
-			name:           "reject when total evm tx gas estimates exceed block gas limit",
-			maxBlockGas:    20000,
-			txs:            []TxType{{isEVM: true, gasEstimate: 30000, gasWanted: 30000}},
-			expectedStatus: abci.ResponseProcessProposal_REJECT,
+			name:              "reject when total evm tx gas estimates exceed block gas limit",
+			maxBlockGas:       20000,
+			maxBlockGasWanted: math.MaxInt64,
+			txs:               []TxType{{isEVM: true, gasEstimate: 30000, gasWanted: 30000}},
+			expectedStatus:    abci.ResponseProcessProposal_REJECT,
 		},
 		{
-			name:           "accept when total cosmos tx gas limit is below block gas limit",
-			maxBlockGas:    20000,
-			txs:            []TxType{{isEVM: false, gasEstimate: 0, gasWanted: 10000}},
-			expectedStatus: abci.ResponseProcessProposal_ACCEPT,
+			name:              "accept when total cosmos tx gas limit is below block gas limit",
+			maxBlockGas:       20000,
+			maxBlockGasWanted: math.MaxInt64,
+			txs:               []TxType{{isEVM: false, gasEstimate: 0, gasWanted: 10000}},
+			expectedStatus:    abci.ResponseProcessProposal_ACCEPT,
 		},
 		{
-			name:           "single tx: accept when total evm tx gas estimate is below block gas limit but gas wanted above block gas limit",
-			maxBlockGas:    35000,
-			txs:            []TxType{{isEVM: true, gasEstimate: 30000, gasWanted: 100000}},
-			expectedStatus: abci.ResponseProcessProposal_ACCEPT,
+			name:              "single tx: accept when total evm tx gas estimate is below block gas limit but gas wanted above block gas limit",
+			maxBlockGas:       35000,
+			maxBlockGasWanted: math.MaxInt64,
+			txs:               []TxType{{isEVM: true, gasEstimate: 30000, gasWanted: 100000}},
+			expectedStatus:    abci.ResponseProcessProposal_ACCEPT,
 		},
 		{
-			name:        "multiple txs: accept when total evm tx gas estimate is below block gas limit but gas wanted is above block gas limit",
-			maxBlockGas: 60000,
+			name:              "multiple txs: accept when total evm tx gas estimate is below block gas limit but gas wanted is above block gas limit",
+			maxBlockGas:       60000,
+			maxBlockGasWanted: math.MaxInt64,
 			txs: []TxType{
 				{isEVM: true, gasEstimate: 30000, gasWanted: 100000},
 				{isEVM: true, gasEstimate: 30000, gasWanted: 100000},
@@ -360,8 +366,9 @@ func TestInvalidProposalWithExcessiveGasEstimates(t *testing.T) {
 			expectedStatus: abci.ResponseProcessProposal_ACCEPT,
 		},
 		{
-			name:        "accept when mix of cosmos txs and evm txs",
-			maxBlockGas: 100000,
+			name:              "multiple txs: accept when mix of cosmos txs and evm txs",
+			maxBlockGas:       100000,
+			maxBlockGasWanted: math.MaxInt64,
 			txs: []TxType{
 				{isEVM: false, gasEstimate: 0, gasWanted: 50000},
 				{isEVM: true, gasEstimate: 50000, gasWanted: 100000},
@@ -369,11 +376,32 @@ func TestInvalidProposalWithExcessiveGasEstimates(t *testing.T) {
 			expectedStatus: abci.ResponseProcessProposal_ACCEPT,
 		},
 		{
-			name:        "reject when mix of cosmos txs and evm txs",
-			maxBlockGas: 100000,
+			name:              "multiple txs: reject when mix of cosmos txs and evm txs",
+			maxBlockGas:       100000,
+			maxBlockGasWanted: math.MaxInt64,
 			txs: []TxType{
 				{isEVM: false, gasEstimate: 0, gasWanted: 51000},
 				{isEVM: true, gasEstimate: 50000, gasWanted: 100000},
+			},
+			expectedStatus: abci.ResponseProcessProposal_REJECT,
+		},
+		{
+			name:              "single tx: reject when gas wanted is above maxBlockGasWanted",
+			maxBlockGas:       math.MaxInt64,
+			maxBlockGasWanted: 10,
+			txs: []TxType{
+				{isEVM: false, gasEstimate: 0, gasWanted: 11}, // exceed max block gas wanted
+			},
+			expectedStatus: abci.ResponseProcessProposal_REJECT,
+		},
+		{
+			name:              "multiple txs: reject when gas wanted is above maxBlockGasWanted",
+			maxBlockGas:       math.MaxInt64,
+			maxBlockGasWanted: 10,
+			txs: []TxType{
+				// gasWanted combined should exceed maxBlockGasWanted
+				{isEVM: false, gasEstimate: 0, gasWanted: 9},
+				{isEVM: true, gasEstimate: 0, gasWanted: 9},
 			},
 			expectedStatus: abci.ResponseProcessProposal_REJECT,
 		},
@@ -387,7 +415,10 @@ func TestInvalidProposalWithExcessiveGasEstimates(t *testing.T) {
 			testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 			ap := testWrapper.App
 			ctx := testWrapper.Ctx.WithConsensusParams(&types.ConsensusParams{
-				Block: &types.BlockParams{MaxGas: tc.maxBlockGas},
+				Block: &types.BlockParams{
+					MaxGas:       tc.maxBlockGas,
+					MaxGasWanted: tc.maxBlockGasWanted,
+				},
 			})
 
 			var txs [][]byte
@@ -399,14 +430,17 @@ func TestInvalidProposalWithExcessiveGasEstimates(t *testing.T) {
 					txData := ethtypes.LegacyTx{
 						Nonce:    1,
 						GasPrice: big.NewInt(10),
-						Gas:      tx.gasEstimate,
+						Gas:      tx.gasWanted,
 					}
 					chainCfg := evmtypes.DefaultChainConfig()
 					ethCfg := chainCfg.EthereumConfig(big.NewInt(config.DefaultChainID))
 					signer := ethtypes.MakeSigner(ethCfg, big.NewInt(1), uint64(123))
-					signedTx, _ := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
-					ethtxdata, _ := ethtx.NewTxDataFromTx(signedTx)
-					msg, _ := evmtypes.NewMsgEVMTransaction(ethtxdata)
+					signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+					require.Nil(t, err)
+					ethtxdata, err := ethtx.NewTxDataFromTx(signedTx)
+					require.Nil(t, err)
+					msg, err := evmtypes.NewMsgEVMTransaction(ethtxdata)
+					require.Nil(t, err)
 					txBuilder := ap.GetTxConfig().NewTxBuilder()
 					txBuilder.SetMsgs(msg)
 					txBuilder.SetGasEstimate(tx.gasEstimate)
