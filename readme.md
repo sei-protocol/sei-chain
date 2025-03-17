@@ -135,4 +135,4 @@ seid tx staking create-validator \
 # Build with Us!
 If you are interested in building with Sei Network: 
 Email us at team@seinetwork.io 
-DM us on Twitter https://twitter.com/SeiNetwork
+DM us on X https://x.com/SeiNetwork
