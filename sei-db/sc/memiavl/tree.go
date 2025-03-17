@@ -17,7 +17,7 @@ import (
 var _ types.Tree = (*Tree)(nil)
 var emptyHash = sha256.New().Sum(nil)
 
-// verify change sets by replay them to rebuild iavl tree and verify the root hashes
+// Tree verify change sets by replay them to rebuild iavl tree and verify the root hashes
 type Tree struct {
 	version uint32
 	// root node of empty tree is represented as `nil`
@@ -31,6 +31,9 @@ type Tree struct {
 
 	// sync.RWMutex is used to protect the tree for thread safety during snapshot reload
 	mtx *sync.RWMutex
+
+	pendingChanges chan iavl.ChangeSet
+	pendingWg      *sync.WaitGroup
 }
 
 // NewEmptyTree creates an empty tree at an arbitrary version.
@@ -43,8 +46,9 @@ func NewEmptyTree(version uint64, initialVersion uint32) *Tree {
 		version:        uint32(version),
 		initialVersion: initialVersion,
 		// no need to copy if the tree is not backed by snapshot
-		zeroCopy: true,
-		mtx:      &sync.RWMutex{},
+		zeroCopy:  true,
+		mtx:       &sync.RWMutex{},
+		pendingWg: &sync.WaitGroup{},
 	}
 }
 
@@ -62,10 +66,11 @@ func NewWithInitialVersion(initialVersion uint32) *Tree {
 // NewFromSnapshot mmap the blob files and create the root node.
 func NewFromSnapshot(snapshot *Snapshot, zeroCopy bool, _ int) *Tree {
 	tree := &Tree{
-		version:  snapshot.Version(),
-		snapshot: snapshot,
-		zeroCopy: zeroCopy,
-		mtx:      &sync.RWMutex{},
+		version:   snapshot.Version(),
+		snapshot:  snapshot,
+		zeroCopy:  zeroCopy,
+		mtx:       &sync.RWMutex{},
+		pendingWg: &sync.WaitGroup{},
 	}
 
 	if !snapshot.IsEmpty() {
@@ -114,6 +119,31 @@ func (t *Tree) ApplyChangeSet(changeSet iavl.ChangeSet) {
 			t.Set(pair.Key, pair.Value)
 		}
 	}
+}
+
+func (t *Tree) ApplyChangeSetAsync(changeSet iavl.ChangeSet) {
+	if t.pendingChanges == nil {
+		t.StartBackgroundWrite()
+	}
+	t.pendingChanges <- changeSet
+}
+
+func (t *Tree) StartBackgroundWrite() {
+	t.pendingWg.Add(1)
+	t.pendingChanges = make(chan iavl.ChangeSet, 1000)
+	go func() {
+		defer t.pendingWg.Done()
+		for nextChange := range t.pendingChanges {
+			t.ApplyChangeSet(nextChange)
+			_, _, _ = t.SaveVersion(false)
+		}
+	}()
+}
+
+func (t *Tree) WaitToCompleteAsyncWrite() {
+	close(t.pendingChanges)
+	t.pendingWg.Wait()
+	t.pendingChanges = nil
 }
 
 func (t *Tree) Set(key, value []byte) {
@@ -269,6 +299,9 @@ func (t *Tree) Close() error {
 	if t.snapshot != nil {
 		err = t.snapshot.Close()
 		t.snapshot = nil
+	}
+	if t.pendingChanges != nil {
+		close(t.pendingChanges)
 	}
 	t.root = nil
 	return err
