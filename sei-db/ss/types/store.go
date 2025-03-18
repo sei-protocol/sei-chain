@@ -23,6 +23,7 @@ type StateStore interface {
 	GetLatestMigratedModule() (string, error)
 	SetLatestMigratedModule(module string) error
 	WriteBlockRangeHash(storeKey string, beginBlockRange, endBlockRange int64, hash []byte) error
+	DeleteKeysAtVersion(module string, version int64) error
 
 	// ApplyChangeset Persist the change set of a block,
 	// the `changeSet` should be ordered by (storeKey, key),

@@ -19,6 +19,7 @@ import (
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/ss/types"
+	"github.com/sei-protocol/sei-db/ss/util"
 	"github.com/sei-protocol/sei-db/stream/changelog"
 	"golang.org/x/exp/slices"
 )
@@ -34,11 +35,16 @@ const (
 	earliestVersionKey           = "s/_earliest"
 	latestMigratedKeyMetadata    = "s/_latestMigratedKey"
 	latestMigratedModuleMetadata = "s/_latestMigratedModule"
+	lastRangeHashKey             = "s/_hash:latestRange"
 	tombstoneVal                 = "TOMBSTONE"
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
 	PruneCommitBatchSize  = 50
+	DeleteCommitBatchSize = 50
+
+	// Number of workers to use for hash computation
+	HashComputationWorkers = 10
 )
 
 var (
@@ -63,6 +69,11 @@ type Database struct {
 
 	// Pending changes to be written to the DB
 	pendingChanges chan VersionedChangesets
+
+	// Cache for last range hashed
+	lastRangeHashedCache int64
+	lastRangeHashedMu    sync.RWMutex
+	hashComputationMu    sync.Mutex
 }
 
 type VersionedChangesets struct {
@@ -120,6 +131,14 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		earliestVersion: earliestVersion,
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
 	}
+
+	// Initialize the lastRangeHashed cache
+	lastHashed, err := retrieveLastRangeHashed(db)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve last range hashed: %w", err)
+	}
+	database.lastRangeHashedCache = lastHashed
+
 	if config.DedicatedChangelog {
 		streamHandler, _ := changelog.NewStream(
 			logger.NewNopLogger(),
@@ -194,6 +213,28 @@ func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error 
 
 func (db *Database) GetEarliestVersion() (int64, error) {
 	return db.earliestVersion, nil
+}
+
+func (db *Database) SetLastRangeHashed(latestHashed int64) error {
+	var ts [VersionSize]byte
+	binary.LittleEndian.PutUint64(ts[:], uint64(latestHashed))
+
+	// Update the cache first
+	db.lastRangeHashedMu.Lock()
+	db.lastRangeHashedCache = latestHashed
+	db.lastRangeHashedMu.Unlock()
+
+	return db.storage.Set([]byte(lastRangeHashKey), ts[:], defaultWriteOpts)
+}
+
+// GetLastRangeHashed returns the highest block that has been fully hashed in ranges.
+func (db *Database) GetLastRangeHashed() (int64, error) {
+	// Return the cached value
+	db.lastRangeHashedMu.RLock()
+	cachedValue := db.lastRangeHashedCache
+	db.lastRangeHashedMu.RUnlock()
+
+	return cachedValue, nil
 }
 
 // Retrieves earliest version from db
@@ -353,6 +394,114 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 		Version:    version,
 		Changesets: changesets,
 	}
+
+	if db.config.HashRange > 0 {
+		go func(ver int64) {
+			// Try to acquire lock, return immediately if already locked
+			if !db.hashComputationMu.TryLock() {
+				return
+			}
+			defer db.hashComputationMu.Unlock()
+
+			if err := db.computeMissingRanges(ver); err != nil {
+				fmt.Printf("maybeComputeMissingRanges error: %v\n", err)
+			}
+		}(version)
+	}
+
+	return nil
+}
+
+func (db *Database) computeMissingRanges(latestVersion int64) error {
+	lastHashed, err := db.GetLastRangeHashed()
+	if err != nil {
+		return fmt.Errorf("failed to get last hashed range: %w", err)
+	}
+
+	// Keep filling full chunks until we can't
+	for {
+		nextTarget := lastHashed + db.config.HashRange
+
+		// If we haven't reached the next full chunk boundary yet, stop.
+		// We do NOT do partial chunks.
+		if nextTarget > latestVersion {
+			break
+		}
+
+		// We have a full chunk from (lastHashed+1) .. nextTarget
+		begin := lastHashed + 1
+		end := nextTarget
+		if err := db.computeHashForRange(begin, end); err != nil {
+			return err
+		}
+
+		// Mark that we've completed that chunk
+		lastHashed = end
+		if err := db.SetLastRangeHashed(lastHashed); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (db *Database) computeHashForRange(beginBlock, endBlock int64) error {
+	chunkSize := endBlock - beginBlock + 1
+	if chunkSize <= 0 {
+		// Nothing to do
+		return nil
+	}
+
+	// Use constant number of workers
+	numOfWorkers := HashComputationWorkers
+
+	// Calculate blocks per worker
+	blocksPerWorker := chunkSize / int64(numOfWorkers)
+	if blocksPerWorker < 1 {
+		blocksPerWorker = 1
+	}
+
+	for _, moduleName := range util.Modules {
+		dataCh := make(chan types.RawSnapshotNode, 10_000)
+
+		hashCalculator := util.NewXorHashCalculator(blocksPerWorker, numOfWorkers, dataCh)
+
+		go func(mod string) {
+			defer close(dataCh)
+
+			_, err := db.RawIterate(mod, func(key, value []byte, ver int64) bool {
+				// Only feed data whose version is in [beginBlock..endBlock]
+				if ver >= beginBlock && ver <= endBlock {
+					dataCh <- types.RawSnapshotNode{
+						StoreKey: mod,
+						Key:      key,
+						Value:    value,
+						Version:  ver - beginBlock,
+					}
+				}
+				return false
+			})
+			if err != nil {
+				panic(fmt.Errorf("error scanning module %s: %w", mod, err))
+			}
+		}(moduleName)
+
+		allHashes := hashCalculator.ComputeHashes()
+		if len(allHashes) == 0 {
+			continue
+		}
+
+		finalHash := allHashes[len(allHashes)-1]
+
+		if err := db.WriteBlockRangeHash(moduleName, beginBlock, endBlock, finalHash); err != nil {
+			return fmt.Errorf(
+				"failed to write block-range hash for module %q in [%d..%d]: %w",
+				moduleName, beginBlock, endBlock, err,
+			)
+		}
+
+	}
+
 	return nil
 }
 
@@ -671,6 +820,7 @@ func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
 func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte, version int64) bool) (bool, error) {
 	// Iterate through all keys and values for a store
 	lowerBound := MVCCEncode(prependStoreKey(storeKey, nil), 0)
+	prefix := storePrefix(storeKey)
 
 	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: lowerBound})
 	if err != nil {
@@ -693,9 +843,12 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 		}
 
 		// Only iterate through module
-		if storeKey != "" && !bytes.HasPrefix(currKey, storePrefix(storeKey)) {
+		if storeKey != "" && !bytes.HasPrefix(currKey, prefix) {
 			break
 		}
+
+		// Parse prefix out of the key
+		parsedKey := currKey[len(prefix):]
 
 		currVersionDecoded, err := decodeUint64Ascending(currVersion)
 		if err != nil {
@@ -713,13 +866,57 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 		}
 
 		// Call callback fn
-		if fn(currKey, valBz, currVersionDecoded) {
+		if fn(parsedKey, valBz, currVersionDecoded) {
 			return true, nil
 		}
 
 	}
 
 	return false, nil
+}
+
+func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
+
+	batch, err := NewBatch(db.storage, version)
+	if err != nil {
+		return fmt.Errorf("failed to create deletion batch for module %q: %w", module, err)
+	}
+
+	deleteCounter := 0
+
+	_, err = db.RawIterate(module, func(key, value []byte, ver int64) bool {
+		if ver == version {
+			if err := batch.HardDelete(module, key); err != nil {
+				fmt.Printf("Error physically deleting key %q in module %q: %v\n", key, module, err)
+				return true // stop iteration on error
+			}
+			deleteCounter++
+			if deleteCounter >= DeleteCommitBatchSize {
+				if err := batch.Write(); err != nil {
+					fmt.Printf("Error writing deletion batch for module %q: %v\n", module, err)
+					return true
+				}
+				deleteCounter = 0
+				batch, err = NewBatch(db.storage, version)
+				if err != nil {
+					fmt.Printf("Error creating a new deletion batch for module %q: %v\n", module, err)
+					return true
+				}
+			}
+		}
+		return false
+	})
+	if err != nil {
+		return fmt.Errorf("error iterating module %q for deletion: %w", module, err)
+	}
+
+	// Commit any remaining deletions.
+	if batch.Size() > 0 {
+		if err := batch.Write(); err != nil {
+			return fmt.Errorf("error writing final deletion batch for module %q: %w", module, err)
+		}
+	}
+	return nil
 }
 
 func storePrefix(storeKey string) []byte {
@@ -817,4 +1014,21 @@ func (db *Database) WriteBlockRangeHash(storeKey string, beginBlockRange, endBlo
 		return fmt.Errorf("failed to write block range hash: %w", err)
 	}
 	return nil
+}
+
+func retrieveLastRangeHashed(db *pebble.DB) (int64, error) {
+	bz, closer, err := db.Get([]byte(lastRangeHashKey))
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			// means we haven't hashed anything yet
+			return 0, nil
+		}
+		return 0, err
+	}
+	defer closer.Close()
+
+	if len(bz) == 0 {
+		return 0, nil
+	}
+	return int64(binary.LittleEndian.Uint64(bz)), nil
 }
