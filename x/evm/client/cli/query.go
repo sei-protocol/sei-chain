@@ -12,6 +12,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/sei-protocol/sei-chain/precompiles/confidentialtransfers"
+	ctcliutils "github.com/sei-protocol/sei-chain/x/confidentialtransfers/client/cli"
+	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -31,8 +35,11 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-const TrueStr = "true"
-const FalseStr = "false"
+const (
+	TrueStr      = "true"
+	FalseStr     = "false"
+	auditorsFlag = "auditors"
+)
 
 // GetQueryCmd returns the cli query commands for this module
 func GetQueryCmd(_ string) *cobra.Command {
@@ -55,6 +62,11 @@ func GetQueryCmd(_ string) *cobra.Command {
 	cmd.AddCommand(CmdQueryPointer())
 	cmd.AddCommand(CmdQueryPointerVersion())
 	cmd.AddCommand(CmdQueryPointee())
+	cmd.AddCommand(GetCmdQueryCtTransferPayload())
+	cmd.AddCommand(GetCmdQueryCtInitAccountPayload())
+	cmd.AddCommand(GetCmdQueryCtApplyPendingBalancePayload())
+	cmd.AddCommand(GetCmdQueryCtWithdrawPayload())
+	cmd.AddCommand(GetCmdQueryCtCloseAccountPayload())
 	cmd.AddCommand(CmdQueryTxByHash())
 
 	return cmd
@@ -468,6 +480,646 @@ func CmdQueryPointee() *cobra.Command {
 	flags.AddQueryFlagsToCmd(cmd)
 
 	return cmd
+}
+
+func GetCmdQueryCtTransferPayload() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ct-transfer-payload [abi-filepath] [from_address] [to_address] [amount] [flags]",
+		Short: "get hex payload for the confidential transfer",
+		Args:  cobra.ExactArgs(4),
+		RunE:  queryCtTransferPayload,
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+	cmd.Flags().StringSlice(auditorsFlag, []string{}, "List of auditor addresses")
+
+	return cmd
+}
+
+func queryCtTransferPayload(cmd *cobra.Command, args []string) error {
+	queryClientCtx, err := client.GetClientQueryContext(cmd)
+	if err != nil {
+		return err
+	}
+
+	queryClient := types.NewQueryClient(queryClientCtx)
+	ctQueryClient := cttypes.NewQueryClient(queryClientCtx)
+
+	fromAddress := args[1]
+	if fromAddress == "" {
+		return errors.New("from address cannot be empty")
+	}
+
+	fromSeiAddress, err := getSeiAddress(queryClient, fromAddress)
+	if err != nil {
+		return err
+	}
+
+	_, name, _, err := client.GetFromFields(queryClientCtx, queryClientCtx.Keyring, fromSeiAddress)
+	if err != nil {
+		return err
+	}
+	privKey, err := getPrivateKeyForName(cmd, name)
+	if err != nil {
+		return err
+	}
+
+	toAddress := args[2]
+	if toAddress == "" {
+		return errors.New("to address cannot be empty")
+	}
+
+	toSeiAddress, err := getSeiAddress(queryClient, toAddress)
+	if err != nil {
+		return err
+	}
+
+	coin, err := sdk.ParseCoinNormalized(args[3])
+	if err != nil {
+		return err
+	}
+
+	senderAccount, err := ctcliutils.GetAccount(ctQueryClient, fromSeiAddress, coin.Denom)
+	if err != nil {
+		return err
+	}
+
+	recipientAccount, err := ctcliutils.GetAccount(ctQueryClient, toSeiAddress, coin.Denom)
+	if err != nil {
+		return err
+	}
+
+	auditorAddrs, err := cmd.Flags().GetStringSlice(auditorsFlag)
+	if err != nil {
+		return err
+	}
+
+	var auditors []cttypes.AuditorInput
+	transferMethod := confidentialtransfers.TransferMethod
+
+	if len(auditorAddrs) > 0 {
+		auditors = make([]cttypes.AuditorInput, len(auditorAddrs))
+		for i, auditorAddr := range auditorAddrs {
+			auditorSeiAddr, err := getSeiAddress(queryClient, auditorAddr)
+			if err != nil {
+				return err
+			}
+			auditorAccount, err := ctcliutils.GetAccount(ctQueryClient, auditorSeiAddr, coin.Denom)
+			if err != nil {
+				return err
+			}
+			auditors[i] = cttypes.AuditorInput{
+				Address: auditorSeiAddr,
+				Pubkey:  &auditorAccount.PublicKey,
+			}
+		}
+		transferMethod = confidentialtransfers.TransferWithAuditorsMethod
+	}
+
+	transfer, err := cttypes.NewTransfer(
+		privKey,
+		fromSeiAddress,
+		toSeiAddress,
+		coin.Denom,
+		senderAccount.DecryptableAvailableBalance,
+		senderAccount.AvailableBalance,
+		coin.Amount.Uint64(),
+		&recipientAccount.PublicKey,
+		auditors)
+
+	if err != nil {
+		return err
+	}
+
+	transferProto := cttypes.NewMsgTransferProto(transfer)
+
+	if err = transferProto.ValidateBasic(); err != nil {
+		return err
+	}
+
+	fromAmountLo, err := transferProto.FromAmountLo.Marshal()
+	if err != nil {
+		return err
+	}
+
+	fromAmountHi, err := transferProto.FromAmountHi.Marshal()
+	if err != nil {
+		return err
+	}
+
+	toAmountLo, err := transferProto.ToAmountLo.Marshal()
+	if err != nil {
+		return err
+	}
+
+	toAmountHi, err := transferProto.ToAmountHi.Marshal()
+	if err != nil {
+		return err
+	}
+
+	remainingBalance, err := transferProto.RemainingBalance.Marshal()
+	if err != nil {
+		return err
+	}
+
+	proofs, err := transferProto.Proofs.Marshal()
+	if err != nil {
+		return err
+	}
+
+	dat, err := os.ReadFile(args[0])
+	if err != nil {
+		return err
+	}
+
+	newAbi, err := abi.JSON(bytes.NewReader(dat))
+	if err != nil {
+		return err
+	}
+
+	inputArgs := []interface{}{
+		toSeiAddress,
+		coin.Denom,
+		fromAmountLo,
+		fromAmountHi,
+		toAmountLo,
+		toAmountHi,
+		remainingBalance,
+		transferProto.DecryptableBalance,
+		proofs,
+	}
+
+	if len(auditors) > 0 {
+		var ctAuditors []cttypes.CtAuditor
+		auditorsProto := transferProto.Auditors
+		for _, auditorProto := range auditorsProto {
+			encryptedTransferAmountLo, err := auditorProto.EncryptedTransferAmountLo.Marshal()
+			if err != nil {
+				return err
+			}
+
+			encryptedTransferAmountHi, err := auditorProto.EncryptedTransferAmountHi.Marshal()
+			if err != nil {
+				return err
+			}
+
+			transferAmountLoValidityProof, err := auditorProto.TransferAmountLoValidityProof.Marshal()
+			if err != nil {
+				return err
+			}
+
+			transferAmountHiValidityProof, err := auditorProto.TransferAmountHiValidityProof.Marshal()
+			if err != nil {
+				return err
+			}
+
+			transferAmountLoEqualityProof, err := auditorProto.TransferAmountLoEqualityProof.Marshal()
+			if err != nil {
+				return err
+			}
+
+			transferAmountHiEqualityProof, err := auditorProto.TransferAmountHiEqualityProof.Marshal()
+			if err != nil {
+				return err
+			}
+
+			evmAuditor := cttypes.CtAuditor{
+				AuditorAddress:                auditorProto.AuditorAddress,
+				EncryptedTransferAmountLo:     encryptedTransferAmountLo,
+				EncryptedTransferAmountHi:     encryptedTransferAmountHi,
+				TransferAmountLoValidityProof: transferAmountLoValidityProof,
+				TransferAmountHiValidityProof: transferAmountHiValidityProof,
+				TransferAmountLoEqualityProof: transferAmountLoEqualityProof,
+				TransferAmountHiEqualityProof: transferAmountHiEqualityProof,
+			}
+			ctAuditors = append(ctAuditors, evmAuditor)
+
+		}
+		inputArgs = append(inputArgs, ctAuditors)
+	}
+
+	bz, err := newAbi.Pack(
+		transferMethod,
+		inputArgs...)
+	if err != nil {
+		return err
+	}
+	return queryClientCtx.PrintString(hex.EncodeToString(bz))
+}
+
+func GetCmdQueryCtInitAccountPayload() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ct-init-account-payload [abi-filepath] [from_address] [denom]",
+		Short: "get hex payload for the confidential transfers account initialization",
+		Args:  cobra.ExactArgs(3),
+		RunE:  queryCtInitAccountPayload,
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func queryCtInitAccountPayload(cmd *cobra.Command, args []string) error {
+	queryClientCtx, err := client.GetClientQueryContext(cmd)
+	if err != nil {
+		return err
+	}
+	queryClient := types.NewQueryClient(queryClientCtx)
+
+	dat, err := os.ReadFile(args[0])
+	if err != nil {
+		return err
+	}
+
+	newAbi, err := abi.JSON(bytes.NewReader(dat))
+	if err != nil {
+		return err
+	}
+
+	fromAddress := args[1]
+	if fromAddress == "" {
+		return errors.New("from address cannot be empty")
+	}
+
+	seiAddress, err := getSeiAddress(queryClient, fromAddress)
+	if err != nil {
+		return err
+	}
+
+	denom := args[2]
+	if denom == "" {
+		return errors.New("denom cannot be empty")
+	}
+
+	_, name, _, err := client.GetFromFields(queryClientCtx, queryClientCtx.Keyring, seiAddress)
+	if err != nil {
+		return err
+	}
+
+	privKey, err := getPrivateKeyForName(cmd, name)
+	if err != nil {
+		return err
+	}
+
+	initAccount, err := cttypes.NewInitializeAccount(fromAddress, denom, *privKey)
+	if err != nil {
+		return err
+	}
+
+	initAccountProto := cttypes.NewMsgInitializeAccountProto(initAccount)
+
+	if err = initAccountProto.ValidateBasic(); err != nil {
+		return err
+	}
+
+	pendingBalanceLo, err := initAccountProto.PendingBalanceLo.Marshal()
+	if err != nil {
+		return err
+	}
+	pendingBalanceHi, err := initAccountProto.PendingBalanceHi.Marshal()
+	if err != nil {
+		return err
+	}
+	availableBalance, err := initAccountProto.AvailableBalance.Marshal()
+	if err != nil {
+		return err
+	}
+	proofs, err := initAccountProto.Proofs.Marshal()
+	if err != nil {
+		return err
+	}
+
+	bz, err := newAbi.Pack(
+		confidentialtransfers.InitializeAccountMethod,
+		initAccountProto.FromAddress,
+		initAccountProto.Denom,
+		initAccountProto.PublicKey,
+		initAccountProto.DecryptableBalance,
+		pendingBalanceLo,
+		pendingBalanceHi,
+		availableBalance,
+		proofs)
+
+	if err != nil {
+		return err
+	}
+	return queryClientCtx.PrintString(hex.EncodeToString(bz))
+}
+
+func GetCmdQueryCtApplyPendingBalancePayload() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ct-apply-pending-balance-payload [abi-filepath] [from_address] [denom]",
+		Short: "get hex payload for the confidential transfers apply pending balance method",
+		Args:  cobra.ExactArgs(3),
+		RunE:  queryCtApplyPendingBalancePayload,
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func queryCtApplyPendingBalancePayload(cmd *cobra.Command, args []string) error {
+	queryClientCtx, err := client.GetClientQueryContext(cmd)
+	if err != nil {
+		return err
+	}
+	queryClient := types.NewQueryClient(queryClientCtx)
+
+	dat, err := os.ReadFile(args[0])
+	if err != nil {
+		return err
+	}
+
+	newAbi, err := abi.JSON(bytes.NewReader(dat))
+	if err != nil {
+		return err
+	}
+
+	fromAddress := args[1]
+	if fromAddress == "" {
+		return errors.New("from address cannot be empty")
+	}
+
+	seiAddress, err := getSeiAddress(queryClient, fromAddress)
+	if err != nil {
+		return err
+	}
+
+	denom := args[2]
+	if denom == "" {
+		return errors.New("denom cannot be empty")
+	}
+
+	_, name, _, err := client.GetFromFields(queryClientCtx, queryClientCtx.Keyring, seiAddress)
+	if err != nil {
+		return err
+	}
+
+	privKey, err := getPrivateKeyForName(cmd, name)
+	if err != nil {
+		return err
+	}
+
+	ctQueryClient := cttypes.NewQueryClient(queryClientCtx)
+	fromAccount, err := ctcliutils.GetAccount(ctQueryClient, seiAddress, denom)
+	if err != nil {
+		return err
+	}
+
+	applyPendingBalance, err := cttypes.NewApplyPendingBalance(
+		*privKey,
+		seiAddress,
+		denom,
+		fromAccount.DecryptableAvailableBalance,
+		fromAccount.PendingBalanceCreditCounter,
+		fromAccount.AvailableBalance,
+		fromAccount.PendingBalanceLo,
+		fromAccount.PendingBalanceHi)
+	if err != nil {
+		return err
+	}
+
+	applyPendingBalanceProto := cttypes.NewMsgApplyPendingBalanceProto(applyPendingBalance)
+
+	if err = applyPendingBalanceProto.ValidateBasic(); err != nil {
+		return err
+	}
+
+	availableBalance, err := applyPendingBalanceProto.CurrentAvailableBalance.Marshal()
+	if err != nil {
+		return err
+	}
+
+	bz, err := newAbi.Pack(
+		confidentialtransfers.ApplyPendingBalanceMethod,
+		applyPendingBalanceProto.Denom,
+		applyPendingBalanceProto.NewDecryptableAvailableBalance,
+		applyPendingBalanceProto.CurrentPendingBalanceCounter,
+		availableBalance)
+
+	if err != nil {
+		return err
+	}
+	return queryClientCtx.PrintString(hex.EncodeToString(bz))
+}
+
+func GetCmdQueryCtWithdrawPayload() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ct-withdraw-payload [abi-filepath] [from_address] [amount]",
+		Short: "get hex payload for the confidential transfers withdraw method",
+		Args:  cobra.ExactArgs(3),
+		RunE:  queryCtWithdrawPayload,
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func queryCtWithdrawPayload(cmd *cobra.Command, args []string) error {
+	queryClientCtx, err := client.GetClientQueryContext(cmd)
+	if err != nil {
+		return err
+	}
+	queryClient := types.NewQueryClient(queryClientCtx)
+
+	dat, err := os.ReadFile(args[0])
+	if err != nil {
+		return err
+	}
+
+	newAbi, err := abi.JSON(bytes.NewReader(dat))
+	if err != nil {
+		return err
+	}
+
+	fromAddress := args[1]
+	if fromAddress == "" {
+		return errors.New("from address cannot be empty")
+	}
+
+	seiAddress, err := getSeiAddress(queryClient, fromAddress)
+	if err != nil {
+		return err
+	}
+
+	coin, err := sdk.ParseCoinNormalized(args[2])
+	if err != nil {
+		return err
+	}
+
+	_, name, _, err := client.GetFromFields(queryClientCtx, queryClientCtx.Keyring, seiAddress)
+	if err != nil {
+		return err
+	}
+
+	privKey, err := getPrivateKeyForName(cmd, name)
+	if err != nil {
+		return err
+	}
+
+	ctQueryClient := cttypes.NewQueryClient(queryClientCtx)
+	fromAccount, err := ctcliutils.GetAccount(ctQueryClient, seiAddress, coin.Denom)
+	if err != nil {
+		return err
+	}
+
+	withdraw, err := cttypes.NewWithdraw(
+		*privKey,
+		fromAccount.AvailableBalance,
+		coin.Denom,
+		seiAddress,
+		fromAccount.DecryptableAvailableBalance,
+		coin.Amount.BigInt())
+
+	if err != nil {
+		return err
+	}
+
+	withdrawProto := cttypes.NewMsgWithdrawProto(withdraw)
+
+	if err = withdrawProto.ValidateBasic(); err != nil {
+		return err
+	}
+
+	remainingBalanceCommitment, err := withdrawProto.RemainingBalanceCommitment.Marshal()
+	if err != nil {
+		return err
+	}
+
+	proofs, err := withdrawProto.Proofs.Marshal()
+	if err != nil {
+		return err
+	}
+
+	bz, err := newAbi.Pack(
+		confidentialtransfers.WithdrawMethod,
+		withdrawProto.Denom,
+		coin.Amount.BigInt(),
+		withdrawProto.DecryptableBalance,
+		remainingBalanceCommitment,
+		proofs)
+
+	if err != nil {
+		return err
+	}
+	return queryClientCtx.PrintString(hex.EncodeToString(bz))
+}
+
+func GetCmdQueryCtCloseAccountPayload() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "ct-close-account-payload [abi-filepath] [from_address] [denom]",
+		Short: "get hex payload for the confidential transfers close account method",
+		Args:  cobra.ExactArgs(3),
+		RunE:  queryCtCloseAccountPayload,
+	}
+
+	flags.AddQueryFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func queryCtCloseAccountPayload(cmd *cobra.Command, args []string) error {
+	queryClientCtx, err := client.GetClientQueryContext(cmd)
+	if err != nil {
+		return err
+	}
+	queryClient := types.NewQueryClient(queryClientCtx)
+
+	dat, err := os.ReadFile(args[0])
+	if err != nil {
+		return err
+	}
+
+	newAbi, err := abi.JSON(bytes.NewReader(dat))
+	if err != nil {
+		return err
+	}
+
+	fromAddress := args[1]
+	if fromAddress == "" {
+		return errors.New("from address cannot be empty")
+	}
+
+	seiAddress, err := getSeiAddress(queryClient, fromAddress)
+	if err != nil {
+		return err
+	}
+
+	denom := args[2]
+	if denom == "" {
+		return errors.New("denom cannot be empty")
+	}
+
+	_, name, _, err := client.GetFromFields(queryClientCtx, queryClientCtx.Keyring, seiAddress)
+	if err != nil {
+		return err
+	}
+
+	privKey, err := getPrivateKeyForName(cmd, name)
+	if err != nil {
+		return err
+	}
+
+	ctQueryClient := cttypes.NewQueryClient(queryClientCtx)
+	fromAccount, err := ctcliutils.GetAccount(ctQueryClient, seiAddress, denom)
+	if err != nil {
+		return err
+	}
+
+	closeAccount, err := cttypes.NewCloseAccount(
+		*privKey,
+		seiAddress,
+		denom,
+		fromAccount.PendingBalanceLo,
+		fromAccount.PendingBalanceHi,
+		fromAccount.AvailableBalance)
+	if err != nil {
+		return err
+	}
+
+	closeAccountProto := cttypes.NewMsgCloseAccountProto(closeAccount)
+
+	if err = closeAccountProto.ValidateBasic(); err != nil {
+		return err
+	}
+
+	proofs, err := closeAccountProto.Proofs.Marshal()
+	if err != nil {
+		return err
+	}
+
+	bz, err := newAbi.Pack(
+		confidentialtransfers.CloseAccountMethod,
+		closeAccountProto.Denom,
+		proofs)
+
+	if err != nil {
+		return err
+	}
+	return queryClientCtx.PrintString(hex.EncodeToString(bz))
+}
+
+func getSeiAddress(queryClient types.QueryClient, address string) (string, error) {
+	if common.IsHexAddress(address) {
+		evmAddr := common.HexToAddress(address)
+		res, err := queryClient.SeiAddressByEVMAddress(context.Background(), &types.QuerySeiAddressByEVMAddressRequest{EvmAddress: evmAddr.String()})
+		if err != nil {
+			return "", err
+		}
+		if res.Associated {
+			return res.SeiAddress, nil
+		} else {
+			return "", fmt.Errorf("address %s is not associated", evmAddr)
+		}
+	}
+	if seiAddress, err := sdk.AccAddressFromBech32(address); err != nil {
+		return "", fmt.Errorf("invalid address %s: %w", address, err)
+	} else {
+		return seiAddress.String(), nil
+	}
 }
 
 func CmdQueryTxByHash() *cobra.Command {
