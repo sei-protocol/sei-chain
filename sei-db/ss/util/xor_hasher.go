@@ -55,7 +55,7 @@ func (x XorHashCalculator) ComputeHashes() [][]byte {
 		go func(index int, data chan types.RawSnapshotNode) {
 			defer wg.Done()
 			var hashResult []byte
-			for item := range subsetChan {
+			for item := range data {
 				entryHash := x.HashSingle(Serialize(item))
 				if hashResult == nil {
 					hashResult = entryHash

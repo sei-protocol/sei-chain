@@ -431,7 +431,6 @@ func (db *Database) computeMissingRanges(latestVersion int64) error {
 		// We have a full chunk from (lastHashed+1) .. nextTarget
 		begin := lastHashed + 1
 		end := nextTarget
-
 		if err := db.computeHashForRange(begin, end); err != nil {
 			return err
 		}
@@ -948,25 +947,6 @@ func parseStoreKey(key []byte) (string, error) {
 
 	// Return the substring between the prefix and the first "/"
 	return keyStr[LenPrefixStore : LenPrefixStore+slashIndex], nil
-}
-
-// Parses actual key from key with format "s/k:{store}/{actualKey}"
-func parseKey(key []byte) ([]byte, error) {
-	// Convert byte slice to string only once
-	keyStr := string(key)
-
-	if !strings.HasPrefix(keyStr, PrefixStore) {
-		return nil, fmt.Errorf("not a valid store key")
-	}
-
-	// Find the first occurrence of "/" after the prefix
-	slashIndex := strings.Index(keyStr[LenPrefixStore:], "/")
-	if slashIndex == -1 {
-		return nil, fmt.Errorf("not a valid store key")
-	}
-
-	// Return everything after the first "/" as bytes
-	return []byte(keyStr[LenPrefixStore+slashIndex+1:]), nil
 }
 
 func getMVCCSlice(db *pebble.DB, storeKey string, key []byte, version int64) ([]byte, error) {
