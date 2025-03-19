@@ -57,6 +57,6 @@ jobs:
       -
         name: Make Image Public
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.DOCKER_IMAGES }}
         run: |
-          gh api -X PATCH "https://api.github.com/orgs/sei-protocol/packages/container/sei/" --field visibility=public
+          gh api -X PATCH "https://api.github.com/orgs/sei-protocol/packages/container/sei" --field visibility=public
