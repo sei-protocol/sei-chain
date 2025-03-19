@@ -659,6 +659,7 @@ func (cs *State) SetProposalAndBlock(
 
 func (cs *State) updateHeight(height int64) {
 	cs.metrics.Height.Set(float64(height))
+	cs.metrics.ClearStepMetrics()
 	cs.roundState.SetHeight(height)
 }
 
@@ -1043,6 +1044,8 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 		err   error
 	)
 
+	cs.metrics.MarkStepLatency(cs.roundState.Step())
+
 	msg, peerID := mi.Msg, mi.PeerID
 
 	switch msg := msg.(type) {
@@ -1179,6 +1182,7 @@ func (cs *State) handleTimeout(
 	// the timeout will now cause a state transition
 	cs.mtx.Lock()
 	defer cs.mtx.Unlock()
+	cs.metrics.MarkStepLatency(rs.Step)
 
 	switch ti.Step {
 	case cstypes.RoundStepNewHeight:

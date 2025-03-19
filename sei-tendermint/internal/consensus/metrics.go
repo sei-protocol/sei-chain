@@ -173,6 +173,10 @@ type Metrics struct {
 
 	// ApplyBlockLatency measures how long it takes to execute ApplyBlock in finalize commit step
 	ApplyBlockLatency metrics.Histogram `metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+
+	StepLatency                 metrics.Gauge `metrics_labels:"step"`
+	lastRecordedStepLatencyNano int64
+	StepCount                   metrics.Gauge `metrics_labels:"step"`
 }
 
 // RecordConsMetrics uses for recording the block related metrics during fast-sync.
@@ -249,6 +253,29 @@ func (m *Metrics) MarkStep(s cstypes.RoundStepType) {
 		stepTime := time.Since(m.stepStart).Seconds()
 		stepName := strings.TrimPrefix(s.String(), "RoundStep")
 		m.StepDuration.With("step", stepName).Observe(stepTime)
+		m.StepCount.With("step", s.String()).Add(1)
 	}
 	m.stepStart = time.Now()
+}
+
+func (m *Metrics) MarkStepLatency(s cstypes.RoundStepType) {
+	now := time.Now().UnixNano()
+	m.StepLatency.With("step", s.String()).Add(float64(now - m.lastRecordedStepLatencyNano))
+	m.lastRecordedStepLatencyNano = now
+}
+
+func (m *Metrics) ClearStepMetrics() {
+	for _, st := range []cstypes.RoundStepType{
+		cstypes.RoundStepNewHeight,
+		cstypes.RoundStepNewRound,
+		cstypes.RoundStepPropose,
+		cstypes.RoundStepPrevote,
+		cstypes.RoundStepPrevoteWait,
+		cstypes.RoundStepPrecommit,
+		cstypes.RoundStepPrecommitWait,
+		cstypes.RoundStepCommit,
+	} {
+		m.StepCount.With("step", st.String()).Set(0)
+		m.StepLatency.With("step", st.String()).Set(0)
+	}
 }

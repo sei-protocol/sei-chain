@@ -278,6 +278,18 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 
 			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
 		}, labels).With(labelsAndValues...),
+		StepLatency: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "step_latency",
+			Help:      "",
+		}, append(labels, "step")).With(labelsAndValues...),
+		StepCount: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: MetricsSubsystem,
+			Name:      "step_count",
+			Help:      "",
+		}, append(labels, "step")).With(labelsAndValues...),
 	}
 }
 
@@ -324,5 +336,7 @@ func NopMetrics() *Metrics {
 		ConsensusTime:                 discard.NewHistogram(),
 		CompleteProposalTime:          discard.NewHistogram(),
 		ApplyBlockLatency:             discard.NewHistogram(),
+		StepLatency:                   discard.NewGauge(),
+		StepCount:                     discard.NewGauge(),
 	}
 }
