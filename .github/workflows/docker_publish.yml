@@ -56,7 +56,6 @@ jobs:
             ghcr.io/sei-protocol/sei:v${{ env.MAJOR_VERSION }}.${{ env.MINOR_VERSION }}.${{ env.PATCH_VERSION }}
       -
         name: Make Image Public
-        env:
-          GH_TOKEN: ${{ secrets.DOCKER_IMAGES }}
         run: |
-          gh api -X PATCH "https://api.github.com/orgs/sei-protocol/packages/container/sei" --field visibility=public
+          gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
+          gh api -X PATCH https://api.github.com/orgs/sei-protocol/packages/container/sei --field visibility=public
