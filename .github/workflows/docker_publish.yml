@@ -59,4 +59,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh api -X PATCH https://api.github.com/repos/sei-protocol/sei-chain/packages/container/sei --field visibility=public
+          gh api -X PATCH "https://api.github.com/orgs/sei-protocol/packages/container/sei/visibility" --field visibility=public
