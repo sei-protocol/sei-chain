@@ -114,6 +114,9 @@ var upgradesList = []string{
 	"v6.0.0",
 	"v6.0.1",
 	"v6.0.2",
+	"v6.0.3",
+	"v6.0.4",
+	"v6.0.5",
 }
 
 // if there is an override list, use that instead, for integration tests
@@ -158,6 +161,18 @@ func (app App) RegisterUpgradeHandlers() {
 
 				cp := app.GetConsensusParams(ctx)
 				cp.Block.MinTxsInBlock = 10
+				app.StoreConsensusParams(ctx, cp)
+				return newVM, err
+			}
+
+			if upgradeName == "v6.0.5" {
+				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
+				if err != nil {
+					return newVM, err
+				}
+
+				cp := app.GetConsensusParams(ctx)
+				cp.Block.MaxGasWanted = 50000000 // 50 mil
 				app.StoreConsensusParams(ctx, cp)
 				return newVM, err
 			}

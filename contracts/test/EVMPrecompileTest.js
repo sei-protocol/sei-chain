@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { expectRevert } = require('@openzeppelin/test-helpers');
-const { setupSigners, getAdmin, deployWasm, storeWasm, execute, isDocker, ABI, createTokenFactoryTokenAndMint, getSeiBalance} = require("./lib");
+const { setupSigners, getAdmin, deployWasm, storeWasm, execute, isDocker, ABI, createTokenFactoryTokenAndMint, getSeiBalance, rawHttpDebugTraceWithCallTracer} = require("./lib");
 
 
 describe("EVM Precompile Tester", function () {
@@ -16,6 +16,32 @@ describe("EVM Precompile Tester", function () {
         accounts = await setupSigners(await hre.ethers.getSigners());
         admin = await getAdmin();
     })
+
+    describe("EVM Bank Precompile Tester", function () {
+        const BankPrecompileContract = '0x0000000000000000000000000000000000001001';
+        let bank;
+
+        before(async function () {
+            const signer = accounts[0].signer
+            const contractABIPath = '../../precompiles/bank/abi.json';
+            const contractABI = require(contractABIPath);
+            // Get a contract instance
+            bank = new ethers.Contract(BankPrecompileContract, contractABI, signer);
+        });
+
+        it("Fails with 'execution reverted' not 'panic occurred' when insufficient gas is provided", async function () {
+            try {
+                const bankSendTx = await bank.sendNative(accounts[1].seiAddress, {value: 1, gasLimit: 40000});
+                await bankSendTx.wait();
+            } catch (error) {
+                const txHash = error.receipt.hash
+                // should not get "panic occurred"
+                const trace = await rawHttpDebugTraceWithCallTracer(txHash)
+                expect(trace.result.error).to.not.include("panic")
+                expect(trace.result.error).to.include("execution reverted")
+            }
+        });
+    });
 
     describe("EVM Addr Precompile Tester", function () {
         const AddrPrecompileContract = '0x0000000000000000000000000000000000001004';
@@ -71,6 +97,22 @@ describe("EVM Precompile Tester", function () {
             // Verify that addresses are now associated.
             const seiAddr = await addr.getSeiAddr(unassociatedWallet.address);
             expect(seiAddr).to.not.be.null;
+        });
+
+        it("Fails with 'execution reverted' not 'panic occurred' when insufficient gas is provided", async function () {
+            const unassociatedWallet = hre.ethers.Wallet.createRandom();
+            try {
+                // provide less than gas than needed to execute the transaction
+                const associatedAddrs = await addr.associatePubKey(unassociatedWallet.publicKey.slice(2), {gasLimit: 52000});
+                await associatedAddrs.wait();
+                expect.fail("Expected an error here since we provided insufficient gas");
+            } catch (error) {
+                const txHash = error.receipt.hash
+                // should not get "panic occurred"
+                const trace = await rawHttpDebugTraceWithCallTracer(txHash)
+                expect(trace.result.error).to.not.include("panic");
+                expect(trace.result.error).to.include("execution reverted");
+            }
         });
     });
 

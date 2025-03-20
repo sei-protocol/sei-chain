@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/tracers"
@@ -36,8 +37,9 @@ type SeiDebugAPI struct {
 	*DebugAPI
 }
 
-func NewDebugAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, config *SimulateConfig, connectionType ConnectionType) *DebugAPI {
-	backend := NewBackend(ctxProvider, k, txDecoder, tmClient, config)
+func NewDebugAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, config *SimulateConfig, app *baseapp.BaseApp,
+	antehandler sdk.AnteHandler, connectionType ConnectionType) *DebugAPI {
+	backend := NewBackend(ctxProvider, k, txDecoder, tmClient, config, app, antehandler)
 	tracersAPI := tracers.NewAPI(backend)
 	evictCallback := func(key common.Hash, value bool) {}
 	isPanicCache := expirable.NewLRU[common.Hash, bool](IsPanicCacheSize, evictCallback, IsPanicCacheTTL)
@@ -58,9 +60,11 @@ func NewSeiDebugAPI(
 	ctxProvider func(int64) sdk.Context,
 	txDecoder sdk.TxDecoder,
 	config *SimulateConfig,
+	app *baseapp.BaseApp,
+	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 ) *SeiDebugAPI {
-	backend := NewBackend(ctxProvider, k, txDecoder, tmClient, config)
+	backend := NewBackend(ctxProvider, k, txDecoder, tmClient, config, app, antehandler)
 	tracersAPI := tracers.NewAPI(backend)
 	return &SeiDebugAPI{
 		DebugAPI: &DebugAPI{tracersAPI: tracersAPI, tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, connectionType: connectionType},
@@ -110,7 +114,8 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 	return finalTraces, nil
 }
 
-func (api *DebugAPI) isPanicTx(ctx context.Context, hash common.Hash) (isPanic bool, err error) {
+// isPanicOrSyntheticTx returns true if the tx is a panic tx or if it is a synthetic tx. Used in the *ExcludeTraceFail endpoints.
+func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash) (isPanic bool, err error) {
 	sdkctx := api.ctxProvider(LatestCtxHeight)
 	receipt, err := api.keeper.GetReceipt(sdkctx, hash)
 	if err != nil {
@@ -131,17 +136,25 @@ func (api *DebugAPI) isPanicTx(ctx context.Context, hash common.Hash) (isPanic b
 		return false, err
 	}
 
+	found := false
 	result := false
 	for _, trace := range tracersResult {
 		if trace.TxHash == hash {
+			found = true
 			result = len(trace.Error) > 0
 		}
+		// for each tx, add to cache to avoid re-tracing
 		if len(trace.Error) > 0 {
 			api.isPanicCache.Add(trace.TxHash, true)
 		} else {
 			api.isPanicCache.Add(trace.TxHash, false)
 		}
 	}
+
+	if !found { // likely a synthetic tx
+		return true, nil
+	}
+
 	return result, nil
 }
 

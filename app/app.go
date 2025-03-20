@@ -22,6 +22,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/rpc"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/codec/types"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/server"
 	"github.com/cosmos/cosmos-sdk/server/api"
 	"github.com/cosmos/cosmos-sdk/server/config"
@@ -261,6 +262,10 @@ var (
 	_ simapp.App              = (*App)(nil)
 )
 
+const (
+	MinGasEVMTx = 21000
+)
+
 func init() {
 	userHomeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -351,7 +356,8 @@ type App struct {
 	optimisticProcessingInfo *OptimisticProcessingInfo
 
 	// batchVerifier *ante.SR25519BatchVerifier
-	txDecoder sdk.TxDecoder
+	txDecoder   sdk.TxDecoder
+	AnteHandler sdk.AnteHandler
 
 	versionInfo version.Info
 
@@ -370,6 +376,8 @@ type App struct {
 
 	stateStore   seidb.StateStore
 	receiptStore seidb.StateStore
+
+	forkInitializer func(sdk.Context)
 }
 
 type AppOption func(*App)
@@ -494,7 +502,7 @@ func New(
 	)
 
 	// Create Transfer Keepers
-	app.TransferKeeper = ibctransferkeeper.NewKeeper(
+	app.TransferKeeper = ibctransferkeeper.NewKeeperWithAddressHandler(
 		appCodec,
 		keys[ibctransfertypes.StoreKey],
 		app.GetSubspace(ibctransfertypes.ModuleName),
@@ -504,6 +512,7 @@ func New(
 		app.AccountKeeper,
 		app.BankKeeper,
 		scopedTransferKeeper,
+		evmkeeper.NewEvmAddressHandler(&app.EvmKeeper),
 	)
 	transferModule := transfer.NewAppModule(app.TransferKeeper)
 	transferIBCModule := transfer.NewIBCModule(app.TransferKeeper)
@@ -688,8 +697,7 @@ func New(
 	app.IBCKeeper.SetRouter(ibcRouter)
 
 	if enableCustomEVMPrecompiles {
-		if err := precompiles.InitializePrecompiles(
-			false,
+		customPrecompiles := precompiles.GetCustomPrecompiles(
 			&app.EvmKeeper,
 			app.BankKeeper,
 			bankkeeper.NewMsgServerImpl(app.BankKeeper),
@@ -705,9 +713,8 @@ func New(
 			app.IBCKeeper.ConnectionKeeper,
 			app.IBCKeeper.ChannelKeeper,
 			app.AccountKeeper,
-		); err != nil {
-			panic(err)
-		}
+		)
+		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles)
 	}
 
 	/****  Module Options ****/
@@ -918,6 +925,7 @@ func New(
 	if err != nil {
 		panic(err)
 	}
+	app.AnteHandler = anteHandler
 
 	app.SetAnteHandler(anteHandler)
 	app.SetAnteDepGenerator(anteDepGenerator)
@@ -926,6 +934,7 @@ func New(
 	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
 	app.SetFinalizeBlocker(app.FinalizeBlocker)
+	app.SetInplaceTestnetInitializer(app.inplacetestnetInitializer)
 
 	// Register snapshot extensions to enable state-sync for wasm.
 	if manager := app.SnapshotManager(); manager != nil {
@@ -1069,6 +1078,10 @@ func (app App) GetStateStore() seidb.StateStore { return app.stateStore }
 func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
 	metrics.GaugeSeidVersionAndCommit(app.versionInfo.Version, app.versionInfo.GitCommit)
 	// check if we've reached a target height, if so, execute any applicable handlers
+	if app.forkInitializer != nil {
+		app.forkInitializer(ctx)
+		app.forkInitializer = nil
+	}
 	if app.HardForkManager.TargetHeightReached(ctx) {
 		app.HardForkManager.ExecuteForTargetHeight(ctx)
 	}
@@ -1117,7 +1130,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
 
-	if !app.checkTotalBlockGasWanted(ctx, req.Txs) {
+	if !app.checkTotalBlockGas(ctx, req.Txs) {
 		metrics.IncrFailedTotalGasWantedCheck(string(req.GetProposerAddress()))
 		return &abci.ResponseProcessProposal{
 			Status: abci.ResponseProcessProposal_REJECT,
@@ -1139,7 +1152,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			app.optimisticProcessingInfo.Completion <- struct{}{}
 		} else {
 			go func() {
-				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit)
+				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit, false)
 				optimisticProcessingInfo.Events = events
 				optimisticProcessingInfo.TxRes = txResults
 				optimisticProcessingInfo.EndBlockResp = endBlockResp
@@ -1178,7 +1191,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}
 	metrics.IncrementOptimisticProcessingCounter(false)
 	ctx.Logger().Info("optimistic processing ineligible")
-	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit)
+	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit, false)
 
 	app.SetDeliverStateToCommit()
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
@@ -1540,7 +1553,7 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedT
 	return app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices), ctx
 }
 
-func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
 	events := []abci.Event{}
@@ -1564,6 +1577,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			Time:            req.GetTime(),
 			ProposerAddress: ctx.BlockHeader().ProposerAddress,
 		},
+		Simulate: simulate,
 	}
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
@@ -1707,6 +1721,7 @@ func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, tx
 				MaxBytes:      endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
 				MaxGas:        endBlockResp.ConsensusParamUpdates.Block.MaxGas,
 				MinTxsInBlock: endBlockResp.ConsensusParamUpdates.Block.MinTxsInBlock,
+				MaxGasWanted:  endBlockResp.ConsensusParamUpdates.Block.MaxGasWanted,
 			},
 			Evidence: &tmproto.EvidenceParams{
 				MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,
@@ -1817,23 +1832,24 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 	authtx.RegisterTxService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.BaseApp.Simulate, app.interfaceRegistry)
 }
 
+func (app *App) RPCContextProvider(i int64) sdk.Context {
+	if i == evmrpc.LatestCtxHeight {
+		return app.GetCheckCtx()
+	}
+	ctx, err := app.CreateQueryContext(i, false)
+	if err != nil {
+		app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
+		return app.GetCheckCtx()
+	}
+	return ctx.WithIsEVM(true)
+}
+
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
 func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
 
-	ctxProvider := func(i int64) sdk.Context {
-		if i == evmrpc.LatestCtxHeight {
-			return app.GetCheckCtx()
-		}
-		ctx, err := app.CreateQueryContext(i, false)
-		if err != nil {
-			app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
-			return app.GetCheckCtx()
-		}
-		return ctx.WithIsEVM(true)
-	}
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, &app.WasmKeeper, ctxProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, &app.WasmKeeper, app.BaseApp, app.AnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil)
 		if err != nil {
 			panic(err)
 		}
@@ -1843,7 +1859,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, ctxProvider, app.encodingConfig.TxConfig, DefaultNodeHome)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.AnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome)
 		if err != nil {
 			panic(err)
 		}
@@ -1864,8 +1880,11 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 	rtr.PathPrefix("/swagger/").Handler(http.StripPrefix("/swagger/", staticServer))
 }
 
-func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
-	totalGasWanted := uint64(0)
+// checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of
+// the total gas by the txs in the block. The gas of a tx is either the gas estimate if it's an EVM tx,
+// or the gas wanted if it's a Cosmos tx.
+func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
+	totalGas, totalGasWanted := uint64(0), uint64(0)
 	nonzeroTxsCnt := 0
 	for _, tx := range txs {
 		decodedTx, err := app.txDecoder(tx)
@@ -1907,7 +1926,7 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 			gasWanted = feeTx.GetGas()
 		}
 
-		if int64(gasWanted) < 0 || int64(totalGasWanted) > math.MaxInt64-int64(gasWanted) {
+		if int64(gasWanted) < 0 || int64(totalGas) > math.MaxInt64-int64(gasWanted) {
 			return false
 		}
 
@@ -1916,7 +1935,20 @@ func (app *App) checkTotalBlockGasWanted(ctx sdk.Context, txs [][]byte) bool {
 		}
 
 		totalGasWanted += gasWanted
-		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGas) {
+
+		// If the gas estimate is set and at least 21k (the minimum gas needed for an EVM tx), use the gas estimate.
+		// Otherwise, use the gas wanted. Typically the gas estimate is set for EVM txs and not set for Cosmos txs.
+		if decodedTx.GetGasEstimate() >= MinGasEVMTx {
+			totalGas += decodedTx.GetGasEstimate()
+		} else {
+			totalGas += gasWanted
+		}
+
+		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGasWanted) {
+			return false
+		}
+
+		if totalGas > uint64(ctx.ConsensusParams().Block.MaxGas) {
 			if nonzeroTxsCnt > int(ctx.ConsensusParams().Block.MinTxsInBlock) {
 				// early return
 				return false
@@ -1981,6 +2013,25 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 // test-only
 func (app *App) SetTxDecoder(txDecoder sdk.TxDecoder) {
 	app.txDecoder = txDecoder
+}
+
+func (app *App) inplacetestnetInitializer(pk cryptotypes.PubKey) error {
+	app.forkInitializer = func(ctx sdk.Context) {
+		val, _ := stakingtypes.NewValidator(
+			sdk.ValAddress(pk.Address()), pk, stakingtypes.NewDescription("test", "test", "test", "test", "test"))
+		app.StakingKeeper.SetValidator(ctx, val)
+		_ = app.StakingKeeper.SetValidatorByConsAddr(ctx, val)
+		app.StakingKeeper.SetValidatorByPowerIndex(ctx, val)
+		_ = app.SlashingKeeper.AddPubkey(ctx, pk)
+		app.SlashingKeeper.SetValidatorSigningInfo(
+			ctx,
+			sdk.ConsAddress(pk.Address()),
+			slashingtypes.NewValidatorSigningInfo(
+				sdk.ConsAddress(pk.Address()), 0, 0, time.Unix(0, 0), false, 0,
+			),
+		)
+	}
+	return nil
 }
 
 func init() {

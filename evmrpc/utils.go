@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
@@ -229,4 +230,26 @@ func getTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig
 		}
 	}
 	return txHashes
+}
+
+type ParallelRunner struct {
+	Done  sync.WaitGroup
+	Queue chan func()
+}
+
+func NewParallelRunner(cnt int, capacity int) *ParallelRunner {
+	pr := &ParallelRunner{
+		Done:  sync.WaitGroup{},
+		Queue: make(chan func(), capacity),
+	}
+	pr.Done.Add(cnt)
+	for i := 0; i < cnt; i++ {
+		go func() {
+			defer pr.Done.Done()
+			for f := range pr.Queue {
+				f()
+			}
+		}()
+	}
+	return pr
 }

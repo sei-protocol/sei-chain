@@ -350,7 +350,7 @@ func GetEvmTxIndex(txs tmtypes.Txs, txIndex uint32, decoder sdk.TxDecoder, recei
 func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretypes.ResultBlock, receiptChecker func(common.Hash) bool) (map[string]interface{}, error) {
 	blockHash := block.BlockID.Hash
 	bh := common.HexToHash(blockHash.String())
-	logs := keeper.GetLogsForTx(receipt)
+	logs := keeper.GetLogsForTx(receipt, 0)
 	for _, log := range logs {
 		log.BlockHash = bh
 	}

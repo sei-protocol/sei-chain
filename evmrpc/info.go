@@ -274,7 +274,7 @@ func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGa
 			continue
 		}
 		// okay to get from latest since receipt is immutable
-		receipt, err := i.keeper.GetReceipt(i.ctxProvider(LatestCtxHeight), ethtx.Hash())
+		receipt, err := i.keeper.GetReceiptWithRetry(i.ctxProvider(LatestCtxHeight), ethtx.Hash(), 3)
 		if err != nil {
 			return 0, err
 		}

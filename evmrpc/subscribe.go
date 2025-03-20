@@ -8,12 +8,14 @@ import (
 	"sync"
 	"time"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -38,7 +40,7 @@ type SubscriptionConfig struct {
 	newHeadLimit         uint64
 }
 
-func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, filterConfig *FilterConfig, connectionType ConnectionType) *SubscriptionAPI {
+func NewSubscriptionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, filterConfig *FilterConfig, connectionType ConnectionType) *SubscriptionAPI {
 	logFetcher.filterConfig = filterConfig
 	api := &SubscriptionAPI{
 		tmClient:            tmClient,
@@ -59,7 +61,10 @@ func NewSubscriptionAPI(tmClient rpcclient.Client, logFetcher *LogFetcher, subsc
 		}()
 		for {
 			res := <-subCh
-			ethHeader, err := encodeTmHeader(res.Data.(tmtypes.EventDataNewBlockHeader))
+			eventHeader := res.Data.(tmtypes.EventDataNewBlockHeader)
+			ctx := ctxProvider(eventHeader.Header.Height)
+			baseFeePerGas := k.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt()
+			ethHeader, err := encodeTmHeader(eventHeader, baseFeePerGas)
 			if err != nil {
 				fmt.Printf("error encoding new head event %#v due to %s\n", res.Data, err)
 				continue
@@ -147,6 +152,20 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	if filter == nil {
 		filter = &filters.FilterCriteria{}
 	}
+	// when fromBlock is 0 and toBlock is latest, adjust the filter
+	// to unbounded filter
+	if filter.FromBlock != nil && filter.FromBlock.Int64() == 0 &&
+		filter.ToBlock != nil && filter.ToBlock.Int64() < 0 {
+		latest := big.NewInt(a.logFetcher.ctxProvider(LatestCtxHeight).BlockHeight())
+		unboundedFilter := &filters.FilterCriteria{
+			FromBlock: latest, // set to latest block height
+			ToBlock:   nil,    // set to nil to continue listening
+			Addresses: filter.Addresses,
+			Topics:    filter.Topics,
+		}
+		filter = unboundedFilter
+	}
+
 	rpcSub := notifier.CreateSubscription()
 
 	if filter.BlockHash != nil {
@@ -183,7 +202,6 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 			}
 			begin = lastToHeight
 			filter.FromBlock = big.NewInt(lastToHeight + 1)
-
 			time.Sleep(SleepInterval)
 		}
 	}()
@@ -247,19 +265,20 @@ func (s *SubscriptionManager) Unsubscribe(ctx context.Context, id SubscriberID) 
 
 func encodeTmHeader(
 	header tmtypes.EventDataNewBlockHeader,
+	baseFee *big.Int,
 ) (map[string]interface{}, error) {
 	blockHash := common.HexToHash(header.Header.Hash().String())
 	number := big.NewInt(header.Header.Height)
 	miner := common.HexToAddress(header.Header.ProposerAddress.String())
-	gasLimit, gasWanted := int64(0), int64(0)
+	gasWanted := int64(0)
 	lastHash := common.HexToHash(header.Header.LastBlockID.Hash.String())
 	resultHash := common.HexToHash(header.Header.LastResultsHash.String())
 	appHash := common.HexToHash(header.Header.AppHash.String())
 	txHash := common.HexToHash(header.Header.DataHash.String())
 	for _, txRes := range header.ResultFinalizeBlock.TxResults {
-		gasLimit += txRes.GasWanted
 		gasWanted += txRes.GasUsed
 	}
+	gasLimit := uint64(header.ResultFinalizeBlock.ConsensusParamUpdates.Block.MaxGas)
 	result := map[string]interface{}{
 		"difficulty":            (*hexutil.Big)(utils.Big0), // inapplicable to Sei
 		"extraData":             hexutil.Bytes{},            // inapplicable to Sei
@@ -279,8 +298,8 @@ func encodeTmHeader(
 		"excessBlobGas":         hexutil.Uint64(0), // inapplicable to Sei
 		"parentBeaconBlockRoot": common.Hash{},     // inapplicable to Sei
 		"hash":                  blockHash,
-		"withdrawlsRoot":        common.Hash{},     // inapplicable to Sei
-		"baseFeePerGas":         hexutil.Uint64(0), // inapplicable to Sei
+		"withdrawlsRoot":        common.Hash{}, // inapplicable to Sei
+		"baseFeePerGas":         (*hexutil.Big)(baseFee),
 		"withdrawalsRoot":       common.Hash{},     // inapplicable to Sei
 		"blobGasUsed":           hexutil.Uint64(0), // inapplicable to Sei
 	}
