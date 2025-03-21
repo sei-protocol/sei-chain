@@ -43,6 +43,9 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 	}
 	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
+		if sdkCtx.BlockHeight() < *block {
+			return nil, errors.New("cannot query future blocks")
+		}
 		sdkCtx = a.ctxProvider(*block)
 		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
 			return nil, err
@@ -61,6 +64,9 @@ func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrO
 	}
 	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
+		if sdkCtx.BlockHeight() < *block {
+			return nil, errors.New("cannot query future blocks")
+		}
 		sdkCtx = a.ctxProvider(*block)
 		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
 			return nil, err
@@ -79,6 +85,9 @@ func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hex
 	}
 	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
+		if sdkCtx.BlockHeight() < *block {
+			return nil, errors.New("cannot query future blocks")
+		}
 		sdkCtx = a.ctxProvider(*block)
 		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
 			return nil, err
