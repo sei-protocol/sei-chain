@@ -1,16 +1,20 @@
-package app
+package mev
 
 import (
+	"context"
+	"encoding/json"
+
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/spf13/cast"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
 
-const pluginObjectName = "HandlerInstance"
+const PluginObjectName = "HandlerInstance"
 
 type MEVHandler interface {
 	Handle(ctx sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error)
+	RPCSubmission(ctx context.Context, req json.RawMessage) (res json.RawMessage, err error)
 }
 
 const (

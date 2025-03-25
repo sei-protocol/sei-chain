@@ -114,6 +114,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/mev"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
@@ -380,7 +381,7 @@ type App struct {
 
 	forkInitializer func(sdk.Context)
 
-	mevHandler MEVHandler
+	mevHandler mev.MEVHandler
 }
 
 type AppOption func(*App)
@@ -652,14 +653,14 @@ func New(
 	check(err, "reading genesis import config")
 	app.genesisImportConfig = genesisImportConfig
 
-	mevConfig, err := ReadMevConfig(appOpts)
+	mevConfig, err := mev.ReadMevConfig(appOpts)
 	check(err, "reading mev config")
 	if mevConfig.HandlerPluginPath != "" {
 		p, err := plugin.Open(mevConfig.HandlerPluginPath)
 		check(err, "loading mev plugin")
-		h, err := p.Lookup(pluginObjectName)
+		h, err := p.Lookup(mev.PluginObjectName)
 		check(err, "looking up mev handler")
-		typedHandler, ok := h.(MEVHandler)
+		typedHandler, ok := h.(mev.MEVHandler)
 		if !ok {
 			panic("MEV handler does not implement MEVHandler interface")
 		}
@@ -1865,7 +1866,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
 
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.AnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.AnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil, app.mevHandler)
 		if err != nil {
 			panic(err)
 		}
