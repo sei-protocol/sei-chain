@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/ethereum/go-ethereum/common/math"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
 // Effective gas price is the smaller of base fee + tip limit vs total fee limit
 func EffectiveGasPrice(baseFee, feeCap, tipCap *big.Int) *big.Int {
-	return math.BigMin(new(big.Int).Add(tipCap, baseFee), feeCap)
+	gp := new(big.Int).Add(tipCap, baseFee)
+	if gp.Cmp(feeCap) < 0 {
+		return gp
+	}
+	return feeCap
 }
 
 // Convert a value with the provided converter and set it using the provided setter
