@@ -1865,7 +1865,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
 
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.AnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, &app.WasmKeeper, app.BaseApp, app.AnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil)
 		if err != nil {
 			panic(err)
 		}
