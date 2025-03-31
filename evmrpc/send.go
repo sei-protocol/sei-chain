@@ -77,7 +77,6 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	if err = txBuilder.SetMsgs(msg); err != nil {
 		return
 	}
-	fmt.Printf("DEBUG: [SendRawTransaction] setting gas estimate of %+v on tx builder\n", gasUsedEstimate)
 	txBuilder.SetGasEstimate(gasUsedEstimate)
 	txbz, encodeErr := s.txConfig.TxEncoder()(txBuilder.GetTx())
 	if encodeErr != nil {

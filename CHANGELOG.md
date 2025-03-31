@@ -27,6 +27,22 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v6.0.5
+sei-chain
+* [#2100](https://github.com/sei-protocol/sei-chain/pull/2100) Refactor RPC log logic
+* [#2092](https://github.com/sei-protocol/sei-chain/pull/2092) Integrate with MaxGasWanted
+
+sei-cosmos
+* [#567](https://github.com/sei-protocol/sei-cosmos/pull/567) Do no use legacy marshaling on key exports
+
+sei-tendermint
+* [#271](https://github.com/sei-protocol/sei-tendermint/pull/271) Use txs from SafeGetTxsByKeys
+* [#269](https://github.com/sei-protocol/sei-tendermint/pull/269) Make missing txs check atomic
+* [#267](https://github.com/sei-protocol/sei-tendermint/pull/267) Add a hard max gas wanted at 50mil gas as a consensus param
+
+sei-db
+* [#82](https://github.com/sei-protocol/sei-db/pull/82) Improve SeiDB replay&restart time by 2x
+
 ## v6.0.4
 sei-chain
 * [#2091](https://github.com/sei-protocol/sei-chain/pull/2091) Fix RPC subscription fields

@@ -1757,6 +1757,7 @@ func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, tx
 				MaxBytes:      endBlockResp.ConsensusParamUpdates.Block.MaxBytes,
 				MaxGas:        endBlockResp.ConsensusParamUpdates.Block.MaxGas,
 				MinTxsInBlock: endBlockResp.ConsensusParamUpdates.Block.MinTxsInBlock,
+				MaxGasWanted:  endBlockResp.ConsensusParamUpdates.Block.MaxGasWanted,
 			},
 			Evidence: &tmproto.EvidenceParams{
 				MaxAgeNumBlocks: endBlockResp.ConsensusParamUpdates.Evidence.MaxAgeNumBlocks,
@@ -1919,7 +1920,7 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 // the total gas by the txs in the block. The gas of a tx is either the gas estimate if it's an EVM tx,
 // or the gas wanted if it's a Cosmos tx.
 func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
-	totalGas := uint64(0)
+	totalGas, totalGasWanted := uint64(0), uint64(0)
 	nonzeroTxsCnt := 0
 	for _, tx := range txs {
 		decodedTx, err := app.txDecoder(tx)
@@ -1969,12 +1970,18 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 			nonzeroTxsCnt++
 		}
 
+		totalGasWanted += gasWanted
+
 		// If the gas estimate is set and at least 21k (the minimum gas needed for an EVM tx), use the gas estimate.
 		// Otherwise, use the gas wanted. Typically the gas estimate is set for EVM txs and not set for Cosmos txs.
 		if decodedTx.GetGasEstimate() >= MinGasEVMTx {
 			totalGas += decodedTx.GetGasEstimate()
 		} else {
 			totalGas += gasWanted
+		}
+
+		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGasWanted) {
+			return false
 		}
 
 		if totalGas > uint64(ctx.ConsensusParams().Block.MaxGas) {
