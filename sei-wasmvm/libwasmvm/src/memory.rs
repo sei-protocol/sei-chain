@@ -79,7 +79,11 @@ impl U8SliceView {
         match source {
             Some(data) => Self {
                 is_none: false,
-                ptr: data.as_ptr(),
+                ptr: if data.is_empty() {
+                    std::ptr::null::<u8>()
+                } else {
+                    data.as_ptr()
+                },
                 len: data.len(),
             },
             None => Self {
