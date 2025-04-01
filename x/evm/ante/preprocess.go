@@ -58,7 +58,7 @@ func NewEVMPreprocessDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accou
 //nolint:revive
 func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
-	if err := Preprocess(ctx, msg); err != nil {
+	if err := Preprocess(ctx, msg, p.evmKeeper.ChainID(ctx)); err != nil {
 		return ctx, err
 	}
 
@@ -118,7 +118,7 @@ func (p *EVMPreprocessDecorator) IsAccountBalancePositive(ctx sdk.Context, seiAd
 }
 
 // stateless
-func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) error {
+func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, chainID *big.Int) error {
 	if msgEVMTransaction.Derived != nil {
 		if msgEVMTransaction.Derived.PubKey == nil {
 			// this means the message has `Derived` set from the outside, in which case we should reject
@@ -152,7 +152,9 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 	}
 
 	ethTx := ethtypes.NewTx(txData.AsEthereumData())
-	chainID := ethTx.ChainId()
+	if ethTx.Type() != ethtypes.LegacyTxType {
+		chainID = ethTx.ChainId()
+	}
 	chainCfg := evmtypes.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	version := GetVersion(ctx, ethCfg)
@@ -171,7 +173,7 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 	}
 	evmAddr, seiAddr, seiPubkey, err := helpers.GetAddresses(V, R, S, txHash)
 	if err != nil {
-		return err
+		return sdkerrors.ErrInvalidChainID
 	}
 	msgEVMTransaction.Derived = &derived.Derived{
 		SenderEVMAddr: evmAddr,
