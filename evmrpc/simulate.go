@@ -79,7 +79,7 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args export.Transa
 		bNrOrHash = *blockNrOrHash
 	}
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
-	acl, gasUsed, vmerr, err := export.AccessList(ctx, s.backend, bNrOrHash, args)
+	acl, gasUsed, vmerr, err := export.AccessList(ctx, s.backend, bNrOrHash, args, nil)
 	if err != nil {
 		return nil, err
 	}

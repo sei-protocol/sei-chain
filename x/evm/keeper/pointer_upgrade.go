@@ -103,10 +103,10 @@ func (k *Keeper) UpsertERCPointer(
 	if exists {
 		var ret []byte
 		contractAddr = existingAddr
-		ret, remainingGas, err = evm.GetDeploymentCode(vm.AccountRef(evmModuleAddress), bin, suppliedGas, utils.Big0, existingAddr)
+		ret, remainingGas, err = evm.GetDeploymentCode(evmModuleAddress, bin, suppliedGas, utils.Big0, existingAddr)
 		k.SetCode(ctx, contractAddr, ret)
 	} else {
-		_, contractAddr, remainingGas, err = evm.Create(vm.AccountRef(evmModuleAddress), bin, suppliedGas, uint256.NewInt(0))
+		_, contractAddr, remainingGas, err = evm.Create(evmModuleAddress, bin, suppliedGas, uint256.NewInt(0))
 	}
 	if err != nil {
 		return
