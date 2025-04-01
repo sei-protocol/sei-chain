@@ -282,6 +282,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 		Header_: header,
 		Txs:     txs,
 	}
+	block.OverwriteHash(common.BytesToHash(tmBlock.BlockID.Hash))
 	return block, nil
 }
 
