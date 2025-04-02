@@ -1,12 +1,14 @@
 package ante
 
 import (
+	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	"github.com/ethereum/go-ethereum/core"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -56,7 +58,8 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	if ver >= derived.Cancun && len(txData.GetBlobHashes()) > 0 {
 		// For now we are simply assuming excessive blob gas is 0. In the future we might change it to be
 		// dynamic based on prior block usage.
-		if txData.GetBlobFeeCap().Cmp(eip4844.CalcBlobFee(0)) < 0 {
+		chainConfig := evmtypes.DefaultChainConfig().EthereumConfig(fc.evmKeeper.ChainID(ctx))
+		if txData.GetBlobFeeCap().Cmp(eip4844.CalcBlobFee(chainConfig, &ethtypes.Header{Time: uint64(ctx.BlockTime().Unix())})) < 0 {
 			return ctx, sdkerrors.ErrInsufficientFee
 		}
 	}
@@ -72,7 +75,8 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	}
 	cfg := evmtypes.DefaultChainConfig().EthereumConfig(fc.evmKeeper.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(emsg)
-	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}, fc.evmKeeper.CustomPrecompiles())
+	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, fc.evmKeeper.CustomPrecompiles())
+	evmInstance.SetTxContext(txCtx)
 	st := core.NewStateTransition(evmInstance, emsg, &gp, true)
 	// run stateless checks before charging gas (mimicking Geth behavior)
 	if !ctx.IsCheckTx() && !ctx.IsReCheckTx() {
@@ -83,6 +87,11 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 		}
 	}
 	if err := st.BuyGas(); err != nil {
+		ctx.Logger().Error(fmt.Sprintf("TONYDEBUG: insufficient balance error %s", err.Error()))
+		ctx.Logger().Error(fmt.Sprintf("TONYDEBUG: account %s has a balance of %s at height %d", emsg.From.Hex(), fc.evmKeeper.GetBalance(
+			ctx, fc.evmKeeper.GetSeiAddressOrDefault(ctx, emsg.From),
+		), ctx.BlockHeight()))
+		ctx.Logger().Error(fmt.Sprintf("TONYDEBUG: gas limit is %d, gas price is %s, gas fee cap is %s, value is %s", emsg.GasLimit, emsg.GasPrice, emsg.GasFeeCap, emsg.Value))
 		return ctx, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, err.Error())
 	}
 	if !ctx.IsCheckTx() && !ctx.IsReCheckTx() {

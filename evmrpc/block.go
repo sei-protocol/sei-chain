@@ -19,7 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/lib/ethapi"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -335,7 +335,7 @@ func EncodeTmBlock(
 				if !fullTx {
 					transactions = append(transactions, hash)
 				} else {
-					newTx := ethapi.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
+					newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
 					transactions = append(transactions, newTx)
 				}
 			case *wasmtypes.MsgExecuteContract:
@@ -352,7 +352,7 @@ func EncodeTmBlock(
 				} else {
 					ti := uint64(receipt.TransactionIndex)
 					to := k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
-					transactions = append(transactions, &ethapi.RPCTransaction{
+					transactions = append(transactions, &export.RPCTransaction{
 						BlockHash:        &blockhash,
 						BlockNumber:      (*hexutil.Big)(number),
 						From:             common.HexToAddress(receipt.From),
@@ -370,7 +370,7 @@ func EncodeTmBlock(
 				if !fullTx {
 					transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 				} else {
-					rpcTx := &ethapi.RPCTransaction{
+					rpcTx := &export.RPCTransaction{
 						BlockHash:   &blockhash,
 						BlockNumber: (*hexutil.Big)(number),
 						Hash:        th,

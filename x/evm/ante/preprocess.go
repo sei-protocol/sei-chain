@@ -38,10 +38,12 @@ var BigBalanceThresholdMinus1 *big.Int = new(big.Int).SetUint64(BalanceThreshold
 var SignerMap = map[derived.SignerVersion]func(*big.Int) ethtypes.Signer{
 	derived.London: ethtypes.NewLondonSigner,
 	derived.Cancun: ethtypes.NewCancunSigner,
+	derived.Prague: ethtypes.NewPragueSigner,
 }
 var AllowedTxTypes = map[derived.SignerVersion][]uint8{
 	derived.London: {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType},
 	derived.Cancun: {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType, ethtypes.BlobTxType},
+	derived.Prague: {ethtypes.LegacyTxType, ethtypes.AccessListTxType, ethtypes.DynamicFeeTxType, ethtypes.BlobTxType, ethtypes.SetCodeTxType},
 }
 
 type EVMPreprocessDecorator struct {
@@ -56,7 +58,7 @@ func NewEVMPreprocessDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accou
 //nolint:revive
 func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
-	if err := Preprocess(ctx, msg); err != nil {
+	if err := Preprocess(ctx, msg, p.evmKeeper.ChainID(ctx)); err != nil {
 		return ctx, err
 	}
 
@@ -116,7 +118,7 @@ func (p *EVMPreprocessDecorator) IsAccountBalancePositive(ctx sdk.Context, seiAd
 }
 
 // stateless
-func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) error {
+func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, chainID *big.Int) error {
 	if msgEVMTransaction.Derived != nil {
 		if msgEVMTransaction.Derived.PubKey == nil {
 			// this means the message has `Derived` set from the outside, in which case we should reject
@@ -150,7 +152,9 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 	}
 
 	ethTx := ethtypes.NewTx(txData.AsEthereumData())
-	chainID := ethTx.ChainId()
+	if ethTx.Type() != ethtypes.LegacyTxType {
+		chainID = ethTx.ChainId()
+	}
 	chainCfg := evmtypes.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	version := GetVersion(ctx, ethCfg)
@@ -169,7 +173,7 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 	}
 	evmAddr, seiAddr, seiPubkey, err := helpers.GetAddresses(V, R, S, txHash)
 	if err != nil {
-		return err
+		return sdkerrors.ErrInvalidChainID
 	}
 	msgEVMTransaction.Derived = &derived.Derived{
 		SenderEVMAddr: evmAddr,
@@ -258,6 +262,8 @@ func GetVersion(ctx sdk.Context, ethCfg *params.ChainConfig) derived.SignerVersi
 	blockNum := big.NewInt(ctx.BlockHeight())
 	ts := uint64(ctx.BlockTime().Unix())
 	switch {
+	case ethCfg.IsPrague(blockNum, ts):
+		return derived.Prague
 	case ethCfg.IsCancun(blockNum, ts):
 		return derived.Cancun
 	default:

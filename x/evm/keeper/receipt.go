@@ -145,7 +145,7 @@ func (k *Keeper) WriteReceipt(
 	vmError string,
 ) (*types.Receipt, error) {
 	ethLogs := stateDB.GetAllLogs()
-	bloom := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: ethLogs}})
+	bloom := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: ethLogs})
 	receipt := &types.Receipt{
 		TxType:            txType,
 		CumulativeGasUsed: uint64(0),
