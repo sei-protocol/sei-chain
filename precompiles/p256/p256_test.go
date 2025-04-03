@@ -48,7 +48,7 @@ func TestPrecompile_verify(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			inputData := make([]byte, 0, 32*5) // Pre-allocate for efficiency
+			inputData := make([]byte, 0, 32*5)
 			inputData = append(inputData, common.LeftPadBytes(test.hash, 32)...)
 			inputData = append(inputData, common.LeftPadBytes(test.r.Bytes(), 32)...)
 			inputData = append(inputData, common.LeftPadBytes(test.s.Bytes(), 32)...)
