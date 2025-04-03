@@ -19,3 +19,16 @@ func TestGetLogs(t *testing.T) {
 		},
 	)
 }
+
+func TestGetLogsRangeTooWide(t *testing.T) {
+	SetupTestServer([][][]byte{{}}, erc20Initializer()).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("eth", port, "getLogs", map[string]interface{}{
+				"fromBlock": "0x1",
+				"toBlock":   "0x7D2",
+				"address":   erc20Addr.Hex(),
+			})
+			require.Equal(t, res["error"].(map[string]interface{})["message"].(string), "a maximum of 2000 blocks worth of logs may be requested at a time")
+		},
+	)
+}

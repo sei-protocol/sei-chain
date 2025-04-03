@@ -548,12 +548,12 @@ func init() {
 	goodConfig.HTTPPort = TestPort
 	goodConfig.WSPort = TestWSPort
 	goodConfig.FilterTimeout = 500 * time.Millisecond
-	goodConfig.MaxLogNoBlock = 4
+	goodConfig.MaxLogNoBlock = 10
 	infoLog, err := log.NewDefaultLogger("text", "info")
 	if err != nil {
 		panic(err)
 	}
-	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.AnteHandler, ctxProvider, TxConfig, "", isPanicTxFunc)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.AnteHandler, ctxProvider, TxConfig, "", isPanicTxFunc, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -565,7 +565,7 @@ func init() {
 	badConfig := evmrpc.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BaseApp, testApp.AnteHandler, ctxProvider, TxConfig, "", nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BaseApp, testApp.AnteHandler, ctxProvider, TxConfig, "", nil, nil)
 	if err != nil {
 		panic(err)
 	}
