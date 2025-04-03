@@ -19,7 +19,7 @@ const (
 
 const (
 	P256VerifyAddress = "0x0000000000000000000000000000000000001011"
-	GasCostPerByte    = 100
+	GasCostPerByte    = 300
 )
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
@@ -67,6 +67,8 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	return
 }
 
+// verify verifies the secp256r1 signature
+// Implements https://github.com/ethereum/RIPs/blob/master/RIPS/rip-7212.md
 func (p PrecompileExecutor) verify(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address) (ret []byte, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
@@ -81,11 +83,13 @@ func (p PrecompileExecutor) verify(ctx sdk.Context, method *abi.Method, args []i
 		return
 	}
 	input := args[0].([]byte)
+
 	// Required input length is 160 bytes
 	const p256VerifyInputLength = 160
 	// Check the input length
 	if len(input) != p256VerifyInputLength {
 		// Input length is invalid
+		rerr = errors.New("invalid input length")
 		return
 	}
 
@@ -101,7 +105,6 @@ func (p PrecompileExecutor) verify(ctx sdk.Context, method *abi.Method, args []i
 		return
 	} else {
 		// Signature is invalid
-		rerr = errors.New("invalid signature")
 		return
 	}
 }
