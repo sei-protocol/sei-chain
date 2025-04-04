@@ -85,6 +85,12 @@ type Config struct {
 
 	// test api enables certain override apis for integration test situations
 	EnableTestAPI bool `mapstructure:"enable_test_api"`
+
+	// The EVM tracer to use when doing node synchronization, applies to
+	// all block produced but traces only EVM transactions.
+	//
+	// Refer to x/evm/tracers/registry.go#GlobalLiveTracerRegistry for registered tracers.
+	LiveEVMTracer string `mapstructure:"live_evm_tracer"`
 }
 
 var DefaultConfig = Config{
@@ -109,6 +115,7 @@ var DefaultConfig = Config{
 	MaxBlocksForLog:         2000,
 	MaxSubscriptionsNewHead: 10000,
 	EnableTestAPI:           false,
+	LiveEVMTracer:           "",
 }
 
 const (
@@ -133,6 +140,7 @@ const (
 	flagMaxBlocksForLog         = "evm.max_blocks_for_log"
 	flagMaxSubscriptionsNewHead = "evm.max_subscriptions_new_head"
 	flagEnableTestAPI           = "evm.enable_test_api"
+	flagLiveEVMTracer           = "evm.live_evm_tracer"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -240,6 +248,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagEnableTestAPI); v != nil {
 		if cfg.EnableTestAPI, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagLiveEVMTracer); v != nil {
+		if cfg.LiveEVMTracer, err = cast.ToStringE(v); err != nil {
 			return cfg, err
 		}
 	}
