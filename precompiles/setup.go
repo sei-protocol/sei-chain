@@ -256,3 +256,7 @@ func addPrecompileToVM(p IPrecompile) {
 	vm.PrecompiledAddressesBerlin = append(vm.PrecompiledAddressesBerlin, p.Address())
 	vm.PrecompiledAddressesCancun = append(vm.PrecompiledAddressesCancun, p.Address())
 }
+
+var PrecompileLastUpgrade = map[string]int64{
+	bank.BankAddress: 1,
+}
