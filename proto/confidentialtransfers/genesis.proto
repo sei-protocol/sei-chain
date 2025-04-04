@@ -1,0 +1,28 @@
+syntax = "proto3";
+package seiprotocol.seichain.confidentialtransfers;
+
+import "gogoproto/gogo.proto";
+import "confidentialtransfers/params.proto";
+import "confidentialtransfers/confidential.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types";
+
+// GenesisState defines the confidential module's genesis state.
+message GenesisState {
+  // params defines the parameters of the module.
+  Params params = 1 [ (gogoproto.nullable) = false ];
+
+  // accounts is an array of confidential transfer accounts
+  repeated GenesisCtAccount accounts = 2 [ (gogoproto.nullable) = false ];
+
+  // TODO: consider adding total supply
+}
+
+message GenesisCtAccount {
+
+  // account key
+  bytes key = 1;
+
+  // confidential transfer account
+  CtAccount account = 2 [ (gogoproto.nullable) = false ];
+}
