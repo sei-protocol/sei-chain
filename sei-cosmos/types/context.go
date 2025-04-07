@@ -67,6 +67,8 @@ type Context struct {
 	txIndex      int
 
 	traceSpanContext context.Context
+
+	isTracing bool
 }
 
 // Proposed rename, not done to avoid API breakage
@@ -221,6 +223,10 @@ func (c Context) BlockHeader() tmproto.Header {
 
 func (c Context) TraceSpanContext() context.Context {
 	return c.traceSpanContext
+}
+
+func (c Context) IsTracing() bool {
+	return c.isTracing
 }
 
 // WithEventManager returns a Context with an updated tx priority
@@ -491,6 +497,11 @@ func (c Context) WithDeliverTxCallback(deliverTxCallback func(Context)) Context 
 
 func (c Context) WithExpireTxHandler(expireTxHandler func()) Context {
 	c.expireTxHandler = expireTxHandler
+	return c
+}
+
+func (c Context) WithIsTracing(it bool) Context {
+	c.isTracing = it
 	return c
 }
 

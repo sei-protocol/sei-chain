@@ -327,8 +327,8 @@ func (k Keeper) GetUpgradePlan(ctx sdk.Context) (plan types.Plan, havePlan bool)
 	return plan, true
 }
 
-// setDone marks this upgrade name as being done so the name can't be reused accidentally
-func (k Keeper) setDone(ctx sdk.Context, name string) {
+// SetDone marks this upgrade name as being done so the name can't be reused accidentally
+func (k Keeper) SetDone(ctx sdk.Context, name string) {
 	store := prefix.NewStore(ctx.KVStore(k.storeKey), []byte{types.DoneByte})
 	bz := make([]byte, 8)
 	binary.BigEndian.PutUint64(bz, uint64(ctx.BlockHeight()))
@@ -367,7 +367,7 @@ func (k Keeper) ApplyUpgrade(ctx sdk.Context, plan types.Plan) {
 	// This will prevent resubmission of upgrade msg after upgrade is already completed.
 	k.ClearIBCState(ctx, plan.Height)
 	k.ClearUpgradePlan(ctx)
-	k.setDone(ctx, plan.Name)
+	k.SetDone(ctx, plan.Name)
 }
 
 // IsSkipHeight checks if the given height is part of skipUpgradeHeights
