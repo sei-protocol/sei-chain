@@ -9,7 +9,7 @@ import (
 	ecommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/addr"
-	addrv520 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v520"
+	addrv552 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v552"
 	addrv555 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v555"
 	addrv562 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v562"
 	addrv575 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v575"
@@ -17,7 +17,6 @@ import (
 	addrv602 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v602"
 	addrv603 "github.com/sei-protocol/sei-chain/precompiles/addr/legacy/v603"
 	"github.com/sei-protocol/sei-chain/precompiles/bank"
-	bankv520 "github.com/sei-protocol/sei-chain/precompiles/bank/legacy/v520"
 	bankv552 "github.com/sei-protocol/sei-chain/precompiles/bank/legacy/v552"
 	bankv555 "github.com/sei-protocol/sei-chain/precompiles/bank/legacy/v555"
 	bankv562 "github.com/sei-protocol/sei-chain/precompiles/bank/legacy/v562"
@@ -28,63 +27,52 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/confidentialtransfers"
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
-	distrv520 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v520"
 	distrv552 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v552"
 	distrv555 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v555"
 	distrv562 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v562"
 	distrv580 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v580"
 	"github.com/sei-protocol/sei-chain/precompiles/gov"
-	govv520 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v520"
+	govv552 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v552"
 	govv555 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v555"
 	govv562 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v562"
 	govv580 "github.com/sei-protocol/sei-chain/precompiles/gov/legacy/v580"
 	"github.com/sei-protocol/sei-chain/precompiles/ibc"
-	ibcv501 "github.com/sei-protocol/sei-chain/precompiles/ibc/legacy/v501"
-	ibcv510 "github.com/sei-protocol/sei-chain/precompiles/ibc/legacy/v510"
-	ibcv520 "github.com/sei-protocol/sei-chain/precompiles/ibc/legacy/v520"
-	ibcv530 "github.com/sei-protocol/sei-chain/precompiles/ibc/legacy/v530"
+	ibcv552 "github.com/sei-protocol/sei-chain/precompiles/ibc/legacy/v552"
 	ibcv555 "github.com/sei-protocol/sei-chain/precompiles/ibc/legacy/v555"
 	ibcv562 "github.com/sei-protocol/sei-chain/precompiles/ibc/legacy/v562"
 	ibcv580 "github.com/sei-protocol/sei-chain/precompiles/ibc/legacy/v580"
 	ibcv602 "github.com/sei-protocol/sei-chain/precompiles/ibc/legacy/v602"
 	ibcv603 "github.com/sei-protocol/sei-chain/precompiles/ibc/legacy/v603"
 	"github.com/sei-protocol/sei-chain/precompiles/json"
-	jsonv520 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v520"
-	jsonv530 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v530"
+	jsonv552 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v552"
 	jsonv555 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v555"
 	jsonv562 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v562"
 	jsonv603 "github.com/sei-protocol/sei-chain/precompiles/json/legacy/v603"
 	"github.com/sei-protocol/sei-chain/precompiles/oracle"
-	oraclev520 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v520"
+	oraclev552 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v552"
 	oraclev555 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v555"
 	oraclev562 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v562"
 	oraclev600 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v600"
 	oraclev602 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v602"
 	oraclev603 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v603"
 	"github.com/sei-protocol/sei-chain/precompiles/pointer"
-	pointerv520 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v520"
-	pointerv522 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v522"
-	pointerv530 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v530"
+	pointerv552 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v552"
 	pointerv555 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v555"
 	pointerv562 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v562"
 	pointerv575 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v575"
 	pointerv580 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v580"
 	pointerv600 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v600"
 	"github.com/sei-protocol/sei-chain/precompiles/pointerview"
-	pointerviewv520 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v520"
+	pointerviewv552 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v552"
 	pointerviewv555 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v555"
 	pointerviewv562 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v562"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
-	stakingv520 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v520"
+	stakingv552 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v552"
 	stakingv555 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v555"
 	stakingv562 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v562"
 	stakingv580 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v580"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
-	wasmdv501 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v501"
-	wasmdv510 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v510"
-	wasmdv520 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v520"
-	wasmdv522 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v522"
-	wasmdv530 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v530"
+	wasmdv552 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v552"
 	wasmdv555 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v555"
 	wasmdv562 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v562"
 	wasmdv575 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v575"
@@ -131,11 +119,9 @@ func GetCustomPrecompiles(
 	accountKeeper common.AccountKeeper,
 	ctViewKeeper common.ConfidentialTransfersViewKeeper,
 	ctKeeper common.ConfidentialTransfersKeeper,
-
 ) map[ecommon.Address]VersionedPrecompiles {
 	bankVersions := VersionedPrecompiles{
 		latestUpgrade: check(bank.NewPrecompile(bankKeeper, bankSender, evmKeeper, accountKeeper)),
-		"v5.2.0":      check(bankv520.NewPrecompile(bankKeeper, evmKeeper)),
 		"v5.5.2":      check(bankv552.NewPrecompile(bankKeeper, evmKeeper)),
 		"v5.5.5":      check(bankv555.NewPrecompile(bankKeeper, evmKeeper)),
 		"v5.6.2":      check(bankv562.NewPrecompile(bankKeeper, evmKeeper, accountKeeper)),
@@ -146,11 +132,7 @@ func GetCustomPrecompiles(
 	}
 	wasmdVersions := VersionedPrecompiles{
 		latestUpgrade: check(wasmd.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)),
-		"v5.0.1":      check(wasmdv501.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)),
-		"v5.1.0":      check(wasmdv510.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)),
-		"v5.2.0":      check(wasmdv520.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)),
-		"v5.2.2":      check(wasmdv522.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)),
-		"v5.3.0":      check(wasmdv530.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)),
+		"v5.5.2":      check(wasmdv552.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)),
 		"v5.5.5":      check(wasmdv555.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)),
 		"v5.6.2":      check(wasmdv562.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)),
 		"v5.7.5":      check(wasmdv575.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)),
@@ -159,15 +141,14 @@ func GetCustomPrecompiles(
 	}
 	jsonVersions := VersionedPrecompiles{
 		latestUpgrade: check(json.NewPrecompile()),
-		"v5.2.0":      check(jsonv520.NewPrecompile()),
-		"v5.3.0":      check(jsonv530.NewPrecompile()),
+		"v5.5.2":      check(jsonv552.NewPrecompile()),
 		"v5.5.5":      check(jsonv555.NewPrecompile()),
 		"v5.6.2":      check(jsonv562.NewPrecompile()),
 		"v6.0.3":      check(jsonv603.NewPrecompile()),
 	}
 	addrVersions := VersionedPrecompiles{
 		latestUpgrade: check(addr.NewPrecompile(evmKeeper, bankKeeper, accountKeeper)),
-		"v5.2.0":      check(addrv520.NewPrecompile(evmKeeper)),
+		"v5.5.2":      check(addrv552.NewPrecompile(evmKeeper)),
 		"v5.5.5":      check(addrv555.NewPrecompile(evmKeeper)),
 		"v5.6.2":      check(addrv562.NewPrecompile(evmKeeper)),
 		"v5.7.5":      check(addrv575.NewPrecompile(evmKeeper, bankKeeper, accountKeeper)),
@@ -177,21 +158,20 @@ func GetCustomPrecompiles(
 	}
 	stakingVersions := VersionedPrecompiles{
 		latestUpgrade: check(staking.NewPrecompile(stakingKeeper, stakingQuerier, evmKeeper, bankKeeper)),
-		"v5.2.0":      check(stakingv520.NewPrecompile(stakingKeeper, evmKeeper, bankKeeper)),
+		"v5.5.2":      check(stakingv552.NewPrecompile(stakingKeeper, evmKeeper, bankKeeper)),
 		"v5.5.5":      check(stakingv555.NewPrecompile(stakingKeeper, evmKeeper, bankKeeper)),
 		"v5.6.2":      check(stakingv562.NewPrecompile(stakingKeeper, evmKeeper, bankKeeper)),
 		"v5.8.0":      check(stakingv580.NewPrecompile(stakingKeeper, stakingQuerier, evmKeeper, bankKeeper)),
 	}
 	govVersions := VersionedPrecompiles{
 		latestUpgrade: check(gov.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
-		"v5.2.0":      check(govv520.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
+		"v5.5.2":      check(govv552.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
 		"v5.5.5":      check(govv555.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
 		"v5.6.2":      check(govv562.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
 		"v5.8.0":      check(govv580.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
 	}
 	distrVersions := VersionedPrecompiles{
 		latestUpgrade: check(distribution.NewPrecompile(distrKeeper, evmKeeper)),
-		"v5.2.0":      check(distrv520.NewPrecompile(distrKeeper, evmKeeper)),
 		"v5.5.2":      check(distrv552.NewPrecompile(distrKeeper, evmKeeper)),
 		"v5.5.5":      check(distrv555.NewPrecompile(distrKeeper, evmKeeper)),
 		"v5.6.2":      check(distrv562.NewPrecompile(distrKeeper, evmKeeper)),
@@ -199,7 +179,7 @@ func GetCustomPrecompiles(
 	}
 	oracleVersions := VersionedPrecompiles{
 		latestUpgrade: check(oracle.NewPrecompile(oracleKeeper, evmKeeper)),
-		"v5.2.0":      check(oraclev520.NewPrecompile(oracleKeeper, evmKeeper)),
+		"v5.5.2":      check(oraclev552.NewPrecompile(oracleKeeper, evmKeeper)),
 		"v5.5.5":      check(oraclev555.NewPrecompile(oracleKeeper, evmKeeper)),
 		"v5.6.2":      check(oraclev562.NewPrecompile(oracleKeeper, evmKeeper)),
 		"v6.0.0":      check(oraclev600.NewPrecompile(oracleKeeper, evmKeeper)),
@@ -208,10 +188,7 @@ func GetCustomPrecompiles(
 	}
 	ibcVersions := VersionedPrecompiles{
 		latestUpgrade: check(ibc.NewPrecompile(transferKeeper, evmKeeper, clientKeeper, connectionKeeper, channelKeeper)),
-		"v5.0.1":      check(ibcv501.NewPrecompile(transferKeeper, evmKeeper)),
-		"v5.1.0":      check(ibcv510.NewPrecompile(transferKeeper, evmKeeper)),
-		"v5.2.0":      check(ibcv520.NewPrecompile(transferKeeper, evmKeeper)),
-		"v5.3.0":      check(ibcv530.NewPrecompile(transferKeeper, evmKeeper, clientKeeper, connectionKeeper, channelKeeper)),
+		"v5.5.2":      check(ibcv552.NewPrecompile(transferKeeper, evmKeeper, clientKeeper, connectionKeeper, channelKeeper)),
 		"v5.5.5":      check(ibcv555.NewPrecompile(transferKeeper, evmKeeper, clientKeeper, connectionKeeper, channelKeeper)),
 		"v5.6.2":      check(ibcv562.NewPrecompile(transferKeeper, evmKeeper, clientKeeper, connectionKeeper, channelKeeper)),
 		"v5.8.0":      check(ibcv580.NewPrecompile(transferKeeper, evmKeeper, clientKeeper, connectionKeeper, channelKeeper)),
@@ -220,9 +197,7 @@ func GetCustomPrecompiles(
 	}
 	pointerVersions := VersionedPrecompiles{
 		latestUpgrade: check(pointer.NewPrecompile(evmKeeper, bankKeeper, wasmdViewKeeper)),
-		"v5.2.0":      check(pointerv520.NewPrecompile(evmKeeper, bankKeeper, wasmdViewKeeper)),
-		"v5.2.2":      check(pointerv522.NewPrecompile(evmKeeper, bankKeeper, wasmdViewKeeper)),
-		"v5.3.0":      check(pointerv530.NewPrecompile(evmKeeper, bankKeeper, wasmdViewKeeper)),
+		"v5.5.2":      check(pointerv552.NewPrecompile(evmKeeper, bankKeeper, wasmdViewKeeper)),
 		"v5.5.5":      check(pointerv555.NewPrecompile(evmKeeper, bankKeeper, wasmdViewKeeper)),
 		"v5.6.2":      check(pointerv562.NewPrecompile(evmKeeper, bankKeeper, wasmdViewKeeper)),
 		"v5.7.5":      check(pointerv575.NewPrecompile(evmKeeper, bankKeeper, wasmdViewKeeper)),
@@ -231,7 +206,7 @@ func GetCustomPrecompiles(
 	}
 	pointerviewVersions := VersionedPrecompiles{
 		latestUpgrade: check(pointerview.NewPrecompile(evmKeeper)),
-		"v5.2.0":      check(pointerviewv520.NewPrecompile(evmKeeper)),
+		"v5.5.2":      check(pointerviewv552.NewPrecompile(evmKeeper)),
 		"v5.5.5":      check(pointerviewv555.NewPrecompile(evmKeeper)),
 		"v5.6.2":      check(pointerviewv562.NewPrecompile(evmKeeper)),
 	}

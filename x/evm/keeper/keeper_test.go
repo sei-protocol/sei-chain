@@ -14,6 +14,16 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/precompiles/addr"
+	"github.com/sei-protocol/sei-chain/precompiles/distribution"
+	"github.com/sei-protocol/sei-chain/precompiles/gov"
+	"github.com/sei-protocol/sei-chain/precompiles/ibc"
+	"github.com/sei-protocol/sei-chain/precompiles/json"
+	"github.com/sei-protocol/sei-chain/precompiles/oracle"
+	"github.com/sei-protocol/sei-chain/precompiles/pointer"
+	"github.com/sei-protocol/sei-chain/precompiles/pointerview"
+	"github.com/sei-protocol/sei-chain/precompiles/staking"
+	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/testutil/keeper"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
@@ -261,7 +271,7 @@ func TestAddPendingNonce(t *testing.T) {
 }
 
 func TestGetCustomPrecompiles(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeperPrecompiles()
 	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(139936278), "v6.0.5")
 	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(129965597), "v6.0.3")
 	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(126326956), "v6.0.2")
@@ -278,6 +288,120 @@ func TestGetCustomPrecompiles(t *testing.T) {
 	for _, v := range ps {
 		require.Equal(t, "v6.0.5", v)
 	}
+	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(129965598))
+	for addr, v := range ps {
+		switch addr.Hex() {
+		case pointerview.PointerViewAddress:
+			require.Equal(t, "v5.6.2", v)
+		case distribution.DistrAddress:
+		case gov.GovAddress:
+		case staking.StakingAddress:
+			require.Equal(t, "v5.8.0", v)
+		case pointer.PointerAddress:
+		case wasmd.WasmdAddress:
+			require.Equal(t, "v6.0.0", v)
+		default:
+			require.Equal(t, "v6.0.3", v)
+		}
+	}
+	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(126326957))
+	for addr, v := range ps {
+		switch addr.Hex() {
+		case pointerview.PointerViewAddress:
+		case json.JSONAddress:
+			require.Equal(t, "v5.6.2", v)
+		case distribution.DistrAddress:
+		case gov.GovAddress:
+		case staking.StakingAddress:
+			require.Equal(t, "v5.8.0", v)
+		case pointer.PointerAddress:
+		case wasmd.WasmdAddress:
+			require.Equal(t, "v6.0.0", v)
+		default:
+			require.Equal(t, "v6.0.2", v)
+		}
+	}
+	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(119821527))
+	for a, v := range ps {
+		switch a.Hex() {
+		case json.JSONAddress:
+		case pointerview.PointerViewAddress:
+			require.Equal(t, "v5.6.2", v)
+		case distribution.DistrAddress:
+		case gov.GovAddress:
+		case staking.StakingAddress:
+		case ibc.IBCAddress:
+			require.Equal(t, "v5.8.0", v)
+		default:
+			require.Equal(t, "v6.0.0", v)
+		}
+	}
+	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(114945914))
+	for addr, v := range ps {
+		switch addr.Hex() {
+		case json.JSONAddress:
+		case pointerview.PointerViewAddress:
+			require.Equal(t, "v5.6.2", v)
+		case distribution.DistrAddress:
+		case ibc.IBCAddress:
+		case gov.GovAddress:
+		case staking.StakingAddress:
+			require.Equal(t, "v5.8.0", v)
+		default:
+			require.Equal(t, "v6.0.0", v)
+		}
+	}
+	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(107000673))
+	for a, v := range ps {
+		switch a.Hex() {
+		case addr.AddrAddress:
+			require.Equal(t, "v5.7.5", v)
+		case json.JSONAddress:
+		case oracle.OracleAddress:
+		case pointerview.PointerViewAddress:
+			require.Equal(t, "v5.6.2", v)
+		default:
+			require.Equal(t, "v5.8.0", v)
+		}
+	}
+	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(102491600))
+	for a, v := range ps {
+		switch a.Hex() {
+		case addr.AddrAddress:
+			require.Equal(t, "v5.7.5", v)
+		case json.JSONAddress:
+		case oracle.OracleAddress:
+		case pointerview.PointerViewAddress:
+			require.Equal(t, "v5.6.2", v)
+		default:
+			require.Equal(t, "v5.8.0", v)
+		}
+	}
+	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(94496768))
+	for a, v := range ps {
+		switch a.Hex() {
+		case addr.AddrAddress:
+		case pointer.PointerAddress:
+		case wasmd.WasmdAddress:
+			require.Equal(t, "v5.7.5", v)
+		default:
+			require.Equal(t, "v5.6.2", v)
+		}
+	}
+	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(89475839))
+	for _, v := range ps {
+		require.Equal(t, "v5.6.2", v)
+	}
+	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(84006015))
+	for _, v := range ps {
+		require.Equal(t, "v5.5.5", v)
+	}
+	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(79123882))
+	for _, v := range ps {
+		require.Equal(t, "v5.5.2", v)
+	}
+	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(73290489))
+	require.Len(t, ps, 0)
 }
 
 func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {

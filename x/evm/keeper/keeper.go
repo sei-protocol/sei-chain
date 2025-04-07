@@ -169,7 +169,7 @@ func (k *Keeper) CustomPrecompiles(ctx sdk.Context) map[common.Address]vm.Precom
 func (k *Keeper) GetCustomPrecompilesVersions(ctx sdk.Context) map[common.Address]string {
 	height := ctx.BlockHeight()
 	cp := make(map[common.Address]string, len(k.customPrecompiles))
-	for _, versioned := range k.customPrecompiles {
+	for addr, versioned := range k.customPrecompiles {
 		mostRecentUpgradeHeight := int64(-1)
 		for upgrade := range versioned {
 			upgradeHeight := k.upgradeKeeper.GetDoneHeight(ctx, upgrade)
@@ -179,6 +179,7 @@ func (k *Keeper) GetCustomPrecompilesVersions(ctx sdk.Context) map[common.Addres
 			}
 			if upgradeHeight > mostRecentUpgradeHeight {
 				mostRecentUpgradeHeight = upgradeHeight
+				cp[addr] = upgrade
 			}
 		}
 	}
