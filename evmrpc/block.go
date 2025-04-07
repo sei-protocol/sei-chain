@@ -335,7 +335,7 @@ func EncodeTmBlock(
 				if !fullTx {
 					transactions = append(transactions, hash)
 				} else {
-					newTx := ethapi.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
+					newTx := ethapi.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(len(transactions)), baseFeePerGas, chainConfig)
 					transactions = append(transactions, newTx)
 				}
 			case *wasmtypes.MsgExecuteContract:
@@ -350,7 +350,7 @@ func EncodeTmBlock(
 				if !fullTx {
 					transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 				} else {
-					ti := uint64(receipt.TransactionIndex)
+					ti := uint64(len(transactions))
 					to := k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
 					transactions = append(transactions, &ethapi.RPCTransaction{
 						BlockHash:        &blockhash,
@@ -388,6 +388,8 @@ func EncodeTmBlock(
 					rpcTx.To = &recipientEvmAddr
 					amt := m.Amount.AmountOf("usei").Mul(state.SdkUseiToSweiMultiplier)
 					rpcTx.Value = (*hexutil.Big)(amt.BigInt())
+					ti := uint64(len(transactions))
+					rpcTx.TransactionIndex = (*hexutil.Uint64)(&ti)
 					transactions = append(transactions, rpcTx)
 				}
 			}
