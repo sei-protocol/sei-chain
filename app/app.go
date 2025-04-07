@@ -631,7 +631,7 @@ func New(
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
 		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
-		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.ConfidentialTransfersKeeper)
+		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.ConfidentialTransfersKeeper, &app.UpgradeKeeper)
 	app.BankKeeper.RegisterRecipientChecker(app.EvmKeeper.CanAddressReceive)
 
 	bApp.SetPreCommitHandler(app.HandlePreCommit)
@@ -730,6 +730,7 @@ func New(
 
 	if enableCustomEVMPrecompiles {
 		customPrecompiles := precompiles.GetCustomPrecompiles(
+			LatestUpgrade,
 			&app.EvmKeeper,
 			app.BankKeeper,
 			bankkeeper.NewMsgServerImpl(app.BankKeeper),
@@ -748,8 +749,7 @@ func New(
 			app.ConfidentialTransfersKeeper,
 			ctkeeper.NewMsgServerImpl(app.ConfidentialTransfersKeeper),
 		)
-
-		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles)
+		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles, LatestUpgrade)
 	}
 
 	/****  Module Options ****/
@@ -1877,14 +1877,14 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
-		return app.GetCheckCtx()
+		return app.GetCheckCtx().WithIsTracing(true)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
 		app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
-		return app.GetCheckCtx()
+		return app.GetCheckCtx().WithIsTracing(true)
 	}
-	return ctx.WithIsEVM(true)
+	return ctx.WithIsEVM(true).WithIsTracing(true)
 }
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.

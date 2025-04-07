@@ -260,6 +260,26 @@ func TestAddPendingNonce(t *testing.T) {
 	require.NotContains(t, keyToNonce, tmtypes.TxKey{2})
 }
 
+func TestGetCustomPrecompiles(t *testing.T) {
+	k, ctx := keeper.MockEVMKeeper()
+	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(139936278), "v6.0.5")
+	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(129965597), "v6.0.3")
+	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(126326956), "v6.0.2")
+	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(119821526), "v6.0.1")
+	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(114945913), "v6.0.0")
+	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(107000672), "v5.9.0")
+	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(102491599), "v5.8.0")
+	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(94496767), "v5.7.5")
+	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(89475838), "v5.6.2")
+	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(84006014), "v5.5.5")
+	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(79123881), "v5.5.2")
+	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(73290488), "v3.9.0")
+	ps := k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(139936279))
+	for _, v := range ps {
+		require.Equal(t, "v6.0.5", v)
+	}
+}
+
 func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {
 	k, ctx := testkeeper.MockEVMKeeper()
 	chainID := k.ChainID(ctx)

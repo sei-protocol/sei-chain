@@ -381,12 +381,12 @@ func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexe
 	return statedb, emptyRelease, nil
 }
 
-func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, _ *ethtypes.Header, vmConfig *vm.Config, blockCtx *vm.BlockContext) *vm.EVM {
+func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, h *ethtypes.Header, vmConfig *vm.Config, blockCtx *vm.BlockContext) *vm.EVM {
 	txContext := core.NewEVMTxContext(msg)
 	if blockCtx == nil {
 		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(wasmd.IsWasmdCall(msg.To)), core.GasPool(b.RPCGasCap()))
 	}
-	return vm.NewEVM(*blockCtx, txContext, stateDB, b.ChainConfig(), *vmConfig, b.keeper.CustomPrecompiles())
+	return vm.NewEVM(*blockCtx, txContext, stateDB, b.ChainConfig(), *vmConfig, b.keeper.CustomPrecompiles(b.ctxProvider(h.Number.Int64())))
 }
 
 func (b *Backend) CurrentHeader() *ethtypes.Header {
@@ -442,8 +442,8 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 	return header
 }
 
-func (b *Backend) GetCustomPrecompiles(int64) map[common.Address]vm.PrecompiledContract {
-	return b.keeper.CustomPrecompiles()
+func (b *Backend) GetCustomPrecompiles(h int64) map[common.Address]vm.PrecompiledContract {
+	return b.keeper.CustomPrecompiles(b.ctxProvider(h))
 }
 
 type Engine struct {
