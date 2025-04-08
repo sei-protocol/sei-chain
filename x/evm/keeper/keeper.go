@@ -88,6 +88,7 @@ type Keeper struct {
 
 	customPrecompiles       map[common.Address]precompiles.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
+	latestUpgrade           string
 }
 
 type AddressNoncePair struct {
@@ -148,6 +149,7 @@ func NewKeeper(
 
 func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]precompiles.VersionedPrecompiles, latestUpgrade string) {
 	k.customPrecompiles = cp
+	k.latestUpgrade = latestUpgrade
 	k.latestCustomPrecompiles = make(map[common.Address]vm.PrecompiledContract, len(cp))
 	for addr, versioned := range cp {
 		k.latestCustomPrecompiles[addr] = versioned[latestUpgrade]
@@ -170,9 +172,13 @@ func (k *Keeper) GetCustomPrecompilesVersions(ctx sdk.Context) map[common.Addres
 	height := ctx.BlockHeight()
 	cp := make(map[common.Address]string, len(k.customPrecompiles))
 	for addr, versioned := range k.customPrecompiles {
-		mostRecentUpgradeHeight := int64(-1)
+		mostRecentUpgradeHeight := int64(0)
+		noForkHistory := true
 		for upgrade := range versioned {
 			upgradeHeight := k.upgradeKeeper.GetDoneHeight(ctx, upgrade)
+			if upgradeHeight != 0 {
+				noForkHistory = false
+			}
 			if height < upgradeHeight {
 				// requested height hasn't seen this upgrade version yet.
 				continue
@@ -181,6 +187,9 @@ func (k *Keeper) GetCustomPrecompilesVersions(ctx sdk.Context) map[common.Addres
 				mostRecentUpgradeHeight = upgradeHeight
 				cp[addr] = upgrade
 			}
+		}
+		if noForkHistory {
+			cp[addr] = k.latestUpgrade
 		}
 	}
 	return cp
