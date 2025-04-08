@@ -91,9 +91,9 @@ message Height {
   option (gogoproto.goproto_stringer) = false;
 
   // the revision that the client is currently on
-  uint64 revision_number = 1 [(gogoproto.moretags) = "yaml:\"revision_number\""];
+  uint64 revision_number = 1;
   // the height within the given revision
-  uint64 revision_height = 2 [(gogoproto.moretags) = "yaml:\"revision_height\""];
+  uint64 revision_height = 2;
 }
 
 // Params defines the set of IBC light client parameters.
