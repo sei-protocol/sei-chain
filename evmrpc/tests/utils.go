@@ -204,7 +204,7 @@ func signAndEncodeTx(txData ethtypes.TxData, mnemonic string) []byte {
 }
 
 func signAndEncodeCosmosTx(msg sdk.Msg, mnemonic string, acctN uint64, seq uint64) []byte {
-	tx := signCosmosTxWithMnemonic(msg, mnemonic1, acctN, seq)
+	tx := signCosmosTxWithMnemonic(msg, mnemonic, acctN, seq)
 	txBz, _ := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
 	return txBz
 }
