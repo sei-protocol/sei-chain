@@ -968,12 +968,12 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 
 		events := ctx.EventManager().Events()
 
-		// GasMeter expected to be set in AnteHandler
-		gasWanted = ctx.GasMeter().Limit()
-		gasEstimate = ctx.GasEstimate()
 		if err != nil {
 			return gInfo, nil, nil, 0, nil, nil, ctx, err
 		}
+		// GasMeter expected to be set in AnteHandler
+		gasWanted = ctx.GasMeter().Limit()
+		gasEstimate = ctx.GasEstimate()
 
 		// Dont need to validate in checkTx mode
 		if ctx.MsgValidator() != nil && mode == runTxModeDeliver {
