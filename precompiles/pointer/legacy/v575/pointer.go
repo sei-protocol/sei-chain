@@ -113,11 +113,12 @@ func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, ca
 			}
 		}
 	}
-	contractAddr, remainingGas, err := p.evmKeeper.UpsertERCNativePointer(ctx, evm, suppliedGas, token, utils.ERCMetadata{Name: name, Symbol: symbol, Decimals: decimals})
+	contractAddr, err := p.evmKeeper.UpsertERCNativePointer(ctx, evm, token, utils.ERCMetadata{Name: name, Symbol: symbol, Decimals: decimals})
 	if err != nil {
 		return nil, 0, err
 	}
 	ret, err = method.Outputs.Pack(contractAddr)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
 
@@ -143,11 +144,12 @@ func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, call
 	}
 	name := formattedRes["name"].(string)
 	symbol := formattedRes["symbol"].(string)
-	contractAddr, remainingGas, err := p.evmKeeper.UpsertERCCW20Pointer(ctx, evm, suppliedGas, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
+	contractAddr, err := p.evmKeeper.UpsertERCCW20Pointer(ctx, evm, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
 	if err != nil {
 		return nil, 0, err
 	}
 	ret, err = method.Outputs.Pack(contractAddr)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
 
@@ -173,10 +175,11 @@ func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, cal
 	}
 	name := formattedRes["name"].(string)
 	symbol := formattedRes["symbol"].(string)
-	contractAddr, remainingGas, err := p.evmKeeper.UpsertERCCW721Pointer(ctx, evm, suppliedGas, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
+	contractAddr, err := p.evmKeeper.UpsertERCCW721Pointer(ctx, evm, cwAddr, utils.ERCMetadata{Name: name, Symbol: symbol})
 	if err != nil {
 		return nil, 0, err
 	}
 	ret, err = method.Outputs.Pack(contractAddr)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
 }
