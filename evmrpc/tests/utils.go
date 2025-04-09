@@ -176,7 +176,7 @@ func formatParam(p interface{}) string {
 		}
 		return fmt.Sprintf("{%s}", strings.Join(kvs, ","))
 	default:
-		panic("did not match on type")
+		return fmt.Sprintf("%s", p)
 	}
 }
 
