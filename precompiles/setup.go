@@ -25,7 +25,6 @@ import (
 	bankv602 "github.com/sei-protocol/sei-chain/precompiles/bank/legacy/v602"
 	bankv603 "github.com/sei-protocol/sei-chain/precompiles/bank/legacy/v603"
 	"github.com/sei-protocol/sei-chain/precompiles/common"
-	"github.com/sei-protocol/sei-chain/precompiles/confidentialtransfers"
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
 	distrv552 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v552"
 	distrv555 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v555"
@@ -117,8 +116,6 @@ func GetCustomPrecompiles(
 	connectionKeeper common.ConnectionKeeper,
 	channelKeeper common.ChannelKeeper,
 	accountKeeper common.AccountKeeper,
-	ctViewKeeper common.ConfidentialTransfersViewKeeper,
-	ctKeeper common.ConfidentialTransfersKeeper,
 ) map[ecommon.Address]VersionedPrecompiles {
 	bankVersions := VersionedPrecompiles{
 		latestUpgrade: check(bank.NewPrecompile(bankKeeper, bankSender, evmKeeper, accountKeeper)),
@@ -210,23 +207,19 @@ func GetCustomPrecompiles(
 		"v5.5.5":      check(pointerviewv555.NewPrecompile(evmKeeper)),
 		"v5.6.2":      check(pointerviewv562.NewPrecompile(evmKeeper)),
 	}
-	ctprVersions := VersionedPrecompiles{
-		latestUpgrade: check(confidentialtransfers.NewPrecompile(ctViewKeeper, ctKeeper, evmKeeper)),
-	}
 
 	return map[ecommon.Address]VersionedPrecompiles{
-		ecommon.HexToAddress(bank.BankAddress):                bankVersions,
-		ecommon.HexToAddress(wasmd.WasmdAddress):              wasmdVersions,
-		ecommon.HexToAddress(json.JSONAddress):                jsonVersions,
-		ecommon.HexToAddress(addr.AddrAddress):                addrVersions,
-		ecommon.HexToAddress(staking.StakingAddress):          stakingVersions,
-		ecommon.HexToAddress(gov.GovAddress):                  govVersions,
-		ecommon.HexToAddress(distribution.DistrAddress):       distrVersions,
-		ecommon.HexToAddress(oracle.OracleAddress):            oracleVersions,
-		ecommon.HexToAddress(ibc.IBCAddress):                  ibcVersions,
-		ecommon.HexToAddress(pointer.PointerAddress):          pointerVersions,
-		ecommon.HexToAddress(pointerview.PointerViewAddress):  pointerviewVersions,
-		ecommon.HexToAddress(confidentialtransfers.CtAddress): ctprVersions,
+		ecommon.HexToAddress(bank.BankAddress):               bankVersions,
+		ecommon.HexToAddress(wasmd.WasmdAddress):             wasmdVersions,
+		ecommon.HexToAddress(json.JSONAddress):               jsonVersions,
+		ecommon.HexToAddress(addr.AddrAddress):               addrVersions,
+		ecommon.HexToAddress(staking.StakingAddress):         stakingVersions,
+		ecommon.HexToAddress(gov.GovAddress):                 govVersions,
+		ecommon.HexToAddress(distribution.DistrAddress):      distrVersions,
+		ecommon.HexToAddress(oracle.OracleAddress):           oracleVersions,
+		ecommon.HexToAddress(ibc.IBCAddress):                 ibcVersions,
+		ecommon.HexToAddress(pointer.PointerAddress):         pointerVersions,
+		ecommon.HexToAddress(pointerview.PointerViewAddress): pointerviewVersions,
 	}
 }
 

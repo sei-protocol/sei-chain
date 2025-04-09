@@ -58,11 +58,7 @@ type Keeper struct {
 	transferKeeper ibctransferkeeper.Keeper
 	wasmKeeper     *wasmkeeper.PermissionedKeeper
 	wasmViewKeeper *wasmkeeper.Keeper
-<<<<<<< HEAD
-=======
-	ctKeeper       *ctkeeper.Keeper
 	upgradeKeeper  *upgradekeeper.Keeper
->>>>>>> 4f92ca35 (Use versioned precompiles in tracing (#2122))
 
 	cachedFeeCollectorAddressMtx *sync.RWMutex
 	cachedFeeCollectorAddress    *common.Address
@@ -124,11 +120,7 @@ func (ctx *ReplayChainContext) GetHeader(hash common.Hash, number uint64) *ethty
 func NewKeeper(
 	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStateStore seidbtypes.StateStore,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
-<<<<<<< HEAD
-	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper) *Keeper {
-=======
-	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper, ctKeeper *ctkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper) *Keeper {
->>>>>>> 4f92ca35 (Use versioned precompiles in tracing (#2122))
+	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper) *Keeper {
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
@@ -142,11 +134,7 @@ func NewKeeper(
 		transferKeeper:               transferKeeper,
 		wasmKeeper:                   wasmKeeper,
 		wasmViewKeeper:               wasmViewKeeper,
-<<<<<<< HEAD
-=======
-		ctKeeper:                     ctKeeper,
 		upgradeKeeper:                upgradeKeeper,
->>>>>>> 4f92ca35 (Use versioned precompiles in tracing (#2122))
 		pendingTxs:                   make(map[string][]*PendingTx),
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
@@ -216,17 +204,10 @@ func (k *Keeper) WasmKeeper() *wasmkeeper.PermissionedKeeper {
 	return k.wasmKeeper
 }
 
-<<<<<<< HEAD
-=======
-func (k *Keeper) CtKeeper() ctkeeper.Keeper {
-	return *k.ctKeeper
-}
-
 func (k *Keeper) UpgradeKeeper() *upgradekeeper.Keeper {
 	return k.upgradeKeeper
 }
 
->>>>>>> 4f92ca35 (Use versioned precompiles in tracing (#2122))
 func (k *Keeper) GetStoreKey() sdk.StoreKey {
 	return k.storeKey
 }

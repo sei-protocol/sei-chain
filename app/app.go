@@ -609,11 +609,7 @@ func New(
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
 		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
-<<<<<<< HEAD
-		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
-=======
-		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.ConfidentialTransfersKeeper, &app.UpgradeKeeper)
->>>>>>> 4f92ca35 (Use versioned precompiles in tracing (#2122))
+		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.UpgradeKeeper)
 	app.BankKeeper.RegisterRecipientChecker(app.EvmKeeper.CanAddressReceive)
 
 	bApp.SetPreCommitHandler(app.HandlePreCommit)
@@ -719,11 +715,7 @@ func New(
 			app.IBCKeeper.ChannelKeeper,
 			app.AccountKeeper,
 		)
-<<<<<<< HEAD
-		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles)
-=======
 		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles, LatestUpgrade)
->>>>>>> 4f92ca35 (Use versioned precompiles in tracing (#2122))
 	}
 
 	/****  Module Options ****/
