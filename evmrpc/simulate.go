@@ -442,7 +442,7 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 	return header
 }
 
-func (b *Backend) GetCustomPrecompiles() map[common.Address]vm.PrecompiledContract {
+func (b *Backend) GetCustomPrecompiles(int64) map[common.Address]vm.PrecompiledContract {
 	return b.keeper.CustomPrecompiles()
 }
 
