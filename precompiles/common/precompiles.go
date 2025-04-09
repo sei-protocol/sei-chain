@@ -166,6 +166,11 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	}
 	gasLimit := d.executor.EVMKeeper().GetCosmosGasLimitFromEVMGas(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), suppliedGas)
 	ctx = ctx.WithGasMeter(sdk.NewGasMeterWithMultiplier(ctx, gasLimit))
+
+	if hooks != nil && hooks.OnGasChange != nil {
+		defer func() { hooks.OnGasChange(suppliedGas, remainingGas, tracing.GasChangeCallPrecompiledContract) }()
+	}
+
 	operation = method.Name
 	em := ctx.EventManager()
 	ctx = ctx.WithEventManager(sdk.NewEventManager())

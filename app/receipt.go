@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	"github.com/ethereum/go-ethereum/common"
@@ -15,6 +16,8 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw1155"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtracers "github.com/sei-protocol/sei-chain/x/evm/tracers"
+	"github.com/sei-protocol/sei-chain/x/evm/tracing"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
@@ -108,10 +111,14 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 	if len(logs) == 0 {
 		return
 	}
+
 	txHash := common.BytesToHash(checksum[:])
 	if response.EvmTxInfo != nil {
 		txHash = common.HexToHash(response.EvmTxInfo.TxHash)
 	}
+
+	addedLogs := utils.Map(logs, evmkeeper.ConvertSyntheticEthLog)
+
 	var bloom ethtypes.Bloom
 	if r, err := app.EvmKeeper.GetTransientReceipt(wasmToEvmEventCtx, txHash); err == nil && r != nil {
 		r.Logs = append(r.Logs, utils.Map(logs, evmkeeper.ConvertSyntheticEthLog)...)
@@ -121,30 +128,61 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: evmkeeper.GetLogsForTx(r, 0)}})
 		r.LogsBloom = bloom[:]
 		_ = app.EvmKeeper.SetTransientReceipt(wasmToEvmEventCtx, txHash, r)
+
+		if tracer := evmtracers.GetCtxBlockchainTracer(ctx); tracer != nil && tracer.OnSeiPostTxCosmosEvents != nil {
+			app.traceSeiPostTxCosmosEvents(ctx, tracer, tx, txHash, addedLogs, r, true)
+		}
 	} else {
 		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: logs}})
-		receipt := &evmtypes.Receipt{
+		r = &evmtypes.Receipt{
 			TxType:           ShellEVMTxType,
 			TxHashHex:        txHash.Hex(),
 			GasUsed:          ctx.GasMeter().GasConsumed(),
 			BlockNumber:      uint64(ctx.BlockHeight()),
 			TransactionIndex: uint32(ctx.TxIndex()),
-			Logs:             utils.Map(logs, evmkeeper.ConvertSyntheticEthLog),
+			Logs:             addedLogs,
 			LogsBloom:        bloom[:],
 			Status:           uint32(ethtypes.ReceiptStatusSuccessful), // we don't create shell receipt for failed Cosmos tx since there is no event anyway
 		}
 		sigTx, ok := tx.(authsigning.SigVerifiableTx)
 		if ok && len(sigTx.GetSigners()) > 0 {
 			// use the first signer as the `from`
-			receipt.From = app.EvmKeeper.GetEVMAddressOrDefault(wasmToEvmEventCtx, sigTx.GetSigners()[0]).Hex()
+			r.From = app.EvmKeeper.GetEVMAddressOrDefault(wasmToEvmEventCtx, sigTx.GetSigners()[0]).Hex()
 		}
-		_ = app.EvmKeeper.SetTransientReceipt(wasmToEvmEventCtx, txHash, receipt)
+		_ = app.EvmKeeper.SetTransientReceipt(wasmToEvmEventCtx, txHash, r)
+
+		if tracer := evmtracers.GetCtxBlockchainTracer(ctx); tracer != nil && tracer.OnSeiPostTxCosmosEvents != nil {
+			app.traceSeiPostTxCosmosEvents(ctx, tracer, tx, txHash, addedLogs, r, false)
+		}
 	}
 	if d, found := app.EvmKeeper.GetEVMTxDeferredInfo(ctx); found {
 		app.EvmKeeper.AppendToEvmTxDeferredInfo(wasmToEvmEventCtx, bloom, txHash, d.Surplus)
 	} else {
 		app.EvmKeeper.AppendToEvmTxDeferredInfo(wasmToEvmEventCtx, bloom, txHash, sdk.ZeroInt())
 	}
+}
+
+func (app *App) traceSeiPostTxCosmosEvents(
+	ctx sdk.Context,
+	tracer *tracing.Hooks,
+	tx sdk.Tx,
+	txHash common.Hash,
+	addedLogs []*evmtypes.Log,
+	newReceipt *evmtypes.Receipt,
+	onEvmTransaction bool,
+) {
+	noGasBillingCtx := ctx.WithGasMeter(storetypes.NewNoConsumptionInfiniteGasMeter())
+
+	tracer.OnSeiPostTxCosmosEvents(tracing.SeiPostTxCosmosEvent{
+		TxHash:           txHash,
+		Tx:               tx,
+		AddedLogs:        addedLogs,
+		NewReceipt:       newReceipt,
+		OnEVMTransaction: onEvmTransaction,
+		EVMAddressOrDefault: func(address sdk.AccAddress) common.Address {
+			return app.EvmKeeper.GetEVMAddressOrDefault(noGasBillingCtx, address)
+		},
+	})
 }
 
 func (app *App) translateCW20Event(ctx sdk.Context, wasmEvent abci.Event, pointerAddr common.Address, contractAddr string) (res []*ethtypes.Log) {

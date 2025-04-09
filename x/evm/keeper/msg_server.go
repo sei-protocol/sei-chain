@@ -21,13 +21,14 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	evmtracers "github.com/sei-protocol/sei-chain/x/evm/tracers"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -114,7 +115,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			syntheticReceipt, err := server.GetTransientReceipt(ctx, ctx.TxSum())
 			if err == nil {
 				for _, l := range syntheticReceipt.Logs {
-					stateDB.AddLog(&ethtypes.Log{
+					stateDB.AddUntracedLog(&ethtypes.Log{
 						Address: common.HexToAddress(l.Address),
 						Topics:  utils.Map(l.Topics, common.HexToHash),
 						Data:    l.Data,
@@ -166,7 +167,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		originalGasMeter.ConsumeGas(adjustedGasUsed.TruncateInt().Uint64(), "evm transaction")
 	}()
 
-	res, applyErr := server.applyEVMMessage(ctx, emsg, stateDB, gp)
+	res, applyErr := server.applyEVMTx(ctx, tx, emsg, stateDB, gp)
 	serverRes = &types.MsgEVMTransactionResponse{
 		Hash: tx.Hash().Hex(),
 	}
@@ -234,14 +235,101 @@ func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender
 	return msg
 }
 
-func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*core.ExecutionResult, error) {
+func (k *Keeper) applyEVMTx(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (res *core.ExecutionResult, err error) {
+	evmHooks := evmtracers.GetCtxEthTracingHooks(ctx)
+
+	var onStart func(vm *vm.EVM)
+	if evmHooks != nil && evmHooks.OnTxStart != nil {
+		onStart = func(evmInstance *vm.EVM) {
+			evmHooks.OnTxStart(evmInstance.GetVMContext(), tx, msg.From)
+		}
+	}
+	var onEnd func(res *core.ExecutionResult, err error)
+	if evmHooks != nil && evmHooks.OnTxEnd != nil {
+		onEnd = func(res *core.ExecutionResult, err error) {
+			var receipt *ethtypes.Receipt
+			if res != nil {
+				receipt = getEthReceipt(ctx, tx, msg, res, stateDB)
+			} else if err != nil {
+				receipt = getEthFailedReceipt(ctx, tx, msg)
+			} else {
+				panic("onEnd called with nil result and nil error")
+			}
+
+			var txErr = err
+			if res != nil {
+				txErr = res.Err
+			}
+
+			evmHooks.OnTxEnd(receipt, txErr)
+		}
+	}
+
+	return k.applyEVMMessageWithTracing(ctx, msg, stateDB, gp, onStart, onEnd)
+}
+
+func (k *Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (res *core.ExecutionResult, err error) {
+	evmTracer := evmtracers.GetCtxBlockchainTracer(ctx)
+
+	var onStart func(*vm.EVM)
+	if evmTracer != nil && evmTracer.OnSeiSystemCallStart != nil {
+		onStart = func(*vm.EVM) {
+			evmTracer.OnSeiSystemCallStart()
+		}
+	}
+	var onEnd func(*core.ExecutionResult, error)
+	if evmTracer != nil && evmTracer.OnSeiSystemCallEnd != nil {
+		onEnd = func(*core.ExecutionResult, error) {
+			evmTracer.OnSeiSystemCallEnd()
+		}
+	}
+
+	return k.applyEVMMessageWithTracing(ctx, msg, stateDB, gp, onStart, onEnd)
+}
+
+func (k *Keeper) applyEVMMessageWithTracing(
+	ctx sdk.Context,
+	msg *core.Message,
+	stateDB *state.DBImpl,
+	gp core.GasPool,
+	onStart func(vm *vm.EVM),
+	onEnd func(res *core.ExecutionResult, err error),
+) (res *core.ExecutionResult, err error) {
 	blockCtx, err := k.GetVMBlockContext(ctx, gp)
 	if err != nil {
 		return nil, err
 	}
 	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(msg)
-	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}, k.customPrecompiles)
+	evmHooks := evmtracers.GetCtxEthTracingHooks(ctx)
+	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{Tracer: evmHooks}, k.customPrecompiles)
+
+	stateDB.SetLogger(evmHooks)
+
+	if onStart != nil {
+		onStart(evmInstance)
+	}
+	if onEnd != nil {
+		defer func() {
+			r := recover()
+
+			if r != nil {
+				var recoveredErr error
+				if err, ok := r.(error); ok {
+					recoveredErr = err
+				} else {
+					// Not of type error, create a new dummy one
+					recoveredErr = fmt.Errorf("%v", r)
+				}
+
+				onEnd(nil, recoveredErr)
+				panic(r)
+			} else {
+				onEnd(res, err)
+			}
+		}()
+	}
+
 	st := core.NewStateTransition(evmInstance, msg, &gp, true) // fee already charged in ante handler
 	return st.TransitionDb()
 }
@@ -353,6 +441,52 @@ func (server msgServer) AssociateContractAddress(goCtx context.Context, msg *typ
 	}
 	server.SetAddressMapping(ctx, addr, evmAddr)
 	return &types.MsgAssociateContractAddressResponse{}, nil
+}
+
+func getEthReceipt(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message, res *core.ExecutionResult, stateDB *state.DBImpl) *ethtypes.Receipt {
+	receipt := getEthCommonReceipt(ctx, tx, msg)
+	receipt.GasUsed = res.UsedGas
+	receipt.Logs = stateDB.GetAllLogs()
+	receipt.Bloom = ethtypes.CreateBloom(ethtypes.Receipts{receipt})
+
+	if res.Err == nil {
+		receipt.Status = ethtypes.ReceiptStatusSuccessful
+	} else {
+		receipt.Status = ethtypes.ReceiptStatusFailed
+	}
+
+	return receipt
+}
+
+// getEthFailedReceipt returns a receipt for a transaction that had no execution result and ended with an error. This
+// usually happens when the transaction panicked due to out of gas error and later recovered.
+func getEthFailedReceipt(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message) *ethtypes.Receipt {
+	receipt := getEthCommonReceipt(ctx, tx, msg)
+	receipt.Status = ethtypes.ReceiptStatusFailed
+
+	return receipt
+}
+
+// getEthFailedReceipt returns a receipt for a transaction that had no execution result and ended with an error. This
+// usually happens when the transaction panicked due to out of gas error and later recovered.
+func getEthCommonReceipt(ctx sdk.Context, tx *ethtypes.Transaction, msg *core.Message) *ethtypes.Receipt {
+	receipt := &ethtypes.Receipt{
+		Type:              tx.Type(),
+		CumulativeGasUsed: uint64(0),
+		TxHash:            tx.Hash(),
+		EffectiveGasPrice: tx.GasPrice(),
+		TransactionIndex:  uint(ctx.TxIndex()),
+	}
+
+	if msg.To == nil {
+		receipt.ContractAddress = crypto.CreateAddress(msg.From, msg.Nonce)
+	} else {
+		if len(msg.Data) > 0 {
+			receipt.ContractAddress = *msg.To
+		}
+	}
+
+	return receipt
 }
 
 func (server msgServer) Associate(context.Context, *types.MsgAssociate) (*types.MsgAssociateResponse, error) {

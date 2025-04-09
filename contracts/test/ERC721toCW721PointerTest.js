@@ -27,7 +27,7 @@ describe("ERC721 to CW721 Pointer", function () {
         const pointerAddr = await deployErc721PointerForCw721(hre.ethers.provider, cw721Address)
         const contract = new hre.ethers.Contract(pointerAddr, ABI.ERC721, hre.ethers.provider);
         pointerAcc0 = contract.connect(accounts[0].signer)
-        pointerAcc1 = contract.connect(accounts[1].signer) 
+        pointerAcc1 = contract.connect(accounts[1].signer)
     })
 
     describe("validation", function(){
@@ -88,7 +88,7 @@ describe("ERC721 to CW721 Pointer", function () {
             const blockNumber = await ethers.provider.getBlockNumber();
             const approvedTxResp = await pointerAcc0.approve(accounts[1].evmAddress, 2, { gasPrice: ethers.parseUnits('100', 'gwei') })
             await approvedTxResp.wait()
-            const approved = await pointerAcc0.getApproved(2); 
+            const approved = await pointerAcc0.getApproved(2);
             expect(approved).to.equal(accounts[1].evmAddress);
 
             const filter = {
