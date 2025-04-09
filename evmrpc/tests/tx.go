@@ -9,6 +9,7 @@ import (
 
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -105,5 +106,14 @@ func jsonExtractAsBytesFromArray(nonce uint64) ethtypes.TxData {
 		To:        &to,
 		Data:      input,
 		ChainID:   chainId,
+	}
+}
+
+func bankSendMsg(mnemonic string) sdk.Msg {
+	recipient, _ := testkeeper.MockAddressPair()
+	return &banktypes.MsgSend{
+		FromAddress: getSeiAddrWithMnemonic(mnemonic).String(),
+		ToAddress:   recipient.String(),
+		Amount:      sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())),
 	}
 }
