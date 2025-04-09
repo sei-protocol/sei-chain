@@ -460,17 +460,20 @@ It ensures that users can:
 ## Appendix C: Splitting Pending Balance into Lo and Hi
 
 Unlike the available balance, the **pending balance is updated externally** (e.g., through incoming transfers). 
-Since only the account owner knows the decryption key, it is not possible for senders to update a decryptable pending balance.
+Since only the account owner knows the decryption key, it is not possible for senders to update some decryptable pending balance.
+
+If the full 64-bit value were stored in a single ciphertext, decryption would become increasingly expensive, especially if many transfers are received. 
+By splitting into two parts, we can **limit the ciphertext ranges** to keep decryption efficient.
+
 To keep the pending balance decryptable while allowing many external writes, we store it as **two separate ElGamal ciphertexts**:
 
 - `pending_balance_lo`: Encrypts the low 32 bits of the pending balance.
 - `pending_balance_hi`: Encrypts the high bits of the pending balance, from bit 17 onwards.
 
 The total pending balance is calculated by taking the sum of:
-`pending_balance_lo` and `pending_balance_hi` shifted left by 16 bits.
+`pending_balance_lo` and `pending_balance_hi << 16` (`pending_balance_hi` shifted left by 16 bits.)
 
-### Why Not Just Use a Single Ciphertext?
-
+### Updating balances with Transfers
 In confidential transfers, the amount being transferred is encrypted into two parts:
 
 ```protobuf
@@ -490,8 +493,6 @@ Upon execution, the transfer amount ciphertexts are aggregated into the receiver
 pending_balance_lo += to_amount_lo
 pending_balance_hi += to_amount_hi
 ```
-
-If the full 64-bit value were stored in a single ciphertext, decryption would become increasingly expensive, especially if many transfers are received. By splitting into two parts, we can **limit the ciphertext ranges** to keep decryption efficient.
 
 ### Preventing Overflow
 
