@@ -1,14 +1,15 @@
 # Confidential Transfers
 
-The confidentialtransfers module allows users to maintain confidential token balances.
+The `confidentialtransfers` module allows users to maintain confidential token balances.
 By depositing to their confidential balances, users can make confidential transfers to other
 users' confidential balances that obfuscate the amounts sent and received.
 
 This module is designed to be similar to the Bank module, which maps addresses to balances for each denom.
-With the confidentialtransfers module, the mapping is between addresses and an `account` structure for each denom.
+With the `confidentialtransfers` module, the mapping is between addresses and an `account` structure for each denom.
 This account stores encrypted information about the users confidential balances.
 
-The mechanics of this account based confidential transfers system is inspired by the [Zether](https://eprint.iacr.org/2019/191.pdf) paper.
+The mechanics of this account based confidential transfers system is inspired by the [Zether](https://eprint.iacr.org/2019/191.pdf) paper,
+as well as [PGC: Decentralized Confidential Payment System with Auditability](https://eprint.iacr.org/2019/319.pdf) which details improvements to the Zether protocol.
 
 ## Account State
 Each Confidential Balance is encapsulated as an account struct
@@ -597,3 +598,41 @@ aesKey := DeriveAESKeyFromSignedDenom(userPrivateKey, denom)
 | Shared standard              | Enables client and server libraries to interoperate seamlessly             |
 
 By following this standard, client libraries can reliably encrypt, decrypt, and validate confidential balances while maintaining user-friendly and secure key management.
+
+## Appendix E: Encryption Scheme
+
+The Confidential Transfers module on Sei leverages both **public key encryption** and **symmetric encryption** to enable private, verifiable token transfers on-chain.
+
+### 1. Twisted ElGamal: Homomorphic Public Key Encryption
+
+For encrypting balances and amounts in transfer operations, the module uses a modified version of the ElGamal encryption scheme known as **Twisted ElGamal**.
+
+Twisted ElGamal is a **homomorphic encryption scheme**, meaning it allows mathematical operations to be performed directly on ciphertexts without decrypting them. Specifically, it supports:
+- **Addition/Subtraction** of encrypted balances
+- **Scalar Multiplication** (e.g., encrypting multiples of a value)
+
+This property is crucial for zero-knowledge proof systems and on-chain logic that needs to update balances while preserving privacy.
+
+### How It Works
+
+A Twisted ElGamal ciphertext consists of two components:
+1. A **Pedersen commitment** to the encrypted value 
+2. A **decryption handle** binding the encryption randomness to a specific public key
+
+This structure makes Twisted ElGamal particularly suitable for zero-knowledge proof systems, many of which are already optimized for working with Pedersen commitments.
+
+### Decryption Limitations and Design Considerations
+
+ElGamal decryption becomes exponentially slower as the size of the encrypted message increases. On modern hardware:
+- 32-bit ciphertexts can be decrypted in seconds
+- 48-bit and 64-bit ciphertexts are **infeasible to brute-force**
+
+Because of this, the module:
+- Splits large values (e.g. pending balances) into **low and high ciphertexts**
+- Limits the encrypted transfer amount to **48 bits**
+- Requires regular application of pending balances to avoid ciphertext overflow
+
+This design ensures the encryption remains usable, performant, and secure for both everyday and high-volume users.
+
+---
+
