@@ -179,6 +179,16 @@ message TransferMsgProofs {
     RangeProof transfer_amount_lo_range_proof = 10;
     RangeProof transfer_amount_hi_range_proof = 11;
 }
+
+message Auditor {
+  string auditor_address = 1 [(gogoproto.moretags) = "yaml:\"address\""];
+  Ciphertext encrypted_transfer_amount_lo = 2 [(gogoproto.moretags) = "yaml:\"encrypted_transfer_amount_lo\""];
+  Ciphertext encrypted_transfer_amount_hi = 3 [(gogoproto.moretags) = "yaml:\"encrypted_transfer_amount_hi\""];
+  CiphertextValidityProof transfer_amount_lo_validity_proof = 4 [(gogoproto.moretags) = "yaml:\"transfer_amount_lo_validity_proof\""];
+  CiphertextValidityProof transfer_amount_hi_validity_proof = 5 [(gogoproto.moretags) = "yaml:\"transfer_amount_hi_validity_proof\""];
+  CiphertextCiphertextEqualityProof transfer_amount_lo_equality_proof = 6 [(gogoproto.moretags) = "yaml:\"transfer_amount_lo_equality_proof\""];
+  CiphertextCiphertextEqualityProof transfer_amount_hi_equality_proof = 7 [(gogoproto.moretags) = "yaml:\"transfer_amount_hi_equality_proof\""];
+}
 ```
 
 To send a confidential transfer, the sender must provide:
@@ -279,10 +289,6 @@ To close an account, the user must submit:
 
 **State Modifications:**
 - Deletes the account entry in the module state for the address and denom.
-
-
-
-
 
 
 ## Examples
