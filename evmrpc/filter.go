@@ -305,8 +305,10 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		}
 	}
 	close(runner.Queue)
-	runner.Done.Wait()
-	close(resultsChan)
+	go func() {
+		runner.Done.Wait()
+		close(resultsChan)
+	}()
 
 	// Aggregate results into the final slice
 	for result := range resultsChan {
