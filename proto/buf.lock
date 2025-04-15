@@ -4,8 +4,8 @@ deps:
   - remote: buf.build
     owner: sei-protocol
     repository: cosmos-sdk
-    commit: 3d29d814d0f9416a83a1db65d5ef4b9b
-    digest: shake256:a28bddd252a07da38e1aa523a957e8fa837a92531090dce461e5b588716669688df8eb855a8e441f8edac0dfac6b59a16c6b07d8f23f5252af6a5db25684f5c9
+    commit: 000e2d685b194c628345970bb3969b0d
+    digest: shake256:5beac4dc18cfb6bd39dfcab5ab0eb3034f1b9c60f834d9e77c9084119a9b6761602677fb9b048fdf4afbeb49ed27d66f607718b2f3917fa80d76f68bdf731342
   - remote: buf.build
     owner: sei-protocol
     repository: third-party
