@@ -9,7 +9,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/mev"
 	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/tendermint/tendermint/libs/log"
@@ -39,7 +38,6 @@ func NewEVMHTTPServer(
 	txConfig client.TxConfig,
 	homeDir string,
 	isPanicOrSyntheticTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // used in *ExcludeTraceFail endpoints
-	mevHandler mev.MEVHandler,
 ) (EVMServer, error) {
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
@@ -136,10 +134,6 @@ func NewEVMHTTPServer(
 		{
 			Namespace: "sei",
 			Service:   seiDebugAPI,
-		},
-		{
-			Namespace: "mev",
-			Service:   NewMevAPI(mevHandler),
 		},
 	}
 	// Test API can only exist on non-live chain IDs.  These APIs instrument certain overrides.

@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"plugin"
 	"strings"
 	"sync"
 	"time"
@@ -114,7 +113,6 @@ import (
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/evmrpc"
-	"github.com/sei-protocol/sei-chain/mev"
 	"github.com/sei-protocol/sei-chain/precompiles"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
@@ -389,8 +387,6 @@ type App struct {
 	receiptStore seidb.StateStore
 
 	forkInitializer func(sdk.Context)
-
-	mevHandler mev.MEVHandler
 }
 
 type AppOption func(*App)
@@ -664,26 +660,16 @@ func New(
 		app.EvmKeeper.EthClient = ethclient.NewClient(rpcclient)
 	}
 	lightInvarianceConfig, err := ReadLightInvarianceConfig(appOpts)
-	check(err, "reading light invariance config")
+	if err != nil {
+		panic(fmt.Sprintf("error reading light invariance config due to %s", err))
+	}
 	app.lightInvarianceConfig = lightInvarianceConfig
 
 	genesisImportConfig, err := ReadGenesisImportConfig(appOpts)
-	check(err, "reading genesis import config")
-	app.genesisImportConfig = genesisImportConfig
-
-	mevConfig, err := mev.ReadMevConfig(appOpts)
-	check(err, "reading mev config")
-	if mevConfig.HandlerPluginPath != "" {
-		p, err := plugin.Open(mevConfig.HandlerPluginPath)
-		check(err, "loading mev plugin")
-		h, err := p.Lookup(mev.PluginObjectName)
-		check(err, "looking up mev handler")
-		typedHandler, ok := h.(mev.MEVHandler)
-		if !ok {
-			panic("MEV handler does not implement MEVHandler interface")
-		}
-		app.mevHandler = typedHandler
+	if err != nil {
+		panic(fmt.Sprintf("error reading genesis import config due to %s", err))
 	}
+	app.genesisImportConfig = genesisImportConfig
 
 	customDependencyGenerators := aclmapping.NewCustomDependencyGenerator()
 	aclOpts = append(aclOpts, aclkeeper.WithResourceTypeToStoreKeyMap(aclutils.ResourceTypeToStoreKeyMap))
@@ -1150,10 +1136,7 @@ func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.Res
 	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
 }
 
-func (app *App) PrepareProposalHandler(ctx sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
-	if app.mevHandler != nil {
-		return app.mevHandler.Handle(ctx, req)
-	}
+func (app *App) PrepareProposalHandler(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
 	return &abci.ResponsePrepareProposal{
 		TxRecords: utils.Map(req.Txs, func(tx []byte) *abci.TxRecord {
 			return &abci.TxRecord{Action: abci.TxRecord_UNMODIFIED, Tx: tx}
@@ -1892,7 +1875,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
 
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.AnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil, app.mevHandler)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.AnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil)
 		if err != nil {
 			panic(err)
 		}
