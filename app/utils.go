@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"time"
 
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -24,10 +23,4 @@ type BlockProcessRequest interface {
 	GetByzantineValidators() []abci.Misbehavior
 	GetHeight() int64
 	GetTime() time.Time
-}
-
-func check(err error, event string) {
-	if err != nil {
-		panic(fmt.Sprintf("error %s for %s", err, event))
-	}
 }
