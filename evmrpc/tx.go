@@ -2,7 +2,6 @@ package evmrpc
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"math/big"
@@ -333,16 +332,19 @@ func GetEvmTxIndex(txs tmtypes.Txs, txIndex uint32, decoder sdk.TxDecoder, recei
 	for i, tx := range txs {
 		etx := getEthTxForTxBz(tx, decoder)
 		// does not exist and has no receipt (cosmos)
-		if etx == nil && !receiptChecker(sha256.Sum256(tx)) {
+		if etx == nil {
 			continue
 		}
+		fmt.Println("[DEBUG] In GetEvmTxIndex, etx = ", etx)
 
 		// found the index
 		if i == int(txIndex) {
+			fmt.Println("[DEBUG] In GetEvmTxIndex, found the index, returning = ", evmTxIndex)
 			return evmTxIndex, true
 		}
 
 		evmTxIndex++
+		fmt.Println("[DEBUG] In GetEvmTxIndex, incrementing evmTxIndex to = ", evmTxIndex)
 	}
 	return -1, false
 }
@@ -356,9 +358,9 @@ func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretyp
 	logs := keeper.GetLogsForTx(receipt, 0)
 	for _, log := range logs {
 		log.BlockHash = bh
-		if log.TxIndex != uint(evmTxIndex) {
-			panic(fmt.Sprintf("[DEBUG] In encodeReceipt, log.TxIndex = %d, expected = %d", log.TxIndex, evmTxIndex))
-		}
+		// if log.TxIndex != uint(evmTxIndex) {
+		// 	panic(fmt.Sprintf("[DEBUG] In encodeReceipt, log.TxIndex = %d, expected = %d", log.TxIndex, evmTxIndex))
+		// }
 		log.TxIndex = uint(evmTxIndex) // Have logs match the tx index of the receipt
 	}
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
