@@ -27,6 +27,20 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v6.0.6
+sei-chain
+* [#2124](https://github.com/sei-protocol/sei-chain/pull/2124) Bump ibc and wasmvm versions to pick up some changes
+* [#2127](https://github.com/sei-protocol/sei-chain/pull/2127) Fix getLogs deadlock
+* [#2123](https://github.com/sei-protocol/sei-chain/pull/2123) Fix getBlock endpoints transactionIndex
+* [#2122](https://github.com/sei-protocol/sei-chain/pull/2122) Use versioned precompile in tracing
+* [#2112](https://github.com/sei-protocol/sei-chain/pull/2112) Return error when log requested with too wide ranges
+* [#2110](https://github.com/sei-protocol/sei-chain/pull/2110) Disallow future block number to be passed to balance queries
+* [#1980](https://github.com/sei-protocol/sei-chain/pull/1980) Add Confidential Transfers module
+
+sei-cosmos
+* [#575](https://github.com/sei-protocol/sei-cosmos/pull/575) Do not set ginfo if antehandler returns any error
+* [#574](https://github.com/sei-protocol/sei-cosmos/pull/574) Update UnpackAny with latest cosmos-sdk logic
+
 ## v6.0.5
 sei-chain
 * [#2100](https://github.com/sei-protocol/sei-chain/pull/2100) Refactor RPC log logic
