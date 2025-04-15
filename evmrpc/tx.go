@@ -350,11 +350,17 @@ func GetEvmTxIndex(txs tmtypes.Txs, txIndex uint32, decoder sdk.TxDecoder, recei
 func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretypes.ResultBlock, receiptChecker func(common.Hash) bool) (map[string]interface{}, error) {
 	blockHash := block.BlockID.Hash
 	bh := common.HexToHash(blockHash.String())
+	fmt.Println("[DEBUG] In encodeReceipt, receipt.transactionIndex = ", receipt.TransactionIndex)
+	evmTxIndex, foundTx := GetEvmTxIndex(block.Block.Txs, receipt.TransactionIndex, decoder, receiptChecker)
+	fmt.Println("[DEBUG] In encodeReceipt, GetEVMTxIndex returned = ", evmTxIndex)
 	logs := keeper.GetLogsForTx(receipt, 0)
 	for _, log := range logs {
 		log.BlockHash = bh
+		if log.TxIndex != uint(evmTxIndex) {
+			panic(fmt.Sprintf("[DEBUG] In encodeReceipt, log.TxIndex = %d, expected = %d", log.TxIndex, evmTxIndex))
+		}
+		log.TxIndex = uint(evmTxIndex) // Have logs match the tx index of the receipt
 	}
-	evmTxIndex, foundTx := GetEvmTxIndex(block.Block.Txs, receipt.TransactionIndex, decoder, receiptChecker)
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
 	if !foundTx {
 		return nil, errors.New("failed to find transaction in block")
