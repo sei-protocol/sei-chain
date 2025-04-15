@@ -708,6 +708,7 @@ func New(
 	if enableCustomEVMPrecompiles {
 		customPrecompiles := precompiles.GetCustomPrecompiles(
 			LatestUpgrade,
+			encodingConfig.TxConfig,
 			&app.EvmKeeper,
 			app.BankKeeper,
 			bankkeeper.NewMsgServerImpl(app.BankKeeper),
