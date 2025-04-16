@@ -254,7 +254,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 				encodedReceipt, err := encodeReceipt(receipt, a.txConfig.TxDecoder(), block, func(h common.Hash) bool {
 					_, err := a.keeper.GetReceipt(a.ctxProvider(height), h)
 					return err == nil
-				})
+				}, a.includeShellReceipts)
 				if err != nil {
 					mtx.Lock()
 					returnErr = err
