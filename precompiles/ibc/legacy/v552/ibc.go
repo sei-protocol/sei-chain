@@ -146,7 +146,7 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 	return
 }
 
-func (p Precompile) Run(*vm.EVM, common.Address, common.Address, []byte, *big.Int, bool, bool) (bz []byte, err error) {
+func (p Precompile) Run(*vm.EVM, common.Address, common.Address, []byte, *big.Int, bool, bool, *tracing.Hooks) (bz []byte, err error) {
 	panic("static gas Run is not implemented for dynamic gas precompile")
 }
 

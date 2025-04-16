@@ -2,10 +2,11 @@ package json_test
 
 import (
 	"fmt"
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"math/big"
 	"strings"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/accounts/abi"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -41,7 +42,7 @@ func TestExtractAsBytes(t *testing.T) {
 		args, err := method.Inputs.Pack(test.body, "key")
 		require.Nil(t, err)
 		input := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesID, args...)
-		res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true, false)
+		res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true, false, nil)
 		require.Nil(t, err)
 		output, err := method.Outputs.Unpack(res)
 		require.Nil(t, err)
@@ -79,7 +80,7 @@ func TestExtractAsBytesList(t *testing.T) {
 		args, err := method.Inputs.Pack(test.body, "key")
 		require.Nil(t, err)
 		input := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesListID, args...)
-		res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true, false)
+		res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true, false, nil)
 		require.Nil(t, err)
 		output, err := method.Outputs.Unpack(res)
 		require.Nil(t, err)
@@ -113,7 +114,7 @@ func TestExtractAsUint256(t *testing.T) {
 		args, err := method.Inputs.Pack(test.body, "key")
 		require.Nil(t, err)
 		input := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsUint256ID, args...)
-		res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true, false)
+		res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true, false, nil)
 		require.Nil(t, err)
 		output, err := method.Outputs.Unpack(res)
 		require.Nil(t, err)
@@ -276,7 +277,7 @@ func TestPrecompileExecutor_extractAsBytesFromArray(t *testing.T) {
 			inputArgs, err := method.Inputs.Pack(tt.input.body, tt.input.indexArray)
 			require.Nil(t, err)
 			in := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesFromArrayID, inputArgs...)
-			res, err := p.Run(evm, common.Address{}, common.Address{}, in, tt.args.value, true, false)
+			res, err := p.Run(evm, common.Address{}, common.Address{}, in, tt.args.value, true, false, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -314,14 +315,14 @@ func TestExtractElementFromNestedArray(t *testing.T) {
 
 	args, err := methodExtractAsBytes.Inputs.Pack(body, "data")
 	input := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesID, args...)
-	res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true, false)
+	res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true, false, nil)
 	require.NoError(t, err)
 	data, err := methodExtractAsBytes.Outputs.Unpack(res)
 	require.NoError(t, err)
 
 	args, err = methodExtractAsBytesList.Inputs.Pack(data[0].([]byte), "exchange_rates")
 	input2 := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesListID, args...)
-	res, err = p.Run(evm, common.Address{}, common.Address{}, input2, nil, true, false)
+	res, err = p.Run(evm, common.Address{}, common.Address{}, input2, nil, true, false, nil)
 	require.NoError(t, err)
 	exchangeRates, err := methodExtractAsBytesList.Outputs.Unpack(res)
 	require.NoError(t, err)
@@ -332,7 +333,7 @@ func TestExtractElementFromNestedArray(t *testing.T) {
 	inputArgs, err := methodExtractAsBytesFromArray.Inputs.Pack(array, uint16(1))
 	require.NoError(t, err)
 	in := append(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesFromArrayID, inputArgs...)
-	res, err = p.Run(evm, common.Address{}, common.Address{}, in, nil, true, false)
+	res, err = p.Run(evm, common.Address{}, common.Address{}, in, nil, true, false, nil)
 	require.NoError(t, err)
 	output, err := methodExtractAsBytesFromArray.Outputs.Unpack(res)
 	require.NoError(t, err)

@@ -10,6 +10,7 @@ import (
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -73,7 +74,7 @@ func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64
 	return pcommon.UnknownMethodCallGas
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM) (bz []byte, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, hooks *tracing.Hooks) (bz []byte, err error) {
 	if readOnly {
 		return nil, errors.New("cannot call gov precompile from staticcall")
 	}
@@ -85,7 +86,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	case VoteMethod:
 		return p.vote(ctx, method, caller, args, value)
 	case DepositMethod:
-		return p.deposit(ctx, method, caller, args, value)
+		return p.deposit(ctx, method, caller, args, value, hooks)
 	}
 	return
 }
@@ -111,7 +112,7 @@ func (p PrecompileExecutor) vote(ctx sdk.Context, method *abi.Method, caller com
 	return method.Outputs.Pack(true)
 }
 
-func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks) ([]byte, error) {
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}
@@ -123,7 +124,7 @@ func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller 
 	if value == nil || value.Sign() == 0 {
 		return nil, errors.New("set `value` field to non-zero to deposit fund")
 	}
-	coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), depositor, value, p.bankKeeper)
+	coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), depositor, value, p.bankKeeper, p.evmKeeper, hooks)
 	if err != nil {
 		return nil, err
 	}
