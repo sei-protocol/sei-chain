@@ -237,13 +237,13 @@ func (b *Block) ToProto() (*tmproto.Block, error) {
 
 func (b *Block) ToReqBeginBlock(vals []*Validator) abci.RequestBeginBlock {
 	tmHeader := b.Header.ToProto()
-	votes := make([]abci.VoteInfo, b.LastCommit.Size())
+	votes := make([]abci.VoteInfo, 0, b.LastCommit.Size())
 	for i, val := range vals {
 		commitSig := b.LastCommit.Signatures[i]
-		votes[i] = abci.VoteInfo{
+		votes = append(votes, abci.VoteInfo{
 			Validator:       TM2PB.Validator(val),
 			SignedLastBlock: commitSig.BlockIDFlag != BlockIDFlagAbsent,
-		}
+		})
 	}
 	abciEvidence := b.Evidence.ToABCI()
 	return abci.RequestBeginBlock{
