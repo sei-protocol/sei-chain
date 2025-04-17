@@ -2,6 +2,9 @@
 
 ![Banner!](assets/SeiLogo.png)
 
+[![Release](https://img.shields.io/github/v/release/sei-protocol/sei-chain.svg)](https://github.com/sei-protocol/sei-chain/releases)
+[![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://github.com/sei-protocol/sei-chain/blob/main/LICENSE.md)
+
 Sei is the fastest general purpose L1 blockchain and the first parallelized EVM. This allows Sei to get the best of Solana and Ethereum - a hyper optimized execution layer that benefits from the tooling and mindshare around the EVM.
 
 # Overview
