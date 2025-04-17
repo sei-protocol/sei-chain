@@ -12,6 +12,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v562"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -84,7 +85,7 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, w
 	return pcommon.NewDynamicGasPrecompile(*newAbi, p, common.HexToAddress(PointerAddress), PrecompileName), nil
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *ethabi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *ethabi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if readOnly {
 		return nil, 0, errors.New("cannot call pointer precompile from staticcall")
 	}
@@ -94,11 +95,11 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *ethabi.Method, call
 
 	switch method.Name {
 	case AddNativePointer:
-		return p.AddNative(ctx, method, caller, args, value, evm, suppliedGas)
+		return p.AddNative(ctx, method, caller, args, value, evm, suppliedGas, hooks)
 	case AddCW20Pointer:
-		return p.AddCW20(ctx, method, caller, args, value, evm, suppliedGas)
+		return p.AddCW20(ctx, method, caller, args, value, evm, suppliedGas, hooks)
 	case AddCW721Pointer:
-		return p.AddCW721(ctx, method, caller, args, value, evm, suppliedGas)
+		return p.AddCW721(ctx, method, caller, args, value, evm, suppliedGas, hooks)
 	default:
 		err = fmt.Errorf("unknown method %s", method.Name)
 	}
@@ -109,7 +110,7 @@ func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
 	return p.evmKeeper
 }
 
-func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -158,6 +159,17 @@ func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, ca
 	if err != nil {
 		return
 	}
+	if hooks != nil {
+		remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+		if hooks.OnEnter != nil {
+			hooks.OnEnter(evm.GetDepth()+1, byte(vm.CREATE), common.HexToAddress(PointerAddress), contractAddr, p.evmKeeper.GetCode(ctx, contractAddr), remainingGas, utils.Big0)
+		}
+		defer func() {
+			if hooks.OnExit != nil {
+				hooks.OnExit(evm.GetDepth()+1, ret, 0, err, err != nil && !errors.Is(err, vm.ErrCodeStoreOutOfGas))
+			}
+		}()
+	}
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "native"),
 		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, token),
@@ -166,7 +178,7 @@ func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, ca
 	return
 }
 
-func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -212,6 +224,17 @@ func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, call
 	if err != nil {
 		return
 	}
+	if hooks != nil {
+		remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+		if hooks.OnEnter != nil {
+			hooks.OnEnter(evm.GetDepth()+1, byte(vm.CREATE), common.HexToAddress(PointerAddress), contractAddr, p.evmKeeper.GetCode(ctx, contractAddr), remainingGas, utils.Big0)
+		}
+		defer func() {
+			if hooks.OnExit != nil {
+				hooks.OnExit(evm.GetDepth()+1, ret, 0, err, err != nil && !errors.Is(err, vm.ErrCodeStoreOutOfGas))
+			}
+		}()
+	}
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw20"),
 		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, cwAddr),
@@ -220,7 +243,7 @@ func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, call
 	return
 }
 
-func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -265,6 +288,17 @@ func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, cal
 	err = p.evmKeeper.SetERC721CW721Pointer(ctx, cwAddr, contractAddr)
 	if err != nil {
 		return
+	}
+	if hooks != nil {
+		remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+		if hooks.OnEnter != nil {
+			hooks.OnEnter(evm.GetDepth()+1, byte(vm.CREATE), common.HexToAddress(PointerAddress), contractAddr, p.evmKeeper.GetCode(ctx, contractAddr), remainingGas, utils.Big0)
+		}
+		defer func() {
+			if hooks.OnExit != nil {
+				hooks.OnExit(evm.GetDepth()+1, ret, 0, err, err != nil && !errors.Is(err, vm.ErrCodeStoreOutOfGas))
+			}
+		}()
 	}
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw721"),

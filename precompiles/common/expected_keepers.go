@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"math/big"
 
 	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 
@@ -42,10 +43,13 @@ type EVMKeeper interface {
 	GetSeiAddress(sdk.Context, common.Address) (sdk.AccAddress, bool)
 	GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress // only used for getting precompile Sei addresses
 	GetEVMAddress(sdk.Context, sdk.AccAddress) (common.Address, bool)
+	GetEVMAddressOrDefault(sdk.Context, sdk.AccAddress) common.Address
 	SetAddressMapping(sdk.Context, sdk.AccAddress, common.Address)
 	GetCodeHash(sdk.Context, common.Address) common.Hash
+	GetCode(ctx sdk.Context, addr common.Address) []byte
 	GetPriorityNormalizer(ctx sdk.Context) sdk.Dec
 	GetBaseDenom(ctx sdk.Context) string
+	GetBalance(ctx sdk.Context, addr sdk.AccAddress) *big.Int
 	SetERC20NativePointer(ctx sdk.Context, token string, addr common.Address) error
 	GetERC20NativePointer(ctx sdk.Context, token string) (addr common.Address, version uint16, exists bool)
 	SetERC20CW20Pointer(ctx sdk.Context, cw20Address string, addr common.Address) error
