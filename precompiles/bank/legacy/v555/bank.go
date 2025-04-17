@@ -10,6 +10,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v555"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -131,7 +132,7 @@ func (p Precompile) GetName() string {
 	return "bank"
 }
 
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool, _ bool) (bz []byte, err error) {
+func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool, _ bool, hooks *tracing.Hooks) (bz []byte, err error) {
 	defer func() {
 		if err != nil {
 			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
@@ -146,7 +147,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 	case SendMethod:
 		return p.send(ctx, caller, method, args, value, readOnly)
 	case SendNativeMethod:
-		return p.sendNative(ctx, method, args, caller, callingContract, value, readOnly)
+		return p.sendNative(ctx, method, args, caller, callingContract, value, readOnly, hooks, evm)
 	case BalanceMethod:
 		return p.balance(ctx, method, args, value)
 	case AllBalancesMethod:
@@ -203,7 +204,7 @@ func (p Precompile) send(ctx sdk.Context, caller common.Address, method *abi.Met
 	return method.Outputs.Pack(true)
 }
 
-func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address, callingContract common.Address, value *big.Int, readOnly bool) ([]byte, error) {
+func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address, callingContract common.Address, value *big.Int, readOnly bool, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, error) {
 	if readOnly {
 		return nil, errors.New("cannot call sendNative from staticcall")
 	}
@@ -232,13 +233,25 @@ func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []inter
 		return nil, err
 	}
 
-	usei, wei, err := pcommon.HandlePaymentUseiWei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderSeiAddr, value, p.bankKeeper)
+	usei, wei, err := pcommon.HandlePaymentUseiWei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderSeiAddr, value, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 	if err != nil {
 		return nil, err
 	}
 
 	if err := p.bankKeeper.SendCoinsAndWei(ctx, senderSeiAddr, receiverSeiAddr, usei, wei); err != nil {
 		return nil, err
+	}
+
+	if hooks != nil {
+		remainingGas := pcommon.GetRemainingGas(ctx, p.evmKeeper)
+		if hooks.OnEnter != nil {
+			hooks.OnEnter(evm.GetDepth()+1, byte(vm.CALL), caller, p.evmKeeper.GetEVMAddressOrDefault(ctx, receiverSeiAddr), []byte{}, remainingGas, value)
+		}
+		defer func() {
+			if hooks.OnExit != nil {
+				hooks.OnExit(evm.GetDepth()+1, []byte{}, 0, nil, false)
+			}
+		}()
 	}
 
 	return method.Outputs.Pack(true)

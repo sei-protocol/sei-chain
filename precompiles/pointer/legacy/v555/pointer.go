@@ -107,7 +107,7 @@ func (p Precompile) GetName() string {
 	return PrecompileName
 }
 
-func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, readOnly bool, _ bool) (ret []byte, remainingGas uint64, err error) {
+func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, hooks *tracing.Hooks, readOnly bool, _ bool) (ret []byte, remainingGas uint64, err error) {
 	defer func() {
 		if err != nil {
 			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
@@ -126,22 +126,22 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 
 	switch method.Name {
 	case AddNativePointer:
-		return p.AddNative(ctx, method, caller, args, value, evm, suppliedGas)
+		return p.AddNative(ctx, method, caller, args, value, evm, suppliedGas, hooks)
 	case AddCW20Pointer:
-		return p.AddCW20(ctx, method, caller, args, value, evm, suppliedGas)
+		return p.AddCW20(ctx, method, caller, args, value, evm, suppliedGas, hooks)
 	case AddCW721Pointer:
-		return p.AddCW721(ctx, method, caller, args, value, evm, suppliedGas)
+		return p.AddCW721(ctx, method, caller, args, value, evm, suppliedGas, hooks)
 	default:
 		err = fmt.Errorf("unknown method %s", method.Name)
 	}
 	return
 }
 
-func (p Precompile) Run(*vm.EVM, common.Address, common.Address, []byte, *big.Int, bool, bool) ([]byte, error) {
+func (p Precompile) Run(*vm.EVM, common.Address, common.Address, []byte, *big.Int, bool, bool, *tracing.Hooks) ([]byte, error) {
 	panic("static gas Run is not implemented for dynamic gas precompile")
 }
 
-func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -190,6 +190,17 @@ func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller com
 	if err != nil {
 		return
 	}
+	if hooks != nil {
+		remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+		if hooks.OnEnter != nil {
+			hooks.OnEnter(evm.GetDepth()+1, byte(vm.CREATE), common.HexToAddress(PointerAddress), contractAddr, p.evmKeeper.GetCode(ctx, contractAddr), remainingGas, utils.Big0)
+		}
+		defer func() {
+			if hooks.OnExit != nil {
+				hooks.OnExit(evm.GetDepth()+1, ret, 0, err, err != nil && !errors.Is(err, vm.ErrCodeStoreOutOfGas))
+			}
+		}()
+	}
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "native"),
 		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, token),
@@ -198,7 +209,7 @@ func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller com
 	return
 }
 
-func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -244,6 +255,17 @@ func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller commo
 	if err != nil {
 		return
 	}
+	if hooks != nil {
+		remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+		if hooks.OnEnter != nil {
+			hooks.OnEnter(evm.GetDepth()+1, byte(vm.CREATE), common.HexToAddress(PointerAddress), contractAddr, p.evmKeeper.GetCode(ctx, contractAddr), remainingGas, utils.Big0)
+		}
+		defer func() {
+			if hooks.OnExit != nil {
+				hooks.OnExit(evm.GetDepth()+1, ret, 0, err, err != nil && !errors.Is(err, vm.ErrCodeStoreOutOfGas))
+			}
+		}()
+	}
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw20"),
 		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, cwAddr),
@@ -252,7 +274,7 @@ func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller commo
 	return
 }
 
-func (p Precompile) AddCW721(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p Precompile) AddCW721(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -297,6 +319,17 @@ func (p Precompile) AddCW721(ctx sdk.Context, method *ethabi.Method, caller comm
 	err = p.evmKeeper.SetERC721CW721Pointer(ctx, cwAddr, contractAddr)
 	if err != nil {
 		return
+	}
+	if hooks != nil {
+		remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+		if hooks.OnEnter != nil {
+			hooks.OnEnter(evm.GetDepth()+1, byte(vm.CREATE), common.HexToAddress(PointerAddress), contractAddr, p.evmKeeper.GetCode(ctx, contractAddr), remainingGas, utils.Big0)
+		}
+		defer func() {
+			if hooks.OnExit != nil {
+				hooks.OnExit(evm.GetDepth()+1, ret, 0, err, err != nil && !errors.Is(err, vm.ErrCodeStoreOutOfGas))
+			}
+		}()
 	}
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw721"),

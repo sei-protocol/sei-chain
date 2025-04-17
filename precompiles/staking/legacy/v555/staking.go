@@ -11,6 +11,7 @@ import (
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v555"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -110,7 +111,7 @@ func (p Precompile) GetName() string {
 	return "staking"
 }
 
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool, _ bool) (bz []byte, err error) {
+func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool, _ bool, hooks *tracing.Hooks) (bz []byte, err error) {
 	defer func() {
 		if err != nil {
 			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
@@ -129,7 +130,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 
 	switch method.Name {
 	case DelegateMethod:
-		return p.delegate(ctx, method, caller, args, value)
+		return p.delegate(ctx, method, caller, args, value, hooks, evm)
 	case RedelegateMethod:
 		return p.redelegate(ctx, method, caller, args, value)
 	case UndelegateMethod:
@@ -138,7 +139,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 	return
 }
 
-func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, error) {
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}
@@ -153,7 +154,7 @@ func (p Precompile) delegate(ctx sdk.Context, method *abi.Method, caller common.
 	if value == nil || value.Sign() == 0 {
 		return nil, errors.New("set `value` field to non-zero to send delegate fund")
 	}
-	coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), delegator, value, p.bankKeeper)
+	coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), delegator, value, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 	if err != nil {
 		return nil, err
 	}
