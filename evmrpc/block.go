@@ -229,6 +229,12 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}
 	allReceipts := make([]map[string]interface{}, len(txHashes))
+	sdkCtx := a.ctxProvider(LatestCtxHeight)
+	signer := ethtypes.MakeSigner(
+		types.DefaultChainConfig().EthereumConfig(a.keeper.ChainID(sdkCtx)),
+		big.NewInt(sdkCtx.BlockHeight()),
+		uint64(sdkCtx.BlockTime().Unix()),
+	)
 	for i, hash := range txHashes {
 		wg.Add(1)
 		go func(i int, hash common.Hash) {
@@ -254,7 +260,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 				encodedReceipt, err := encodeReceipt(receipt, a.txConfig.TxDecoder(), block, func(h common.Hash) bool {
 					_, err := a.keeper.GetReceipt(a.ctxProvider(height), h)
 					return err == nil
-				}, a.includeShellReceipts)
+				}, a.includeShellReceipts, signer)
 				if err != nil {
 					mtx.Lock()
 					returnErr = err
