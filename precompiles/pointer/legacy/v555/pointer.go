@@ -190,17 +190,7 @@ func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller com
 	if err != nil {
 		return
 	}
-	if hooks != nil {
-		remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
-		if hooks.OnEnter != nil {
-			hooks.OnEnter(evm.GetDepth()+1, byte(vm.CREATE), common.HexToAddress(PointerAddress), contractAddr, p.evmKeeper.GetCode(ctx, contractAddr), remainingGas, utils.Big0)
-		}
-		defer func() {
-			if hooks.OnExit != nil {
-				hooks.OnExit(evm.GetDepth()+1, ret, 0, err, err != nil && !errors.Is(err, vm.ErrCodeStoreOutOfGas))
-			}
-		}()
-	}
+
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "native"),
 		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, token),
@@ -255,17 +245,7 @@ func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller commo
 	if err != nil {
 		return
 	}
-	if hooks != nil {
-		remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
-		if hooks.OnEnter != nil {
-			hooks.OnEnter(evm.GetDepth()+1, byte(vm.CREATE), common.HexToAddress(PointerAddress), contractAddr, p.evmKeeper.GetCode(ctx, contractAddr), remainingGas, utils.Big0)
-		}
-		defer func() {
-			if hooks.OnExit != nil {
-				hooks.OnExit(evm.GetDepth()+1, ret, 0, err, err != nil && !errors.Is(err, vm.ErrCodeStoreOutOfGas))
-			}
-		}()
-	}
+
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw20"),
 		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, cwAddr),
@@ -320,17 +300,7 @@ func (p Precompile) AddCW721(ctx sdk.Context, method *ethabi.Method, caller comm
 	if err != nil {
 		return
 	}
-	if hooks != nil {
-		remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
-		if hooks.OnEnter != nil {
-			hooks.OnEnter(evm.GetDepth()+1, byte(vm.CREATE), common.HexToAddress(PointerAddress), contractAddr, p.evmKeeper.GetCode(ctx, contractAddr), remainingGas, utils.Big0)
-		}
-		defer func() {
-			if hooks.OnExit != nil {
-				hooks.OnExit(evm.GetDepth()+1, ret, 0, err, err != nil && !errors.Is(err, vm.ErrCodeStoreOutOfGas))
-			}
-		}()
-	}
+
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw721"),
 		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, cwAddr),
