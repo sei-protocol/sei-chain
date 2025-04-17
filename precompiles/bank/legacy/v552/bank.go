@@ -147,7 +147,7 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 	case SendMethod:
 		return p.send(ctx, caller, method, args, value, readOnly)
 	case SendNativeMethod:
-		return p.sendNative(ctx, method, args, caller, callingContract, value, readOnly, hooks)
+		return p.sendNative(ctx, method, args, caller, callingContract, value, readOnly, hooks, evm)
 	case BalanceMethod:
 		return p.balance(ctx, method, args, value)
 	case AllBalancesMethod:
@@ -205,7 +205,7 @@ func (p Precompile) send(ctx sdk.Context, caller common.Address, method *abi.Met
 	return method.Outputs.Pack(true)
 }
 
-func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address, callingContract common.Address, value *big.Int, readOnly bool, hooks *tracing.Hooks) ([]byte, error) {
+func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []interface{}, caller common.Address, callingContract common.Address, value *big.Int, readOnly bool, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, error) {
 	if readOnly {
 		return nil, errors.New("cannot call sendNative from staticcall")
 	}
@@ -219,14 +219,9 @@ func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []inter
 		return nil, errors.New("set `value` field to non-zero to send")
 	}
 
-	var prevSenderBalance, prevReceiverBalance *big.Int
-
 	senderSeiAddr, ok := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !ok {
 		return nil, errors.New("invalid addr")
-	}
-	if hooks != nil {
-		prevSenderBalance = p.evmKeeper.GetBalance(ctx, senderSeiAddr)
 	}
 
 	receiverAddr, ok := (args[0]).(string)
@@ -238,11 +233,8 @@ func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []inter
 	if err != nil {
 		return nil, err
 	}
-	if hooks != nil {
-		prevReceiverBalance = p.evmKeeper.GetBalance(ctx, receiverSeiAddr)
-	}
 
-	usei, wei, err := pcommon.HandlePaymentUseiWei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderSeiAddr, value, p.bankKeeper, p.evmKeeper, hooks)
+	usei, wei, err := pcommon.HandlePaymentUseiWei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderSeiAddr, value, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 	if err != nil {
 		return nil, err
 	}
@@ -252,8 +244,15 @@ func (p Precompile) sendNative(ctx sdk.Context, method *abi.Method, args []inter
 	}
 
 	if hooks != nil {
-		hooks.OnBalanceChange(caller, prevSenderBalance, new(big.Int).Sub(prevSenderBalance, value), tracing.BalanceChangeTransfer)
-		hooks.OnBalanceChange(p.evmKeeper.GetEVMAddressOrDefault(ctx, receiverSeiAddr), prevReceiverBalance, new(big.Int).Add(prevReceiverBalance, value), tracing.BalanceChangeTransfer)
+		remainingGas := pcommon.GetRemainingGas(ctx, p.evmKeeper)
+		if hooks.OnEnter != nil {
+			hooks.OnEnter(evm.GetDepth()+1, byte(vm.CALL), caller, p.evmKeeper.GetEVMAddressOrDefault(ctx, receiverSeiAddr), []byte{}, remainingGas, value)
+		}
+		defer func() {
+			if hooks.OnExit != nil {
+				hooks.OnExit(evm.GetDepth()+1, []byte{}, 0, nil, false)
+			}
+		}()
 	}
 
 	return method.Outputs.Pack(true)

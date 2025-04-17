@@ -13,7 +13,6 @@ import (
 	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v552"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -184,7 +183,15 @@ func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller com
 		return
 	}
 	if hooks != nil {
-		hooks.OnCodeChange(contractAddr, ethtypes.EmptyCodeHash, nil, p.evmKeeper.GetCodeHash(ctx, contractAddr), p.evmKeeper.GetCode(ctx, contractAddr))
+		remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+		if hooks.OnEnter != nil {
+			hooks.OnEnter(evm.GetDepth()+1, byte(vm.CREATE), common.HexToAddress(PointerAddress), contractAddr, p.evmKeeper.GetCode(ctx, contractAddr), remainingGas, utils.Big0)
+		}
+		defer func() {
+			if hooks.OnExit != nil {
+				hooks.OnExit(evm.GetDepth()+1, ret, 0, err, err != nil && !errors.Is(err, vm.ErrCodeStoreOutOfGas))
+			}
+		}()
 	}
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "native"),
@@ -241,7 +248,15 @@ func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller commo
 		return
 	}
 	if hooks != nil {
-		hooks.OnCodeChange(contractAddr, ethtypes.EmptyCodeHash, nil, p.evmKeeper.GetCodeHash(ctx, contractAddr), p.evmKeeper.GetCode(ctx, contractAddr))
+		remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+		if hooks.OnEnter != nil {
+			hooks.OnEnter(evm.GetDepth()+1, byte(vm.CREATE), common.HexToAddress(PointerAddress), contractAddr, p.evmKeeper.GetCode(ctx, contractAddr), remainingGas, utils.Big0)
+		}
+		defer func() {
+			if hooks.OnExit != nil {
+				hooks.OnExit(evm.GetDepth()+1, ret, 0, err, err != nil && !errors.Is(err, vm.ErrCodeStoreOutOfGas))
+			}
+		}()
 	}
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw20"),
@@ -298,7 +313,15 @@ func (p Precompile) AddCW721(ctx sdk.Context, method *ethabi.Method, caller comm
 		return
 	}
 	if hooks != nil {
-		hooks.OnCodeChange(contractAddr, ethtypes.EmptyCodeHash, nil, p.evmKeeper.GetCodeHash(ctx, contractAddr), p.evmKeeper.GetCode(ctx, contractAddr))
+		remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+		if hooks.OnEnter != nil {
+			hooks.OnEnter(evm.GetDepth()+1, byte(vm.CREATE), common.HexToAddress(PointerAddress), contractAddr, p.evmKeeper.GetCode(ctx, contractAddr), remainingGas, utils.Big0)
+		}
+		defer func() {
+			if hooks.OnExit != nil {
+				hooks.OnExit(evm.GetDepth()+1, ret, 0, err, err != nil && !errors.Is(err, vm.ErrCodeStoreOutOfGas))
+			}
+		}()
 	}
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw721"),

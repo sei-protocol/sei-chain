@@ -197,44 +197,42 @@ func ValidateNonPayable(value *big.Int) error {
 	return nil
 }
 
-func HandlePaymentUsei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper BankKeeper, evmKeeper EVMKeeper, hooks *tracing.Hooks) (sdk.Coin, error) {
+func HandlePaymentUsei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper BankKeeper, evmKeeper EVMKeeper, hooks *tracing.Hooks, depth int) (sdk.Coin, error) {
 	usei, wei := state.SplitUseiWeiAmount(value)
 	if !wei.IsZero() {
 		return sdk.Coin{}, fmt.Errorf("selected precompile function does not allow payment with non-zero wei remainder: received %s", value)
 	}
 	coin := sdk.NewCoin(sdk.MustGetBaseDenom(), usei)
-	var prevSenderBalance, prevReceiverBalance *big.Int
-	if hooks != nil {
-		prevSenderBalance = evmKeeper.GetBalance(ctx, precompileAddr)
-		prevReceiverBalance = evmKeeper.GetBalance(ctx, payer)
-	}
 	// refund payer because the following precompile logic will debit the payments from payer's account
 	// this creates a new event manager to avoid surfacing these as cosmos events
 	if err := bankKeeper.SendCoins(ctx.WithEventManager(sdk.NewEventManager()), precompileAddr, payer, sdk.NewCoins(coin)); err != nil {
 		return sdk.Coin{}, err
 	}
 	if hooks != nil {
-		hooks.OnBalanceChange(evmKeeper.GetEVMAddressOrDefault(ctx, precompileAddr), prevSenderBalance, new(big.Int).Sub(prevSenderBalance, value), tracing.BalanceChangeTransfer)
-		hooks.OnBalanceChange(evmKeeper.GetEVMAddressOrDefault(ctx, payer), prevReceiverBalance, new(big.Int).Sub(prevReceiverBalance, value), tracing.BalanceChangeTransfer)
+		if hooks.OnEnter != nil {
+			hooks.OnEnter(depth+1, byte(vm.CALL), evmKeeper.GetEVMAddressOrDefault(ctx, precompileAddr), evmKeeper.GetEVMAddressOrDefault(ctx, payer), []byte{}, GetRemainingGas(ctx, evmKeeper), value)
+		}
+		if hooks.OnExit != nil {
+			hooks.OnExit(depth+1, []byte{}, 0, nil, false)
+		}
 	}
 	return coin, nil
 }
 
-func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper BankKeeper, evmKeeper EVMKeeper, hooks *tracing.Hooks) (sdk.Int, sdk.Int, error) {
+func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk.AccAddress, value *big.Int, bankKeeper BankKeeper, evmKeeper EVMKeeper, hooks *tracing.Hooks, depth int) (sdk.Int, sdk.Int, error) {
 	usei, wei := state.SplitUseiWeiAmount(value)
-	var prevSenderBalance, prevReceiverBalance *big.Int
-	if hooks != nil {
-		prevSenderBalance = evmKeeper.GetBalance(ctx, precompileAddr)
-		prevReceiverBalance = evmKeeper.GetBalance(ctx, payer)
-	}
 	// refund payer because the following precompile logic will debit the payments from payer's account
 	// this creates a new event manager to avoid surfacing these as cosmos events
 	if err := bankKeeper.SendCoinsAndWei(ctx.WithEventManager(sdk.NewEventManager()), precompileAddr, payer, usei, wei); err != nil {
 		return sdk.Int{}, sdk.Int{}, err
 	}
 	if hooks != nil {
-		hooks.OnBalanceChange(evmKeeper.GetEVMAddressOrDefault(ctx, precompileAddr), prevSenderBalance, new(big.Int).Sub(prevSenderBalance, value), tracing.BalanceChangeTransfer)
-		hooks.OnBalanceChange(evmKeeper.GetEVMAddressOrDefault(ctx, payer), prevReceiverBalance, new(big.Int).Sub(prevReceiverBalance, value), tracing.BalanceChangeTransfer)
+		if hooks.OnEnter != nil {
+			hooks.OnEnter(depth+1, byte(vm.CALL), evmKeeper.GetEVMAddressOrDefault(ctx, precompileAddr), evmKeeper.GetEVMAddressOrDefault(ctx, payer), []byte{}, GetRemainingGas(ctx, evmKeeper), value)
+		}
+		if hooks.OnExit != nil {
+			hooks.OnExit(depth+1, []byte{}, 0, nil, false)
+		}
 	}
 	return usei, wei, nil
 }

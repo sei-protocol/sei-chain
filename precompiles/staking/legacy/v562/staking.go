@@ -103,7 +103,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 
 	switch method.Name {
 	case DelegateMethod:
-		return p.delegate(ctx, method, caller, args, value, hooks)
+		return p.delegate(ctx, method, caller, args, value, hooks, evm)
 	case RedelegateMethod:
 		return p.redelegate(ctx, method, caller, args, value)
 	case UndelegateMethod:
@@ -112,7 +112,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	return
 }
 
-func (p PrecompileExecutor) delegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks) ([]byte, error) {
+func (p PrecompileExecutor) delegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, error) {
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func (p PrecompileExecutor) delegate(ctx sdk.Context, method *abi.Method, caller
 	if value == nil || value.Sign() == 0 {
 		return nil, errors.New("set `value` field to non-zero to send delegate fund")
 	}
-	coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), delegator, value, p.bankKeeper, p.evmKeeper, hooks)
+	coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), delegator, value, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 	if err != nil {
 		return nil, err
 	}
