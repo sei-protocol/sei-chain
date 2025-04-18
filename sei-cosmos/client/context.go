@@ -45,6 +45,7 @@ type Context struct {
 	UseLedger         bool
 	Simulate          bool
 	GenerateOnly      bool
+	PrintSignedOnly   bool
 	Offline           bool
 	SkipConfirm       bool
 	TxConfig          TxConfig

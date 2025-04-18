@@ -3,6 +3,7 @@ package tx
 import (
 	"bufio"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -136,6 +137,11 @@ func BroadcastTx(clientCtx client.Context, txf Factory, msgs ...sdk.Msg) error {
 	txBytes, err := clientCtx.TxConfig.TxEncoder()(tx.GetTx())
 	if err != nil {
 		return err
+	}
+
+	if clientCtx.PrintSignedOnly {
+		hexEncoded := hex.EncodeToString(txBytes)
+		return clientCtx.PrintString(hexEncoded)
 	}
 
 	// broadcast to a Tendermint node
