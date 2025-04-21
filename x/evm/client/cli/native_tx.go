@@ -204,3 +204,29 @@ func NativeAssociateCmd() *cobra.Command {
 
 	return cmd
 }
+
+func PrintClaimTxPayloadCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "print-claim [claimer] --from=<sender>",
+		Short: `Print hex-encoded claim message payload for Sei Solo migration.`,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			msg := types.NewMsgClaim(clientCtx.GetFromAddress(), common.HexToAddress(args[0]))
+			if err := msg.ValidateBasic(); err != nil {
+				return err
+			}
+
+			clientCtx.PrintSignedOnly = true
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+		},
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}

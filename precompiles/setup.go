@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
+	"github.com/cosmos/cosmos-sdk/client"
 	ibctransferkeeper "github.com/cosmos/ibc-go/v3/modules/apps/transfer/keeper"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	ecommon "github.com/ethereum/go-ethereum/common"
@@ -66,6 +67,7 @@ import (
 	pointerviewv552 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v552"
 	pointerviewv555 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v555"
 	pointerviewv562 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v562"
+	"github.com/sei-protocol/sei-chain/precompiles/solo"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
 	stakingv552 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v552"
 	stakingv555 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v555"
@@ -102,6 +104,7 @@ type VersionedPrecompiles map[string]vm.PrecompiledContract
 
 func GetCustomPrecompiles(
 	latestUpgrade string,
+	txConfig client.TxConfig,
 	evmKeeper common.EVMKeeper,
 	bankKeeper common.BankKeeper,
 	bankSender common.BankMsgServer,
@@ -213,6 +216,9 @@ func GetCustomPrecompiles(
 	ctprVersions := VersionedPrecompiles{
 		latestUpgrade: check(confidentialtransfers.NewPrecompile(ctViewKeeper, ctKeeper, evmKeeper)),
 	}
+	soloVersions := VersionedPrecompiles{
+		latestUpgrade: check(solo.NewPrecompile(evmKeeper, bankKeeper, accountKeeper, txConfig)),
+	}
 
 	return map[ecommon.Address]VersionedPrecompiles{
 		ecommon.HexToAddress(bank.BankAddress):                bankVersions,
@@ -227,6 +233,7 @@ func GetCustomPrecompiles(
 		ecommon.HexToAddress(pointer.PointerAddress):          pointerVersions,
 		ecommon.HexToAddress(pointerview.PointerViewAddress):  pointerviewVersions,
 		ecommon.HexToAddress(confidentialtransfers.CtAddress): ctprVersions,
+		ecommon.HexToAddress(solo.SoloAddress):                soloVersions,
 	}
 }
 
