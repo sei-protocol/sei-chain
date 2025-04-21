@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/tendermint/tendermint/libs/cli"
+
 	"github.com/spf13/cobra"
 
 	"github.com/tendermint/tendermint/config"
@@ -55,8 +57,16 @@ Only use in testing. This can cause the node to double sign`,
 		Long: `Removes all tendermint data including signing state.
 Only use in testing. This can cause the node to double sign`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			home, err := cmd.Flags().GetString(cli.HomeFlag)
+			if err != nil {
+				return err
+			}
+			// If home is empty, use conf.RootDir as a fallback
+			if home == "" {
+				home = conf.RootDir
+			}
 			return ResetAll(conf.DBDir(), conf.PrivValidator.KeyFile(),
-				conf.PrivValidator.StateFile(), logger, keyType)
+				conf.PrivValidator.StateFile(), logger, keyType, home)
 		},
 	}
 
@@ -77,19 +87,21 @@ Only use in testing. This can cause the node to double sign`,
 // ResetAll removes address book files plus all data, and resets the privValdiator data.
 // Exported for extenal CLI usage
 // XXX: this is unsafe and should only suitable for testnets.
-func ResetAll(dbDir, privValKeyFile, privValStateFile string, logger log.Logger, keyType string) error {
-	if err := os.RemoveAll(dbDir); err == nil {
+func ResetAll(dbDir, privValKeyFile, privValStateFile string, logger log.Logger, keyType string, homeDir string) error {
+	if err := os.RemoveAll(filepath.Join(homeDir, dbDir)); err == nil {
 		logger.Info("Removed all blockchain history", "dir", dbDir)
 	} else {
 		logger.Error("error removing all blockchain history", "dir", dbDir, "err", err)
 	}
 
-	if err := tmos.EnsureDir(dbDir, 0700); err != nil {
+	if err := tmos.EnsureDir(filepath.Join(homeDir, dbDir), 0700); err != nil {
 		logger.Error("unable to recreate dbDir", "err", err)
+	} else {
+		logger.Info("Removed dbDir")
 	}
 
 	// recreate the dbDir since the privVal state needs to live there
-	return ResetFilePV(privValKeyFile, privValStateFile, logger, keyType)
+	return ResetFilePV(filepath.Join(homeDir, privValKeyFile), filepath.Join(homeDir, privValStateFile), logger, keyType)
 }
 
 // ResetState removes all blocks, tendermint state, indexed transactions and evidence.
@@ -190,8 +202,19 @@ func MakeUnsafeResetAllCommand(conf *config.Config, logger log.Logger) *cobra.Co
 		Long: `Removes all tendermint data including signing state.
 Only use in testing. This can cause the node to double sign`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Get the --home flag value from the command
+			home, err := cmd.Flags().GetString(cli.HomeFlag)
+			if err != nil {
+				return err
+			}
+
+			// If home is empty, use conf.RootDir as a fallback
+			if home == "" {
+				home = conf.RootDir
+			}
+
 			return ResetAll(conf.DBDir(), conf.PrivValidator.KeyFile(),
-				conf.PrivValidator.StateFile(), logger, keyType)
+				conf.PrivValidator.StateFile(), logger, keyType, home)
 		},
 	}
 
