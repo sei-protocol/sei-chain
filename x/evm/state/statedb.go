@@ -35,6 +35,8 @@ type DBImpl struct {
 	// for cases like bank.send_native, we want to suppress transfer events
 	eventsSuppressed bool
 
+	isTraceCall bool
+
 	logger *tracing.Hooks
 }
 
