@@ -217,7 +217,7 @@ func GetCustomPrecompiles(
 		latestUpgrade: check(confidentialtransfers.NewPrecompile(ctViewKeeper, ctKeeper, evmKeeper)),
 	}
 	soloVersions := VersionedPrecompiles{
-		latestUpgrade: check(solo.NewPrecompile(evmKeeper, bankKeeper, accountKeeper, txConfig)),
+		latestUpgrade: check(solo.NewPrecompile(evmKeeper, bankKeeper, accountKeeper, wasmdKeeper, wasmdViewKeeper, txConfig)),
 	}
 
 	return map[ecommon.Address]VersionedPrecompiles{
