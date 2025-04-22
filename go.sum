@@ -1354,12 +1354,12 @@ github.com/securego/gosec/v2 v2.11.0/go.mod h1:SX8bptShuG8reGC0XS09+a4H2BoWSJi+f
 github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KRMzBtS3oedY=
 github.com/sei-protocol/coinbase-kryptology v0.0.0-20241210171554-278d19024e41 h1:J68EXEY5o6eKFx0/8tD4hvZT3PJN6tabomwaBfx/sXg=
 github.com/sei-protocol/coinbase-kryptology v0.0.0-20241210171554-278d19024e41/go.mod h1:vAKKp7/qgfMtPXMseamOlZMqK7BytjfOm0rFKWph5c4=
-github.com/sei-protocol/go-ethereum v1.13.5-sei-32 h1:FmbTqDZwBI+dU9OTHdODAVBbA/SYHiaiImvMMm++J1Y=
-github.com/sei-protocol/go-ethereum v1.13.5-sei-32/go.mod h1:kcRZmuzRn1lVejiFNTz4l4W7imnpq1bDAnuKS/RyhbQ=
+github.com/sei-protocol/go-ethereum v1.13.5-sei-34 h1:7g8EwfEK/XwOEuYXQJZNY0iZ+lCimSAvQ/efWpPVEJc=
+github.com/sei-protocol/go-ethereum v1.13.5-sei-34/go.mod h1:kcRZmuzRn1lVejiFNTz4l4W7imnpq1bDAnuKS/RyhbQ=
 github.com/sei-protocol/goutils v0.0.2 h1:Bfa7Sv+4CVLNM20QcpvGb81B8C5HkQC/kW1CQpIbXDA=
 github.com/sei-protocol/goutils v0.0.2/go.mod h1:iYE2DuJfEnM+APPehr2gOUXfuLuPsVxorcDO+Tzq9q8=
-github.com/sei-protocol/sei-cosmos v0.3.57 h1:1VbBZ6I6YTHUUmonW6YgSvPyCyfFLv+5St9MBrqfk4E=
-github.com/sei-protocol/sei-cosmos v0.3.57/go.mod h1:Z+0XynKuhMu9m2XHIvUBwk4A+iLPc4YnzFlabpMOWqw=
+github.com/sei-protocol/sei-cosmos v0.3.55-hotfix h1:SaBzeLy8wca3rdvKgrUGnRxqGHX4aua15rTJPz9dTno=
+github.com/sei-protocol/sei-cosmos v0.3.55-hotfix/go.mod h1:Z+0XynKuhMu9m2XHIvUBwk4A+iLPc4YnzFlabpMOWqw=
 github.com/sei-protocol/sei-cryptography v0.0.0-20241210192144-b20fa09be987 h1:l2EcEUO2rThRIvqIlnJQvqSOwutSbuY01xf1gbgx4qM=
 github.com/sei-protocol/sei-cryptography v0.0.0-20241210192144-b20fa09be987/go.mod h1:274GmYGRLVKlf/XcOx4SI2kmq1tJQYzlqboK9RNA9Q8=
 github.com/sei-protocol/sei-db v0.0.48 h1:BgSF5jq9hiPz0JMmbf5f34CnZijqTO+3zOo8IG62lFY=
