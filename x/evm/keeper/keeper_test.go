@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/precompiles/addr"
+	"github.com/sei-protocol/sei-chain/precompiles/bank"
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
 	"github.com/sei-protocol/sei-chain/precompiles/gov"
 	"github.com/sei-protocol/sei-chain/precompiles/ibc"
@@ -318,7 +319,7 @@ func TestGetCustomPrecompiles(t *testing.T) {
 		case wasmd.WasmdAddress:
 			require.Equal(t, "v6.0.0", v)
 		default:
-			require.Equal(t, "v6.0.2", v)
+			require.Equal(t, "v6.0.1", v)
 		}
 	}
 	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(119821527))
@@ -330,8 +331,8 @@ func TestGetCustomPrecompiles(t *testing.T) {
 		case distribution.DistrAddress:
 		case gov.GovAddress:
 		case staking.StakingAddress:
-		case ibc.IBCAddress:
-			require.Equal(t, "v5.8.0", v)
+		case ibc.IBCAddress, bank.BankAddress, oracle.OracleAddress, addr.AddrAddress:
+			require.Equal(t, "v6.0.1", v)
 		default:
 			require.Equal(t, "v6.0.0", v)
 		}

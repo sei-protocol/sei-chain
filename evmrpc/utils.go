@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
@@ -230,6 +231,15 @@ func getTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig
 		}
 	}
 	return txHashes
+}
+
+func isReceiptFromAnteError(receipt *types.Receipt) bool {
+	return receipt.VmError == sdkerrors.ErrInsufficientFee.Error() ||
+		receipt.VmError == sdkerrors.ErrOutOfGas.Error() ||
+		receipt.VmError == sdkerrors.ErrInvalidCoins.Error() ||
+		receipt.VmError == sdkerrors.ErrUnsupportedTxType.Error() ||
+		receipt.VmError == sdkerrors.ErrInvalidChainID.Error() ||
+		receipt.VmError == sdkerrors.ErrWrongSequence.Error()
 }
 
 type ParallelRunner struct {
