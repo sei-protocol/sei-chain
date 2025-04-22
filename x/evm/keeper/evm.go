@@ -49,7 +49,7 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 	} else {
 		return nil, errors.New("cannot use a CosmWasm contract to delegate-create an EVM contract")
 	}
-	addr, _, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(req.FromContract))))
+	addr, _, exists := k.GetAnyPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(req.FromContract))))
 	if !exists || common.BytesToAddress(addr).Cmp(*to) != 0 {
 		return nil, errors.New("only pointer contract can make delegatecalls")
 	}

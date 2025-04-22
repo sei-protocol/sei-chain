@@ -232,6 +232,11 @@ func getTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig
 	return txHashes
 }
 
+func isReceiptFromAnteError(receipt *types.Receipt) bool {
+	// hacky heuristic
+	return receipt.EffectiveGasPrice == 0
+}
+
 type ParallelRunner struct {
 	Done  sync.WaitGroup
 	Queue chan func()
