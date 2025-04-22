@@ -564,20 +564,23 @@ This offers several advantages:
 
 ### How It Works
 
-1. The user signs a **denom-bound string** like `ct:uatom` using their existing private key.
-2. The signature is hashed and used to deterministically derive the ElGamal private key.
-3. The ElGamal public key is computed using the fixed base point of the twisted curve.
+1. The user hashes a **denom-bound string** like `ct:uatom` using keccak256.
+1. The user signs the hashed denom using their existing private key.
+3. The signature is hashed again and used to deterministically derive the ElGamal private key.
 
 #### Example Derivation Flow
 
 ```go
-// Step 1: Sign the denom
+// Step 1: Hash the denom
+denomHash := Keccak256("ct:<denom>")
+
+// Step 2: Sign the hash with the user's Ethereum private key
 signature := Sign("ct:<denom>", ethPrivateKey)
 
-// Step 2: Hash the signature to derive deterministic seed bytes
-seed := Keccak256("Ethereum Signed Message:\n...")
+// Step 3: Hash the signature to derive deterministic seed bytes
+seed := Keccak256(signature)
 
-// Step 3: Use seed to derive the ElGamal keypair
+// Step 4: Use seed to derive the ElGamal keypair
 elgamalKeyPair := twistedElGamal.KeyGen(seed)
 ```
 
