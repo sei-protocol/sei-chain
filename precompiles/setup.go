@@ -271,7 +271,7 @@ func GetCustomPrecompiles(
 		"v6.0.6":      check(pointerviewv606.NewPrecompile(evmKeeper)),
 	}
 	soloVersions := VersionedPrecompiles{
-		latestUpgrade: check(solo.NewPrecompile(evmKeeper, bankKeeper, accountKeeper, txConfig)),
+		latestUpgrade: check(solo.NewPrecompile(evmKeeper, bankKeeper, accountKeeper, wasmdKeeper, wasmdViewKeeper, txConfig)),
 	}
 
 	return map[ecommon.Address]VersionedPrecompiles{
