@@ -797,12 +797,15 @@ OUTER_LOOP:
 			case <-bpr.timeoutTicker.C:
 				if bpr.reset(false) {
 					continue OUTER_LOOP
+				} else {
+					continue WAIT_LOOP
 				}
 			case <-bpr.gotBlockCh:
 				// We got a block!
-				// Continue the for-loop and wait til Quit
-				// in case we need to reset the block
-				continue WAIT_LOOP
+				// Stop the goroutine to avoid leak
+				bpr.timeoutTicker.Stop()
+				bpr.Stop()
+				return
 			}
 		}
 	}
