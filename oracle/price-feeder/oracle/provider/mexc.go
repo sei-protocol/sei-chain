@@ -13,8 +13,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 )
@@ -287,7 +287,7 @@ func (p *MexcProvider) messageReceived(messageType int, bz []byte) {
 	for _, cp := range p.subscribedPairs {
 		if tickerResp.Symbol[currencyPairToMexcPair(cp)].LastPrice != 0 {
 			p.setTickerPair(cp.String(), tickerResp.Symbol[currencyPairToMexcPair(cp)])
-			telemetry.IncrCounter(
+			metrics.SafeTelemetryIncrCounter(
 				1,
 				"websocket",
 				"message",
@@ -303,7 +303,7 @@ func (p *MexcProvider) messageReceived(messageType int, bz []byte) {
 	candleErr = json.Unmarshal(bz, &candleResp)
 	if candleResp.Metadata.Close != 0 {
 		p.setCandlePair(candleResp)
-		telemetry.IncrCounter(
+		metrics.SafeTelemetryIncrCounter(
 			1,
 			"websocket",
 			"message",
@@ -414,7 +414,7 @@ func (p *MexcProvider) reconnect() error {
 
 	currencyPairs := p.subscribedPairsToSlice()
 
-	telemetry.IncrCounter(
+	metrics.SafeTelemetryIncrCounter(
 		1,
 		"websocket",
 		"reconnect",
