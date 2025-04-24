@@ -1,0 +1,129 @@
+# Tests for closing confidential token accounts. These tests depend on initialize_account, deposit and withdraw working as expected.
+- name: Test closing account with pending balance
+  inputs:
+    # Setup test account
+    - cmd: printf "12345678\n" | seid keys add ctclosetest
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a ctclosetest
+      env: TEST_ADDR
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 1sei -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_ADDR 100000000uatom -b block --fees 2000usei --chain-id sei -y | jq -r ".code"
+
+    # Initialize the confidential token account
+    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctclosetest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: INIT_ACCOUNT_CODE
+
+    # Deposit to the confidential token account
+    - cmd: printf "12345678\n" | seid tx ct deposit 500000uatom --from ctclosetest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: DEPOSIT_CODE
+
+    # Attempt to close the account
+    - cmd: printf "12345678\n" | seid tx ct close-account uatom --from ctclosetest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: CLOSE_ACCOUNT_CODE
+
+  verifiers:
+    # Verify that the account initialization was successful
+    - type: eval
+      expr: INIT_ACCOUNT_CODE == 0
+
+    # Verify that the deposit was successful
+    - type: eval
+      expr: DEPOSIT_CODE == 0
+
+    # Verify that closing the account was unsuccessful due to pending balance
+    - type: eval
+      expr: CLOSE_ACCOUNT_CODE == 18
+
+# Test that attempting to close an account that holds an available balance should fail.
+- name: Test closing account with available balance
+  inputs:
+    # Setup test account
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a ctclosetest
+      env: TEST_ADDR
+
+    # Apply pending balance to the account
+    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance uatom --from ctclosetest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: APPLY_PENDING_BALANCE_CODE
+
+    # Attempt to close the account
+    - cmd: printf "12345678\n" | seid tx ct close-account uatom --from ctclosetest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: CLOSE_ACCOUNT_CODE
+
+  verifiers:
+    # Verify that applying the pending balance was successful
+    - type: eval
+      expr: APPLY_PENDING_BALANCE_CODE == 0
+
+    # Verify that closing the account was unsuccessful due to available balance
+    - type: eval
+      expr: CLOSE_ACCOUNT_CODE == 18
+
+- name: Test closing account after withdrawing all funds
+  inputs:
+    # Setup test account
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a ctclosetest
+      env: TEST_ADDR
+
+    # Query the initial account state
+    - cmd: printf "12345678\n" | seid q ct account uatom $TEST_ADDR --decryptor ctclosetest --output json | jq -r ".decryptable_available_balance"
+      env: INITIAL_AVAILABLE_BALANCE
+
+    # Withdraw all funds from the account
+    - cmd: printf "12345678\n" | seid tx ct withdraw ${INITIAL_AVAILABLE_BALANCE}uatom --from ctclosetest --fees 40000usei --gas 1500000 --chain-id sei -b block -y --output json | jq -r ".code"
+      env: WITHDRAW_CODE
+
+    # Attempt to close the account
+    - cmd: printf "12345678\n" | seid tx ct close-account uatom --from ctclosetest --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: CLOSE_ACCOUNT_CODE
+
+  verifiers:
+    # Verify that the withdrawal was successful
+    - type: eval
+      expr: WITHDRAW_CODE == 0
+
+    # Verify that closing the account was successful
+    - type: eval
+      expr: CLOSE_ACCOUNT_CODE == 0
+
+- name: Test closing confidential token account via precompile
+  inputs:
+    # Setup test account
+    - cmd: printf "12345678\n" | seid keys add ctprclose
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a ctprclose
+      env: TEST_PRECOMPILE_ADDR
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_PRECOMPILE_ADDR 10sei -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $TEST_PRECOMPILE_ADDR 20000uatom -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+
+    # Initialize confidential token account for denom uatom for ctprclose
+    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctprclose --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: INIT_ACCOUNT_CODE
+
+    # Close the confidential token account via precompile
+    - cmd: |
+        printf "12345678\n" | seid tx evm call-contract --from ctprclose --fees=40000usei --gas=2000000 0x0000000000000000000000000000000000001010 -b block "$(printf "12345678\n" | seid q evm ct-close-account-payload precompiles/confidentialtransfers/abi.json $TEST_PRECOMPILE_ADDR uatom)" | sed "s/.*: //"
+      env: TX_HASH
+    - cmd: sleep 2
+    # Query the Cosmos tx hash
+    - cmd: |
+        curl --location --request GET "localhost:8545/" --header "Content-Type: application/json" --data "{\"jsonrpc\":\"2.0\",\"method\":\"sei_getCosmosTx\",\"params\":[\"$TX_HASH\"],\"id\":788}" | jq -r ".result"
+      env: COSMOS_TX_HASH
+
+    # Query the Cosmos tx result
+    - cmd: seid q tx $COSMOS_TX_HASH --output json | jq -r ".code"
+      env: CLOSE_ACCOUNT_CODE
+
+  verifiers:
+    # Verify that the account exists after the instruction is executed.
+    - type: eval
+      expr: INIT_ACCOUNT_CODE == 0 or INIT_ACCOUNT_CODE == 18
+
+    # Verify that closing the account was successful
+    - type: eval
+      expr: CLOSE_ACCOUNT_CODE == 0

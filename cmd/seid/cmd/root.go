@@ -37,7 +37,6 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/evmrpc"
-	"github.com/sei-protocol/sei-chain/mev"
 	"github.com/sei-protocol/sei-chain/tools"
 	"github.com/sei-protocol/sei-chain/tools/migration/ss"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
@@ -429,8 +428,6 @@ func initAppConfig() (string, interface{}) {
 		EvmQuery querier.Config `mapstructure:"evm_query"`
 
 		LightInvariance app.LightInvarianceConfig `mapstructure:"light_invariance"`
-
-		MEV mev.MEVConfig `mapstructure:"mev"`
 	}
 
 	// Optionally allow the chain developer to overwrite the SDK's default
@@ -475,7 +472,6 @@ func initAppConfig() (string, interface{}) {
 		ETHBlockTest:    blocktest.DefaultConfig,
 		EvmQuery:        querier.DefaultConfig,
 		LightInvariance: app.DefaultLightInvarianceConfig,
-		MEV:             mev.DefaultMEVConfig,
 	}
 
 	customAppTemplate := serverconfig.DefaultConfigTemplate + `
@@ -571,9 +567,6 @@ evm_query_gas_limit = {{ .EvmQuery.GasLimit }}
 
 [light_invariance]
 supply_enabled = {{ .LightInvariance.SupplyEnabled }}
-
-[mev]
-handler_plugin_path = "{{ .MEV.HandlerPluginPath }}"
 `
 
 	return customAppTemplate, customAppConfig

@@ -58,3 +58,16 @@ func TestGetBlockByNumber(t *testing.T) {
 		},
 	)
 }
+
+func TestGetBlockSkipTxIndex(t *testing.T) {
+	tx1 := signAndEncodeCosmosTx(bankSendMsg(mnemonic1), mnemonic1, 7, 0)
+	tx2 := signAndEncodeTx(send(0), mnemonic1)
+	SetupTestServer([][][]byte{{tx1, tx2}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x2").Hex(), true)
+			txs := res["result"].(map[string]any)["transactions"].([]any)
+			require.Len(t, txs, 1)
+			require.Equal(t, "0x0", txs[0].(map[string]any)["transactionIndex"].(string))
+		},
+	)
+}
