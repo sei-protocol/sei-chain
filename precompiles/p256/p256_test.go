@@ -57,7 +57,7 @@ func TestPrecompile_verify(t *testing.T) {
 			args, err := method.Inputs.Pack(inputData)
 			require.Nil(t, err)
 			input := append(p.GetExecutor().(*PrecompileExecutor).VerifyID, args...)
-			res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true, false)
+			res, err := p.Run(evm, common.Address{}, common.Address{}, input, nil, true, false, nil)
 			require.Nil(t, err)
 			if res != nil {
 				output, err := method.Outputs.Unpack(res)
