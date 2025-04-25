@@ -4,8 +4,9 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/core/tracing"
 	"math/big"
+
+	"github.com/ethereum/go-ethereum/core/tracing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
