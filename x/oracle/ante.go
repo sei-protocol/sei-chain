@@ -2,7 +2,6 @@ package oracle
 
 import (
 	"encoding/hex"
-	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -82,7 +81,6 @@ func (spd SpammingPreventionDecorator) AnteDeps(txDeps []sdkacltypes.AccessOpera
 
 // CheckOracleSpamming check whether the msgs are spamming purpose or not
 func (spd SpammingPreventionDecorator) CheckOracleSpamming(ctx sdk.Context, msgs []sdk.Msg) error {
-	curHeight := ctx.BlockHeight()
 	for _, msg := range msgs {
 		switch msg := msg.(type) {
 		case *types.MsgAggregateExchangeRateVote:
@@ -101,11 +99,9 @@ func (spd SpammingPreventionDecorator) CheckOracleSpamming(ctx sdk.Context, msgs
 				return err
 			}
 
-			spamPreventionCounterHeight := spd.oracleKeeper.GetSpamPreventionCounter(ctx, valAddr)
-			if spamPreventionCounterHeight == curHeight {
-				return sdkerrors.Wrap(sdkerrors.ErrAlreadyExists, fmt.Sprintf("the validator has already submitted a vote at the current height=%d", curHeight))
+			if err := spd.oracleKeeper.CheckAndSetSpamPreventionCounter(ctx, valAddr); err != nil {
+				return err
 			}
-			spd.oracleKeeper.SetSpamPreventionCounter(ctx, valAddr)
 			continue
 		default:
 			return nil
