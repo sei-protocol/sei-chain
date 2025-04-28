@@ -24,8 +24,6 @@ import (
 
 const TxSearchPerPage = 10
 
-const MaxNumOfWorkers = 500
-
 type FilterType byte
 
 const (
@@ -57,9 +55,12 @@ type FilterAPI struct {
 }
 
 type FilterConfig struct {
-	timeout  time.Duration
-	maxLog   int64
-	maxBlock int64
+	timeout                   time.Duration
+	maxLog                    int64
+	maxBlock                  int64
+	maxNumOfLogWorkers        int
+	maxGetLogJobQueueSize     int
+	maxGetLogResponseChanSize int
 }
 
 type EventItemDataWrapper struct {
@@ -292,8 +293,8 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	if err != nil {
 		return nil, 0, err
 	}
-	runner := NewParallelRunner(MaxNumOfWorkers, 1000)
-	resultsChan := make(chan *ethtypes.Log, 1000)
+	runner := NewParallelRunner(min(f.filterConfig.maxNumOfLogWorkers, len(blocks)), min(f.filterConfig.maxGetLogJobQueueSize, len(blocks)))
+	resultsChan := make(chan *ethtypes.Log, min(f.filterConfig.maxGetLogResponseChanSize, len(blocks)))
 	res = []*ethtypes.Log{}
 	for block := range blocks {
 		b := block
@@ -407,7 +408,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	}
 	res := make(chan *coretypes.ResultBlock, end-begin+1)
 	defer close(res)
-	runner := NewParallelRunner(MaxNumOfWorkers, int(end-begin+1))
+	runner := NewParallelRunner(min(f.filterConfig.maxNumOfLogWorkers, int(end-begin+1)), int(end-begin+1))
 	defer runner.Done.Wait()
 	defer close(runner.Queue)
 	for height := begin; height <= end; height++ {
@@ -454,4 +455,11 @@ func matchTopics(topics [][]common.Hash, eventTopics []common.Hash) bool {
 		}
 	}
 	return true
+}
+
+func min(i, j int) int {
+	if i < j {
+		return i
+	}
+	return j
 }
