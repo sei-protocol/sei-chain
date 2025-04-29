@@ -289,19 +289,25 @@ type LogFetcher struct {
 
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
 	bloomIndexes := EncodeFilters(crit.Addresses, crit.Topics)
-	blocks, end, applyOpenEndedLogLimit, err := f.fetchBlocksByCrit(ctx, crit, lastToHeight, bloomIndexes)
+	blocks, end, err := f.fetchBlocksByCrit(ctx, crit, lastToHeight, bloomIndexes)
 	if err != nil {
 		return nil, 0, err
 	}
 	runner := NewParallelRunner(min(f.filterConfig.maxNumOfLogWorkers, len(blocks)), min(f.filterConfig.maxGetLogJobQueueSize, len(blocks)))
 	resultsChan := make(chan *ethtypes.Log, min(f.filterConfig.maxGetLogResponseChanSize, len(blocks)))
 	res = []*ethtypes.Log{}
+	ctx, cancelFunc := context.WithCancel(ctx)
 	for block := range blocks {
 		b := block
 		runner.Queue <- func() {
 			matchedLogs := f.GetLogsForBlock(b, crit, bloomIndexes)
 			for _, log := range matchedLogs {
-				resultsChan <- log
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					resultsChan <- log
+				}
 			}
 		}
 	}
@@ -309,10 +315,15 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	go func() {
 		runner.Done.Wait()
 		close(resultsChan)
+		cancelFunc()
 	}()
 
 	// Aggregate results into the final slice
 	for result := range resultsChan {
+		if f.filterConfig.maxLog > 0 && int64(len(res)) >= f.filterConfig.maxLog {
+			cancelFunc()
+			return nil, 0, fmt.Errorf("requested range has %d logs which is more than the maximum of %d", len(res), f.filterConfig.maxLog)
+		}
 		res = append(res, result)
 	}
 
@@ -320,11 +331,6 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	sort.Slice(res, func(i, j int) bool {
 		return res[i].BlockNumber < res[j].BlockNumber
 	})
-
-	// Apply rate limit
-	if applyOpenEndedLogLimit && f.filterConfig.maxLog > 0 && int64(len(res)) > f.filterConfig.maxLog {
-		return nil, 0, fmt.Errorf("requested range has %d logs which is more than the maximum of %d", len(res), f.filterConfig.maxLog)
-	}
 
 	return res, end, err
 }
@@ -372,18 +378,17 @@ func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCrite
 	return addrMatch && matchTopics(crit.Topics, log.Topics)
 }
 
-func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]bloomIndexes) (chan *coretypes.ResultBlock, int64, bool, error) {
+func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]bloomIndexes) (chan *coretypes.ResultBlock, int64, error) {
 	if crit.BlockHash != nil {
 		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:], 1)
 		if err != nil {
-			return nil, 0, false, err
+			return nil, 0, err
 		}
 		res := make(chan *coretypes.ResultBlock, 1)
 		defer close(res)
 		res <- block
-		return res, 0, false, err
+		return res, 0, err
 	}
-	applyOpenEndedLogLimit := f.filterConfig.maxLog > 0 && (crit.FromBlock == nil || crit.ToBlock == nil)
 	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
 	begin, end := latest, latest
 	if crit.FromBlock != nil {
@@ -399,12 +404,12 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	if lastToHeight > begin {
 		begin = lastToHeight
 	}
-	if !applyOpenEndedLogLimit && f.filterConfig.maxBlock > 0 && end >= (begin+f.filterConfig.maxBlock) {
-		return nil, 0, false, fmt.Errorf("a maximum of %d blocks worth of logs may be requested at a time", f.filterConfig.maxBlock)
+	if f.filterConfig.maxBlock > 0 && end >= (begin+f.filterConfig.maxBlock) {
+		return nil, 0, fmt.Errorf("a maximum of %d blocks worth of logs may be requested at a time", f.filterConfig.maxBlock)
 	}
 	// begin should always be <= end block at this point
 	if begin > end {
-		return nil, 0, false, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
+		return nil, 0, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
 	}
 	res := make(chan *coretypes.ResultBlock, end-begin+1)
 	defer close(res)
@@ -431,7 +436,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			res <- block
 		}
 	}
-	return res, end, applyOpenEndedLogLimit, nil
+	return res, end, nil
 }
 
 func matchTopics(topics [][]common.Hash, eventTopics []common.Hash) bool {
