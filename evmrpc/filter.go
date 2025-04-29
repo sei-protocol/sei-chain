@@ -296,7 +296,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	runner := NewParallelRunner(min(f.filterConfig.maxNumOfLogWorkers, len(blocks)), min(f.filterConfig.maxGetLogJobQueueSize, len(blocks)))
 	resultsChan := make(chan *ethtypes.Log, min(f.filterConfig.maxGetLogResponseChanSize, len(blocks)))
 	res = []*ethtypes.Log{}
-	ctx, cancelFunc := context.WithCancel(ctx)
+	ctx, cancelFunc := context.WithCancel(context.Background())
 	for block := range blocks {
 		b := block
 		runner.Queue <- func() {
