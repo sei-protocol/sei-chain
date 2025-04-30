@@ -662,6 +662,18 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.earliestVersion, false), nil
 }
 
+func prefixEnd(b []byte) []byte {
+	end := make([]byte, len(b))
+	copy(end, b)
+	for i := len(end) - 1; i >= 0; i-- {
+		if end[i] != 0xFF {
+			end[i]++
+			return end[:i+1]
+		}
+	}
+	return nil
+}
+
 func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
@@ -676,6 +688,8 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	var upperBound []byte
 	if end != nil {
 		upperBound = MVCCEncode(prependStoreKey(storeKey, end), 0)
+	} else {
+		upperBound = MVCCEncode(prefixEnd(storePrefix(storeKey)), 0)
 	}
 
 	itr, err := db.storage.NewIter(&pebble.IterOptions{LowerBound: lowerBound, UpperBound: upperBound})
