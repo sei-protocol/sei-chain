@@ -13,6 +13,7 @@ import (
 
 const (
 	storeKey1 = "store1"
+	storeKey2 = "store2"
 )
 
 // StorageTestSuite defines a reusable test suite for all storage backends.
@@ -1253,4 +1254,66 @@ func (s *StorageTestSuite) TestDatabaseRawImport() {
 		s.Require().NoError(err)
 		s.Require().Equal([]byte(fmt.Sprintf("value%03d", i)), val)
 	}
+}
+
+// Verifies that ReverseIterator(nil, nil) is clamped to the caller's prefix
+// via prefixEnd()/UpperBound and does **not** spill into the next module.
+func (s *StorageTestSuite) TestDatabaseReverseIteratorPrefixIsolation() {
+
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
+	s.Require().NoError(err)
+	defer db.Close()
+
+	// store1 : key000-key009
+	// store2 : key000-key009   (different prefix, same suffixes)
+	var (
+		keys1, vals1 [][]byte
+		keys2, vals2 [][]byte
+	)
+	for i := 0; i < 10; i++ {
+		k := []byte(fmt.Sprintf("key%03d", i))
+		v1 := []byte(fmt.Sprintf("val1-%03d", i))
+		v2 := []byte(fmt.Sprintf("val2-%03d", i))
+
+		keys1 = append(keys1, k)
+		vals1 = append(vals1, v1)
+
+		keys2 = append(keys2, k)
+		vals2 = append(vals2, v2)
+	}
+
+	s.Require().NoError(DBApplyChangeset(db, 1, storeKey1, keys1, vals1))
+	s.Require().NoError(DBApplyChangeset(db, 1, storeKey2, keys2, vals2))
+
+	// ---------- nil / nil reverse scan on store1 ----------
+	itr, err := db.ReverseIterator(storeKey1, 1, nil, nil)
+	s.Require().NoError(err)
+	defer itr.Close()
+
+	// We should see exactly the 10 keys from store1, in reverse order,
+	// and we should *never* see a key that belongs to store2.
+	expectedI := 9
+	count := 0
+	for ; itr.Valid(); itr.Next() {
+		wantKey := []byte(fmt.Sprintf("key%03d", expectedI))
+		s.Require().Equal(wantKey, itr.Key(), "unexpected key from iterator")
+		s.Require().Equal([]byte(fmt.Sprintf("val1-%03d", expectedI)), itr.Value())
+
+		s.Require().NotContains(string(itr.Key()), "val2-")
+
+		expectedI--
+		count++
+	}
+	s.Require().Equal(10, count, "iterator should yield exactly the 10 keys in store1")
+	s.Require().NoError(itr.Error())
+
+	itr2, err := db.ReverseIterator(storeKey2, 1, nil, nil)
+	s.Require().NoError(err)
+	defer itr2.Close()
+
+	count = 0
+	for ; itr2.Valid(); itr2.Next() {
+		count++
+	}
+	s.Require().Equal(10, count, "store2 should have its own 10 keys")
 }
