@@ -662,6 +662,8 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.earliestVersion, false), nil
 }
 
+// Taken from pebbledb prefix upper bound
+// Returns smallest key strictly greater than the prefix
 func prefixEnd(b []byte) []byte {
 	end := make([]byte, len(b))
 	copy(end, b)
