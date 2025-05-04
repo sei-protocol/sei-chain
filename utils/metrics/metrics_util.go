@@ -3,6 +3,7 @@ package metrics
 import (
 	"errors"
 	"math/big"
+	"runtime/debug"
 	"strconv"
 	"time"
 
@@ -10,6 +11,36 @@ import (
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
+
+func SafeTelemetryIncrCounter(val float32, keys ...string) {
+	defer func() {
+		if e := recover(); e != nil {
+			debug.PrintStack()
+			return
+		}
+	}()
+	telemetry.IncrCounter(val, keys...)
+}
+
+func SafeTelemetryIncrCounterWithLabels(keys []string, val float32, labels []metrics.Label) {
+	defer func() {
+		if e := recover(); e != nil {
+			debug.PrintStack()
+			return
+		}
+	}()
+	telemetry.IncrCounterWithLabels(keys, val, labels)
+}
+
+func SafeMetricsIncrCounterWithLabels(keys []string, val float32, labels []metrics.Label) {
+	defer func() {
+		if e := recover(); e != nil {
+			debug.PrintStack()
+			return
+		}
+	}()
+	metrics.IncrCounterWithLabels(keys, val, labels)
+}
 
 // Measures the time taken to execute a sudo msg
 // Metric Names:
@@ -30,7 +61,7 @@ func MeasureSudoExecutionDuration(start time.Time, msgType string) {
 //
 //	sei_sudo_error_count
 func IncrementSudoFailCount(msgType string) {
-	telemetry.IncrCounterWithLabels(
+	SafeTelemetryIncrCounterWithLabels(
 		[]string{"sei", "sudo", "error", "count"},
 		1,
 		[]metrics.Label{telemetry.NewLabel("type", msgType)},
@@ -51,7 +82,7 @@ func GaugeSeidVersionAndCommit(version string, commit string) {
 
 // sei_tx_process_type_count
 func IncrTxProcessTypeCounter(processType string) {
-	metrics.IncrCounterWithLabels(
+	SafeMetricsIncrCounterWithLabels(
 		[]string{"sei", "tx", "process", "type"},
 		1,
 		[]metrics.Label{telemetry.NewLabel("type", processType)},
@@ -77,7 +108,7 @@ func BlockProcessLatency(start time.Time, processType string) {
 //
 //	sei_tx_process_type_count
 func IncrDagBuildErrorCounter(reason string) {
-	metrics.IncrCounterWithLabels(
+	SafeMetricsIncrCounterWithLabels(
 		[]string{"sei", "dag", "build", "error"},
 		1,
 		[]metrics.Label{telemetry.NewLabel("reason", reason)},
@@ -89,7 +120,7 @@ func IncrDagBuildErrorCounter(reason string) {
 //
 //	sei_tx_concurrent_delivertx_error
 func IncrFailedConcurrentDeliverTxCounter() {
-	metrics.IncrCounterWithLabels(
+	SafeMetricsIncrCounterWithLabels(
 		[]string{"sei", "tx", "concurrent", "delievertx", "error"},
 		1,
 		[]metrics.Label{},
@@ -101,7 +132,7 @@ func IncrFailedConcurrentDeliverTxCounter() {
 //
 //	sei_log_not_done_after_counter
 func IncrLogIfNotDoneAfter(label string) {
-	metrics.IncrCounterWithLabels(
+	SafeMetricsIncrCounterWithLabels(
 		[]string{"sei", "log", "not", "done", "after"},
 		1,
 		[]metrics.Label{
@@ -172,7 +203,7 @@ func SetThroughputMetric(metricName string, value float32) {
 //
 //	sei_websocket_connect
 func IncWebsocketConnects() {
-	telemetry.IncrCounterWithLabels(
+	SafeTelemetryIncrCounterWithLabels(
 		[]string{"sei", "websocket", "connect"},
 		1,
 		nil,
@@ -184,7 +215,7 @@ func IncWebsocketConnects() {
 //
 //	sei_oracle_price_update_count
 func IncrPriceUpdateDenom(denom string) {
-	telemetry.IncrCounterWithLabels(
+	SafeTelemetryIncrCounterWithLabels(
 		[]string{"sei", "oracle", "price", "update"},
 		1,
 		[]metrics.Label{telemetry.NewLabel("denom", denom)},
@@ -208,7 +239,7 @@ func SetThroughputMetricByType(metricName string, value float32, msgType string)
 //
 //	sei_failed_total_gas_wanted_check
 func IncrFailedTotalGasWantedCheck(proposer string) {
-	telemetry.IncrCounterWithLabels(
+	SafeTelemetryIncrCounterWithLabels(
 		[]string{"sei", "failed", "total", "gas", "wanted", "check"},
 		1,
 		[]metrics.Label{telemetry.NewLabel("proposer", proposer)},
@@ -220,7 +251,7 @@ func IncrFailedTotalGasWantedCheck(proposer string) {
 //
 //	sei_failed_total_gas_wanted_check
 func IncrValidatorSlashed(proposer string) {
-	telemetry.IncrCounterWithLabels(
+	SafeTelemetryIncrCounterWithLabels(
 		[]string{"sei", "failed", "total", "gas", "wanted", "check"},
 		1,
 		[]metrics.Label{telemetry.NewLabel("proposer", proposer)},
@@ -244,7 +275,7 @@ func SetCoinsMinted(amount uint64, denom string) {
 //
 //	sei_tx_gas_counter
 func IncrGasCounter(gasType string, value int64) {
-	telemetry.IncrCounterWithLabels(
+	SafeTelemetryIncrCounterWithLabels(
 		[]string{"sei", "tx", "gas", "counter"},
 		float32(value),
 		[]metrics.Label{telemetry.NewLabel("type", gasType)},
@@ -256,7 +287,7 @@ func IncrGasCounter(gasType string, value int64) {
 //
 //	sei_optimistic_processing_counter
 func IncrementOptimisticProcessingCounter(enabled bool) {
-	telemetry.IncrCounterWithLabels(
+	SafeTelemetryIncrCounterWithLabels(
 		[]string{"sei", "optimistic", "processing", "counter"},
 		float32(1),
 		[]metrics.Label{telemetry.NewLabel("enabled", strconv.FormatBool(enabled))},
@@ -268,7 +299,7 @@ func IncrementOptimisticProcessingCounter(enabled bool) {
 //
 //	sei_rpc_request_counter
 func IncrementRpcRequestCounter(endpoint string, connectionType string, success bool) {
-	telemetry.IncrCounterWithLabels(
+	SafeTelemetryIncrCounterWithLabels(
 		[]string{"sei", "rpc", "request", "counter"},
 		float32(1),
 		[]metrics.Label{
@@ -292,7 +323,7 @@ func IncrementErrorMetrics(scenario string, err error) {
 }
 
 func IncrementAssociationError(scenario string, err types.AssociationMissingErr) {
-	telemetry.IncrCounterWithLabels(
+	SafeTelemetryIncrCounterWithLabels(
 		[]string{"sei", "association", "error"},
 		1,
 		[]metrics.Label{
@@ -323,7 +354,7 @@ func MeasureRpcRequestLatency(endpoint string, connectionType string, startTime 
 //
 //	sei_loadtest_produce_count
 func IncrProducerEventCount(msgType string) {
-	telemetry.IncrCounterWithLabels(
+	SafeTelemetryIncrCounterWithLabels(
 		[]string{"sei", "loadtest", "produce", "count"},
 		1,
 		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
@@ -336,7 +367,7 @@ func IncrProducerEventCount(msgType string) {
 //
 //	sei_loadtest_consume_count
 func IncrConsumerEventCount(msgType string) {
-	telemetry.IncrCounterWithLabels(
+	SafeTelemetryIncrCounterWithLabels(
 		[]string{"sei", "loadtest", "consume", "count"},
 		1,
 		[]metrics.Label{telemetry.NewLabel("msg_type", msgType)},
