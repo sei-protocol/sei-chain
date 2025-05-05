@@ -90,6 +90,15 @@ func (s *DBImpl) Cleanup() {
 	s.snapshottedCtxs = nil
 }
 
+func (s *DBImpl) CleanupForTracer() {
+	feeCollector, _ := s.k.GetFeeCollectorAddress(s.Ctx())
+	s.coinbaseEvmAddress = feeCollector
+	s.tempStateCurrent = NewTemporaryState()
+	s.tempStatesHist = []*TemporaryState{}
+	s.snapshottedCtxs = []sdk.Context{}
+	s.Snapshot()
+}
+
 func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	if s.simulation {
 		panic("should never call finalize on a simulation DB")
