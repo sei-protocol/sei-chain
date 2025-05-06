@@ -9,27 +9,30 @@ import (
 )
 
 type opts struct {
-	httpEnabled             interface{}
-	httpPort                interface{}
-	wsEnabled               interface{}
-	wsPort                  interface{}
-	readTimeout             interface{}
-	readHeaderTimeout       interface{}
-	writeTimeout            interface{}
-	idleTimeout             interface{}
-	simulationGasLimit      interface{}
-	simulationEVMTimeout    interface{}
-	corsOrigins             interface{}
-	wsOrigins               interface{}
-	filterTimeout           interface{}
-	checkTxTimeout          interface{}
-	maxTxPoolTxs            interface{}
-	slow                    interface{}
-	denyList                interface{}
-	maxLogNoBlock           interface{}
-	maxBlocksForLog         interface{}
-	maxSubscriptionsNewHead interface{}
-	enableTestAPI           interface{}
+	httpEnabled               interface{}
+	httpPort                  interface{}
+	wsEnabled                 interface{}
+	wsPort                    interface{}
+	readTimeout               interface{}
+	readHeaderTimeout         interface{}
+	writeTimeout              interface{}
+	idleTimeout               interface{}
+	simulationGasLimit        interface{}
+	simulationEVMTimeout      interface{}
+	corsOrigins               interface{}
+	wsOrigins                 interface{}
+	filterTimeout             interface{}
+	checkTxTimeout            interface{}
+	maxTxPoolTxs              interface{}
+	slow                      interface{}
+	denyList                  interface{}
+	maxLogNoBlock             interface{}
+	maxBlocksForLog           interface{}
+	maxSubscriptionsNewHead   interface{}
+	enableTestAPI             interface{}
+	maxNumOfLogWorkers        interface{}
+	maxGetLogJobQueueSize     interface{}
+	maxGetLogResponseChanSize interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -96,6 +99,15 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.enable_test_api" {
 		return o.enableTestAPI
 	}
+	if k == "evm.max_num_of_log_workers" {
+		return o.maxNumOfLogWorkers
+	}
+	if k == "evm.max_get_log_job_queue_size" {
+		return o.maxGetLogJobQueueSize
+	}
+	if k == "evm.max_get_log_response_chan_size" {
+		return o.maxGetLogResponseChanSize
+	}
 	panic("unknown key")
 }
 
@@ -122,6 +134,9 @@ func TestReadConfig(t *testing.T) {
 		1000,
 		10000,
 		false,
+		500,
+		1000,
+		1000,
 	}
 	_, err := evmrpc.ReadConfig(&goodOpts)
 	require.Nil(t, err)
