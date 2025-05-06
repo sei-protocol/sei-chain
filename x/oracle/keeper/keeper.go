@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"sync"
 
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 
 	"github.com/tendermint/tendermint/libs/log"
@@ -30,6 +32,8 @@ type Keeper struct {
 	distrKeeper   types.DistributionKeeper
 	StakingKeeper types.StakingKeeper
 
+	spamPreventionCounterMtxMap *datastructures.TypedSyncMap[string, *sync.Mutex]
+
 	distrName string
 }
 
@@ -50,15 +54,16 @@ func NewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey, memKey sdk.StoreKey
 	}
 
 	return Keeper{
-		cdc:           cdc,
-		storeKey:      storeKey,
-		memKey:        memKey,
-		paramSpace:    paramspace,
-		accountKeeper: accountKeeper,
-		bankKeeper:    bankKeeper,
-		distrKeeper:   distrKeeper,
-		StakingKeeper: stakingKeeper,
-		distrName:     distrName,
+		cdc:                         cdc,
+		storeKey:                    storeKey,
+		memKey:                      memKey,
+		paramSpace:                  paramspace,
+		accountKeeper:               accountKeeper,
+		bankKeeper:                  bankKeeper,
+		distrKeeper:                 distrKeeper,
+		StakingKeeper:               stakingKeeper,
+		distrName:                   distrName,
+		spamPreventionCounterMtxMap: datastructures.NewTypedSyncMap[string, *sync.Mutex](),
 	}
 }
 
@@ -574,7 +579,18 @@ func (k Keeper) ValidateLookbackSeconds(ctx sdk.Context, lookbackSeconds uint64)
 	return nil
 }
 
-func (k Keeper) GetSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValAddress) int64 {
+func (k Keeper) CheckAndSetSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValAddress) error {
+	mtx, _ := k.spamPreventionCounterMtxMap.LoadOrStore(validatorAddr.String(), &sync.Mutex{})
+	mtx.Lock()
+	defer mtx.Unlock()
+	if k.getSpamPreventionCounter(ctx, validatorAddr) == ctx.BlockHeight() {
+		return sdkerrors.Wrap(sdkerrors.ErrAlreadyExists, fmt.Sprintf("the validator has already submitted a vote at the current height=%d", ctx.BlockHeight()))
+	}
+	k.setSpamPreventionCounter(ctx, validatorAddr)
+	return nil
+}
+
+func (k Keeper) getSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValAddress) int64 {
 	store := ctx.KVStore(k.memKey)
 	bz := store.Get(types.GetSpamPreventionCounterKey(validatorAddr))
 	if bz == nil {
@@ -584,7 +600,7 @@ func (k Keeper) GetSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValA
 	return int64(sdk.BigEndianToUint64(bz))
 }
 
-func (k Keeper) SetSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValAddress) {
+func (k Keeper) setSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValAddress) {
 	store := ctx.KVStore(k.memKey)
 
 	height := ctx.BlockHeight()
