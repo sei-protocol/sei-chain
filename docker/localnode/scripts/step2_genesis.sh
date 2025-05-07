@@ -33,7 +33,7 @@ override_genesis ".app_state[\"mint\"][\"params\"][\"token_release_schedule\"]=[
 override_genesis '.app_state["auth"]["accounts"]=[]'
 override_genesis '.app_state["bank"]["balances"]=[]'
 override_genesis '.app_state["genutil"]["gen_txs"]=[]'
-override_genesis '.app_state["bank"]["denom_metadata"]=[{"denom_units":[{"denom":"usei","exponent":0,"aliases":["USEI"]}],"base":"usei","display":"usei","name":"USEI","symbol":"USEI"},{"denom_units":[{"denom":"UATOM","exponent":6,"aliases":["UATOM"]}],"base":"uatom","display":"uatom","name":"UATOM","symbol":"UATOM"},{"denom_units":[{"denom":"UUSDC","exponent":6,"aliases":["UUSDC"]}],"base":"uusdc","display":"uusdc","name":"UUSDC","symbol":"UUSDC"}]'
+override_genesis '.app_state["bank"]["denom_metadata"]=[{"denom_units":[{"denom":"UATOM","exponent":6,"aliases":["UATOM"]}],"base":"uatom","display":"uatom","name":"UATOM","symbol":"UATOM"}]'
 
 # gov parameters
 override_genesis '.app_state["gov"]["deposit_params"]["min_deposit"][0]["denom"]="usei"'
