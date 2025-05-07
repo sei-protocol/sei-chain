@@ -242,11 +242,12 @@ func isReceiptFromAnteError(receipt *types.Receipt) bool {
 		receipt.VmError == sdkerrors.ErrUnsupportedTxType.Error() ||
 		receipt.VmError == sdkerrors.ErrInvalidChainID.Error() ||
 		strings.Contains(receipt.VmError, sdkerrors.ErrWrongSequence.Error()) ||
-		strings.Contains(receipt.VmError, sdkerrors.ErrInsufficientFunds.Error()) ||
+		strings.Contains(receipt.VmError, "insufficient funds for gas * price + value") ||
 		strings.Contains(receipt.VmError, sdkerrors.ErrInvalidRequest.Error()) ||
 		strings.Contains(receipt.VmError, core.ErrMaxInitCodeSizeExceeded.Error()) ||
 		strings.Contains(receipt.VmError, "exceeds block max gas") ||
-		strings.Contains(receipt.VmError, "nonce too high")
+		strings.Contains(receipt.VmError, "nonce too high") ||
+		strings.Contains(receipt.VmError, "account needs to have at least 1 wei to force association")
 }
 
 type ParallelRunner struct {
