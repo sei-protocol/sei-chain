@@ -1,0 +1,41 @@
+- name: MEV Submission and inclusion
+  inputs:
+    - name: Latest block height
+      cmd: echo $(( $(seid status | jq -r .SyncInfo.latest_block_height) + 5))
+      env: BLOCK_HEIGHT
+    - name: Submit Bundles
+      node: silo-server
+      cmd: |
+        grpcurl -plaintext  -d "{\"height\": $BLOCK_HEIGHT, \"txs\": [{\"data\":\"a29rbw==\"}, {\"data\":\"Y3dpcg==\"}]}" localhost:22137 server.Server.Submit |
+        grpcurl -plaintext  -d "{\"height\": $BLOCK_HEIGHT, \"txs\": [{\"data\":\"a3Vya2k=\"}, {\"data\":\"ZHppdXJraQ==\"}]}" localhost:22137 server.Server.Submit
+    - name: Wait
+      cmd: sleep 6
+    - name: Get tx on node0
+      node: sei-node-0
+      cmd: seid query block $BLOCK_HEIGHT | jq ".block.data.txs | any(index(\"a29rbw==\"))"
+      env: NODE_0_TX
+    - name: Get tx on node1
+      node: sei-node-1
+      cmd: seid query block $BLOCK_HEIGHT | jq ".block.data.txs | any(index(\"Y3dpcg==\"))"
+      env: NODE_1_TX
+    - name: Get tx on node2
+      node: sei-node-2
+      cmd: seid query block $BLOCK_HEIGHT | jq ".block.data.txs | any(index(\"a3Vya2k=\"))"
+      env: NODE_2_TX
+    - name: Get tx on node3
+      node: sei-node-3
+      cmd: seid query block $BLOCK_HEIGHT | jq ".block.data.txs | any(index(\"ZHppdXJraQ==\"))"
+      env: NODE_3_TX
+
+
+  verifiers:
+#      # Add comments for what should the expected result
+      - type: eval
+        expr: NODE_0_TX == "true"
+      - type: eval
+        expr: NODE_1_TX == "true"
+      - type: eval
+        expr: NODE_2_TX == "true"
+      - type: eval
+        expr: NODE_3_TX == "true"
+

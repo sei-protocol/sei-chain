@@ -139,7 +139,7 @@ func TestLightInvarianceChecks(t *testing.T) {
 		},
 	} {
 		fmt.Printf("Running test %d\n", i)
-		testWrapper := app.NewTestWrapperWithSc(t, tm, valPub, false)
+		testWrapper := app.NewTestWrapperWithSc(t, tm, valPub, false, false)
 		a, ctx := testWrapper.App, testWrapper.Ctx
 		for i := range tt.preUsei {
 			if tt.preUsei[i] > 0 {

@@ -7,6 +7,7 @@ BUILDDIR ?= $(CURDIR)/build
 INVARIANT_CHECK_INTERVAL ?= $(INVARIANT_CHECK_INTERVAL:-0)
 export PROJECT_HOME=$(shell git rev-parse --show-toplevel)
 export GO_PKG_PATH=$(HOME)/go/pkg
+export GO_MOD_CACHE=$(shell go env GOMODCACHE)
 export GO111MODULE = on
 
 # process build tags
@@ -52,12 +53,6 @@ ldflags = -X github.com/cosmos/cosmos-sdk/version.Name=sei \
 			-X github.com/cosmos/cosmos-sdk/version.Commit=$(COMMIT) \
 			-X "github.com/cosmos/cosmos-sdk/version.BuildTags=$(build_tags_comma_sep)"
 
-# go 1.23+ needs a workaround to link memsize (see https://github.com/fjl/memsize).
-# NOTE: this is a terribly ugly and unstable way of comparing version numbers,
-# but that's what you get when you do anything nontrivial in a Makefile.
-ifeq ($(firstword $(sort go1.23 $(shell go env GOVERSION))), go1.23)
-	ldflags += -checklinkname=0
-endif
 ifeq ($(LINK_STATICALLY),true)
 	ldflags += -linkmode=external -extldflags "-Wl,-z,muldefs -static"
 endif
@@ -199,6 +194,12 @@ docker-cluster-start: docker-cluster-stop build-docker-node
 	@mkdir -p $(shell go env GOCACHE)
 	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} docker compose up
 
+docker-mev-cluster-start: docker-mev-cluster-stop build-docker-node
+	@rm -rf $(PROJECT_HOME)/build/generated
+	@mkdir -p $(shell go env GOPATH)/pkg/mod
+	@mkdir -p $(shell go env GOCACHE)
+	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} docker compose -f docker-compose.yml -f docker-compose.mev.yml up
+
 .PHONY: localnet-start
 
 # Use this to skip the seid build process
@@ -210,7 +211,11 @@ docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 # Stop 4-node docker containers
 docker-cluster-stop:
 	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose down
-.PHONY: localnet-stop ddd
+
+docker-mev-cluster-stop:
+	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose -f docker-compose.yml -f docker-compose.mev.yml down
+
+.PHONY: localnet-stop
 
 
 # Implements test splitting and running. This is pulled directly from
@@ -233,4 +238,4 @@ $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
 split-test-packages:$(BUILDDIR)/packages.txt
 	split -d -n l/$(NUM_SPLIT) $< $<.
 test-group-%:split-test-packages
-	cat $(BUILDDIR)/packages.txt.$* | xargs go test -parallel 4 -mod=readonly -timeout=15m -race -coverprofile=$*.profile.out -covermode=atomic
+	cat $(BUILDDIR)/packages.txt.$* | xargs go test -parallel 4 -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic

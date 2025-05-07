@@ -30,7 +30,7 @@ func SetupWasmbindingTest(t *testing.T) (*app.TestWrapper, func(ctx sdk.Context,
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 
-	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false, false)
 
 	oh := oraclewasm.NewOracleWasmQueryHandler(&testWrapper.App.OracleKeeper)
 	eh := epochwasm.NewEpochWasmQueryHandler(&testWrapper.App.EpochKeeper)

@@ -71,7 +71,7 @@ string minimum_fee_per_gas = 4 [
 }
 
 message ParamsPreV580 {
-  option (gogoproto.goproto_stringer) = false;
+  option (gogoproto.goproto_stringer) = true;
   
   // string base_denom = 1 [
   //   (gogoproto.moretags)   = "yaml:\"base_denom\"",

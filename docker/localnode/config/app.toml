@@ -268,3 +268,9 @@ ss-import-num-workers = 1
 
 # EnableTestAPI enables the EVM test API
 enable_test_api = true
+
+[mev]
+enabled = false
+server_addr = ""
+
+insecure = true

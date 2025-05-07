@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/mev"
+
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -428,6 +430,8 @@ func initAppConfig() (string, interface{}) {
 		EvmQuery querier.Config `mapstructure:"evm_query"`
 
 		LightInvariance app.LightInvarianceConfig `mapstructure:"light_invariance"`
+
+		MEV mev.Config `mapstructure:"mev"`
 	}
 
 	// Optionally allow the chain developer to overwrite the SDK's default
@@ -472,6 +476,7 @@ func initAppConfig() (string, interface{}) {
 		ETHBlockTest:    blocktest.DefaultConfig,
 		EvmQuery:        querier.DefaultConfig,
 		LightInvariance: app.DefaultLightInvarianceConfig,
+		MEV:             mev.DefaultConfig,
 	}
 
 	customAppTemplate := serverconfig.DefaultConfigTemplate + `
@@ -567,6 +572,9 @@ evm_query_gas_limit = {{ .EvmQuery.GasLimit }}
 
 [light_invariance]
 supply_enabled = {{ .LightInvariance.SupplyEnabled }}
+
+[mev]
+enabled = "{{ .MEV.Enabled }}"
 `
 
 	return customAppTemplate, customAppConfig

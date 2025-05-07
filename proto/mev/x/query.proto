@@ -1,0 +1,15 @@
+syntax = "proto3";
+package seiprotocol.seichain.mev;
+
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "mev/x/params.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/mev/types";
+
+
+// empty, as there are no on-chain Queries for MEV yet
+
+service Query {
+
+}

@@ -1,0 +1,41 @@
+# intended to be included on top of docker-compose.yml
+
+services:
+  silo-server:
+    platform: linux/amd64
+    container_name: silo-server
+    image: "silo-server:latest"
+    ports:
+      - "22137:22137"
+    networks:
+      localnet:
+        ipv4_address: 192.168.10.9
+
+  node0:
+#    extends:
+#      service: node0
+#      file: docker-compose.yml
+    environment:
+      MEV_SERVER_ADDR: silo-server:22138
+
+  node1:
+#    extends:
+#      service: node1
+#      file: docker-compose.yml
+    environment:
+      MEV_SERVER_ADDR: silo-server:22138
+
+  node2:
+#    extends:
+#      service: node2
+#      file: docker-compose.yml
+    environment:
+      MEV_SERVER_ADDR: silo-server:22138
+
+  node3:
+#    extends:
+#      service: node3
+#      file: docker-compose.yml
+    environment:
+      MEV_SERVER_ADDR: silo-server:22138
+
