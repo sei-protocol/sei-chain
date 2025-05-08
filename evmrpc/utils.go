@@ -7,12 +7,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
@@ -20,7 +18,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
@@ -236,18 +233,7 @@ func getTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig
 }
 
 func isReceiptFromAnteError(receipt *types.Receipt) bool {
-	return receipt.VmError == sdkerrors.ErrInsufficientFee.Error() ||
-		receipt.VmError == sdkerrors.ErrOutOfGas.Error() ||
-		receipt.VmError == sdkerrors.ErrInvalidCoins.Error() ||
-		receipt.VmError == sdkerrors.ErrUnsupportedTxType.Error() ||
-		receipt.VmError == sdkerrors.ErrInvalidChainID.Error() ||
-		strings.Contains(receipt.VmError, sdkerrors.ErrWrongSequence.Error()) ||
-		strings.Contains(receipt.VmError, "insufficient funds for gas * price + value") ||
-		strings.Contains(receipt.VmError, sdkerrors.ErrInvalidRequest.Error()) ||
-		strings.Contains(receipt.VmError, core.ErrMaxInitCodeSizeExceeded.Error()) ||
-		strings.Contains(receipt.VmError, "exceeds block max gas") ||
-		strings.Contains(receipt.VmError, "nonce too high") ||
-		strings.Contains(receipt.VmError, "account needs to have at least 1 wei to force association")
+	return receipt.EffectiveGasPrice == 0
 }
 
 type ParallelRunner struct {
