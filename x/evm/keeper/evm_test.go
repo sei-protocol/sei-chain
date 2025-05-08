@@ -197,7 +197,7 @@ func TestHandleInternalEVMDelegateCall_AssociationError(t *testing.T) {
 	k.SetCode(ctx, contractAddr, []byte("code"))
 	require.NoError(t, k.SetERC20CW20Pointer(ctx, string(castedAddr.Bytes()), contractAddr))
 
-	addr, _, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(contractAddr))
+	addr, _, exists := k.GetAnyPointerInfo(ctx, types.PointerReverseRegistryKey(contractAddr))
 	require.True(t, exists)
 	require.Equal(t, castedAddr.Bytes(), addr)
 
