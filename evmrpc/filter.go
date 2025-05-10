@@ -379,7 +379,12 @@ func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCrite
 }
 
 func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]bloomIndexes) (chan *coretypes.ResultBlock, int64, error) {
+	const maxAllowedAddresses = 100
 	fmt.Printf("PSUDEBUG - filterCriteria: %s\n", crit)
+	if len(crit.Addresses) > maxAllowedAddresses {
+		return nil, 0, fmt.Errorf("too many addresses in filter criteria: got %d, max allowed is %d", len(crit.Addresses), maxAllowedAddresses)
+	}
+
 	if crit.BlockHash != nil {
 		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:], 1)
 		if err != nil {
