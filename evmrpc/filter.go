@@ -404,6 +404,9 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	if lastToHeight > begin {
 		begin = lastToHeight
 	}
+	if begin > end {
+		return nil, 0, fmt.Errorf("fromBlock %d is after toBlock %d (after applying lastToHeight=%d)", begin, end, lastToHeight)
+	}
 	if f.filterConfig.maxBlock > 0 && end >= (begin+f.filterConfig.maxBlock) {
 		return nil, 0, fmt.Errorf("a maximum of %d blocks worth of logs may be requested at a time", f.filterConfig.maxBlock)
 	}
