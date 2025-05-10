@@ -415,10 +415,21 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	defer close(res)
 	runner := NewParallelRunner(min(f.filterConfig.maxNumOfLogWorkers, int(end-begin+1)), int(end-begin+1))
 	defer runner.Done.Wait()
+	errChan := make(chan error, 1)
 	defer close(runner.Queue)
+	defer close(errChan)
 	for height := begin; height <= end; height++ {
 		h := height
 		runner.Queue <- func() {
+			defer func() {
+				if r := recover(); r != nil {
+					if err, ok := r.(error); ok {
+						errChan <- err
+					} else {
+						errChan <- fmt.Errorf("%v", r)
+					}
+				}
+			}()
 			if h == 0 {
 				return
 			}
@@ -431,10 +442,15 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			}
 			block, err := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
 			if err != nil {
-				return nil, nil, err
+				panic(err)
 			}
 			res <- block
 		}
+	}
+	select {
+	case err := <-errChan:
+		return nil, 0, err
+	default:
 	}
 	return res, end, nil
 }
