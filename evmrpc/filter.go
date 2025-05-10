@@ -426,11 +426,11 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	}
 	res := make(chan *coretypes.ResultBlock, end-begin+1)
 	runner := NewParallelRunner(min(f.filterConfig.maxNumOfLogWorkers, int(end-begin+1)), int(end-begin+1))
-	// Close res after all workers are done
 	go func() {
 		runner.Done.Wait()
 		close(res)
 	}()
+	defer close(runner.Queue)
 	for height := begin; height <= end; height++ {
 		h := height
 		runner.Queue <- func() {
@@ -451,7 +451,6 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			res <- block
 		}
 	}
-	close(runner.Queue)
 	return res, end, nil
 }
 
