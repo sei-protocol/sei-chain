@@ -379,6 +379,7 @@ func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCrite
 }
 
 func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]bloomIndexes) (chan *coretypes.ResultBlock, int64, error) {
+	fmt.Printf("PSUDEBUG - filterCriteria: %s\n", crit)
 	if crit.BlockHash != nil {
 		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:], 1)
 		if err != nil {
@@ -419,9 +420,11 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 		end = latest
 	}
 	res := make(chan *coretypes.ResultBlock, end-begin+1)
-	defer close(res)
 	runner := NewParallelRunner(min(f.filterConfig.maxNumOfLogWorkers, int(end-begin+1)), int(end-begin+1))
-	defer runner.Done.Wait()
+	go func() {
+		runner.Done.Wait()
+		close(res)
+	}()
 	defer close(runner.Queue)
 	for height := begin; height <= end; height++ {
 		h := height
