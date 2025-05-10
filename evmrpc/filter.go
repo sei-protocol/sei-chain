@@ -411,25 +411,18 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	if begin > end {
 		return nil, 0, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
 	}
+	// Ensure we don't request blocks beyond the current blockchain height
+	if end > latest {
+		end = latest
+	}
 	res := make(chan *coretypes.ResultBlock, end-begin+1)
 	defer close(res)
 	runner := NewParallelRunner(min(f.filterConfig.maxNumOfLogWorkers, int(end-begin+1)), int(end-begin+1))
 	defer runner.Done.Wait()
-	errChan := make(chan error, 1)
 	defer close(runner.Queue)
-	defer close(errChan)
 	for height := begin; height <= end; height++ {
 		h := height
 		runner.Queue <- func() {
-			defer func() {
-				if r := recover(); r != nil {
-					if err, ok := r.(error); ok {
-						errChan <- err
-					} else {
-						errChan <- fmt.Errorf("%v", r)
-					}
-				}
-			}()
 			if h == 0 {
 				return
 			}
@@ -446,11 +439,6 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			}
 			res <- block
 		}
-	}
-	select {
-	case err := <-errChan:
-		return nil, 0, err
-	default:
 	}
 	return res, end, nil
 }
