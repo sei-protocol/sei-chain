@@ -431,7 +431,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			}
 			block, err := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
 			if err != nil {
-				panic(err)
+				return nil, nil, err
 			}
 			res <- block
 		}
