@@ -24,6 +24,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/utils"
+	seimetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc721"
@@ -79,14 +80,14 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			if !strings.Contains(fmt.Sprintf("%s", pe), occtypes.ErrReadEstimate.Error()) {
 				debug.PrintStack()
 				ctx.Logger().Error(fmt.Sprintf("EVM PANIC: %s", pe))
-				telemetry.IncrCounter(1, types.ModuleName, "panics")
+				seimetrics.SafeTelemetryIncrCounter(1, types.ModuleName, "panics")
 			}
 			panic(pe)
 		}
 		if err != nil {
 			ctx.Logger().Error(fmt.Sprintf("Got EVM state transition error (not VM error): %s", err))
 
-			telemetry.IncrCounterWithLabels(
+			seimetrics.SafeTelemetryIncrCounterWithLabels(
 				[]string{types.ModuleName, "errors", "state_transition"},
 				1,
 				[]metrics.Label{
@@ -101,7 +102,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			err = ferr
 			ctx.Logger().Error(fmt.Sprintf("failed to finalize EVM stateDB: %s", err))
 
-			telemetry.IncrCounterWithLabels(
+			seimetrics.SafeTelemetryIncrCounterWithLabels(
 				[]string{types.ModuleName, "errors", "stateDB_finalize"},
 				1,
 				[]metrics.Label{
@@ -135,7 +136,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			err = rerr
 			ctx.Logger().Error(fmt.Sprintf("failed to write EVM receipt: %s", err))
 
-			telemetry.IncrCounterWithLabels(
+			seimetrics.SafeTelemetryIncrCounterWithLabels(
 				[]string{types.ModuleName, "errors", "write_receipt"},
 				1,
 				[]metrics.Label{
@@ -147,9 +148,9 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 
 		// Add metrics for receipt status
 		if receipt.Status == uint32(ethtypes.ReceiptStatusFailed) {
-			telemetry.IncrCounter(1, "receipt", "status", "failed")
+			seimetrics.SafeTelemetryIncrCounter(1, "receipt", "status", "failed")
 		} else {
-			telemetry.IncrCounter(1, "receipt", "status", "success")
+			seimetrics.SafeTelemetryIncrCounter(1, "receipt", "status", "success")
 		}
 
 		surplus = surplus.Add(extraSurplus)
@@ -175,7 +176,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		// be checked in CheckTx first
 		err = applyErr
 
-		telemetry.IncrCounterWithLabels(
+		seimetrics.SafeTelemetryIncrCounterWithLabels(
 			[]string{types.ModuleName, "errors", "apply_message"},
 			1,
 			[]metrics.Label{
@@ -190,7 +191,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	if res.Err != nil {
 		serverRes.VmError = res.Err.Error()
 
-		telemetry.IncrCounterWithLabels(
+		seimetrics.SafeTelemetryIncrCounterWithLabels(
 			[]string{types.ModuleName, "errors", "vm_execution"},
 			1,
 			[]metrics.Label{

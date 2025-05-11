@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/armon/go-metrics"
+	gometrics "github.com/armon/go-metrics"
 	sdkclient "github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -23,6 +23,7 @@ import (
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/provider"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
 	pfsync "github.com/sei-protocol/sei-chain/oracle/price-feeder/pkg/sync"
+	seimetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
@@ -138,18 +139,18 @@ func (o *Oracle) Start(ctx context.Context) error {
 			startTime := time.Now()
 			err = o.tick(ctx, clientCtx, currBlockHeight)
 			if err != nil {
-				telemetry.IncrCounter(1, "failure", "tick")
+				seimetrics.SafeTelemetryIncrCounter(1, "failure", "tick")
 				o.logger.Warn().Msg(fmt.Sprintf("Oracle tick failed for height %d, err: %s", currBlockHeight, err.Error()))
 			} else {
-				telemetry.IncrCounter(1, "success", "tick")
+				seimetrics.SafeTelemetryIncrCounter(1, "success", "tick")
 			}
 			telemetry.MeasureSince(startTime, "latency", "tick")
-			telemetry.IncrCounter(1, "num_ticks", "tick")
+			seimetrics.SafeTelemetryIncrCounter(1, "num_ticks", "tick")
 
 			// Catch any missing blocks
 			if currBlockHeight > (previousBlockHeight+1) && previousBlockHeight > 0 {
 				missedBlocks := currBlockHeight - (previousBlockHeight + 1)
-				telemetry.IncrCounter(float32(missedBlocks), "skipped_blocks", "tick")
+				seimetrics.SafeTelemetryIncrCounter(float32(missedBlocks), "skipped_blocks", "tick")
 			}
 			previousBlockHeight = currBlockHeight
 		}
@@ -203,7 +204,7 @@ func safeMapContains[V any](m map[string]V, key string) bool {
 func reportPriceErrMetrics[V any](providerName string, priceType string, prices map[string]V, expected []types.CurrencyPair) {
 	for _, pair := range expected {
 		if !safeMapContains(prices, pair.String()) {
-			sendProviderFailureMetric([]string{"failure", "provider"}, 1, []metrics.Label{
+			sendProviderFailureMetric([]string{"failure", "provider"}, 1, []gometrics.Label{
 				{Name: "type", Value: priceType},
 				{Name: "reason", Value: "error"},
 				{Name: "provider", Value: providerName},
@@ -234,7 +235,7 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 
 		priceProvider, err := o.getOrSetProvider(ctx, providerName)
 		if err != nil {
-			sendProviderFailureMetric([]string{"failure", "provider"}, 1, []metrics.Label{
+			sendProviderFailureMetric([]string{"failure", "provider"}, 1, []gometrics.Label{
 				{Name: "reason", Value: "init"},
 				{Name: "provider", Value: providerName},
 			})
@@ -274,7 +275,7 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 			case <-ch:
 				break
 			case <-time.After(o.providerTimeout):
-				telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
+				seimetrics.SafeTelemetryIncrCounterWithLabels([]string{"failure", "provider"}, 1, []gometrics.Label{
 					{Name: "reason", Value: "timeout"},
 					{Name: "provider", Value: providerName},
 				})
@@ -291,7 +292,7 @@ func (o *Oracle) SetPrices(ctx context.Context) error {
 				success := SetProviderTickerPricesAndCandles(providerName, providerPrices, providerCandles, prices, candles, pair)
 				if !success {
 					mtx.Unlock()
-					telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
+					seimetrics.SafeTelemetryIncrCounterWithLabels([]string{"failure", "provider"}, 1, []gometrics.Label{
 						{Name: "reason", Value: "set-prices"},
 						{Name: "provider", Value: providerName},
 					})
@@ -702,7 +703,7 @@ func (o *Oracle) tick(
 	resp, err := o.oracleClient.BroadcastTx(clientCtx, voteMsg)
 	if err != nil {
 		o.logResponseError(err, resp, startTime, blockHeight)
-		telemetry.IncrCounter(1, "failure", "broadcast")
+		seimetrics.SafeTelemetryIncrCounter(1, "failure", "broadcast")
 		return err
 	}
 
@@ -712,7 +713,7 @@ func (o *Oracle) tick(
 		Str("tx_hash", resp.TxHash).
 		Int64("tick_duration", time.Since(startTime).Milliseconds()).
 		Msg(fmt.Sprintf("broadcasted for height %d", blockHeight))
-	telemetry.IncrCounter(1, "success", "broadcast")
+	seimetrics.SafeTelemetryIncrCounter(1, "success", "broadcast")
 
 	o.previousVotePeriod = currentVotePeriod
 	o.healthchecksPing()

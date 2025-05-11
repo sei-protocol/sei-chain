@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 const (
@@ -263,7 +263,7 @@ func (p *GateProvider) SubscribeCurrencyPairs(cps ...types.CurrencyPair) error {
 		return err
 	}
 	p.setSubscribedPairs(cps...)
-	telemetry.IncrCounter(
+	metrics.SafeTelemetryIncrCounter(
 		float32(len(cps)),
 		"websocket",
 		"subscribe",
@@ -430,7 +430,7 @@ func (p *GateProvider) messageReceivedTickerPrice(bz []byte) error {
 	}
 
 	p.setTickerPair(gateTicker)
-	telemetry.IncrCounter(
+	metrics.SafeTelemetryIncrCounter(
 		1,
 		"websocket",
 		"message",
@@ -512,7 +512,7 @@ func (p *GateProvider) messageReceivedCandle(bz []byte) error {
 	}
 
 	p.setCandlePair(gateCandle)
-	telemetry.IncrCounter(
+	metrics.SafeTelemetryIncrCounter(
 		1,
 		"websocket",
 		"message",
@@ -599,7 +599,7 @@ func (p *GateProvider) reconnect() error {
 
 	currencyPairs := p.subscribedPairsToSlice()
 
-	telemetry.IncrCounter(
+	metrics.SafeTelemetryIncrCounter(
 		1,
 		"websocket",
 		"reconnect",
