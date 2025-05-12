@@ -451,9 +451,10 @@ func (k Keeper) IteratePriceSnapshots(ctx sdk.Context, handler func(snapshot typ
 	}
 }
 
-func (k Keeper) IteratePriceSnapshotsReverse(ctx sdk.Context, handler func(snapshot types.PriceSnapshot) (stop bool)) {
+func (k Keeper) IteratePriceSnapshotsReverse(ctx sdk.Context, currentTime int64, handler func(snapshot types.PriceSnapshot) (stop bool)) {
 	store := ctx.KVStore(k.storeKey)
-	iterator := sdk.KVStoreReversePrefixIterator(store, types.PriceSnapshotKey)
+	keyPrefix := types.GetPriceSnapshotKey(uint64(currentTime))
+	iterator := sdk.KVStoreReversePrefixIterator(store, keyPrefix)
 	defer iterator.Close()
 
 	for ; iterator.Valid(); iterator.Next() {
@@ -489,7 +490,7 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 	})
 
 	fmt.Printf("[Debug] Start IteratePriceSnapshotsReverse with lookbackSeconds %d and currentTime %d\n", lookbackSeconds, currentTime)
-	k.IteratePriceSnapshotsReverse(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
+	k.IteratePriceSnapshotsReverse(ctx, currentTime, func(snapshot types.PriceSnapshot) (stop bool) {
 		stop = false
 		snapshotTimestamp := snapshot.SnapshotTimestamp
 		if currentTime-int64(lookbackSeconds) > snapshotTimestamp {
