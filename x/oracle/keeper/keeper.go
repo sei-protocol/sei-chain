@@ -451,9 +451,8 @@ func (k Keeper) IteratePriceSnapshots(ctx sdk.Context, handler func(snapshot typ
 	}
 }
 
-func (k Keeper) IteratePriceSnapshotsReverse(ctx sdk.Context, currentTime int64, handler func(snapshot types.PriceSnapshot) (stop bool)) {
+func (k Keeper) IteratePriceSnapshotsReverse(ctx sdk.Context, keyPrefix []byte, handler func(snapshot types.PriceSnapshot) (stop bool)) {
 	store := ctx.KVStore(k.storeKey)
-	keyPrefix := types.GetPriceSnapshotKey(uint64(currentTime))
 	iterator := sdk.KVStoreReversePrefixIterator(store, keyPrefix)
 	defer iterator.Close()
 
@@ -489,7 +488,10 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 		return false
 	})
 
-	k.IteratePriceSnapshotsReverse(ctx, currentTime, func(snapshot types.PriceSnapshot) (stop bool) {
+	fmt.Printf("[Debug] Start IteratePriceSnapshotsReverse with lookbackSeconds %d and currentTime %d\n", lookbackSeconds, currentTime)
+	keyPrefix := types.GetPriceSnapshotKeyForIteration(uint64(currentTime), uint64(currentTime)-lookbackSeconds)
+	k.IteratePriceSnapshotsReverse(ctx, keyPrefix, func(snapshot types.PriceSnapshot) (stop bool) {
+		fmt.Printf("[Debug] found snapsot %v\n", snapshot)
 		stop = false
 		snapshotTimestamp := snapshot.SnapshotTimestamp
 		if currentTime-int64(lookbackSeconds) > snapshotTimestamp {
@@ -532,6 +534,7 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 		}
 		return stop
 	})
+	fmt.Printf("[Debug] Completed IteratePriceSnapshotsReverse with lookbackSeconds %d and currentTime %d\n", lookbackSeconds, currentTime)
 
 	denomKeys := make([]string, 0, len(denomToTimeWeightedMap))
 	for k := range denomToTimeWeightedMap {
