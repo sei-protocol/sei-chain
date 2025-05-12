@@ -308,7 +308,9 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 	// TODO: remove after all TxHashes have been removed
 	am.keeper.RemoveFirstNTxHashes(ctx, keeper.DefaultTxHashesToRemove)
 
+	fmt.Println("[DEBUG] In EndBlock, height", req.Height)
 	newBaseFee := am.keeper.AdjustDynamicBaseFeePerGas(ctx, uint64(req.BlockGasUsed))
+	fmt.Println("[DEBUG] In EndBlock, newBaseFee", newBaseFee)
 	if newBaseFee != nil {
 		metrics.GaugeEvmBlockBaseFee(newBaseFee.TruncateInt().BigInt(), req.Height)
 	}

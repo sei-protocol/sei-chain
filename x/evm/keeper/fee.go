@@ -1,6 +1,8 @@
 package keeper
 
 import (
+	"fmt"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -11,7 +13,7 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 		return nil
 	}
 	prevBaseFee := k.GetNextBaseFeePerGas(ctx)
-	// set the resulting base fee for block n-1 on block n
+	fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, prevBaseFee", prevBaseFee)
 	k.SetCurrBaseFeePerGas(ctx, prevBaseFee)
 	targetGasUsed := sdk.NewDec(int64(k.GetTargetGasUsedPerBlock(ctx)))
 	if targetGasUsed.IsZero() { // avoid division by zero
@@ -22,41 +24,61 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 	blockGasLimit := sdk.NewDec(ctx.ConsensusParams().Block.MaxGas)
 	blockGasUsedDec := sdk.NewDec(int64(blockGasUsed))
 
+	fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, targetGasUsed", targetGasUsed)
+	fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, blockGasUsedDec", blockGasUsedDec)
+
 	// cap block gas used to block gas limit
 	if blockGasUsedDec.GT(blockGasLimit) {
+		fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, blockGasUsedDec > blockGasLimit")
 		blockGasUsedDec = blockGasLimit
 	}
 
 	var newBaseFee sdk.Dec
 	if blockGasUsedDec.GT(targetGasUsed) {
+		fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, blockGasUsedDec > targetGasUsed, in upward adjustment")
 		// upward adjustment
 		numerator := blockGasUsedDec.Sub(targetGasUsed)
+		fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, numerator", numerator)
 		denominator := blockGasLimit.Sub(targetGasUsed)
+		fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, denominator", denominator)
 		percentageFull := numerator.Quo(denominator)
+		fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, percentageFull", percentageFull)
 		adjustmentFactor := k.GetMaxDynamicBaseFeeUpwardAdjustment(ctx).Mul(percentageFull)
+		fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, adjustmentFactor", adjustmentFactor)
 		newBaseFee = prevBaseFee.Mul(sdk.NewDec(1).Add(adjustmentFactor))
+		fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, newBaseFee", newBaseFee)
 	} else {
+		fmt.Println("[DEBUG] blockGasUsedDec <= targetGasUsed, in downward adjustment")
 		// downward adjustment
 		numerator := targetGasUsed.Sub(blockGasUsedDec)
+		fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, numerator", numerator)
 		denominator := targetGasUsed
+		fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, denominator", denominator)
 		percentageEmpty := numerator.Quo(denominator)
+		fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, percentageEmpty", percentageEmpty)
 		adjustmentFactor := k.GetMaxDynamicBaseFeeDownwardAdjustment(ctx).Mul(percentageEmpty)
+		fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, adjustmentFactor", adjustmentFactor)
 		newBaseFee = prevBaseFee.Mul(sdk.NewDec(1).Sub(adjustmentFactor))
+		fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, newBaseFee", newBaseFee)
 	}
 
 	// Ensure the new base fee is not lower than the minimum fee
 	if newBaseFee.LT(minimumFeePerGas) {
+		fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, newBaseFee < minimumFeePerGas, setting to minimumFeePerGas")
 		newBaseFee = minimumFeePerGas
 	}
 
 	// Ensure the new base fee is not higher than the maximum fee
 	if newBaseFee.GT(maximumFeePerGas) {
+		fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, newBaseFee > maximumFeePerGas, setting to maximumFeePerGas")
 		newBaseFee = maximumFeePerGas
 	}
 
+	fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, setting newBaseFee", newBaseFee)
 	// Set the new base fee for the next height
 	k.SetNextBaseFeePerGas(ctx, newBaseFee)
 
+	fmt.Println("[DEBUG] In AdjustDynamicBaseFeePerGas, returning newBaseFee", newBaseFee)
 	return &newBaseFee
 }
 
