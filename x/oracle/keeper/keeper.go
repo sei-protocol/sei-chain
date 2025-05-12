@@ -488,6 +488,7 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 		return false
 	})
 
+	fmt.Printf("[Debug] Start IteratePriceSnapshotsReverse with lookbackSeconds %d and currentTime %d\n", lookbackSeconds, currentTime)
 	k.IteratePriceSnapshotsReverse(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
 		stop = false
 		snapshotTimestamp := snapshot.SnapshotTimestamp
@@ -531,6 +532,7 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 		}
 		return stop
 	})
+	fmt.Printf("[Debug] Completed IteratePriceSnapshotsReverse with lookbackSeconds %d and currentTime %d\n", lookbackSeconds, currentTime)
 
 	denomKeys := make([]string, 0, len(denomToTimeWeightedMap))
 	for k := range denomToTimeWeightedMap {
