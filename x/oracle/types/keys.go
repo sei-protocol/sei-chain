@@ -96,15 +96,14 @@ func GetPriceSnapshotKey(timestamp uint64) []byte {
 
 func GetPriceSnapshotKeyForIteration(timestampA uint64, timestampB uint64) []byte {
 	var result []byte
+	keyA := GetKeyForTimestamp(timestampA)
+	keyB := GetKeyForTimestamp(timestampB)
 	for i := 0; i < 8; i++ {
-		shift := 8 * (7 - i) // start from most significant byte
-		byteA := byte(timestampA >> shift)
-		byteB := byte(timestampB >> shift)
-		if byteA == byteB {
-			result = append(result, byteA)
+		if keyA[i] == keyB[i] {
+			result = append(result, keyA[i])
 		} else {
 			break
 		}
 	}
-	return result
+	return append(PriceSnapshotKey, result...)
 }
