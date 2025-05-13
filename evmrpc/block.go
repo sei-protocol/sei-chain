@@ -229,6 +229,12 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}
 	allReceipts := make([]map[string]interface{}, len(txHashes))
+	sdkCtx := a.ctxProvider(LatestCtxHeight)
+	signer := ethtypes.MakeSigner(
+		types.DefaultChainConfig().EthereumConfig(a.keeper.ChainID(sdkCtx)),
+		big.NewInt(sdkCtx.BlockHeight()),
+		uint64(sdkCtx.BlockTime().Unix()),
+	)
 	for i, hash := range txHashes {
 		wg.Add(1)
 		go func(i int, hash common.Hash) {
@@ -242,6 +248,9 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					mtx.Unlock()
 				}
 			} else {
+				if isReceiptFromAnteError(receipt) {
+					return
+				}
 				// If the receipt has synthetic logs, we actually want to include them in the response.
 				if !a.includeShellReceipts && receipt.TxType == ShellEVMTxType {
 					return
@@ -254,7 +263,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 				encodedReceipt, err := encodeReceipt(receipt, a.txConfig.TxDecoder(), block, func(h common.Hash) bool {
 					_, err := a.keeper.GetReceipt(a.ctxProvider(height), h)
 					return err == nil
-				})
+				}, a.includeShellReceipts, signer)
 				if err != nil {
 					mtx.Lock()
 					returnErr = err
@@ -270,6 +279,9 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		if len(r) > 0 {
 			compactReceipts = append(compactReceipts, r)
 		}
+	}
+	for i, cr := range compactReceipts {
+		cr["transactionIndex"] = hexutil.Uint64(i)
 	}
 	if returnErr != nil {
 		return nil, returnErr
@@ -326,7 +338,7 @@ func EncodeTmBlock(
 					}
 				}
 				receipt, err := k.GetReceipt(ctx, hash)
-				if err != nil {
+				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(receipt) {
 					continue
 				}
 				if !includeSyntheticTxs && receipt.TxType == ShellEVMTxType {

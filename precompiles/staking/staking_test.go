@@ -458,7 +458,7 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 			require.Nil(t, err)
 			inputs, err := delegation.Inputs.Pack(tt.args.delegatorAddress, tt.args.validatorAddress)
 			require.Nil(t, err)
-			gotRet, err := p.Run(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*staking.PrecompileExecutor).DelegationID, inputs...), tt.args.value, tt.args.readOnly, tt.args.isFromDelegateCall)
+			gotRet, err := p.Run(&evm, tt.args.caller, tt.args.callingContract, append(p.GetExecutor().(*staking.PrecompileExecutor).DelegationID, inputs...), tt.args.value, tt.args.readOnly, tt.args.isFromDelegateCall, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
 				return

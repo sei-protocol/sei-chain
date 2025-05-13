@@ -9,6 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v562"
@@ -69,7 +70,7 @@ func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64
 	return pcommon.DefaultGasCost(input, p.IsTransaction(method.Name))
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, _ common.Address, _ common.Address, args []interface{}, value *big.Int, _ bool, _ *vm.EVM) (bz []byte, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, _ common.Address, _ common.Address, args []interface{}, value *big.Int, _ bool, _ *vm.EVM, hooks *tracing.Hooks) (bz []byte, err error) {
 	switch method.Name {
 	case GetSeiAddressMethod:
 		return p.getSeiAddr(ctx, method, args, value)

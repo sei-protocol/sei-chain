@@ -11,6 +11,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v580"
@@ -69,7 +70,7 @@ func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVM
 	return pcommon.NewDynamicGasPrecompile(newAbi, p, p.address, "distribution"), nil
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if caller.Cmp(callingContract) != 0 {
 		return nil, 0, errors.New("cannot delegatecall distr")
 	}

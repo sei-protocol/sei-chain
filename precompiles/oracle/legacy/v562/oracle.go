@@ -1,6 +1,7 @@
-package v602
+package v562
 
 import (
+	"bytes"
 	"embed"
 	"math/big"
 
@@ -8,8 +9,9 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
-	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v562"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
@@ -26,6 +28,19 @@ const (
 //
 //go:embed abi.json
 var f embed.FS
+
+func GetABI() abi.ABI {
+	abiBz, err := f.ReadFile("abi.json")
+	if err != nil {
+		panic(err)
+	}
+
+	newAbi, err := abi.JSON(bytes.NewReader(abiBz))
+	if err != nil {
+		panic(err)
+	}
+	return newAbi
+}
 
 type PrecompileExecutor struct {
 	evmKeeper    pcommon.EVMKeeper
@@ -53,8 +68,8 @@ type OracleTwap struct {
 	LookbackSeconds int64  `json:"lookbackSeconds"`
 }
 
-func NewPrecompile(oracleKeeper pcommon.OracleKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
-	newAbi := pcommon.MustGetABI(f, "abi.json")
+func NewPrecompile(oracleKeeper pcommon.OracleKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.Precompile, error) {
+	newAbi := GetABI()
 
 	p := &PrecompileExecutor{
 		evmKeeper:    evmKeeper,
@@ -70,7 +85,7 @@ func NewPrecompile(oracleKeeper pcommon.OracleKeeper, evmKeeper pcommon.EVMKeepe
 		}
 	}
 
-	return pcommon.NewDynamicGasPrecompile(newAbi, p, common.HexToAddress(OracleAddress), "oracle"), nil
+	return pcommon.NewPrecompile(newAbi, p, common.HexToAddress(OracleAddress), "oracle"), nil
 }
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
@@ -78,7 +93,7 @@ func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64
 	return pcommon.DefaultGasCost(input, p.IsTransaction(method.Name))
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (bz []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, hooks *tracing.Hooks) (bz []byte, err error) {
 	switch method.Name {
 	case GetExchangeRatesMethod:
 		return p.getExchangeRates(ctx, method, args, value)
@@ -88,13 +103,13 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	return
 }
 
-func (p PrecompileExecutor) getExchangeRates(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+func (p PrecompileExecutor) getExchangeRates(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 0); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	exchangeRates := []DenomOracleExchangeRatePair{}
 	p.oracleKeeper.IterateBaseExchangeRates(ctx, func(denom string, rate types.OracleExchangeRate) (stop bool) {
@@ -102,34 +117,28 @@ func (p PrecompileExecutor) getExchangeRates(ctx sdk.Context, method *abi.Method
 		return false
 	})
 
-	bz, err := method.Outputs.Pack(exchangeRates)
-	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
+	return method.Outputs.Pack(exchangeRates)
 }
 
-func (p PrecompileExecutor) getOracleTwaps(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, uint64, error) {
+func (p PrecompileExecutor) getOracleTwaps(ctx sdk.Context, method *abi.Method, args []interface{}, value *big.Int) ([]byte, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
 	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	lookbackSeconds := args[0].(uint64)
 	twaps, err := p.oracleKeeper.CalculateTwaps(ctx, lookbackSeconds)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	// Convert twap to string
 	oracleTwaps := make([]OracleTwap, 0, len(twaps))
 	for _, twap := range twaps {
 		oracleTwaps = append(oracleTwaps, OracleTwap{Denom: twap.Denom, Twap: twap.Twap.String(), LookbackSeconds: twap.LookbackSeconds})
 	}
-	bz, err := method.Outputs.Pack(oracleTwaps)
-	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
-}
-
-func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
-	return p.evmKeeper
+	return method.Outputs.Pack(oracleTwaps)
 }
 
 func (PrecompileExecutor) IsTransaction(string) bool {

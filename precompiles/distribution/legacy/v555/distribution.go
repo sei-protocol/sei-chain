@@ -150,7 +150,7 @@ func (p Precompile) GetName() string {
 	return "distribution"
 }
 
-func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool, _ bool) (bz []byte, err error) {
+func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool, _ bool, hooks *tracing.Hooks) (bz []byte, err error) {
 	panic("static gas Run is not implemented for dynamic gas precompile")
 }
 

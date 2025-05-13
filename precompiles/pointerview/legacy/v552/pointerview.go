@@ -9,6 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v552"
 )
@@ -82,7 +83,7 @@ func (p Precompile) GetName() string {
 	return "pointerview"
 }
 
-func (p Precompile) Run(evm *vm.EVM, _ common.Address, _ common.Address, input []byte, _ *big.Int, _ bool, _ bool) (ret []byte, err error) {
+func (p Precompile) Run(evm *vm.EVM, _ common.Address, _ common.Address, input []byte, _ *big.Int, _ bool, _ bool, hooks *tracing.Hooks) (ret []byte, err error) {
 	ctx, method, args, err := p.Prepare(evm, input)
 	if err != nil {
 		return nil, err

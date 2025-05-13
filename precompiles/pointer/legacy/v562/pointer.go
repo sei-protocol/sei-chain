@@ -12,6 +12,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v562"
 	"github.com/sei-protocol/sei-chain/utils"
@@ -84,7 +85,7 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, w
 	return pcommon.NewDynamicGasPrecompile(*newAbi, p, common.HexToAddress(PointerAddress), PrecompileName), nil
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *ethabi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *ethabi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if readOnly {
 		return nil, 0, errors.New("cannot call pointer precompile from staticcall")
 	}
@@ -94,11 +95,11 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *ethabi.Method, call
 
 	switch method.Name {
 	case AddNativePointer:
-		return p.AddNative(ctx, method, caller, args, value, evm, suppliedGas)
+		return p.AddNative(ctx, method, caller, args, value, evm, suppliedGas, hooks)
 	case AddCW20Pointer:
-		return p.AddCW20(ctx, method, caller, args, value, evm, suppliedGas)
+		return p.AddCW20(ctx, method, caller, args, value, evm, suppliedGas, hooks)
 	case AddCW721Pointer:
-		return p.AddCW721(ctx, method, caller, args, value, evm, suppliedGas)
+		return p.AddCW721(ctx, method, caller, args, value, evm, suppliedGas, hooks)
 	default:
 		err = fmt.Errorf("unknown method %s", method.Name)
 	}
@@ -109,7 +110,7 @@ func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
 	return p.evmKeeper
 }
 
-func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -118,7 +119,7 @@ func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, ca
 	}
 	token := args[0].(string)
 	existingAddr, existingVersion, exists := p.evmKeeper.GetERC20NativePointer(ctx, token)
-	if exists && existingVersion >= native.CurrentVersion {
+	if exists && existingVersion >= 1 {
 		return nil, 0, fmt.Errorf("pointer at %s with version %d exists when trying to set pointer for version %d", existingAddr.Hex(), existingVersion, native.CurrentVersion)
 	}
 	metadata, metadataExists := p.bankKeeper.GetDenomMetaData(ctx, token)
@@ -158,6 +159,7 @@ func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, ca
 	if err != nil {
 		return
 	}
+
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "native"),
 		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, token),
@@ -166,7 +168,7 @@ func (p PrecompileExecutor) AddNative(ctx sdk.Context, method *ethabi.Method, ca
 	return
 }
 
-func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -175,7 +177,7 @@ func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, call
 	}
 	cwAddr := args[0].(string)
 	existingAddr, existingVersion, exists := p.evmKeeper.GetERC20CW20Pointer(ctx, cwAddr)
-	if exists && existingVersion >= cw20.CurrentVersion(ctx) {
+	if exists && existingVersion >= 1 {
 		return nil, 0, fmt.Errorf("pointer at %s with version %d exists when trying to set pointer for version %d", existingAddr.Hex(), existingVersion, cw20.CurrentVersion(ctx))
 	}
 	cwAddress, err := sdk.AccAddressFromBech32(cwAddr)
@@ -212,6 +214,7 @@ func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, call
 	if err != nil {
 		return
 	}
+
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw20"),
 		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, cwAddr),
@@ -220,7 +223,7 @@ func (p PrecompileExecutor) AddCW20(ctx sdk.Context, method *ethabi.Method, call
 	return
 }
 
-func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, 0, err
 	}
@@ -229,7 +232,7 @@ func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, cal
 	}
 	cwAddr := args[0].(string)
 	existingAddr, existingVersion, exists := p.evmKeeper.GetERC721CW721Pointer(ctx, cwAddr)
-	if exists && existingVersion >= cw721.CurrentVersion {
+	if exists && existingVersion >= 4 {
 		return nil, 0, fmt.Errorf("pointer at %s with version %d exists when trying to set pointer for version %d", existingAddr.Hex(), existingVersion, cw721.CurrentVersion)
 	}
 	cwAddress, err := sdk.AccAddressFromBech32(cwAddr)
@@ -266,6 +269,7 @@ func (p PrecompileExecutor) AddCW721(ctx sdk.Context, method *ethabi.Method, cal
 	if err != nil {
 		return
 	}
+
 	ctx.EventManager().EmitEvent(sdk.NewEvent(
 		types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "cw721"),
 		sdk.NewAttribute(types.AttributeKeyPointerAddress, contractAddr.Hex()), sdk.NewAttribute(types.AttributeKeyPointee, cwAddr),

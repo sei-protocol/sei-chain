@@ -12,6 +12,7 @@ import (
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
@@ -71,7 +72,7 @@ func NewPrecompile(
 	return pcommon.NewDynamicGasPrecompile(newAbi, p, common.HexToAddress(IBCAddress), "ibc"), nil
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, _ *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if readOnly {
 		return nil, 0, errors.New("cannot call IBC precompile from staticcall")
 	}

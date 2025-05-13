@@ -84,7 +84,7 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 		Tracer: &tr,
 	}
 	tracingInfo.SetContext(context.Background())
-	antehandler, anteDepGenerator, err := app.NewAnteHandlerAndDepGenerator(
+	antehandler, _, anteDepGenerator, err := app.NewAnteHandlerAndDepGenerator(
 		app.HandlerOptions{
 			HandlerOptions: ante.HandlerOptions{
 				AccountKeeper:   suite.App.AccountKeeper,

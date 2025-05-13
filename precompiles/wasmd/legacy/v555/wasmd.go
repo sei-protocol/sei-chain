@@ -129,7 +129,7 @@ func (p Precompile) GetName() string {
 	return "wasmd"
 }
 
-func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, readOnly bool, _ bool) (ret []byte, remainingGas uint64, err error) {
+func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, hooks *tracing.Hooks, readOnly bool, _ bool) (ret []byte, remainingGas uint64, err error) {
 	defer func() {
 		if err != nil {
 			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
@@ -151,22 +151,22 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 
 	switch method.Name {
 	case InstantiateMethod:
-		return p.instantiate(ctx, method, caller, callingContract, args, value, readOnly)
+		return p.instantiate(ctx, method, caller, callingContract, args, value, readOnly, hooks, evm)
 	case ExecuteMethod:
-		return p.execute(ctx, method, caller, callingContract, args, value, readOnly)
+		return p.execute(ctx, method, caller, callingContract, args, value, readOnly, hooks, evm)
 	case ExecuteBatchMethod:
-		return p.executeBatch(ctx, method, caller, callingContract, args, value, readOnly)
+		return p.executeBatch(ctx, method, caller, callingContract, args, value, readOnly, hooks, evm)
 	case QueryMethod:
 		return p.query(ctx, method, args, value)
 	}
 	return
 }
 
-func (p Precompile) Run(*vm.EVM, common.Address, common.Address, []byte, *big.Int, bool, bool) ([]byte, error) {
+func (p Precompile) Run(*vm.EVM, common.Address, common.Address, []byte, *big.Int, bool, bool, *tracing.Hooks) ([]byte, error) {
 	panic("static gas Run is not implemented for dynamic gas precompile")
 }
 
-func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
+func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, hooks *tracing.Hooks, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -237,7 +237,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 	useiAmt := coins.AmountOf(sdk.MustGetBaseDenom())
 	if value != nil && !useiAmt.IsZero() {
 		useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
-		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), creatorAddr, useiAmtAsWei, p.bankKeeper)
+		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), creatorAddr, useiAmtAsWei, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 		if err != nil {
 			rerr = err
 			return
@@ -259,7 +259,7 @@ func (p Precompile) instantiate(ctx sdk.Context, method *abi.Method, caller comm
 	return
 }
 
-func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
+func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, hooks *tracing.Hooks, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -345,7 +345,7 @@ func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller com
 		if valueCopy != nil && !useiAmt.IsZero() {
 			// process coin amount from the value provided
 			useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
-			coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper)
+			coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 			if err != nil {
 				rerr = err
 				return
@@ -389,7 +389,7 @@ func (p Precompile) executeBatch(ctx sdk.Context, method *abi.Method, caller com
 	return
 }
 
-func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool) (ret []byte, remainingGas uint64, rerr error) {
+func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, hooks *tracing.Hooks, evm *vm.EVM) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -456,7 +456,7 @@ func (p Precompile) execute(ctx sdk.Context, method *abi.Method, caller common.A
 	useiAmt := coins.AmountOf(sdk.MustGetBaseDenom())
 	if value != nil && !useiAmt.IsZero() {
 		useiAmtAsWei := useiAmt.Mul(state.SdkUseiToSweiMultiplier).BigInt()
-		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper)
+		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderAddr, useiAmtAsWei, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 		if err != nil {
 			rerr = err
 			return
