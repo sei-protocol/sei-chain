@@ -327,6 +327,7 @@ func EncodeTmBlock(
 				}
 				receipt, err := k.GetReceipt(ctx, hash)
 				if err != nil {
+
 					continue
 				}
 				if !includeSyntheticTxs && receipt.TxType == ShellEVMTxType {
