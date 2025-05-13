@@ -150,6 +150,7 @@ func NewEVMHTTPServer(
 	if err := httpServer.EnableRPC(apis, HTTPConfig{
 		CorsAllowedOrigins: strings.Split(config.CORSOrigins, ","),
 		Vhosts:             []string{"*"},
+		DenyList:           config.DenyList,
 	}); err != nil {
 		return nil, err
 	}
