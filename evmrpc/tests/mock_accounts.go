@@ -101,3 +101,16 @@ func fundSeiAddr(ctx sdk.Context, a *app.App, addr sdk.AccAddress) {
 	_ = a.BankKeeper.MintCoins(ctx, types.ModuleName, amt)
 	_ = a.BankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, addr, amt)
 }
+
+const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+func multiCoinInitializer(mnemonic string) func(ctx sdk.Context, a *app.App) {
+	return func(ctx sdk.Context, a *app.App) {
+		amt := sdk.NewCoins()
+		for i := 0; i < 50; i++ {
+			amt = append(amt, sdk.NewCoin(letters[i:i+3], sdk.OneInt()))
+		}
+		_ = a.BankKeeper.MintCoins(ctx, types.ModuleName, amt)
+		_ = a.BankKeeper.SendCoinsFromModuleToAccount(ctx, types.ModuleName, getSeiAddrWithMnemonic(mnemonic), amt)
+	}
+}

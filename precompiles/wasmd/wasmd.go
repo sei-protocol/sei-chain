@@ -27,6 +27,7 @@ const (
 )
 
 const WasmdAddress = "0x0000000000000000000000000000000000001002"
+const PrecompileName = "wasmd"
 
 var Address = common.HexToAddress(WasmdAddress)
 
@@ -81,7 +82,7 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper,
 			executor.QueryID = m.ID
 		}
 	}
-	return pcommon.NewDynamicGasPrecompile(newAbi, executor, Address, "wasmd"), nil
+	return pcommon.NewDynamicGasPrecompile(newAbi, executor, Address, PrecompileName), nil
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {

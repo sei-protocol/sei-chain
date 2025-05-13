@@ -35,8 +35,6 @@ type DBImpl struct {
 	// for cases like bank.send_native, we want to suppress transfer events
 	eventsSuppressed bool
 
-	isTraceCall bool
-
 	logger *tracing.Hooks
 }
 
@@ -91,6 +89,10 @@ func (s *DBImpl) Cleanup() {
 }
 
 func (s *DBImpl) CleanupForTracer() {
+	s.flushCtxs()
+	if len(s.snapshottedCtxs) > 0 {
+		s.ctx = s.snapshottedCtxs[0]
+	}
 	feeCollector, _ := s.k.GetFeeCollectorAddress(s.Ctx())
 	s.coinbaseEvmAddress = feeCollector
 	s.tempStateCurrent = NewTemporaryState()
@@ -116,13 +118,7 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 		s.clearAccountStateIfDestructed(ts)
 	}
 
-	// remove transient states
-	// write cache to underlying
-	s.flushCtx(s.ctx)
-	// write all snapshotted caches in reverse order, except the very first one (base) which will be written by baseapp::runTx
-	for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
-		s.flushCtx(s.snapshottedCtxs[i])
-	}
+	s.flushCtxs()
 	// write all events in order
 	for i := 1; i < len(s.snapshottedCtxs); i++ {
 		s.flushEvents(s.snapshottedCtxs[i])
@@ -134,6 +130,19 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 		surplus = surplus.Add(ts.surplus)
 	}
 	return
+}
+
+func (s *DBImpl) flushCtxs() {
+	if len(s.snapshottedCtxs) == 0 {
+		return
+	}
+	// remove transient states
+	// write cache to underlying
+	s.flushCtx(s.ctx)
+	// write all snapshotted caches in reverse order, except the very first one (base) which will be written by baseapp::runTx
+	for i := len(s.snapshottedCtxs) - 1; i > 0; i-- {
+		s.flushCtx(s.snapshottedCtxs[i])
+	}
 }
 
 func (s *DBImpl) flushCtx(ctx sdk.Context) {
