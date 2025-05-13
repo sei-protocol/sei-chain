@@ -12,6 +12,7 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -31,6 +32,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	abci "github.com/tendermint/tendermint/abci/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -48,7 +50,7 @@ type SimulationAPI struct {
 func NewSimulationAPI(
 	ctxProvider func(int64) sdk.Context,
 	keeper *keeper.Keeper,
-	txDecoder sdk.TxDecoder,
+	txConfig client.TxConfig,
 	tmClient rpcclient.Client,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
@@ -56,7 +58,7 @@ func NewSimulationAPI(
 	connectionType ConnectionType,
 ) *SimulationAPI {
 	return &SimulationAPI{
-		backend:        NewBackend(ctxProvider, keeper, txDecoder, tmClient, config, app, antehandler),
+		backend:        NewBackend(ctxProvider, keeper, txConfig, tmClient, config, app, antehandler),
 		connectionType: connectionType,
 	}
 }
@@ -178,7 +180,7 @@ var _ tracers.Backend = (*Backend)(nil)
 type Backend struct {
 	*eth.EthAPIBackend
 	ctxProvider func(int64) sdk.Context
-	txDecoder   sdk.TxDecoder
+	txConfig    client.TxConfig
 	keeper      *keeper.Keeper
 	tmClient    rpcclient.Client
 	config      *SimulateConfig
@@ -186,11 +188,11 @@ type Backend struct {
 	antehandler sdk.AnteHandler
 }
 
-func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txDecoder sdk.TxDecoder, tmClient rpcclient.Client, config *SimulateConfig, app *baseapp.BaseApp, antehandler sdk.AnteHandler) *Backend {
+func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txConfig client.TxConfig, tmClient rpcclient.Client, config *SimulateConfig, app *baseapp.BaseApp, antehandler sdk.AnteHandler) *Backend {
 	return &Backend{
 		ctxProvider: ctxProvider,
 		keeper:      keeper,
-		txDecoder:   txDecoder,
+		txConfig:    txConfig,
 		tmClient:    tmClient,
 		config:      config,
 		app:         app,
@@ -224,7 +226,7 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *e
 	}
 	txIndex := hexutil.Uint(receipt.TransactionIndex)
 	tmTx := block.Block.Txs[int(txIndex)]
-	tx = getEthTxForTxBz(tmTx, b.txDecoder)
+	tx = getEthTxForTxBz(tmTx, b.txConfig.TxDecoder())
 	blockHash = common.BytesToHash(block.Block.Header.Hash().Bytes())
 	return tx, blockHash, uint64(txHeight), uint64(txIndex), nil
 }
@@ -262,7 +264,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	}
 	var txs []*ethtypes.Transaction
 	for i := range blockRes.TxsResults {
-		decoded, err := b.txDecoder(tmBlock.Block.Txs[i])
+		decoded, err := b.txConfig.TxDecoder()(tmBlock.Block.Txs[i])
 		if err != nil {
 			return nil, err
 		}
@@ -347,7 +349,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		return nil, vm.BlockContext{}, nil, emptyRelease, err
 	}
 	for idx, tx := range tmBlock.Block.Txs {
-		sdkTx, err := b.txDecoder(tx)
+		sdkTx, err := b.txConfig.TxDecoder()(tx)
 		if err != nil {
 			panic(err)
 		}
@@ -379,6 +381,49 @@ func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexe
 	emptyRelease := func() {}
 	statedb := state.NewDBImpl(b.ctxProvider(block.Number().Int64()-1), b.keeper, true)
 	return statedb, emptyRelease, nil
+}
+
+func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error {
+	typedStateDB := statedb.(*state.DBImpl)
+	typedStateDB.CleanupForTracer()
+	ctx, _ := b.keeper.PrepareCtxForEVMTransaction(typedStateDB.Ctx(), tx)
+	ctx = ctx.WithIsEVM(true)
+	if noSignatureSet(tx) {
+		// skip ante if no signature is set
+		return nil
+	}
+	txData, err := ethtx.NewTxDataFromTx(tx)
+	if err != nil {
+		return fmt.Errorf("transaction cannot be converted to TxData due to %s", err)
+	}
+	msg, err := types.NewMsgEVMTransaction(txData)
+	if err != nil {
+		return fmt.Errorf("transaction cannot be converted to MsgEVMTransaction due to %s", err)
+	}
+	tb := b.txConfig.NewTxBuilder()
+	_ = tb.SetMsgs(msg)
+	newCtx, err := b.antehandler(ctx, tb.GetTx(), false)
+	if err != nil {
+		return fmt.Errorf("transaction failed ante handler due to %s", err)
+	}
+	typedStateDB.WithCtx(newCtx)
+	return nil
+}
+
+func (b *Backend) GetBlockContext(ctx context.Context, block *ethtypes.Block, statedb vm.StateDB, backend ethapi.ChainContextBackend) (vm.BlockContext, error) {
+	blockCtx, err := b.keeper.GetVMBlockContext(statedb.(*state.DBImpl).Ctx(), core.GasPool(b.RPCGasCap()))
+	if err != nil {
+		return vm.BlockContext{}, nil
+	}
+	return *blockCtx, nil
+}
+
+func noSignatureSet(tx *ethtypes.Transaction) bool {
+	isBigIntEmpty := func(b *big.Int) bool {
+		return b == nil || b.Cmp(utils.Big0) == 0 || b.Cmp(&big.Int{}) == 0
+	}
+	v, r, s := tx.RawSignatureValues()
+	return isBigIntEmpty(v) && isBigIntEmpty(r) && isBigIntEmpty(s)
 }
 
 func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, h *ethtypes.Header, vmConfig *vm.Config, blockCtx *vm.BlockContext) *vm.EVM {
