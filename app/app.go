@@ -117,6 +117,9 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
+	ctmodule "github.com/sei-protocol/sei-chain/x/confidentialtransfers"
+	ctkeeper "github.com/sei-protocol/sei-chain/x/confidentialtransfers/keeper"
+	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
 	epochmodulekeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	epochmoduletypes "github.com/sei-protocol/sei-chain/x/epoch/types"
@@ -208,6 +211,7 @@ var (
 		wasm.AppModuleBasic{},
 		epochmodule.AppModuleBasic{},
 		tokenfactorymodule.AppModuleBasic{},
+		ctmodule.AppModuleBasic{},
 		// this line is used by starport scaffolding # stargate/app/moduleBasic
 	)
 
@@ -225,6 +229,9 @@ var (
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
+		// Confidential Transfers module is not live yet, but we add the permissions for testing
+		cttypes.ModuleName: nil,
+
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -344,6 +351,8 @@ type App struct {
 	EpochKeeper epochmodulekeeper.Keeper
 
 	TokenFactoryKeeper tokenfactorykeeper.Keeper
+	// ConfidentialTransfers module is not live yet, but we add the keeper for testing
+	ConfidentialTransfersKeeper ctkeeper.Keeper
 
 	// mm is the module manager
 	mm *module.Manager
@@ -420,6 +429,8 @@ func New(
 		evmtypes.StoreKey, wasm.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
+		// ConfidentialTransfers module is not live yet, but we add the key for testing
+		cttypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey, evmtypes.TransientStoreKey)
@@ -552,6 +563,13 @@ func New(
 		app.DistrKeeper,
 	)
 
+	app.ConfidentialTransfersKeeper = ctkeeper.NewKeeper(
+		appCodec,
+		app.keys[cttypes.StoreKey],
+		app.GetSubspace(cttypes.ModuleName),
+		app.AccountKeeper,
+		app.BankKeeper)
+
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks
 	supportedFeatures := "iterator,staking,stargate,sei"
@@ -609,7 +627,7 @@ func New(
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
 		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
-		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
+		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.ConfidentialTransfersKeeper, &app.UpgradeKeeper)
 	app.BankKeeper.RegisterRecipientChecker(app.EvmKeeper.CanAddressReceive)
 
 	bApp.SetPreCommitHandler(app.HandlePreCommit)
@@ -698,6 +716,7 @@ func New(
 
 	if enableCustomEVMPrecompiles {
 		customPrecompiles := precompiles.GetCustomPrecompiles(
+			LatestUpgrade,
 			&app.EvmKeeper,
 			app.BankKeeper,
 			bankkeeper.NewMsgServerImpl(app.BankKeeper),
@@ -713,8 +732,10 @@ func New(
 			app.IBCKeeper.ConnectionKeeper,
 			app.IBCKeeper.ChannelKeeper,
 			app.AccountKeeper,
+			app.ConfidentialTransfersKeeper,
+			ctkeeper.NewMsgServerImpl(app.ConfidentialTransfersKeeper),
 		)
-		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles)
+		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles, LatestUpgrade)
 	}
 
 	/****  Module Options ****/
@@ -754,6 +775,7 @@ func New(
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
 		authzmodule.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
+		ctmodule.NewAppModule(app.ConfidentialTransfersKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 
@@ -785,6 +807,7 @@ func New(
 		evmtypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
+		cttypes.ModuleName,
 		acltypes.ModuleName,
 	)
 
@@ -816,6 +839,7 @@ func New(
 		evmtypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
+		cttypes.ModuleName,
 		acltypes.ModuleName,
 	)
 
@@ -845,6 +869,7 @@ func New(
 		feegrant.ModuleName,
 		oracletypes.ModuleName,
 		tokenfactorytypes.ModuleName,
+		cttypes.ModuleName,
 		epochmoduletypes.ModuleName,
 		wasm.ModuleName,
 		evmtypes.ModuleName,
@@ -876,6 +901,7 @@ func New(
 		transferModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
+		ctmodule.NewAppModule(app.ConfidentialTransfersKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 	app.sm.RegisterStoreDecoders()
@@ -1834,14 +1860,14 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
-		return app.GetCheckCtx()
+		return app.GetCheckCtx().WithIsTracing(true)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
 		app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
-		return app.GetCheckCtx()
+		return app.GetCheckCtx().WithIsTracing(true)
 	}
-	return ctx.WithIsEVM(true)
+	return ctx.WithIsEVM(true).WithIsTracing(true)
 }
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
@@ -1991,6 +2017,7 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(evmtypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
 	paramsKeeper.Subspace(tokenfactorytypes.ModuleName)
+	paramsKeeper.Subspace(cttypes.ModuleName)
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
 
 	return paramsKeeper

@@ -1,0 +1,317 @@
+# Tests for transferring from confidential token accounts. These tests depend on tests for initialize, deposit and apply_pending_balances running and passing.
+- name: Test transferring from confidential token account
+  inputs:
+    # Setup test accounts
+    - cmd: printf "12345678\n" | seid keys add ctsender
+    - cmd: printf "12345678\n" | seid keys add ctrecipient
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a ctsender
+      env: SENDER_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a ctrecipient
+      env: RECIPIENT_ADDR
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $SENDER_ADDR 1sei -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $SENDER_ADDR 100000000uatom -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $RECIPIENT_ADDR 1sei -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $RECIPIENT_ADDR 100000000uatom -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+
+    # Set the transfer amount
+    - cmd: echo 500000
+      env: TRANSFER_AMOUNT
+
+    # Initialize confidential token accounts for denom uatom
+    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctsender --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: INIT_SENDER_ACCOUNT_CODE
+    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctrecipient --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: INIT_RECIPIENT_ACCOUNT_CODE
+
+    # Deposit to the sender confidential token account and apply the pending balance
+    - cmd: printf "12345678\n" | seid tx ct deposit ${TRANSFER_AMOUNT}uatom --from ctsender --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: DEPOSIT_CODE
+    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance uatom --from ctsender --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: APPLY_PENDING_BALANCE_CODE
+
+    # Query the sender initial account state
+    - cmd: printf "12345678\n" | seid q ct account uatom $SENDER_ADDR --decryptor ctsender --output json
+      env: INITIAL_SENDER_ACCOUNT_STATE
+    - cmd: echo $INITIAL_SENDER_ACCOUNT_STATE | jq -r ".combined_pending_balance"
+      env: INITIAL_SENDER_PENDING_BALANCE
+    - cmd: echo $(( $(echo $INITIAL_SENDER_ACCOUNT_STATE | jq -r ".decryptable_available_balance") )) # Convert to integer
+      env: INITIAL_SENDER_AVAILABLE_BALANCE
+
+    # Query the recipient initial account state
+    - cmd: printf "12345678\n" | seid q ct account uatom $RECIPIENT_ADDR --decryptor ctrecipient --output json
+      env: INITIAL_RECIPIENT_ACCOUNT_STATE
+    - cmd: echo $INITIAL_RECIPIENT_ACCOUNT_STATE | jq -r ".combined_pending_balance"
+      env: INITIAL_RECIPIENT_PENDING_BALANCE
+    - cmd: echo $INITIAL_RECIPIENT_ACCOUNT_STATE | jq -r ".pending_balance_credit_counter"
+      env: INITIAL_RECIPIENT_PENDING_COUNTER
+    - cmd: echo $(( $(echo $INITIAL_RECIPIENT_ACCOUNT_STATE | jq -r ".decryptable_available_balance") )) # Convert to integer
+      env: INITIAL_RECIPIENT_AVAILABLE_BALANCE
+
+    # Transfer from the confidential token account
+    - cmd: printf "12345678\n" | seid tx ct transfer $RECIPIENT_ADDR ${TRANSFER_AMOUNT}uatom --from ctsender --fees 40000usei --gas 3000000 --chain-id sei -b block -y --output json | jq -r ".code"
+      env: TRANSFER_CODE
+
+    # Query the sender account to verify the new account state
+    - cmd: printf "12345678\n" | seid q ct account uatom $SENDER_ADDR --decryptor ctsender --output json
+      env: FINAL_SENDER_ACCOUNT_STATE
+    - cmd: echo $FINAL_SENDER_ACCOUNT_STATE | jq -r ".combined_pending_balance"
+      env: FINAL_SENDER_PENDING_BALANCE
+    - cmd: echo $(( $(echo $FINAL_SENDER_ACCOUNT_STATE | jq -r ".decryptable_available_balance") )) # Convert to integer
+      env: FINAL_SENDER_AVAILABLE_BALANCE
+
+    # Query the recipient account to verify the new account state
+    - cmd: printf "12345678\n" | seid q ct account uatom $RECIPIENT_ADDR --decryptor ctrecipient --output json
+      env: FINAL_RECIPIENT_ACCOUNT_STATE
+    - cmd: echo $FINAL_RECIPIENT_ACCOUNT_STATE | jq -r ".combined_pending_balance"
+      env: FINAL_RECIPIENT_PENDING_BALANCE
+    - cmd: echo $FINAL_RECIPIENT_ACCOUNT_STATE | jq -r ".pending_balance_credit_counter"
+      env: FINAL_RECIPIENT_PENDING_COUNTER
+    - cmd: echo $(( $(echo $FINAL_RECIPIENT_ACCOUNT_STATE | jq -r ".decryptable_available_balance") )) # Convert to integer
+      env: FINAL_RECIPIENT_AVAILABLE_BALANCE
+
+  verifiers:
+    # Verify that the account exists after the instruction is executed.
+    - type: eval
+      expr: INIT_SENDER_ACCOUNT_CODE == 0 or INIT_SENDER_ACCOUNT_CODE == 18
+    - type: eval
+      expr: INIT_RECIPIENT_ACCOUNT_CODE == 0 or INIT_RECIPIENT_ACCOUNT_CODE == 18
+
+    # Verify that the deposit was successful
+    - type: eval
+      expr: DEPOSIT_CODE == 0
+
+    # Verify that the apply pending balance was successful
+    - type: eval
+      expr: APPLY_PENDING_BALANCE_CODE == 0
+
+    # Verify that the transfer was successful
+    - type: eval
+      expr: TRANSFER_CODE == 0
+
+    # Verify that the sender available balance decreased by the transfer amount
+    - type: eval
+      expr: INITIAL_SENDER_AVAILABLE_BALANCE - FINAL_SENDER_AVAILABLE_BALANCE == TRANSFER_AMOUNT
+
+    # Verify that the sender pending balance was left untouched
+    - type: eval
+      expr: INITIAL_SENDER_PENDING_BALANCE == FINAL_SENDER_PENDING_BALANCE
+
+    # Verify that the recipient available balance was untouched by the transfer
+    - type: eval
+      expr: FINAL_RECIPIENT_AVAILABLE_BALANCE - INITIAL_RECIPIENT_AVAILABLE_BALANCE == 0
+
+    # Verify that the recipients pending balance was increased by the transfer amount
+    - type: eval
+      expr: INITIAL_RECIPIENT_PENDING_BALANCE + TRANSFER_AMOUNT == FINAL_RECIPIENT_PENDING_BALANCE
+    - type: eval
+      expr: INITIAL_RECIPIENT_PENDING_COUNTER + 1 == FINAL_RECIPIENT_PENDING_COUNTER
+
+- name: Test transferring more than available balance fails
+  inputs:
+    # Setup test account
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a ctsender
+      env: SENDER_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a ctrecipient
+      env: RECIPIENT_ADDR
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $SENDER_ADDR 100000000uatom -b block --fees 2000usei --chain-id sei -y | jq -r ".code"
+
+    # Query the initial account state
+    - cmd: printf "12345678\n" | seid q ct account uatom $SENDER_ADDR --decryptor ctsender --output json
+      env: INITIAL_ACCOUNT_STATE
+    - cmd: echo $INITIAL_ACCOUNT_STATE | jq -r ".decryptable_available_balance"
+      env: INITIAL_AVAILABLE_BALANCE
+
+    # Attempt to transfer more than the available balance
+    - cmd: printf "12345678\n" | seid tx ct transfer $RECIPIENT_ADDR $((INITIAL_AVAILABLE_BALANCE + 1))uatom --from ctsender --fees 40000usei --gas 3000000 --chain-id sei -b block -y --output json | jq -r ".code"
+      env: TRANSFER_CODE
+
+  verifiers:
+    # Verify that the transfer was unsuccessful due to insufficient funds
+    - type: eval
+      expr: TRANSFER_CODE != 0
+
+- name: Test transferring from uninitialized account fails
+  inputs:
+    # Setup test account
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a ctsender
+      env: SENDER_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a ctrecipient
+      env: RECIPIENT_ADDR
+
+    # Attempt to transfer from an uninitialized account
+    - cmd: printf "12345678\n" | seid tx ct transfer $RECIPIENT_ADDR 50000notexists --from ctsender --fees 40000usei --gas 3000000 --chain-id sei -b block -y --output json | jq -r ".code"
+      env: TRANSFER_CODE
+
+  verifiers:
+    # Verify that the transfer was unsuccessful due to uninitialized account
+    - type: eval
+      expr: TRANSFER_CODE != 0
+
+- name: Test transferring to uninitialized account fails
+  inputs:
+    # Setup test account
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a ctsender
+      env: SENDER_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a ctrecipient
+      env: RECIPIENT_ADDR
+
+    # Initialize confidential token accounts for denom uusdc
+    - cmd: printf "12345678\n" | seid tx ct init-account uusdc --from ctsender --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: INIT_SENDER_ACCOUNT_CODE
+
+    # Send the test account sufficient funds to make the transfer
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $SENDER_ADDR 100000uusdc -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+
+    # Deposit to the sender confidential token account and apply the pending balance
+    - cmd: printf "12345678\n" | seid tx ct deposit 50000uusdc --from ctsender --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: DEPOSIT_CODE
+    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance uusdc --from ctsender --fees 40000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: APPLY_PENDING_BALANCE_CODE
+
+    # Attempt to transfer from an uninitialized account
+    - cmd: printf "12345678\n" | seid tx ct transfer $RECIPIENT_ADDR 50000uusdc --from ctsender --fees 40000usei --gas 1500000 --chain-id sei -b block -y --output json | jq -r ".code"
+      env: TRANSFER_CODE
+
+  verifiers:
+    # Verify that the account exists after the instruction is executed.
+    - type: eval
+      expr: INIT_SENDER_ACCOUNT_CODE == 0 or INIT_SENDER_ACCOUNT_CODE == 18
+
+    # Verify that the deposit was successful
+    - type: eval
+      expr: DEPOSIT_CODE == 0
+
+    # Verify that the apply pending balance was successful
+    - type: eval
+      expr: APPLY_PENDING_BALANCE_CODE == 0
+
+    # Verify that the transfer was unsuccessful due to uninitialized account
+    - type: eval
+      expr: TRANSFER_CODE != 0
+
+- name: Test transferring from confidential token account via precompile
+  inputs:
+    # Setup test accounts
+    - cmd: printf "12345678\n" | seid keys add ctprsender
+    - cmd: printf "12345678\n" | seid keys add ctprrecipient
+    - cmd: printf "12345678\n" | seid keys show -a admin
+      env: ADMIN_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a ctprsender
+      env: PRECOMPILE_SENDER_ADDR
+    - cmd: printf "12345678\n" | seid keys show -a ctprrecipient
+      env: PRECOMPILE_RECIPIENT_ADDR
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $PRECOMPILE_SENDER_ADDR 10sei -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $PRECOMPILE_SENDER_ADDR 100000000uatom -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $PRECOMPILE_RECIPIENT_ADDR 10sei -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+    - cmd: printf "12345678\n" | seid tx bank send $ADMIN_ADDR $PRECOMPILE_RECIPIENT_ADDR 100000000uatom -b block --fees 2000usei --chain-id sei -y --output json | jq -r ".code"
+
+    # Set the transfer amount
+    - cmd: echo 500000
+      env: TRANSFER_AMOUNT
+
+    # Initialize confidential token accounts for denom uatom
+    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctprsender --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: INIT_SENDER_ACCOUNT_CODE
+    - cmd: printf "12345678\n" | seid tx ct init-account uatom --from ctprrecipient --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: INIT_RECIPIENT_ACCOUNT_CODE
+
+    # Deposit to the sender confidential token account and apply the pending balance
+    - cmd: printf "12345678\n" | seid tx ct deposit ${TRANSFER_AMOUNT}uatom --from ctprsender --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: DEPOSIT_CODE
+    - cmd: printf "12345678\n" | seid tx ct apply-pending-balance uatom --from ctprsender --fees 4000usei --chain-id sei -b block -y --output json | jq -r ".code"
+      env: APPLY_PENDING_BALANCE_CODE
+
+    # Query the sender initial account state
+    - cmd: printf "12345678\n" | seid q ct account uatom $PRECOMPILE_SENDER_ADDR --decryptor ctprsender --output json
+      env: INITIAL_SENDER_ACCOUNT_STATE
+    - cmd: echo $INITIAL_SENDER_ACCOUNT_STATE | jq -r ".combined_pending_balance"
+      env: INITIAL_SENDER_PENDING_BALANCE
+    - cmd: echo $(( $(echo $INITIAL_SENDER_ACCOUNT_STATE | jq -r ".decryptable_available_balance") )) # Convert to integer
+      env: INITIAL_SENDER_AVAILABLE_BALANCE
+
+    # Query the recipient initial account state
+    - cmd: printf "12345678\n" | seid q ct account uatom $PRECOMPILE_RECIPIENT_ADDR --decryptor ctprrecipient --output json
+      env: INITIAL_RECIPIENT_ACCOUNT_STATE
+    - cmd: echo $INITIAL_RECIPIENT_ACCOUNT_STATE | jq -r ".combined_pending_balance"
+      env: INITIAL_RECIPIENT_PENDING_BALANCE
+    - cmd: echo $INITIAL_RECIPIENT_ACCOUNT_STATE | jq -r ".pending_balance_credit_counter"
+      env: INITIAL_RECIPIENT_PENDING_COUNTER
+    - cmd: echo $(( $(echo $INITIAL_RECIPIENT_ACCOUNT_STATE | jq -r ".decryptable_available_balance") )) # Convert to integer
+      env: INITIAL_RECIPIENT_AVAILABLE_BALANCE
+
+    # Transfer from the confidential token account via precompile
+    - cmd: |
+        printf "12345678\n" | seid tx evm call-contract --from ctprsender --fees=40000usei --gas=4000000 0x0000000000000000000000000000000000001010 -b block "$(printf "12345678\n" | seid q evm ct-transfer-payload precompiles/confidentialtransfers/abi.json ${PRECOMPILE_SENDER_ADDR} ${PRECOMPILE_RECIPIENT_ADDR} ${TRANSFER_AMOUNT}uatom)" | sed "s/.*: //"
+      env: TX_HASH
+    - cmd: sleep 2
+    # Query the Cosmos tx hash
+    - cmd: |
+        curl --location --request GET "localhost:8545/" --header "Content-Type: application/json" --data "{\"jsonrpc\":\"2.0\",\"method\":\"sei_getCosmosTx\",\"params\":[\"$TX_HASH\"],\"id\":788}" | jq -r ".result"
+      env: COSMOS_TX_HASH
+
+    # Query the Cosmos tx result
+    - cmd: seid q tx $COSMOS_TX_HASH --output json | jq -r ".code"
+      env: TRANSFER_CODE
+
+    # Query the sender account to verify the new account state
+    - cmd: printf "12345678\n" | seid q ct account uatom $PRECOMPILE_SENDER_ADDR --decryptor ctprsender --output json
+      env: FINAL_SENDER_ACCOUNT_STATE
+    - cmd: echo $FINAL_SENDER_ACCOUNT_STATE | jq -r ".combined_pending_balance"
+      env: FINAL_SENDER_PENDING_BALANCE
+    - cmd: echo $(( $(echo $FINAL_SENDER_ACCOUNT_STATE | jq -r ".decryptable_available_balance") )) # Convert to integer
+      env: FINAL_SENDER_AVAILABLE_BALANCE
+
+    # Query the recipient account to verify the new account state
+    - cmd: printf "12345678\n" | seid q ct account uatom $PRECOMPILE_RECIPIENT_ADDR --decryptor ctprrecipient --output json
+      env: FINAL_RECIPIENT_ACCOUNT_STATE
+    - cmd: echo $FINAL_RECIPIENT_ACCOUNT_STATE | jq -r ".combined_pending_balance"
+      env: FINAL_RECIPIENT_PENDING_BALANCE
+    - cmd: echo $FINAL_RECIPIENT_ACCOUNT_STATE | jq -r ".pending_balance_credit_counter"
+      env: FINAL_RECIPIENT_PENDING_COUNTER
+    - cmd: echo $(( $(echo $FINAL_RECIPIENT_ACCOUNT_STATE | jq -r ".decryptable_available_balance") )) # Convert to integer
+      env: FINAL_RECIPIENT_AVAILABLE_BALANCE
+
+  verifiers:
+    # Verify that the account exists after the instruction is executed.
+    - type: eval
+      expr: INIT_SENDER_ACCOUNT_CODE == 0 or INIT_SENDER_ACCOUNT_CODE == 18
+    - type: eval
+      expr: INIT_RECIPIENT_ACCOUNT_CODE == 0 or INIT_RECIPIENT_ACCOUNT_CODE == 18
+
+    # Verify that the deposit was successful
+    - type: eval
+      expr: DEPOSIT_CODE == 0
+
+    # Verify that the apply pending balance was successful
+    - type: eval
+      expr: APPLY_PENDING_BALANCE_CODE == 0
+
+    # Verify that the transfer was successful
+    - type: eval
+      expr: TRANSFER_CODE == 0
+
+    # Verify that the sender available balance decreased by the transfer amount
+    - type: eval
+      expr: INITIAL_SENDER_AVAILABLE_BALANCE - FINAL_SENDER_AVAILABLE_BALANCE == TRANSFER_AMOUNT
+
+    # Verify that the sender pending balance was left untouched
+    - type: eval
+      expr: INITIAL_SENDER_PENDING_BALANCE == FINAL_SENDER_PENDING_BALANCE
+
+    # Verify that the recipient available balance was untouched by the transfer
+    - type: eval
+      expr: FINAL_RECIPIENT_AVAILABLE_BALANCE - INITIAL_RECIPIENT_AVAILABLE_BALANCE == 0
+
+    # Verify that the recipients pending balance was increased by the transfer amount
+    - type: eval
+      expr: INITIAL_RECIPIENT_PENDING_BALANCE + TRANSFER_AMOUNT == FINAL_RECIPIENT_PENDING_BALANCE
+    - type: eval
+      expr: INITIAL_RECIPIENT_PENDING_COUNTER + 1 == FINAL_RECIPIENT_PENDING_COUNTER

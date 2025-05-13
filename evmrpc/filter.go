@@ -305,8 +305,10 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		}
 	}
 	close(runner.Queue)
-	runner.Done.Wait()
-	close(resultsChan)
+	go func() {
+		runner.Done.Wait()
+		close(resultsChan)
+	}()
 
 	// Aggregate results into the final slice
 	for result := range resultsChan {
@@ -319,8 +321,8 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	})
 
 	// Apply rate limit
-	if applyOpenEndedLogLimit && int64(len(res)) >= f.filterConfig.maxLog {
-		res = res[:int(f.filterConfig.maxLog)]
+	if applyOpenEndedLogLimit && f.filterConfig.maxLog > 0 && int64(len(res)) > f.filterConfig.maxLog {
+		return nil, 0, fmt.Errorf("requested range has %d logs which is more than the maximum of %d", len(res), f.filterConfig.maxLog)
 	}
 
 	return res, end, err
@@ -397,7 +399,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 		begin = lastToHeight
 	}
 	if !applyOpenEndedLogLimit && f.filterConfig.maxBlock > 0 && end >= (begin+f.filterConfig.maxBlock) {
-		end = begin + f.filterConfig.maxBlock - 1
+		return nil, 0, false, fmt.Errorf("a maximum of %d blocks worth of logs may be requested at a time", f.filterConfig.maxBlock)
 	}
 	// begin should always be <= end block at this point
 	if begin > end {

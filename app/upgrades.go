@@ -119,6 +119,8 @@ var upgradesList = []string{
 	"v6.0.5",
 }
 
+var LatestUpgrade = upgradesList[len(upgradesList)-1]
+
 // if there is an override list, use that instead, for integration tests
 func overrideList() {
 	// if there is an override list, use that instead, for integration tests
