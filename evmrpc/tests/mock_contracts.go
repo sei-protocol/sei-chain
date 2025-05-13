@@ -37,6 +37,26 @@ func cw20Initializer(mnemonic string) func(ctx sdk.Context, a *app.App) {
 	}
 }
 
+func cwIterInitializer(mnemonic string) func(ctx sdk.Context, a *app.App) {
+	return func(ctx sdk.Context, a *app.App) {
+		code, err := os.ReadFile("../../example/cosmwasm/iter/artifacts/iter.wasm")
+		if err != nil {
+			panic(err)
+		}
+		creator := getSeiAddrWithMnemonic(mnemonic)
+		codeID, err := a.EvmKeeper.WasmKeeper().Create(ctx, creator, code, nil)
+		if err != nil {
+			panic(err)
+		}
+		contractAddr, _, err := a.EvmKeeper.WasmKeeper().Instantiate(ctx, codeID, creator, creator, []byte("{}"), "test", sdk.NewCoins())
+		if err != nil {
+			panic(err)
+		}
+		evmAddr := common.BytesToAddress(contractAddr)
+		a.EvmKeeper.SetAddressMapping(ctx, contractAddr, evmAddr)
+	}
+}
+
 var erc20DeployerMnemonics = "number friend tray advice become blame morning glow final under unlock core employ side mimic local load flag birth hire doctor immense guess net"
 var erc20Addr = common.HexToAddress("0x8bFEF0785c95Cb3D4a64202AB283c45ae6c50436") // deterministic with the mnemonic above as the deployer
 

@@ -106,3 +106,22 @@ func TestTraceHistoricalPrecompiles(t *testing.T) {
 		},
 	)
 }
+
+func TestTraceMultipleTransactionsShouldNotHang(t *testing.T) {
+	cwIter := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+	txBzList := make([][]byte, 100)
+	for nonce := 1; nonce <= 100; nonce++ {
+		txBzList[nonce-1] = signAndEncodeTx(sendErc20(uint64(nonce)), erc20DeployerMnemonics)
+	}
+	txBzList = append(txBzList, signAndEncodeTx(callWasmIter(0, cwIter), mnemonic1))
+	SetupTestServer([][][]byte{txBzList}, mnemonicInitializer(mnemonic1), multiCoinInitializer(mnemonic1), cwIterInitializer(mnemonic1), erc20Initializer()).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("debug", port, "traceBlockByHash", "0x0000000000000000000000000000000000000000000000000000000000000002", map[string]interface{}{
+				"timeout": "60s", "tracer": "flatCallTracer",
+			})
+			blockHash := res["result"].([]interface{})[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
+			// assert that the block hash has been overwritten instead of the RLP hash.
+			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", blockHash.(string))
+		},
+	)
+}
