@@ -314,6 +314,7 @@ func EncodeTmBlock(
 	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	transactions := []interface{}{}
 
+	fmt.Printf("encoding block %d with %d txs\n", block.Block.Height, len(blockRes.TxsResults))
 	for i, txRes := range blockRes.TxsResults {
 		blockGasUsed += txRes.GasUsed
 		decoded, err := txDecoder(block.Block.Txs[i])
@@ -328,20 +329,24 @@ func EncodeTmBlock(
 				}
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
+				fmt.Printf("Encoding TX %s\n", hash.Hex())
 				if isPanicOrSynthetic != nil {
 					isPanicOrSynthetic, err := isPanicOrSynthetic(ctx.Context(), hash)
 					if err != nil {
 						return nil, fmt.Errorf("failed to check if tx is panic tx: %w", err)
 					}
 					if isPanicOrSynthetic {
+						fmt.Println("isPanicOrSynthetic")
 						continue
 					}
 				}
 				receipt, err := k.GetReceipt(ctx, hash)
 				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(receipt) {
+					fmt.Println("no receipt")
 					continue
 				}
 				if !includeSyntheticTxs && receipt.TxType == ShellEVMTxType {
+					fmt.Println("shell tx")
 					continue
 				}
 				if !fullTx {
