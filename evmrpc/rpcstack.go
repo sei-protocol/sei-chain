@@ -299,6 +299,7 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	if err := RegisterApis(h.log, apis, config.Modules, srv); err != nil {
 		return err
 	}
+	fmt.Printf("[Debug] Registering deny list for evm rpc:%v\n", config.DenyList)
 	for _, method := range config.DenyList {
 		srv.RegisterDenyList(method)
 	}
