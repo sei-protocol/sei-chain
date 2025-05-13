@@ -353,11 +353,11 @@ require (
 )
 
 replace (
-	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.3.0
+	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.3.2
 	github.com/CosmWasm/wasmvm => github.com/sei-protocol/sei-wasmvm v1.5.4-sei.0.0.3
 	github.com/coinbase/kryptology => github.com/sei-protocol/coinbase-kryptology v0.0.0-20241210171554-278d19024e41
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.55-hotfix
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.59
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.2.0
 	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.6
 	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.5-sei-34
