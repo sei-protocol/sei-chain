@@ -25,7 +25,6 @@ import (
 	bankv602 "github.com/sei-protocol/sei-chain/precompiles/bank/legacy/v602"
 	bankv603 "github.com/sei-protocol/sei-chain/precompiles/bank/legacy/v603"
 	"github.com/sei-protocol/sei-chain/precompiles/common"
-	"github.com/sei-protocol/sei-chain/precompiles/confidentialtransfers"
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
 	distrv552 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v552"
 	distrv555 "github.com/sei-protocol/sei-chain/precompiles/distribution/legacy/v555"
@@ -118,8 +117,7 @@ func GetCustomPrecompiles(
 	connectionKeeper common.ConnectionKeeper,
 	channelKeeper common.ChannelKeeper,
 	accountKeeper common.AccountKeeper,
-	ctViewKeeper common.ConfidentialTransfersViewKeeper,
-	ctKeeper common.ConfidentialTransfersKeeper,
+
 ) map[ecommon.Address]VersionedPrecompiles {
 	bankVersions := VersionedPrecompiles{
 		latestUpgrade: check(bank.NewPrecompile(bankKeeper, bankSender, evmKeeper, accountKeeper)),
@@ -211,28 +209,24 @@ func GetCustomPrecompiles(
 		"v5.5.5":      check(pointerviewv555.NewPrecompile(evmKeeper)),
 		"v5.6.2":      check(pointerviewv562.NewPrecompile(evmKeeper)),
 	}
-	ctprVersions := VersionedPrecompiles{
-		latestUpgrade: check(confidentialtransfers.NewPrecompile(ctViewKeeper, ctKeeper, evmKeeper)),
-	}
 
 	p256Versions := VersionedPrecompiles{
 		latestUpgrade: check(p256.NewPrecompile()),
 	}
 
 	return map[ecommon.Address]VersionedPrecompiles{
-		ecommon.HexToAddress(bank.BankAddress):                bankVersions,
-		ecommon.HexToAddress(wasmd.WasmdAddress):              wasmdVersions,
-		ecommon.HexToAddress(json.JSONAddress):                jsonVersions,
-		ecommon.HexToAddress(addr.AddrAddress):                addrVersions,
-		ecommon.HexToAddress(staking.StakingAddress):          stakingVersions,
-		ecommon.HexToAddress(gov.GovAddress):                  govVersions,
-		ecommon.HexToAddress(distribution.DistrAddress):       distrVersions,
-		ecommon.HexToAddress(oracle.OracleAddress):            oracleVersions,
-		ecommon.HexToAddress(ibc.IBCAddress):                  ibcVersions,
-		ecommon.HexToAddress(pointer.PointerAddress):          pointerVersions,
-		ecommon.HexToAddress(pointerview.PointerViewAddress):  pointerviewVersions,
-		ecommon.HexToAddress(confidentialtransfers.CtAddress): ctprVersions,
-		ecommon.HexToAddress(p256.P256VerifyAddress):          p256Versions,
+		ecommon.HexToAddress(bank.BankAddress):               bankVersions,
+		ecommon.HexToAddress(wasmd.WasmdAddress):             wasmdVersions,
+		ecommon.HexToAddress(json.JSONAddress):               jsonVersions,
+		ecommon.HexToAddress(addr.AddrAddress):               addrVersions,
+		ecommon.HexToAddress(staking.StakingAddress):         stakingVersions,
+		ecommon.HexToAddress(gov.GovAddress):                 govVersions,
+		ecommon.HexToAddress(distribution.DistrAddress):      distrVersions,
+		ecommon.HexToAddress(oracle.OracleAddress):           oracleVersions,
+		ecommon.HexToAddress(ibc.IBCAddress):                 ibcVersions,
+		ecommon.HexToAddress(pointer.PointerAddress):         pointerVersions,
+		ecommon.HexToAddress(pointerview.PointerViewAddress): pointerviewVersions,
+		ecommon.HexToAddress(p256.P256VerifyAddress):         p256Versions,
 	}
 }
 
@@ -253,8 +247,6 @@ func InitializePrecompiles(
 	connectionKeeper common.ConnectionKeeper,
 	channelKeeper common.ChannelKeeper,
 	accountKeeper common.AccountKeeper,
-	ctViewKeeper common.ConfidentialTransfersViewKeeper,
-	ctKeeper common.ConfidentialTransfersKeeper,
 ) error {
 	SetupMtx.Lock()
 	defer SetupMtx.Unlock()
@@ -305,14 +297,12 @@ func InitializePrecompiles(
 	if err != nil {
 		return err
 	}
-	ctpr, err := confidentialtransfers.NewPrecompile(ctViewKeeper, ctKeeper, evmKeeper)
-	if err != nil {
-		return err
-	}
+
 	p256p, err := p256.NewPrecompile()
 	if err != nil {
 		return err
 	}
+
 	PrecompileNamesToInfo[bankp.GetName()] = PrecompileInfo{ABI: bankp.GetABI(), Address: bankp.Address()}
 	PrecompileNamesToInfo[wasmdp.GetName()] = PrecompileInfo{ABI: wasmdp.GetABI(), Address: wasmdp.Address()}
 	PrecompileNamesToInfo[jsonp.GetName()] = PrecompileInfo{ABI: jsonp.GetABI(), Address: jsonp.Address()}
@@ -324,8 +314,8 @@ func InitializePrecompiles(
 	PrecompileNamesToInfo[ibcp.GetName()] = PrecompileInfo{ABI: ibcp.GetABI(), Address: ibcp.Address()}
 	PrecompileNamesToInfo[pointerp.GetName()] = PrecompileInfo{ABI: pointerp.GetABI(), Address: pointerp.Address()}
 	PrecompileNamesToInfo[pointerviewp.GetName()] = PrecompileInfo{ABI: pointerviewp.GetABI(), Address: pointerviewp.Address()}
-	PrecompileNamesToInfo[ctpr.GetName()] = PrecompileInfo{ABI: ctpr.GetABI(), Address: ctpr.Address()}
 	PrecompileNamesToInfo[p256p.GetName()] = PrecompileInfo{ABI: p256p.GetABI(), Address: p256p.Address()}
+
 	if !dryRun {
 		addPrecompileToVM(bankp)
 		addPrecompileToVM(wasmdp)
@@ -338,7 +328,6 @@ func InitializePrecompiles(
 		addPrecompileToVM(ibcp)
 		addPrecompileToVM(pointerp)
 		addPrecompileToVM(pointerviewp)
-		addPrecompileToVM(ctpr)
 		addPrecompileToVM(p256p)
 		Initialized = true
 	}
@@ -348,7 +337,7 @@ func InitializePrecompiles(
 func GetPrecompileInfo(name string) PrecompileInfo {
 	if !Initialized {
 		// Precompile Info does not require any keeper state
-		_ = InitializePrecompiles(true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		_ = InitializePrecompiles(true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	}
 	i, ok := PrecompileNamesToInfo[name]
 	if !ok {

@@ -13,7 +13,6 @@ on:
       - main
       - seiv2
       - evm
-      - feature/ct_types # Remove after done testing
 
 defaults:
   run:
@@ -121,17 +120,6 @@ jobs:
             name: "EVM Interoperability",
             scripts: [
               "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
-            ]
-          },
-          {
-            name: "Confidential Transfers Module",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/confidential_transfers_module/initialize_account_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/confidential_transfers_module/deposit_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/confidential_transfers_module/apply_pending_balance_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/confidential_transfers_module/withdraw_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/confidential_transfers_module/transfer_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/confidential_transfers_module/close_account_test.yaml",
             ]
           },
           {

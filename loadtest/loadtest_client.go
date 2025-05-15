@@ -10,8 +10,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
-
 	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 
@@ -37,7 +35,6 @@ type LoadTestClient struct {
 	SignerClient       *SignerClient
 	ChainID            string
 	GrpcConns          []*grpc.ClientConn
-	CtQueryClient      cttypes.QueryClient
 	StakingQueryClient stakingtypes.QueryClient
 	// Staking specific variables
 	Validators []stakingtypes.Validator
@@ -79,7 +76,6 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 		SignerClient:                  signerClient,
 		ChainID:                       config.ChainID,
 		GrpcConns:                     grpcConns,
-		CtQueryClient:                 cttypes.NewQueryClient(grpcConns[0]),
 		StakingQueryClient:            stakingtypes.NewQueryClient(grpcConns[0]),
 		DelegationMap:                 map[string]map[string]int{},
 		TokenFactoryDenomOwner:        map[string]string{},
