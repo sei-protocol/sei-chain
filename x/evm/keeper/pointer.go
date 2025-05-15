@@ -290,6 +290,7 @@ func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte, maxVersion uint16)
 		}
 		// Note that ReverseIterator seems buggy (i.e. would not return anything) when used with
 		// certain historical heights whereas point query would return results.
+		store := prefix.NewStore(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)).KVStore(k.GetStoreKey()), pref)
 		for v := int64(maxVersion); v >= 0; v-- {
 			key := make([]byte, 2)
 			binary.BigEndian.PutUint16(key, uint16(v))
