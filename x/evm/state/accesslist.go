@@ -95,7 +95,12 @@ func (s *DBImpl) Prepare(_ params.Rules, sender, coinbase common.Address, dest *
 	for _, addr := range precompiles {
 		// skip any custom precompile
 		if addr.Cmp(CustomPrecompileStartingAddr) >= 0 {
-			continue
+			// the skipping behavior was introduced in v5.7.5. When tracing
+			// blocks prior to v5.7.5 upgrade (94496767 on pacific), we don't
+			// want to skip.
+			if !s.ctx.IsTracing() || s.ctx.BlockHeight() >= 94496767 {
+				continue
+			}
 		}
 		s.AddAddressToAccessList(addr)
 	}
