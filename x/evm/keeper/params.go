@@ -19,8 +19,18 @@ func (k *Keeper) GetParams(ctx sdk.Context) (params types.Params) {
 	return k.GetParamsIfExists(ctx)
 }
 
+func (k *Keeper) GetParamsPre580(ctx sdk.Context) (params types.ParamsPreV580) {
+	return k.GetParamsPre580IfExists(ctx)
+}
+
 func (k *Keeper) GetParamsIfExists(ctx sdk.Context) types.Params {
 	params := types.Params{}
+	k.Paramstore.GetParamSetIfExists(ctx, &params)
+	return params
+}
+
+func (k *Keeper) GetParamsPre580IfExists(ctx sdk.Context) types.ParamsPreV580 {
+	params := types.ParamsPreV580{}
 	k.Paramstore.GetParamSetIfExists(ctx, &params)
 	return params
 }
@@ -31,6 +41,10 @@ func (k *Keeper) GetBaseDenom(ctx sdk.Context) string {
 
 func (k *Keeper) GetPriorityNormalizer(ctx sdk.Context) sdk.Dec {
 	return k.GetParams(ctx).PriorityNormalizer
+}
+
+func (k *Keeper) GetPriorityNormalizerPre580(ctx sdk.Context) sdk.Dec {
+	return k.GetParamsPre580(ctx).PriorityNormalizer
 }
 
 func (k *Keeper) GetBaseFeePerGas(ctx sdk.Context) sdk.Dec {
