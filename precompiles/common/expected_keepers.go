@@ -46,6 +46,7 @@ type EVMKeeper interface {
 	GetCodeHash(sdk.Context, common.Address) common.Hash
 	GetCode(ctx sdk.Context, addr common.Address) []byte
 	GetPriorityNormalizer(ctx sdk.Context) sdk.Dec
+	GetPriorityNormalizerPre580(ctx sdk.Context) sdk.Dec
 	GetBaseDenom(ctx sdk.Context) string
 	GetBalance(ctx sdk.Context, addr sdk.AccAddress) *big.Int
 	SetERC20NativePointer(ctx sdk.Context, token string, addr common.Address) error
