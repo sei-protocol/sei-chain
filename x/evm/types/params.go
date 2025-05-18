@@ -72,7 +72,7 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	}
 }
 
-func (ppre580 ParamsPreV580) ParamSetPairs() paramtypes.ParamSetPairs {
+func (ppre580 *ParamsPreV580) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyPriorityNormalizer, &ppre580.PriorityNormalizer, validatePriorityNormalizer),
 		paramtypes.NewParamSetPair(KeyBaseFeePerGas, &ppre580.BaseFeePerGas, validateBaseFeePerGas),
