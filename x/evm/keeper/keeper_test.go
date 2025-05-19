@@ -299,8 +299,6 @@ func TestGetCustomPrecompiles(t *testing.T) {
 		case staking.StakingAddress:
 			require.Equal(t, "v5.8.0", v)
 		case pointer.PointerAddress:
-		case wasmd.WasmdAddress:
-			require.Equal(t, "v6.0.0", v)
 		default:
 			require.Equal(t, "v6.0.3", v)
 		}
@@ -316,8 +314,6 @@ func TestGetCustomPrecompiles(t *testing.T) {
 		case staking.StakingAddress:
 			require.Equal(t, "v5.8.0", v)
 		case pointer.PointerAddress:
-		case wasmd.WasmdAddress:
-			require.Equal(t, "v6.0.0", v)
 		default:
 			require.Equal(t, "v6.0.1", v)
 		}
@@ -331,7 +327,7 @@ func TestGetCustomPrecompiles(t *testing.T) {
 		case distribution.DistrAddress:
 		case gov.GovAddress:
 		case staking.StakingAddress:
-		case ibc.IBCAddress, bank.BankAddress, oracle.OracleAddress, addr.AddrAddress:
+		case ibc.IBCAddress, bank.BankAddress, oracle.OracleAddress, addr.AddrAddress, wasmd.WasmdAddress:
 			require.Equal(t, "v6.0.1", v)
 		default:
 			require.Equal(t, "v6.0.0", v)
