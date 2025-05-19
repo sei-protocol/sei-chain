@@ -552,6 +552,15 @@ max_blocks_for_log = {{ .EVM.MaxBlocksForLog }}
 # max number of concurrent NewHead subscriptions
 max_subscriptions_new_head = {{ .EVM.MaxSubscriptionsNewHead }}
 
+# max number of workers for log query handling
+max_num_of_log_workers = {{ .EVM.MaxNumOfLogWorkers }}
+
+# max number of queue size for log query jobs
+max_get_log_job_queue_size = {{ .EVM.MaxGetLogJobQueueSize }}
+
+# max number of log response channel size
+max_get_log_response_chan_size = {{ .EVM.MaxGetLogResponseChanSize }}
+
 [eth_replay]
 eth_replay_enabled = {{ .ETHReplay.Enabled }}
 eth_rpc = "{{ .ETHReplay.EthRPC }}"
