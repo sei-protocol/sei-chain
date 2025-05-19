@@ -25,6 +25,7 @@ import (
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/tendermint/tendermint/libs/log"
 
+	v152 "github.com/CosmWasm/wasmd/x/wasm/artifacts/v152"
 	"github.com/CosmWasm/wasmd/x/wasm/ioutils"
 	"github.com/CosmWasm/wasmd/x/wasm/types"
 )
@@ -82,6 +83,7 @@ type Keeper struct {
 	paramsKeeper          types.ParamsKeeper
 	wasmVM                types.WasmerEngine
 	rpcWasmVM             types.WasmerEngine
+	rpcWasmVM152          types.WasmerEngine
 	wasmVMQueryHandler    WasmVMQueryHandler
 	wasmVMResponseHandler WasmVMResponseHandler
 	messenger             Messenger
@@ -123,6 +125,10 @@ func NewKeeper(
 	if err != nil {
 		panic(err)
 	}
+	rpcWasmer152, err := v152.NewVM(filepath.Join(homeDir, "wasm"), supportedFeatures, contractMemoryLimit, wasmConfig.ContractDebugMode, wasmConfig.MemoryCacheSize)
+	if err != nil {
+		panic(err)
+	}
 	// set KeyTable if it has not already been set
 	if !paramSpace.HasKeyTable() {
 		paramSpace = paramSpace.WithKeyTable(types.ParamKeyTable())
@@ -134,6 +140,7 @@ func NewKeeper(
 		paramsKeeper:      paramsKeeper,
 		wasmVM:            NewVMWrapper(wasmer),
 		rpcWasmVM:         NewVMWrapper(rpcWasmer),
+		rpcWasmVM152:      NewVMWrapper(rpcWasmer152),
 		accountKeeper:     accountKeeper,
 		bank:              NewBankCoinTransferrer(bankKeeper),
 		portKeeper:        portKeeper,
@@ -160,6 +167,10 @@ func NewKeeper(
 
 func (k Keeper) getWasmer(ctx sdk.Context) types.WasmerEngine {
 	if ctx.IsTracing() {
+		if ctx.BlockHeight() < 102491599 {
+			fmt.Println("TONYDEBUG: using VM152")
+			return k.rpcWasmVM152
+		}
 		return k.rpcWasmVM
 	}
 	return k.wasmVM
