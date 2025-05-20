@@ -454,7 +454,7 @@ func (k Keeper) IteratePriceSnapshots(ctx sdk.Context, handler func(snapshot typ
 
 func (k Keeper) IteratePriceSnapshotsReverse(ctx sdk.Context, keyPrefix []byte, handler func(snapshot types.PriceSnapshot) (stop bool)) {
 	store := ctx.KVStore(k.storeKey)
-	iterator := sdk.KVStoreReversePrefixIterator(store, keyPrefix)
+	iterator := sdk.KVStoreReversePrefixIterator(store, types.PriceSnapshotKey)
 	defer iterator.Close()
 
 	startTime := time.Now()
