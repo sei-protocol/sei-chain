@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/binary"
+	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/address"
@@ -98,6 +99,7 @@ func GetPriceSnapshotKeyForIteration(timestampA uint64, timestampB uint64) []byt
 	var result []byte
 	keyA := GetKeyForTimestamp(timestampA)
 	keyB := GetKeyForTimestamp(timestampB)
+	fmt.Printf("[Debug] TimstampA: %X, TimestampB: %X\n", timestampA, timestampB)
 	for i := 0; i < 8; i++ {
 		if keyA[i] == keyB[i] {
 			result = append(result, keyA[i])
