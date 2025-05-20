@@ -521,8 +521,7 @@ func TestPriceSnapshotAdd(t *testing.T) {
 
 	// test iterate reverse
 	expectedTimestampsReverse := []int64{3660, 100, 50}
-	prefix := types.GetPriceSnapshotKeyForIteration(uint64(input.Ctx.BlockTime().Unix()), 0)
-	input.OracleKeeper.IteratePriceSnapshotsReverse(input.Ctx, prefix, func(snapshot types.PriceSnapshot) (stop bool) {
+	input.OracleKeeper.IteratePriceSnapshotsReverse(input.Ctx, func(snapshot types.PriceSnapshot) (stop bool) {
 		// assert that all the timestamps are correct
 		require.Equal(t, expectedTimestampsReverse[0], snapshot.SnapshotTimestamp)
 		expectedTimestampsReverse = expectedTimestampsReverse[1:]
