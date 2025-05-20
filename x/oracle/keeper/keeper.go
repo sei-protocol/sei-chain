@@ -504,6 +504,7 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 			snapshotTimestamp = currentTime - int64(lookbackSeconds)
 			stop = true
 		}
+		fmt.Printf("[Debug] CurrentTime %d, snapshot time %d\n", currentTime, snapshotTimestamp)
 		// update time traversed to represent current snapshot
 		// replace SnapshotTimestamp with lookback duration bounding
 		timeTraversed = currentTime - snapshotTimestamp
