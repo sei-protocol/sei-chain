@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"time"
 
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 
@@ -456,13 +457,17 @@ func (k Keeper) IteratePriceSnapshotsReverse(ctx sdk.Context, keyPrefix []byte, 
 	iterator := sdk.KVStoreReversePrefixIterator(store, keyPrefix)
 	defer iterator.Close()
 
+	startTime := time.Now()
+	var count = 0
 	for ; iterator.Valid(); iterator.Next() {
+		count++
 		var val types.PriceSnapshot
 		k.cdc.MustUnmarshal(iterator.Value(), &val)
 		if handler(val) {
 			break
 		}
 	}
+	fmt.Printf("[Debug] IteratePriceSnapshotsReverse took %s with %d iteration\n", time.Since(startTime), count)
 }
 
 func (k Keeper) DeletePriceSnapshot(ctx sdk.Context, timestamp int64) {
@@ -489,7 +494,7 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 	})
 
 	keyPrefix := types.GetPriceSnapshotKeyForIteration(uint64(currentTime), uint64(currentTime)-lookbackSeconds)
-	fmt.Printf("[Debug] CalculateTwaps with lookbackSeconds %d on height %d, new prefix is %X\n", keyPrefix, ctx.BlockHeight(), keyPrefix)
+	fmt.Printf("[Debug] CalculateTwaps with lookbackSeconds %d on height %d, new prefix is %X\n", lookbackSeconds, ctx.BlockHeight(), keyPrefix)
 	k.IteratePriceSnapshotsReverse(ctx, keyPrefix, func(snapshot types.PriceSnapshot) (stop bool) {
 		stop = false
 		snapshotTimestamp := snapshot.SnapshotTimestamp
