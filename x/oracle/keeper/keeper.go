@@ -489,6 +489,7 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 	})
 
 	keyPrefix := types.GetPriceSnapshotKeyForIteration(uint64(currentTime), uint64(currentTime)-lookbackSeconds)
+	fmt.Printf("[Debug] CalculateTwaps with lookbackSeconds %d on height %d, new prefix is %X\n", keyPrefix, ctx.BlockHeight(), keyPrefix)
 	k.IteratePriceSnapshotsReverse(ctx, keyPrefix, func(snapshot types.PriceSnapshot) (stop bool) {
 		stop = false
 		snapshotTimestamp := snapshot.SnapshotTimestamp
