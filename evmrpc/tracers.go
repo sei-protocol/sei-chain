@@ -162,14 +162,18 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime, returnErr == nil)
+	fmt.Printf("[Debug] Start debug_traceBlockByNumber for block %d\n", number.Int64())
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	fmt.Printf("[Debug] Completed debug_traceBlockByNumber for block %d, took %s\n", number.Int64(), time.Since(startTime))
 	return
 }
 
 func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("debug_traceBlockByHash", api.connectionType, startTime, returnErr == nil)
+	fmt.Printf("[Debug] Start debug_traceBlockByHash with hash %X\n", hash)
 	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	fmt.Printf("[Debug] Completed debug_traceBlockByHash with hash %X, took %s\n", hash, time.Since(startTime))
 	return
 }
 
