@@ -81,6 +81,7 @@ type Keeper struct {
 	portKeeper            types.PortKeeper
 	capabilityKeeper      types.CapabilityKeeper
 	paramsKeeper          types.ParamsKeeper
+	upgradeKeeper         types.UpgradeKeeper
 	wasmVM                types.WasmerEngine
 	rpcWasmVM             types.WasmerEngine
 	rpcWasmVM152          types.WasmerEngine
@@ -109,6 +110,7 @@ func NewKeeper(
 	channelKeeper types.ChannelKeeper,
 	portKeeper types.PortKeeper,
 	capabilityKeeper types.CapabilityKeeper,
+	upgradeKeeper types.UpgradeKeeper,
 	portSource types.ICS20TransferPortSource,
 	router MessageRouter,
 	queryRouter GRPCQueryRouter,
@@ -145,6 +147,7 @@ func NewKeeper(
 		bank:              NewBankCoinTransferrer(bankKeeper),
 		portKeeper:        portKeeper,
 		capabilityKeeper:  capabilityKeeper,
+		upgradeKeeper:     upgradeKeeper,
 		messenger:         NewDefaultMessageHandler(router, channelKeeper, capabilityKeeper, bankKeeper, cdc, portSource),
 		queryGasLimit:     wasmConfig.SmartQueryGasLimit,
 		paramSpace:        paramSpace,
@@ -167,8 +170,8 @@ func NewKeeper(
 
 func (k Keeper) getWasmer(ctx sdk.Context) types.WasmerEngine {
 	if ctx.IsTracing() {
-		if ctx.BlockHeight() < 102491599 {
-			fmt.Println("TONYDEBUG: using VM152")
+		v580UpgradeHeight := k.upgradeKeeper.GetDoneHeight(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), "v5.8.0")
+		if v580UpgradeHeight != 0 && ctx.BlockHeight() < v580UpgradeHeight {
 			return k.rpcWasmVM152
 		}
 		return k.rpcWasmVM
