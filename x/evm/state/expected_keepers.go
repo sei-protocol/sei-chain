@@ -6,6 +6,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
+	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -29,4 +30,5 @@ type EVMKeeper interface {
 	SetNonce(sdk.Context, common.Address, uint64)
 	PrepareReplayedAddr(ctx sdk.Context, addr common.Address)
 	GetBalance(ctx sdk.Context, addr sdk.AccAddress) *big.Int
+	UpgradeKeeper() *upgradekeeper.Keeper
 }

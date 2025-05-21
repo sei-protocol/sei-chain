@@ -59,13 +59,6 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool, _ bool, hooks *tracing.Hooks) (bz []byte, err error) {
 	operation := fmt.Sprintf("%s_unknown", p.name)
 	defer func() {
-		if hooks != nil {
-			// only catch for tracing
-			if pe := recover(); pe != nil {
-				err = fmt.Errorf("%s", pe)
-				return
-			}
-		}
 		HandlePrecompileError(err, evm, operation)
 		if err != nil {
 			bz = []byte(err.Error())
@@ -156,13 +149,6 @@ func NewDynamicGasPrecompile(a abi.ABI, executor DynamicGasPrecompileExecutor, a
 func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, value *big.Int, hooks *tracing.Hooks, readOnly bool, _ bool) (ret []byte, remainingGas uint64, err error) {
 	operation := fmt.Sprintf("%s_unknown", d.name)
 	defer func() {
-		if hooks != nil {
-			// only catch for tracing
-			if pe := recover(); pe != nil {
-				err = fmt.Errorf("%s", pe)
-				return
-			}
-		}
 		HandlePrecompileError(err, evm, operation)
 		if err != nil {
 			ret = []byte(err.Error())
