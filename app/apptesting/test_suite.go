@@ -2,10 +2,7 @@ package apptesting
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"time"
-
-	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -119,11 +116,6 @@ func (s *KeeperTestHelper) SetupTokenFactory() {
 	s.App.TokenFactoryKeeper.CreateModuleAccount(s.Ctx)
 }
 
-// SetupConfidentialTransfers sets up a token module account for the ConfidentialTransfersKeeper.
-func (s *KeeperTestHelper) SetupConfidentialTransfers() {
-	s.App.ConfidentialTransfersKeeper.CreateModuleAccount(s.Ctx)
-}
-
 // EndBlock ends the block.
 func (s *KeeperTestHelper) EndBlock() {
 	reqEndBlock := abci.RequestEndBlock{Height: s.Ctx.BlockHeight()}
@@ -177,20 +169,6 @@ func CreateRandomAccounts(numAccts int) []sdk.AccAddress {
 	}
 
 	return testAddrs
-}
-
-// CreateRandomAccountKeys is a function return a list of randomly generated private keys
-func CreateRandomAccountKeys(numAccts int) []*ecdsa.PrivateKey {
-	testAccts := make([]*ecdsa.PrivateKey, numAccts)
-	for i := 0; i < numAccts; i++ {
-		pk, err := crypto.GenerateKey()
-		if err != nil {
-			panic(err)
-		}
-		testAccts[i] = pk
-	}
-
-	return testAccts
 }
 
 func GenerateTestAddrs() (string, string) {

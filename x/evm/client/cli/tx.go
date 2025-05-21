@@ -580,18 +580,9 @@ func getPrivateKey(cmd *cobra.Command) (*ecdsa.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	return getPrivateKeyForName(cmd, clientCtx.GetFromName())
-}
-
-func getPrivateKeyForName(cmd *cobra.Command, fromName string) (*ecdsa.PrivateKey, error) {
-	clientCtx, err := client.GetClientTxContext(cmd)
-	if err != nil {
-		return nil, err
-	}
 	txf := tx.NewFactoryCLI(clientCtx, cmd.Flags())
 	kb := txf.Keybase()
-	info, err := kb.Key(fromName)
+	info, err := kb.Key(clientCtx.GetFromName())
 	if err != nil {
 		return nil, err
 	}
