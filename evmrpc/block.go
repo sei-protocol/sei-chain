@@ -248,6 +248,9 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					mtx.Unlock()
 				}
 			} else {
+				if isReceiptFromAnteError(receipt) {
+					return
+				}
 				// If the receipt has synthetic logs, we actually want to include them in the response.
 				if !a.includeShellReceipts && receipt.TxType == ShellEVMTxType {
 					return
@@ -276,6 +279,9 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		if len(r) > 0 {
 			compactReceipts = append(compactReceipts, r)
 		}
+	}
+	for i, cr := range compactReceipts {
+		cr["transactionIndex"] = hexutil.Uint64(i)
 	}
 	if returnErr != nil {
 		return nil, returnErr
@@ -332,7 +338,7 @@ func EncodeTmBlock(
 					}
 				}
 				receipt, err := k.GetReceipt(ctx, hash)
-				if err != nil {
+				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(receipt) {
 					continue
 				}
 				if !includeSyntheticTxs && receipt.TxType == ShellEVMTxType {

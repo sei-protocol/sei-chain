@@ -43,7 +43,7 @@ func (k *Keeper) SetERC20NativePointerWithVersion(ctx sdk.Context, token string,
 
 // ERC20 -> Native Token
 func (k *Keeper) GetERC20NativePointer(ctx sdk.Context, token string) (addr common.Address, version uint16, exists bool) {
-	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerERC20NativeKey(token))
+	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerERC20NativeKey(token), native.CurrentVersion)
 	if exists {
 		addr = common.BytesToAddress(addrBz)
 	}
@@ -78,7 +78,7 @@ func (k *Keeper) SetERC20CW20PointerWithVersion(ctx sdk.Context, cw20Address str
 
 // ERC20 -> CW20
 func (k *Keeper) GetERC20CW20Pointer(ctx sdk.Context, cw20Address string) (addr common.Address, version uint16, exists bool) {
-	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerERC20CW20Key(cw20Address))
+	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerERC20CW20Key(cw20Address), cw20.CurrentVersion(ctx))
 	if exists {
 		addr = common.BytesToAddress(addrBz)
 	}
@@ -113,7 +113,7 @@ func (k *Keeper) SetERC721CW721PointerWithVersion(ctx sdk.Context, cw721Address 
 
 // ERC721 -> CW721
 func (k *Keeper) GetERC721CW721Pointer(ctx sdk.Context, cw721Address string) (addr common.Address, version uint16, exists bool) {
-	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerERC721CW721Key(cw721Address))
+	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerERC721CW721Key(cw721Address), cw721.CurrentVersion)
 	if exists {
 		addr = common.BytesToAddress(addrBz)
 	}
@@ -148,7 +148,7 @@ func (k *Keeper) SetERC1155CW1155PointerWithVersion(ctx sdk.Context, cw1155Addre
 
 // ERC1155 -> CW1155
 func (k *Keeper) GetERC1155CW1155Pointer(ctx sdk.Context, cw1155Address string) (addr common.Address, version uint16, exists bool) {
-	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerERC1155CW1155Key(cw1155Address))
+	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerERC1155CW1155Key(cw1155Address), cw1155.CurrentVersion)
 	if exists {
 		addr = common.BytesToAddress(addrBz)
 	}
@@ -183,7 +183,7 @@ func (k *Keeper) SetCW20ERC20PointerWithVersion(ctx sdk.Context, erc20Address co
 
 // CW20 -> ERC20
 func (k *Keeper) GetCW20ERC20Pointer(ctx sdk.Context, erc20Address common.Address) (addr sdk.AccAddress, version uint16, exists bool) {
-	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerCW20ERC20Key(erc20Address))
+	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerCW20ERC20Key(erc20Address), erc20.CurrentVersion)
 	if exists {
 		addr = sdk.MustAccAddressFromBech32(string(addrBz))
 	}
@@ -200,12 +200,12 @@ func (k *Keeper) DeleteCW20ERC20Pointer(ctx sdk.Context, erc20Address common.Add
 }
 
 func (k *Keeper) evmAddressIsPointer(ctx sdk.Context, addr common.Address) bool {
-	_, _, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(addr))
+	_, _, exists := k.GetAnyPointerInfo(ctx, types.PointerReverseRegistryKey(addr))
 	return exists
 }
 
 func (k *Keeper) cwAddressIsPointer(ctx sdk.Context, addr string) bool {
-	_, _, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(addr))))
+	_, _, exists := k.GetAnyPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(addr))))
 	return exists
 }
 
@@ -228,7 +228,7 @@ func (k *Keeper) SetCW721ERC721PointerWithVersion(ctx sdk.Context, erc721Address
 
 // CW721 -> ERC721
 func (k *Keeper) GetCW721ERC721Pointer(ctx sdk.Context, erc721Address common.Address) (addr sdk.AccAddress, version uint16, exists bool) {
-	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerCW721ERC721Key(erc721Address))
+	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerCW721ERC721Key(erc721Address), erc721.CurrentVersion)
 	if exists {
 		addr = sdk.MustAccAddressFromBech32(string(addrBz))
 	}
@@ -263,7 +263,7 @@ func (k *Keeper) SetCW1155ERC1155PointerWithVersion(ctx sdk.Context, erc1155Addr
 
 // CW1155 -> ERC1155
 func (k *Keeper) GetCW1155ERC1155Pointer(ctx sdk.Context, erc1155Address common.Address) (addr sdk.AccAddress, version uint16, exists bool) {
-	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerCW1155ERC1155Key(erc1155Address))
+	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerCW1155ERC1155Key(erc1155Address), erc1155.CurrentVersion)
 	if exists {
 		addr = sdk.MustAccAddressFromBech32(string(addrBz))
 	}
@@ -279,7 +279,33 @@ func (k *Keeper) DeleteCW1155ERC1155Pointer(ctx sdk.Context, erc1155Address comm
 	}
 }
 
-func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte) (addr []byte, version uint16, exists bool) {
+func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte, maxVersion uint16) (addr []byte, version uint16, exists bool) {
+	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
+	iter := store.ReverseIterator(nil, nil)
+	defer iter.Close()
+	exists = iter.Valid()
+	if !exists {
+		if !ctx.IsTracing() {
+			return
+		}
+		// Note that ReverseIterator seems buggy (i.e. would not return anything) when used with
+		// certain historical heights whereas point query would return results.
+		store := prefix.NewStore(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)).KVStore(k.GetStoreKey()), pref)
+		for v := int64(maxVersion); v >= 0; v-- {
+			key := make([]byte, 2)
+			binary.BigEndian.PutUint16(key, uint16(v))
+			if value := store.Get(key); value != nil {
+				return value, uint16(v), true
+			}
+		}
+		return nil, 0, false
+	}
+	version = binary.BigEndian.Uint16(iter.Key())
+	addr = iter.Value()
+	return
+}
+
+func (k *Keeper) GetAnyPointerInfo(ctx sdk.Context, pref []byte) (addr []byte, version uint16, exists bool) {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
 	iter := store.ReverseIterator(nil, nil)
 	defer iter.Close()
@@ -331,7 +357,7 @@ func (k *Keeper) GetStoredPointerCodeID(ctx sdk.Context, pointerType types.Point
 }
 
 func (k *Keeper) GetCW20Pointee(ctx sdk.Context, erc20Address common.Address) (cw20Address string, version uint16, exists bool) {
-	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(erc20Address))
+	addrBz, version, exists := k.GetAnyPointerInfo(ctx, types.PointerReverseRegistryKey(erc20Address))
 	if exists {
 		cw20Address = string(addrBz)
 	}
@@ -339,7 +365,7 @@ func (k *Keeper) GetCW20Pointee(ctx sdk.Context, erc20Address common.Address) (c
 }
 
 func (k *Keeper) GetCW721Pointee(ctx sdk.Context, erc721Address common.Address) (cw721Address string, version uint16, exists bool) {
-	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(erc721Address))
+	addrBz, version, exists := k.GetAnyPointerInfo(ctx, types.PointerReverseRegistryKey(erc721Address))
 	if exists {
 		cw721Address = string(addrBz)
 	}
@@ -347,7 +373,7 @@ func (k *Keeper) GetCW721Pointee(ctx sdk.Context, erc721Address common.Address) 
 }
 
 func (k *Keeper) GetCW1155Pointee(ctx sdk.Context, erc1155Address common.Address) (cw1155Address string, version uint16, exists bool) {
-	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(erc1155Address))
+	addrBz, version, exists := k.GetAnyPointerInfo(ctx, types.PointerReverseRegistryKey(erc1155Address))
 	if exists {
 		cw1155Address = string(addrBz)
 	}
@@ -355,7 +381,7 @@ func (k *Keeper) GetCW1155Pointee(ctx sdk.Context, erc1155Address common.Address
 }
 
 func (k *Keeper) GetERC20Pointee(ctx sdk.Context, cw20Address string) (erc20Address common.Address, version uint16, exists bool) {
-	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(cw20Address))))
+	addrBz, version, exists := k.GetAnyPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(cw20Address))))
 	if exists {
 		erc20Address = common.BytesToAddress(addrBz)
 	}
@@ -363,7 +389,7 @@ func (k *Keeper) GetERC20Pointee(ctx sdk.Context, cw20Address string) (erc20Addr
 }
 
 func (k *Keeper) GetERC721Pointee(ctx sdk.Context, cw721Address string) (erc721Address common.Address, version uint16, exists bool) {
-	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(cw721Address))))
+	addrBz, version, exists := k.GetAnyPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(cw721Address))))
 	if exists {
 		erc721Address = common.BytesToAddress(addrBz)
 	}
@@ -371,7 +397,7 @@ func (k *Keeper) GetERC721Pointee(ctx sdk.Context, cw721Address string) (erc721A
 }
 
 func (k *Keeper) GetERC1155Pointee(ctx sdk.Context, cw1155Address string) (erc1155Address common.Address, version uint16, exists bool) {
-	addrBz, version, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(cw1155Address))))
+	addrBz, version, exists := k.GetAnyPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(cw1155Address))))
 	if exists {
 		erc1155Address = common.BytesToAddress(addrBz)
 	}
@@ -381,7 +407,7 @@ func (k *Keeper) GetERC1155Pointee(ctx sdk.Context, cw1155Address string) (erc11
 func (k *Keeper) GetNativePointee(ctx sdk.Context, erc20Address string) (token string, version uint16, exists bool) {
 	// Ensure the key matches how it was set in SetERC20NativePointer
 	key := types.PointerReverseRegistryKey(common.HexToAddress(erc20Address))
-	addrBz, version, exists := k.GetPointerInfo(ctx, key)
+	addrBz, version, exists := k.GetAnyPointerInfo(ctx, key)
 	if exists {
 		token = string(addrBz)
 	}
