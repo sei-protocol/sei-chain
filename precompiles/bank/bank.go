@@ -228,9 +228,10 @@ func (p PrecompileExecutor) sendNative(ctx sdk.Context, method *abi.Method, args
 	}
 
 	if hooks != nil {
-		remainingGas := pcommon.GetRemainingGas(ctx, p.evmKeeper)
+		newCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+		remainingGas := pcommon.GetRemainingGas(newCtx, p.evmKeeper)
 		if hooks.OnEnter != nil {
-			hooks.OnEnter(evm.GetDepth()+1, byte(vm.CALL), caller, p.evmKeeper.GetEVMAddressOrDefault(ctx, receiverSeiAddr), []byte{}, remainingGas, value)
+			hooks.OnEnter(evm.GetDepth()+1, byte(vm.CALL), caller, p.evmKeeper.GetEVMAddressOrDefault(newCtx, receiverSeiAddr), []byte{}, remainingGas, value)
 		}
 		defer func() {
 			if hooks.OnExit != nil {

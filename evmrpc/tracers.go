@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/eth/tracers"
@@ -37,9 +38,9 @@ type SeiDebugAPI struct {
 	*DebugAPI
 }
 
-func NewDebugAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, config *SimulateConfig, app *baseapp.BaseApp,
+func NewDebugAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, config *SimulateConfig, app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler, connectionType ConnectionType) *DebugAPI {
-	backend := NewBackend(ctxProvider, k, txDecoder, tmClient, config, app, antehandler)
+	backend := NewBackend(ctxProvider, k, txConfig, tmClient, config, app, antehandler)
 	tracersAPI := tracers.NewAPI(backend)
 	evictCallback := func(key common.Hash, value bool) {}
 	isPanicCache := expirable.NewLRU[common.Hash, bool](IsPanicCacheSize, evictCallback, IsPanicCacheTTL)
@@ -48,7 +49,7 @@ func NewDebugAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 		tmClient:       tmClient,
 		keeper:         k,
 		ctxProvider:    ctxProvider,
-		txDecoder:      txDecoder,
+		txDecoder:      txConfig.TxDecoder(),
 		connectionType: connectionType,
 		isPanicCache:   isPanicCache,
 	}
@@ -58,16 +59,16 @@ func NewSeiDebugAPI(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
-	txDecoder sdk.TxDecoder,
+	txConfig client.TxConfig,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 ) *SeiDebugAPI {
-	backend := NewBackend(ctxProvider, k, txDecoder, tmClient, config, app, antehandler)
+	backend := NewBackend(ctxProvider, k, txConfig, tmClient, config, app, antehandler)
 	tracersAPI := tracers.NewAPI(backend)
 	return &SeiDebugAPI{
-		DebugAPI: &DebugAPI{tracersAPI: tracersAPI, tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, connectionType: connectionType},
+		DebugAPI: &DebugAPI{tracersAPI: tracersAPI, tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txConfig.TxDecoder(), connectionType: connectionType},
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles"
 	"github.com/sei-protocol/sei-chain/precompiles/json"
 	"github.com/sei-protocol/sei-chain/precompiles/pointer"
+	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/wsei"
 )
@@ -115,5 +116,20 @@ func bankSendMsg(mnemonic string) sdk.Msg {
 		FromAddress: getSeiAddrWithMnemonic(mnemonic).String(),
 		ToAddress:   recipient.String(),
 		Amount:      sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())),
+	}
+}
+
+func callWasmIter(nonce uint64, contractAddr string) ethtypes.TxData {
+	pInfo := precompiles.GetPrecompileInfo(wasmd.PrecompileName)
+	input, _ := pInfo.ABI.Pack("execute", contractAddr, []byte("{\"do_something\":{}}"), []byte("[]"))
+	wasmd := common.HexToAddress(wasmd.WasmdAddress)
+	return &ethtypes.DynamicFeeTx{
+		Nonce:     nonce,
+		GasFeeCap: big.NewInt(1000000000),
+		Gas:       4000000,
+		To:        &wasmd,
+		Value:     big.NewInt(0),
+		Data:      input,
+		ChainID:   chainId,
 	}
 }

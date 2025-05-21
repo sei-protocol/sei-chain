@@ -209,8 +209,9 @@ func HandlePaymentUsei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk
 		return sdk.Coin{}, err
 	}
 	if hooks != nil {
+		newCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 		if hooks.OnEnter != nil {
-			hooks.OnEnter(depth+1, byte(vm.CALL), evmKeeper.GetEVMAddressOrDefault(ctx, precompileAddr), evmKeeper.GetEVMAddressOrDefault(ctx, payer), []byte{}, GetRemainingGas(ctx, evmKeeper), value)
+			hooks.OnEnter(depth+1, byte(vm.CALL), evmKeeper.GetEVMAddressOrDefault(newCtx, precompileAddr), evmKeeper.GetEVMAddressOrDefault(newCtx, payer), []byte{}, GetRemainingGas(newCtx, evmKeeper), value)
 		}
 		if hooks.OnExit != nil {
 			hooks.OnExit(depth+1, []byte{}, 0, nil, false)
@@ -227,8 +228,9 @@ func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer 
 		return sdk.Int{}, sdk.Int{}, err
 	}
 	if hooks != nil {
+		newCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 		if hooks.OnEnter != nil {
-			hooks.OnEnter(depth+1, byte(vm.CALL), evmKeeper.GetEVMAddressOrDefault(ctx, precompileAddr), evmKeeper.GetEVMAddressOrDefault(ctx, payer), []byte{}, GetRemainingGas(ctx, evmKeeper), value)
+			hooks.OnEnter(depth+1, byte(vm.CALL), evmKeeper.GetEVMAddressOrDefault(newCtx, precompileAddr), evmKeeper.GetEVMAddressOrDefault(newCtx, payer), []byte{}, GetRemainingGas(newCtx, evmKeeper), value)
 		}
 		if hooks.OnExit != nil {
 			hooks.OnExit(depth+1, []byte{}, 0, nil, false)
