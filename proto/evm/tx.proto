@@ -88,3 +88,14 @@ message MsgClaim {
   string sender = 1;
   string claimer = 2;
 }
+
+message Asset {
+  AssetType asset_type = 1;
+  string contract_address = 2;
+}
+
+message MsgClaimSpecific {
+  string sender = 1;
+  string claimer = 2;
+  repeated Asset assets = 3;
+}

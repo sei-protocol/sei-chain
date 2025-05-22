@@ -11,4 +11,9 @@ enum PointerType {
     CW721 = 4;
     ERC1155 = 5;
     CW1155 = 6;
-  }
+}
+
+enum AssetType {
+    TYPECW20 = 0;
+    TYPECW721 = 1;
+}

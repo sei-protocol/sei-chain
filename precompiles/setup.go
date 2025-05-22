@@ -221,7 +221,7 @@ func GetCustomPrecompiles(
 		latestUpgrade: check(p256.NewPrecompile()),
 	}
 	soloVersions := VersionedPrecompiles{
-		latestUpgrade: check(solo.NewPrecompile(evmKeeper, bankKeeper, accountKeeper, txConfig)),
+		latestUpgrade: check(solo.NewPrecompile(evmKeeper, bankKeeper, accountKeeper, wasmdKeeper, wasmdViewKeeper, txConfig)),
 	}
 
 	return map[ecommon.Address]VersionedPrecompiles{
