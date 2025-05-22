@@ -80,6 +80,7 @@ type AccountKeeper interface {
 	SetAccount(ctx sdk.Context, acc authtypes.AccountI)
 	RemoveAccount(ctx sdk.Context, acc authtypes.AccountI)
 	NewAccountWithAddress(ctx sdk.Context, addr sdk.AccAddress) authtypes.AccountI
+	GetParams(ctx sdk.Context) (params authtypes.Params)
 }
 
 type OracleKeeper interface {
