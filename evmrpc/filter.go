@@ -446,13 +446,12 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	go func() {
 		wg.Wait()
 		close(res)
+		close(errChan)
 	}()
 
-	select {
-	case err := <-errChan:
-		wg.Wait()
+	// block until either an error arrives or errChan is closed (i.e. all done)
+	if err, ok := <-errChan; ok {
 		return nil, 0, false, err
-	default:
 	}
 
 	return res, end, applyOpenEndedLogLimit, nil
