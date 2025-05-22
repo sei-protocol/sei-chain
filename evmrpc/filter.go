@@ -358,7 +358,7 @@ func (f *LogFetcher) FindLogsByBloom(block *coretypes.ResultBlock, filters [][]b
 			log.TxIndex = uint(txCount)
 		}
 		if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
-			res = append(res, logs)
+			res = append(res, logs...)
 		}
 		totalLogs += uint(len(receipt.Logs))
                 txCount++
