@@ -436,6 +436,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			res <- block
 		}
 	}
+	close(runner.Queue)
 	go func() {
 		wg.Wait()
 		close(res)
@@ -443,8 +444,6 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 
 	select {
 	case err := <-errChan:
-		// Drain runner.Queue and wait for all goroutines to finish
-		close(runner.Queue)
 		wg.Wait()
 		return nil, 0, false, err
 	default:
