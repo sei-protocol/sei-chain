@@ -3,7 +3,9 @@ package gov
 import (
 	"bytes"
 	"embed"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -17,13 +19,23 @@ import (
 )
 
 const (
-	VoteMethod    = "vote"
-	DepositMethod = "deposit"
+	VoteMethod           = "vote"
+	DepositMethod        = "deposit"
+	SubmitProposalMethod = "submitProposal"
 )
 
 const (
 	GovAddress = "0x0000000000000000000000000000000000001006"
 )
+
+// Proposal represents the structure for proposal JSON input
+type Proposal struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Type        string `json:"type"`
+	IsExpedited bool   `json:"is_expedited,omitempty"`
+	Deposit     string `json:"deposit,omitempty"`
+}
 
 // Embed abi json file to the executable binary. Needed when importing as dependency.
 //
@@ -31,23 +43,26 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	govKeeper  pcommon.GovKeeper
-	evmKeeper  pcommon.EVMKeeper
-	bankKeeper pcommon.BankKeeper
-	address    common.Address
+	govKeeper    pcommon.GovKeeper
+	govMsgServer pcommon.GovMsgServer
+	evmKeeper    pcommon.EVMKeeper
+	bankKeeper   pcommon.BankKeeper
+	address      common.Address
 
-	VoteID    []byte
-	DepositID []byte
+	VoteID           []byte
+	DepositID        []byte
+	SubmitProposalID []byte
 }
 
-func NewPrecompile(govKeeper pcommon.GovKeeper, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.Precompile, error) {
+func NewPrecompile(govKeeper pcommon.GovKeeper, govMsgServer pcommon.GovMsgServer, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.Precompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		govKeeper:  govKeeper,
-		evmKeeper:  evmKeeper,
-		address:    common.HexToAddress(GovAddress),
-		bankKeeper: bankKeeper,
+		govKeeper:    govKeeper,
+		govMsgServer: govMsgServer,
+		evmKeeper:    evmKeeper,
+		address:      common.HexToAddress(GovAddress),
+		bankKeeper:   bankKeeper,
 	}
 
 	for name, m := range newAbi.Methods {
@@ -56,6 +71,8 @@ func NewPrecompile(govKeeper pcommon.GovKeeper, evmKeeper pcommon.EVMKeeper, ban
 			p.VoteID = m.ID
 		case DepositMethod:
 			p.DepositID = m.ID
+		case SubmitProposalMethod:
+			p.SubmitProposalID = m.ID
 		}
 	}
 
@@ -68,6 +85,8 @@ func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64
 		return 30000
 	} else if bytes.Equal(method.ID, p.DepositID) {
 		return 30000
+	} else if bytes.Equal(method.ID, p.SubmitProposalID) {
+		return 50000
 	}
 
 	// This should never happen since this is going to fail during Run
@@ -87,6 +106,8 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		return p.vote(ctx, method, caller, args, value)
 	case DepositMethod:
 		return p.deposit(ctx, method, caller, args, value, hooks, evm)
+	case SubmitProposalMethod:
+		return p.submitProposal(ctx, method, caller, args, value, hooks, evm)
 	}
 	return
 }
@@ -133,4 +154,90 @@ func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller 
 		return nil, err
 	}
 	return method.Outputs.Pack(res)
+}
+
+func (p PrecompileExecutor) submitProposal(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, error) {
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, err
+	}
+
+	proposer, found := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !found {
+		return nil, types.NewAssociationMissingErr(caller.Hex())
+	}
+
+	// Parse the proposal JSON
+	proposalJSON := args[0].(string)
+	var proposal Proposal
+	if err := json.Unmarshal([]byte(proposalJSON), &proposal); err != nil {
+		return nil, fmt.Errorf("failed to parse proposal JSON: %w", err)
+	}
+
+	// Validate required fields
+	if proposal.Title == "" {
+		return nil, errors.New("proposal title cannot be empty")
+	}
+	if proposal.Description == "" {
+		return nil, errors.New("proposal description cannot be empty")
+	}
+
+	// Create proposal content based on type
+	var content govtypes.Content
+	switch proposal.Type {
+	case "Text", "":
+		// Default to Text proposal if type is empty
+		content = govtypes.NewTextProposal(proposal.Title, proposal.Description, proposal.IsExpedited)
+	case "ParameterChange":
+		// For parameter change proposals, we would need additional parsing
+		return nil, fmt.Errorf("parameter change proposals are not supported yet via precompile")
+	case "SoftwareUpgrade":
+		return nil, fmt.Errorf("software upgrade proposals are not supported yet via precompile")
+	case "CancelSoftwareUpgrade":
+		return nil, fmt.Errorf("cancel software upgrade proposals are not supported yet via precompile")
+	case "CommunityPoolSpend":
+		return nil, fmt.Errorf("community pool spend proposals are not supported yet via precompile")
+	case "UpdateResourceDependencyMapping":
+		return nil, fmt.Errorf("update resource dependency mapping proposals are not supported yet via precompile")
+	case "UpdateWasmDependencyMapping":
+		return nil, fmt.Errorf("update wasm dependency mapping proposals are not supported yet via precompile")
+	// WASM module proposal types
+	case "StoreCode", "InstantiateContract", "MigrateContract", "SudoContract",
+		"ExecuteContract", "UpdateAdmin", "ClearAdmin", "PinCodes", "UnpinCodes",
+		"UpdateInstantiateConfig":
+		return nil, fmt.Errorf("%s proposals are not supported yet via precompile", proposal.Type)
+	// IBC module proposal types
+	case "ClientUpdate", "IBCUpgrade":
+		return nil, fmt.Errorf("%s proposals are not supported yet via precompile", proposal.Type)
+	default:
+		return nil, fmt.Errorf("unsupported proposal type: %s", proposal.Type)
+	}
+
+	// Initialize deposit amount
+	var initialDeposit sdk.Coins
+	if value != nil && value.Sign() > 0 {
+		// Convert the value (in wei) to usei
+		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), proposer, value, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
+		if err != nil {
+			return nil, err
+		}
+		initialDeposit = sdk.NewCoins(coin)
+	}
+
+	// Create the MsgSubmitProposal
+	msg, err := govtypes.NewMsgSubmitProposalWithExpedite(content, initialDeposit, proposer, proposal.IsExpedited)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a MsgServer context
+	goCtx := sdk.WrapSDKContext(ctx)
+
+	// Submit the proposal using the MsgServer
+	res, err := p.govMsgServer.SubmitProposal(goCtx, msg)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return the proposal ID
+	return method.Outputs.Pack(res.ProposalId)
 }

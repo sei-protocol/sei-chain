@@ -78,8 +78,6 @@ import (
 	wasmdv575 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v575"
 	wasmdv580 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v580"
 	wasmdv600 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v600"
-	wasmdv601 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v601"
-	wasmdv603 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v603"
 )
 
 var SetupMtx = &sync.Mutex{}
@@ -112,6 +110,7 @@ func GetCustomPrecompiles(
 	stakingKeeper common.StakingKeeper,
 	stakingQuerier common.StakingQuerier,
 	govKeeper common.GovKeeper,
+	govSender common.GovMsgServer,
 	distrKeeper common.DistributionKeeper,
 	oracleKeeper common.OracleKeeper,
 	transferKeeper ibctransferkeeper.Keeper,
@@ -139,8 +138,6 @@ func GetCustomPrecompiles(
 		"v5.7.5":      check(wasmdv575.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)),
 		"v5.8.0":      check(wasmdv580.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)),
 		"v6.0.0":      check(wasmdv600.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)),
-		"v6.0.1":      check(wasmdv601.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)),
-		"v6.0.3":      check(wasmdv603.NewPrecompile(evmKeeper, wasmdKeeper, wasmdViewKeeper, bankKeeper)),
 	}
 	jsonVersions := VersionedPrecompiles{
 		latestUpgrade: check(json.NewPrecompile()),
@@ -167,7 +164,7 @@ func GetCustomPrecompiles(
 		"v5.8.0":      check(stakingv580.NewPrecompile(stakingKeeper, stakingQuerier, evmKeeper, bankKeeper)),
 	}
 	govVersions := VersionedPrecompiles{
-		latestUpgrade: check(gov.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
+		latestUpgrade: check(gov.NewPrecompile(govKeeper, govSender, evmKeeper, bankKeeper)),
 		"v5.5.2":      check(govv552.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
 		"v5.5.5":      check(govv555.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
 		"v5.6.2":      check(govv562.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
@@ -244,6 +241,7 @@ func InitializePrecompiles(
 	stakingKeeper common.StakingKeeper,
 	stakingQuerier common.StakingQuerier,
 	govKeeper common.GovKeeper,
+	govMsgServer common.GovMsgServer,
 	distrKeeper common.DistributionKeeper,
 	oracleKeeper common.OracleKeeper,
 	transferKeeper common.TransferKeeper,
@@ -277,7 +275,7 @@ func InitializePrecompiles(
 	if err != nil {
 		return err
 	}
-	govp, err := gov.NewPrecompile(govKeeper, evmKeeper, bankKeeper)
+	govp, err := gov.NewPrecompile(govKeeper, govMsgServer, evmKeeper, bankKeeper)
 	if err != nil {
 		return err
 	}
@@ -306,7 +304,6 @@ func InitializePrecompiles(
 	if err != nil {
 		return err
 	}
-
 	PrecompileNamesToInfo[bankp.GetName()] = PrecompileInfo{ABI: bankp.GetABI(), Address: bankp.Address()}
 	PrecompileNamesToInfo[wasmdp.GetName()] = PrecompileInfo{ABI: wasmdp.GetABI(), Address: wasmdp.Address()}
 	PrecompileNamesToInfo[jsonp.GetName()] = PrecompileInfo{ABI: jsonp.GetABI(), Address: jsonp.Address()}
@@ -319,7 +316,6 @@ func InitializePrecompiles(
 	PrecompileNamesToInfo[pointerp.GetName()] = PrecompileInfo{ABI: pointerp.GetABI(), Address: pointerp.Address()}
 	PrecompileNamesToInfo[pointerviewp.GetName()] = PrecompileInfo{ABI: pointerviewp.GetABI(), Address: pointerviewp.Address()}
 	PrecompileNamesToInfo[p256p.GetName()] = PrecompileInfo{ABI: p256p.GetABI(), Address: p256p.Address()}
-
 	if !dryRun {
 		addPrecompileToVM(bankp)
 		addPrecompileToVM(wasmdp)
@@ -341,7 +337,7 @@ func InitializePrecompiles(
 func GetPrecompileInfo(name string) PrecompileInfo {
 	if !Initialized {
 		// Precompile Info does not require any keeper state
-		_ = InitializePrecompiles(true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		_ = InitializePrecompiles(true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	}
 	i, ok := PrecompileNamesToInfo[name]
 	if !ok {

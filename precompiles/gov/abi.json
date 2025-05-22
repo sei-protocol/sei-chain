@@ -1,1 +1,64 @@
-[{"inputs":[{"internalType":"uint64","name":"proposalID","type":"uint64"}],"name":"deposit","outputs":[{"internalType":"bool","name":"success","type":"bool"}],"stateMutability":"payable","type":"function"},{"inputs":[{"internalType":"uint64","name":"proposalID","type":"uint64"},{"internalType":"int32","name":"option","type":"int32"}],"name":"vote","outputs":[{"internalType":"bool","name":"success","type":"bool"}],"stateMutability":"nonpayable","type":"function"}]
+[
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "proposalJSON",
+        "type": "string"
+      }
+    ],
+    "name": "submitProposal",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "proposalID",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "proposalID",
+        "type": "uint64"
+      }
+    ],
+    "name": "deposit",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "proposalID",
+        "type": "uint64"
+      },
+      {
+        "internalType": "int32",
+        "name": "option",
+        "type": "int32"
+      }
+    ],
+    "name": "vote",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]

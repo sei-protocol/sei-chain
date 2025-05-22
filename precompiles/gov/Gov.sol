@@ -17,4 +17,20 @@ interface IGov {
     function deposit(
         uint64 proposalID
     ) payable external returns (bool success);
+    
+    /**
+     * @dev Submit a new governance proposal
+     * @param proposalJSON JSON string containing proposal details:
+     *        {
+     *          "title": "Proposal Title",
+     *          "description": "Proposal Description",
+     *          "type": "Text", // Optional, defaults to "Text" if empty
+     *          "is_expedited": false, // Optional
+     *          "deposit": "" // Optional, can also be provided via msg.value
+     *        }
+     * @return proposalID The ID of the created proposal
+     */
+    function submitProposal(
+        string calldata proposalJSON
+    ) payable external returns (uint64 proposalID);
 }

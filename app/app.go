@@ -578,6 +578,7 @@ func New(
 			app.AccessControlKeeper,
 			&app.EvmKeeper,
 			app.StakingKeeper,
+			govkeeper.NewMsgServerImpl(app.GovKeeper),
 		),
 		wasmOpts...,
 	)
@@ -716,6 +717,7 @@ func New(
 			stakingkeeper.NewMsgServerImpl(app.StakingKeeper),
 			stakingkeeper.Querier{Keeper: app.StakingKeeper},
 			app.GovKeeper,
+			govkeeper.NewMsgServerImpl(app.GovKeeper),
 			app.DistrKeeper,
 			app.OracleKeeper,
 			app.TransferKeeper,
@@ -1247,65 +1249,6 @@ func (app *App) ProcessBlockSynchronous(ctx sdk.Context, txs [][]byte, typedTxs 
 		metrics.IncrTxProcessTypeCounter(metrics.SYNCHRONOUS)
 	}
 	return txResults
-}
-
-// Returns a mapping of the accessOperation to the channels
-func GetChannelsFromSignalMapping(signalMapping acltypes.MessageCompletionSignalMapping) sdkacltypes.MessageAccessOpsChannelMapping {
-	channelsMapping := make(sdkacltypes.MessageAccessOpsChannelMapping)
-	for messageIndex, accessOperationsToSignal := range signalMapping {
-		channelsMapping[messageIndex] = make(sdkacltypes.AccessOpsChannelMapping)
-		for accessOperation, completionSignals := range accessOperationsToSignal {
-			var channels []chan interface{}
-			for _, completionSignal := range completionSignals {
-				channels = append(channels, completionSignal.Channel)
-			}
-			channelsMapping[messageIndex][accessOperation] = channels
-		}
-	}
-	return channelsMapping
-}
-
-type ChannelResult struct {
-	txIndex int
-	result  *abci.ExecTxResult
-}
-
-// cacheContext returns a new context based off of the provided context with
-// a branched multi-store.
-func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
-	ms := ctx.MultiStore()
-	msCache := ms.CacheMultiStore()
-	return ctx.WithMultiStore(msCache), msCache
-}
-
-// TODO: (occ) this is the roughly analogous to the execution + validation tasks for OCC, but this one performs validation in isolation
-// rather than comparing against a multi-version store
-// The validation happens immediately after execution all part of DeliverTx (which is a path that goes through sei-cosmos to runTx eventually)
-func (app *App) ProcessTxConcurrent(
-	ctx sdk.Context,
-	txIndex int,
-	absoluateTxIndex int,
-	txBytes []byte,
-	typedTx sdk.Tx,
-	wg *sync.WaitGroup,
-	resultChan chan<- ChannelResult,
-	txCompletionSignalingMap acltypes.MessageCompletionSignalMapping,
-	txBlockingSignalsMap acltypes.MessageCompletionSignalMapping,
-	txMsgAccessOpMapping acltypes.MsgIndexToAccessOpMapping,
-) {
-	defer wg.Done()
-	// Store the Channels in the Context Object for each transaction
-	ctx = ctx.WithTxCompletionChannels(GetChannelsFromSignalMapping(txCompletionSignalingMap))
-	ctx = ctx.WithTxBlockingChannels(GetChannelsFromSignalMapping(txBlockingSignalsMap))
-	ctx = ctx.WithTxMsgAccessOps(txMsgAccessOpMapping)
-	ctx = ctx.WithMsgValidator(
-		sdkacltypes.NewMsgValidator(aclutils.StoreKeyToResourceTypePrefixMap),
-	)
-	ctx = ctx.WithTxIndex(absoluateTxIndex)
-
-	// Deliver the transaction and store the result in the channel
-	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes, typedTx)}
-	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
 }
 
 type ProcessBlockConcurrentFunction func(
