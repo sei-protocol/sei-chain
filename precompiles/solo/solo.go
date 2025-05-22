@@ -18,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/utils"
 )
 
 const (
@@ -116,9 +117,7 @@ type claimMsg interface {
 
 type claimSpecificMsg interface {
 	claimMsg
-	GetIdentifier() string
-	IsCW20() bool
-	IsCW721() bool
+	GetIAssets() []utils.IAsset
 }
 
 func (p PrecompileExecutor) Claim(ctx sdk.Context, caller common.Address, method *abi.Method, args []interface{}, readOnly bool) (ret []byte, remainingGas uint64, err error) {
@@ -143,47 +142,49 @@ func (p PrecompileExecutor) ClaimSpecific(ctx sdk.Context, caller common.Address
 	if !ok {
 		return nil, 0, errors.New("message is not MsgClaimSpecific type")
 	}
-	contractAddr, err := sdk.AccAddressFromBech32(claimSpecificMsg.GetIdentifier())
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to parse contract address %s: %w", claimSpecificMsg.GetIdentifier(), err)
-	}
 	callerSeiAddr := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
-	switch {
-	case claimSpecificMsg.IsCW20():
-		res, err := p.wasmViewKeeper.QuerySmartSafe(ctx, contractAddr, CW20BalanceQueryPayload(sender))
+	for _, asset := range claimSpecificMsg.GetIAssets() {
+		contractAddr, err := sdk.AccAddressFromBech32(asset.GetContractAddress())
 		if err != nil {
-			return nil, 0, fmt.Errorf("failed to query CW20 contract %s for balance: %w", contractAddr.String(), err)
+			return nil, 0, fmt.Errorf("failed to parse contract address %s: %w", asset.GetContractAddress(), err)
 		}
-		balance, err := ParseCW20BalanceQueryResponse(res)
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to parse CW20 contract %s balance response: %w", contractAddr.String(), err)
-		}
-		_, err = p.wasmKeeper.Execute(ctx, contractAddr, sender, CW20TransferPayload(callerSeiAddr, balance), sdk.NewCoins())
-		if err != nil {
-			return nil, 0, fmt.Errorf("failed to transfer on CW20 contract %s: %w", contractAddr.String(), err)
-		}
-	case claimSpecificMsg.IsCW721():
-		allTokens := []string{}
-		startAfter := ""
-		for {
-			res, err := p.wasmViewKeeper.QuerySmartSafe(ctx, contractAddr, CW721TokensQueryPayload(sender, startAfter))
+		switch {
+		case asset.IsCW20():
+			res, err := p.wasmViewKeeper.QuerySmartSafe(ctx, contractAddr, CW20BalanceQueryPayload(sender))
 			if err != nil {
-				return nil, 0, fmt.Errorf("failed to query CW721 contract %s for all tokens: %w", contractAddr.String(), err)
+				return nil, 0, fmt.Errorf("failed to query CW20 contract %s for balance: %w", contractAddr.String(), err)
 			}
-			tokens, err := ParseCW721TokensQueryResponse(res)
+			balance, err := ParseCW20BalanceQueryResponse(res)
 			if err != nil {
 				return nil, 0, fmt.Errorf("failed to parse CW20 contract %s balance response: %w", contractAddr.String(), err)
 			}
-			if len(tokens) == 0 {
-				break
-			}
-			allTokens = append(allTokens, tokens...)
-			startAfter = tokens[len(tokens)-1]
-		}
-		for _, token := range allTokens {
-			_, err := p.wasmKeeper.Execute(ctx, contractAddr, sender, CW721TransferPayload(callerSeiAddr, token), sdk.NewCoins())
+			_, err = p.wasmKeeper.Execute(ctx, contractAddr, sender, CW20TransferPayload(callerSeiAddr, balance), sdk.NewCoins())
 			if err != nil {
-				return nil, 0, fmt.Errorf("failed to transfer token %s on CW721 contract %s: %w", token, contractAddr.String(), err)
+				return nil, 0, fmt.Errorf("failed to transfer on CW20 contract %s: %w", contractAddr.String(), err)
+			}
+		case asset.IsCW721():
+			allTokens := []string{}
+			startAfter := ""
+			for {
+				res, err := p.wasmViewKeeper.QuerySmartSafe(ctx, contractAddr, CW721TokensQueryPayload(sender, startAfter))
+				if err != nil {
+					return nil, 0, fmt.Errorf("failed to query CW721 contract %s for all tokens: %w", contractAddr.String(), err)
+				}
+				tokens, err := ParseCW721TokensQueryResponse(res)
+				if err != nil {
+					return nil, 0, fmt.Errorf("failed to parse CW20 contract %s balance response: %w", contractAddr.String(), err)
+				}
+				if len(tokens) == 0 {
+					break
+				}
+				allTokens = append(allTokens, tokens...)
+				startAfter = tokens[len(tokens)-1]
+			}
+			for _, token := range allTokens {
+				_, err := p.wasmKeeper.Execute(ctx, contractAddr, sender, CW721TransferPayload(callerSeiAddr, token), sdk.NewCoins())
+				if err != nil {
+					return nil, 0, fmt.Errorf("failed to transfer token %s on CW721 contract %s: %w", token, contractAddr.String(), err)
+				}
 			}
 		}
 	}
