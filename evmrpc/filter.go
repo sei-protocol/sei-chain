@@ -412,13 +412,15 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 		return nil, 0, false, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
 	}
 	res := make(chan *coretypes.ResultBlock, end-begin+1)
-	defer close(res)
+	errChan := make(chan error, 1)
 	runner := NewParallelRunner(MaxNumOfWorkers, int(end-begin+1))
-	defer runner.Done.Wait()
-	defer close(runner.Queue)
+	var wg sync.WaitGroup
+
 	for height := begin; height <= end; height++ {
 		h := height
+		wg.Add(1)
 		runner.Queue <- func() {
+			defer wg.Done()
 			if h == 0 {
 				return
 			}
@@ -431,11 +433,29 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			}
 			block, err := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
 			if err != nil {
-				panic(err)
+				select {
+				case errChan <- fmt.Errorf("failed to fetch block at height %d: %w", h, err):
+				default:
+				}
+				return
 			}
 			res <- block
 		}
 	}
+	go func() {
+		wg.Wait()
+		close(res)
+	}()
+
+	select {
+	case err := <-errChan:
+		// Drain runner.Queue and wait for all goroutines to finish
+		close(runner.Queue)
+		wg.Wait()
+		return nil, 0, false, err
+	default:
+	}
+
 	return res, end, applyOpenEndedLogLimit, nil
 }
 
