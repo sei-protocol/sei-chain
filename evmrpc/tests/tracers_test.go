@@ -3,6 +3,7 @@ package tests
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/app"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -78,7 +79,7 @@ func TestTraceBlockByHashExcludeTraceFail(t *testing.T) {
 func TestTraceHistoricalPrecompiles(t *testing.T) {
 	from := getAddrWithMnemonic(mnemonic1)
 	txData := jsonExtractAsBytesFromArray(0).(*ethtypes.DynamicFeeTx)
-	SetupTestServer([][][]byte{{}, {}, {}}, mnemonicInitializer(mnemonic1), mockUpgrade("v5.5.2", 1), mockUpgrade("v6.0.5", 3)).Run(
+	SetupTestServer([][][]byte{{}, {}, {}}, mnemonicInitializer(mnemonic1), mockUpgrade("v5.5.2", 1), mockUpgrade(app.LatestUpgrade, 3)).Run(
 		func(port int) {
 			args := ethapi.TransactionArgs{
 				From:     &from,
