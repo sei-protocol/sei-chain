@@ -110,7 +110,7 @@ func GetCustomPrecompiles(
 	stakingKeeper common.StakingKeeper,
 	stakingQuerier common.StakingQuerier,
 	govKeeper common.GovKeeper,
-	govSender common.GovMsgServer,
+	govMsgServer common.GovMsgServer,
 	distrKeeper common.DistributionKeeper,
 	oracleKeeper common.OracleKeeper,
 	transferKeeper ibctransferkeeper.Keeper,
@@ -164,7 +164,7 @@ func GetCustomPrecompiles(
 		"v5.8.0":      check(stakingv580.NewPrecompile(stakingKeeper, stakingQuerier, evmKeeper, bankKeeper)),
 	}
 	govVersions := VersionedPrecompiles{
-		latestUpgrade: check(gov.NewPrecompile(govKeeper, govSender, evmKeeper, bankKeeper)),
+		latestUpgrade: check(gov.NewPrecompile(govKeeper, govMsgServer, evmKeeper, bankKeeper)),
 		"v5.5.2":      check(govv552.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
 		"v5.5.5":      check(govv555.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
 		"v5.6.2":      check(govv562.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
