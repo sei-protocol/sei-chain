@@ -104,6 +104,9 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 
 // minimum fee per gas required for a tx to be processed
 func (fc EVMFeeCheckDecorator) getBaseFee(ctx sdk.Context) *big.Int {
+	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < 114945913 {
+		return fc.evmKeeper.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
+	}
 	return fc.evmKeeper.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt()
 }
 
