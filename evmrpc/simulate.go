@@ -24,6 +24,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/eth"
 	"github.com/ethereum/go-ethereum/eth/tracers"
+	"github.com/ethereum/go-ethereum/eth/tracers/tracersutils"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/ethereum/go-ethereum/params"
@@ -252,23 +253,25 @@ func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) int64 {
 	return blockNum
 }
 
-func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, error) {
+func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
 	blockNum := b.ConvertBlockNumber(bn)
 	tmBlock, err := blockByNumber(ctx, b.tmClient, &blockNum)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	blockRes, err := b.tmClient.BlockResults(ctx, &tmBlock.Block.Height)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
 	var txs []*ethtypes.Transaction
+	var metadata []tracersutils.TraceBlockMetadata
 	for i := range blockRes.TxsResults {
 		decoded, err := b.txConfig.TxDecoder()(tmBlock.Block.Txs[i])
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
+		shouldTrace := false
 		for _, msg := range decoded.GetMsgs() {
 			switch m := msg.(type) {
 			case *types.MsgEVMTransaction:
@@ -280,8 +283,23 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 				if err != nil || receipt.BlockNumber != uint64(tmBlock.Block.Height) || isReceiptFromAnteError(receipt) {
 					continue
 				}
+				shouldTrace = true
+				metadata = append(metadata, tracersutils.TraceBlockMetadata{
+					ShouldIncludeInTraceResult: true,
+					IdxInEthBlock:              len(txs),
+				})
 				txs = append(txs, ethtx)
 			}
+		}
+		if !shouldTrace {
+			metadata = append(metadata, tracersutils.TraceBlockMetadata{
+				ShouldIncludeInTraceResult: false,
+				IdxInEthBlock:              -1,
+				TraceRunnable: func(sd vm.StateDB) {
+					typedStateDB := sd.(*state.DBImpl)
+					_ = b.app.DeliverTx(typedStateDB.Ctx(), abci.RequestDeliverTx{}, decoded, sha256.Sum256(tmBlock.Block.Txs[i]))
+				},
+			})
 		}
 	}
 	header := b.getHeader(big.NewInt(blockNum))
@@ -290,13 +308,13 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 		Txs:     txs,
 	}
 	block.OverwriteHash(common.BytesToHash(tmBlock.BlockID.Hash))
-	return block, nil
+	return block, metadata, nil
 }
 
-func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, error) {
+func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
 	tmBlock, err := blockByHash(ctx, b.tmClient, hash.Bytes())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	blockNumber := rpc.BlockNumber(tmBlock.Block.Height)
 	return b.BlockByNumber(ctx, blockNumber)
