@@ -652,7 +652,7 @@ func generateTxData() {
 		Data:      []byte("synthetic"),
 		ChainID:   chainId,
 	})
-	debugTraceTxBuilder, _ := buildTx(ethtypes.DynamicFeeTx{
+	debugTraceTxBuilder, debugTraceEthTx := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     0,
 		GasFeeCap: big.NewInt(1000000000),
 		Gas:       200000,
@@ -725,6 +725,10 @@ func generateTxData() {
 	}); err != nil {
 		panic(err)
 	}
+	_ = EVMKeeper.MockReceipt(Ctx, debugTraceEthTx.Hash(), &types.Receipt{
+		BlockNumber:       103,
+		EffectiveGasPrice: 1000000,
+	})
 	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
 	if err != nil {
 		panic(err)
