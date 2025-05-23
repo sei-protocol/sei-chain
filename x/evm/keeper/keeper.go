@@ -260,6 +260,12 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 			core.Transfer(db, sender, recipient, amount)
 		}
 	}
+	var baseFee *big.Int
+	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < 114945913 {
+		baseFee = k.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
+	} else {
+		baseFee = k.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt()
+	}
 
 	return &vm.BlockContext{
 		CanTransfer: core.CanTransfer,
@@ -270,7 +276,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		BlockNumber: big.NewInt(ctx.BlockHeight()),
 		Time:        uint64(ctx.BlockHeader().Time.Unix()),
 		Difficulty:  utils.Big0, // only needed for PoW
-		BaseFee:     k.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt(),
+		BaseFee:     baseFee,
 		BlobBaseFee: utils.Big1, // Cancun not enabled
 		Random:      &rh,
 	}, nil
