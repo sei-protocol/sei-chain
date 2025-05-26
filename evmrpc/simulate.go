@@ -211,7 +211,9 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 	if err := CheckVersion(sdkCtx, b.keeper); err != nil {
 		return nil, nil, err
 	}
-	return state.NewDBImpl(sdkCtx, b.keeper, true), b.getHeader(big.NewInt(height)), nil
+	header := b.getHeader(big.NewInt(height))
+	header.BaseFee = b.keeper.GetCurrBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+	return state.NewDBImpl(sdkCtx, b.keeper, true), header, nil
 }
 
 func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *ethtypes.Transaction, blockHash common.Hash, blockNumber uint64, index uint64, err error) {
@@ -420,7 +422,9 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 }
 
 func (b *Backend) CurrentHeader() *ethtypes.Header {
-	return b.getHeader(big.NewInt(b.ctxProvider(LatestCtxHeight).BlockHeight()))
+	header := b.getHeader(big.NewInt(b.ctxProvider(LatestCtxHeight).BlockHeight()))
+	header.BaseFee = b.keeper.GetCurrBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+	return header
 }
 
 func (b *Backend) SuggestGasTipCap(context.Context) (*big.Int, error) {
