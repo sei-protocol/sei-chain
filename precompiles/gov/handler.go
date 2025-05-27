@@ -10,7 +10,13 @@ import (
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types/proposal"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	"github.com/ethereum/go-ethereum/common"
 )
+
+// EVMKeeper defines the interface for EVM keeper operations
+type EVMKeeper interface {
+	GetSeiAddress(ctx sdk.Context, ethAddr common.Address) (sdk.AccAddress, bool)
+}
 
 // Proposal represents the structure for proposal JSON input
 type Proposal struct {
@@ -31,7 +37,7 @@ type Change struct {
 // ProposalHandler defines an interface for handling different proposal types
 type ProposalHandler interface {
 	// HandleProposal creates a Content object from the proposal input
-	HandleProposal(proposal Proposal) (govtypes.Content, error)
+	HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error)
 	// Type returns the proposal type this handler can process
 	Type() string
 }
@@ -40,7 +46,7 @@ type ProposalHandler interface {
 type TextProposalHandler struct{}
 
 // HandleProposal implements ProposalHandler
-func (h TextProposalHandler) HandleProposal(proposal Proposal) (govtypes.Content, error) {
+func (h TextProposalHandler) HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
 	return govtypes.NewTextProposal(proposal.Title, proposal.Description, proposal.IsExpedited), nil
 }
 
@@ -53,7 +59,7 @@ func (h TextProposalHandler) Type() string {
 type ParameterChangeProposalHandler struct{}
 
 // HandleProposal implements ProposalHandler
-func (h ParameterChangeProposalHandler) HandleProposal(proposal Proposal) (govtypes.Content, error) {
+func (h ParameterChangeProposalHandler) HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
 	if len(proposal.Changes) == 0 {
 		return nil, errors.New("at least one parameter change must be specified")
 	}
@@ -90,7 +96,7 @@ func (h ParameterChangeProposalHandler) Type() string {
 type SoftwareUpgradeProposalHandler struct{}
 
 // HandleProposal implements ProposalHandler
-func (h SoftwareUpgradeProposalHandler) HandleProposal(proposal Proposal) (govtypes.Content, error) {
+func (h SoftwareUpgradeProposalHandler) HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
 	if len(proposal.Changes) == 0 {
 		return nil, errors.New("at least one upgrade change must be specified")
 	}
@@ -149,7 +155,7 @@ func (h SoftwareUpgradeProposalHandler) Type() string {
 type CancelSoftwareUpgradeProposalHandler struct{}
 
 // HandleProposal implements ProposalHandler
-func (h CancelSoftwareUpgradeProposalHandler) HandleProposal(proposal Proposal) (govtypes.Content, error) {
+func (h CancelSoftwareUpgradeProposalHandler) HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
 	// Cancel software upgrade proposals don't need any additional parameters
 	// They just need title and description which are already validated in createProposalContent
 	return upgradetypes.NewCancelSoftwareUpgradeProposal(
@@ -164,10 +170,12 @@ func (h CancelSoftwareUpgradeProposalHandler) Type() string {
 }
 
 // CommunityPoolSpendProposalHandler handles community pool spend proposals
-type CommunityPoolSpendProposalHandler struct{}
+type CommunityPoolSpendProposalHandler struct {
+	evmKeeper EVMKeeper
+}
 
 // HandleProposal implements ProposalHandler
-func (h CommunityPoolSpendProposalHandler) HandleProposal(proposal Proposal) (govtypes.Content, error) {
+func (h CommunityPoolSpendProposalHandler) HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
 	if len(proposal.Changes) == 0 {
 		return nil, errors.New("at least one spend change must be specified")
 	}
@@ -181,6 +189,10 @@ func (h CommunityPoolSpendProposalHandler) HandleProposal(proposal Proposal) (go
 			recipientStr, ok := change.Value.(string)
 			if !ok {
 				return nil, fmt.Errorf("recipient must be a string")
+			}
+			// Validate that the recipient is a valid Ethereum address
+			if !common.IsHexAddress(recipientStr) {
+				return nil, fmt.Errorf("invalid ethereum address format")
 			}
 			recipient = recipientStr
 		case "amount":
@@ -203,15 +215,17 @@ func (h CommunityPoolSpendProposalHandler) HandleProposal(proposal Proposal) (go
 		return nil, errors.New("amount must be greater than zero")
 	}
 
-	recipientAddr, err := sdk.AccAddressFromBech32(recipient)
-	if err != nil {
-		return nil, fmt.Errorf("invalid recipient address: %w", err)
+	// Convert Ethereum address to Sei address using the EVM keeper
+	ethAddr := common.HexToAddress(recipient)
+	seiAddr, found := h.evmKeeper.GetSeiAddress(ctx, ethAddr)
+	if !found {
+		return nil, fmt.Errorf("no sei address found for ethereum address %s", ethAddr.Hex())
 	}
 
 	return distrtypes.NewCommunityPoolSpendProposal(
 		proposal.Title,
 		proposal.Description,
-		recipientAddr,
+		seiAddr,
 		amount,
 	), nil
 }
@@ -222,7 +236,7 @@ func (h CommunityPoolSpendProposalHandler) Type() string {
 }
 
 // RegisterProposalHandlers registers all available proposal handlers
-func RegisterProposalHandlers() map[string]ProposalHandler {
+func RegisterProposalHandlers(evmKeeper EVMKeeper) map[string]ProposalHandler {
 	proposalHandlers := make(map[string]ProposalHandler)
 
 	// Register the TextProposalHandler
@@ -244,7 +258,7 @@ func RegisterProposalHandlers() map[string]ProposalHandler {
 	proposalHandlers[cancelUpgradeHandler.Type()] = cancelUpgradeHandler
 
 	// Register the CommunityPoolSpendProposalHandler
-	communityPoolSpendHandler := CommunityPoolSpendProposalHandler{}
+	communityPoolSpendHandler := CommunityPoolSpendProposalHandler{evmKeeper: evmKeeper}
 	proposalHandlers[communityPoolSpendHandler.Type()] = communityPoolSpendHandler
 
 	return proposalHandlers
@@ -260,7 +274,7 @@ func GetProposalHandler(handlers map[string]ProposalHandler, proposalType string
 }
 
 // createProposalContent creates the appropriate content for a proposal based on its type
-func (p PrecompileExecutor) createProposalContent(proposal Proposal) (govtypes.Content, error) {
+func (p PrecompileExecutor) createProposalContent(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
 	// Validate required fields
 	if proposal.Title == "" {
 		return nil, errors.New("proposal title cannot be empty")
@@ -274,8 +288,6 @@ func (p PrecompileExecutor) createProposalContent(proposal Proposal) (govtypes.C
 	if err != nil {
 		// For unsupported types, provide more specific error messages
 		switch proposal.Type {
-		case "CommunityPoolSpend":
-			return nil, fmt.Errorf("community pool spend proposals are not supported yet via precompile")
 		case "UpdateResourceDependencyMapping":
 			return nil, fmt.Errorf("update resource dependency mapping proposals are not supported yet via precompile")
 		// WASM module proposal types
@@ -292,10 +304,10 @@ func (p PrecompileExecutor) createProposalContent(proposal Proposal) (govtypes.C
 	}
 
 	// Use the handler to create the appropriate content
-	return handler.HandleProposal(proposal)
+	return handler.HandleProposal(ctx, proposal)
 }
 
 // registerProposalHandlers registers all available proposal handlers
 func (p *PrecompileExecutor) registerProposalHandlers() {
-	p.proposalHandlers = RegisterProposalHandlers()
+	p.proposalHandlers = RegisterProposalHandlers(p.evmKeeper)
 }

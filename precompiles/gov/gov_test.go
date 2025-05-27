@@ -200,6 +200,7 @@ func TestGovPrecompile(t *testing.T) {
 
 func TestPrecompileExecutor_submitProposal(t *testing.T) {
 	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	recipientSeiAddress, recipientEvmAddress := testkeeper.MockAddressPair()
 
 	type args struct {
 		caller           common.Address
@@ -348,10 +349,10 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Community Pool Spend\",\"description\":\"Spend from community pool\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"recipient\",\"value\":\"sei1glsugqc8ll8ctayhdaj2yzmfn36n6t6jltl45c\"},{\"key\":\"amount\",\"value\":\"1000000usei\"}],\"deposit\":\"10000000usei\"}",
+				proposal:         "{\"title\":\"Community Pool Spend\",\"description\":\"Spend from community pool\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"recipient\",\"value\": \"" + recipientEvmAddress.String() + "\"},{\"key\":\"amount\",\"value\":\"1000000usei\"}],\"deposit\":\"10000000usei\"}",
 			},
 			wantErr: false,
-			wantRet: []byte{31: 1},
+			wantRet: []byte{31: 1}, // proposal id 3 is expected (1 and 2 are already used)
 		},
 		{
 			name: "returns error on community pool spend proposal with no changes",
@@ -378,7 +379,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Missing amount\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"recipient\",\"value\":\"sei1h9yxfe0q3jwrj3xz0yuj0c9d0a3d4q5yqgh0x9\"}],\"deposit\":\"10000000usei\"}",
+				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Missing amount\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"recipient\",\"value\":\"0x1234567890123456789012345678901234567890\"}],\"deposit\":\"10000000usei\"}",
 			},
 			wantErr:    true,
 			wantErrMsg: "amount must be greater than zero",
@@ -391,14 +392,14 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Invalid recipient\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"recipient\",\"value\":\"invalid\"},{\"key\":\"amount\",\"value\":\"1000000usei\"}],\"deposit\":\"10000000usei\"}",
 			},
 			wantErr:    true,
-			wantErrMsg: "invalid recipient address: decoding bech32 failed: invalid bech32 string length 7",
+			wantErrMsg: "invalid ethereum address format",
 		},
 		{
 			name: "returns error on community pool spend proposal with invalid amount",
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Invalid amount\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"recipient\",\"value\":\"sei1h9yxfe0q3jwrj3xz0yuj0c9d0a3d4q5yqgh0x9\"},{\"key\":\"amount\",\"value\":\"invalid\"}],\"deposit\":\"10000000usei\"}",
+				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Invalid amount\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"recipient\",\"value\":\"0x1234567890123456789012345678901234567890\"},{\"key\":\"amount\",\"value\":\"invalid\"}],\"deposit\":\"10000000usei\"}",
 			},
 			wantErr:    true,
 			wantErrMsg: "invalid amount format: invalid decimal coin expression: invalid",
@@ -410,6 +411,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 			k := &testApp.EvmKeeper
 			k.SetAddressMapping(ctx, tt.args.callerSeiAddress, tt.args.caller)
+			k.SetAddressMapping(ctx, recipientSeiAddress, recipientEvmAddress)
 			stateDb := state.NewDBImpl(ctx, k, true)
 			evm := vm.EVM{
 				StateDB:   stateDb,

@@ -175,7 +175,7 @@ func (p PrecompileExecutor) submitProposal(ctx sdk.Context, method *abi.Method, 
 	}
 
 	// Create the proposal content using the handler system
-	content, err := p.createProposalContent(proposal)
+	content, err := p.createProposalContent(ctx, proposal)
 	if err != nil {
 		return nil, err
 	}
