@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types/proposal"
@@ -235,6 +237,71 @@ func (h CommunityPoolSpendProposalHandler) Type() string {
 	return distrtypes.ProposalTypeCommunityPoolSpend
 }
 
+// UpdateResourceDependencyMappingProposalHandler handles resource dependency mapping proposals
+type UpdateResourceDependencyMappingProposalHandler struct {
+	evmKeeper EVMKeeper
+}
+
+// HandleProposal implements ProposalHandler
+func (h UpdateResourceDependencyMappingProposalHandler) HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
+	if len(proposal.Changes) == 0 {
+		return nil, errors.New("at least one resource dependency mapping must be specified")
+	}
+
+	// Get the resource and dependencies from changes
+	var resource string
+	var dependencies []string
+	for _, change := range proposal.Changes {
+		switch change.Key {
+		case "resource":
+			resourceStr, ok := change.Value.(string)
+			if !ok {
+				return nil, fmt.Errorf("resource must be a string")
+			}
+			resource = resourceStr
+		case "dependencies":
+			deps, ok := change.Value.([]interface{})
+			if !ok {
+				return nil, fmt.Errorf("dependencies must be an array")
+			}
+			dependencies = make([]string, len(deps))
+			for i, dep := range deps {
+				depStr, ok := dep.(string)
+				if !ok {
+					return nil, fmt.Errorf("dependency must be a string")
+				}
+				dependencies[i] = depStr
+			}
+		}
+	}
+
+	if resource == "" {
+		return nil, errors.New("resource must be specified")
+	}
+	if len(dependencies) == 0 {
+		return nil, errors.New("at least one dependency must be specified")
+	}
+
+	// Build a MessageDependencyMapping for the resource and dependencies
+	// For demonstration, use SynchronousMessageDependencyMapping for each dependency
+	var mappings []accesscontrol.MessageDependencyMapping
+	for _, dep := range dependencies {
+		mapping := acltypes.SynchronousMessageDependencyMapping(acltypes.MessageKey(dep))
+		mappings = append(mappings, mapping)
+	}
+
+	return acltypes.NewMsgUpdateResourceDependencyMappingProposal(
+		proposal.Title,
+		proposal.Description,
+		mappings,
+	), nil
+}
+
+// Type implements ProposalHandler
+func (h UpdateResourceDependencyMappingProposalHandler) Type() string {
+	return acltypes.ProposalUpdateResourceDependencyMapping
+}
+
 // RegisterProposalHandlers registers all available proposal handlers
 func RegisterProposalHandlers(evmKeeper EVMKeeper) map[string]ProposalHandler {
 	proposalHandlers := make(map[string]ProposalHandler)
@@ -260,6 +327,10 @@ func RegisterProposalHandlers(evmKeeper EVMKeeper) map[string]ProposalHandler {
 	// Register the CommunityPoolSpendProposalHandler
 	communityPoolSpendHandler := CommunityPoolSpendProposalHandler{evmKeeper: evmKeeper}
 	proposalHandlers[communityPoolSpendHandler.Type()] = communityPoolSpendHandler
+
+	// Register the UpdateResourceDependencyMappingProposalHandler
+	resourceDependencyHandler := UpdateResourceDependencyMappingProposalHandler{evmKeeper: evmKeeper}
+	proposalHandlers[resourceDependencyHandler.Type()] = resourceDependencyHandler
 
 	return proposalHandlers
 }
@@ -288,8 +359,6 @@ func (p PrecompileExecutor) createProposalContent(ctx sdk.Context, proposal Prop
 	if err != nil {
 		// For unsupported types, provide more specific error messages
 		switch proposal.Type {
-		case "UpdateResourceDependencyMapping":
-			return nil, fmt.Errorf("update resource dependency mapping proposals are not supported yet via precompile")
 		// WASM module proposal types
 		case "UpdateWasmDependencyMapping", "StoreCode", "InstantiateContract", "MigrateContract", "SudoContract",
 			"ExecuteContract", "UpdateAdmin", "ClearAdmin", "PinCodes", "UnpinCodes",

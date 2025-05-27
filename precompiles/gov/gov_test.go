@@ -404,6 +404,66 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			wantErr:    true,
 			wantErrMsg: "invalid amount format: invalid decimal coin expression: invalid",
 		},
+		{
+			name: "returns proposal id on submit resource dependency mapping proposal with valid content",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Resource Dependency Mapping\",\"description\":\"Update resource dependencies\",\"type\":\"UpdateResourceDependencyMapping\",\"changes\":[{\"key\":\"resource\",\"value\":\"resource1\"},{\"key\":\"dependencies\",\"value\":[\"dep1\",\"dep2\"]}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr: false,
+			wantRet: []byte{31: 1}, // proposal id 3 is expected (1 and 2 are already used)
+		},
+		{
+			name: "returns error on resource dependency mapping proposal with no changes",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid mapping\",\"description\":\"This proposal has no changes\",\"type\":\"UpdateResourceDependencyMapping\",\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "at least one resource dependency mapping must be specified",
+		},
+		{
+			name: "returns error on resource dependency mapping proposal with missing resource",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid mapping\",\"description\":\"Missing resource\",\"type\":\"UpdateResourceDependencyMapping\",\"changes\":[{\"key\":\"dependencies\",\"value\":[\"dep1\",\"dep2\"]}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "resource must be specified",
+		},
+		{
+			name: "returns error on resource dependency mapping proposal with missing dependencies",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid mapping\",\"description\":\"Missing dependencies\",\"type\":\"UpdateResourceDependencyMapping\",\"changes\":[{\"key\":\"resource\",\"value\":\"resource1\"}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "at least one dependency must be specified",
+		},
+		{
+			name: "returns error on resource dependency mapping proposal with invalid resource type",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid mapping\",\"description\":\"Invalid resource type\",\"type\":\"UpdateResourceDependencyMapping\",\"changes\":[{\"key\":\"resource\",\"value\":123},{\"key\":\"dependencies\",\"value\":[\"dep1\",\"dep2\"]}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "resource must be a string",
+		},
+		{
+			name: "returns error on resource dependency mapping proposal with invalid dependencies type",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid mapping\",\"description\":\"Invalid dependencies type\",\"type\":\"UpdateResourceDependencyMapping\",\"changes\":[{\"key\":\"resource\",\"value\":\"resource1\"},{\"key\":\"dependencies\",\"value\":\"not an array\"}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "dependencies must be an array",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
