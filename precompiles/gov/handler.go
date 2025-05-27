@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types/proposal"
+	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 )
 
 // Proposal represents the structure for proposal JSON input
@@ -82,6 +84,65 @@ func (h ParameterChangeProposalHandler) Type() string {
 	return paramstypes.ProposalTypeChange
 }
 
+// SoftwareUpgradeProposalHandler handles software upgrade proposals
+type SoftwareUpgradeProposalHandler struct{}
+
+// HandleProposal implements ProposalHandler
+func (h SoftwareUpgradeProposalHandler) HandleProposal(proposal Proposal) (govtypes.Content, error) {
+	if len(proposal.Changes) == 0 {
+		return nil, errors.New("at least one upgrade change must be specified")
+	}
+
+	// Get the upgrade height from changes
+	var height int64
+	var name string
+	var info string
+	for _, change := range proposal.Changes {
+		switch change.Key {
+		case "height":
+			heightFloat, ok := change.Value.(float64)
+			if !ok {
+				return nil, fmt.Errorf("height must be a number")
+			}
+			height = int64(heightFloat)
+		case "name":
+			nameStr, ok := change.Value.(string)
+			if !ok {
+				return nil, fmt.Errorf("name must be a string")
+			}
+			name = nameStr
+		case "info":
+			infoStr, ok := change.Value.(string)
+			if !ok {
+				return nil, fmt.Errorf("info must be a string")
+			}
+			info = infoStr
+		}
+	}
+
+	if height == 0 {
+		return nil, errors.New("upgrade height must be specified")
+	}
+	if name == "" {
+		return nil, errors.New("upgrade name must be specified")
+	}
+
+	return upgradetypes.NewSoftwareUpgradeProposal(
+		proposal.Title,
+		proposal.Description,
+		upgradetypes.Plan{
+			Name:   name,
+			Height: height,
+			Info:   info,
+		},
+	), nil
+}
+
+// Type implements ProposalHandler
+func (h SoftwareUpgradeProposalHandler) Type() string {
+	return upgradetypes.ProposalTypeSoftwareUpgrade
+}
+
 // RegisterProposalHandlers registers all available proposal handlers
 func RegisterProposalHandlers() map[string]ProposalHandler {
 	proposalHandlers := make(map[string]ProposalHandler)
@@ -95,6 +156,10 @@ func RegisterProposalHandlers() map[string]ProposalHandler {
 	// Register the ParameterChangeProposalHandler
 	paramHandler := ParameterChangeProposalHandler{}
 	proposalHandlers[paramHandler.Type()] = paramHandler
+
+	// Register the SoftwareUpgradeProposalHandler
+	upgradeHandler := SoftwareUpgradeProposalHandler{}
+	proposalHandlers[upgradeHandler.Type()] = upgradeHandler
 
 	// Additional handlers can be registered here
 
@@ -125,8 +190,6 @@ func (p PrecompileExecutor) createProposalContent(proposal Proposal) (govtypes.C
 	if err != nil {
 		// For unsupported types, provide more specific error messages
 		switch proposal.Type {
-		case "SoftwareUpgrade":
-			return nil, fmt.Errorf("software upgrade proposals are not supported yet via precompile")
 		case "CancelSoftwareUpgrade":
 			return nil, fmt.Errorf("cancel software upgrade proposals are not supported yet via precompile")
 		case "CommunityPoolSpend":

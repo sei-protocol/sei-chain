@@ -3,12 +3,13 @@ package gov_test
 import (
 	"embed"
 	"encoding/hex"
-	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"math/big"
 	"reflect"
 	"testing"
+
+	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
@@ -220,7 +221,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal:         "{\"title\":\"Test Proposal\",\"description\":\"My awesome proposal\",\"is_expedited\":false,\"type\":\"Text\",\"deposit\":\"10000000usei\"}",
 			},
 			wantErr: false,
-			wantRet: []byte{31: 1}, // proposal id 1 is expected
+			wantRet: []byte{31: 1}, // proposal id 1 is expected (1 and 2 are already used)
 		},
 		{
 			name: "returns proposal id on submit text proposal with valid content and no deposit",
@@ -230,7 +231,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal:         "{\"title\":\"Test Proposal\",\"description\":\"My awesome proposal\",\"is_expedited\":false,\"type\":\"Text\"}",
 			},
 			wantErr: false,
-			wantRet: []byte{31: 1}, // proposal id 1 is expected
+			wantRet: []byte{31: 1}, // proposal id 1 is expected (1 and 2 are already used)
 		},
 		{
 			name: "returns proposal id on submit parameter change proposal with multiple changes",
@@ -240,7 +241,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal:         "{\"title\":\"Gov Param Change\",\"description\":\"Update quorum to 0.45\",\"changes\":[{\"subspace\":\"gov\",\"key\":\"tallyparams\",\"value\":{\"quorum\":\"0.45\"}}],\"deposit\":\"10000000usei\",\"is_expedited\":false}",
 			},
 			wantErr: false,
-			wantRet: []byte{31: 1}, // proposal id 1 is expected
+			wantRet: []byte{31: 1}, // proposal id 1 is expected (1 and 2 are already used)
 		},
 		{
 			name: "returns error on parameter change proposal with no changes",
@@ -261,6 +262,76 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			},
 			wantErr:    true,
 			wantErrMsg: "parameter ct/EnableCtModule does not exist: invalid proposal content",
+		},
+		{
+			name: "returns proposal id on submit software upgrade proposal with valid content",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Software Upgrade\",\"description\":\"Upgrade to v2.0.0\",\"type\":\"SoftwareUpgrade\",\"changes\":[{\"key\":\"height\",\"value\":1000},{\"key\":\"name\",\"value\":\"v2.0.0\"},{\"key\":\"info\",\"value\":\"Upgrade to v2.0.0\"}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr: false,
+			wantRet: []byte{31: 1},
+		},
+		{
+			name: "returns error on software upgrade proposal with no changes",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"This proposal has no changes\",\"type\":\"SoftwareUpgrade\",\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "at least one upgrade change must be specified",
+		},
+		{
+			name: "returns error on software upgrade proposal with missing height",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Missing height\",\"type\":\"SoftwareUpgrade\",\"changes\":[{\"key\":\"name\",\"value\":\"v2.0.0\"}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "upgrade height must be specified",
+		},
+		{
+			name: "returns error on software upgrade proposal with missing name",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Missing name\",\"type\":\"SoftwareUpgrade\",\"changes\":[{\"key\":\"height\",\"value\":1000}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "upgrade name must be specified",
+		},
+		{
+			name: "returns error on software upgrade proposal with invalid height type",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Invalid height type\",\"type\":\"SoftwareUpgrade\",\"changes\":[{\"key\":\"height\",\"value\":\"1000\"},{\"key\":\"name\",\"value\":\"v2.0.0\"}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "height must be a number",
+		},
+		{
+			name: "returns error on software upgrade proposal with invalid name type",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Invalid name type\",\"type\":\"SoftwareUpgrade\",\"changes\":[{\"key\":\"height\",\"value\":1000},{\"key\":\"name\",\"value\":123}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "name must be a string",
+		},
+		{
+			name: "returns error on software upgrade proposal with invalid info type",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Invalid info type\",\"type\":\"SoftwareUpgrade\",\"changes\":[{\"key\":\"height\",\"value\":1000},{\"key\":\"name\",\"value\":\"v2.0.0\"},{\"key\":\"info\",\"value\":123}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "info must be a string",
 		},
 	}
 	for _, tt := range tests {
