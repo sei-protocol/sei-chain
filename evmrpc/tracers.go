@@ -33,6 +33,8 @@ type DebugAPI struct {
 	connectionType     ConnectionType
 	isPanicCache       *expirable.LRU[common.Hash, bool] // hash to isPanic
 	traceCallSemaphore chan struct{}                     // Semaphore for limiting concurrent trace calls
+	maxBlockLookback   int64
+	traceTimeout       time.Duration
 }
 
 // acquireTraceSemaphore attempts to acquire a slot from the traceCallSemaphore.
@@ -59,7 +61,7 @@ func NewDebugAPI(
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
-	maxConcurrentTraceCalls uint64, // New parameter
+	debugCfg Config,
 ) *DebugAPI {
 	backend := NewBackend(ctxProvider, k, txConfig, tmClient, config, app, antehandler)
 	tracersAPI := tracers.NewAPI(backend)
@@ -67,8 +69,8 @@ func NewDebugAPI(
 	isPanicCache := expirable.NewLRU[common.Hash, bool](IsPanicCacheSize, evictCallback, IsPanicCacheTTL)
 
 	var sem chan struct{}
-	if maxConcurrentTraceCalls > 0 {
-		sem = make(chan struct{}, maxConcurrentTraceCalls)
+	if debugCfg.MaxConcurrentTraceCalls > 0 {
+		sem = make(chan struct{}, debugCfg.MaxConcurrentTraceCalls)
 	}
 
 	return &DebugAPI{
@@ -80,6 +82,8 @@ func NewDebugAPI(
 		connectionType:     connectionType,
 		isPanicCache:       isPanicCache,
 		traceCallSemaphore: sem,
+		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
+		traceTimeout:       debugCfg.TraceTimeout,
 	}
 }
 
@@ -92,14 +96,14 @@ func NewSeiDebugAPI(
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
-	maxConcurrentTraceCalls uint64, // New parameter
+	debugCfg Config,
 ) *SeiDebugAPI {
 	backend := NewBackend(ctxProvider, k, txConfig, tmClient, config, app, antehandler)
 	tracersAPI := tracers.NewAPI(backend)
 
 	var sem chan struct{}
-	if maxConcurrentTraceCalls > 0 {
-		sem = make(chan struct{}, maxConcurrentTraceCalls)
+	if debugCfg.MaxConcurrentTraceCalls > 0 {
+		sem = make(chan struct{}, debugCfg.MaxConcurrentTraceCalls)
 	}
 	// Note: The embedded DebugAPI here does not get its own isPanicCache initialized
 	// This is consistent with the original code. If it needs one, it should be added.
@@ -111,6 +115,8 @@ func NewSeiDebugAPI(
 		txDecoder:          txConfig.TxDecoder(),
 		connectionType:     connectionType,
 		traceCallSemaphore: sem,
+		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
+		traceTimeout:       debugCfg.TraceTimeout,
 		// isPanicCache: nil, // Explicitly nil as per original structure for SeiDebugAPI's embedded DebugAPI
 	}
 
@@ -123,6 +129,9 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	release := api.acquireTraceSemaphore()
 	defer release()
 
+	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
+	defer cancel()
+
 	startTime := time.Now()
 	defer recordMetrics("debug_traceTransaction", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceTransaction(ctx, hash, config)
@@ -132,6 +141,14 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	release := api.acquireTraceSemaphore() // Use the embedded DebugAPI's semaphore
 	defer release()
+
+	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
+	defer cancel()
+
+	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
+	if number.Int64() < latest-api.maxBlockLookback {
+		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
+	}
 
 	startTime := time.Now()
 	defer recordMetrics("sei_traceBlockByNumberExcludeTraceFail", api.connectionType, startTime, returnErr == nil)
@@ -157,6 +174,9 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	release := api.acquireTraceSemaphore() // Use the embedded DebugAPI's semaphore
 	defer release()
+
+	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
+	defer cancel()
 
 	startTime := time.Now()
 	defer recordMetrics("sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr == nil)
@@ -236,6 +256,14 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	release := api.acquireTraceSemaphore()
 	defer release()
 
+	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
+	defer cancel()
+
+	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
+	if number.Int64() < latest-api.maxBlockLookback {
+		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
+	}
+
 	startTime := time.Now()
 	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
@@ -246,6 +274,9 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	release := api.acquireTraceSemaphore()
 	defer release()
 
+	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
+	defer cancel()
+
 	startTime := time.Now()
 	defer recordMetrics("debug_traceBlockByHash", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
@@ -255,6 +286,9 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 func (api *DebugAPI) TraceCall(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (result interface{}, returnErr error) {
 	release := api.acquireTraceSemaphore()
 	defer release()
+
+	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
+	defer cancel()
 
 	startTime := time.Now()
 	defer recordMetrics("debug_traceCall", api.connectionType, startTime, returnErr == nil)

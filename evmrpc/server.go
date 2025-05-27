@@ -53,14 +53,14 @@ func NewEVMHTTPServer(
 	ctx := ctxProvider(LatestCtxHeight)
 
 	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP)
-	debugAPI := NewDebugAPI(tmClient, k, ctxProvider, txConfig, simulateConfig, app, antehandler, ConnectionTypeHTTP, config.MaxConcurrentTraceCalls)
+	debugAPI := NewDebugAPI(tmClient, k, ctxProvider, txConfig, simulateConfig, app, antehandler, ConnectionTypeHTTP, config)
 	if isPanicOrSyntheticTxFunc == nil {
 		isPanicOrSyntheticTxFunc = func(ctx context.Context, hash common.Hash) (bool, error) {
 			return debugAPI.isPanicOrSyntheticTx(ctx, hash)
 		}
 	}
 	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc)
-	seiDebugAPI := NewSeiDebugAPI(tmClient, k, ctxProvider, txConfig, simulateConfig, app, antehandler, ConnectionTypeHTTP, config.MaxConcurrentTraceCalls)
+	seiDebugAPI := NewSeiDebugAPI(tmClient, k, ctxProvider, txConfig, simulateConfig, app, antehandler, ConnectionTypeHTTP, config)
 
 	apis := []rpc.API{
 		{
