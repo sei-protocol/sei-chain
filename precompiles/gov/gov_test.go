@@ -233,14 +233,34 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			wantRet: []byte{31: 1}, // proposal id 1 is expected
 		},
 		{
-			name: "returns proposal id on submit params change proposal with valid content and no deposit",
+			name: "returns proposal id on submit parameter change proposal with multiple changes",
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Test Proposal\",\"description\":\"My awesome proposal\",\"is_expedited\":false,\"type\":\"ParamsChange\"}",
+				proposal:         "{\"title\":\"Gov Param Change\",\"description\":\"Update quorum to 0.45\",\"changes\":[{\"subspace\":\"gov\",\"key\":\"tallyparams\",\"value\":{\"quorum\":\"0.45\"}}],\"deposit\":\"10000000usei\",\"is_expedited\":false}",
 			},
 			wantErr: false,
 			wantRet: []byte{31: 1}, // proposal id 1 is expected
+		},
+		{
+			name: "returns error on parameter change proposal with no changes",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid proposal\",\"description\":\"This proposal has no changes\",\"type\":\"ParameterChange\",\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "at least one parameter change must be specified",
+		},
+		{
+			name: "returns error on parameter change proposal with invalid value type",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid proposal\",\"description\":\"This proposal has invalid value\",\"type\":\"ParameterChange\",\"changes\":[{\"subspace\":\"ct\",\"key\":\"EnableCtModule\",\"value\":{\"complex\":\"object\"}}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "parameter ct/EnableCtModule does not exist: invalid proposal content",
 		},
 	}
 	for _, tt := range tests {
