@@ -244,6 +244,16 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			wantRet: []byte{31: 1}, // proposal id 1 is expected (1 and 2 are already used)
 		},
 		{
+			name: "returns proposal id on submit cancel software upgrade proposal",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Cancel Upgrade\",\"description\":\"Cancel the pending software upgrade\",\"type\":\"CancelSoftwareUpgrade\",\"deposit\":\"10000000usei\"}",
+			},
+			wantErr: false,
+			wantRet: []byte{31: 1}, // proposal id 1 is expected (1 and 2 are already used)
+		},
+		{
 			name: "returns error on parameter change proposal with no changes",
 			args: args{
 				caller:           callerEvmAddress,

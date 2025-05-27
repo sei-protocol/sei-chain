@@ -143,6 +143,24 @@ func (h SoftwareUpgradeProposalHandler) Type() string {
 	return upgradetypes.ProposalTypeSoftwareUpgrade
 }
 
+// CancelSoftwareUpgradeProposalHandler handles cancel software upgrade proposals
+type CancelSoftwareUpgradeProposalHandler struct{}
+
+// HandleProposal implements ProposalHandler
+func (h CancelSoftwareUpgradeProposalHandler) HandleProposal(proposal Proposal) (govtypes.Content, error) {
+	// Cancel software upgrade proposals don't need any additional parameters
+	// They just need title and description which are already validated in createProposalContent
+	return upgradetypes.NewCancelSoftwareUpgradeProposal(
+		proposal.Title,
+		proposal.Description,
+	), nil
+}
+
+// Type implements ProposalHandler
+func (h CancelSoftwareUpgradeProposalHandler) Type() string {
+	return upgradetypes.ProposalTypeCancelSoftwareUpgrade
+}
+
 // RegisterProposalHandlers registers all available proposal handlers
 func RegisterProposalHandlers() map[string]ProposalHandler {
 	proposalHandlers := make(map[string]ProposalHandler)
@@ -161,7 +179,9 @@ func RegisterProposalHandlers() map[string]ProposalHandler {
 	upgradeHandler := SoftwareUpgradeProposalHandler{}
 	proposalHandlers[upgradeHandler.Type()] = upgradeHandler
 
-	// Additional handlers can be registered here
+	// Register the CancelSoftwareUpgradeProposalHandler
+	cancelUpgradeHandler := CancelSoftwareUpgradeProposalHandler{}
+	proposalHandlers[cancelUpgradeHandler.Type()] = cancelUpgradeHandler
 
 	return proposalHandlers
 }
@@ -190,8 +210,6 @@ func (p PrecompileExecutor) createProposalContent(proposal Proposal) (govtypes.C
 	if err != nil {
 		// For unsupported types, provide more specific error messages
 		switch proposal.Type {
-		case "CancelSoftwareUpgrade":
-			return nil, fmt.Errorf("cancel software upgrade proposals are not supported yet via precompile")
 		case "CommunityPoolSpend":
 			return nil, fmt.Errorf("community pool spend proposals are not supported yet via precompile")
 		case "UpdateResourceDependencyMapping":
