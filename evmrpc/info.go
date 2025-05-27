@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"slices"
 	"time"
@@ -112,7 +113,11 @@ func (i *InfoAPI) GasPriceHelper(ctx context.Context, baseFee *big.Int, totalGas
 // lastBlock is inclusive
 func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (result *FeeHistoryResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_feeHistory", i.connectionType, startTime, returnErr == nil)
+	fmt.Printf("[Debug] Start eth_feeHistory with blockCount %d, lastBlock %d, rewardPercentiles %v\n", blockCount, lastBlock.Int64(), rewardPercentiles)
+	defer func() {
+		recordMetrics("eth_feeHistory", i.connectionType, startTime, returnErr == nil)
+		fmt.Printf("[Debug] Completed eth_feeHistory with latency %s, blockCount %d, lastBlock %d\n", time.Since(startTime), blockCount, lastBlock.Int64())
+	}()
 	result = &FeeHistoryResult{}
 
 	// logic consistent with go-ethereum's validation (block < 1 means no block)

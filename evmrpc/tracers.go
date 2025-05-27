@@ -161,21 +161,29 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 
 func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
+	fmt.Printf("[Debug] Start debug_traceBlockByNumber for block %s\n", number.Int64())
 	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	fmt.Printf("[Debug] Start debug_traceBlockByNumber with latency %s for block %d\n", time.Since(startTime), number.Int64())
+
 	return
 }
 
 func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
+	fmt.Printf("[Debug] Start debug_traceBlockByHash for hash %s\n", hash.String())
 	defer recordMetrics("debug_traceBlockByHash", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	fmt.Printf("[Debug] Completed debug_traceBlockByHash with latency %s for hash %s\n", time.Since(startTime), hash.String())
+
 	return
 }
 
 func (api *DebugAPI) TraceCall(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (result interface{}, returnErr error) {
 	startTime := time.Now()
+	fmt.Printf("[Debug] Start debug_traceCall for blockOrHash %s\n", blockNrOrHash.String())
 	defer recordMetrics("debug_traceCall", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
+	fmt.Printf("[Debug] Completed debug_traceCall with latency %s for blockOrHash %s\n", time.Since(startTime), blockNrOrHash.String())
 	return
 }
