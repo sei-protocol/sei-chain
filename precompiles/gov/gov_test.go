@@ -408,7 +408,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(3)
 			k := &testApp.EvmKeeper
 			k.SetAddressMapping(ctx, tt.args.callerSeiAddress, tt.args.caller)
 			k.SetAddressMapping(ctx, recipientSeiAddress, recipientEvmAddress)
