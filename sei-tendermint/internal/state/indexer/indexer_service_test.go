@@ -149,7 +149,7 @@ func setupDB(t *testing.T) *dockertest.Pool {
 			"POSTGRES_DB=" + dbName,
 			"listen_addresses = '*'",
 		},
-		ExposedPorts: []string{port},
+		ExposedPorts: []string{fmt.Sprintf("%s/tcp", port)}, // Use the default PostgreSQL port inside container
 	}, func(config *docker.HostConfig) {
 		// set AutoRemove to true so that stopped container goes away by itself
 		config.AutoRemove = true
@@ -164,7 +164,7 @@ func setupDB(t *testing.T) *dockertest.Pool {
 	// hanging around
 	_ = resource.Expire(60)
 
-	conn := fmt.Sprintf(dsn, user, password, resource.GetPort(port+"/tcp"), dbName)
+	conn := fmt.Sprintf(dsn, user, password, resource.GetPort(fmt.Sprintf("%s/tcp", port)), dbName)
 
 	assert.NoError(t, pool.Retry(func() error {
 		sink, err := psql.NewEventSink(conn, "test-chainID")
