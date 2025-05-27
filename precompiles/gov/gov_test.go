@@ -214,10 +214,9 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 		name string
 		//fields     fields
 		args       args
-		want       []byte
 		wantErr    bool
 		wantErrMsg string
-		wantRet    string
+		wantRet    []byte
 	}{
 		{
 			name: "returns proposal id on submit text proposal with valid content",
@@ -227,7 +226,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal:         "{\"title\":\"Test Proposal\",\"description\":\"My awesome proposal\",\"is_expedited\":false,\"type\":\"Text\",\"deposit\":\"10000000usei\"}",
 			},
 			wantErr: false,
-			want:    []byte{},
+			wantRet: []byte{31: 1}, // proposal id 1 is expected
 		},
 	}
 	for _, tt := range tests {
@@ -241,7 +240,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				StateDB:   stateDb,
 				TxContext: vm.TxContext{Origin: tt.args.caller},
 			}
-			amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(20000000000000000))) // Adjusted for large deposit
+			amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10000000)))
 			require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
 			require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, tt.args.callerSeiAddress, amt))
 
