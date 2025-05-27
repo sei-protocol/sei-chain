@@ -15,7 +15,7 @@
         "type": "uint64"
       }
     ],
-    "stateMutability": "payable",
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {

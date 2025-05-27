@@ -3,7 +3,11 @@ package gov_test
 import (
 	"embed"
 	"encoding/hex"
+	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"math/big"
+	"reflect"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -188,6 +192,75 @@ func TestGovPrecompile(t *testing.T) {
 				require.Nil(t, err)
 				require.Empty(t, res.VmError)
 				tt.verify(t, ctx, seiAddr, tt.args.proposal)
+			}
+		})
+	}
+}
+
+func TestPrecompileExecutor_submitProposal(t *testing.T) {
+	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	type fields struct {
+		//govKeeper    pcommon.GovKeeper
+		//govMsgServer pcommon.GovMsgServer
+		//evmKeeper    pcommon.EVMKeeper
+		//bankKeeper   pcommon.BankKeeper
+	}
+	type args struct {
+		caller           common.Address
+		callerSeiAddress sdk.AccAddress
+		proposal         string
+	}
+	tests := []struct {
+		name string
+		//fields     fields
+		args       args
+		want       []byte
+		wantErr    bool
+		wantErrMsg string
+		wantRet    string
+	}{
+		{
+			name: "returns proposal id on submit text proposal with valid content",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Test Proposal\",\"description\":\"My awesome proposal\",\"is_expedited\":false,\"type\":\"Text\",\"deposit\":\"10000000usei\"}",
+			},
+			wantErr: false,
+			want:    []byte{},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testApp := testkeeper.EVMTestApp
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+			k := &testApp.EvmKeeper
+			k.SetAddressMapping(ctx, tt.args.callerSeiAddress, tt.args.caller)
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB:   stateDb,
+				TxContext: vm.TxContext{Origin: tt.args.caller},
+			}
+			amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(20000000000000000))) // Adjusted for large deposit
+			require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
+			require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, tt.args.callerSeiAddress, amt))
+
+			govMsgServer := govkeeper.NewMsgServerImpl(testApp.GovKeeper)
+			p, _ := gov.NewPrecompile(testApp.GovKeeper, govMsgServer, k, k.BankKeeper())
+			submitProposalMethod, err := p.ABI.MethodById(p.GetExecutor().(*gov.PrecompileExecutor).SubmitProposalID)
+			require.Nil(t, err)
+			inputs, err := submitProposalMethod.Inputs.Pack(tt.args.proposal)
+			require.Nil(t, err)
+			gotRet, err := p.Run(&evm, tt.args.caller, common.Address{}, append(p.GetExecutor().(*gov.PrecompileExecutor).SubmitProposalID, inputs...), nil, false, false, nil)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Equal(t, tt.wantErrMsg, string(gotRet))
+			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
 			}
 		})
 	}

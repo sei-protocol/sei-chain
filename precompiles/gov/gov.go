@@ -254,6 +254,10 @@ func (p PrecompileExecutor) submitProposal(ctx sdk.Context, method *abi.Method, 
 		return nil, err
 	}
 
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
 	proposer, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
 		return nil, types.NewAssociationMissingErr(caller.Hex())
@@ -272,15 +276,9 @@ func (p PrecompileExecutor) submitProposal(ctx sdk.Context, method *abi.Method, 
 		return nil, err
 	}
 
-	// Initialize deposit amount
-	var initialDeposit sdk.Coins
-	if value != nil && value.Sign() > 0 {
-		// Convert the value (in wei) to usei
-		coin, err := pcommon.HandlePaymentUsei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), proposer, value, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
-		if err != nil {
-			return nil, err
-		}
-		initialDeposit = sdk.NewCoins(coin)
+	initialDeposit, err := sdk.ParseCoinsNormalized(proposal.Deposit)
+	if err != nil {
+		return nil, err
 	}
 
 	// Create the MsgSubmitProposal

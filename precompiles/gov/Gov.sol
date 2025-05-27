@@ -32,5 +32,5 @@ interface IGov {
      */
     function submitProposal(
         string calldata proposalJSON
-    ) payable external returns (uint64 proposalID);
+    ) external returns (uint64 proposalID);
 }
