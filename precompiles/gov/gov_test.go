@@ -222,6 +222,26 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			wantErr: false,
 			wantRet: []byte{31: 1}, // proposal id 1 is expected
 		},
+		{
+			name: "returns proposal id on submit text proposal with valid content and no deposit",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Test Proposal\",\"description\":\"My awesome proposal\",\"is_expedited\":false,\"type\":\"Text\"}",
+			},
+			wantErr: false,
+			wantRet: []byte{31: 1}, // proposal id 1 is expected
+		},
+		{
+			name: "returns proposal id on submit params change proposal with valid content and no deposit",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Test Proposal\",\"description\":\"My awesome proposal\",\"is_expedited\":false,\"type\":\"ParamsChange\"}",
+			},
+			wantErr: false,
+			wantRet: []byte{31: 1}, // proposal id 1 is expected
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -125,10 +125,6 @@ func (p PrecompileExecutor) createProposalContent(proposal Proposal) (govtypes.C
 	if err != nil {
 		// For unsupported types, provide more specific error messages
 		switch proposal.Type {
-		case "Text":
-			return nil, fmt.Errorf("text proposals are not supported yet via precompile")
-		case "ParameterChange":
-			return nil, fmt.Errorf("parameter change proposals are not supported yet via precompile")
 		case "SoftwareUpgrade":
 			return nil, fmt.Errorf("software upgrade proposals are not supported yet via precompile")
 		case "CancelSoftwareUpgrade":
