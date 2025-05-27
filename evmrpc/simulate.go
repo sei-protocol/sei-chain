@@ -114,7 +114,11 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args ethapi.T
 
 func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride, blockOverrides *ethapi.BlockOverrides) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
+	fmt.Printf("[Debug] Start eth_call with blockOrHash %s, args %v, overrides %v\n", blockNrOrHash.String(), args, overrides)
+	defer func() {
+		recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
+		fmt.Printf("[Debug] Completed eth_call with latency %s, blockOrHash %s \n", time.Since(startTime), blockNrOrHash.String())
+	}()
 	defer func() {
 		if r := recover(); r != nil {
 			if strings.Contains(fmt.Sprintf("%s", r), "Int overflow") {

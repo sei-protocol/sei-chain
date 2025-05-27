@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"strconv"
 	"time"
@@ -34,7 +35,12 @@ func NewTxPoolAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(
 // For now, we put all unconfirmed txs in pending and none in queued
 func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]map[string]*ethapi.RPCTransaction, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("sei_content", t.connectionType, startTime, returnErr == nil)
+	sdkCtx := t.ctxProvider(LatestCtxHeight)
+	fmt.Printf("[Debug] Start sei_content at height %d\n", sdkCtx.BlockHeight())
+	defer func() {
+		recordMetrics("sei_content", t.connectionType, startTime, returnErr == nil)
+		fmt.Printf("[Debug] Completed sei_content with latency %s for height %d\n", time.Since(startTime), sdkCtx.BlockHeight())
+	}()
 	content := map[string]map[string]map[string]*ethapi.RPCTransaction{
 		"pending": make(map[string]map[string]*ethapi.RPCTransaction),
 		"queued":  make(map[string]map[string]*ethapi.RPCTransaction),
@@ -46,7 +52,6 @@ func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]m
 		return nil, err
 	}
 
-	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	signer := ethtypes.MakeSigner(
 		types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
 		big.NewInt(sdkCtx.BlockHeight()),
