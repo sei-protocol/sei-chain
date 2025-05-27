@@ -7,7 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
-// CustomPrecompileStartingAddr all custom precompiles have an address greater than or equal to this address
+// all custom precompiles have an address greater than or equal to this address
 var CustomPrecompileStartingAddr = common.HexToAddress("0x0000000000000000000000000000000000001001")
 
 // Forked from go-ethereum, except journaling logic which is unnecessary with cacheKV
