@@ -25,33 +25,61 @@ const (
 )
 
 type DebugAPI struct {
-	tracersAPI     *tracers.API
-	tmClient       rpcclient.Client
-	keeper         *keeper.Keeper
-	ctxProvider    func(int64) sdk.Context
-	txDecoder      sdk.TxDecoder
-	connectionType ConnectionType
-	isPanicCache   *expirable.LRU[common.Hash, bool] // hash to isPanic
+	tracersAPI         *tracers.API
+	tmClient           rpcclient.Client
+	keeper             *keeper.Keeper
+	ctxProvider        func(int64) sdk.Context
+	txDecoder          sdk.TxDecoder
+	connectionType     ConnectionType
+	isPanicCache       *expirable.LRU[common.Hash, bool] // hash to isPanic
+	traceCallSemaphore chan struct{}                     // Semaphore for limiting concurrent trace calls
+}
+
+// acquireTraceSemaphore attempts to acquire a slot from the traceCallSemaphore.
+// It returns a function that must be called (typically with defer) to release the semaphore.
+// If the semaphore is nil (unlimited concurrency), it does nothing and returns a no-op release function.
+func (api *DebugAPI) acquireTraceSemaphore() func() {
+	if api.traceCallSemaphore != nil {
+		api.traceCallSemaphore <- struct{}{}
+		return func() { <-api.traceCallSemaphore }
+	}
+	return func() {} // No-op if semaphore is not active
 }
 
 type SeiDebugAPI struct {
 	*DebugAPI
 }
 
-func NewDebugAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, config *SimulateConfig, app *baseapp.BaseApp,
-	antehandler sdk.AnteHandler, connectionType ConnectionType) *DebugAPI {
+func NewDebugAPI(
+	tmClient rpcclient.Client,
+	k *keeper.Keeper,
+	ctxProvider func(int64) sdk.Context,
+	txConfig client.TxConfig,
+	config *SimulateConfig,
+	app *baseapp.BaseApp,
+	antehandler sdk.AnteHandler,
+	connectionType ConnectionType,
+	maxConcurrentTraceCalls uint64, // New parameter
+) *DebugAPI {
 	backend := NewBackend(ctxProvider, k, txConfig, tmClient, config, app, antehandler)
 	tracersAPI := tracers.NewAPI(backend)
 	evictCallback := func(key common.Hash, value bool) {}
 	isPanicCache := expirable.NewLRU[common.Hash, bool](IsPanicCacheSize, evictCallback, IsPanicCacheTTL)
+
+	var sem chan struct{}
+	if maxConcurrentTraceCalls > 0 {
+		sem = make(chan struct{}, maxConcurrentTraceCalls)
+	}
+
 	return &DebugAPI{
-		tracersAPI:     tracersAPI,
-		tmClient:       tmClient,
-		keeper:         k,
-		ctxProvider:    ctxProvider,
-		txDecoder:      txConfig.TxDecoder(),
-		connectionType: connectionType,
-		isPanicCache:   isPanicCache,
+		tracersAPI:         tracersAPI,
+		tmClient:           tmClient,
+		keeper:             k,
+		ctxProvider:        ctxProvider,
+		txDecoder:          txConfig.TxDecoder(),
+		connectionType:     connectionType,
+		isPanicCache:       isPanicCache,
+		traceCallSemaphore: sem,
 	}
 }
 
@@ -64,15 +92,37 @@ func NewSeiDebugAPI(
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
+	maxConcurrentTraceCalls uint64, // New parameter
 ) *SeiDebugAPI {
 	backend := NewBackend(ctxProvider, k, txConfig, tmClient, config, app, antehandler)
 	tracersAPI := tracers.NewAPI(backend)
+
+	var sem chan struct{}
+	if maxConcurrentTraceCalls > 0 {
+		sem = make(chan struct{}, maxConcurrentTraceCalls)
+	}
+	// Note: The embedded DebugAPI here does not get its own isPanicCache initialized
+	// This is consistent with the original code. If it needs one, it should be added.
+	embeddedDebugAPI := &DebugAPI{
+		tracersAPI:         tracersAPI,
+		tmClient:           tmClient,
+		keeper:             k,
+		ctxProvider:        ctxProvider,
+		txDecoder:          txConfig.TxDecoder(),
+		connectionType:     connectionType,
+		traceCallSemaphore: sem,
+		// isPanicCache: nil, // Explicitly nil as per original structure for SeiDebugAPI's embedded DebugAPI
+	}
+
 	return &SeiDebugAPI{
-		DebugAPI: &DebugAPI{tracersAPI: tracersAPI, tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txConfig.TxDecoder(), connectionType: connectionType},
+		DebugAPI: embeddedDebugAPI,
 	}
 }
 
 func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
+	release := api.acquireTraceSemaphore()
+	defer release()
+
 	startTime := time.Now()
 	defer recordMetrics("debug_traceTransaction", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceTransaction(ctx, hash, config)
@@ -80,9 +130,16 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 }
 
 func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
+	release := api.acquireTraceSemaphore() // Use the embedded DebugAPI's semaphore
+	defer release()
+
 	startTime := time.Now()
 	defer recordMetrics("sei_traceBlockByNumberExcludeTraceFail", api.connectionType, startTime, returnErr == nil)
-	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	// Accessing tracersAPI from the embedded DebugAPI
+	result, returnErr = api.DebugAPI.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	if returnErr != nil {
+		return
+	}
 	traces, ok := result.([]*tracers.TxTraceResult)
 	if !ok {
 		return nil, fmt.Errorf("unexpected type: %T", result)
@@ -98,9 +155,16 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 }
 
 func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
+	release := api.acquireTraceSemaphore() // Use the embedded DebugAPI's semaphore
+	defer release()
+
 	startTime := time.Now()
 	defer recordMetrics("sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr == nil)
-	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	// Accessing tracersAPI from the embedded DebugAPI
+	result, returnErr = api.DebugAPI.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	if returnErr != nil {
+		return
+	}
 	traces, ok := result.([]*tracers.TxTraceResult)
 	if !ok {
 		return nil, fmt.Errorf("unexpected type: %T", result)
@@ -116,6 +180,9 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 }
 
 // isPanicOrSyntheticTx returns true if the tx is a panic tx or if it is a synthetic tx. Used in the *ExcludeTraceFail endpoints.
+// This method itself is not directly rate-limited by the semaphore here, but calls to it might be from a rate-limited method.
+// If this method's internal trace call needs to be subject to the *same* semaphore, it would require passing it down or careful structuring.
+// For now, we assume the top-level RPC calls are what we're limiting.
 func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash) (isPanic bool, err error) {
 	sdkctx := api.ctxProvider(LatestCtxHeight)
 	receipt, err := api.keeper.GetReceipt(sdkctx, hash)
@@ -124,12 +191,16 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 	}
 	height := receipt.BlockNumber
 
-	isPanic, ok := api.isPanicCache.Get(hash)
-	if ok {
-		return isPanic, nil
+	// Check cache only if it's initialized
+	if api.isPanicCache != nil {
+		isPanic, ok := api.isPanicCache.Get(hash)
+		if ok {
+			return isPanic, nil
+		}
 	}
 
 	callTracer := "callTracer"
+	// This internal trace call is not directly acquiring the DebugAPI's semaphore.
 	tracersResult, err := api.tracersAPI.TraceBlockByNumber(ctx, rpc.BlockNumber(height), &tracers.TraceConfig{
 		Tracer: &callTracer,
 	})
@@ -144,11 +215,13 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 			found = true
 			result = len(trace.Error) > 0
 		}
-		// for each tx, add to cache to avoid re-tracing
-		if len(trace.Error) > 0 {
-			api.isPanicCache.Add(trace.TxHash, true)
-		} else {
-			api.isPanicCache.Add(trace.TxHash, false)
+		// for each tx, add to cache to avoid re-tracing, only if cache is initialized
+		if api.isPanicCache != nil {
+			if len(trace.Error) > 0 {
+				api.isPanicCache.Add(trace.TxHash, true)
+			} else {
+				api.isPanicCache.Add(trace.TxHash, false)
+			}
 		}
 	}
 
@@ -160,6 +233,9 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 }
 
 func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
+	release := api.acquireTraceSemaphore()
+	defer release()
+
 	startTime := time.Now()
 	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
@@ -167,6 +243,9 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 }
 
 func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
+	release := api.acquireTraceSemaphore()
+	defer release()
+
 	startTime := time.Now()
 	defer recordMetrics("debug_traceBlockByHash", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
@@ -174,6 +253,9 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 }
 
 func (api *DebugAPI) TraceCall(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (result interface{}, returnErr error) {
+	release := api.acquireTraceSemaphore()
+	defer release()
+
 	startTime := time.Now()
 	defer recordMetrics("debug_traceCall", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
