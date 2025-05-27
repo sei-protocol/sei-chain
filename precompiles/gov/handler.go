@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types/proposal"
 )
 
 // The Proposal represents the structure for proposal JSON input
@@ -34,6 +35,20 @@ func (h TextProposalHandler) HandleProposal(proposal Proposal) (govtypes.Content
 // Type implements ProposalHandler
 func (h TextProposalHandler) Type() string {
 	return govtypes.ProposalTypeText
+}
+
+type ParameterChangeProposalHandler struct{}
+
+func (h ParameterChangeProposalHandler) HandleProposal(proposal Proposal) (govtypes.Content, error) {
+	return paramstypes.NewParameterChangeProposal(
+		proposal.Title,
+		proposal.Description,
+		[]paramstypes.ParamChange{},
+		proposal.IsExpedited), nil
+}
+
+func (h ParameterChangeProposalHandler) Type() string {
+	return paramstypes.ProposalTypeChange
 }
 
 // createProposalContent creates the appropriate content for a proposal based on its type
