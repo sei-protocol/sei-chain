@@ -343,6 +343,66 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			wantErr:    true,
 			wantErrMsg: "info must be a string",
 		},
+		{
+			name: "returns proposal id on submit community pool spend proposal with valid content",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Community Pool Spend\",\"description\":\"Spend from community pool\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"recipient\",\"value\":\"sei1glsugqc8ll8ctayhdaj2yzmfn36n6t6jltl45c\"},{\"key\":\"amount\",\"value\":\"1000000usei\"}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr: false,
+			wantRet: []byte{31: 1},
+		},
+		{
+			name: "returns error on community pool spend proposal with no changes",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"This proposal has no changes\",\"type\":\"CommunityPoolSpend\",\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "at least one spend change must be specified",
+		},
+		{
+			name: "returns error on community pool spend proposal with missing recipient",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Missing recipient\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"amount\",\"value\":\"1000000usei\"}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "recipient address must be specified",
+		},
+		{
+			name: "returns error on community pool spend proposal with missing amount",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Missing amount\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"recipient\",\"value\":\"sei1h9yxfe0q3jwrj3xz0yuj0c9d0a3d4q5yqgh0x9\"}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "amount must be greater than zero",
+		},
+		{
+			name: "returns error on community pool spend proposal with invalid recipient",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Invalid recipient\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"recipient\",\"value\":\"invalid\"},{\"key\":\"amount\",\"value\":\"1000000usei\"}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid recipient address: decoding bech32 failed: invalid bech32 string length 7",
+		},
+		{
+			name: "returns error on community pool spend proposal with invalid amount",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Invalid amount\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"recipient\",\"value\":\"sei1h9yxfe0q3jwrj3xz0yuj0c9d0a3d4q5yqgh0x9\"},{\"key\":\"amount\",\"value\":\"invalid\"}],\"deposit\":\"10000000usei\"}",
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid amount format: invalid decimal coin expression: invalid",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

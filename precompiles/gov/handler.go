@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types/proposal"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
@@ -161,6 +163,64 @@ func (h CancelSoftwareUpgradeProposalHandler) Type() string {
 	return upgradetypes.ProposalTypeCancelSoftwareUpgrade
 }
 
+// CommunityPoolSpendProposalHandler handles community pool spend proposals
+type CommunityPoolSpendProposalHandler struct{}
+
+// HandleProposal implements ProposalHandler
+func (h CommunityPoolSpendProposalHandler) HandleProposal(proposal Proposal) (govtypes.Content, error) {
+	if len(proposal.Changes) == 0 {
+		return nil, errors.New("at least one spend change must be specified")
+	}
+
+	// Get the recipient and amount from changes
+	var recipient string
+	var amount sdk.Coins
+	for _, change := range proposal.Changes {
+		switch change.Key {
+		case "recipient":
+			recipientStr, ok := change.Value.(string)
+			if !ok {
+				return nil, fmt.Errorf("recipient must be a string")
+			}
+			recipient = recipientStr
+		case "amount":
+			amountStr, ok := change.Value.(string)
+			if !ok {
+				return nil, fmt.Errorf("amount must be a string")
+			}
+			var err error
+			amount, err = sdk.ParseCoinsNormalized(amountStr)
+			if err != nil {
+				return nil, fmt.Errorf("invalid amount format: %w", err)
+			}
+		}
+	}
+
+	if recipient == "" {
+		return nil, errors.New("recipient address must be specified")
+	}
+	if amount.IsZero() {
+		return nil, errors.New("amount must be greater than zero")
+	}
+
+	recipientAddr, err := sdk.AccAddressFromBech32(recipient)
+	if err != nil {
+		return nil, fmt.Errorf("invalid recipient address: %w", err)
+	}
+
+	return distrtypes.NewCommunityPoolSpendProposal(
+		proposal.Title,
+		proposal.Description,
+		recipientAddr,
+		amount,
+	), nil
+}
+
+// Type implements ProposalHandler
+func (h CommunityPoolSpendProposalHandler) Type() string {
+	return distrtypes.ProposalTypeCommunityPoolSpend
+}
+
 // RegisterProposalHandlers registers all available proposal handlers
 func RegisterProposalHandlers() map[string]ProposalHandler {
 	proposalHandlers := make(map[string]ProposalHandler)
@@ -182,6 +242,10 @@ func RegisterProposalHandlers() map[string]ProposalHandler {
 	// Register the CancelSoftwareUpgradeProposalHandler
 	cancelUpgradeHandler := CancelSoftwareUpgradeProposalHandler{}
 	proposalHandlers[cancelUpgradeHandler.Type()] = cancelUpgradeHandler
+
+	// Register the CommunityPoolSpendProposalHandler
+	communityPoolSpendHandler := CommunityPoolSpendProposalHandler{}
+	proposalHandlers[communityPoolSpendHandler.Type()] = communityPoolSpendHandler
 
 	return proposalHandlers
 }
@@ -214,10 +278,8 @@ func (p PrecompileExecutor) createProposalContent(proposal Proposal) (govtypes.C
 			return nil, fmt.Errorf("community pool spend proposals are not supported yet via precompile")
 		case "UpdateResourceDependencyMapping":
 			return nil, fmt.Errorf("update resource dependency mapping proposals are not supported yet via precompile")
-		case "UpdateWasmDependencyMapping":
-			return nil, fmt.Errorf("update wasm dependency mapping proposals are not supported yet via precompile")
 		// WASM module proposal types
-		case "StoreCode", "InstantiateContract", "MigrateContract", "SudoContract",
+		case "UpdateWasmDependencyMapping", "StoreCode", "InstantiateContract", "MigrateContract", "SudoContract",
 			"ExecuteContract", "UpdateAdmin", "ClearAdmin", "PinCodes", "UnpinCodes",
 			"UpdateInstantiateConfig":
 			return nil, fmt.Errorf("%s proposals are not supported yet via precompile", proposal.Type)
