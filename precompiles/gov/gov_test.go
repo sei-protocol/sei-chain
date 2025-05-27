@@ -199,20 +199,14 @@ func TestGovPrecompile(t *testing.T) {
 
 func TestPrecompileExecutor_submitProposal(t *testing.T) {
 	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
-	type fields struct {
-		//govKeeper    pcommon.GovKeeper
-		//govMsgServer pcommon.GovMsgServer
-		//evmKeeper    pcommon.EVMKeeper
-		//bankKeeper   pcommon.BankKeeper
-	}
+
 	type args struct {
 		caller           common.Address
 		callerSeiAddress sdk.AccAddress
 		proposal         string
 	}
 	tests := []struct {
-		name string
-		//fields     fields
+		name       string
 		args       args
 		wantErr    bool
 		wantErrMsg string
