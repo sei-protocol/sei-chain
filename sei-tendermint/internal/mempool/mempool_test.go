@@ -406,7 +406,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, 50, -1, 0)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, 50, -1)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -417,7 +417,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(1000, -1, -1, 0)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(1000, -1, -1)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -429,7 +429,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(1500, 30, -1, 0)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(1500, 30, -1)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -440,7 +440,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, 1, -1, 2)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, 2, -1)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 2)
@@ -450,32 +450,10 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, -1, 50, 0)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, -1, 50)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 50)
-	}()
-
-	// Test that minTxsPerBlock is still used even when max gas esimated is exceeded
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		// pull minTxsPerBlock even though max gas wanted is hit
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, -1, 50, 51)
-		ensurePrioritized(reapedTxs)
-		require.Equal(t, len(tTxs), txmp.Size())
-		require.Len(t, reapedTxs, 51)
-	}()
-
-	// Test that minTxsPerBlock is still used even when max gas wanted is exceeded
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		// pull minTxsPerBlock even though max gas wanted is hit
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, 50, -1, 51)
-		ensurePrioritized(reapedTxs)
-		require.Equal(t, len(tTxs), txmp.Size())
-		require.Len(t, reapedTxs, 51)
 	}()
 
 	wg.Wait()
@@ -521,7 +499,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, -1, 50, 0)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, -1, 50)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 50)

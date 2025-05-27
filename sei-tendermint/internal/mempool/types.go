@@ -52,7 +52,7 @@ type Mempool interface {
 	//
 	// If all 3 maxes are negative, there is no cap on the size of all returned
 	// transactions (~ all available transactions).
-	ReapMaxBytesMaxGas(maxBytes, maxGas, maxGasEstimated, minTxsInBlock int64) types.Txs
+	ReapMaxBytesMaxGas(maxBytes, maxGas, maxGasEstimated int64) types.Txs
 
 	// ReapMaxTxs reaps up to max transactions from the mempool. If max is
 	// negative, there is no cap on the size of all returned transactions

@@ -455,7 +455,7 @@ func (txmp *TxMempool) Flush() {
 // NOTE:
 //   - Transactions returned are not removed from the mempool transaction
 //     store or indexes.
-func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimated, minTxsInBlock int64) types.Txs {
+func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimated int64) types.Txs {
 	txmp.mtx.Lock()
 	defer txmp.mtx.Unlock()
 
@@ -463,7 +463,6 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 		totalGasWanted    int64
 		totalGasEstimated int64
 		totalSize         int64
-		nonzeroGasTxCnt   int64
 	)
 
 	var txs []types.Tx
@@ -491,7 +490,8 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 		gasEstimated := totalGasEstimated + txGasEstimate
 		maxGasWantedExceeded := maxGasWanted > -1 && gasWanted > maxGasWanted
 		maxGasEstimatedExceeded := maxGasEstimated > -1 && gasEstimated > maxGasEstimated
-		if nonzeroGasTxCnt >= minTxsInBlock && (maxGasWantedExceeded || maxGasEstimatedExceeded) {
+
+		if maxGasWantedExceeded || maxGasEstimatedExceeded {
 			return false
 		}
 
@@ -499,9 +499,6 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 		totalGasEstimated = gasEstimated
 
 		txs = append(txs, wtx.tx)
-		if wtx.gasWanted > 0 {
-			nonzeroGasTxCnt++
-		}
 		return true
 	})
 

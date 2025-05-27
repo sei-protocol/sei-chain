@@ -59,7 +59,7 @@ type HashedParams struct {
 type BlockParams struct {
 	MaxBytes      int64 `json:"max_bytes,string"`
 	MaxGas        int64 `json:"max_gas,string"`
-	MinTxsInBlock int64 `json:"min_txs_in_block,string"`
+	MinTxsInBlock int64 `json:"min_txs_in_block,string"` // deprecated
 	MaxGasWanted  int64 `json:"max_gas_wanted,string"`
 }
 
