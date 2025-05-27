@@ -410,6 +410,7 @@ func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller 
 		}
 	}
 	res, err := p.wasmdKeeper.Execute(ctx, contractAddr, senderAddr, msg, coins)
+
 	if err != nil {
 		rerr = err
 		return

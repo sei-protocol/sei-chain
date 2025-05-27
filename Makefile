@@ -210,7 +210,7 @@ docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 # Stop 4-node docker containers
 docker-cluster-stop:
 	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose down
-.PHONY: localnet-stop ddd
+.PHONY: localnet-stop
 
 
 # Implements test splitting and running. This is pulled directly from
@@ -233,4 +233,4 @@ $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
 split-test-packages:$(BUILDDIR)/packages.txt
 	split -d -n l/$(NUM_SPLIT) $< $<.
 test-group-%:split-test-packages
-	cat $(BUILDDIR)/packages.txt.$* | xargs go test -parallel 4 -mod=readonly -timeout=15m -race -coverprofile=$*.profile.out -covermode=atomic
+	cat $(BUILDDIR)/packages.txt.$* | xargs go test -parallel 4 -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic

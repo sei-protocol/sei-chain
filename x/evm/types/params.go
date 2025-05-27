@@ -72,6 +72,15 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 	}
 }
 
+func (ppre580 *ParamsPreV580) ParamSetPairs() paramtypes.ParamSetPairs {
+	return paramtypes.ParamSetPairs{
+		paramtypes.NewParamSetPair(KeyPriorityNormalizer, &ppre580.PriorityNormalizer, validatePriorityNormalizer),
+		paramtypes.NewParamSetPair(KeyBaseFeePerGas, &ppre580.BaseFeePerGas, validateBaseFeePerGas),
+		paramtypes.NewParamSetPair(KeyMinFeePerGas, &ppre580.MinimumFeePerGas, validateMinFeePerGas),
+		paramtypes.NewParamSetPair(KeyWhitelistedCwCodeHashesForDelegateCall, &ppre580.WhitelistedCwCodeHashesForDelegateCall, validateWhitelistedCwHashesForDelegateCall),
+	}
+}
+
 func (p Params) Validate() error {
 	if err := validatePriorityNormalizer(p.PriorityNormalizer); err != nil {
 		return err
@@ -116,6 +125,11 @@ func validateBaseFeeAdjustment(i interface{}) error {
 
 func (p Params) String() string {
 	out, _ := yaml.Marshal(p)
+	return string(out)
+}
+
+func (ppre580 ParamsPreV580) String() string {
+	out, _ := yaml.Marshal(ppre580)
 	return string(out)
 }
 

@@ -142,7 +142,7 @@ func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller com
 	}
 	token := args[0].(string)
 	existingAddr, existingVersion, exists := p.evmKeeper.GetERC20NativePointer(ctx, token)
-	if exists && existingVersion >= native.CurrentVersion {
+	if exists && existingVersion >= 1 {
 		return nil, 0, fmt.Errorf("pointer at %s with version %d exists when trying to set pointer for version %d", existingAddr.Hex(), existingVersion, native.CurrentVersion)
 	}
 	metadata, metadataExists := p.bankKeeper.GetDenomMetaData(ctx, token)
@@ -255,7 +255,7 @@ func (p Precompile) AddCW721(ctx sdk.Context, method *ethabi.Method, caller comm
 	}
 	cwAddr := args[0].(string)
 	existingAddr, existingVersion, exists := p.evmKeeper.GetERC721CW721Pointer(ctx, cwAddr)
-	if exists && existingVersion >= cw721.CurrentVersion {
+	if exists && existingVersion >= 4 {
 		return nil, 0, fmt.Errorf("pointer at %s with version %d exists when trying to set pointer for version %d", existingAddr.Hex(), existingVersion, cw721.CurrentVersion)
 	}
 	cwAddress, err := sdk.AccAddressFromBech32(cwAddr)
