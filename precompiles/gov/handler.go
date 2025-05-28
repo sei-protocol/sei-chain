@@ -20,7 +20,7 @@ type EVMKeeper interface {
 	GetSeiAddress(ctx sdk.Context, evmAddr common.Address) (sdk.AccAddress, bool)
 }
 
-// Proposal represents the structure for proposal JSON input
+// The Proposal represents the structure for proposal JSON input
 type Proposal struct {
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
@@ -36,7 +36,8 @@ type Change struct {
 	Value    interface{} `json:"value"`
 }
 
-// ProposalHandler defines an interface for handling different proposal types
+// ProposalHandler defines an interface for handling different proposal types. ProposalHandler implementations to be
+// added and registered in below
 type ProposalHandler interface {
 	// HandleProposal creates a Content object from the proposal input
 	HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error)
@@ -44,23 +45,18 @@ type ProposalHandler interface {
 	Type() string
 }
 
-// TextProposalHandler handles basic text proposals
 type TextProposalHandler struct{}
 
-// HandleProposal implements ProposalHandler
 func (h TextProposalHandler) HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
 	return govtypes.NewTextProposal(proposal.Title, proposal.Description, proposal.IsExpedited), nil
 }
 
-// Type implements ProposalHandler
 func (h TextProposalHandler) Type() string {
 	return govtypes.ProposalTypeText
 }
 
-// ParameterChangeProposalHandler handles parameter change proposals
 type ParameterChangeProposalHandler struct{}
 
-// HandleProposal implements ProposalHandler
 func (h ParameterChangeProposalHandler) HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
 	if len(proposal.Changes) == 0 {
 		return nil, errors.New("at least one parameter change must be specified")
@@ -89,15 +85,12 @@ func (h ParameterChangeProposalHandler) HandleProposal(ctx sdk.Context, proposal
 	), nil
 }
 
-// Type implements ProposalHandler
 func (h ParameterChangeProposalHandler) Type() string {
 	return paramstypes.ProposalTypeChange
 }
 
-// SoftwareUpgradeProposalHandler handles software upgrade proposals
 type SoftwareUpgradeProposalHandler struct{}
 
-// HandleProposal implements ProposalHandler
 func (h SoftwareUpgradeProposalHandler) HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
 	if len(proposal.Changes) == 0 {
 		return nil, errors.New("at least one upgrade change must be specified")
@@ -148,15 +141,12 @@ func (h SoftwareUpgradeProposalHandler) HandleProposal(ctx sdk.Context, proposal
 	), nil
 }
 
-// Type implements ProposalHandler
 func (h SoftwareUpgradeProposalHandler) Type() string {
 	return upgradetypes.ProposalTypeSoftwareUpgrade
 }
 
-// CancelSoftwareUpgradeProposalHandler handles cancel software upgrade proposals
 type CancelSoftwareUpgradeProposalHandler struct{}
 
-// HandleProposal implements ProposalHandler
 func (h CancelSoftwareUpgradeProposalHandler) HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
 	// Cancel software upgrade proposals don't need any additional parameters
 	// They just need title and description which are already validated in createProposalContent
@@ -166,17 +156,14 @@ func (h CancelSoftwareUpgradeProposalHandler) HandleProposal(ctx sdk.Context, pr
 	), nil
 }
 
-// Type implements ProposalHandler
 func (h CancelSoftwareUpgradeProposalHandler) Type() string {
 	return upgradetypes.ProposalTypeCancelSoftwareUpgrade
 }
 
-// CommunityPoolSpendProposalHandler handles community pool spend proposals
 type CommunityPoolSpendProposalHandler struct {
 	evmKeeper EVMKeeper
 }
 
-// HandleProposal implements ProposalHandler
 func (h CommunityPoolSpendProposalHandler) HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
 	if len(proposal.Changes) == 0 {
 		return nil, errors.New("at least one spend change must be specified")
@@ -217,7 +204,6 @@ func (h CommunityPoolSpendProposalHandler) HandleProposal(ctx sdk.Context, propo
 		return nil, errors.New("amount must be greater than zero")
 	}
 
-	// Convert Ethereum address to Sei address using the EVM keeper
 	ethAddr := common.HexToAddress(recipient)
 	seiAddr, found := h.evmKeeper.GetSeiAddress(ctx, ethAddr)
 	if !found {
@@ -232,17 +218,14 @@ func (h CommunityPoolSpendProposalHandler) HandleProposal(ctx sdk.Context, propo
 	), nil
 }
 
-// Type implements ProposalHandler
 func (h CommunityPoolSpendProposalHandler) Type() string {
 	return distrtypes.ProposalTypeCommunityPoolSpend
 }
 
-// UpdateResourceDependencyMappingProposalHandler handles resource dependency mapping proposals
 type UpdateResourceDependencyMappingProposalHandler struct {
 	evmKeeper EVMKeeper
 }
 
-// HandleProposal implements ProposalHandler
 func (h UpdateResourceDependencyMappingProposalHandler) HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
 	if len(proposal.Changes) == 0 {
 		return nil, errors.New("at least one resource dependency mapping must be specified")
@@ -283,7 +266,6 @@ func (h UpdateResourceDependencyMappingProposalHandler) HandleProposal(ctx sdk.C
 	}
 
 	// Build a MessageDependencyMapping for the resource and dependencies
-	// For demonstration, use SynchronousMessageDependencyMapping for each dependency
 	mappings := make([]accesscontrol.MessageDependencyMapping, len(dependencies))
 	for i, dep := range dependencies {
 		mappings[i] = acltypes.SynchronousMessageDependencyMapping(acltypes.MessageKey(dep))
@@ -296,7 +278,6 @@ func (h UpdateResourceDependencyMappingProposalHandler) HandleProposal(ctx sdk.C
 	), nil
 }
 
-// Type implements ProposalHandler
 func (h UpdateResourceDependencyMappingProposalHandler) Type() string {
 	return acltypes.ProposalUpdateResourceDependencyMapping
 }
