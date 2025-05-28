@@ -52,6 +52,50 @@ type Change struct {
 	Value    interface{} `json:"value"`
 }
 
+// ResourceDependencyMapping defines the structure for mapping a resource to its dependencies
+// and access control settings
+type ResourceDependencyMapping struct {
+	Resource string `json:"resource"`
+
+	// Dependencies is a list of message keys that this resource depends on
+	// Each dependency will be mapped to a MessageDependencyMapping
+	Dependencies []string `json:"dependencies"`
+
+	// AccessOps defines the sequence of access operations required for this resource
+	// Must end with AccessType_COMMIT
+	// Examples:
+	// - [UNKNOWN, COMMIT] for synchronous operations
+	// - [READ, COMMIT] for read-only operations
+	AccessOps []AccessOperation `json:"access_ops"`
+
+	// DynamicEnabled determines if dynamic access control is enabled for this mapping
+	// When true, allows for runtime modification of access control rules
+	DynamicEnabled bool `json:"dynamic_enabled"`
+}
+
+// AccessOperation defines a single access control operation
+type AccessOperation struct {
+	// ResourceType specifies the type of resource being accessed
+	// Examples:
+	// - ANY: Any resource type
+	// - KV_STORE: Key-value store
+	// - BANK: Bank operations
+	ResourceType string `json:"resource_type"`
+
+	// AccessType specifies the type of access being performed
+	// Examples:
+	// - READ: Read access
+	// - WRITE: Write access
+	// - COMMIT: Commit access (must be the last operation)
+	AccessType string `json:"access_type"`
+
+	// IdentifierTemplate specifies the template for resource identification
+	// Examples:
+	// - "*" for any identifier
+	// - "account/{address}" for specific account
+	IdentifierTemplate string `json:"identifier_template"`
+}
+
 // ProposalHandler defines an interface for handling different proposal types. ProposalHandler implementations to be
 // added and registered in below
 type ProposalHandler interface {
