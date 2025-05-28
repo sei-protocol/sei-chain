@@ -1976,10 +1976,7 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 		}
 
 		if totalGas > uint64(ctx.ConsensusParams().Block.MaxGas) {
-			if nonzeroTxsCnt > int(ctx.ConsensusParams().Block.MinTxsInBlock) {
-				// early return
-				return false
-			}
+			return false
 		}
 	}
 	return true
