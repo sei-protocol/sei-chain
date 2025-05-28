@@ -20,6 +20,7 @@ import (
 
 const (
 	VoteMethod           = "vote"
+	VoteWeightedMethod   = "voteWeighted"
 	DepositMethod        = "deposit"
 	SubmitProposalMethod = "submitProposal"
 )
@@ -42,6 +43,7 @@ type PrecompileExecutor struct {
 	proposalHandlers map[string]ProposalHandler
 
 	VoteID           []byte
+	VoteWeightedID   []byte
 	DepositID        []byte
 	SubmitProposalID []byte
 }
@@ -69,6 +71,8 @@ func NewPrecompile(govKeeper pcommon.GovKeeper, govMsgServer pcommon.GovMsgServe
 			p.DepositID = m.ID
 		case SubmitProposalMethod:
 			p.SubmitProposalID = m.ID
+		case VoteWeightedMethod:
+			p.VoteWeightedID = m.ID
 		}
 	}
 
@@ -78,7 +82,7 @@ func NewPrecompile(govKeeper pcommon.GovKeeper, govMsgServer pcommon.GovMsgServe
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64 {
-	if bytes.Equal(method.ID, p.VoteID) {
+	if bytes.Equal(method.ID, p.VoteID) || bytes.Equal(method.ID, p.VoteWeightedID) {
 		return 30000
 	} else if bytes.Equal(method.ID, p.DepositID) {
 		return 30000
@@ -101,6 +105,8 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	switch method.Name {
 	case VoteMethod:
 		return p.vote(ctx, method, caller, args, value)
+	case VoteWeightedMethod:
+		return p.voteWeighted(ctx, method, caller, args, value)
 	case DepositMethod:
 		return p.deposit(ctx, method, caller, args, value, hooks, evm)
 	case SubmitProposalMethod:
@@ -124,6 +130,49 @@ func (p PrecompileExecutor) vote(ctx sdk.Context, method *abi.Method, caller com
 	proposalID := args[0].(uint64)
 	voteOption := args[1].(int32)
 	err := p.govKeeper.AddVote(ctx, proposalID, voter, govtypes.NewNonSplitVoteOption(govtypes.VoteOption(voteOption)))
+	if err != nil {
+		return nil, err
+	}
+	return method.Outputs.Pack(true)
+}
+
+func (p PrecompileExecutor) voteWeighted(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+
+	if err := pcommon.ValidateArgsLength(args, 2); err != nil {
+		return nil, err
+	}
+	voter, found := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !found {
+		return nil, types.NewAssociationMissingErr(caller.Hex())
+	}
+	proposalID := args[0].(uint64)
+
+	// args[1] is the struct array for weighted vote options
+	// The ABI decoder gives us the actual struct slice
+	weightedOptionsStruct := args[1].([]struct {
+		Option int32  `json:"option"`
+		Weight string `json:"weight"`
+	})
+
+	// Convert to WeightedVoteOptions
+	voteOptions := make([]govtypes.WeightedVoteOption, len(weightedOptionsStruct))
+	for i, optionStruct := range weightedOptionsStruct {
+		// Parse weight as decimal
+		weight, err := sdk.NewDecFromStr(optionStruct.Weight)
+		if err != nil {
+			return nil, fmt.Errorf("invalid weight format: %w", err)
+		}
+
+		voteOptions[i] = govtypes.WeightedVoteOption{
+			Option: govtypes.VoteOption(optionStruct.Option),
+			Weight: weight,
+		}
+	}
+
+	err := p.govKeeper.AddVote(ctx, proposalID, voter, voteOptions)
 	if err != nil {
 		return nil, err
 	}
