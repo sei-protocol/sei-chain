@@ -580,8 +580,8 @@ func init() {
 	strictConfig := goodConfig
 	strictConfig.HTTPPort = TestStrictPort
 	strictConfig.WSPort = TestStrictPort + 1
-	strictConfig.TraceTimeout = time.Nanosecond
-	strictConfig.MaxTraceLookbackBlocks = 1
+	strictConfig.TraceTimeout = time.Nanosecond // Artificially low timeout
+	strictConfig.MaxTraceLookbackBlocks = 1     // Artificially low lookback block
 
 	strictServer, err := evmrpc.NewEVMHTTPServer(
 		infoLog,
