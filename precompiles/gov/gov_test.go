@@ -355,37 +355,37 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Community Pool Spend\",\"description\":\"Spend from community pool\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"recipient\",\"value\": \"" + recipientEvmAddress.String() + "\"},{\"key\":\"amount\",\"value\":\"1000000usei\"}],\"deposit\":\"10000000usei\"}",
+				proposal:         "{\"title\":\"Community Pool Spend\",\"description\":\"Spend from community pool\",\"type\":\"CommunityPoolSpend\",\"community_pool_spend\":{\"recipient\":\"" + recipientEvmAddress.String() + "\",\"amount\":\"1000000usei\"},\"deposit\":\"10000000usei\"}",
 			},
 			wantErr: false,
 			wantRet: []byte{31: expectedProposalID},
 		},
 		{
-			name: "returns error on community pool spend proposal with no changes",
+			name: "returns error on community pool spend proposal with no parameters",
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"This proposal has no changes\",\"type\":\"CommunityPoolSpend\",\"deposit\":\"10000000usei\"}",
+				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"This proposal has no parameters\",\"type\":\"CommunityPoolSpend\",\"deposit\":\"10000000usei\"}",
 			},
 			wantErr:    true,
-			wantErrMsg: "at least one spend change must be specified",
+			wantErrMsg: "community pool spend parameters must be specified",
 		},
 		{
 			name: "returns error on community pool spend proposal with missing recipient",
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Missing recipient\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"amount\",\"value\":\"1000000usei\"}],\"deposit\":\"10000000usei\"}",
+				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Missing recipient\",\"type\":\"CommunityPoolSpend\",\"community_pool_spend\":{\"amount\":\"1000000usei\"},\"deposit\":\"10000000usei\"}",
 			},
 			wantErr:    true,
-			wantErrMsg: "recipient address must be specified",
+			wantErrMsg: "invalid ethereum address format",
 		},
 		{
 			name: "returns error on community pool spend proposal with missing amount",
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Missing amount\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"recipient\",\"value\":\"0x1234567890123456789012345678901234567890\"}],\"deposit\":\"10000000usei\"}",
+				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Missing amount\",\"type\":\"CommunityPoolSpend\",\"community_pool_spend\":{\"recipient\":\"0x1234567890123456789012345678901234567890\"},\"deposit\":\"10000000usei\"}",
 			},
 			wantErr:    true,
 			wantErrMsg: "amount must be greater than zero",
@@ -395,7 +395,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Invalid recipient\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"recipient\",\"value\":\"invalid\"},{\"key\":\"amount\",\"value\":\"1000000usei\"}],\"deposit\":\"10000000usei\"}",
+				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Invalid recipient\",\"type\":\"CommunityPoolSpend\",\"community_pool_spend\":{\"recipient\":\"invalid\",\"amount\":\"1000000usei\"},\"deposit\":\"10000000usei\"}",
 			},
 			wantErr:    true,
 			wantErrMsg: "invalid ethereum address format",
@@ -405,7 +405,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Invalid amount\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"recipient\",\"value\":\"0x1234567890123456789012345678901234567890\"},{\"key\":\"amount\",\"value\":\"invalid\"}],\"deposit\":\"10000000usei\"}",
+				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Invalid amount\",\"type\":\"CommunityPoolSpend\",\"community_pool_spend\":{\"recipient\":\"0x1234567890123456789012345678901234567890\",\"amount\":\"invalid\"},\"deposit\":\"10000000usei\"}",
 			},
 			wantErr:    true,
 			wantErrMsg: "invalid amount format: invalid decimal coin expression: invalid",

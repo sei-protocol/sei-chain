@@ -28,8 +28,9 @@ type Proposal struct {
 	IsExpedited bool   `json:"is_expedited,omitempty"`
 	Deposit     string `json:"deposit,omitempty"`
 	// Optional fields for specific proposal types
-	Plan    *SoftwareUpgradePlan `json:"plan,omitempty"`    // For software upgrades
-	Changes []Change             `json:"changes,omitempty"` // For parameter changes and other generic changes
+	Plan               *SoftwareUpgradePlan `json:"plan,omitempty"`
+	CommunityPoolSpend *CommunityPoolSpend  `json:"community_pool_spend,omitempty"`
+	Changes            []Change             `json:"changes,omitempty"` // For parameter changes and other generic changes
 }
 
 // SoftwareUpgradePlan represents the plan for a software upgrade proposal
@@ -37,6 +38,12 @@ type SoftwareUpgradePlan struct {
 	Name   string `json:"name"`
 	Height int64  `json:"height"`
 	Info   string `json:"info,omitempty"`
+}
+
+// CommunityPoolSpend represents the parameters for a community pool spend proposal
+type CommunityPoolSpend struct {
+	Recipient string `json:"recipient"` // Ethereum address of the recipient
+	Amount    string `json:"amount"`    // Amount in the format "1000000usei"
 }
 
 type Change struct {
@@ -147,46 +154,27 @@ type CommunityPoolSpendProposalHandler struct {
 }
 
 func (h CommunityPoolSpendProposalHandler) HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
-	if len(proposal.Changes) == 0 {
-		return nil, errors.New("at least one spend change must be specified")
+	if proposal.CommunityPoolSpend == nil {
+		return nil, errors.New("community pool spend parameters must be specified")
 	}
 
-	// Get the recipient and amount from changes
-	var recipient string
-	var amount sdk.Coins
-	for _, change := range proposal.Changes {
-		switch change.Key {
-		case "recipient":
-			recipientStr, ok := change.Value.(string)
-			if !ok {
-				return nil, fmt.Errorf("recipient must be a string")
-			}
-			// Validate that the recipient is a valid Ethereum address
-			if !common.IsHexAddress(recipientStr) {
-				return nil, fmt.Errorf("invalid ethereum address format")
-			}
-			recipient = recipientStr
-		case "amount":
-			amountStr, ok := change.Value.(string)
-			if !ok {
-				return nil, fmt.Errorf("amount must be a string")
-			}
-			var err error
-			amount, err = sdk.ParseCoinsNormalized(amountStr)
-			if err != nil {
-				return nil, fmt.Errorf("invalid amount format: %w", err)
-			}
-		}
+	// Validate that the recipient is a valid Ethereum address
+	if !common.IsHexAddress(proposal.CommunityPoolSpend.Recipient) {
+		return nil, fmt.Errorf("invalid ethereum address format")
 	}
 
-	if recipient == "" {
-		return nil, errors.New("recipient address must be specified")
+	// Parse the amount
+	amount, err := sdk.ParseCoinsNormalized(proposal.CommunityPoolSpend.Amount)
+	if err != nil {
+		return nil, fmt.Errorf("invalid amount format: %w", err)
 	}
+
 	if amount.IsZero() {
 		return nil, errors.New("amount must be greater than zero")
 	}
 
-	ethAddr := common.HexToAddress(recipient)
+	// Convert Ethereum address to Sei address using the EVM keeper
+	ethAddr := common.HexToAddress(proposal.CommunityPoolSpend.Recipient)
 	seiAddr, found := h.evmKeeper.GetSeiAddress(ctx, ethAddr)
 	if !found {
 		return nil, fmt.Errorf("no sei address found for ethereum address %s", ethAddr.Hex())
