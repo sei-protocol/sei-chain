@@ -982,6 +982,11 @@ func sendRequestGoodWithNamespace(t *testing.T, namespace string, method string,
 	return sendRequestWithNamespace(t, namespace, TestPort, method, params...)
 }
 
+//nolint:deadcode
+func sendRequestBadWithNamespace(t *testing.T, namespace string, method string, params ...interface{}) map[string]interface{} {
+	return sendRequestWithNamespace(t, namespace, TestBadPort, method, params...)
+}
+
 func sendRequest(t *testing.T, port int, method string, params ...interface{}) map[string]interface{} {
 	return sendRequestWithNamespace(t, "eth", port, method, params...)
 }

@@ -2,7 +2,9 @@ package evmrpc_test
 
 import (
 	"fmt"
+	"sync"
 	"testing"
+	"time"
 
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
@@ -47,4 +49,71 @@ func TestTraceCall(t *testing.T) {
 	result := resObj["result"].(map[string]interface{})
 	require.Equal(t, float64(21000), result["gas"])
 	require.Equal(t, false, result["failed"])
+}
+
+func TestTraceTransactionTimeout(t *testing.T) {
+	// Force an small per‑call timeout so the method fails fast
+	args := map[string]interface{}{
+		"tracer":  "callTracer",
+		"timeout": "1ns",
+	}
+
+	// Expect the RPC layer to return an error object.
+	resObj := sendRequestBadWithNamespace(t,
+		"debug",
+		"traceTransaction",
+		DebugTraceHashHex,
+		args,
+	)
+
+	errObj, ok := resObj["error"].(map[string]interface{})
+	require.True(t, ok, "expected traceTransaction to error out")
+	require.Contains(t, errObj["message"].(string), "context deadline exceeded")
+}
+
+func TestTraceBlockByNumberLookbackLimit(t *testing.T) {
+	resObj := sendRequestBadWithNamespace(
+		t,
+		"sei",
+		"traceBlockByNumberExcludeTraceFail",
+		"0x0",                    // genesis block
+		map[string]interface{}{}, // empty TraceConfig
+	)
+
+	errObj, ok := resObj["error"].(map[string]interface{})
+	require.True(t, ok, "expected look‑back guard to trigger")
+	require.Contains(t, errObj["message"].(string), "beyond max lookback")
+}
+
+func TestTraceCallConcurrencyLimit(t *testing.T) {
+	_, from := testkeeper.MockAddressPair()
+	_, contractAddr := testkeeper.MockAddressPair()
+
+	txArgs := map[string]interface{}{
+		"from":    from.Hex(),
+		"to":      contractAddr.Hex(),
+		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	start := time.Now()
+
+	call := func() {
+		defer wg.Done()
+		// "latest" is enough – the contract code is fixed in the fixture chain.
+		sendRequestGoodWithNamespace(t, "debug", "traceCall", txArgs, "latest")
+	}
+
+	go call()
+	go call()
+
+	wg.Wait()
+	elapsed := time.Since(start)
+
+	// A single traceCall normally finishes in ~250 ms on CI hardware.
+	require.GreaterOrEqual(t, elapsed, 500*time.Millisecond,
+		"concurrency semaphore should have forced the calls to run serially",
+	)
 }
