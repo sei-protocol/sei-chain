@@ -25,12 +25,12 @@ func TestGetTxReceipt(t *testing.T) {
 }
 
 func testGetTxReceipt(t *testing.T, namespace string) {
-	receipt, err := EVMKeeper.GetReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"))
+	receipt, err := EVMKeeper.GetReceipt(Ctx, common.HexToHash("0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32"))
 	require.Nil(t, err)
 	receipt.To = ""
-	EVMKeeper.MockReceipt(Ctx, common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"), receipt)
+	EVMKeeper.MockReceipt(Ctx, common.HexToHash("0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32"), receipt)
 
-	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_getTransactionReceipt\",\"params\":[\"0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e\"],\"id\":\"test\"}", namespace)
+	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_getTransactionReceipt\",\"params\":[\"0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32\"],\"id\":\"test\"}", namespace)
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
 	req.Header.Set("Content-Type", "application/json")
@@ -56,14 +56,14 @@ func testGetTxReceipt(t *testing.T, namespace string) {
 	require.Equal(t, "0x1111111111111111111111111111111111111111111111111111111111111111", topics[0].(string))
 	require.Equal(t, "0x1111111111111111111111111111111111111111111111111111111111111112", topics[1].(string))
 	require.Equal(t, "0x8", log["blockNumber"].(string))
-	require.Equal(t, "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e", log["transactionHash"].(string))
+	require.Equal(t, "0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32", log["transactionHash"].(string))
 	require.Equal(t, "0x0", log["transactionIndex"].(string))
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", log["blockHash"].(string))
 	require.Equal(t, "0x0", log["logIndex"].(string))
 	require.False(t, log["removed"].(bool))
 	require.Equal(t, "0x0", resObj["status"].(string))
 	require.Equal(t, nil, resObj["to"])
-	require.Equal(t, "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e", resObj["transactionHash"].(string))
+	require.Equal(t, "0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32", resObj["transactionHash"].(string))
 	require.Equal(t, "0x0", resObj["transactionIndex"].(string))
 	require.Equal(t, "0x1", resObj["type"].(string))
 	require.Equal(t, "0x1234567890123456789012345678901234567890", resObj["contractAddress"].(string))
@@ -92,7 +92,7 @@ func TestGetTransaction(t *testing.T) {
 func testGetTransaction(t *testing.T, namespace string) {
 	bodyByBlockNumberAndIndex := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_getTransactionByBlockNumberAndIndex\",\"params\":[\"0x8\",\"0x0\"],\"id\":\"test\"}", namespace)
 	bodyByBlockHashAndIndex := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_getTransactionByBlockHashAndIndex\",\"params\":[\"0x0000000000000000000000000000000000000000000000000000000000000001\",\"0x0\"],\"id\":\"test\"}", namespace)
-	bodyByHash := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_getTransactionByHash\",\"params\":[\"0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e\"],\"id\":\"test\"}", namespace)
+	bodyByHash := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_getTransactionByHash\",\"params\":[\"0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32\"],\"id\":\"test\"}", namespace)
 	for _, body := range []string{bodyByBlockNumberAndIndex, bodyByBlockHashAndIndex, bodyByHash} {
 		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 		require.Nil(t, err)
@@ -111,7 +111,7 @@ func testGetTransaction(t *testing.T, namespace string) {
 		require.Equal(t, "0xa", resObj["gasPrice"].(string))
 		require.Equal(t, "0xa", resObj["maxFeePerGas"].(string))
 		require.Equal(t, "0x0", resObj["maxPriorityFeePerGas"].(string))
-		require.Equal(t, "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e", resObj["hash"].(string))
+		require.Equal(t, "0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32", resObj["hash"].(string))
 		require.Equal(t, "0x616263", resObj["input"].(string))
 		require.Equal(t, "0x1", resObj["nonce"].(string))
 		require.Equal(t, "0x0000000000000000000000000000000000010203", resObj["to"].(string))
@@ -119,11 +119,11 @@ func testGetTransaction(t *testing.T, namespace string) {
 		require.Equal(t, "0x3e8", resObj["value"].(string))
 		require.Equal(t, "0x2", resObj["type"].(string))
 		require.Equal(t, 0, len(resObj["accessList"].([]interface{})))
-		require.Equal(t, "0xae3f3", resObj["chainId"].(string))
-		require.Equal(t, "0x0", resObj["v"].(string))
-		require.Equal(t, "0xa1ac0e5b8202742e54ae7af350ed855313cc4f9861c2d75a0e541b4aff7c981e", resObj["r"].(string))
-		require.Equal(t, "0x288b16881aed9640cd360403b9db1ce3961b29af0b00158311856d1446670996", resObj["s"].(string))
-		require.Equal(t, "0x0", resObj["yParity"].(string))
+		require.Equal(t, "0xae3f2", resObj["chainId"].(string))
+		require.Equal(t, "0x1", resObj["v"].(string))
+		require.Equal(t, "0x2d9ec6f4c4ff4ab0ca8de6248f939e873d2aa9cb6156fa9368e34708dfb6c123", resObj["r"].(string))
+		require.Equal(t, "0x35990bec00913db3cecd7f132b45c289280f4182751dab1c9c5ca609939319cb", resObj["s"].(string))
+		require.Equal(t, "0x1", resObj["yParity"].(string))
 	}
 
 	for _, body := range []string{bodyByBlockNumberAndIndex, bodyByBlockHashAndIndex, bodyByHash} {
@@ -141,7 +141,7 @@ func testGetTransaction(t *testing.T, namespace string) {
 }
 
 func TestGetPendingTransactionByHash(t *testing.T) {
-	resObj := sendRequestGood(t, "getTransactionByHash", "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e")
+	resObj := sendRequestGood(t, "getTransactionByHash", "0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32")
 	result := resObj["result"].(map[string]interface{})
 	require.Equal(t, "0x1", result["nonce"])
 	require.Equal(t, "0x2", result["type"].(string))
@@ -238,7 +238,7 @@ func TestSign(t *testing.T) {
 }
 
 func TestGetVMError(t *testing.T) {
-	resObj := sendRequestGood(t, "getVMError", "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e")
+	resObj := sendRequestGood(t, "getVMError", "0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32")
 	require.Equal(t, "", resObj["result"].(string))
 	resObj = sendRequestGood(t, "getVMError", "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872f")
 	require.Equal(t, "not found", resObj["error"].(map[string]interface{})["message"])
@@ -253,16 +253,16 @@ func TestGetTransactionReceiptFailedTx(t *testing.T) {
 		GasUsed:          0,
 		BlockNumber:      8,
 		TransactionIndex: 0,
-		TxHashHex:        "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e",
+		TxHashHex:        "0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32",
 		From:             fromAddr, // Use the actual from address
 	}
 
 	// Mock the receipt in the keeper
-	txHash := common.HexToHash("0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e")
+	txHash := common.HexToHash("0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32")
 	EVMKeeper.MockReceipt(Ctx, txHash, failedReceipt)
 
 	// Create JSON-RPC request
-	body := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\":[\"0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e\"],\"id\":\"test\"}"
+	body := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\":[\"0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32\"],\"id\":\"test\"}"
 
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
@@ -282,7 +282,7 @@ func TestGetTransactionReceiptFailedTx(t *testing.T) {
 	require.Equal(t, "0x0", resObj["status"].(string))  // Failed status
 	require.Equal(t, "0x0", resObj["gasUsed"].(string)) // 0 gas used
 	require.Equal(t, "0x8", resObj["blockNumber"].(string))
-	require.Equal(t, "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e", resObj["transactionHash"].(string))
+	require.Equal(t, "0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32", resObj["transactionHash"].(string))
 	require.Equal(t, fromAddr, resObj["from"].(string))
 
 	// For contract creation transaction
