@@ -22,12 +22,21 @@ type EVMKeeper interface {
 
 // The Proposal represents the structure for proposal JSON input
 type Proposal struct {
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Type        string   `json:"type"`
-	IsExpedited bool     `json:"is_expedited,omitempty"`
-	Deposit     string   `json:"deposit,omitempty"`
-	Changes     []Change `json:"changes,omitempty"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Type        string `json:"type"`
+	IsExpedited bool   `json:"is_expedited,omitempty"`
+	Deposit     string `json:"deposit,omitempty"`
+	// Optional fields for specific proposal types
+	Plan    *SoftwareUpgradePlan `json:"plan,omitempty"`    // For software upgrades
+	Changes []Change             `json:"changes,omitempty"` // For parameter changes and other generic changes
+}
+
+// SoftwareUpgradePlan represents the plan for a software upgrade proposal
+type SoftwareUpgradePlan struct {
+	Name   string `json:"name"`
+	Height int64  `json:"height"`
+	Info   string `json:"info,omitempty"`
 }
 
 type Change struct {
@@ -92,41 +101,14 @@ func (h ParameterChangeProposalHandler) Type() string {
 type SoftwareUpgradeProposalHandler struct{}
 
 func (h SoftwareUpgradeProposalHandler) HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
-	if len(proposal.Changes) == 0 {
-		return nil, errors.New("at least one upgrade change must be specified")
+	if proposal.Plan == nil {
+		return nil, errors.New("upgrade plan must be specified")
 	}
 
-	// Get the upgrade height from changes
-	var height int64
-	var name string
-	var info string
-	for _, change := range proposal.Changes {
-		switch change.Key {
-		case "height":
-			heightFloat, ok := change.Value.(float64)
-			if !ok {
-				return nil, fmt.Errorf("height must be a number")
-			}
-			height = int64(heightFloat)
-		case "name":
-			nameStr, ok := change.Value.(string)
-			if !ok {
-				return nil, fmt.Errorf("name must be a string")
-			}
-			name = nameStr
-		case "info":
-			infoStr, ok := change.Value.(string)
-			if !ok {
-				return nil, fmt.Errorf("info must be a string")
-			}
-			info = infoStr
-		}
-	}
-
-	if height == 0 {
+	if proposal.Plan.Height == 0 {
 		return nil, errors.New("upgrade height must be specified")
 	}
-	if name == "" {
+	if proposal.Plan.Name == "" {
 		return nil, errors.New("upgrade name must be specified")
 	}
 
@@ -134,9 +116,9 @@ func (h SoftwareUpgradeProposalHandler) HandleProposal(ctx sdk.Context, proposal
 		proposal.Title,
 		proposal.Description,
 		upgradetypes.Plan{
-			Name:   name,
-			Height: height,
-			Info:   info,
+			Name:   proposal.Plan.Name,
+			Height: proposal.Plan.Height,
+			Info:   proposal.Plan.Info,
 		},
 	), nil
 }

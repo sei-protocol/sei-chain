@@ -285,27 +285,27 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Software Upgrade\",\"description\":\"Upgrade to v2.0.0\",\"type\":\"SoftwareUpgrade\",\"changes\":[{\"key\":\"height\",\"value\":1000},{\"key\":\"name\",\"value\":\"v2.0.0\"},{\"key\":\"info\",\"value\":\"Upgrade to v2.0.0\"}],\"deposit\":\"10000000usei\"}",
+				proposal:         "{\"title\":\"Software Upgrade\",\"description\":\"Upgrade to v2.0.0\",\"type\":\"SoftwareUpgrade\",\"plan\":{\"name\":\"v2.0.0\",\"height\":1000,\"info\":\"Upgrade to v2.0.0\"},\"deposit\":\"10000000usei\"}",
 			},
 			wantErr: false,
 			wantRet: []byte{31: expectedProposalID},
 		},
 		{
-			name: "returns error on software upgrade proposal with no changes",
+			name: "returns error on software upgrade proposal with no plan",
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"This proposal has no changes\",\"type\":\"SoftwareUpgrade\",\"deposit\":\"10000000usei\"}",
+				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"This proposal has no plan\",\"type\":\"SoftwareUpgrade\",\"deposit\":\"10000000usei\"}",
 			},
 			wantErr:    true,
-			wantErrMsg: "at least one upgrade change must be specified",
+			wantErrMsg: "upgrade plan must be specified",
 		},
 		{
 			name: "returns error on software upgrade proposal with missing height",
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Missing height\",\"type\":\"SoftwareUpgrade\",\"changes\":[{\"key\":\"name\",\"value\":\"v2.0.0\"}],\"deposit\":\"10000000usei\"}",
+				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Missing height\",\"type\":\"SoftwareUpgrade\",\"plan\":{\"name\":\"v2.0.0\"},\"deposit\":\"10000000usei\"}",
 			},
 			wantErr:    true,
 			wantErrMsg: "upgrade height must be specified",
@@ -315,7 +315,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Missing name\",\"type\":\"SoftwareUpgrade\",\"changes\":[{\"key\":\"height\",\"value\":1000}],\"deposit\":\"10000000usei\"}",
+				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Missing name\",\"type\":\"SoftwareUpgrade\",\"plan\":{\"height\":1000},\"deposit\":\"10000000usei\"}",
 			},
 			wantErr:    true,
 			wantErrMsg: "upgrade name must be specified",
@@ -325,30 +325,30 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Invalid height type\",\"type\":\"SoftwareUpgrade\",\"changes\":[{\"key\":\"height\",\"value\":\"1000\"},{\"key\":\"name\",\"value\":\"v2.0.0\"}],\"deposit\":\"10000000usei\"}",
+				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Invalid height type\",\"type\":\"SoftwareUpgrade\",\"plan\":{\"name\":\"v2.0.0\",\"height\":\"1000\"},\"deposit\":\"10000000usei\"}",
 			},
 			wantErr:    true,
-			wantErrMsg: "height must be a number",
+			wantErrMsg: "failed to parse proposal JSON: json: cannot unmarshal string into Go struct field SoftwareUpgradePlan.plan.height of type int64",
 		},
 		{
 			name: "returns error on software upgrade proposal with invalid name type",
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Invalid name type\",\"type\":\"SoftwareUpgrade\",\"changes\":[{\"key\":\"height\",\"value\":1000},{\"key\":\"name\",\"value\":123}],\"deposit\":\"10000000usei\"}",
+				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Invalid name type\",\"type\":\"SoftwareUpgrade\",\"plan\":{\"name\":123,\"height\":1000},\"deposit\":\"10000000usei\"}",
 			},
 			wantErr:    true,
-			wantErrMsg: "name must be a string",
+			wantErrMsg: "failed to parse proposal JSON: json: cannot unmarshal number into Go struct field SoftwareUpgradePlan.plan.name of type string",
 		},
 		{
 			name: "returns error on software upgrade proposal with invalid info type",
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Invalid info type\",\"type\":\"SoftwareUpgrade\",\"changes\":[{\"key\":\"height\",\"value\":1000},{\"key\":\"name\",\"value\":\"v2.0.0\"},{\"key\":\"info\",\"value\":123}],\"deposit\":\"10000000usei\"}",
+				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Invalid info type\",\"type\":\"SoftwareUpgrade\",\"plan\":{\"name\":\"v2.0.0\",\"height\":1000,\"info\":123},\"deposit\":\"10000000usei\"}",
 			},
 			wantErr:    true,
-			wantErrMsg: "info must be a string",
+			wantErrMsg: "failed to parse proposal JSON: json: cannot unmarshal number into Go struct field SoftwareUpgradePlan.plan.info of type string",
 		},
 		{
 			name: "returns proposal id on submit community pool spend proposal with valid content",
