@@ -240,6 +240,12 @@ func (p PrecompileExecutor) submitProposal(ctx sdk.Context, method *abi.Method, 
 		return nil, err
 	}
 
+	// Validate the Msg
+	err = msg.ValidateBasic()
+	if err != nil {
+		return nil, err
+	}
+
 	// Create a MsgServer context
 	goCtx := sdk.WrapSDKContext(ctx)
 
