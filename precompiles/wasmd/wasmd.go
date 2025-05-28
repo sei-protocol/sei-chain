@@ -336,6 +336,7 @@ func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller 
 			return
 		}
 	}()
+	fmt.Println(ctx.GasMeter().Limit())
 	if readOnly {
 		rerr = errors.New("cannot call execute from staticcall")
 		return
@@ -405,13 +406,20 @@ func (p PrecompileExecutor) execute(ctx sdk.Context, method *abi.Method, caller 
 			return
 		}
 	}
+	fmt.Println(contractAddr.String())
+	fmt.Println(ctx.GasMeter().GasConsumed())
+	fmt.Println(string(msg))
 	res, err := p.wasmdKeeper.Execute(ctx, contractAddr, senderAddr, msg, coins)
+	fmt.Println(111111111)
+	fmt.Println(ctx.GasMeter().GasConsumed())
 	if err != nil {
 		rerr = err
 		return
 	}
+	fmt.Println(222222222)
 	ret, rerr = method.Outputs.Pack(res)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	fmt.Println(ctx.GasMeter().GasConsumed())
 	return
 }
 

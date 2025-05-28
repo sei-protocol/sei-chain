@@ -25,6 +25,7 @@ type EVMCallFunc func(caller vm.ContractRef, addr *common.Address, input []byte,
 var MaxUint64BigInt = new(big.Int).SetUint64(math.MaxUint64)
 
 func (k *Keeper) HandleInternalEVMCall(ctx sdk.Context, req *types.MsgInternalEVMCall) (*sdk.Result, error) {
+	fmt.Println("HandleInternalEVMCall")
 	var to *common.Address
 	if req.To != "" {
 		addr := common.HexToAddress(req.To)
@@ -42,6 +43,7 @@ func (k *Keeper) HandleInternalEVMCall(ctx sdk.Context, req *types.MsgInternalEV
 }
 
 func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgInternalEVMDelegateCall) (*sdk.Result, error) {
+	fmt.Println("HandleInternalEVMDelegateCall")
 	var to *common.Address
 	if req.To != "" {
 		addr := common.HexToAddress(req.To)
@@ -185,6 +187,10 @@ func (k *Keeper) createReadOnlyEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EV
 }
 
 func (k *Keeper) getEvmGasLimitFromCtx(ctx sdk.Context) uint64 {
+	fmt.Println("________")
+	fmt.Println(ctx.GasMeter().Limit())
+	fmt.Println(ctx.GasMeter().GasConsumed())
+	fmt.Println(ctx.GasMeter().GasConsumedToLimit())
 	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
 	if ctx.GasMeter().Limit() <= 0 {
 		return math.MaxUint64

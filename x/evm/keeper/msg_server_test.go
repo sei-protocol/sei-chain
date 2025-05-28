@@ -4,22 +4,28 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"os"
 	"testing"
+	"time"
 
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/example/contracts/echo"
 	"github.com/sei-protocol/sei-chain/example/contracts/sendall"
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
@@ -43,6 +49,90 @@ func (tx mockTx) ValidateBasic() error                            { return nil }
 func (tx mockTx) GetSigners() []sdk.AccAddress                    { return tx.signers }
 func (tx mockTx) GetPubKeys() ([]cryptotypes.PubKey, error)       { return nil, nil }
 func (tx mockTx) GetSignaturesV2() ([]signing.SignatureV2, error) { return nil, nil }
+
+func TestSimple(t *testing.T) {
+	a := testkeeper.EVMTestApp
+	ctx := a.GetContextForDeliverTx(nil).WithChainID("pacific-1").WithBlockHeight(117842992).WithBlockTime(time.Unix(1732924863, 0))
+	codeHash, _ := hex.DecodeString("4EBD7DA3920F3EF5914F76B229DA29F8251DBCFB6F32C3FEEE1626A5BAD71F90")
+	code, _ := os.ReadFile("/Users/xiaoyuchen/Downloads/4485.code")
+	require.Nil(t, a.WasmKeeper.ImportCode(ctx, 4485, wasmtypes.CodeInfo{
+		CodeHash:          codeHash,
+		Creator:           "sei1efpl63nwegea0j2a69hhapx0a7khmvaacxd67c",
+		InstantiateConfig: wasmtypes.AllowEverybody,
+	}, code))
+	mockStateFromJson(ctx, "/Users/xiaoyuchen/Downloads/dump.json", a)
+	to := common.HexToAddress("0x0000000000000000000000000000000000001002")
+	bz, err := hex.DecodeString("44d227ae000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000003e7365693165336774747a713565356b343966396635677a76726c30726c746c617636357875367039786330616a376538346c616e74646a717037636e63630000000000000000000000000000000000000000000000000000000000000000000b7b22626f6e64223a7b7d7d00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000275b7b22616d6f756e74223a22313638303030303030222c2264656e6f6d223a2275736569227d5d00000000000000000000000000000000000000000000000000")
+	require.Nil(t, err)
+	R := new(hexutil.Big)
+	require.Nil(t, R.UnmarshalText([]byte("0x6a23f05dda3d3b48a6f88ddd97f542ce610de01417376bb0a120c23e8f7375ab")))
+	S := new(hexutil.Big)
+	require.Nil(t, S.UnmarshalText([]byte("0x501feb6fccea582bde7371c23551ac1cc23e97909008ecf2966660b52a6fc3e")))
+	txData := ethtypes.DynamicFeeTx{
+		ChainID:    big.NewInt(1329),
+		Gas:        610546,
+		To:         &to,
+		Value:      new(big.Int).Mul(big.NewInt(1000000000000000000), big.NewInt(168)),
+		Data:       bz,
+		Nonce:      12,
+		GasTipCap:  big.NewInt(100855536788),
+		GasFeeCap:  big.NewInt(100855536788),
+		AccessList: ethtypes.AccessList{},
+		V:          big.NewInt(1),
+		R:          R.ToInt(),
+		S:          S.ToInt(),
+	}
+	tx := ethtypes.NewTx(&txData)
+	require.Equal(t, "0x01aaf9dd754d86f887c0c530cdd769da9202dfc1eb4a3e229050b417a4dc1adf", tx.Hash().Hex())
+	txwrapper, err := ethtx.NewDynamicFeeTx(tx)
+	require.Nil(t, err)
+	req, err := types.NewMsgEVMTransaction(txwrapper)
+	require.Nil(t, err)
+	tb := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
+	tb.SetMsgs(req)
+	sdktx := tb.GetTx()
+	txbz, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(sdktx)
+	require.Nil(t, err)
+
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
+	fmt.Println(res.EvmTxInfo)
+	panic(1)
+	require.Equal(t, uint32(45), res.Code)
+	// r, _ := testkeeper.EVMTestApp.EvmKeeper.GetReceipt(ctx, common.HexToHash("0x01aaf9dd754d86f887c0c530cdd769da9202dfc1eb4a3e229050b417a4dc1adf"))
+	// fmt.Println(r.GasUsed)
+	// panic(1)
+}
+
+func mockStateFromJson(ctx sdk.Context, filepath string, a *app.App) {
+	file, _ := os.Open(filepath)
+	data, _ := io.ReadAll(file)
+	typed := map[string]interface{}{}
+	json.Unmarshal(data, &typed)
+	typed = typed["modules"].(map[string]interface{})
+	for moduleName, data := range typed {
+		var storeKey sdk.StoreKey
+		kvStoreKey := a.GetKey(moduleName)
+		if kvStoreKey != nil {
+			storeKey = kvStoreKey
+		} else {
+			storeKey = a.GetMemKey(moduleName)
+		}
+		store := ctx.KVStore(storeKey)
+		typedData := data.(map[string]interface{})
+		for _, key := range typedData["has"].([]interface{}) {
+			bz, _ := hex.DecodeString(key.(string))
+			store.Set(bz, []byte{1})
+		}
+		for key, value := range typedData["reads"].(map[string]interface{}) {
+			if value == "" {
+				continue
+			}
+			kbz, _ := hex.DecodeString(key)
+			vbz, _ := hex.DecodeString(value.(string))
+			store.Set(kbz, vbz)
+		}
+	}
+}
 
 func TestEVMTransaction(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()

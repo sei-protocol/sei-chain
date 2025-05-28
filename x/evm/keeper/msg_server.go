@@ -68,6 +68,9 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	gp := server.GetGasPool()
 
 	defer func() {
+		fmt.Println(serverRes.VmError)
+		fmt.Println(stateDB.GetPrecompileError())
+		fmt.Println(serverRes.GasUsed)
 		defer stateDB.Cleanup()
 		if pe := recover(); pe != nil {
 			if !strings.Contains(fmt.Sprintf("%s", pe), occtypes.ErrReadEstimate.Error()) {
@@ -138,6 +141,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			)
 			return
 		}
+		fmt.Println(receipt)
 
 		// Add metrics for receipt status
 		if receipt.Status == uint32(ethtypes.ReceiptStatusFailed) {
