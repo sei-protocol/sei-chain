@@ -27,6 +27,35 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v6.0.6
+sei-chain
+* [#2161](https://github.com/sei-protocol/sei-chain/pull/2161) Filter EVM Rpc default case
+* [#2160](https://github.com/sei-protocol/sei-chain/pull/2160) Remove Evmrpc Filter Panic
+* [#2157](https://github.com/sei-protocol/sei-chain/pull/2157) Fix getLog&getReceipt txIndex mismatch
+* [#2151](https://github.com/sei-protocol/sei-chain/pull/2151) Fix EVM RPC denylist config
+* [#2143](https://github.com/sei-protocol/sei-chain/pull/2143) Harden oracle tx spam prevention
+* [#2139](https://github.com/sei-protocol/sei-chain/pull/2139) Call antehandlers for traceBlock
+* [#2136](https://github.com/sei-protocol/sei-chain/pull/2136) Backfill from/to on receipts for failed txs
+* [#2135](https://github.com/sei-protocol/sei-chain/pull/2135) Use geth create trace for pointer trace
+* [#2134](https://github.com/sei-protocol/sei-chain/pull/2134) Add tracing to precompiles
+* [#2133](https://github.com/sei-protocol/sei-chain/pull/2133) Fix receipt tx index confusion
+* [#2127](https://github.com/sei-protocol/sei-chain/pull/2127) Fix getlogs deadlock
+* [#2123](https://github.com/sei-protocol/sei-chain/pull/2123) Fix getBlock endpoints transactionIndex
+* [#2122](https://github.com/sei-protocol/sei-chain/pull/2122) Use versioned precompiles in tracing
+* [#2118](https://github.com/sei-protocol/sei-chain/pull/2118) Add back legacy precompile versions
+* [#2117](https://github.com/sei-protocol/sei-chain/pull/2117) Overwrite block hash in tracer response with tendermint block hash
+* [#2112](https://github.com/sei-protocol/sei-chain/pull/2112) Return error when log requested with too wide ranges
+* [#2110](https://github.com/sei-protocol/sei-chain/pull/2110) Disallow future block number to be passed to balance queries
+
+sei-tendermint
+* [#260](https://github.com/sei-protocol/sei-tendermint/pull/260) Add logs/metrics for block proposal
+* [#274](https://github.com/sei-protocol/sei-tendermint/pull/274) Fix ToReqBeginBlock
+* [#277](https://github.com/sei-protocol/sei-tendermint/pull/277) Fix goroutine leak during block sync
+* [#275](https://github.com/sei-protocol/sei-tendermint/pull/275) Unsafe reset all fix
+
+sei-db
+* [#87](https://github.com/sei-protocol/sei-db/pull/87) Add Upper Bound ReverseIterator
+
 ## v6.0.5
 sei-chain
 * [#2100](https://github.com/sei-protocol/sei-chain/pull/2100) Refactor RPC log logic

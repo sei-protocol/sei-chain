@@ -264,6 +264,11 @@ func (s *InMemoryStateStore) GetLatestMigratedKey() ([]byte, error) {
 	return nil, nil
 }
 
+func (s *InMemoryStateStore) DeleteKeysAtVersion(module string, version int64) error {
+	// TODO: Add delete call here
+	return nil
+}
+
 func (s *InMemoryStateStore) Prune(version int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
