@@ -20,7 +20,7 @@ interface IGov {
     
     /**
      * @dev Submit a new governance proposal
-     * @param proposalJSON JSON string containing proposal details:
+     * @param proposalJSON JSON string containing proposal details e.g.:
      *        {
      *          "title": "Proposal Title",
      *          "description": "Proposal Description",

@@ -199,8 +199,14 @@ func TestGovPrecompile(t *testing.T) {
 }
 
 func TestPrecompileExecutor_submitProposal(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(3)
 	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
 	recipientSeiAddress, recipientEvmAddress := testkeeper.MockAddressPair()
+
+	// Dynamically determine the expected proposal ID
+	proposals := testApp.GovKeeper.GetProposals(ctx)
+	expectedProposalID := byte(len(proposals) + 1)
 
 	type args struct {
 		caller           common.Address
@@ -222,7 +228,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal:         "{\"title\":\"Test Proposal\",\"description\":\"My awesome proposal\",\"is_expedited\":false,\"type\":\"Text\",\"deposit\":\"10000000usei\"}",
 			},
 			wantErr: false,
-			wantRet: []byte{31: 1}, // proposal id 1 is expected (1 and 2 are already used)
+			wantRet: []byte{31: expectedProposalID},
 		},
 		{
 			name: "returns proposal id on submit text proposal with valid content and no deposit",
@@ -232,7 +238,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal:         "{\"title\":\"Test Proposal\",\"description\":\"My awesome proposal\",\"is_expedited\":false,\"type\":\"Text\"}",
 			},
 			wantErr: false,
-			wantRet: []byte{31: 1}, // proposal id 1 is expected (1 and 2 are already used)
+			wantRet: []byte{31: expectedProposalID},
 		},
 		{
 			name: "returns proposal id on submit parameter change proposal with multiple changes",
@@ -242,7 +248,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal:         "{\"title\":\"Gov Param Change\",\"description\":\"Update quorum to 0.45\",\"changes\":[{\"subspace\":\"gov\",\"key\":\"tallyparams\",\"value\":{\"quorum\":\"0.45\"}}],\"deposit\":\"10000000usei\",\"is_expedited\":false}",
 			},
 			wantErr: false,
-			wantRet: []byte{31: 1}, // proposal id 1 is expected (1 and 2 are already used)
+			wantRet: []byte{31: expectedProposalID},
 		},
 		{
 			name: "returns proposal id on submit cancel software upgrade proposal",
@@ -252,7 +258,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal:         "{\"title\":\"Cancel Upgrade\",\"description\":\"Cancel the pending software upgrade\",\"type\":\"CancelSoftwareUpgrade\",\"deposit\":\"10000000usei\"}",
 			},
 			wantErr: false,
-			wantRet: []byte{31: 1}, // proposal id 1 is expected (1 and 2 are already used)
+			wantRet: []byte{31: expectedProposalID},
 		},
 		{
 			name: "returns error on parameter change proposal with no changes",
@@ -282,7 +288,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal:         "{\"title\":\"Software Upgrade\",\"description\":\"Upgrade to v2.0.0\",\"type\":\"SoftwareUpgrade\",\"changes\":[{\"key\":\"height\",\"value\":1000},{\"key\":\"name\",\"value\":\"v2.0.0\"},{\"key\":\"info\",\"value\":\"Upgrade to v2.0.0\"}],\"deposit\":\"10000000usei\"}",
 			},
 			wantErr: false,
-			wantRet: []byte{31: 1},
+			wantRet: []byte{31: expectedProposalID},
 		},
 		{
 			name: "returns error on software upgrade proposal with no changes",
@@ -352,7 +358,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal:         "{\"title\":\"Community Pool Spend\",\"description\":\"Spend from community pool\",\"type\":\"CommunityPoolSpend\",\"changes\":[{\"key\":\"recipient\",\"value\": \"" + recipientEvmAddress.String() + "\"},{\"key\":\"amount\",\"value\":\"1000000usei\"}],\"deposit\":\"10000000usei\"}",
 			},
 			wantErr: false,
-			wantRet: []byte{31: 1}, // proposal id 3 is expected (1 and 2 are already used)
+			wantRet: []byte{31: expectedProposalID},
 		},
 		{
 			name: "returns error on community pool spend proposal with no changes",
@@ -412,7 +418,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal:         "{\"title\":\"Resource Dependency Mapping\",\"description\":\"Update resource dependencies\",\"type\":\"UpdateResourceDependencyMapping\",\"changes\":[{\"key\":\"resource\",\"value\":\"resource1\"},{\"key\":\"dependencies\",\"value\":[\"dep1\",\"dep2\"]}],\"deposit\":\"10000000usei\"}",
 			},
 			wantErr: false,
-			wantRet: []byte{31: 1}, // proposal id 3 is expected (1 and 2 are already used)
+			wantRet: []byte{31: expectedProposalID},
 		},
 		{
 			name: "returns error on resource dependency mapping proposal with no changes",
@@ -467,8 +473,6 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			testApp := testkeeper.EVMTestApp
-			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(3)
 			k := &testApp.EvmKeeper
 			k.SetAddressMapping(ctx, tt.args.callerSeiAddress, tt.args.caller)
 			k.SetAddressMapping(ctx, recipientSeiAddress, recipientEvmAddress)
@@ -487,6 +491,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			require.Nil(t, err)
 			inputs, err := submitProposalMethod.Inputs.Pack(tt.args.proposal)
 			require.Nil(t, err)
+
 			gotRet, err := p.Run(&evm, tt.args.caller, common.Address{}, append(p.GetExecutor().(*gov.PrecompileExecutor).SubmitProposalID, inputs...), nil, false, false, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)

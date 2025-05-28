@@ -284,10 +284,9 @@ func (h UpdateResourceDependencyMappingProposalHandler) HandleProposal(ctx sdk.C
 
 	// Build a MessageDependencyMapping for the resource and dependencies
 	// For demonstration, use SynchronousMessageDependencyMapping for each dependency
-	var mappings []accesscontrol.MessageDependencyMapping
-	for _, dep := range dependencies {
-		mapping := acltypes.SynchronousMessageDependencyMapping(acltypes.MessageKey(dep))
-		mappings = append(mappings, mapping)
+	mappings := make([]accesscontrol.MessageDependencyMapping, len(dependencies))
+	for i, dep := range dependencies {
+		mappings[i] = acltypes.SynchronousMessageDependencyMapping(acltypes.MessageKey(dep))
 	}
 
 	return acltypes.NewMsgUpdateResourceDependencyMappingProposal(
