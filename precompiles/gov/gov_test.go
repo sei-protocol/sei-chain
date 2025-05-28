@@ -225,7 +225,13 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Test Proposal\",\"description\":\"My awesome proposal\",\"is_expedited\":false,\"type\":\"Text\",\"deposit\":\"10000000usei\"}",
+				proposal: `{
+                      "title":"Test Proposal",
+                      "description":"My awesome proposal",
+                      "is_expedited":false,
+                      "type":"Text",
+                      "deposit": "10000000usei"
+                 }`,
 			},
 			wantErr: false,
 			wantRet: []byte{31: expectedProposalID},
@@ -235,7 +241,11 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Test Proposal\",\"description\":\"My awesome proposal\",\"is_expedited\":false,\"type\":\"Text\"}",
+				proposal: `{
+					"title": "Gov Proposal",
+					"description": "This is a gov proposal",
+					"type": "Text"
+				}`,
 			},
 			wantErr: false,
 			wantRet: []byte{31: expectedProposalID},
@@ -245,7 +255,21 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Gov Param Change\",\"description\":\"Update quorum to 0.45\",\"changes\":[{\"subspace\":\"gov\",\"key\":\"tallyparams\",\"value\":{\"quorum\":\"0.45\"}}],\"deposit\":\"10000000usei\",\"is_expedited\":false}",
+				proposal: `{
+					"title": "Gov Param Change",
+					"description": "Update quorum to 0.45",
+					"changes": [
+						{
+							"subspace": "gov",
+							"key": "tallyparams",
+							"value": {
+								"quorum": "0.45"
+							}
+						}
+					],
+					"deposit": "10000000usei",
+					"is_expedited": false
+				}`,
 			},
 			wantErr: false,
 			wantRet: []byte{31: expectedProposalID},
@@ -255,7 +279,12 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Cancel Upgrade\",\"description\":\"Cancel the pending software upgrade\",\"type\":\"CancelSoftwareUpgrade\",\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Cancel Upgrade",
+					"description": "Cancel the pending software upgrade",
+					"type": "CancelSoftwareUpgrade",
+					"deposit": "10000000usei"
+				}`,
 			},
 			wantErr: false,
 			wantRet: []byte{31: expectedProposalID},
@@ -265,7 +294,12 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid proposal\",\"description\":\"This proposal has no changes\",\"type\":\"ParameterChange\",\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Invalid proposal",
+					"description": "This proposal has no changes",
+					"type": "ParameterChange",
+					"deposit": "10000000usei"
+				}`,
 			},
 			wantErr:    true,
 			wantErrMsg: "at least one parameter change must be specified",
@@ -275,7 +309,21 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid proposal\",\"description\":\"This proposal has invalid value\",\"type\":\"ParameterChange\",\"changes\":[{\"subspace\":\"ct\",\"key\":\"EnableCtModule\",\"value\":{\"complex\":\"object\"}}],\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Invalid proposal",
+					"description": "This proposal has invalid value",
+					"type": "ParameterChange",
+					"changes": [
+						{
+							"subspace": "ct",
+							"key": "EnableCtModule",
+							"value": {
+								"complex": "object"
+							}
+						}
+					],
+					"deposit": "10000000usei"
+				}`,
 			},
 			wantErr:    true,
 			wantErrMsg: "parameter ct/EnableCtModule does not exist: invalid proposal content",
@@ -285,7 +333,17 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Software Upgrade\",\"description\":\"Upgrade to v2.0.0\",\"type\":\"SoftwareUpgrade\",\"plan\":{\"name\":\"v2.0.0\",\"height\":1000,\"info\":\"Upgrade to v2.0.0\"},\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Software Upgrade",
+					"description": "Upgrade to v2.0.0",
+					"type": "SoftwareUpgrade",
+					"plan": {
+						"name": "v2.0.0",
+						"height": 1000,
+						"info": "Upgrade to v2.0.0"
+					},
+					"deposit": "10000000usei"
+				}`,
 			},
 			wantErr: false,
 			wantRet: []byte{31: expectedProposalID},
@@ -295,7 +353,12 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"This proposal has no plan\",\"type\":\"SoftwareUpgrade\",\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Invalid upgrade",
+					"description": "This proposal has no plan",
+					"type": "SoftwareUpgrade",
+					"deposit": "10000000usei"
+				}`,
 			},
 			wantErr:    true,
 			wantErrMsg: "upgrade plan must be specified",
@@ -305,7 +368,15 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Missing height\",\"type\":\"SoftwareUpgrade\",\"plan\":{\"name\":\"v2.0.0\"},\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Invalid upgrade",
+					"description": "Missing height",
+					"type": "SoftwareUpgrade",
+					"plan": {
+						"name": "v2.0.0"
+					},
+					"deposit": "10000000usei"
+				}`,
 			},
 			wantErr:    true,
 			wantErrMsg: "upgrade height must be specified",
@@ -315,7 +386,15 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Missing name\",\"type\":\"SoftwareUpgrade\",\"plan\":{\"height\":1000},\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Invalid upgrade",
+					"description": "Missing name",
+					"type": "SoftwareUpgrade",
+					"plan": {
+						"height": 1000
+					},
+					"deposit": "10000000usei"
+				}`,
 			},
 			wantErr:    true,
 			wantErrMsg: "upgrade name must be specified",
@@ -325,7 +404,16 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Invalid height type\",\"type\":\"SoftwareUpgrade\",\"plan\":{\"name\":\"v2.0.0\",\"height\":\"1000\"},\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Invalid upgrade",
+					"description": "Invalid height type",
+					"type": "SoftwareUpgrade",
+					"plan": {
+						"name": "v2.0.0",
+						"height": "1000"
+					},
+					"deposit": "10000000usei"
+				}`,
 			},
 			wantErr:    true,
 			wantErrMsg: "failed to parse proposal JSON: json: cannot unmarshal string into Go struct field SoftwareUpgradePlan.plan.height of type int64",
@@ -335,7 +423,16 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Invalid name type\",\"type\":\"SoftwareUpgrade\",\"plan\":{\"name\":123,\"height\":1000},\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Invalid upgrade",
+					"description": "Invalid name type",
+					"type": "SoftwareUpgrade",
+					"plan": {
+						"name": 123,
+						"height": 1000
+					},
+					"deposit": "10000000usei"
+				}`,
 			},
 			wantErr:    true,
 			wantErrMsg: "failed to parse proposal JSON: json: cannot unmarshal number into Go struct field SoftwareUpgradePlan.plan.name of type string",
@@ -345,7 +442,17 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid upgrade\",\"description\":\"Invalid info type\",\"type\":\"SoftwareUpgrade\",\"plan\":{\"name\":\"v2.0.0\",\"height\":1000,\"info\":123},\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Invalid upgrade",
+					"description": "Invalid info type",
+					"type": "SoftwareUpgrade",
+					"plan": {
+						"name": "v2.0.0",
+						"height": 1000,
+						"info": 123
+					},
+					"deposit": "10000000usei"
+				}`,
 			},
 			wantErr:    true,
 			wantErrMsg: "failed to parse proposal JSON: json: cannot unmarshal number into Go struct field SoftwareUpgradePlan.plan.info of type string",
@@ -355,7 +462,16 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Community Pool Spend\",\"description\":\"Spend from community pool\",\"type\":\"CommunityPoolSpend\",\"community_pool_spend\":{\"recipient\":\"" + recipientEvmAddress.String() + "\",\"amount\":\"1000000usei\"},\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Community Pool Spend",
+					"description": "Spend from community pool",
+					"type": "CommunityPoolSpend",
+					"community_pool_spend": {
+						"recipient": "` + recipientEvmAddress.String() + `",
+						"amount": "1000000usei"
+					},
+					"deposit": "10000000usei"
+				}`,
 			},
 			wantErr: false,
 			wantRet: []byte{31: expectedProposalID},
@@ -365,7 +481,12 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"This proposal has no parameters\",\"type\":\"CommunityPoolSpend\",\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Invalid spend",
+					"description": "This proposal has no parameters",
+					"type": "CommunityPoolSpend",
+					"deposit": "10000000usei"
+				}`,
 			},
 			wantErr:    true,
 			wantErrMsg: "community pool spend parameters must be specified",
@@ -375,7 +496,15 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Missing recipient\",\"type\":\"CommunityPoolSpend\",\"community_pool_spend\":{\"amount\":\"1000000usei\"},\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Invalid spend",
+					"description": "Missing recipient",
+					"type": "CommunityPoolSpend",
+					"community_pool_spend": {
+						"amount": "1000000usei"
+					},
+					"deposit": "10000000usei"
+				}`,
 			},
 			wantErr:    true,
 			wantErrMsg: "invalid ethereum address format",
@@ -385,7 +514,15 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Missing amount\",\"type\":\"CommunityPoolSpend\",\"community_pool_spend\":{\"recipient\":\"0x1234567890123456789012345678901234567890\"},\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Invalid spend",
+					"description": "Missing amount",
+					"type": "CommunityPoolSpend",
+					"community_pool_spend": {
+						"recipient": "0x1234567890123456789012345678901234567890"
+					},
+					"deposit": "10000000usei"
+				}`,
 			},
 			wantErr:    true,
 			wantErrMsg: "amount must be greater than zero",
@@ -395,10 +532,38 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Invalid recipient\",\"type\":\"CommunityPoolSpend\",\"community_pool_spend\":{\"recipient\":\"invalid\",\"amount\":\"1000000usei\"},\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Invalid spend",
+					"description": "Invalid recipient",
+					"type": "CommunityPoolSpend",
+					"community_pool_spend": {
+						"recipient": "invalid",
+						"amount": "1000000usei"
+					},
+					"deposit": "10000000usei"
+				}`,
 			},
 			wantErr:    true,
 			wantErrMsg: "invalid ethereum address format",
+		},
+		{
+			name: "returns error on community pool spend proposal with invalid amount format",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Community Pool Spend",
+					"description": "Test invalid amount",
+					"type": "CommunityPoolSpend",
+					"community_pool_spend": {
+						"recipient": "0x1234567890123456789012345678901234567890",
+						"amount": "invalid"
+					},
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid amount format: invalid decimal coin expression: invalid",
 		},
 		{
 			name: "returns proposal id on submit update resource dependency proposal with valid content",
@@ -538,6 +703,138 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			},
 			wantErr:    true,
 			wantErrMsg: "last access operation must be COMMIT",
+		},
+		{
+			name: "returns proposal id on submit resource dependency mapping proposal with valid content",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Resource Dependency Mapping",
+					"description": "Update resource dependencies",
+					"type": "UpdateResourceDependencyMapping",
+					"changes": [
+						{
+							"key": "resource",
+							"value": "resource1"
+						},
+						{
+							"key": "dependencies",
+							"value": ["dep1", "dep2"]
+						}
+					],
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "resource mapping must be specified",
+		},
+		{
+			name: "returns error on resource dependency mapping proposal with no changes",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid mapping",
+					"description": "This proposal has no changes",
+					"type": "UpdateResourceDependencyMapping",
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "resource mapping must be specified",
+		},
+		{
+			name: "returns error on resource dependency mapping proposal with missing resource",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid mapping",
+					"description": "Missing resource",
+					"type": "UpdateResourceDependencyMapping",
+					"changes": [
+						{
+							"key": "dependencies",
+							"value": ["dep1", "dep2"]
+						}
+					],
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "resource mapping must be specified",
+		},
+		{
+			name: "returns error on resource dependency mapping proposal with missing dependencies",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid mapping",
+					"description": "Missing dependencies",
+					"type": "UpdateResourceDependencyMapping",
+					"changes": [
+						{
+							"key": "resource",
+							"value": "resource1"
+						}
+					],
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "resource mapping must be specified",
+		},
+		{
+			name: "returns error on resource dependency mapping proposal with invalid resource type",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid mapping",
+					"description": "Invalid resource type",
+					"type": "UpdateResourceDependencyMapping",
+					"changes": [
+						{
+							"key": "resource",
+							"value": 123
+						},
+						{
+							"key": "dependencies",
+							"value": ["dep1", "dep2"]
+						}
+					],
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "resource mapping must be specified",
+		},
+		{
+			name: "returns error on resource dependency mapping proposal with invalid dependencies type",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid mapping",
+					"description": "Invalid dependencies type",
+					"type": "UpdateResourceDependencyMapping",
+					"changes": [
+						{
+							"key": "resource",
+							"value": "resource1"
+						},
+						{
+							"key": "dependencies",
+							"value": "not an array"
+						}
+					],
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "resource mapping must be specified",
 		},
 	}
 	for _, tt := range tests {
