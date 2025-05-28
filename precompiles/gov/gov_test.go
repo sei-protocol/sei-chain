@@ -401,74 +401,143 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			wantErrMsg: "invalid ethereum address format",
 		},
 		{
-			name: "returns error on community pool spend proposal with invalid amount",
+			name: "returns proposal id on submit update resource dependency proposal with valid content",
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid spend\",\"description\":\"Invalid amount\",\"type\":\"CommunityPoolSpend\",\"community_pool_spend\":{\"recipient\":\"0x1234567890123456789012345678901234567890\",\"amount\":\"invalid\"},\"deposit\":\"10000000usei\"}",
-			},
-			wantErr:    true,
-			wantErrMsg: "invalid amount format: invalid decimal coin expression: invalid",
-		},
-		{
-			name: "returns proposal id on submit resource dependency mapping proposal with valid content",
-			args: args{
-				caller:           callerEvmAddress,
-				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Resource Dependency Mapping\",\"description\":\"Update resource dependencies\",\"type\":\"UpdateResourceDependencyMapping\",\"changes\":[{\"key\":\"resource\",\"value\":\"resource1\"},{\"key\":\"dependencies\",\"value\":[\"dep1\",\"dep2\"]}],\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Update Resource Dependencies",
+					"description": "Add dependency mappings for bank module",
+					"type": "UpdateResourceDependencyMapping",
+					"resource_mapping": {
+						"resource": "/cosmos.bank.v1beta1.MsgSend",
+						"dependencies": [
+							"/cosmos.auth.v1beta1.QueryAccount",
+							"/cosmos.bank.v1beta1.QueryBalance"
+						],
+						"access_ops": [
+							{
+								"resource_type": "BANK",
+								"access_type": "READ",
+								"identifier_template": "*"
+							},
+							{
+								"resource_type": "ANY",
+								"access_type": "COMMIT",
+								"identifier_template": "*"
+							}
+						],
+						"dynamic_enabled": true
+					}
+				}`,
 			},
 			wantErr: false,
 			wantRet: []byte{31: expectedProposalID},
 		},
 		{
-			name: "returns error on resource dependency mapping proposal with no changes",
+			name: "returns error on update resource dependency proposal with no resource mapping",
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid mapping\",\"description\":\"This proposal has no changes\",\"type\":\"UpdateResourceDependencyMapping\",\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Update Resource Dependencies",
+					"description": "Missing resource mapping",
+					"type": "UpdateResourceDependencyMapping"
+				}`,
 			},
 			wantErr:    true,
-			wantErrMsg: "at least one resource dependency mapping must be specified",
+			wantErrMsg: "resource mapping must be specified",
 		},
 		{
-			name: "returns error on resource dependency mapping proposal with missing resource",
+			name: "returns error on update resource dependency proposal with missing resource",
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid mapping\",\"description\":\"Missing resource\",\"type\":\"UpdateResourceDependencyMapping\",\"changes\":[{\"key\":\"dependencies\",\"value\":[\"dep1\",\"dep2\"]}],\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Update Resource Dependencies",
+					"description": "Missing resource field",
+					"type": "UpdateResourceDependencyMapping",
+					"resource_mapping": {
+						"dependencies": ["/cosmos.auth.v1beta1.QueryAccount"],
+						"access_ops": [
+							{
+								"resource_type": "ANY",
+								"access_type": "COMMIT",
+								"identifier_template": "*"
+							}
+						]
+					}
+				}`,
 			},
 			wantErr:    true,
 			wantErrMsg: "resource must be specified",
 		},
 		{
-			name: "returns error on resource dependency mapping proposal with missing dependencies",
+			name: "returns error on update resource dependency proposal with missing dependencies",
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid mapping\",\"description\":\"Missing dependencies\",\"type\":\"UpdateResourceDependencyMapping\",\"changes\":[{\"key\":\"resource\",\"value\":\"resource1\"}],\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Update Resource Dependencies",
+					"description": "Missing dependencies",
+					"type": "UpdateResourceDependencyMapping",
+					"resource_mapping": {
+						"resource": "/cosmos.bank.v1beta1.MsgSend",
+						"access_ops": [
+							{
+								"resource_type": "ANY",
+								"access_type": "COMMIT",
+								"identifier_template": "*"
+							}
+						]
+					}
+				}`,
 			},
 			wantErr:    true,
 			wantErrMsg: "at least one dependency must be specified",
 		},
 		{
-			name: "returns error on resource dependency mapping proposal with invalid resource type",
+			name: "returns error on update resource dependency proposal with missing access ops",
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid mapping\",\"description\":\"Invalid resource type\",\"type\":\"UpdateResourceDependencyMapping\",\"changes\":[{\"key\":\"resource\",\"value\":123},{\"key\":\"dependencies\",\"value\":[\"dep1\",\"dep2\"]}],\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Update Resource Dependencies",
+					"description": "Missing access operations",
+					"type": "UpdateResourceDependencyMapping",
+					"resource_mapping": {
+						"resource": "/cosmos.bank.v1beta1.MsgSend",
+						"dependencies": ["/cosmos.auth.v1beta1.QueryAccount"]
+					}
+				}`,
 			},
 			wantErr:    true,
-			wantErrMsg: "resource must be a string",
+			wantErrMsg: "at least one access operation must be specified",
 		},
 		{
-			name: "returns error on resource dependency mapping proposal with invalid dependencies type",
+			name: "returns error on update resource dependency proposal with invalid last access op",
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
-				proposal:         "{\"title\":\"Invalid mapping\",\"description\":\"Invalid dependencies type\",\"type\":\"UpdateResourceDependencyMapping\",\"changes\":[{\"key\":\"resource\",\"value\":\"resource1\"},{\"key\":\"dependencies\",\"value\":\"not an array\"}],\"deposit\":\"10000000usei\"}",
+				proposal: `{
+					"title": "Update Resource Dependencies",
+					"description": "Last access op is not COMMIT",
+					"type": "UpdateResourceDependencyMapping",
+					"resource_mapping": {
+						"resource": "/cosmos.bank.v1beta1.MsgSend",
+						"dependencies": ["/cosmos.auth.v1beta1.QueryAccount"],
+						"access_ops": [
+							{
+								"resource_type": "BANK",
+								"access_type": "READ",
+								"identifier_template": "*"
+							}
+						]
+					}
+				}`,
 			},
 			wantErr:    true,
-			wantErrMsg: "dependencies must be an array",
+			wantErrMsg: "last access operation must be COMMIT",
 		},
 	}
 	for _, tt := range tests {

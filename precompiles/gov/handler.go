@@ -28,9 +28,10 @@ type Proposal struct {
 	IsExpedited bool   `json:"is_expedited,omitempty"`
 	Deposit     string `json:"deposit,omitempty"`
 	// Optional fields for specific proposal types
-	Plan               *SoftwareUpgradePlan `json:"plan,omitempty"`
-	CommunityPoolSpend *CommunityPoolSpend  `json:"community_pool_spend,omitempty"`
-	Changes            []Change             `json:"changes,omitempty"` // For parameter changes and other generic changes
+	Plan               *SoftwareUpgradePlan       `json:"plan,omitempty"`
+	CommunityPoolSpend *CommunityPoolSpend        `json:"community_pool_spend,omitempty"`
+	ResourceMapping    *ResourceDependencyMapping `json:"resource_mapping,omitempty"`
+	Changes            []Change                   `json:"changes,omitempty"` // For parameter changes and other generic changes
 }
 
 // SoftwareUpgradePlan represents the plan for a software upgrade proposal
@@ -241,47 +242,33 @@ type UpdateResourceDependencyMappingProposalHandler struct {
 }
 
 func (h UpdateResourceDependencyMappingProposalHandler) HandleProposal(ctx sdk.Context, proposal Proposal) (govtypes.Content, error) {
-	if len(proposal.Changes) == 0 {
-		return nil, errors.New("at least one resource dependency mapping must be specified")
+	if proposal.ResourceMapping == nil {
+		return nil, errors.New("resource mapping must be specified")
 	}
 
-	// Get the resource and dependencies from changes
-	var resource string
-	var dependencies []string
-	for _, change := range proposal.Changes {
-		switch change.Key {
-		case "resource":
-			resourceStr, ok := change.Value.(string)
-			if !ok {
-				return nil, fmt.Errorf("resource must be a string")
-			}
-			resource = resourceStr
-		case "dependencies":
-			deps, ok := change.Value.([]interface{})
-			if !ok {
-				return nil, fmt.Errorf("dependencies must be an array")
-			}
-			dependencies = make([]string, len(deps))
-			for i, dep := range deps {
-				depStr, ok := dep.(string)
-				if !ok {
-					return nil, fmt.Errorf("dependency must be a string")
-				}
-				dependencies[i] = depStr
-			}
-		}
-	}
+	mapping := proposal.ResourceMapping
 
-	if resource == "" {
+	// Validate required fields
+	if mapping.Resource == "" {
 		return nil, errors.New("resource must be specified")
 	}
-	if len(dependencies) == 0 {
+	if len(mapping.Dependencies) == 0 {
 		return nil, errors.New("at least one dependency must be specified")
 	}
+	if len(mapping.AccessOps) == 0 {
+		return nil, errors.New("at least one access operation must be specified")
+	}
 
-	// Build a MessageDependencyMapping for the resource and dependencies
-	mappings := make([]accesscontrol.MessageDependencyMapping, len(dependencies))
-	for i, dep := range dependencies {
+	// Validate that the last access operation is COMMIT
+	lastOp := mapping.AccessOps[len(mapping.AccessOps)-1]
+	if lastOp.AccessType != "COMMIT" {
+		return nil, errors.New("last access operation must be COMMIT")
+	}
+
+	// Build MessageDependencyMappings for each dependency
+	mappings := make([]accesscontrol.MessageDependencyMapping, len(mapping.Dependencies))
+	for i, dep := range mapping.Dependencies {
+		// For now, use synchronous access ops as a default
 		mappings[i] = acltypes.SynchronousMessageDependencyMapping(acltypes.MessageKey(dep))
 	}
 
