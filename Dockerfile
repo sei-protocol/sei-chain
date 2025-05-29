@@ -29,6 +29,7 @@ RUN set -eux; \
       wget -O /lib/libwasmvm_muslc.a https://github.com/CosmWasm/wasmvm/releases/download/${WASM_VERSION}/libwasmvm_muslc.${ARCH}.a; \
     fi; \
     wget -O /lib/libwasmvm152_muslc.a https://github.com/sei-protocol/sei-wasmd/releases/download/v0.3.0-hotfix-4/libwasmvm152_muslc.${ARCH}.a; \
+    wget -O /lib/libwasmvm155_muslc.a https://github.com/sei-protocol/sei-wasmd/releases/download/v0.3.0-hotfix-5/libwasmvm155_muslc.${ARCH}.a; \
     go mod download;
 
 # Copy over code
