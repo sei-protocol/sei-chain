@@ -60,7 +60,7 @@ func runRestoreSnapshotCmd(cmd *cobra.Command, args []string) error {
 		// Start a goroutine to read chunks from files
 		go func() {
 			defer close(ch)
-			snapshotFormat := ""
+			snapshotFormat := "1"
 			chunksDir := filepath.Join(snapshotDir, snapshotFormat)
 			entries, err := os.ReadDir(chunksDir)
 			if err != nil {
@@ -83,7 +83,9 @@ func runRestoreSnapshotCmd(cmd *cobra.Command, args []string) error {
 
 			// Read files in order
 			for _, fileName := range fileNames {
-				f, err := os.Open(filepath.Join(chunksDir, fileName))
+				filePath := filepath.Join(chunksDir, fileName)
+				fmt.Printf("Reading chunk file: %s\n", filePath)
+				f, err := os.Open(filePath)
 				if err != nil {
 					fmt.Printf("Error opening file %s: %v\n", fileName, err)
 					continue
