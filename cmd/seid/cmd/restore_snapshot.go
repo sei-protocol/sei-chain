@@ -7,10 +7,11 @@ import (
 // runRestoreSnapshotCmd is the command runner for RestoreSnapshotCmd
 func runRestoreSnapshotCmd(cmd *cobra.Command, args []string) error {
 	snapshotDir, err := cmd.Flags().GetString("snapshot-dir")
+	homeDir, err := cmd.Flags().GetString("home")
 	if err != nil {
 		return err
 	}
-	cmd.Printf("RestoreSnapshotCmd is not implemented yet. Snapshot directory: %s\n", snapshotDir)
+	cmd.Printf("RestoreSnapshotCmd is not implemented yet. Snapshot directory: %s, homeDir: %s\n", snapshotDir, homeDir)
 	return nil
 }
 

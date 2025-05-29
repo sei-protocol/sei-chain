@@ -138,7 +138,6 @@ func initRootCmd(
 		debugCmd,
 		config.Cmd(),
 		pruning.PruningCmd(newApp),
-		CompactCmd(app.DefaultNodeHome),
 		RestoreSnapshotCmd(app.DefaultNodeHome),
 		tools.ToolCmd(),
 	)
