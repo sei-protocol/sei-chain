@@ -4,7 +4,12 @@ import (
 	"embed"
 	"encoding/hex"
 	"math/big"
+	"reflect"
 	"testing"
+
+	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
@@ -97,6 +102,30 @@ func TestGovPrecompile(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "successful weighted vote",
+			args: args{
+				method:   "voteWeighted",
+				proposal: proposal.ProposalId,
+				value:    big.NewInt(0),
+			},
+			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr sdk.AccAddress) {
+				amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
+				require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
+				require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
+			},
+			verify: func(t *testing.T, ctx sdk.Context, seiAddr sdk.AccAddress, proposalID uint64) {
+				v, found := testApp.GovKeeper.GetVote(ctx, proposalID, seiAddr)
+				require.True(t, found)
+				require.Equal(t, 2, len(v.Options))
+				// Should have Yes with 0.7 weight and Abstain with 0.3 weight
+				require.Equal(t, govtypes.OptionYes, v.Options[0].Option)
+				require.Equal(t, sdk.MustNewDecFromStr("0.7"), v.Options[0].Weight)
+				require.Equal(t, govtypes.OptionAbstain, v.Options[1].Option)
+				require.Equal(t, sdk.MustNewDecFromStr("0.3"), v.Options[1].Weight)
+			},
+			wantErr: false,
+		},
+		{
 			name: "association missing for vote",
 			args: args{
 				method:   "vote",
@@ -143,6 +172,17 @@ func TestGovPrecompile(t *testing.T) {
 			var err error
 			if tt.args.method == "deposit" {
 				args, err = abi.Pack(tt.args.method, tt.args.proposal)
+			} else if tt.args.method == "voteWeighted" {
+				// Create weighted vote options for testing
+				// Example: 70% Yes, 30% Abstain
+				weightedOptions := []struct {
+					Option int32  `json:"option"`
+					Weight string `json:"weight"`
+				}{
+					{Option: int32(govtypes.OptionYes), Weight: "0.7"},
+					{Option: int32(govtypes.OptionAbstain), Weight: "0.3"},
+				}
+				args, err = abi.Pack(tt.args.method, tt.args.proposal, weightedOptions)
 			} else {
 				args, err = abi.Pack(tt.args.method, tt.args.proposal, tt.args.option)
 			}
@@ -188,6 +228,681 @@ func TestGovPrecompile(t *testing.T) {
 				require.Nil(t, err)
 				require.Empty(t, res.VmError)
 				tt.verify(t, ctx, seiAddr, tt.args.proposal)
+			}
+		})
+	}
+}
+
+func TestPrecompileExecutor_submitProposal(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(3)
+	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	recipientSeiAddress, recipientEvmAddress := testkeeper.MockAddressPair()
+
+	// Dynamically determine the expected proposal ID
+	proposals := testApp.GovKeeper.GetProposals(ctx)
+	expectedProposalID := byte(len(proposals) + 1)
+
+	type args struct {
+		caller           common.Address
+		callerSeiAddress sdk.AccAddress
+		proposal         string
+	}
+	tests := []struct {
+		name       string
+		args       args
+		wantErr    bool
+		wantErrMsg string
+		wantRet    []byte
+	}{
+		{
+			name: "returns proposal id on submit text proposal with valid content",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+                      "title":"Test Proposal",
+                      "description":"My awesome proposal",
+                      "is_expedited":false,
+                      "type":"Text",
+                      "deposit": "10000000usei"
+                 }`,
+			},
+			wantErr: false,
+			wantRet: []byte{31: expectedProposalID},
+		},
+		{
+			name: "returns proposal id on submit text proposal with valid content and no deposit",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Gov Proposal",
+					"description": "This is a gov proposal",
+					"type": "Text"
+				}`,
+			},
+			wantErr: false,
+			wantRet: []byte{31: expectedProposalID},
+		},
+		{
+			name: "returns proposal id on submit parameter change proposal with multiple changes",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Gov Param Change",
+					"description": "Update quorum to 0.45",
+					"changes": [
+						{
+							"subspace": "gov",
+							"key": "tallyparams",
+							"value": {
+								"quorum": "0.45"
+							}
+						}
+					],
+					"deposit": "10000000usei",
+					"is_expedited": false
+				}`,
+			},
+			wantErr: false,
+			wantRet: []byte{31: expectedProposalID},
+		},
+		{
+			name: "returns proposal id on submit cancel software upgrade proposal",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Cancel Upgrade",
+					"description": "Cancel the pending software upgrade",
+					"type": "CancelSoftwareUpgrade",
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr: false,
+			wantRet: []byte{31: expectedProposalID},
+		},
+		{
+			name: "returns error on parameter change proposal with no changes",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid proposal",
+					"description": "This proposal has no changes",
+					"type": "ParameterChange",
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "at least one parameter change must be specified",
+		},
+		{
+			name: "returns error on parameter change proposal with invalid value type",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid proposal",
+					"description": "This proposal has invalid value",
+					"type": "ParameterChange",
+					"changes": [
+						{
+							"subspace": "ct",
+							"key": "EnableCtModule",
+							"value": {
+								"complex": "object"
+							}
+						}
+					],
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "parameter ct/EnableCtModule does not exist: invalid proposal content",
+		},
+		{
+			name: "returns proposal id on submit software upgrade proposal with valid content",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Software Upgrade",
+					"description": "Upgrade to v2.0.0",
+					"type": "SoftwareUpgrade",
+					"plan": {
+						"name": "v2.0.0",
+						"height": 1000,
+						"info": "Upgrade to v2.0.0"
+					},
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr: false,
+			wantRet: []byte{31: expectedProposalID},
+		},
+		{
+			name: "returns error on software upgrade proposal with no plan",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid upgrade",
+					"description": "This proposal has no plan",
+					"type": "SoftwareUpgrade",
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "upgrade plan must be specified",
+		},
+		{
+			name: "returns error on software upgrade proposal with missing height",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid upgrade",
+					"description": "Missing height",
+					"type": "SoftwareUpgrade",
+					"plan": {
+						"name": "v2.0.0"
+					},
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "upgrade height must be specified",
+		},
+		{
+			name: "returns error on software upgrade proposal with missing name",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid upgrade",
+					"description": "Missing name",
+					"type": "SoftwareUpgrade",
+					"plan": {
+						"height": 1000
+					},
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "upgrade name must be specified",
+		},
+		{
+			name: "returns error on software upgrade proposal with invalid height type",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid upgrade",
+					"description": "Invalid height type",
+					"type": "SoftwareUpgrade",
+					"plan": {
+						"name": "v2.0.0",
+						"height": "1000"
+					},
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "failed to parse proposal JSON: json: cannot unmarshal string into Go struct field SoftwareUpgradePlan.plan.height of type int64",
+		},
+		{
+			name: "returns error on software upgrade proposal with invalid name type",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid upgrade",
+					"description": "Invalid name type",
+					"type": "SoftwareUpgrade",
+					"plan": {
+						"name": 123,
+						"height": 1000
+					},
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "failed to parse proposal JSON: json: cannot unmarshal number into Go struct field SoftwareUpgradePlan.plan.name of type string",
+		},
+		{
+			name: "returns error on software upgrade proposal with invalid info type",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid upgrade",
+					"description": "Invalid info type",
+					"type": "SoftwareUpgrade",
+					"plan": {
+						"name": "v2.0.0",
+						"height": 1000,
+						"info": 123
+					},
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "failed to parse proposal JSON: json: cannot unmarshal number into Go struct field SoftwareUpgradePlan.plan.info of type string",
+		},
+		{
+			name: "returns proposal id on submit community pool spend proposal with valid content",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Community Pool Spend",
+					"description": "Spend from community pool",
+					"type": "CommunityPoolSpend",
+					"community_pool_spend": {
+						"recipient": "` + recipientEvmAddress.String() + `",
+						"amount": "1000000usei"
+					},
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr: false,
+			wantRet: []byte{31: expectedProposalID},
+		},
+		{
+			name: "returns error on community pool spend proposal with no parameters",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid spend",
+					"description": "This proposal has no parameters",
+					"type": "CommunityPoolSpend",
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "community pool spend parameters must be specified",
+		},
+		{
+			name: "returns error on community pool spend proposal with missing recipient",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid spend",
+					"description": "Missing recipient",
+					"type": "CommunityPoolSpend",
+					"community_pool_spend": {
+						"amount": "1000000usei"
+					},
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid ethereum address format",
+		},
+		{
+			name: "returns error on community pool spend proposal with missing amount",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid spend",
+					"description": "Missing amount",
+					"type": "CommunityPoolSpend",
+					"community_pool_spend": {
+						"recipient": "0x1234567890123456789012345678901234567890"
+					},
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "amount must be greater than zero",
+		},
+		{
+			name: "returns error on community pool spend proposal with invalid recipient",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid spend",
+					"description": "Invalid recipient",
+					"type": "CommunityPoolSpend",
+					"community_pool_spend": {
+						"recipient": "invalid",
+						"amount": "1000000usei"
+					},
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid ethereum address format",
+		},
+		{
+			name: "returns error on community pool spend proposal with invalid amount format",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Community Pool Spend",
+					"description": "Test invalid amount",
+					"type": "CommunityPoolSpend",
+					"community_pool_spend": {
+						"recipient": "0x1234567890123456789012345678901234567890",
+						"amount": "invalid"
+					},
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "invalid amount format: invalid decimal coin expression: invalid",
+		},
+		{
+			name: "returns proposal id on submit update resource dependency proposal with valid content",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Update Resource Dependencies",
+					"description": "Add dependency mappings for bank module",
+					"type": "UpdateResourceDependencyMapping",
+					"resource_mapping": {
+						"resource": "/cosmos.bank.v1beta1.MsgSend",
+						"dependencies": [
+							"/cosmos.auth.v1beta1.QueryAccount",
+							"/cosmos.bank.v1beta1.QueryBalance"
+						],
+						"access_ops": [
+							{
+								"resource_type": "BANK",
+								"access_type": "READ",
+								"identifier_template": "*"
+							},
+							{
+								"resource_type": "ANY",
+								"access_type": "COMMIT",
+								"identifier_template": "*"
+							}
+						],
+						"dynamic_enabled": true
+					}
+				}`,
+			},
+			wantErr: false,
+			wantRet: []byte{31: expectedProposalID},
+		},
+		{
+			name: "returns error on update resource dependency proposal with no resource mapping",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Update Resource Dependencies",
+					"description": "Missing resource mapping",
+					"type": "UpdateResourceDependencyMapping"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "resource mapping must be specified",
+		},
+		{
+			name: "returns error on update resource dependency proposal with missing resource",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Update Resource Dependencies",
+					"description": "Missing resource field",
+					"type": "UpdateResourceDependencyMapping",
+					"resource_mapping": {
+						"dependencies": ["/cosmos.auth.v1beta1.QueryAccount"],
+						"access_ops": [
+							{
+								"resource_type": "ANY",
+								"access_type": "COMMIT",
+								"identifier_template": "*"
+							}
+						]
+					}
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "resource must be specified",
+		},
+		{
+			name: "returns error on update resource dependency proposal with missing dependencies",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Update Resource Dependencies",
+					"description": "Missing dependencies",
+					"type": "UpdateResourceDependencyMapping",
+					"resource_mapping": {
+						"resource": "/cosmos.bank.v1beta1.MsgSend",
+						"access_ops": [
+							{
+								"resource_type": "ANY",
+								"access_type": "COMMIT",
+								"identifier_template": "*"
+							}
+						]
+					}
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "at least one dependency must be specified",
+		},
+		{
+			name: "returns error on update resource dependency proposal with missing access ops",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Update Resource Dependencies",
+					"description": "Missing access operations",
+					"type": "UpdateResourceDependencyMapping",
+					"resource_mapping": {
+						"resource": "/cosmos.bank.v1beta1.MsgSend",
+						"dependencies": ["/cosmos.auth.v1beta1.QueryAccount"]
+					}
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "at least one access operation must be specified",
+		},
+		{
+			name: "returns error on update resource dependency proposal with invalid last access op",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Update Resource Dependencies",
+					"description": "Last access op is not COMMIT",
+					"type": "UpdateResourceDependencyMapping",
+					"resource_mapping": {
+						"resource": "/cosmos.bank.v1beta1.MsgSend",
+						"dependencies": ["/cosmos.auth.v1beta1.QueryAccount"],
+						"access_ops": [
+							{
+								"resource_type": "BANK",
+								"access_type": "READ",
+								"identifier_template": "*"
+							}
+						]
+					}
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "last access operation must be COMMIT",
+		},
+		{
+			name: "returns proposal id on submit resource dependency mapping proposal with valid content",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Resource Dependency Mapping",
+					"description": "Update resource dependencies",
+					"type": "UpdateResourceDependencyMapping",
+					"changes": [
+						{
+							"key": "resource",
+							"value": "resource1"
+						},
+						{
+							"key": "dependencies",
+							"value": ["dep1", "dep2"]
+						}
+					],
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "resource mapping must be specified",
+		},
+		{
+			name: "returns error on resource dependency mapping proposal with no changes",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid mapping",
+					"description": "This proposal has no changes",
+					"type": "UpdateResourceDependencyMapping",
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "resource mapping must be specified",
+		},
+		{
+			name: "returns error on resource dependency mapping proposal with missing resource",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid mapping",
+					"description": "Missing resource",
+					"type": "UpdateResourceDependencyMapping",
+					"changes": [
+						{
+							"key": "dependencies",
+							"value": ["dep1", "dep2"]
+						}
+					],
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "resource mapping must be specified",
+		},
+		{
+			name: "returns error on resource dependency mapping proposal with missing dependencies",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid mapping",
+					"description": "Missing dependencies",
+					"type": "UpdateResourceDependencyMapping",
+					"changes": [
+						{
+							"key": "resource",
+							"value": "resource1"
+						}
+					],
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "resource mapping must be specified",
+		},
+		{
+			name: "returns error on resource dependency mapping proposal with invalid resource type",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid mapping",
+					"description": "Invalid resource type",
+					"type": "UpdateResourceDependencyMapping",
+					"changes": [
+						{
+							"key": "resource",
+							"value": 123
+						},
+						{
+							"key": "dependencies",
+							"value": ["dep1", "dep2"]
+						}
+					],
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "resource mapping must be specified",
+		},
+		{
+			name: "returns error on resource dependency mapping proposal with invalid dependencies type",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Invalid mapping",
+					"description": "Invalid dependencies type",
+					"type": "UpdateResourceDependencyMapping",
+					"changes": [
+						{
+							"key": "resource",
+							"value": "resource1"
+						},
+						{
+							"key": "dependencies",
+							"value": "not an array"
+						}
+					],
+					"deposit": "10000000usei"
+				}`,
+			},
+			wantErr:    true,
+			wantErrMsg: "resource mapping must be specified",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			k := &testApp.EvmKeeper
+			k.SetAddressMapping(ctx, tt.args.callerSeiAddress, tt.args.caller)
+			k.SetAddressMapping(ctx, recipientSeiAddress, recipientEvmAddress)
+			stateDb := state.NewDBImpl(ctx, k, true)
+			evm := vm.EVM{
+				StateDB:   stateDb,
+				TxContext: vm.TxContext{Origin: tt.args.caller},
+			}
+			amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10000000)))
+			require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
+			require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, tt.args.callerSeiAddress, amt))
+
+			govMsgServer := govkeeper.NewMsgServerImpl(testApp.GovKeeper)
+			p, _ := gov.NewPrecompile(testApp.GovKeeper, govMsgServer, k, k.BankKeeper())
+			submitProposalMethod, err := p.ABI.MethodById(p.GetExecutor().(*gov.PrecompileExecutor).SubmitProposalID)
+			require.Nil(t, err)
+			inputs, err := submitProposalMethod.Inputs.Pack(tt.args.proposal)
+			require.Nil(t, err)
+
+			gotRet, err := p.Run(&evm, tt.args.caller, common.Address{}, append(p.GetExecutor().(*gov.PrecompileExecutor).SubmitProposalID, inputs...), nil, false, false, nil)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil {
+				require.Equal(t, vm.ErrExecutionReverted, err)
+				require.Equal(t, tt.wantErrMsg, string(gotRet))
+			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
+				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
 			}
 		})
 	}

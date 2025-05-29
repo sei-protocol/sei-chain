@@ -123,6 +123,7 @@ func GetCustomPrecompiles(
 	stakingKeeper common.StakingKeeper,
 	stakingQuerier common.StakingQuerier,
 	govKeeper common.GovKeeper,
+	govMsgServer common.GovMsgServer,
 	distrKeeper common.DistributionKeeper,
 	oracleKeeper common.OracleKeeper,
 	transferKeeper ibctransferkeeper.Keeper,
@@ -183,7 +184,7 @@ func GetCustomPrecompiles(
 		"v6.0.5":      check(stakingv605.NewPrecompile(stakingKeeper, stakingQuerier, evmKeeper, bankKeeper)),
 	}
 	govVersions := VersionedPrecompiles{
-		latestUpgrade: check(gov.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
+		latestUpgrade: check(gov.NewPrecompile(govKeeper, govMsgServer, evmKeeper, bankKeeper)),
 		"v5.5.2":      check(govv552.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
 		"v5.5.5":      check(govv555.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
 		"v5.6.2":      check(govv562.NewPrecompile(govKeeper, evmKeeper, bankKeeper)),
@@ -266,6 +267,7 @@ func InitializePrecompiles(
 	stakingKeeper common.StakingKeeper,
 	stakingQuerier common.StakingQuerier,
 	govKeeper common.GovKeeper,
+	govMsgServer common.GovMsgServer,
 	distrKeeper common.DistributionKeeper,
 	oracleKeeper common.OracleKeeper,
 	transferKeeper common.TransferKeeper,
@@ -299,7 +301,7 @@ func InitializePrecompiles(
 	if err != nil {
 		return err
 	}
-	govp, err := gov.NewPrecompile(govKeeper, evmKeeper, bankKeeper)
+	govp, err := gov.NewPrecompile(govKeeper, govMsgServer, evmKeeper, bankKeeper)
 	if err != nil {
 		return err
 	}
@@ -363,7 +365,7 @@ func InitializePrecompiles(
 func GetPrecompileInfo(name string) PrecompileInfo {
 	if !Initialized {
 		// Precompile Info does not require any keeper state
-		_ = InitializePrecompiles(true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		_ = InitializePrecompiles(true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	}
 	i, ok := PrecompileNamesToInfo[name]
 	if !ok {
