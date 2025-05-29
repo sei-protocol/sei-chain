@@ -88,6 +88,7 @@ func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(
 func (a *FilterAPI) timeoutLoop(timeout time.Duration) {
 	ticker := time.NewTicker(timeout)
 	defer ticker.Stop()
+	defer recoverAndLog()
 	for {
 		<-ticker.C
 		a.filtersMu.Lock()
@@ -306,6 +307,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}
 	close(runner.Queue)
 	go func() {
+		defer recoverAndLog()
 		runner.Done.Wait()
 		close(resultsChan)
 	}()
@@ -361,7 +363,7 @@ func (f *LogFetcher) FindLogsByBloom(block *coretypes.ResultBlock, filters [][]b
 			res = append(res, logs...)
 		}
 		totalLogs += uint(len(receipt.Logs))
-                txCount++
+		txCount++
 	}
 	return
 }
@@ -436,6 +438,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			res <- block
 		}
 	}
+
 	return res, end, applyOpenEndedLogLimit, nil
 }
 
