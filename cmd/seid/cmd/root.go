@@ -107,6 +107,7 @@ func NewRootCmd() (*cobra.Command, params.EncodingConfig) {
 		rootCmd,
 		encodingConfig,
 	)
+
 	return rootCmd, encodingConfig
 }
 
@@ -140,6 +141,7 @@ func initRootCmd(
 		pruning.PruningCmd(newApp),
 		CompactCmd(app.DefaultNodeHome),
 		tools.ToolCmd(),
+		SnapshotCmd(),
 	)
 
 	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
