@@ -30,6 +30,9 @@ func SnapshotCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to get height: %w", err)
 			}
+			if height <= 0 {
+				return fmt.Errorf("height must be greater than 0")
+			}
 
 			// Get snapshot directory from flag
 			snapshotDir, err := cmd.Flags().GetString("snapshot-dir")
@@ -93,9 +96,9 @@ func SnapshotCmd() *cobra.Command {
 	}
 
 	// Add flags
-	cmd.Flags().Int64("height", 0, "Height at which to create the snapshot")
+	cmd.Flags().Int64("height", 0, "Height at which to create the snapshot (required)")
 	cmd.Flags().String("snapshot-dir", "", "Directory to store the snapshot (default: <home>/data/snapshots)")
-	cmd.MarkFlagRequired("height")
+	_ = cmd.MarkFlagRequired("height")
 
 	return cmd
 }
