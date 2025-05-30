@@ -24,6 +24,7 @@ const (
 	UndelegateMethod      = "undelegate"
 	DelegationMethod      = "delegation"
 	CreateValidatorMethod = "createValidator"
+	EditValidatorMethod   = "editValidator"
 )
 
 const (
@@ -47,6 +48,7 @@ type PrecompileExecutor struct {
 	UndelegateID      []byte
 	DelegationID      []byte
 	CreateValidatorID []byte
+	EditValidatorID   []byte
 }
 
 func NewPrecompile(stakingKeeper pcommon.StakingKeeper, stakingQuerier pcommon.StakingQuerier, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.Precompile, error) {
@@ -72,6 +74,8 @@ func NewPrecompile(stakingKeeper pcommon.StakingKeeper, stakingQuerier pcommon.S
 			p.DelegationID = m.ID
 		case CreateValidatorMethod:
 			p.CreateValidatorID = m.ID
+		case EditValidatorMethod:
+			p.EditValidatorID = m.ID
 		}
 	}
 
@@ -87,6 +91,8 @@ func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64
 	} else if bytes.Equal(method.ID, p.UndelegateID) {
 		return 50000
 	} else if bytes.Equal(method.ID, p.CreateValidatorID) {
+		return 100000
+	} else if bytes.Equal(method.ID, p.EditValidatorID) {
 		return 100000
 	}
 
@@ -119,6 +125,11 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			return nil, errors.New("cannot call staking precompile from staticcall")
 		}
 		return p.createValidator(ctx, method, caller, args, value, hooks, evm)
+	case EditValidatorMethod:
+		if readOnly {
+			return nil, errors.New("cannot call staking precompile from staticcall")
+		}
+		return p.editValidator(ctx, method, caller, args, value, hooks, evm)
 	case DelegationMethod:
 		return p.delegation(ctx, method, args, value)
 	}
@@ -319,9 +330,9 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 	if err != nil {
 		return nil, err
 	}
-	description := stakingtypes.NewDescription(
-		moniker, "", "", "", "",
-	)
+	description := stakingtypes.Description{
+		Moniker: moniker,
+	}
 
 	msg, err := stakingtypes.NewMsgCreateValidator(sdk.ValAddress(valAddress), pubKey, coin, description, commission, sdk.NewIntFromBigInt(minSelfDelegation))
 	if err != nil {
@@ -335,6 +346,68 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 
 	// Call the staking keeper
 	_, err = p.stakingKeeper.CreateValidator(sdk.WrapSDKContext(ctx), msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return method.Outputs.Pack(true)
+}
+
+func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+	if err := pcommon.ValidateArgsLength(args, 3); err != nil {
+		return nil, err
+	}
+
+	// Extract arguments
+	moniker := args[0].(string)
+	commissionRateStr := args[1].(string)
+	minSelfDelegation := args[2].(*big.Int)
+
+	// Get validator address (caller's associated Sei address)
+	valAddress, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !associated {
+		return nil, types.NewAssociationMissingErr(caller.Hex())
+	}
+
+	// Parse commission rate - if empty string, don't change commission
+	var commissionRate *sdk.Dec
+	if commissionRateStr != "" {
+		rate, err := sdk.NewDecFromStr(commissionRateStr)
+		if err != nil {
+			return nil, errors.New("invalid commission rate")
+		}
+		commissionRate = &rate
+	}
+	// If commissionRateStr is empty, commissionRate remains nil
+
+	// Parse minSelfDelegation - if 0, don't change it
+	var minSelfDelegationPtr *sdk.Int
+	if minSelfDelegation.Sign() > 0 {
+		minSelf := sdk.NewIntFromBigInt(minSelfDelegation)
+		minSelfDelegationPtr = &minSelf
+	}
+	// If minSelfDelegation is 0, minSelfDelegationPtr remains nil
+
+	description := stakingtypes.Description{
+		Moniker: moniker,
+	}
+
+	msg := stakingtypes.NewMsgEditValidator(
+		sdk.ValAddress(valAddress),
+		description,
+		commissionRate,
+		minSelfDelegationPtr,
+	)
+
+	err := msg.ValidateBasic()
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = p.stakingKeeper.EditValidator(sdk.WrapSDKContext(ctx), msg)
 	if err != nil {
 		return nil, err
 	}
