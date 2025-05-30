@@ -11,8 +11,11 @@ func IsTxPrioritized(tx sdk.Tx) bool {
 		switch msg.(type) {
 		case *oracletypes.MsgAggregateExchangeRateVote:
 			continue
+<<<<<<< HEAD
 		case *oracletypes.MsgDelegateFeedConsent:
 			continue
+=======
+>>>>>>> 590aa777 (optimization)
 		default:
 			return false
 		}
