@@ -24,6 +24,16 @@ interface IStaking {
         uint256 amount
     ) external returns (bool success);
 
+    function createValidator(
+        string memory pubKeyHex,
+        string memory amount,    // e.g 100000usei
+        string memory moniker,
+        string memory commissionRate,
+        string memory commissionMaxRate,
+        string memory commissionMaxChangeRate,
+        uint256 memory minSelfDelegation
+    ) payable external returns (bool success);
+
     // Queries
     function delegation(
         address delegator,

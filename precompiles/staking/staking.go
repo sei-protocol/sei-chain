@@ -3,9 +3,11 @@ package staking
 import (
 	"bytes"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"math/big"
 
+	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -17,10 +19,11 @@ import (
 )
 
 const (
-	DelegateMethod   = "delegate"
-	RedelegateMethod = "redelegate"
-	UndelegateMethod = "undelegate"
-	DelegationMethod = "delegation"
+	DelegateMethod        = "delegate"
+	RedelegateMethod      = "redelegate"
+	UndelegateMethod      = "undelegate"
+	DelegationMethod      = "delegation"
+	CreateValidatorMethod = "createValidator"
 )
 
 const (
@@ -39,10 +42,11 @@ type PrecompileExecutor struct {
 	bankKeeper     pcommon.BankKeeper
 	address        common.Address
 
-	DelegateID   []byte
-	RedelegateID []byte
-	UndelegateID []byte
-	DelegationID []byte
+	DelegateID        []byte
+	RedelegateID      []byte
+	UndelegateID      []byte
+	DelegationID      []byte
+	CreateValidatorID []byte
 }
 
 func NewPrecompile(stakingKeeper pcommon.StakingKeeper, stakingQuerier pcommon.StakingQuerier, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.Precompile, error) {
@@ -66,6 +70,8 @@ func NewPrecompile(stakingKeeper pcommon.StakingKeeper, stakingQuerier pcommon.S
 			p.UndelegateID = m.ID
 		case DelegationMethod:
 			p.DelegationID = m.ID
+		case CreateValidatorMethod:
+			p.CreateValidatorID = m.ID
 		}
 	}
 
@@ -80,6 +86,8 @@ func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64
 		return 70000
 	} else if bytes.Equal(method.ID, p.UndelegateID) {
 		return 50000
+	} else if bytes.Equal(method.ID, p.CreateValidatorID) {
+		return 100000
 	}
 
 	// This should never happen since this is going to fail during Run
@@ -106,6 +114,11 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			return nil, errors.New("cannot call staking precompile from staticcall")
 		}
 		return p.undelegate(ctx, method, caller, args, value)
+	case CreateValidatorMethod:
+		if readOnly {
+			return nil, errors.New("cannot call staking precompile from staticcall")
+		}
+		return p.createValidator(ctx, method, caller, args, value, hooks, evm)
 	case DelegationMethod:
 		return p.delegation(ctx, method, args, value)
 	}
@@ -250,4 +263,81 @@ func (p PrecompileExecutor) delegation(ctx sdk.Context, method *abi.Method, args
 	}
 
 	return method.Outputs.Pack(delegation)
+}
+
+func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, error) {
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, err
+	}
+	if err := pcommon.ValidateArgsLength(args, 7); err != nil {
+		return nil, err
+	}
+
+	// Extract arguments
+	pubKeyHex := args[0].(string)
+	amountStr := args[1].(string)
+	moniker := args[2].(string)
+	commissionRateStr := args[3].(string)
+	commissionMaxRateStr := args[4].(string)
+	commissionMaxChangeRateStr := args[5].(string)
+	minSelfDelegation := args[6].(*big.Int)
+
+	// Get validator address (caller's associated Sei address)
+	valAddress, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !associated {
+		return nil, types.NewAssociationMissingErr(caller.Hex())
+	}
+
+	// Parse public key from hex
+	pubKeyBytes, err := hex.DecodeString(pubKeyHex)
+	if err != nil {
+		return nil, errors.New("invalid public key hex format")
+	}
+
+	// Create ed25519 public key
+	pubKey := &ed25519.PubKey{Key: pubKeyBytes}
+
+	// Parse commission rates
+	commissionRate, err := sdk.NewDecFromStr(commissionRateStr)
+	if err != nil {
+		return nil, errors.New("invalid commission rate")
+	}
+
+	commissionMaxRate, err := sdk.NewDecFromStr(commissionMaxRateStr)
+	if err != nil {
+		return nil, errors.New("invalid commission max rate")
+	}
+
+	commissionMaxChangeRate, err := sdk.NewDecFromStr(commissionMaxChangeRateStr)
+	if err != nil {
+		return nil, errors.New("invalid commission max change rate")
+	}
+
+	commission := stakingtypes.NewCommissionRates(commissionRate, commissionMaxRate, commissionMaxChangeRate)
+
+	coin, err := sdk.ParseCoinNormalized(amountStr)
+	if err != nil {
+		return nil, err
+	}
+	description := stakingtypes.NewDescription(
+		moniker, "", "", "", "",
+	)
+
+	msg, err := stakingtypes.NewMsgCreateValidator(sdk.ValAddress(valAddress), pubKey, coin, description, commission, sdk.NewIntFromBigInt(minSelfDelegation))
+	if err != nil {
+		return nil, err
+	}
+
+	err = msg.ValidateBasic()
+	if err != nil {
+		return nil, err
+	}
+
+	// Call the staking keeper
+	_, err = p.stakingKeeper.CreateValidator(sdk.WrapSDKContext(ctx), msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return method.Outputs.Pack(true)
 }
