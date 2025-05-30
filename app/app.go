@@ -1437,19 +1437,7 @@ func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []
 			continue
 		}
 
-		prioritized := false
-		// if all messages are prioritized, we want to add to prioritizedTxs
-	msgLoop:
-		for _, msg := range typedTxs[idx].GetMsgs() {
-			switch msg.(type) {
-			case *oracletypes.MsgAggregateExchangeRateVote:
-				prioritized = true
-			default:
-				prioritized = false
-				break msgLoop
-			}
-		}
-		if prioritized {
+		if utils.IsTxPrioritized(typedTxs[idx]) {
 			prioritizedTxs = append(prioritizedTxs, tx)
 			prioritizedTypedTxs = append(prioritizedTypedTxs, typedTxs[idx])
 			prioritizedIndices = append(prioritizedIndices, idx)

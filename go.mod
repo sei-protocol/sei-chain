@@ -351,10 +351,10 @@ replace (
 	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.3.0-hotfix-6
 	github.com/CosmWasm/wasmvm => github.com/sei-protocol/sei-wasmvm v1.5.4-sei.0.0.1
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.55-hotfix
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.55-hotfix-6
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.2.0
 	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.5
-	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.5-sei-36
+	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.5-sei-38
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.48
 	// Latest goleveldb is broken, we have to stick to this version
