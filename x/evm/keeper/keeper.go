@@ -18,6 +18,7 @@ import (
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
+	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	ibctransferkeeper "github.com/cosmos/ibc-go/v3/modules/apps/transfer/keeper"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -33,6 +34,7 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
+	"github.com/sei-protocol/sei-chain/precompiles"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
@@ -56,6 +58,7 @@ type Keeper struct {
 	transferKeeper ibctransferkeeper.Keeper
 	wasmKeeper     *wasmkeeper.PermissionedKeeper
 	wasmViewKeeper *wasmkeeper.Keeper
+	upgradeKeeper  *upgradekeeper.Keeper
 
 	cachedFeeCollectorAddressMtx *sync.RWMutex
 	cachedFeeCollectorAddress    *common.Address
@@ -81,7 +84,9 @@ type Keeper struct {
 
 	receiptStore seidbtypes.StateStore
 
-	customPrecompiles map[common.Address]vm.PrecompiledContract
+	customPrecompiles       map[common.Address]precompiles.VersionedPrecompiles
+	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
+	latestUpgrade           string
 }
 
 type AddressNoncePair struct {
@@ -115,7 +120,8 @@ func (ctx *ReplayChainContext) GetHeader(hash common.Hash, number uint64) *ethty
 func NewKeeper(
 	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStateStore seidbtypes.StateStore,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
-	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper) *Keeper {
+	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper) *Keeper {
+
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
 	}
@@ -129,6 +135,7 @@ func NewKeeper(
 		transferKeeper:               transferKeeper,
 		wasmKeeper:                   wasmKeeper,
 		wasmViewKeeper:               wasmViewKeeper,
+		upgradeKeeper:                upgradeKeeper,
 		pendingTxs:                   make(map[string][]*PendingTx),
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
@@ -138,12 +145,52 @@ func NewKeeper(
 	return k
 }
 
-func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]vm.PrecompiledContract) {
+func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]precompiles.VersionedPrecompiles, latestUpgrade string) {
 	k.customPrecompiles = cp
+	k.latestUpgrade = latestUpgrade
+	k.latestCustomPrecompiles = make(map[common.Address]vm.PrecompiledContract, len(cp))
+	for addr, versioned := range cp {
+		k.latestCustomPrecompiles[addr] = versioned[latestUpgrade]
+	}
 }
 
-func (k *Keeper) CustomPrecompiles() map[common.Address]vm.PrecompiledContract {
-	return k.customPrecompiles
+func (k *Keeper) CustomPrecompiles(ctx sdk.Context) map[common.Address]vm.PrecompiledContract {
+	if !ctx.IsTracing() {
+		return k.latestCustomPrecompiles
+	}
+	versions := k.GetCustomPrecompilesVersions(ctx)
+	cp := make(map[common.Address]vm.PrecompiledContract, len(k.customPrecompiles))
+	for addr, versioned := range k.customPrecompiles {
+		cp[addr] = versioned[versions[addr]]
+	}
+	return cp
+}
+
+func (k *Keeper) GetCustomPrecompilesVersions(ctx sdk.Context) map[common.Address]string {
+	height := ctx.BlockHeight()
+	cp := make(map[common.Address]string, len(k.customPrecompiles))
+	for addr, versioned := range k.customPrecompiles {
+		mostRecentUpgradeHeight := int64(0)
+		noForkHistory := true
+		for upgrade := range versioned {
+			upgradeHeight := k.upgradeKeeper.GetDoneHeight(ctx, upgrade)
+			if upgradeHeight != 0 {
+				noForkHistory = false
+			}
+			if height < upgradeHeight {
+				// requested height hasn't seen this upgrade version yet.
+				continue
+			}
+			if upgradeHeight > mostRecentUpgradeHeight {
+				mostRecentUpgradeHeight = upgradeHeight
+				cp[addr] = upgrade
+			}
+		}
+		if noForkHistory {
+			cp[addr] = k.latestUpgrade
+		}
+	}
+	return cp
 }
 
 func (k *Keeper) AccountKeeper() *authkeeper.AccountKeeper {
@@ -156,6 +203,10 @@ func (k *Keeper) BankKeeper() bankkeeper.Keeper {
 
 func (k *Keeper) WasmKeeper() *wasmkeeper.PermissionedKeeper {
 	return k.wasmKeeper
+}
+
+func (k *Keeper) UpgradeKeeper() *upgradekeeper.Keeper {
+	return k.upgradeKeeper
 }
 
 func (k *Keeper) GetStoreKey() sdk.StoreKey {
@@ -210,6 +261,12 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 			core.Transfer(db, sender, recipient, amount)
 		}
 	}
+	var baseFee *big.Int
+	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < 114945913 {
+		baseFee = k.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
+	} else {
+		baseFee = k.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt()
+	}
 
 	return &vm.BlockContext{
 		CanTransfer: core.CanTransfer,
@@ -220,7 +277,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		BlockNumber: big.NewInt(ctx.BlockHeight()),
 		Time:        uint64(ctx.BlockHeader().Time.Unix()),
 		Difficulty:  utils.Big0, // only needed for PoW
-		BaseFee:     k.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt(),
+		BaseFee:     baseFee,
 		BlobBaseFee: utils.Big1, // Cancun not enabled
 		Random:      &rh,
 	}, nil

@@ -72,6 +72,28 @@ func MockEVMKeeper() (*evmkeeper.Keeper, sdk.Context) {
 	return &k, ctx
 }
 
+func MockEVMKeeperPrecompiles() (*evmkeeper.Keeper, sdk.Context) {
+	testApp := app.Setup(false, true)
+	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8).WithBlockTime(time.Now())
+	k := testApp.EvmKeeper
+	k.InitGenesis(ctx, *evmtypes.DefaultGenesis())
+
+	// mint some coins to a sei address
+	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
+	if err != nil {
+		panic(err)
+	}
+	err = testApp.BankKeeper.MintCoins(ctx, "evm", sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
+	if err != nil {
+		panic(err)
+	}
+	err = testApp.BankKeeper.SendCoinsFromModuleToAccount(ctx, "evm", seiAddr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10))))
+	if err != nil {
+		panic(err)
+	}
+	return &k, ctx
+}
+
 func MockAddressPair() (sdk.AccAddress, common.Address) {
 	return PrivateKeyToAddresses(MockPrivateKey())
 }

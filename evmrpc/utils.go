@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -232,6 +233,11 @@ func getTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig
 	return txHashes
 }
 
+func isReceiptFromAnteError(receipt *types.Receipt) bool {
+	// hacky heuristic
+	return receipt.EffectiveGasPrice == 0
+}
+
 type ParallelRunner struct {
 	Done  sync.WaitGroup
 	Queue chan func()
@@ -246,10 +252,18 @@ func NewParallelRunner(cnt int, capacity int) *ParallelRunner {
 	for i := 0; i < cnt; i++ {
 		go func() {
 			defer pr.Done.Done()
+			defer recoverAndLog()
 			for f := range pr.Queue {
 				f()
 			}
 		}()
 	}
 	return pr
+}
+
+func recoverAndLog() {
+	if e := recover(); e != nil {
+		fmt.Printf("Panic recovered: %s\n", e)
+		debug.PrintStack()
+	}
 }

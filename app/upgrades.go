@@ -116,8 +116,11 @@ var upgradesList = []string{
 	"v6.0.2",
 	"v6.0.3",
 	"v6.0.4",
-	"v6.0.5-hard-max-gas-wanted-check",
+	"v6.0.5",
+	"v6.0.6",
 }
+
+var LatestUpgrade = upgradesList[len(upgradesList)-1]
 
 // if there is an override list, use that instead, for integration tests
 func overrideList() {
@@ -165,7 +168,7 @@ func (app App) RegisterUpgradeHandlers() {
 				return newVM, err
 			}
 
-			if upgradeName == "v6.0.5-hard-max-gas-wanted-check" {
+			if upgradeName == "v6.0.5" {
 				newVM, err := app.mm.RunMigrations(ctx, app.configurator, fromVM)
 				if err != nil {
 					return newVM, err

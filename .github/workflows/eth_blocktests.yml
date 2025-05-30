@@ -49,7 +49,10 @@ jobs:
           go-version: 1.21
 
       - name: Clone ETH Blocktests
-        run: git clone https://github.com/ethereum/tests.git ethtests
+        run: |
+          git clone https://github.com/ethereum/tests.git ethtests
+          cd ethtests
+          git checkout 763f4f44818e3fc06a8b2e0fb9b3d8d91c864a5a
 
       - name: "Run ETH Blocktest"
         run: ./run_blocktests.sh ./ethtests/BlockchainTests/ ${{ matrix.runner-index }} ${{ env.TOTAL_RUNNERS }}

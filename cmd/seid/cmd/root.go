@@ -540,7 +540,7 @@ checktx_timeout = "{{ .EVM.CheckTxTimeout }}"
 # controls whether to have txns go through one by one
 slow = {{ .EVM.Slow }}
 
-# Deny list defines list of methods that EVM RPC should fail fast
+# Deny list defines list of methods that EVM RPC should fail fast, e.g ["debug_traceBlockByNumber"]
 deny_list = {{ .EVM.DenyList }}
 
 # max number of logs returned if block range is open-ended

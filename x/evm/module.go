@@ -282,8 +282,10 @@ func (AppModule) ConsensusVersion() uint64 { return 18 }
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 	// clear tx/tx responses from last block
-	am.keeper.SetMsgs([]*types.MsgEVMTransaction{})
-	am.keeper.SetTxResults([]*abci.ExecTxResult{})
+	if !ctx.IsTracing() {
+		am.keeper.SetMsgs([]*types.MsgEVMTransaction{})
+		am.keeper.SetTxResults([]*abci.ExecTxResult{})
+	}
 	// mock beacon root if replaying
 	if am.keeper.EthReplayConfig.Enabled {
 		if beaconRoot := am.keeper.ReplayBlock.BeaconRoot(); beaconRoot != nil {
@@ -292,7 +294,7 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 				panic(err)
 			}
 			statedb := state.NewDBImpl(ctx, am.keeper, false)
-			vmenv := vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{}, am.keeper.CustomPrecompiles())
+			vmenv := vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{}, am.keeper.CustomPrecompiles(ctx))
 			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv, statedb)
 			_, err = statedb.Finalize()
 			if err != nil {
