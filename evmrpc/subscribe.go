@@ -56,6 +56,7 @@ func NewSubscriptionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider
 		panic(err)
 	}
 	go func() {
+		defer recoverAndLog()
 		defer func() {
 			_ = api.subscriptionManager.Unsubscribe(context.Background(), id)
 		}()
@@ -116,6 +117,7 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 	a.newHeadListeners[rpcSub.ID] = listener
 
 	go func() {
+		defer recoverAndLog()
 	OUTER:
 		for {
 			select {
@@ -170,6 +172,7 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 
 	if filter.BlockHash != nil {
 		go func() {
+			defer recoverAndLog()
 			logs, _, err := a.logFetcher.GetLogsByFilters(ctx, *filter, 0)
 			if err != nil {
 				_ = notifier.Notify(rpcSub.ID, err)
@@ -185,6 +188,7 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	}
 
 	go func() {
+		defer recoverAndLog()
 		begin := int64(0)
 		for {
 			logs, lastToHeight, err := a.logFetcher.GetLogsByFilters(ctx, *filter, begin)
