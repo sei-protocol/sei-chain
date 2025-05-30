@@ -26,6 +26,8 @@ and standard additions here would be better just to add to the Context struct
 type Context struct {
 	ctx               context.Context
 	ms                MultiStore
+	nextMs            MultiStore          // ms of the next height; only used in tracing
+	nextStoreKeys     map[string]struct{} // store key names that should use nextMs
 	header            tmproto.Header
 	headerHash        tmbytes.HexBytes
 	chainID           string
@@ -505,6 +507,15 @@ func (c Context) WithIsTracing(it bool) Context {
 	return c
 }
 
+func (c Context) WithNextMs(ms MultiStore, nextStoreKeys []string) Context {
+	c.nextMs = ms
+	c.nextStoreKeys = make(map[string]struct{}, len(nextStoreKeys))
+	for _, k := range nextStoreKeys {
+		c.nextStoreKeys[k] = struct{}{}
+	}
+	return c
+}
+
 // TODO: remove???
 func (c Context) IsZero() bool {
 	return c.ms == nil
@@ -541,11 +552,21 @@ func (c Context) Value(key interface{}) interface{} {
 
 // KVStore fetches a KVStore from the MultiStore.
 func (c Context) KVStore(key StoreKey) KVStore {
+	if c.isTracing {
+		if _, ok := c.nextStoreKeys[key.Name()]; ok {
+			return gaskv.NewStore(c.nextMs.GetKVStore(key), c.GasMeter(), stypes.KVGasConfig())
+		}
+	}
 	return gaskv.NewStore(c.MultiStore().GetKVStore(key), c.GasMeter(), stypes.KVGasConfig())
 }
 
 // TransientStore fetches a TransientStore from the MultiStore.
 func (c Context) TransientStore(key StoreKey) KVStore {
+	if c.isTracing {
+		if _, ok := c.nextStoreKeys[key.Name()]; ok {
+			return gaskv.NewStore(c.nextMs.GetKVStore(key), c.GasMeter(), stypes.TransientGasConfig())
+		}
+	}
 	return gaskv.NewStore(c.MultiStore().GetKVStore(key), c.GasMeter(), stypes.TransientGasConfig())
 }
 
