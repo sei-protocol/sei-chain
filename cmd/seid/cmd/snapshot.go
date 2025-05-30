@@ -25,6 +25,21 @@ func SnapshotCmd() *cobra.Command {
 			config := serverCtx.Config
 			homeDir := config.RootDir
 
+			// Get height from flag
+			height, err := cmd.Flags().GetInt64("height")
+			if err != nil {
+				return fmt.Errorf("failed to get height: %w", err)
+			}
+
+			// Get snapshot directory from flag
+			snapshotDir, err := cmd.Flags().GetString("snapshot-dir")
+			if err != nil {
+				return fmt.Errorf("failed to get snapshot directory: %w", err)
+			}
+			if snapshotDir == "" {
+				snapshotDir = filepath.Join(homeDir, "data", "snapshots")
+			}
+
 			// Create logger
 			logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
 
@@ -47,22 +62,15 @@ func SnapshotCmd() *cobra.Command {
 				app.EmptyAppOptions,
 			)
 
-			// Load latest version
-			if err := app.LoadLatestVersion(); err != nil {
-				return fmt.Errorf("failed to load latest version: %w", err)
-			}
-
-			// Get current height
-			height := app.LastBlockHeight()
-			if height == 0 {
-				return fmt.Errorf("no blocks found")
+			// Load version at specified height
+			if err := app.LoadVersion(height); err != nil {
+				return fmt.Errorf("failed to load version at height %d: %w", height, err)
 			}
 
 			// Create snapshot
 			fmt.Printf("Creating snapshot at height %d...\n", height)
 
 			// Create snapshot directory if it doesn't exist
-			snapshotDir := filepath.Join(homeDir, "data", "snapshots")
 			if err := os.MkdirAll(snapshotDir, 0755); err != nil {
 				return fmt.Errorf("failed to create snapshot directory: %w", err)
 			}
@@ -74,15 +82,20 @@ func SnapshotCmd() *cobra.Command {
 			}
 
 			// Create snapshot
-			_, err := snapshotManager.Create(uint64(height))
+			_, err = snapshotManager.Create(uint64(height))
 			if err != nil {
 				return fmt.Errorf("failed to create snapshot: %w", err)
 			}
 
-			fmt.Printf("Successfully created snapshot at height %d\n", height)
+			fmt.Printf("Successfully created snapshot at height %d in directory %s\n", height, snapshotDir)
 			return nil
 		},
 	}
+
+	// Add flags
+	cmd.Flags().Int64("height", 0, "Height at which to create the snapshot")
+	cmd.Flags().String("snapshot-dir", "", "Directory to store the snapshot (default: <home>/data/snapshots)")
+	cmd.MarkFlagRequired("height")
 
 	return cmd
 }
