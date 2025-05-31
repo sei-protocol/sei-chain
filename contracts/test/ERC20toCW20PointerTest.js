@@ -86,7 +86,7 @@ describe("ERC20 to CW20 Pointer", function () {
             });
 
             describe("transfer()", function () {
-                it("should transfer", async function () {
+                it.only("should transfer", async function () {
                     let sender = accounts[0];
                     let recipient = accounts[1];
 
@@ -125,7 +125,9 @@ describe("ERC20 to CW20 Pointer", function () {
                     });
 
                     const ethBlock = await ethers.provider.send('eth_getBlockByNumber', ['0x' + blockNumber.toString(16), false]);
-                    const seiBlock = await ethers.provider.send('sei_getBlockByNumber', ['0x' + blockNumber.toString(16), false]);
+                    console.log("pointer address", await pointer.getAddress());
+                    const seiBlock = await ethers.provider.send('sei_getBlockByNumber', ['0x' + blockNumber.toString(16), true]);
+                    console.log("seiBlock", seiBlock);
                     expect(ethBlock.transactions.length).to.equal(1);
                     expect(seiBlock.transactions.length).to.equal(1);
 

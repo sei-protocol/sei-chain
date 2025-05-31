@@ -305,6 +305,22 @@ func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte, maxVersion uint16)
 	return
 }
 
+func (k *Keeper) GetAnyPointeeInfo(ctx sdk.Context, cwAddress string) (common.Address, uint16, bool) {
+	addr, version, exists := k.GetERC20CW20Pointer(ctx, cwAddress)
+	if exists {
+		return addr, version, true
+	}
+	addr, version, exists = k.GetERC721CW721Pointer(ctx, cwAddress)
+	if exists {
+		return addr, version, true
+	}
+	addr, version, exists = k.GetERC1155CW1155Pointer(ctx, cwAddress)
+	if exists {
+		return addr, version, true
+	}
+	return common.Address{}, 0, false
+}
+
 func (k *Keeper) GetAnyPointerInfo(ctx sdk.Context, pref []byte) (addr []byte, version uint16, exists bool) {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
 	iter := store.ReverseIterator(nil, nil)
