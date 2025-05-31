@@ -181,6 +181,7 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 		}
 	}
 	if height == MockHeight100 {
+		fmt.Println("[DEBUG] creating mock block for height 100")
 		return &coretypes.ResultBlock{
 			BlockID: MockBlockID,
 			Block: &tmtypes.Block{
@@ -203,6 +204,7 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 			},
 		}
 	}
+	fmt.Println("[DEBUG] creating mock block for default height")
 	res := &coretypes.ResultBlock{
 		BlockID: MockBlockID,
 		Block: &tmtypes.Block{
