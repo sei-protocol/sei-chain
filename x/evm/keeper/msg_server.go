@@ -261,6 +261,10 @@ func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.
 }
 
 func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgRegisterPointer) (*types.MsgRegisterPointerResponse, error) {
+	return nil, fmt.Errorf("registering CW->ERC pointers has been disabled")
+}
+
+func (server msgServer) LegacyRegisterPointer(goCtx context.Context, msg *types.MsgRegisterPointer) (*types.MsgRegisterPointerResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
 	var existingPointer sdk.AccAddress
 	var existingVersion uint16
