@@ -21,6 +21,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -32,7 +33,7 @@ const ShellEVMTxType = math.MaxUint32
 
 type BlockAPI struct {
 	tmClient             rpcclient.Client
-	keeper               BlockAPIKeeper
+	keeper               *keeper.Keeper
 	ctxProvider          func(int64) sdk.Context
 	txConfig             client.TxConfig
 	connectionType       ConnectionType
@@ -41,21 +42,12 @@ type BlockAPI struct {
 	includeBankTransfers bool
 }
 
-type BlockAPIKeeper interface {
-	GetBlockBloom(ctx sdk.Context) ethtypes.Bloom
-	GetReceipt(ctx sdk.Context, hash common.Hash) (*types.Receipt, error)
-	GetEVMAddressOrDefault(ctx sdk.Context, addr sdk.AccAddress) common.Address
-	ChainID(ctx sdk.Context) *big.Int
-	GetAnyPointeeInfo(ctx sdk.Context, contract string) (common.Address, uint16, bool)
-	GetCurrBaseFeePerGas(ctx sdk.Context) sdk.Dec
-}
-
 type SeiBlockAPI struct {
 	*BlockAPI
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
 }
 
-func NewBlockAPI(tmClient rpcclient.Client, k BlockAPIKeeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, connectionType ConnectionType) *BlockAPI {
+func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, connectionType ConnectionType) *BlockAPI {
 	return &BlockAPI{
 		tmClient:             tmClient,
 		keeper:               k,
@@ -70,7 +62,7 @@ func NewBlockAPI(tmClient rpcclient.Client, k BlockAPIKeeper, ctxProvider func(i
 
 func NewSeiBlockAPI(
 	tmClient rpcclient.Client,
-	k BlockAPIKeeper,
+	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfig client.TxConfig,
 	connectionType ConnectionType,
@@ -94,7 +86,7 @@ func NewSeiBlockAPI(
 
 func NewSei2BlockAPI(
 	tmClient rpcclient.Client,
-	k BlockAPIKeeper,
+	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfig client.TxConfig,
 	connectionType ConnectionType,
@@ -247,6 +239,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		wg.Add(1)
 		go func(i int, hash common.Hash) {
 			defer wg.Done()
+			defer recoverAndLog()
 			receipt, err := a.keeper.GetReceipt(a.ctxProvider(height), hash)
 			if err != nil {
 				// When the transaction doesn't exist, skip it
@@ -302,7 +295,7 @@ func EncodeTmBlock(
 	block *coretypes.ResultBlock,
 	blockRes *coretypes.ResultBlockResults,
 	blockBloom ethtypes.Bloom,
-	k BlockAPIKeeper,
+	k *keeper.Keeper,
 	txDecoder sdk.TxDecoder,
 	fullTx bool,
 	includeBankTransfers bool,
@@ -310,7 +303,6 @@ func EncodeTmBlock(
 	isPanicOrSynthetic func(ctx context.Context, hash common.Hash) (bool, error),
 ) (map[string]interface{}, error) {
 	number := big.NewInt(block.Block.Height)
-	fmt.Printf("[DEBUG] block number = %+v\n", number)
 	blockhash := common.HexToHash(block.BlockID.Hash.String())
 	blockTime := block.Block.Time
 	lastHash := common.HexToHash(block.Block.LastBlockID.Hash.String())
@@ -375,10 +367,8 @@ func EncodeTmBlock(
 					var to common.Address
 					ercAddress, _, exists := k.GetAnyPointeeInfo(ctx, m.Contract)
 					if exists {
-						fmt.Printf("[DEBUG] found pointee info for %+v, %+v\n", m.Contract, ercAddress)
 						to = ercAddress
 					} else {
-						fmt.Printf("[DEBUG] no pointee info found for %+v\n", m.Contract)
 						to = k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
 					}
 					transactions = append(transactions, &ethapi.RPCTransaction{
@@ -390,7 +380,6 @@ func EncodeTmBlock(
 						Hash:             th,
 						TransactionIndex: (*hexutil.Uint64)(&ti),
 					})
-					fmt.Printf("[DEBUG] created MsgExecuteContract, transaction = %+v\n", transactions[len(transactions)-1])
 				}
 			case *banktypes.MsgSend:
 				if !includeBankTransfers {

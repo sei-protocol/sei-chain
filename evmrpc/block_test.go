@@ -1,9 +1,7 @@
 package evmrpc_test
 
 import (
-	"context"
 	"crypto/sha256"
-	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -17,8 +15,6 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/lib/ethapi"
-	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -382,69 +378,4 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 		R:                nil,
 		S:                nil,
 	}, txs[0].(*ethapi.RPCTransaction))
-}
-
-type BlockAPIClient struct {
-	*MockClient
-}
-
-// override BlockResults
-func (b *BlockAPIClient) BlockResults(ctx context.Context, blockNumber *int64) (*coretypes.ResultBlockResults, error) {
-	fmt.Println("In BlockAPIClient.BlockResults")
-	return &coretypes.ResultBlockResults{
-		TxsResults: []*abci.ExecTxResult{
-			{
-				Data:      []byte{},
-				GasWanted: 0,
-				GasUsed:   0,
-			},
-		},
-		ConsensusParamUpdates: &types2.ConsensusParams{
-			Block: &types2.BlockParams{
-				MaxBytes: 100000000,
-				MaxGas:   200000000,
-			},
-		},
-	}, nil
-}
-
-func (b *BlockAPIClient) Block(ctx context.Context, h *int64) (*coretypes.ResultBlock, error) {
-	fmt.Println("In BlockAPIClient.Block")
-	res := &coretypes.ResultBlock{
-		BlockID: MockBlockID,
-		Block: &tmtypes.Block{
-			Header: mockBlockHeader(MockHeight8),
-			Data: tmtypes.Data{
-				Txs: []tmtypes.Tx{
-					func() []byte {
-						bz, _ := Encoder(Tx1)
-						return bz
-					}(),
-					func() []byte {
-						bz, _ := Encoder(TxNonEvmWithSyntheticLog)
-						return bz
-					}(),
-				},
-			},
-			LastCommit: &tmtypes.Commit{
-				Height: *h,
-			},
-		},
-	}
-	return res, nil
-}
-
-func TestBlockAPI(t *testing.T) {
-	testApp := app.Setup(false, false)
-	bn := int64(1000)
-	Ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(bn)
-	k := &testApp.EvmKeeper
-	ctxProvider := func(height int64) sdk.Context {
-		return Ctx
-	}
-	var EncodingConfig = app.MakeEncodingConfig()
-	var TxConfig = EncodingConfig.TxConfig
-	blockAPI := evmrpc.NewBlockAPI(&BlockAPIClient{}, k, ctxProvider, TxConfig, evmrpc.ConnectionTypeHTTP)
-	res, err := blockAPI.GetBlockByNumber(context.Background(), rpc.BlockNumber(bn), true)
-	fmt.Printf("res: %v, err: %v\n", res, err)
 }
