@@ -125,7 +125,13 @@ describe("ERC20 to CW20 Pointer", function () {
                     });
 
                     const ethBlock = await ethers.provider.send('eth_getBlockByNumber', ['0x' + blockNumber.toString(16), false]);
+<<<<<<< Updated upstream
                     const seiBlock = await ethers.provider.send('sei_getBlockByNumber', ['0x' + blockNumber.toString(16), false]);
+=======
+                    const seiBlock = await ethers.provider.send('sei_getBlockByNumber', ['0x' + blockNumber.toString(16), true]);
+                    // check to address is the pointer address not the direct casted contract address
+                    expect(seiBlock.transactions[0].to.toLowerCase()).to.equal((await pointer.getAddress()).toLowerCase());
+>>>>>>> Stashed changes
                     expect(ethBlock.transactions.length).to.equal(1);
                     expect(seiBlock.transactions.length).to.equal(1);
 
