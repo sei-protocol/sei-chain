@@ -682,42 +682,42 @@ func TestEvmError(t *testing.T) {
 	require.Equal(t, receipt.VmError, res.EvmTxInfo.VmError)
 }
 
-// func TestAssociateContractAddress(t *testing.T) {
-// 	k, ctx := testkeeper.MockEVMKeeper()
-// 	msgServer := keeper.NewMsgServerImpl(k)
-// 	dummySeiAddr, dummyEvmAddr := testkeeper.MockAddressPair()
-// 	res, err := msgServer.RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
-// 		Sender:      dummySeiAddr.String(),
-// 		PointerType: types.PointerType_ERC20,
-// 		ErcAddress:  dummyEvmAddr.Hex(),
-// 	})
-// 	require.Nil(t, err)
-// 	_, err = msgServer.AssociateContractAddress(sdk.WrapSDKContext(ctx), &types.MsgAssociateContractAddress{
-// 		Sender:  dummySeiAddr.String(),
-// 		Address: res.PointerAddress,
-// 	})
-// 	require.Nil(t, err)
-// 	associatedEvmAddr, found := k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(res.PointerAddress))
-// 	require.True(t, found)
-// 	require.Equal(t, common.BytesToAddress(sdk.MustAccAddressFromBech32(res.PointerAddress)), associatedEvmAddr)
-// 	associatedSeiAddr, found := k.GetSeiAddress(ctx, associatedEvmAddr)
-// 	require.True(t, found)
-// 	require.Equal(t, res.PointerAddress, associatedSeiAddr.String())
-// 	// setting for an associated address would fail
-// 	_, err = msgServer.AssociateContractAddress(sdk.WrapSDKContext(ctx), &types.MsgAssociateContractAddress{
-// 		Sender:  dummySeiAddr.String(),
-// 		Address: res.PointerAddress,
-// 	})
-// 	require.NotNil(t, err)
-// 	require.Contains(t, err.Error(), "contract already has an associated address")
-// 	// setting for a non-contract would fail
-// 	_, err = msgServer.AssociateContractAddress(sdk.WrapSDKContext(ctx), &types.MsgAssociateContractAddress{
-// 		Sender:  dummySeiAddr.String(),
-// 		Address: dummySeiAddr.String(),
-// 	})
-// 	require.NotNil(t, err)
-// 	require.Contains(t, err.Error(), "no wasm contract found at the given address")
-// }
+func TestAssociateContractAddress(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	msgServer := keeper.NewLegacyMsgServerImpl(k)
+	dummySeiAddr, dummyEvmAddr := testkeeper.MockAddressPair()
+	res, err := msgServer.RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      dummySeiAddr.String(),
+		PointerType: types.PointerType_ERC20,
+		ErcAddress:  dummyEvmAddr.Hex(),
+	})
+	require.Nil(t, err)
+	_, err = msgServer.AssociateContractAddress(sdk.WrapSDKContext(ctx), &types.MsgAssociateContractAddress{
+		Sender:  dummySeiAddr.String(),
+		Address: res.PointerAddress,
+	})
+	require.Nil(t, err)
+	associatedEvmAddr, found := k.GetEVMAddress(ctx, sdk.MustAccAddressFromBech32(res.PointerAddress))
+	require.True(t, found)
+	require.Equal(t, common.BytesToAddress(sdk.MustAccAddressFromBech32(res.PointerAddress)), associatedEvmAddr)
+	associatedSeiAddr, found := k.GetSeiAddress(ctx, associatedEvmAddr)
+	require.True(t, found)
+	require.Equal(t, res.PointerAddress, associatedSeiAddr.String())
+	// setting for an associated address would fail
+	_, err = msgServer.AssociateContractAddress(sdk.WrapSDKContext(ctx), &types.MsgAssociateContractAddress{
+		Sender:  dummySeiAddr.String(),
+		Address: res.PointerAddress,
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "contract already has an associated address")
+	// setting for a non-contract would fail
+	_, err = msgServer.AssociateContractAddress(sdk.WrapSDKContext(ctx), &types.MsgAssociateContractAddress{
+		Sender:  dummySeiAddr.String(),
+		Address: dummySeiAddr.String(),
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "no wasm contract found at the given address")
+}
 
 func TestAssociate(t *testing.T) {
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithChainID("sei-test").WithBlockHeight(1)
