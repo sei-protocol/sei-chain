@@ -397,36 +397,6 @@ async function passProposal(proposalId,  desposit="200000000usei", fees="200000u
     throw new Error("could not pass proposal "+proposalId)
 }
 
-async function registerPointerForERC20(erc20Address, fees="20000usei", from=adminKeyName) {
-    const command = `seid tx evm register-cw-pointer ERC20 ${erc20Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
-    const output = await execute(command);
-    const response = JSON.parse(output)
-    if(response.code !== 0) {
-        throw new Error("contract deployment failed")
-    }
-    return getEventAttribute(response, "pointer_registered", "pointer_address")
-}
-
-async function registerPointerForERC721(erc721Address, fees="20000usei", from=adminKeyName) {
-    const command = `seid tx evm register-cw-pointer ERC721 ${erc721Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
-    const output = await execute(command);
-    const response = JSON.parse(output)
-    if(response.code !== 0) {
-        throw new Error("contract deployment failed")
-    }
-    return getEventAttribute(response, "pointer_registered", "pointer_address")
-}
-
-async function registerPointerForERC1155(erc1155Address, fees="200000usei", from=adminKeyName) {
-    const command = `seid tx evm register-cw-pointer ERC1155 ${erc1155Address} --from ${from} --fees ${fees} --broadcast-mode block -y -o json`
-    const output = await execute(command);
-    const response = JSON.parse(output)
-    if(response.code !== 0) {
-        throw new Error("contract deployment failed")
-    }
-    return getEventAttribute(response, "pointer_registered", "pointer_address")
-}
-
 async function getSeiAddress(evmAddress) {
     const command = `seid q evm sei-addr ${evmAddress} -o json`
     const output = await execute(command);
@@ -521,6 +491,7 @@ async function executeOnAllNodes(command, interaction=`printf "12345678\\n"`){
 }
 
 async function execute(command, interaction=`printf "12345678\\n"`){
+    console.log("Executing command:", command);
     if (await isDocker()) {
         command = command.replace(/\.\.\//g, "/sei-protocol/sei-chain/");
         command = command.replace("/sei-protocol/sei-chain//sei-protocol/sei-chain/", "/sei-protocol/sei-chain/")
@@ -577,9 +548,6 @@ module.exports = {
     deployErc20PointerNative,
     deployErc721PointerForCw721,
     deployErc1155PointerForCw1155,
-    registerPointerForERC20,
-    registerPointerForERC721,
-    registerPointerForERC1155,
     getPointerForNative,
     proposeCW20toERC20Upgrade,
     importKey,

@@ -56,35 +56,6 @@ func NativeSendTxCmd() *cobra.Command {
 	return cmd
 }
 
-func RegisterCwPointerCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "register-cw-pointer [pointer type] [erc address]",
-		Short: `Register a CosmWasm pointer for an ERC20/721/1155 contract. Pointer type is either ERC20, ERC721, or ERC1155.`,
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			clientCtx, err := client.GetClientTxContext(cmd)
-			if err != nil {
-				return err
-			}
-
-			msg := &types.MsgRegisterPointer{
-				Sender:      clientCtx.GetFromAddress().String(),
-				PointerType: types.PointerType(types.PointerType_value[args[0]]),
-				ErcAddress:  args[1],
-			}
-			if err := msg.ValidateBasic(); err != nil {
-				return err
-			}
-
-			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
-		},
-	}
-
-	flags.AddTxFlagsToCmd(cmd)
-
-	return cmd
-}
-
 func RegisterEvmPointerCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "register-evm-pointer [pointer type] [cw-address] --gas-fee-cap=<cap> --gas-limit=<limit> --evm-rpc=<url>",
