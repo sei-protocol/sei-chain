@@ -90,7 +90,7 @@ func SetupTestServer(
 		&mockClient,
 		&a.EvmKeeper,
 		a.BaseApp,
-		a.AnteHandler,
+		a.TracerAnteHandler,
 		a.RPCContextProvider,
 		a.GetTxConfig(),
 		"",

@@ -149,7 +149,7 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 	if err != nil {
 		return nil, 0, err
 	}
-	gasMultipler := d.executor.EVMKeeper().GetPriorityNormalizer(ctx)
+	gasMultipler := d.executor.EVMKeeper().GetPriorityNormalizerPre580(ctx)
 	gasLimitBigInt := sdk.NewDecFromInt(sdk.NewIntFromUint64(suppliedGas)).Mul(gasMultipler).TruncateInt().BigInt()
 	if gasLimitBigInt.Cmp(utils.BigMaxU64) > 0 {
 		gasLimitBigInt = utils.BigMaxU64
@@ -202,8 +202,9 @@ func HandlePaymentUsei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer sdk
 		return sdk.Coin{}, err
 	}
 	if hooks != nil {
+		newCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 		if hooks.OnEnter != nil {
-			hooks.OnEnter(depth+1, byte(vm.CALL), evmKeeper.GetEVMAddressOrDefault(ctx, precompileAddr), evmKeeper.GetEVMAddressOrDefault(ctx, payer), []byte{}, GetRemainingGas(ctx, evmKeeper), value)
+			hooks.OnEnter(depth+1, byte(vm.CALL), evmKeeper.GetEVMAddressOrDefault(newCtx, precompileAddr), evmKeeper.GetEVMAddressOrDefault(newCtx, payer), []byte{}, GetRemainingGas(newCtx, evmKeeper), value)
 		}
 		if hooks.OnExit != nil {
 			hooks.OnExit(depth+1, []byte{}, 0, nil, false)
@@ -220,8 +221,9 @@ func HandlePaymentUseiWei(ctx sdk.Context, precompileAddr sdk.AccAddress, payer 
 		return sdk.Int{}, sdk.Int{}, err
 	}
 	if hooks != nil {
+		newCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 		if hooks.OnEnter != nil {
-			hooks.OnEnter(depth+1, byte(vm.CALL), evmKeeper.GetEVMAddressOrDefault(ctx, precompileAddr), evmKeeper.GetEVMAddressOrDefault(ctx, payer), []byte{}, GetRemainingGas(ctx, evmKeeper), value)
+			hooks.OnEnter(depth+1, byte(vm.CALL), evmKeeper.GetEVMAddressOrDefault(newCtx, precompileAddr), evmKeeper.GetEVMAddressOrDefault(newCtx, payer), []byte{}, GetRemainingGas(newCtx, evmKeeper), value)
 		}
 		if hooks.OnExit != nil {
 			hooks.OnExit(depth+1, []byte{}, 0, nil, false)
@@ -236,7 +238,7 @@ sei gas = evm gas * multiplier
 sei gas price = fee / sei gas = fee / (evm gas * multiplier) = evm gas / multiplier
 */
 func GetRemainingGas(ctx sdk.Context, evmKeeper EVMKeeper) uint64 {
-	gasMultipler := evmKeeper.GetPriorityNormalizer(ctx)
+	gasMultipler := evmKeeper.GetPriorityNormalizerPre580(ctx)
 	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
 	return sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Quo(gasMultipler).TruncateInt().Uint64()
 }

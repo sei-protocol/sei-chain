@@ -2,6 +2,8 @@ package tests
 
 import (
 	"encoding/json"
+	"fmt"
+	"github.com/sei-protocol/sei-chain/app"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -24,10 +26,60 @@ func TestTraceBlockByNumber(t *testing.T) {
 	)
 }
 
+func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
+	txBz := signAndEncodeTx(send(0), mnemonic1)
+	panicTxBz := signAndEncodeTx(send(100), mnemonic1)
+	SetupTestServer([][][]byte{{txBz, panicTxBz}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("sei", port, "traceBlockByNumberExcludeTraceFail", "0x2", map[string]interface{}{
+				"timeout": "60s", "tracer": "flatCallTracer",
+			})
+			fmt.Println(res)
+			txs := res["result"].([]interface{})
+			require.Len(t, txs, 1)
+			blockHash := txs[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
+			// assert that the block hash has been overwritten instead of the RLP hash.
+			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", blockHash.(string))
+		},
+	)
+}
+
+func TestTraceBlockByHash(t *testing.T) {
+	txBz := signAndEncodeTx(send(0), mnemonic1)
+	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("debug", port, "traceBlockByHash", "0x0000000000000000000000000000000000000000000000000000000000000002", map[string]interface{}{
+				"timeout": "60s", "tracer": "flatCallTracer",
+			})
+			blockHash := res["result"].([]interface{})[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
+			// assert that the block hash has been overwritten instead of the RLP hash.
+			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", blockHash.(string))
+		},
+	)
+}
+
+func TestTraceBlockByHashExcludeTraceFail(t *testing.T) {
+	txBz := signAndEncodeTx(send(0), mnemonic1)
+	panicTxBz := signAndEncodeTx(send(100), mnemonic1)
+	SetupTestServer([][][]byte{{txBz, panicTxBz}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("sei", port, "traceBlockByHashExcludeTraceFail", "0x0000000000000000000000000000000000000000000000000000000000000002", map[string]interface{}{
+				"timeout": "60s", "tracer": "flatCallTracer",
+			})
+			fmt.Println(res)
+			txs := res["result"].([]interface{})
+			require.Len(t, txs, 1)
+			blockHash := txs[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
+			// assert that the block hash has been overwritten instead of the RLP hash.
+			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", blockHash.(string))
+		},
+	)
+}
+
 func TestTraceHistoricalPrecompiles(t *testing.T) {
 	from := getAddrWithMnemonic(mnemonic1)
 	txData := jsonExtractAsBytesFromArray(0).(*ethtypes.DynamicFeeTx)
-	SetupTestServer([][][]byte{{}, {}, {}}, mnemonicInitializer(mnemonic1), mockUpgrade("v5.5.2", 1), mockUpgrade("v6.0.5", 3)).Run(
+	SetupTestServer([][][]byte{{}, {}, {}}, mnemonicInitializer(mnemonic1), mockUpgrade("v5.5.2", 1), mockUpgrade(app.LatestUpgrade, 3)).Run(
 		func(port int) {
 			args := ethapi.TransactionArgs{
 				From:     &from,
@@ -52,6 +104,25 @@ func TestTraceHistoricalPrecompiles(t *testing.T) {
 			})
 			resultMap := res["result"].([]interface{})[0].(map[string]interface{})
 			require.NotContains(t, resultMap, "error")
+		},
+	)
+}
+
+func TestTraceMultipleTransactionsShouldNotHang(t *testing.T) {
+	cwIter := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
+	txBzList := make([][]byte, 100)
+	for nonce := 1; nonce <= 100; nonce++ {
+		txBzList[nonce-1] = signAndEncodeTx(sendErc20(uint64(nonce)), erc20DeployerMnemonics)
+	}
+	txBzList = append(txBzList, signAndEncodeTx(callWasmIter(0, cwIter), mnemonic1))
+	SetupTestServer([][][]byte{txBzList}, mnemonicInitializer(mnemonic1), multiCoinInitializer(mnemonic1), cwIterInitializer(mnemonic1), erc20Initializer()).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("debug", port, "traceBlockByHash", "0x0000000000000000000000000000000000000000000000000000000000000002", map[string]interface{}{
+				"timeout": "60s", "tracer": "flatCallTracer",
+			})
+			blockHash := res["result"].([]interface{})[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
+			// assert that the block hash has been overwritten instead of the RLP hash.
+			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", blockHash.(string))
 		},
 	)
 }

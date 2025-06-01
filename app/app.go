@@ -117,9 +117,6 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
-	ctmodule "github.com/sei-protocol/sei-chain/x/confidentialtransfers"
-	ctkeeper "github.com/sei-protocol/sei-chain/x/confidentialtransfers/keeper"
-	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
 	epochmodule "github.com/sei-protocol/sei-chain/x/epoch"
 	epochmodulekeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	epochmoduletypes "github.com/sei-protocol/sei-chain/x/epoch/types"
@@ -211,7 +208,6 @@ var (
 		wasm.AppModuleBasic{},
 		epochmodule.AppModuleBasic{},
 		tokenfactorymodule.AppModuleBasic{},
-		ctmodule.AppModuleBasic{},
 		// this line is used by starport scaffolding # stargate/app/moduleBasic
 	)
 
@@ -229,9 +225,6 @@ var (
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
-		// Confidential Transfers module is not live yet, but we add the permissions for testing
-		cttypes.ModuleName: nil,
-
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -351,8 +344,6 @@ type App struct {
 	EpochKeeper epochmodulekeeper.Keeper
 
 	TokenFactoryKeeper tokenfactorykeeper.Keeper
-	// ConfidentialTransfers module is not live yet, but we add the keeper for testing
-	ConfidentialTransfersKeeper ctkeeper.Keeper
 
 	// mm is the module manager
 	mm *module.Manager
@@ -365,8 +356,9 @@ type App struct {
 	optimisticProcessingInfo *OptimisticProcessingInfo
 
 	// batchVerifier *ante.SR25519BatchVerifier
-	txDecoder   sdk.TxDecoder
-	AnteHandler sdk.AnteHandler
+	txDecoder         sdk.TxDecoder
+	AnteHandler       sdk.AnteHandler
+	TracerAnteHandler sdk.AnteHandler
 
 	versionInfo version.Info
 
@@ -387,6 +379,11 @@ type App struct {
 	receiptStore seidb.StateStore
 
 	forkInitializer func(sdk.Context)
+
+	httpServerStartSignal     chan struct{}
+	wsServerStartSignal       chan struct{}
+	httpServerStartSignalSent bool
+	wsServerStartSignalSent   bool
 }
 
 type AppOption func(*App)
@@ -429,27 +426,27 @@ func New(
 		evmtypes.StoreKey, wasm.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
-		// ConfidentialTransfers module is not live yet, but we add the key for testing
-		cttypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey, evmtypes.TransientStoreKey)
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
 
 	app := &App{
-		BaseApp:           bApp,
-		cdc:               cdc,
-		appCodec:          appCodec,
-		interfaceRegistry: interfaceRegistry,
-		invCheckPeriod:    invCheckPeriod,
-		keys:              keys,
-		tkeys:             tkeys,
-		memKeys:           memKeys,
-		txDecoder:         encodingConfig.TxConfig.TxDecoder(),
-		versionInfo:       version.NewInfo(),
-		metricCounter:     &map[string]float32{},
-		encodingConfig:    encodingConfig,
-		stateStore:        stateStore,
+		BaseApp:               bApp,
+		cdc:                   cdc,
+		appCodec:              appCodec,
+		interfaceRegistry:     interfaceRegistry,
+		invCheckPeriod:        invCheckPeriod,
+		keys:                  keys,
+		tkeys:                 tkeys,
+		memKeys:               memKeys,
+		txDecoder:             encodingConfig.TxConfig.TxDecoder(),
+		versionInfo:           version.NewInfo(),
+		metricCounter:         &map[string]float32{},
+		encodingConfig:        encodingConfig,
+		stateStore:            stateStore,
+		httpServerStartSignal: make(chan struct{}, 1),
+		wsServerStartSignal:   make(chan struct{}, 1),
 	}
 
 	for _, option := range appOptions {
@@ -563,13 +560,6 @@ func New(
 		app.DistrKeeper,
 	)
 
-	app.ConfidentialTransfersKeeper = ctkeeper.NewKeeper(
-		appCodec,
-		app.keys[cttypes.StoreKey],
-		app.GetSubspace(cttypes.ModuleName),
-		app.AccountKeeper,
-		app.BankKeeper)
-
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks
 	supportedFeatures := "iterator,staking,stargate,sei"
@@ -603,6 +593,7 @@ func New(
 		app.IBCKeeper.ChannelKeeper,
 		&app.IBCKeeper.PortKeeper,
 		scopedWasmKeeper,
+		app.UpgradeKeeper,
 		app.TransferKeeper,
 		app.MsgServiceRouter(),
 		app.GRPCQueryRouter(),
@@ -627,7 +618,7 @@ func New(
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
 		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
-		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.ConfidentialTransfersKeeper, &app.UpgradeKeeper)
+		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.UpgradeKeeper)
 	app.BankKeeper.RegisterRecipientChecker(app.EvmKeeper.CanAddressReceive)
 
 	bApp.SetPreCommitHandler(app.HandlePreCommit)
@@ -732,8 +723,6 @@ func New(
 			app.IBCKeeper.ConnectionKeeper,
 			app.IBCKeeper.ChannelKeeper,
 			app.AccountKeeper,
-			app.ConfidentialTransfersKeeper,
-			ctkeeper.NewMsgServerImpl(app.ConfidentialTransfersKeeper),
 		)
 		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles, LatestUpgrade)
 	}
@@ -775,7 +764,6 @@ func New(
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
 		authzmodule.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
-		ctmodule.NewAppModule(app.ConfidentialTransfersKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 
@@ -807,7 +795,6 @@ func New(
 		evmtypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
-		cttypes.ModuleName,
 		acltypes.ModuleName,
 	)
 
@@ -839,7 +826,6 @@ func New(
 		evmtypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
-		cttypes.ModuleName,
 		acltypes.ModuleName,
 	)
 
@@ -869,7 +855,6 @@ func New(
 		feegrant.ModuleName,
 		oracletypes.ModuleName,
 		tokenfactorytypes.ModuleName,
-		cttypes.ModuleName,
 		epochmoduletypes.ModuleName,
 		wasm.ModuleName,
 		evmtypes.ModuleName,
@@ -901,7 +886,6 @@ func New(
 		transferModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
-		ctmodule.NewAppModule(app.ConfidentialTransfersKeeper),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
 	app.sm.RegisterStoreDecoders()
@@ -924,7 +908,7 @@ func New(
 	signModeHandler := encodingConfig.TxConfig.SignModeHandler()
 	// app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
 
-	anteHandler, anteDepGenerator, err := NewAnteHandlerAndDepGenerator(
+	anteHandler, tracerAnteHandler, anteDepGenerator, err := NewAnteHandlerAndDepGenerator(
 		HandlerOptions{
 			HandlerOptions: ante.HandlerOptions{
 				AccountKeeper:   app.AccountKeeper,
@@ -952,6 +936,7 @@ func New(
 		panic(err)
 	}
 	app.AnteHandler = anteHandler
+	app.TracerAnteHandler = tracerAnteHandler
 
 	app.SetAnteHandler(anteHandler)
 	app.SetAnteDepGenerator(anteDepGenerator)
@@ -1580,6 +1565,16 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedT
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+	defer func() {
+		if !app.httpServerStartSignalSent {
+			app.httpServerStartSignalSent = true
+			app.httpServerStartSignal <- struct{}{}
+		}
+		if !app.wsServerStartSignalSent {
+			app.wsServerStartSignalSent = true
+			app.wsServerStartSignal <- struct{}{}
+		}
+	}()
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
 	events := []abci.Event{}
@@ -1860,14 +1855,14 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
-		return app.GetCheckCtx().WithIsTracing(true)
+		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
 		app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
-		return app.GetCheckCtx().WithIsTracing(true)
+		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false)
 	}
-	return ctx.WithIsEVM(true).WithIsTracing(true)
+	return ctx.WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false)
 }
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
@@ -1875,23 +1870,29 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
 
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.AnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil)
 		if err != nil {
 			panic(err)
 		}
-		if err := evmHTTPServer.Start(); err != nil {
-			panic(err)
-		}
+		go func() {
+			<-app.httpServerStartSignal
+			if err := evmHTTPServer.Start(); err != nil {
+				panic(err)
+			}
+		}()
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.AnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome)
 		if err != nil {
 			panic(err)
 		}
-		if err := evmWSServer.Start(); err != nil {
-			panic(err)
-		}
+		go func() {
+			<-app.wsServerStartSignal
+			if err := evmWSServer.Start(); err != nil {
+				panic(err)
+			}
+		}()
 	}
 }
 
@@ -1975,10 +1976,7 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 		}
 
 		if totalGas > uint64(ctx.ConsensusParams().Block.MaxGas) {
-			if nonzeroTxsCnt > int(ctx.ConsensusParams().Block.MinTxsInBlock) {
-				// early return
-				return false
-			}
+			return false
 		}
 	}
 	return true
@@ -2017,7 +2015,6 @@ func initParamsKeeper(appCodec codec.BinaryCodec, legacyAmino *codec.LegacyAmino
 	paramsKeeper.Subspace(evmtypes.ModuleName)
 	paramsKeeper.Subspace(epochmoduletypes.ModuleName)
 	paramsKeeper.Subspace(tokenfactorytypes.ModuleName)
-	paramsKeeper.Subspace(cttypes.ModuleName)
 	// this line is used by starport scaffolding # stargate/app/paramSubspace
 
 	return paramsKeeper

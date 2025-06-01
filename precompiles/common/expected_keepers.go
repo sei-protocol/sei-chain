@@ -4,8 +4,6 @@ import (
 	"context"
 	"math/big"
 
-	cttypes "github.com/sei-protocol/sei-chain/x/confidentialtransfers/types"
-
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	"github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 	"github.com/cosmos/ibc-go/v3/modules/core/exported"
@@ -48,6 +46,7 @@ type EVMKeeper interface {
 	GetCodeHash(sdk.Context, common.Address) common.Hash
 	GetCode(ctx sdk.Context, addr common.Address) []byte
 	GetPriorityNormalizer(ctx sdk.Context) sdk.Dec
+	GetPriorityNormalizerPre580(ctx sdk.Context) sdk.Dec
 	GetBaseDenom(ctx sdk.Context) string
 	GetBalance(ctx sdk.Context, addr sdk.AccAddress) *big.Int
 	SetERC20NativePointer(ctx sdk.Context, token string, addr common.Address) error
@@ -133,17 +132,4 @@ type ConnectionKeeper interface {
 
 type ChannelKeeper interface {
 	GetChannel(ctx sdk.Context, portID, channelID string) (types.Channel, bool)
-}
-
-type ConfidentialTransfersKeeper interface {
-	ApplyPendingBalance(context.Context, *cttypes.MsgApplyPendingBalance) (*cttypes.MsgApplyPendingBalanceResponse, error)
-	Deposit(context.Context, *cttypes.MsgDeposit) (*cttypes.MsgDepositResponse, error)
-	InitializeAccount(context.Context, *cttypes.MsgInitializeAccount) (*cttypes.MsgInitializeAccountResponse, error)
-	Transfer(goCtx context.Context, req *cttypes.MsgTransfer) (*cttypes.MsgTransferResponse, error)
-	Withdraw(goCtx context.Context, req *cttypes.MsgWithdraw) (*cttypes.MsgWithdrawResponse, error)
-	CloseAccount(goCtx context.Context, req *cttypes.MsgCloseAccount) (*cttypes.MsgCloseAccountResponse, error)
-}
-
-type ConfidentialTransfersViewKeeper interface {
-	GetAccount(ctx sdk.Context, address string, denom string) (cttypes.Account, bool)
 }

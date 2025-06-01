@@ -49,7 +49,7 @@ func (k *Keeper) HandleInternalEVMDelegateCall(ctx sdk.Context, req *types.MsgIn
 	} else {
 		return nil, errors.New("cannot use a CosmWasm contract to delegate-create an EVM contract")
 	}
-	addr, _, exists := k.GetPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(req.FromContract))))
+	addr, _, exists := k.GetAnyPointerInfo(ctx, types.PointerReverseRegistryKey(common.BytesToAddress([]byte(req.FromContract))))
 	if !exists || common.BytesToAddress(addr).Cmp(*to) != 0 {
 		return nil, errors.New("only pointer contract can make delegatecalls")
 	}
@@ -189,7 +189,10 @@ func (k *Keeper) getEvmGasLimitFromCtx(ctx sdk.Context) uint64 {
 	if ctx.GasMeter().Limit() <= 0 {
 		return math.MaxUint64
 	}
-	evmGasBig := sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Quo(k.GetPriorityNormalizer(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)))).TruncateInt().BigInt()
+	if ctx.ChainID() != "pacific-1" || ctx.BlockHeight() >= 119821526 {
+		ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+	}
+	evmGasBig := sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Quo(k.GetPriorityNormalizer(ctx)).TruncateInt().BigInt()
 	if evmGasBig.Cmp(MaxUint64BigInt) > 0 {
 		evmGasBig = MaxUint64BigInt
 	}

@@ -88,7 +88,6 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 	//		return ctx, err
 	//	}
 	//}
-
 	return next(ctx, tx, simulate)
 }
 
