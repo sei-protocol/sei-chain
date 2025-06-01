@@ -543,7 +543,6 @@ func TestRegisterPointer(t *testing.T) {
 	})
 	require.NotNil(t, err)
 	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
-	fmt.Println("pointee = ", pointee)
 	_, _, exists := k.GetCW20ERC20Pointer(ctx, pointee)
 	require.False(t, exists)
 
