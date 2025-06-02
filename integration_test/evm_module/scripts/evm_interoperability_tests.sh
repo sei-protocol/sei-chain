@@ -4,6 +4,8 @@ set -e
 
 cd contracts
 npm ci
+
+npx hardhat test --network seilocal test/CWPointerTest.js
 npx hardhat test --network seilocal test/ERC20toCW20PointerTest.js
 npx hardhat test --network seilocal test/ERC20toNativePointerTest.js
 npx hardhat test --network seilocal test/ERC721toCW721PointerTest.js

@@ -535,33 +535,36 @@ func TestRegisterPointer(t *testing.T) {
 	sender, _ := testkeeper.MockAddressPair()
 	pointer, pointee := testkeeper.MockAddressPair()
 
-	// Test register-pointer for ERC20 fails
+	// Test register-pointer for ERC20 fails with useLatest = true
 	_, err := keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
 		Sender:      sender.String(),
 		PointerType: types.PointerType_ERC20,
 		ErcAddress:  pointee.Hex(),
+		UseLatest:   true,
 	})
 	require.NotNil(t, err)
 	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
 	_, _, exists := k.GetCW20ERC20Pointer(ctx, pointee)
 	require.False(t, exists)
 
-	// Test register-pointer for ERC721 fails
+	// Test register-pointer for ERC721 fails with useLatest = true
 	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
 		Sender:      sender.String(),
 		PointerType: types.PointerType_ERC721,
 		ErcAddress:  pointee.Hex(),
+		UseLatest:   true,
 	})
 	require.NotNil(t, err)
 	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
 	_, _, exists = k.GetCW721ERC721Pointer(ctx, pointee)
 	require.False(t, exists)
 
-	// Test register-pointer for ERC1155 fails
+	// Test register-pointer for ERC1155 fails with useLatest = true
 	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
 		Sender:      sender.String(),
 		PointerType: types.PointerType_ERC1155,
 		ErcAddress:  pointee.Hex(),
+		UseLatest:   true,
 	})
 	require.NotNil(t, err)
 	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
