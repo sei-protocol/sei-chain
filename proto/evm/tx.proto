@@ -64,7 +64,7 @@ message MsgRegisterPointer {
   string sender = 1;
   PointerType pointer_type = 2;
   string erc_address = 3;
-  bool isLiveTx = 4;
+  bool use_latest = 4;
 }
 
 message MsgRegisterPointerResponse {
