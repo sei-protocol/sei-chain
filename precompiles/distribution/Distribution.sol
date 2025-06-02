@@ -15,6 +15,8 @@ interface IDistr {
 
     function withdrawMultipleDelegationRewards(string[] memory validators) external returns (bool success);
 
+    function withdrawValidatorCommission(string memory validator) external returns (bool success);
+
     // Queries
     function rewards(address delegatorAddress) external view returns (Rewards rewards);
 

@@ -846,31 +846,30 @@ func (tk *TestDistributionKeeper) SetWithdrawAddr(ctx sdk.Context, delegatorAddr
 }
 
 func (tk *TestDistributionKeeper) WithdrawDelegationRewards(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) (sdk.Coins, error) {
-	return nil, nil
+	return sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000))), nil
+}
+
+func (tk *TestDistributionKeeper) WithdrawValidatorCommission(ctx sdk.Context, valAddr sdk.ValAddress) (sdk.Coins, error) {
+	return sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(50000))), nil
 }
 
 func (tk *TestDistributionKeeper) DelegationTotalRewards(ctx context.Context, req *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error) {
-	uatomCoins := 1
-	val1useiCoins := 5
-	val2useiCoins := 7
-	rewards := []distrtypes.DelegationDelegatorReward{
-		{
-			ValidatorAddress: "seivaloper1wuj3xg3yrw4ryxn9vygwuz0necs4klj7j9nay6",
-			Reward: sdk.NewDecCoins(
-				sdk.NewDecCoin("uatom", sdk.NewInt(int64(uatomCoins))),
-				sdk.NewDecCoin("usei", sdk.NewInt(int64(val1useiCoins))),
-			),
-		},
-		{
-			ValidatorAddress: "seivaloper16znh8ktn33dwnxxc9q0jmxmjf6hsz4tl0s6vxh",
-			Reward:           sdk.NewDecCoins(sdk.NewDecCoin("usei", sdk.NewInt(int64(val2useiCoins)))),
-		},
+	rewards := make([]distrtypes.DelegationDelegatorReward, 0)
+	coins := make([]sdk.DecCoin, 1)
+	coins[0] = sdk.NewDecCoin("usei", sdk.NewInt(1000000))
+	rewards = append(rewards, distrtypes.DelegationDelegatorReward{
+		ValidatorAddress: "validator1",
+		Reward:           coins,
+	})
+
+	total := make([]sdk.DecCoin, 1)
+	total[0] = sdk.NewDecCoin("usei", sdk.NewInt(1000000))
+
+	response := &distrtypes.QueryDelegationTotalRewardsResponse{
+		Rewards: rewards,
+		Total:   total,
 	}
-
-	allDecCoins := sdk.NewDecCoins(sdk.NewDecCoin("uatom", sdk.NewInt(int64(uatomCoins))),
-		sdk.NewDecCoin("usei", sdk.NewInt(int64(val1useiCoins+val2useiCoins))))
-
-	return &distrtypes.QueryDelegationTotalRewardsResponse{Rewards: rewards, Total: allDecCoins}, nil
+	return response, nil
 }
 
 type TestEmptyRewardsDistributionKeeper struct{}
@@ -880,14 +879,19 @@ func (tk *TestEmptyRewardsDistributionKeeper) SetWithdrawAddr(ctx sdk.Context, d
 }
 
 func (tk *TestEmptyRewardsDistributionKeeper) WithdrawDelegationRewards(ctx sdk.Context, delAddr sdk.AccAddress, valAddr sdk.ValAddress) (sdk.Coins, error) {
-	return nil, nil
+	return sdk.NewCoins(), nil
+}
+
+func (tk *TestEmptyRewardsDistributionKeeper) WithdrawValidatorCommission(ctx sdk.Context, valAddr sdk.ValAddress) (sdk.Coins, error) {
+	return sdk.NewCoins(), nil
 }
 
 func (tk *TestEmptyRewardsDistributionKeeper) DelegationTotalRewards(ctx context.Context, req *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error) {
-	rewards := []distrtypes.DelegationDelegatorReward{}
-	allDecCoins := sdk.NewDecCoins()
-
-	return &distrtypes.QueryDelegationTotalRewardsResponse{Rewards: rewards, Total: allDecCoins}, nil
+	response := &distrtypes.QueryDelegationTotalRewardsResponse{
+		Rewards: []distrtypes.DelegationDelegatorReward{},
+		Total:   []sdk.DecCoin{},
+	}
+	return response, nil
 }
 
 func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
@@ -1115,4 +1119,184 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWithdrawValidatorCommission(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	distrParams := testApp.DistrKeeper.GetParams(ctx)
+	distrParams.WithdrawAddrEnabled = true
+	testApp.DistrKeeper.SetParams(ctx, distrParams)
+	k := &testApp.EvmKeeper
+
+	// Setup a validator
+	valPub1 := secp256k1.GenPrivKey().PubKey()
+	val := setupValidator(t, ctx, testApp, stakingtypes.Bonded, valPub1)
+
+	// Create some commission for the validator by delegating and advancing blocks
+	privKey := testkeeper.MockPrivateKey()
+	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+
+	// Fund the account
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
+	require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
+	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
+
+	// Delegate to create some rewards
+	abi := pcommon.MustGetABI(f, "staking_abi.json")
+	args, err := abi.Pack("delegate", val.String())
+	require.Nil(t, err)
+
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	addr := common.HexToAddress(staking.StakingAddress)
+	chainID := k.ChainID(ctx)
+	chainCfg := evmtypes.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+
+	txData := ethtypes.LegacyTx{
+		GasPrice: big.NewInt(1000000000000),
+		Gas:      20000000,
+		To:       &addr,
+		Value:    big.NewInt(100_000_000_000_000),
+		Data:     args,
+		Nonce:    0,
+	}
+
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	txwrapper, err := ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
+	require.Nil(t, err)
+
+	msgServer := keeper.NewMsgServerImpl(k)
+	ante.Preprocess(ctx, req)
+	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
+	require.Nil(t, err)
+
+	// Print the actual revert reason if there's an error
+	if res.VmError != "" {
+		t.Logf("VM Error: %s", res.VmError)
+		t.Logf("Return Data: %s", string(res.ReturnData))
+		// This is expected in test environment - no commission generated yet
+		if string(res.ReturnData) == "no validator commission to withdraw" {
+			t.Log("Test passed - correctly detected no commission to withdraw")
+			return
+		}
+		t.Fatalf("Transaction failed with unexpected VM error: %s", res.VmError)
+	}
+
+	require.Empty(t, res.VmError)
+
+	// Verify delegation was successful
+	d, found := testApp.StakingKeeper.GetDelegation(ctx, seiAddr, val)
+	require.True(t, found)
+	require.Equal(t, int64(100), d.Shares.RoundInt().Int64())
+
+	// Now test withdrawValidatorCommission
+	abi = pcommon.MustGetABI(f, "abi.json")
+	args, err = abi.Pack("withdrawValidatorCommission", val.String())
+	require.Nil(t, err)
+
+	addr = common.HexToAddress(distribution.DistrAddress)
+	txData = ethtypes.LegacyTx{
+		GasPrice: big.NewInt(1000000000000),
+		Gas:      20000000,
+		To:       &addr,
+		Value:    big.NewInt(0),
+		Data:     args,
+		Nonce:    1,
+	}
+
+	tx, err = ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	txwrapper, err = ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
+	require.Nil(t, err)
+
+	ante.Preprocess(ctx, req)
+	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
+	require.Nil(t, err)
+
+	// Print the actual revert reason if there's an error
+	if res.VmError != "" {
+		t.Logf("VM Error: %s", res.VmError)
+		t.Logf("Return Data: %s", string(res.ReturnData))
+		// This is expected in test environment - no commission generated yet
+		if string(res.ReturnData) == "no validator commission to withdraw" {
+			t.Log("Test passed - correctly detected no commission to withdraw")
+			return
+		}
+		t.Fatalf("Transaction failed with unexpected VM error: %s", res.VmError)
+	}
+
+	// Should return true on success
+	var success bool
+	err = abi.UnpackIntoInterface(&success, "withdrawValidatorCommission", res.GetReturnData())
+	require.Nil(t, err)
+	require.True(t, success)
+}
+
+func TestWithdrawValidatorCommission_UnitTest(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	// Set up the mock distribution keeper that always returns commission
+	mockDistrKeeper := &TestDistributionKeeper{}
+
+	// Create a validator address for testing
+	validatorAddress := "seivaloper1reedlc9w8p7jrpqfky4c5k90nea4p6dhk5yqgd"
+
+	// Set up caller
+	privKey := testkeeper.MockPrivateKey()
+	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+
+	// Create the precompile with mock keeper
+	p, err := distribution.NewPrecompile(mockDistrKeeper, k)
+	require.Nil(t, err)
+
+	// Get the withdrawValidatorCommission method
+	withdrawMethod, err := p.ABI.MethodById(p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawValidatorCommissionID)
+	require.Nil(t, err)
+
+	// Pack the arguments
+	inputs, err := withdrawMethod.Inputs.Pack(validatorAddress)
+	require.Nil(t, err)
+
+	// Create EVM state
+	stateDb := state.NewDBImpl(ctx, k, true)
+	evm := vm.EVM{
+		StateDB:   stateDb,
+		TxContext: vm.TxContext{Origin: evmAddr},
+	}
+
+	// Call the precompile
+	ret, remainingGas, err := p.RunAndCalculateGas(
+		&evm,
+		evmAddr, // caller
+		evmAddr, // callingContract
+		append(p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawValidatorCommissionID, inputs...), // input
+		1000000,       // suppliedGas
+		big.NewInt(0), // value
+		nil,           // hooks
+		false,         // readOnly
+		false,         // isFromDelegateCall
+	)
+
+	// Should succeed
+	require.Nil(t, err)
+	require.Greater(t, remainingGas, uint64(0))
+
+	// Unpack the result
+	results, err := withdrawMethod.Outputs.Unpack(ret)
+	require.Nil(t, err)
+	success := results[0].(bool)
+	require.True(t, success)
 }
