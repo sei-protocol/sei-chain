@@ -683,12 +683,13 @@ func TestEvmError(t *testing.T) {
 
 func TestAssociateContractAddress(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
-	msgServer := keeper.NewLegacyMsgServerImpl(k)
+	msgServer := keeper.NewMsgServerImpl(k)
 	dummySeiAddr, dummyEvmAddr := testkeeper.MockAddressPair()
 	res, err := msgServer.RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
 		Sender:      dummySeiAddr.String(),
 		PointerType: types.PointerType_ERC20,
 		ErcAddress:  dummyEvmAddr.Hex(),
+		UseLatest:   false,
 	})
 	require.Nil(t, err)
 	_, err = msgServer.AssociateContractAddress(sdk.WrapSDKContext(ctx), &types.MsgAssociateContractAddress{

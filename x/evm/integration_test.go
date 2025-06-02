@@ -220,10 +220,11 @@ func TestCW721RoyaltiesPointerToERC721Royalties(t *testing.T) {
 	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
 	// deploy CW->ERC pointer
-	res2, err := keeper.NewLegacyMsgServerImpl(&k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+	res2, err := keeper.NewMsgServerImpl(&k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
 		Sender:      seiAddr.String(),
 		PointerType: types.PointerType_ERC721,
 		ErcAddress:  receipt.ContractAddress,
+		UseLatest:   false,
 	})
 	require.Nil(t, err)
 	require.NotEmpty(t, res2.PointerAddress)
@@ -441,10 +442,11 @@ func TestCW1155RoyaltiesPointerToERC1155Royalties(t *testing.T) {
 	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
 	// deploy CW->ERC pointer
-	res2, err := keeper.NewLegacyMsgServerImpl(&k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+	res2, err := keeper.NewMsgServerImpl(&k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
 		Sender:      seiAddr.String(),
 		PointerType: types.PointerType_ERC1155,
 		ErcAddress:  receipt.ContractAddress,
+		UseLatest:   false,
 	})
 	require.Nil(t, err)
 	require.NotEmpty(t, res2.PointerAddress)

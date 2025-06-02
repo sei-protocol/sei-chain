@@ -79,10 +79,11 @@ func TestMigrateCWERC20Pointers(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	require.Nil(t, migrations.StoreCWPointerCode(ctx, &k, true, false, false))
-	msgServer := keeper.NewLegacyMsgServerImpl(&k)
+	msgServer := keeper.NewMsgServerImpl(&k)
 	res, err := msgServer.RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
 		PointerType: types.PointerType_ERC20,
 		ErcAddress:  "0x0000000000000000000000000000000000000000",
+		UseLatest:   false,
 	})
 	require.Nil(t, err)
 	require.Nil(t, migrations.MigrateCWERC20Pointers(ctx, &k))
@@ -95,10 +96,11 @@ func TestMigrateCWERC721Pointers(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	require.Nil(t, migrations.StoreCWPointerCode(ctx, &k, false, true, false))
-	msgServer := keeper.NewLegacyMsgServerImpl(&k)
+	msgServer := keeper.NewMsgServerImpl(&k)
 	res, err := msgServer.RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
 		PointerType: types.PointerType_ERC721,
 		ErcAddress:  "0x0000000000000000000000000000000000000000",
+		UseLatest:   false,
 	})
 	require.Nil(t, err)
 	require.Nil(t, migrations.MigrateCWERC721Pointers(ctx, &k))
@@ -111,10 +113,11 @@ func TestMigrateCWERC1155Pointers(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	require.Nil(t, migrations.StoreCWPointerCode(ctx, &k, false, false, true))
-	msgServer := keeper.NewLegacyMsgServerImpl(&k)
+	msgServer := keeper.NewMsgServerImpl(&k)
 	res, err := msgServer.RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
 		PointerType: types.PointerType_ERC1155,
 		ErcAddress:  "0x0000000000000000000000000000000000000000",
+		UseLatest:   false,
 	})
 	require.Nil(t, err)
 	require.Nil(t, migrations.MigrateCWERC1155Pointers(ctx, &k))
