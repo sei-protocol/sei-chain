@@ -43,92 +43,7 @@ func NewMsgServerImpl(keeper *Keeper) types.MsgServer {
 
 var _ types.MsgServer = msgServer{}
 
-// Used only for testing purposes to simulate the old behavior of RegisterPointer before CW->ERC pointers were disabled.
-func NewLegacyMsgServerImpl(keeper *Keeper) types.MsgServer {
-	return &legacyMsgServer{msgServer: &msgServer{Keeper: keeper}}
-}
-
-type legacyMsgServer struct {
-	*msgServer
-}
-
 // make a legacy msgServer that implements the legacy RegisterPointer method
-func (server *legacyMsgServer) RegisterPointer(goCtx context.Context, msg *types.MsgRegisterPointer) (*types.MsgRegisterPointerResponse, error) {
-	ctx := sdk.UnwrapSDKContext(goCtx)
-	var existingPointer sdk.AccAddress
-	var existingVersion uint16
-	var currentVersion uint16
-	var exists bool
-	switch msg.PointerType {
-	case types.PointerType_ERC20:
-		currentVersion = erc20.CurrentVersion
-		existingPointer, existingVersion, exists = server.GetCW20ERC20Pointer(ctx, common.HexToAddress(msg.ErcAddress))
-	case types.PointerType_ERC721:
-		currentVersion = erc721.CurrentVersion
-		existingPointer, existingVersion, exists = server.GetCW721ERC721Pointer(ctx, common.HexToAddress(msg.ErcAddress))
-	case types.PointerType_ERC1155:
-		currentVersion = erc1155.CurrentVersion
-		existingPointer, existingVersion, exists = server.GetCW1155ERC1155Pointer(ctx, common.HexToAddress(msg.ErcAddress))
-	default:
-		panic("unknown pointer type")
-	}
-	if exists && existingVersion >= currentVersion {
-		return nil, fmt.Errorf("pointer %s already registered at version %d", existingPointer.String(), existingVersion)
-	}
-	payload := map[string]interface{}{}
-	switch msg.PointerType {
-	case types.PointerType_ERC20:
-		payload["erc20_address"] = msg.ErcAddress
-	case types.PointerType_ERC721:
-		payload["erc721_address"] = msg.ErcAddress
-	case types.PointerType_ERC1155:
-		payload["erc1155_address"] = msg.ErcAddress
-	default:
-		panic("unknown pointer type")
-	}
-	codeID := server.GetStoredPointerCodeID(ctx, msg.PointerType)
-	moduleAcct := server.accountKeeper.GetModuleAddress(types.ModuleName)
-	var err error
-	var pointerAddr sdk.AccAddress
-	if exists {
-		bz, _ := json.Marshal(map[string]interface{}{})
-		pointerAddr = existingPointer
-		_, err = server.wasmKeeper.Migrate(ctx, existingPointer, moduleAcct, codeID, bz)
-	} else {
-		bz, jerr := json.Marshal(payload)
-		if jerr != nil {
-			return nil, jerr
-		}
-		pointerAddr, _, err = server.wasmKeeper.Instantiate(ctx, codeID, moduleAcct, moduleAcct, bz, fmt.Sprintf("Pointer of %s", msg.ErcAddress), sdk.NewCoins())
-	}
-	if err != nil {
-		return nil, err
-	}
-	switch msg.PointerType {
-	case types.PointerType_ERC20:
-		err = server.SetCW20ERC20Pointer(ctx, common.HexToAddress(msg.ErcAddress), pointerAddr.String())
-		ctx.EventManager().EmitEvent(sdk.NewEvent(
-			types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "erc20"),
-			sdk.NewAttribute(types.AttributeKeyPointerAddress, pointerAddr.String()), sdk.NewAttribute(types.AttributeKeyPointee, msg.ErcAddress),
-			sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", erc20.CurrentVersion))))
-	case types.PointerType_ERC721:
-		err = server.SetCW721ERC721Pointer(ctx, common.HexToAddress(msg.ErcAddress), pointerAddr.String())
-		ctx.EventManager().EmitEvent(sdk.NewEvent(
-			types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "erc721"),
-			sdk.NewAttribute(types.AttributeKeyPointerAddress, pointerAddr.String()), sdk.NewAttribute(types.AttributeKeyPointee, msg.ErcAddress),
-			sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", erc721.CurrentVersion))))
-	case types.PointerType_ERC1155:
-		err = server.SetCW1155ERC1155Pointer(ctx, common.HexToAddress(msg.ErcAddress), pointerAddr.String())
-		ctx.EventManager().EmitEvent(sdk.NewEvent(
-			types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "erc1155"),
-			sdk.NewAttribute(types.AttributeKeyPointerAddress, pointerAddr.String()), sdk.NewAttribute(types.AttributeKeyPointee, msg.ErcAddress),
-			sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", erc1155.CurrentVersion))))
-	default:
-		panic("unknown pointer type")
-	}
-	return &types.MsgRegisterPointerResponse{PointerAddress: pointerAddr.String()}, err
-}
-
 func (k *Keeper) PrepareCtxForEVMTransaction(ctx sdk.Context, tx *ethtypes.Transaction) (sdk.Context, sdk.GasMeter) {
 	isWasmdPrecompileCall := wasmd.IsWasmdCall(tx.To())
 	if isWasmdPrecompileCall {
@@ -346,8 +261,83 @@ func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.
 	return &types.MsgSendResponse{}, nil
 }
 
-func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgRegisterPointer) (*types.MsgRegisterPointerResponse, error) {
-	return nil, fmt.Errorf("registering CW->ERC pointers has been disabled")
+func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgRegisterPointer, isCurrent bool) (*types.MsgRegisterPointerResponse, error) {
+	if isCurrent {
+		return nil, fmt.Errorf("registering CW->ERC pointers has been disabled")
+	}
+	ctx := sdk.UnwrapSDKContext(goCtx)
+	var existingPointer sdk.AccAddress
+	var existingVersion uint16
+	var currentVersion uint16
+	var exists bool
+	switch msg.PointerType {
+	case types.PointerType_ERC20:
+		currentVersion = erc20.CurrentVersion
+		existingPointer, existingVersion, exists = server.GetCW20ERC20Pointer(ctx, common.HexToAddress(msg.ErcAddress))
+	case types.PointerType_ERC721:
+		currentVersion = erc721.CurrentVersion
+		existingPointer, existingVersion, exists = server.GetCW721ERC721Pointer(ctx, common.HexToAddress(msg.ErcAddress))
+	case types.PointerType_ERC1155:
+		currentVersion = erc1155.CurrentVersion
+		existingPointer, existingVersion, exists = server.GetCW1155ERC1155Pointer(ctx, common.HexToAddress(msg.ErcAddress))
+	default:
+		panic("unknown pointer type")
+	}
+	if exists && existingVersion >= currentVersion {
+		return nil, fmt.Errorf("pointer %s already registered at version %d", existingPointer.String(), existingVersion)
+	}
+	payload := map[string]interface{}{}
+	switch msg.PointerType {
+	case types.PointerType_ERC20:
+		payload["erc20_address"] = msg.ErcAddress
+	case types.PointerType_ERC721:
+		payload["erc721_address"] = msg.ErcAddress
+	case types.PointerType_ERC1155:
+		payload["erc1155_address"] = msg.ErcAddress
+	default:
+		panic("unknown pointer type")
+	}
+	codeID := server.GetStoredPointerCodeID(ctx, msg.PointerType)
+	moduleAcct := server.accountKeeper.GetModuleAddress(types.ModuleName)
+	var err error
+	var pointerAddr sdk.AccAddress
+	if exists {
+		bz, _ := json.Marshal(map[string]interface{}{})
+		pointerAddr = existingPointer
+		_, err = server.wasmKeeper.Migrate(ctx, existingPointer, moduleAcct, codeID, bz)
+	} else {
+		bz, jerr := json.Marshal(payload)
+		if jerr != nil {
+			return nil, jerr
+		}
+		pointerAddr, _, err = server.wasmKeeper.Instantiate(ctx, codeID, moduleAcct, moduleAcct, bz, fmt.Sprintf("Pointer of %s", msg.ErcAddress), sdk.NewCoins())
+	}
+	if err != nil {
+		return nil, err
+	}
+	switch msg.PointerType {
+	case types.PointerType_ERC20:
+		err = server.SetCW20ERC20Pointer(ctx, common.HexToAddress(msg.ErcAddress), pointerAddr.String())
+		ctx.EventManager().EmitEvent(sdk.NewEvent(
+			types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "erc20"),
+			sdk.NewAttribute(types.AttributeKeyPointerAddress, pointerAddr.String()), sdk.NewAttribute(types.AttributeKeyPointee, msg.ErcAddress),
+			sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", erc20.CurrentVersion))))
+	case types.PointerType_ERC721:
+		err = server.SetCW721ERC721Pointer(ctx, common.HexToAddress(msg.ErcAddress), pointerAddr.String())
+		ctx.EventManager().EmitEvent(sdk.NewEvent(
+			types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "erc721"),
+			sdk.NewAttribute(types.AttributeKeyPointerAddress, pointerAddr.String()), sdk.NewAttribute(types.AttributeKeyPointee, msg.ErcAddress),
+			sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", erc721.CurrentVersion))))
+	case types.PointerType_ERC1155:
+		err = server.SetCW1155ERC1155Pointer(ctx, common.HexToAddress(msg.ErcAddress), pointerAddr.String())
+		ctx.EventManager().EmitEvent(sdk.NewEvent(
+			types.EventTypePointerRegistered, sdk.NewAttribute(types.AttributeKeyPointerType, "erc1155"),
+			sdk.NewAttribute(types.AttributeKeyPointerAddress, pointerAddr.String()), sdk.NewAttribute(types.AttributeKeyPointee, msg.ErcAddress),
+			sdk.NewAttribute(types.AttributeKeyPointerVersion, fmt.Sprintf("%d", erc1155.CurrentVersion))))
+	default:
+		panic("unknown pointer type")
+	}
+	return &types.MsgRegisterPointerResponse{PointerAddress: pointerAddr.String()}, err
 }
 
 func (server msgServer) AssociateContractAddress(goCtx context.Context, msg *types.MsgAssociateContractAddress) (*types.MsgAssociateContractAddressResponse, error) {
