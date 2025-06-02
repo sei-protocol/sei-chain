@@ -114,7 +114,9 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args ethapi.T
 
 func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride, blockOverrides *ethapi.BlockOverrides) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
+	defer func() {
+		recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
+	}()
 	defer func() {
 		if r := recover(); r != nil {
 			if strings.Contains(fmt.Sprintf("%s", r), "Int overflow") {
@@ -128,13 +130,21 @@ func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, b
 		latest := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 		blockNrOrHash = &latest
 	}
-	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
+	isWasm := wasmd.IsWasmdCall(args.To)
+	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, isWasm)
 	callResult, err := ethapi.DoCall(ctx, s.backend, args, *blockNrOrHash, overrides, blockOverrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
 	if err != nil {
 		return nil, err
 	}
+	latency := time.Since(startTime)
+	reverted := len(callResult.Revert()) > 0
+	if latency.Seconds() > 1 {
+		fmt.Printf("[Debug] Completed eth_call with latency %s, isWasm %v, reverted %v, args %v, blockNrOrHash %s\n", latency, isWasm, reverted, args, blockNrOrHash.String())
+	} else {
+		fmt.Printf("[Debug] Completed eth_call with latency %s, blockNrOrHash %s\n", latency, blockNrOrHash)
+	}
 	// If the result contains a revert reason, try to unpack and return it.
-	if len(callResult.Revert()) > 0 {
+	if reverted {
 		return nil, NewRevertError(callResult)
 	}
 	return callResult.Return(), callResult.Err
