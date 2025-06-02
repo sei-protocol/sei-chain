@@ -1126,7 +1126,7 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 	}
 }
 
-func TestWithdrawValidatorCommission(t *testing.T) {
+func TestWithdrawValidatorCommission_noCommissionToWithdrawRightAfterDelegation(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	distrParams := testApp.DistrKeeper.GetParams(ctx)
@@ -1182,19 +1182,6 @@ func TestWithdrawValidatorCommission(t *testing.T) {
 	ante.Preprocess(ctx, req)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
-
-	// Print the actual revert reason if there's an error
-	if res.VmError != "" {
-		t.Logf("VM Error: %s", res.VmError)
-		t.Logf("Return Data: %s", string(res.ReturnData))
-		// This is expected in test environment - no commission generated yet
-		if string(res.ReturnData) == "no validator commission to withdraw" {
-			t.Log("Test passed - correctly detected no commission to withdraw")
-			return
-		}
-		t.Fatalf("Transaction failed with unexpected VM error: %s", res.VmError)
-	}
-
 	require.Empty(t, res.VmError)
 
 	// Verify delegation was successful
@@ -1227,24 +1214,8 @@ func TestWithdrawValidatorCommission(t *testing.T) {
 	ante.Preprocess(ctx, req)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
+	require.Equal(t, "no validator commission to withdraw", string(res.ReturnData))
 
-	// Print the actual revert reason if there's an error
-	if res.VmError != "" {
-		t.Logf("VM Error: %s", res.VmError)
-		t.Logf("Return Data: %s", string(res.ReturnData))
-		// This is expected in test environment - no commission generated yet
-		if string(res.ReturnData) == "no validator commission to withdraw" {
-			t.Log("Test passed - correctly detected no commission to withdraw")
-			return
-		}
-		t.Fatalf("Transaction failed with unexpected VM error: %s", res.VmError)
-	}
-
-	// Should return true on success
-	var success bool
-	err = abi.UnpackIntoInterface(&success, "withdrawValidatorCommission", res.GetReturnData())
-	require.Nil(t, err)
-	require.True(t, success)
 }
 
 func TestWithdrawValidatorCommission_UnitTest(t *testing.T) {
