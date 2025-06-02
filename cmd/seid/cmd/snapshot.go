@@ -46,7 +46,10 @@ func SnapshotCmd() *cobra.Command {
 			// Create logger
 			logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
 
-			// Initialize app
+			// Get app options from server context
+			appOpts := serverCtx.Viper
+
+			// Initialize app with correct options
 			app := app.New(
 				logger,
 				dbm.NewMemDB(),
@@ -59,14 +62,14 @@ func SnapshotCmd() *cobra.Command {
 				config,
 				app.MakeEncodingConfig(),
 				app.GetWasmEnabledProposals(),
-				app.TestAppOpts{},
+				appOpts,
 				[]wasm.Option{},
 				[]aclkeeper.Option{},
 				app.EmptyAppOptions,
 			)
 
 			// Load version at specified height
-			if err := app.LoadVersion(height); err != nil {
+			if err := app.LoadLatestVersion(); err != nil {
 				return fmt.Errorf("failed to load version at height %d: %w", height, err)
 			}
 
