@@ -1182,7 +1182,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	defer func() {
 		app.ClearOptimisticProcessingInfo()
 		duration := time.Since(startTime)
-		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
+		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms for block %d", duration/time.Millisecond, ctx.BlockHeight()))
 	}()
 	if app.optimisticProcessingInfo != nil {
 		<-app.optimisticProcessingInfo.Completion
@@ -1201,15 +1201,23 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}
 	metrics.IncrementOptimisticProcessingCounter(false)
 	ctx.Logger().Info("optimistic processing ineligible")
+	processStart := time.Now()
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit, false)
+	processLatency := time.Since(processStart)
 
 	app.SetDeliverStateToCommit()
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return &abci.ResponseFinalizeBlock{}, nil
 	}
+
+	writeStateStart := time.Now()
 	cms := app.WriteState()
+	writeStateLatency := time.Since(writeStateStart)
+	invarianceCheckStart := time.Now()
 	app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
+	invarianceCheckLatency := time.Since(invarianceCheckStart)
 	appHash := app.GetWorkingHash()
+	fmt.Printf("[Debug] ProcessBlock took %s, writeState took %s, invarianceCheck took %s for block %d\n", processLatency, writeStateLatency, invarianceCheckLatency, ctx.BlockHeight())
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil
 }

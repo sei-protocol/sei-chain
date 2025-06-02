@@ -76,6 +76,7 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	startTime := time.Now()
 	defer recordMetrics("debug_traceTransaction", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceTransaction(ctx, hash, config)
+	fmt.Printf("[Debug] Complete debug_traceTransaction for hash %X with latency %s\n", hash, time.Since(startTime))
 	return
 }
 
@@ -171,6 +172,7 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	startTime := time.Now()
 	defer recordMetrics("debug_traceBlockByHash", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+	fmt.Printf("[Debug] Complete debug_traceBlockByHash for hash %X with latency %s\n", hash, time.Since(startTime))
 	return
 }
 
@@ -178,5 +180,6 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args ethapi.TransactionArgs,
 	startTime := time.Now()
 	defer recordMetrics("debug_traceCall", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
+	fmt.Printf("[Debug] Complete debug_traceCall for blockNrOrHash %s with latency %s\n", blockNrOrHash.String(), time.Since(startTime))
 	return
 }

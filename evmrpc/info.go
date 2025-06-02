@@ -78,7 +78,7 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 	startTime := time.Now()
 	defer func() {
 		recordMetrics("eth_GasPrice", i.connectionType, startTime, returnErr == nil)
-		fmt.Printf("[Debug] Completed eth_GasPrice for block %d with latency %s\n", rpc.LatestBlockNumber, time.Since(startTime))
+		fmt.Printf("[Debug] Completed eth_GasPrice with latency %s\n", time.Since(startTime))
 	}()
 	baseFee := i.keeper.GetCurrBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	totalGasUsed, err := i.getCongestionData(ctx, nil)
