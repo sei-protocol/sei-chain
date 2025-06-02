@@ -609,7 +609,8 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 			fields: fields{},
 			args: args{
 				caller:             notAssociatedCallerEvmAddress,
-				validators:         validatorAddresses,
+				callingContract:    notAssociatedCallerEvmAddress,
+				validators:         []string{"validator1"},
 				suppliedGas:        uint64(1000000),
 				isFromDelegateCall: true,
 			},
@@ -624,7 +625,7 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 			args: args{
 				caller:          notAssociatedCallerEvmAddress,
 				callingContract: notAssociatedCallerEvmAddress,
-				validators:      validatorAddresses,
+				validators:      []string{"validator1"},
 				suppliedGas:     uint64(1000000),
 				readOnly:        true,
 			},
@@ -1283,4 +1284,109 @@ func TestWithdrawValidatorCommission_UnitTest(t *testing.T) {
 	require.Nil(t, err)
 	success := results[0].(bool)
 	require.True(t, success)
+}
+
+// TestWithdrawValidatorCommission_InputValidation tests various input validation scenarios
+func TestWithdrawValidatorCommission_InputValidation(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	// Set up caller
+	privKey := testkeeper.MockPrivateKey()
+	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+
+	// Create the precompile with mock keeper
+	p, err := distribution.NewPrecompile(&TestDistributionKeeper{}, k)
+	require.Nil(t, err)
+
+	// Get the withdrawValidatorCommission method
+	withdrawMethod, err := p.ABI.MethodById(p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawValidatorCommissionID)
+	require.Nil(t, err)
+
+	// Create EVM state
+	stateDb := state.NewDBImpl(ctx, k, true)
+	baseEvm := vm.EVM{
+		StateDB:   stateDb,
+		TxContext: vm.TxContext{Origin: evmAddr},
+	}
+
+	testCases := []struct {
+		name               string
+		validator          string
+		value              *big.Int
+		readOnly           bool
+		isFromDelegateCall bool
+		wantError          bool
+		wantErrMsg         string
+	}{
+		{
+			name:       "empty validator address should fail",
+			wantError:  true,
+			wantErrMsg: "empty address string is not allowed",
+		},
+		{
+			name:       "invalid validator should fail",
+			validator:  "invalidprefix1reedlc9w8p7jrpqfky4c5k90nea4p6dhk5yqgd",
+			wantError:  true,
+			wantErrMsg: "decoding bech32 failed: invalid checksum (expected p7jtgl got k5yqgd)",
+		},
+		{
+			name:       "sending value to non-payable function should fail",
+			validator:  "seivaloper1reedlc9w8p7jrpqfky4c5k90nea4p6dhk5yqgd",
+			value:      big.NewInt(1),
+			wantError:  true,
+			wantErrMsg: "sending funds to a non-payable function",
+		},
+		{
+			name:       "read-only mode should fail for state-changing function",
+			validator:  "seivaloper1reedlc9w8p7jrpqfky4c5k90nea4p6dhk5yqgd",
+			readOnly:   true,
+			wantError:  true,
+			wantErrMsg: "cannot call distr precompile from staticcall",
+		},
+		{
+			name:               "delegatecall should fail for state-changing function",
+			validator:          "seivaloper1reedlc9w8p7jrpqfky4c5k90nea4p6dhk5yqgd",
+			isFromDelegateCall: true,
+			wantError:          true,
+			wantErrMsg:         "cannot delegatecall distr",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Pack the arguments
+			inputs, err := withdrawMethod.Inputs.Pack(tc.validator)
+			require.Nil(t, err)
+
+			// Call the precompile
+			ret, remainingGas, err := p.RunAndCalculateGas(
+				&baseEvm,
+				evmAddr, // caller
+				evmAddr, // callingContract
+				append(p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawValidatorCommissionID, inputs...), // input
+				1000000,               // suppliedGas
+				tc.value,              // value
+				nil,                   // hooks
+				tc.readOnly,           // readOnly
+				tc.isFromDelegateCall, // isFromDelegateCall
+			)
+
+			if tc.wantError {
+				require.NotNil(t, err, "Expected error for test case: %s", tc.name)
+				require.Equal(t, tc.wantErrMsg, string(ret))
+			} else {
+				require.Nil(t, err, "Expected no error for test case: %s", tc.name)
+				require.Greater(t, remainingGas, uint64(0), "Should have remaining gas")
+
+				// Unpack the result to ensure it's properly formatted
+				results, err := withdrawMethod.Outputs.Unpack(ret)
+				require.Nil(t, err)
+				success := results[0].(bool)
+				require.True(t, success)
+			}
+		})
+	}
 }
