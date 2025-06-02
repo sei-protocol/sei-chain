@@ -364,7 +364,13 @@ func EncodeTmBlock(
 					transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 				} else {
 					ti := uint64(len(transactions))
-					to := k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
+					var to common.Address
+					ercAddress, _, exists := k.GetAnyPointeeInfo(ctx, m.Contract)
+					if exists {
+						to = ercAddress
+					} else {
+						to = k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
+					}
 					transactions = append(transactions, &ethapi.RPCTransaction{
 						BlockHash:        &blockhash,
 						BlockNumber:      (*hexutil.Big)(number),
