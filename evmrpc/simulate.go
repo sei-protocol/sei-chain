@@ -133,17 +133,22 @@ func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, b
 	isWasm := wasmd.IsWasmdCall(args.To)
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, isWasm)
 	callResult, err := ethapi.DoCall(ctx, s.backend, args, *blockNrOrHash, overrides, blockOverrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
+	latency := time.Since(startTime)
 	if err != nil {
+		if latency.Seconds() > 1 {
+			fmt.Printf("[Debug] Completed eth_call with latency %s, isWasm %v, args %v, blockNrOrHash %s\n", latency, isWasm, args, blockNrOrHash.String())
+		} else {
+			fmt.Printf("[Debug] Completed eth_call with latency %s, blockNrOrHash %s\n", latency, blockNrOrHash)
+		}
 		return nil, err
 	}
-	latency := time.Since(startTime)
+	// If the result contains a revert reason, try to unpack and return it.
 	reverted := len(callResult.Revert()) > 0
 	if latency.Seconds() > 1 {
-		fmt.Printf("[Debug] Completed eth_call with latency %s, isWasm %v, reverted %v, args %v, blockNrOrHash %s\n", latency, isWasm, reverted, args, blockNrOrHash.String())
+		fmt.Printf("[Debug] Completed eth_call with error, latency %s, isWasm %v, isReverted %v, args %v, blockNrOrHash %s\n", latency, isWasm, reverted, args, blockNrOrHash.String())
 	} else {
-		fmt.Printf("[Debug] Completed eth_call with latency %s, blockNrOrHash %s\n", latency, blockNrOrHash)
+		fmt.Printf("[Debug] Completed eth_call with error, latency %s, blockNrOrHash %s\n", latency, blockNrOrHash)
 	}
-	// If the result contains a revert reason, try to unpack and return it.
 	if reverted {
 		return nil, NewRevertError(callResult)
 	}
