@@ -219,8 +219,10 @@ func (a *FilterAPI) GetLogs(
 	ctx context.Context,
 	crit filters.FilterCriteria,
 ) (res []*ethtypes.Log, err error) {
-	defer recordMetrics(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now(), err == nil)
+	startTime := time.Now()
+	defer recordMetrics(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, startTime, err == nil)
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
+	fmt.Printf("[Debug] Complete %s_getLogs with latency %s for filter %v\n", a.namespace, time.Since(startTime), crit)
 	return logs, err
 }
 
