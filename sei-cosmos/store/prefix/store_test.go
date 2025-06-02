@@ -100,7 +100,7 @@ func TestIAVLStorePrefix(t *testing.T) {
 func TestPrefixKVStoreNoNilSet(t *testing.T) {
 	meter := types.NewMultiplierGasMeter(100000000, 1, 1)
 	mem := dbadapter.Store{DB: dbm.NewMemDB()}
-	gasStore := gaskv.NewStore(mem, meter, types.KVGasConfig())
+	gasStore := gaskv.NewStore(mem, meter, types.KVGasConfig(), "", nil)
 	require.Panics(t, func() { gasStore.Set([]byte("key"), nil) }, "setting a nil value should panic")
 }
 

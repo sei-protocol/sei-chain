@@ -70,7 +70,8 @@ type Context struct {
 
 	traceSpanContext context.Context
 
-	isTracing bool
+	isTracing   bool
+	storeTracer gaskv.IStoreTracer
 }
 
 // Proposed rename, not done to avoid API breakage
@@ -229,6 +230,13 @@ func (c Context) TraceSpanContext() context.Context {
 
 func (c Context) IsTracing() bool {
 	return c.isTracing
+}
+
+func (c Context) StoreTracer() gaskv.IStoreTracer {
+	if c.storeTracer == nil {
+		return nil
+	}
+	return c.storeTracer
 }
 
 // WithEventManager returns a Context with an updated tx priority
@@ -504,6 +512,9 @@ func (c Context) WithExpireTxHandler(expireTxHandler func()) Context {
 
 func (c Context) WithIsTracing(it bool) Context {
 	c.isTracing = it
+	if it {
+		c.storeTracer = NewStoreTracer()
+	}
 	return c
 }
 
@@ -554,20 +565,20 @@ func (c Context) Value(key interface{}) interface{} {
 func (c Context) KVStore(key StoreKey) KVStore {
 	if c.isTracing {
 		if _, ok := c.nextStoreKeys[key.Name()]; ok {
-			return gaskv.NewStore(c.nextMs.GetKVStore(key), c.GasMeter(), stypes.KVGasConfig())
+			return gaskv.NewStore(c.nextMs.GetKVStore(key), c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
 		}
 	}
-	return gaskv.NewStore(c.MultiStore().GetKVStore(key), c.GasMeter(), stypes.KVGasConfig())
+	return gaskv.NewStore(c.MultiStore().GetKVStore(key), c.GasMeter(), stypes.KVGasConfig(), key.Name(), c.StoreTracer())
 }
 
 // TransientStore fetches a TransientStore from the MultiStore.
 func (c Context) TransientStore(key StoreKey) KVStore {
 	if c.isTracing {
 		if _, ok := c.nextStoreKeys[key.Name()]; ok {
-			return gaskv.NewStore(c.nextMs.GetKVStore(key), c.GasMeter(), stypes.TransientGasConfig())
+			return gaskv.NewStore(c.nextMs.GetKVStore(key), c.GasMeter(), stypes.TransientGasConfig(), key.Name(), c.StoreTracer())
 		}
 	}
-	return gaskv.NewStore(c.MultiStore().GetKVStore(key), c.GasMeter(), stypes.TransientGasConfig())
+	return gaskv.NewStore(c.MultiStore().GetKVStore(key), c.GasMeter(), stypes.TransientGasConfig(), key.Name(), c.StoreTracer())
 }
 
 // CacheContext returns a new Context with the multi-store cached and a new

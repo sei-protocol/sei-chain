@@ -53,6 +53,7 @@ type Keeper interface {
 	UndelegateCoins(ctx sdk.Context, moduleAccAddr, delegatorAddr sdk.AccAddress, amt sdk.Coins) error
 
 	GetStoreKey() sdk.StoreKey
+	GetCdc() codec.BinaryCodec
 
 	types.QueryServer
 }
@@ -682,6 +683,11 @@ func (k BaseKeeper) trackUndelegation(ctx sdk.Context, addr sdk.AccAddress, amt 
 
 func (k BaseKeeper) GetStoreKey() sdk.StoreKey {
 	return k.storeKey
+}
+
+// for testing
+func (k BaseKeeper) GetCdc() codec.BinaryCodec {
+	return k.cdc
 }
 
 // IterateTotalSupply iterates over the total supply calling the given cb (callback) function

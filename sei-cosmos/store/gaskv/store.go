@@ -8,22 +8,35 @@ import (
 	"github.com/cosmos/cosmos-sdk/telemetry"
 )
 
+type IStoreTracer interface {
+	Get([]byte, []byte, string)
+	Has([]byte, string)
+	Set([]byte, []byte, string)
+	Delete([]byte, string)
+	DerivePrestateToJson() []byte
+	Clear()
+}
+
 var _ types.KVStore = &Store{}
 
 // Store applies gas tracking to an underlying KVStore. It implements the
 // KVStore interface.
 type Store struct {
-	gasMeter  types.GasMeter
-	gasConfig types.GasConfig
-	parent    types.KVStore
+	gasMeter   types.GasMeter
+	gasConfig  types.GasConfig
+	parent     types.KVStore
+	moduleName string
+	tracer     IStoreTracer
 }
 
 // NewStore returns a reference to a new GasKVStore.
-func NewStore(parent types.KVStore, gasMeter types.GasMeter, gasConfig types.GasConfig) *Store {
+func NewStore(parent types.KVStore, gasMeter types.GasMeter, gasConfig types.GasConfig, moduleName string, tracer IStoreTracer) *Store {
 	kvs := &Store{
-		gasMeter:  gasMeter,
-		gasConfig: gasConfig,
-		parent:    parent,
+		gasMeter:   gasMeter,
+		gasConfig:  gasConfig,
+		parent:     parent,
+		moduleName: moduleName,
+		tracer:     tracer,
 	}
 	return kvs
 }
@@ -45,6 +58,9 @@ func (gs *Store) Get(key []byte) (value []byte) {
 	// TODO overflow-safe math?
 	gs.gasMeter.ConsumeGas(gs.gasConfig.ReadCostPerByte*types.Gas(len(key)), types.GasReadPerByteDesc)
 	gs.gasMeter.ConsumeGas(gs.gasConfig.ReadCostPerByte*types.Gas(len(value)), types.GasReadPerByteDesc)
+	if gs.tracer != nil {
+		gs.tracer.Get(key, value, gs.moduleName)
+	}
 
 	return value
 }
@@ -64,7 +80,11 @@ func (gs *Store) Set(key []byte, value []byte) {
 func (gs *Store) Has(key []byte) bool {
 	defer telemetry.MeasureSince(time.Now(), "store", "gaskv", "has")
 	gs.gasMeter.ConsumeGas(gs.gasConfig.HasCost, types.GasHasDesc)
-	return gs.parent.Has(key)
+	res := gs.parent.Has(key)
+	if gs.tracer != nil && res {
+		gs.tracer.Has(key, gs.moduleName)
+	}
+	return res
 }
 
 // Implements KVStore.
@@ -113,7 +133,7 @@ func (gs *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 		parent = gs.parent.ReverseIterator(start, end)
 	}
 
-	gi := newGasIterator(gs.gasMeter, gs.gasConfig, parent)
+	gi := newGasIterator(gs.gasMeter, gs.gasConfig, parent, gs.moduleName, gs.tracer)
 	defer func() {
 		if err := recover(); err != nil {
 			// if there is a panic, we close the iterator then reraise
@@ -139,16 +159,20 @@ func (gs *Store) GetAllKeyStrsInRange(start, end []byte) (res []string) {
 }
 
 type gasIterator struct {
-	gasMeter  types.GasMeter
-	gasConfig types.GasConfig
-	parent    types.Iterator
+	gasMeter   types.GasMeter
+	gasConfig  types.GasConfig
+	parent     types.Iterator
+	moduleName string
+	tracer     IStoreTracer
 }
 
-func newGasIterator(gasMeter types.GasMeter, gasConfig types.GasConfig, parent types.Iterator) types.Iterator {
+func newGasIterator(gasMeter types.GasMeter, gasConfig types.GasConfig, parent types.Iterator, moduleName string, tracer IStoreTracer) types.Iterator {
 	return &gasIterator{
-		gasMeter:  gasMeter,
-		gasConfig: gasConfig,
-		parent:    parent,
+		gasMeter:   gasMeter,
+		gasConfig:  gasConfig,
+		parent:     parent,
+		moduleName: moduleName,
+		tracer:     tracer,
 	}
 }
 
@@ -174,6 +198,9 @@ func (gi *gasIterator) Next() {
 // not incur any gas cost.
 func (gi *gasIterator) Key() (key []byte) {
 	key = gi.parent.Key()
+	if gi.tracer != nil {
+		gi.tracer.Has(key, gi.moduleName)
+	}
 	return key
 }
 
@@ -181,6 +208,9 @@ func (gi *gasIterator) Key() (key []byte) {
 // does not incur any gas cost.
 func (gi *gasIterator) Value() (value []byte) {
 	value = gi.parent.Value()
+	if gi.tracer != nil {
+		gi.tracer.Get(gi.Key(), value, gi.moduleName)
+	}
 	return value
 }
 
