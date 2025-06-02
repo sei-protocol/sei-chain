@@ -222,7 +222,7 @@ func (a *FilterAPI) GetLogs(
 	startTime := time.Now()
 	defer recordMetrics(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, startTime, err == nil)
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
-	fmt.Printf("[Debug] Complete %s_getLogs with latency %s for filter %v\n", a.namespace, time.Since(startTime), crit)
+	fmt.Printf("[Debug] Complete %s_getLogs with latency %s for BlockHash %v, FromBlock %v, ToBlock %v\n", a.namespace, time.Since(startTime), crit.BlockHash, crit.FromBlock, crit.ToBlock)
 	return logs, err
 }
 
