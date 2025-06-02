@@ -272,17 +272,17 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 			return nil, nil, err
 		}
 		isPrioritized := utils.IsTxPrioritized(decoded)
-		if isPrioritized {
-			continue
-		}
-		// shouldRunMidBlock := false
-		// if isPrioritized && (i+1 < len(blockRes.TxsResults)) {
-		// 	nextDecoded, err := b.txConfig.TxDecoder()(tmBlock.Block.Txs[i+1])
-		// 	if err != nil {
-		// 		return nil, nil, err
-		// 	}
-		// 	shouldRunMidBlock = !utils.IsTxPrioritized(nextDecoded)
+		// if isPrioritized {
+		// 	continue
 		// }
+		shouldRunMidBlock := false
+		if isPrioritized && (i+1 < len(blockRes.TxsResults)) {
+			nextDecoded, err := b.txConfig.TxDecoder()(tmBlock.Block.Txs[i+1])
+			if err != nil {
+				return nil, nil, err
+			}
+			shouldRunMidBlock = !utils.IsTxPrioritized(nextDecoded)
+		}
 		shouldTrace := false
 		for _, msg := range decoded.GetMsgs() {
 			switch m := msg.(type) {
@@ -310,9 +310,9 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 				TraceRunnable: func(sd vm.StateDB) {
 					typedStateDB := sd.(*state.DBImpl)
 					_ = b.app.DeliverTx(typedStateDB.Ctx(), abci.RequestDeliverTx{}, decoded, sha256.Sum256(tmBlock.Block.Txs[i]))
-					// if shouldRunMidBlock {
-					// 	_ = b.app.MidBlock(typedStateDB.Ctx(), blockNum)
-					// }
+					if shouldRunMidBlock {
+						_ = b.app.MidBlock(typedStateDB.Ctx(), blockNum)
+					}
 				},
 			})
 		}
