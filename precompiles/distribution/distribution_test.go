@@ -854,22 +854,27 @@ func (tk *TestDistributionKeeper) WithdrawValidatorCommission(ctx sdk.Context, v
 }
 
 func (tk *TestDistributionKeeper) DelegationTotalRewards(ctx context.Context, req *distrtypes.QueryDelegationTotalRewardsRequest) (*distrtypes.QueryDelegationTotalRewardsResponse, error) {
-	rewards := make([]distrtypes.DelegationDelegatorReward, 0)
-	coins := make([]sdk.DecCoin, 1)
-	coins[0] = sdk.NewDecCoin("usei", sdk.NewInt(1000000))
-	rewards = append(rewards, distrtypes.DelegationDelegatorReward{
-		ValidatorAddress: "validator1",
-		Reward:           coins,
-	})
-
-	total := make([]sdk.DecCoin, 1)
-	total[0] = sdk.NewDecCoin("usei", sdk.NewInt(1000000))
-
-	response := &distrtypes.QueryDelegationTotalRewardsResponse{
-		Rewards: rewards,
-		Total:   total,
+	uatomCoins := 1
+	val1useiCoins := 5
+	val2useiCoins := 7
+	rewards := []distrtypes.DelegationDelegatorReward{
+		{
+			ValidatorAddress: "seivaloper1wuj3xg3yrw4ryxn9vygwuz0necs4klj7j9nay6",
+			Reward: sdk.NewDecCoins(
+				sdk.NewDecCoin("uatom", sdk.NewInt(int64(uatomCoins))),
+				sdk.NewDecCoin("usei", sdk.NewInt(int64(val1useiCoins))),
+			),
+		},
+		{
+			ValidatorAddress: "seivaloper16znh8ktn33dwnxxc9q0jmxmjf6hsz4tl0s6vxh",
+			Reward:           sdk.NewDecCoins(sdk.NewDecCoin("usei", sdk.NewInt(int64(val2useiCoins)))),
+		},
 	}
-	return response, nil
+
+	allDecCoins := sdk.NewDecCoins(sdk.NewDecCoin("uatom", sdk.NewInt(int64(uatomCoins))),
+		sdk.NewDecCoin("usei", sdk.NewInt(int64(val1useiCoins+val2useiCoins))))
+
+	return &distrtypes.QueryDelegationTotalRewardsResponse{Rewards: rewards, Total: allDecCoins}, nil
 }
 
 type TestEmptyRewardsDistributionKeeper struct{}
