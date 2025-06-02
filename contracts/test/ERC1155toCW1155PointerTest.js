@@ -1,4 +1,6 @@
-const {setupSigners, deployErc1155PointerForCw1155, getAdmin, deployWasm,  executeWasm, ABI, WASM} = require("./lib");
+const {setupSigners, deployErc1155PointerForCw1155, getAdmin, deployWasm,  executeWasm, ABI, WASM,
+    registerPointerForERC1155
+} = require("./lib");
 const {expect} = require("chai");
 
 describe("ERC1155 to CW1155 Pointer", function () {
@@ -28,6 +30,17 @@ describe("ERC1155 to CW1155 Pointer", function () {
         const contract = new hre.ethers.Contract(pointerAddr, ABI.ERC1155, hre.ethers.provider);
         pointerAcc0 = contract.connect(accounts[0].signer)
         pointerAcc1 = contract.connect(accounts[1].signer)
+    })
+
+    describe("validation", function(){
+        it("should not allow a pointer to the pointer", async function(){
+            try {
+                await registerPointerForERC1155(await pointerAcc0.getAddress())
+                expect.fail(`Expected to be prevented from creating a pointer`);
+            } catch(e){
+                expect(e.message).to.include("contract deployment failed");
+            }
+        })
     })
 
     describe("read", function(){

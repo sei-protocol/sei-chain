@@ -1,5 +1,5 @@
 const {
-    setupSigners, deployErc20PointerForCw20, getAdmin, deployWasm, WASM, ABI, testAPIEnabled,
+    setupSigners, deployErc20PointerForCw20, getAdmin, deployWasm, WASM, ABI, registerPointerForERC20, testAPIEnabled,
     incrementPointerVersion
 } = require("./lib");
 const { expect } = require("chai");
@@ -41,6 +41,17 @@ describe("ERC20 to CW20 Pointer", function () {
 
             beforeEach(async function () {
                 pointer = await getPointer();
+            });
+
+            describe("validation", function () {
+                it("should not allow a pointer to the pointer", async function () {
+                    try {
+                        await registerPointerForERC20(await pointer.getAddress());
+                        expect.fail(`Expected to be prevented from creating a pointer`);
+                    } catch (e) {
+                        expect(e.message).to.include("contract deployment failed");
+                    }
+                });
             });
 
             describe("read", function () {
@@ -345,4 +356,3 @@ describe("ERC20 to CW20 Pointer", function () {
     });
 
     });
-

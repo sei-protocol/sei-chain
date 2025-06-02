@@ -43,7 +43,6 @@ func NewMsgServerImpl(keeper *Keeper) types.MsgServer {
 
 var _ types.MsgServer = msgServer{}
 
-// make a legacy msgServer that implements the legacy RegisterPointer method
 func (k *Keeper) PrepareCtxForEVMTransaction(ctx sdk.Context, tx *ethtypes.Transaction) (sdk.Context, sdk.GasMeter) {
 	isWasmdPrecompileCall := wasmd.IsWasmdCall(tx.To())
 	if isWasmdPrecompileCall {
