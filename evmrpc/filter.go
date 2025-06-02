@@ -323,8 +323,8 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	})
 
 	// Apply rate limit
-	if applyOpenEndedLogLimit && int64(len(res)) >= f.filterConfig.maxLog {
-		res = res[:int(f.filterConfig.maxLog)]
+	if applyOpenEndedLogLimit && f.filterConfig.maxLog > 0 && int64(len(res)) > f.filterConfig.maxLog {
+		return nil, 0, fmt.Errorf("requested range has %d logs which is more than the maximum of %d", len(res), f.filterConfig.maxLog)
 	}
 
 	return res, end, err
@@ -407,20 +407,22 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 		begin = lastToHeight
 	}
 	if !applyOpenEndedLogLimit && f.filterConfig.maxBlock > 0 && end >= (begin+f.filterConfig.maxBlock) {
-		end = begin + f.filterConfig.maxBlock - 1
+		return nil, 0, false, fmt.Errorf("a maximum of %d blocks worth of logs may be requested at a time", f.filterConfig.maxBlock)
 	}
 	// begin should always be <= end block at this point
 	if begin > end {
 		return nil, 0, false, fmt.Errorf("fromBlock %d is after toBlock %d", begin, end)
 	}
 	res := make(chan *coretypes.ResultBlock, end-begin+1)
-	defer close(res)
+	errChan := make(chan error, 1)
 	runner := NewParallelRunner(MaxNumOfWorkers, int(end-begin+1))
-	defer runner.Done.Wait()
-	defer close(runner.Queue)
+	var wg sync.WaitGroup
+
 	for height := begin; height <= end; height++ {
 		h := height
+		wg.Add(1)
 		runner.Queue <- func() {
+			defer wg.Done()
 			if h == 0 {
 				return
 			}
@@ -433,10 +435,26 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			}
 			block, err := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
 			if err != nil {
-				panic(err)
+				select {
+				case errChan <- fmt.Errorf("failed to fetch block at height %d: %w", h, err):
+				default:
+				}
+				return
 			}
 			res <- block
 		}
+	}
+	close(runner.Queue)
+	go func() {
+		defer recoverAndLog()
+		wg.Wait()
+		close(res)
+		close(errChan)
+	}()
+
+	// block until either an error arrives or errChan is closed (i.e. all done)
+	if err, ok := <-errChan; ok {
+		return nil, 0, false, err
 	}
 
 	return res, end, applyOpenEndedLogLimit, nil
