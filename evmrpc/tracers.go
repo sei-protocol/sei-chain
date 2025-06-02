@@ -163,6 +163,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	startTime := time.Now()
 	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+	fmt.Printf("[Debug] Complete debug_traceBlockByNumber for block %d with latency %s\n", number.Int64(), time.Since(startTime))
 	return
 }
 

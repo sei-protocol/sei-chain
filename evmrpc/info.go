@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"slices"
 	"time"
@@ -75,7 +76,10 @@ func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
 
 func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_GasPrice", i.connectionType, startTime, returnErr == nil)
+	defer func() {
+		recordMetrics("eth_GasPrice", i.connectionType, startTime, returnErr == nil)
+		fmt.Printf("[Debug] Completed eth_GasPrice for block %d with latency %s\n", rpc.LatestBlockNumber, time.Since(startTime))
+	}()
 	baseFee := i.keeper.GetCurrBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	totalGasUsed, err := i.getCongestionData(ctx, nil)
 	if err != nil {
