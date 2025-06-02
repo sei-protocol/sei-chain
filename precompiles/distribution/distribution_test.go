@@ -1218,6 +1218,14 @@ func TestWithdrawValidatorCommission_noCommissionToWithdrawRightAfterDelegation(
 
 }
 
+// TestWithdrawValidatorCommission_UnitTest tests the withdrawValidatorCommission function using a mock
+// distribution keeper. This is necessary because:
+//  1. The integration test above can only test the "no commission" scenario since validators in test
+//     environments don't actually generate commission rewards through normal staking operations
+//  2. To test the successful withdrawal path, we need to mock the DistributionKeeper to return
+//     fake commission data, allowing us to verify the precompile function works correctly when
+//     there is actual commission to withdraw
+//  3. This unit test validates the happy path and ensures proper response formatting/unpacking
 func TestWithdrawValidatorCommission_UnitTest(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
