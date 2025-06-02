@@ -37,6 +37,7 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
+	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 type CtxIsWasmdPrecompileCallKeyType string
@@ -356,19 +357,57 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 
 func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
 	emptyRelease := func() {}
+	stateDB, txs, err := b.ReplayTransactionTillIndex(ctx, block, txIndex-1)
+	if err != nil {
+		return nil, vm.BlockContext{}, nil, emptyRelease, err
+	}
+	blockContext, err := b.keeper.GetVMBlockContext(stateDB.(*state.DBImpl).Ctx(), core.GasPool(b.RPCGasCap()))
+	if err != nil {
+		return nil, vm.BlockContext{}, nil, emptyRelease, err
+	}
+	if txIndex > len(txs)-1 {
+		return nil, vm.BlockContext{}, nil, emptyRelease, errors.New("transaction not found")
+	}
+	tx := txs[txIndex]
+	sdkTx, err := b.txConfig.TxDecoder()(tx)
+	if err != nil {
+		panic(err)
+	}
+	if utils.IsTxPrioritized(sdkTx) {
+		return nil, vm.BlockContext{}, nil, emptyRelease, errors.New("cannot trace oracle tx")
+	}
+	var evmMsg *types.MsgEVMTransaction
+	if msgs := sdkTx.GetMsgs(); len(msgs) != 1 {
+		return nil, vm.BlockContext{}, nil, emptyRelease, fmt.Errorf("cannot replay non-EVM transaction %d at block %d", txIndex, block.Number().Int64())
+	} else if msg, ok := msgs[0].(*types.MsgEVMTransaction); !ok {
+		return nil, vm.BlockContext{}, nil, emptyRelease, fmt.Errorf("cannot replay non-EVM transaction %d at block %d", txIndex, block.Number().Int64())
+	} else {
+		evmMsg = msg
+	}
+	ethTx, _ := evmMsg.AsTransaction()
+	return ethTx, *blockContext, stateDB, emptyRelease, nil
+}
+
+func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtypes.Block, txIndex int) (vm.StateDB, tmtypes.Txs, error) {
 	// Short circuit if it's genesis block.
 	if block.Number().Int64() == 0 {
-		return nil, vm.BlockContext{}, nil, emptyRelease, errors.New("no transaction in genesis")
+		return nil, nil, errors.New("no transaction in genesis")
 	}
 	sdkCtx, tmBlock, err := b.initializeBlock(ctx, block)
 	if err != nil {
-		return nil, vm.BlockContext{}, nil, emptyRelease, err
+		return nil, nil, err
 	}
-	blockContext, err := b.keeper.GetVMBlockContext(sdkCtx, core.GasPool(b.RPCGasCap()))
-	if err != nil {
-		return nil, vm.BlockContext{}, nil, emptyRelease, err
+	if txIndex > len(tmBlock.Block.Txs)-1 {
+		return nil, nil, errors.New("did not find transaction")
 	}
+	if txIndex < 0 {
+		return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, nil
+	}
+	sdkCtx.StoreTracer().Clear()
 	for idx, tx := range tmBlock.Block.Txs {
+		if idx > txIndex {
+			break
+		}
 		sdkTx, err := b.txConfig.TxDecoder()(tx)
 		if err != nil {
 			panic(err)
@@ -376,21 +415,10 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		if utils.IsTxPrioritized(sdkTx) {
 			continue
 		}
-		if idx == txIndex {
-			var evmMsg *types.MsgEVMTransaction
-			if msgs := sdkTx.GetMsgs(); len(msgs) != 1 {
-				return nil, vm.BlockContext{}, nil, emptyRelease, fmt.Errorf("cannot replay non-EVM transaction %d at block %d", idx, block.Number().Int64())
-			} else if msg, ok := msgs[0].(*types.MsgEVMTransaction); !ok {
-				return nil, vm.BlockContext{}, nil, emptyRelease, fmt.Errorf("cannot replay non-EVM transaction %d at block %d", idx, block.Number().Int64())
-			} else {
-				evmMsg = msg
-			}
-			ethTx, _ := evmMsg.AsTransaction()
-			return ethTx, *blockContext, state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), emptyRelease, nil
-		}
-		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTx{}, sdkTx, sha256.Sum256(tx))
+		sdkCtx.StoreTracer().Clear()
+		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTx{Tx: tx}, sdkTx, sha256.Sum256(tx))
 	}
-	return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("transaction index %d out of range for block %#x", txIndex, block.Hash())
+	return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, nil
 }
 
 func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexec uint64, base vm.StateDB, readOnly bool, preferDisk bool) (vm.StateDB, tracers.StateReleaseFunc, error) {
@@ -497,7 +525,9 @@ func (b *Backend) GetCustomPrecompiles(h int64) map[common.Address]vm.Precompile
 func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error {
 	typedStateDB := statedb.(*state.DBImpl)
 	typedStateDB.CleanupForTracer()
-	ctx, _ := b.keeper.PrepareCtxForEVMTransaction(typedStateDB.Ctx(), tx)
+	ctx := typedStateDB.Ctx()
+	ctx.StoreTracer().Clear()
+	ctx, _ = b.keeper.PrepareCtxForEVMTransaction(typedStateDB.Ctx(), tx)
 	ctx = ctx.WithIsEVM(true)
 	if noSignatureSet(tx) {
 		// skip ante if no signature is set
