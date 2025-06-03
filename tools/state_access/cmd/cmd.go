@@ -38,6 +38,7 @@ func execute(cmd *cobra.Command, _ []string) {
 func HasAccount(store *rootmulti2.Store) {
 	key := sdk.NewKVStoreKey("acc")
 	kvStore := store.GetKVStore(key)
+	fmt.Printf("kvStore is %v\n", kvStore)
 	accounts := []string{"0xBD1013CB81EA111bD003884e34AF09282BB07e0E",
 		"0xd854ebCBCE43d568700076EFDBC670b7ebc5d18F",
 		"0x24cdA9f65F7A1Eb17C8dB8d851d6c2069fFB3147",
