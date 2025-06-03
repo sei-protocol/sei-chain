@@ -427,7 +427,7 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block) (s
 	sdkCtx := b.ctxProvider(prevBlockHeight).WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
 	_ = b.app.BeginBlock(sdkCtx, reqBeginBlock)
 	sdkCtx = sdkCtx.WithNextMs(
-		b.ctxProvider(sdkCtx.BlockHeight()+1).MultiStore(),
+		b.ctxProvider(sdkCtx.BlockHeight()).MultiStore(),
 		[]string{"oracle", "oracle_mem"},
 	)
 	return sdkCtx, tmBlock, nil
