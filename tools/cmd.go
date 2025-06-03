@@ -5,6 +5,7 @@ import (
 
 	hasher "github.com/sei-protocol/sei-chain/tools/hash_verification/cmd"
 	migration "github.com/sei-protocol/sei-chain/tools/migration/cmd"
+	state "github.com/sei-protocol/sei-chain/tools/state_access/cmd"
 	scanner "github.com/sei-protocol/sei-chain/tools/tx-scanner/cmd"
 )
 
@@ -19,5 +20,6 @@ func ToolCmd() *cobra.Command {
 	toolsCmd.AddCommand(migration.GenerateStats())
 	toolsCmd.AddCommand(hasher.GenerateIavlHashCmd())
 	toolsCmd.AddCommand(hasher.GeneratePebbleHashCmd())
+	toolsCmd.AddCommand(state.StateAccessCmd())
 	return toolsCmd
 }
