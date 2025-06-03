@@ -20,6 +20,7 @@ var (
 	// deprecated
 	KeyBaseFeePerGas                          = []byte("KeyBaseFeePerGas")
 	KeyWhitelistedCwCodeHashesForDelegateCall = []byte("KeyWhitelistedCwCodeHashesForDelegateCall")
+	KeyRegisterPointerDisabled                = []byte("KeyRegisterPointerDisabled")
 )
 
 var DefaultPriorityNormalizer = sdk.NewDec(1)
@@ -37,6 +38,7 @@ var DefaultMaxDynamicBaseFeeUpwardAdjustment = sdk.NewDecWithPrec(189, 4)  // 1.
 var DefaultMaxDynamicBaseFeeDownwardAdjustment = sdk.NewDecWithPrec(39, 4) // .39%
 var DefaultTargetGasUsedPerBlock = uint64(250000)                          // 250k
 var DefaultMaxFeePerGas = sdk.NewDec(1000000000000)                        // 1,000gwei
+var DefaultRegisterPointerDisabled = false
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
@@ -55,6 +57,7 @@ func DefaultParams() Params {
 		WhitelistedCwCodeHashesForDelegateCall: DefaultWhitelistedCwCodeHashesForDelegateCall,
 		TargetGasUsedPerBlock:                  DefaultTargetGasUsedPerBlock,
 		MaximumFeePerGas:                       DefaultMaxFeePerGas,
+		RegisterPointerDisabled:                DefaultRegisterPointerDisabled,
 	}
 }
 
@@ -69,6 +72,7 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 		paramtypes.NewParamSetPair(KeyDeliverTxHookWasmGasLimit, &p.DeliverTxHookWasmGasLimit, validateDeliverTxHookWasmGasLimit),
 		paramtypes.NewParamSetPair(KeyTargetGasUsedPerBlock, &p.TargetGasUsedPerBlock, func(i interface{}) error { return nil }),
 		paramtypes.NewParamSetPair(KeyMaxFeePerGas, &p.MaximumFeePerGas, validateMaxFeePerGas),
+		paramtypes.NewParamSetPair(KeyRegisterPointerDisabled, &p.RegisterPointerDisabled, validateRegisterPointerDisabled),
 	}
 }
 
@@ -197,6 +201,14 @@ func validateDeliverTxHookWasmGasLimit(i interface{}) error {
 
 func validateWhitelistedCwHashesForDelegateCall(i interface{}) error {
 	_, ok := i.([][]byte)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+	return nil
+}
+
+func validateRegisterPointerDisabled(i interface{}) error {
+	_, ok := i.(bool)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
 	}

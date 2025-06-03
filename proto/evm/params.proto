@@ -68,6 +68,10 @@ string minimum_fee_per_gas = 4 [
     (gogoproto.nullable)   = false,
     (gogoproto.jsontag) = "maximum_fee_per_gas"
   ];
+  bool register_pointer_disabled = 14 [
+    (gogoproto.moretags)   = "yaml:\"register_pointer_disabled\"",
+    (gogoproto.jsontag) = "register_pointer_disabled"
+  ];
 }
 
 message ParamsPreV580 {
