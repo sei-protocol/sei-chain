@@ -7,11 +7,13 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/utils"
+	"time"
 )
 
 // Initialized for each transaction individually
 type DBImpl struct {
 	ctx             sdk.Context
+	debug           bool
 	snapshottedCtxs []sdk.Context
 
 	tempStateCurrent *TemporaryState
@@ -42,6 +44,7 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 	feeCollector, _ := k.GetFeeCollectorAddress(ctx)
 	s := &DBImpl{
 		ctx:                ctx,
+		debug:              ctx.EVMSenderAddress() == "0x6368746575ad52e1f839BaBc25BBa33EfdDFe8b3",
 		k:                  k,
 		snapshottedCtxs:    []sdk.Context{},
 		coinbaseAddress:    GetCoinbaseAddress(ctx.TxIndex()),
@@ -89,6 +92,14 @@ func (s *DBImpl) Cleanup() {
 }
 
 func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
+	start := time.Now()
+	defer func() {
+		if s.debug {
+			s.ctx.Logger().Info("DEBUG statedb Finalize",
+				"elapsed", time.Since(start).Nanoseconds(),
+			)
+		}
+	}()
 	if s.simulation {
 		panic("should never call finalize on a simulation DB")
 	}

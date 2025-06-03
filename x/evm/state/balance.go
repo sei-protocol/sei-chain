@@ -2,6 +2,7 @@ package state
 
 import (
 	"math/big"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -10,6 +11,16 @@ import (
 )
 
 func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing.BalanceChangeReason) {
+	start := time.Now()
+	defer func() {
+		if s.debug {
+			s.ctx.Logger().Info("DEBUG SubBalance",
+				"evmAddr", evmAddr.Hex(),
+				"amount", amt.String(),
+				"elapsed", time.Since(start).Nanoseconds(),
+			)
+		}
+	}()
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	if amt.Sign() == 0 {
 		return
@@ -48,9 +59,20 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amt *big.Int, reason tracing
 	}
 
 	s.tempStateCurrent.surplus = s.tempStateCurrent.surplus.Add(sdk.NewIntFromBigInt(amt))
+
 }
 
 func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing.BalanceChangeReason) {
+	start := time.Now()
+	defer func() {
+		if s.debug {
+			s.ctx.Logger().Info("DEBUG AddBalance",
+				"evmAddr", evmAddr.Hex(),
+				"amount", amt.String(),
+				"elapsed", time.Since(start).Nanoseconds(),
+			)
+		}
+	}()
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	if amt.Sign() == 0 {
 		return
@@ -91,6 +113,15 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amt *big.Int, reason tracing
 }
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *big.Int {
+	start := time.Now()
+	defer func() {
+		if s.debug {
+			s.ctx.Logger().Info("DEBUG GetBalance",
+				"evmAddr", evmAddr.Hex(),
+				"elapsed", time.Since(start).Nanoseconds(),
+			)
+		}
+	}()
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	seiAddr := s.getSeiAddress(evmAddr)
 	return s.k.GetBalance(s.ctx, seiAddr)
@@ -119,6 +150,15 @@ func (s *DBImpl) SetBalance(evmAddr common.Address, amt *big.Int, reason tracing
 }
 
 func (s *DBImpl) getSeiAddress(evmAddr common.Address) sdk.AccAddress {
+	start := time.Now()
+	defer func() {
+		if s.debug {
+			s.ctx.Logger().Info("DEBUG getSeiAddress",
+				"elapsed", time.Since(start).Nanoseconds(),
+			)
+		}
+	}()
+
 	if s.coinbaseEvmAddress.Cmp(evmAddr) == 0 {
 		return s.coinbaseAddress
 	}
@@ -126,6 +166,16 @@ func (s *DBImpl) getSeiAddress(evmAddr common.Address) sdk.AccAddress {
 }
 
 func (s *DBImpl) send(from sdk.AccAddress, to sdk.AccAddress, amt *big.Int) {
+	start := time.Now()
+	defer func() {
+		if s.debug {
+			s.ctx.Logger().Info("DEBUG send",
+				"amount", amt.String(),
+				"elapsed", time.Since(start).Nanoseconds(),
+			)
+		}
+	}()
+
 	usei, wei := SplitUseiWeiAmount(amt)
 	err := s.k.BankKeeper().SendCoinsAndWei(s.ctx, from, to, usei, wei)
 	if err != nil {

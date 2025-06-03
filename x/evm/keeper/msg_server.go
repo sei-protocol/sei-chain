@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
@@ -61,11 +62,19 @@ func (k *Keeper) PrepareCtxForEVMTransaction(ctx sdk.Context, tx *ethtypes.Trans
 }
 
 func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMTransaction) (serverRes *types.MsgEVMTransactionResponse, err error) {
+	startTime := time.Now()
+
 	if msg.IsAssociateTx() {
 		// no-op in msg server for associate tx; all the work have been done in ante handler
 		return &types.MsgEVMTransactionResponse{}, nil
 	}
 	ctx := sdk.UnwrapSDKContext(goCtx)
+	defer func() {
+		if ctx.EVMSenderAddress() == "0x6368746575ad52e1f839BaBc25BBa33EfdDFe8b3" {
+			ctx.Logger().Info("DEBUG EVMTransaction", "duration", time.Since(startTime).Milliseconds())
+		}
+	}()
+
 	tx, _ := msg.AsTransaction()
 	ctx, originalGasMeter := server.PrepareCtxForEVMTransaction(ctx, tx)
 
@@ -166,7 +175,12 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		originalGasMeter.ConsumeGas(adjustedGasUsed.TruncateInt().Uint64(), "evm transaction")
 	}()
 
+	applyStart := time.Now()
 	res, applyErr := server.applyEVMMessage(ctx, emsg, stateDB, gp)
+	if ctx.EVMSenderAddress() == "0x6368746575ad52e1f839BaBc25BBa33EfdDFe8b3" {
+		ctx.Logger().Info("DEBUG applyEVMMessage",
+			"duration", time.Since(applyStart).Nanoseconds())
+	}
 	serverRes = &types.MsgEVMTransactionResponse{
 		Hash: tx.Hash().Hex(),
 	}
@@ -210,6 +224,18 @@ func (k *Keeper) GetGasPool() core.GasPool {
 	return math.MaxUint64
 }
 
+func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*core.ExecutionResult, error) {
+	blockCtx, err := k.GetVMBlockContext(ctx, gp)
+	if err != nil {
+		return nil, err
+	}
+	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
+	txCtx := core.NewEVMTxContext(msg)
+	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}, k.customPrecompiles)
+	st := core.NewStateTransition(evmInstance, msg, &gp, true) // fee already charged in ante handler
+	return st.TransitionDb()
+}
+
 func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender common.Address) *core.Message {
 	msg := &core.Message{
 		Nonce:             tx.Nonce(),
@@ -232,18 +258,6 @@ func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender
 		msg.GasPrice = cmath.BigMin(msg.GasPrice.Add(msg.GasTipCap, baseFee), msg.GasFeeCap)
 	}
 	return msg
-}
-
-func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*core.ExecutionResult, error) {
-	blockCtx, err := k.GetVMBlockContext(ctx, gp)
-	if err != nil {
-		return nil, err
-	}
-	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
-	txCtx := core.NewEVMTxContext(msg)
-	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}, k.customPrecompiles)
-	st := core.NewStateTransition(evmInstance, msg, &gp, true) // fee already charged in ante handler
-	return st.TransitionDb()
 }
 
 func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSendResponse, error) {
