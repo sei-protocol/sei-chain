@@ -272,17 +272,17 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 			return nil, nil, err
 		}
 		isPrioritized := utils.IsTxPrioritized(decoded)
-		// if isPrioritized {
-		// 	continue
-		// }
-		shouldRunMidBlock := false
-		if isPrioritized && (i+1 < len(blockRes.TxsResults)) {
-			nextDecoded, err := b.txConfig.TxDecoder()(tmBlock.Block.Txs[i+1])
-			if err != nil {
-				return nil, nil, err
-			}
-			shouldRunMidBlock = !utils.IsTxPrioritized(nextDecoded)
+		if isPrioritized {
+			continue
 		}
+		// shouldRunMidBlock := false
+		// if isPrioritized && (i+1 < len(blockRes.TxsResults)) {
+		// 	nextDecoded, err := b.txConfig.TxDecoder()(tmBlock.Block.Txs[i+1])
+		// 	if err != nil {
+		// 		return nil, nil, err
+		// 	}
+		// 	shouldRunMidBlock = !utils.IsTxPrioritized(nextDecoded)
+		// }
 		shouldTrace := false
 		for _, msg := range decoded.GetMsgs() {
 			switch m := msg.(type) {
@@ -310,9 +310,9 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 				TraceRunnable: func(sd vm.StateDB) {
 					typedStateDB := sd.(*state.DBImpl)
 					_ = b.app.DeliverTx(typedStateDB.Ctx(), abci.RequestDeliverTx{}, decoded, sha256.Sum256(tmBlock.Block.Txs[i]))
-					if shouldRunMidBlock {
-						_ = b.app.MidBlock(typedStateDB.Ctx(), blockNum)
-					}
+					// if shouldRunMidBlock {
+					// 	_ = b.app.MidBlock(typedStateDB.Ctx(), blockNum)
+					// }
 				},
 			})
 		}
@@ -428,8 +428,7 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block) (s
 	_ = b.app.BeginBlock(sdkCtx, reqBeginBlock)
 	sdkCtx = sdkCtx.WithNextMs(
 		b.ctxProvider(sdkCtx.BlockHeight()+1).MultiStore(),
-		// []string{"oracle", "oracle_mem"},
-		[]string{},
+		[]string{"oracle", "oracle_mem"},
 	)
 	return sdkCtx, tmBlock, nil
 }
