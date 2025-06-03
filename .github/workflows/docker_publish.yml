@@ -40,6 +40,12 @@ jobs:
           echo "MAJOR_VERSION=$MAJOR_VERSION" >> $GITHUB_ENV
           echo "MINOR_VERSION=$MINOR_VERSION" >> $GITHUB_ENV
           echo "PATCH_VERSION=$PATCH_VERSION" >> $GITHUB_ENV
+
+      - name: Validate Docker build (amd64)
+        run: docker build --platform=linux/amd64 --target=go-builder .
+
+      - name: Validate Docker build (arm64)
+        run: docker build --platform=linux/arm64 --target=go-builder .
       -
         name: Build and push
         id: build_push_image
