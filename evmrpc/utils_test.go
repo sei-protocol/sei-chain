@@ -18,3 +18,12 @@ func TestCheckVersion(t *testing.T) {
 	ctx = ctx.WithBlockHeight(2)
 	require.NotNil(t, evmrpc.CheckVersion(ctx, k))
 }
+
+func TestParallelRunnerPanicRecovery(t *testing.T) {
+	r := evmrpc.NewParallelRunner(10, 10)
+	r.Queue <- func() {
+		panic("should be handled")
+	}
+	close(r.Queue)
+	require.NotPanics(t, r.Done.Wait)
+}

@@ -239,6 +239,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		wg.Add(1)
 		go func(i int, hash common.Hash) {
 			defer wg.Done()
+			defer recoverAndLog()
 			receipt, err := a.keeper.GetReceipt(a.ctxProvider(height), hash)
 			if err != nil {
 				// When the transaction doesn't exist, skip it

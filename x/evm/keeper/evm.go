@@ -189,7 +189,10 @@ func (k *Keeper) getEvmGasLimitFromCtx(ctx sdk.Context) uint64 {
 	if ctx.GasMeter().Limit() <= 0 {
 		return math.MaxUint64
 	}
-	evmGasBig := sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Quo(k.GetPriorityNormalizer(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)))).TruncateInt().BigInt()
+	if ctx.ChainID() != "pacific-1" || ctx.BlockHeight() >= 119821526 {
+		ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+	}
+	evmGasBig := sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Quo(k.GetPriorityNormalizer(ctx)).TruncateInt().BigInt()
 	if evmGasBig.Cmp(MaxUint64BigInt) > 0 {
 		evmGasBig = MaxUint64BigInt
 	}

@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -250,10 +251,18 @@ func NewParallelRunner(cnt int, capacity int) *ParallelRunner {
 	for i := 0; i < cnt; i++ {
 		go func() {
 			defer pr.Done.Done()
+			defer recoverAndLog()
 			for f := range pr.Queue {
 				f()
 			}
 		}()
 	}
 	return pr
+}
+
+func recoverAndLog() {
+	if e := recover(); e != nil {
+		fmt.Printf("Panic recovered: %s\n", e)
+		debug.PrintStack()
+	}
 }
