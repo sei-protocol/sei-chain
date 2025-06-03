@@ -2,11 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/sei-protocol/sei-chain/tools/utils"
 	"time"
 
 	rootmulti2 "github.com/cosmos/cosmos-sdk/storev2/rootmulti"
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/tools/state_access/sc"
 	"github.com/spf13/cobra"
@@ -36,8 +37,8 @@ func execute(cmd *cobra.Command, _ []string) {
 }
 
 func HasAccount(store *rootmulti2.Store) {
-	key := sdk.NewKVStoreKey("acc")
-	kvStore := store.GetKVStore(key)
+	storeKey := utils.ModuleKeys[authtypes.StoreKey]
+	kvStore := store.GetKVStore(storeKey)
 	fmt.Printf("kvStore is %v\n", kvStore)
 	accounts := []string{"0xBD1013CB81EA111bD003884e34AF09282BB07e0E",
 		"0xd854ebCBCE43d568700076EFDBC670b7ebc5d18F",
