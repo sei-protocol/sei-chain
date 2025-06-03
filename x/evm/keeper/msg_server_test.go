@@ -870,3 +870,76 @@ func TestAssociate(t *testing.T) {
 	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
 }
+
+func TestRegisterPointerDisabled(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	sender, _ := testkeeper.MockAddressPair()
+	pointer, pointee := testkeeper.MockAddressPair()
+	// set params to disable registering CW->ERC pointers
+	params := k.GetParams(ctx)
+	params.RegisterPointerDisabled = true
+	k.SetParams(ctx, params)
+
+	// Test register-pointer for ERC20 fails with useLatest = true
+	_, err := keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC20,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
+	_, _, exists := k.GetCW20ERC20Pointer(ctx, pointee)
+	require.False(t, exists)
+
+	// Test register-pointer for ERC721 fails with useLatest = true
+	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC721,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
+	_, _, exists = k.GetCW721ERC721Pointer(ctx, pointee)
+	require.False(t, exists)
+
+	// Test register-pointer for ERC1155 fails with useLatest = true
+	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC1155,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
+	_, _, exists = k.GetCW1155ERC1155Pointer(ctx, pointee)
+	require.False(t, exists)
+
+	// Test that no events are emitted
+	hasRegisteredEvent := false
+	for _, e := range ctx.EventManager().Events() {
+		if e.Type == types.EventTypePointerRegistered {
+			hasRegisteredEvent = true
+			break
+		}
+	}
+	require.False(t, hasRegisteredEvent)
+
+	// Test that existing pointers can still be queried
+	// First manually set up a pointer
+	err = k.SetCW20ERC20PointerWithVersion(ctx, pointee, pointer.String(), erc20.CurrentVersion)
+	require.Nil(t, err)
+
+	// Verify the pointer exists and can be queried
+	gotPointer, version, exists := k.GetCW20ERC20Pointer(ctx, pointee)
+	require.True(t, exists)
+	require.Equal(t, erc20.CurrentVersion, version)
+	require.Equal(t, pointer, gotPointer)
+
+	// Test that attempting to register a pointer for an address that already has one still fails
+	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC20,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
+}
