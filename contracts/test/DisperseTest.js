@@ -63,7 +63,7 @@ describe("Disperse test", function () {
         }
         let start = new Date()
         let resp = await disperse.disperseEther(targets, values, {value: wallets.length+1})
-        let duration = (new Date() - start).getTime()
+        let duration = new Date() - start
         const receipt = await resp.wait();
         console.log("Block", receipt.blockNumber, "Gas used:", receipt.gasUsed.toString(), "Time", duration);
     })
