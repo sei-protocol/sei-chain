@@ -386,7 +386,7 @@ func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCrite
 func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]bloomIndexes) (chan *coretypes.ResultBlock, int64, bool, error) {
 	startTime := time.Now()
 	defer func() {
-		fmt.Printf("[Debug] fetchBlocksByCrit took %d for range %v to %v, lastToHeight %d\n", time.Since(startTime), crit.FromBlock, crit.ToBlock, lastToHeight)
+		fmt.Printf("[Debug] fetchBlocksByCrit took %s for range %v to %v, lastToHeight %d\n", time.Since(startTime), crit.FromBlock, crit.ToBlock, lastToHeight)
 	}()
 	if crit.BlockHash != nil {
 		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:], 1)
