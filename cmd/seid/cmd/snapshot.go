@@ -6,8 +6,10 @@ import (
 	"path/filepath"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
+	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/server"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
+	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
@@ -68,6 +70,9 @@ func SnapshotCmd() *cobra.Command {
 				app.EmptyAppOptions,
 			)
 
+			// Set chain ID from flag
+			app.ChainID = cast.ToString(appOpts.Get(flags.FlagChainID))
+
 			// Load version at specified height
 			if err := app.LoadLatestVersion(); err != nil {
 				return fmt.Errorf("failed to load version at height %d: %w", height, err)
@@ -101,6 +106,7 @@ func SnapshotCmd() *cobra.Command {
 	// Add flags
 	cmd.Flags().Int64("height", 0, "Height at which to create the snapshot (required)")
 	cmd.Flags().String("snapshot-dir", "", "Directory to store the snapshot (default: <home>/data/snapshots)")
+	cmd.Flags().String(flags.FlagChainID, "", "The network chain ID")
 	_ = cmd.MarkFlagRequired("height")
 
 	return cmd
