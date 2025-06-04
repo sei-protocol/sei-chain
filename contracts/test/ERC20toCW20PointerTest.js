@@ -354,6 +354,4 @@ describe("ERC20 to CW20 Pointer", function () {
             });
         })
     });
-
     });
-

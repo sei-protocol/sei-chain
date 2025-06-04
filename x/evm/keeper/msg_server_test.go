@@ -532,7 +532,7 @@ func TestSend(t *testing.T) {
 	require.Equal(t, sdk.NewInt(500000), k.BankKeeper().GetBalance(ctx, seiTo, "usei").Amount)
 }
 
-func TestRegisterPointer(t *testing.T) {
+func TestRegisterPointerLegacy(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	sender, _ := testkeeper.MockAddressPair()
 	_, pointee := testkeeper.MockAddressPair()
@@ -542,6 +542,7 @@ func TestRegisterPointer(t *testing.T) {
 		Sender:      sender.String(),
 		PointerType: types.PointerType_ERC20,
 		ErcAddress:  pointee.Hex(),
+		UseLatest:   false,
 	})
 	require.Nil(t, err)
 	pointer, version, exists := k.GetCW20ERC20Pointer(ctx, pointee)
@@ -565,6 +566,7 @@ func TestRegisterPointer(t *testing.T) {
 		Sender:      sender.String(),
 		PointerType: types.PointerType_ERC20,
 		ErcAddress:  pointee.Hex(),
+		UseLatest:   false,
 	})
 	require.NotNil(t, err)
 	hasRegisteredEvent = false
@@ -583,6 +585,7 @@ func TestRegisterPointer(t *testing.T) {
 		Sender:      sender.String(),
 		PointerType: types.PointerType_ERC20,
 		ErcAddress:  pointee.Hex(),
+		UseLatest:   false,
 	})
 	require.Nil(t, err)
 	newPointer, version, exists := k.GetCW20ERC20Pointer(ctx, pointee)
@@ -597,6 +600,7 @@ func TestRegisterPointer(t *testing.T) {
 		Sender:      sender.String(),
 		PointerType: types.PointerType_ERC721,
 		ErcAddress:  pointee.Hex(),
+		UseLatest:   false,
 	})
 	require.Nil(t, err)
 	pointer, version, exists = k.GetCW721ERC721Pointer(ctx, pointee)
@@ -620,6 +624,7 @@ func TestRegisterPointer(t *testing.T) {
 		Sender:      sender.String(),
 		PointerType: types.PointerType_ERC721,
 		ErcAddress:  pointee.Hex(),
+		UseLatest:   false,
 	})
 	require.NotNil(t, err)
 	hasRegisteredEvent = false
@@ -638,6 +643,7 @@ func TestRegisterPointer(t *testing.T) {
 		Sender:      sender.String(),
 		PointerType: types.PointerType_ERC721,
 		ErcAddress:  pointee.Hex(),
+		UseLatest:   false,
 	})
 	require.Nil(t, err)
 	newPointer, version, exists = k.GetCW721ERC721Pointer(ctx, pointee)
@@ -652,6 +658,7 @@ func TestRegisterPointer(t *testing.T) {
 		Sender:      sender.String(),
 		PointerType: types.PointerType_ERC1155,
 		ErcAddress:  pointee.Hex(),
+		UseLatest:   false,
 	})
 	require.Nil(t, err)
 	pointer, version, exists = k.GetCW1155ERC1155Pointer(ctx, pointee)
@@ -675,6 +682,7 @@ func TestRegisterPointer(t *testing.T) {
 		Sender:      sender.String(),
 		PointerType: types.PointerType_ERC1155,
 		ErcAddress:  pointee.Hex(),
+		UseLatest:   false,
 	})
 	require.NotNil(t, err)
 	hasRegisteredEvent = false
@@ -693,6 +701,7 @@ func TestRegisterPointer(t *testing.T) {
 		Sender:      sender.String(),
 		PointerType: types.PointerType_ERC1155,
 		ErcAddress:  pointee.Hex(),
+		UseLatest:   false,
 	})
 	require.Nil(t, err)
 	newPointer, version, exists = k.GetCW1155ERC1155Pointer(ctx, pointee)
@@ -701,6 +710,79 @@ func TestRegisterPointer(t *testing.T) {
 	require.Equal(t, newPointer.String(), res.PointerAddress)
 	require.Equal(t, newPointer.String(), pointer.String()) // should retain the existing contract address
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
+}
+
+func TestRegisterPointerDisabled(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	sender, _ := testkeeper.MockAddressPair()
+	pointer, pointee := testkeeper.MockAddressPair()
+
+	// Test register-pointer for ERC20 fails with useLatest = true
+	_, err := keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC20,
+		ErcAddress:  pointee.Hex(),
+		UseLatest:   true,
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
+	_, _, exists := k.GetCW20ERC20Pointer(ctx, pointee)
+	require.False(t, exists)
+
+	// Test register-pointer for ERC721 fails with useLatest = true
+	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC721,
+		ErcAddress:  pointee.Hex(),
+		UseLatest:   true,
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
+	_, _, exists = k.GetCW721ERC721Pointer(ctx, pointee)
+	require.False(t, exists)
+
+	// Test register-pointer for ERC1155 fails with useLatest = true
+	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC1155,
+		ErcAddress:  pointee.Hex(),
+		UseLatest:   true,
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
+	_, _, exists = k.GetCW1155ERC1155Pointer(ctx, pointee)
+	require.False(t, exists)
+
+	// Test that no events are emitted
+	hasRegisteredEvent := false
+	for _, e := range ctx.EventManager().Events() {
+		if e.Type == types.EventTypePointerRegistered {
+			hasRegisteredEvent = true
+			break
+		}
+	}
+	require.False(t, hasRegisteredEvent)
+
+	// Test that existing pointers can still be queried
+	// First manually set up a pointer
+	err = k.SetCW20ERC20PointerWithVersion(ctx, pointee, pointer.String(), erc20.CurrentVersion)
+	require.Nil(t, err)
+
+	// Verify the pointer exists and can be queried
+	gotPointer, version, exists := k.GetCW20ERC20Pointer(ctx, pointee)
+	require.True(t, exists)
+	require.Equal(t, erc20.CurrentVersion, version)
+	require.Equal(t, pointer, gotPointer)
+
+	// Test that attempting to register a pointer for an address that already has one still fails
+	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC20,
+		ErcAddress:  pointee.Hex(),
+		UseLatest:   true,
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
 }
 
 func TestEvmError(t *testing.T) {
@@ -793,6 +875,7 @@ func TestAssociateContractAddress(t *testing.T) {
 		Sender:      dummySeiAddr.String(),
 		PointerType: types.PointerType_ERC20,
 		ErcAddress:  dummyEvmAddr.Hex(),
+		UseLatest:   false,
 	})
 	require.Nil(t, err)
 	_, err = msgServer.AssociateContractAddress(sdk.WrapSDKContext(ctx), &types.MsgAssociateContractAddress{
