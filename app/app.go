@@ -1182,7 +1182,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	defer func() {
 		app.ClearOptimisticProcessingInfo()
 		duration := time.Since(startTime)
-		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
+		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms for block %d", duration/time.Millisecond, ctx.BlockHeight()))
 	}()
 	if app.optimisticProcessingInfo != nil {
 		<-app.optimisticProcessingInfo.Completion
@@ -1207,6 +1207,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return &abci.ResponseFinalizeBlock{}, nil
 	}
+
 	cms := app.WriteState()
 	app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
 	appHash := app.GetWorkingHash()
@@ -1574,6 +1575,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			app.wsServerStartSignal <- struct{}{}
 		}
 	}()
+	startTime := time.Now()
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
 	events := []abci.Event{}
@@ -1601,7 +1603,9 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	}
 	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
 	events = append(events, beginBlockResp.Events...)
+	beginBlockLatency := time.Since(startTime)
 
+	midBlockStart := time.Now()
 	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs)) // nil for non-EVM txs
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	typedTxs := app.DecodeTransactionsConcurrently(ctx, txs)
@@ -1621,7 +1625,9 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
+	midBlockLatency := time.Since(midBlockStart)
 
+	executeStart := time.Now()
 	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs, otherTypedTxs, otherIndices)
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
@@ -1629,11 +1635,15 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	}
 	app.EvmKeeper.SetTxResults(txResults)
 	app.EvmKeeper.SetMsgs(evmTxs)
+	executeLatency := time.Since(executeStart)
 
+	writeStart := time.Now()
 	// Finalize all Bank Module Transfers here so that events are included
 	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
 	events = append(events, lazyWriteEvents...)
+	writeDeferredBalanceLatency := time.Since(writeStart)
 
+	endBlockStart := time.Now()
 	// Sum up total used per block only for evm transactions
 	evmTotalGasUsed := int64(0)
 	for _, txResult := range txResults {
@@ -1641,13 +1651,15 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			evmTotalGasUsed += txResult.GasUsed
 		}
 	}
-
 	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
 		Height:       req.GetHeight(),
 		BlockGasUsed: evmTotalGasUsed,
 	})
 
 	events = append(events, endBlockResp.Events...)
+	endBlockLatency := time.Since(endBlockStart)
+	fmt.Printf("[Debug] Total processBlock took %s, beginBlock took %s, midBlock took %s, execution took %s, writeDeferred took %s, endBlock took %s for block %d\n",
+		time.Since(startTime), beginBlockLatency, midBlockLatency, executeLatency, writeDeferredBalanceLatency, endBlockLatency, ctx.BlockHeight())
 	return events, txResults, endBlockResp, nil
 }
 
