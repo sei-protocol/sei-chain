@@ -233,10 +233,6 @@ func (p PrecompileExecutor) submitProposal(ctx sdk.Context, method *abi.Method, 
 		return nil, err
 	}
 
-	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
-	}
-
 	proposer, found := p.evmKeeper.GetSeiAddress(ctx, caller)
 	if !found {
 		return nil, types.NewAssociationMissingErr(caller.Hex())
@@ -249,19 +245,29 @@ func (p PrecompileExecutor) submitProposal(ctx sdk.Context, method *abi.Method, 
 		return nil, fmt.Errorf("failed to parse proposal JSON: %w", err)
 	}
 
+	initialDeposit, err := pcommon.HandlePaymentUsei(
+		ctx,
+		p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address),
+		proposer,
+		value,
+		p.bankKeeper,
+		p.evmKeeper,
+		hooks,
+		evm.GetDepth())
+
+	if err != nil {
+		return nil, err
+	}
+
 	// Create the proposal content using the handler system
 	content, err := p.createProposalContent(ctx, proposal)
 	if err != nil {
 		return nil, err
 	}
 
-	initialDeposit, err := sdk.ParseCoinsNormalized(proposal.Deposit)
-	if err != nil {
-		return nil, err
-	}
-
 	// Create the MsgSubmitProposal
-	msg, err := govtypes.NewMsgSubmitProposalWithExpedite(content, initialDeposit, proposer, proposal.IsExpedited)
+	msg, err :=
+		govtypes.NewMsgSubmitProposalWithExpedite(content, sdk.NewCoins(initialDeposit), proposer, proposal.IsExpedited)
 	if err != nil {
 		return nil, err
 	}

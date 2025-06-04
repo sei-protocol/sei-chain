@@ -4,12 +4,7 @@ import (
 	"embed"
 	"encoding/hex"
 	"math/big"
-	"reflect"
 	"testing"
-
-	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
-	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
@@ -330,7 +325,8 @@ func TestGovPrecompile(t *testing.T) {
 func TestPrecompileExecutor_submitProposal(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(3)
-	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
+	privKey := testkeeper.MockPrivateKey()
+	callerSeiAddress, callerEvmAddress := testkeeper.PrivateKeyToAddresses(privKey)
 	recipientSeiAddress, recipientEvmAddress := testkeeper.MockAddressPair()
 
 	// Dynamically determine the expected proposal ID
@@ -341,6 +337,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 		caller           common.Address
 		callerSeiAddress sdk.AccAddress
 		proposal         string
+		value            *big.Int
 	}
 	tests := []struct {
 		name       string
@@ -358,9 +355,9 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
                       "title":"Test Proposal",
                       "description":"My awesome proposal",
                       "is_expedited":false,
-                      "type":"Text",
-                      "deposit": "10000000usei"
+                      "type":"Text"
                  }`,
+				value: big.NewInt(1_000_000_000_000_000_000),
 			},
 			wantErr: false,
 			wantRet: []byte{31: expectedProposalID},
@@ -375,6 +372,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 					"description": "This is a gov proposal",
 					"type": "Text"
 				}`,
+				value: big.NewInt(1_000_000_000_000_000_000),
 			},
 			wantErr: false,
 			wantRet: []byte{31: expectedProposalID},
@@ -399,6 +397,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 					"deposit": "10000000usei",
 					"is_expedited": false
 				}`,
+				value: big.NewInt(1_000_000_000_000_000_000),
 			},
 			wantErr: false,
 			wantRet: []byte{31: expectedProposalID},
@@ -414,6 +413,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 					"type": "CancelSoftwareUpgrade",
 					"deposit": "10000000usei"
 				}`,
+				value: big.NewInt(1_000_000_000_000_000_000),
 			},
 			wantErr: false,
 			wantRet: []byte{31: expectedProposalID},
@@ -601,6 +601,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 					},
 					"deposit": "10000000usei"
 				}`,
+				value: big.NewInt(1_000_000_000_000_000_000),
 			},
 			wantErr: false,
 			wantRet: []byte{31: expectedProposalID},
@@ -969,34 +970,55 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			k := &testApp.EvmKeeper
+
+			testPrivHex := hex.EncodeToString(privKey.Bytes())
+			key, _ := crypto.HexToECDSA(testPrivHex)
+
 			k.SetAddressMapping(ctx, tt.args.callerSeiAddress, tt.args.caller)
 			k.SetAddressMapping(ctx, recipientSeiAddress, recipientEvmAddress)
-			stateDb := state.NewDBImpl(ctx, k, true)
-			evm := vm.EVM{
-				StateDB:   stateDb,
-				TxContext: vm.TxContext{Origin: tt.args.caller},
-			}
-			amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10000000)))
-			require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
-			require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, tt.args.callerSeiAddress, amt))
 
-			govMsgServer := govkeeper.NewMsgServerImpl(testApp.GovKeeper)
-			p, _ := gov.NewPrecompile(govMsgServer, k, k.BankKeeper())
-			submitProposalMethod, err := p.ABI.MethodById(p.GetExecutor().(*gov.PrecompileExecutor).SubmitProposalID)
-			require.Nil(t, err)
-			inputs, err := submitProposalMethod.Inputs.Pack(tt.args.proposal)
+			mintAmt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(20_000_000)))
+			sendAmt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10_000_000)))
+			require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, mintAmt))
+			require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, tt.args.callerSeiAddress, sendAmt))
+
+			addr := common.HexToAddress(gov.GovAddress)
+
+			abi := pcommon.MustGetABI(f, "abi.json")
+			inputs, err := abi.Pack(gov.SubmitProposalMethod, tt.args.proposal)
 			require.Nil(t, err)
 
-			gotRet, err := p.Run(&evm, tt.args.caller, common.Address{}, append(p.GetExecutor().(*gov.PrecompileExecutor).SubmitProposalID, inputs...), nil, false, false, nil)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Run() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			txData := ethtypes.LegacyTx{
+				GasPrice: big.NewInt(1000000000000),
+				Gas:      20000000,
+				To:       &addr,
+				Value:    tt.args.value,
+				Data:     inputs,
+				Nonce:    0,
 			}
-			if err != nil {
-				require.Equal(t, vm.ErrExecutionReverted, err)
-				require.Equal(t, tt.wantErrMsg, string(gotRet))
-			} else if !reflect.DeepEqual(gotRet, tt.wantRet) {
-				t.Errorf("Run() gotRet = %v, want %v", gotRet, tt.wantRet)
+			chainID := k.ChainID(ctx)
+			chainCfg := evmtypes.DefaultChainConfig()
+			ethCfg := chainCfg.EthereumConfig(chainID)
+			blockNum := big.NewInt(ctx.BlockHeight())
+			signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+			tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+			require.Nil(t, err)
+			txwrapper, err := ethtx.NewLegacyTx(tx)
+			require.Nil(t, err)
+			req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
+			require.Nil(t, err)
+
+			msgServer := keeper.NewMsgServerImpl(k)
+			ante.Preprocess(ctx, req)
+			gotRet, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
+
+			if tt.wantErr {
+				require.NotEmpty(t, gotRet.VmError)
+				require.Equal(t, string(gotRet.ReturnData), tt.wantErrMsg)
+			} else {
+				require.Empty(t, gotRet.VmError)
+				require.Nil(t, err)
+				require.Equal(t, tt.wantRet, gotRet.ReturnData)
 			}
 		})
 	}

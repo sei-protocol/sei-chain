@@ -26,7 +26,6 @@ type Proposal struct {
 	Description string `json:"description"`
 	Type        string `json:"type"`
 	IsExpedited bool   `json:"is_expedited,omitempty"`
-	Deposit     string `json:"deposit,omitempty"`
 	// Optional fields for specific proposal types
 	Plan               *SoftwareUpgradePlan       `json:"plan,omitempty"`
 	CommunityPoolSpend *CommunityPoolSpend        `json:"community_pool_spend,omitempty"`
