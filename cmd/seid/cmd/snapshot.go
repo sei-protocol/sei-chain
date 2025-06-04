@@ -10,6 +10,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/server"
 	"github.com/cosmos/cosmos-sdk/snapshots"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	"github.com/spf13/cast"
@@ -63,6 +64,9 @@ func SnapshotCmd() *cobra.Command {
 			// Get app options from server context
 			appOpts := serverCtx.Viper
 
+			// Set SeiDB KeepRecent to 0 for snapshot creation to avoid keeping old versions
+			appOpts.Set(app.FlagSSKeepRecent, 0)
+
 			// Initialize app with correct options
 			app := app.New(
 				logger,
@@ -81,6 +85,8 @@ func SnapshotCmd() *cobra.Command {
 				[]aclkeeper.Option{},
 				app.EmptyAppOptions,
 				baseapp.SetSnapshotStore(snapshotStore),
+				baseapp.SetPruning(storetypes.NewPruningOptionsFromString(storetypes.PruningOptionNothing)),
+				baseapp.SetSnapshotKeepRecent(0),
 			)
 
 			// Set chain ID from flag
