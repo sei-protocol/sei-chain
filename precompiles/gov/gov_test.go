@@ -323,15 +323,10 @@ func TestGovPrecompile(t *testing.T) {
 }
 
 func TestPrecompileExecutor_submitProposal(t *testing.T) {
-	testApp := testkeeper.EVMTestApp
-	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(3)
+	// Setup shared test resources
 	privKey := testkeeper.MockPrivateKey()
 	callerSeiAddress, callerEvmAddress := testkeeper.PrivateKeyToAddresses(privKey)
 	recipientSeiAddress, recipientEvmAddress := testkeeper.MockAddressPair()
-
-	// Dynamically determine the expected proposal ID
-	proposals := testApp.GovKeeper.GetProposals(ctx)
-	expectedProposalID := byte(len(proposals) + 1)
 
 	type args struct {
 		caller           common.Address
@@ -344,7 +339,6 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 		args       args
 		wantErr    bool
 		wantErrMsg string
-		wantRet    []byte
 	}{
 		{
 			name: "returns proposal id on submit text proposal with valid content",
@@ -360,7 +354,6 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				value: big.NewInt(1_000_000_000_000_000_000),
 			},
 			wantErr: false,
-			wantRet: []byte{31: expectedProposalID},
 		},
 		{
 			name: "returns proposal id on submit text proposal with valid content and no deposit",
@@ -375,7 +368,6 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				value: big.NewInt(1_000_000_000_000_000_000),
 			},
 			wantErr: false,
-			wantRet: []byte{31: expectedProposalID},
 		},
 		{
 			name: "returns proposal id on submit parameter change proposal with multiple changes",
@@ -400,7 +392,6 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				value: big.NewInt(1_000_000_000_000_000_000),
 			},
 			wantErr: false,
-			wantRet: []byte{31: expectedProposalID},
 		},
 		{
 			name: "returns proposal id on submit cancel software upgrade proposal",
@@ -416,7 +407,6 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				value: big.NewInt(1_000_000_000_000_000_000),
 			},
 			wantErr: false,
-			wantRet: []byte{31: expectedProposalID},
 		},
 		{
 			name: "returns error on parameter change proposal with no changes",
@@ -475,7 +465,6 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				}`,
 			},
 			wantErr: false,
-			wantRet: []byte{31: expectedProposalID},
 		},
 		{
 			name: "returns error on software upgrade proposal with no plan",
@@ -604,7 +593,6 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				value: big.NewInt(1_000_000_000_000_000_000),
 			},
 			wantErr: false,
-			wantRet: []byte{31: expectedProposalID},
 		},
 		{
 			name: "returns error on community pool spend proposal with no parameters",
@@ -727,7 +715,6 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				}`,
 			},
 			wantErr: false,
-			wantRet: []byte{31: expectedProposalID},
 		},
 		{
 			name: "returns error on update resource dependency proposal with no resource mapping",
@@ -969,6 +956,15 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Create a fresh testApp instance for each test
+			testApp := testkeeper.EVMTestApp
+			// Create a fresh context for each test
+			ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(3)
+
+			// Dynamically determine the expected proposal ID for this test
+			proposals := testApp.GovKeeper.GetProposals(ctx)
+			expectedProposalID := byte(len(proposals) + 1)
+
 			k := &testApp.EvmKeeper
 
 			testPrivHex := hex.EncodeToString(privKey.Bytes())
@@ -1018,7 +1014,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			} else {
 				require.Empty(t, gotRet.VmError)
 				require.Nil(t, err)
-				require.Equal(t, tt.wantRet, gotRet.ReturnData)
+				require.Equal(t, []byte{31: expectedProposalID}, gotRet.ReturnData)
 			}
 		})
 	}
