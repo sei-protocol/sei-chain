@@ -436,7 +436,7 @@ func (db *DB) pruneSnapshots() {
 		}
 
 		// truncate Rlog until the earliest remaining snapshot
-		earliestVersion, err := firstSnapshotVersion(db.dir)
+		earliestVersion, err := GetEarliestVersion(db.dir)
 		if err != nil {
 			db.logger.Error("failed to find first snapshot", "err", err)
 		}
@@ -771,8 +771,8 @@ func seekSnapshot(root string, targetVersion int64) (int64, error) {
 	return snapshotVersion, nil
 }
 
-// firstSnapshotVersion returns the earliest snapshot name in the db
-func firstSnapshotVersion(root string) (int64, error) {
+// GetEarliestVersion returns the earliest snapshot name in the db
+func GetEarliestVersion(root string) (int64, error) {
 	var found int64
 	if err := traverseSnapshots(root, true, func(version int64) (bool, error) {
 		found = version

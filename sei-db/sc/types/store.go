@@ -15,6 +15,8 @@ type Committer interface {
 
 	GetLatestVersion() (int64, error)
 
+	GetEarliestVersion() (int64, error)
+
 	ApplyChangeSets(cs []*proto.NamedChangeSet) error
 
 	ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error

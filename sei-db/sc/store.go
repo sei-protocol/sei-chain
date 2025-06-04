@@ -103,6 +103,10 @@ func (cs *CommitStore) GetLatestVersion() (int64, error) {
 	return memiavl.GetLatestVersion(cs.opts.Dir)
 }
 
+func (cs *CommitStore) GetEarliestVersion() (int64, error) {
+	return memiavl.GetEarliestVersion(cs.opts.Dir)
+}
+
 func (cs *CommitStore) ApplyChangeSets(changesets []*proto.NamedChangeSet) error {
 	return cs.db.ApplyChangeSets(changesets)
 }
