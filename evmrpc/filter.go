@@ -139,7 +139,11 @@ func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res interface{}, err error) {
-	defer recordMetrics(fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, time.Now(), err == nil)
+	startTime := time.Now()
+	defer func() {
+		defer recordMetrics(fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, startTime, err == nil)
+		fmt.Printf("[Debug] Completed %s_getFilterChanges with latency %s for filterID %s\n", a.namespace, time.Since(startTime), filterID)
+	}()
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	filter, ok := a.filters[filterID]
@@ -173,6 +177,7 @@ func (a *FilterAPI) GetFilterChanges(
 		if filter.fc.ToBlock != nil && filter.lastToHeight >= filter.fc.ToBlock.Int64() {
 			return nil, nil
 		}
+		fmt.Printf("[Debug] Start %s_getFilterChanges with filterID %s, crit range %v to %v, lastToHeight %d\n", a.namespace, filterID, filter.fc.FromBlock, filter.fc.ToBlock, filter.lastToHeight)
 		logs, lastToHeight, err := a.logFetcher.GetLogsByFilters(ctx, filter.fc, filter.lastToHeight)
 		if err != nil {
 			return nil, err
@@ -190,7 +195,11 @@ func (a *FilterAPI) GetFilterLogs(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res []*ethtypes.Log, err error) {
-	defer recordMetrics(fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, time.Now(), err == nil)
+	startTime := time.Now()
+	defer func() {
+		defer recordMetrics(fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, startTime, err == nil)
+		fmt.Printf("[Debug] Completed %s_getFilterLogs with latency %s for filterID %s\n", a.namespace, time.Since(startTime), filterID)
+	}()
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	filter, ok := a.filters[filterID]
@@ -204,7 +213,7 @@ func (a *FilterAPI) GetFilterLogs(
 		<-filter.deadline.C
 	}
 	filter.deadline.Reset(a.filterConfig.timeout)
-
+	fmt.Printf("[Debug] Start %s_getFilterLogs with filterID %s, crit range %v to %v, lastToHeight %d\n", a.namespace, filterID, filter.fc.FromBlock, filter.fc.ToBlock, 0)
 	logs, lastToHeight, err := a.logFetcher.GetLogsByFilters(ctx, filter.fc, 0)
 	if err != nil {
 		return nil, err
@@ -220,6 +229,7 @@ func (a *FilterAPI) GetLogs(
 	crit filters.FilterCriteria,
 ) (res []*ethtypes.Log, err error) {
 	startTime := time.Now()
+	fmt.Printf("[Debug] Start %s_getLogs with BlockHash %v, FromBlock %v, ToBlock %v\n", a.namespace, crit.BlockHash, crit.FromBlock, crit.ToBlock)
 	defer recordMetrics(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, startTime, err == nil)
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
 	fmt.Printf("[Debug] Complete %s_getLogs with latency %s for BlockHash %v, FromBlock %v, ToBlock %v\n", a.namespace, time.Since(startTime), crit.BlockHash, crit.FromBlock, crit.ToBlock)
@@ -374,6 +384,10 @@ func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCrite
 }
 
 func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]bloomIndexes) (chan *coretypes.ResultBlock, int64, bool, error) {
+	startTime := time.Now()
+	defer func() {
+		fmt.Printf("[Debug] fetchBlocksByCrit took %d for range %v to %v, lastToHeight %d\n", time.Since(startTime), crit.FromBlock, crit.ToBlock, lastToHeight)
+	}()
 	if crit.BlockHash != nil {
 		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:], 1)
 		if err != nil {

@@ -1201,23 +1201,16 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}
 	metrics.IncrementOptimisticProcessingCounter(false)
 	ctx.Logger().Info("optimistic processing ineligible")
-	processStart := time.Now()
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit, false)
-	processLatency := time.Since(processStart)
 
 	app.SetDeliverStateToCommit()
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return &abci.ResponseFinalizeBlock{}, nil
 	}
 
-	writeStateStart := time.Now()
 	cms := app.WriteState()
-	writeStateLatency := time.Since(writeStateStart)
-	invarianceCheckStart := time.Now()
 	app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
-	invarianceCheckLatency := time.Since(invarianceCheckStart)
 	appHash := app.GetWorkingHash()
-	fmt.Printf("[Debug] ProcessBlock took %s, writeState took %s, invarianceCheck took %s for block %d\n", processLatency, writeStateLatency, invarianceCheckLatency, ctx.BlockHeight())
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil
 }
@@ -1665,8 +1658,8 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 
 	events = append(events, endBlockResp.Events...)
 	endBlockLatency := time.Since(endBlockStart)
-	fmt.Printf("[Debug] Total processBlock took %s, beginBlock took %s, midBlock took %s, execution took %s, writeDeferred took %s, endBlock took %s\n",
-		time.Since(startTime), beginBlockLatency, midBlockLatency, executeLatency, writeDeferredBalanceLatency, endBlockLatency)
+	fmt.Printf("[Debug] Total processBlock took %s, beginBlock took %s, midBlock took %s, execution took %s, writeDeferred took %s, endBlock took %s for block %d\n",
+		time.Since(startTime), beginBlockLatency, midBlockLatency, executeLatency, writeDeferredBalanceLatency, endBlockLatency, ctx.BlockHeight())
 	return events, txResults, endBlockResp, nil
 }
 

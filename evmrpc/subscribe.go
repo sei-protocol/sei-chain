@@ -143,7 +143,12 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 }
 
 func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriteria) (s *rpc.Subscription, err error) {
-	defer recordMetrics("eth_logs", a.connectionType, time.Now(), err == nil)
+	startTime := time.Now()
+	defer func() {
+		defer recordMetrics("eth_logs", a.connectionType, startTime, err == nil)
+		fmt.Printf("[Debug] Completed subscription eth_logs with latency %s, crit range %v to %v\n", time.Since(startTime), filter.FromBlock, filter.ToBlock)
+	}()
+
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported

@@ -117,12 +117,6 @@ func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, b
 	isWasm := wasmd.IsWasmdCall(args.To)
 	defer func() {
 		recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
-		latency := time.Since(startTime)
-		if latency.Seconds() > 1 {
-			fmt.Printf("[Debug] Completed eth_call with latency %s, isWasm %v, args %v, blockNrOrHash %s\n", latency, isWasm, args, blockNrOrHash.String())
-		} else {
-			fmt.Printf("[Debug] Completed eth_call with latency %s, blockNrOrHash %s\n", latency, blockNrOrHash)
-		}
 	}()
 	defer func() {
 		if r := recover(); r != nil {
