@@ -45,7 +45,7 @@ interface IStaking {
     ) external returns (bool success);
 
     /**
-     * @notice Create a new validator
+     * @notice Create a new validator. Delegation amount must be provided as value in wei
      * @param pubKeyHex Ed25519 public key in hex format (64 characters)
      * @param moniker Validator display name
      * @param commissionRate Initial commission rate (e.g. "0.05" for 5%)
