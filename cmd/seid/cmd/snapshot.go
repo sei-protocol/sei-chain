@@ -6,8 +6,11 @@ import (
 	"path/filepath"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
+	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/server"
+	"github.com/cosmos/cosmos-sdk/snapshots"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -45,6 +48,15 @@ func SnapshotCmd() *cobra.Command {
 				snapshotDir = filepath.Join(homeDir, "data", "snapshots")
 			}
 
+			snapshotDB, err := sdk.NewLevelDB("metadata", snapshotDir)
+			if err != nil {
+				panic(err)
+			}
+			snapshotStore, err := snapshots.NewStore(snapshotDB, snapshotDir)
+			if err != nil {
+				panic(err)
+			}
+
 			// Create logger
 			logger := log.NewTMLogger(log.NewSyncWriter(os.Stdout))
 
@@ -68,15 +80,11 @@ func SnapshotCmd() *cobra.Command {
 				[]wasm.Option{},
 				[]aclkeeper.Option{},
 				app.EmptyAppOptions,
+				baseapp.SetSnapshotStore(snapshotStore),
 			)
 
 			// Set chain ID from flag
 			app.ChainID = cast.ToString(appOpts.Get(flags.FlagChainID))
-
-			// Load version at specified height
-			if err := app.LoadLatestVersion(); err != nil {
-				return fmt.Errorf("failed to load version at height %d: %w", height, err)
-			}
 
 			// Create snapshot
 			fmt.Printf("Creating snapshot at height %d...\n", height)
