@@ -887,7 +887,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, tt.args.callerSeiAddress, amt))
 
 			govMsgServer := govkeeper.NewMsgServerImpl(testApp.GovKeeper)
-			p, _ := gov.NewPrecompile(testApp.GovKeeper, govMsgServer, k, k.BankKeeper())
+			p, _ := gov.NewPrecompile(govMsgServer, k, k.BankKeeper())
 			submitProposalMethod, err := p.ABI.MethodById(p.GetExecutor().(*gov.PrecompileExecutor).SubmitProposalID)
 			require.Nil(t, err)
 			inputs, err := submitProposalMethod.Inputs.Pack(tt.args.proposal)

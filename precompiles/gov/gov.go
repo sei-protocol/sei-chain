@@ -35,7 +35,6 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	govKeeper        pcommon.GovKeeper
 	govMsgServer     pcommon.GovMsgServer
 	evmKeeper        pcommon.EVMKeeper
 	bankKeeper       pcommon.BankKeeper
@@ -48,11 +47,10 @@ type PrecompileExecutor struct {
 	SubmitProposalID []byte
 }
 
-func NewPrecompile(govKeeper pcommon.GovKeeper, govMsgServer pcommon.GovMsgServer, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.Precompile, error) {
+func NewPrecompile(govMsgServer pcommon.GovMsgServer, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.Precompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		govKeeper:    govKeeper,
 		govMsgServer: govMsgServer,
 		evmKeeper:    evmKeeper,
 		bankKeeper:   bankKeeper,
@@ -129,7 +127,15 @@ func (p PrecompileExecutor) vote(ctx sdk.Context, method *abi.Method, caller com
 	}
 	proposalID := args[0].(uint64)
 	voteOption := args[1].(int32)
-	err := p.govKeeper.AddVote(ctx, proposalID, voter, govtypes.NewNonSplitVoteOption(govtypes.VoteOption(voteOption)))
+
+	msg := govtypes.NewMsgVote(voter, proposalID, govtypes.VoteOption(voteOption))
+	err := msg.ValidateBasic()
+	if err != nil {
+		return nil, err
+	}
+
+	goCtx := sdk.WrapSDKContext(ctx)
+	_, err = p.govMsgServer.Vote(goCtx, msg)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +178,14 @@ func (p PrecompileExecutor) voteWeighted(ctx sdk.Context, method *abi.Method, ca
 		}
 	}
 
-	err := p.govKeeper.AddVote(ctx, proposalID, voter, voteOptions)
+	msg := govtypes.NewMsgVoteWeighted(voter, proposalID, voteOptions)
+	err := msg.ValidateBasic()
+	if err != nil {
+		return nil, err
+	}
+
+	goCtx := sdk.WrapSDKContext(ctx)
+	_, err = p.govMsgServer.VoteWeighted(goCtx, msg)
 	if err != nil {
 		return nil, err
 	}
@@ -195,11 +208,20 @@ func (p PrecompileExecutor) deposit(ctx sdk.Context, method *abi.Method, caller 
 	if err != nil {
 		return nil, err
 	}
-	res, err := p.govKeeper.AddDeposit(ctx, proposalID, depositor, sdk.NewCoins(coin))
+
+	msg := govtypes.NewMsgDeposit(depositor, proposalID, sdk.NewCoins(coin))
+	err = msg.ValidateBasic()
 	if err != nil {
 		return nil, err
 	}
-	return method.Outputs.Pack(res)
+
+	goCtx := sdk.WrapSDKContext(ctx)
+	_, err = p.govMsgServer.Deposit(goCtx, msg)
+	if err != nil {
+		return nil, err
+	}
+
+	return method.Outputs.Pack(true)
 }
 
 func (p PrecompileExecutor) submitProposal(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, error) {
