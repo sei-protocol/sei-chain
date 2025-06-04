@@ -162,7 +162,7 @@ func (p PrecompileExecutor) voteWeighted(ctx sdk.Context, method *abi.Method, ca
 		Weight string `json:"weight"`
 	})
 
-	maxOptions := 5
+	maxOptions := 4
 	if len(weightedOptionsStruct) > maxOptions {
 		return nil, fmt.Errorf("too many vote options provided: maximum allowed is %d", maxOptions)
 	}

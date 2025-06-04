@@ -142,7 +142,31 @@ func TestGovPrecompile(t *testing.T) {
 				// No verification needed as we expect an error
 			},
 			wantErr:             true,
-			wantErrMsgToContain: "too many vote options provided: maximum allowed is 5",
+			wantErrMsgToContain: "too many vote options provided: maximum allowed is 4",
+		},
+		{
+			name: "exactly max weighted vote options",
+			args: args{
+				method:   "voteWeighted",
+				proposal: proposal.ProposalId,
+				value:    big.NewInt(0),
+			},
+			setup: func(ctx sdk.Context, k *keeper.Keeper, evmAddr common.Address, seiAddr sdk.AccAddress) {
+				amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
+				require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
+				require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
+			},
+			verify: func(t *testing.T, ctx sdk.Context, seiAddr sdk.AccAddress, proposalID uint64) {
+				v, found := testApp.GovKeeper.GetVote(ctx, proposalID, seiAddr)
+				require.True(t, found)
+				require.Equal(t, 4, len(v.Options))
+				// Verify all options were correctly processed
+				require.Equal(t, govtypes.OptionYes, v.Options[0].Option)
+				require.Equal(t, govtypes.OptionNo, v.Options[1].Option)
+				require.Equal(t, govtypes.OptionAbstain, v.Options[2].Option)
+				require.Equal(t, govtypes.OptionNoWithVeto, v.Options[3].Option)
+			},
+			wantErr: false,
 		},
 		{
 			name: "invalid weighted vote options",
@@ -231,7 +255,6 @@ func TestGovPrecompile(t *testing.T) {
 						{Option: int32(govtypes.OptionNo), Weight: "0.1"},
 						{Option: int32(govtypes.OptionNoWithVeto), Weight: "0.1"},
 						{Option: int32(govtypes.OptionNoWithVeto), Weight: "0.1"},
-						{Option: int32(govtypes.OptionNoWithVeto), Weight: "0.1"},
 					}
 				} else if tt.name == "invalid weighted vote options" {
 					weightedOptions = []struct {
@@ -240,6 +263,16 @@ func TestGovPrecompile(t *testing.T) {
 					}{
 						{Option: int32(govtypes.OptionYes), Weight: "0.7"},
 						{Option: int32(govtypes.OptionYes), Weight: "0.3"},
+					}
+				} else if tt.name == "exactly max weighted vote options" {
+					weightedOptions = []struct {
+						Option int32  `json:"option"`
+						Weight string `json:"weight"`
+					}{
+						{Option: int32(govtypes.OptionYes), Weight: "0.25"},
+						{Option: int32(govtypes.OptionNo), Weight: "0.25"},
+						{Option: int32(govtypes.OptionAbstain), Weight: "0.25"},
+						{Option: int32(govtypes.OptionNoWithVeto), Weight: "0.25"},
 					}
 				}
 				args, err = abi.Pack(tt.args.method, tt.args.proposal, weightedOptions)
