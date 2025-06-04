@@ -533,7 +533,6 @@ func setupCreateValidatorTest(t *testing.T) *createValidatorTestSetup {
 func TestCreateValidator(t *testing.T) {
 	type args struct {
 		pubKeyHex               string
-		amount                  string
 		moniker                 string
 		commissionRate          string
 		commissionMaxRate       string
@@ -553,12 +552,12 @@ func TestCreateValidator(t *testing.T) {
 			name: "successful creation",
 			args: args{
 				pubKeyHex:               hex.EncodeToString(ed25519.GenPrivKey().PubKey().Bytes()),
-				amount:                  "1sei",
 				moniker:                 "TestValidator",
 				commissionRate:          "0.05",
 				commissionMaxRate:       "0.20",
 				commissionMaxChangeRate: "0.01",
-				msd:                     big.NewInt(1000000),
+				msd:                     big.NewInt(1_000_000),                 // 1 SEI in usei
+				value:                   big.NewInt(1_000_000_000_000_000_000), // 1 SEI in wei
 				nonce:                   0,
 			},
 		},
@@ -566,11 +565,11 @@ func TestCreateValidator(t *testing.T) {
 			name: "fails with no self delegation",
 			args: args{
 				pubKeyHex:               hex.EncodeToString(ed25519.GenPrivKey().PubKey().Bytes()),
-				amount:                  "1sei",
 				moniker:                 "TestValidator",
 				commissionRate:          "0.05",
 				commissionMaxRate:       "0.20",
 				commissionMaxChangeRate: "0.01",
+				value:                   big.NewInt(1_000_000_000_000_000_000),
 				msd:                     big.NewInt(0), // No self-delegation
 				nonce:                   0,
 			},
@@ -581,7 +580,6 @@ func TestCreateValidator(t *testing.T) {
 			name: "fails with invalid public key",
 			args: args{
 				pubKeyHex:               "invalid_hex",
-				amount:                  "1sei",
 				moniker:                 "TestValidator",
 				commissionRate:          "0.05",
 				commissionMaxRate:       "0.20",
@@ -596,7 +594,6 @@ func TestCreateValidator(t *testing.T) {
 			name: "fails with invalid amount",
 			args: args{
 				pubKeyHex:               hex.EncodeToString(ed25519.GenPrivKey().PubKey().Bytes()),
-				amount:                  "invalid_amount",
 				moniker:                 "TestValidator",
 				commissionRate:          "0.05",
 				commissionMaxRate:       "0.20",
@@ -605,13 +602,12 @@ func TestCreateValidator(t *testing.T) {
 				nonce:                   0,
 			},
 			wantErr:    true,
-			wantErrMsg: "invalid decimal coin expression: invalid_amount",
+			wantErrMsg: "set `value` field to non-zero to send delegate fund",
 		},
 		{
 			name: "fails with invalid commission rate",
 			args: args{
 				pubKeyHex:               hex.EncodeToString(ed25519.GenPrivKey().PubKey().Bytes()),
-				amount:                  "1sei",
 				moniker:                 "TestValidator",
 				commissionRate:          "invalid_rate",
 				commissionMaxRate:       "0.20",
@@ -626,7 +622,6 @@ func TestCreateValidator(t *testing.T) {
 			name: "fails with invalid max commission rate",
 			args: args{
 				pubKeyHex:               hex.EncodeToString(ed25519.GenPrivKey().PubKey().Bytes()),
-				amount:                  "1sei",
 				moniker:                 "TestValidator",
 				commissionRate:          "0.05",
 				commissionMaxRate:       "invalid_max_rate",
@@ -641,7 +636,6 @@ func TestCreateValidator(t *testing.T) {
 			name: "fails with invalid max commission change rate",
 			args: args{
 				pubKeyHex:               hex.EncodeToString(ed25519.GenPrivKey().PubKey().Bytes()),
-				amount:                  "1sei",
 				moniker:                 "TestValidator",
 				commissionRate:          "0.05",
 				commissionMaxRate:       "0.20",
@@ -652,22 +646,6 @@ func TestCreateValidator(t *testing.T) {
 			wantErr:    true,
 			wantErrMsg: "invalid commission max change rate",
 		},
-		{
-			name: "fails when sending value",
-			args: args{
-				pubKeyHex:               hex.EncodeToString(ed25519.GenPrivKey().PubKey().Bytes()),
-				amount:                  "1sei",
-				moniker:                 "TestValidator",
-				commissionRate:          "0.05",
-				commissionMaxRate:       "0.20",
-				commissionMaxChangeRate: "0.01",
-				msd:                     big.NewInt(1000000),
-				nonce:                   0,
-				value:                   big.NewInt(1000000000000000000),
-			},
-			wantErr:    true,
-			wantErrMsg: "sending funds to a non-payable function",
-		},
 	}
 
 	setup := setupCreateValidatorTest(t)
@@ -677,7 +655,6 @@ func TestCreateValidator(t *testing.T) {
 
 			inputs, err := setup.abi.Pack("createValidator",
 				tt.args.pubKeyHex,
-				tt.args.amount,
 				tt.args.moniker,
 				tt.args.commissionRate,
 				tt.args.commissionMaxRate,

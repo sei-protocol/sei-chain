@@ -277,21 +277,17 @@ func (p PrecompileExecutor) delegation(ctx sdk.Context, method *abi.Method, args
 }
 
 func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, error) {
-	if err := pcommon.ValidateNonPayable(value); err != nil {
-		return nil, err
-	}
-	if err := pcommon.ValidateArgsLength(args, 7); err != nil {
+	if err := pcommon.ValidateArgsLength(args, 6); err != nil {
 		return nil, err
 	}
 
 	// Extract arguments
 	pubKeyHex := args[0].(string)
-	amountStr := args[1].(string)
-	moniker := args[2].(string)
-	commissionRateStr := args[3].(string)
-	commissionMaxRateStr := args[4].(string)
-	commissionMaxChangeRateStr := args[5].(string)
-	minSelfDelegation := args[6].(*big.Int)
+	moniker := args[1].(string)
+	commissionRateStr := args[2].(string)
+	commissionMaxRateStr := args[3].(string)
+	commissionMaxChangeRateStr := args[4].(string)
+	minSelfDelegation := args[5].(*big.Int)
 
 	// Get validator address (caller's associated Sei address)
 	valAddress, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
@@ -326,10 +322,23 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 
 	commission := stakingtypes.NewCommissionRates(commissionRate, commissionMaxRate, commissionMaxChangeRate)
 
-	coin, err := sdk.ParseCoinNormalized(amountStr)
+	if value == nil || value.Sign() == 0 {
+		return nil, errors.New("set `value` field to non-zero to send delegate fund")
+	}
+
+	coin, err := pcommon.HandlePaymentUsei(
+		ctx,
+		p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address),
+		valAddress,
+		value,
+		p.bankKeeper,
+		p.evmKeeper,
+		hooks,
+		evm.GetDepth())
 	if err != nil {
 		return nil, err
 	}
+
 	description := stakingtypes.Description{
 		Moniker: moniker,
 	}

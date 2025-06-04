@@ -47,7 +47,6 @@ interface IStaking {
     /**
      * @notice Create a new validator
      * @param pubKeyHex Ed25519 public key in hex format (64 characters)
-     * @param amount Self-delegation amount (e.g. "1000000usei" for 1 SEI)
      * @param moniker Validator display name
      * @param commissionRate Initial commission rate (e.g. "0.05" for 5%)
      * @param commissionMaxRate Maximum commission rate (e.g. "0.20" for 20%)
@@ -57,7 +56,6 @@ interface IStaking {
      */
     function createValidator(
         string memory pubKeyHex,
-        string memory amount,
         string memory moniker,
         string memory commissionRate,
         string memory commissionMaxRate,
