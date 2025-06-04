@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"sort"
 	"sync"
 	"time"
@@ -309,6 +310,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	res = []*ethtypes.Log{}
 	for block := range blocks {
 		b := block
+		metrics.IncrementRpcRequestCounter("num_blocks_fetched", "logs", true)
 		runner.Queue <- func() {
 			matchedLogs := f.GetLogsForBlock(b, crit, bloomIndexes)
 			for _, log := range matchedLogs {
@@ -429,6 +431,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	for height := begin; height <= end; height++ {
 		h := height
 		wg.Add(1)
+		metrics.IncrementRpcRequestCounter("num_blocks_fetched", "block", true)
 		runner.Queue <- func() {
 			defer wg.Done()
 			if h == 0 {
