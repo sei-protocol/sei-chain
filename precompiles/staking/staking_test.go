@@ -718,7 +718,6 @@ func TestCreateValidator_UnassociatedAddress(t *testing.T) {
 	pubKeyHex := hex.EncodeToString(ed25519.GenPrivKey().PubKey().Bytes())
 	args, err := setup.abi.Pack("createValidator",
 		pubKeyHex,
-		"1sei",
 		"TestValidator",
 		"0.05",
 		"0.20",
@@ -841,7 +840,6 @@ func TestEditValidator(t *testing.T) {
 	pubKeyHex := hex.EncodeToString(ed25519.GenPrivKey().PubKey().Bytes())
 	createArgs, err := abi.Pack("createValidator",
 		pubKeyHex,
-		"1sei",
 		"original-validator",
 		"0.10", // 10% commission
 		"0.20",
@@ -854,7 +852,7 @@ func TestEditValidator(t *testing.T) {
 		GasPrice: big.NewInt(1000000000000),
 		Gas:      200000,
 		To:       &addr,
-		Value:    big.NewInt(0),
+		Value:    big.NewInt(1_000_000_000_000_000_000),
 		Data:     createArgs,
 		Nonce:    0,
 	}
