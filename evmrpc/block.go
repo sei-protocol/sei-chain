@@ -239,6 +239,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		wg.Add(1)
 		go func(i int, hash common.Hash) {
 			defer wg.Done()
+			defer recoverAndLog()
 			receipt, err := a.keeper.GetReceipt(a.ctxProvider(height), hash)
 			if err != nil {
 				// When the transaction doesn't exist, skip it
@@ -363,7 +364,13 @@ func EncodeTmBlock(
 					transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 				} else {
 					ti := uint64(len(transactions))
-					to := k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
+					var to common.Address
+					ercAddress, _, exists := k.GetAnyPointeeInfo(ctx, m.Contract)
+					if exists {
+						to = ercAddress
+					} else {
+						to = k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
+					}
 					transactions = append(transactions, &ethapi.RPCTransaction{
 						BlockHash:        &blockhash,
 						BlockNumber:      (*hexutil.Big)(number),
