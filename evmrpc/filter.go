@@ -24,7 +24,12 @@ import (
 
 const TxSearchPerPage = 10
 
-const MaxNumOfWorkers = 500
+// Thread pool size - up to 100 goroutines
+const MaxNumOfWorkers = 100
+
+// Default range limits
+const DefaultMaxBlockRange = 100
+const DefaultMaxLogLimit = 10000
 
 type FilterType byte
 
@@ -45,6 +50,114 @@ type filter struct {
 	// LogsSubscription
 	lastToHeight int64
 }
+
+// Global worker pool to replace ParallelRunner
+type WorkerPool struct {
+	workers   int
+	taskQueue chan func()
+	once      sync.Once
+}
+
+var globalWorkerPool *WorkerPool
+
+func getGlobalWorkerPool() *WorkerPool {
+	if globalWorkerPool == nil {
+		globalWorkerPool = &WorkerPool{
+			workers:   MaxNumOfWorkers,
+			taskQueue: make(chan func(), 1000),
+		}
+		globalWorkerPool.start()
+	}
+	return globalWorkerPool
+}
+
+func (wp *WorkerPool) start() {
+	wp.once.Do(func() {
+		for i := 0; i < wp.workers; i++ {
+			go func() {
+				defer recoverAndLog()
+				for task := range wp.taskQueue {
+					task()
+				}
+			}()
+		}
+	})
+}
+
+func (wp *WorkerPool) submit(task func()) {
+	select {
+	case wp.taskQueue <- task:
+		// Task submitted successfully
+	default:
+		// Queue is full, execute task synchronously to prevent blocking
+		task()
+	}
+}
+
+// LRU Cache for blocks
+type BlockCacheEntry struct {
+	block     *coretypes.ResultBlock
+	timestamp time.Time
+}
+
+type BlockCache struct {
+	cache   map[int64]*BlockCacheEntry
+	order   []int64
+	maxSize int
+	mutex   sync.RWMutex
+}
+
+func NewBlockCache(maxSize int) *BlockCache {
+	return &BlockCache{
+		cache:   make(map[int64]*BlockCacheEntry),
+		order:   make([]int64, 0, maxSize),
+		maxSize: maxSize,
+	}
+}
+
+func (bc *BlockCache) Get(height int64) (*coretypes.ResultBlock, bool) {
+	bc.mutex.RLock()
+	defer bc.mutex.RUnlock()
+
+	entry, exists := bc.cache[height]
+	if !exists {
+		return nil, false
+	}
+
+	// Check if entry is still fresh (within 60 seconds)
+	if time.Since(entry.timestamp) > 60*time.Second {
+		return nil, false
+	}
+
+	return entry.block, true
+}
+
+func (bc *BlockCache) Put(height int64, block *coretypes.ResultBlock) {
+	bc.mutex.Lock()
+	defer bc.mutex.Unlock()
+
+	// If already exists, update timestamp and return
+	if _, exists := bc.cache[height]; exists {
+		bc.cache[height].timestamp = time.Now()
+		return
+	}
+
+	// If cache is full, remove oldest entry
+	if len(bc.cache) >= bc.maxSize {
+		oldest := bc.order[0]
+		delete(bc.cache, oldest)
+		bc.order = bc.order[1:]
+	}
+
+	// Add new entry
+	bc.cache[height] = &BlockCacheEntry{
+		block:     block,
+		timestamp: time.Now(),
+	}
+	bc.order = append(bc.order, height)
+}
+
+var globalBlockCache = NewBlockCache(100)
 
 type FilterAPI struct {
 	tmClient       rpcclient.Client
@@ -68,6 +181,14 @@ type EventItemDataWrapper struct {
 }
 
 func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, filterConfig *FilterConfig, connectionType ConnectionType, namespace string) *FilterAPI {
+	// Set default limits if not configured
+	if filterConfig.maxBlock <= 0 {
+		filterConfig.maxBlock = DefaultMaxBlockRange
+	}
+	if filterConfig.maxLog <= 0 {
+		filterConfig.maxLog = DefaultMaxLogLimit
+	}
+
 	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, txConfig: txConfig, filterConfig: filterConfig, includeSyntheticReceipts: shouldIncludeSynthetic(namespace)}
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
@@ -293,22 +414,24 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	if err != nil {
 		return nil, 0, err
 	}
-	runner := NewParallelRunner(MaxNumOfWorkers, 1000)
+	runner := getGlobalWorkerPool()
 	resultsChan := make(chan *ethtypes.Log, 1000)
 	res = []*ethtypes.Log{}
+	var wg sync.WaitGroup
 	for block := range blocks {
 		b := block
-		runner.Queue <- func() {
+		wg.Add(1)
+		runner.submit(func() {
+			defer wg.Done()
 			matchedLogs := f.GetLogsForBlock(b, crit, bloomIndexes)
 			for _, log := range matchedLogs {
 				resultsChan <- log
 			}
-		}
+		})
 	}
-	close(runner.Queue)
 	go func() {
 		defer recoverAndLog()
-		runner.Done.Wait()
+		wg.Wait()
 		close(resultsChan)
 	}()
 
@@ -406,7 +529,16 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	if lastToHeight > begin {
 		begin = lastToHeight
 	}
-	if !applyOpenEndedLogLimit && f.filterConfig.maxBlock > 0 && end >= (begin+f.filterConfig.maxBlock) {
+
+	// Improved range limiting: always enforce block range limits for open-ended queries
+	blockRange := end - begin + 1
+	if applyOpenEndedLogLimit && blockRange > f.filterConfig.maxBlock {
+		// For open-ended queries, limit to recent blocks
+		begin = end - f.filterConfig.maxBlock + 1
+		if begin < 1 {
+			begin = 1
+		}
+	} else if !applyOpenEndedLogLimit && f.filterConfig.maxBlock > 0 && blockRange > f.filterConfig.maxBlock {
 		return nil, 0, false, fmt.Errorf("a maximum of %d blocks worth of logs may be requested at a time", f.filterConfig.maxBlock)
 	}
 	// begin should always be <= end block at this point
@@ -415,13 +547,13 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	}
 	res := make(chan *coretypes.ResultBlock, end-begin+1)
 	errChan := make(chan error, 1)
-	runner := NewParallelRunner(MaxNumOfWorkers, int(end-begin+1))
+	runner := getGlobalWorkerPool()
 	var wg sync.WaitGroup
 
 	for height := begin; height <= end; height++ {
 		h := height
 		wg.Add(1)
-		runner.Queue <- func() {
+		runner.submit(func() {
 			defer wg.Done()
 			if h == 0 {
 				return
@@ -433,6 +565,13 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 					return
 				}
 			}
+
+			// Try to get block from cache first
+			if cachedBlock, found := globalBlockCache.Get(h); found {
+				res <- cachedBlock
+				return
+			}
+
 			block, err := blockByNumberWithRetry(ctx, f.tmClient, &h, 1)
 			if err != nil {
 				select {
@@ -441,10 +580,12 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 				}
 				return
 			}
+
+			// Cache the block
+			globalBlockCache.Put(h, block)
 			res <- block
-		}
+		})
 	}
-	close(runner.Queue)
 	go func() {
 		defer recoverAndLog()
 		wg.Wait()
