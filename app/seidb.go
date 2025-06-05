@@ -22,6 +22,7 @@ const (
 	FlagSCSnapshotInterval    = "state-commit.sc-snapshot-interval"
 	FlagSCSnapshotWriterLimit = "state-commit.sc-snapshot-writer-limit"
 	FlagSCCacheSize           = "state-commit.sc-cache-size"
+	FlagSCCacheModules        = "state-commit.sc-cache-modules"
 
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
@@ -85,6 +86,8 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.SnapshotKeepRecent = cast.ToUint32(appOpts.Get(FlagSCSnapshotKeepRecent))
 	scConfig.SnapshotInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotInterval))
 	scConfig.SnapshotWriterLimit = cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit))
+	scConfig.CacheSize = cast.ToInt(appOpts.Get(FlagSCCacheSize))
+	scConfig.CacheModules = cast.ToString(appOpts.Get(FlagSCCacheModules))
 	return scConfig
 }
 
