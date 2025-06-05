@@ -272,6 +272,11 @@ func (m *ParamsPreV606) GetTargetGasUsedPerBlock() uint64 {
 	return 0
 }
 
+func (m *ParamsPreV606) String() string {
+	return fmt.Sprintf("ParamsPreV606{PriorityNormalizer: %s, BaseFeePerGas: %s, MinimumFeePerGas: %s, WhitelistedCwCodeHashesForDelegateCall: %v, DeliverTxHookWasmGasLimit: %d, MaxDynamicBaseFeeUpwardAdjustment: %s, MaxDynamicBaseFeeDownwardAdjustment: %s, TargetGasUsedPerBlock: %d, MaximumFeePerGas: %s}",
+		m.PriorityNormalizer.String(), m.BaseFeePerGas.String(), m.MinimumFeePerGas.String(), m.WhitelistedCwCodeHashesForDelegateCall, m.DeliverTxHookWasmGasLimit, m.MaxDynamicBaseFeeUpwardAdjustment.String(), m.MaxDynamicBaseFeeDownwardAdjustment.String(), m.TargetGasUsedPerBlock, m.MaximumFeePerGas.String())
+}
+
 func init() {
 	proto.RegisterType((*Params)(nil), "seiprotocol.seichain.evm.Params")
 	proto.RegisterType((*ParamsPreV580)(nil), "seiprotocol.seichain.evm.ParamsPreV580")
