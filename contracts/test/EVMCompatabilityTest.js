@@ -277,6 +277,35 @@ describe("EVM Test", function () {
         await expect(signer.sendTransaction(tx)).to.be.rejectedWith("unsupported transaction type");
       })
 
+      it.only("trace with different gas parameters", async function() {
+        const txResponse = await owner.sendTransaction({
+          to: owner.address,
+          value: ethers.parseUnits('0', 'ether'),
+          maxPriorityFeePerGas: ethers.parseUnits('1', 'gwei'),
+          maxFeePerGas: ethers.parseUnits('3', 'gwei'),
+          type: 2
+        });
+        const receipt = await txResponse.wait();
+        console.log(receipt)
+        await sleep(1000)
+        // call trace transaction on this tx with diff tracing
+        const trace = await hre.network.provider.request({
+          method: "debug_traceTransaction",
+          params: [receipt.hash, {
+            tracer: "prestateTracer",
+            tracerConfig: {
+              diffMode: true
+            }
+          }],
+        });
+        console.log(trace)
+        expect(trace).to.not.be.null;
+        expect(trace.result).to.not.be.null;
+        const block = await ethers.provider.getBlock(receipt.blockNumber)
+        console.log(block)
+        // check that in cast block vs cast receipt the effective gas price is the same
+      });
+
       it("Should trace a call with timestamp", async function () {
         await delay()
         await sleep(1000) // make sure test is run in isolation
