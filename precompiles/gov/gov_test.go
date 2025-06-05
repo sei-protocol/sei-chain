@@ -356,7 +356,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "returns proposal id on submit text proposal with valid content and no deposit",
+			name: "returns proposal id on submit text proposal with valid content and no deposit (zero value)",
 			args: args{
 				caller:           callerEvmAddress,
 				callerSeiAddress: callerSeiAddress,
@@ -365,7 +365,21 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 					"description": "This is a gov proposal",
 					"type": "Text"
 				}`,
-				value: big.NewInt(1_000_000_000_000_000_000),
+				value: big.NewInt(0),
+			},
+			wantErr: false,
+		},
+		{
+			name: "returns proposal id on submit text proposal with valid content and nil deposit",
+			args: args{
+				caller:           callerEvmAddress,
+				callerSeiAddress: callerSeiAddress,
+				proposal: `{
+					"title": "Gov Proposal",
+					"description": "This is a gov proposal",
+					"type": "Text"
+				}`,
+				value: nil,
 			},
 			wantErr: false,
 		},
@@ -386,7 +400,6 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 							}
 						}
 					],
-					"deposit": "10000000usei",
 					"is_expedited": false
 				}`,
 				value: big.NewInt(1_000_000_000_000_000_000),
@@ -401,8 +414,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal: `{
 					"title": "Cancel Upgrade",
 					"description": "Cancel the pending software upgrade",
-					"type": "CancelSoftwareUpgrade",
-					"deposit": "10000000usei"
+					"type": "CancelSoftwareUpgrade"
 				}`,
 				value: big.NewInt(1_000_000_000_000_000_000),
 			},
@@ -416,8 +428,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal: `{
 					"title": "Invalid proposal",
 					"description": "This proposal has no changes",
-					"type": "ParameterChange",
-					"deposit": "10000000usei"
+					"type": "ParameterChange"
 				}`,
 			},
 			wantErr:    true,
@@ -440,8 +451,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 								"complex": "object"
 							}
 						}
-					],
-					"deposit": "10000000usei"
+					]
 				}`,
 			},
 			wantErr:    true,
@@ -460,8 +470,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 						"name": "v2.0.0",
 						"height": 1000,
 						"info": "Upgrade to v2.0.0"
-					},
-					"deposit": "10000000usei"
+					}
 				}`,
 			},
 			wantErr: false,
@@ -474,8 +483,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal: `{
 					"title": "Invalid upgrade",
 					"description": "This proposal has no plan",
-					"type": "SoftwareUpgrade",
-					"deposit": "10000000usei"
+					"type": "SoftwareUpgrade"
 				}`,
 			},
 			wantErr:    true,
@@ -492,8 +500,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 					"type": "SoftwareUpgrade",
 					"plan": {
 						"name": "v2.0.0"
-					},
-					"deposit": "10000000usei"
+					}
 				}`,
 			},
 			wantErr:    true,
@@ -510,8 +517,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 					"type": "SoftwareUpgrade",
 					"plan": {
 						"height": 1000
-					},
-					"deposit": "10000000usei"
+					}
 				}`,
 			},
 			wantErr:    true,
@@ -529,8 +535,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 					"plan": {
 						"name": "v2.0.0",
 						"height": "1000"
-					},
-					"deposit": "10000000usei"
+					}
 				}`,
 			},
 			wantErr:    true,
@@ -548,8 +553,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 					"plan": {
 						"name": 123,
 						"height": 1000
-					},
-					"deposit": "10000000usei"
+					}
 				}`,
 			},
 			wantErr:    true,
@@ -568,8 +572,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 						"name": "v2.0.0",
 						"height": 1000,
 						"info": 123
-					},
-					"deposit": "10000000usei"
+					}
 				}`,
 			},
 			wantErr:    true,
@@ -587,8 +590,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 					"community_pool_spend": {
 						"recipient": "` + recipientEvmAddress.String() + `",
 						"amount": "1000000usei"
-					},
-					"deposit": "10000000usei"
+					}
 				}`,
 				value: big.NewInt(1_000_000_000_000_000_000),
 			},
@@ -602,8 +604,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal: `{
 					"title": "Invalid spend",
 					"description": "This proposal has no parameters",
-					"type": "CommunityPoolSpend",
-					"deposit": "10000000usei"
+					"type": "CommunityPoolSpend"
 				}`,
 			},
 			wantErr:    true,
@@ -620,8 +621,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 					"type": "CommunityPoolSpend",
 					"community_pool_spend": {
 						"amount": "1000000usei"
-					},
-					"deposit": "10000000usei"
+					}
 				}`,
 			},
 			wantErr:    true,
@@ -638,8 +638,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 					"type": "CommunityPoolSpend",
 					"community_pool_spend": {
 						"recipient": "0x1234567890123456789012345678901234567890"
-					},
-					"deposit": "10000000usei"
+					}
 				}`,
 			},
 			wantErr:    true,
@@ -657,8 +656,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 					"community_pool_spend": {
 						"recipient": "invalid",
 						"amount": "1000000usei"
-					},
-					"deposit": "10000000usei"
+					}
 				}`,
 			},
 			wantErr:    true,
@@ -676,8 +674,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 					"community_pool_spend": {
 						"recipient": "0x1234567890123456789012345678901234567890",
 						"amount": "invalid"
-					},
-					"deposit": "10000000usei"
+					}
 				}`,
 			},
 			wantErr:    true,
@@ -839,8 +836,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 							"key": "dependencies",
 							"value": ["dep1", "dep2"]
 						}
-					],
-					"deposit": "10000000usei"
+					]
 				}`,
 			},
 			wantErr:    true,
@@ -854,8 +850,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 				proposal: `{
 					"title": "Invalid mapping",
 					"description": "This proposal has no changes",
-					"type": "UpdateResourceDependencyMapping",
-					"deposit": "10000000usei"
+					"type": "UpdateResourceDependencyMapping"
 				}`,
 			},
 			wantErr:    true,
@@ -875,8 +870,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 							"key": "dependencies",
 							"value": ["dep1", "dep2"]
 						}
-					],
-					"deposit": "10000000usei"
+					]
 				}`,
 			},
 			wantErr:    true,
@@ -896,8 +890,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 							"key": "resource",
 							"value": "resource1"
 						}
-					],
-					"deposit": "10000000usei"
+					]
 				}`,
 			},
 			wantErr:    true,
@@ -921,8 +914,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 							"key": "dependencies",
 							"value": ["dep1", "dep2"]
 						}
-					],
-					"deposit": "10000000usei"
+					]
 				}`,
 			},
 			wantErr:    true,
@@ -946,8 +938,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 							"key": "dependencies",
 							"value": "not an array"
 						}
-					],
-					"deposit": "10000000usei"
+					]
 				}`,
 			},
 			wantErr:    true,
