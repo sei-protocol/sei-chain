@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -410,6 +411,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	defer close(runner.Queue)
 	for height := begin; height <= end; height++ {
 		h := height
+		metrics.IncrementRpcRequestCounter("num_blocks_fetched", "block", true)
 		runner.Queue <- func() {
 			if h == 0 {
 				return
