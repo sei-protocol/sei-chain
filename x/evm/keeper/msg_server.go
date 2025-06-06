@@ -302,7 +302,7 @@ func (k *Keeper) applyEVMMessageWithTracing(
 	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(msg)
 	evmHooks := evmtracers.GetCtxEthTracingHooks(ctx)
-	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{Tracer: evmHooks}, k.customPrecompiles)
+	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{Tracer: evmHooks}, k.CustomPrecompiles(ctx))
 
 	stateDB.SetLogger(evmHooks)
 

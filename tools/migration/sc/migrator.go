@@ -19,6 +19,7 @@ import (
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
+	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/tools/utils"
 	"github.com/sei-protocol/sei-db/config"
@@ -158,6 +159,7 @@ func CreateWasmSnapshotter(cms sdk.MultiStore, homeDir string) *keeper.WasmSnaps
 		nil,
 		nil,
 		nil,
+		upgradekeeper.Keeper{},
 		nil,
 		nil,
 		nil,

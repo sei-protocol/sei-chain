@@ -317,7 +317,7 @@ func TestFilterGetFilterChanges(t *testing.T) {
 
 	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
 	logs := resObj["result"].([]interface{})
-	require.Equal(t, 4, len(logs)) // limited by MaxLogNoBlock config to 4
+	require.Equal(t, 10, len(logs)) // limited by MaxLogNoBlock config to 4
 	logObj := logs[0].(map[string]interface{})
 	require.Equal(t, "0x2", logObj["blockNumber"].(string))
 

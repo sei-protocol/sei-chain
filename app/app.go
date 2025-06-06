@@ -362,8 +362,9 @@ type App struct {
 	optimisticProcessingInfo *OptimisticProcessingInfo
 
 	// batchVerifier *ante.SR25519BatchVerifier
-	txDecoder   sdk.TxDecoder
-	AnteHandler sdk.AnteHandler
+	txDecoder         sdk.TxDecoder
+	AnteHandler       sdk.AnteHandler
+	TracerAnteHandler sdk.AnteHandler
 
 	versionInfo version.Info
 
@@ -385,6 +386,11 @@ type App struct {
 	receiptStore seidb.StateStore
 
 	forkInitializer func(sdk.Context)
+
+	httpServerStartSignal     chan struct{}
+	wsServerStartSignal       chan struct{}
+	httpServerStartSignalSent bool
+	wsServerStartSignalSent   bool
 }
 
 type AppOption func(*App)
@@ -433,19 +439,21 @@ func New(
 	memKeys := sdk.NewMemoryStoreKeys(capabilitytypes.MemStoreKey, banktypes.DeferredCacheStoreKey, oracletypes.MemStoreKey)
 
 	app := &App{
-		BaseApp:           bApp,
-		cdc:               cdc,
-		appCodec:          appCodec,
-		interfaceRegistry: interfaceRegistry,
-		invCheckPeriod:    invCheckPeriod,
-		keys:              keys,
-		tkeys:             tkeys,
-		memKeys:           memKeys,
-		txDecoder:         encodingConfig.TxConfig.TxDecoder(),
-		versionInfo:       version.NewInfo(),
-		metricCounter:     &map[string]float32{},
-		encodingConfig:    encodingConfig,
-		stateStore:        stateStore,
+		BaseApp:               bApp,
+		cdc:                   cdc,
+		appCodec:              appCodec,
+		interfaceRegistry:     interfaceRegistry,
+		invCheckPeriod:        invCheckPeriod,
+		keys:                  keys,
+		tkeys:                 tkeys,
+		memKeys:               memKeys,
+		txDecoder:             encodingConfig.TxConfig.TxDecoder(),
+		versionInfo:           version.NewInfo(),
+		metricCounter:         &map[string]float32{},
+		encodingConfig:        encodingConfig,
+		stateStore:            stateStore,
+		httpServerStartSignal: make(chan struct{}, 1),
+		wsServerStartSignal:   make(chan struct{}, 1),
 	}
 
 	for _, option := range appOptions {
@@ -592,6 +600,7 @@ func New(
 		app.IBCKeeper.ChannelKeeper,
 		&app.IBCKeeper.PortKeeper,
 		scopedWasmKeeper,
+		app.UpgradeKeeper,
 		app.TransferKeeper,
 		app.MsgServiceRouter(),
 		app.GRPCQueryRouter(),
@@ -616,7 +625,7 @@ func New(
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
 		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
-		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper)
+		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.UpgradeKeeper)
 	app.BankKeeper.RegisterRecipientChecker(app.EvmKeeper.CanAddressReceive)
 
 	bApp.SetPreCommitHandler(app.HandlePreCommit)
@@ -705,6 +714,7 @@ func New(
 
 	if enableCustomEVMPrecompiles {
 		customPrecompiles := precompiles.GetCustomPrecompiles(
+			LatestUpgrade,
 			&app.EvmKeeper,
 			app.BankKeeper,
 			bankkeeper.NewMsgServerImpl(app.BankKeeper),
@@ -721,7 +731,7 @@ func New(
 			app.IBCKeeper.ChannelKeeper,
 			app.AccountKeeper,
 		)
-		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles)
+		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles, LatestUpgrade)
 	}
 
 	/****  Module Options ****/
@@ -905,7 +915,7 @@ func New(
 	signModeHandler := encodingConfig.TxConfig.SignModeHandler()
 	// app.batchVerifier = ante.NewSR25519BatchVerifier(app.AccountKeeper, signModeHandler)
 
-	anteHandler, anteDepGenerator, err := NewAnteHandlerAndDepGenerator(
+	anteHandler, tracerAnteHandler, anteDepGenerator, err := NewAnteHandlerAndDepGenerator(
 		HandlerOptions{
 			HandlerOptions: ante.HandlerOptions{
 				AccountKeeper:   app.AccountKeeper,
@@ -933,6 +943,7 @@ func New(
 		panic(err)
 	}
 	app.AnteHandler = anteHandler
+	app.TracerAnteHandler = tracerAnteHandler
 
 	app.SetAnteHandler(anteHandler)
 	app.SetAnteDepGenerator(anteDepGenerator)
@@ -1579,6 +1590,16 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedT
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
+	defer func() {
+		if !app.httpServerStartSignalSent {
+			app.httpServerStartSignalSent = true
+			app.httpServerStartSignal <- struct{}{}
+		}
+		if !app.wsServerStartSignalSent {
+			app.wsServerStartSignalSent = true
+			app.wsServerStartSignal <- struct{}{}
+		}
+	}()
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
 	if app.evmTracer != nil {
@@ -1870,14 +1891,14 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
-		return app.GetCheckCtx()
+		return app.GetCheckCtx().WithIsTracing(true)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
 		app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
-		return app.GetCheckCtx()
+		return app.GetCheckCtx().WithIsTracing(true)
 	}
-	return ctx.WithIsEVM(true)
+	return ctx.WithIsEVM(true).WithIsTracing(true)
 }
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
@@ -1885,23 +1906,29 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
 
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.AnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil)
 		if err != nil {
 			panic(err)
 		}
-		if err := evmHTTPServer.Start(); err != nil {
-			panic(err)
-		}
+		go func() {
+			<-app.httpServerStartSignal
+			if err := evmHTTPServer.Start(); err != nil {
+				panic(err)
+			}
+		}()
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.AnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome)
 		if err != nil {
 			panic(err)
 		}
-		if err := evmWSServer.Start(); err != nil {
-			panic(err)
-		}
+		go func() {
+			<-app.wsServerStartSignal
+			if err := evmWSServer.Start(); err != nil {
+				panic(err)
+			}
+		}()
 	}
 }
 

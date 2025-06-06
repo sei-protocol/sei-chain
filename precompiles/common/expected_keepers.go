@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"math/big"
 
 	connectiontypes "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types"
 	"github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
@@ -43,8 +44,11 @@ type EVMKeeper interface {
 	GetEVMAddressOrDefault(sdk.Context, sdk.AccAddress) common.Address
 	SetAddressMapping(sdk.Context, sdk.AccAddress, common.Address)
 	GetCodeHash(sdk.Context, common.Address) common.Hash
+	GetCode(ctx sdk.Context, addr common.Address) []byte
 	GetPriorityNormalizer(ctx sdk.Context) sdk.Dec
+	GetPriorityNormalizerPre580(ctx sdk.Context) sdk.Dec
 	GetBaseDenom(ctx sdk.Context) string
+	GetBalance(ctx sdk.Context, addr sdk.AccAddress) *big.Int
 	SetERC20NativePointer(ctx sdk.Context, token string, addr common.Address) error
 	GetERC20NativePointer(ctx sdk.Context, token string) (addr common.Address, version uint16, exists bool)
 	SetERC20CW20Pointer(ctx sdk.Context, cw20Address string, addr common.Address) error

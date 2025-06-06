@@ -303,7 +303,7 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 1, len(txs))
-	ti := uint64(1)
+	ti := uint64(0)
 	bh := common.HexToHash(MockBlockID.Hash.String())
 	to := common.Address(toSeiAddr)
 	require.Equal(t, &ethapi.RPCTransaction{
@@ -332,6 +332,7 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 		ToAddress:   toSeiAddr.String(),
 		Amount:      sdk.NewCoins(sdk.NewCoin("usei", sdk.OneInt())),
 	})
+	ti := uint64(0)
 	tx := b.GetTx()
 	bz, _ := Encoder(tx)
 	resBlock := coretypes.ResultBlock{
@@ -366,14 +367,15 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 	bh := common.HexToHash(MockBlockID.Hash.String())
 	to := common.Address(toSeiAddr)
 	require.Equal(t, &ethapi.RPCTransaction{
-		BlockHash:   &bh,
-		BlockNumber: (*hexutil.Big)(big.NewInt(MockHeight8)),
-		From:        fromEvmAddr,
-		To:          &to,
-		Value:       (*hexutil.Big)(big.NewInt(1_000_000_000_000)),
-		Hash:        common.Hash(sha256.Sum256(bz)),
-		V:           nil,
-		R:           nil,
-		S:           nil,
+		BlockHash:        &bh,
+		BlockNumber:      (*hexutil.Big)(big.NewInt(MockHeight8)),
+		From:             fromEvmAddr,
+		To:               &to,
+		Value:            (*hexutil.Big)(big.NewInt(1_000_000_000_000)),
+		Hash:             common.Hash(sha256.Sum256(bz)),
+		TransactionIndex: (*hexutil.Uint64)(&ti),
+		V:                nil,
+		R:                nil,
+		S:                nil,
 	}, txs[0].(*ethapi.RPCTransaction))
 }

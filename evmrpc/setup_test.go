@@ -197,6 +197,9 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 						}(),
 					},
 				},
+				LastCommit: &tmtypes.Commit{
+					Height: MockHeight100 - 1,
+				},
 			},
 		}
 	}
@@ -548,12 +551,12 @@ func init() {
 	goodConfig.HTTPPort = TestPort
 	goodConfig.WSPort = TestWSPort
 	goodConfig.FilterTimeout = 500 * time.Millisecond
-	goodConfig.MaxLogNoBlock = 4
+	goodConfig.MaxLogNoBlock = 10
 	infoLog, err := log.NewDefaultLogger("text", "info")
 	if err != nil {
 		panic(err)
 	}
-	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.AnteHandler, ctxProvider, TxConfig, "", isPanicTxFunc)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, TxConfig, "", isPanicTxFunc)
 	if err != nil {
 		panic(err)
 	}
@@ -565,7 +568,7 @@ func init() {
 	badConfig := evmrpc.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BaseApp, testApp.AnteHandler, ctxProvider, TxConfig, "", nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, TxConfig, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -574,7 +577,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.AnteHandler, ctxProvider, TxConfig, "")
+	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, TxConfig, "")
 	if err != nil {
 		panic(err)
 	}
@@ -649,7 +652,7 @@ func generateTxData() {
 		Data:      []byte("synthetic"),
 		ChainID:   chainId,
 	})
-	debugTraceTxBuilder, _ := buildTx(ethtypes.DynamicFeeTx{
+	debugTraceTxBuilder, debugTraceEthTx := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     0,
 		GasFeeCap: big.NewInt(1000000000),
 		Gas:       200000,
@@ -722,6 +725,10 @@ func generateTxData() {
 	}); err != nil {
 		panic(err)
 	}
+	_ = EVMKeeper.MockReceipt(Ctx, debugTraceEthTx.Hash(), &types.Receipt{
+		BlockNumber:       103,
+		EffectiveGasPrice: 1000000,
+	})
 	seiAddr, err := sdk.AccAddressFromHex(common.Bytes2Hex([]byte("seiAddr")))
 	if err != nil {
 		panic(err)
@@ -916,14 +923,16 @@ func setupLogs() {
 	})
 	CtxDebugTracePanic := Ctx.WithBlockHeight(MockHeight103)
 	EVMKeeper.MockReceipt(CtxDebugTracePanic, common.HexToHash(TestNonPanicTxHash), &types.Receipt{
-		BlockNumber:      MockHeight103,
-		TransactionIndex: 0,
-		TxHashHex:        TestNonPanicTxHash,
+		BlockNumber:       MockHeight103,
+		TransactionIndex:  0,
+		TxHashHex:         TestNonPanicTxHash,
+		EffectiveGasPrice: 1000000,
 	})
 	EVMKeeper.MockReceipt(CtxDebugTracePanic, common.HexToHash(TestPanicTxHash), &types.Receipt{
-		BlockNumber:      MockHeight103,
-		TransactionIndex: 1,
-		TxHashHex:        TestPanicTxHash,
+		BlockNumber:       MockHeight103,
+		TransactionIndex:  1,
+		TxHashHex:         TestPanicTxHash,
+		EffectiveGasPrice: 1000000,
 	})
 	txNonEvmBz, _ := Encoder(TxNonEvmWithSyntheticLog)
 	txNonEvmHash := sha256.Sum256(txNonEvmBz)

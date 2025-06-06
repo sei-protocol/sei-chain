@@ -1,6 +1,7 @@
 package state
 
 import (
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
@@ -95,7 +96,13 @@ func (s *DBImpl) Prepare(_ params.Rules, sender, coinbase common.Address, dest *
 	for _, addr := range precompiles {
 		// skip any custom precompile
 		if addr.Cmp(CustomPrecompileStartingAddr) >= 0 {
-			continue
+			if !s.ctx.IsTracing() {
+				continue
+			}
+			upgradeHeight := s.k.UpgradeKeeper().GetDoneHeight(s.ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(s.ctx)), "v5.7.5")
+			if upgradeHeight == 0 || s.ctx.BlockHeight() >= upgradeHeight {
+				continue
+			}
 		}
 		s.AddAddressToAccessList(addr)
 	}

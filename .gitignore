@@ -53,6 +53,7 @@ example/cosmwasm/echo/target
 example/cosmwasm/cw20/target
 example/cosmwasm/cw721/target
 example/cosmwasm/cw1155/target
+example/cosmwasm/iter/target
 
 # Solidity contracts artifacts
 contracts/artifacts
