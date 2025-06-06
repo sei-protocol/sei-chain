@@ -55,14 +55,14 @@ func NewEVMHTTPServer(
 	ctx := ctxProvider(LatestCtxHeight)
 
 	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP)
-	debugAPI := NewDebugAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), simulateConfig, app, antehandler, ConnectionTypeHTTP)
+	debugAPI := NewDebugAPI(tmClient, k, ctxProvider, txConfig, simulateConfig, app, antehandler, ConnectionTypeHTTP, config)
 	if isPanicOrSyntheticTxFunc == nil {
 		isPanicOrSyntheticTxFunc = func(ctx context.Context, hash common.Hash) (bool, error) {
 			return debugAPI.isPanicOrSyntheticTx(ctx, hash)
 		}
 	}
 	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc)
-	seiDebugAPI := NewSeiDebugAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), simulateConfig, app, antehandler, ConnectionTypeHTTP)
+	seiDebugAPI := NewSeiDebugAPI(tmClient, k, ctxProvider, txConfig, simulateConfig, app, antehandler, ConnectionTypeHTTP, config)
 
 	apis := []rpc.API{
 		{
@@ -103,7 +103,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSimulationAPI(ctxProvider, k, txConfig.TxDecoder(), tmClient, simulateConfig, app, antehandler, ConnectionTypeHTTP),
+			Service:   NewSimulationAPI(ctxProvider, k, txConfig, tmClient, simulateConfig, app, antehandler, ConnectionTypeHTTP),
 		},
 		{
 			Namespace: "net",
@@ -163,6 +163,7 @@ func NewEVMHTTPServer(
 	if err := httpServer.EnableRPC(apis, HTTPConfig{
 		CorsAllowedOrigins: strings.Split(config.CORSOrigins, ","),
 		Vhosts:             []string{"*"},
+		DenyList:           config.DenyList,
 	}); err != nil {
 		return nil, err
 	}
@@ -217,7 +218,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSimulationAPI(ctxProvider, k, txConfig.TxDecoder(), tmClient, simulateConfig, app, antehandler, ConnectionTypeWS),
+			Service:   NewSimulationAPI(ctxProvider, k, txConfig, tmClient, simulateConfig, app, antehandler, ConnectionTypeWS),
 		},
 		{
 			Namespace: "net",

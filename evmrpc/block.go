@@ -229,10 +229,17 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}
 	allReceipts := make([]map[string]interface{}, len(txHashes))
+	sdkCtx := a.ctxProvider(LatestCtxHeight)
+	signer := ethtypes.MakeSigner(
+		types.DefaultChainConfig().EthereumConfig(a.keeper.ChainID(sdkCtx)),
+		big.NewInt(sdkCtx.BlockHeight()),
+		uint64(sdkCtx.BlockTime().Unix()),
+	)
 	for i, hash := range txHashes {
 		wg.Add(1)
 		go func(i int, hash common.Hash) {
 			defer wg.Done()
+			defer recoverAndLog()
 			receipt, err := a.keeper.GetReceipt(a.ctxProvider(height), hash)
 			if err != nil {
 				// When the transaction doesn't exist, skip it
@@ -242,6 +249,9 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					mtx.Unlock()
 				}
 			} else {
+				if isReceiptFromAnteError(receipt) {
+					return
+				}
 				// If the receipt has synthetic logs, we actually want to include them in the response.
 				if !a.includeShellReceipts && receipt.TxType == ShellEVMTxType {
 					return
@@ -254,7 +264,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 				encodedReceipt, err := encodeReceipt(receipt, a.txConfig.TxDecoder(), block, func(h common.Hash) bool {
 					_, err := a.keeper.GetReceipt(a.ctxProvider(height), h)
 					return err == nil
-				})
+				}, a.includeShellReceipts, signer)
 				if err != nil {
 					mtx.Lock()
 					returnErr = err
@@ -270,6 +280,9 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		if len(r) > 0 {
 			compactReceipts = append(compactReceipts, r)
 		}
+	}
+	for i, cr := range compactReceipts {
+		cr["transactionIndex"] = hexutil.Uint64(i)
 	}
 	if returnErr != nil {
 		return nil, returnErr
@@ -326,7 +339,7 @@ func EncodeTmBlock(
 					}
 				}
 				receipt, err := k.GetReceipt(ctx, hash)
-				if err != nil {
+				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(receipt) {
 					continue
 				}
 				if !includeSyntheticTxs && receipt.TxType == ShellEVMTxType {
@@ -335,7 +348,7 @@ func EncodeTmBlock(
 				if !fullTx {
 					transactions = append(transactions, hash)
 				} else {
-					newTx := ethapi.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
+					newTx := ethapi.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(len(transactions)), baseFeePerGas, chainConfig)
 					transactions = append(transactions, newTx)
 				}
 			case *wasmtypes.MsgExecuteContract:
@@ -350,8 +363,14 @@ func EncodeTmBlock(
 				if !fullTx {
 					transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 				} else {
-					ti := uint64(receipt.TransactionIndex)
-					to := k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
+					ti := uint64(len(transactions))
+					var to common.Address
+					ercAddress, _, exists := k.GetAnyPointeeInfo(ctx, m.Contract)
+					if exists {
+						to = ercAddress
+					} else {
+						to = k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
+					}
 					transactions = append(transactions, &ethapi.RPCTransaction{
 						BlockHash:        &blockhash,
 						BlockNumber:      (*hexutil.Big)(number),
@@ -388,6 +407,8 @@ func EncodeTmBlock(
 					rpcTx.To = &recipientEvmAddr
 					amt := m.Amount.AmountOf("usei").Mul(state.SdkUseiToSweiMultiplier)
 					rpcTx.Value = (*hexutil.Big)(amt.BigInt())
+					ti := uint64(len(transactions))
+					rpcTx.TransactionIndex = (*hexutil.Uint64)(&ti)
 					transactions = append(transactions, rpcTx)
 				}
 			}

@@ -11,6 +11,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
@@ -21,6 +22,7 @@ const (
 	SetWithdrawAddressMethod                = "setWithdrawAddress"
 	WithdrawDelegationRewardsMethod         = "withdrawDelegationRewards"
 	WithdrawMultipleDelegationRewardsMethod = "withdrawMultipleDelegationRewards"
+	WithdrawValidatorCommissionMethod       = "withdrawValidatorCommission"
 	RewardsMethod                           = "rewards"
 )
 
@@ -41,6 +43,7 @@ type PrecompileExecutor struct {
 	SetWithdrawAddrID                   []byte
 	WithdrawDelegationRewardsID         []byte
 	WithdrawMultipleDelegationRewardsID []byte
+	WithdrawValidatorCommissionID       []byte
 	RewardsID                           []byte
 }
 
@@ -61,6 +64,8 @@ func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVM
 			p.WithdrawDelegationRewardsID = m.ID
 		case WithdrawMultipleDelegationRewardsMethod:
 			p.WithdrawMultipleDelegationRewardsID = m.ID
+		case WithdrawValidatorCommissionMethod:
+			p.WithdrawValidatorCommissionID = m.ID
 		case RewardsMethod:
 			p.RewardsID = m.ID
 		}
@@ -69,7 +74,7 @@ func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVM
 	return pcommon.NewDynamicGasPrecompile(newAbi, p, p.address, "distribution"), nil
 }
 
-func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64) (ret []byte, remainingGas uint64, err error) {
+func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, hooks *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
 	if ctx.EVMPrecompileCalledFromDelegateCall() {
 		return nil, 0, errors.New("cannot delegatecall distr")
 	}
@@ -89,6 +94,11 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			return nil, 0, errors.New("cannot call distr precompile from staticcall")
 		}
 		return p.withdrawMultipleDelegationRewards(ctx, method, caller, args, value)
+	case WithdrawValidatorCommissionMethod:
+		if readOnly {
+			return nil, 0, errors.New("cannot call distr precompile from staticcall")
+		}
+		return p.withdrawValidatorCommission(ctx, method, caller, args, value)
 	case RewardsMethod:
 		return p.rewards(ctx, method, args)
 	}
@@ -326,4 +336,48 @@ func getResponseOutput(response *distrtypes.QueryDelegationTotalRewardsResponse)
 		Rewards: rewards,
 		Total:   totalCoins,
 	}
+}
+
+func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+	defer func() {
+		if err := recover(); err != nil {
+			ret = nil
+			remainingGas = 0
+			rerr = fmt.Errorf("%s", err)
+			return
+		}
+	}()
+
+	err := p.validateInput(value, args, 1)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	// The caller must be associated with a validator address
+	validatorAddr, err := p.getValidatorFromArg(ctx, args[0])
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	// Call the distribution keeper to withdraw validator commission
+	_, err = p.distrKeeper.WithdrawValidatorCommission(ctx, validatorAddr)
+	if err != nil {
+		rerr = err
+		return
+	}
+
+	ret, rerr = method.Outputs.Pack(true)
+	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
+	return
+}
+
+func (p PrecompileExecutor) getValidatorFromArg(ctx sdk.Context, arg interface{}) (sdk.ValAddress, error) {
+	validatorAddress := arg.(string)
+	validator, err := sdk.ValAddressFromBech32(validatorAddress)
+	if err != nil {
+		return nil, err
+	}
+	return validator, nil
 }

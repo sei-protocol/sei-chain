@@ -540,7 +540,7 @@ checktx_timeout = "{{ .EVM.CheckTxTimeout }}"
 # controls whether to have txns go through one by one
 slow = {{ .EVM.Slow }}
 
-# Deny list defines list of methods that EVM RPC should fail fast
+# Deny list defines list of methods that EVM RPC should fail fast, e.g ["debug_traceBlockByNumber"]
 deny_list = {{ .EVM.DenyList }}
 
 # max number of logs returned if block range is open-ended
@@ -551,6 +551,16 @@ max_blocks_for_log = {{ .EVM.MaxBlocksForLog }}
 
 # max number of concurrent NewHead subscriptions
 max_subscriptions_new_head = {{ .EVM.MaxSubscriptionsNewHead }}
+
+# MaxConcurrentTraceCalls defines the maximum number of concurrent debug_trace calls.
+# Set to 0 for unlimited.
+max_concurrent_trace_calls = {{ .EVM.MaxConcurrentTraceCalls }}
+
+# Max number of blocks allowed to look back for tracing
+max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
+
+# Timeout for each trace call
+trace_timeout = "{{ .EVM.TraceTimeout }}"
 
 [eth_replay]
 eth_replay_enabled = {{ .ETHReplay.Enabled }}

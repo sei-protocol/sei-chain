@@ -72,7 +72,7 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 	}
 	cfg := evmtypes.DefaultChainConfig().EthereumConfig(fc.evmKeeper.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(emsg)
-	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}, fc.evmKeeper.CustomPrecompiles())
+	evmInstance := vm.NewEVM(*blockCtx, txCtx, stateDB, cfg, vm.Config{}, fc.evmKeeper.CustomPrecompiles(ctx))
 	st := core.NewStateTransition(evmInstance, emsg, &gp, true)
 	// run stateless checks before charging gas (mimicking Geth behavior)
 	if !ctx.IsCheckTx() && !ctx.IsReCheckTx() {
@@ -104,6 +104,9 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 
 // minimum fee per gas required for a tx to be processed
 func (fc EVMFeeCheckDecorator) getBaseFee(ctx sdk.Context) *big.Int {
+	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < 114945913 {
+		return fc.evmKeeper.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
+	}
 	return fc.evmKeeper.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt()
 }
 
