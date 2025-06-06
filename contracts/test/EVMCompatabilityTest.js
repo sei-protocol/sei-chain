@@ -299,10 +299,48 @@ describe("EVM Test", function () {
           }],
         });
         console.log(trace)
+
+        // query base fee per gas and print it
+        const block_ = await ethers.provider.getBlock(receipt.blockNumber)
+        const baseFeePerGas = block_.baseFeePerGas
+        console.log("Base fee per gas:", baseFeePerGas.toString());
+
+        // Extract pre and post balances for the address
+        const preBalance = BigInt(trace.pre['0xf87a299e6bc7beba58dbbe5a5aa21d49bcd16d52'].balance);
+        const postBalance = BigInt(trace.post['0xf87a299e6bc7beba58dbbe5a5aa21d49bcd16d52'].balance);
+        const balanceDiff = preBalance - postBalance;
+        console.log("Trace Balance difference:", balanceDiff.toString());
         expect(trace).to.not.be.null;
         expect(trace.result).to.not.be.null;
-        const block = await ethers.provider.getBlock(receipt.blockNumber)
+
+        // pull balance on block before tx and on block of tx
+        const preBalanceBlock = await ethers.provider.getBalance(owner.address, receipt.blockNumber - 1)
+        const postBalanceBlock = await ethers.provider.getBalance(owner.address, receipt.blockNumber)
+        const balanceDiffBlock = preBalanceBlock - postBalanceBlock;
+        console.log("Block Balance difference:", balanceDiffBlock.toString());
+
+        // assert that the balance differences are the same
+        expect(balanceDiff).to.equal(balanceDiffBlock);
+
+        // const blockNumHex = ethers.hexlify(receipt.blockNumber)
+        // raw eth_getBlockByNumber
+        const block = await hre.network.provider.request({
+          method: "eth_getBlockByNumber",
+          params: ['0x' + receipt.blockNumber.toString(16), true]
+        })
         console.log(block)
+        const blockGasPrice = block.baseFeePerGas
+        const txGasPrice = block.transactions[0].gasPrice
+        const maxFeePerGas = block.transactions[0].maxFeePerGas
+        const maxPriorityFeePerGas = block.transactions[0].maxPriorityFeePerGas
+        // const effectiveGasPrice = maxFeePerGas + maxPriorityFeePerGas
+
+        console.log("blockGasPrice (baseFeePerGas)", parseInt(blockGasPrice, 16))
+        console.log("txGasPrice", parseInt(txGasPrice, 16))
+        console.log("maxFeePerGas", parseInt(maxFeePerGas, 16))
+        console.log("maxPriorityFeePerGas", parseInt(maxPriorityFeePerGas, 16))
+
+        // expect(blockGasPrice).to.equal(effectiveGasPrice)
         // check that in cast block vs cast receipt the effective gas price is the same
       });
 
