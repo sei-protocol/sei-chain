@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -139,7 +140,11 @@ func (a *FilterAPI) GetFilterChanges(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res interface{}, err error) {
-	defer recordMetrics(fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, time.Now(), err == nil)
+	startTime := time.Now()
+	defer func() {
+		defer recordMetrics(fmt.Sprintf("%s_getFilterChanges", a.namespace), a.connectionType, startTime, err == nil)
+		fmt.Printf("[Debug] Completed %s_getFilterChanges with latency %s for filterID %s\n", a.namespace, time.Since(startTime), filterID)
+	}()
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	filter, ok := a.filters[filterID]
@@ -190,7 +195,11 @@ func (a *FilterAPI) GetFilterLogs(
 	ctx context.Context,
 	filterID ethrpc.ID,
 ) (res []*ethtypes.Log, err error) {
-	defer recordMetrics(fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, time.Now(), err == nil)
+	startTime := time.Now()
+	defer func() {
+		defer recordMetrics(fmt.Sprintf("%s_getFilterLogs", a.namespace), a.connectionType, startTime, err == nil)
+		fmt.Printf("[Debug] Completed %s_getFilterLogs with latency %s for filterID %s\n", a.namespace, time.Since(startTime), filterID)
+	}()
 	a.filtersMu.Lock()
 	defer a.filtersMu.Unlock()
 	filter, ok := a.filters[filterID]
@@ -219,7 +228,12 @@ func (a *FilterAPI) GetLogs(
 	ctx context.Context,
 	crit filters.FilterCriteria,
 ) (res []*ethtypes.Log, err error) {
-	defer recordMetrics(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now(), err == nil)
+	startTime := time.Now()
+	defer func() {
+		defer recordMetrics(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now(), err == nil)
+		fmt.Printf("[Debug] Completed %s_getLogs with latency %s, blockHash %s, fromBlock %v, toBlock %v\n",
+			a.namespace, time.Since(startTime), crit.BlockHash.String(), crit.FromBlock, crit.ToBlock)
+	}()
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
 	return logs, err
 }
@@ -297,6 +311,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	res = []*ethtypes.Log{}
 	for block := range blocks {
 		b := block
+		metrics.IncrementRpcRequestCounter("num_blocks_fetched", "logs", true)
 		runner.Queue <- func() {
 			matchedLogs := f.GetLogsForBlock(b, crit, bloomIndexes)
 			for _, log := range matchedLogs {
@@ -372,6 +387,10 @@ func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCrite
 }
 
 func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]bloomIndexes) (chan *coretypes.ResultBlock, int64, bool, error) {
+	startTime := time.Now()
+	defer func() {
+		fmt.Printf("[Debug] fetchBlocksByCrit took %s for range %v to %v, lastToHeight %d\n", time.Since(startTime), crit.FromBlock, crit.ToBlock, lastToHeight)
+	}()
 	if crit.BlockHash != nil {
 		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:], 1)
 		if err != nil {
@@ -413,6 +432,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	for height := begin; height <= end; height++ {
 		h := height
 		wg.Add(1)
+		metrics.IncrementRpcRequestCounter("num_blocks_fetched", "block", true)
 		runner.Queue <- func() {
 			defer wg.Done()
 			if h == 0 {
