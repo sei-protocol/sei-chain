@@ -557,7 +557,7 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, TxConfig, "", isPanicTxFunc)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, &testApp.WasmKeeper, testApp.BaseApp, testApp.AnteHandler, ctxProvider, TxConfig, "", isPanicTxFunc)
 	if err != nil {
 		panic(err)
 	}
@@ -569,7 +569,7 @@ func init() {
 	badConfig := evmrpc.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, TxConfig, "", nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, &testApp.WasmKeeper, testApp.BaseApp, testApp.AnteHandler, ctxProvider, TxConfig, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -588,6 +588,7 @@ func init() {
 		strictConfig,
 		&MockClient{},
 		EVMKeeper,
+		&testApp.WasmKeeper,
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		ctxProvider,
