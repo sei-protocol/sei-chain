@@ -716,6 +716,7 @@ func New(
 			stakingkeeper.NewMsgServerImpl(app.StakingKeeper),
 			stakingkeeper.Querier{Keeper: app.StakingKeeper},
 			app.GovKeeper,
+			govkeeper.NewMsgServerImpl(app.GovKeeper),
 			app.DistrKeeper,
 			app.OracleKeeper,
 			app.TransferKeeper,
