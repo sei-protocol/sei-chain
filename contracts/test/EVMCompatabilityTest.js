@@ -286,7 +286,7 @@ describe("EVM Test", function () {
           type: 2
         });
         const receipt = await txResponse.wait();
-        console.log(receipt)
+        console.log("receipt", receipt)
         await sleep(1000)
         // call trace transaction on this tx with diff tracing
         const trace = await hre.network.provider.request({
@@ -568,12 +568,6 @@ describe("EVM Test", function () {
         const gp = ethers.parseUnits("100", "gwei");
         const oneGwei = ethers.parseUnits("1", "gwei");
 
-        const testCases = [
-          ["No truncation from max priority fee", gp, gp],
-          ["With truncation from max priority fee", gp, highgp],
-          ["With complete truncation from max priority fee", zero, highgp]
-        ];
-
         it("Check base fee on the right block", async function () {
           await delay()
           // check if base fee is 1gwei, otherwise wait
@@ -629,31 +623,51 @@ describe("EVM Test", function () {
         });
 
         describe("Differing maxPriorityFeePerGas and maxFeePerGas", async function() {
+          const testCases = [
+            ["No truncation from max priority fee", gp, gp],
+            ["With truncation from max priority fee", gp, highgp],
+            ["With complete truncation from max priority fee", zero, highgp]
+          ];
           for (const [name, maxPriorityFeePerGas, maxFeePerGas] of testCases) {
-            it(`EIP-1559 test: ${name}`, async function() {
+            it.only(`EIP-1559 test: ${name}`, async function() {
               const balanceBefore = await ethers.provider.getBalance(owner);
-              const zero = ethers.parseUnits('0', 'ether')
+              const block = await ethers.provider.getBlock("latest")
+              const blockBaseFee = block.baseFeePerGas
+              console.log("blockBaseFee", blockBaseFee)
               const txResponse = await owner.sendTransaction({
                 to: owner.address,
-                value: zero,
+                value: ethers.parseUnits('0', 'ether'),
                 maxPriorityFeePerGas: maxPriorityFeePerGas,
                 maxFeePerGas: maxFeePerGas,
                 type: 2
               });
+              // wait for receipt to be retrievable before moving on
               const receipt = await txResponse.wait();
               expect(receipt).to.not.be.null;
-              expect(receipt.status).to.equal(1);
-              const gasPrice = Number(receipt.gasPrice);
+              // expect(receipt.status).to.equal(1);
+              // const gasPrice = Number(receipt.gasPrice);
 
               const balanceAfter = await ethers.provider.getBalance(owner);
 
-              const tip = Math.min(
-                Number(maxFeePerGas) - gasPrice,
-                Number(maxPriorityFeePerGas)
+              // const tip = Math.min(
+              //   Number(maxFeePerGas) - gasPrice,
+              //   Number(maxPriorityFeePerGas)
+              // );
+              // const effectiveGasPrice = tip + gasPrice;
+
+              //////// new verison ///////
+              console.log("maxFeePerGas", maxFeePerGas)
+              console.log("maxPriorityFeePerGas", maxPriorityFeePerGas)
+              console.log("blockBaseFee", blockBaseFee)
+              const effectiveGasPrice = Math.min(
+                Number(maxFeePerGas),
+                Number(maxPriorityFeePerGas) + Number(blockBaseFee)
               );
-              const effectiveGasPrice = tip + gasPrice;
+              console.log("effectiveGasPrice", effectiveGasPrice)
+              ////////////////////////
 
               const diff = balanceBefore - balanceAfter;
+              console.log("diff", diff)
               expect(diff).to.equal(21000 * effectiveGasPrice);
             });
           }

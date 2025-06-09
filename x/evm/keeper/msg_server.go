@@ -227,10 +227,12 @@ func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender
 		From:              sender,
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
-	baseFee := k.GetBaseFee(ctx)
+	baseFee := k.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt()
+	fmt.Printf("[DEBUG] In GetEVMMessage, baseFee: %s\n", baseFee.String())
 	if baseFee != nil {
 		msg.GasPrice = cmath.BigMin(msg.GasPrice.Add(msg.GasTipCap, baseFee), msg.GasFeeCap)
 	}
+	fmt.Printf("[DEBUG] In GetEVMMessage, msg.GasPrice: %s, msg.GasTipCap: %s, msg.GasFeeCap: %s\n", msg.GasPrice.String(), msg.GasTipCap.String(), msg.GasFeeCap.String())
 	return msg
 }
 
