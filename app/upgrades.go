@@ -117,6 +117,7 @@ var upgradesList = []string{
 	"v6.0.3",
 	"v6.0.4",
 	"v6.0.5",
+	"v6.0.6-disable-new-cw-erc-ptrs",
 }
 
 // if there is an override list, use that instead, for integration tests
