@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
@@ -27,24 +29,19 @@ import (
 
 const TxSearchPerPage = 10
 
-// **Simple 4-Limit System**
+// **Simplified System**
 const (
-	// 1. Thread pool limit
-	MaxNumOfWorkers = 200
-	WorkerQueueSize = 10000
+	// Worker pool settings
+	MaxNumOfWorkers = 24 // each worker will handle a batch of WorkerBatchSize blocks
+	WorkerBatchSize = 100
+	WorkerQueueSize = 200
 
-	// 2. Block range limit
-	MaxBlockRange        = 2000
-	DefaultMaxBlockRange = 2000
+	// Request limits
+	MaxBlockRange = 2000
+	MaxLogLimit   = 10000
 
-	// 3. Log count limit
-	DefaultMaxLogLimit = 10000
-
-	// 4. Global RPS limit
-	MaxGetLogsRPS = 50
-
-	// Batch processing
-	BatchSize = 25
+	// global RPS Limit
+	GlobalRPSLimit = 20
 )
 
 type FilterType byte
@@ -255,8 +252,8 @@ func (bc *BlockCache) addToHead(node *LRUNode) {
 
 var globalBlockCache = NewBlockCache(3000)
 
-// **Simple Global Rate Limiter**
-var globalGetLogsLimiter = rate.NewLimiter(rate.Limit(MaxGetLogsRPS), MaxGetLogsRPS)
+// every request consumes 1 token, regardless of block range
+var globalRPSLimiter = rate.NewLimiter(rate.Limit(GlobalRPSLimit), GlobalRPSLimit)
 
 // Bloom Filter Cache
 type BloomCacheNode struct {
@@ -373,7 +370,153 @@ func (bc *BloomCache) addToHead(node *BloomCacheNode) {
 }
 
 // Global bloom cache - smaller than block cache since blooms are tiny
-var globalBloomCache = NewBloomCache(5000)
+var globalBloomCache = NewBloomCache(10000)
+
+// Receipt Filter Cache
+type ReceiptCacheNode struct {
+	hash       common.Hash
+	receipt    *evmtypes.Receipt
+	timestamp  time.Time
+	prev, next *ReceiptCacheNode
+}
+
+type ReceiptCache struct {
+	nodes      map[common.Hash]*ReceiptCacheNode
+	head, tail *ReceiptCacheNode
+	maxSize    int
+	size       int
+	mutex      sync.RWMutex
+}
+
+func NewReceiptCache(maxSize int) *ReceiptCache {
+	return &ReceiptCache{
+		nodes:   make(map[common.Hash]*ReceiptCacheNode),
+		maxSize: maxSize,
+	}
+}
+
+func (rc *ReceiptCache) Get(hash common.Hash) (*evmtypes.Receipt, bool) {
+	rc.mutex.RLock()
+	defer rc.mutex.RUnlock()
+
+	node, exists := rc.nodes[hash]
+	if !exists {
+		return nil, false
+	}
+
+	// Receipts don't expire (they're immutable)
+	rc.moveToHead(node)
+	return node.receipt, true
+}
+
+func (rc *ReceiptCache) Put(hash common.Hash, receipt *evmtypes.Receipt) {
+	rc.mutex.Lock()
+	defer rc.mutex.Unlock()
+
+	if node, exists := rc.nodes[hash]; exists {
+		node.receipt = receipt
+		node.timestamp = time.Now()
+		rc.moveToHead(node)
+		return
+	}
+
+	newNode := &ReceiptCacheNode{hash: hash, receipt: receipt, timestamp: time.Now()}
+
+	if rc.size >= rc.maxSize {
+		rc.removeTail()
+	}
+
+	rc.addToHead(newNode)
+	rc.nodes[hash] = newNode
+	rc.size++
+}
+
+func (rc *ReceiptCache) moveToHead(node *ReceiptCacheNode) {
+	if rc.head == node {
+		return
+	}
+
+	if node.prev != nil {
+		node.prev.next = node.next
+	}
+	if node.next != nil {
+		node.next.prev = node.prev
+	}
+	if rc.tail == node {
+		rc.tail = node.prev
+	}
+
+	node.prev = nil
+	node.next = rc.head
+	if rc.head != nil {
+		rc.head.prev = node
+	}
+	rc.head = node
+	if rc.tail == nil {
+		rc.tail = node
+	}
+}
+
+func (rc *ReceiptCache) removeTail() {
+	if rc.tail == nil {
+		return
+	}
+
+	delete(rc.nodes, rc.tail.hash)
+
+	if rc.tail.prev != nil {
+		rc.tail.prev.next = nil
+		rc.tail = rc.tail.prev
+	} else {
+		rc.head = nil
+		rc.tail = nil
+	}
+
+	rc.size--
+}
+
+func (rc *ReceiptCache) addToHead(node *ReceiptCacheNode) {
+	node.prev = nil
+	node.next = rc.head
+	if rc.head != nil {
+		rc.head.prev = node
+	}
+	rc.head = node
+	if rc.tail == nil {
+		rc.tail = node
+	}
+}
+
+// Global receipt cache - each receipt is ~1-10KB, 10000 receipts = ~100MB
+var globalReceiptCache = NewReceiptCache(10000)
+
+// Log slice pool to reduce allocations in batch processing
+type LogSlicePool struct {
+	pool sync.Pool
+}
+
+func NewLogSlicePool() *LogSlicePool {
+	return &LogSlicePool{
+		pool: sync.Pool{
+			New: func() interface{} {
+				return make([]*ethtypes.Log, 0, 100) // Pre-allocate capacity of 100
+			},
+		},
+	}
+}
+
+func (p *LogSlicePool) Get() []*ethtypes.Log {
+	return p.pool.Get().([]*ethtypes.Log)[:0] // Reset length but keep capacity
+}
+
+func (p *LogSlicePool) Put(slice []*ethtypes.Log) {
+	if cap(slice) < 1000 { // Avoid storing overly large slices
+		p.pool.Put(slice)
+	}
+}
+
+// Global log slice pool
+var globalLogSlicePool = NewLogSlicePool()
 
 type FilterAPI struct {
 	tmClient       rpcclient.Client
@@ -401,10 +544,10 @@ type EventItemDataWrapper struct {
 
 func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, filterConfig *FilterConfig, connectionType ConnectionType, namespace string) *FilterAPI {
 	if filterConfig.maxBlock <= 0 {
-		filterConfig.maxBlock = DefaultMaxBlockRange
+		filterConfig.maxBlock = MaxBlockRange
 	}
 	if filterConfig.maxLog <= 0 {
-		filterConfig.maxLog = DefaultMaxLogLimit
+		filterConfig.maxLog = MaxLogLimit
 	}
 
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
@@ -634,15 +777,29 @@ func (a *FilterAPI) GetFilterLogs(
 	return logs, nil
 }
 
-func (a *FilterAPI) GetLogs(
-	ctx context.Context,
-	crit filters.FilterCriteria,
-) (res []*ethtypes.Log, err error) {
+func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (res []*ethtypes.Log, err error) {
+	if !globalRPSLimiter.Allow() {
+		return nil, fmt.Errorf("log query rate limit exceeded, please try again later")
+	}
 	defer recordMetrics(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now(), err == nil)
 
-	// Simple global rate limiting
-	if !globalGetLogsLimiter.Allow() {
-		return nil, fmt.Errorf("getLogs rate limit exceeded (%d RPS), please try again later", MaxGetLogsRPS)
+	// Calculate block range
+	latest := a.logFetcher.ctxProvider(LatestCtxHeight).BlockHeight()
+	begin, end := latest, latest
+	if crit.FromBlock != nil {
+		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
+	}
+	if crit.ToBlock != nil {
+		end = getHeightFromBigIntBlockNumber(latest, crit.ToBlock)
+		if crit.FromBlock == nil && begin > end {
+			begin = end
+		}
+	}
+
+	blockRange := end - begin + 1
+
+	if blockRange > MaxBlockRange {
+		return nil, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, MaxBlockRange)
 	}
 
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
@@ -740,6 +897,9 @@ type LogFetcher struct {
 }
 
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
+	fmt.Printf("Active goroutines: %d, Workers busy: %d\n",
+		runtime.NumGoroutine(),
+		len(getGlobalWorkerPool().taskQueue))
 	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
 	begin, end := latest, latest
 	if crit.FromBlock != nil {
@@ -768,17 +928,17 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}
 
 	runner := getGlobalWorkerPool()
-	resultsChan := make(chan *ethtypes.Log, 5000)
+	resultsChan := make(chan *ethtypes.Log, 10000)
 	res = []*ethtypes.Log{}
 	var wg sync.WaitGroup
 	var submitError error
 
 	// Batch process with fail-fast
-	blockBatch := make([]*coretypes.ResultBlock, 0, BatchSize)
+	blockBatch := make([]*coretypes.ResultBlock, 0, WorkerBatchSize)
 	for block := range blocks {
 		blockBatch = append(blockBatch, block)
 
-		if len(blockBatch) >= BatchSize {
+		if len(blockBatch) >= WorkerBatchSize {
 			batch := blockBatch
 			wg.Add(1)
 
@@ -794,7 +954,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 				submitError = fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
 				break
 			}
-			blockBatch = make([]*coretypes.ResultBlock, 0, BatchSize)
+			blockBatch = make([]*coretypes.ResultBlock, 0, WorkerBatchSize)
 		}
 	}
 
@@ -840,10 +1000,13 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 // New batch log processing function
 func (f *LogFetcher) processBatchLogs(blocks []*coretypes.ResultBlock, crit filters.FilterCriteria, bloomIndexes [][]bloomIndexes, resultsChan chan *ethtypes.Log) {
 	for _, block := range blocks {
-		matchedLogs := f.GetLogsForBlock(block, crit, bloomIndexes)
-		for _, log := range matchedLogs {
+		// Use pooled version to reduce allocations
+		logs := globalLogSlicePool.Get()
+		f.GetLogsForBlockPooled(block, crit, bloomIndexes, &logs)
+		for _, log := range logs {
 			resultsChan <- log
 		}
+		globalLogSlicePool.Put(logs)
 	}
 }
 
@@ -856,18 +1019,43 @@ func (f *LogFetcher) GetLogsForBlock(block *coretypes.ResultBlock, crit filters.
 	return matchedLogs
 }
 
+// Pooled version that reuses slice allocation
+func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, result *[]*ethtypes.Log) {
+	tempLogs := globalLogSlicePool.Get()
+	defer globalLogSlicePool.Put(tempLogs)
+
+	f.FindLogsByBloomPooled(block, crit, filters, &tempLogs)
+
+	// Filter and set block hash
+	for _, l := range tempLogs {
+		if f.IsLogExactMatch(l, crit) {
+			l.BlockHash = common.BytesToHash(block.BlockID.Hash)
+			*result = append(*result, l)
+		}
+	}
+}
+
 func (f *LogFetcher) FindLogsByBloom(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes) (res []*ethtypes.Log) {
 	ctx := f.ctxProvider(LatestCtxHeight)
 	totalLogs := uint(0)
 
 	for _, hash := range getTxHashesFromBlock(block, f.txConfig, f.includeSyntheticReceipts) {
-		receipt, err := f.k.GetReceipt(ctx, hash)
-		if err != nil {
-			if !f.includeSyntheticReceipts {
-				ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
+		// Try to get receipt from cache first
+		receipt, found := globalReceiptCache.Get(hash)
+		if !found {
+			// Cache miss - fetch from database and cache it
+			var err error
+			receipt, err = f.k.GetReceipt(ctx, hash)
+			if err != nil {
+				if !f.includeSyntheticReceipts {
+					ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
+				}
+				continue
 			}
-			continue
+			// Store in cache for future use
+			globalReceiptCache.Put(hash, receipt)
 		}
+
 		if !f.includeSyntheticReceipts && (receipt.TxType == ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
 			continue
 		}
@@ -884,6 +1072,45 @@ func (f *LogFetcher) FindLogsByBloom(block *coretypes.ResultBlock, crit filters.
 		totalLogs += uint(len(receipt.Logs))
 	}
 	return
+}
+
+// Pooled version that reuses slice allocation
+func (f *LogFetcher) FindLogsByBloomPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, result *[]*ethtypes.Log) {
+	ctx := f.ctxProvider(LatestCtxHeight)
+	totalLogs := uint(0)
+
+	for _, hash := range getTxHashesFromBlock(block, f.txConfig, f.includeSyntheticReceipts) {
+		// Try to get receipt from cache first
+		receipt, found := globalReceiptCache.Get(hash)
+		if !found {
+			// Cache miss - fetch from database and cache it
+			var err error
+			receipt, err = f.k.GetReceipt(ctx, hash)
+			if err != nil {
+				if !f.includeSyntheticReceipts {
+					ctx.Logger().Error(fmt.Sprintf("FindLogsByBloomPooled: unable to find receipt for hash %s", hash.Hex()))
+				}
+				continue
+			}
+			// Store in cache for future use
+			globalReceiptCache.Put(hash, receipt)
+		}
+
+		if !f.includeSyntheticReceipts && (receipt.TxType == ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
+			continue
+		}
+
+		// check bloom filter if filter is provided
+		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
+			if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
+				*result = append(*result, keeper.GetLogsForTx(receipt, totalLogs)...)
+			}
+		} else {
+			// no filter, return all logs
+			*result = append(*result, keeper.GetLogsForTx(receipt, totalLogs)...)
+		}
+		totalLogs += uint(len(receipt.Logs))
+	}
 }
 
 func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCriteria) bool {
@@ -946,8 +1173,8 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	var wg sync.WaitGroup
 
 	// Batch processing with fail-fast
-	for batchStart := begin; batchStart <= end; batchStart += int64(BatchSize) {
-		batchEnd := batchStart + int64(BatchSize) - 1
+	for batchStart := begin; batchStart <= end; batchStart += int64(WorkerBatchSize) {
+		batchEnd := batchStart + int64(WorkerBatchSize) - 1
 		if batchEnd > end {
 			batchEnd = end
 		}
