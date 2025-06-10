@@ -306,8 +306,8 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	if err != nil {
 		return nil, 0, err
 	}
-	runner := NewParallelRunner(MaxNumOfWorkers, 1000)
-	resultsChan := make(chan *ethtypes.Log, 1000)
+	runner := NewParallelRunner(MaxNumOfWorkers, 2000)
+	resultsChan := make(chan *ethtypes.Log, 2000)
 	res = []*ethtypes.Log{}
 	for block := range blocks {
 		b := block
