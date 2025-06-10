@@ -967,8 +967,8 @@ github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529/go.mod h1:DxrIzT+xaE7yg
 github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KRMzBtS3oedY=
 github.com/sei-protocol/go-ethereum v1.13.5-sei-21 h1:uzBquo71kOMs2bZjmYsiDQb7t5VpksYzOHnpGGQNaIU=
 github.com/sei-protocol/go-ethereum v1.13.5-sei-21/go.mod h1:kcRZmuzRn1lVejiFNTz4l4W7imnpq1bDAnuKS/RyhbQ=
-github.com/sei-protocol/sei-db v0.0.46 h1:naXfSp1I3UgJJm/iSvXpdFzr9nofEOxp/EekcAVj7wY=
-github.com/sei-protocol/sei-db v0.0.46/go.mod h1:m5g7p0QeAS3dNJHIl28zQpzOgxQmvYqPb7t4hwgIOCA=
+github.com/sei-protocol/sei-db v0.0.51 h1:jK6Ps+jDbGdWIPZttaWk7VIsq8aLWWlkTp9axIraL/U=
+github.com/sei-protocol/sei-db v0.0.51/go.mod h1:m5g7p0QeAS3dNJHIl28zQpzOgxQmvYqPb7t4hwgIOCA=
 github.com/sei-protocol/sei-iavl v0.1.9 h1:y4mVYftxLNRs6533zl7N0/Ch+CzRQc04JDfHolIxgBE=
 github.com/sei-protocol/sei-iavl v0.1.9/go.mod h1:7PfkEVT5dcoQE+s/9KWdoXJ8VVVP1QpYYPLdxlkSXFk=
 github.com/sei-protocol/sei-tendermint v0.5.4-0.20250311133435-5d1918f7f5fb h1:BSMYeAgMnM/FAjYR5fjTsj6d7V8nsDr0En9G0S/953U=
