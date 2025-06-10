@@ -937,6 +937,11 @@ type StateSyncConfig struct {
 
 	// Time before which a blacklisted witness can not be added back as a provider
 	BlacklistTTL time.Duration `mapstructure:"blacklist-ttl"`
+
+	// Whether to use local snapshot only for state sync or not.
+	// If this is true, then state sync will look for existing snapshots
+	// which are located in the snapshot-dir configured in app.toml (default to [home-dir]/data/snapshots)
+	UseLocalSnapshot bool `mapstructure:"use-local-snapshot"`
 }
 
 func (cfg *StateSyncConfig) TrustHashBytes() []byte {

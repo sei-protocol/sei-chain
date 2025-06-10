@@ -113,7 +113,7 @@ func (bs *BaseService) Start(ctx context.Context) error {
 	case <-bs.quit:
 		return errAlreadyStopped
 	default:
-		bs.logger.Info("starting service", "service", bs.name, "impl", bs.name)
+		bs.logger.Debug("starting service", "service", bs.name, "impl", bs.name)
 		if err := bs.impl.OnStart(ctx); err != nil {
 			return err
 		}
@@ -157,7 +157,7 @@ func (bs *BaseService) Stop() {
 	case <-bs.quit:
 		return
 	default:
-		bs.logger.Info("stopping service", "service", bs.name)
+		bs.logger.Debug("stopping service", "service", bs.name)
 		bs.impl.OnStop()
 		bs.cancel()
 

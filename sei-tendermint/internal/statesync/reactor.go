@@ -260,16 +260,17 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	// ideal.
 	r.initSyncer = func() *syncer {
 		return &syncer{
-			logger:        r.logger,
-			stateProvider: r.stateProvider,
-			conn:          r.conn,
-			snapshots:     newSnapshotPool(),
-			snapshotCh:    r.snapshotChannel,
-			chunkCh:       r.chunkChannel,
-			tempDir:       r.tempDir,
-			fetchers:      r.cfg.Fetchers,
-			retryTimeout:  r.cfg.ChunkRequestTimeout,
-			metrics:       r.metrics,
+			logger:           r.logger,
+			stateProvider:    r.stateProvider,
+			conn:             r.conn,
+			snapshots:        newSnapshotPool(),
+			snapshotCh:       r.snapshotChannel,
+			chunkCh:          r.chunkChannel,
+			tempDir:          r.tempDir,
+			fetchers:         r.cfg.Fetchers,
+			retryTimeout:     r.cfg.ChunkRequestTimeout,
+			metrics:          r.metrics,
+			useLocalSnapshot: r.cfg.UseLocalSnapshot,
 		}
 	}
 	r.dispatcher = light.NewDispatcher(r.lightBlockChannel, func(height uint64) proto.Message {
@@ -279,10 +280,13 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	})
 	r.requestSnaphot = func() error {
 		// request snapshots from all currently connected peers
-		return r.snapshotChannel.Send(ctx, p2p.Envelope{
-			Broadcast: true,
-			Message:   &ssproto.SnapshotsRequest{},
-		})
+		if !r.cfg.UseLocalSnapshot {
+			return r.snapshotChannel.Send(ctx, p2p.Envelope{
+				Broadcast: true,
+				Message:   &ssproto.SnapshotsRequest{},
+			})
+		}
+		return nil
 	}
 	r.sendBlockError = r.lightBlockChannel.SendError
 
@@ -333,10 +337,13 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		LightBlockChannel: r.lightBlockChannel,
 		ParamsChannel:     r.paramsChannel,
 	})
-	go r.processPeerUpdates(ctx, r.peerEvents(ctx))
+
+	if !r.cfg.UseLocalSnapshot {
+		go r.processPeerUpdates(ctx, r.peerEvents(ctx))
+	}
 
 	if r.needsStateSync {
-		r.logger.Info("starting state sync")
+		r.logger.Info("This node needs state sync, going to perform a state sync")
 		if _, err := r.Sync(ctx); err != nil {
 			r.logger.Error("state sync failed; shutting down this node", "err", err)
 			return err
@@ -368,12 +375,14 @@ func (r *Reactor) Sync(ctx context.Context) (sm.State, error) {
 		}
 	}
 
-	// We need at least two peers (for cross-referencing of light blocks) before we can
-	// begin state sync
-	if err := r.waitForEnoughPeers(ctx, 2); err != nil {
-		return sm.State{}, err
+	if !r.cfg.UseLocalSnapshot {
+		// We need at least two peers (for cross-referencing of light blocks) before we can
+		// begin state sync
+		if err := r.waitForEnoughPeers(ctx, 2); err != nil {
+			return sm.State{}, err
+		}
+		r.logger.Info("Finished waiting for 2 peers to start state sync")
 	}
-	r.logger.Info("Finished waiting for 2 peers to start state sync")
 
 	r.mtx.Lock()
 	if r.syncer != nil {
@@ -397,7 +406,17 @@ func (r *Reactor) Sync(ctx context.Context) (sm.State, error) {
 		r.mtx.Unlock()
 	}()
 
+	r.logger.Info("starting state sync")
+
+	if r.cfg.UseLocalSnapshot {
+		snapshotList, _ := r.recentSnapshots(context.Background(), 10)
+		for _, snap := range snapshotList {
+			r.syncer.AddSnapshot("self", snap)
+		}
+	}
+
 	state, commit, err := r.syncer.SyncAny(ctx, r.cfg.DiscoveryTime, r.requestSnaphot)
+	r.logger.Info("Finished state sync, fetching state and commit to bootstrap the node")
 	if err != nil {
 		return sm.State{}, err
 	}
@@ -410,8 +429,10 @@ func (r *Reactor) Sync(ctx context.Context) (sm.State, error) {
 		return sm.State{}, fmt.Errorf("failed to store last seen commit: %w", err)
 	}
 
-	if err := r.Backfill(ctx, state); err != nil {
-		r.logger.Error("backfill failed. Proceeding optimistically...", "err", err)
+	if !r.cfg.UseLocalSnapshot {
+		if err := r.Backfill(ctx, state); err != nil {
+			r.logger.Error("backfill failed. Proceeding optimistically...", "err", err)
+		}
 	}
 
 	if r.eventBus != nil {
@@ -424,6 +445,7 @@ func (r *Reactor) Sync(ctx context.Context) (sm.State, error) {
 	}
 
 	if r.postSyncHook != nil {
+		r.logger.Info("Executing post tate sync hook")
 		if err := r.postSyncHook(ctx, state); err != nil {
 			return sm.State{}, err
 		}

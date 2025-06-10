@@ -566,7 +566,7 @@ func (m *PeerManager) TryDialNext() (NodeAddress, error) {
 			}
 
 			m.dialing[peer.ID] = true
-			m.logger.Info(fmt.Sprintf("Going to dial peer %s with address %s", peer.ID, addressInfo.Address))
+			m.logger.Debug(fmt.Sprintf("Going to dial peer %s with address %s", peer.ID, addressInfo.Address))
 			return addressInfo.Address, nil
 		}
 	}

@@ -153,7 +153,6 @@ func (s *Syncer) Process(ctx context.Context) {
 	for {
 		s.mtx.RLock()
 		if !s.active {
-			s.logger.Info(fmt.Sprintf("sync for height %d with %d files finished!", s.heightToSync, len(s.expectedChecksums)))
 			s.mtx.RUnlock()
 			break
 		}

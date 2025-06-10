@@ -69,6 +69,7 @@ type syncer struct {
 	avgChunkTime             int64
 	lastSyncedSnapshotHeight int64
 	processingSnapshot       *snapshot
+	useLocalSnapshot         bool
 }
 
 // AddChunk adds a chunk to the chunk queue, if any. It returns false if the chunk has already
@@ -102,7 +103,7 @@ func (s *syncer) AddSnapshot(peerID types.NodeID, snapshot *snapshot) (bool, err
 	}
 	if added {
 		s.metrics.TotalSnapshots.Add(1)
-		s.logger.Info("Discovered new snapshot", "height", snapshot.Height, "format", snapshot.Format,
+		s.logger.Info(fmt.Sprintf("Discovered and added new snapshot from peer %s", peerID), "height", snapshot.Height, "format", snapshot.Format,
 			"hash", snapshot.Hash)
 	}
 	return added, nil
@@ -137,7 +138,7 @@ func (s *syncer) SyncAny(
 		discoveryTime = minimumDiscoveryTime
 	}
 
-	if discoveryTime > 0 {
+	if discoveryTime > 0 && !s.useLocalSnapshot {
 		if err := requestSnapshots(); err != nil {
 			return sm.State{}, nil, err
 		}
@@ -278,7 +279,11 @@ func (s *syncer) Sync(ctx context.Context, snapshot *snapshot, chunks *chunkQueu
 	defer cancel()
 	fetchStartTime := time.Now()
 	for i := int32(0); i < s.fetchers; i++ {
-		go s.fetchChunks(fetchCtx, snapshot, chunks)
+		if s.useLocalSnapshot {
+			go s.fetchLocalChunks(fetchCtx, snapshot, chunks)
+		} else {
+			go s.fetchChunks(fetchCtx, snapshot, chunks)
+		}
 	}
 
 	pctx, pcancel := context.WithTimeout(ctx, 1*time.Minute)
@@ -425,6 +430,55 @@ func (s *syncer) applyChunks(ctx context.Context, chunks *chunkQueue, start time
 			return errRejectSnapshot
 		default:
 			return fmt.Errorf("unknown ResponseApplySnapshotChunk result %v", resp.Result)
+		}
+	}
+}
+
+func (s *syncer) fetchLocalChunks(ctx context.Context, snapshot *snapshot, chunks *chunkQueue) {
+	var (
+		next  = true
+		index uint32
+		err   error
+	)
+
+	for {
+		if next {
+			index, err = chunks.Allocate()
+			if errors.Is(err, errDone) {
+				// Keep checking until the context is canceled (restore is done), in case any
+				// chunks need to be refetched.
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(2 * time.Second):
+					continue
+				}
+			}
+			if err != nil {
+				s.logger.Error("Failed to allocate chunk from queue", "err", err)
+				return
+			}
+		}
+		s.logger.Info("Fetching local snapshot chunks", "height", snapshot.Height, "chunk", index, "total", chunks.Size())
+		msg, err := s.conn.LoadSnapshotChunk(ctx, &abci.RequestLoadSnapshotChunk{
+			Height: snapshot.Height,
+			Format: snapshot.Format,
+			Chunk:  index,
+		})
+		if err != nil {
+			s.logger.Error("Failed to LoadSnapshotChunk from abci", "err", err)
+			return
+		}
+		_, err = s.AddChunk(&chunk{
+			Height: snapshot.Height,
+			Format: snapshot.Format,
+			Index:  index,
+			Chunk:  msg.Chunk,
+			Sender: "self",
+		})
+		if err != nil {
+			s.logger.Error("Failed to LoadSnapshotChunk from abci", "err", err)
+			return
 		}
 	}
 }

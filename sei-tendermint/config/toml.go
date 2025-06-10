@@ -465,6 +465,11 @@ discovery-time = "{{ .StateSync.DiscoveryTime }}"
 # and remove it when the sync is complete.
 temp-dir = "{{ .StateSync.TempDir }}"
 
+# Whether to use local snapshot only for state sync or not.
+# If this is true, then state sync will look for existing snapshots
+# which are located in the snapshot-dir configured in app.toml (default to [home-dir]/data/snapshots)
+use-local-snapshot = {{ .StateSync.UseLocalSnapshot }}
+
 # The timeout duration before re-requesting a chunk, possibly from a different
 # peer (default: 15 seconds).
 chunk-request-timeout = "{{ .StateSync.ChunkRequestTimeout }}"

@@ -410,7 +410,7 @@ func (c *mConnConnection) onError(ctx context.Context, e interface{}) {
 	_ = c.Close()
 	select {
 	case c.errorCh <- err:
-		c.logger.Error(fmt.Sprintf("mConnection Error %s", err))
+		c.logger.Debug(fmt.Sprintf("mConnection Error %s, local %s, remote %s", err, c.conn.LocalAddr(), c.conn.RemoteAddr()))
 	case <-ctx.Done():
 	}
 }
