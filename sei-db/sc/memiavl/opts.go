@@ -29,6 +29,10 @@ type Options struct {
 	// it do nothing if the target version is `0`.
 	LoadForOverwriting bool
 
+	// OnlyAllowExportOnSnapshotVersion defines whether the state sync exporter should only export the
+	// version that matches wit the current memiavl snapshot version
+	OnlyAllowExportOnSnapshotVersion bool
+
 	// Limit the number of concurrent snapshot writers
 	SnapshotWriterLimit int
 }

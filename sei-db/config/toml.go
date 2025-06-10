@@ -32,6 +32,10 @@ sc-snapshot-interval = {{ .StateCommit.SnapshotInterval }}
 # SnapshotWriterLimit defines the max concurrency for taking commit store snapshot
 sc-snapshot-writer-limit = {{ .StateCommit.SnapshotWriterLimit }}
 
+# OnlyAllowExportOnSnapshotVersion defines whether we only allow state sync
+# snapshot creation happens after the memiavl snapshot is created.
+sc-only-allow-export-on-snapshot-version = {{ .StateCommit.OnlyAllowExportOnSnapshotVersion }}
+
 [state-store]
 # Enable defines whether the state-store should be enabled for storing historical data.
 # Supporting historical queries or exporting state snapshot requires setting this to true

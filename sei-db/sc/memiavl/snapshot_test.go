@@ -169,7 +169,7 @@ func TestDBSnapshotRestore(t *testing.T) {
 }
 
 func testSnapshotRoundTrip(t *testing.T, db *DB) {
-	exporter, err := NewMultiTreeExporter(db.dir, uint32(db.Version()), true)
+	exporter, err := NewMultiTreeExporter(db.dir, uint32(db.Version()), false)
 	require.NoError(t, err)
 
 	restoreDir := t.TempDir()

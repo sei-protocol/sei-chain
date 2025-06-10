@@ -47,6 +47,10 @@ type StateCommitConfig struct {
 	// CacheSize defines the size of the cache for each memiavl store.
 	// Deprecated: this is removed, we will just rely on mmap page cache
 	CacheSize int `mapstructure:"cache-size"`
+
+	// OnlyAllowExportOnSnapshotVersion defines whether we only allow state sync
+	// snapshot creation happens after the memiavl snapshot is created
+	OnlyAllowExportOnSnapshotVersion bool `mapstructure:"only-allow-export-on-snapshot-version"`
 }
 
 type StateStoreConfig struct {

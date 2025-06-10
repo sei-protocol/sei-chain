@@ -128,7 +128,7 @@ func (cs *CommitStore) GetTreeByName(name string) types.Tree {
 }
 
 func (cs *CommitStore) Exporter(version int64) (types.Exporter, error) {
-	exporter, err := memiavl.NewMultiTreeExporter(cs.opts.Dir, uint32(version), true)
+	exporter, err := memiavl.NewMultiTreeExporter(cs.opts.Dir, uint32(version), cs.opts.OnlyAllowExportOnSnapshotVersion)
 	if err != nil {
 		return nil, err
 	}
