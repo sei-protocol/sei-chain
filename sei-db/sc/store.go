@@ -25,14 +25,15 @@ func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCom
 		scDir = config.Directory
 	}
 	opts := memiavl.Options{
-		Dir:                 utils.GetCommitStorePath(scDir),
-		ZeroCopy:            config.ZeroCopy,
-		AsyncCommitBuffer:   config.AsyncCommitBuffer,
-		SnapshotInterval:    config.SnapshotInterval,
-		SnapshotKeepRecent:  config.SnapshotKeepRecent,
-		SnapshotWriterLimit: config.SnapshotWriterLimit,
-		CacheSize:           config.CacheSize,
-		CreateIfMissing:     true,
+		Dir:                              utils.GetCommitStorePath(scDir),
+		ZeroCopy:                         config.ZeroCopy,
+		AsyncCommitBuffer:                config.AsyncCommitBuffer,
+		SnapshotInterval:                 config.SnapshotInterval,
+		SnapshotKeepRecent:               config.SnapshotKeepRecent,
+		SnapshotWriterLimit:              config.SnapshotWriterLimit,
+		CacheSize:                        config.CacheSize,
+		CreateIfMissing:                  true,
+		OnlyAllowExportOnSnapshotVersion: config.OnlyAllowExportOnSnapshotVersion,
 	}
 	commitStore := &CommitStore{
 		logger: logger,
