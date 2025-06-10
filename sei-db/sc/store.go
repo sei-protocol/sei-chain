@@ -25,14 +25,15 @@ func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCom
 		scDir = config.Directory
 	}
 	opts := memiavl.Options{
-		Dir:                 utils.GetCommitStorePath(scDir),
-		ZeroCopy:            config.ZeroCopy,
-		AsyncCommitBuffer:   config.AsyncCommitBuffer,
-		SnapshotInterval:    config.SnapshotInterval,
-		SnapshotKeepRecent:  config.SnapshotKeepRecent,
-		SnapshotWriterLimit: config.SnapshotWriterLimit,
-		CacheSize:           config.CacheSize,
-		CreateIfMissing:     true,
+		Dir:                              utils.GetCommitStorePath(scDir),
+		ZeroCopy:                         config.ZeroCopy,
+		AsyncCommitBuffer:                config.AsyncCommitBuffer,
+		SnapshotInterval:                 config.SnapshotInterval,
+		SnapshotKeepRecent:               config.SnapshotKeepRecent,
+		SnapshotWriterLimit:              config.SnapshotWriterLimit,
+		CacheSize:                        config.CacheSize,
+		CreateIfMissing:                  true,
+		OnlyAllowExportOnSnapshotVersion: config.OnlyAllowExportOnSnapshotVersion,
 	}
 	commitStore := &CommitStore{
 		logger: logger,
@@ -128,7 +129,7 @@ func (cs *CommitStore) GetTreeByName(name string) types.Tree {
 }
 
 func (cs *CommitStore) Exporter(version int64) (types.Exporter, error) {
-	exporter, err := memiavl.NewMultiTreeExporter(cs.opts.Dir, uint32(version), true)
+	exporter, err := memiavl.NewMultiTreeExporter(cs.opts.Dir, uint32(version), cs.opts.OnlyAllowExportOnSnapshotVersion)
 	if err != nil {
 		return nil, err
 	}
