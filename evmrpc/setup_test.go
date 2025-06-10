@@ -47,6 +47,7 @@ const TestAddr = "127.0.0.1"
 const TestPort = 7777
 const TestWSPort = 7778
 const TestBadPort = 7779
+const TestStrictPort = 7780
 
 const GenesisBlockHeight = 0
 const MockHeight8 = 8
@@ -576,6 +577,31 @@ func init() {
 		panic(err)
 	}
 
+	strictConfig := goodConfig
+	strictConfig.HTTPPort = TestStrictPort
+	strictConfig.WSPort = TestStrictPort + 1
+	strictConfig.TraceTimeout = time.Nanosecond // Artificially low timeout
+	strictConfig.MaxTraceLookbackBlocks = 1     // Artificially low lookback block
+
+	strictServer, err := evmrpc.NewEVMHTTPServer(
+		infoLog,
+		strictConfig,
+		&MockClient{},
+		EVMKeeper,
+		testApp.BaseApp,
+		testApp.TracerAnteHandler,
+		ctxProvider,
+		TxConfig,
+		"",
+		isPanicTxFunc,
+	)
+	if err != nil {
+		panic(err)
+	}
+	if err := strictServer.Start(); err != nil {
+		panic(err)
+	}
+
 	// Start ws server
 	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, TxConfig, "")
 	if err != nil {
@@ -985,6 +1011,11 @@ func sendSeiRequestBad(t *testing.T, method string, params ...interface{}) map[s
 // nolint:deadcode
 func sendRequestGoodWithNamespace(t *testing.T, namespace string, method string, params ...interface{}) map[string]interface{} {
 	return sendRequestWithNamespace(t, namespace, TestPort, method, params...)
+}
+
+//nolint:deadcode
+func sendRequestStrictWithNamespace(t *testing.T, namespace, method string, params ...interface{}) map[string]interface{} {
+	return sendRequestWithNamespace(t, namespace, TestStrictPort, method, params...)
 }
 
 func sendRequest(t *testing.T, port int, method string, params ...interface{}) map[string]interface{} {
