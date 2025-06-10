@@ -18,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -783,7 +784,10 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 
 			// Fail fast if worker pool is full
 			if err := runner.submit(func() {
-				defer wg.Done()
+				defer func() {
+					metrics.IncrementRpcRequestCounter("num_blocks_fetched", "logs", true)
+					wg.Done()
+				}()
 				f.processBatchLogs(batch, crit, bloomIndexes, resultsChan)
 			}); err != nil {
 				wg.Done()
@@ -951,7 +955,10 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 		wg.Add(1)
 		if err := runner.submit(func(start, endHeight int64) func() {
 			return func() {
-				defer wg.Done()
+				defer func() {
+					metrics.IncrementRpcRequestCounter("num_blocks_fetched", "blocks", true)
+					wg.Done()
+				}()
 				f.processBatch(ctx, start, endHeight, crit, bloomIndexes, res, errChan)
 			}
 		}(batchStart, batchEnd)); err != nil {
