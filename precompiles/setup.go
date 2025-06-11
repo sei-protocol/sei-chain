@@ -100,7 +100,7 @@ import (
 	wasmdv601 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v601"
 	wasmdv603 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v603"
 	wasmdv605 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v605"
-	wasmdv606 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v606""
+	wasmdv606 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v606"
 )
 
 var SetupMtx = &sync.Mutex{}
