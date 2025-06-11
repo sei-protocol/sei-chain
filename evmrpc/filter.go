@@ -396,8 +396,8 @@ func NewReceiptCache(maxSize int) *ReceiptCache {
 }
 
 func (rc *ReceiptCache) Get(hash common.Hash) (*evmtypes.Receipt, bool) {
-	rc.mutex.RLock()
-	defer rc.mutex.RUnlock()
+	rc.mutex.Lock()
+	defer rc.mutex.Unlock()
 
 	node, exists := rc.nodes[hash]
 	if !exists {
