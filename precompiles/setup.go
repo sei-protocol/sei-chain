@@ -68,7 +68,6 @@ import (
 	oraclev603 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v603"
 	oraclev605 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v605"
 	oraclev610 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v610"
-	"github.com/sei-protocol/sei-chain/precompiles/p256"
 	"github.com/sei-protocol/sei-chain/precompiles/pointer"
 	pointerv552 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v552"
 	pointerv555 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v555"
@@ -259,10 +258,6 @@ func GetCustomPrecompiles(
 		"v6.1.0":      check(pointerviewv610.NewPrecompile(evmKeeper)),
 	}
 
-	p256Versions := VersionedPrecompiles{
-		latestUpgrade: check(p256.NewPrecompile()),
-	}
-
 	return map[ecommon.Address]VersionedPrecompiles{
 		ecommon.HexToAddress(bank.BankAddress):               bankVersions,
 		ecommon.HexToAddress(wasmd.WasmdAddress):             wasmdVersions,
@@ -275,7 +270,6 @@ func GetCustomPrecompiles(
 		ecommon.HexToAddress(ibc.IBCAddress):                 ibcVersions,
 		ecommon.HexToAddress(pointer.PointerAddress):         pointerVersions,
 		ecommon.HexToAddress(pointerview.PointerViewAddress): pointerviewVersions,
-		ecommon.HexToAddress(p256.P256VerifyAddress):         p256Versions,
 	}
 }
 
@@ -346,12 +340,6 @@ func InitializePrecompiles(
 	if err != nil {
 		return err
 	}
-
-	p256p, err := p256.NewPrecompile()
-	if err != nil {
-		return err
-	}
-
 	PrecompileNamesToInfo[bankp.GetName()] = PrecompileInfo{ABI: bankp.GetABI(), Address: bankp.Address()}
 	PrecompileNamesToInfo[wasmdp.GetName()] = PrecompileInfo{ABI: wasmdp.GetABI(), Address: wasmdp.Address()}
 	PrecompileNamesToInfo[jsonp.GetName()] = PrecompileInfo{ABI: jsonp.GetABI(), Address: jsonp.Address()}
@@ -363,8 +351,6 @@ func InitializePrecompiles(
 	PrecompileNamesToInfo[ibcp.GetName()] = PrecompileInfo{ABI: ibcp.GetABI(), Address: ibcp.Address()}
 	PrecompileNamesToInfo[pointerp.GetName()] = PrecompileInfo{ABI: pointerp.GetABI(), Address: pointerp.Address()}
 	PrecompileNamesToInfo[pointerviewp.GetName()] = PrecompileInfo{ABI: pointerviewp.GetABI(), Address: pointerviewp.Address()}
-	PrecompileNamesToInfo[p256p.GetName()] = PrecompileInfo{ABI: p256p.GetABI(), Address: p256p.Address()}
-
 	if !dryRun {
 		addPrecompileToVM(bankp)
 		addPrecompileToVM(wasmdp)
@@ -377,7 +363,6 @@ func InitializePrecompiles(
 		addPrecompileToVM(ibcp)
 		addPrecompileToVM(pointerp)
 		addPrecompileToVM(pointerviewp)
-		addPrecompileToVM(p256p)
 		Initialized = true
 	}
 	return nil
