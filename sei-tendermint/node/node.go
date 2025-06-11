@@ -42,6 +42,8 @@ import (
 
 	_ "net/http/pprof" // nolint: gosec // securely exposed on separate, optional port
 
+	_ "github.com/grafana/pyroscope-go/godeltaprof/http/pprof"
+
 	_ "github.com/lib/pq" // provide the psql db driver
 )
 
