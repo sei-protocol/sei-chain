@@ -10,8 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/time/rate"
-
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -19,28 +17,30 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
+	"golang.org/x/time/rate"
 )
 
 const TxSearchPerPage = 10
 
-// **Simplified System**
 const (
 	// Worker pool settings
 	MaxNumOfWorkers = 24 // each worker will handle a batch of WorkerBatchSize blocks
 	WorkerBatchSize = 100
 	WorkerQueueSize = 200
 
+	// DB Concurrency Read Limit
+	MaxDBReadConcurrency = 16
+
 	// Request limits
 	MaxBlockRange = 2000
 	MaxLogLimit   = 10000
 
-	// global RPS Limit
+	// global request rate limit
 	GlobalRPSLimit = 50
 )
 
@@ -77,6 +77,17 @@ type WorkerPool struct {
 var (
 	globalWorkerPool *WorkerPool
 	poolOnce         sync.Once
+	// Semaphore to limit concurrent I/O operations against the database
+	dbReadSemaphore  = make(chan struct{}, MaxDBReadConcurrency)
+	globalBlockCache = NewBlockCache(1000)
+
+	// every request consumes 1 token, regardless of block range
+	globalRPSLimiter = rate.NewLimiter(rate.Limit(GlobalRPSLimit), GlobalRPSLimit)
+	// Global bloom cache - smaller than block cache since blooms are tiny
+	globalBloomCache = NewBloomCache(50000)
+
+	// Global receipt cache - smaller than block cache since receipts are tiny
+	globalReceiptCache = NewReceiptCache(50000)
 )
 
 func getGlobalWorkerPool() *WorkerPool {
@@ -97,16 +108,9 @@ func (wp *WorkerPool) start() {
 			wp.wg.Add(1)
 			go func() {
 				defer wp.wg.Done()
-				for {
-					select {
-					case task, ok := <-wp.taskQueue:
-						if !ok {
-							return
-						}
-						task()
-					case <-wp.done:
-						return
-					}
+				// The worker will exit gracefully when the taskQueue is closed and drained.
+				for task := range wp.taskQueue {
+					task()
 				}
 			}()
 		}
@@ -119,8 +123,7 @@ func (wp *WorkerPool) submit(task func()) error {
 	case wp.taskQueue <- task:
 		return nil
 	case <-wp.done:
-		task()
-		return nil
+		return fmt.Errorf("worker pool is closing")
 	default:
 		// Queue is full - fail fast
 		return fmt.Errorf("worker pool queue is full")
@@ -128,74 +131,80 @@ func (wp *WorkerPool) submit(task func()) error {
 }
 
 func (wp *WorkerPool) Close() {
-	close(wp.done)
-	close(wp.taskQueue)
-	wp.wg.Wait()
+	close(wp.done)      // Signal that no new tasks should be submitted.
+	close(wp.taskQueue) // Close the queue to signal workers to drain and exit.
+	wp.wg.Wait()        // Wait for all workers to finish their remaining tasks.
 }
 
-// O(1) LRU Cache implementation
-type LRUNode struct {
-	height     int64
-	block      *coretypes.ResultBlock
+// Generic LRU Cache implementation using generics
+type LRUNode[K comparable, V any] struct {
+	key        K
+	value      V
 	timestamp  time.Time
-	prev, next *LRUNode
+	prev, next *LRUNode[K, V]
 }
 
-type BlockCache struct {
-	nodes      map[int64]*LRUNode
-	head, tail *LRUNode
+type LRUCache[K comparable, V any] struct {
+	nodes      map[K]*LRUNode[K, V]
+	head, tail *LRUNode[K, V]
 	maxSize    int
 	size       int
 	mutex      sync.RWMutex
 }
 
-func NewBlockCache(maxSize int) *BlockCache {
-	return &BlockCache{
-		nodes:   make(map[int64]*LRUNode),
+func NewLRUCache[K comparable, V any](maxSize int) *LRUCache[K, V] {
+	return &LRUCache[K, V]{
+		nodes:   make(map[K]*LRUNode[K, V]),
 		maxSize: maxSize,
 	}
 }
 
-func (bc *BlockCache) Get(height int64) (*coretypes.ResultBlock, bool) {
-	bc.mutex.RLock()
-	defer bc.mutex.RUnlock()
+// Get retrieves a value from the cache
+func (lru *LRUCache[K, V]) Get(key K) (V, bool) {
+	lru.mutex.Lock()
+	defer lru.mutex.Unlock()
 
-	node, exists := bc.nodes[height]
+	var zero V
+	node, exists := lru.nodes[key]
 	if !exists {
-		return nil, false
+		return zero, false
 	}
 
+	// Check TTL (5 minutes for all caches)
 	if time.Since(node.timestamp) > 300*time.Second {
-		return nil, false
+		lru.removeNode(node)
+		return zero, false
 	}
 
-	return node.block, true
+	lru.moveToHead(node)
+	return node.value, true
 }
 
-func (bc *BlockCache) Put(height int64, block *coretypes.ResultBlock) {
-	bc.mutex.Lock()
-	defer bc.mutex.Unlock()
+// Put stores a value in the cache
+func (lru *LRUCache[K, V]) Put(key K, value V) {
+	lru.mutex.Lock()
+	defer lru.mutex.Unlock()
 
-	if node, exists := bc.nodes[height]; exists {
-		node.block = block
+	if node, exists := lru.nodes[key]; exists {
+		node.value = value
 		node.timestamp = time.Now()
-		bc.moveToHead(node)
+		lru.moveToHead(node)
 		return
 	}
 
-	newNode := &LRUNode{height: height, block: block, timestamp: time.Now()}
+	newNode := &LRUNode[K, V]{key: key, value: value, timestamp: time.Now()}
 
-	if bc.size >= bc.maxSize {
-		bc.removeTail()
+	if lru.size >= lru.maxSize {
+		lru.removeTail()
 	}
 
-	bc.addToHead(newNode)
-	bc.nodes[height] = newNode
-	bc.size++
+	lru.addToHead(newNode)
+	lru.nodes[key] = newNode
+	lru.size++
 }
 
-func (bc *BlockCache) moveToHead(node *LRUNode) {
-	if bc.head == node {
+func (lru *LRUCache[K, V]) moveToHead(node *LRUNode[K, V]) {
+	if lru.head == node {
 		return
 	}
 
@@ -205,290 +214,85 @@ func (bc *BlockCache) moveToHead(node *LRUNode) {
 	if node.next != nil {
 		node.next.prev = node.prev
 	}
-	if bc.tail == node {
-		bc.tail = node.prev
+	if lru.tail == node {
+		lru.tail = node.prev
 	}
 
 	node.prev = nil
-	node.next = bc.head
-	if bc.head != nil {
-		bc.head.prev = node
+	node.next = lru.head
+	if lru.head != nil {
+		lru.head.prev = node
 	}
-	bc.head = node
-	if bc.tail == nil {
-		bc.tail = node
+	lru.head = node
+	if lru.tail == nil {
+		lru.tail = node
 	}
 }
 
-func (bc *BlockCache) removeTail() {
-	if bc.tail == nil {
+func (lru *LRUCache[K, V]) removeTail() {
+	if lru.tail == nil {
 		return
 	}
 
-	delete(bc.nodes, bc.tail.height)
+	delete(lru.nodes, lru.tail.key)
 
-	if bc.tail.prev != nil {
-		bc.tail.prev.next = nil
-		bc.tail = bc.tail.prev
+	if lru.tail.prev != nil {
+		lru.tail.prev.next = nil
+		lru.tail = lru.tail.prev
 	} else {
-		bc.head = nil
-		bc.tail = nil
+		lru.head = nil
+		lru.tail = nil
 	}
 
-	bc.size--
+	lru.size--
 }
 
-func (bc *BlockCache) addToHead(node *LRUNode) {
+func (lru *LRUCache[K, V]) addToHead(node *LRUNode[K, V]) {
 	node.prev = nil
-	node.next = bc.head
-	if bc.head != nil {
-		bc.head.prev = node
+	node.next = lru.head
+	if lru.head != nil {
+		lru.head.prev = node
 	}
-	bc.head = node
-	if bc.tail == nil {
-		bc.tail = node
+	lru.head = node
+	if lru.tail == nil {
+		lru.tail = node
 	}
 }
 
-var globalBlockCache = NewBlockCache(1000)
+func (lru *LRUCache[K, V]) removeNode(node *LRUNode[K, V]) {
+	if node.prev != nil {
+		node.prev.next = node.next
+	} else {
+		lru.head = node.next
+	}
 
-// every request consumes 1 token, regardless of block range
-var globalRPSLimiter = rate.NewLimiter(rate.Limit(GlobalRPSLimit), GlobalRPSLimit)
+	if node.next != nil {
+		node.next.prev = node.prev
+	} else {
+		lru.tail = node.prev
+	}
 
-// Bloom Filter Cache
-type BloomCacheNode struct {
-	height     int64
-	bloom      ethtypes.Bloom
-	timestamp  time.Time
-	prev, next *BloomCacheNode
+	delete(lru.nodes, node.key)
+	lru.size--
 }
 
-type BloomCache struct {
-	nodes      map[int64]*BloomCacheNode
-	head, tail *BloomCacheNode
-	maxSize    int
-	size       int
-	mutex      sync.RWMutex
+// Type aliases for specific cache types
+type BlockCache = LRUCache[int64, *coretypes.ResultBlock]
+type BloomCache = LRUCache[int64, ethtypes.Bloom]
+type ReceiptCache = LRUCache[common.Hash, *evmtypes.Receipt]
+
+// Factory functions for creating specific cache types
+func NewBlockCache(maxSize int) *BlockCache {
+	return NewLRUCache[int64, *coretypes.ResultBlock](maxSize)
 }
 
 func NewBloomCache(maxSize int) *BloomCache {
-	return &BloomCache{
-		nodes:   make(map[int64]*BloomCacheNode),
-		maxSize: maxSize,
-	}
-}
-
-func (bc *BloomCache) Get(height int64) (ethtypes.Bloom, bool) {
-	bc.mutex.RLock()
-	defer bc.mutex.RUnlock()
-
-	node, exists := bc.nodes[height]
-	if !exists {
-		return ethtypes.Bloom{}, false
-	}
-
-	// Bloom filters don't expire (they're immutable)
-	return node.bloom, true
-}
-
-func (bc *BloomCache) Put(height int64, bloom ethtypes.Bloom) {
-	bc.mutex.Lock()
-	defer bc.mutex.Unlock()
-
-	if node, exists := bc.nodes[height]; exists {
-		node.bloom = bloom
-		node.timestamp = time.Now()
-		bc.moveToHead(node)
-		return
-	}
-
-	newNode := &BloomCacheNode{height: height, bloom: bloom, timestamp: time.Now()}
-
-	if bc.size >= bc.maxSize {
-		bc.removeTail()
-	}
-
-	bc.addToHead(newNode)
-	bc.nodes[height] = newNode
-	bc.size++
-}
-
-func (bc *BloomCache) moveToHead(node *BloomCacheNode) {
-	if bc.head == node {
-		return
-	}
-
-	if node.prev != nil {
-		node.prev.next = node.next
-	}
-	if node.next != nil {
-		node.next.prev = node.prev
-	}
-	if bc.tail == node {
-		bc.tail = node.prev
-	}
-
-	node.prev = nil
-	node.next = bc.head
-	if bc.head != nil {
-		bc.head.prev = node
-	}
-	bc.head = node
-	if bc.tail == nil {
-		bc.tail = node
-	}
-}
-
-func (bc *BloomCache) removeTail() {
-	if bc.tail == nil {
-		return
-	}
-
-	delete(bc.nodes, bc.tail.height)
-
-	if bc.tail.prev != nil {
-		bc.tail.prev.next = nil
-		bc.tail = bc.tail.prev
-	} else {
-		bc.head = nil
-		bc.tail = nil
-	}
-
-	bc.size--
-}
-
-func (bc *BloomCache) addToHead(node *BloomCacheNode) {
-	node.prev = nil
-	node.next = bc.head
-	if bc.head != nil {
-		bc.head.prev = node
-	}
-	bc.head = node
-	if bc.tail == nil {
-		bc.tail = node
-	}
-}
-
-// Global bloom cache - smaller than block cache since blooms are tiny
-var globalBloomCache = NewBloomCache(50000)
-
-// Receipt Filter Cache
-type ReceiptCacheNode struct {
-	hash       common.Hash
-	receipt    *evmtypes.Receipt
-	timestamp  time.Time
-	prev, next *ReceiptCacheNode
-}
-
-type ReceiptCache struct {
-	nodes      map[common.Hash]*ReceiptCacheNode
-	head, tail *ReceiptCacheNode
-	maxSize    int
-	size       int
-	mutex      sync.RWMutex
+	return NewLRUCache[int64, ethtypes.Bloom](maxSize)
 }
 
 func NewReceiptCache(maxSize int) *ReceiptCache {
-	return &ReceiptCache{
-		nodes:   make(map[common.Hash]*ReceiptCacheNode),
-		maxSize: maxSize,
-	}
+	return NewLRUCache[common.Hash, *evmtypes.Receipt](maxSize)
 }
-
-func (rc *ReceiptCache) Get(hash common.Hash) (*evmtypes.Receipt, bool) {
-	rc.mutex.Lock()
-	defer rc.mutex.Unlock()
-
-	node, exists := rc.nodes[hash]
-	if !exists {
-		return nil, false
-	}
-
-	// Receipts don't expire (they're immutable)
-	rc.moveToHead(node)
-	return node.receipt, true
-}
-
-func (rc *ReceiptCache) Put(hash common.Hash, receipt *evmtypes.Receipt) {
-	rc.mutex.Lock()
-	defer rc.mutex.Unlock()
-
-	if node, exists := rc.nodes[hash]; exists {
-		node.receipt = receipt
-		node.timestamp = time.Now()
-		rc.moveToHead(node)
-		return
-	}
-
-	newNode := &ReceiptCacheNode{hash: hash, receipt: receipt, timestamp: time.Now()}
-
-	if rc.size >= rc.maxSize {
-		rc.removeTail()
-	}
-
-	rc.addToHead(newNode)
-	rc.nodes[hash] = newNode
-	rc.size++
-}
-
-func (rc *ReceiptCache) moveToHead(node *ReceiptCacheNode) {
-	if rc.head == node {
-		return
-	}
-
-	if node.prev != nil {
-		node.prev.next = node.next
-	}
-	if node.next != nil {
-		node.next.prev = node.prev
-	}
-	if rc.tail == node {
-		rc.tail = node.prev
-	}
-
-	node.prev = nil
-	node.next = rc.head
-	if rc.head != nil {
-		rc.head.prev = node
-	}
-	rc.head = node
-	if rc.tail == nil {
-		rc.tail = node
-	}
-}
-
-func (rc *ReceiptCache) removeTail() {
-	if rc.tail == nil {
-		return
-	}
-
-	delete(rc.nodes, rc.tail.hash)
-
-	if rc.tail.prev != nil {
-		rc.tail.prev.next = nil
-		rc.tail = rc.tail.prev
-	} else {
-		rc.head = nil
-		rc.tail = nil
-	}
-
-	rc.size--
-}
-
-func (rc *ReceiptCache) addToHead(node *ReceiptCacheNode) {
-	node.prev = nil
-	node.next = rc.head
-	if rc.head != nil {
-		rc.head.prev = node
-	}
-	rc.head = node
-	if rc.tail == nil {
-		rc.tail = node
-	}
-}
-
-// Global receipt cache - each receipt is ~1-10KB, 10000 receipts = ~100MB
-var globalReceiptCache = NewReceiptCache(50000)
 
 // Log slice pool to reduce allocations in batch processing
 type LogSlicePool struct {
@@ -966,7 +770,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 			f.GetLogsForBlockPooled(block, crit, bloomIndexes, &localLogs)
 		}
 
-		// Sort the local batch - this is fast because the slice is small
+		// Sort the local batch
 		sort.Slice(localLogs, func(i, j int) bool {
 			if localLogs[i].BlockNumber != localLogs[j].BlockNumber {
 				return localLogs[i].BlockNumber < localLogs[j].BlockNumber
@@ -1084,17 +888,40 @@ func (f *LogFetcher) GetLogsForBlock(block *coretypes.ResultBlock, crit filters.
 
 // Pooled version that reuses slice allocation
 func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, result *[]*ethtypes.Log) {
-	tempLogs := globalLogSlicePool.Get()
-	defer globalLogSlicePool.Put(tempLogs)
+	ctx := f.ctxProvider(LatestCtxHeight)
+	totalLogs := uint(0)
 
-	f.FindLogsByBloomPooled(block, crit, filters, &tempLogs)
-
-	// Filter and set block hash
-	for _, l := range tempLogs {
-		if f.IsLogExactMatch(l, crit) {
-			l.BlockHash = common.BytesToHash(block.BlockID.Hash)
-			*result = append(*result, l)
+	for _, hash := range getTxHashesFromBlock(block, f.txConfig, f.includeSyntheticReceipts) {
+		// Try to get receipt from cache first
+		receipt, found := globalReceiptCache.Get(hash)
+		if !found {
+			// Cache miss - fetch from database and cache it
+			var err error
+			receipt, err = f.k.GetReceipt(ctx, hash)
+			if err != nil {
+				if !f.includeSyntheticReceipts {
+					ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
+				}
+				continue
+			}
+			// Store in cache for future use
+			globalReceiptCache.Put(hash, receipt)
 		}
+
+		if !f.includeSyntheticReceipts && (receipt.TxType == ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
+			continue
+		}
+
+		// check bloom filter if filter is provided
+		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
+			if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
+				*result = append(*result, keeper.GetLogsForTx(receipt, totalLogs)...)
+			}
+		} else {
+			// no filter, return all logs
+			*result = append(*result, keeper.GetLogsForTx(receipt, totalLogs)...)
+		}
+		totalLogs += uint(len(receipt.Logs))
 	}
 }
 
@@ -1245,15 +1072,12 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 		wg.Add(1)
 		if err := runner.submit(func(start, endHeight int64) func() {
 			return func() {
-				defer func() {
-					metrics.IncrementRpcRequestCounter("num_blocks_fetched", "blocks", true)
-					wg.Done()
-				}()
+				defer wg.Done()
 				f.processBatch(ctx, start, endHeight, crit, bloomIndexes, res, errChan)
 			}
 		}(batchStart, batchEnd)); err != nil {
 			wg.Done()
-			return nil, 0, false, fmt.Errorf("system overloaded: %w", err)
+			return nil, 0, false, fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
 		}
 	}
 
@@ -1284,8 +1108,18 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 			continue
 		}
 
-		// check cache first
+		// check cache first, without holding the semaphore
 		if cachedBlock, found := globalBlockCache.Get(height); found {
+			res <- cachedBlock
+			continue
+		}
+
+		// Block cache miss, acquire semaphore for I/O operations
+		dbReadSemaphore <- struct{}{}
+
+		// Re-check cache after acquiring semaphore, in case another worker fetched it.
+		if cachedBlock, found := globalBlockCache.Get(height); found {
+			<-dbReadSemaphore
 			res <- cachedBlock
 			continue
 		}
@@ -1295,6 +1129,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 			// Try bloom cache first
 			if cachedBloom, found := globalBloomCache.Get(height); found {
 				if !MatchFilters(cachedBloom, bloomIndexes) {
+					<-dbReadSemaphore
 					continue // skip the block if bloom filter does not match
 				}
 			} else {
@@ -1306,6 +1141,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 				globalBloomCache.Put(height, blockBloom)
 
 				if !MatchFilters(blockBloom, bloomIndexes) {
+					<-dbReadSemaphore
 					continue // skip the block if bloom filter does not match
 				}
 			}
@@ -1318,10 +1154,12 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 			case errChan <- fmt.Errorf("failed to fetch block at height %d: %w", height, err):
 			default:
 			}
+			<-dbReadSemaphore
 			continue
 		}
 
 		globalBlockCache.Put(height, block)
+		<-dbReadSemaphore
 		res <- block
 	}
 }
