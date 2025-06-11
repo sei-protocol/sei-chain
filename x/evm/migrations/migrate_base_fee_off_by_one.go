@@ -6,7 +6,7 @@ import (
 )
 
 func MigrateBaseFeeOffByOne(ctx sdk.Context, k *keeper.Keeper) error {
-	baseFee := k.GetCurrBaseFeePerGas(ctx)
+	baseFee := k.GetNextBaseFeePerGas(ctx)
 	k.SetNextBaseFeePerGas(ctx, baseFee)
 	return nil
 }
