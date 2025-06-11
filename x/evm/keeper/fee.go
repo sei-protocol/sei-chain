@@ -1,6 +1,8 @@
 package keeper
 
 import (
+	"fmt"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -62,6 +64,7 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 
 // dont have height be a prefix, just store the current base fee directly
 func (k *Keeper) GetCurrBaseFeePerGas(ctx sdk.Context) sdk.Dec {
+	fmt.Printf("[DEBUG] In GetCurrBaseFeePerGas, ctxHeight: %d\n", ctx.BlockHeight())
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.BaseFeePerGasPrefix)
 	if bz == nil {
@@ -80,6 +83,7 @@ func (k *Keeper) GetCurrBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 }
 
 func (k *Keeper) SetCurrBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec) {
+	fmt.Printf("[DEBUG] In SetCurrBaseFeePerGas, ctxHeight: %d, baseFeePerGas: %s\n", ctx.BlockHeight(), baseFeePerGas.String())
 	store := ctx.KVStore(k.storeKey)
 	bz, err := baseFeePerGas.MarshalJSON()
 	if err != nil {
@@ -89,6 +93,7 @@ func (k *Keeper) SetCurrBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec) {
 }
 
 func (k *Keeper) SetNextBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec) {
+	fmt.Printf("[DEBUG] In SetNextBaseFeePerGas, ctxHeight: %d, baseFeePerGas: %s\n", ctx.BlockHeight(), baseFeePerGas.String())
 	store := ctx.KVStore(k.storeKey)
 	bz, err := baseFeePerGas.MarshalJSON()
 	if err != nil {
@@ -98,6 +103,7 @@ func (k *Keeper) SetNextBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec) {
 }
 
 func (k *Keeper) GetNextBaseFeePerGas(ctx sdk.Context) sdk.Dec {
+	fmt.Printf("[DEBUG] In GetNextBaseFeePerGas, ctxHeight: %d\n", ctx.BlockHeight())
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.NextBaseFeePerGasPrefix)
 	if bz == nil {

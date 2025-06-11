@@ -146,6 +146,16 @@ func (k *Keeper) WriteReceipt(
 ) (*types.Receipt, error) {
 	ethLogs := stateDB.GetAllLogs()
 	bloom := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: ethLogs}})
+
+	// // Calculate effective gas price as min(baseFee + priorityFee, maxFeeCap)
+	// baseFee := k.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt()
+	// effectiveGasPrice := new(big.Int).Add(baseFee, msg.GasTipCap)
+	// if effectiveGasPrice.Cmp(msg.GasFeeCap) > 0 {
+	// 	effectiveGasPrice = msg.GasFeeCap
+	// }
+	effectiveGasPrice := msg.GasPrice
+	fmt.Printf("[DEBUG] WriteReceipt txHash: %s, effectiveGasPrice: %s\n", txHash.Hex(), effectiveGasPrice.String())
+
 	receipt := &types.Receipt{
 		TxType:            txType,
 		CumulativeGasUsed: uint64(0),
@@ -153,7 +163,7 @@ func (k *Keeper) WriteReceipt(
 		GasUsed:           gasUsed,
 		BlockNumber:       uint64(ctx.BlockHeight()),
 		TransactionIndex:  uint32(ctx.TxIndex()),
-		EffectiveGasPrice: msg.GasPrice.Uint64(),
+		EffectiveGasPrice: effectiveGasPrice.Uint64(),
 		VmError:           vmError,
 		Logs:              utils.Map(ethLogs, ConvertEthLog),
 		LogsBloom:         bloom[:],

@@ -285,6 +285,7 @@ func (AppModule) ConsensusVersion() uint64 { return 19 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
+	fmt.Printf("[DEBUG] In BeginBlock, ctxHeight: %d\n", ctx.BlockHeight())
 	// clear tx/tx responses from last block
 	if !ctx.IsTracing() {
 		am.keeper.SetMsgs([]*types.MsgEVMTransaction{})
