@@ -1,11 +1,11 @@
 package evmrpc
 
 import (
+	"container/heap"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -518,6 +518,33 @@ func (p *LogSlicePool) Put(slice []*ethtypes.Log) {
 // Global log slice pool
 var globalLogSlicePool = NewLogSlicePool()
 
+// kWayMergeItem is used in the heap for the k-way merge.
+type kWayMergeItem struct {
+	log      *ethtypes.Log
+	batchIdx int // Which batch this log came from
+	itemIdx  int // The index within that batch
+}
+
+// logMergeHeap is a min-heap of kWayMergeItem
+type logMergeHeap []*kWayMergeItem
+
+func (h logMergeHeap) Len() int { return len(h) }
+func (h logMergeHeap) Less(i, j int) bool {
+	if h[i].log.BlockNumber != h[j].log.BlockNumber {
+		return h[i].log.BlockNumber < h[j].log.BlockNumber
+	}
+	return h[i].log.Index < h[j].log.Index
+}
+func (h logMergeHeap) Swap(i, j int)       { h[i], h[j] = h[j], h[i] }
+func (h *logMergeHeap) Push(x interface{}) { *h = append(*h, x.(*kWayMergeItem)) }
+func (h *logMergeHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[0 : n-1]
+	return x
+}
+
 type FilterAPI struct {
 	tmClient       rpcclient.Client
 	filtersMu      sync.RWMutex
@@ -897,9 +924,6 @@ type LogFetcher struct {
 }
 
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
-	fmt.Printf("Active goroutines: %d, Workers busy: %d\n",
-		runtime.NumGoroutine(),
-		len(getGlobalWorkerPool().taskQueue))
 	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
 	begin, end := latest, latest
 	if crit.FromBlock != nil {
@@ -928,10 +952,33 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}
 
 	runner := getGlobalWorkerPool()
-	resultsChan := make(chan *ethtypes.Log, 10000)
-	res = []*ethtypes.Log{}
+	var resultsMutex sync.Mutex
+	sortedBatches := make([][]*ethtypes.Log, 0)
 	var wg sync.WaitGroup
 	var submitError error
+
+	processBatch := func(batch []*coretypes.ResultBlock) {
+		defer wg.Done()
+		// Each worker gets a clean slice from the pool
+		localLogs := globalLogSlicePool.Get()
+
+		for _, block := range batch {
+			f.GetLogsForBlockPooled(block, crit, bloomIndexes, &localLogs)
+		}
+
+		// Sort the local batch - this is fast because the slice is small
+		sort.Slice(localLogs, func(i, j int) bool {
+			if localLogs[i].BlockNumber != localLogs[j].BlockNumber {
+				return localLogs[i].BlockNumber < localLogs[j].BlockNumber
+			}
+			return localLogs[i].Index < localLogs[j].Index
+		})
+
+		// Append the sorted (and now owned) slice to the shared list
+		resultsMutex.Lock()
+		sortedBatches = append(sortedBatches, localLogs)
+		resultsMutex.Unlock()
+	}
 
 	// Batch process with fail-fast
 	blockBatch := make([]*coretypes.ResultBlock, 0, WorkerBatchSize)
@@ -942,14 +989,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 			batch := blockBatch
 			wg.Add(1)
 
-			// Fail fast if worker pool is full
-			if err := runner.submit(func() {
-				defer func() {
-					metrics.IncrementRpcRequestCounter("num_blocks_fetched", "logs", true)
-					wg.Done()
-				}()
-				f.processBatchLogs(batch, crit, bloomIndexes, resultsChan)
-			}); err != nil {
+			if err := runner.submit(func() { processBatch(batch) }); err != nil {
 				wg.Done()
 				submitError = fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
 				break
@@ -965,29 +1005,23 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	// Process remaining blocks
 	if len(blockBatch) > 0 {
 		wg.Add(1)
-		if err := runner.submit(func() {
-			defer wg.Done()
-			f.processBatchLogs(blockBatch, crit, bloomIndexes, resultsChan)
-		}); err != nil {
+		if err := runner.submit(func() { processBatch(blockBatch) }); err != nil {
 			wg.Done()
 			return nil, 0, fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
 		}
 	}
 
-	go func() {
-		wg.Wait()
-		close(resultsChan)
+	wg.Wait()
+
+	// Now that all workers are done, we put the slices back into the pool.
+	// This must be done after the merge is complete.
+	defer func() {
+		for _, batch := range sortedBatches {
+			globalLogSlicePool.Put(batch)
+		}
 	}()
 
-	// Aggregate results
-	for result := range resultsChan {
-		res = append(res, result)
-	}
-
-	// Sort results
-	sort.Slice(res, func(i, j int) bool {
-		return res[i].BlockNumber < res[j].BlockNumber
-	})
+	res = f.mergeSortedLogs(sortedBatches)
 
 	// Apply rate limit
 	if applyOpenEndedLogLimit && int64(len(res)) >= f.filterConfig.maxLog {
@@ -997,17 +1031,46 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	return res, end, err
 }
 
-// New batch log processing function
-func (f *LogFetcher) processBatchLogs(blocks []*coretypes.ResultBlock, crit filters.FilterCriteria, bloomIndexes [][]bloomIndexes, resultsChan chan *ethtypes.Log) {
-	for _, block := range blocks {
-		// Use pooled version to reduce allocations
-		logs := globalLogSlicePool.Get()
-		f.GetLogsForBlockPooled(block, crit, bloomIndexes, &logs)
-		for _, log := range logs {
-			resultsChan <- log
-		}
-		globalLogSlicePool.Put(logs)
+func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log) []*ethtypes.Log {
+	totalSize := 0
+	for _, b := range batches {
+		totalSize += len(b)
 	}
+	if totalSize == 0 {
+		return nil
+	}
+
+	res := make([]*ethtypes.Log, 0, totalSize)
+	h := &logMergeHeap{}
+
+	// Initialize the heap with the first element from each non-empty batch
+	for i, batch := range batches {
+		if len(batch) > 0 {
+			heap.Push(h, &kWayMergeItem{
+				log:      batch[0],
+				batchIdx: i,
+				itemIdx:  0,
+			})
+		}
+	}
+
+	// Process the heap until it's empty
+	for h.Len() > 0 {
+		item := heap.Pop(h).(*kWayMergeItem)
+		res = append(res, item.log)
+
+		// If there are more items in the batch the popped item came from, add the next one to the heap
+		nextItemIdx := item.itemIdx + 1
+		if nextItemIdx < len(batches[item.batchIdx]) {
+			heap.Push(h, &kWayMergeItem{
+				log:      batches[item.batchIdx][nextItemIdx],
+				batchIdx: item.batchIdx,
+				itemIdx:  nextItemIdx,
+			})
+		}
+	}
+
+	return res
 }
 
 func (f *LogFetcher) GetLogsForBlock(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes) []*ethtypes.Log {
