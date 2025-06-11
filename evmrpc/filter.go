@@ -307,19 +307,22 @@ func NewLogSlicePool() *LogSlicePool {
 	return &LogSlicePool{
 		pool: sync.Pool{
 			New: func() interface{} {
-				return make([]*ethtypes.Log, 0, 100) // Pre-allocate capacity of 100
+				slice := make([]*ethtypes.Log, 0, 100) // Pre-allocate capacity of 100
+				return &slice
 			},
 		},
 	}
 }
 
 func (p *LogSlicePool) Get() []*ethtypes.Log {
-	return p.pool.Get().([]*ethtypes.Log)[:0] // Reset length but keep capacity
+	slicePtr := p.pool.Get().(*[]*ethtypes.Log)
+	*slicePtr = (*slicePtr)[:0] // Reset length but keep capacity
+	return *slicePtr
 }
 
 func (p *LogSlicePool) Put(slice []*ethtypes.Log) {
 	if cap(slice) < 1000 { // Avoid storing overly large slices
-		p.pool.Put(slice)
+		p.pool.Put(&slice)
 	}
 }
 
@@ -643,7 +646,16 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 	}
 
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
-	return logs, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Ensure we never return nil, always return an array (even if empty)
+	if logs == nil {
+		logs = []*ethtypes.Log{}
+	}
+
+	return logs, nil
 }
 
 // get block headers after a certain cursor. Can use an empty string cursor
@@ -846,6 +858,11 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		res = res[:int(f.filterConfig.maxLog)]
 	}
 
+	// Ensure we never return nil, always return an array (even if empty)
+	if res == nil {
+		res = []*ethtypes.Log{}
+	}
+
 	return res, end, err
 }
 
@@ -855,7 +872,7 @@ func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log) []*ethtypes.Log 
 		totalSize += len(b)
 	}
 	if totalSize == 0 {
-		return nil
+		return []*ethtypes.Log{}
 	}
 
 	res := make([]*ethtypes.Log, 0, totalSize)
@@ -929,7 +946,13 @@ func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit fi
 		// check bloom filter if filter is provided
 		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
 			if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
-				*result = append(*result, keeper.GetLogsForTx(receipt, totalLogs)...)
+				allLogs := keeper.GetLogsForTx(receipt, totalLogs)
+				// Filter logs to only include exact matches
+				for _, log := range allLogs {
+					if f.IsLogExactMatch(log, crit) {
+						*result = append(*result, log)
+					}
+				}
 			}
 		} else {
 			// no filter, return all logs
@@ -1007,7 +1030,13 @@ func (f *LogFetcher) FindLogsByBloomPooled(block *coretypes.ResultBlock, crit fi
 		// check bloom filter if filter is provided
 		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
 			if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
-				*result = append(*result, keeper.GetLogsForTx(receipt, totalLogs)...)
+				allLogs := keeper.GetLogsForTx(receipt, totalLogs)
+				// Filter logs to only include exact matches
+				for _, log := range allLogs {
+					if f.IsLogExactMatch(log, crit) {
+						*result = append(*result, log)
+					}
+				}
 			}
 		} else {
 			// no filter, return all logs
@@ -1031,9 +1060,21 @@ func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCrite
 // Optimized fetchBlocksByCrit with batch processing
 func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]bloomIndexes) (chan *coretypes.ResultBlock, int64, bool, error) {
 	if crit.BlockHash != nil {
+		// Check for invalid zero hash
+		zeroHash := common.Hash{}
+		if *crit.BlockHash == zeroHash {
+			// For invalid hash, return empty channel instead of error
+			res := make(chan *coretypes.ResultBlock)
+			close(res)
+			return res, 0, false, nil
+		}
+
 		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:], 1)
 		if err != nil {
-			return nil, 0, false, err
+			// For non-existent blocks, return empty channel instead of error
+			res := make(chan *coretypes.ResultBlock)
+			close(res)
+			return res, 0, false, nil
 		}
 		res := make(chan *coretypes.ResultBlock, 1)
 		res <- block
@@ -1064,7 +1105,8 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			begin = 1
 		}
 	} else if !applyOpenEndedLogLimit && f.filterConfig.maxBlock > 0 && blockRange > f.filterConfig.maxBlock {
-		return nil, 0, false, fmt.Errorf("a maximum of %d blocks worth of logs may be requested at a time", f.filterConfig.maxBlock)
+		// Use consistent error message format
+		return nil, 0, false, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, f.filterConfig.maxBlock)
 	}
 
 	if begin > end {
