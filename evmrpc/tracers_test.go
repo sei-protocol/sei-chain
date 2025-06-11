@@ -35,12 +35,12 @@ func TestTraceTransaction(t *testing.T) {
 }
 
 func TestTraceCall(t *testing.T) {
-	_, from := testkeeper.MockAddressPair()
 	_, contractAddr := testkeeper.MockAddressPair()
 	txArgs := map[string]interface{}{
-		"from":    from.Hex(),
-		"to":      contractAddr.Hex(),
-		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
+		"from":         "0x5B4eba929F3811980f5AE0c5D04fa200f837DF4E",
+		"to":           contractAddr.Hex(),
+		"chainId":      fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
+		"maxFeePerGas": "0x3B9ACA00",
 	}
 
 	resObj := sendRequestGoodWithNamespace(t, "debug", "traceCall", txArgs, "0x65")
