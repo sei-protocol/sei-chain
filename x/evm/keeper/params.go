@@ -23,6 +23,10 @@ func (k *Keeper) GetParamsPre580(ctx sdk.Context) (params types.ParamsPreV580) {
 	return k.GetParamsPre580IfExists(ctx)
 }
 
+func (k *Keeper) GetParamsPreV606(ctx sdk.Context) (params types.ParamsPreV606) {
+	return k.GetParamsPreV606IfExists(ctx)
+}
+
 func (k *Keeper) GetParamsIfExists(ctx sdk.Context) types.Params {
 	params := types.Params{}
 	k.Paramstore.GetParamSetIfExists(ctx, &params)
@@ -31,6 +35,12 @@ func (k *Keeper) GetParamsIfExists(ctx sdk.Context) types.Params {
 
 func (k *Keeper) GetParamsPre580IfExists(ctx sdk.Context) types.ParamsPreV580 {
 	params := types.ParamsPreV580{}
+	k.Paramstore.GetParamSetIfExists(ctx, &params)
+	return params
+}
+
+func (k *Keeper) GetParamsPreV606IfExists(ctx sdk.Context) types.ParamsPreV606 {
+	params := types.ParamsPreV606{}
 	k.Paramstore.GetParamSetIfExists(ctx, &params)
 	return params
 }

@@ -78,6 +78,9 @@ func TestMigrateERCCW1155Pointers(t *testing.T) {
 func TestMigrateCWERC20Pointers(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	params := k.GetParams(ctx)
+	params.RegisterPointerDisabled = false
+	k.SetParams(ctx, params)
 	require.Nil(t, migrations.StoreCWPointerCode(ctx, &k, true, false, false))
 	msgServer := keeper.NewMsgServerImpl(&k)
 	res, err := msgServer.RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
@@ -94,6 +97,9 @@ func TestMigrateCWERC20Pointers(t *testing.T) {
 func TestMigrateCWERC721Pointers(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	params := k.GetParams(ctx)
+	params.RegisterPointerDisabled = false
+	k.SetParams(ctx, params)
 	require.Nil(t, migrations.StoreCWPointerCode(ctx, &k, false, true, false))
 	msgServer := keeper.NewMsgServerImpl(&k)
 	res, err := msgServer.RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
@@ -110,6 +116,9 @@ func TestMigrateCWERC721Pointers(t *testing.T) {
 func TestMigrateCWERC1155Pointers(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	params := k.GetParams(ctx)
+	params.RegisterPointerDisabled = false
+	k.SetParams(ctx, params)
 	require.Nil(t, migrations.StoreCWPointerCode(ctx, &k, false, false, true))
 	msgServer := keeper.NewMsgServerImpl(&k)
 	res, err := msgServer.RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
