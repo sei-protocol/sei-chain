@@ -118,6 +118,7 @@ var upgradesList = []string{
 	"v6.0.4",
 	"v6.0.5",
 	"v6.0.6",
+	"v6.0.7-simplify-base-fee",
 }
 
 var LatestUpgrade = upgradesList[len(upgradesList)-1]
