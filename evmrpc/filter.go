@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -762,7 +763,11 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	var submitError error
 
 	processBatch := func(batch []*coretypes.ResultBlock) {
-		defer wg.Done()
+		defer func() {
+			// Add metrics for log processing
+			metrics.IncrementRpcRequestCounter("num_blocks_fetched", "logs", true)
+			wg.Done()
+		}()
 		// Each worker gets a clean slice from the pool
 		localLogs := globalLogSlicePool.Get()
 
@@ -1103,6 +1108,9 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 
 // Batch processing function for blocks
 func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit filters.FilterCriteria, bloomIndexes [][]bloomIndexes, res chan *coretypes.ResultBlock, errChan chan error) {
+	defer func() {
+		metrics.IncrementRpcRequestCounter("num_blocks_fetched", "blocks", true)
+	}()
 	for height := start; height <= end; height++ {
 		if height == 0 {
 			continue
