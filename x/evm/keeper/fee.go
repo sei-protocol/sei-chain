@@ -58,6 +58,36 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 	return &newBaseFee
 }
 
+// NOTE: this is only used in migrate_base_fee_off_by_one migration. This is deprecated.
+// dont have height be a prefix, just store the current base fee directly
+func (k *Keeper) GetCurrBaseFeePerGas(ctx sdk.Context) sdk.Dec {
+	store := ctx.KVStore(k.storeKey)
+	bz := store.Get(types.BaseFeePerGasPrefix)
+	if bz == nil {
+		minFeePerGas := k.GetMinimumFeePerGas(ctx)
+		if minFeePerGas.IsNil() {
+			minFeePerGas = types.DefaultParams().MinimumFeePerGas
+		}
+		return minFeePerGas
+	}
+	d := sdk.Dec{}
+	err := d.UnmarshalJSON(bz)
+	if err != nil {
+		panic(err)
+	}
+	return d
+}
+
+// NOTE: this is only used in migrate_base_fee_off_by_one migration. This is deprecated.
+func (k *Keeper) SetCurrBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec) {
+	store := ctx.KVStore(k.storeKey)
+	bz, err := baseFeePerGas.MarshalJSON()
+	if err != nil {
+		panic(err)
+	}
+	store.Set(types.BaseFeePerGasPrefix, bz)
+}
+
 func (k *Keeper) SetNextBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec) {
 	store := ctx.KVStore(k.storeKey)
 	bz, err := baseFeePerGas.MarshalJSON()
