@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -29,20 +30,22 @@ import (
 const TxSearchPerPage = 10
 
 const (
-	// Worker pool settings
-	MaxNumOfWorkers = 24 // each worker will handle a batch of WorkerBatchSize blocks
 	WorkerBatchSize = 100
 	WorkerQueueSize = 200
 
 	// DB Concurrency Read Limit
 	MaxDBReadConcurrency = 16
 
-	// Request limits
-	MaxBlockRange = 2000
-	MaxLogLimit   = 10000
+	// Default request limits (used as fallback values)
+	DefaultMaxBlockRange = 2000
+	DefaultMaxLogLimit   = 10000
 
 	// global request rate limit
-	GlobalRPSLimit = 50
+	GlobalRPSLimit = 30
+)
+
+var (
+	MaxNumOfWorkers = runtime.NumCPU() * 2 // each worker will handle a batch of WorkerBatchSize blocks
 )
 
 type FilterType byte
@@ -376,10 +379,10 @@ type EventItemDataWrapper struct {
 
 func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, filterConfig *FilterConfig, connectionType ConnectionType, namespace string) *FilterAPI {
 	if filterConfig.maxBlock <= 0 {
-		filterConfig.maxBlock = MaxBlockRange
+		filterConfig.maxBlock = DefaultMaxBlockRange
 	}
 	if filterConfig.maxLog <= 0 {
-		filterConfig.maxLog = MaxLogLimit
+		filterConfig.maxLog = DefaultMaxLogLimit
 	}
 
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
@@ -405,7 +408,10 @@ func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(
 // Unified cleanup loop that handles both timeout and manual deletion
 func (a *FilterAPI) cleanupLoop(timeout time.Duration) {
 	ticker := time.NewTicker(timeout / 2) // Check more frequently than timeout
-	defer ticker.Stop()
+	defer func() {
+		ticker.Stop()
+		recoverAndLog()
+	}()
 
 	for {
 		select {
@@ -610,11 +616,7 @@ func (a *FilterAPI) GetFilterLogs(
 }
 
 func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (res []*ethtypes.Log, err error) {
-	if !globalRPSLimiter.Allow() {
-		return nil, fmt.Errorf("log query rate limit exceeded, please try again later")
-	}
 	defer recordMetrics(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now(), err == nil)
-
 	// Calculate block range
 	latest := a.logFetcher.ctxProvider(LatestCtxHeight).BlockHeight()
 	begin, end := latest, latest
@@ -630,8 +632,14 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 
 	blockRange := end - begin + 1
 
-	if blockRange > MaxBlockRange {
-		return nil, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, MaxBlockRange)
+	// Use config value instead of hardcoded constant
+	if blockRange > a.filterConfig.maxBlock {
+		return nil, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, a.filterConfig.maxBlock)
+	}
+
+	// Only apply rate limiting for large queries (> 100 blocks)
+	if blockRange > 100 && !globalRPSLimiter.Allow() {
+		return nil, fmt.Errorf("log query rate limit exceeded for large queries, please try again later")
 	}
 
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
@@ -746,8 +754,9 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 
 	blockRange := end - begin + 1
 
-	if blockRange > MaxBlockRange {
-		return nil, 0, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, MaxBlockRange)
+	// Use config value instead of hardcoded constant
+	if blockRange > f.filterConfig.maxBlock {
+		return nil, 0, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, f.filterConfig.maxBlock)
 	}
 
 	bloomIndexes := EncodeFilters(crit.Addresses, crit.Topics)
