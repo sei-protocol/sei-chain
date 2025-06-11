@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"runtime"
 	"sort"
 	"sync"
 	"time"
@@ -30,9 +29,6 @@ import (
 const TxSearchPerPage = 10
 
 const (
-	WorkerBatchSize = 100
-	WorkerQueueSize = 200
-
 	// DB Concurrency Read Limit
 	MaxDBReadConcurrency = 16
 
@@ -43,10 +39,6 @@ const (
 	// global request rate limit
 	GlobalRPSLimit    = 30
 	RPSLimitThreshold = 100 // block range queries below this threshold bypass rate limiting
-)
-
-var (
-	MaxNumOfWorkers = runtime.NumCPU() * 2 // each worker will handle a batch of WorkerBatchSize blocks
 )
 
 // BlockCacheEntry for sotring block, bloom, and receipts cache
@@ -179,18 +171,7 @@ type filter struct {
 	lastToHeight int64
 }
 
-// Global worker pool
-type WorkerPool struct {
-	workers   int
-	taskQueue chan func()
-	once      sync.Once
-	done      chan struct{}
-	wg        sync.WaitGroup
-}
-
 var (
-	globalWorkerPool *WorkerPool
-	poolOnce         sync.Once
 	// Semaphore to limit concurrent I/O operations against the database
 	dbReadSemaphore  = make(chan struct{}, MaxDBReadConcurrency)
 	globalBlockCache = NewBlockCache(3000)
@@ -201,52 +182,6 @@ var (
 	// every request consumes 1 token, regardless of block range
 	globalRPSLimiter = rate.NewLimiter(rate.Limit(GlobalRPSLimit), GlobalRPSLimit)
 )
-
-func getGlobalWorkerPool() *WorkerPool {
-	poolOnce.Do(func() {
-		globalWorkerPool = &WorkerPool{
-			workers:   MaxNumOfWorkers,
-			taskQueue: make(chan func(), WorkerQueueSize),
-			done:      make(chan struct{}),
-		}
-		globalWorkerPool.start()
-	})
-	return globalWorkerPool
-}
-
-func (wp *WorkerPool) start() {
-	wp.once.Do(func() {
-		for i := 0; i < wp.workers; i++ {
-			wp.wg.Add(1)
-			go func() {
-				defer wp.wg.Done()
-				// The worker will exit gracefully when the taskQueue is closed and drained.
-				for task := range wp.taskQueue {
-					task()
-				}
-			}()
-		}
-	})
-}
-
-// Fail fast submit - reject if queue is full
-func (wp *WorkerPool) submit(task func()) error {
-	select {
-	case wp.taskQueue <- task:
-		return nil
-	case <-wp.done:
-		return fmt.Errorf("worker pool is closing")
-	default:
-		// Queue is full - fail fast
-		return fmt.Errorf("worker pool queue is full")
-	}
-}
-
-func (wp *WorkerPool) Close() {
-	close(wp.done)      // Signal that no new tasks should be submitted.
-	close(wp.taskQueue) // Close the queue to signal workers to drain and exit.
-	wp.wg.Wait()        // Wait for all workers to finish their remaining tasks.
-}
 
 // Log slice pool to reduce allocations in batch processing
 type LogSlicePool struct {
@@ -727,7 +662,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		return nil, 0, err
 	}
 
-	runner := getGlobalWorkerPool()
+	runner := GetGlobalWorkerPool()
 	var resultsMutex sync.Mutex
 	sortedBatches := make([][]*ethtypes.Log, 0)
 	var wg sync.WaitGroup
@@ -769,7 +704,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 			batch := blockBatch
 			wg.Add(1)
 
-			if err := runner.submit(func() { processBatch(batch) }); err != nil {
+			if err := runner.Submit(func() { processBatch(batch) }); err != nil {
 				wg.Done()
 				submitError = fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
 				break
@@ -785,7 +720,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	// Process remaining blocks
 	if len(blockBatch) > 0 {
 		wg.Add(1)
-		if err := runner.submit(func() { processBatch(blockBatch) }); err != nil {
+		if err := runner.Submit(func() { processBatch(blockBatch) }); err != nil {
 			wg.Done()
 			return nil, 0, fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
 		}
@@ -1005,7 +940,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 
 	res := make(chan *coretypes.ResultBlock, end-begin+1)
 	errChan := make(chan error, 1)
-	runner := getGlobalWorkerPool()
+	runner := GetGlobalWorkerPool()
 	var wg sync.WaitGroup
 
 	// Batch processing with fail-fast
@@ -1016,7 +951,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 		}
 
 		wg.Add(1)
-		if err := runner.submit(func(start, endHeight int64) func() {
+		if err := runner.Submit(func(start, endHeight int64) func() {
 			return func() {
 				defer wg.Done()
 				f.processBatch(ctx, start, endHeight, crit, bloomIndexes, res, errChan)
