@@ -273,6 +273,10 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 		if err != nil {
 			return nil, nil, err
 		}
+		isPrioritized := utils.IsTxPrioritized(decoded)
+		if isPrioritized {
+			continue
+		}
 		shouldTrace := false
 		for _, msg := range decoded.GetMsgs() {
 			switch m := msg.(type) {
@@ -366,6 +370,9 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		if err != nil {
 			panic(err)
 		}
+		if utils.IsTxPrioritized(sdkTx) {
+			continue
+		}
 		if idx == txIndex {
 			var evmMsg *types.MsgEVMTransaction
 			if msgs := sdkTx.GetMsgs(); len(msgs) != 1 {
@@ -410,6 +417,10 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block) (s
 	reqBeginBlock.Simulate = true
 	sdkCtx := b.ctxProvider(prevBlockHeight).WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
 	_ = b.app.BeginBlock(sdkCtx, reqBeginBlock)
+	sdkCtx = sdkCtx.WithNextMs(
+		b.ctxProvider(sdkCtx.BlockHeight()).MultiStore(),
+		[]string{"oracle", "oracle_mem"},
+	)
 	return sdkCtx, tmBlock, nil
 }
 
