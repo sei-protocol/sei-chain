@@ -23,7 +23,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/legacy/v607"
+	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v610"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
