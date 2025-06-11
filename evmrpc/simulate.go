@@ -256,6 +256,7 @@ func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) int64 {
 }
 
 func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
+	fmt.Printf("[DEBUG] in simulate.go BlockByNumber(): bn %+v --------------------------- \n", bn)
 	blockNum := b.ConvertBlockNumber(bn)
 	tmBlock, err := blockByNumber(ctx, b.tmClient, &blockNum)
 	if err != nil {
@@ -310,16 +311,21 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 		Txs:     txs,
 	}
 	block.OverwriteHash(common.BytesToHash(tmBlock.BlockID.Hash))
+	// print msg about baseFee
+	fmt.Printf("[DEBUG] in simulate.go BlockByNumber(): baseFee %+v\n", block.BaseFee())
 	return block, metadata, nil
 }
 
 func (b Backend) BlockByHash(ctx context.Context, hash common.Hash) (*ethtypes.Block, []tracersutils.TraceBlockMetadata, error) {
+	fmt.Printf("[DEBUG] in simulate.go BlockByHash(): hash %+v --------------------------- \n", hash)
 	tmBlock, err := blockByHash(ctx, b.tmClient, hash.Bytes())
 	if err != nil {
 		return nil, nil, err
 	}
 	blockNumber := rpc.BlockNumber(tmBlock.Block.Height)
-	return b.BlockByNumber(ctx, blockNumber)
+	block, metadata, err := b.BlockByNumber(ctx, blockNumber)
+	fmt.Printf("[DEBUG] in simulate.go BlockByHash(): block %+v, metadata %+v, err %+v\n", block, metadata, err)
+	return block, metadata, err
 }
 
 func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
@@ -461,7 +467,7 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 	header := &ethtypes.Header{
 		Difficulty:    common.Big0,
 		Number:        blockNumber,
-		BaseFee:       nil,
+		BaseFee:       b.keeper.GetCurrBaseFeePerGas(b.ctxProvider(blockNumber.Int64())).TruncateInt().BigInt(),
 		GasLimit:      b.config.GasCap,
 		Time:          uint64(time.Now().Unix()),
 		ExcessBlobGas: &zeroExcessBlobGas,

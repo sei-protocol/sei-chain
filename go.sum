@@ -1344,8 +1344,8 @@ github.com/seccomp/libseccomp-golang v0.9.2-0.20220502022130-f33da4d89646/go.mod
 github.com/securego/gosec/v2 v2.11.0 h1:+PDkpzR41OI2jrw1q6AdXZCbsNGNGT7pQjal0H0cArI=
 github.com/securego/gosec/v2 v2.11.0/go.mod h1:SX8bptShuG8reGC0XS09+a4H2BoWSJi+fscA+Pulbpo=
 github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KRMzBtS3oedY=
-github.com/sei-protocol/go-ethereum v1.13.5-sei-36 h1:az16B4x537HoOaCCJRYpm3Z9i4s/o4KQbkFuO5pexyY=
-github.com/sei-protocol/go-ethereum v1.13.5-sei-36/go.mod h1:kcRZmuzRn1lVejiFNTz4l4W7imnpq1bDAnuKS/RyhbQ=
+github.com/sei-protocol/go-ethereum v1.13.5-sei-38 h1:QmgqsnzhP/lGOuKHtsSB9FwKc+KgraQLEVFCmOhECng=
+github.com/sei-protocol/go-ethereum v1.13.5-sei-38/go.mod h1:kcRZmuzRn1lVejiFNTz4l4W7imnpq1bDAnuKS/RyhbQ=
 github.com/sei-protocol/goutils v0.0.2 h1:Bfa7Sv+4CVLNM20QcpvGb81B8C5HkQC/kW1CQpIbXDA=
 github.com/sei-protocol/goutils v0.0.2/go.mod h1:iYE2DuJfEnM+APPehr2gOUXfuLuPsVxorcDO+Tzq9q8=
 github.com/sei-protocol/sei-cosmos v0.3.59 h1:jpwFF8pHnXP9KLvCWq1cxidUSFESXXynAMidELaseGI=
@@ -1438,6 +1438,8 @@ github.com/stretchr/objx v0.1.1/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+
 github.com/stretchr/objx v0.4.0/go.mod h1:YvHI0jy2hoMjB+UWwv71VJQ9isScKT/TqJzVSSt89Yw=
 github.com/stretchr/objx v0.5.0 h1:1zr/of2m5FGMsad5YfcqgdqdWrIhu+EBEJRhR1U7z/c=
 github.com/stretchr/objx v0.5.0/go.mod h1:Yh+to48EsGEfYuaHDzXPcE3xhTkx73EhmCGUpEOglKo=
+github.com/stretchr/objx v0.5.2 h1:xuMeJ0Sdp5ZMRXx/aWO6RZxdr3beISkG5/G/aIRr3pY=
+github.com/stretchr/objx v0.5.2/go.mod h1:FRsXN1f5AsAjCGJKqEizvkpNtU+EGNCLh3NxZ/8L+MA=
 github.com/stretchr/testify v0.0.0-20170130113145-4d4bfba8f1d1/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXfy6kDkUVs=
 github.com/stretchr/testify v1.1.4/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXfy6kDkUVs=
 github.com/stretchr/testify v1.2.2/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXfy6kDkUVs=
@@ -1453,6 +1455,8 @@ github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o
 github.com/stretchr/testify v1.8.2/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o6fzry7u4=
 github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcUk=
 github.com/stretchr/testify v1.8.4/go.mod h1:sz/lmYIOXD/1dqDmKjjqLyZ2RngseejIcXlSw2iwfAo=
+github.com/stretchr/testify v1.10.0 h1:Xv5erBjTwe/5IxqUQTdXv5kgmIvbHo3QQyRwhJsOfJA=
+github.com/stretchr/testify v1.10.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
 github.com/subosito/gotenv v1.2.0/go.mod h1:N0PQaV/YGNqwC0u51sEeR/aUtSLEXKX9iv69rRypqCw=
 github.com/subosito/gotenv v1.4.1 h1:jyEFiXpy21Wm81FBN71l9VoMMV8H8jG+qIK3GCpY6Qs=
 github.com/subosito/gotenv v1.4.1/go.mod h1:ayKnFf/c6rvx/2iiLrJUk1e6plDbT3edrFNGqEflhK0=

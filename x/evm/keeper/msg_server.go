@@ -70,6 +70,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	ctx, originalGasMeter := server.PrepareCtxForEVMTransaction(ctx, tx)
 
 	stateDB := state.NewDBImpl(ctx, &server, false)
+	fmt.Printf("[DEBUG] In EVMTransaction, about to call GetEVMMessage, ctxHeight: %d\n", ctx.BlockHeight())
 	emsg := server.GetEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
 	gp := server.GetGasPool()
 
@@ -228,11 +229,13 @@ func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	baseFee := k.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt()
-	fmt.Printf("[DEBUG] In GetEVMMessage, baseFee: %s\n", baseFee.String())
+	fmt.Printf("[DEBUG] In GetEVMMessage, txHash: %s, baseFee: %s, ctxHeight: %d\n", tx.Hash().Hex(), baseFee.String(), ctx.BlockHeight())
+	// print the stack trace
+	debug.PrintStack()
 	if baseFee != nil {
 		msg.GasPrice = cmath.BigMin(msg.GasPrice.Add(msg.GasTipCap, baseFee), msg.GasFeeCap)
 	}
-	fmt.Printf("[DEBUG] In GetEVMMessage, msg.GasPrice: %s, msg.GasTipCap: %s, msg.GasFeeCap: %s\n", msg.GasPrice.String(), msg.GasTipCap.String(), msg.GasFeeCap.String())
+	fmt.Printf("[DEBUG] In GetEVMMessage, for tx.Hash %s, msg.GasPrice: %s, msg.GasTipCap: %s, msg.GasFeeCap: %s\n", tx.Hash().Hex(), msg.GasPrice.String(), msg.GasTipCap.String(), msg.GasFeeCap.String())
 	return msg
 }
 

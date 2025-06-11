@@ -35,7 +35,7 @@ require (
 	github.com/sirkon/goproxy v1.4.8
 	github.com/spf13/cast v1.5.0
 	github.com/spf13/cobra v1.6.1
-	github.com/stretchr/testify v1.8.4
+	github.com/stretchr/testify v1.10.0
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
 	github.com/tendermint/tendermint v0.37.0-dev
 	github.com/tendermint/tm-db v0.6.8-0.20220519162814-e24b96538a12
@@ -280,7 +280,7 @@ require (
 	github.com/ssgreg/nlreturn/v2 v2.2.1 // indirect
 	github.com/status-im/keycard-go v0.2.0 // indirect
 	github.com/stbenjam/no-sprintf-host-port v0.1.1 // indirect
-	github.com/stretchr/objx v0.5.0 // indirect
+	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/subosito/gotenv v1.4.1 // indirect
 	github.com/supranational/blst v0.3.11 // indirect
 	github.com/sylvia7788/contextcheck v1.0.4 // indirect
@@ -354,7 +354,8 @@ replace (
 	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.59
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.2.0
 	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.6
-	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.5-sei-36
+	// github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.5-sei-38
+	github.com/ethereum/go-ethereum => ../go-ethereum
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.49
 	// Latest goleveldb is broken, we have to stick to this version

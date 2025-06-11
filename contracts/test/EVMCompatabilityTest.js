@@ -3,7 +3,7 @@ const {isBigNumber} = require("hardhat/common");
 const {uniq, shuffle} = require("lodash");
 const { ethers, upgrades } = require('hardhat');
 const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
-const { deployEvmContract, setupSigners, fundAddress, getCosmosTx, getEvmTx} = require("./lib")
+const { deployEvmContract, setupSigners, fundAddress, getCosmosTx, getEvmTx, waitForBaseFeeToEq, waitForBaseFeeToBeGt} = require("./lib")
 const axios = require("axios");
 const { default: BigNumber } = require("bignumber.js");
 
@@ -277,16 +277,30 @@ describe("EVM Test", function () {
         await expect(signer.sendTransaction(tx)).to.be.rejectedWith("unsupported transaction type");
       })
 
-      it.only("trace with different gas parameters", async function() {
+      it("trace balance diff matches up with actual balance change", async function() {
+        // send a tx with a gas to elevate the base fee
+        const heavyTxResponse = await evmTester.useGas(9500000, { 
+          maxPriorityFeePerGas: ethers.parseUnits('100', 'gwei'),
+          maxFeePerGas: ethers.parseUnits('100', 'gwei'),
+          type: 2
+        });
+        await heavyTxResponse.wait();
+
+        // wait for base fee to be > 1 gwei with timeout
+        await waitForBaseFeeToBeGt(ethers.parseUnits('1', 'gwei'))
+
+        // TODO: add more variations to this part of the test -- table test
+        const maxPriorityFeePerGas = ethers.parseUnits('1', 'gwei')
+        const maxFeePerGas = ethers.parseUnits('3', 'gwei')
         const txResponse = await owner.sendTransaction({
           to: owner.address,
           value: ethers.parseUnits('0', 'ether'),
-          maxPriorityFeePerGas: ethers.parseUnits('1', 'gwei'),
-          maxFeePerGas: ethers.parseUnits('3', 'gwei'),
+          maxPriorityFeePerGas: maxPriorityFeePerGas,
+          maxFeePerGas: maxFeePerGas,
           type: 2
         });
         const receipt = await txResponse.wait();
-        console.log("receipt", receipt)
+        console.log("receipt: ", receipt)
         await sleep(1000)
         // call trace transaction on this tx with diff tracing
         const trace = await hre.network.provider.request({
@@ -298,7 +312,7 @@ describe("EVM Test", function () {
             }
           }],
         });
-        console.log(trace)
+        console.log("trace: ", trace)
 
         // query base fee per gas and print it
         const block_ = await ethers.provider.getBlock(receipt.blockNumber)
@@ -306,18 +320,63 @@ describe("EVM Test", function () {
         console.log("Base fee per gas:", baseFeePerGas.toString());
 
         // Extract pre and post balances for the address
-        const preBalance = BigInt(trace.pre['0xf87a299e6bc7beba58dbbe5a5aa21d49bcd16d52'].balance);
-        const postBalance = BigInt(trace.post['0xf87a299e6bc7beba58dbbe5a5aa21d49bcd16d52'].balance);
+        const lowerCaseAddress = owner.address.toLowerCase()
+        const preBalance = BigInt(trace.pre[lowerCaseAddress].balance);
+        const postBalance = BigInt(trace.post[lowerCaseAddress].balance);
         const balanceDiff = preBalance - postBalance;
         console.log("Trace Balance difference:", balanceDiff.toString());
-        expect(trace).to.not.be.null;
-        expect(trace.result).to.not.be.null;
 
-        // pull balance on block before tx and on block of tx
+        // get effective gas price that the tx paid
+        const expectedGasPrice = baseFeePerGas + maxPriorityFeePerGas <= maxFeePerGas ? 
+          baseFeePerGas + maxPriorityFeePerGas : 
+          maxFeePerGas
+        const gotGasPrice = Number(receipt.gasPrice)
+        console.log("gotGasPrice", gotGasPrice)
+        console.log("expectedGasPrice", expectedGasPrice)
+        expect(gotGasPrice).to.equal(expectedGasPrice)
+        console.log("effective gas price :", gotGasPrice, " (this is what should be used by both balance diff and trace diff)")
+
+        // // pull balance on block before tx and on block of tx
         const preBalanceBlock = await ethers.provider.getBalance(owner.address, receipt.blockNumber - 1)
         const postBalanceBlock = await ethers.provider.getBalance(owner.address, receipt.blockNumber)
         const balanceDiffBlock = preBalanceBlock - postBalanceBlock;
-        console.log("Block Balance difference:", balanceDiffBlock.toString());
+        // console.log("preBalanceBlock", preBalanceBlock.toString())
+        // console.log("postBalanceBlock", postBalanceBlock.toString())
+        // console.log("Block Balance difference:", balanceDiffBlock.toString());
+
+
+        // trace balance diff / 21000
+        const balanceDiffTrace2 = balanceDiff / BigInt(21000)
+        console.log("balanceDiffTrace / 21000 = effective gas price used by trace = ", balanceDiffTrace2.toString())
+
+        // block balance diff / 21000
+        const balanceDiffBlock2 = balanceDiffBlock / BigInt(21000)
+        console.log("balanceDiffBlock / 21000 = effective gas price used by block = ", balanceDiffBlock2.toString())
+
+        // wait for receipt.blockNumber + 1
+        while(true){
+          const bn = await ethers.provider.getBlockNumber()
+          if(bn > receipt.blockNumber + 1){
+            break
+          }
+          await sleep(100)
+        }
+
+        // get base fee of block before tx
+        const blockBeforeTx = await ethers.provider.getBlock(receipt.blockNumber - 1)
+        const baseFeeBeforeTx = blockBeforeTx.baseFeePerGas
+        console.log("baseFeeBeforeTx", baseFeeBeforeTx.toString())
+
+        // get base fee of block of tx
+        const blockOfTx = await ethers.provider.getBlock(receipt.blockNumber)
+        const baseFeeOfTx = blockOfTx.baseFeePerGas
+        console.log("baseFeeOfTx", baseFeeOfTx.toString())
+
+        // get base fee of block after tx
+        const blockAfterTx = await ethers.provider.getBlock(receipt.blockNumber + 1)
+        const baseFeeAfterTx = blockAfterTx.baseFeePerGas
+        console.log("baseFeeAfterTx", baseFeeAfterTx.toString())
+
 
         // assert that the balance differences are the same
         expect(balanceDiff).to.equal(balanceDiffBlock);
@@ -331,14 +390,14 @@ describe("EVM Test", function () {
         console.log(block)
         const blockGasPrice = block.baseFeePerGas
         const txGasPrice = block.transactions[0].gasPrice
-        const maxFeePerGas = block.transactions[0].maxFeePerGas
-        const maxPriorityFeePerGas = block.transactions[0].maxPriorityFeePerGas
+        const maxFeePerGas_ = block.transactions[0].maxFeePerGas
+        const maxPriorityFeePerGas_ = block.transactions[0].maxPriorityFeePerGas
         // const effectiveGasPrice = maxFeePerGas + maxPriorityFeePerGas
 
         console.log("blockGasPrice (baseFeePerGas)", parseInt(blockGasPrice, 16))
         console.log("txGasPrice", parseInt(txGasPrice, 16))
-        console.log("maxFeePerGas", parseInt(maxFeePerGas, 16))
-        console.log("maxPriorityFeePerGas", parseInt(maxPriorityFeePerGas, 16))
+        console.log("maxFeePerGas", parseInt(maxFeePerGas_, 16))
+        console.log("maxPriorityFeePerGas", parseInt(maxPriorityFeePerGas_, 16))
 
         // expect(blockGasPrice).to.equal(effectiveGasPrice)
         // check that in cast block vs cast receipt the effective gas price is the same
@@ -607,6 +666,62 @@ describe("EVM Test", function () {
           expect(nextBaseFee).to.be.greaterThan(oneGwei);
         });
 
+        it.only("Should use correct base fee when base fee is elevated", async function () {
+          // wait for base fee to be 1 gwei
+          await waitForBaseFeeToEq(oneGwei)
+
+          // send a tx with a gas to elevate the base fee
+          const txResponse = await evmTester.useGas(9500000, { 
+            maxPriorityFeePerGas: ethers.parseUnits('1', 'gwei'),
+            maxFeePerGas: ethers.parseUnits('3', 'gwei'),
+            type: 2
+          });
+          const receipt = await txResponse.wait();
+
+
+          // wait for base fee to be > 1 gwei with timeout
+          await waitForBaseFeeToBeGt(oneGwei)
+
+          // send an eth transfer on a block with > 1 gwei base fee
+          const maxPriorityFeePerGas = ethers.parseUnits('0', 'gwei')
+          const maxFeePerGas = ethers.parseUnits('100', 'gwei')
+          const ethTransferResp = await owner.sendTransaction({
+            to: owner.address,
+            value: ethers.parseUnits('0', 'ether'),
+            // make sure you only pay for the base fee
+            maxPriorityFeePerGas: maxPriorityFeePerGas,
+            maxFeePerGas: maxFeePerGas,
+            type: 1
+          });
+          const ethTransferReceipt = await ethTransferResp.wait();
+          console.log("ethTransferReceipt", ethTransferReceipt)
+
+
+          // pull the base fee on the block of the eth transfer
+          const ethTransferBlock = await ethers.provider.getBlock(ethTransferReceipt.blockNumber);
+          const ethTransferBaseFee = Number(ethTransferBlock.baseFeePerGas);
+
+          // receipt gas price
+          const receiptGasPrice = Number(ethTransferReceipt.gasPrice)
+
+          // let's calculate the expected effective gas price ourselves
+          // and not rely on the effective gas price from the receipt
+          const expectedEffectiveGasPrice = BigInt(ethTransferBaseFee) + maxPriorityFeePerGas <= maxFeePerGas ? 
+            BigInt(ethTransferBaseFee) + maxPriorityFeePerGas : 
+            maxFeePerGas
+          console.log("ethTransferBaseFee", ethTransferBaseFee)
+          console.log("maxPriorityFeePerGas", maxPriorityFeePerGas)
+          console.log("maxFeePerGas", maxFeePerGas)
+          console.log("expectedEffectiveGasPrice", expectedEffectiveGasPrice)
+          console.log("receiptGasPrice", receiptGasPrice)
+          expect(receiptGasPrice).to.equal(expectedEffectiveGasPrice)
+
+          const balanceBefore = await ethers.provider.getBalance(owner, ethTransferReceipt.blockNumber - 1);
+          const balanceAfter = await ethers.provider.getBalance(owner, ethTransferReceipt.blockNumber);
+          const balanceDiff = balanceBefore - balanceAfter;
+          expect(balanceDiff).to.equal(BigInt(21000) * expectedEffectiveGasPrice)
+        })
+
         it("Should be able to send many EIP-1559 txs", async function () {
           const gp = ethers.parseUnits("100", "gwei");
           const zero = ethers.parseUnits('0', 'ether')
@@ -629,7 +744,7 @@ describe("EVM Test", function () {
             ["With complete truncation from max priority fee", zero, highgp]
           ];
           for (const [name, maxPriorityFeePerGas, maxFeePerGas] of testCases) {
-            it.only(`EIP-1559 test: ${name}`, async function() {
+            it(`EIP-1559 test: ${name}`, async function() {
               const balanceBefore = await ethers.provider.getBalance(owner);
               const block = await ethers.provider.getBlock("latest")
               const blockBaseFee = block.baseFeePerGas
