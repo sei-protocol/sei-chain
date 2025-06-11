@@ -14,14 +14,15 @@ import (
 
 const (
 	// SC Store configs
-	FlagSCEnable              = "state-commit.sc-enable"
-	FlagSCDirectory           = "state-commit.sc-directory"
-	FlagSCAsyncCommitBuffer   = "state-commit.sc-async-commit-buffer"
-	FlagSCZeroCopy            = "state-commit.sc-zero-copy"
-	FlagSCSnapshotKeepRecent  = "state-commit.sc-keep-recent"
-	FlagSCSnapshotInterval    = "state-commit.sc-snapshot-interval"
-	FlagSCSnapshotWriterLimit = "state-commit.sc-snapshot-writer-limit"
-	FlagSCCacheSize           = "state-commit.sc-cache-size"
+	FlagSCEnable                           = "state-commit.sc-enable"
+	FlagSCDirectory                        = "state-commit.sc-directory"
+	FlagSCAsyncCommitBuffer                = "state-commit.sc-async-commit-buffer"
+	FlagSCZeroCopy                         = "state-commit.sc-zero-copy"
+	FlagSCSnapshotKeepRecent               = "state-commit.sc-keep-recent"
+	FlagSCSnapshotInterval                 = "state-commit.sc-snapshot-interval"
+	FlagSCSnapshotWriterLimit              = "state-commit.sc-snapshot-writer-limit"
+	FlagSCCacheSize                        = "state-commit.sc-cache-size"
+	FlagSCOnlyAllowExportOnSnapshotVersion = "state-commit.sc-only-allow-export-on-snapshot-version"
 
 	// SS Store configs
 	FlagSSEnable            = "state-store.ss-enable"
@@ -85,6 +86,7 @@ func parseSCConfigs(appOpts servertypes.AppOptions) config.StateCommitConfig {
 	scConfig.SnapshotKeepRecent = cast.ToUint32(appOpts.Get(FlagSCSnapshotKeepRecent))
 	scConfig.SnapshotInterval = cast.ToUint32(appOpts.Get(FlagSCSnapshotInterval))
 	scConfig.SnapshotWriterLimit = cast.ToInt(appOpts.Get(FlagSCSnapshotWriterLimit))
+	scConfig.OnlyAllowExportOnSnapshotVersion = cast.ToBool(appOpts.Get(FlagSCOnlyAllowExportOnSnapshotVersion))
 	return scConfig
 }
 
