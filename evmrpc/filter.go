@@ -41,7 +41,7 @@ const (
 	MaxLogLimit   = 10000
 
 	// global RPS Limit
-	GlobalRPSLimit = 20
+	GlobalRPSLimit = 50
 )
 
 type FilterType byte
@@ -123,7 +123,7 @@ func (wp *WorkerPool) submit(task func()) error {
 		return nil
 	default:
 		// Queue is full - fail fast
-		return fmt.Errorf("worker pool queue is full, rejecting request")
+		return fmt.Errorf("worker pool queue is full")
 	}
 }
 
@@ -250,7 +250,7 @@ func (bc *BlockCache) addToHead(node *LRUNode) {
 	}
 }
 
-var globalBlockCache = NewBlockCache(3000)
+var globalBlockCache = NewBlockCache(1000)
 
 // every request consumes 1 token, regardless of block range
 var globalRPSLimiter = rate.NewLimiter(rate.Limit(GlobalRPSLimit), GlobalRPSLimit)
@@ -370,7 +370,7 @@ func (bc *BloomCache) addToHead(node *BloomCacheNode) {
 }
 
 // Global bloom cache - smaller than block cache since blooms are tiny
-var globalBloomCache = NewBloomCache(10000)
+var globalBloomCache = NewBloomCache(50000)
 
 // Receipt Filter Cache
 type ReceiptCacheNode struct {
@@ -488,7 +488,7 @@ func (rc *ReceiptCache) addToHead(node *ReceiptCacheNode) {
 }
 
 // Global receipt cache - each receipt is ~1-10KB, 10000 receipts = ~100MB
-var globalReceiptCache = NewReceiptCache(10000)
+var globalReceiptCache = NewReceiptCache(50000)
 
 // Log slice pool to reduce allocations in batch processing
 type LogSlicePool struct {
