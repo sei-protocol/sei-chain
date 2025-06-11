@@ -3,8 +3,10 @@ package tests
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/app"
 	"testing"
+	"time"
+
+	"github.com/sei-protocol/sei-chain/app"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -123,6 +125,31 @@ func TestTraceMultipleTransactionsShouldNotHang(t *testing.T) {
 			blockHash := res["result"].([]interface{})[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
 			// assert that the block hash has been overwritten instead of the RLP hash.
 			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", blockHash.(string))
+		},
+	)
+}
+
+func TestTraceBlockByNumberPerformance(t *testing.T) {
+	blocks := make([][][]byte, 10)
+	for i := range blocks {
+		blocks[i] = [][]byte{signAndEncodeTx(send(uint64(i)), mnemonic1)}
+	}
+	SetupTestServer(blocks, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			done := make(chan struct{})
+			go func() {
+				defer func() { done <- struct{}{} }()
+				for i := range blocks {
+					_ = sendRequestWithNamespace("debug", port, "traceBlockByNumber", fmt.Sprintf("0x%d", i+2), map[string]interface{}{
+						"timeout": "60s", "tracer": "flatCallTracer",
+					})
+				}
+			}()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("did not finish tracing 10 blocks after 5 sec.")
+			}
 		},
 	)
 }
