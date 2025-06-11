@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
-	"runtime"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -267,100 +266,4 @@ func recoverAndLog() {
 		fmt.Printf("Panic recovered: %s\n", e)
 		debug.PrintStack()
 	}
-}
-
-const (
-	WorkerBatchSize = 100
-	WorkerQueueSize = 200
-)
-
-var (
-	MaxNumOfWorkers = runtime.NumCPU() * 2 // each worker will handle a batch of WorkerBatchSize blocks
-)
-
-// WorkerPool manages a pool of goroutines for concurrent task execution
-type WorkerPool struct {
-	workers   int
-	taskQueue chan func()
-	once      sync.Once
-	done      chan struct{}
-	wg        sync.WaitGroup
-}
-
-var (
-	globalWorkerPool *WorkerPool
-	poolOnce         sync.Once
-)
-
-// GetGlobalWorkerPool returns the singleton worker pool instance
-func GetGlobalWorkerPool() *WorkerPool {
-	poolOnce.Do(func() {
-		globalWorkerPool = &WorkerPool{
-			workers:   MaxNumOfWorkers,
-			taskQueue: make(chan func(), WorkerQueueSize),
-			done:      make(chan struct{}),
-		}
-		globalWorkerPool.start()
-	})
-	return globalWorkerPool
-}
-
-// NewWorkerPool creates a new worker pool with custom configuration
-func NewWorkerPool(workers, queueSize int) *WorkerPool {
-	return &WorkerPool{
-		workers:   workers,
-		taskQueue: make(chan func(), queueSize),
-		done:      make(chan struct{}),
-	}
-}
-
-// Start initializes and starts the worker goroutines
-func (wp *WorkerPool) Start() {
-	wp.start()
-}
-
-func (wp *WorkerPool) start() {
-	wp.once.Do(func() {
-		for i := 0; i < wp.workers; i++ {
-			wp.wg.Add(1)
-			go func() {
-				defer wp.wg.Done()
-				// The worker will exit gracefully when the taskQueue is closed and drained.
-				for task := range wp.taskQueue {
-					task()
-				}
-			}()
-		}
-	})
-}
-
-// Submit submits a task to the worker pool with fail-fast behavior
-// Returns error if queue is full or pool is closing
-func (wp *WorkerPool) Submit(task func()) error {
-	select {
-	case wp.taskQueue <- task:
-		return nil
-	case <-wp.done:
-		return fmt.Errorf("worker pool is closing")
-	default:
-		// Queue is full - fail fast
-		return fmt.Errorf("worker pool queue is full")
-	}
-}
-
-// Close gracefully shuts down the worker pool
-func (wp *WorkerPool) Close() {
-	close(wp.done)      // Signal that no new tasks should be submitted.
-	close(wp.taskQueue) // Close the queue to signal workers to drain and exit.
-	wp.wg.Wait()        // Wait for all workers to finish their remaining tasks.
-}
-
-// WorkerCount returns the number of workers in the pool
-func (wp *WorkerPool) WorkerCount() int {
-	return wp.workers
-}
-
-// QueueSize returns the capacity of the task queue
-func (wp *WorkerPool) QueueSize() int {
-	return cap(wp.taskQueue)
 }
