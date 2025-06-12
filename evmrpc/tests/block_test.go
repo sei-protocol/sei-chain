@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -11,9 +12,10 @@ func TestGetBlockByHash(t *testing.T) {
 	txBz := signAndEncodeTx(send(0), mnemonic1)
 	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
-			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x1").Hex(), true)
+			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
+			fmt.Println(res)
 			blockHash := res["result"].(map[string]interface{})["hash"]
-			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", blockHash.(string))
+			require.Equal(t, "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", blockHash.(string))
 		},
 	)
 }
@@ -24,7 +26,7 @@ func TestGetSeiBlockByHash(t *testing.T) {
 	tx2 := signAndEncodeCosmosTx(transferCW20Msg(mnemonic1, cw20), mnemonic1, 7, 0)
 	SetupTestServer([][][]byte{{tx1}, {tx2}}, mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1)).Run(
 		func(port int) {
-			res := sendRequestWithNamespace("sei", port, "getBlockByHash", common.HexToHash("0x3").Hex(), true)
+			res := sendRequestWithNamespace("sei", port, "getBlockByHash", common.HexToHash("0x9dd3e6c427b6936f973b240cd5780b8ee4bf8fab0c8d281afb28089db51bb4af").Hex(), true)
 			txs := res["result"].(map[string]interface{})["transactions"]
 			require.Len(t, txs.([]interface{}), 1)
 		},
@@ -42,19 +44,19 @@ func TestGetBlockByNumber(t *testing.T) {
 			require.Equal(t, "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E", blockHash.(string))
 			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "safe", true)
 			blockHash = res["result"].(map[string]interface{})["hash"]
-			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000004", blockHash.(string))
+			require.Equal(t, "0x8ace0b4e9ced0ef792034128d37eb19b9b2b06bf016d51d533216a9afd7c0e8f", blockHash.(string))
 			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "latest", true)
 			blockHash = res["result"].(map[string]interface{})["hash"]
-			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000004", blockHash.(string))
+			require.Equal(t, "0x8ace0b4e9ced0ef792034128d37eb19b9b2b06bf016d51d533216a9afd7c0e8f", blockHash.(string))
 			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "finalized", true)
 			blockHash = res["result"].(map[string]interface{})["hash"]
-			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000004", blockHash.(string))
+			require.Equal(t, "0x8ace0b4e9ced0ef792034128d37eb19b9b2b06bf016d51d533216a9afd7c0e8f", blockHash.(string))
 			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "pending", true)
 			blockHash = res["result"].(map[string]interface{})["hash"]
-			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000004", blockHash.(string))
+			require.Equal(t, "0x8ace0b4e9ced0ef792034128d37eb19b9b2b06bf016d51d533216a9afd7c0e8f", blockHash.(string))
 			res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x2", true)
 			blockHash = res["result"].(map[string]interface{})["hash"]
-			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", blockHash.(string))
+			require.Equal(t, "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", blockHash.(string))
 		},
 	)
 }
@@ -64,7 +66,7 @@ func TestGetBlockSkipTxIndex(t *testing.T) {
 	tx2 := signAndEncodeTx(send(0), mnemonic1)
 	SetupTestServer([][][]byte{{tx1, tx2}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
-			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x2").Hex(), true)
+			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
 			txs := res["result"].(map[string]any)["transactions"].([]any)
 			require.Len(t, txs, 1)
 			require.Equal(t, "0x0", txs[0].(map[string]any)["transactionIndex"].(string))
