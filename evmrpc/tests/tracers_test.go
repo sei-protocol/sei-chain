@@ -138,11 +138,13 @@ func TestTraceStateAccess(t *testing.T) {
 	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("debug", port, "traceStateAccess", hash.Hex())
-			result := res["result"].(map[string]interface{})["modules"].(map[string]interface{})
+			result := res["result"].(map[string]interface{})["app"].(map[string]interface{})["modules"].(map[string]interface{})
 			require.Contains(t, result, "acc")
 			require.Contains(t, result, "bank")
 			require.Contains(t, result, "evm")
 			require.Contains(t, result, "params")
+			tmResult := res["result"].(map[string]interface{})["tendermint"].(map[string]interface{})["traces"]
+			require.Len(t, tmResult, 6)
 		},
 	)
 }

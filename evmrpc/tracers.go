@@ -302,6 +302,11 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args ethapi.TransactionArgs,
 	return
 }
 
+type StateAccessResponse struct {
+	AppState        json.RawMessage `json:"app"`
+	TendermintState json.RawMessage `json:"tendermint"`
+}
+
 func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (result interface{}, returnErr error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -310,6 +315,8 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 			returnErr = fmt.Errorf("panic occurred: %v, could not trace tx state: %s", r, hash.Hex())
 		}
 	}()
+	tendermintTraces := &TendermintTraces{Traces: []TendermintTrace{}}
+	ctx = WithTendermintTraces(ctx, tendermintTraces)
 	tx, blockHash, blockNumber, index, err := api.backend.GetTransaction(ctx, hash)
 	if err != nil {
 		return nil, err
@@ -330,5 +337,9 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 	if err != nil {
 		return nil, err
 	}
-	return json.RawMessage(stateDB.(*state.DBImpl).Ctx().StoreTracer().DerivePrestateToJson()), nil
+	response := StateAccessResponse{
+		AppState:        stateDB.(*state.DBImpl).Ctx().StoreTracer().DerivePrestateToJson(),
+		TendermintState: tendermintTraces.MustMarshalToJson(),
+	}
+	return response, nil
 }

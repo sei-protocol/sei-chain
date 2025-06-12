@@ -266,6 +266,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	if err != nil {
 		return nil, nil, err
 	}
+	TraceTendermintIfApplicable(ctx, "BlockResults", []string{stringifyInt64Ptr(&tmBlock.Block.Height)}, blockRes)
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
@@ -437,10 +438,12 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block) (s
 	if err != nil {
 		return sdk.Context{}, nil, fmt.Errorf("cannot find block %d from tendermint", blockNumber)
 	}
+	TraceTendermintIfApplicable(ctx, "Block", []string{stringifyInt64Ptr(&blockNumber)}, tmBlock)
 	res, err := b.tmClient.Validators(ctx, &prevBlockHeight, nil, nil) // todo: load all
 	if err != nil {
 		return sdk.Context{}, nil, fmt.Errorf("failed to load validators for block %d from tendermint", prevBlockHeight)
 	}
+	TraceTendermintIfApplicable(ctx, "Validators", []string{stringifyInt64Ptr(&prevBlockHeight)}, res)
 	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(res.Validators)
 	reqBeginBlock.Simulate = true
 	sdkCtx := b.ctxProvider(prevBlockHeight).WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
