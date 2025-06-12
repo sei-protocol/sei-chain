@@ -305,9 +305,6 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 				TraceRunnable: func(sd vm.StateDB) {
 					typedStateDB := sd.(*state.DBImpl)
 					_ = b.app.DeliverTx(typedStateDB.Ctx(), abci.RequestDeliverTx{}, decoded, sha256.Sum256(tmBlock.Block.Txs[i]))
-					// if shouldRunMidBlock {
-					// 	_ = b.app.MidBlock(typedStateDB.Ctx(), blockNum)
-					// }
 				},
 			})
 		}
@@ -526,7 +523,9 @@ func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error 
 	typedStateDB := statedb.(*state.DBImpl)
 	typedStateDB.CleanupForTracer()
 	ctx := typedStateDB.Ctx()
-	ctx.StoreTracer().Clear()
+	if st := ctx.StoreTracer(); st != nil {
+		st.Clear()
+	}
 	ctx, _ = b.keeper.PrepareCtxForEVMTransaction(typedStateDB.Ctx(), tx)
 	ctx = ctx.WithIsEVM(true)
 	if noSignatureSet(tx) {
