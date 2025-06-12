@@ -16,7 +16,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -29,21 +29,126 @@ import (
 const TxSearchPerPage = 10
 
 const (
-	// Worker pool settings
-	MaxNumOfWorkers = 24 // each worker will handle a batch of WorkerBatchSize blocks
-	WorkerBatchSize = 100
-	WorkerQueueSize = 200
-
 	// DB Concurrency Read Limit
 	MaxDBReadConcurrency = 16
 
-	// Request limits
-	MaxBlockRange = 2000
-	MaxLogLimit   = 10000
+	// Default request limits (used as fallback values)
+	DefaultMaxBlockRange = 2000
+	DefaultMaxLogLimit   = 10000
 
 	// global request rate limit
-	GlobalRPSLimit = 50
+	GlobalRPSLimit    = 30
+	RPSLimitThreshold = 100 // block range queries below this threshold bypass rate limiting
 )
+
+// BlockCacheEntry for sotring block, bloom, and receipts cache
+type BlockCacheEntry struct {
+	sync.RWMutex
+	Block    *coretypes.ResultBlock
+	Bloom    ethtypes.Bloom
+	Receipts map[common.Hash]*evmtypes.Receipt
+}
+
+type BlockCache = *expirable.LRU[int64, *BlockCacheEntry]
+
+// Factory function for creating block cache with 5-minute TTL
+func NewBlockCache(maxSize int) BlockCache {
+	return expirable.NewLRU[int64, *BlockCacheEntry](maxSize, nil, 5*time.Minute)
+}
+
+// Helper functions for cache access (fine-grained locking)
+func getCachedReceipt(blockHeight int64, txHash common.Hash) (*evmtypes.Receipt, bool) {
+	if entry, found := globalBlockCache.Get(blockHeight); found {
+		entry.RLock()
+		defer entry.RUnlock()
+		if receipt, hasReceipt := entry.Receipts[txHash]; hasReceipt {
+			return receipt, true
+		}
+	}
+	return nil, false
+}
+
+// LoadOrStore ensures atomic cache entry creation (like sync.Map.LoadOrStore)
+func loadOrStoreCacheEntry(blockHeight int64, block *coretypes.ResultBlock) *BlockCacheEntry {
+	// Fast path: try to get existing entry
+	if entry, found := globalBlockCache.Get(blockHeight); found {
+		// If we have a block and the entry's block is nil, fill it
+		if block != nil {
+			fillMissingFields(entry, block, ethtypes.Bloom{})
+		}
+		return entry
+	}
+
+	// Slow path: create new entry with mutex protection
+	cacheCreationMutex.Lock()
+	defer cacheCreationMutex.Unlock()
+
+	// Double-check after acquiring lock
+	if entry, found := globalBlockCache.Get(blockHeight); found {
+		// If we have a block and the entry's block is nil, fill it
+		if block != nil {
+			fillMissingFields(entry, block, ethtypes.Bloom{})
+		}
+		return entry
+	}
+
+	// Create and store new entry
+	entry := &BlockCacheEntry{
+		Block:    block,
+		Receipts: make(map[common.Hash]*evmtypes.Receipt),
+	}
+	globalBlockCache.Add(blockHeight, entry)
+	return entry
+}
+
+// fillMissingFields safely fills missing Block and Bloom fields
+func fillMissingFields(entry *BlockCacheEntry, block *coretypes.ResultBlock, bloom ethtypes.Bloom) {
+	entry.Lock()
+	defer entry.Unlock()
+
+	// Fill Block if missing
+	if entry.Block == nil && block != nil {
+		entry.Block = block
+	}
+
+	// Fill Bloom if missing and provided
+	if entry.Bloom == (ethtypes.Bloom{}) && bloom != (ethtypes.Bloom{}) {
+		entry.Bloom = bloom
+	}
+}
+
+func setCachedReceipt(blockHeight int64, block *coretypes.ResultBlock, txHash common.Hash, receipt *evmtypes.Receipt) {
+	// Use LoadOrStore to get the entry atomically
+	entry := loadOrStoreCacheEntry(blockHeight, block)
+
+	// Now safely update the entry with fine-grained locking
+	entry.Lock()
+	entry.Receipts[txHash] = receipt
+	entry.Unlock()
+}
+
+// logCollector interface for different collection strategies
+type logCollector interface {
+	Append(*ethtypes.Log)
+}
+
+// sliceCollector for direct slice append
+type sliceCollector struct {
+	logs []*ethtypes.Log
+}
+
+func (c *sliceCollector) Append(log *ethtypes.Log) {
+	c.logs = append(c.logs, log)
+}
+
+// pooledCollector for reused slice
+type pooledCollector struct {
+	logs *[]*ethtypes.Log
+}
+
+func (c *pooledCollector) Append(log *ethtypes.Log) {
+	*c.logs = append(*c.logs, log)
+}
 
 type FilterType byte
 
@@ -66,234 +171,17 @@ type filter struct {
 	lastToHeight int64
 }
 
-// Global worker pool
-type WorkerPool struct {
-	workers   int
-	taskQueue chan func()
-	once      sync.Once
-	done      chan struct{}
-	wg        sync.WaitGroup
-}
-
 var (
-	globalWorkerPool *WorkerPool
-	poolOnce         sync.Once
 	// Semaphore to limit concurrent I/O operations against the database
 	dbReadSemaphore  = make(chan struct{}, MaxDBReadConcurrency)
-	globalBlockCache = NewBlockCache(1000)
+	globalBlockCache = NewBlockCache(3000)
+
+	// Mutex to protect the global block cache
+	cacheCreationMutex sync.Mutex
 
 	// every request consumes 1 token, regardless of block range
 	globalRPSLimiter = rate.NewLimiter(rate.Limit(GlobalRPSLimit), GlobalRPSLimit)
-	// Global bloom cache - smaller than block cache since blooms are tiny
-	globalBloomCache = NewBloomCache(50000)
-
-	// Global receipt cache - smaller than block cache since receipts are tiny
-	globalReceiptCache = NewReceiptCache(50000)
 )
-
-func getGlobalWorkerPool() *WorkerPool {
-	poolOnce.Do(func() {
-		globalWorkerPool = &WorkerPool{
-			workers:   MaxNumOfWorkers,
-			taskQueue: make(chan func(), WorkerQueueSize),
-			done:      make(chan struct{}),
-		}
-		globalWorkerPool.start()
-	})
-	return globalWorkerPool
-}
-
-func (wp *WorkerPool) start() {
-	wp.once.Do(func() {
-		for i := 0; i < wp.workers; i++ {
-			wp.wg.Add(1)
-			go func() {
-				defer wp.wg.Done()
-				// The worker will exit gracefully when the taskQueue is closed and drained.
-				for task := range wp.taskQueue {
-					task()
-				}
-			}()
-		}
-	})
-}
-
-// Fail fast submit - reject if queue is full
-func (wp *WorkerPool) submit(task func()) error {
-	select {
-	case wp.taskQueue <- task:
-		return nil
-	case <-wp.done:
-		return fmt.Errorf("worker pool is closing")
-	default:
-		// Queue is full - fail fast
-		return fmt.Errorf("worker pool queue is full")
-	}
-}
-
-func (wp *WorkerPool) Close() {
-	close(wp.done)      // Signal that no new tasks should be submitted.
-	close(wp.taskQueue) // Close the queue to signal workers to drain and exit.
-	wp.wg.Wait()        // Wait for all workers to finish their remaining tasks.
-}
-
-// Generic LRU Cache implementation using generics
-type LRUNode[K comparable, V any] struct {
-	key        K
-	value      V
-	timestamp  time.Time
-	prev, next *LRUNode[K, V]
-}
-
-type LRUCache[K comparable, V any] struct {
-	nodes      map[K]*LRUNode[K, V]
-	head, tail *LRUNode[K, V]
-	maxSize    int
-	size       int
-	mutex      sync.RWMutex
-}
-
-func NewLRUCache[K comparable, V any](maxSize int) *LRUCache[K, V] {
-	return &LRUCache[K, V]{
-		nodes:   make(map[K]*LRUNode[K, V]),
-		maxSize: maxSize,
-	}
-}
-
-// Get retrieves a value from the cache
-func (lru *LRUCache[K, V]) Get(key K) (V, bool) {
-	lru.mutex.Lock()
-	defer lru.mutex.Unlock()
-
-	var zero V
-	node, exists := lru.nodes[key]
-	if !exists {
-		return zero, false
-	}
-
-	// Check TTL (5 minutes for all caches)
-	if time.Since(node.timestamp) > 300*time.Second {
-		lru.removeNode(node)
-		return zero, false
-	}
-
-	lru.moveToHead(node)
-	return node.value, true
-}
-
-// Put stores a value in the cache
-func (lru *LRUCache[K, V]) Put(key K, value V) {
-	lru.mutex.Lock()
-	defer lru.mutex.Unlock()
-
-	if node, exists := lru.nodes[key]; exists {
-		node.value = value
-		node.timestamp = time.Now()
-		lru.moveToHead(node)
-		return
-	}
-
-	newNode := &LRUNode[K, V]{key: key, value: value, timestamp: time.Now()}
-
-	if lru.size >= lru.maxSize {
-		lru.removeTail()
-	}
-
-	lru.addToHead(newNode)
-	lru.nodes[key] = newNode
-	lru.size++
-}
-
-func (lru *LRUCache[K, V]) moveToHead(node *LRUNode[K, V]) {
-	if lru.head == node {
-		return
-	}
-
-	if node.prev != nil {
-		node.prev.next = node.next
-	}
-	if node.next != nil {
-		node.next.prev = node.prev
-	}
-	if lru.tail == node {
-		lru.tail = node.prev
-	}
-
-	node.prev = nil
-	node.next = lru.head
-	if lru.head != nil {
-		lru.head.prev = node
-	}
-	lru.head = node
-	if lru.tail == nil {
-		lru.tail = node
-	}
-}
-
-func (lru *LRUCache[K, V]) removeTail() {
-	if lru.tail == nil {
-		return
-	}
-
-	delete(lru.nodes, lru.tail.key)
-
-	if lru.tail.prev != nil {
-		lru.tail.prev.next = nil
-		lru.tail = lru.tail.prev
-	} else {
-		lru.head = nil
-		lru.tail = nil
-	}
-
-	lru.size--
-}
-
-func (lru *LRUCache[K, V]) addToHead(node *LRUNode[K, V]) {
-	node.prev = nil
-	node.next = lru.head
-	if lru.head != nil {
-		lru.head.prev = node
-	}
-	lru.head = node
-	if lru.tail == nil {
-		lru.tail = node
-	}
-}
-
-func (lru *LRUCache[K, V]) removeNode(node *LRUNode[K, V]) {
-	if node.prev != nil {
-		node.prev.next = node.next
-	} else {
-		lru.head = node.next
-	}
-
-	if node.next != nil {
-		node.next.prev = node.prev
-	} else {
-		lru.tail = node.prev
-	}
-
-	delete(lru.nodes, node.key)
-	lru.size--
-}
-
-// Type aliases for specific cache types
-type BlockCache = LRUCache[int64, *coretypes.ResultBlock]
-type BloomCache = LRUCache[int64, ethtypes.Bloom]
-type ReceiptCache = LRUCache[common.Hash, *evmtypes.Receipt]
-
-// Factory functions for creating specific cache types
-func NewBlockCache(maxSize int) *BlockCache {
-	return NewLRUCache[int64, *coretypes.ResultBlock](maxSize)
-}
-
-func NewBloomCache(maxSize int) *BloomCache {
-	return NewLRUCache[int64, ethtypes.Bloom](maxSize)
-}
-
-func NewReceiptCache(maxSize int) *ReceiptCache {
-	return NewLRUCache[common.Hash, *evmtypes.Receipt](maxSize)
-}
 
 // Log slice pool to reduce allocations in batch processing
 type LogSlicePool struct {
@@ -304,19 +192,22 @@ func NewLogSlicePool() *LogSlicePool {
 	return &LogSlicePool{
 		pool: sync.Pool{
 			New: func() interface{} {
-				return make([]*ethtypes.Log, 0, 100) // Pre-allocate capacity of 100
+				slice := make([]*ethtypes.Log, 0, 100) // Pre-allocate capacity of 100
+				return &slice
 			},
 		},
 	}
 }
 
 func (p *LogSlicePool) Get() []*ethtypes.Log {
-	return p.pool.Get().([]*ethtypes.Log)[:0] // Reset length but keep capacity
+	slicePtr := p.pool.Get().(*[]*ethtypes.Log)
+	*slicePtr = (*slicePtr)[:0] // Reset length but keep capacity
+	return *slicePtr
 }
 
 func (p *LogSlicePool) Put(slice []*ethtypes.Log) {
 	if cap(slice) < 1000 { // Avoid storing overly large slices
-		p.pool.Put(slice)
+		p.pool.Put(&slice)
 	}
 }
 
@@ -376,10 +267,10 @@ type EventItemDataWrapper struct {
 
 func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, filterConfig *FilterConfig, connectionType ConnectionType, namespace string) *FilterAPI {
 	if filterConfig.maxBlock <= 0 {
-		filterConfig.maxBlock = MaxBlockRange
+		filterConfig.maxBlock = DefaultMaxBlockRange
 	}
 	if filterConfig.maxLog <= 0 {
-		filterConfig.maxLog = MaxLogLimit
+		filterConfig.maxLog = DefaultMaxLogLimit
 	}
 
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
@@ -405,7 +296,9 @@ func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(
 // Unified cleanup loop that handles both timeout and manual deletion
 func (a *FilterAPI) cleanupLoop(timeout time.Duration) {
 	ticker := time.NewTicker(timeout / 2) // Check more frequently than timeout
-	defer ticker.Stop()
+	defer func() {
+		ticker.Stop()
+	}()
 
 	for {
 		select {
@@ -610,11 +503,7 @@ func (a *FilterAPI) GetFilterLogs(
 }
 
 func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (res []*ethtypes.Log, err error) {
-	if !globalRPSLimiter.Allow() {
-		return nil, fmt.Errorf("log query rate limit exceeded, please try again later")
-	}
 	defer recordMetrics(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now(), err == nil)
-
 	// Calculate block range
 	latest := a.logFetcher.ctxProvider(LatestCtxHeight).BlockHeight()
 	begin, end := latest, latest
@@ -630,12 +519,27 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 
 	blockRange := end - begin + 1
 
-	if blockRange > MaxBlockRange {
-		return nil, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, MaxBlockRange)
+	// Use config value instead of hardcoded constant
+	if blockRange > a.filterConfig.maxBlock {
+		return nil, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, a.filterConfig.maxBlock)
+	}
+
+	// Only apply rate limiting for large queries (> RPSLimitThreshold blocks)
+	if blockRange > RPSLimitThreshold && !globalRPSLimiter.Allow() {
+		return nil, fmt.Errorf("log query rate limit exceeded for large queries, please try again later")
 	}
 
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
-	return logs, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Ensure we never return nil, always return an array (even if empty)
+	if logs == nil {
+		logs = []*ethtypes.Log{}
+	}
+
+	return logs, nil
 }
 
 // get block headers after a certain cursor. Can use an empty string cursor
@@ -746,8 +650,9 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 
 	blockRange := end - begin + 1
 
-	if blockRange > MaxBlockRange {
-		return nil, 0, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, MaxBlockRange)
+	// Use config value instead of hardcoded constant
+	if blockRange > f.filterConfig.maxBlock {
+		return nil, 0, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, f.filterConfig.maxBlock)
 	}
 
 	bloomIndexes := EncodeFilters(crit.Addresses, crit.Topics)
@@ -756,7 +661,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		return nil, 0, err
 	}
 
-	runner := getGlobalWorkerPool()
+	runner := GetGlobalWorkerPool()
 	var resultsMutex sync.Mutex
 	sortedBatches := make([][]*ethtypes.Log, 0)
 	var wg sync.WaitGroup
@@ -798,7 +703,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 			batch := blockBatch
 			wg.Add(1)
 
-			if err := runner.submit(func() { processBatch(batch) }); err != nil {
+			if err := runner.Submit(func() { processBatch(batch) }); err != nil {
 				wg.Done()
 				submitError = fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
 				break
@@ -814,7 +719,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	// Process remaining blocks
 	if len(blockBatch) > 0 {
 		wg.Add(1)
-		if err := runner.submit(func() { processBatch(blockBatch) }); err != nil {
+		if err := runner.Submit(func() { processBatch(blockBatch) }); err != nil {
 			wg.Done()
 			return nil, 0, fmt.Errorf("system overloaded, please reduce request frequency: %w", err)
 		}
@@ -837,6 +742,11 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		res = res[:int(f.filterConfig.maxLog)]
 	}
 
+	// Ensure we never return nil, always return an array (even if empty)
+	if res == nil {
+		res = []*ethtypes.Log{}
+	}
+
 	return res, end, err
 }
 
@@ -846,7 +756,7 @@ func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log) []*ethtypes.Log 
 		totalSize += len(b)
 	}
 	if totalSize == 0 {
-		return nil
+		return []*ethtypes.Log{}
 	}
 
 	res := make([]*ethtypes.Log, 0, totalSize)
@@ -883,129 +793,32 @@ func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log) []*ethtypes.Log 
 }
 
 func (f *LogFetcher) GetLogsForBlock(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes) []*ethtypes.Log {
-	possibleLogs := f.FindLogsByBloom(block, crit, filters)
-	matchedLogs := utils.Filter(possibleLogs, func(l *ethtypes.Log) bool { return f.IsLogExactMatch(l, crit) })
-	for _, l := range matchedLogs {
-		l.BlockHash = common.BytesToHash(block.BlockID.Hash)
+	collector := &sliceCollector{logs: make([]*ethtypes.Log, 0)}
+	f.collectLogs(block, crit, filters, collector, true) // Apply exact matching
+
+	// Set block hash for all logs
+	for _, log := range collector.logs {
+		log.BlockHash = common.BytesToHash(block.BlockID.Hash)
 	}
-	return matchedLogs
+	return collector.logs
 }
 
 // Pooled version that reuses slice allocation
 func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, result *[]*ethtypes.Log) {
-	ctx := f.ctxProvider(LatestCtxHeight)
-	totalLogs := uint(0)
-
-	for _, hash := range getTxHashesFromBlock(block, f.txConfig, f.includeSyntheticReceipts) {
-		// Try to get receipt from cache first
-		receipt, found := globalReceiptCache.Get(hash)
-		if !found {
-			// Cache miss - fetch from database and cache it
-			var err error
-			receipt, err = f.k.GetReceipt(ctx, hash)
-			if err != nil {
-				if !f.includeSyntheticReceipts {
-					ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
-				}
-				continue
-			}
-			// Store in cache for future use
-			globalReceiptCache.Put(hash, receipt)
-		}
-
-		if !f.includeSyntheticReceipts && (receipt.TxType == ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
-			continue
-		}
-
-		// check bloom filter if filter is provided
-		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
-			if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
-				*result = append(*result, keeper.GetLogsForTx(receipt, totalLogs)...)
-			}
-		} else {
-			// no filter, return all logs
-			*result = append(*result, keeper.GetLogsForTx(receipt, totalLogs)...)
-		}
-		totalLogs += uint(len(receipt.Logs))
-	}
+	collector := &pooledCollector{logs: result}
+	f.collectLogs(block, crit, filters, collector, true) // Apply exact matching
 }
 
 func (f *LogFetcher) FindLogsByBloom(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes) (res []*ethtypes.Log) {
-	ctx := f.ctxProvider(LatestCtxHeight)
-	totalLogs := uint(0)
-
-	for _, hash := range getTxHashesFromBlock(block, f.txConfig, f.includeSyntheticReceipts) {
-		// Try to get receipt from cache first
-		receipt, found := globalReceiptCache.Get(hash)
-		if !found {
-			// Cache miss - fetch from database and cache it
-			var err error
-			receipt, err = f.k.GetReceipt(ctx, hash)
-			if err != nil {
-				if !f.includeSyntheticReceipts {
-					ctx.Logger().Error(fmt.Sprintf("FindLogsByBloom: unable to find receipt for hash %s", hash.Hex()))
-				}
-				continue
-			}
-			// Store in cache for future use
-			globalReceiptCache.Put(hash, receipt)
-		}
-
-		if !f.includeSyntheticReceipts && (receipt.TxType == ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
-			continue
-		}
-
-		// check bloom filter if filter is provided
-		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
-			if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
-				res = append(res, keeper.GetLogsForTx(receipt, totalLogs)...)
-			}
-		} else {
-			// no filter, return all logs
-			res = append(res, keeper.GetLogsForTx(receipt, totalLogs)...)
-		}
-		totalLogs += uint(len(receipt.Logs))
-	}
-	return
+	collector := &sliceCollector{logs: make([]*ethtypes.Log, 0)}
+	f.collectLogs(block, crit, filters, collector, false) // No exact matching - bloom only
+	return collector.logs
 }
 
 // Pooled version that reuses slice allocation
 func (f *LogFetcher) FindLogsByBloomPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, result *[]*ethtypes.Log) {
-	ctx := f.ctxProvider(LatestCtxHeight)
-	totalLogs := uint(0)
-
-	for _, hash := range getTxHashesFromBlock(block, f.txConfig, f.includeSyntheticReceipts) {
-		// Try to get receipt from cache first
-		receipt, found := globalReceiptCache.Get(hash)
-		if !found {
-			// Cache miss - fetch from database and cache it
-			var err error
-			receipt, err = f.k.GetReceipt(ctx, hash)
-			if err != nil {
-				if !f.includeSyntheticReceipts {
-					ctx.Logger().Error(fmt.Sprintf("FindLogsByBloomPooled: unable to find receipt for hash %s", hash.Hex()))
-				}
-				continue
-			}
-			// Store in cache for future use
-			globalReceiptCache.Put(hash, receipt)
-		}
-
-		if !f.includeSyntheticReceipts && (receipt.TxType == ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
-			continue
-		}
-
-		// check bloom filter if filter is provided
-		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
-			if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
-				*result = append(*result, keeper.GetLogsForTx(receipt, totalLogs)...)
-			}
-		} else {
-			// no filter, return all logs
-			*result = append(*result, keeper.GetLogsForTx(receipt, totalLogs)...)
-		}
-		totalLogs += uint(len(receipt.Logs))
-	}
+	collector := &pooledCollector{logs: result}
+	f.collectLogs(block, crit, filters, collector, false) // No exact matching - bloom only
 }
 
 func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCriteria) bool {
@@ -1019,12 +832,73 @@ func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCrite
 	return addrMatch && matchTopics(crit.Topics, log.Topics)
 }
 
+// Unified log collection logic
+func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, collector logCollector, applyExactMatch bool) {
+	ctx := f.ctxProvider(LatestCtxHeight)
+	totalLogs := uint(0)
+
+	for _, hash := range getTxHashesFromBlock(block, f.txConfig, f.includeSyntheticReceipts) {
+		receipt, found := getCachedReceipt(block.Block.Height, hash)
+		if !found {
+			var err error
+			receipt, err = f.k.GetReceipt(ctx, hash)
+			if err != nil {
+				if !f.includeSyntheticReceipts {
+					ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", hash.Hex()))
+				}
+				continue
+			}
+			setCachedReceipt(block.Block.Height, block, hash, receipt)
+		}
+
+		if !f.includeSyntheticReceipts && (receipt.TxType == ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
+			continue
+		}
+
+		// Apply bloom filter
+		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
+			if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
+				allLogs := keeper.GetLogsForTx(receipt, totalLogs)
+				if applyExactMatch {
+					for _, log := range allLogs {
+						if f.IsLogExactMatch(log, crit) {
+							collector.Append(log)
+						}
+					}
+				} else {
+					for _, log := range allLogs {
+						collector.Append(log)
+					}
+				}
+			}
+		} else {
+			// No filter, return all logs
+			for _, log := range keeper.GetLogsForTx(receipt, totalLogs) {
+				collector.Append(log)
+			}
+		}
+		totalLogs += uint(len(receipt.Logs))
+	}
+}
+
 // Optimized fetchBlocksByCrit with batch processing
 func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64, bloomIndexes [][]bloomIndexes) (chan *coretypes.ResultBlock, int64, bool, error) {
 	if crit.BlockHash != nil {
+		// Check for invalid zero hash
+		zeroHash := common.Hash{}
+		if *crit.BlockHash == zeroHash {
+			// For invalid hash, return empty channel instead of error
+			res := make(chan *coretypes.ResultBlock)
+			close(res)
+			return res, 0, false, nil
+		}
+
 		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:], 1)
 		if err != nil {
-			return nil, 0, false, err
+			// For non-existent blocks, return empty channel instead of error
+			res := make(chan *coretypes.ResultBlock)
+			close(res)
+			return res, 0, false, nil
 		}
 		res := make(chan *coretypes.ResultBlock, 1)
 		res <- block
@@ -1055,7 +929,8 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			begin = 1
 		}
 	} else if !applyOpenEndedLogLimit && f.filterConfig.maxBlock > 0 && blockRange > f.filterConfig.maxBlock {
-		return nil, 0, false, fmt.Errorf("a maximum of %d blocks worth of logs may be requested at a time", f.filterConfig.maxBlock)
+		// Use consistent error message format
+		return nil, 0, false, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, f.filterConfig.maxBlock)
 	}
 
 	if begin > end {
@@ -1064,7 +939,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 
 	res := make(chan *coretypes.ResultBlock, end-begin+1)
 	errChan := make(chan error, 1)
-	runner := getGlobalWorkerPool()
+	runner := GetGlobalWorkerPool()
 	var wg sync.WaitGroup
 
 	// Batch processing with fail-fast
@@ -1075,7 +950,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 		}
 
 		wg.Add(1)
-		if err := runner.submit(func(start, endHeight int64) func() {
+		if err := runner.Submit(func(start, endHeight int64) func() {
 			return func() {
 				defer wg.Done()
 				f.processBatch(ctx, start, endHeight, crit, bloomIndexes, res, errChan)
@@ -1117,41 +992,31 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		}
 
 		// check cache first, without holding the semaphore
-		if cachedBlock, found := globalBlockCache.Get(height); found {
-			res <- cachedBlock
+		if cachedEntry, found := globalBlockCache.Get(height); found {
+			res <- cachedEntry.Block
 			continue
 		}
 
 		// Block cache miss, acquire semaphore for I/O operations
 		dbReadSemaphore <- struct{}{}
 
-		// Re-check cache after acquiring semaphore, in case another worker fetched it.
-		if cachedBlock, found := globalBlockCache.Get(height); found {
+		// Re-check cache after acquiring semaphore, in case another worker cached it.
+		if cachedEntry, found := globalBlockCache.Get(height); found {
 			<-dbReadSemaphore
-			res <- cachedBlock
+			res <- cachedEntry.Block
 			continue
 		}
 
 		// check bloom filter if cache miss AND we have filters
+		var blockBloom ethtypes.Bloom
 		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
-			// Try bloom cache first
-			if cachedBloom, found := globalBloomCache.Get(height); found {
-				if !MatchFilters(cachedBloom, bloomIndexes) {
-					<-dbReadSemaphore
-					continue // skip the block if bloom filter does not match
-				}
-			} else {
-				// Bloom cache miss - read from database
-				providerCtx := f.ctxProvider(height)
-				blockBloom := f.k.GetBlockBloom(providerCtx)
+			// Bloom cache miss - read from database
+			providerCtx := f.ctxProvider(height)
+			blockBloom = f.k.GetBlockBloom(providerCtx)
 
-				// Cache the bloom for future use
-				globalBloomCache.Put(height, blockBloom)
-
-				if !MatchFilters(blockBloom, bloomIndexes) {
-					<-dbReadSemaphore
-					continue // skip the block if bloom filter does not match
-				}
+			if !MatchFilters(blockBloom, bloomIndexes) {
+				<-dbReadSemaphore
+				continue // skip the block if bloom filter does not match
 			}
 		}
 
@@ -1166,7 +1031,12 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 			continue
 		}
 
-		globalBlockCache.Put(height, block)
+		// Use LoadOrStore to create/get cache entry atomically
+		entry := loadOrStoreCacheEntry(height, block)
+		// Fill bloom if we have it and it's missing
+		if blockBloom != (ethtypes.Bloom{}) {
+			fillMissingFields(entry, block, blockBloom)
+		}
 		<-dbReadSemaphore
 		res <- block
 	}

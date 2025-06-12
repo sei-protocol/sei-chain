@@ -47,6 +47,7 @@ const TestAddr = "127.0.0.1"
 const TestPort = 7777
 const TestWSPort = 7778
 const TestBadPort = 7779
+const TestStrictPort = 7780
 
 const GenesisBlockHeight = 0
 const MockHeight8 = 8
@@ -63,8 +64,8 @@ var MultiTxBlockHash = "0x000000000000000000000000000000000000000000000000000000
 var TestCosmosTxHash = "690D39ADF56D4C811B766DFCD729A415C36C4BFFE80D63E305373B9518EBFB14"
 var TestEvmTxHash = "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"
 
-var TestNonPanicTxHash = "0x566f1c956c74b089643a1e6f880ac65745de0e5cd8cfc3c7482d20a486576219"
-var TestPanicTxHash = "0x0ea197de8403de9c2e8cf9ec724e43734e9dbd3a8294a09d031acd67914b73e4"
+var TestNonPanicTxHash = "0x1464f5d9224b4f10152e2bb9f0af1da927ccded8db2ceed057bc4c69afca6247"
+var TestPanicTxHash = "0x5d5f69325c86b01562e11aaff42212739dd978b489fe8f7cbabf5e176daaed6b"
 var TestSyntheticTxHash = "0x3ca69dcca32f435b642fcb13e50a1c6934b04c6f901deffa42cec6eb58c40f20"
 var TestBlockHash = "0x0000000000000000000000000000000000000000000000000000000000000001"
 
@@ -106,7 +107,7 @@ var MockBlockIDMultiTx = tmtypes.BlockID{
 	Hash: bytes.HexBytes(mustHexToBytes(MultiTxBlockHash[2:])),
 }
 
-var NewHeadsCalled = make(chan struct{})
+var NewHeadsCalled = make(chan struct{}, 1)
 
 type MockClient struct {
 	mock.Client
@@ -542,9 +543,9 @@ func init() {
 	testApp.Commit(context.Background())
 	ctxProvider := func(height int64) sdk.Context {
 		if height == MockHeight2 {
-			return MultiTxCtx
+			return MultiTxCtx.WithIsTracing(true)
 		}
-		return Ctx
+		return Ctx.WithIsTracing(true)
 	}
 	// Start good http server
 	goodConfig := evmrpc.DefaultConfig
@@ -573,6 +574,29 @@ func init() {
 		panic(err)
 	}
 	if err := badHTTPServer.Start(); err != nil {
+		panic(err)
+	}
+
+	strictConfig := goodConfig
+	strictConfig.HTTPPort = TestStrictPort
+	strictConfig.WSPort = TestStrictPort + 1 // Artificially low lookback block
+
+	strictServer, err := evmrpc.NewEVMHTTPServer(
+		infoLog,
+		strictConfig,
+		&MockClient{},
+		EVMKeeper,
+		testApp.BaseApp,
+		testApp.TracerAnteHandler,
+		ctxProvider,
+		TxConfig,
+		"",
+		isPanicTxFunc,
+	)
+	if err != nil {
+		panic(err)
+	}
+	if err := strictServer.Start(); err != nil {
 		panic(err)
 	}
 
@@ -909,6 +933,7 @@ func setupLogs() {
 		}},
 		EffectiveGasPrice: 0,
 	})
+	CtxMock = Ctx.WithBlockHeight(MockHeight103)
 	EVMKeeper.MockReceipt(CtxMock, common.HexToHash(TestSyntheticTxHash), &types.Receipt{
 		TxType:           evmrpc.ShellEVMTxType,
 		BlockNumber:      MockHeight103,
@@ -984,6 +1009,11 @@ func sendSeiRequestBad(t *testing.T, method string, params ...interface{}) map[s
 // nolint:deadcode
 func sendRequestGoodWithNamespace(t *testing.T, namespace string, method string, params ...interface{}) map[string]interface{} {
 	return sendRequestWithNamespace(t, namespace, TestPort, method, params...)
+}
+
+//nolint:deadcode
+func sendRequestStrictWithNamespace(t *testing.T, namespace, method string, params ...interface{}) map[string]interface{} {
+	return sendRequestWithNamespace(t, namespace, TestStrictPort, method, params...)
 }
 
 func sendRequest(t *testing.T, port int, method string, params ...interface{}) map[string]interface{} {
