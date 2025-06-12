@@ -311,7 +311,12 @@ func EncodeTmBlock(
 	txHash := common.HexToHash(block.Block.DataHash.String())
 	resultHash := common.HexToHash(block.Block.LastResultsHash.String())
 	miner := common.HexToAddress(block.Block.ProposerAddress.String())
-	baseFeePerGas := k.GetNextBaseFeePerGas(prevHeightCtx).TruncateInt().BigInt()
+	var baseFeePerGas *big.Int
+	if block.Block.Height > 2 {
+		baseFeePerGas = k.GetNextBaseFeePerGas(prevHeightCtx).TruncateInt().BigInt()
+	} else {
+		baseFeePerGas = types.DefaultMaxFeePerGas.BigInt()
+	}
 	var blockGasUsed int64
 	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	transactions := []interface{}{}
