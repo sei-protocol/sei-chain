@@ -315,7 +315,7 @@ func EncodeTmBlock(
 	if block.Block.Height > 2 {
 		baseFeePerGas = k.GetNextBaseFeePerGas(prevHeightCtx).TruncateInt().BigInt()
 	} else {
-		baseFeePerGas = types.DefaultMaxFeePerGas.BigInt()
+		baseFeePerGas = big.NewInt(int64(types.DefaultMinFeePerGas.TruncateInt64()))
 	}
 	var blockGasUsed int64
 	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
