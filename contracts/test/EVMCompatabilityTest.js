@@ -282,7 +282,7 @@ describe("EVM Test", function () {
           method: "debug_traceCall",
           params: [{
             from: owner.address,
-            to: await evmTester.getAddress(),
+            to: owner.address,
             value: "0x1"
           }, "latest"],
           id: 1,
