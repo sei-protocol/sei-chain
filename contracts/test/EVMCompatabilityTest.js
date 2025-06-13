@@ -277,6 +277,24 @@ describe("EVM Test", function () {
         await expect(signer.sendTransaction(tx)).to.be.rejectedWith("unsupported transaction type");
       })
 
+      it.only("Simple debug_call should work", async function () {
+        const trace = await hre.network.provider.request({
+          method: "debug_traceCall",
+          params: [{
+            from: owner.address,
+            to: await evmTester.getAddress(),
+            value: "0x1"
+          }, "latest"],
+          id: 1,
+          jsonrpc: "2.0"
+        });
+        expect(trace).to.not.be.null;
+        expect(trace.gas).to.equal(21000);
+        expect(trace.failed).to.be.false;
+        expect(trace.returnValue).to.equal('');
+        expect(trace.structLogs).to.deep.equal([]);
+      })
+
       it("Should trace a call with timestamp", async function () {
         await delay()
         await sleep(1000) // make sure test is run in isolation
