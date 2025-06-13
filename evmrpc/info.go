@@ -76,7 +76,7 @@ func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
 func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_GasPrice", i.connectionType, startTime, returnErr == nil)
-	baseFee := i.keeper.GetCurrBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	totalGasUsed, err := i.getCongestionData(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -229,7 +229,7 @@ func (i *InfoAPI) safeGetBaseFee(targetHeight int64) (res *big.Int) {
 			res = nil
 		}
 	}()
-	baseFee := i.keeper.GetCurrBaseFeePerGas(i.ctxProvider(targetHeight))
+	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(targetHeight))
 	res = baseFee.TruncateInt().BigInt()
 	return
 }
