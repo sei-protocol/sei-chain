@@ -277,7 +277,7 @@ describe("EVM Test", function () {
         await expect(signer.sendTransaction(tx)).to.be.rejectedWith("unsupported transaction type");
       })
 
-      it.only("Simple debug_call should work", async function () {
+      it("Simple debug_call should work", async function () {
         const trace = await hre.network.provider.request({
           method: "debug_traceCall",
           params: [{
