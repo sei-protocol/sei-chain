@@ -792,21 +792,19 @@ func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log) []*ethtypes.Log 
 	return res
 }
 
-func (f *LogFetcher) GetLogsForBlock(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes) []*ethtypes.Log {
-	collector := &sliceCollector{logs: make([]*ethtypes.Log, 0)}
-	f.collectLogs(block, crit, filters, collector, true) // Apply exact matching
-
-	// Set block hash for all logs
-	for _, log := range collector.logs {
-		log.BlockHash = common.BytesToHash(block.BlockID.Hash)
-	}
-	return collector.logs
-}
-
 // Pooled version that reuses slice allocation
 func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, result *[]*ethtypes.Log) {
 	collector := &pooledCollector{logs: result}
+
+	// Store the initial count to identify newly added logs
+	initialCount := len(*result)
+
 	f.collectLogs(block, crit, filters, collector, true) // Apply exact matching
+
+	// Set block hash for all newly added logs
+	for i := initialCount; i < len(*result); i++ {
+		(*result)[i].BlockHash = common.BytesToHash(block.BlockID.Hash)
+	}
 }
 
 func (f *LogFetcher) FindLogsByBloom(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes) (res []*ethtypes.Log) {
@@ -818,7 +816,16 @@ func (f *LogFetcher) FindLogsByBloom(block *coretypes.ResultBlock, crit filters.
 // Pooled version that reuses slice allocation
 func (f *LogFetcher) FindLogsByBloomPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, result *[]*ethtypes.Log) {
 	collector := &pooledCollector{logs: result}
+
+	// Store the initial count to identify newly added logs
+	initialCount := len(*result)
+
 	f.collectLogs(block, crit, filters, collector, false) // No exact matching - bloom only
+
+	// Set block hash for all newly added logs
+	for i := initialCount; i < len(*result); i++ {
+		(*result)[i].BlockHash = common.BytesToHash(block.BlockID.Hash)
+	}
 }
 
 func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCriteria) bool {
