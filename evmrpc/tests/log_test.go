@@ -28,7 +28,7 @@ func TestGetLogsRangeTooWide(t *testing.T) {
 				"toBlock":   "0x7D2",
 				"address":   erc20Addr.Hex(),
 			})
-			require.Equal(t, res["error"].(map[string]interface{})["message"].(string), "a maximum of 2000 blocks worth of logs may be requested at a time")
+			require.Equal(t, res["error"].(map[string]interface{})["message"].(string), "block range too large (2002), maximum allowed is 2000 blocks")
 		},
 	)
 }

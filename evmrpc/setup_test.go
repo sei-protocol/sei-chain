@@ -107,7 +107,7 @@ var MockBlockIDMultiTx = tmtypes.BlockID{
 	Hash: bytes.HexBytes(mustHexToBytes(MultiTxBlockHash[2:])),
 }
 
-var NewHeadsCalled = make(chan struct{})
+var NewHeadsCalled = make(chan struct{}, 1)
 
 type MockClient struct {
 	mock.Client
