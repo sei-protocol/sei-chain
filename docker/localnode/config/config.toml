@@ -7,7 +7,7 @@
 proxy-app = "tcp://127.0.0.1:26658"
 
 # A custom human readable name for this node
-moniker = "sei-node-0"
+moniker = "sei-rpc-node"
 
 # Mode of Node: full | validator | seed
 # * validator node
@@ -19,7 +19,7 @@ moniker = "sei-node-0"
 # * seed node
 #   - only P2P, PEX Reactor
 #   - No priv_validator_key.json, priv_validator_state.json
-mode = "validator"
+mode = "full"
 
 # Database backend: goleveldb | cleveldb | boltdb | rocksdb | badgerdb
 # * goleveldb (github.com/syndtr/goleveldb - most popular implementation)
@@ -195,13 +195,16 @@ tls-key-file = ""
 # pprof listen address (https://golang.org/pkg/net/http/pprof)
 pprof-laddr = "localhost:6060"
 
+# timeout for any read request
+timeout-read = "10s"
+
 #######################################################
 ###           P2P Configuration Options             ###
 #######################################################
 [p2p]
 
 # Select the p2p internal queue
-queue-type = "priority"
+queue-type = "simple-priority"
 
 # Address to listen for incoming connections
 laddr = "tcp://0.0.0.0:26656"
@@ -221,6 +224,9 @@ bootstrap-peers = ""
 # Comma separated list of nodes to keep persistent connections to
 persistent-peers = ""
 
+# Comma separated list of nodes for block sync only
+blocksync-peers = ""
+
 # UPNP port forwarding
 upnp = false
 
@@ -228,7 +234,7 @@ upnp = false
 max-connections = 200
 
 # Rate limits the number of incoming connection attempts per IP address.
-max-incoming-connection-attempts = 100
+max-incoming-connection-attempts = 150
 
 # Set true to enable the peer-exchange reactor
 pex = true
@@ -241,7 +247,7 @@ private-peer-ids = ""
 allow-duplicate-ip = false
 
 # Peer connection configuration.
-handshake-timeout = "20s"
+handshake-timeout = "5s"
 dial-timeout = "3s"
 
 # Time to wait before flushing messages out on the connection
@@ -250,7 +256,7 @@ flush-throttle-timeout = "10ms"
 
 # Maximum size of a message packet payload, in bytes
 # TODO: Remove once MConnConnection is removed.
-max-packet-msg-payload-size = 102400
+max-packet-msg-payload-size = 1000000
 
 # Rate at which packets can be sent, in bytes/second
 # TODO: Remove once MConnConnection is removed.
@@ -259,6 +265,10 @@ send-rate = 204800000
 # Rate at which packets can be received, in bytes/second
 # TODO: Remove once MConnConnection is removed.
 recv-rate = 204800000
+
+# List of node IDs, to which a connection will be (re)established ignoring any existing limits
+unconditional-peer-ids = ""
+
 
 #######################################################
 ###          Mempool Configuration Option          ###
@@ -278,19 +288,19 @@ size = 5000
 # Limit the total size of all txs in the mempool.
 # This only accounts for raw transactions (e.g. given 1MB transactions and
 # max-txs-bytes=5MB, mempool will only accept 5 transactions).
-max-txs-bytes = 107374182400
+max-txs-bytes = 10737418240
 
 # Size of the cache (used to filter transactions we saw earlier) in transactions
-cache-size = 50000
+cache-size = 100000
 
 # Do not remove invalid transactions from the cache (default: false)
 # Set to true if it's not possible for any invalid transaction to become valid
 # again in the future.
-keep-invalid-txs-in-cache = false
+keep-invalid-txs-in-cache = true
 
 # Maximum size of a single transaction.
 # NOTE: the max size of a tx transmitted over the network is {max-tx-bytes}.
-max-tx-bytes = 20485760
+max-tx-bytes = 2048576
 
 # Maximum size of a batch of transactions to send to a peer
 # Including space needed by encoding (one varint per transaction).
@@ -303,7 +313,7 @@ max-batch-bytes = 0
 # Note, if ttl-num-blocks is also defined, a transaction will be removed if it
 # has existed in the mempool at least ttl-num-blocks number of blocks or if it's
 # insertion time into the mempool is beyond ttl-duration.
-ttl-duration = "0s"
+ttl-duration = "3s"
 
 # ttl-num-blocks, if non-zero, defines the maximum number of blocks a transaction
 # can exist for in the mempool.
@@ -311,7 +321,21 @@ ttl-duration = "0s"
 # Note, if ttl-duration is also defined, a transaction will be removed if it
 # has existed in the mempool at least ttl-num-blocks number of blocks or if
 # it's insertion time into the mempool is beyond ttl-duration.
-ttl-num-blocks = 0
+ttl-num-blocks = 5
+
+tx-notify-threshold = 0
+
+check-tx-error-blacklist-enabled = true
+
+check-tx-error-threshold = 50
+
+pending-size = 5000
+
+max-pending-txs-bytes = 1073741824
+
+pending-ttl-duration = "3s"
+
+pending-ttl-num-blocks = 5
 
 #######################################################
 ###         State Sync Configuration Options        ###
@@ -335,19 +359,33 @@ trust-height = 0
 trust-hash = ""
 trust-period = "168h0m0s"
 
+# Backfill sequentially fetches after state sync completes, verifies and stores light blocks in reverse order.
+# backfill-blocks means it will keep reverse fetching up to backfill-blocks number of blocks behind state sync position
+# backfill-duration means it will keep fetching up to backfill-duration old time
+# The actual backfill process will take at backfill-blocks as priority:
+# - If backfill-blocks is set, use backfill-blocks to backfill
+# - If backfill-blocks is not set to be greater than 0, use backfill-duration to backfill
+backfill-blocks = "0"
+backfill-duration = "0s"
+
 # Time to spend discovering snapshots before initiating a restore.
 discovery-time = "15s"
 
-# Temporary directory for state sync snapshot chunks, defaults to the OS tempdir (typically /tmp).
-# Will create a new, randomly named directory within, and remove it when done.
+# Temporary directory for state sync snapshot chunks, defaults to os.TempDir().
+# The synchronizer will create a new, randomly named directory within this directory
+# and remove it when the sync is complete.
 temp-dir = ""
 
 # The timeout duration before re-requesting a chunk, possibly from a different
-# peer (default: 1 minute).
-chunk-request-timeout = "15s"
+# peer (default: 15 seconds).
+chunk-request-timeout = "30s"
 
-# The number of concurrent chunk fetchers to run (default: 1).
+# The number of concurrent chunk and block fetchers to run (default: 4).
 fetchers = "4"
+
+verify-light-block-timeout = "30s"
+
+blacklist-ttl = "2m0s"
 
 #######################################################
 ###         Consensus Configuration Options         ###
@@ -356,37 +394,66 @@ fetchers = "4"
 
 wal-file = "data/cs.wal/wal"
 
-# How long we wait for a proposal block before prevoting nil
-unsafe-propose-timeout-override = "3s"
-# How much timeout_propose increases with each round
-unsafe-propose-timeout-delta-override = "500ms"
-# How long we wait after receiving +2/3 precommits for “anything” (ie. not a single block or nil)
-unsafe-vote-timeout-override = "50ms"
-# How much the timeout_precommit increases with each round
-unsafe-vote-timeout-delta-override = "500ms"
-# How long we wait after committing a block, before starting on the new
-# height (this gives us a chance to receive some more precommits, even
-# though we already have +2/3).
-unsafe-commit-timeout-override = "50ms"
-
 # How many blocks to look back to check existence of the node's consensus votes before joining consensus
 # When non-zero, the node will panic upon restart
-# if the same consensus key was used to sign {double_sign_check_height} last blocks.
+# if the same consensus key was used to sign {double-sign-check-height} last blocks.
 # So, validators should stop the state machine, wait for some blocks, and then restart the state machine to avoid panic.
 double-sign-check-height = 0
-
-# Make progress as soon as we have all the precommits (as if TimeoutCommit = 0)
-unsafe-bypass-commit-timeout-override = false
 
 # EmptyBlocks mode and possible interval between empty blocks
 create-empty-blocks = true
 create-empty-blocks-interval = "0s"
 
+# Only gossip hashes, not the actual data
+gossip-tx-key-only = "true"
+
 # Reactor sleep duration parameters
 peer-gossip-sleep-duration = "100ms"
 peer-query-maj23-sleep-duration = "2s"
 
-gossip-tx-key-only=true
+### Unsafe Timeout Overrides ###
+
+# These fields provide temporary overrides for the Timeout consensus parameters.
+# Use of these parameters is strongly discouraged. Using these parameters may have serious
+# liveness implications for the validator and for the chain.
+#
+# These fields will be removed from the configuration file in the v0.37 release of Tendermint.
+# For additional information, see ADR-74:
+# https://github.com/tendermint/tendermint/blob/master/docs/architecture/adr-074-timeout-params.md
+
+# This field provides an unsafe override of the Propose timeout consensus parameter.
+# This field configures how long the consensus engine will wait for a proposal block before prevoting nil.
+# If this field is set to a value greater than 0, it will take effect.
+unsafe-propose-timeout-override = "3000ms"
+
+# This field provides an unsafe override of the ProposeDelta timeout consensus parameter.
+# This field configures how much the propose timeout increases with each round.
+# If this field is set to a value greater than 0, it will take effect.
+unsafe-propose-timeout-delta-override = "500ms"
+
+# This field provides an unsafe override of the Vote timeout consensus parameter.
+# This field configures how long the consensus engine will wait after
+# receiving +2/3 votes in a round.
+# If this field is set to a value greater than 0, it will take effect.
+unsafe-vote-timeout-override = "1000ms"
+
+# This field provides an unsafe override of the VoteDelta timeout consensus parameter.
+# This field configures how much the vote timeout increases with each round.
+# If this field is set to a value greater than 0, it will take effect.
+unsafe-vote-timeout-delta-override = "500ms"
+
+# This field provides an unsafe override of the Commit timeout consensus parameter.
+# This field configures how long the consensus engine will wait after receiving
+# +2/3 precommits before beginning the next height.
+# If this field is set to a value greater than 0, it will take effect.
+unsafe-commit-timeout-override = "2000ms"
+
+# This field provides an unsafe override of the BypassCommitTimeout consensus parameter.
+# This field configures if the consensus engine will wait for the full Commit timeout
+# before proceeding to the next height.
+# If this field is set to true, the consensus engine will proceed to the next height
+# as soon as the node has gathered votes from all of the validators on the network.
+# unsafe-bypass-commit-timeout-override = false
 
 #######################################################
 ###   Transaction Indexer Configuration Options     ###
@@ -406,6 +473,8 @@ gossip-tx-key-only=true
 # When "kv" or "psql" is chosen "tx.height" and "tx.hash" will always be indexed.
 indexer = ["kv"]
 
+# The PostgreSQL connection configuration, the connection format:
+#   postgresql://<user>:<password>@<host>:<port>/<db>?<opts>
 psql-conn = ""
 
 #######################################################
@@ -416,7 +485,7 @@ psql-conn = ""
 # When true, Prometheus metrics are served under /metrics on
 # PrometheusListenAddr.
 # Check out the documentation for the list of available metrics.
-prometheus = true
+prometheus = false
 
 # Address to listen for Prometheus collector(s) connections
 prometheus-listen-addr = ":26660"
@@ -429,3 +498,43 @@ max-open-connections = 3
 
 # Instrumentation namespace
 namespace = "tendermint"
+
+#######################################################
+###       SelfRemediation Configuration Options     ###
+#######################################################
+[self-remediation]
+
+# If the node has no p2p peers available then trigger a restart
+# Set to 0 to disable
+p2p-no-peers-available-window-seconds = 0
+
+# If node has no peers for statesync after a period of time then restart
+# Set to 0 to disable
+statesync-no-peers-available-window-seconds = 0
+
+# Threshold for how far back the node can be behind the current block height before triggering a restart
+# Set to 0 to disable
+blocks-behind-threshold = 0
+
+# How often to check if node is behind
+blocks-behind-check-interval = 60
+
+# Cooldown between each restart
+restart-cooldown-seconds = 600
+
+[db-sync]
+db-sync-enable = "false"
+snapshot-interval = "0"
+snapshot-directory = ""
+snapshot-worker-count = "16"
+timeout-in-seconds = "1200"
+no-file-sleep-in-seconds = "1"
+file-worker-count = "32"
+file-worker-timeout = "30"
+trust-height = 136190001
+trust-hash = "DB7D320FE1692228F688EFD86C59FA7F86CC8658795CDEBF5784FAB146F409E0"
+trust-period = "24h0m0s"
+verify-light-block-timeout = "1m0s"
+blacklist-ttl = "5m0s"
+
+
