@@ -492,7 +492,7 @@ func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
 		}
 		return b.Header_.BaseFee
 	}
-	return nil
+	return k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
 }
 
 func (k *Keeper) GetReplayedHeight(ctx sdk.Context) int64 {
