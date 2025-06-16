@@ -278,16 +278,6 @@ describe("EVM Test", function () {
       })
 
       it("trace balance diff matches up with actual balance change", async function() {
-        // send a tx with a gas to elevate the base fee
-        const heavyTxResponse = await evmTester.useGas(9500000, { 
-          maxPriorityFeePerGas: ethers.parseUnits('100', 'gwei'),
-          maxFeePerGas: ethers.parseUnits('100', 'gwei'),
-          type: 2
-        });
-        await heavyTxResponse.wait();
-
-        await waitForBaseFeeToBeGt(ethers.parseUnits('1', 'gwei'))
-
         const testCases = [
           {
             maxPriorityFeePerGas: ethers.parseUnits('1', 'gwei'),
@@ -304,6 +294,15 @@ describe("EVM Test", function () {
         ];
 
         for (const testCase of testCases) {
+          // send a tx with a gas to elevate the base fee
+          const heavyTxResponse = await evmTester.useGas(9500000, { 
+            maxPriorityFeePerGas: ethers.parseUnits('10', 'gwei'),
+            maxFeePerGas: ethers.parseUnits('10', 'gwei'),
+            type: 2
+          });
+          await heavyTxResponse.wait();
+          await waitForBaseFeeToBeGt(ethers.parseUnits('1', 'gwei'))
+
           const txResponse = await owner.sendTransaction({
             to: owner.address,
             value: ethers.parseUnits('0', 'ether'),
