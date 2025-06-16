@@ -15,11 +15,13 @@ func TestMigrateRemoveCurrBlockBaseFee(t *testing.T) {
 
 	// Set a test base fee
 	testBaseFee := sdk.NewDec(100)
+	testNextBaseFee := sdk.NewDec(101)
 	k.SetCurrBaseFeePerGas(ctx, testBaseFee)
+	k.SetNextBaseFeePerGas(ctx, testNextBaseFee)
 
 	// Verify initial state
 	require.Equal(t, testBaseFee, k.GetCurrBaseFeePerGas(ctx))
-	require.Equal(t, k.GetMinimumFeePerGas(ctx), k.GetNextBaseFeePerGas(ctx))
+	require.Equal(t, testNextBaseFee, k.GetNextBaseFeePerGas(ctx))
 
 	// Run the migration
 	err := migrations.MigrateRemoveCurrBlockBaseFee(ctx, &k)
