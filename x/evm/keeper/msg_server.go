@@ -228,7 +228,6 @@ func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	baseFee := k.GetBaseFee(ctx)
-	fmt.Printf("[DEBUG] In msg server, using baseFee = %+v\n", baseFee)
 	if baseFee != nil {
 		msg.GasPrice = cmath.BigMin(msg.GasPrice.Add(msg.GasTipCap, baseFee), msg.GasFeeCap)
 	}
