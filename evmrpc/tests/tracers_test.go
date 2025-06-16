@@ -3,8 +3,11 @@ package tests
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/app"
 	"testing"
+
+	"github.com/sei-protocol/sei-chain/app"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -21,7 +24,7 @@ func TestTraceBlockByNumber(t *testing.T) {
 			})
 			blockHash := res["result"].([]interface{})[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
 			// assert that the block hash has been overwritten instead of the RLP hash.
-			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", blockHash.(string))
+			require.Equal(t, "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", blockHash.(string))
 		},
 	)
 }
@@ -39,7 +42,7 @@ func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
 			require.Len(t, txs, 1)
 			blockHash := txs[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
 			// assert that the block hash has been overwritten instead of the RLP hash.
-			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", blockHash.(string))
+			require.Equal(t, "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", blockHash.(string))
 		},
 	)
 }
@@ -48,12 +51,12 @@ func TestTraceBlockByHash(t *testing.T) {
 	txBz := signAndEncodeTx(send(0), mnemonic1)
 	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
-			res := sendRequestWithNamespace("debug", port, "traceBlockByHash", "0x0000000000000000000000000000000000000000000000000000000000000002", map[string]interface{}{
+			res := sendRequestWithNamespace("debug", port, "traceBlockByHash", "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",
 			})
 			blockHash := res["result"].([]interface{})[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
 			// assert that the block hash has been overwritten instead of the RLP hash.
-			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", blockHash.(string))
+			require.Equal(t, "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", blockHash.(string))
 		},
 	)
 }
@@ -63,7 +66,7 @@ func TestTraceBlockByHashExcludeTraceFail(t *testing.T) {
 	panicTxBz := signAndEncodeTx(send(100), mnemonic1)
 	SetupTestServer([][][]byte{{txBz, panicTxBz}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
-			res := sendRequestWithNamespace("sei", port, "traceBlockByHashExcludeTraceFail", "0x0000000000000000000000000000000000000000000000000000000000000002", map[string]interface{}{
+			res := sendRequestWithNamespace("sei", port, "traceBlockByHashExcludeTraceFail", "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",
 			})
 			fmt.Println(res)
@@ -71,7 +74,7 @@ func TestTraceBlockByHashExcludeTraceFail(t *testing.T) {
 			require.Len(t, txs, 1)
 			blockHash := txs[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
 			// assert that the block hash has been overwritten instead of the RLP hash.
-			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", blockHash.(string))
+			require.Equal(t, "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", blockHash.(string))
 		},
 	)
 }
@@ -117,12 +120,31 @@ func TestTraceMultipleTransactionsShouldNotHang(t *testing.T) {
 	txBzList = append(txBzList, signAndEncodeTx(callWasmIter(0, cwIter), mnemonic1))
 	SetupTestServer([][][]byte{txBzList}, mnemonicInitializer(mnemonic1), multiCoinInitializer(mnemonic1), cwIterInitializer(mnemonic1), erc20Initializer()).Run(
 		func(port int) {
-			res := sendRequestWithNamespace("debug", port, "traceBlockByHash", "0x0000000000000000000000000000000000000000000000000000000000000002", map[string]interface{}{
+			res := sendRequestWithNamespace("debug", port, "traceBlockByHash", "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",
 			})
 			blockHash := res["result"].([]interface{})[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
 			// assert that the block hash has been overwritten instead of the RLP hash.
-			require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", blockHash.(string))
+			require.Equal(t, "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", blockHash.(string))
+		},
+	)
+}
+
+func TestTraceStateAccess(t *testing.T) {
+	txBz := signAndEncodeTx(send(0), mnemonic1)
+	sdkTx, _ := testkeeper.EVMTestApp.GetTxConfig().TxDecoder()(txBz)
+	evmTx, _ := sdkTx.GetMsgs()[0].(*types.MsgEVMTransaction).AsTransaction()
+	hash := evmTx.Hash()
+	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("debug", port, "traceStateAccess", hash.Hex())
+			result := res["result"].(map[string]interface{})["app"].(map[string]interface{})["modules"].(map[string]interface{})
+			require.Contains(t, result, "acc")
+			require.Contains(t, result, "bank")
+			require.Contains(t, result, "evm")
+			require.Contains(t, result, "params")
+			tmResult := res["result"].(map[string]interface{})["tendermint"].(map[string]interface{})["traces"]
+			require.Len(t, tmResult, 6)
 		},
 	)
 }

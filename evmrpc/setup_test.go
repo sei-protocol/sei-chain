@@ -107,7 +107,7 @@ var MockBlockIDMultiTx = tmtypes.BlockID{
 	Hash: bytes.HexBytes(mustHexToBytes(MultiTxBlockHash[2:])),
 }
 
-var NewHeadsCalled = make(chan struct{})
+var NewHeadsCalled = make(chan struct{}, 1)
 
 type MockClient struct {
 	mock.Client
@@ -543,9 +543,9 @@ func init() {
 	testApp.Commit(context.Background())
 	ctxProvider := func(height int64) sdk.Context {
 		if height == MockHeight2 {
-			return MultiTxCtx
+			return MultiTxCtx.WithIsTracing(true)
 		}
-		return Ctx
+		return Ctx.WithIsTracing(true)
 	}
 	// Start good http server
 	goodConfig := evmrpc.DefaultConfig
