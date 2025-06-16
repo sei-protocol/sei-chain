@@ -35,16 +35,47 @@ func TestTraceTransaction(t *testing.T) {
 }
 
 func TestTraceCall(t *testing.T) {
-	_, from := testkeeper.MockAddressPair()
 	_, contractAddr := testkeeper.MockAddressPair()
 	txArgs := map[string]interface{}{
-		"from":    from.Hex(),
-		"to":      contractAddr.Hex(),
-		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
+		"from":         "0x5B4eba929F3811980f5AE0c5D04fa200f837DF4E",
+		"to":           contractAddr.Hex(),
+		"chainId":      fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
+		"maxFeePerGas": "0x3B9ACA00",
 	}
 
 	resObj := sendRequestGoodWithNamespace(t, "debug", "traceCall", txArgs, "0x65")
 	result := resObj["result"].(map[string]interface{})
 	require.Equal(t, float64(21000), result["gas"])
 	require.Equal(t, false, result["failed"])
+}
+
+func TestTraceTransactionTimeout(t *testing.T) {
+	args := map[string]interface{}{"tracer": "callTracer"}
+
+	resObj := sendRequestStrictWithNamespace(
+		t,
+		"debug",
+		"traceTransaction",
+		DebugTraceHashHex,
+		args,
+	)
+
+	errObj, ok := resObj["error"].(map[string]interface{})
+	require.True(t, ok, "expected node‑level timeout to trigger")
+	require.NotEmpty(t, errObj["message"].(string))
+}
+
+func TestTraceBlockByNumberLookbackLimit(t *testing.T) {
+	// Using the strict server (look‑back = 1). Block 0 is far behind.
+	resObj := sendRequestStrictWithNamespace(
+		t,
+		"sei",
+		"traceBlockByNumberExcludeTraceFail",
+		"0x0",                    // genesis block
+		map[string]interface{}{}, // empty TraceConfig
+	)
+
+	errObj, ok := resObj["error"].(map[string]interface{})
+	require.True(t, ok, "expected look‑back guard to trigger")
+	require.NotEmpty(t, errObj["message"].(string))
 }

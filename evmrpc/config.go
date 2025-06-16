@@ -86,6 +86,16 @@ type Config struct {
 	// test api enables certain override apis for integration test situations
 	EnableTestAPI bool `mapstructure:"enable_test_api"`
 
+	// MaxConcurrentTraceCalls defines the maximum number of concurrent debug_trace calls.
+	// Set to 0 for unlimited.
+	MaxConcurrentTraceCalls uint64 `mapstructure:"max_concurrent_trace_calls"`
+
+	// Max number of blocks allowed to look back for tracing
+	MaxTraceLookbackBlocks int64 `mapstructure:"max_trace_lookback_blocks"`
+
+	// Timeout for each trace call
+	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
+
 	// The EVM tracer to use when doing node synchronization, applies to
 	// all block produced but traces only EVM transactions.
 	//
@@ -115,6 +125,9 @@ var DefaultConfig = Config{
 	MaxBlocksForLog:         2000,
 	MaxSubscriptionsNewHead: 10000,
 	EnableTestAPI:           false,
+	MaxConcurrentTraceCalls: 10,
+	MaxTraceLookbackBlocks:  10000,
+	TraceTimeout:            30 * time.Second,
 	LiveEVMTracer:           "",
 }
 
@@ -140,6 +153,9 @@ const (
 	flagMaxBlocksForLog         = "evm.max_blocks_for_log"
 	flagMaxSubscriptionsNewHead = "evm.max_subscriptions_new_head"
 	flagEnableTestAPI           = "evm.enable_test_api"
+	flagMaxConcurrentTraceCalls = "evm.max_concurrent_trace_calls"
+	flagMaxTraceLookbackBlocks  = "evm.max_trace_lookback_blocks"
+	flagTraceTimeout            = "evm.trace_timeout"
 	flagLiveEVMTracer           = "evm.live_evm_tracer"
 )
 
@@ -248,6 +264,21 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagEnableTestAPI); v != nil {
 		if cfg.EnableTestAPI, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxConcurrentTraceCalls); v != nil {
+		if cfg.MaxConcurrentTraceCalls, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxTraceLookbackBlocks); v != nil {
+		if cfg.MaxTraceLookbackBlocks, err = cast.ToInt64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagTraceTimeout); v != nil {
+		if cfg.TraceTimeout, err = cast.ToDurationE(v); err != nil {
 			return cfg, err
 		}
 	}

@@ -175,6 +175,7 @@ require (
 	github.com/gostaticanalysis/comment v1.4.2 // indirect
 	github.com/gostaticanalysis/forcetypeassert v0.1.0 // indirect
 	github.com/gostaticanalysis/nilerr v0.1.1 // indirect
+	github.com/grafana/pyroscope-go/godeltaprof v0.1.8 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
 	github.com/gsterjov/go-libsecret v0.0.0-20161001094733-a6f4afe4910c // indirect
@@ -201,7 +202,7 @@ require (
 	github.com/kballard/go-shellquote v0.0.0-20180428030007-95032a82bc51 // indirect
 	github.com/kisielk/errcheck v1.6.0 // indirect
 	github.com/kisielk/gotool v1.0.0 // indirect
-	github.com/klauspost/compress v1.16.3 // indirect
+	github.com/klauspost/compress v1.17.8 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/kulti/thelper v0.6.2 // indirect
@@ -348,18 +349,18 @@ require (
 )
 
 replace (
-	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.3.5
+	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.3.6
 	github.com/CosmWasm/wasmvm => github.com/sei-protocol/sei-wasmvm v1.5.4-sei.0.0.3
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.59
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.62
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.2.0
 	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.6
-	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.5-sei-35
+	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.13.5-sei-39
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
-	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.49
+	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.51
 	// Latest goleveldb is broken, we have to stick to this version
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
-	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.5.7
+	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.5.9
 	github.com/tendermint/tm-db => github.com/sei-protocol/tm-db v0.0.4
 	google.golang.org/grpc => google.golang.org/grpc v1.33.2
 )

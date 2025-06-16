@@ -723,6 +723,7 @@ func New(
 			stakingkeeper.NewMsgServerImpl(app.StakingKeeper),
 			stakingkeeper.Querier{Keeper: app.StakingKeeper},
 			app.GovKeeper,
+			govkeeper.NewMsgServerImpl(app.GovKeeper),
 			app.DistrKeeper,
 			app.OracleKeeper,
 			app.TransferKeeper,
@@ -1454,19 +1455,7 @@ func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []
 			continue
 		}
 
-		prioritized := false
-		// if all messages are prioritized, we want to add to prioritizedTxs
-	msgLoop:
-		for _, msg := range typedTxs[idx].GetMsgs() {
-			switch msg.(type) {
-			case *oracletypes.MsgAggregateExchangeRateVote:
-				prioritized = true
-			default:
-				prioritized = false
-				break msgLoop
-			}
-		}
-		if prioritized {
+		if utils.IsTxPrioritized(typedTxs[idx]) {
 			prioritizedTxs = append(prioritizedTxs, tx)
 			prioritizedTypedTxs = append(prioritizedTypedTxs, typedTxs[idx])
 			prioritizedIndices = append(prioritizedIndices, idx)
@@ -1891,14 +1880,14 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
-		return app.GetCheckCtx().WithIsTracing(true)
+		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
 		app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
-		return app.GetCheckCtx().WithIsTracing(true)
+		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false)
 	}
-	return ctx.WithIsEVM(true).WithIsTracing(true)
+	return ctx.WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false)
 }
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
@@ -2012,10 +2001,7 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 		}
 
 		if totalGas > uint64(ctx.ConsensusParams().Block.MaxGas) {
-			if nonzeroTxsCnt > int(ctx.ConsensusParams().Block.MinTxsInBlock) {
-				// early return
-				return false
-			}
+			return false
 		}
 	}
 	return true

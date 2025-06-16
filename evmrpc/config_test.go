@@ -31,6 +31,9 @@ type opts struct {
 	maxBlocksForLog         interface{}
 	maxSubscriptionsNewHead interface{}
 	enableTestAPI           interface{}
+	maxConcurrentTraceCalls interface{}
+	maxTraceLookbackBlocks  interface{}
+	traceTimeout            interface{}
 	liveEVMTracer           interface{}
 }
 
@@ -98,6 +101,15 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.enable_test_api" {
 		return o.enableTestAPI
 	}
+	if k == "evm.max_concurrent_trace_calls" {
+		return o.maxConcurrentTraceCalls
+	}
+	if k == "evm.max_trace_lookback_blocks" {
+		return o.maxTraceLookbackBlocks
+	}
+	if k == "evm.trace_timeout" {
+		return o.traceTimeout
+	}
 	if k == "evm.live_evm_tracer" {
 		return o.liveEVMTracer
 	}
@@ -127,6 +139,9 @@ func TestReadConfig(t *testing.T) {
 		1000,
 		10000,
 		false,
+		uint64(10),
+		int64(100),
+		30 * time.Second,
 		"",
 	}
 	_, err := evmrpc.ReadConfig(&goodOpts)
@@ -197,6 +212,22 @@ func TestReadConfig(t *testing.T) {
 	require.NotNil(t, err)
 	badOpts = goodOpts
 	badOpts.denyList = map[string]interface{}{}
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	// Test bad types for new trace config options
+	badOpts = goodOpts
+	badOpts.maxConcurrentTraceCalls = "bad"
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.maxTraceLookbackBlocks = "bad"
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.traceTimeout = "bad"
 	_, err = evmrpc.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 }

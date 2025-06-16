@@ -140,6 +140,7 @@ func initRootCmd(
 		pruning.PruningCmd(newApp),
 		CompactCmd(app.DefaultNodeHome),
 		tools.ToolCmd(),
+		SnapshotCmd(),
 	)
 
 	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
@@ -551,6 +552,16 @@ max_blocks_for_log = {{ .EVM.MaxBlocksForLog }}
 
 # max number of concurrent NewHead subscriptions
 max_subscriptions_new_head = {{ .EVM.MaxSubscriptionsNewHead }}
+
+# MaxConcurrentTraceCalls defines the maximum number of concurrent debug_trace calls.
+# Set to 0 for unlimited.
+max_concurrent_trace_calls = {{ .EVM.MaxConcurrentTraceCalls }}
+
+# Max number of blocks allowed to look back for tracing
+max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
+
+# Timeout for each trace call
+trace_timeout = "{{ .EVM.TraceTimeout }}"
 
 [eth_replay]
 eth_replay_enabled = {{ .ETHReplay.Enabled }}
