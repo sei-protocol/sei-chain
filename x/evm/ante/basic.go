@@ -9,7 +9,6 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 
-	ethcore "github.com/ethereum/go-ethereum/core"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -53,7 +52,7 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 		return ctx, err
 	}
 	if etx.Gas() < intrGas {
-		return ctx, ethcore.ErrIntrinsicGas
+		return ctx, core.ErrIntrinsicGas
 	}
 
 	if etx.Type() == ethtypes.BlobTxType {
