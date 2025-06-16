@@ -71,7 +71,7 @@ func TestInstantiateProposal(t *testing.T) {
 	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 
-	require.NoError(t, wasmKeeper.importCode(ctx, 1,
+	require.NoError(t, wasmKeeper.ImportCode(ctx, 1,
 		types.CodeInfoFixture(types.WithSHA256CodeHash(wasmCode)),
 		wasmCode),
 	)
@@ -134,7 +134,7 @@ func TestInstantiateProposal_NoAdmin(t *testing.T) {
 	wasmCode, err := ioutil.ReadFile("./testdata/hackatom.wasm")
 	require.NoError(t, err)
 
-	require.NoError(t, wasmKeeper.importCode(ctx, 1,
+	require.NoError(t, wasmKeeper.ImportCode(ctx, 1,
 		types.CodeInfoFixture(types.WithSHA256CodeHash(wasmCode)),
 		wasmCode),
 	)
@@ -207,8 +207,8 @@ func TestMigrateProposal(t *testing.T) {
 	require.NoError(t, err)
 
 	codeInfoFixture := types.CodeInfoFixture(types.WithSHA256CodeHash(wasmCode))
-	require.NoError(t, wasmKeeper.importCode(ctx, 1, codeInfoFixture, wasmCode))
-	require.NoError(t, wasmKeeper.importCode(ctx, 2, codeInfoFixture, wasmCode))
+	require.NoError(t, wasmKeeper.ImportCode(ctx, 1, codeInfoFixture, wasmCode))
+	require.NoError(t, wasmKeeper.ImportCode(ctx, 2, codeInfoFixture, wasmCode))
 
 	var (
 		anyAddress   sdk.AccAddress = bytes.Repeat([]byte{0x1}, types.ContractAddrLen)
@@ -455,7 +455,7 @@ func TestAdminProposals(t *testing.T) {
 			})
 
 			codeInfoFixture := types.CodeInfoFixture(types.WithSHA256CodeHash(wasmCode))
-			require.NoError(t, wasmKeeper.importCode(ctx, 1, codeInfoFixture, wasmCode))
+			require.NoError(t, wasmKeeper.ImportCode(ctx, 1, codeInfoFixture, wasmCode))
 
 			require.NoError(t, wasmKeeper.importContract(ctx, contractAddr, &spec.state, []types.Model{}))
 			// when stored

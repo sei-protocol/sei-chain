@@ -508,7 +508,7 @@ func TestQueryCodeList(t *testing.T) {
 			xCtx, _ := ctx.CacheContext()
 
 			for _, codeID := range spec.storedCodeIDs {
-				require.NoError(t, keeper.importCode(xCtx, codeID,
+				require.NoError(t, keeper.ImportCode(xCtx, codeID,
 					types.CodeInfoFixture(types.WithSHA256CodeHash(wasmCode)),
 					wasmCode),
 				)
@@ -685,7 +685,7 @@ func TestQueryCodeInfo(t *testing.T) {
 		t.Run(msg, func(t *testing.T) {
 			codeInfo := types.CodeInfoFixture(types.WithSHA256CodeHash(wasmCode))
 			codeInfo.InstantiateConfig = spec.accessConfig
-			require.NoError(t, keeper.importCode(ctx, spec.codeId,
+			require.NoError(t, keeper.ImportCode(ctx, spec.codeId,
 				codeInfo,
 				wasmCode),
 			)
@@ -750,7 +750,7 @@ func TestQueryCodeInfoList(t *testing.T) {
 	allCodesResponse := make([]types.CodeInfoResponse, 0)
 	for _, code := range codes {
 		t.Run(fmt.Sprintf("import_%s", code.name), func(t *testing.T) {
-			require.NoError(t, keeper.importCode(ctx, code.codeId,
+			require.NoError(t, keeper.ImportCode(ctx, code.codeId,
 				code.codeInfo,
 				wasmCode),
 			)

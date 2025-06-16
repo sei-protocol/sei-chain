@@ -332,7 +332,7 @@ func TestLegacyQueryCodeList(t *testing.T) {
 			keeper := keepers.WasmKeeper
 
 			for _, codeID := range spec.codeIDs {
-				require.NoError(t, keeper.importCode(ctx, codeID,
+				require.NoError(t, keeper.ImportCode(ctx, codeID,
 					types.CodeInfoFixture(types.WithSHA256CodeHash(wasmCode)),
 					wasmCode),
 				)
