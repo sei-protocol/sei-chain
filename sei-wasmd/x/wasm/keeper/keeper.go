@@ -177,12 +177,13 @@ func NewKeeper(
 
 func (k Keeper) getWasmer(ctx sdk.Context) types.WasmerEngine {
 	if ctx.IsTracing() {
-		v580UpgradeHeight := k.upgradeKeeper.GetDoneHeight(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), "v5.8.0")
-		if v580UpgradeHeight != 0 && ctx.BlockHeight() < v580UpgradeHeight {
+		if ctx.ChainID() != "pacific-1" {
+			return k.rpcWasmVM
+		}
+		if ctx.BlockHeight() < 102491599 {
 			return k.rpcWasmVM152
 		}
-		v605UpgradeHeight := k.upgradeKeeper.GetDoneHeight(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)), "v6.0.5")
-		if v605UpgradeHeight != 0 && ctx.BlockHeight() < v605UpgradeHeight {
+		if ctx.BlockHeight() < 139936278 {
 			return k.rpcWasmVM155
 		}
 		return k.rpcWasmVM
