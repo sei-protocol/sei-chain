@@ -2,7 +2,10 @@ package evmrpc
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -16,6 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
 
@@ -32,7 +36,8 @@ type DebugAPI struct {
 	txDecoder          sdk.TxDecoder
 	connectionType     ConnectionType
 	isPanicCache       *expirable.LRU[common.Hash, bool] // hash to isPanic
-	traceCallSemaphore chan struct{}                     // Semaphore for limiting concurrent trace calls
+	backend            *Backend
+	traceCallSemaphore chan struct{} // Semaphore for limiting concurrent trace calls
 	maxBlockLookback   int64
 	traceTimeout       time.Duration
 }
@@ -81,6 +86,7 @@ func NewDebugAPI(
 		txDecoder:          txConfig.TxDecoder(),
 		connectionType:     connectionType,
 		isPanicCache:       isPanicCache,
+		backend:            backend,
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
 		traceTimeout:       debugCfg.TraceTimeout,
@@ -294,4 +300,46 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args ethapi.TransactionArgs,
 	defer recordMetrics("debug_traceCall", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
 	return
+}
+
+type StateAccessResponse struct {
+	AppState        json.RawMessage `json:"app"`
+	TendermintState json.RawMessage `json:"tendermint"`
+}
+
+func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (result interface{}, returnErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			result = nil
+			debug.PrintStack()
+			returnErr = fmt.Errorf("panic occurred: %v, could not trace tx state: %s", r, hash.Hex())
+		}
+	}()
+	tendermintTraces := &TendermintTraces{Traces: []TendermintTrace{}}
+	ctx = WithTendermintTraces(ctx, tendermintTraces)
+	tx, blockHash, blockNumber, index, err := api.backend.GetTransaction(ctx, hash)
+	if err != nil {
+		return nil, err
+	}
+	// Only mined txes are supported
+	if tx == nil {
+		return nil, errors.New("transaction not found")
+	}
+	// It shouldn't happen in practice.
+	if blockNumber == 0 {
+		return nil, errors.New("genesis is not traceable")
+	}
+	block, _, err := api.backend.BlockByHash(ctx, blockHash)
+	if err != nil {
+		return nil, err
+	}
+	stateDB, _, err := api.backend.ReplayTransactionTillIndex(ctx, block, int(index))
+	if err != nil {
+		return nil, err
+	}
+	response := StateAccessResponse{
+		AppState:        stateDB.(*state.DBImpl).Ctx().StoreTracer().DerivePrestateToJson(),
+		TendermintState: tendermintTraces.MustMarshalToJson(),
+	}
+	return response, nil
 }

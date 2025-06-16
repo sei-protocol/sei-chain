@@ -401,3 +401,35 @@ func TestFilterGetFilterChangesKeepsFilterAlive(t *testing.T) {
 		time.Sleep(filterTimeoutDuration / 2)
 	}
 }
+
+func TestGetLogsBlockHashIsNotZero(t *testing.T) {
+	t.Parallel()
+	// Test that eth_getLogs returns logs with correct blockHash (not zero hash)
+	filterCriteria := map[string]interface{}{
+		"fromBlock": "0x2",
+		"toBlock":   "0x2",
+	}
+	resObj := sendRequestGood(t, "getLogs", filterCriteria)
+	logs := resObj["result"].([]interface{})
+	require.Greater(t, len(logs), 0, "should have at least one log")
+
+	expectedBlockHash := "0x0000000000000000000000000000000000000000000000000000000000000002" // MultiTxBlockHash
+	zeroBlockHash := "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+	for i, logInterface := range logs {
+		log := logInterface.(map[string]interface{})
+		blockHash := log["blockHash"].(string)
+
+		// The main check: blockHash should not be zero
+		require.NotEqual(t, zeroBlockHash, blockHash,
+			"log %d should not have zero blockHash", i)
+
+		// Additional check: it should be the expected block hash for block 2
+		require.Equal(t, expectedBlockHash, blockHash,
+			"log %d should have correct blockHash for block 2", i)
+
+		// Verify other expected fields are present
+		require.Equal(t, "0x2", log["blockNumber"].(string),
+			"log %d should be from block 2", i)
+	}
+}
