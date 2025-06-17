@@ -32,7 +32,7 @@ jobs:
 
       # Download all coverage reports from the 'tests' job
       - name: Download coverage reports
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
 
       - name: Set GOPATH
         run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
