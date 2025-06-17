@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -19,12 +20,14 @@ import (
 )
 
 type EVMFeeCheckDecorator struct {
-	evmKeeper *evmkeeper.Keeper
+	evmKeeper     *evmkeeper.Keeper
+	upgradeKeeper *upgradekeeper.Keeper
 }
 
-func NewEVMFeeCheckDecorator(evmKeeper *evmkeeper.Keeper) *EVMFeeCheckDecorator {
+func NewEVMFeeCheckDecorator(evmKeeper *evmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper) *EVMFeeCheckDecorator {
 	return &EVMFeeCheckDecorator{
-		evmKeeper: evmKeeper,
+		evmKeeper:     evmKeeper,
+		upgradeKeeper: upgradeKeeper,
 	}
 }
 
@@ -106,6 +109,9 @@ func (fc EVMFeeCheckDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate b
 func (fc EVMFeeCheckDecorator) getBaseFee(ctx sdk.Context) *big.Int {
 	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < 114945913 {
 		return fc.evmKeeper.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
+	}
+	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < fc.upgradeKeeper.GetDoneHeight(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "6.2.0") {
+		return fc.evmKeeper.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt()
 	}
 	return fc.evmKeeper.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
 }
