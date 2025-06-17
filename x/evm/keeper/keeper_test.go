@@ -216,7 +216,7 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 }
 
 func TestDeferredInfo(t *testing.T) {
-	a := app.Setup(false, false)
+	a := app.Setup(false, false, false)
 	k := a.EvmKeeper
 	ctx := a.GetContextForDeliverTx([]byte{})
 	ctx = ctx.WithTxIndex(1)

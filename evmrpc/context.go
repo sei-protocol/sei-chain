@@ -4,11 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
 type contextKey string
 
 const tendermintTraceKey contextKey = "tendermintTrace"
+const receiptTraceKey contextKey = "receiptTrace"
 
 type TendermintTraces struct {
 	Traces []TendermintTrace `json:"traces"`
@@ -17,6 +23,29 @@ type TendermintTraces struct {
 func (tt *TendermintTraces) MustMarshalToJson() json.RawMessage {
 	bz, _ := json.Marshal(tt)
 	return bz
+}
+
+type ReceiptTraces struct {
+	Traces []RawResponseReceipt `json:"traces"`
+}
+
+func (rt *ReceiptTraces) MustMarshalToJson() json.RawMessage {
+	bz, _ := json.Marshal(rt)
+	return bz
+}
+
+type RawResponseReceipt struct {
+	BlockNumber       hexutil.Uint64  `json:"blockNumber"`
+	ContractAddress   *common.Address `json:"contractAddress"`
+	CumulativeGasUsed hexutil.Uint64  `json:"cumulativeGasUsed"`
+	EffectiveGasPrice *hexutil.Big    `json:"effectiveGasPrice"`
+	From              common.Address  `json:"from"`
+	To                *common.Address `json:"to"`
+	GasUsed           hexutil.Uint64  `json:"gasUsed"`
+	Status            hexutil.Uint    `json:"status"`
+	Type              hexutil.Uint    `json:"type"`
+	TransactionHash   common.Hash     `json:"transactionHash"`
+	TransactionIndex  hexutil.Uint64  `json:"transactionIndex"`
 }
 
 type TendermintTrace struct {
@@ -53,6 +82,38 @@ func TendermintTracesFromContext(ctx context.Context) *TendermintTraces {
 		return nil
 	}
 	return v.(*TendermintTraces)
+}
+
+func WithReceiptTraces(ctx context.Context, traces *ReceiptTraces) context.Context {
+	return context.WithValue(ctx, receiptTraceKey, traces)
+}
+
+func TraceReceiptIfApplicable(ctx context.Context, receipt *types.Receipt) {
+	rrr := &RawResponseReceipt{
+		BlockNumber:       hexutil.Uint64(receipt.BlockNumber),
+		CumulativeGasUsed: hexutil.Uint64(receipt.CumulativeGasUsed),
+		EffectiveGasPrice: (*hexutil.Big)(new(big.Int).SetUint64(receipt.EffectiveGasPrice)),
+		From:              common.HexToAddress(receipt.From),
+		GasUsed:           hexutil.Uint64(receipt.GasUsed),
+		Status:            hexutil.Uint(receipt.Status),
+		Type:              hexutil.Uint(receipt.TxType),
+		TransactionHash:   common.HexToHash(receipt.TxHashHex),
+		TransactionIndex:  hexutil.Uint64(receipt.TransactionIndex),
+	}
+	if receipt.ContractAddress != "" {
+		ca := common.HexToAddress(receipt.ContractAddress)
+		rrr.ContractAddress = &ca
+	}
+	if receipt.To != "" {
+		to := common.HexToAddress(receipt.To)
+		rrr.To = &to
+	}
+	existing := ctx.Value(receiptTraceKey)
+	if existing == nil {
+		return
+	}
+	typed := existing.(*ReceiptTraces)
+	typed.Traces = append(typed.Traces, *rrr)
 }
 
 func stringifyInt64Ptr(i *int64) string {
