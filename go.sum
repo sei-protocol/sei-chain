@@ -1350,8 +1350,8 @@ github.com/sei-protocol/go-ethereum v1.13.5-sei-39 h1:6Jr/5Sf0RsPisrxOyD4iyKJR5J
 github.com/sei-protocol/go-ethereum v1.13.5-sei-39/go.mod h1:kcRZmuzRn1lVejiFNTz4l4W7imnpq1bDAnuKS/RyhbQ=
 github.com/sei-protocol/goutils v0.0.2 h1:Bfa7Sv+4CVLNM20QcpvGb81B8C5HkQC/kW1CQpIbXDA=
 github.com/sei-protocol/goutils v0.0.2/go.mod h1:iYE2DuJfEnM+APPehr2gOUXfuLuPsVxorcDO+Tzq9q8=
-github.com/sei-protocol/sei-cosmos v0.3.62 h1:MUkLYCZDrRn7z7tVVMChFgqVj5Xxqjap7HbKBZu3X/w=
-github.com/sei-protocol/sei-cosmos v0.3.62/go.mod h1:WN0apmRjYhcY3plXKZGuUukhpPbHMjGza7x1p8YR9wA=
+github.com/sei-protocol/sei-cosmos v0.3.63 h1:516428UP0JwyiETxrIqvV9FSfIap5QkAHkqgCtPHBt8=
+github.com/sei-protocol/sei-cosmos v0.3.63/go.mod h1:WN0apmRjYhcY3plXKZGuUukhpPbHMjGza7x1p8YR9wA=
 github.com/sei-protocol/sei-db v0.0.51 h1:jK6Ps+jDbGdWIPZttaWk7VIsq8aLWWlkTp9axIraL/U=
 github.com/sei-protocol/sei-db v0.0.51/go.mod h1:m5g7p0QeAS3dNJHIl28zQpzOgxQmvYqPb7t4hwgIOCA=
 github.com/sei-protocol/sei-iavl v0.2.0 h1:OisPjXiDT+oe+aeckzDEFgkZCYuUjHgs/PP8DPicN+I=
@@ -1362,8 +1362,8 @@ github.com/sei-protocol/sei-tendermint v0.5.9 h1:GLAuHGuCd1eDLfoU4uFMbqQo7z47XSV
 github.com/sei-protocol/sei-tendermint v0.5.9/go.mod h1:ip8M5kkQf8JC05np1xd4KR33ttJoseJi28Ea28ui85E=
 github.com/sei-protocol/sei-tm-db v0.0.5 h1:3WONKdSXEqdZZeLuWYfK5hP37TJpfaUa13vAyAlvaQY=
 github.com/sei-protocol/sei-tm-db v0.0.5/go.mod h1:Cpa6rGyczgthq7/0pI31jys2Fw0Nfrc+/jKdP1prVqY=
-github.com/sei-protocol/sei-wasmd v0.3.6 h1:GL+WZ1KnM5y7E2w38i3LvDtk8u9oDVTtiK9x6y1J3IQ=
-github.com/sei-protocol/sei-wasmd v0.3.6/go.mod h1:/++yXN121FLs9hmArfX97ukm4q4wMC0REcUYZKrIw5Q=
+github.com/sei-protocol/sei-wasmd v0.3.9 h1:gHbJcczxZYon4cYfdQz04sKmPdfDUtqA5mDDKW4dp2E=
+github.com/sei-protocol/sei-wasmd v0.3.9/go.mod h1:/++yXN121FLs9hmArfX97ukm4q4wMC0REcUYZKrIw5Q=
 github.com/sei-protocol/sei-wasmvm v1.5.4-sei.0.0.3 h1:hhZdZLR8g+6bxWBZiMflSnIuHgLcK/QEpzyjx0/yXYU=
 github.com/sei-protocol/sei-wasmvm v1.5.4-sei.0.0.3/go.mod h1:Q0bSEtlktzh7W2hhEaifrFp1Erx11ckQZmjq8FLCyys=
 github.com/sei-protocol/tm-db v0.0.4 h1:7Y4EU62Xzzg6wKAHEotm7SXQR0aPLcGhKHkh3qd0tnk=

@@ -213,7 +213,7 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 		return nil, nil, err
 	}
 	header := b.getHeader(big.NewInt(height))
-	header.BaseFee = b.keeper.GetCurrBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return state.NewDBImpl(sdkCtx, b.keeper, true), header, nil
 }
 
@@ -291,6 +291,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 				if err != nil || receipt.BlockNumber != uint64(tmBlock.Block.Height) || isReceiptFromAnteError(receipt) {
 					continue
 				}
+				TraceReceiptIfApplicable(ctx, receipt)
 				shouldTrace = true
 				metadata = append(metadata, tracersutils.TraceBlockMetadata{
 					ShouldIncludeInTraceResult: true,
@@ -401,7 +402,6 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 	if txIndex < 0 {
 		return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, nil
 	}
-	sdkCtx.StoreTracer().Clear()
 	for idx, tx := range tmBlock.Block.Txs {
 		if idx > txIndex {
 			break
@@ -413,7 +413,6 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 		if utils.IsTxPrioritized(sdkTx) {
 			continue
 		}
-		sdkCtx.StoreTracer().Clear()
 		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTx{Tx: tx}, sdkTx, sha256.Sum256(tx))
 	}
 	return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, nil
@@ -465,7 +464,7 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 
 func (b *Backend) CurrentHeader() *ethtypes.Header {
 	header := b.getHeader(big.NewInt(b.ctxProvider(LatestCtxHeight).BlockHeight()))
-	header.BaseFee = b.keeper.GetCurrBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return header
 }
 
@@ -525,11 +524,7 @@ func (b *Backend) GetCustomPrecompiles(h int64) map[common.Address]vm.Precompile
 func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error {
 	typedStateDB := statedb.(*state.DBImpl)
 	typedStateDB.CleanupForTracer()
-	ctx := typedStateDB.Ctx()
-	if st := ctx.StoreTracer(); st != nil {
-		st.Clear()
-	}
-	ctx, _ = b.keeper.PrepareCtxForEVMTransaction(typedStateDB.Ctx(), tx)
+	ctx, _ := b.keeper.PrepareCtxForEVMTransaction(typedStateDB.Ctx(), tx)
 	ctx = ctx.WithIsEVM(true)
 	if noSignatureSet(tx) {
 		// skip ante if no signature is set
