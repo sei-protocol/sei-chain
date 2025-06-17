@@ -7,6 +7,9 @@ coverage:
       default:
         threshold: 1% # allow this much decrease on project
         target: 50%
+    patch:
+      default:
+        target: 70%
 
 comment:
   layout: "reach,diff,flags,tree,betaprofiling"
