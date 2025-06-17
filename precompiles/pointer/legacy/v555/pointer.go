@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/holiman/uint256"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v555"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
@@ -43,9 +44,9 @@ var f embed.FS
 
 type Precompile struct {
 	pcommon.Precompile
-	evmKeeper   pcommon.EVMKeeper
-	bankKeeper  pcommon.BankKeeper
-	wasmdKeeper pcommon.WasmdViewKeeper
+	evmKeeper   putils.EVMKeeper
+	bankKeeper  putils.BankKeeper
+	wasmdKeeper putils.WasmdViewKeeper
 	address     common.Address
 
 	AddNativePointerID []byte
@@ -66,7 +67,7 @@ func ABI() (*ethabi.ABI, error) {
 	return &newAbi, nil
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, wasmdKeeper pcommon.WasmdViewKeeper) (*Precompile, error) {
+func NewPrecompile(keepers putils.Keepers) (*Precompile, error) {
 	newAbi, err := ABI()
 	if err != nil {
 		return nil, err
@@ -74,9 +75,9 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, w
 
 	p := &Precompile{
 		Precompile:  pcommon.Precompile{ABI: *newAbi},
-		evmKeeper:   evmKeeper,
-		bankKeeper:  bankKeeper,
-		wasmdKeeper: wasmdKeeper,
+		evmKeeper:   keepers.EVMK(),
+		bankKeeper:  keepers.BankK(),
+		wasmdKeeper: keepers.WasmdVK(),
 		address:     common.HexToAddress(PointerAddress),
 	}
 

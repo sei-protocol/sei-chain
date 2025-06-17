@@ -114,6 +114,7 @@ import (
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/precompiles"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
@@ -706,6 +707,7 @@ func New(
 	app.IBCKeeper.SetRouter(ibcRouter)
 
 	if enableCustomEVMPrecompiles {
+<<<<<<< HEAD
 		customPrecompiles := precompiles.GetCustomPrecompiles(
 			LatestUpgrade,
 			encodingConfig.TxConfig,
@@ -726,6 +728,9 @@ func New(
 			app.IBCKeeper.ChannelKeeper,
 			app.AccountKeeper,
 		)
+=======
+		customPrecompiles := precompiles.GetCustomPrecompiles(LatestUpgrade, app.GetPrecompileKeepers())
+>>>>>>> ee99f851 (Refactor versioned precompiles & add automation scripts)
 		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles, LatestUpgrade)
 	}
 
@@ -2023,6 +2028,10 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 	}
 
 	return blacklistedAddrs
+}
+
+func (app *App) GetPrecompileKeepers() putils.Keepers {
+	return NewPrecompileKeepers(app)
 }
 
 // test-only

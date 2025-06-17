@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v600"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -36,10 +37,10 @@ var Address = common.HexToAddress(WasmdAddress)
 var f embed.FS
 
 type PrecompileExecutor struct {
-	evmKeeper       pcommon.EVMKeeper
-	bankKeeper      pcommon.BankKeeper
-	wasmdKeeper     pcommon.WasmdKeeper
-	wasmdViewKeeper pcommon.WasmdViewKeeper
+	evmKeeper       utils.EVMKeeper
+	bankKeeper      utils.BankKeeper
+	wasmdKeeper     utils.WasmdKeeper
+	wasmdViewKeeper utils.WasmdViewKeeper
 	address         common.Address
 
 	InstantiateID  []byte
@@ -58,14 +59,14 @@ func GetABI() abi.ABI {
 	return pcommon.MustGetABI(f, "abi.json")
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper, wasmdViewKeeper pcommon.WasmdViewKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.DynamicGasPrecompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := GetABI()
 
 	executor := &PrecompileExecutor{
-		wasmdKeeper:     wasmdKeeper,
-		wasmdViewKeeper: wasmdViewKeeper,
-		evmKeeper:       evmKeeper,
-		bankKeeper:      bankKeeper,
+		wasmdKeeper:     keepers.WasmdK(),
+		wasmdViewKeeper: keepers.WasmdVK(),
+		evmKeeper:       keepers.EVMK(),
+		bankKeeper:      keepers.BankK(),
 		address:         Address,
 	}
 
@@ -101,7 +102,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	return
 }
 
-func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 	return p.evmKeeper
 }
 
