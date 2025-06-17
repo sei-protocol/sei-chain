@@ -499,12 +499,11 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 
 func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 	zeroExcessBlobGas := uint64(0)
-	var baseFee *big.Int
+	baseFee := b.keeper.GetNextBaseFeePerGas(b.ctxProvider(blockNumber.Int64() - 1)).TruncateInt().BigInt()
 	ctx := b.ctxProvider(blockNumber.Int64())
 	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < b.keeper.UpgradeKeeper().GetDoneHeight(ctx, "6.2.0") {
-		baseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(blockNumber.Int64() - 1)).TruncateInt().BigInt()
+		baseFee = nil
 	}
-
 	header := &ethtypes.Header{
 		Difficulty:    common.Big0,
 		Number:        blockNumber,
