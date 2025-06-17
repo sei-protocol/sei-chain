@@ -126,7 +126,7 @@ sei-tendermint
 * [#263](https://github.com/sei-protocol/sei-tendermint/pull/263) Update ReapMaxBytesMaxGas to include estimated gas
 * [#259](https://github.com/sei-protocol/sei-tendermint/pull/259) Add simulate flag to RequestBeginBlock
 * [#258](https://github.com/sei-protocol/sei-tendermint/pull/258) Add utils to get RequestBeginBlock
- 
+
 ## v6.0.3
 sei-chain
 * [#2057](https://github.com/sei-protocol/sei-chain/pull/2057) Avoid panic tx error message in debug trace
@@ -214,7 +214,7 @@ sei-tendermint
 
 sei-db
 * [#75](https://github.com/sei-protocol/sei-db/pull/75) Online archive node migration
- 
+
 ## v5.9.0
 sei-chain
 * [#1867](https://github.com/sei-protocol/sei-chain/pull/1867) Add synthetic events in separate sei endpoints

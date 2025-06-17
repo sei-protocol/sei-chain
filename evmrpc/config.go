@@ -95,6 +95,12 @@ type Config struct {
 
 	// Timeout for each trace call
 	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
+
+	// The EVM tracer to use when doing node synchronization, applies to
+	// all block produced but traces only EVM transactions.
+	//
+	// Refer to x/evm/tracers/registry.go#GlobalLiveTracerRegistry for registered tracers.
+	LiveEVMTracer string `mapstructure:"live_evm_tracer"`
 }
 
 var DefaultConfig = Config{
@@ -122,6 +128,7 @@ var DefaultConfig = Config{
 	MaxConcurrentTraceCalls: 10,
 	MaxTraceLookbackBlocks:  10000,
 	TraceTimeout:            30 * time.Second,
+	LiveEVMTracer:           "",
 }
 
 const (
@@ -149,6 +156,7 @@ const (
 	flagMaxConcurrentTraceCalls = "evm.max_concurrent_trace_calls"
 	flagMaxTraceLookbackBlocks  = "evm.max_trace_lookback_blocks"
 	flagTraceTimeout            = "evm.trace_timeout"
+	flagLiveEVMTracer           = "evm.live_evm_tracer"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -274,6 +282,10 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
-
+	if v := opts.Get(flagLiveEVMTracer); v != nil {
+		if cfg.LiveEVMTracer, err = cast.ToStringE(v); err != nil {
+			return cfg, err
+		}
+	}
 	return cfg, nil
 }
