@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v555"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
@@ -34,14 +35,14 @@ var f embed.FS
 
 type Precompile struct {
 	pcommon.Precompile
-	evmKeeper pcommon.EVMKeeper
+	evmKeeper utils.EVMKeeper
 	address   common.Address
 
 	GetSeiAddressID []byte
 	GetEvmAddressID []byte
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*Precompile, error) {
 	abiBz, err := f.ReadFile("abi.json")
 	if err != nil {
 		return nil, fmt.Errorf("error loading the staking ABI %s", err)
@@ -54,7 +55,7 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
 
 	p := &Precompile{
 		Precompile: pcommon.Precompile{ABI: newAbi},
-		evmKeeper:  evmKeeper,
+		evmKeeper:  keepers.EVMK(),
 		address:    common.HexToAddress(AddrAddress),
 	}
 

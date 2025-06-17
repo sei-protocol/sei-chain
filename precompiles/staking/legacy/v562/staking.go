@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v562"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -45,9 +46,9 @@ func GetABI() abi.ABI {
 }
 
 type PrecompileExecutor struct {
-	stakingKeeper pcommon.StakingKeeper
-	evmKeeper     pcommon.EVMKeeper
-	bankKeeper    pcommon.BankKeeper
+	stakingKeeper utils.StakingKeeper
+	evmKeeper     utils.EVMKeeper
+	bankKeeper    utils.BankKeeper
 	address       common.Address
 
 	DelegateID   []byte
@@ -55,13 +56,13 @@ type PrecompileExecutor struct {
 	UndelegateID []byte
 }
 
-func NewPrecompile(stakingKeeper pcommon.StakingKeeper, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.Precompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*pcommon.Precompile, error) {
 	newAbi := GetABI()
 
 	p := &PrecompileExecutor{
-		stakingKeeper: stakingKeeper,
-		evmKeeper:     evmKeeper,
-		bankKeeper:    bankKeeper,
+		stakingKeeper: keepers.StakingK(),
+		evmKeeper:     keepers.EVMK(),
+		bankKeeper:    keepers.BankK(),
 		address:       common.HexToAddress(StakingAddress),
 	}
 

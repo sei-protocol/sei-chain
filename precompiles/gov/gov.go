@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -35,9 +36,9 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	govMsgServer     pcommon.GovMsgServer
-	evmKeeper        pcommon.EVMKeeper
-	bankKeeper       pcommon.BankKeeper
+	govMsgServer     utils.GovMsgServer
+	evmKeeper        utils.EVMKeeper
+	bankKeeper       utils.BankKeeper
 	address          common.Address
 	proposalHandlers map[string]ProposalHandler
 
@@ -47,13 +48,13 @@ type PrecompileExecutor struct {
 	SubmitProposalID []byte
 }
 
-func NewPrecompile(govMsgServer pcommon.GovMsgServer, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.Precompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*pcommon.Precompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		govMsgServer: govMsgServer,
-		evmKeeper:    evmKeeper,
-		bankKeeper:   bankKeeper,
+		govMsgServer: keepers.GovMS(),
+		evmKeeper:    keepers.EVMK(),
+		bankKeeper:   keepers.BankK(),
 		address:      common.HexToAddress(GovAddress),
 	}
 
