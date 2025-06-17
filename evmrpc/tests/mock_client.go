@@ -25,21 +25,46 @@ type MockClient struct {
 	txResults        [][]*abci.ExecTxResult
 	consParamUpdates []*tmproto.ConsensusParams
 	events           [][]abci.Event
+
+	mockedBlockResults        map[int64]*coretypes.ResultBlock
+	mockedBlockByHashResults  map[string]*coretypes.ResultBlock
+	mockedBlockResultsResults map[int64]*coretypes.ResultBlockResults
+	mockedValidators          map[int64]*coretypes.ResultValidators
+	mockedGenesis             *coretypes.ResultGenesis
 }
 
 func (c *MockClient) Block(_ context.Context, h *int64) (*coretypes.ResultBlock, error) {
+	if c.mockedBlockResults != nil {
+		blockNum := int64(-1)
+		if h != nil {
+			blockNum = *h
+		}
+		res, ok := c.mockedBlockResults[blockNum]
+		if !ok {
+			return nil, errors.New("not found")
+		}
+		return res, nil
+	}
 	if h == nil {
 		return c.getBlock(int64(len(c.blocks))), nil
 	}
 	return c.getBlock(*h), nil
 }
 
-func (c *MockClient) BlockByHash(_ context.Context, hash bytes.HexBytes) (*coretypes.ResultBlock, error) {
-	bz := make([]byte, 8)
-	if len(hash) < 8 {
-		copy(bz, hash)
-	} else {
-		copy(bz, hash[len(hash)-8:])
+func (c *MockClient) BlockByHash(_ context.Context, hash tmbytes.HexBytes) (*coretypes.ResultBlock, error) {
+	if c.mockedBlockByHashResults != nil {
+		res, ok := c.mockedBlockByHashResults[hash.String()]
+		if !ok {
+			return nil, errors.New("not found")
+		}
+		return res, nil
+	}
+	for i := range c.blocks {
+		height := i + 1
+		rb := c.getBlock(int64(height))
+		if bytes.Equal(rb.BlockID.Hash, hash) {
+			return rb, nil
+		}
 	}
 	return c.getBlock(int64(binary.BigEndian.Uint64(bz))), nil
 }
@@ -56,10 +81,24 @@ func (c *MockClient) getBlock(i int64) *coretypes.ResultBlock {
 }
 
 func (c *MockClient) Genesis(context.Context) (*coretypes.ResultGenesis, error) {
+	if c.mockedGenesis != nil {
+		return c.mockedGenesis, nil
+	}
 	return &coretypes.ResultGenesis{Genesis: &tmtypes.GenesisDoc{InitialHeight: 1}}, nil
 }
 
 func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.ResultBlockResults, error) {
+	if c.mockedBlockResultsResults != nil {
+		blockNum := int64(-1)
+		if height != nil {
+			blockNum = *height
+		}
+		res, ok := c.mockedBlockResultsResults[blockNum]
+		if !ok {
+			return nil, errors.New("not found")
+		}
+		return res, nil
+	}
 	return &coretypes.ResultBlockResults{
 		TxsResults:            c.txResults[*height-1],
 		ConsensusParamUpdates: c.consParamUpdates[*height-1],
@@ -73,6 +112,17 @@ func (c *MockClient) recordBlockResult(txResults []*abci.ExecTxResult, consParam
 }
 
 func (c *MockClient) Validators(ctx context.Context, height *int64, page, perPage *int) (*coretypes.ResultValidators, error) {
+	if c.mockedValidators != nil {
+		blockNum := int64(-1)
+		if height != nil {
+			blockNum = *height
+		}
+		res, ok := c.mockedValidators[blockNum]
+		if !ok {
+			return nil, errors.New("not found")
+		}
+		return res, nil
+	}
 	return &coretypes.ResultValidators{}, nil
 }
 

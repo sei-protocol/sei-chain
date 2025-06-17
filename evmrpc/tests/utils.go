@@ -43,14 +43,12 @@ func (ts TestServer) Run(r func(port int)) {
 	r(ts.port)
 }
 
-func SetupTestServer(
-	blocks [][][]byte,
+func initializeApp(
+	chainID string,
 	initializer ...func(sdk.Context, *app.App),
-) TestServer {
-	port := int(portProvider.Add(1))
-	mockClient := MockClient{blocks: append([][][]byte{{}}, blocks...)}
-	a := app.Setup(false, true)
-	a.ChainID = "sei-test"
+) (*app.App, *abci.ResponseFinalizeBlock) {
+	a := app.Setup(false, true, chainID == "pacific-1")
+	a.ChainID = chainID
 	res, err := a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 		Txs:    [][]byte{},
 		Hash:   mockHash(1, 0),
@@ -65,6 +63,15 @@ func SetupTestServer(
 		i(ctx, a)
 	}
 	_, _ = a.Commit(context.Background())
+	return a, res
+}
+
+func SetupTestServer(
+	blocks [][][]byte,
+	initializer ...func(sdk.Context, *app.App),
+) TestServer {
+	a, res := initializeApp("sei-test", initializer...)
+	mockClient := &MockClient{blocks: append([][][]byte{{}}, blocks...)}
 	mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	for i, block := range blocks {
 		height := int64(i + 2)
@@ -81,17 +88,35 @@ func SetupTestServer(
 		_, _ = a.Commit(context.Background())
 		mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	}
+	return setupTestServer(a, a.RPCContextProvider, mockClient, blocks, initializer...)
+}
+
+func SetupMockPacificTestServer(initializer func(*app.App, *MockClient) sdk.Context) TestServer {
+	a, _ := initializeApp("pacific-1")
+	mockClient := &MockClient{}
+	ctx := initializer(a, mockClient)
+	return setupTestServer(a, func(int64) sdk.Context { return ctx }, mockClient, [][][]byte{})
+}
+
+func setupTestServer(
+	a *app.App,
+	ctxProvider func(int64) sdk.Context,
+	mockClient *MockClient,
+	blocks [][][]byte,
+	initializer ...func(sdk.Context, *app.App),
+) TestServer {
+	port := int(portProvider.Add(1))
 	cfg := evmrpc.DefaultConfig
 	cfg.HTTPEnabled = true
 	cfg.HTTPPort = port
 	s, err := evmrpc.NewEVMHTTPServer(
 		log.NewNopLogger(),
 		cfg,
-		&mockClient,
+		mockClient,
 		&a.EvmKeeper,
 		a.BaseApp,
 		a.TracerAnteHandler,
-		a.RPCContextProvider,
+		ctxProvider,
 		a.GetTxConfig(),
 		"",
 		func(ctx context.Context, hash common.Hash) (bool, error) {

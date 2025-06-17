@@ -295,3 +295,49 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args ethapi.TransactionArgs,
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
 	return
 }
+
+type StateAccessResponse struct {
+	AppState        json.RawMessage `json:"app"`
+	TendermintState json.RawMessage `json:"tendermint"`
+	Receipt         json.RawMessage `json:"receipt"`
+}
+
+func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (result interface{}, returnErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			result = nil
+			debug.PrintStack()
+			returnErr = fmt.Errorf("panic occurred: %v, could not trace tx state: %s", r, hash.Hex())
+		}
+	}()
+	tendermintTraces := &TendermintTraces{Traces: []TendermintTrace{}}
+	ctx = WithTendermintTraces(ctx, tendermintTraces)
+	receiptTraces := &ReceiptTraces{Traces: []RawResponseReceipt{}}
+	ctx = WithReceiptTraces(ctx, receiptTraces)
+	tx, blockHash, blockNumber, index, err := api.backend.GetTransaction(ctx, hash)
+	if err != nil {
+		return nil, err
+	}
+	// Only mined txes are supported
+	if tx == nil {
+		return nil, errors.New("transaction not found")
+	}
+	// It shouldn't happen in practice.
+	if blockNumber == 0 {
+		return nil, errors.New("genesis is not traceable")
+	}
+	block, _, err := api.backend.BlockByHash(ctx, blockHash)
+	if err != nil {
+		return nil, err
+	}
+	stateDB, _, err := api.backend.ReplayTransactionTillIndex(ctx, block, int(index))
+	if err != nil {
+		return nil, err
+	}
+	response := StateAccessResponse{
+		AppState:        stateDB.(*state.DBImpl).Ctx().StoreTracer().DerivePrestateToJson(),
+		TendermintState: tendermintTraces.MustMarshalToJson(),
+		Receipt:         receiptTraces.MustMarshalToJson(),
+	}
+	return response, nil
+}

@@ -289,6 +289,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 				if err != nil || receipt.BlockNumber != uint64(tmBlock.Block.Height) || isReceiptFromAnteError(receipt) {
 					continue
 				}
+				TraceReceiptIfApplicable(ctx, receipt)
 				shouldTrace = true
 				metadata = append(metadata, tracersutils.TraceBlockMetadata{
 					ShouldIncludeInTraceResult: true,
@@ -365,6 +366,9 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, emptyRelease, err
 	}
+	if txIndex < 0 {
+		return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, nil
+	}
 	for idx, tx := range tmBlock.Block.Txs {
 		sdkTx, err := b.txConfig.TxDecoder()(tx)
 		if err != nil {
@@ -373,19 +377,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		if utils.IsTxPrioritized(sdkTx) {
 			continue
 		}
-		if idx == txIndex {
-			var evmMsg *types.MsgEVMTransaction
-			if msgs := sdkTx.GetMsgs(); len(msgs) != 1 {
-				return nil, vm.BlockContext{}, nil, emptyRelease, fmt.Errorf("cannot replay non-EVM transaction %d at block %d", idx, block.Number().Int64())
-			} else if msg, ok := msgs[0].(*types.MsgEVMTransaction); !ok {
-				return nil, vm.BlockContext{}, nil, emptyRelease, fmt.Errorf("cannot replay non-EVM transaction %d at block %d", idx, block.Number().Int64())
-			} else {
-				evmMsg = msg
-			}
-			ethTx, _ := evmMsg.AsTransaction()
-			return ethTx, *blockContext, state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), emptyRelease, nil
-		}
-		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTx{}, sdkTx, sha256.Sum256(tx))
+		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTx{Tx: tx}, sdkTx, sha256.Sum256(tx))
 	}
 	return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("transaction index %d out of range for block %#x", txIndex, block.Hash())
 }
