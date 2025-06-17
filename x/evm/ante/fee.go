@@ -107,7 +107,7 @@ func (fc EVMFeeCheckDecorator) getBaseFee(ctx sdk.Context) *big.Int {
 	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < 114945913 {
 		return fc.evmKeeper.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
 	}
-	return fc.evmKeeper.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt()
+	return fc.evmKeeper.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
 }
 
 // lowest allowed fee per gas, base fee will not be lower than this

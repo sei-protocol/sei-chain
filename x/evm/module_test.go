@@ -60,7 +60,7 @@ func TestModuleExportGenesis(t *testing.T) {
 func TestConsensusVersion(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper()
 	module := evm.NewAppModule(nil, k)
-	assert.Equal(t, uint64(19), module.ConsensusVersion())
+	assert.Equal(t, uint64(20), module.ConsensusVersion())
 }
 
 func TestABCI(t *testing.T) {
@@ -142,7 +142,7 @@ func TestABCI(t *testing.T) {
 }
 
 func TestAnteSurplus(t *testing.T) {
-	a := app.Setup(false, false)
+	a := app.Setup(false, false, false)
 	k := a.EvmKeeper
 	ctx := a.GetContextForDeliverTx([]byte{})
 	m := evm.NewAppModule(nil, &k)

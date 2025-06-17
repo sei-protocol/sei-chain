@@ -15,7 +15,7 @@ import (
 )
 
 func TestNewHandler(t *testing.T) {
-	app := app.Setup(false, false) // Your setup function here
+	app := app.Setup(false, false, false) // Your setup function here
 	handler := epoch.NewHandler(app.EpochKeeper)
 
 	// Test unrecognized message type

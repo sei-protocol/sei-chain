@@ -305,6 +305,7 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args ethapi.TransactionArgs,
 type StateAccessResponse struct {
 	AppState        json.RawMessage `json:"app"`
 	TendermintState json.RawMessage `json:"tendermint"`
+	Receipt         json.RawMessage `json:"receipt"`
 }
 
 func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (result interface{}, returnErr error) {
@@ -317,6 +318,8 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 	}()
 	tendermintTraces := &TendermintTraces{Traces: []TendermintTrace{}}
 	ctx = WithTendermintTraces(ctx, tendermintTraces)
+	receiptTraces := &ReceiptTraces{Traces: []RawResponseReceipt{}}
+	ctx = WithReceiptTraces(ctx, receiptTraces)
 	tx, blockHash, blockNumber, index, err := api.backend.GetTransaction(ctx, hash)
 	if err != nil {
 		return nil, err
@@ -340,6 +343,7 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 	response := StateAccessResponse{
 		AppState:        stateDB.(*state.DBImpl).Ctx().StoreTracer().DerivePrestateToJson(),
 		TendermintState: tendermintTraces.MustMarshalToJson(),
+		Receipt:         receiptTraces.MustMarshalToJson(),
 	}
 	return response, nil
 }

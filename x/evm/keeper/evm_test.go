@@ -39,15 +39,15 @@ func TestInternalCallCreateContract(t *testing.T) {
 	_, err = k.HandleInternalEVMCall(ctx, req)
 	require.Equal(t, "sei does not support EVM->CW->EVM call pattern", err.Error())
 	ctx = ctx.WithIsEVM(false)
-	oldBaseFee := k.GetCurrBaseFeePerGas(ctx)
-	k.SetCurrBaseFeePerGas(ctx, sdk.ZeroDec())
+	oldBaseFee := k.GetNextBaseFeePerGas(ctx)
+	k.SetNextBaseFeePerGas(ctx, sdk.ZeroDec())
 	_, err = k.HandleInternalEVMCall(ctx, req)
 	require.Nil(t, err)
 	receipt, err := k.GetTransientReceipt(ctx, [32]byte{1, 2, 3})
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
 	// reset base fee
-	k.SetCurrBaseFeePerGas(ctx, oldBaseFee)
+	k.SetNextBaseFeePerGas(ctx, oldBaseFee)
 }
 
 func TestInternalCall(t *testing.T) {
