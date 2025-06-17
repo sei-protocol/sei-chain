@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
 const (
@@ -28,7 +29,7 @@ const PointerViewAddress = "0x000000000000000000000000000000000000100A"
 var f embed.FS
 
 type PrecompileExecutor struct {
-	evmKeeper pcommon.EVMKeeper
+	evmKeeper utils.EVMKeeper
 
 	GetNativePointerID []byte
 	GetCW20PointerID   []byte
@@ -36,11 +37,11 @@ type PrecompileExecutor struct {
 	GetCW1155PointerID []byte
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*pcommon.Precompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*pcommon.Precompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		evmKeeper: evmKeeper,
+		evmKeeper: keepers.EVMK(),
 	}
 
 	for name, m := range newAbi.Methods {

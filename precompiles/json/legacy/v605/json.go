@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v605"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
@@ -39,7 +40,7 @@ type PrecompileExecutor struct {
 	ExtractAsBytesFromArrayID []byte
 }
 
-func NewPrecompile() (*pcommon.Precompile, error) {
+func NewPrecompile(keepers putils.Keepers) (*pcommon.Precompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{}

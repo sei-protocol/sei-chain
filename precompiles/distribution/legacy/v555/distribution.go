@@ -8,6 +8,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/core/tracing"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -50,8 +51,8 @@ func GetABI() abi.ABI {
 
 type Precompile struct {
 	pcommon.Precompile
-	distrKeeper pcommon.DistributionKeeper
-	evmKeeper   pcommon.EVMKeeper
+	distrKeeper putils.DistributionKeeper
+	evmKeeper   putils.EVMKeeper
 	address     common.Address
 
 	SetWithdrawAddrID                   []byte
@@ -59,13 +60,13 @@ type Precompile struct {
 	WithdrawMultipleDelegationRewardsID []byte
 }
 
-func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
+func NewPrecompile(keepers putils.Keepers) (*Precompile, error) {
 	newAbi := GetABI()
 
 	p := &Precompile{
 		Precompile:  pcommon.Precompile{ABI: newAbi},
-		distrKeeper: distrKeeper,
-		evmKeeper:   evmKeeper,
+		distrKeeper: keepers.DistributionK(),
+		evmKeeper:   keepers.EVMK(),
 		address:     common.HexToAddress(DistrAddress),
 	}
 

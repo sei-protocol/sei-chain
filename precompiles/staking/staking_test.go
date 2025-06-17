@@ -26,6 +26,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -274,7 +275,7 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 	_, unassociatedEvmAddress := testkeeper.MockAddressPair()
 	_, contractEvmAddress := testkeeper.MockAddressPair()
 	validatorAddress := "seivaloper134ykhqrkyda72uq7f463ne77e4tn99steprmz7"
-	pre, _ := staking.NewPrecompile(nil, nil, nil, nil)
+	pre, _ := staking.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
 	delegationMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).DelegationID)
 	shares := 100
 	delegationResponse := &stakingtypes.QueryDelegationResponse{
@@ -306,9 +307,9 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 
 	type fields struct {
 		Precompile     pcommon.Precompile
-		stakingKeeper  pcommon.StakingKeeper
-		stakingQuerier pcommon.StakingQuerier
-		evmKeeper      pcommon.EVMKeeper
+		stakingKeeper  utils.StakingKeeper
+		stakingQuerier utils.StakingQuerier
+		evmKeeper      utils.EVMKeeper
 	}
 	type args struct {
 		evm                *vm.EVM
@@ -456,7 +457,7 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 				StateDB:   stateDb,
 				TxContext: vm.TxContext{Origin: callerEvmAddress},
 			}
-			p, _ := staking.NewPrecompile(tt.fields.stakingKeeper, tt.fields.stakingQuerier, k, nil)
+			p, _ := staking.NewPrecompile(testApp.GetPrecompileKeepers())
 			delegation, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).DelegationID)
 			require.Nil(t, err)
 			inputs, err := delegation.Inputs.Pack(tt.args.delegatorAddress, tt.args.validatorAddress)

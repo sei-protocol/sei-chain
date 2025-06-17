@@ -14,8 +14,8 @@ import (
 	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
-	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/ibc"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
@@ -28,6 +28,19 @@ func (tk *MockTransferKeeper) Transfer(goCtx context.Context, msg *types.MsgTran
 	return nil, nil
 }
 
+func (tk *MockTransferKeeper) SendTransfer(
+	ctx sdk.Context,
+	sourcePort,
+	sourceChannel string,
+	token sdk.Coin,
+	sender sdk.AccAddress,
+	receiver string,
+	timeoutHeight clienttypes.Height,
+	timeoutTimestamp uint64,
+) error {
+	return nil
+}
+
 type MockMemoTransferKeeper struct {
 	t        require.TestingT
 	wantMemo string
@@ -38,22 +51,48 @@ func (tk *MockMemoTransferKeeper) Transfer(goCtx context.Context, msg *types.Msg
 	return nil, nil
 }
 
+func (tk *MockMemoTransferKeeper) SendTransfer(
+	ctx sdk.Context,
+	sourcePort,
+	sourceChannel string,
+	token sdk.Coin,
+	sender sdk.AccAddress,
+	receiver string,
+	timeoutHeight clienttypes.Height,
+	timeoutTimestamp uint64,
+) error {
+	return nil
+}
+
 type MockFailedTransferTransferKeeper struct{}
 
 func (tk *MockFailedTransferTransferKeeper) Transfer(goCtx context.Context, msg *types.MsgTransfer) (*types.MsgTransferResponse, error) {
 	return nil, errors.New("failed to send transfer")
 }
 
+func (tk *MockFailedTransferTransferKeeper) SendTransfer(
+	ctx sdk.Context,
+	sourcePort,
+	sourceChannel string,
+	token sdk.Coin,
+	sender sdk.AccAddress,
+	receiver string,
+	timeoutHeight clienttypes.Height,
+	timeoutTimestamp uint64,
+) error {
+	return nil
+}
+
 func TestPrecompile_Run(t *testing.T) {
 	senderSeiAddress, senderEvmAddress := testkeeper.MockAddressPair()
 	receiverAddress := "cosmos1yykwxjzr2tv4mhx5tsf8090sdg96f2ax8fydk2"
 
-	pre, _ := ibc.NewPrecompile(nil, nil, nil, nil, nil)
+	pre, _ := ibc.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
 	testTransfer, _ := pre.ABI.MethodById(pre.GetExecutor().(*ibc.PrecompileExecutor).TransferID)
 	packedTrue, _ := testTransfer.Outputs.Pack(true)
 
 	type fields struct {
-		transferKeeper pcommon.TransferKeeper
+		transferKeeper utils.TransferKeeper
 	}
 
 	type input struct {
@@ -279,7 +318,7 @@ func TestPrecompile_Run(t *testing.T) {
 				StateDB:   stateDb,
 				TxContext: vm.TxContext{Origin: senderEvmAddress},
 			}
-			p, _ := ibc.NewPrecompile(tt.fields.transferKeeper, k, nil, nil, nil)
+			p, _ := ibc.NewPrecompile(testApp.GetPrecompileKeepers())
 			transfer, err := p.ABI.MethodById(p.GetExecutor().(*ibc.PrecompileExecutor).TransferID)
 			require.Nil(t, err)
 			inputs, err := transfer.Inputs.Pack(tt.args.input.receiverAddr,
@@ -311,10 +350,10 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 	receiverAddress := "cosmos1yykwxjzr2tv4mhx5tsf8090sdg96f2ax8fydk2"
 
 	type fields struct {
-		transferKeeper   pcommon.TransferKeeper
-		clientKeeper     pcommon.ClientKeeper
-		connectionKeeper pcommon.ConnectionKeeper
-		channelKeeper    pcommon.ChannelKeeper
+		transferKeeper   utils.TransferKeeper
+		clientKeeper     utils.ClientKeeper
+		connectionKeeper utils.ConnectionKeeper
+		channelKeeper    utils.ChannelKeeper
 	}
 
 	type input struct {
@@ -466,10 +505,7 @@ func TestTransferWithDefaultTimeoutPrecompile_Run(t *testing.T) {
 				TxContext: vm.TxContext{Origin: senderEvmAddress},
 			}
 
-			p, _ := ibc.NewPrecompile(tt.fields.transferKeeper,
-				k, tt.fields.clientKeeper,
-				tt.fields.connectionKeeper,
-				tt.fields.channelKeeper)
+			p, _ := ibc.NewPrecompile(testApp.GetPrecompileKeepers())
 			transfer, err := p.ABI.MethodById(p.GetExecutor().(*ibc.PrecompileExecutor).TransferWithDefaultTimeoutID)
 			require.Nil(t, err)
 			inputs, err := transfer.Inputs.Pack(tt.args.input.receiverAddr,
@@ -586,11 +622,11 @@ func (m *MockConsensusState) ValidateBasic() error {
 
 func TestPrecompile_GetAdjustedTimestamp(t *testing.T) {
 	type fields struct {
-		transferKeeper   pcommon.TransferKeeper
-		evmKeeper        pcommon.EVMKeeper
-		clientKeeper     pcommon.ClientKeeper
-		connectionKeeper pcommon.ConnectionKeeper
-		channelKeeper    pcommon.ChannelKeeper
+		transferKeeper   utils.TransferKeeper
+		evmKeeper        utils.EVMKeeper
+		clientKeeper     utils.ClientKeeper
+		connectionKeeper utils.ConnectionKeeper
+		channelKeeper    utils.ChannelKeeper
 	}
 	type args struct {
 		ctx      sdk.Context
@@ -666,7 +702,7 @@ func TestPrecompile_GetAdjustedTimestamp(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, _ := ibc.NewPrecompile(tt.fields.transferKeeper, tt.fields.evmKeeper, tt.fields.clientKeeper, tt.fields.connectionKeeper, tt.fields.channelKeeper)
+			p, _ := ibc.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
 			got, err := p.GetExecutor().(*ibc.PrecompileExecutor).GetAdjustedTimestamp(tt.args.ctx, tt.args.clientId, tt.args.height)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetAdjustedTimestamp() error = %v, wantErr %v", err, tt.wantErr)
