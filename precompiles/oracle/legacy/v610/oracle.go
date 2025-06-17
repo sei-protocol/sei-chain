@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v606"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
@@ -30,8 +31,8 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	evmKeeper    pcommon.EVMKeeper
-	oracleKeeper pcommon.OracleKeeper
+	evmKeeper    utils.EVMKeeper
+	oracleKeeper utils.OracleKeeper
 
 	GetExchangeRatesId []byte
 	GetOracleTwapsId   []byte
@@ -55,12 +56,12 @@ type OracleTwap struct {
 	LookbackSeconds int64  `json:"lookbackSeconds"`
 }
 
-func NewPrecompile(oracleKeeper pcommon.OracleKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		evmKeeper:    evmKeeper,
-		oracleKeeper: oracleKeeper,
+		evmKeeper:    keepers.EVMK(),
+		oracleKeeper: keepers.OracleK(),
 	}
 
 	for name, m := range newAbi.Methods {
@@ -136,7 +137,7 @@ func (p PrecompileExecutor) getOracleTwaps(ctx sdk.Context, method *abi.Method, 
 	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
 }
 
-func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 	return p.evmKeeper
 }
 

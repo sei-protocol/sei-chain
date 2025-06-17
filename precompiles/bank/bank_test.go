@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
-
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
@@ -68,7 +66,7 @@ func TestRun(t *testing.T) {
 	// Setup receiving addresses
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
-	p, err := bank.NewPrecompile(k.BankKeeper(), bankkeeper.NewMsgServerImpl(k.BankKeeper()), k, k.AccountKeeper())
+	p, err := bank.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
@@ -286,7 +284,7 @@ func TestSendForUnlinkedReceiver(t *testing.T) {
 
 	// Setup receiving addresses - NOT linked
 	_, evmAddr := testkeeper.MockAddressPair()
-	p, err := bank.NewPrecompile(k.BankKeeper(), bankkeeper.NewMsgServerImpl(k.BankKeeper()), k, k.AccountKeeper())
+	p, err := bank.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
@@ -356,7 +354,7 @@ func TestMetadata(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	k.BankKeeper().SetDenomMetaData(ctx, banktypes.Metadata{Name: "SEI", Symbol: "usei", Base: "usei"})
-	p, err := bank.NewPrecompile(k.BankKeeper(), bankkeeper.NewMsgServerImpl(k.BankKeeper()), k, k.AccountKeeper())
+	p, err := bank.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
@@ -394,8 +392,7 @@ func TestMetadata(t *testing.T) {
 }
 
 func TestAddress(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
-	p, err := bank.NewPrecompile(k.BankKeeper(), bankkeeper.NewMsgServerImpl(k.BankKeeper()), k, k.AccountKeeper())
+	p, err := bank.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	require.Equal(t, common.HexToAddress(bank.BankAddress), p.Address())
 }

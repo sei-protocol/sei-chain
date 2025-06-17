@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v562"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw721"
@@ -37,9 +38,9 @@ const PointerAddress = "0x000000000000000000000000000000000000100b"
 var f embed.FS
 
 type PrecompileExecutor struct {
-	evmKeeper   pcommon.EVMKeeper
-	bankKeeper  pcommon.BankKeeper
-	wasmdKeeper pcommon.WasmdViewKeeper
+	evmKeeper   putils.EVMKeeper
+	bankKeeper  putils.BankKeeper
+	wasmdKeeper putils.WasmdViewKeeper
 
 	AddNativePointerID []byte
 	AddCW20PointerID   []byte
@@ -59,16 +60,16 @@ func ABI() (*ethabi.ABI, error) {
 	return &newAbi, nil
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, wasmdKeeper pcommon.WasmdViewKeeper) (*pcommon.DynamicGasPrecompile, error) {
+func NewPrecompile(keepers putils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi, err := ABI()
 	if err != nil {
 		return nil, err
 	}
 
 	p := &PrecompileExecutor{
-		evmKeeper:   evmKeeper,
-		bankKeeper:  bankKeeper,
-		wasmdKeeper: wasmdKeeper,
+		evmKeeper:   keepers.EVMK(),
+		bankKeeper:  keepers.BankK(),
+		wasmdKeeper: keepers.WasmdVK(),
 	}
 
 	for name, m := range newAbi.Methods {
@@ -106,7 +107,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *ethabi.Method, call
 	return
 }
 
-func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+func (p PrecompileExecutor) EVMKeeper() putils.EVMKeeper {
 	return p.evmKeeper
 }
 
