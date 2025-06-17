@@ -142,7 +142,7 @@ func TestABCI(t *testing.T) {
 }
 
 func TestAnteSurplus(t *testing.T) {
-	a := app.Setup(false, false)
+	a := app.Setup(false, false, false)
 	k := a.EvmKeeper
 	ctx := a.GetContextForDeliverTx([]byte{})
 	m := evm.NewAppModule(nil, &k)
