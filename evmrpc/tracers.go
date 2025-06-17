@@ -2,7 +2,11 @@ package evmrpc
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"runtime/debug"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -31,6 +35,7 @@ type DebugAPI struct {
 	ctxProvider        func(int64) sdk.Context
 	txDecoder          sdk.TxDecoder
 	connectionType     ConnectionType
+	backend            *Backend
 	isPanicCache       *expirable.LRU[common.Hash, bool] // hash to isPanic
 	traceCallSemaphore chan struct{}                     // Semaphore for limiting concurrent trace calls
 	maxBlockLookback   int64
