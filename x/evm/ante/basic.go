@@ -52,7 +52,7 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 		return ctx, err
 	}
 	if etx.Gas() < intrGas {
-		return ctx, sdkerrors.ErrOutOfGas
+		return ctx, core.ErrIntrinsicGas
 	}
 
 	if etx.Type() == ethtypes.BlobTxType {
