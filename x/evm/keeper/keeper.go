@@ -265,7 +265,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < 114945913 {
 		baseFee = k.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
 	} else {
-		baseFee = k.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt()
+		baseFee = k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
 	}
 
 	return &vm.BlockContext{
