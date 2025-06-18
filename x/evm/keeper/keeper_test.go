@@ -438,3 +438,33 @@ func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {
 	require.Nil(t, err)
 	return msg
 }
+
+func TestGetBaseFeeBeforeV620(t *testing.T) {
+	// Set up a test app and context
+	testApp := app.Setup(false, false, false)
+	testHeight := int64(1000)
+	testCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(testHeight)
+
+	// Set chain ID to pacific-1
+	testCtx = testCtx.WithChainID("pacific-1")
+
+	// Set the v6.2.0 upgrade height to a value higher than our test height
+	v620UpgradeHeight := int64(2000)
+	testApp.UpgradeKeeper.SetDone(testCtx.WithBlockHeight(v620UpgradeHeight), "6.2.0")
+
+	keeper := &testApp.EvmKeeper
+
+	// Before upgrade: should be nil
+	baseFee := keeper.GetBaseFee(testCtx)
+	require.Nil(t, baseFee, "Base fee should be nil for pacific-1 before v6.2.0 upgrade")
+
+	// After upgrade: should not be nil
+	ctxAfterUpgrade := testCtx.WithBlockHeight(2500)
+	baseFeeAfter := keeper.GetBaseFee(ctxAfterUpgrade)
+	require.NotNil(t, baseFeeAfter, "Base fee should not be nil for pacific-1 after v6.2.0 upgrade")
+
+	// Non-pacific-1 chain: should not be nil
+	ctxOtherChain := testCtx.WithChainID("test-chain")
+	baseFeeOther := keeper.GetBaseFee(ctxOtherChain)
+	require.NotNil(t, baseFeeOther, "Base fee should not be nil for non-pacific-1 chains")
+}
