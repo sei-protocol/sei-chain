@@ -50,6 +50,7 @@ func TestRun(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
+	upgradeKeeper := &testApp.UpgradeKeeper
 
 	// Setup sender addresses and environment
 	privKey := testkeeper.MockPrivateKey()
@@ -150,7 +151,7 @@ func TestRun(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 	ante.Preprocess(ctx, req)
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
-	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, upgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
