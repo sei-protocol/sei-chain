@@ -3,7 +3,7 @@ const {isBigNumber} = require("hardhat/common");
 const {uniq, shuffle} = require("lodash");
 const { ethers, upgrades } = require('hardhat');
 const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
-const { deployEvmContract, setupSigners, fundAddress, getCosmosTx, getEvmTx} = require("./lib")
+const { deployEvmContract, setupSigners, fundAddress, getCosmosTx, getEvmTx, waitForBaseFeeToEq, waitForBaseFeeToBeGt} = require("./lib")
 const axios = require("axios");
 const { default: BigNumber } = require("bignumber.js");
 
@@ -276,6 +276,71 @@ describe("EVM Test", function () {
 
         await expect(signer.sendTransaction(tx)).to.be.rejectedWith("unsupported transaction type");
       })
+
+      it("trace balance diff matches up with actual balance change", async function() {
+        const testCases = [
+          {
+            maxPriorityFeePerGas: ethers.parseUnits('1', 'gwei'),
+            maxFeePerGas: ethers.parseUnits('10', 'gwei')
+          },
+          {
+            maxPriorityFeePerGas: ethers.parseUnits('0', 'gwei'), 
+            maxFeePerGas: ethers.parseUnits('10', 'gwei')
+          },
+          {
+            maxPriorityFeePerGas: ethers.parseUnits('10', 'gwei'),
+            maxFeePerGas: ethers.parseUnits('10', 'gwei') 
+          }
+        ];
+
+        for (const testCase of testCases) {
+          // send a tx with a gas to elevate the base fee
+          const heavyTxResponse = await evmTester.useGas(9500000, { 
+            maxPriorityFeePerGas: ethers.parseUnits('10', 'gwei'),
+            maxFeePerGas: ethers.parseUnits('10', 'gwei'),
+            type: 2
+          });
+          await heavyTxResponse.wait();
+          await waitForBaseFeeToBeGt(ethers.parseUnits('1', 'gwei'))
+
+          const txResponse = await owner.sendTransaction({
+            to: owner.address,
+            value: ethers.parseUnits('0', 'ether'),
+            maxPriorityFeePerGas: testCase.maxPriorityFeePerGas,
+            maxFeePerGas: testCase.maxFeePerGas,
+            type: 2
+          });
+          const receipt = await txResponse.wait();
+
+          const trace = await hre.network.provider.request({
+            method: "debug_traceTransaction",
+            params: [receipt.hash, {
+              tracer: "prestateTracer",
+              tracerConfig: {
+                diffMode: true
+              }
+            }],
+          });
+
+          const block_ = await ethers.provider.getBlock(receipt.blockNumber)
+          const baseFeePerGas = block_.baseFeePerGas
+
+          const lowerCaseAddress = owner.address.toLowerCase()
+          const preBalance = BigInt(trace.pre[lowerCaseAddress].balance);
+          const postBalance = BigInt(trace.post[lowerCaseAddress].balance);
+          const balanceDiffTrace = preBalance - postBalance;
+
+          const expectedGasPrice = baseFeePerGas + testCase.maxPriorityFeePerGas <= testCase.maxFeePerGas ?
+            baseFeePerGas + testCase.maxPriorityFeePerGas :
+            testCase.maxFeePerGas
+          const gotGasPrice = Number(receipt.gasPrice)
+          const preBalanceBlock = await ethers.provider.getBalance(owner.address, receipt.blockNumber - 1)
+          const postBalanceBlock = await ethers.provider.getBalance(owner.address, receipt.blockNumber)
+          const balanceDiffBlock = preBalanceBlock - postBalanceBlock;
+          expect(gotGasPrice).to.equal(expectedGasPrice)
+          expect(balanceDiffTrace).to.equal(balanceDiffBlock);
+        }
+      });
 
       it("Simple debug_call should work", async function () {
         const trace = await hre.network.provider.request({
@@ -592,20 +657,16 @@ describe("EVM Test", function () {
                 type: 2
               });
               const receipt = await txResponse.wait();
+              // pull base fee from the block of the tx using the receipt
               expect(receipt).to.not.be.null;
               expect(receipt.status).to.equal(1);
-              const gasPrice = Number(receipt.gasPrice);
-
+              const block = await ethers.provider.getBlock(receipt.blockNumber);
+              const baseFee = Number(block.baseFeePerGas);
+              const expectedEffectiveGasPrice = BigInt(baseFee) + maxPriorityFeePerGas > maxFeePerGas ? maxFeePerGas : BigInt(baseFee) + maxPriorityFeePerGas;
               const balanceAfter = await ethers.provider.getBalance(owner);
 
-              const tip = Math.min(
-                Number(maxFeePerGas) - gasPrice,
-                Number(maxPriorityFeePerGas)
-              );
-              const effectiveGasPrice = tip + gasPrice;
-
               const diff = balanceBefore - balanceAfter;
-              expect(diff).to.equal(21000 * effectiveGasPrice);
+              expect(diff).to.equal(21000 * Number(expectedEffectiveGasPrice));
             });
           }
         });

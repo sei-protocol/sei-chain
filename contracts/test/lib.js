@@ -554,6 +554,36 @@ async function waitForReceipt(txHash) {
     return receipt
 }
 
+async function waitForBaseFeeToEq(baseFee, timeoutMs=10000) {
+    const startTime = Date.now();
+    while (true) {
+        const block = await ethers.provider.getBlock("latest");
+        const blockBaseFee = Number(block.baseFeePerGas);
+        if (blockBaseFee === Number(baseFee)) {
+            break
+        }
+        if((Date.now() - startTime) > timeoutMs) {
+            throw new Error(`base fee hasn't dropped to ${baseFee} in ${timeoutMs}ms`)
+        }
+        await sleep(200);
+    }
+}
+
+async function waitForBaseFeeToBeGt(baseFee, timeoutMs=10000) {
+    const startTime = Date.now();
+    while (true) {
+        const block = await ethers.provider.getBlock("latest");
+        const blockBaseFee = Number(block.baseFeePerGas);
+        if (blockBaseFee > Number(baseFee)) {
+            break
+        }
+        if((Date.now() - startTime) > timeoutMs) {
+            throw new Error(`base fee hasn't risen above ${baseFee} in ${timeoutMs}ms`)
+        }
+        await sleep(200);
+    }
+}
+
 module.exports = {
     fundAddress,
     fundSeiAddress,
@@ -598,4 +628,6 @@ module.exports = {
     generateWallet,
     WASM,
     ABI,
+    waitForBaseFeeToEq,
+    waitForBaseFeeToBeGt,
 };
