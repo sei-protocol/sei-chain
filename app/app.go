@@ -926,6 +926,7 @@ func New(
 			WasmKeeper:          &app.WasmKeeper,
 			OracleKeeper:        &app.OracleKeeper,
 			EVMKeeper:           &app.EvmKeeper,
+			UpgradeKeeper:       &app.UpgradeKeeper,
 			TracingInfo:         app.GetBaseApp().TracingInfo,
 			AccessControlKeeper: &app.AccessControlKeeper,
 			LatestCtxGetter: func() sdk.Context {
