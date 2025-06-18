@@ -658,20 +658,16 @@ describe("EVM Test", function () {
                 type: 2
               });
               const receipt = await txResponse.wait();
+              // pull base fee from the block of the tx using the receipt
               expect(receipt).to.not.be.null;
               expect(receipt.status).to.equal(1);
-              const gasPrice = Number(receipt.gasPrice);
-
+              const block = await ethers.provider.getBlock(receipt.blockNumber);
+              const baseFee = Number(block.baseFeePerGas);
+              const expectedEffectiveGasPrice = BigInt(baseFee) + maxPriorityFeePerGas > maxFeePerGas ? maxFeePerGas : BigInt(baseFee) + maxPriorityFeePerGas;
               const balanceAfter = await ethers.provider.getBalance(owner);
 
-              const tip = Math.min(
-                Number(maxFeePerGas) - gasPrice,
-                Number(maxPriorityFeePerGas)
-              );
-              const effectiveGasPrice = tip + gasPrice;
-
               const diff = balanceBefore - balanceAfter;
-              expect(diff).to.equal(21000 * effectiveGasPrice);
+              expect(diff).to.equal(21000 * Number(expectedEffectiveGasPrice));
             });
           }
         });
