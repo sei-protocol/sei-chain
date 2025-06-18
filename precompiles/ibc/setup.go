@@ -10,6 +10,7 @@ import (
 	ibcv603 "github.com/sei-protocol/sei-chain/precompiles/ibc/legacy/v603"
 	ibcv605 "github.com/sei-protocol/sei-chain/precompiles/ibc/legacy/v605"
 	ibcv606 "github.com/sei-protocol/sei-chain/precompiles/ibc/legacy/v606"
+	ibcv610 "github.com/sei-protocol/sei-chain/precompiles/ibc/legacy/v610"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -24,6 +25,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 		"v6.0.3":      check(ibcv603.NewPrecompile(keepers)),
 		"v6.0.5":      check(ibcv605.NewPrecompile(keepers)),
 		"v6.0.6":      check(ibcv606.NewPrecompile(keepers)),
+		"v6.1.0":      check(ibcv610.NewPrecompile(keepers)),
 	}
 }
 
