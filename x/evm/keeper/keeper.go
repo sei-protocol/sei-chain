@@ -492,7 +492,7 @@ func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
 		}
 		return b.Header_.BaseFee
 	}
-	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < k.upgradeKeeper.GetDoneHeight(ctx, "6.2.0") {
+	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < k.upgradeKeeper.GetDoneHeight(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "6.2.0") {
 		return nil
 	}
 	return k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
