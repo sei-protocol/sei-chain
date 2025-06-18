@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
+
+	"github.com/sei-protocol/sei-chain/app"
 
 	"github.com/sei-protocol/sei-chain/app"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -145,6 +148,31 @@ func TestTraceStateAccess(t *testing.T) {
 			require.Contains(t, result, "params")
 			tmResult := res["result"].(map[string]interface{})["tendermint"].(map[string]interface{})["traces"]
 			require.Len(t, tmResult, 6)
+		},
+	)
+}
+
+func TestTraceBlockByNumberPerformance(t *testing.T) {
+	blocks := make([][][]byte, 10)
+	for i := range blocks {
+		blocks[i] = [][]byte{signAndEncodeTx(send(uint64(i)), mnemonic1)}
+	}
+	SetupTestServer(blocks, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			done := make(chan struct{})
+			go func() {
+				defer func() { done <- struct{}{} }()
+				for i := range blocks {
+					_ = sendRequestWithNamespace("debug", port, "traceBlockByNumber", fmt.Sprintf("0x%d", i+2), map[string]interface{}{
+						"timeout": "60s", "tracer": "flatCallTracer",
+					})
+				}
+			}()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("did not finish tracing 10 blocks after 5 sec.")
+			}
 		},
 	)
 }
