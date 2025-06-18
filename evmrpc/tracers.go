@@ -2,7 +2,11 @@ package evmrpc
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"runtime/debug"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -31,6 +35,7 @@ type DebugAPI struct {
 	ctxProvider        func(int64) sdk.Context
 	txDecoder          sdk.TxDecoder
 	connectionType     ConnectionType
+	backend            *Backend
 	isPanicCache       *expirable.LRU[common.Hash, bool] // hash to isPanic
 	traceCallSemaphore chan struct{}                     // Semaphore for limiting concurrent trace calls
 	maxBlockLookback   int64
@@ -294,4 +299,50 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args ethapi.TransactionArgs,
 	defer recordMetrics("debug_traceCall", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
 	return
+}
+
+type StateAccessResponse struct {
+	AppState        json.RawMessage `json:"app"`
+	TendermintState json.RawMessage `json:"tendermint"`
+	Receipt         json.RawMessage `json:"receipt"`
+}
+
+func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (result interface{}, returnErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			result = nil
+			debug.PrintStack()
+			returnErr = fmt.Errorf("panic occurred: %v, could not trace tx state: %s", r, hash.Hex())
+		}
+	}()
+	tendermintTraces := &TendermintTraces{Traces: []TendermintTrace{}}
+	ctx = WithTendermintTraces(ctx, tendermintTraces)
+	receiptTraces := &ReceiptTraces{Traces: []RawResponseReceipt{}}
+	ctx = WithReceiptTraces(ctx, receiptTraces)
+	tx, blockHash, blockNumber, index, err := api.backend.GetTransaction(ctx, hash)
+	if err != nil {
+		return nil, err
+	}
+	// Only mined txes are supported
+	if tx == nil {
+		return nil, errors.New("transaction not found")
+	}
+	// It shouldn't happen in practice.
+	if blockNumber == 0 {
+		return nil, errors.New("genesis is not traceable")
+	}
+	block, _, err := api.backend.BlockByHash(ctx, blockHash)
+	if err != nil {
+		return nil, err
+	}
+	stateDB, _, err := api.backend.ReplayTransactionTillIndex(ctx, block, int(index))
+	if err != nil {
+		return nil, err
+	}
+	response := StateAccessResponse{
+		AppState:        stateDB.(*state.DBImpl).Ctx().StoreTracer().DerivePrestateToJson(),
+		TendermintState: tendermintTraces.MustMarshalToJson(),
+		Receipt:         receiptTraces.MustMarshalToJson(),
+	}
+	return response, nil
 }

@@ -1,10 +1,11 @@
 package epoch_test
 
 import (
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"testing"
 	"time"
+
+	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app"
@@ -18,7 +19,7 @@ import (
 func TestBasic(t *testing.T) {
 	t.Parallel()
 	// Create a mock context and keeper
-	app := app.Setup(false, false)
+	app := app.Setup(false, false, false)
 	appModule := epoch.NewAppModule(
 		app.AppCodec(),
 		app.EpochKeeper,
@@ -39,7 +40,7 @@ func TestBasic(t *testing.T) {
 
 // This test is just to make sure that the routes can be added without crashing
 func TestRoutesAddition(t *testing.T) {
-	testApp := app.Setup(false, false)
+	testApp := app.Setup(false, false, false)
 	appModule := epoch.NewAppModule(
 		testApp.AppCodec(),
 		testApp.EpochKeeper,
@@ -56,7 +57,7 @@ func TestRoutesAddition(t *testing.T) {
 func TestExportGenesis(t *testing.T) {
 	t.Parallel()
 	// Create a mock context and keeper
-	app := app.Setup(false, false)
+	app := app.Setup(false, false, false)
 	appModule := epoch.NewAppModule(
 		app.AppCodec(),
 		app.EpochKeeper,
@@ -80,7 +81,7 @@ func hasEventType(ctx sdk.Context, eventType string) bool {
 func TestBeginBlock(t *testing.T) {
 	t.Parallel()
 	// Create a mock context and keeper
-	app := app.Setup(false, false)
+	app := app.Setup(false, false, false)
 	appModule := epoch.NewAppModule(
 		app.AppCodec(),
 		app.EpochKeeper,

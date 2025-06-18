@@ -823,6 +823,7 @@ func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCrite
 func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, collector logCollector, applyExactMatch bool) {
 	ctx := f.ctxProvider(LatestCtxHeight)
 	totalLogs := uint(0)
+	evmTxIndex := 0
 
 	for _, hash := range getTxHashesFromBlock(block, f.txConfig, f.includeSyntheticReceipts) {
 		receipt, found := getCachedReceipt(block.Block.Height, hash)
@@ -848,12 +849,14 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 				allLogs := keeper.GetLogsForTx(receipt, totalLogs)
 				if applyExactMatch {
 					for _, log := range allLogs {
+						log.TxIndex = uint(evmTxIndex)
 						if f.IsLogExactMatch(log, crit) {
 							collector.Append(log)
 						}
 					}
 				} else {
 					for _, log := range allLogs {
+						log.TxIndex = uint(evmTxIndex)
 						collector.Append(log)
 					}
 				}
@@ -861,10 +864,12 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 		} else {
 			// No filter, return all logs
 			for _, log := range keeper.GetLogsForTx(receipt, totalLogs) {
+				log.TxIndex = uint(evmTxIndex)
 				collector.Append(log)
 			}
 		}
 		totalLogs += uint(len(receipt.Logs))
+		evmTxIndex++
 	}
 }
 

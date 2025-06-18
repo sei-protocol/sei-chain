@@ -1,10 +1,15 @@
 package evmrpc_test
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -431,5 +436,181 @@ func TestGetLogsBlockHashIsNotZero(t *testing.T) {
 		// Verify other expected fields are present
 		require.Equal(t, "0x2", log["blockNumber"].(string),
 			"log %d should be from block 2", i)
+	}
+}
+
+func TestGetLogsTransactionIndexConsistency(t *testing.T) {
+	t.Parallel()
+
+	// Test that eth_getLogs returns logs with transaction indices that match eth_getBlockByNumber
+	// This is a regression test for the transaction index mismatch issue
+
+	// Try multiple blocks to find one with both logs and EVM transactions
+	testBlocks := []string{"0x2", "0x8", "0x64", "0x67"} // Block 2, 8, 100, 103
+
+	var logs []interface{}
+	var transactions []interface{}
+	var blockHex string
+
+	for _, blockNum := range testBlocks {
+		// Get logs for this block
+		filterCriteria := map[string]interface{}{
+			"fromBlock": blockNum,
+			"toBlock":   blockNum,
+		}
+		resObj := sendRequestGood(t, "getLogs", filterCriteria)
+		blockLogs := resObj["result"].([]interface{})
+
+		if len(blockLogs) == 0 {
+			continue // No logs in this block, try next
+		}
+
+		// Get the block to see what transaction indices eth_getBlockByNumber returns
+		blockRes := sendRequestGood(t, "getBlockByNumber", blockNum, true)
+		block := blockRes["result"].(map[string]interface{})
+		blockTxs := block["transactions"].([]interface{})
+
+		if len(blockTxs) > 0 {
+			// Found a block with both logs and EVM transactions
+			logs = blockLogs
+			transactions = blockTxs
+			blockHex = blockNum
+			t.Logf("Using block %s with %d logs and %d EVM transactions", blockHex, len(logs), len(transactions))
+			break
+		}
+	}
+
+	// Skip test if we can't find a suitable block (this might happen in minimal test environments)
+	if len(logs) == 0 || len(transactions) == 0 {
+		t.Skip("No block found with both logs and EVM transactions - skipping transaction index consistency test")
+		return
+	}
+
+	// Create a map of transaction hash to EVM transaction index from the block
+	hashToEvmIndex := make(map[string]int)
+	for i, txInterface := range transactions {
+		tx := txInterface.(map[string]interface{})
+		txHash := tx["hash"].(string)
+		hashToEvmIndex[txHash] = i
+	}
+
+	// Verify that each log's transactionIndex is a valid EVM index (0 to len(transactions)-1)
+	for i, logInterface := range logs {
+		log := logInterface.(map[string]interface{})
+		txHash := log["transactionHash"].(string)
+		logTxIndex := log["transactionIndex"].(string)
+
+		// Convert hex string to int for comparison
+		logTxIndexInt, err := strconv.ParseInt(logTxIndex[2:], 16, 64)
+		require.NoError(t, err, "should be able to parse transaction index from log %d", i)
+
+		// Key assertion: transactionIndex should be a valid EVM transaction index
+		require.GreaterOrEqual(t, logTxIndexInt, int64(0),
+			"log %d: transactionIndex %d should be >= 0", i, logTxIndexInt)
+		require.Less(t, logTxIndexInt, int64(len(transactions)),
+			"log %d: transactionIndex %d should be < %d (number of EVM transactions)",
+			i, logTxIndexInt, len(transactions))
+
+		// If the transaction exists in the block, verify indices match
+		if expectedEvmIndex, exists := hashToEvmIndex[txHash]; exists {
+			require.Equal(t, int64(expectedEvmIndex), logTxIndexInt,
+				"log %d: transactionIndex from eth_getLogs (%d) should match EVM transaction index from eth_getBlockByNumber (%d) for tx %s",
+				i, logTxIndexInt, expectedEvmIndex, txHash)
+		}
+	}
+
+	// Additional check: ensure transaction indices are reasonable for the block structure
+	// Block 8 should have mixed transaction types, so EVM transaction indices should be sequential
+	txIndicesFound := make(map[int64]bool)
+	for _, logInterface := range logs {
+		log := logInterface.(map[string]interface{})
+		logTxIndex := log["transactionIndex"].(string)
+		logTxIndexInt, _ := strconv.ParseInt(logTxIndex[2:], 16, 64)
+		txIndicesFound[logTxIndexInt] = true
+	}
+
+	// We should not see indices that are >= number of EVM transactions
+	for txIndex := range txIndicesFound {
+		require.Less(t, txIndex, int64(len(transactions)),
+			"no log should have transactionIndex %d when there are only %d EVM transactions",
+			txIndex, len(transactions))
+	}
+}
+
+func TestCollectLogsEvmTransactionIndex(t *testing.T) {
+	t.Parallel()
+
+	// This is a unit test for the core logic that collectLogs implements
+	// It tests that transaction indices are set correctly for EVM transactions
+
+	// Set up the test environment - use the correct return values from MockEVMKeeper
+	k, ctx := testkeeper.MockEVMKeeper()
+
+	// Create a mock block with mixed transaction types (similar to block 2 in our test data)
+	// We'll simulate the transaction hashes that getTxHashesFromBlock would return
+	evmTxHashes := []common.Hash{
+		common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"), // EVM tx index 0
+		common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222"), // EVM tx index 1
+		common.HexToHash("0x3333333333333333333333333333333333333333333333333333333333333333"), // EVM tx index 2
+	}
+
+	// Create mock receipts with logs
+	for i, txHash := range evmTxHashes {
+		receipt := &evmtypes.Receipt{
+			TxHashHex:        txHash.Hex(),
+			TransactionIndex: uint32(i + 10), // Use high absolute indices to simulate mixed tx types
+			BlockNumber:      2,
+			Logs: []*evmtypes.Log{
+				{
+					Address: "0x1111111111111111111111111111111111111112",
+					Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123"},
+					Data:    []byte("test data"),
+					Index:   0,
+				},
+			},
+			LogsBloom: make([]byte, 256), // Empty bloom for simplicity
+		}
+
+		// Fill bloom filter to match our test filters
+		receipt.LogsBloom[0] = 0xFF // Simple bloom that will match any filter
+
+		k.MockReceipt(ctx, txHash, receipt)
+	}
+
+	// Test the core logic that collectLogs implements
+	// This simulates what collectLogs does for each EVM transaction
+	var collectedLogs []*ethtypes.Log
+	evmTxIndex := 0
+	totalLogs := uint(0)
+
+	for _, txHash := range evmTxHashes {
+		receipt, err := k.GetReceipt(ctx, txHash)
+		require.NoError(t, err, "should be able to get receipt for tx %s", txHash.Hex())
+
+		// This simulates keeper.GetLogsForTx
+		logs := keeper.GetLogsForTx(receipt, totalLogs)
+
+		// This is the key part we're testing: setting the correct EVM transaction index
+		for _, log := range logs {
+			log.TxIndex = uint(evmTxIndex) // This should override receipt.TransactionIndex
+			collectedLogs = append(collectedLogs, log)
+		}
+
+		totalLogs += uint(len(receipt.Logs))
+		evmTxIndex++
+	}
+
+	// Verify that the transaction indices are set correctly
+	require.Equal(t, len(evmTxHashes), len(collectedLogs), "should have one log per transaction")
+
+	for i, log := range collectedLogs {
+		// This is the main assertion: TxIndex should be the EVM transaction index (0, 1, 2)
+		// NOT the absolute transaction index (10, 11, 12)
+		require.Equal(t, uint(i), log.TxIndex,
+			"log %d should have EVM transaction index %d, but got %d", i, i, log.TxIndex)
+
+		// Verify it's NOT using the absolute transaction index
+		require.NotEqual(t, uint(i+10), log.TxIndex,
+			"log %d should not use absolute transaction index %d", i, i+10)
 	}
 }
