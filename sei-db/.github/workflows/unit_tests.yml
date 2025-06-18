@@ -20,6 +20,10 @@ jobs:
       - name: Run Go Tests
         run: |
           make test-all
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "${{ github.sha }}-coverage"
+          path: ./profile.out
 
   upload-coverage-report:
     needs: tests
@@ -32,7 +36,7 @@ jobs:
 
       # Download all coverage reports from the 'tests' job
       - name: Download coverage reports
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
 
       - name: Set GOPATH
         run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
@@ -56,7 +60,7 @@ jobs:
 
       # Now we upload the merged report to Codecov
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           file: ./coverage.txt
           token: ${{ secrets.CODECOV_TOKEN }}
