@@ -266,3 +266,109 @@ func newDynamicFeeTxWithoutValidation(tx *ethtypes.Transaction) *ethtx.DynamicFe
 	txData.SetSignatureValues(tx.ChainId(), v, r, s)
 	return txData
 }
+
+func TestAntehandlersGetBaseFeeBeforeV620(t *testing.T) {
+	// Set up test app and context
+	testApp := testkeeper.EVMTestApp
+	testHeight := int64(115000000) // A height >= 114945913 but before v6.2.0 upgrade
+	testCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(testHeight)
+
+	// Set the chain ID to "pacific-1" to trigger the upgrade check
+	testCtx = testCtx.WithChainID("pacific-1")
+
+	// Set the v6.2.0 upgrade height to a height higher than our test height
+	// This simulates that the upgrade hasn't happened yet
+	v620UpgradeHeight := int64(120000000)
+	testApp.UpgradeKeeper.SetDone(testCtx.WithBlockHeight(v620UpgradeHeight), "6.2.0")
+
+	// Create the fee check decorator
+	k := &testApp.EvmKeeper
+	upgradeKeeper := &testApp.UpgradeKeeper
+	decorator := ante.NewEVMFeeCheckDecorator(k, upgradeKeeper)
+
+	// Create a test transaction with a very low gas fee cap
+	// This will cause the AnteHandle to fail with insufficient fee error
+	// but we can verify that the getBaseFee logic is working correctly
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	to := new(common.Address)
+	copy(to[:], []byte("0x1234567890abcdef1234567890abcdef12345678"))
+	chainID := k.ChainID(testCtx)
+
+	// Create a transaction with very low gas fee cap to trigger the base fee check
+	txData := ethtypes.DynamicFeeTx{
+		Nonce:     0,
+		GasFeeCap: big.NewInt(1), // Very low fee cap
+		Gas:       1000,
+		To:        to,
+		Value:     big.NewInt(1000),
+		Data:      []byte("abc"),
+		ChainID:   chainID,
+	}
+
+	chainCfg := types.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(testCtx.BlockHeight())
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(testCtx.BlockTime().Unix()))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	typedTx, err := ethtx.NewDynamicFeeTx(tx)
+	require.Nil(t, err)
+	msg, err := types.NewMsgEVMTransaction(typedTx)
+	require.Nil(t, err)
+
+	// Create preprocessor decorator
+	preprocessor := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
+
+	// Test with a height that should hit the "IN PACIFIC-1 CASE"
+	// Height >= 114945913 but < v6.2.0 upgrade height
+	ctx, err := preprocessor.AnteHandle(testCtx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
+
+	// Then run the fee check decorator - this should hit the "IN PACIFIC-1 CASE"
+	_, err = decorator.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.NotNil(t, err, "Should fail with insufficient fee in pacific-1 case")
+	require.Contains(t, err.Error(), "insufficient fee", "Error should be about insufficient fee")
+
+	// Test with a height after v6.2.0 upgrade
+	ctxAfterUpgrade := testCtx.WithBlockHeight(125000000) // After v6.2.0 upgrade
+	ctx, err = preprocessor.AnteHandle(ctxAfterUpgrade, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
+	_, err = decorator.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.NotNil(t, err, "Should fail with insufficient fee after v6.2.0 upgrade")
+	require.Contains(t, err.Error(), "insufficient fee", "Error should be about insufficient fee")
+
+	// Test with a different chain ID (not pacific-1)
+	ctxOtherChain := testCtx.WithChainID("test-chain")
+	ctx, err = preprocessor.AnteHandle(ctxOtherChain, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
+	_, err = decorator.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.NotNil(t, err, "Should fail with insufficient fee for non-pacific-1 chain")
+	require.Contains(t, err.Error(), "insufficient fee", "Error should be about insufficient fee")
+
+	// Test with a height before the hardcoded height (114945913)
+	// This should use GetBaseFeePerGas instead of GetCurrBaseFeePerGas
+	ctxBeforeHardcoded := testCtx.WithBlockHeight(100000000) // Before 114945913
+	ctx, err = preprocessor.AnteHandle(ctxBeforeHardcoded, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.Nil(t, err)
+	_, err = decorator.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
+		return ctx, nil
+	})
+	require.NotNil(t, err, "Should fail with insufficient fee before hardcoded height")
+	require.Contains(t, err.Error(), "insufficient fee", "Error should be about insufficient fee")
+}
