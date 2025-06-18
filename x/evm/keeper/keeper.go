@@ -43,6 +43,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+const Pacific1ChainID = "pacific-1"
+
 type Keeper struct {
 	storeKey          sdk.StoreKey
 	transientStoreKey sdk.StoreKey
@@ -262,7 +264,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		}
 	}
 	var baseFee *big.Int
-	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < 114945913 {
+	if ctx.ChainID() == Pacific1ChainID && ctx.BlockHeight() < 114945913 {
 		baseFee = k.GetBaseFeePerGas(ctx).TruncateInt().BigInt()
 	} else {
 		baseFee = k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
@@ -492,7 +494,7 @@ func (k *Keeper) GetBaseFee(ctx sdk.Context) *big.Int {
 		}
 		return b.Header_.BaseFee
 	}
-	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < k.upgradeKeeper.GetDoneHeight(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "6.2.0") {
+	if ctx.ChainID() == Pacific1ChainID && ctx.BlockHeight() < k.upgradeKeeper.GetDoneHeight(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "6.2.0") {
 		return nil
 	}
 	return k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
