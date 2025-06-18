@@ -573,7 +573,6 @@ async function waitForBaseFeeToBeGt(baseFee, timeoutMs=10000) {
     const startTime = Date.now();
     while (true) {
         const block = await ethers.provider.getBlock("latest");
-        console.log("In waitForBaseFeeToBeGt, block.number", block.number)
         const blockBaseFee = Number(block.baseFeePerGas);
         if (blockBaseFee > Number(baseFee)) {
             break

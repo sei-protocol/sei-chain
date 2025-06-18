@@ -300,8 +300,7 @@ describe("EVM Test", function () {
             maxFeePerGas: ethers.parseUnits('10', 'gwei'),
             type: 2
           });
-          const heavyTxReceipt = await heavyTxResponse.wait();
-          console.log("heavyTxReceipt", heavyTxReceipt)
+          await heavyTxResponse.wait();
           await waitForBaseFeeToBeGt(ethers.parseUnits('1', 'gwei'))
 
           const txResponse = await owner.sendTransaction({
