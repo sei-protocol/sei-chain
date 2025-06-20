@@ -59,7 +59,7 @@ func NativeSendTxCmd() *cobra.Command {
 func RegisterCwPointerCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "register-cw-pointer [pointer type] [erc address]",
-		Short: `Register a CosmWasm pointer for an ERC20/721/1155 contract. Pointer type is either ERC20, ERC721, or ERC1155.`,
+		Short: `Register a CosmWasm pointer for an ERC20/721/1155 contract. Pointer type is either ERC20, ERC721, or ERC1155. Note: this has been disabled.`,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
@@ -71,6 +71,7 @@ func RegisterCwPointerCmd() *cobra.Command {
 				Sender:      clientCtx.GetFromAddress().String(),
 				PointerType: types.PointerType(types.PointerType_value[args[0]]),
 				ErcAddress:  args[1],
+				UseLatest:   true,
 			}
 			if err := msg.ValidateBasic(); err != nil {
 				return err
