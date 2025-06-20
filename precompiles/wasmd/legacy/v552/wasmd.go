@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v552"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
@@ -38,10 +39,10 @@ var f embed.FS
 
 type Precompile struct {
 	pcommon.Precompile
-	evmKeeper       pcommon.EVMKeeper
-	bankKeeper      pcommon.BankKeeper
-	wasmdKeeper     pcommon.WasmdKeeper
-	wasmdViewKeeper pcommon.WasmdViewKeeper
+	evmKeeper       putils.EVMKeeper
+	bankKeeper      putils.BankKeeper
+	wasmdKeeper     putils.WasmdKeeper
+	wasmdViewKeeper putils.WasmdViewKeeper
 	address         common.Address
 
 	InstantiateID  []byte
@@ -56,7 +57,7 @@ type ExecuteMsg struct {
 	Coins           []byte `json:"coins"`
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper, wasmdViewKeeper pcommon.WasmdViewKeeper, bankKeeper pcommon.BankKeeper) (*Precompile, error) {
+func NewPrecompile(keepers putils.Keepers) (*Precompile, error) {
 	abiBz, err := f.ReadFile("abi.json")
 	if err != nil {
 		return nil, fmt.Errorf("error loading the staking ABI %s", err)
@@ -69,10 +70,10 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper, wasmdKeeper pcommon.WasmdKeeper,
 
 	p := &Precompile{
 		Precompile:      pcommon.Precompile{ABI: newAbi},
-		wasmdKeeper:     wasmdKeeper,
-		wasmdViewKeeper: wasmdViewKeeper,
-		evmKeeper:       evmKeeper,
-		bankKeeper:      bankKeeper,
+		wasmdKeeper:     keepers.WasmdK(),
+		wasmdViewKeeper: keepers.WasmdVK(),
+		evmKeeper:       keepers.EVMK(),
+		bankKeeper:      keepers.BankK(),
 		address:         common.HexToAddress(WasmdAddress),
 	}
 

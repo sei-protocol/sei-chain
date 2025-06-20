@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v562"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
@@ -51,7 +52,7 @@ func ABI() (*abi.ABI, error) {
 	return &newAbi, nil
 }
 
-func NewPrecompile() (*pcommon.Precompile, error) {
+func NewPrecompile(keepers putils.Keepers) (*pcommon.Precompile, error) {
 	newAbi, err := ABI()
 	if err != nil {
 		return nil, err

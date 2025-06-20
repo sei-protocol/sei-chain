@@ -19,7 +19,7 @@ import (
 
 func TestAddNative(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-	p, err := pointer.NewPrecompile(&testApp.EvmKeeper, testApp.BankKeeper, testApp.WasmKeeper)
+	p, err := pointer.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))

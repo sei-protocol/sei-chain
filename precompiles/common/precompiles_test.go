@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
 )
@@ -93,7 +94,7 @@ func TestPrecompileRun(t *testing.T) {
 
 type MockDynamicGasPrecompileExecutor struct {
 	throw     bool
-	evmKeeper common.EVMKeeper
+	evmKeeper utils.EVMKeeper
 }
 
 func (e *MockDynamicGasPrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller ethcommon.Address, callingContract ethcommon.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, suppliedGas uint64, _ *tracing.Hooks) (ret []byte, remainingGas uint64, err error) {
@@ -104,7 +105,7 @@ func (e *MockDynamicGasPrecompileExecutor) Execute(ctx sdk.Context, method *abi.
 	return []byte("success"), 0, nil
 }
 
-func (e *MockDynamicGasPrecompileExecutor) EVMKeeper() common.EVMKeeper {
+func (e *MockDynamicGasPrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 	return e.evmKeeper
 }
 
