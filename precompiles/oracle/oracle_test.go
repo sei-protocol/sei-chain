@@ -33,7 +33,7 @@ func TestGetExchangeRate(t *testing.T) {
 		TxContext: vm.TxContext{Origin: senderEVMAddr},
 	}
 
-	p, err := oracle.NewPrecompile(testApp.OracleKeeper, k)
+	p, err := oracle.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 
 	query, err := p.ABI.MethodById(p.GetExecutor().(*oracle.PrecompileExecutor).GetExchangeRatesId)
@@ -107,7 +107,7 @@ func TestGetOracleTwaps(t *testing.T) {
 		TxContext: vm.TxContext{Origin: senderEVMAddr},
 	}
 
-	p, err := oracle.NewPrecompile(testApp.OracleKeeper, k)
+	p, err := oracle.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 
 	query, err := p.ABI.MethodById(p.GetExecutor().(*oracle.PrecompileExecutor).GetOracleTwapsId)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 
@@ -57,32 +58,27 @@ func GetABI() abi.ABI {
 type Precompile struct {
 	pcommon.Precompile
 	address          common.Address
-	transferKeeper   pcommon.TransferKeeper
-	evmKeeper        pcommon.EVMKeeper
-	clientKeeper     pcommon.ClientKeeper
-	connectionKeeper pcommon.ConnectionKeeper
-	channelKeeper    pcommon.ChannelKeeper
+	transferKeeper   putils.TransferKeeper
+	evmKeeper        putils.EVMKeeper
+	clientKeeper     putils.ClientKeeper
+	connectionKeeper putils.ConnectionKeeper
+	channelKeeper    putils.ChannelKeeper
 
 	TransferID                   []byte
 	TransferWithDefaultTimeoutID []byte
 }
 
-func NewPrecompile(
-	transferKeeper pcommon.TransferKeeper,
-	evmKeeper pcommon.EVMKeeper,
-	clientKeeper pcommon.ClientKeeper,
-	connectionKeeper pcommon.ConnectionKeeper,
-	channelKeeper pcommon.ChannelKeeper) (*Precompile, error) {
+func NewPrecompile(keepers putils.Keepers) (*Precompile, error) {
 	newAbi := GetABI()
 
 	p := &Precompile{
 		Precompile:       pcommon.Precompile{ABI: newAbi},
 		address:          common.HexToAddress(IBCAddress),
-		transferKeeper:   transferKeeper,
-		evmKeeper:        evmKeeper,
-		clientKeeper:     clientKeeper,
-		connectionKeeper: connectionKeeper,
-		channelKeeper:    channelKeeper,
+		transferKeeper:   keepers.TransferK(),
+		evmKeeper:        keepers.EVMK(),
+		clientKeeper:     keepers.ClientK(),
+		connectionKeeper: keepers.ConnectionK(),
+		channelKeeper:    keepers.ChannelK(),
 	}
 
 	for name, m := range newAbi.Methods {

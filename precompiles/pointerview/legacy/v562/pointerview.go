@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v562"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
 const (
@@ -28,14 +29,14 @@ const PointerViewAddress = "0x000000000000000000000000000000000000100A"
 var f embed.FS
 
 type PrecompileExecutor struct {
-	evmKeeper pcommon.EVMKeeper
+	evmKeeper utils.EVMKeeper
 
 	GetNativePointerID []byte
 	GetCW20PointerID   []byte
 	GetCW721PointerID  []byte
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*pcommon.Precompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*pcommon.Precompile, error) {
 	abiBz, err := f.ReadFile("abi.json")
 	if err != nil {
 		return nil, fmt.Errorf("error loading the pointer ABI %s", err)
@@ -47,7 +48,7 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*pcommon.Precompile, error) {
 	}
 
 	p := &PrecompileExecutor{
-		evmKeeper: evmKeeper,
+		evmKeeper: keepers.EVMK(),
 	}
 
 	for name, m := range newAbi.Methods {

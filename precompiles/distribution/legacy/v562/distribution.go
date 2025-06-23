@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v562"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -46,8 +47,8 @@ func GetABI() abi.ABI {
 }
 
 type PrecompileExecutor struct {
-	distrKeeper pcommon.DistributionKeeper
-	evmKeeper   pcommon.EVMKeeper
+	distrKeeper utils.DistributionKeeper
+	evmKeeper   utils.EVMKeeper
 	address     common.Address
 
 	SetWithdrawAddrID                   []byte
@@ -55,12 +56,12 @@ type PrecompileExecutor struct {
 	WithdrawMultipleDelegationRewardsID []byte
 }
 
-func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := GetABI()
 
 	p := &PrecompileExecutor{
-		distrKeeper: distrKeeper,
-		evmKeeper:   evmKeeper,
+		distrKeeper: keepers.DistributionK(),
+		evmKeeper:   keepers.EVMK(),
 		address:     common.HexToAddress(DistrAddress),
 	}
 
@@ -91,7 +92,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	return
 }
 
-func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 	return p.evmKeeper
 }
 

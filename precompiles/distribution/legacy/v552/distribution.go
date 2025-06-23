@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v555"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
@@ -47,21 +48,21 @@ func GetABI() abi.ABI {
 
 type Precompile struct {
 	pcommon.Precompile
-	distrKeeper pcommon.DistributionKeeper
-	evmKeeper   pcommon.EVMKeeper
+	distrKeeper utils.DistributionKeeper
+	evmKeeper   utils.EVMKeeper
 	address     common.Address
 
 	SetWithdrawAddrID           []byte
 	WithdrawDelegationRewardsID []byte
 }
 
-func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*Precompile, error) {
 	newAbi := GetABI()
 
 	p := &Precompile{
 		Precompile:  pcommon.Precompile{ABI: newAbi},
-		distrKeeper: distrKeeper,
-		evmKeeper:   evmKeeper,
+		distrKeeper: keepers.DistributionK(),
+		evmKeeper:   keepers.EVMK(),
 		address:     common.HexToAddress(DistrAddress),
 	}
 

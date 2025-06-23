@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v552"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )
 
@@ -46,8 +47,8 @@ func GetABI() abi.ABI {
 
 type Precompile struct {
 	pcommon.Precompile
-	evmKeeper    pcommon.EVMKeeper
-	oracleKeeper pcommon.OracleKeeper
+	evmKeeper    utils.EVMKeeper
+	oracleKeeper utils.OracleKeeper
 	address      common.Address
 
 	GetExchangeRatesId []byte
@@ -72,14 +73,14 @@ type OracleTwap struct {
 	LookbackSeconds int64  `json:"lookbackSeconds"`
 }
 
-func NewPrecompile(oracleKeeper pcommon.OracleKeeper, evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*Precompile, error) {
 	newAbi := GetABI()
 
 	p := &Precompile{
 		Precompile:   pcommon.Precompile{ABI: newAbi},
-		evmKeeper:    evmKeeper,
+		evmKeeper:    keepers.EVMK(),
 		address:      common.HexToAddress(OracleAddress),
-		oracleKeeper: oracleKeeper,
+		oracleKeeper: keepers.OracleK(),
 	}
 
 	for name, m := range newAbi.Methods {
