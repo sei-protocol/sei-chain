@@ -83,3 +83,8 @@ message MsgAssociate {
 }
 
 message MsgAssociateResponse {}
+
+message MsgClaim {
+  string sender = 1;
+  string claimer = 2;
+}
