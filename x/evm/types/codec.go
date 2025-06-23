@@ -37,6 +37,8 @@ func RegisterCodec(cdc *codec.LegacyAmino) {
 	cdc.RegisterConcrete(&MsgSend{}, "evm/MsgSend", nil)
 	cdc.RegisterConcrete(&MsgRegisterPointer{}, "evm/MsgRegisterPointer", nil)
 	cdc.RegisterConcrete(&MsgAssociateContractAddress{}, "evm/MsgAssociateContractAddress", nil)
+	cdc.RegisterConcrete(&MsgClaim{}, "evm/MsgClaim", nil)
+	cdc.RegisterConcrete(&MsgClaimSpecific{}, "evm/MsgClaimSpecific", nil)
 }
 
 func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
@@ -56,6 +58,9 @@ func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 		&MsgSend{},
 		&MsgRegisterPointer{},
 		&MsgAssociateContractAddress{},
+		&MsgClaim{},
+		&MsgClaimSpecific{},
+		&MsgAssociate{},
 	)
 	registry.RegisterInterface(
 		"seiprotocol.seichain.evm.TxData",

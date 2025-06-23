@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -196,6 +197,77 @@ func NativeAssociateCmd() *cobra.Command {
 				return err
 			}
 
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+		},
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func PrintClaimTxPayloadCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "print-claim [claimer] --from=<sender>",
+		Short: `Print hex-encoded claim message payload for Sei Solo migration.`,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			msg := types.NewMsgClaim(clientCtx.GetFromAddress(), common.HexToAddress(args[0]))
+			if err := msg.ValidateBasic(); err != nil {
+				return err
+			}
+
+			clientCtx.PrintSignedOnly = true
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+		},
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
+func PrintClaimSpecificTxPayloadCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "print-claim-specific [claimer] [[CW20|CW721] [contract addr]]... --from=<sender>",
+		Short: `Print hex-encoded claim specific message payload for Sei Solo migration.`,
+		Args:  cobra.MinimumNArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+			if len(args)%2 != 1 {
+				return errors.New("print-claim-specific takes odd number of arguments (the first argument is the claimer address, and the rest are asset type/address pairs)")
+			}
+			assets := []*types.Asset{}
+			for i := 1; i < len(args); i += 2 {
+				var assetType types.AssetType
+				switch args[i] {
+				case "CW20":
+					assetType = types.AssetType_TYPECW20
+				case "CW721":
+					assetType = types.AssetType_TYPECW721
+				default:
+					return fmt.Errorf("accepted asset types are CW20 and CW721. Received %s", args[i])
+				}
+				assets = append(assets, &types.Asset{
+					AssetType:       assetType,
+					ContractAddress: args[i+1],
+				})
+			}
+
+			msg := types.NewMsgClaimSpecific(clientCtx.GetFromAddress(), common.HexToAddress(args[0]), assets...)
+			if err := msg.ValidateBasic(); err != nil {
+				return err
+			}
+
+			clientCtx.PrintSignedOnly = true
 			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
 		},
 	}
