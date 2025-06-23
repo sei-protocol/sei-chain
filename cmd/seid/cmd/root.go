@@ -558,6 +558,7 @@ max_subscriptions_new_head = {{ .EVM.MaxSubscriptionsNewHead }}
 max_concurrent_trace_calls = {{ .EVM.MaxConcurrentTraceCalls }}
 
 # Max number of blocks allowed to look back for tracing
+# Set to -1 for unlimited lookback, which is useful for archive nodes.
 max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
 
 # Timeout for each trace call
