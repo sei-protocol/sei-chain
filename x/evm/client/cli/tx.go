@@ -69,6 +69,7 @@ func GetTxCmd() *cobra.Command {
 	cmd.AddCommand(AssociateContractAddressCmd())
 	cmd.AddCommand(NativeAssociateCmd())
 	cmd.AddCommand(PrintClaimTxPayloadCmd())
+	cmd.AddCommand(PrintClaimSpecificTxPayloadCmd())
 
 	return cmd
 }

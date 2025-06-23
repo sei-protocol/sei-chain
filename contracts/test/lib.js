@@ -506,6 +506,12 @@ async function printClaimMsg(sender, claimer) {
     catch(e) { console.log(e); }
 }
 
+async function printClaimSpecificMsg(sender, claimer, ...assets) {
+    const command = `seid tx evm print-claim-specific ${claimer} ${assets.join(' ')} --from ${sender} -y`;
+    try { return await execute(command); }
+    catch(e) { console.log(e); }
+}
+
 async function isDocker() {
     return new Promise((resolve, reject) => {
         exec("docker ps --filter 'name=sei-node-0' --format '{{.Names}}'", (error, stdout, stderr) => {
@@ -650,6 +656,7 @@ module.exports = {
     associateWasm,
     generateWallet,
     printClaimMsg,
+    printClaimSpecificMsg,
     addKey,
     getKeySeiAddress,
     hex2uint8,

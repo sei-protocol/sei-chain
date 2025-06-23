@@ -2,6 +2,7 @@ package solo
 
 import (
 	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -17,10 +18,12 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/utils"
 )
 
 const (
-	ClaimMethod = "claim"
+	ClaimMethod         = "claim"
+	ClaimSpecificMethod = "claimSpecific"
 )
 
 const SoloAddress = "0x000000000000000000000000000000000000100C"
@@ -31,25 +34,30 @@ const SoloAddress = "0x000000000000000000000000000000000000100C"
 var F embed.FS
 
 type PrecompileExecutor struct {
-	evmKeeper     pcommon.EVMKeeper
-	bankKeeper    pcommon.BankKeeper
-	accountKeeper pcommon.AccountKeeper
+	evmKeeper      pcommon.EVMKeeper
+	bankKeeper     pcommon.BankKeeper
+	accountKeeper  pcommon.AccountKeeper
+	wasmKeeper     pcommon.WasmdKeeper
+	wasmViewKeeper pcommon.WasmdViewKeeper
 
 	txConfig client.TxConfig
 
-	ClaimMethodID []byte
+	ClaimMethodID         []byte
+	ClaimSpecificMethodID []byte
 }
 
 func NewPrecompile(
 	evmKeeper pcommon.EVMKeeper,
 	bankKeeper pcommon.BankKeeper,
 	accountKeeper pcommon.AccountKeeper,
+	wasmKeeper pcommon.WasmdKeeper,
+	wasmViewKeeper pcommon.WasmdViewKeeper,
 	txConfig client.TxConfig,
 ) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := pcommon.MustGetABI(F, "abi.json")
 
 	return pcommon.NewDynamicGasPrecompile(
-		newAbi, NewExecutor(newAbi, evmKeeper, bankKeeper, accountKeeper, txConfig),
+		newAbi, NewExecutor(newAbi, evmKeeper, bankKeeper, accountKeeper, wasmKeeper, wasmViewKeeper, txConfig),
 		common.HexToAddress(SoloAddress), "solo"), nil
 }
 
@@ -58,19 +66,25 @@ func NewExecutor(
 	evmKeeper pcommon.EVMKeeper,
 	bankKeeper pcommon.BankKeeper,
 	accountKeeper pcommon.AccountKeeper,
+	wasmKeeper pcommon.WasmdKeeper,
+	wasmViewKeeper pcommon.WasmdViewKeeper,
 	txConfig client.TxConfig,
 ) *PrecompileExecutor {
 	p := &PrecompileExecutor{
-		evmKeeper:     evmKeeper,
-		bankKeeper:    bankKeeper,
-		accountKeeper: accountKeeper,
-		txConfig:      txConfig,
+		evmKeeper:      evmKeeper,
+		bankKeeper:     bankKeeper,
+		accountKeeper:  accountKeeper,
+		wasmKeeper:     wasmKeeper,
+		wasmViewKeeper: wasmViewKeeper,
+		txConfig:       txConfig,
 	}
 
 	for name, m := range a.Methods {
 		switch name {
 		case ClaimMethod:
 			p.ClaimMethodID = m.ID
+		case ClaimSpecificMethod:
+			p.ClaimSpecificMethodID = m.ID
 		}
 	}
 	return p
@@ -86,6 +100,8 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	switch method.Name {
 	case ClaimMethod:
 		return p.Claim(ctx, caller, method, args, readOnly)
+	case ClaimSpecificMethod:
+		return p.ClaimSpecific(ctx, caller, method, args, readOnly)
 	}
 	return
 }
@@ -99,32 +115,14 @@ type claimMsg interface {
 	GetSender() string
 }
 
+type claimSpecificMsg interface {
+	claimMsg
+	GetIAssets() []utils.IAsset
+}
+
 func (p PrecompileExecutor) Claim(ctx sdk.Context, caller common.Address, method *abi.Method, args []interface{}, readOnly bool) (ret []byte, remainingGas uint64, err error) {
-	if readOnly {
-		return nil, 0, errors.New("cannot call send from staticcall")
-	}
-	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
-		return nil, 0, err
-	}
-	tx, err := p.txConfig.TxDecoder()(args[0].([]byte))
+	_, sender, err := p.validate(ctx, caller, args, readOnly)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to decode claim tx due to %w", err)
-	}
-	if len(tx.GetMsgs()) != 1 {
-		return nil, 0, fmt.Errorf("claim tx must contain exactly 1 message but %d were found", len(tx.GetMsgs()))
-	}
-	claimMsg, ok := tx.GetMsgs()[0].(claimMsg)
-	if !ok {
-		return nil, 0, errors.New("claim tx can only contain MsgClaim type")
-	}
-	if common.HexToAddress(claimMsg.GetClaimer()).Cmp(caller) != 0 {
-		return nil, 0, fmt.Errorf("claim tx is meant for %s but was sent by %s", claimMsg.GetClaimer(), caller.Hex())
-	}
-	sender, err := sdk.AccAddressFromBech32(claimMsg.GetSender())
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to parse claim tx sender due to %s", err)
-	}
-	if err := p.sigverify(ctx, tx, claimMsg, sender); err != nil {
 		return nil, 0, err
 	}
 	if err := p.bankKeeper.SendCoins(ctx, sender,
@@ -133,6 +131,96 @@ func (p PrecompileExecutor) Claim(ctx sdk.Context, caller common.Address, method
 	}
 	bz, err := method.Outputs.Pack(true)
 	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
+}
+
+func (p PrecompileExecutor) ClaimSpecific(ctx sdk.Context, caller common.Address, method *abi.Method, args []interface{}, readOnly bool) (ret []byte, remainingGas uint64, err error) {
+	claimMsg, sender, err := p.validate(ctx, caller, args, readOnly)
+	if err != nil {
+		return nil, 0, err
+	}
+	claimSpecificMsg, ok := claimMsg.(claimSpecificMsg)
+	if !ok {
+		return nil, 0, errors.New("message is not MsgClaimSpecific type")
+	}
+	callerSeiAddr := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
+	for _, asset := range claimSpecificMsg.GetIAssets() {
+		contractAddr, err := sdk.AccAddressFromBech32(asset.GetContractAddress())
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to parse contract address %s: %w", asset.GetContractAddress(), err)
+		}
+		switch {
+		case asset.IsCW20():
+			res, err := p.wasmViewKeeper.QuerySmartSafe(ctx, contractAddr, CW20BalanceQueryPayload(sender))
+			if err != nil {
+				return nil, 0, fmt.Errorf("failed to query CW20 contract %s for balance: %w", contractAddr.String(), err)
+			}
+			balance, err := ParseCW20BalanceQueryResponse(res)
+			if err != nil {
+				return nil, 0, fmt.Errorf("failed to parse CW20 contract %s balance response: %w", contractAddr.String(), err)
+			}
+			_, err = p.wasmKeeper.Execute(ctx, contractAddr, sender, CW20TransferPayload(callerSeiAddr, balance), sdk.NewCoins())
+			if err != nil {
+				return nil, 0, fmt.Errorf("failed to transfer on CW20 contract %s: %w", contractAddr.String(), err)
+			}
+		case asset.IsCW721():
+			allTokens := []string{}
+			startAfter := ""
+			for {
+				res, err := p.wasmViewKeeper.QuerySmartSafe(ctx, contractAddr, CW721TokensQueryPayload(sender, startAfter))
+				if err != nil {
+					return nil, 0, fmt.Errorf("failed to query CW721 contract %s for all tokens: %w", contractAddr.String(), err)
+				}
+				tokens, err := ParseCW721TokensQueryResponse(res)
+				if err != nil {
+					return nil, 0, fmt.Errorf("failed to parse CW20 contract %s balance response: %w", contractAddr.String(), err)
+				}
+				if len(tokens) == 0 {
+					break
+				}
+				allTokens = append(allTokens, tokens...)
+				startAfter = tokens[len(tokens)-1]
+			}
+			for _, token := range allTokens {
+				_, err := p.wasmKeeper.Execute(ctx, contractAddr, sender, CW721TransferPayload(callerSeiAddr, token), sdk.NewCoins())
+				if err != nil {
+					return nil, 0, fmt.Errorf("failed to transfer token %s on CW721 contract %s: %w", token, contractAddr.String(), err)
+				}
+			}
+		}
+	}
+	bz, err := method.Outputs.Pack(true)
+	return bz, pcommon.GetRemainingGas(ctx, p.evmKeeper), err
+}
+
+func (p PrecompileExecutor) validate(ctx sdk.Context, caller common.Address, args []interface{}, readOnly bool) (claimMsg, sdk.AccAddress, error) {
+	if readOnly {
+		return nil, nil, errors.New("cannot call send from staticcall")
+	}
+	if err := pcommon.ValidateArgsLength(args, 1); err != nil {
+		return nil, nil, err
+	}
+	tx, err := p.txConfig.TxDecoder()(args[0].([]byte))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to decode claim tx due to %w", err)
+	}
+	if len(tx.GetMsgs()) != 1 {
+		return nil, nil, fmt.Errorf("claim tx must contain exactly 1 message but %d were found", len(tx.GetMsgs()))
+	}
+	claimMsg, ok := tx.GetMsgs()[0].(claimMsg)
+	if !ok {
+		return nil, nil, errors.New("claim tx can only contain MsgClaim or MsgClaimSpecific type")
+	}
+	if common.HexToAddress(claimMsg.GetClaimer()).Cmp(caller) != 0 {
+		return nil, nil, fmt.Errorf("claim tx is meant for %s but was sent by %s", claimMsg.GetClaimer(), caller.Hex())
+	}
+	sender, err := sdk.AccAddressFromBech32(claimMsg.GetSender())
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse claim tx sender due to %s", err)
+	}
+	if err := p.sigverify(ctx, tx, claimMsg, sender); err != nil {
+		return nil, nil, err
+	}
+	return claimMsg, sender, nil
 }
 
 func (p PrecompileExecutor) sigverify(ctx sdk.Context, tx sdk.Tx, claimMsg claimMsg, sender sdk.AccAddress) error {
@@ -181,4 +269,77 @@ func (p PrecompileExecutor) sigverify(ctx sdk.Context, tx sdk.Tx, claimMsg claim
 		return fmt.Errorf("failed to verify signature for claim tx: %w", err)
 	}
 	return nil
+}
+
+func CW20BalanceQueryPayload(addr sdk.AccAddress) []byte {
+	raw := map[string]interface{}{"address": addr.String()}
+	bz, err := json.Marshal(map[string]interface{}{"balance": raw})
+	if err != nil {
+		// should be impossible
+		panic(err)
+	}
+	return bz
+}
+
+func ParseCW20BalanceQueryResponse(res []byte) (sdk.Int, error) {
+	type response struct {
+		Balance sdk.Int `json:"balance"`
+	}
+	typed := response{}
+	if err := json.Unmarshal(res, &typed); err != nil {
+		return sdk.Int{}, err
+	}
+	return typed.Balance, nil
+}
+
+func CW20TransferPayload(recipient sdk.AccAddress, amount sdk.Int) []byte {
+	type request struct {
+		Recipient string  `json:"recipient"`
+		Amount    sdk.Int `json:"amount"`
+	}
+	raw := request{Recipient: recipient.String(), Amount: amount}
+	bz, err := json.Marshal(map[string]interface{}{"transfer": raw})
+	if err != nil {
+		// should be impossible
+		panic(err)
+	}
+	return bz
+}
+
+func CW721TokensQueryPayload(addr sdk.AccAddress, startAfter string) []byte {
+	raw := map[string]interface{}{"owner": addr.String()}
+	if startAfter != "" {
+		raw["start_after"] = startAfter
+	}
+	bz, err := json.Marshal(map[string]interface{}{"tokens": raw})
+	if err != nil {
+		// should be impossible
+		panic(err)
+	}
+	return bz
+}
+
+func ParseCW721TokensQueryResponse(res []byte) ([]string, error) {
+	type response struct {
+		Tokens []string `json:"tokens"`
+	}
+	typed := response{}
+	if err := json.Unmarshal(res, &typed); err != nil {
+		return []string{}, err
+	}
+	return typed.Tokens, nil
+}
+
+func CW721TransferPayload(recipient sdk.AccAddress, token string) []byte {
+	type request struct {
+		Recipient string `json:"recipient"`
+		Token     string `json:"token_id"`
+	}
+	raw := request{Recipient: recipient.String(), Token: token}
+	bz, err := json.Marshal(map[string]interface{}{"transfer_nft": raw})
+	if err != nil {
+		// should be impossible
+		panic(err)
+	}
+	return bz
 }
