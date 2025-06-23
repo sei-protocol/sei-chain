@@ -1346,8 +1346,8 @@ github.com/seccomp/libseccomp-golang v0.9.2-0.20220502022130-f33da4d89646/go.mod
 github.com/securego/gosec/v2 v2.11.0 h1:+PDkpzR41OI2jrw1q6AdXZCbsNGNGT7pQjal0H0cArI=
 github.com/securego/gosec/v2 v2.11.0/go.mod h1:SX8bptShuG8reGC0XS09+a4H2BoWSJi+fscA+Pulbpo=
 github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KRMzBtS3oedY=
-github.com/sei-protocol/go-ethereum v1.13.5-sei-39 h1:6Jr/5Sf0RsPisrxOyD4iyKJR5J2At8FIK4S2+LnuXqw=
-github.com/sei-protocol/go-ethereum v1.13.5-sei-39/go.mod h1:kcRZmuzRn1lVejiFNTz4l4W7imnpq1bDAnuKS/RyhbQ=
+github.com/sei-protocol/go-ethereum v1.13.5-sei-41 h1:Avm04zgslLuAdeCxkm4r5JIzc8bIP5TPYij51vKSLSw=
+github.com/sei-protocol/go-ethereum v1.13.5-sei-41/go.mod h1:kcRZmuzRn1lVejiFNTz4l4W7imnpq1bDAnuKS/RyhbQ=
 github.com/sei-protocol/goutils v0.0.2 h1:Bfa7Sv+4CVLNM20QcpvGb81B8C5HkQC/kW1CQpIbXDA=
 github.com/sei-protocol/goutils v0.0.2/go.mod h1:iYE2DuJfEnM+APPehr2gOUXfuLuPsVxorcDO+Tzq9q8=
 github.com/sei-protocol/sei-cosmos v0.3.63 h1:516428UP0JwyiETxrIqvV9FSfIap5QkAHkqgCtPHBt8=
