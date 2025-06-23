@@ -12,7 +12,7 @@ on:
 
 jobs:
   tests:
-    runs-on: ubuntu-large
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
