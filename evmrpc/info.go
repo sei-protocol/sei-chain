@@ -298,6 +298,10 @@ func CalculatePercentiles(rewardPercentiles []float64, GasAndRewards []GasAndRew
 	})
 	res := []*hexutil.Big{}
 	if len(GasAndRewards) == 0 {
+		// Return array of zeros for each percentile when no transactions exist
+		for range rewardPercentiles {
+			res = append(res, (*hexutil.Big)(big.NewInt(0)))
+		}
 		return res
 	}
 	var txIndex int
