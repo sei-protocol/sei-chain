@@ -16,8 +16,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -242,7 +242,7 @@ func (p *CoinbaseProvider) SubscribeCurrencyPairs(cps ...types.CurrencyPair) err
 	}
 
 	p.setSubscribedPairs(cps...)
-	telemetry.IncrCounter(
+	metrics.SafeTelemetryIncrCounter(
 		float32(len(cps)),
 		"websocket",
 		"subscribe",
@@ -387,7 +387,7 @@ func (p *CoinbaseProvider) messageReceived(messageType int, bz []byte) {
 		}
 
 		p.setTickerPair(coinbaseTicker)
-		telemetry.IncrCounter(
+		metrics.SafeTelemetryIncrCounter(
 			1,
 			"websocket",
 			"message",
@@ -398,7 +398,7 @@ func (p *CoinbaseProvider) messageReceived(messageType int, bz []byte) {
 		)
 		return
 	}
-	telemetry.IncrCounter(
+	metrics.SafeTelemetryIncrCounter(
 		1,
 		"websocket",
 		"message",
@@ -501,7 +501,7 @@ func (p *CoinbaseProvider) reconnect() error {
 
 	currencyPairs := p.subscribedPairsToSlice()
 
-	telemetry.IncrCounter(
+	metrics.SafeTelemetryIncrCounter(
 		1,
 		"websocket",
 		"reconnect",

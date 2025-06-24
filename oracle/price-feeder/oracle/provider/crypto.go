@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 const (
@@ -274,7 +274,7 @@ func (p *CryptoProvider) messageReceived(messageType int, bz []byte) {
 	if tickerResp.Result.Channel == cryptoTickerChannel {
 		for _, tickerPair := range tickerResp.Result.Data {
 			p.setTickerPair(tickerResp.Result.InstrumentName, tickerPair)
-			telemetry.IncrCounter(
+			metrics.SafeTelemetryIncrCounter(
 				1,
 				"websocket",
 				"message",
@@ -291,7 +291,7 @@ func (p *CryptoProvider) messageReceived(messageType int, bz []byte) {
 	if candleResp.Result.Channel == cryptoCandleChannel {
 		for _, candlePair := range candleResp.Result.Data {
 			p.setCandlePair(candleResp.Result.InstrumentName, candlePair)
-			telemetry.IncrCounter(
+			metrics.SafeTelemetryIncrCounter(
 				1,
 				"websocket",
 				"message",
