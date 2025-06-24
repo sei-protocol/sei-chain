@@ -366,7 +366,7 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 	require.Equal(t, 1, len(txs))
 	bh := common.HexToHash(MockBlockID.Hash.String())
 	to := common.Address(toSeiAddr)
-	require.Equal(t, &ethapi.RPCTransaction{
+	require.Equal(t, &export.RPCTransaction{
 		BlockHash:        &bh,
 		BlockNumber:      (*hexutil.Big)(big.NewInt(MockHeight8)),
 		From:             fromEvmAddr,
@@ -377,5 +377,5 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 		V:                nil,
 		R:                nil,
 		S:                nil,
-	}, txs[0].(*ethapi.RPCTransaction))
+	}, txs[0].(*export.RPCTransaction))
 }

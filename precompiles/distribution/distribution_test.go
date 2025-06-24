@@ -1180,7 +1180,7 @@ func TestWithdrawValidatorCommission_noCommissionToWithdrawRightAfterDelegation(
 	require.Nil(t, err)
 
 	msgServer := keeper.NewMsgServerImpl(k)
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -1212,7 +1212,7 @@ func TestWithdrawValidatorCommission_noCommissionToWithdrawRightAfterDelegation(
 	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Equal(t, "no validator commission to withdraw", string(res.ReturnData))

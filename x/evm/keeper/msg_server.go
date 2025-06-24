@@ -244,7 +244,7 @@ func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *sta
 	}
 	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(msg)
-	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.k.CustomPrecompiles(ctx))
+	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
 	evmInstance.SetTxContext(txCtx)
 	st := core.NewStateTransition(evmInstance, msg, &gp, true) // fee already charged in ante handler
 	return st.Execute()

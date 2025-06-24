@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/holiman/uint256"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v552"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/cw20"
@@ -174,7 +175,7 @@ func (p Precompile) AddNative(ctx sdk.Context, method *ethabi.Method, caller com
 	if value == nil {
 		value = utils.Big0
 	}
-	ret, contractAddr, remainingGas, err := evm.Create(vm.AccountRef(caller), bin, suppliedGas, value)
+	ret, contractAddr, remainingGas, err := evm.Create(caller, bin, suppliedGas, uint256.MustFromBig(value))
 	if err != nil {
 		return
 	}
@@ -229,7 +230,7 @@ func (p Precompile) AddCW20(ctx sdk.Context, method *ethabi.Method, caller commo
 	if value == nil {
 		value = utils.Big0
 	}
-	ret, contractAddr, remainingGas, err := evm.Create(vm.AccountRef(caller), bin, suppliedGas, value)
+	ret, contractAddr, remainingGas, err := evm.Create(caller, bin, suppliedGas, uint256.MustFromBig(value))
 	if err != nil {
 		return
 	}
@@ -284,7 +285,7 @@ func (p Precompile) AddCW721(ctx sdk.Context, method *ethabi.Method, caller comm
 	if value == nil {
 		value = utils.Big0
 	}
-	ret, contractAddr, remainingGas, err := evm.Create(vm.AccountRef(caller), bin, suppliedGas, value)
+	ret, contractAddr, remainingGas, err := evm.Create(caller, bin, suppliedGas, uint256.MustFromBig(value))
 	if err != nil {
 		return
 	}

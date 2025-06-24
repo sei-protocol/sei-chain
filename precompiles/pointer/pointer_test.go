@@ -34,11 +34,7 @@ func TestAddNative(t *testing.T) {
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, &testApp.EvmKeeper, true)
 	blockCtx, _ := testApp.EvmKeeper.GetVMBlockContext(ctx, core.GasPool(suppliedGas))
-<<<<<<< HEAD
-	evm := vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles(ctx))
-=======
-	evm := vm.NewEVM(*blockCtx, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles())
->>>>>>> 6403fd08 (rebase)
+	evm := vm.NewEVM(*blockCtx, statedb, cfg, vm.Config{}, testApp.EvmKeeper.CustomPrecompiles(ctx))
 	_, g, err := p.RunAndCalculateGas(evm, caller, caller, append(p.GetExecutor().(*pointer.PrecompileExecutor).AddNativePointerID, args...), suppliedGas, nil, nil, false, false)
 	require.NotNil(t, err)
 	require.NotNil(t, statedb.GetPrecompileError())
