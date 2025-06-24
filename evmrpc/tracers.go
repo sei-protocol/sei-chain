@@ -152,7 +152,7 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 	defer cancel()
 
 	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
-	if number.Int64() < latest-api.maxBlockLookback {
+	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
 
@@ -266,7 +266,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	defer cancel()
 
 	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
-	if number.Int64() < latest-api.maxBlockLookback {
+	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
 
