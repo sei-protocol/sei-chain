@@ -34,8 +34,8 @@ func (p Precompile) RequiredGas(input []byte, isTransaction bool) uint64 {
 }
 
 func (p Precompile) Prepare(evm *vm.EVM, input []byte) (sdk.Context, *abi.Method, []interface{}, error) {
-	ctxer, ok := evm.StateDB.(Contexter)
-	if !ok {
+	ctxer := state.GetDBImpl(evm.StateDB)
+	if ctxer == nil {
 		return sdk.Context{}, nil, nil, errors.New("cannot get context from EVM")
 	}
 	methodID, err := ExtractMethodID(input)

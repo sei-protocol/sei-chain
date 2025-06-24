@@ -10,12 +10,13 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
+var ZeroInt = uint256.NewInt(0)
+
 func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	amt := amtUint256.ToBig()
-	old := s.GetBalance(evmAddr)
 	if amt.Sign() == 0 {
-		return *old
+		return *ZeroInt
 	}
 	if amt.Sign() < 0 {
 		return s.AddBalance(evmAddr, new(uint256.Int).Neg(amtUint256), reason)
@@ -33,12 +34,12 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	err := s.k.BankKeeper().SubUnlockedCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
 	if err != nil {
 		s.err = err
-		return *old
+		return *ZeroInt
 	}
 	err = s.k.BankKeeper().SubWei(ctx, addr, wei)
 	if err != nil {
 		s.err = err
-		return *old
+		return *ZeroInt
 	}
 
 	if s.logger != nil && s.logger.OnBalanceChange != nil {
@@ -50,15 +51,14 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	}
 
 	s.tempStateCurrent.surplus = s.tempStateCurrent.surplus.Add(sdk.NewIntFromBigInt(amt))
-	return *old
+	return *ZeroInt
 }
 
 func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, reason tracing.BalanceChangeReason) uint256.Int {
 	s.k.PrepareReplayedAddr(s.ctx, evmAddr)
 	amt := amtUint256.ToBig()
-	old := s.GetBalance(evmAddr)
 	if amt.Sign() == 0 {
-		return *old
+		return *ZeroInt
 	}
 	if amt.Sign() < 0 {
 		return s.SubBalance(evmAddr, new(uint256.Int).Neg(amtUint256), reason)
@@ -75,12 +75,12 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	err := s.k.BankKeeper().AddCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
 	if err != nil {
 		s.err = err
-		return *old
+		return *ZeroInt
 	}
 	err = s.k.BankKeeper().AddWei(ctx, addr, wei)
 	if err != nil {
 		s.err = err
-		return *old
+		return *ZeroInt
 	}
 
 	if s.logger != nil && s.logger.OnBalanceChange != nil {
@@ -92,7 +92,7 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 	}
 
 	s.tempStateCurrent.surplus = s.tempStateCurrent.surplus.Sub(sdk.NewIntFromBigInt(amt))
-	return *old
+	return *ZeroInt
 }
 
 func (s *DBImpl) GetBalance(evmAddr common.Address) *uint256.Int {

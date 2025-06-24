@@ -115,7 +115,7 @@ func (Precompile) IsTransaction(method string) bool {
 func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, _ common.Address, input []byte, suppliedGas uint64, value *big.Int, _ *tracing.Hooks, _ bool, _ bool) (ret []byte, remainingGas uint64, err error) {
 	defer func() {
 		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+			state.GetDBImpl(evm.StateDB).SetPrecompileError(err)
 		}
 	}()
 	ctx, method, args, err := p.Prepare(evm, input)

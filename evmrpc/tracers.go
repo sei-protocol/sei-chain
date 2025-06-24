@@ -341,7 +341,7 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 		return nil, err
 	}
 	response := StateAccessResponse{
-		AppState:        stateDB.(*state.DBImpl).Ctx().StoreTracer().DerivePrestateToJson(),
+		AppState:        state.GetDBImpl(stateDB).Ctx().StoreTracer().DerivePrestateToJson(),
 		TendermintState: tendermintTraces.MustMarshalToJson(),
 		Receipt:         receiptTraces.MustMarshalToJson(),
 	}

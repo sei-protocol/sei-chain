@@ -305,7 +305,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 				ShouldIncludeInTraceResult: false,
 				IdxInEthBlock:              -1,
 				TraceRunnable: func(sd vm.StateDB) {
-					typedStateDB := sd.(*state.DBImpl)
+					typedStateDB := state.GetDBImpl(sd)
 					_ = b.app.DeliverTx(typedStateDB.Ctx(), abci.RequestDeliverTx{}, decoded, sha256.Sum256(tmBlock.Block.Txs[i]))
 				},
 			})
@@ -360,7 +360,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, emptyRelease, err
 	}
-	blockContext, err := b.keeper.GetVMBlockContext(stateDB.(*state.DBImpl).Ctx(), core.GasPool(b.RPCGasCap()))
+	blockContext, err := b.keeper.GetVMBlockContext(state.GetDBImpl(stateDB).Ctx(), core.GasPool(b.RPCGasCap()))
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, emptyRelease, err
 	}
@@ -529,7 +529,7 @@ func (b *Backend) GetCustomPrecompiles(h int64) map[common.Address]vm.Precompile
 }
 
 func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error {
-	typedStateDB := statedb.(*state.DBImpl)
+	typedStateDB := state.GetDBImpl(statedb)
 	typedStateDB.CleanupForTracer()
 	ctx, _ := b.keeper.PrepareCtxForEVMTransaction(typedStateDB.Ctx(), tx)
 	ctx = ctx.WithIsEVM(true)
@@ -556,7 +556,7 @@ func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error 
 }
 
 func (b *Backend) GetBlockContext(ctx context.Context, block *ethtypes.Block, statedb vm.StateDB, backend export.ChainContextBackend) (vm.BlockContext, error) {
-	blockCtx, err := b.keeper.GetVMBlockContext(statedb.(*state.DBImpl).Ctx(), core.GasPool(b.RPCGasCap()))
+	blockCtx, err := b.keeper.GetVMBlockContext(state.GetDBImpl(statedb).Ctx(), core.GasPool(b.RPCGasCap()))
 	if err != nil {
 		return vm.BlockContext{}, nil
 	}
