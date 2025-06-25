@@ -1,6 +1,7 @@
 package precompiles
 
 import (
+	"github.com/sei-protocol/sei-chain/precompiles/p256"
 	"sync"
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
@@ -68,8 +69,7 @@ import (
 	oraclev601 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v601"
 	oraclev603 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v603"
 	oraclev605 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v605"
-	oraclev610 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v610"
-	"github.com/sei-protocol/sei-chain/precompiles/p256"
+	oraclev606 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v606"
 	"github.com/sei-protocol/sei-chain/precompiles/pointer"
 	pointerv552 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v552"
 	pointerv555 "github.com/sei-protocol/sei-chain/precompiles/pointer/legacy/v555"
