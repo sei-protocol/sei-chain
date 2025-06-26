@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
-	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
 	"github.com/stretchr/testify/require"
@@ -50,12 +49,12 @@ func TestIBCReflectContract(t *testing.T) {
 
 	require.Equal(t, chainA.CurrentHeader.Time, chainB.CurrentHeader.Time)
 	path := wasmibctesting.NewPath(chainA, chainB)
-	path.EndpointA.ChannelConfig = &ibctesting.ChannelConfig{
+	path.EndpointA.ChannelConfig = &wasmibctesting.ChannelConfig{
 		PortID:  sourcePortID,
 		Version: "ibc-reflect-v1",
 		Order:   channeltypes.ORDERED,
 	}
-	path.EndpointB.ChannelConfig = &ibctesting.ChannelConfig{
+	path.EndpointB.ChannelConfig = &wasmibctesting.ChannelConfig{
 		PortID:  counterpartPortID,
 		Version: "ibc-reflect-v1",
 		Order:   channeltypes.ORDERED,

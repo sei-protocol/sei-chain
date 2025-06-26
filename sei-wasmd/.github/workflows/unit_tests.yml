@@ -1,0 +1,86 @@
+name: Unit Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3, 4]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: '1.21'
+
+      - name: Restore Go modules cache
+        uses: actions/cache@v3
+        with:
+          path: /home/runner/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Set Version
+        run: echo "VERSION=$(git describe --tags --long | sed 's/v\(.*\)/\1/')" >> $GITHUB_ENV
+
+      - name: Run tests with coverage
+        env:
+          GORACE: halt_on_error=1
+          GO111MODULE: on
+        run: make test-group-${{ matrix.partition }}
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-profiles-${{ matrix.partition }}
+          path: profiles/
+
+  upload-coverage:
+    name: Upload Coverage to Codecov
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: '1.23'
+
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/workspace
+
+      - name: Install gocovmerge
+        run: go install github.com/wadey/gocovmerge@latest
+
+      - name: Merge coverage reports
+        run: |
+          find /tmp/workspace -type f -name '*.out' -print0 | xargs -0 gocovmerge > coverage.txt
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.txt
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: true

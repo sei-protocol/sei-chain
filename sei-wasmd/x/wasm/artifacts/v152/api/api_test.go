@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -15,8 +14,7 @@ func TestValidateAddressFailure(t *testing.T) {
 	defer cleanup()
 
 	// create contract
-	wasm, err := ioutil.ReadFile("../../testdata/hackatom.wasm")
-	require.NoError(t, err)
+	wasm := getWasmFromFile(t, "x/wasm/keeper/testdata/hackatom.wasm")
 	checksum, err := StoreCode(cache, wasm)
 	require.NoError(t, err)
 

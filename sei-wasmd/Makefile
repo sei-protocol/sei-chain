@@ -193,3 +193,18 @@ proto-check-breaking:
 	go-mod-cache draw-deps clean build format \
 	test test-all test-build test-cover test-unit test-race \
 	test-sim-import-export \
+
+test:
+	go test -mod=readonly -timeout 8m -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+test-group-%:
+	@mkdir -p profiles
+	@PKGS_TO_TEST=$$(go list ./... | grep -v '/simulation' | awk -v partition=$* 'NR % 4 == (partition - 1)'); \
+	for pkg in $$PKGS_TO_TEST; do \
+		id=$$(echo "$$pkg" | sed 's|[/.]|_|g'); \
+		go test -mod=readonly -timeout 8m -race -coverprofile=profiles/$$id.out -covermode=atomic -tags='ledger test_ledger_mock' "$$pkg"; \
+	done
+
+# Docker
+DOCKER_IMAGE_TAG              ?= cosmwasm/wasmd:local-dev
+DOCKER_BUILD_TARGET           ?= build-wasmd

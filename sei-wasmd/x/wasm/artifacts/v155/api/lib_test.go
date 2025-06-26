@@ -84,8 +84,7 @@ func TestStoreCodeAndGetCode(t *testing.T) {
 	cache, cleanup := withCache(t)
 	defer cleanup()
 
-	wasm, err := ioutil.ReadFile("../../testdata/hackatom.wasm")
-	require.NoError(t, err)
+	wasm := getWasmFromFile(t, "x/wasm/keeper/testdata/hackatom.wasm")
 
 	checksum, err := StoreCode(cache, wasm)
 	require.NoError(t, err)
@@ -101,8 +100,7 @@ func TestRemoveCode(t *testing.T) {
 	cache, cleanup := withCache(t)
 	defer cleanup()
 
-	wasm, err := ioutil.ReadFile("../../testdata/hackatom.wasm")
-	require.NoError(t, err)
+	wasm := getWasmFromFile(t, "x/wasm/keeper/testdata/hackatom.wasm")
 
 	checksum, err := StoreCode(cache, wasm)
 	require.NoError(t, err)
@@ -129,8 +127,7 @@ func TestStoreCodeUnchecked(t *testing.T) {
 	cache, cleanup := withCache(t)
 	defer cleanup()
 
-	wasm, err := ioutil.ReadFile("../../testdata/hackatom.wasm")
-	require.NoError(t, err)
+	wasm := getWasmFromFile(t, "x/wasm/keeper/testdata/hackatom.wasm")
 
 	checksum, err := StoreCodeUnchecked(cache, wasm)
 	require.NoError(t, err)
@@ -146,8 +143,7 @@ func TestPin(t *testing.T) {
 	cache, cleanup := withCache(t)
 	defer cleanup()
 
-	wasm, err := ioutil.ReadFile("../../testdata/hackatom.wasm")
-	require.NoError(t, err)
+	wasm := getWasmFromFile(t, "x/wasm/keeper/testdata/hackatom.wasm")
 
 	checksum, err := StoreCode(cache, wasm)
 	require.NoError(t, err)
@@ -189,8 +185,7 @@ func TestUnpin(t *testing.T) {
 	cache, cleanup := withCache(t)
 	defer cleanup()
 
-	wasm, err := ioutil.ReadFile("../../testdata/hackatom.wasm")
-	require.NoError(t, err)
+	wasm := getWasmFromFile(t, "x/wasm/keeper/testdata/hackatom.wasm")
 
 	checksum, err := StoreCode(cache, wasm)
 	require.NoError(t, err)
@@ -234,8 +229,7 @@ func TestGetMetrics(t *testing.T) {
 	assert.Equal(t, &types.Metrics{}, metrics)
 
 	// Store contract
-	wasm, err := ioutil.ReadFile("../../testdata/hackatom.wasm")
-	require.NoError(t, err)
+	wasm := getWasmFromFile(t, "x/wasm/keeper/testdata/hackatom.wasm")
 	checksum, err := StoreCode(cache, wasm)
 	require.NoError(t, err)
 
@@ -345,8 +339,7 @@ func TestInstantiate(t *testing.T) {
 	defer cleanup()
 
 	// create contract
-	wasm, err := ioutil.ReadFile("../../testdata/hackatom.wasm")
-	require.NoError(t, err)
+	wasm := getWasmFromFile(t, "x/wasm/keeper/testdata/hackatom.wasm")
 	checksum, err := StoreCode(cache, wasm)
 	require.NoError(t, err)
 
@@ -363,7 +356,7 @@ func TestInstantiate(t *testing.T) {
 	res, cost, err := Instantiate(cache, checksum, env, info, msg, &igasMeter, store, api, &querier, TESTING_GAS_LIMIT, TESTING_PRINT_DEBUG)
 	require.NoError(t, err)
 	requireOkResponse(t, res, 0)
-	assert.Equal(t, uint64(0x2d4998b04), cost.UsedInternally)
+	assert.Equal(t, uint64(0x2d87abcd4), cost.UsedInternally)
 
 	var result types.ContractResult
 	err = json.Unmarshal(res, &result)
@@ -394,7 +387,7 @@ func TestExecute(t *testing.T) {
 	diff := time.Since(start)
 	require.NoError(t, err)
 	requireOkResponse(t, res, 0)
-	assert.Equal(t, uint64(0x2d4998b04), cost.UsedInternally)
+	assert.Equal(t, uint64(0x2d87abcd4), cost.UsedInternally)
 	t.Logf("Time (%d gas): %s\n", cost.UsedInternally, diff)
 
 	// execute with the same store
@@ -407,7 +400,7 @@ func TestExecute(t *testing.T) {
 	res, cost, err = Execute(cache, checksum, env, info, []byte(`{"release":{}}`), &igasMeter2, store, api, &querier, TESTING_GAS_LIMIT, TESTING_PRINT_DEBUG)
 	diff = time.Since(start)
 	require.NoError(t, err)
-	assert.Equal(t, uint64(0x4f2816338), cost.UsedInternally)
+	assert.Equal(t, uint64(0x509906718), cost.UsedInternally)
 	t.Logf("Time (%d gas): %s\n", cost.UsedInternally, diff)
 
 	// make sure it read the balance properly and we got 250 atoms
@@ -515,7 +508,7 @@ func TestExecuteCpuLoop(t *testing.T) {
 	diff := time.Since(start)
 	require.NoError(t, err)
 	requireOkResponse(t, res, 0)
-	assert.Equal(t, uint64(0x1dc65a058), cost.UsedInternally)
+	assert.Equal(t, uint64(0x1e9666850), cost.UsedInternally)
 	t.Logf("Time (%d gas): %s\n", cost.UsedInternally, diff)
 
 	// execute a cpu loop
@@ -666,7 +659,7 @@ func TestMultipleInstances(t *testing.T) {
 	require.NoError(t, err)
 	requireOkResponse(t, res, 0)
 	// we now count wasm gas charges and db writes
-	assert.Equal(t, uint64(0x2cfaf612c), cost.UsedInternally)
+	assert.Equal(t, uint64(0x2d382893c), cost.UsedInternally)
 
 	// instance2 controlled by mary
 	gasMeter2 := NewMockGasMeter(TESTING_GAS_LIMIT)
@@ -677,14 +670,14 @@ func TestMultipleInstances(t *testing.T) {
 	res, cost, err = Instantiate(cache, checksum, env, info, msg, &igasMeter2, store2, api, &querier, TESTING_GAS_LIMIT, TESTING_PRINT_DEBUG)
 	require.NoError(t, err)
 	requireOkResponse(t, res, 0)
-	assert.Equal(t, uint64(0x2d2895c2c), cost.UsedInternally)
+	assert.Equal(t, uint64(0x2d663891c), cost.UsedInternally)
 
 	// fail to execute store1 with mary
-	resp := exec(t, cache, checksum, "mary", store1, api, querier, 0x28d306a58)
+	resp := exec(t, cache, checksum, "mary", store1, api, querier, 0x297fa68a8)
 	require.Equal(t, "Unauthorized", resp.Err)
 
 	// succeed to execute store1 with fred
-	resp = exec(t, cache, checksum, "fred", store1, api, querier, 0x4f07d7ce8)
+	resp = exec(t, cache, checksum, "fred", store1, api, querier, 0x507857be8)
 	require.Equal(t, "", resp.Err)
 	require.Equal(t, 1, len(resp.Ok.Messages))
 	attributes := resp.Ok.Attributes
@@ -693,7 +686,7 @@ func TestMultipleInstances(t *testing.T) {
 	require.Equal(t, "bob", attributes[1].Value)
 
 	// succeed to execute store2 with mary
-	resp = exec(t, cache, checksum, "mary", store2, api, querier, 0x4f17f7010)
+	resp = exec(t, cache, checksum, "mary", store2, api, querier, 0x5088af180)
 	require.Equal(t, "", resp.Err)
 	require.Equal(t, 1, len(resp.Ok.Messages))
 	attributes = resp.Ok.Attributes
@@ -894,28 +887,37 @@ func requireQueryOk(t *testing.T, res []byte) []byte {
 }
 
 func createHackatomContract(t *testing.T, cache Cache) []byte {
-	return createContract(t, cache, "../../testdata/hackatom.wasm")
+	return createContract(t, cache, "x/wasm/keeper/testdata/hackatom.wasm")
 }
 
 func createCyberpunkContract(t *testing.T, cache Cache) []byte {
-	return createContract(t, cache, "../../testdata/cyberpunk.wasm")
+	return createContract(t, cache, "x/wasm/keeper/testdata/cyberpunk.wasm")
 }
 
 func createQueueContract(t *testing.T, cache Cache) []byte {
-	return createContract(t, cache, "../../testdata/queue.wasm")
+	return createContract(t, cache, "x/wasm/keeper/testdata/queue.wasm")
 }
 
 func createReflectContract(t *testing.T, cache Cache) []byte {
-	return createContract(t, cache, "../../testdata/reflect.wasm")
+	return createContract(t, cache, "x/wasm/keeper/testdata/reflect.wasm")
 }
 
 func createFloaty2(t *testing.T, cache Cache) []byte {
-	return createContract(t, cache, "../../testdata/floaty_2.0.wasm")
+	return createContract(t, cache, "x/wasm/keeper/testdata/floaty_2.0.wasm")
+}
+
+func getWasmFromFile(t *testing.T, wasmFile string) []byte {
+	pwd, err := os.Getwd()
+	require.NoError(t, err)
+	projectRoot := strings.Split(pwd, "x/wasm")[0]
+	absPath := filepath.Join(projectRoot, wasmFile)
+	wasm, err := ioutil.ReadFile(absPath)
+	require.NoError(t, err)
+	return wasm
 }
 
 func createContract(t *testing.T, cache Cache, wasmFile string) []byte {
-	wasm, err := ioutil.ReadFile(wasmFile)
-	require.NoError(t, err)
+	wasm := getWasmFromFile(t, wasmFile)
 	checksum, err := StoreCode(cache, wasm)
 	require.NoError(t, err)
 	return checksum

@@ -148,7 +148,11 @@ func TestInstantiateProposal_NoAdmin(t *testing.T) {
 		p.Admin = "invalid"
 		p.Label = "testing"
 	})
-	_, err = govKeeper.SubmitProposal(ctx, src)
+	prop, err := govKeeper.SubmitProposal(ctx, src)
+	require.NoError(t, err)
+	// execute the proposal and verify error
+	handler := govKeeper.Router().GetRoute(prop.ProposalRoute())
+	err = handler(ctx, prop.GetContent())
 	require.Error(t, err)
 
 	// test with no admin
@@ -165,7 +169,7 @@ func TestInstantiateProposal_NoAdmin(t *testing.T) {
 	require.NoError(t, err)
 
 	// and proposal execute
-	handler := govKeeper.Router().GetRoute(storedProposal.ProposalRoute())
+	handler = govKeeper.Router().GetRoute(storedProposal.ProposalRoute())
 	err = handler(ctx.WithEventManager(em), storedProposal.GetContent())
 	require.NoError(t, err)
 
@@ -304,9 +308,13 @@ func TestExecuteProposal(t *testing.T) {
 
 	em := sdk.NewEventManager()
 
-	// fails on store - this doesn't have permission
+	// fails on execute - this doesn't have permission
 	storedProposal, err := govKeeper.SubmitProposal(ctx, &badSrc)
+	require.NoError(t, err)
+	handler := govKeeper.Router().GetRoute(storedProposal.ProposalRoute())
+	err = handler(ctx.WithEventManager(em), storedProposal.GetContent())
 	require.Error(t, err)
+
 	// balance should not change
 	bal = bankKeeper.GetBalance(ctx, contractAddr, "denom")
 	require.Equal(t, bal.Amount, sdk.NewInt(100))
@@ -327,7 +335,7 @@ func TestExecuteProposal(t *testing.T) {
 	require.NoError(t, err)
 
 	// and proposal execute
-	handler := govKeeper.Router().GetRoute(storedProposal.ProposalRoute())
+	handler = govKeeper.Router().GetRoute(storedProposal.ProposalRoute())
 	err = handler(ctx.WithEventManager(em), storedProposal.GetContent())
 	require.NoError(t, err)
 
@@ -640,15 +648,15 @@ func TestPinCodesProposal(t *testing.T) {
 
 			// when stored
 			storedProposal, gotErr := govKeeper.SubmitProposal(ctx, &proposal)
-			if spec.expErr {
-				require.Error(t, gotErr)
-				return
-			}
 			require.NoError(t, gotErr)
 
 			// and proposal execute
 			handler := govKeeper.Router().GetRoute(storedProposal.ProposalRoute())
 			gotErr = handler(ctx, storedProposal.GetContent())
+			if spec.expErr {
+				require.Error(t, gotErr)
+				return
+			}
 			require.NoError(t, gotErr)
 
 			// then
@@ -728,15 +736,15 @@ func TestUnpinCodesProposal(t *testing.T) {
 
 			// when stored
 			storedProposal, gotErr := govKeeper.SubmitProposal(ctx, &proposal)
-			if spec.expErr {
-				require.Error(t, gotErr)
-				return
-			}
 			require.NoError(t, gotErr)
 
 			// and proposal execute
 			handler := govKeeper.Router().GetRoute(storedProposal.ProposalRoute())
 			gotErr = handler(ctx, storedProposal.GetContent())
+			if spec.expErr {
+				require.Error(t, gotErr)
+				return
+			}
 			require.NoError(t, gotErr)
 
 			// then
@@ -822,15 +830,15 @@ func TestUpdateInstantiateConfigProposal(t *testing.T) {
 
 			// when stored
 			storedProposal, gotErr := govKeeper.SubmitProposal(ctx, &proposal)
-			if spec.expErr {
-				require.Error(t, gotErr)
-				return
-			}
 			require.NoError(t, gotErr)
 
 			// and proposal execute
 			handler := govKeeper.Router().GetRoute(storedProposal.ProposalRoute())
 			gotErr = handler(ctx, storedProposal.GetContent())
+			if spec.expErr {
+				require.Error(t, gotErr)
+				return
+			}
 			require.NoError(t, gotErr)
 
 			// then
