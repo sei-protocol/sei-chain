@@ -3,6 +3,7 @@ package evmrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"slices"
 	"time"
@@ -252,6 +253,15 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 		receipt, err := i.keeper.GetReceipt(i.ctxProvider(LatestCtxHeight), ethtx.Hash())
 		if err != nil {
 			return nil, err
+		}
+		receiptEffectiveGasPrice := new(big.Int).SetUint64(receipt.EffectiveGasPrice)
+		if receiptEffectiveGasPrice.Cmp(baseFee) < 0 {
+			// if effective gas price is 0, it's expected behavior for txs that failed ante.
+			// if it's not zero but still smaller than baseFee then something is wrong.
+			if receiptEffectiveGasPrice.Cmp(common.Big0) != 0 {
+				fmt.Printf("Error: tx %s has an unexpected gas price %s set on its receipt\n", ethtx.Hash().Hex(), receiptEffectiveGasPrice)
+			}
+			continue
 		}
 		reward := new(big.Int).Sub(new(big.Int).SetUint64(receipt.EffectiveGasPrice), baseFee)
 		GasAndRewards = append(GasAndRewards, GasAndReward{GasUsed: receipt.GasUsed, Reward: reward})
