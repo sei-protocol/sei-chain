@@ -126,13 +126,14 @@ func testTx(t *testing.T, txHash string, expectedGasUsed string, expectedOutput 
 	})
 	s.Run(
 		func(port int) {
-			res := sendRequestWithNamespace(
+			raw := sendRequestWithNamespace(
 				"debug", port, "traceTransaction",
 				common.HexToHash(txHash).Hex(),
 				map[string]interface{}{
 					"tracer": "callTracer",
 				},
-			)["result"].(map[string]interface{})
+			)
+			res := raw["result"].(map[string]interface{})
 			if hasErr {
 				require.Contains(t, res, "error")
 			}

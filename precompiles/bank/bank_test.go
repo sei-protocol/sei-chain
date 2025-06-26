@@ -149,7 +149,7 @@ func TestRun(t *testing.T) {
 
 	// send the transaction
 	msgServer := keeper.NewMsgServerImpl(k)
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
 	ctx, err = ante.NewEVMFeeCheckDecorator(k, upgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
 		return ctx, nil

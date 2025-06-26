@@ -31,10 +31,10 @@ jobs:
       - name: Run Forge build
         run: |
           forge --version
-          forge build --evm-version=cancun
+          forge build --evm-version=prague
         id: build
 
       - name: Run Forge tests
         run: |
-          forge test -vvv --evm-version=cancun
+          forge test -vvv --evm-version=prague
         id: test

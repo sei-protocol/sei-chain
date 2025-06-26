@@ -1,11 +1,11 @@
 package state_test
 
 import (
-	"math/big"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/core/tracing"
+	"github.com/holiman/uint256"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/stretchr/testify/require"
@@ -26,7 +26,7 @@ func TestExist(t *testing.T) {
 
 	// has balance
 	_, addr3 := testkeeper.MockAddressPair()
-	statedb.AddBalance(addr3, big.NewInt(1000000000000), tracing.BalanceChangeUnspecified)
+	statedb.AddBalance(addr3, uint256.NewInt(1000000000000), tracing.BalanceChangeUnspecified)
 	require.True(t, statedb.Exist(addr3))
 
 	// destructed
@@ -44,16 +44,16 @@ func TestEmpty(t *testing.T) {
 	require.True(t, statedb.Empty(addr))
 
 	// has balance
-	statedb.AddBalance(addr, big.NewInt(1000000000000), tracing.BalanceChangeUnspecified)
+	statedb.AddBalance(addr, uint256.NewInt(1000000000000), tracing.BalanceChangeUnspecified)
 	require.False(t, statedb.Empty(addr))
 
 	// has non-zero nonce
-	statedb.SubBalance(addr, big.NewInt(1000000000000), tracing.BalanceChangeUnspecified)
-	statedb.SetNonce(addr, 1)
+	statedb.SubBalance(addr, uint256.NewInt(1000000000000), tracing.BalanceChangeUnspecified)
+	statedb.SetNonce(addr, 1, tracing.NonceChangeEoACall)
 	require.False(t, statedb.Empty(addr))
 
 	// has code
-	statedb.SetNonce(addr, 0)
+	statedb.SetNonce(addr, 0, tracing.NonceChangeEoACall)
 	statedb.SetCode(addr, []byte{1})
 	require.False(t, statedb.Empty(addr))
 }
