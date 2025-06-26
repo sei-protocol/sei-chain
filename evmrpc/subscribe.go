@@ -130,8 +130,6 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 				}
 			case <-rpcSub.Err():
 				break OUTER
-			case <-notifier.Closed():
-				break OUTER
 			}
 		}
 		a.newHeadListenersMtx.Lock()

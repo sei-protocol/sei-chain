@@ -65,7 +65,7 @@ func TestEstimateGas(t *testing.T) {
 	}
 	resObj = sendRequestGood(t, "estimateGas", txArgs, nil, map[string]interface{}{})
 	result = resObj["result"].(string)
-	require.Equal(t, "0x53f9", result) // 21497
+	require.Equal(t, "0x54ac", result) // 21497
 
 	Ctx = Ctx.WithBlockHeight(8)
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
@@ -113,9 +114,13 @@ func testIngester(testFilePath string, testName string) *ethtests.BlockTest {
 		panic(err)
 	}
 
-	res, ok := tests[testName]
+	fullTestname := fmt.Sprintf(
+		"%s::%s",
+		strings.TrimPrefix(testFilePath, "./ethtests/"), testName,
+	)
+	res, ok := tests[fullTestname]
 	if !ok {
-		panic(fmt.Sprintf("Unable to find test name %v at test file path %v", testName, testFilePath))
+		panic(fmt.Sprintf("Unable to find test name %v at test file path %v", fullTestname, testFilePath))
 	}
 
 	return &res

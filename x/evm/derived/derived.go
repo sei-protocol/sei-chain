@@ -11,6 +11,7 @@ type SignerVersion int
 const (
 	London SignerVersion = iota
 	Cancun
+	Prague
 )
 
 type Derived struct {

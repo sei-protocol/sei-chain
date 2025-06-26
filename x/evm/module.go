@@ -302,12 +302,26 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 				panic(err)
 			}
 			statedb := state.NewDBImpl(ctx, am.keeper, false)
-			vmenv := vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{}, am.keeper.CustomPrecompiles(ctx))
-			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv, statedb)
+			vmenv := vm.NewEVM(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{}, am.keeper.CustomPrecompiles(ctx))
+			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv)
 			_, err = statedb.Finalize()
 			if err != nil {
 				panic(err)
 			}
+		}
+	}
+	if am.keeper.EthBlockTestConfig.Enabled {
+		parentHash := common.BytesToHash(ctx.BlockHeader().LastBlockId.Hash)
+		blockCtx, err := am.keeper.GetVMBlockContext(ctx, core.GasPool(math.MaxUint64))
+		if err != nil {
+			panic(err)
+		}
+		statedb := state.NewDBImpl(ctx, am.keeper, false)
+		vmenv := vm.NewEVM(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{}, am.keeper.CustomPrecompiles(ctx))
+		core.ProcessParentBlockHash(parentHash, vmenv)
+		_, err = statedb.Finalize()
+		if err != nil {
+			panic(err)
 		}
 	}
 }

@@ -12,3 +12,4 @@ npx hardhat test --network seilocal test/ERC721toCW721PointerTest.js
 npx hardhat test --network seilocal test/CW1155toERC1155PointerTest.js
 npx hardhat test --network seilocal test/ERC1155toCW1155PointerTest.js
 npx hardhat test --network seilocal test/SeiSoloTest.js
+npx hardhat test --network seilocal test/SetCodeTxTest.js

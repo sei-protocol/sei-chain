@@ -63,7 +63,7 @@ func TestSimple(t *testing.T) {
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -97,7 +97,7 @@ func TestSimple(t *testing.T) {
 	require.Nil(t, err)
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
