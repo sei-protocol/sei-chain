@@ -8,6 +8,14 @@
       "value": {
         "quorum":"0.45"
       }
+    },
+    {
+      "subspace": "baseapp",
+      "key": "ABCIParams",
+      "value": {
+        "vote_extensions_enable_height": "0",
+        "recheck_tx": true
+      }
     }
   ],
   "deposit": "10000000usei",

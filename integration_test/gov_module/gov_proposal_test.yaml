@@ -25,11 +25,15 @@
       env: PROPOSAL_STATUS
     # Get the tally params again after proposal is passed
     - cmd: seid q gov params --output json | jq -r .tally_params.quorum
-      env: NEW_PARAM
+      env: NEW_TALLY_PARAM
+    - cmd: seid q params subspace baseapp ABCIParams --output json |jq -r .value |jq .recheck_tx
+      env: NEW_ABCI_PARAM
   verifiers:
     # Check if the new params matches the expected value after proposal
     - type: eval
-      expr: NEW_PARAM == "0.450000000000000000"
+      expr: NEW_TALLY_PARAM == "0.450000000000000000"
+    - type: eval
+      expr: NEW_ABCI_PARAM == "true"
 
 - name: Test expedited proposal should respect expedited_voting_period
   inputs:
