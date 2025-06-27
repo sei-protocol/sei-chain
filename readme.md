@@ -1,4 +1,4 @@
-# Sei
+# Sei with MEV by MEVVY!
 
 ![Banner!](assets/SeiLogo.png)
 
