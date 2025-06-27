@@ -1,8 +1,9 @@
 package precompiles
 
 import (
-	"github.com/sei-protocol/sei-chain/precompiles/p256"
 	"sync"
+
+	"github.com/sei-protocol/sei-chain/precompiles/p256"
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/client"
