@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -32,6 +33,7 @@ func NewEVMHTTPServer(
 	config Config,
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
+	wk *wasmkeeper.Keeper,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	ctxProvider func(int64) sdk.Context,
@@ -136,6 +138,17 @@ func NewEVMHTTPServer(
 			Service:   seiDebugAPI,
 		},
 	}
+
+	if config.EnableReportAPI {
+		logger.Info("Enabling Report API")
+		apis = append(apis, rpc.API{
+			Namespace: "sei",
+			Service:   NewReportAPI(k, wk, ctxProvider),
+		})
+	} else {
+		logger.Info("Disabling Report API", "enableReportAPI", config.EnableReportAPI)
+	}
+
 	// Test API can only exist on non-live chain IDs.  These APIs instrument certain overrides.
 	if config.EnableTestAPI && !evmCfg.IsLiveChainID(ctx) {
 		logger.Info("Enabling Test EVM APIs")
