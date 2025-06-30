@@ -18,7 +18,10 @@ func LogPath(dir string) string {
 
 // GetLastIndex returns the last written index of the replay log
 func GetLastIndex(dir string) (index uint64, err error) {
-	rlog, err := open(dir, nil)
+	rlog, err := open(dir, &wal.Options{
+		NoSync: true,
+		NoCopy: true,
+	})
 	if err != nil {
 		return 0, err
 	}

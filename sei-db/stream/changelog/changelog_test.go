@@ -158,3 +158,25 @@ func TestAsyncWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(3), lastIndex)
 }
+
+func TestOpenWithNilOptions(t *testing.T) {
+	dir := t.TempDir()
+
+	// Test that open function handles nil options correctly
+	log, err := open(dir, nil)
+	require.NoError(t, err)
+	require.NotNil(t, log)
+
+	// Verify the log is functional by checking first and last index
+	firstIndex, err := log.FirstIndex()
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), firstIndex)
+
+	lastIndex, err := log.LastIndex()
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), lastIndex)
+
+	// Clean up
+	err = log.Close()
+	require.NoError(t, err)
+}
