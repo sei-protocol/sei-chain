@@ -38,7 +38,7 @@ func TransactionDependencyGenerator(_ aclkeeper.Keeper, evmKeeper evmkeeper.Keep
 		return []sdkacltypes.AccessOperation{*acltypes.CommitAccessOp()}, nil
 	}
 
-	if err := ante.Preprocess(ctx, evmMsg); err != nil {
+	if err := ante.Preprocess(ctx, evmMsg, evmKeeper.ChainID(ctx)); err != nil {
 		return []sdkacltypes.AccessOperation{}, err
 	}
 	ops := []sdkacltypes.AccessOperation{}

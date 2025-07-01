@@ -11,7 +11,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/lib/ethapi"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/stretchr/testify/require"
 )
 
@@ -84,7 +84,7 @@ func TestTraceHistoricalPrecompiles(t *testing.T) {
 	txData := jsonExtractAsBytesFromArray(0).(*ethtypes.DynamicFeeTx)
 	SetupTestServer([][][]byte{{}, {}, {}}, mnemonicInitializer(mnemonic1), mockUpgrade("v5.5.2", 1), mockUpgrade(app.LatestUpgrade, 3)).Run(
 		func(port int) {
-			args := ethapi.TransactionArgs{
+			args := export.TransactionArgs{
 				From:     &from,
 				To:       txData.To,
 				Gas:      (*hexutil.Uint64)(&txData.Gas),

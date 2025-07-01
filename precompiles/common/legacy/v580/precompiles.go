@@ -86,14 +86,14 @@ func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract comm
 
 func HandlePrecompileError(err error, evm *vm.EVM, operation string) {
 	if err != nil {
-		evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+		state.GetDBImpl(evm.StateDB).SetPrecompileError(err)
 		metrics.IncrementErrorMetrics(operation, err)
 	}
 }
 
 func (p Precompile) Prepare(evm *vm.EVM, input []byte) (sdk.Context, *abi.Method, []interface{}, error) {
-	ctxer, ok := evm.StateDB.(Contexter)
-	if !ok {
+	ctxer := state.GetDBImpl(evm.StateDB)
+	if ctxer == nil {
 		return sdk.Context{}, nil, nil, errors.New("cannot get context from EVM")
 	}
 	methodID, err := ExtractMethodID(input)

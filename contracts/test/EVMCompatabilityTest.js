@@ -356,7 +356,7 @@ describe("EVM Test", function () {
         expect(trace).to.not.be.null;
         expect(trace.gas).to.equal(21000);
         expect(trace.failed).to.be.false;
-        expect(trace.returnValue).to.equal('');
+        expect(trace.returnValue).to.equal('0x');
         expect(trace.structLogs).to.deep.equal([]);
       })
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/holiman/uint256"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -75,19 +76,19 @@ func TestABCI(t *testing.T) {
 	m.BeginBlock(ctx, abci.RequestBeginBlock{})
 	// 1st tx
 	s := state.NewDBImpl(ctx.WithTxIndex(1), k, false)
-	s.SubBalance(evmAddr1, big.NewInt(10000000000000), tracing.BalanceChangeUnspecified)
-	s.AddBalance(evmAddr2, big.NewInt(8000000000000), tracing.BalanceChangeUnspecified)
+	s.SubBalance(evmAddr1, uint256.NewInt(10000000000000), tracing.BalanceChangeUnspecified)
+	s.AddBalance(evmAddr2, uint256.NewInt(8000000000000), tracing.BalanceChangeUnspecified)
 	feeCollectorAddr, err := k.GetFeeCollectorAddress(ctx)
 	require.Nil(t, err)
-	s.AddBalance(feeCollectorAddr, big.NewInt(2000000000000), tracing.BalanceChangeUnspecified)
+	s.AddBalance(feeCollectorAddr, uint256.NewInt(2000000000000), tracing.BalanceChangeUnspecified)
 	surplus, err := s.Finalize()
 	require.Nil(t, err)
 	require.Equal(t, sdk.ZeroInt(), surplus)
 	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(1), ethtypes.Bloom{}, common.Hash{4}, surplus)
 	// 3rd tx
 	s = state.NewDBImpl(ctx.WithTxIndex(3), k, false)
-	s.SubBalance(evmAddr2, big.NewInt(5000000000000), tracing.BalanceChangeUnspecified)
-	s.AddBalance(evmAddr1, big.NewInt(5000000000000), tracing.BalanceChangeUnspecified)
+	s.SubBalance(evmAddr2, uint256.NewInt(5000000000000), tracing.BalanceChangeUnspecified)
+	s.AddBalance(evmAddr1, uint256.NewInt(5000000000000), tracing.BalanceChangeUnspecified)
 	surplus, err = s.Finalize()
 	require.Nil(t, err)
 	require.Equal(t, sdk.ZeroInt(), surplus)
@@ -102,8 +103,8 @@ func TestABCI(t *testing.T) {
 	m.BeginBlock(ctx, abci.RequestBeginBlock{})
 	// 2nd tx
 	s = state.NewDBImpl(ctx.WithTxIndex(2), k, false)
-	s.SubBalance(evmAddr2, big.NewInt(3000000000000), tracing.BalanceChangeUnspecified)
-	s.AddBalance(evmAddr1, big.NewInt(2000000000000), tracing.BalanceChangeUnspecified)
+	s.SubBalance(evmAddr2, uint256.NewInt(3000000000000), tracing.BalanceChangeUnspecified)
+	s.AddBalance(evmAddr1, uint256.NewInt(2000000000000), tracing.BalanceChangeUnspecified)
 	surplus, err = s.Finalize()
 	require.Nil(t, err)
 	require.Equal(t, sdk.NewInt(1000000000000), surplus)

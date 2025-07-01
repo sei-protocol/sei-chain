@@ -1,6 +1,6 @@
 # docker build . -t sei-protocol/sei:latest
 # docker run --rm -it sei-protocol/sei:latest /bin/sh
-FROM golang:1.21.4-alpine AS go-builder
+FROM golang:1.23.0-alpine AS go-builder
 
 # this comes from standard alpine nightly file
 #  https://github.com/rust-lang/docker-rust-nightly/blob/master/alpine3.12/Dockerfile

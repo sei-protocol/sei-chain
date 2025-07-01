@@ -8,7 +8,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/lib/ethapi"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -32,12 +32,12 @@ func NewTxPoolAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(
 }
 
 // For now, we put all unconfirmed txs in pending and none in queued
-func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]map[string]*ethapi.RPCTransaction, returnErr error) {
+func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]map[string]*export.RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("sei_content", t.connectionType, startTime, returnErr == nil)
-	content := map[string]map[string]map[string]*ethapi.RPCTransaction{
-		"pending": make(map[string]map[string]*ethapi.RPCTransaction),
-		"queued":  make(map[string]map[string]*ethapi.RPCTransaction),
+	content := map[string]map[string]map[string]*export.RPCTransaction{
+		"pending": make(map[string]map[string]*export.RPCTransaction),
+		"queued":  make(map[string]map[string]*export.RPCTransaction),
 	}
 
 	total := t.txPoolConfig.maxNumTxs
@@ -65,10 +65,10 @@ func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]m
 
 		nonce := ethTx.Nonce()
 		chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx))
-		res := ethapi.NewRPCPendingTransaction(ethTx, nil, chainConfig)
+		res := export.NewRPCPendingTransaction(ethTx, nil, chainConfig)
 		nonceStr := strconv.FormatUint(nonce, 10)
 		if content["pending"][fromAddr.String()] == nil {
-			content["pending"][fromAddr.String()] = map[string]*ethapi.RPCTransaction{
+			content["pending"][fromAddr.String()] = map[string]*export.RPCTransaction{
 				nonceStr: res,
 			}
 		} else {

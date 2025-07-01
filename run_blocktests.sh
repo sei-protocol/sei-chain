@@ -81,9 +81,9 @@ for test_path in $block_tests; do
         continue
     fi
 
-    # Check if "${test_name}_Cancun" is not in the test file
-    if ! grep -q "${test_name}_Cancun" "$test_path"; then
-        echo "Skipping test due to missing Cancun tag: $test_path"
+    # Check if "${test_name}_Prague" is not in the test file
+    if ! grep -q "${test_name}_Prague" "$test_path"; then
+        echo "Skipping test due to missing Prague tag: $test_path"
         continue
     fi
 
@@ -98,9 +98,9 @@ for test_path in $block_tests; do
 
     echo -e "\n*********************************************************\n"
     echo "Running block test: $test_path"
-    echo "test name: ${test_name}_Cancun"
+    echo "test name: ${test_name}_Prague"
     echo -e "\n*********************************************************\n"
     rm -r ~/.sei || true
     NO_RUN=1 ./scripts/initialize_local_chain.sh
-    seid blocktest --block-test $test_path --test-name "${test_name}_Cancun"
+    seid blocktest --block-test $test_path --test-name "${test_name}_Prague"
 done

@@ -3,6 +3,8 @@ package precompiles
 import (
 	"sync"
 
+	"github.com/sei-protocol/sei-chain/precompiles/p256"
+
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/client"
 	ibctransferkeeper "github.com/cosmos/ibc-go/v3/modules/apps/transfer/keeper"
@@ -274,6 +276,10 @@ func GetCustomPrecompiles(
 		latestUpgrade: check(solo.NewPrecompile(evmKeeper, bankKeeper, accountKeeper, wasmdKeeper, wasmdViewKeeper, txConfig)),
 	}
 
+	p256Versions := VersionedPrecompiles{
+		latestUpgrade: check(p256.NewPrecompile()),
+	}
+
 	return map[ecommon.Address]VersionedPrecompiles{
 		ecommon.HexToAddress(bank.BankAddress):               bankVersions,
 		ecommon.HexToAddress(wasmd.WasmdAddress):             wasmdVersions,
@@ -287,6 +293,7 @@ func GetCustomPrecompiles(
 		ecommon.HexToAddress(pointer.PointerAddress):         pointerVersions,
 		ecommon.HexToAddress(pointerview.PointerViewAddress): pointerviewVersions,
 		ecommon.HexToAddress(solo.SoloAddress):               soloVersions,
+		ecommon.HexToAddress(p256.P256VerifyAddress):         p256Versions,
 	}
 }
 
@@ -357,6 +364,12 @@ func InitializePrecompiles(
 	if err != nil {
 		return err
 	}
+
+	p256p, err := p256.NewPrecompile()
+	if err != nil {
+		return err
+	}
+
 	PrecompileNamesToInfo[bankp.GetName()] = PrecompileInfo{ABI: bankp.GetABI(), Address: bankp.Address()}
 	PrecompileNamesToInfo[wasmdp.GetName()] = PrecompileInfo{ABI: wasmdp.GetABI(), Address: wasmdp.Address()}
 	PrecompileNamesToInfo[jsonp.GetName()] = PrecompileInfo{ABI: jsonp.GetABI(), Address: jsonp.Address()}
@@ -368,6 +381,8 @@ func InitializePrecompiles(
 	PrecompileNamesToInfo[ibcp.GetName()] = PrecompileInfo{ABI: ibcp.GetABI(), Address: ibcp.Address()}
 	PrecompileNamesToInfo[pointerp.GetName()] = PrecompileInfo{ABI: pointerp.GetABI(), Address: pointerp.Address()}
 	PrecompileNamesToInfo[pointerviewp.GetName()] = PrecompileInfo{ABI: pointerviewp.GetABI(), Address: pointerviewp.Address()}
+	PrecompileNamesToInfo[p256p.GetName()] = PrecompileInfo{ABI: p256p.GetABI(), Address: p256p.Address()}
+
 	if !dryRun {
 		addPrecompileToVM(bankp)
 		addPrecompileToVM(wasmdp)
@@ -380,6 +395,7 @@ func InitializePrecompiles(
 		addPrecompileToVM(ibcp)
 		addPrecompileToVM(pointerp)
 		addPrecompileToVM(pointerviewp)
+		addPrecompileToVM(p256p)
 		Initialized = true
 	}
 	return nil
