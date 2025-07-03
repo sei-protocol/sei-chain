@@ -3,6 +3,7 @@ package native_test
 import (
 	"encoding/hex"
 	"math/big"
+	"sync"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -101,4 +102,19 @@ func TestSimple(t *testing.T) {
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
+}
+
+// run with `-race`
+func TestGetBinConcurrent(t *testing.T) {
+	var wg sync.WaitGroup
+
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(val int) {
+			defer wg.Done()
+			require.NotEmpty(t, native.GetBin())
+		}(i)
+	}
+
+	wg.Wait()
 }
