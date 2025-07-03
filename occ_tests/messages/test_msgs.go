@@ -11,6 +11,8 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
+	"github.com/sei-protocol/sei-chain/precompiles"
+	"github.com/sei-protocol/sei-chain/precompiles/pointer"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -132,5 +134,72 @@ func GovernanceSubmitProposal(tCtx *utils.TestContext, count int) []*utils.TestM
 		}
 		msgs = append(msgs, &utils.TestMessage{Msg: mp, Type: "GovernanceSubmitProposal"})
 	}
+	return msgs
+}
+
+// ERC20toCWAssets generates messages that register EVM pointers to CW20 assets
+// This creates ERC20 pointers to previously deployed CW20 tokens using an EVM transaction to the precompile
+func ERC20toCWAssets(tCtx *utils.TestContext, count int) []*utils.TestMessage {
+	var msgs []*utils.TestMessage
+
+	// Get the pointer precompile information
+	pInfo := precompiles.GetPrecompileInfo(pointer.PrecompileName)
+	pointerAddress := common.HexToAddress(pointer.PointerAddress)
+
+	// Generate EVM transactions to register CW20 pointers
+	for i := 0; i < count; i++ {
+		contractAddr := tCtx.CW20Addrs[i]
+
+		// Get the payload for calling the precompile's addCW20Pointer method
+		_, exists := pInfo.ABI.Methods[pointer.AddCW20Pointer]
+		if !exists {
+			panic(fmt.Sprintf("Method %s not found in ABI", pointer.AddCW20Pointer))
+		}
+
+		// Pack the method call with the CW20 contract address
+		payload, err := pInfo.ABI.Pack(pointer.AddCW20Pointer, contractAddr)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to pack method call: %v", err))
+		}
+
+		// Create the EVM transaction
+		testAcct := utils.NewSigner()
+
+		// Create and sign the transaction
+		tx := ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+			ChainID:   tCtx.TestApp.EvmKeeper.ChainID(tCtx.Ctx),
+			Nonce:     0,
+			GasFeeCap: new(big.Int).SetUint64(100000000000),
+			GasTipCap: new(big.Int).SetUint64(100000000000),
+			Gas:       1000000,
+			To:        &pointerAddress,
+			Value:     big.NewInt(0),
+			Data:      payload,
+		})
+
+		signedTx, err := ethtypes.SignTx(tx, testAcct.EvmSigner, testAcct.EvmPrivateKey)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to sign transaction: %v", err))
+		}
+
+		// Create the MsgEVMTransaction
+		txData, err := ethtx.NewTxDataFromTx(signedTx)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to convert transaction: %v", err))
+		}
+
+		msg, err := types.NewMsgEVMTransaction(txData)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to create EVM transaction message: %v", err))
+		}
+
+		msgs = append(msgs, &utils.TestMessage{
+			Msg:       msg,
+			IsEVM:     true,
+			EVMSigner: testAcct,
+			Type:      "ERC20toCWAssets",
+		})
+	}
+
 	return msgs
 }

@@ -154,6 +154,15 @@ func TestParallelTransactions(t *testing.T) {
 			},
 		},
 		{
+			name: "Test pointer creation",
+			runs: runs,
+			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+				return utils.JoinMsgs(
+					messages.ERC20toCWAssets(tCtx, 10),
+				)
+			},
+		},
+		{
 			name:    "Test combinations",
 			runs:    runs,
 			shuffle: true,
