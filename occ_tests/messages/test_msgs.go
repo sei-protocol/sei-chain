@@ -171,7 +171,7 @@ func ERC20toCWAssets(tCtx *utils.TestContext, count int) []*utils.TestMessage {
 			Nonce:     0,
 			GasFeeCap: new(big.Int).SetUint64(100000000000),
 			GasTipCap: new(big.Int).SetUint64(100000000000),
-			Gas:       1000000,
+			Gas:       100000000,
 			To:        &pointerAddress,
 			Value:     big.NewInt(0),
 			Data:      payload,

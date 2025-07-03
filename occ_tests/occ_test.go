@@ -172,6 +172,7 @@ func TestParallelTransactions(t *testing.T) {
 					messages.BankTransfer(tCtx, 10),
 					messages.GovernanceSubmitProposal(tCtx, 10),
 					messages.EVMTransferConflicting(tCtx, 10),
+					messages.ERC20toCWAssets(tCtx, 10),
 					messages.EVMTransferNonConflicting(tCtx, 10),
 				)
 			},

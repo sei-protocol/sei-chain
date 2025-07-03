@@ -54,6 +54,7 @@ type TestMessage struct {
 type TestContext struct {
 	Ctx            sdk.Context
 	CodeID         uint64
+	CW20CodeID     uint64
 	Validator      TestAcct
 	TestAccounts   []TestAcct
 	ContractKeeper *wasmkeeper.PermissionedKeeper
@@ -138,7 +139,7 @@ func deployCW20Token(tCtx *TestContext, i int) (string, error) {
 	// Execute the message to instantiate the contract
 	contractAddr, _, err := tCtx.ContractKeeper.Instantiate(
 		tCtx.Ctx,
-		tCtx.CodeID,
+		tCtx.CW20CodeID,
 		tCtx.TestAccounts[0].AccountAddress,
 		tCtx.TestAccounts[0].AccountAddress,
 		[]byte(instantiateMsgCW20),
@@ -156,7 +157,9 @@ func deployCW20Token(tCtx *TestContext, i int) (string, error) {
 // NewTestContext initializes a new TestContext with a new app and a new contract
 func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, workers int, occEnabled bool) *TestContext {
 	contractFile := "../integration_test/contracts/mars.wasm"
-	wrapper := app.NewTestWrapper(t, blockTime, testAccts[0].PublicKey, false, func(ba *baseapp.BaseApp) {
+	cw20ContractFile := "../contracts/wasm/cw20_base.wasm"
+	
+	wrapper := app.NewTestWrapper(t, blockTime, testAccts[0].PublicKey, true, func(ba *baseapp.BaseApp) {
 		ba.SetOccEnabled(occEnabled)
 		ba.SetConcurrencyWorkers(workers)
 	})
@@ -174,6 +177,12 @@ func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, wor
 	var perm *wasmxtypes.AccessConfig
 	codeID, err := contractKeeper.Create(ctx, testAccts[0].AccountAddress, wasm, perm)
 	panicIfErr(err)
+	
+	// Upload the CW20 contract
+	cw20Wasm, err := os.ReadFile(cw20ContractFile)
+	panicIfErr(err)
+	cw20CodeID, err := contractKeeper.Create(ctx, testAccts[0].AccountAddress, cw20Wasm, perm)
+	panicIfErr(err)
 
 	for _, ta := range testAccts {
 		panicIfErr(bankkeeper.MintCoins(ctx, minttypes.ModuleName, amounts))
@@ -183,6 +192,7 @@ func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, wor
 	tctx := &TestContext{
 		Ctx:            ctx,
 		CodeID:         codeID,
+		CW20CodeID:     cw20CodeID,
 		Validator:      testAccts[0],
 		TestAccounts:   testAccts,
 		ContractKeeper: contractKeeper,
