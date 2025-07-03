@@ -158,7 +158,7 @@ func deployCW20Token(tCtx *TestContext, i int) (string, error) {
 func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, workers int, occEnabled bool) *TestContext {
 	contractFile := "../integration_test/contracts/mars.wasm"
 	cw20ContractFile := "../contracts/wasm/cw20_base.wasm"
-	
+
 	wrapper := app.NewTestWrapper(t, blockTime, testAccts[0].PublicKey, true, func(ba *baseapp.BaseApp) {
 		ba.SetOccEnabled(occEnabled)
 		ba.SetConcurrencyWorkers(workers)
@@ -177,7 +177,7 @@ func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, wor
 	var perm *wasmxtypes.AccessConfig
 	codeID, err := contractKeeper.Create(ctx, testAccts[0].AccountAddress, wasm, perm)
 	panicIfErr(err)
-	
+
 	// Upload the CW20 contract
 	cw20Wasm, err := os.ReadFile(cw20ContractFile)
 	panicIfErr(err)
