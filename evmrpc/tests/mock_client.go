@@ -180,6 +180,10 @@ func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*c
 	}
 }
 
+func (c *MockClient) UnconfirmedTxs(context.Context, *int, *int) (*coretypes.ResultUnconfirmedTxs, error) {
+	return &coretypes.ResultUnconfirmedTxs{}, nil
+}
+
 func mockHash(height int64, prefix int64) tmbytes.HexBytes {
 	heightBz, prefixBz := make([]byte, 8), make([]byte, 8)
 	binary.BigEndian.PutUint64(heightBz, uint64(height))
