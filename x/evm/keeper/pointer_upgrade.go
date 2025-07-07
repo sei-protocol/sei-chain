@@ -1,6 +1,7 @@
 package keeper
 
 import (
+	"fmt"
 	"math"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -97,6 +98,7 @@ func (k *Keeper) UpsertERCPointer(
 		panic(err)
 	}
 	bin = append(artifacts.GetBin(typ), bin...)
+	ctx.Logger().Info(fmt.Sprintf("TONYDEBUG: block %d tx %d created pointer with bin %X", ctx.BlockHeight(), ctx.TxIndex(), bin))
 	existingAddr, _, exists := getter(ctx, pointee)
 	suppliedGas := k.getEvmGasLimitFromCtx(ctx)
 	var remainingGas uint64
