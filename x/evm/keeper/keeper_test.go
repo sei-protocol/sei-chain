@@ -273,6 +273,7 @@ func TestAddPendingNonce(t *testing.T) {
 
 func TestGetCustomPrecompiles(t *testing.T) {
 	k, ctx := keeper.MockEVMKeeperPrecompiles()
+	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(160000000), "v6.2.0")
 	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(150000000), "v6.1.0")
 	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(140000000), "v6.0.6")
 	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(139936278), "v6.0.5")
@@ -287,7 +288,11 @@ func TestGetCustomPrecompiles(t *testing.T) {
 	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(84006014), "v5.5.5")
 	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(79123881), "v5.5.2")
 	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(73290488), "v3.9.0")
-	ps := k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(150000001))
+	ps := k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(160000001))
+	for _, v := range ps {
+		require.Equal(t, "v6.2.0", v)
+	}
+	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(150000001))
 	for _, v := range ps {
 		require.Equal(t, "v6.1.0", v)
 	}

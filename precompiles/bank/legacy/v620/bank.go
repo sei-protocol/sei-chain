@@ -1,4 +1,4 @@
-package v610
+package v620
 
 import (
 	"embed"
@@ -13,7 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
-	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v610"
+	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v620"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/tendermint/tendermint/libs/log"
 )
