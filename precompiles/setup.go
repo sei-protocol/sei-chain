@@ -103,7 +103,7 @@ import (
 	pointerviewv605 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v605"
 	pointerviewv606 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v606"
 	pointerviewv610 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v610"
-	pointerviewv620 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v610"
+	pointerviewv620 "github.com/sei-protocol/sei-chain/precompiles/pointerview/legacy/v620"
 	"github.com/sei-protocol/sei-chain/precompiles/solo"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
 	stakingv552 "github.com/sei-protocol/sei-chain/precompiles/staking/legacy/v552"
