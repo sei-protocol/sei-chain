@@ -154,6 +154,15 @@ func TestParallelTransactions(t *testing.T) {
 			},
 		},
 		{
+			name: "Test pointer creation",
+			runs: runs,
+			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+				return utils.JoinMsgs(
+					messages.ERC20toCWAssets(tCtx, 10),
+				)
+			},
+		},
+		{
 			name:    "Test combinations",
 			runs:    runs,
 			shuffle: true,
@@ -163,6 +172,7 @@ func TestParallelTransactions(t *testing.T) {
 					messages.BankTransfer(tCtx, 10),
 					messages.GovernanceSubmitProposal(tCtx, 10),
 					messages.EVMTransferConflicting(tCtx, 10),
+					messages.ERC20toCWAssets(tCtx, 10),
 					messages.EVMTransferNonConflicting(tCtx, 10),
 				)
 			},

@@ -31,12 +31,13 @@ const UnconfirmedTxQueryMaxPage = 20
 const UnconfirmedTxQueryPerPage = 30
 
 type TransactionAPI struct {
-	tmClient       rpcclient.Client
-	keeper         *keeper.Keeper
-	ctxProvider    func(int64) sdk.Context
-	txConfig       client.TxConfig
-	homeDir        string
-	connectionType ConnectionType
+	tmClient         rpcclient.Client
+	keeper           *keeper.Keeper
+	ctxProvider      func(int64) sdk.Context
+	txConfig         client.TxConfig
+	homeDir          string
+	connectionType   ConnectionType
+	includeSynthetic bool
 }
 
 type SeiTransactionAPI struct {
@@ -56,7 +57,9 @@ func NewSeiTransactionAPI(
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 ) *SeiTransactionAPI {
-	return &SeiTransactionAPI{TransactionAPI: NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, connectionType), isPanicTx: isPanicTx}
+	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, connectionType)
+	baseAPI.includeSynthetic = true
+	return &SeiTransactionAPI{TransactionAPI: baseAPI, isPanicTx: isPanicTx}
 }
 
 func (t *SeiTransactionAPI) GetTransactionReceiptExcludeTraceFail(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
@@ -185,7 +188,7 @@ func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	return t.getTransactionWithBlock(block, index)
+	return t.getTransactionWithBlock(block, index, t.includeSynthetic)
 }
 
 func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, index hexutil.Uint) (result *export.RPCTransaction, returnErr error) {
@@ -195,7 +198,7 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 	if err != nil {
 		return nil, err
 	}
-	return t.getTransactionWithBlock(block, index)
+	return t.getTransactionWithBlock(block, index, t.includeSynthetic)
 }
 
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *export.RPCTransaction, returnErr error) {
@@ -287,12 +290,18 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	return (*hexutil.Uint64)(&nonce), nil
 }
 
-func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, index hexutil.Uint) (*export.RPCTransaction, error) {
+func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, index hexutil.Uint, includeSynthetic bool) (*export.RPCTransaction, error) {
 	if int(index) >= len(block.Block.Txs) {
 		return nil, nil
 	}
-	ethtx := getEthTxForTxBz(block.Block.Txs[int(index)], t.txConfig.TxDecoder())
-	if ethtx == nil {
+	txIdx, found, ethtx, _ := GetEvmTxIndex(block.Block.Txs, uint32(index), t.txConfig.TxDecoder(), func(h common.Hash) *types.Receipt {
+		r, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), h)
+		if err != nil {
+			return nil
+		}
+		return r
+	}, includeSynthetic)
+	if ethtx == nil || !found {
 		return nil, nil
 	}
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), ethtx.Hash())
@@ -305,7 +314,7 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 	blockHash := common.HexToHash(block.BlockID.Hash.String())
 	blockNumber := uint64(block.Block.Height)
 	blockTime := block.Block.Time
-	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
+	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(txIdx), baseFeePerGas, chainConfig)
 	return res, nil
 }
 
