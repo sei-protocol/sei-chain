@@ -7,6 +7,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 )
@@ -117,125 +119,65 @@ func TestEventSignatures(t *testing.T) {
 	}
 }
 
-func TestEmitDelegateEvent(t *testing.T) {
-	// Test that the event signature is correct
-	eventSig := crypto.Keccak256Hash([]byte("Delegate(address,string,uint256)"))
-	require.Equal(t, DelegateEventSig, eventSig)
-
-	// Test parameters
-	delegator := common.HexToAddress("0x5678")
-	validator := "seivaloper1abcdef"
-	amount := big.NewInt(1000000)
-
-	// Test that we can create the topics
-	topics := []common.Hash{
-		DelegateEventSig,
-		common.HexToHash(delegator.Hex()),
+func TestEmitEVMLog(t *testing.T) {
+	testCases := []struct {
+		name    string
+		setup   func() (*vm.EVM, common.Address, []common.Hash, []byte)
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "nil EVM",
+			setup: func() (*vm.EVM, common.Address, []common.Hash, []byte) {
+				return nil, common.Address{}, []common.Hash{}, []byte{}
+			},
+			wantErr: true,
+			errMsg:  "EVM is nil",
+		},
+		{
+			name: "nil StateDB",
+			setup: func() (*vm.EVM, common.Address, []common.Hash, []byte) {
+				return &vm.EVM{StateDB: nil}, common.Address{}, []common.Hash{}, []byte{}
+			},
+			wantErr: true,
+			errMsg:  "EVM StateDB is nil",
+		},
+		{
+			name: "invalid StateDB type",
+			setup: func() (*vm.EVM, common.Address, []common.Hash, []byte) {
+				mockStateDB := &mockStateDB{}
+				evm := &vm.EVM{StateDB: mockStateDB}
+				addr := common.HexToAddress("0x1234")
+				topics := []common.Hash{crypto.Keccak256Hash([]byte("TestEvent()"))}
+				data := []byte("test data")
+				return evm, addr, topics, data
+			},
+			wantErr: true,
+			errMsg:  "cannot emit log: invalid StateDB type",
+		},
 	}
-	require.Len(t, topics, 2)
-	require.Equal(t, DelegateEventSig, topics[0])
-	require.Equal(t, common.HexToHash(delegator.Hex()), topics[1])
 
-	// Test that we can encode the data
-	_, err := StakingABI.Pack("Delegate", delegator, validator, amount)
-	require.NoError(t, err)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			evm, addr, topics, data := tc.setup()
+			err := EmitEVMLog(evm, addr, topics, data)
+			if tc.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
-func TestEmitRedelegateEvent(t *testing.T) {
-	// Test that the event signature is correct
-	eventSig := crypto.Keccak256Hash([]byte("Redelegate(address,string,string,uint256)"))
-	require.Equal(t, RedelegateEventSig, eventSig)
-
-	// Test parameters
-	delegator := common.HexToAddress("0x5678")
-	srcValidator := "seivaloper1src"
-	dstValidator := "seivaloper1dst"
-	amount := big.NewInt(2000000)
-
-	// Test that we can create the topics
-	topics := []common.Hash{
-		RedelegateEventSig,
-		common.HexToHash(delegator.Hex()),
-	}
-	require.Len(t, topics, 2)
-
-	// Test that we can encode the data
-	_, err := StakingABI.Pack("Redelegate", delegator, srcValidator, dstValidator, amount)
-	require.NoError(t, err)
+// mockStateDB is a minimal implementation of vm.StateDB for testing
+type mockStateDB struct {
+	vm.StateDB
 }
 
-func TestEmitUndelegateEvent(t *testing.T) {
-	// Test that the event signature is correct
-	eventSig := crypto.Keccak256Hash([]byte("Undelegate(address,string,uint256)"))
-	require.Equal(t, UndelegateEventSig, eventSig)
-
-	// Test parameters
-	delegator := common.HexToAddress("0x5678")
-	validator := "seivaloper1abcdef"
-	amount := big.NewInt(3000000)
-
-	// Test that we can create the topics
-	topics := []common.Hash{
-		UndelegateEventSig,
-		common.HexToHash(delegator.Hex()),
-	}
-	require.Len(t, topics, 2)
-
-	// Test that we can encode the data
-	_, err := StakingABI.Pack("Undelegate", delegator, validator, amount)
-	require.NoError(t, err)
-}
-
-func TestEmitValidatorCreatedEvent(t *testing.T) {
-	// Test that the event signature is correct
-	eventSig := crypto.Keccak256Hash([]byte("ValidatorCreated(address,string,string)"))
-	require.Equal(t, ValidatorCreatedEventSig, eventSig)
-
-	// Test parameters
-	creator := common.HexToAddress("0x5678")
-	validator := "seivaloper1new"
-	moniker := "New Validator"
-
-	// Test that we can create the topics
-	topics := []common.Hash{
-		ValidatorCreatedEventSig,
-		common.HexToHash(creator.Hex()),
-	}
-	require.Len(t, topics, 2)
-
-	// Test that we can encode the data
-	_, err := StakingABI.Pack("ValidatorCreated", creator, validator, moniker)
-	require.NoError(t, err)
-}
-
-func TestEmitValidatorEditedEvent(t *testing.T) {
-	// Test that the event signature is correct
-	eventSig := crypto.Keccak256Hash([]byte("ValidatorEdited(address,string,string)"))
-	require.Equal(t, ValidatorEditedEventSig, eventSig)
-
-	// Test parameters
-	editor := common.HexToAddress("0x5678")
-	validator := "seivaloper1edit"
-	moniker := "Edited Validator"
-
-	// Test that we can create the topics
-	topics := []common.Hash{
-		ValidatorEditedEventSig,
-		common.HexToHash(editor.Hex()),
-	}
-	require.Len(t, topics, 2)
-
-	// Test that we can encode the data
-	_, err := StakingABI.Pack("ValidatorEdited", editor, validator, moniker)
-	require.NoError(t, err)
-}
-
-func TestEmitEVMLogWithNilEVM(t *testing.T) {
-	precompileAddr := common.HexToAddress("0x1234")
-
-	err := EmitEVMLog(nil, precompileAddr, []common.Hash{}, []byte{})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "EVM is nil")
+func (m *mockStateDB) AddLog(log *ethtypes.Log) {
+	// Mock implementation
 }
 
 func TestEventDataEncoding(t *testing.T) {
@@ -313,3 +255,89 @@ func TestEventDataEncoding(t *testing.T) {
 		})
 	}
 }
+
+func TestEventDataEncodingManual(t *testing.T) {
+	// Test manual encoding as done in the actual emit functions
+	testCases := []struct {
+		name     string
+		testFunc func(t *testing.T)
+	}{
+		{
+			name: "Delegate event manual encoding",
+			testFunc: func(t *testing.T) {
+				validator := "seivaloper1test"
+				amount := big.NewInt(1000000)
+
+				// Manually encode as done in EmitDelegateEvent
+				data := make([]byte, 0)
+				data = append(data, common.LeftPadBytes(big.NewInt(64).Bytes(), 32)...)
+				data = append(data, common.LeftPadBytes(amount.Bytes(), 32)...)
+				data = append(data, common.LeftPadBytes(big.NewInt(int64(len(validator))).Bytes(), 32)...)
+				valBytes := []byte(validator)
+				data = append(data, common.RightPadBytes(valBytes, ((len(valBytes)+31)/32)*32)...)
+
+				require.NotEmpty(t, data)
+				require.Len(t, data, 32+32+32+32) // offset + amount + length + padded string
+			},
+		},
+		{
+			name: "Redelegate event manual encoding",
+			testFunc: func(t *testing.T) {
+				srcValidator := "seivaloper1src"
+				dstValidator := "seivaloper1dst"
+				amount := big.NewInt(2000000)
+
+				// Manually encode as done in EmitRedelegateEvent
+				data := make([]byte, 0)
+				data = append(data, common.LeftPadBytes(big.NewInt(96).Bytes(), 32)...)
+				data = append(data, common.LeftPadBytes(big.NewInt(160).Bytes(), 32)...)
+				data = append(data, common.LeftPadBytes(amount.Bytes(), 32)...)
+
+				srcBytes := []byte(srcValidator)
+				data = append(data, common.LeftPadBytes(big.NewInt(int64(len(srcBytes))).Bytes(), 32)...)
+				data = append(data, common.RightPadBytes(srcBytes, ((len(srcBytes)+31)/32)*32)...)
+
+				dstBytes := []byte(dstValidator)
+				data = append(data, common.LeftPadBytes(big.NewInt(int64(len(dstBytes))).Bytes(), 32)...)
+				data = append(data, common.RightPadBytes(dstBytes, ((len(dstBytes)+31)/32)*32)...)
+
+				require.NotEmpty(t, data)
+				require.True(t, len(data) > 96) // At least the header offsets and amount
+			},
+		},
+		{
+			name: "ValidatorCreated event manual encoding with offset adjustment",
+			testFunc: func(t *testing.T) {
+				validatorAddr := "seivaloper1new"
+				moniker := "New Validator"
+
+				// Manually encode as done in EmitValidatorCreatedEvent
+				data := make([]byte, 0)
+				data = append(data, common.LeftPadBytes(big.NewInt(64).Bytes(), 32)...)
+				data = append(data, common.LeftPadBytes(big.NewInt(128).Bytes(), 32)...) // temporary
+
+				valAddrBytes := []byte(validatorAddr)
+				data = append(data, common.LeftPadBytes(big.NewInt(int64(len(valAddrBytes))).Bytes(), 32)...)
+				data = append(data, common.RightPadBytes(valAddrBytes, ((len(valAddrBytes)+31)/32)*32)...)
+
+				// Adjust offset for moniker
+				monikerOffset := 64 + 32 + ((len(valAddrBytes)+31)/32)*32
+				copy(data[32:64], common.LeftPadBytes(big.NewInt(int64(monikerOffset)).Bytes(), 32))
+
+				monikerBytes := []byte(moniker)
+				data = append(data, common.LeftPadBytes(big.NewInt(int64(len(monikerBytes))).Bytes(), 32)...)
+				data = append(data, common.RightPadBytes(monikerBytes, ((len(monikerBytes)+31)/32)*32)...)
+
+				require.NotEmpty(t, data)
+				require.True(t, len(data) > 64) // At least the header offsets
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.testFunc(t)
+		})
+	}
+}
+

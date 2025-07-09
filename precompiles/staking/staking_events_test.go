@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -32,11 +32,11 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 	k := &testApp.EvmKeeper
 
 	// Setup validators - make them Bonded so they can accept delegations
-	valPub := secp256k1.GenPrivKey().PubKey()
+	valPub := ed25519.GenPrivKey().PubKey()
 	valAddr := setupValidator(t, ctx, testApp, stakingtypes.Bonded, valPub)
 	valStr := valAddr.String()
 
-	valPub2 := secp256k1.GenPrivKey().PubKey()
+	valPub2 := ed25519.GenPrivKey().PubKey()
 	valAddr2 := setupValidator(t, ctx, testApp, stakingtypes.Bonded, valPub2)
 	valStr2 := valAddr2.String()
 
@@ -175,6 +175,115 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 		amountBytes := log.Data[32:64]
 		amount := new(big.Int).SetBytes(amountBytes)
 		require.Equal(t, undelegateAmount, amount)
+	})
+
+	// Test createValidator event
+	t.Run("TestCreateValidatorEvent", func(t *testing.T) {
+		// Setup a new account for validator creation
+		validatorPrivKey := testkeeper.MockPrivateKey()
+		validatorSeiAddr, validatorEvmAddr := testkeeper.PrivateKeyToAddresses(validatorPrivKey)
+		k.SetAddressMapping(ctx, validatorSeiAddr, validatorEvmAddr)
+
+		// Fund the validator account
+		amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000000000)))
+		require.NoError(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
+		require.NoError(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, validatorSeiAddr, amt))
+
+		// Create validator arguments - use ed25519 key
+		ed25519PrivKey := ed25519.GenPrivKey()
+		pubKeyHex := hex.EncodeToString(ed25519PrivKey.PubKey().Bytes())
+		moniker := "Test Validator"
+		commissionRate := "0.1"
+		commissionMaxRate := "0.2"
+		commissionMaxChangeRate := "0.05"
+		minSelfDelegation := big.NewInt(1000)
+
+		abi := pcommon.MustGetABI(f, "abi.json")
+		args, err := abi.Pack("createValidator", pubKeyHex, moniker, commissionRate, commissionMaxRate, commissionMaxChangeRate, minSelfDelegation)
+		require.NoError(t, err)
+
+		addr := common.HexToAddress(staking.StakingAddress)
+		delegateAmount := big.NewInt(100_000_000_000_000) // 100 usei in wei
+
+		tx := createEVMTx(t, k, ctx, validatorPrivKey, &addr, args, delegateAmount)
+		res := executeEVMTx(t, testApp, ctx, tx, validatorPrivKey)
+
+		require.Empty(t, res.VmError)
+		require.NotEmpty(t, res.Logs)
+
+		// Verify the event
+		require.Len(t, res.Logs, 1)
+		log := res.Logs[0]
+
+		// Check event signature
+		expectedSig := pcommon.ValidatorCreatedEventSig
+		require.Equal(t, expectedSig.Hex(), log.Topics[0])
+
+		// Check indexed creator address
+		require.Equal(t, common.BytesToHash(validatorEvmAddr.Bytes()).Hex(), log.Topics[1])
+
+		// Verify data is not empty (contains validator address and moniker)
+		require.NotEmpty(t, log.Data)
+		require.GreaterOrEqual(t, len(log.Data), 128) // At least 4 * 32 bytes for offsets and lengths
+	})
+
+	// Test editValidator event
+	t.Run("TestEditValidatorEvent", func(t *testing.T) {
+		// First create a validator using existing test setup
+		validatorPrivKey := testkeeper.MockPrivateKey()
+		validatorSeiAddr, validatorEvmAddr := testkeeper.PrivateKeyToAddresses(validatorPrivKey)
+		k.SetAddressMapping(ctx, validatorSeiAddr, validatorEvmAddr)
+
+		// Fund the validator account
+		amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(1000000000000)))
+		require.NoError(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
+		require.NoError(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, validatorSeiAddr, amt))
+
+		// Create validator first - use ed25519 key
+		ed25519PrivKey := ed25519.GenPrivKey()
+		pubKeyHex := hex.EncodeToString(ed25519PrivKey.PubKey().Bytes())
+		moniker := "Initial Validator"
+		commissionRate := "0.1"
+		commissionMaxRate := "0.2"
+		commissionMaxChangeRate := "0.05"
+		minSelfDelegation := big.NewInt(1000)
+
+		abi := pcommon.MustGetABI(f, "abi.json")
+		createArgs, err := abi.Pack("createValidator", pubKeyHex, moniker, commissionRate, commissionMaxRate, commissionMaxChangeRate, minSelfDelegation)
+		require.NoError(t, err)
+
+		addr := common.HexToAddress(staking.StakingAddress)
+		createTx := createEVMTx(t, k, ctx, validatorPrivKey, &addr, createArgs, big.NewInt(100_000_000_000_000))
+		createRes := executeEVMTx(t, testApp, ctx, createTx, validatorPrivKey)
+		require.Empty(t, createRes.VmError)
+
+		// Now edit the validator
+		newMoniker := "Edited Validator"
+		newCommissionRate := ""  // Empty string to not change commission rate
+		newMinSelfDelegation := big.NewInt(0)  // 0 to not change minimum self-delegation
+
+		editArgs, err := abi.Pack("editValidator", newMoniker, newCommissionRate, newMinSelfDelegation)
+		require.NoError(t, err)
+
+		editTx := createEVMTx(t, k, ctx, validatorPrivKey, &addr, editArgs, big.NewInt(0))
+		editRes := executeEVMTx(t, testApp, ctx, editTx, validatorPrivKey)
+
+		require.Empty(t, editRes.VmError)
+		require.NotEmpty(t, editRes.Logs)
+
+		// Verify the event (should be the last log)
+		log := editRes.Logs[len(editRes.Logs)-1]
+
+		// Check event signature
+		expectedSig := pcommon.ValidatorEditedEventSig
+		require.Equal(t, expectedSig.Hex(), log.Topics[0])
+
+		// Check indexed editor address
+		require.Equal(t, common.BytesToHash(validatorEvmAddr.Bytes()).Hex(), log.Topics[1])
+
+		// Verify data is not empty (contains validator address and new moniker)
+		require.NotEmpty(t, log.Data)
+		require.GreaterOrEqual(t, len(log.Data), 128) // At least 4 * 32 bytes for offsets and lengths
 	})
 }
 
