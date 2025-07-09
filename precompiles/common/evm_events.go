@@ -20,7 +20,7 @@ func EmitEVMLog(evm *vm.EVM, address common.Address, topics []common.Hash, data 
 	if evm.StateDB == nil {
 		return fmt.Errorf("EVM StateDB is nil")
 	}
-	
+
 	stateDB := state.GetDBImpl(evm.StateDB)
 	if stateDB == nil {
 		return fmt.Errorf("cannot emit log: invalid StateDB type")
