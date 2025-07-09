@@ -36,7 +36,7 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
-	"github.com/sei-protocol/sei-chain/precompiles"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
@@ -89,7 +89,7 @@ type Keeper struct {
 
 	receiptStore seidbtypes.StateStore
 
-	customPrecompiles       map[common.Address]precompiles.VersionedPrecompiles
+	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
 	latestUpgrade           string
 }
@@ -155,7 +155,7 @@ func NewKeeper(
 	return k
 }
 
-func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]precompiles.VersionedPrecompiles, latestUpgrade string) {
+func (k *Keeper) SetCustomPrecompiles(cp map[common.Address]putils.VersionedPrecompiles, latestUpgrade string) {
 	k.customPrecompiles = cp
 	k.latestUpgrade = latestUpgrade
 	k.latestCustomPrecompiles = make(map[common.Address]vm.PrecompiledContract, len(cp))

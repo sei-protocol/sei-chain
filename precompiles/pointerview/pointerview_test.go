@@ -17,7 +17,7 @@ import (
 func TestPointerView(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
-	p, err := pointerview.NewPrecompile(k)
+	p, err := pointerview.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	_, pointer := testkeeper.MockAddressPair()
 	k.SetERC20NativePointer(ctx, "test", pointer)

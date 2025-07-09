@@ -21,6 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v600"
@@ -45,9 +46,9 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	evmKeeper     pcommon.EVMKeeper
-	bankKeeper    pcommon.BankKeeper
-	accountKeeper pcommon.AccountKeeper
+	evmKeeper     putils.EVMKeeper
+	bankKeeper    putils.BankKeeper
+	accountKeeper putils.AccountKeeper
 
 	GetSeiAddressID   []byte
 	GetEvmAddressID   []byte
@@ -55,14 +56,14 @@ type PrecompileExecutor struct {
 	AssociatePubKeyID []byte
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, accountKeeper pcommon.AccountKeeper) (*pcommon.Precompile, error) {
+func NewPrecompile(keepers putils.Keepers) (*pcommon.Precompile, error) {
 
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		evmKeeper:     evmKeeper,
-		bankKeeper:    bankKeeper,
-		accountKeeper: accountKeeper,
+		evmKeeper:     keepers.EVMK(),
+		bankKeeper:    keepers.BankK(),
+		accountKeeper: keepers.AccountK(),
 	}
 
 	for name, m := range newAbi.Methods {

@@ -114,6 +114,7 @@ import (
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/precompiles"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
@@ -706,26 +707,7 @@ func New(
 	app.IBCKeeper.SetRouter(ibcRouter)
 
 	if enableCustomEVMPrecompiles {
-		customPrecompiles := precompiles.GetCustomPrecompiles(
-			LatestUpgrade,
-			encodingConfig.TxConfig,
-			&app.EvmKeeper,
-			app.BankKeeper,
-			bankkeeper.NewMsgServerImpl(app.BankKeeper),
-			wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper),
-			app.WasmKeeper,
-			stakingkeeper.NewMsgServerImpl(app.StakingKeeper),
-			stakingkeeper.Querier{Keeper: app.StakingKeeper},
-			app.GovKeeper,
-			govkeeper.NewMsgServerImpl(app.GovKeeper),
-			app.DistrKeeper,
-			app.OracleKeeper,
-			app.TransferKeeper,
-			app.IBCKeeper.ClientKeeper,
-			app.IBCKeeper.ConnectionKeeper,
-			app.IBCKeeper.ChannelKeeper,
-			app.AccountKeeper,
-		)
+		customPrecompiles := precompiles.GetCustomPrecompiles(LatestUpgrade, app.GetPrecompileKeepers())
 		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles, LatestUpgrade)
 	}
 
@@ -2023,6 +2005,10 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 	}
 
 	return blacklistedAddrs
+}
+
+func (app *App) GetPrecompileKeepers() putils.Keepers {
+	return NewPrecompileKeepers(app)
 }
 
 // test-only

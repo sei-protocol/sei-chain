@@ -18,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 )
 
@@ -34,11 +35,11 @@ const SoloAddress = "0x000000000000000000000000000000000000100C"
 var F embed.FS
 
 type PrecompileExecutor struct {
-	evmKeeper      pcommon.EVMKeeper
-	bankKeeper     pcommon.BankKeeper
-	accountKeeper  pcommon.AccountKeeper
-	wasmKeeper     pcommon.WasmdKeeper
-	wasmViewKeeper pcommon.WasmdViewKeeper
+	evmKeeper      putils.EVMKeeper
+	bankKeeper     putils.BankKeeper
+	accountKeeper  putils.AccountKeeper
+	wasmKeeper     putils.WasmdKeeper
+	wasmViewKeeper putils.WasmdViewKeeper
 
 	txConfig client.TxConfig
 
@@ -47,27 +48,22 @@ type PrecompileExecutor struct {
 }
 
 func NewPrecompile(
-	evmKeeper pcommon.EVMKeeper,
-	bankKeeper pcommon.BankKeeper,
-	accountKeeper pcommon.AccountKeeper,
-	wasmKeeper pcommon.WasmdKeeper,
-	wasmViewKeeper pcommon.WasmdViewKeeper,
-	txConfig client.TxConfig,
+	keepers putils.Keepers,
 ) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := pcommon.MustGetABI(F, "abi.json")
 
 	return pcommon.NewDynamicGasPrecompile(
-		newAbi, NewExecutor(newAbi, evmKeeper, bankKeeper, accountKeeper, wasmKeeper, wasmViewKeeper, txConfig),
+		newAbi, NewExecutor(newAbi, keepers.EVMK(), keepers.BankK(), keepers.AccountK(), keepers.WasmdK(), keepers.WasmdVK(), keepers.TxConfig()),
 		common.HexToAddress(SoloAddress), "solo"), nil
 }
 
 func NewExecutor(
 	a abi.ABI,
-	evmKeeper pcommon.EVMKeeper,
-	bankKeeper pcommon.BankKeeper,
-	accountKeeper pcommon.AccountKeeper,
-	wasmKeeper pcommon.WasmdKeeper,
-	wasmViewKeeper pcommon.WasmdViewKeeper,
+	evmKeeper putils.EVMKeeper,
+	bankKeeper putils.BankKeeper,
+	accountKeeper putils.AccountKeeper,
+	wasmKeeper putils.WasmdKeeper,
+	wasmViewKeeper putils.WasmdViewKeeper,
 	txConfig client.TxConfig,
 ) *PrecompileExecutor {
 	p := &PrecompileExecutor{
@@ -106,7 +102,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	return
 }
 
-func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+func (p PrecompileExecutor) EVMKeeper() putils.EVMKeeper {
 	return p.evmKeeper
 }
 

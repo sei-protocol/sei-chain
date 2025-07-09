@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v600"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/tendermint/tendermint/libs/log"
@@ -38,9 +39,9 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	accountKeeper pcommon.AccountKeeper
-	bankKeeper    pcommon.BankKeeper
-	evmKeeper     pcommon.EVMKeeper
+	accountKeeper putils.AccountKeeper
+	bankKeeper    putils.BankKeeper
+	evmKeeper     putils.EVMKeeper
 	address       common.Address
 
 	SendID        []byte
@@ -58,12 +59,12 @@ type CoinBalance struct {
 	Denom  string
 }
 
-func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper, accountKeeper pcommon.AccountKeeper) (*pcommon.Precompile, error) {
+func NewPrecompile(keepers putils.Keepers) (*pcommon.Precompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 	p := &PrecompileExecutor{
-		bankKeeper:    bankKeeper,
-		evmKeeper:     evmKeeper,
-		accountKeeper: accountKeeper,
+		bankKeeper:    keepers.BankK(),
+		evmKeeper:     keepers.EVMK(),
+		accountKeeper: keepers.AccountK(),
 		address:       common.HexToAddress(BankAddress),
 	}
 

@@ -22,7 +22,7 @@ func TestAssociatePubKey(t *testing.T) {
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
-	pre, _ := addr.NewPrecompile(k, k.BankKeeper(), k.AccountKeeper())
+	pre, _ := addr.NewPrecompile(testApp.GetPrecompileKeepers())
 	associatePubKey, err := pre.ABI.MethodById(pre.GetExecutor().(*addr.PrecompileExecutor).AssociatePubKeyID)
 
 	// Target refers to the address that the caller is trying to associate.
@@ -151,7 +151,7 @@ func TestAssociatePubKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create the precompile and inputs
-			p, _ := addr.NewPrecompile(k, k.BankKeeper(), k.AccountKeeper())
+			p, _ := addr.NewPrecompile(testApp.GetPrecompileKeepers())
 			require.Nil(t, err)
 			inputs, err := associatePubKey.Inputs.Pack(tt.args.pubKey)
 			require.Nil(t, err)
@@ -184,7 +184,7 @@ func TestAssociate(t *testing.T) {
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
-	pre, _ := addr.NewPrecompile(k, k.BankKeeper(), k.AccountKeeper())
+	pre, _ := addr.NewPrecompile(testApp.GetPrecompileKeepers())
 	associate, err := pre.ABI.MethodById(pre.GetExecutor().(*addr.PrecompileExecutor).AssociateID)
 	require.Nil(t, err)
 
@@ -346,7 +346,7 @@ func TestAssociate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create the precompile and inputs
-			p, _ := addr.NewPrecompile(k, k.BankKeeper(), k.AccountKeeper())
+			p, _ := addr.NewPrecompile(testApp.GetPrecompileKeepers())
 			require.Nil(t, err)
 			inputs, err := associate.Inputs.Pack(tt.args.v, tt.args.r, tt.args.s, tt.args.msg)
 			require.Nil(t, err)
@@ -375,7 +375,7 @@ func TestGetAddr(t *testing.T) {
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
-	pre, _ := addr.NewPrecompile(k, k.BankKeeper(), k.AccountKeeper())
+	pre, _ := addr.NewPrecompile(testApp.GetPrecompileKeepers())
 	getSeiAddr, err := pre.ABI.MethodById(pre.GetExecutor().(*addr.PrecompileExecutor).GetSeiAddressID)
 	require.Nil(t, err)
 	getEvmAddr, err := pre.ABI.MethodById(pre.GetExecutor().(*addr.PrecompileExecutor).GetEvmAddressID)
