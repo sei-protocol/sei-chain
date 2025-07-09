@@ -164,13 +164,13 @@ func (p PrecompileExecutor) delegate(ctx sdk.Context, method *abi.Method, caller
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Emit EVM event
 	if emitErr := pcommon.EmitDelegateEvent(ctx, evm, p.address, caller, validatorBech32, value); emitErr != nil {
 		// Log error but don't fail the transaction
 		ctx.Logger().Error("Failed to emit EVM delegate event", "error", emitErr)
 	}
-	
+
 	return method.Outputs.Pack(true)
 }
 
@@ -198,13 +198,13 @@ func (p PrecompileExecutor) redelegate(ctx sdk.Context, method *abi.Method, call
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Emit EVM event
 	if emitErr := pcommon.EmitRedelegateEvent(ctx, evm, p.address, caller, srcValidatorBech32, dstValidatorBech32, amount); emitErr != nil {
 		// Log error but don't fail the transaction
 		ctx.Logger().Error("Failed to emit EVM redelegate event", "error", emitErr)
 	}
-	
+
 	return method.Outputs.Pack(true)
 }
 
@@ -230,13 +230,13 @@ func (p PrecompileExecutor) undelegate(ctx sdk.Context, method *abi.Method, call
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Emit EVM event
 	if emitErr := pcommon.EmitUndelegateEvent(ctx, evm, p.address, caller, validatorBech32, amount); emitErr != nil {
 		// Log error but don't fail the transaction
 		ctx.Logger().Error("Failed to emit EVM undelegate event", "error", emitErr)
 	}
-	
+
 	return method.Outputs.Pack(true)
 }
 
