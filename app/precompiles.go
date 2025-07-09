@@ -2,6 +2,7 @@ package app
 
 import (
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
+	"github.com/cosmos/cosmos-sdk/client"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
@@ -25,6 +26,7 @@ type PrecompileKeepers struct {
 	putils.ClientKeeper
 	putils.ConnectionKeeper
 	putils.ChannelKeeper
+	txConf client.TxConfig
 }
 
 func NewPrecompileKeepers(a *App) *PrecompileKeepers {
@@ -45,6 +47,7 @@ func NewPrecompileKeepers(a *App) *PrecompileKeepers {
 		ClientKeeper:       a.IBCKeeper.ClientKeeper,
 		ConnectionKeeper:   a.IBCKeeper.ConnectionKeeper,
 		ChannelKeeper:      a.IBCKeeper.ChannelKeeper,
+		txConf:             a.GetTxConfig(),
 	}
 }
 
@@ -64,3 +67,4 @@ func (pk *PrecompileKeepers) TransferK() putils.TransferKeeper         { return 
 func (pk *PrecompileKeepers) ClientK() putils.ClientKeeper             { return pk.ClientKeeper }
 func (pk *PrecompileKeepers) ConnectionK() putils.ConnectionKeeper     { return pk.ConnectionKeeper }
 func (pk *PrecompileKeepers) ChannelK() putils.ChannelKeeper           { return pk.ChannelKeeper }
+func (pk *PrecompileKeepers) TxConfig() client.TxConfig                { return pk.txConf }

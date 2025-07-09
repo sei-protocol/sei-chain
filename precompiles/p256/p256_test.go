@@ -15,7 +15,7 @@ func TestPrecompile_verify(t *testing.T) {
 	stateDB := &state.DBImpl{}
 	stateDB.WithCtx(sdk.Context{})
 	evm := &vm.EVM{StateDB: stateDB}
-	p, err := NewPrecompile()
+	p, err := NewPrecompile(nil)
 	require.Nil(t, err)
 	method, err := p.MethodById(p.GetExecutor().(*PrecompileExecutor).VerifyID)
 	require.Nil(t, err)

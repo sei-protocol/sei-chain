@@ -8,6 +8,7 @@ import (
 	"github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
 	"github.com/cosmos/ibc-go/v3/modules/core/exported"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -39,6 +40,7 @@ type Keepers interface {
 	ClientK() ClientKeeper
 	ConnectionK() ConnectionKeeper
 	ChannelK() ChannelKeeper
+	TxConfig() client.TxConfig
 }
 
 type EmptyKeepers struct{}
@@ -59,6 +61,7 @@ func (ek *EmptyKeepers) TransferK() TransferKeeper         { return nil }
 func (ek *EmptyKeepers) ClientK() ClientKeeper             { return nil }
 func (ek *EmptyKeepers) ConnectionK() ConnectionKeeper     { return nil }
 func (ek *EmptyKeepers) ChannelK() ChannelKeeper           { return nil }
+func (ek *EmptyKeepers) TxConfig() client.TxConfig         { return nil }
 
 type BankKeeper interface {
 	SendCoins(sdk.Context, sdk.AccAddress, sdk.AccAddress, sdk.Coins) error

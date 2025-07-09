@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/p256"
 	"github.com/sei-protocol/sei-chain/precompiles/pointer"
 	"github.com/sei-protocol/sei-chain/precompiles/pointerview"
+	"github.com/sei-protocol/sei-chain/precompiles/solo"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
@@ -55,6 +56,8 @@ func GetCustomPrecompiles(
 		ecommon.HexToAddress(ibc.IBCAddress):                 ibc.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(pointer.PointerAddress):         pointer.GetVersioned(latestUpgrade, keepers),
 		ecommon.HexToAddress(pointerview.PointerViewAddress): pointerview.GetVersioned(latestUpgrade, keepers),
+		ecommon.HexToAddress(p256.P256VerifyAddress):         p256.GetVersioned(latestUpgrade, keepers),
+		ecommon.HexToAddress(solo.SoloAddress):               solo.GetVersioned(latestUpgrade, keepers),
 	}
 }
 
@@ -112,7 +115,7 @@ func InitializePrecompiles(
 		return err
 	}
 
-	p256p, err := p256.NewPrecompile()
+	p256p, err := p256.NewPrecompile(keepers)
 	if err != nil {
 		return err
 	}

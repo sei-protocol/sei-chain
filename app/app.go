@@ -707,30 +707,7 @@ func New(
 	app.IBCKeeper.SetRouter(ibcRouter)
 
 	if enableCustomEVMPrecompiles {
-<<<<<<< HEAD
-		customPrecompiles := precompiles.GetCustomPrecompiles(
-			LatestUpgrade,
-			encodingConfig.TxConfig,
-			&app.EvmKeeper,
-			app.BankKeeper,
-			bankkeeper.NewMsgServerImpl(app.BankKeeper),
-			wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper),
-			app.WasmKeeper,
-			stakingkeeper.NewMsgServerImpl(app.StakingKeeper),
-			stakingkeeper.Querier{Keeper: app.StakingKeeper},
-			app.GovKeeper,
-			govkeeper.NewMsgServerImpl(app.GovKeeper),
-			app.DistrKeeper,
-			app.OracleKeeper,
-			app.TransferKeeper,
-			app.IBCKeeper.ClientKeeper,
-			app.IBCKeeper.ConnectionKeeper,
-			app.IBCKeeper.ChannelKeeper,
-			app.AccountKeeper,
-		)
-=======
 		customPrecompiles := precompiles.GetCustomPrecompiles(LatestUpgrade, app.GetPrecompileKeepers())
->>>>>>> ee99f851 (Refactor versioned precompiles & add automation scripts)
 		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles, LatestUpgrade)
 	}
 
