@@ -348,6 +348,11 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 		return nil, errors.New("set `value` field to non-zero to send delegate fund")
 	}
 
+	// Validate minimum self delegation
+	if minSelfDelegation == nil || minSelfDelegation.Sign() <= 0 {
+		return nil, errors.New("minimum self delegation must be a positive integer: invalid request")
+	}
+
 	coin, err := pcommon.HandlePaymentUsei(
 		ctx,
 		p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address),
