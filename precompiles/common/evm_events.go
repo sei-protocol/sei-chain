@@ -14,6 +14,13 @@ import (
 
 // EmitEVMLog emits an EVM log from a precompile
 func EmitEVMLog(evm *vm.EVM, address common.Address, topics []common.Hash, data []byte) error {
+	if evm == nil {
+		return fmt.Errorf("EVM is nil")
+	}
+	if evm.StateDB == nil {
+		return fmt.Errorf("EVM StateDB is nil")
+	}
+	
 	stateDB := state.GetDBImpl(evm.StateDB)
 	if stateDB == nil {
 		return fmt.Errorf("cannot emit log: invalid StateDB type")
