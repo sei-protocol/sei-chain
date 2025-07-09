@@ -392,7 +392,7 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 }
 
 func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, error) {
-	if err := pcommon.ValidateArgsLength(args, 4); err != nil {
+	if err := pcommon.ValidateArgsLength(args, 3); err != nil {
 		return nil, err
 	}
 
@@ -403,8 +403,7 @@ func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, c
 	// Extract arguments
 	moniker := args[0].(string)
 	commissionRateStr := args[1].(string)
-	minSelfDelegationStr := args[2].(string)
-	identity := args[3].(string)
+	minSelfDelegation := args[2].(*big.Int)
 
 	// Get validator address (caller's associated Sei address)
 	valAddress, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
@@ -422,27 +421,23 @@ func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, c
 		commissionRate = &rate
 	}
 
-	// Parse min self delegation if provided
-	var minSelfDelegation *sdk.Int
-	if minSelfDelegationStr != "" {
-		msd, ok := new(big.Int).SetString(minSelfDelegationStr, 10)
-		if !ok {
-			return nil, errors.New("invalid min self delegation")
-		}
-		minSelfDelegationInt := sdk.NewIntFromBigInt(msd)
-		minSelfDelegation = &minSelfDelegationInt
+	// Convert min self delegation if not zero
+	var minSelfDelegationInt *sdk.Int
+	if minSelfDelegation != nil && minSelfDelegation.Sign() > 0 {
+		msd := sdk.NewIntFromBigInt(minSelfDelegation)
+		minSelfDelegationInt = &msd
 	}
 
 	description := stakingtypes.Description{
-		Moniker:  moniker,
-		Identity: identity,
+		Moniker: moniker,
+		// Identity field is not updated to maintain backward compatibility
 	}
 
 	msg := stakingtypes.NewMsgEditValidator(
 		sdk.ValAddress(valAddress),
 		description,
 		commissionRate,
-		minSelfDelegation,
+		minSelfDelegationInt,
 	)
 
 	_, err := p.stakingKeeper.EditValidator(sdk.WrapSDKContext(ctx), msg)

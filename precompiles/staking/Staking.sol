@@ -127,17 +127,15 @@ interface IStaking {
      * @param commissionRate New commission rate (e.g. "0.10" for 10%)
      *                      Pass empty string "" to not change commission rate
      *                      Note: Commission can only be changed once per 24 hours
-     * @param minSelfDelegation New minimum self-delegation amount as string
-     *                         Pass empty string "" to not change minimum self-delegation
+     * @param minSelfDelegation New minimum self-delegation amount
+     *                         Pass 0 to not change minimum self-delegation
      *                         Note: Can only increase, cannot decrease below current value
-     * @param identity New identity (optional field for validator profile)
      * @return success True if validator edit was successful
      */
     function editValidator(
         string memory moniker,
         string memory commissionRate,
-        string memory minSelfDelegation,
-        string memory identity
+        uint256 minSelfDelegation
     ) external returns (bool success);
 
     // Queries
