@@ -778,7 +778,7 @@ func TestEditValidator_ErorrIfDoesNotExist(t *testing.T) {
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	addr := common.HexToAddress(staking.StakingAddress)
 
-	args, err := abi.Pack("editValidator", "updated-validator", "0.15", big.NewInt(2000000))
+	args, err := abi.Pack("editValidator", "updated-validator", "0.15", "2000000", "")
 	require.NoError(t, err)
 
 	txData := ethtypes.LegacyTx{
@@ -887,8 +887,9 @@ func TestEditValidator(t *testing.T) {
 	// Step 2: Now edit the validator with new values
 	editArgs, err := abi.Pack("editValidator",
 		"updated-validator-name",
-		"",            // Empty string to not change commission rate (avoid 24h restriction)
-		big.NewInt(0), // 0 to not change minimum self-delegation
+		"",             // Empty string to not change commission rate (avoid 24h restriction)
+		"",             // Empty string to not change minimum self-delegation
+		"test-identity", // Add identity field
 	)
 	require.NoError(t, err)
 
@@ -921,6 +922,7 @@ func TestEditValidator(t *testing.T) {
 	require.Equal(t, "updated-validator-name", updatedValidator.Description.Moniker, "Moniker should be updated")
 	require.Equal(t, sdk.NewDecWithPrec(10, 2), updatedValidator.Commission.Rate, "Commission rate should remain unchanged at 0.10")
 	require.Equal(t, sdk.NewInt(1000000), updatedValidator.MinSelfDelegation, "MinSelfDelegation should remain the same (1M)")
+	require.Equal(t, "test-identity", updatedValidator.Description.Identity, "Identity should be updated")
 
 	// Verify other fields remain unchanged
 	require.Equal(t, validator.OperatorAddress, updatedValidator.OperatorAddress, "Operator address should remain the same")

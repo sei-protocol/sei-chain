@@ -115,12 +115,12 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		if readOnly {
 			return nil, errors.New("cannot call staking precompile from staticcall")
 		}
-		return p.redelegate(ctx, method, caller, args, value)
+		return p.redelegate(ctx, method, caller, args, value, evm)
 	case UndelegateMethod:
 		if readOnly {
 			return nil, errors.New("cannot call staking precompile from staticcall")
 		}
-		return p.undelegate(ctx, method, caller, args, value)
+		return p.undelegate(ctx, method, caller, args, value, evm)
 	case CreateValidatorMethod:
 		if readOnly {
 			return nil, errors.New("cannot call staking precompile from staticcall")
@@ -164,10 +164,17 @@ func (p PrecompileExecutor) delegate(ctx sdk.Context, method *abi.Method, caller
 	if err != nil {
 		return nil, err
 	}
+	
+	// Emit EVM event
+	if emitErr := pcommon.EmitDelegateEvent(ctx, evm, p.address, caller, validatorBech32, value); emitErr != nil {
+		// Log error but don't fail the transaction
+		ctx.Logger().Error("Failed to emit EVM delegate event", "error", emitErr)
+	}
+	
 	return method.Outputs.Pack(true)
 }
 
-func (p PrecompileExecutor) redelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) redelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) ([]byte, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, err
 	}
@@ -191,10 +198,17 @@ func (p PrecompileExecutor) redelegate(ctx sdk.Context, method *abi.Method, call
 	if err != nil {
 		return nil, err
 	}
+	
+	// Emit EVM event
+	if emitErr := pcommon.EmitRedelegateEvent(ctx, evm, p.address, caller, srcValidatorBech32, dstValidatorBech32, amount); emitErr != nil {
+		// Log error but don't fail the transaction
+		ctx.Logger().Error("Failed to emit EVM redelegate event", "error", emitErr)
+	}
+	
 	return method.Outputs.Pack(true)
 }
 
-func (p PrecompileExecutor) undelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) ([]byte, error) {
+func (p PrecompileExecutor) undelegate(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, evm *vm.EVM) ([]byte, error) {
 	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, err
 	}
@@ -216,6 +230,13 @@ func (p PrecompileExecutor) undelegate(ctx sdk.Context, method *abi.Method, call
 	if err != nil {
 		return nil, err
 	}
+	
+	// Emit EVM event
+	if emitErr := pcommon.EmitUndelegateEvent(ctx, evm, p.address, caller, validatorBech32, amount); emitErr != nil {
+		// Log error but don't fail the transaction
+		ctx.Logger().Error("Failed to emit EVM undelegate event", "error", emitErr)
+	}
+	
 	return method.Outputs.Pack(true)
 }
 
@@ -344,37 +365,46 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 		Moniker: moniker,
 	}
 
-	msg, err := stakingtypes.NewMsgCreateValidator(sdk.ValAddress(valAddress), pubKey, coin, description, commission, sdk.NewIntFromBigInt(minSelfDelegation))
+	msg, err := stakingtypes.NewMsgCreateValidator(
+		sdk.ValAddress(valAddress),
+		pubKey,
+		coin,
+		description,
+		commission,
+		sdk.NewIntFromBigInt(minSelfDelegation),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	err = msg.ValidateBasic()
-	if err != nil {
-		return nil, err
-	}
-
-	// Call the staking keeper
 	_, err = p.stakingKeeper.CreateValidator(sdk.WrapSDKContext(ctx), msg)
 	if err != nil {
 		return nil, err
+	}
+
+	// Emit EVM event
+	if emitErr := pcommon.EmitValidatorCreatedEvent(ctx, evm, p.address, caller, sdk.ValAddress(valAddress).String(), moniker); emitErr != nil {
+		// Log error but don't fail the transaction
+		ctx.Logger().Error("Failed to emit EVM validator created event", "error", emitErr)
 	}
 
 	return method.Outputs.Pack(true)
 }
 
 func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int, hooks *tracing.Hooks, evm *vm.EVM) ([]byte, error) {
-	if err := pcommon.ValidateNonPayable(value); err != nil {
+	if err := pcommon.ValidateArgsLength(args, 4); err != nil {
 		return nil, err
 	}
-	if err := pcommon.ValidateArgsLength(args, 3); err != nil {
+
+	if err := pcommon.ValidateNonPayable(value); err != nil {
 		return nil, err
 	}
 
 	// Extract arguments
 	moniker := args[0].(string)
 	commissionRateStr := args[1].(string)
-	minSelfDelegation := args[2].(*big.Int)
+	minSelfDelegationStr := args[2].(string)
+	identity := args[3].(string)
 
 	// Get validator address (caller's associated Sei address)
 	valAddress, associated := p.evmKeeper.GetSeiAddress(ctx, caller)
@@ -382,7 +412,7 @@ func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, c
 		return nil, types.NewAssociationMissingErr(caller.Hex())
 	}
 
-	// Parse commission rate - if empty string, don't change commission
+	// Parse commission rate if provided
 	var commissionRate *sdk.Dec
 	if commissionRateStr != "" {
 		rate, err := sdk.NewDecFromStr(commissionRateStr)
@@ -391,35 +421,39 @@ func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, c
 		}
 		commissionRate = &rate
 	}
-	// If commissionRateStr is empty, commissionRate remains nil
 
-	// Parse minSelfDelegation - if 0, don't change it
-	var minSelfDelegationPtr *sdk.Int
-	if minSelfDelegation.Sign() > 0 {
-		minSelf := sdk.NewIntFromBigInt(minSelfDelegation)
-		minSelfDelegationPtr = &minSelf
+	// Parse min self delegation if provided
+	var minSelfDelegation *sdk.Int
+	if minSelfDelegationStr != "" {
+		msd, ok := new(big.Int).SetString(minSelfDelegationStr, 10)
+		if !ok {
+			return nil, errors.New("invalid min self delegation")
+		}
+		minSelfDelegationInt := sdk.NewIntFromBigInt(msd)
+		minSelfDelegation = &minSelfDelegationInt
 	}
-	// If minSelfDelegation is 0, minSelfDelegationPtr remains nil
 
 	description := stakingtypes.Description{
-		Moniker: moniker,
+		Moniker:  moniker,
+		Identity: identity,
 	}
 
 	msg := stakingtypes.NewMsgEditValidator(
 		sdk.ValAddress(valAddress),
 		description,
 		commissionRate,
-		minSelfDelegationPtr,
+		minSelfDelegation,
 	)
 
-	err := msg.ValidateBasic()
+	_, err := p.stakingKeeper.EditValidator(sdk.WrapSDKContext(ctx), msg)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = p.stakingKeeper.EditValidator(sdk.WrapSDKContext(ctx), msg)
-	if err != nil {
-		return nil, err
+	// Emit EVM event
+	if emitErr := pcommon.EmitValidatorEditedEvent(ctx, evm, p.address, caller, sdk.ValAddress(valAddress).String(), moniker); emitErr != nil {
+		// Log error but don't fail the transaction
+		ctx.Logger().Error("Failed to emit EVM validator edited event", "error", emitErr)
 	}
 
 	return method.Outputs.Pack(true)
