@@ -24,23 +24,29 @@ import (
 	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
+// Using f from staking_test.go
+
 func TestStakingPrecompileEventsEmission(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
 	k := &testApp.EvmKeeper
 
-	// Setup validator
+	// Setup validators - make them Bonded so they can accept delegations
 	valPub := secp256k1.GenPrivKey().PubKey()
-	valAddr := setupValidator(t, ctx, testApp, stakingtypes.Unbonded, valPub)
+	valAddr := setupValidator(t, ctx, testApp, stakingtypes.Bonded, valPub)
 	valStr := valAddr.String()
+	
+	valPub2 := secp256k1.GenPrivKey().PubKey()
+	valAddr2 := setupValidator(t, ctx, testApp, stakingtypes.Bonded, valPub2)
+	valStr2 := valAddr2.String()
 
 	// Setup test account
 	privKey := testkeeper.MockPrivateKey()
 	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 	
-	// Fund the account
-	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))
+	// Fund the account with more funds
+	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(2000000000000)))
 	require.NoError(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, amt))
 	require.NoError(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
 
@@ -51,7 +57,7 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 		require.NoError(t, err)
 
 		addr := common.HexToAddress(staking.StakingAddress)
-		delegateAmount := big.NewInt(100_000_000_000_000)
+		delegateAmount := big.NewInt(100_000_000_000_000) // 100 usei in wei
 		
 		tx := createEVMTx(t, k, ctx, privKey, &addr, args, delegateAmount)
 		res := executeEVMTx(t, testApp, ctx, tx, privKey)
@@ -89,17 +95,13 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 		delegateArgs, err := pcommon.MustGetABI(f, "abi.json").Pack("delegate", valStr)
 		require.NoError(t, err)
 		
-		delegateTx := createEVMTx(t, k, ctx, privKey, &addr, delegateArgs, big.NewInt(100_000_000_000_000))
+		delegateTx := createEVMTx(t, k, ctx, privKey, &addr, delegateArgs, big.NewInt(100_000_000_000_000)) // 100 usei in wei
 		delegateRes := executeEVMTx(t, testApp, ctx, delegateTx, privKey)
 		require.Empty(t, delegateRes.VmError)
 		
-		// Setup second validator
-		valPub2 := secp256k1.GenPrivKey().PubKey()
-		valAddr2 := setupValidator(t, ctx, testApp, stakingtypes.Unbonded, valPub2)
-		valStr2 := valAddr2.String()
-		
+		// Now redelegate some funds to the second validator
 		abi := pcommon.MustGetABI(f, "abi.json")
-		redelegateAmount := big.NewInt(50_000_000_000_000)
+		redelegateAmount := big.NewInt(50) // 50 usei (same as original test)
 		args, err := abi.Pack("redelegate", valStr, valStr2, redelegateAmount)
 		require.NoError(t, err)
 
@@ -133,12 +135,21 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 
 	// Test undelegate event
 	t.Run("TestUndelegateEvent", func(t *testing.T) {
+		// First, delegate some funds
+		addr := common.HexToAddress(staking.StakingAddress)
+		delegateArgs, err := pcommon.MustGetABI(f, "abi.json").Pack("delegate", valStr)
+		require.NoError(t, err)
+		
+		delegateTx := createEVMTx(t, k, ctx, privKey, &addr, delegateArgs, big.NewInt(100_000_000_000_000)) // 100 usei in wei
+		delegateRes := executeEVMTx(t, testApp, ctx, delegateTx, privKey)
+		require.Empty(t, delegateRes.VmError)
+		
+		// Now undelegate some funds
 		abi := pcommon.MustGetABI(f, "abi.json")
-		undelegateAmount := big.NewInt(25_000_000_000_000)
+		undelegateAmount := big.NewInt(30) // 30 usei (same as original test)
 		args, err := abi.Pack("undelegate", valStr, undelegateAmount)
 		require.NoError(t, err)
 
-		addr := common.HexToAddress(staking.StakingAddress)
 		tx := createEVMTx(t, k, ctx, privKey, &addr, args, big.NewInt(0))
 		res := executeEVMTx(t, testApp, ctx, tx, privKey)
 		
@@ -176,7 +187,7 @@ func createEVMTx(t *testing.T, k *evmkeeper.Keeper, ctx sdk.Context, privKey cry
 	
 	txData := ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
-		Gas:      200000,
+		Gas:      20000000, // Increased gas limit for staking operations
 		To:       to,
 		Value:    value,
 		Data:     data,
@@ -209,4 +220,6 @@ func executeEVMTx(t *testing.T, testApp *app.App, ctx sdk.Context, tx *ethtypes.
 	require.NoError(t, err)
 	
 	return res
-} 
+}
+
+// setupValidator is already defined in staking_test.go 
