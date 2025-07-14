@@ -7,10 +7,11 @@ import (
 	"fmt"
 	tmtypes "github.com/tendermint/tendermint/types"
 	"math/big"
+	"runtime"
 	"strings"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -30,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -47,6 +49,7 @@ const CtxIsWasmdPrecompileCallKey CtxIsWasmdPrecompileCallKeyType = "CtxIsWasmdP
 type SimulationAPI struct {
 	backend        *Backend
 	connectionType ConnectionType
+	requestLimiter *semaphore.Weighted
 }
 
 func NewSimulationAPI(
@@ -62,6 +65,7 @@ func NewSimulationAPI(
 	return &SimulationAPI{
 		backend:        NewBackend(ctxProvider, keeper, txConfig, tmClient, config, app, antehandler),
 		connectionType: connectionType,
+		requestLimiter: semaphore.NewWeighted(int64(runtime.NumCPU())), // max concurrent requests
 	}
 }
 
@@ -117,6 +121,11 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args ethapi.T
 func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride, blockOverrides *ethapi.BlockOverrides) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
+	/* ---------- fail‑fast limiter ---------- */
+	if !s.requestLimiter.TryAcquire(1) {
+		return nil, errors.New("eth_call rejected due to rate limit: server busy")
+	}
+	defer s.requestLimiter.Release(1)
 	defer func() {
 		if r := recover(); r != nil {
 			if strings.Contains(fmt.Sprintf("%s", r), "Int overflow") {
