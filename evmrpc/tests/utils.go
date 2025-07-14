@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -117,7 +118,7 @@ func setupTestServer(
 		a.BaseApp,
 		a.TracerAnteHandler,
 		ctxProvider,
-		a.GetTxConfig(),
+		func(int64) client.TxConfig { return a.GetTxConfig() },
 		"",
 		func(ctx context.Context, hash common.Hash) (bool, error) {
 			return false, nil
