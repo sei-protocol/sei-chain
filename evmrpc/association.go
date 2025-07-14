@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/common"
@@ -19,16 +20,16 @@ import (
 )
 
 type AssociationAPI struct {
-	tmClient       rpcclient.Client
-	keeper         *keeper.Keeper
-	ctxProvider    func(int64) sdk.Context
-	txDecoder      sdk.TxDecoder
-	sendAPI        *SendAPI
-	connectionType ConnectionType
+	tmClient         rpcclient.Client
+	keeper           *keeper.Keeper
+	ctxProvider      func(int64) sdk.Context
+	txConfigProvider func(int64) client.TxConfig
+	sendAPI          *SendAPI
+	connectionType   ConnectionType
 }
 
-func NewAssociationAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, sendAPI *SendAPI, connectionType ConnectionType) *AssociationAPI {
-	return &AssociationAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, sendAPI: sendAPI, connectionType: connectionType}
+func NewAssociationAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, sendAPI *SendAPI, connectionType ConnectionType) *AssociationAPI {
+	return &AssociationAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, sendAPI: sendAPI, connectionType: connectionType}
 }
 
 type AssociateRequest struct {
@@ -65,11 +66,11 @@ func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (
 	if err != nil {
 		return err
 	}
-	txBuilder := t.sendAPI.txConfig.NewTxBuilder()
+	txBuilder := t.sendAPI.txConfigProvider(LatestCtxHeight).NewTxBuilder()
 	if err = txBuilder.SetMsgs(msg); err != nil {
 		return err
 	}
-	txbz, encodeErr := t.sendAPI.txConfig.TxEncoder()(txBuilder.GetTx())
+	txbz, encodeErr := t.sendAPI.txConfigProvider(LatestCtxHeight).TxEncoder()(txBuilder.GetTx())
 	if encodeErr != nil {
 		return encodeErr
 	}
@@ -143,7 +144,7 @@ func (t *AssociationAPI) GetCosmosTx(ctx context.Context, ethHash common.Hash) (
 	}
 	for i := range blockRes.TxsResults {
 		tmTx := block.Block.Txs[i]
-		decoded, err := t.txDecoder(block.Block.Txs[i])
+		decoded, err := t.txConfigProvider(block.Block.Height).TxDecoder()(block.Block.Txs[i])
 		if err != nil {
 			return "", err
 		}

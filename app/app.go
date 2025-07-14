@@ -371,6 +371,7 @@ type App struct {
 	HardForkManager *upgrades.HardForkManager
 
 	encodingConfig        appparams.EncodingConfig
+	legacyEncodingConfig  appparams.EncodingConfig
 	evmRPCConfig          evmrpc.Config
 	lightInvarianceConfig LightInvarianceConfig
 
@@ -445,6 +446,7 @@ func New(
 		versionInfo:           version.NewInfo(),
 		metricCounter:         &map[string]float32{},
 		encodingConfig:        encodingConfig,
+		legacyEncodingConfig:  MakeLegacyEncodingConfig(),
 		stateStore:            stateStore,
 		httpServerStartSignal: make(chan struct{}, 1),
 		wsServerStartSignal:   make(chan struct{}, 1),
@@ -1841,9 +1843,19 @@ func (app *App) RPCContextProvider(i int64) sdk.Context {
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
 func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
+	txConfigProvider := func(height int64) client.TxConfig {
+		if app.ChainID != "pacific-1" {
+			return app.encodingConfig.TxConfig
+		}
+		// use current for post v6.0.6 heights
+		if height >= 175827094 {
+			return app.encodingConfig.TxConfig
+		}
+		return app.legacyEncodingConfig.TxConfig
+	}
 
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, nil)
 		if err != nil {
 			panic(err)
 		}
@@ -1856,7 +1868,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome)
 		if err != nil {
 			panic(err)
 		}
@@ -1957,6 +1969,10 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 
 func (app *App) GetTxConfig() client.TxConfig {
 	return app.encodingConfig.TxConfig
+}
+
+func (app *App) GetLegacyTxConfig() client.TxConfig {
+	return app.legacyEncodingConfig.TxConfig
 }
 
 // GetMaccPerms returns a copy of the module account permissions
