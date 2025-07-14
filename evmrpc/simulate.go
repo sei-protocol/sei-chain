@@ -65,7 +65,7 @@ func NewSimulationAPI(
 	return &SimulationAPI{
 		backend:        NewBackend(ctxProvider, keeper, txConfig, tmClient, config, app, antehandler),
 		connectionType: connectionType,
-		requestLimiter: semaphore.NewWeighted(int64(runtime.NumCPU())), // max concurrent requests
+		requestLimiter: semaphore.NewWeighted(int64(runtime.NumCPU() * 2)), // max concurrent requests
 	}
 }
 
