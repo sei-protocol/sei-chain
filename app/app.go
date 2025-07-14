@@ -1823,7 +1823,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 			return app.encodingConfig.TxConfig
 		}
 		// use current for post v6.0.6 heights
-		if height >= 175827094 {
+		if height >= v606UpgradeHeight {
 			return app.encodingConfig.TxConfig
 		}
 		return app.legacyEncodingConfig.TxConfig
