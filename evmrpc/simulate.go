@@ -52,7 +52,7 @@ type SimulationAPI struct {
 func NewSimulationAPI(
 	ctxProvider func(int64) sdk.Context,
 	keeper *keeper.Keeper,
-	txConfig client.TxConfig,
+	txConfigProvider func(int64) client.TxConfig,
 	tmClient rpcclient.Client,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
@@ -60,7 +60,7 @@ func NewSimulationAPI(
 	connectionType ConnectionType,
 ) *SimulationAPI {
 	return &SimulationAPI{
-		backend:        NewBackend(ctxProvider, keeper, txConfig, tmClient, config, app, antehandler),
+		backend:        NewBackend(ctxProvider, keeper, txConfigProvider, tmClient, config, app, antehandler),
 		connectionType: connectionType,
 	}
 }
@@ -181,24 +181,24 @@ var _ tracers.Backend = (*Backend)(nil)
 
 type Backend struct {
 	*eth.EthAPIBackend
-	ctxProvider func(int64) sdk.Context
-	txConfig    client.TxConfig
-	keeper      *keeper.Keeper
-	tmClient    rpcclient.Client
-	config      *SimulateConfig
-	app         *baseapp.BaseApp
-	antehandler sdk.AnteHandler
+	ctxProvider      func(int64) sdk.Context
+	txConfigProvider func(int64) client.TxConfig
+	keeper           *keeper.Keeper
+	tmClient         rpcclient.Client
+	config           *SimulateConfig
+	app              *baseapp.BaseApp
+	antehandler      sdk.AnteHandler
 }
 
-func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txConfig client.TxConfig, tmClient rpcclient.Client, config *SimulateConfig, app *baseapp.BaseApp, antehandler sdk.AnteHandler) *Backend {
+func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txConfigProvider func(int64) client.TxConfig, tmClient rpcclient.Client, config *SimulateConfig, app *baseapp.BaseApp, antehandler sdk.AnteHandler) *Backend {
 	return &Backend{
-		ctxProvider: ctxProvider,
-		keeper:      keeper,
-		txConfig:    txConfig,
-		tmClient:    tmClient,
-		config:      config,
-		app:         app,
-		antehandler: antehandler,
+		ctxProvider:      ctxProvider,
+		keeper:           keeper,
+		txConfigProvider: txConfigProvider,
+		tmClient:         tmClient,
+		config:           config,
+		app:              app,
+		antehandler:      antehandler,
 	}
 }
 
@@ -230,7 +230,7 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *e
 	}
 	txIndex := hexutil.Uint(receipt.TransactionIndex)
 	tmTx := block.Block.Txs[int(txIndex)]
-	tx = getEthTxForTxBz(tmTx, b.txConfig.TxDecoder())
+	tx = getEthTxForTxBz(tmTx, b.txConfigProvider(block.Block.Height).TxDecoder())
 	blockHash = common.BytesToHash(block.Block.Header.Hash().Bytes())
 	return tx, blockHash, uint64(txHeight), uint64(txIndex), nil
 }
@@ -270,7 +270,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
 	for i := range blockRes.TxsResults {
-		decoded, err := b.txConfig.TxDecoder()(tmBlock.Block.Txs[i])
+		decoded, err := b.txConfigProvider(blockRes.Height).TxDecoder()(tmBlock.Block.Txs[i])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -367,7 +367,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		return nil, vm.BlockContext{}, nil, emptyRelease, errors.New("transaction not found")
 	}
 	tx := txs[txIndex]
-	sdkTx, err := b.txConfig.TxDecoder()(tx)
+	sdkTx, err := b.txConfigProvider(block.Number().Int64()).TxDecoder()(tx)
 	if err != nil {
 		panic(err)
 	}
@@ -405,7 +405,7 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 		if idx > txIndex {
 			break
 		}
-		sdkTx, err := b.txConfig.TxDecoder()(tx)
+		sdkTx, err := b.txConfigProvider(block.Number().Int64()).TxDecoder()(tx)
 		if err != nil {
 			panic(err)
 		}
@@ -535,7 +535,7 @@ func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error 
 	if err != nil {
 		return fmt.Errorf("transaction cannot be converted to MsgEVMTransaction due to %s", err)
 	}
-	tb := b.txConfig.NewTxBuilder()
+	tb := b.txConfigProvider(ctx.BlockHeight()).NewTxBuilder()
 	_ = tb.SetMsgs(msg)
 	newCtx, err := b.antehandler(ctx, tb.GetTx(), false)
 	if err != nil {

@@ -33,7 +33,7 @@ type DebugAPI struct {
 	tmClient           rpcclient.Client
 	keeper             *keeper.Keeper
 	ctxProvider        func(int64) sdk.Context
-	txDecoder          sdk.TxDecoder
+	txConfigProvider   func(int64) client.TxConfig
 	connectionType     ConnectionType
 	backend            *Backend
 	isPanicCache       *expirable.LRU[common.Hash, bool] // hash to isPanic
@@ -61,14 +61,14 @@ func NewDebugAPI(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
-	txConfig client.TxConfig,
+	txConfigProvider func(int64) client.TxConfig,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 	debugCfg Config,
 ) *DebugAPI {
-	backend := NewBackend(ctxProvider, k, txConfig, tmClient, config, app, antehandler)
+	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler)
 	tracersAPI := tracers.NewAPI(backend)
 	evictCallback := func(key common.Hash, value bool) {}
 	isPanicCache := expirable.NewLRU[common.Hash, bool](IsPanicCacheSize, evictCallback, IsPanicCacheTTL)
@@ -83,7 +83,7 @@ func NewDebugAPI(
 		tmClient:           tmClient,
 		keeper:             k,
 		ctxProvider:        ctxProvider,
-		txDecoder:          txConfig.TxDecoder(),
+		txConfigProvider:   txConfigProvider,
 		connectionType:     connectionType,
 		isPanicCache:       isPanicCache,
 		traceCallSemaphore: sem,
@@ -96,14 +96,14 @@ func NewSeiDebugAPI(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
-	txConfig client.TxConfig,
+	txConfigProvider func(int64) client.TxConfig,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 	debugCfg Config,
 ) *SeiDebugAPI {
-	backend := NewBackend(ctxProvider, k, txConfig, tmClient, config, app, antehandler)
+	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler)
 	tracersAPI := tracers.NewAPI(backend)
 
 	var sem chan struct{}
@@ -117,7 +117,7 @@ func NewSeiDebugAPI(
 		tmClient:           tmClient,
 		keeper:             k,
 		ctxProvider:        ctxProvider,
-		txDecoder:          txConfig.TxDecoder(),
+		txConfigProvider:   txConfigProvider,
 		connectionType:     connectionType,
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
