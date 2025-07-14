@@ -248,6 +248,9 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 		}
 		return nil, err
 	}
+	if isReceiptFromAnteError(receipt) {
+		return nil, errors.New("not found")
+	}
 	return t.GetTransactionByBlockNumberAndIndex(ctx, rpc.BlockNumber(receipt.BlockNumber), hexutil.Uint(receipt.TransactionIndex))
 }
 
@@ -307,6 +310,9 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), ethtx.Hash())
 	if err != nil {
 		return nil, err
+	}
+	if isReceiptFromAnteError(receipt) {
+		return nil, errors.New("not found")
 	}
 	height := int64(receipt.BlockNumber)
 	baseFeePerGas := t.keeper.GetBaseFee(t.ctxProvider(height))
