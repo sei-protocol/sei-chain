@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/armon/go-metrics"
 	"math/big"
 	"strings"
 	"time"
@@ -122,7 +123,8 @@ func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, b
 	defer recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
 	/* ---------- fail‑fast limiter ---------- */
 	if !s.requestLimiter.TryAcquire(1) {
-		return nil, errors.New("eth_call rejected due to rate limit: server busy")
+		returnErr = errors.New("eth_call rejected due to rate limit: server busy")
+		return
 	}
 	defer s.requestLimiter.Release(1)
 	defer func() {
@@ -143,6 +145,8 @@ func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, b
 	if err != nil {
 		return nil, err
 	}
+	metrics.IncrCounter([]string{"eth_call", "gas_used"}, float32(callResult.UsedGas))
+	fmt.Printf("[Debug] Handle eth_call with gas used %d\n", callResult.UsedGas)
 	// If the result contains a revert reason, try to unpack and return it.
 	if len(callResult.Revert()) > 0 {
 		return nil, NewRevertError(callResult)
