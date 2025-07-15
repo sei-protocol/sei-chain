@@ -1454,20 +1454,6 @@ func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex i
 		Checksum:      sha256.Sum256(bz),
 		AbsoluteIndex: absoluateIndex,
 	}
-	if tx == nil {
-		return
-	}
-	defer func() {
-		if err := recover(); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("panic when generating estimated writeset for %X: %s", bz, err))
-		}
-	}()
-	// get prefill estimate
-	estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.GetAnteDepGenerator(), txIndex, tx)
-	// if no error, then we assign the mapped writesets for prefill estimate
-	if err == nil {
-		res.EstimatedWritesets = estimatedWritesets
-	}
 	return
 }
 
