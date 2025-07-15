@@ -8,6 +8,7 @@ import (
 	"github.com/armon/go-metrics"
 	"math/big"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/semaphore"
@@ -52,6 +53,10 @@ type SimulationAPI struct {
 	requestLimiter *semaphore.Weighted
 }
 
+var (
+	gasWindowTotal uint64 // total gas in current 10-s window
+)
+
 func NewSimulationAPI(
 	ctxProvider func(int64) sdk.Context,
 	keeper *keeper.Keeper,
@@ -62,6 +67,23 @@ func NewSimulationAPI(
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 ) *SimulationAPI {
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		for range ticker.C {
+			// atomically grab & reset the bucket
+			gas := atomic.SwapUint64(&gasWindowTotal, 0)
+
+			// 10-second window → divide by 10 for gas/sec
+			gasPerSec := float64(gas) / 10.0
+
+			if gasPerSec > 0 {
+				// developer log for easy grepping
+				fmt.Printf("[Debug] eth_call gas rate: %.1f gas/s (last 10 s, total %d gas)\n",
+					gasPerSec, gas)
+			}
+
+		}
+	}()
 	return &SimulationAPI{
 		backend:        NewBackend(ctxProvider, keeper, txConfig, tmClient, config, app, antehandler),
 		connectionType: connectionType,
@@ -146,6 +168,7 @@ func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, b
 		return nil, err
 	}
 	metrics.IncrCounter([]string{"eth_call", "gas_used"}, float32(callResult.UsedGas))
+	atomic.AddUint64(&gasWindowTotal, callResult.UsedGas)
 	fmt.Printf("[Debug] Handle eth_call with gas used %d\n", callResult.UsedGas)
 	// If the result contains a revert reason, try to unpack and return it.
 	if len(callResult.Revert()) > 0 {
