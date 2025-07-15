@@ -94,6 +94,9 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			err = fmt.Errorf("execution reverted: %v", r)
 		}
 	}()
+	if !ctx.IsEVM() || ctx.EVMEntryViaWasmdPrecompile() {
+		return nil, 0, errors.New("cannot claim from cosmos entry")
+	}
 	if ctx.EVMPrecompileCalledFromDelegateCall() {
 		return nil, 0, errors.New("cannot delegatecall claim")
 	}
@@ -287,6 +290,9 @@ func (p PrecompileExecutor) sigverify(ctx sdk.Context, tx sdk.Tx, claimMsg claim
 	if err := authsigning.VerifySignature(pubkey, signerData, sig.Data, p.txConfig.SignModeHandler(), tx); err != nil {
 		return fmt.Errorf("failed to verify signature for claim tx: %w", err)
 	}
+	// increment sequence
+	_ = acct.SetSequence(acct.GetSequence() + 1)
+	p.accountKeeper.SetAccount(ctx, acct)
 	return nil
 }
 

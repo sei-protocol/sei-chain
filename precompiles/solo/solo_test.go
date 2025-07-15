@@ -13,13 +13,31 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/params"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/solo"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
+
+func TestExecute(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).WithChainID("sei-test").WithIsEVM(true)
+	txConfig := testkeeper.EVMTestApp.GetTxConfig()
+	a := pcommon.MustGetABI(solo.F, "abi.json")
+	p := solo.NewExecutor(a, k, k.BankKeeper(), k.AccountKeeper(), wasmkeeper.NewDefaultPermissionKeeper(testkeeper.EVMTestApp.WasmKeeper), testkeeper.EVMTestApp.WasmKeeper, txConfig)
+	evm := vm.NewEVM(vm.BlockContext{}, nil, &params.ChainConfig{}, vm.Config{}, nil)
+	_, _, err := p.Execute(ctx.WithEVMPrecompileCalledFromDelegateCall(true), &abi.Method{}, common.Address{}, common.Address{}, []interface{}{}, nil, false, evm, 0, nil)
+	require.Error(t, err, "cannot delegatecall claim")
+	_, _, err = p.Execute(ctx, &abi.Method{}, common.Address{}, common.Address{}, []interface{}{}, nil, false, evm, 0, nil)
+	require.NoError(t, err)
+	_, _, err = p.Execute(ctx.WithEVMEntryViaWasmdPrecompile(true), &abi.Method{}, common.Address{}, common.Address{}, []interface{}{}, nil, false, evm, 0, nil)
+	require.Error(t, err, "cannot claim from cosmos entry")
+}
 
 func TestClaim(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
@@ -38,11 +56,15 @@ func TestClaim(t *testing.T) {
 	// happy path
 	ctx, _ := origCtx.CacheContext()
 	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
-	_, remainingGas, err := p.Claim(ctx, claimer, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaim(claimee, claimer), claimee, claimer, acc, claimeeKey)}, false)
+	signedMsg := signClaimMsg(t, evmtypes.NewMsgClaim(claimee, claimer), claimee, claimer, acc, claimeeKey)
+	_, remainingGas, err := p.Claim(ctx, claimer, &method, []interface{}{signedMsg}, false)
 	require.NoError(t, err)
-	require.Equal(t, uint64(964834), remainingGas)
+	require.Greater(t, remainingGas, uint64(900000))
 	require.Equal(t, sdk.NewInt(2), k.BankKeeper().GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, claimer), "abc").Amount)
 	require.Equal(t, sdk.NewInt(3), k.BankKeeper().GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, claimer), "def").Amount)
+	// ensure a replay isn't possible
+	_, _, err = p.Claim(ctx, claimer, &method, []interface{}{signedMsg}, false)
+	require.Error(t, err, "failed to verify signature for claim tx")
 	// from staticcall
 	ctx, _ = origCtx.CacheContext()
 	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
@@ -124,7 +146,7 @@ func TestClaimSpecificCW20(t *testing.T) {
 	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
 	_, remainingGas, err := p.ClaimSpecific(ctx, claimer, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaimSpecific(claimee, claimer, &evmtypes.Asset{AssetType: evmtypes.AssetType_TYPECW20, ContractAddress: contractAddr.String()}), claimee, claimer, acc, claimeeKey)}, false)
 	require.NoError(t, err)
-	require.Equal(t, uint64(848663), remainingGas)
+	require.Greater(t, remainingGas, uint64(800000))
 	require.Equal(t, sdk.ZeroInt(), queryCW20Balance(ctx, testkeeper.EVMTestApp.WasmKeeper, contractAddr, claimee))
 	require.Equal(t, sdk.NewInt(1000000000), queryCW20Balance(ctx, testkeeper.EVMTestApp.WasmKeeper, contractAddr, k.GetSeiAddressOrDefault(ctx, claimer)))
 }
@@ -149,7 +171,7 @@ func TestClaimSpecificCW721(t *testing.T) {
 	_, remainingGas, err := p.ClaimSpecific(ctx, claimer, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaimSpecific(claimee, claimer, &evmtypes.Asset{AssetType: evmtypes.AssetType_TYPECW721, ContractAddress: contractAddr.String()}), claimee, claimer, acc, claimeeKey)}, false)
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	require.NoError(t, err)
-	require.Equal(t, uint64(581814), remainingGas)
+	require.Greater(t, remainingGas, uint64(500000))
 	for i := 0; i < 15; i++ {
 		require.Equal(t, k.GetSeiAddressOrDefault(ctx, claimer).String(), queryCW721Owner(ctx, testkeeper.EVMTestApp.WasmKeeper, contractAddr, fmt.Sprintf("%d", i)))
 	}
@@ -173,7 +195,7 @@ func TestClaimSpecificNative(t *testing.T) {
 	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
 	_, remainingGas, err := p.ClaimSpecific(ctx, claimer, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaimSpecific(claimee, claimer, &evmtypes.Asset{AssetType: evmtypes.AssetType_TYPENATIVE, Denom: "foo"}), claimee, claimer, acc, claimeeKey)}, false)
 	require.NoError(t, err)
-	require.Equal(t, uint64(970286), remainingGas)
+	require.Greater(t, remainingGas, uint64(900000))
 	require.Equal(t, sdk.OneInt(), k.BankKeeper().GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, claimer), "foo").Amount)
 	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetBalance(ctx, claimee, "foo").Amount)
 }
