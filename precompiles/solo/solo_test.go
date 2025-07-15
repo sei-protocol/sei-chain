@@ -155,6 +155,29 @@ func TestClaimSpecificCW721(t *testing.T) {
 	}
 }
 
+func TestClaimSpecificNative(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	origCtx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).WithChainID("sei-test").WithBlockTime(time.Now())
+	txConfig := testkeeper.EVMTestApp.GetTxConfig()
+	a := pcommon.MustGetABI(solo.F, "abi.json")
+	method := a.Methods["claimSpecific"]
+	p := solo.NewExecutor(a, k, k.BankKeeper(), k.AccountKeeper(), nil, testkeeper.EVMTestApp.WasmKeeper, txConfig)
+	claimeeKey := testkeeper.MockPrivateKey()
+	claimee, _ := testkeeper.PrivateKeyToAddresses(claimeeKey)
+	claimerKey := testkeeper.MockPrivateKey()
+	_, claimer := testkeeper.PrivateKeyToAddresses(claimerKey)
+	acc := authtypes.NewBaseAccount(claimee, claimeeKey.PubKey(), 10, 0)
+	k.AccountKeeper().SetAccount(origCtx, acc)
+	_ = k.BankKeeper().AddCoins(origCtx, claimee, sdk.NewCoins(sdk.NewCoin("foo", sdk.OneInt())), false)
+	ctx, _ := origCtx.CacheContext()
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
+	_, remainingGas, err := p.ClaimSpecific(ctx, claimer, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaimSpecific(claimee, claimer, &evmtypes.Asset{AssetType: evmtypes.AssetType_TYPENATIVE, Denom: "foo"}), claimee, claimer, acc, claimeeKey)}, false)
+	require.NoError(t, err)
+	require.Equal(t, uint64(970286), remainingGas)
+	require.Equal(t, sdk.OneInt(), k.BankKeeper().GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, claimer), "foo").Amount)
+	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetBalance(ctx, claimee, "foo").Amount)
+}
+
 func signClaimMsg(t *testing.T, msg sdk.Msg, claimee sdk.AccAddress, claimer common.Address, acc authtypes.AccountI, signingKey cryptotypes.PrivKey) []byte {
 	tb := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
 	tb.SetMsgs(msg)

@@ -94,6 +94,14 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 			err = fmt.Errorf("execution reverted: %v", r)
 		}
 	}()
+	if ctx.EVMPrecompileCalledFromDelegateCall() {
+		return nil, 0, errors.New("cannot delegatecall claim")
+	}
+	// depth is incremented upon entering the precompile call so it's
+	// expected to be 1.
+	if evm.GetDepth() > 1 {
+		return nil, 0, errors.New("claim must be called by an EOA directly")
+	}
 	switch method.Name {
 	case ClaimMethod:
 		return p.Claim(ctx, caller, method, args, readOnly)
@@ -141,6 +149,16 @@ func (p PrecompileExecutor) ClaimSpecific(ctx sdk.Context, caller common.Address
 	}
 	callerSeiAddr := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	for _, asset := range claimSpecificMsg.GetIAssets() {
+		if asset.IsNative() {
+			denom := asset.GetDenom()
+			balance := p.bankKeeper.GetBalance(ctx, sender, denom)
+			if !balance.IsZero() {
+				if err := p.bankKeeper.SendCoins(ctx, sender, callerSeiAddr, sdk.NewCoins(balance)); err != nil {
+					return nil, 0, err
+				}
+			}
+			continue
+		}
 		contractAddr, err := sdk.AccAddressFromBech32(asset.GetContractAddress())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to parse contract address %s: %w", asset.GetContractAddress(), err)
