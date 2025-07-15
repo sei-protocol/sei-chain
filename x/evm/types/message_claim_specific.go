@@ -66,3 +66,7 @@ func (a *Asset) IsCW20() bool {
 func (a *Asset) IsCW721() bool {
 	return a.AssetType == AssetType_TYPECW721
 }
+
+func (a *Asset) IsNative() bool {
+	return a.AssetType == AssetType_TYPENATIVE
+}
