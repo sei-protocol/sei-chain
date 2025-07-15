@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"runtime"
 	"strings"
 	"time"
 
@@ -65,7 +64,7 @@ func NewSimulationAPI(
 	return &SimulationAPI{
 		backend:        NewBackend(ctxProvider, keeper, txConfig, tmClient, config, app, antehandler),
 		connectionType: connectionType,
-		requestLimiter: semaphore.NewWeighted(int64(runtime.NumCPU() * 2)), // max concurrent requests
+		requestLimiter: semaphore.NewWeighted(int64(config.MaxConcurrentSimulationCalls)), // max concurrent requests
 	}
 }
 
@@ -182,8 +181,9 @@ func (e *RevertError) ErrorData() interface{} {
 }
 
 type SimulateConfig struct {
-	GasCap     uint64
-	EVMTimeout time.Duration
+	GasCap                       uint64
+	EVMTimeout                   time.Duration
+	MaxConcurrentSimulationCalls uint64
 }
 
 var _ tracers.Backend = (*Backend)(nil)
