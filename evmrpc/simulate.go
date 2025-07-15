@@ -54,7 +54,8 @@ type SimulationAPI struct {
 }
 
 var (
-	gasWindowTotal uint64 // total gas in current 10-s window
+	gasWindowTotal     uint64 // total gas in current 10-s window
+	ethCallWindwoTotal uint64
 )
 
 func NewSimulationAPI(
@@ -72,14 +73,16 @@ func NewSimulationAPI(
 		for range ticker.C {
 			// atomically grab & reset the bucket
 			gas := atomic.SwapUint64(&gasWindowTotal, 0)
+			ethCall := atomic.SwapUint64(&ethCallWindwoTotal, 0)
 
 			// 10-second window → divide by 10 for gas/sec
 			gasPerSec := float64(gas) / 10.0
+			ethCallPerSec := float64(ethCall) / 10
 
 			if gasPerSec > 0 {
 				// developer log for easy grepping
-				fmt.Printf("[Debug] eth_call gas rate: %.1f gas/s (last 10 s, total %d gas)\n",
-					gasPerSec, gas)
+				fmt.Printf("[Debug] eth_call gas rate: %.1f gas/s, request rate: %.1f req/s\n",
+					gasPerSec, ethCallPerSec)
 			}
 
 		}
@@ -169,6 +172,7 @@ func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, b
 	}
 	metrics.IncrCounter([]string{"eth_call", "gas_used"}, float32(callResult.UsedGas))
 	atomic.AddUint64(&gasWindowTotal, callResult.UsedGas)
+	atomic.AddUint64(&ethCallWindwoTotal, 1)
 	fmt.Printf("[Debug] Handle eth_call with gas used %d\n", callResult.UsedGas)
 	// If the result contains a revert reason, try to unpack and return it.
 	if len(callResult.Revert()) > 0 {
