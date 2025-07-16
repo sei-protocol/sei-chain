@@ -1,0 +1,24 @@
+syntax = "proto3";
+package seiprotocol.seichain.mev;
+
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "mev/params.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/mev/types";
+
+// Query defines the gRPC querier service.
+service Query {
+  // Params returns the total set of mev parameters.
+  rpc Params(QueryParamsRequest) returns (QueryParamsResponse) {
+    option (google.api.http).get = "/sei-protocol/sei-chain/mev/params";
+  }
+}
+
+// QueryParamsRequest is the request type for the Query/Params RPC method.
+message QueryParamsRequest {}
+
+// QueryParamsResponse is the response type for the Query/Params RPC method.
+message QueryParamsResponse {
+  Params params = 1 [(gogoproto.nullable) = false];
+}
