@@ -152,7 +152,7 @@ func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, b
 	}()
 	/* ---------- fail‑fast limiter ---------- */
 	if !s.requestLimiter.TryAcquire(1) {
-		fmt.Printf("[Debug] Rejected simulation call")
+		fmt.Printf("[Debug] Rejected simulation call\n")
 		returnErr = errors.New("eth_call rejected due to rate limit: server busy")
 		return
 	}
