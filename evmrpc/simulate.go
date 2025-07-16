@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"github.com/armon/go-metrics"
 	"math/big"
 	"strings"
 	"sync/atomic"
@@ -120,6 +119,12 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.Transa
 func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_estimateGas", s.connectionType, startTime, returnErr)
+	/* ---------- fail‑fast rate limiter ---------- */
+	if !s.requestLimiter.TryAcquire(1) {
+		returnErr = errors.New("eth_estimateGas rejected due to rate limit: server busy")
+		return
+	}
+	defer s.requestLimiter.Release(1)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -132,6 +137,12 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.Transaction
 func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args ethapi.TransactionArgs, calls []ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_estimateGasAfterCalls", s.connectionType, startTime, returnErr)
+	/* ---------- fail‑fast rate limiter ---------- */
+	if !s.requestLimiter.TryAcquire(1) {
+		returnErr = errors.New("eth_estimateGasAfterCalls rejected due to rate limit: server busy")
+		return
+	}
+	defer s.requestLimiter.Release(1)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -145,7 +156,7 @@ func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, b
 	startTime := time.Now()
 	defer func() {
 		recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
-		fmt.Printf("[Debug] Finished eth_call with latency %s\n", time.Since(startTime))
+		fmt.Printf("[Debug] Finished %s eth_call with latency %s\n", s.connectionType, time.Since(startTime))
 	}()
 	/* ---------- fail‑fast limiter ---------- */
 	if !s.requestLimiter.TryAcquire(1) {
@@ -172,7 +183,6 @@ func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, b
 	if err != nil {
 		return nil, err
 	}
-	metrics.IncrCounter([]string{"eth_call", "gas_used"}, float32(callResult.UsedGas))
 	atomic.AddUint64(&gasWindowTotal, callResult.UsedGas)
 	atomic.AddUint64(&ethCallWindwoTotal, 1)
 	// If the result contains a revert reason, try to unpack and return it.
