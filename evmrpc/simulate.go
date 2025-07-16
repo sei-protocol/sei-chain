@@ -87,6 +87,7 @@ func NewSimulationAPI(
 
 		}
 	}()
+	fmt.Printf("Building simulation with max concurent calls:%d\n", config.MaxConcurrentSimulationCalls)
 	return &SimulationAPI{
 		backend:        NewBackend(ctxProvider, keeper, txConfig, tmClient, config, app, antehandler),
 		connectionType: connectionType,
@@ -148,6 +149,7 @@ func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, b
 	defer recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
 	/* ---------- fail‑fast limiter ---------- */
 	if !s.requestLimiter.TryAcquire(1) {
+		fmt.Printf("[Debug] Rejected simulation call")
 		returnErr = errors.New("eth_call rejected due to rate limit: server busy")
 		return
 	}
@@ -173,7 +175,6 @@ func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, b
 	metrics.IncrCounter([]string{"eth_call", "gas_used"}, float32(callResult.UsedGas))
 	atomic.AddUint64(&gasWindowTotal, callResult.UsedGas)
 	atomic.AddUint64(&ethCallWindwoTotal, 1)
-	fmt.Printf("[Debug] Handle eth_call with gas used %d\n", callResult.UsedGas)
 	// If the result contains a revert reason, try to unpack and return it.
 	if len(callResult.Revert()) > 0 {
 		return nil, NewRevertError(callResult)
