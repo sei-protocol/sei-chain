@@ -435,5 +435,27 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		t.Logf("Max rate limit test: %d successful, %d rejected out of %d total requests", successCount, rejectedCount, numRequests)
 	})
 
+	t.Run("LimiterRecoversAfterLoad", func(t *testing.T) {
+		// Step 1: Exceed the rate limit
+		numRequests := 100 + runtime.NumCPU()*2
+		results := make(chan error, numRequests)
+		for i := 0; i < numRequests; i++ {
+			go func() {
+				_, err := simAPI.Call(context.Background(), args, nil, nil, nil)
+				results <- err
+			}()
+		}
+		// Wait for all to finish
+		for i := 0; i < numRequests; i++ {
+			<-results
+		}
+
+		// Step 2: Now, send a few sequential requests and ensure they succeed
+		for i := 0; i < 5; i++ {
+			_, err := simAPI.Call(context.Background(), args, nil, nil, nil)
+			require.NoError(t, err, "Request after load relaxation should succeed (iteration %d)", i+1)
+		}
+	})
+
 	Ctx = Ctx.WithBlockHeight(8)
 }
