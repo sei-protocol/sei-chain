@@ -47,15 +47,12 @@ type CtxIsWasmdPrecompileCallKeyType string
 const CtxIsWasmdPrecompileCallKey CtxIsWasmdPrecompileCallKeyType = "CtxIsWasmdPrecompileCallKey"
 
 type SimulationAPI struct {
-	backend        *Backend
-	connectionType ConnectionType
-	requestLimiter *semaphore.Weighted
-}
-
-var (
+	backend            *Backend
+	connectionType     ConnectionType
+	requestLimiter     *semaphore.Weighted
 	gasWindowTotal     uint64 // total gas in current 10-s window
 	ethCallWindwoTotal uint64
-)
+}
 
 func NewSimulationAPI(
 	ctxProvider func(int64) sdk.Context,
@@ -67,27 +64,30 @@ func NewSimulationAPI(
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 ) *SimulationAPI {
-	go func(connectionType ConnectionType) {
-		ticker := time.NewTicker(5 * time.Second)
-		for range ticker.C {
-			// atomically grab & reset the bucket
-			gas := atomic.SwapUint64(&gasWindowTotal, 0)
-			ethCall := atomic.SwapUint64(&ethCallWindwoTotal, 0)
-
-			// 10-second window → divide by 10 for gas/sec
-			gasPerSec := float64(gas) / 10.0
-			ethCallPerSec := float64(ethCall) / 10
-			// developer log for easy grepping
-			fmt.Printf("[Debug] %s eth_call gas rate: %.1f gas/s, request rate: %.1f req/s\n",
-				connectionType, gasPerSec, ethCallPerSec)
-
-		}
-	}(connectionType)
-	return &SimulationAPI{
+	s := &SimulationAPI{
 		backend:        NewBackend(ctxProvider, keeper, txConfig, tmClient, config, app, antehandler),
 		connectionType: connectionType,
 		requestLimiter: semaphore.NewWeighted(int64(config.MaxConcurrentSimulationCalls)), // max concurrent requests
 	}
+	s.analyzeThroughput()
+	return s
+}
+
+func (s *SimulationAPI) analyzeThroughput() {
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		for range ticker.C {
+			// atomically grab & reset the bucket
+			gas := atomic.SwapUint64(&s.gasWindowTotal, 0)
+			ethCall := atomic.SwapUint64(&s.ethCallWindwoTotal, 0)
+
+			gasPerSec := float64(gas) / 5.0
+			ethCallPerSec := float64(ethCall) / 5.0
+			// developer log for easy grepping
+			fmt.Printf("[Debug] %s eth_call gas rate: %.1f gas/s, request rate: %.1f req/s\n",
+				s.connectionType, gasPerSec, ethCallPerSec)
+		}
+	}()
 }
 
 type AccessListResult struct {
@@ -182,8 +182,8 @@ func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, b
 	if err != nil {
 		return nil, err
 	}
-	atomic.AddUint64(&gasWindowTotal, callResult.UsedGas)
-	atomic.AddUint64(&ethCallWindwoTotal, 1)
+	atomic.AddUint64(&s.gasWindowTotal, callResult.UsedGas)
+	atomic.AddUint64(&s.ethCallWindwoTotal, 1)
 	// If the result contains a revert reason, try to unpack and return it.
 	if len(callResult.Revert()) > 0 {
 		return nil, NewRevertError(callResult)
