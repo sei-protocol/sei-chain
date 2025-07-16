@@ -146,7 +146,10 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args ethapi.T
 
 func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride, blockOverrides *ethapi.BlockOverrides) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
+	defer func() {
+		recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
+		fmt.Printf("[Debug] Finished eth_call with latency %s\n", time.Since(startTime))
+	}()
 	/* ---------- fail‑fast limiter ---------- */
 	if !s.requestLimiter.TryAcquire(1) {
 		fmt.Printf("[Debug] Rejected simulation call")
