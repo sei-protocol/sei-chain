@@ -69,7 +69,7 @@ func NewSimulationAPI(
 	connectionType ConnectionType,
 ) *SimulationAPI {
 	go func() {
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(5 * time.Second)
 		for range ticker.C {
 			// atomically grab & reset the bucket
 			gas := atomic.SwapUint64(&gasWindowTotal, 0)
@@ -78,12 +78,9 @@ func NewSimulationAPI(
 			// 10-second window → divide by 10 for gas/sec
 			gasPerSec := float64(gas) / 10.0
 			ethCallPerSec := float64(ethCall) / 10
-
-			if gasPerSec > 0 {
-				// developer log for easy grepping
-				fmt.Printf("[Debug] eth_call gas rate: %.1f gas/s, request rate: %.1f req/s\n",
-					gasPerSec, ethCallPerSec)
-			}
+			// developer log for easy grepping
+			fmt.Printf("[Debug] eth_call gas rate: %.1f gas/s, request rate: %.1f req/s\n",
+				gasPerSec, ethCallPerSec)
 
 		}
 	}()
