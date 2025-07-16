@@ -67,7 +67,7 @@ func NewSimulationAPI(
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 ) *SimulationAPI {
-	go func() {
+	go func(connectionType ConnectionType) {
 		ticker := time.NewTicker(5 * time.Second)
 		for range ticker.C {
 			// atomically grab & reset the bucket
@@ -82,8 +82,7 @@ func NewSimulationAPI(
 				connectionType, gasPerSec, ethCallPerSec)
 
 		}
-	}()
-	fmt.Printf("Building simulation with max concurent calls:%d\n", config.MaxConcurrentSimulationCalls)
+	}(connectionType)
 	return &SimulationAPI{
 		backend:        NewBackend(ctxProvider, keeper, txConfig, tmClient, config, app, antehandler),
 		connectionType: connectionType,
