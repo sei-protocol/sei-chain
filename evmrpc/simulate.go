@@ -78,8 +78,8 @@ func NewSimulationAPI(
 			gasPerSec := float64(gas) / 10.0
 			ethCallPerSec := float64(ethCall) / 10
 			// developer log for easy grepping
-			fmt.Printf("[Debug] eth_call gas rate: %.1f gas/s, request rate: %.1f req/s\n",
-				gasPerSec, ethCallPerSec)
+			fmt.Printf("[Debug] %s eth_call gas rate: %.1f gas/s, request rate: %.1f req/s\n",
+				connectionType, gasPerSec, ethCallPerSec)
 
 		}
 	}()
