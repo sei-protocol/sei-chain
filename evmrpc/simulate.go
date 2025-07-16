@@ -96,6 +96,12 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args export.Transa
 func (s *SimulationAPI) EstimateGas(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_estimateGas", s.connectionType, startTime, returnErr)
+	/* ---------- fail‑fast limiter ---------- */
+	if !s.requestLimiter.TryAcquire(1) {
+		returnErr = errors.New("eth_estimateGas rejected due to rate limit: server busy")
+		return
+	}
+	defer s.requestLimiter.Release(1)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -108,6 +114,12 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args export.Transaction
 func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.TransactionArgs, calls []export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_estimateGasAfterCalls", s.connectionType, startTime, returnErr)
+	/* ---------- fail‑fast limiter ---------- */
+	if !s.requestLimiter.TryAcquire(1) {
+		returnErr = errors.New("eth_estimateGasAfterCalls rejected due to rate limit: server busy")
+		return
+	}
+	defer s.requestLimiter.Release(1)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -122,7 +134,8 @@ func (s *SimulationAPI) Call(ctx context.Context, args export.TransactionArgs, b
 	defer recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
 	/* ---------- fail‑fast limiter ---------- */
 	if !s.requestLimiter.TryAcquire(1) {
-		return nil, errors.New("eth_call rejected due to rate limit: server busy")
+		returnErr = errors.New("eth_call rejected due to rate limit: server busy")
+		return
 	}
 	defer s.requestLimiter.Release(1)
 	defer func() {
