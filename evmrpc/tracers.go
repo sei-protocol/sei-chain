@@ -131,8 +131,6 @@ func NewSeiDebugAPI(
 }
 
 func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
-	release := api.acquireTraceSemaphore()
-	defer release()
 
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
@@ -258,8 +256,6 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 }
 
 func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
-	release := api.acquireTraceSemaphore()
-	defer release()
 
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
@@ -276,8 +272,6 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 }
 
 func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
-	release := api.acquireTraceSemaphore()
-	defer release()
 
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
@@ -289,8 +283,6 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 }
 
 func (api *DebugAPI) TraceCall(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (result interface{}, returnErr error) {
-	release := api.acquireTraceSemaphore()
-	defer release()
 
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
