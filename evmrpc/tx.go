@@ -34,7 +34,7 @@ type TransactionAPI struct {
 	tmClient         rpcclient.Client
 	keeper           *keeper.Keeper
 	ctxProvider      func(int64) sdk.Context
-	txConfig         client.TxConfig
+	txConfigProvider func(int64) client.TxConfig
 	homeDir          string
 	connectionType   ConnectionType
 	includeSynthetic bool
@@ -45,19 +45,20 @@ type SeiTransactionAPI struct {
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
 }
 
-func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, homeDir string, connectionType ConnectionType) *TransactionAPI {
-	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfig: txConfig, homeDir: homeDir, connectionType: connectionType}
+func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, connectionType ConnectionType) *TransactionAPI {
+	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType}
 }
 
 func NewSeiTransactionAPI(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
-	ctxProvider func(int64) sdk.Context, txConfig client.TxConfig,
+	ctxProvider func(int64) sdk.Context,
+	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 ) *SeiTransactionAPI {
-	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, connectionType)
+	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType)
 	baseAPI.includeSynthetic = true
 	return &SeiTransactionAPI{TransactionAPI: baseAPI, isPanicTx: isPanicTx}
 }
@@ -126,7 +127,7 @@ func getTransactionReceipt(
 
 		// Find the transaction in the block
 		for _, tx := range block.Block.Txs {
-			etx := getEthTxForTxBz(tx, t.txConfig.TxDecoder())
+			etx := getEthTxForTxBz(tx, t.txConfigProvider(block.Block.Height).TxDecoder())
 			if etx != nil && etx.Hash() == hash {
 				// Get the signer
 				signer := ethtypes.MakeSigner(
@@ -158,7 +159,7 @@ func getTransactionReceipt(
 	if err != nil {
 		return nil, err
 	}
-	return encodeReceipt(receipt, t.txConfig.TxDecoder(), block, func(h common.Hash) *types.Receipt {
+	return encodeReceipt(receipt, t.txConfigProvider(height).TxDecoder(), block, func(h common.Hash) *types.Receipt {
 		r, err := t.keeper.GetReceipt(sdkctx, h)
 		if err != nil {
 			return nil
@@ -212,7 +213,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 			break
 		}
 		for _, tx := range res.Txs {
-			etx := getEthTxForTxBz(tx, t.txConfig.TxDecoder())
+			etx := getEthTxForTxBz(tx, t.txConfigProvider(LatestCtxHeight).TxDecoder())
 			if etx != nil && etx.Hash() == hash {
 				signer := ethtypes.MakeSigner(
 					types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
@@ -297,7 +298,7 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 	if int(index) >= len(block.Block.Txs) {
 		return nil, nil
 	}
-	txIdx, found, ethtx, _ := GetEvmTxIndex(block.Block.Txs, uint32(index), t.txConfig.TxDecoder(), func(h common.Hash) *types.Receipt {
+	txIdx, found, ethtx, _ := GetEvmTxIndex(block.Block.Txs, uint32(index), t.txConfigProvider(block.Block.Height).TxDecoder(), func(h common.Hash) *types.Receipt {
 		r, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), h)
 		if err != nil {
 			return nil

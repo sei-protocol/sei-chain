@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
@@ -15,20 +16,20 @@ import (
 )
 
 type TxPoolAPI struct {
-	tmClient       rpcclient.Client
-	keeper         *keeper.Keeper
-	ctxProvider    func(int64) sdk.Context
-	txDecoder      sdk.TxDecoder
-	txPoolConfig   *TxPoolConfig
-	connectionType ConnectionType
+	tmClient         rpcclient.Client
+	keeper           *keeper.Keeper
+	ctxProvider      func(int64) sdk.Context
+	txConfigProvider func(int64) client.TxConfig
+	txPoolConfig     *TxPoolConfig
+	connectionType   ConnectionType
 }
 
 type TxPoolConfig struct {
 	maxNumTxs int
 }
 
-func NewTxPoolAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, txPoolConfig *TxPoolConfig, connectionType ConnectionType) *TxPoolAPI {
-	return &TxPoolAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, txPoolConfig: txPoolConfig, connectionType: connectionType}
+func NewTxPoolAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, txPoolConfig *TxPoolConfig, connectionType ConnectionType) *TxPoolAPI {
+	return &TxPoolAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, txPoolConfig: txPoolConfig, connectionType: connectionType}
 }
 
 // For now, we put all unconfirmed txs in pending and none in queued
@@ -54,7 +55,7 @@ func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]m
 	)
 
 	for _, tx := range resUnconfirmedTxs.Txs {
-		ethTx := getEthTxForTxBz(tx, t.txDecoder)
+		ethTx := getEthTxForTxBz(tx, t.txConfigProvider(LatestCtxHeight).TxDecoder())
 		if ethTx == nil { // not an evm tx
 			continue
 		}
