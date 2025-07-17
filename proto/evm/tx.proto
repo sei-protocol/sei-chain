@@ -92,6 +92,7 @@ message MsgClaim {
 message Asset {
   AssetType asset_type = 1;
   string contract_address = 2;
+  string denom = 3;
 }
 
 message MsgClaimSpecific {
