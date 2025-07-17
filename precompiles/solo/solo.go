@@ -92,8 +92,17 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("execution reverted: %v", r)
+			ret = nil
+			remainingGas = 0
+			return
 		}
 	}()
+	if !ctx.IsEVM() {
+		return nil, 0, errors.New("cannot claim from a CW call")
+	}
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
 	if !ctx.IsEVM() || ctx.EVMEntryViaWasmdPrecompile() {
 		return nil, 0, errors.New("cannot claim from cosmos entry")
 	}
@@ -129,9 +138,13 @@ type claimSpecificMsg interface {
 }
 
 func (p PrecompileExecutor) Claim(ctx sdk.Context, caller common.Address, method *abi.Method, args []interface{}, readOnly bool) (ret []byte, remainingGas uint64, err error) {
-	_, sender, err := p.validate(ctx, caller, args, readOnly)
+	claimMsg, sender, err := p.validate(ctx, caller, args, readOnly)
 	if err != nil {
 		return nil, 0, err
+	}
+	_, ok := claimMsg.(claimSpecificMsg)
+	if ok {
+		return nil, 0, errors.New("message for Claim must not be MsgClaimSpecific type")
 	}
 	if err := p.bankKeeper.SendCoins(ctx, sender,
 		p.evmKeeper.GetSeiAddressOrDefault(ctx, caller), p.bankKeeper.GetAllBalances(ctx, sender)); err != nil {

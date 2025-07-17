@@ -37,6 +37,10 @@ func TestExecute(t *testing.T) {
 	require.NoError(t, err)
 	_, _, err = p.Execute(ctx.WithEVMEntryViaWasmdPrecompile(true), &abi.Method{}, common.Address{}, common.Address{}, []interface{}{}, nil, false, evm, 0, nil)
 	require.Error(t, err, "cannot claim from cosmos entry")
+	_, _, err = p.Execute(ctx, &abi.Method{}, common.Address{}, common.Address{}, []interface{}{}, common.Big1, false, evm, 0, nil)
+	require.Error(t, err)
+	_, _, err = p.Execute(ctx.WithIsEVM(false), &abi.Method{}, common.Address{}, common.Address{}, []interface{}{}, nil, false, evm, 0, nil)
+	require.Error(t, err)
 }
 
 func TestClaim(t *testing.T) {
@@ -125,6 +129,12 @@ func TestClaim(t *testing.T) {
 	_, remainingGas, err = p.Claim(ctx, claimer, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaim(claimee, claimer), claimee, claimer, acc, claimeeKey)}, false)
 	require.Error(t, err, "failed to verify signature for claim tx")
 	require.Equal(t, uint64(0), remainingGas)
+	// wrapping a claimSpecific message should fail in Claim call
+	ctx, _ = origCtx.CacheContext()
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
+	signedMsg = signClaimMsg(t, evmtypes.NewMsgClaimSpecific(claimee, claimer, &evmtypes.Asset{AssetType: evmtypes.AssetType_TYPECW20, ContractAddress: ""}), claimee, claimer, acc, claimeeKey)
+	_, _, err = p.Claim(ctx, claimer, &method, []interface{}{signedMsg}, false)
+	require.Error(t, err, "message for Claim must not be MsgClaimSpecific type")
 }
 
 func TestClaimSpecificCW20(t *testing.T) {
