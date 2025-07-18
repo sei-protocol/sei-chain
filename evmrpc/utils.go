@@ -125,6 +125,7 @@ func blockResultsWithRetry(ctx context.Context, client rpcclient.Client, height 
 			return nil, err
 		}
 	}
+	fmt.Printf("[Debug] %s Got blockRes for height %d with %d txs\n", time.Now().Format("2006-01-02 15:04:05.000"), height, len(blockRes.TxsResults))
 	return blockRes, err
 }
 
