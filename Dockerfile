@@ -46,10 +46,38 @@ RUN LEDGER_ENABLED=false BUILD_TAGS=muslc LINK_STATICALLY=true make build -B \
 # --------------------------------------------------------
 FROM alpine:3.18
 
+# Install necessary tools
+RUN apk add --no-cache curl jq
+
 COPY --from=go-builder /code/build/seid /usr/bin/seid
 
+# Set environment variables
+ENV CHAIN_ID=pacific-1
+ENV MONIKER=sei-node
 
 # rest server, tendermint p2p, tendermint rpc
 EXPOSE 1317 26656 26657
 
-CMD ["/usr/bin/seid", "version"]
+# Create startup script
+RUN echo '#!/bin/sh\n\
+set -e\n\
+\n\
+echo "Starting Sei node with chain-id: $CHAIN_ID"\n\
+\n\
+# Initialize node if needed\n\
+if [ ! -f ~/.sei/config/genesis.json ]; then\n\
+    echo "Initializing node..."\n\
+    seid init $MONIKER --chain-id $CHAIN_ID\n\
+    \n\
+    # Download Pacific-1 genesis file\n\
+    if [ "$CHAIN_ID" = "pacific-1" ]; then\n\
+        echo "Downloading Pacific-1 genesis file..."\n\
+        curl -o ~/.sei/config/genesis.json https://raw.githubusercontent.com/sei-protocol/testnet/main/pacific-1/genesis.json\n\
+    fi\n\
+fi\n\
+\n\
+echo "Starting seid..."\n\
+seid start --chain-id $CHAIN_ID\n\
+' > /usr/bin/start.sh && chmod +x /usr/bin/start.sh
+
+CMD ["/usr/bin/start.sh"]
