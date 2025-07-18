@@ -185,6 +185,8 @@ func formatParam(p interface{}) string {
 		return fmt.Sprintf("[%s]", strings.Join(seiutils.Map(v, wrapper), ","))
 	case []string:
 		return fmt.Sprintf("[%s]", strings.Join(v, ","))
+	case []float64:
+		return fmt.Sprintf("[%s]", strings.Join(seiutils.Map(v, func(s float64) string { return fmt.Sprintf("%f", s) }), ","))
 	case []interface{}:
 		return fmt.Sprintf("[%s]", strings.Join(seiutils.Map(v, formatParam), ","))
 	case map[string]interface{}:
@@ -206,6 +208,10 @@ func formatParam(p interface{}) string {
 
 func signAndEncodeTx(txData ethtypes.TxData, mnemonic string) []byte {
 	signed := signTxWithMnemonic(txData, mnemonic)
+	return encodeEvmTx(txData, signed)
+}
+
+func encodeEvmTx(txData ethtypes.TxData, signed *ethtypes.Transaction) []byte {
 	var typedTx proto.Message
 	switch txData.(type) {
 	case *ethtypes.LegacyTx:
