@@ -416,6 +416,8 @@ func EncodeTmBlock(
 	}
 	if len(transactions) == 0 {
 		txHash = ethtypes.EmptyTxsHash
+	} else {
+		fmt.Printf("[Debug] Got %d transactions after filtering on height %d\n", len(transactions), number)
 	}
 
 	gasLimit := blockRes.ConsensusParamUpdates.Block.MaxGas
