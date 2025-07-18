@@ -340,6 +340,7 @@ func EncodeTmBlock(
 				}
 				receipt, err := k.GetReceipt(ctx, hash)
 				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(receipt) {
+					fmt.Printf("[Debug] Skipped evm tx for height %d due to missing receipt, err %v\n", number, err)
 					continue
 				}
 				if !includeSyntheticTxs && receipt.TxType == ShellEVMTxType {
