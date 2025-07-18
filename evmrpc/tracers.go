@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"runtime/debug"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
 
