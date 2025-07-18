@@ -53,31 +53,52 @@ COPY --from=go-builder /code/build/seid /usr/bin/seid
 
 # Set environment variables
 ENV CHAIN_ID=pacific-1
-ENV MONIKER=sei-node
+ENV MONIKER=sei-rpc-node
+ENV NODE_MODE=full
 
 # rest server, tendermint p2p, tendermint rpc
 EXPOSE 1317 26656 26657
 
 # Create startup script
-RUN echo '#!/bin/sh\n\
-set -e\n\
-\n\
-echo "Starting Sei node with chain-id: $CHAIN_ID"\n\
-\n\
-# Initialize node if needed\n\
-if [ ! -f ~/.sei/config/genesis.json ]; then\n\
-    echo "Initializing node..."\n\
-    seid init $MONIKER --chain-id $CHAIN_ID\n\
-    \n\
-    # Download Pacific-1 genesis file\n\
-    if [ "$CHAIN_ID" = "pacific-1" ]; then\n\
-        echo "Downloading Pacific-1 genesis file..."\n\
-        curl -o ~/.sei/config/genesis.json https://raw.githubusercontent.com/sei-protocol/testnet/main/pacific-1/genesis.json\n\
-    fi\n\
-fi\n\
-\n\
-echo "Starting seid..."\n\
-seid start --chain-id $CHAIN_ID\n\
-' > /usr/bin/start.sh && chmod +x /usr/bin/start.sh
+RUN cat > /usr/bin/start.sh << 'EOF'
+#!/bin/sh
+set -e
+
+echo "Starting Sei RPC node with chain-id: $CHAIN_ID"
+
+# Initialize node if needed
+if [ ! -f ~/.sei/config/genesis.json ]; then
+    echo "Initializing RPC node..."
+    seid init $MONIKER --chain-id $CHAIN_ID
+    
+    # Configure as full node (RPC mode)
+    sed -i.bak 's/mode = "validator"/mode = "full"/' ~/.sei/config/config.toml
+    
+    # Configure RPC settings
+    sed -i.bak 's|laddr = "tcp://127.0.0.1:26657"|laddr = "tcp://0.0.0.0:26657"|' ~/.sei/config/config.toml
+    sed -i.bak 's|laddr = "tcp://127.0.0.1:1317"|laddr = "tcp://0.0.0.0:1317"|' ~/.sei/config/app.toml
+    
+    # Enable state sync for faster synchronization
+    sed -i.bak 's/enable = false/enable = true/' ~/.sei/config/config.toml
+    sed -i.bak 's|rpc-servers = ""|rpc-servers = "https://rpc.pacific-1.seinetwork.io:443,https://rpc.pacific-1.seinetwork.io:443"|' ~/.sei/config/config.toml
+    
+    # Get current block height for state sync
+    echo "Getting current block height for state sync..."
+    LATEST_HEIGHT=$(curl -s https://rpc.pacific-1.seinetwork.io/block | jq -r .block.header.height)
+    SYNC_BLOCK_HEIGHT=$((LATEST_HEIGHT - 1000))
+    SYNC_BLOCK_HASH=$(curl -s "https://rpc.pacific-1.seinetwork.io/block?height=$SYNC_BLOCK_HEIGHT" | jq -r .block_id.hash)
+    
+    # Configure state sync parameters
+    sed -i.bak "s|trust-height = 0|trust-height = $SYNC_BLOCK_HEIGHT|" ~/.sei/config/config.toml
+    sed -i.bak "s|trust-hash = \"\"|trust-hash = \"$SYNC_BLOCK_HASH\"|" ~/.sei/config/config.toml
+    
+    echo "RPC node initialized successfully with state sync"
+fi
+
+echo "Starting seid in RPC mode with state sync..."
+seid start --chain-id $CHAIN_ID
+EOF
+
+RUN chmod +x /usr/bin/start.sh
 
 CMD ["/usr/bin/start.sh"]
