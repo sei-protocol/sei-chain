@@ -5,6 +5,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"time"
 )
 
 func (k *Keeper) SetAddressMapping(ctx sdk.Context, seiAddress sdk.AccAddress, evmAddress common.Address) {
@@ -56,11 +57,17 @@ func (k *Keeper) GetSeiAddress(ctx sdk.Context, evmAddress common.Address) (sdk.
 }
 
 func (k *Keeper) GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Address) sdk.AccAddress {
-	addr, ok := k.GetSeiAddress(ctx, evmAddress)
+	var ok bool
+	var addr sdk.AccAddress
+	start := time.Now()
+	defer func() {
+		ctx.Logger().Info("DEBUG GetSeiAddressOrDefault", "duration", time.Since(start), "evmAddress", evmAddress.Hex(), "found", ok)
+	}()
+	addr, ok = k.GetSeiAddress(ctx, evmAddress)
 	if ok {
 		return addr
 	}
-	return sdk.AccAddress(evmAddress[:])
+	return evmAddress[:]
 }
 
 func (k *Keeper) IterateSeiAddressMapping(ctx sdk.Context, cb func(evmAddr common.Address, seiAddr sdk.AccAddress) bool) {
