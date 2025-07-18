@@ -135,6 +135,15 @@ func deployEvmContracts(config *Config) {
 		uniV2SwapperAddress := common.HexToAddress(match[1])
 		config.EVMAddresses.UniV2Swapper = uniV2SwapperAddress
 	}
+	if config.ContainsAnyMessageTypes(DisperseETH) {
+		fmt.Println("Deploying Disperse contract")
+		disperse, err := deployEvmContract("loadtest/contracts/deploy_disperse.sh", config)
+		if err != nil {
+			fmt.Println("error deploying Disperse, ensure deploy_disperse.sh script and funded deployer")
+			panic(err)
+		}
+		config.EVMAddresses.DisperseETH = disperse
+	}
 }
 
 func run(config *Config) {

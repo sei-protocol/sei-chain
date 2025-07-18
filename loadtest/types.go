@@ -38,6 +38,7 @@ const (
 	WasmOccIteratorWrite string = "wasm_occ_iterator_write"
 	WasmOccIteratorRange string = "wasm_occ_iterator_range"
 	WasmOccParallelWrite string = "wasm_occ_parallel_write"
+	DisperseETH          string = "disperse_eth"
 )
 
 type WasmIteratorWriteMsg struct {
@@ -48,6 +49,7 @@ type EVMAddresses struct {
 	ERC20        common.Address
 	ERC721       common.Address
 	UniV2Swapper common.Address
+	DisperseETH  common.Address
 }
 
 type Config struct {

@@ -7,17 +7,22 @@ import (
 	"fmt"
 
 	"math/big"
-	"math/rand"
+	mathrand "math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+
+	"strings"
+
+	crand "crypto/rand"
 
 	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/erc20"
 	"github.com/sei-protocol/sei-chain/loadtest/contracts/evm/bindings/erc721"
@@ -95,13 +100,15 @@ func (txClient *EvmTxClient) GetTxForMsgType(msgType string) *ethtypes.Transacti
 		return txClient.GenerateERC721Mint()
 	case UNIV2:
 		return txClient.GenerateUniV2SwapTx()
+	case DisperseETH:
+		return txClient.GenerateDisperseEthTx()
 	default:
 		panic("invalid message type")
 	}
 }
 
 func randomValue() *big.Int {
-	return big.NewInt(rand.Int63n(9000000) * 1000000000000)
+	return big.NewInt(mathrand.Int63n(9000000) * 1000000000000)
 }
 
 // GenerateSendFundsTx returns a random send funds tx
@@ -180,6 +187,58 @@ func (txClient *EvmTxClient) GenerateERC721Mint() *ethtypes.Transaction {
 	return tx
 }
 
+func (txClient *EvmTxClient) GenerateDisperseEthTx() *ethtypes.Transaction {
+	// Build a disperse transaction that calls the disperseEther(recipients, values) payable method
+	// We create 10-100 random recipients and send 1 wei to each so that the total value is recipients*1 wei.
+	numRecipients := mathrand.Intn(91) + 10 // 10-100
+
+	recipients := make([]common.Address, numRecipients)
+	values := make([]*big.Int, numRecipients)
+	totalValue := big.NewInt(0)
+	for i := 0; i < numRecipients; i++ {
+		var addrBytes [20]byte
+		_, _ = crand.Read(addrBytes[:])
+		recipients[i] = common.BytesToAddress(addrBytes[:])
+		values[i] = big.NewInt(1) // 1 wei each
+		totalValue.Add(totalValue, values[i])
+	}
+
+	// Prepare ABI-encoded calldata
+	disperseABI, err := abi.JSON(strings.NewReader(`[{"inputs":[{"internalType":"address[]","name":"recipients","type":"address[]"},{"internalType":"uint256[]","name":"values","type":"uint256[]"}],"name":"disperseEther","outputs":[],"stateMutability":"payable","type":"function"}]`))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to parse disperse ABI: %v \n", err))
+	}
+	data, err := disperseABI.Pack("disperseEther", recipients, values)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to pack disperse calldata: %v \n", err))
+	}
+
+	var tx *ethtypes.Transaction
+	if !txClient.useEip1559 {
+		tx = ethtypes.NewTx(&ethtypes.LegacyTx{
+			Nonce:    txClient.nextNonce(),
+			GasPrice: DefaultMaxFee,
+			Gas:      uint64(1000000), // target ~1M gas
+			To:       &txClient.evmAddresses.DisperseETH,
+			Value:    totalValue,
+			Data:     data,
+		})
+	} else {
+		dynamicTx := &ethtypes.DynamicFeeTx{
+			ChainID:   txClient.chainId,
+			Nonce:     txClient.nextNonce(),
+			GasTipCap: DefaultPriorityFee,
+			GasFeeCap: DefaultMaxFee,
+			Gas:       uint64(1000000),
+			To:        &txClient.evmAddresses.DisperseETH,
+			Value:     totalValue,
+			Data:      data,
+		}
+		tx = ethtypes.NewTx(dynamicTx)
+	}
+	return txClient.sign(tx)
+}
+
 func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
 	auth, err := bind.NewKeyedTransactorWithChainID(txClient.privateKey, txClient.chainId)
 	if err != nil {
@@ -233,8 +292,8 @@ func GetNextEthClient(clients []*ethclient.Client) *ethclient.Client {
 	if numClients <= 0 {
 		panic("There's no ETH client available, make sure your connection are valid")
 	}
-	rand.Seed(time.Now().Unix())
-	return clients[rand.Int()%numClients]
+	mathrand.Seed(time.Now().Unix())
+	return clients[mathrand.Int()%numClients]
 }
 
 // GetTxReceipt query the transaction receipt to check if the tx succeed or not

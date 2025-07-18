@@ -6,8 +6,8 @@
     "tls": false,
     "msgs_per_tx": 1,
     "chain_id": "sei-loadtest-testnet",
-    "target_tps": 500,
-    "max_accounts": 500,
+    "target_tps": 50,
+    "max_accounts": 50,
     "price_distribution": {
         "min": "45",
         "max": "55",
@@ -49,19 +49,7 @@
         }
     },
     "message_types": [
-      "bank",
-      "dex",
-      "staking",
-      "failure_dex_malformed",
-      "failure_dex_invalid",
-      "collect_rewards",
-      "distribute_rewards",
-      "wasm_instantiate",
-      "wasm_occ_iterator_write",
-      "wasm_occ_iterator_range",
-      "wasm_occ_parallel_write",
-      "evm",
-      "univ2"
+      "bank"
     ],
     "evm_use_eip1559_txs": true,
     "run_oracle": false,
