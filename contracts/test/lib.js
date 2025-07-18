@@ -506,6 +506,12 @@ async function printClaimMsg(sender, claimer) {
     catch(e) { console.log(e); }
 }
 
+async function printClaimMsgBySender(sender, claimer, senderAddr) {
+    const command = `seid tx evm print-claim-by-sender ${claimer} ${senderAddr} --from ${sender} -y`;
+    try { return await execute(command); }
+    catch(e) { console.log(e); }
+}
+
 async function printClaimSpecificMsg(sender, claimer, ...assets) {
     const command = `seid tx evm print-claim-specific ${claimer} ${assets.join(' ')} --from ${sender} -y`;
     try { return await execute(command); }
@@ -656,6 +662,7 @@ module.exports = {
     associateWasm,
     generateWallet,
     printClaimMsg,
+    printClaimMsgBySender,
     printClaimSpecificMsg,
     addKey,
     getKeySeiAddress,

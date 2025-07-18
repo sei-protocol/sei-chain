@@ -232,6 +232,32 @@ func PrintClaimTxPayloadCmd() *cobra.Command {
 	return cmd
 }
 
+func PrintClaimTxBySenderPayloadCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "print-claim-by-sender [claimer] [sender] --from=<sender>",
+		Short: `Print hex-encoded claim message payload for Sei Solo migration.`,
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			msg := types.NewMsgClaim(sdk.MustAccAddressFromBech32(args[1]), common.HexToAddress(args[0]))
+			if err := msg.ValidateBasic(); err != nil {
+				return err
+			}
+
+			clientCtx.PrintSignedOnly = true
+			return tx.GenerateOrBroadcastTxCLI(clientCtx, cmd.Flags(), msg)
+		},
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
 func PrintClaimSpecificTxPayloadCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "print-claim-specific [claimer] [[CW20|CW721] [contract addr]]... --from=<sender>",
