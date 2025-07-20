@@ -15,23 +15,18 @@ fi
 # Ensure Foundry (forge/cast) & deps are installed *before* we use `cast`
 cd loadtest/contracts/evm || exit 1
 
-echo "Setting up Foundry..."
 set +e
 ./setup.sh > /dev/null 2>&1
 set -e
-echo "Foundry setup complete"
 
 # Ensure deployer account has funds (same hard-coded account used by other scripts)
 THRESHOLD=100000000000000000000 # 100 ETH
 ACCOUNT="0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52"
-echo "Funding account $ACCOUNT with $THRESHOLD ETH"
 BALANCE=$(cast balance $ACCOUNT --rpc-url "$evm_endpoint")
-echo "Pre-funding account balance: $BALANCE"
 if (( $(echo "$BALANCE < $THRESHOLD" | bc -l) )); then
   printf "12345678\n" | ~/go/bin/seid tx evm send $ACCOUNT 100000000000000000000 --from admin --evm-rpc "$evm_endpoint"
   sleep 3
   BALANCE=$(cast balance $ACCOUNT --rpc-url "$evm_endpoint")
-  echo "Post-funding account balance: $BALANCE"
 fi
 
 
