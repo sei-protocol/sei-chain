@@ -55,7 +55,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 	txClients, grpcConns := BuildGrpcClients(&config)
 	var evmTxClients []*EvmTxClient
 	if config.EvmRpcEndpoints != "" {
-		if config.ContainsAnyMessageTypes(EVM, ERC20, ERC721, UNIV2) {
+		if config.ContainsAnyMessageTypes(EVM, ERC20, ERC721, UNIV2, DisperseETH) {
 			evmTxClients = BuildEvmTxClients(&config, keys)
 		}
 	}
@@ -141,14 +141,19 @@ func BuildGrpcClients(config *Config) ([]typestx.ServiceClient, []*grpc.ClientCo
 func BuildEvmTxClients(config *Config, keys []cryptotypes.PrivKey) []*EvmTxClient {
 	clients := make([]*EvmTxClient, len(keys))
 	ethEndpoints := strings.Split(config.EvmRpcEndpoints, ",")
-	if len(ethEndpoints) == 0 {
+	if len(ethEndpoints) == 0 || (len(ethEndpoints) == 1 && strings.TrimSpace(ethEndpoints[0]) == "") {
 		return clients
 	}
 	ethClients := make([]*ethclient.Client, len(ethEndpoints))
 	for i, endpoint := range ethEndpoints {
+		endpoint = strings.TrimSpace(endpoint)
+		if endpoint == "" {
+			continue
+		}
 		client, err := ethclient.Dial(endpoint)
 		if err != nil {
 			fmt.Printf("Failed to connect to endpoint %s with error %s", endpoint, err.Error())
+			continue
 		}
 		ethClients[i] = client
 	}

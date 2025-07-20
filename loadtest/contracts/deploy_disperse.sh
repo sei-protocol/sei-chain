@@ -15,7 +15,11 @@ fi
 # Ensure Foundry (forge/cast) & deps are installed *before* we use `cast`
 cd loadtest/contracts/evm || exit 1
 
+echo "Setting up Foundry..."
+set +e
 ./setup.sh > /dev/null 2>&1
+set -e
+echo "Foundry setup complete"
 
 # Ensure deployer account has funds (same hard-coded account used by other scripts)
 THRESHOLD=100000000000000000000 # 100 ETH

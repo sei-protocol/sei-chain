@@ -5,7 +5,7 @@ if ! command -v forge &> /dev/null
 then
     echo "forge could not be found, installing Foundry..."
     curl -L https://foundry.paradigm.xyz | bash
-    /root/.foundry/bin/foundryup
+    /root/.foundry/bin/foundryup --platform alpine --install nightly
 fi
 
 sudo apt-get install jq -y
