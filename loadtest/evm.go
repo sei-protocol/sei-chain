@@ -188,6 +188,11 @@ func (txClient *EvmTxClient) GenerateERC721Mint() *ethtypes.Transaction {
 }
 
 func (txClient *EvmTxClient) GenerateDisperseEthTx() *ethtypes.Transaction {
+	// Check that we have a valid disperse contract address
+	if txClient.evmAddresses.DisperseETH.Cmp(common.Address{}) == 0 {
+		panic("DisperseETH contract address is not set - deployment may have failed")
+	}
+
 	// Build a disperse transaction that calls the disperseEther(recipients, values) payable method
 	// We create 10-100 random recipients and send 1 wei to each so that the total value is recipients*1 wei.
 	numRecipients := mathrand.Intn(91) + 10 // 10-100

@@ -91,12 +91,21 @@ func init() {
 func deployEvmContract(scriptPath string, config *Config) (common.Address, error) {
 	cmd := exec.Command(scriptPath, config.EVMRpcEndpoint())
 	var out bytes.Buffer
+	var stderr bytes.Buffer
 	cmd.Stdout = &out
+	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
+		fmt.Printf("Script %s failed with error: %s\nStderr: %s\nStdout: %s\n", scriptPath, err.Error(), stderr.String(), out.String())
 		return common.Address{}, err
 	}
-	return common.HexToAddress(strings.TrimSpace(out.String())), nil
+	output := strings.TrimSpace(out.String())
+	if output == "" {
+		fmt.Printf("Script %s returned empty output\nStderr: %s\nStdout: %s\n", scriptPath, stderr.String(), out.String())
+		return common.Address{}, fmt.Errorf("deployment script returned empty address")
+	}
+	fmt.Printf("Script %s returned address: %s\n", scriptPath, output)
+	return common.HexToAddress(output), nil
 }
 
 //nolint:gosec
@@ -143,6 +152,7 @@ func deployEvmContracts(config *Config) {
 			panic(err)
 		}
 		config.EVMAddresses.DisperseETH = disperse
+		fmt.Printf("Disperse contract deployed at: %s\n", disperse.Hex())
 	}
 }
 

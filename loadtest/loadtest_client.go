@@ -144,32 +144,40 @@ func BuildEvmTxClients(config *Config, keys []cryptotypes.PrivKey) []*EvmTxClien
 	if len(ethEndpoints) == 0 || (len(ethEndpoints) == 1 && strings.TrimSpace(ethEndpoints[0]) == "") {
 		return clients
 	}
-	ethClients := make([]*ethclient.Client, len(ethEndpoints))
-	for i, endpoint := range ethEndpoints {
+
+	// Filter out empty endpoints and build valid clients
+	var validEthClients []*ethclient.Client
+	for _, endpoint := range ethEndpoints {
 		endpoint = strings.TrimSpace(endpoint)
 		if endpoint == "" {
 			continue
 		}
 		client, err := ethclient.Dial(endpoint)
 		if err != nil {
-			fmt.Printf("Failed to connect to endpoint %s with error %s", endpoint, err.Error())
+			fmt.Printf("Failed to connect to endpoint %s with error %s\n", endpoint, err.Error())
 			continue
 		}
-		ethClients[i] = client
+		validEthClients = append(validEthClients, client)
 	}
+
+	if len(validEthClients) == 0 {
+		fmt.Printf("No valid EVM RPC endpoints available, returning empty EVM clients\n")
+		return clients
+	}
+
 	// Get chainId
-	chainID, err := ethClients[0].NetworkID(context.Background())
+	chainID, err := validEthClients[0].NetworkID(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("Failed to get chain ID: %v \n", err))
 	}
 	// Get gas price
-	gasPrice, err := ethClients[0].SuggestGasPrice(context.Background())
+	gasPrice, err := validEthClients[0].SuggestGasPrice(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("Failed to suggest gas price: %v\n", err))
 	}
 	// Build one client per key
 	for i, key := range keys {
-		clients[i] = NewEvmTxClient(key, chainID, gasPrice, ethClients, config.EVMAddresses, config.EvmUseEip1559Txs)
+		clients[i] = NewEvmTxClient(key, chainID, gasPrice, validEthClients, config.EVMAddresses, config.EvmUseEip1559Txs)
 	}
 	return clients
 }
