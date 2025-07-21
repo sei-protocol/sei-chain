@@ -12,6 +12,17 @@ describe("Disperse test", function () {
         await Promise.all([disperse.waitForDeployment()])
     });
 
+    async function sendAndWaitForReceipt(sendFunc) {
+        const start = new Date().getTime();
+        let resp = await sendFunc();
+        const receipt = await resp.wait();
+        const end = new Date().getTime();
+        console.log("Block", receipt.blockNumber,
+            "Gas used:", receipt.gasUsed.toString(),
+            "Time (ms):", (end-start));
+        return receipt;
+    }
+
     it("should send one", async function() {
         const wallets = [ "0x4A50A0763A200523b6332d8cf75191cAC19124F1"]
         const values = []
@@ -19,9 +30,9 @@ describe("Disperse test", function () {
         for (let i = 0; i < wallets.length; i++) {
             values.push(1)
         }
-        let resp = await disperse.disperseEther(wallets, values, {value: wallets.length})
-        const receipt = await resp.wait();
-        console.log("Block", receipt.blockNumber, "Gas used:", receipt.gasUsed.toString());
+        await sendAndWaitForReceipt(async () => {
+            return disperse.disperseEther(wallets, values, {value: wallets.length});
+        });
     })
 
     // from 0xadde91e7ab72b3e74bad538149cd5f0b7d7dbbbd45c4e9b4bcca1a0b878a6b92
@@ -31,9 +42,9 @@ describe("Disperse test", function () {
         for (let i = 0; i < wallets.length; i++) {
             values.push(1)
         }
-        let resp = await disperse.disperseEther(wallets, values, {value: wallets.length+1})
-        const receipt = await resp.wait();
-        console.log("Block", receipt.blockNumber, "Gas used:", receipt.gasUsed.toString());
+        await sendAndWaitForReceipt(async () => {
+            return await disperse.disperseEther(wallets, values, {value: wallets.length+1})
+        });
     })
 
     // from 0xadde91e7ab72b3e74bad538149cd5f0b7d7dbbbd45c4e9b4bcca1a0b878a6b92
@@ -49,9 +60,8 @@ describe("Disperse test", function () {
         for (let i = 0; i <count; i++) {
             values.push(1)
         }
-        let resp = await disperse.disperseEther(targets, values, {value: count+1})
-        const receipt = await resp.wait();
-        console.log("Block", receipt.blockNumber, "Gas used:", receipt.gasUsed.toString());
-
+        await sendAndWaitForReceipt(async () => {
+            return  await disperse.disperseEther(targets, values, {value: count+1})
+        });
     })
 })
