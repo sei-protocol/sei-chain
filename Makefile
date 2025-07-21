@@ -98,6 +98,9 @@ lint:
 build:
 	go build $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
 
+build-verbose:
+	go build -x -v $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
+
 build-price-feeder:
 	go build $(BUILD_FLAGS) -o ./build/price-feeder ./oracle/price-feeder
 

@@ -1,6 +1,7 @@
 package solo
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -241,6 +242,10 @@ func (p PrecompileExecutor) sigverify(ctx sdk.Context, tx sdk.Tx, claimMsg claim
 		if pubkey == nil {
 			return errors.New("must provide pubkey from accounts that have never sent transactions")
 		}
+	}
+	pubkeyAddr := sdk.AccAddress(pubkey.Address())
+	if !bytes.Equal(pubkeyAddr, sender) {
+		return fmt.Errorf("claim message is for %s but was signed by %s", sender.String(), pubkeyAddr.String())
 	}
 	sigs, err := sigTx.GetSignaturesV2()
 	if err != nil {
