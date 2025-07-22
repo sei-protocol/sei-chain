@@ -147,7 +147,6 @@ import (
 	tmos "github.com/tendermint/tendermint/libs/os"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
-	"go.opentelemetry.io/otel/trace"
 
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
@@ -1454,43 +1453,14 @@ func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex i
 		Checksum:      sha256.Sum256(bz),
 		AbsoluteIndex: absoluateIndex,
 	}
-	if tx == nil {
-		return
-	}
-	defer func() {
-		if err := recover(); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("panic when generating estimated writeset for %X: %s", bz, err))
-		}
-	}()
-	// get prefill estimate
-	estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.GetAnteDepGenerator(), txIndex, tx)
-	// if no error, then we assign the mapped writesets for prefill estimate
-	if err == nil {
-		res.EstimatedWritesets = estimatedWritesets
-	}
 	return
 }
 
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
 func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
-	var span trace.Span
-	if app.TracingEnabled {
-		_, span = app.TracingInfo.Start("GenerateEstimatedWritesets")
-	}
-	wg := sync.WaitGroup{}
 	for txIndex, tx := range txs {
-		wg.Add(1)
-		go func(txIndex int, tx []byte) {
-			defer wg.Done()
-			entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
-		}(txIndex, tx)
-	}
-
-	wg.Wait()
-
-	if app.TracingEnabled {
-		span.End()
+		entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
 	}
 
 	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})

@@ -69,6 +69,13 @@ func TestClaim(t *testing.T) {
 	_, remainingGas, err = p.Claim(ctx, imposter, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaim(claimee, claimer), claimee, claimer, acc, claimeeKey)}, false)
 	require.Error(t, err, "claim tx is meant for")
 	require.Equal(t, uint64(0), remainingGas)
+	// imposter on ClaimMsg
+	ctx, _ = origCtx.CacheContext()
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
+	imposterKey := testkeeper.MockPrivateKey()
+	_, remainingGas, err = p.Claim(ctx, imposter, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaim(claimee, imposter), claimee, imposter, acc, imposterKey)}, false)
+	require.Error(t, err, "claim message is for")
+	require.Equal(t, uint64(0), remainingGas)
 	// account does not exist
 	ctx, _ = origCtx.CacheContext()
 	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))

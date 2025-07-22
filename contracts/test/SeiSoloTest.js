@@ -1,7 +1,7 @@
 const { expect } = require("chai");
 
 const { setupSigners, getAdmin, getSeiBalance, printClaimMsg, addKey, getKeySeiAddress, fundSeiAddress,hex2uint8,
-    deployWasm, printClaimSpecificMsg, WASM, queryWasm
+    deployWasm, printClaimSpecificMsg, WASM, queryWasm, printClaimMsgBySender
 } = require("./lib");
 
 
@@ -41,6 +41,41 @@ describe("Sei Solo Tester", function () {
             expect(receipt.status).to.equal(1);
             let postClaimBalance = await getSeiBalance(soloAddr);
             expect(postClaimBalance).to.equal(0);
+        });
+    });
+
+    describe("Claim Imposter Tester", function () {
+        const SoloPrecompileContract = '0x000000000000000000000000000000000000100C';
+        let solo;
+        let victimAddr;
+        let imposterAddr;
+
+        before(async function () {
+            const signer = accounts[0].signer
+            const contractABIPath = '../../precompiles/solo/abi.json';
+            const contractABI = require(contractABIPath);
+            // Get a contract instance
+            solo = new ethers.Contract(SoloPrecompileContract, contractABI, signer);
+            // setup account to be attacked
+            await addKey("victim");
+            victimAddr = await getKeySeiAddress("victim");
+            await fundSeiAddress(victimAddr);
+            // setup imposter account
+            await addKey("imposter");
+            imposterAddr = await getKeySeiAddress("imposter");
+            await fundSeiAddress(imposterAddr);
+        });
+
+        it("Should not allow imposter to claim", async function () {
+            let signerAddr = await accounts[0].signer.getAddress();
+            let claimMsg = await printClaimMsgBySender("imposter", signerAddr, victimAddr);
+            let payload = hex2uint8(claimMsg);
+            try {
+                const claim = await solo.claim(payload, {gasLimit: 100000});
+                const receipt = await claim.wait();
+            } catch (error) {
+                expect(error.receipt.status).to.equal(0);
+            }
         });
     });
 
