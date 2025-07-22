@@ -15,11 +15,7 @@ func (s *DBImpl) CreateAccount(acc common.Address) {
 	withTimerLog(s.ctx, "CreateAccount", func() {
 		s.k.PrepareReplayedAddr(s.ctx, acc)
 		// clear any existing state but keep balance untouched
-		if !s.ctx.IsTracing() {
-			// too slow on historical DB so not doing it for tracing for now.
-			// could cause tracing to be incorrect in theory.
-			s.clearAccountState(acc)
-		}
+		s.clearAccountState(acc)
 		s.MarkAccount(acc, AccountCreated)
 	})
 }
