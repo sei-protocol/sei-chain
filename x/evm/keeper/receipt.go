@@ -118,7 +118,6 @@ func (k *Keeper) FlushTransientReceipts(ctx sdk.Context) error {
 	iter := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix).Iterator(nil, nil)
 	defer iter.Close()
 	var pairs []*iavl.KVPair
-	var changesets []*proto.NamedChangeSet
 	for ; iter.Valid(); iter.Next() {
 		kvPair := &iavl.KVPair{Key: types.ReceiptKey(common.Hash(iter.Key())), Value: iter.Value()}
 		pairs = append(pairs, kvPair)
@@ -130,9 +129,8 @@ func (k *Keeper) FlushTransientReceipts(ctx sdk.Context) error {
 		Name:      types.ReceiptStoreKey,
 		Changeset: iavl.ChangeSet{Pairs: pairs},
 	}
-	changesets = append(changesets, ncs)
 
-	return k.receiptStore.ApplyChangesetAsync(ctx.BlockHeight(), changesets)
+	return k.receiptStore.ApplyChangeset(ctx.BlockHeight(), ncs)
 }
 
 func (k *Keeper) WriteReceipt(
