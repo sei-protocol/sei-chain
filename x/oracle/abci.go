@@ -110,10 +110,11 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 		}
 		sort.Strings(belowThresholdKeys)
 		// in this case, all assets would be in the belowThresholdVoteMap
+
 		for _, denom := range belowThresholdKeys {
 			ballot := belowThresholdVoteMap[denom]
 			// perform tally for below threshold assets to calculate total win count
-			Tally(ctx, ballot, params.RewardBand, validatorClaimMap)
+			UpdateDidVote(ctx, ballot, validatorClaimMap)
 		}
 
 		//---------------------------

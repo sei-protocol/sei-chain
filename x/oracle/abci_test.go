@@ -179,6 +179,49 @@ func TestOracleTally(t *testing.T) {
 	require.Equal(t, tallyMedian.MulInt64(100).TruncateInt(), weightedMedian.MulInt64(100).TruncateInt())
 }
 
+func TestOracleUpdateDidVote(t *testing.T) {
+	input, _ := setup(t)
+
+	// set up a ballot where only one of 3 validators voted, and the other two didn't make any votes
+
+	params := input.OracleKeeper.GetParams(input.Ctx)
+	params.Whitelist = types.DenomList{{Name: utils.MicroAtomDenom}}
+	input.OracleKeeper.SetParams(input.Ctx, params)
+
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
+
+	votingVal := keeper.ValAddrs[0]
+
+	input.Ctx = input.Ctx.WithBlockHeight(input.Ctx.BlockHeight() + 1)
+
+	ballot := types.ExchangeRateBallot{}
+
+	vote := types.NewVoteForTally(randomExchangeRate, utils.MicroAtomDenom, votingVal, 1)
+	ballot = append(ballot, vote)
+
+	validatorClaimMap := make(map[string]types.Claim)
+	for _, valAddr := range keeper.ValAddrs {
+		validatorClaimMap[valAddr.String()] = types.Claim{
+			Power:     1,
+			Weight:    int64(0),
+			WinCount:  int64(0),
+			Recipient: valAddr,
+		}
+	}
+
+	oracle.UpdateDidVote(input.Ctx, ballot, validatorClaimMap)
+
+	require.Equal(t, validatorClaimMap[votingVal.String()].WinCount, int64(1))
+	require.Equal(t, validatorClaimMap[keeper.ValAddrs[1].String()].WinCount, int64(0))
+	require.Equal(t, validatorClaimMap[keeper.ValAddrs[2].String()].WinCount, int64(0))
+
+	// check didVote as well
+	require.Equal(t, validatorClaimMap[votingVal.String()].DidVote, true)
+	require.Equal(t, validatorClaimMap[keeper.ValAddrs[1].String()].DidVote, false)
+	require.Equal(t, validatorClaimMap[keeper.ValAddrs[2].String()].DidVote, false)
+}
+
 func TestOracleTallyTiming(t *testing.T) {
 	input, h := setup(t)
 
@@ -731,4 +774,28 @@ func TestOverflowAndDivByZero(t *testing.T) {
 	require.Equal(t, int64(1), height.Int64())
 	_, _, _, err = input.OracleKeeper.GetBaseExchangeRate(input.Ctx, utils.MicroEthDenom)
 	require.Error(t, err)
+}
+
+func TestTallyOverflow(t *testing.T) {
+	input, h := setup(t)
+	params := input.OracleKeeper.GetParams(input.Ctx)
+	params.Whitelist = types.DenomList{
+		{Name: utils.MicroAtomDenom},
+	}
+	input.OracleKeeper.SetParams(input.Ctx, params)
+
+	// Set vote targets
+	input.OracleKeeper.ClearVoteTargets(input.Ctx)
+	input.OracleKeeper.SetVoteTarget(input.Ctx, utils.MicroAtomDenom)
+
+	// Test overflow case
+	overflowRate := sdk.MustNewDecFromStr("66749594872528440074844428317798503581334516323645399060845050244444366430645")
+	overflowVote := sdk.DecCoins{
+		sdk.NewDecCoinFromDec(utils.MicroAtomDenom, overflowRate),
+	}
+	makeAggregateVote(t, input, h, 0, overflowVote, 0)
+
+	// This should not panic
+	oracle.MidBlocker(input.Ctx, input.OracleKeeper)
+	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 }
