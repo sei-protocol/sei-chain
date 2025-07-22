@@ -119,7 +119,6 @@ var upgradesList = []string{
 	"v6.0.5",
 	"v6.0.6",
 	"v6.1.0",
-	"v6.1.4",
 }
 
 var LatestUpgrade = upgradesList[len(upgradesList)-1]
