@@ -12,14 +12,22 @@ describe("Disperse test", function () {
     });
 
     async function doDisperse(disperseContract, wallets, values, options) {
-        const overrides = {
-            ...options,
-            [await signers[0].getAddress()]: {
-                balance: ethers.parseEther("1000000000000") // Give sender 1000 ETH
-            }
-        }
         const start = new Date().getTime();
-        const resp = await disperseContract.disperseEther.estimateGas(wallets, values, overrides);
+
+        // Encode the function call
+        const data = disperseContract.interface.encodeFunctionData("disperseEther", [wallets, values]);
+
+        // Make raw call with from override
+        const result = await ethers.provider.call({
+            to: await disperseContract.getAddress(),
+            from: "0x86c09d5ea432518f34d885907bBD9c6D5ab22a44",
+            data: data,
+            value: options.value || 0
+        });
+
+        // Decode the result
+        const resp = disperseContract.interface.decodeFunctionResult("disperseEther", result);
+
         const end = new Date().getTime();
         console.log("resp", resp, "time (ms):", (end-start));
     }
