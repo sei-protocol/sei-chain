@@ -1,32 +1,27 @@
 const {generateWallet} = require("./lib");
 
 describe("Disperse test", function () {
+    const address = "0x523df10FeB84a5235991B0079c4263fA036b8cB2";
     let disperse;
     let signers;
 
     beforeEach(async function () {
         signers = await ethers.getSigners();
         const disperseFactory = await ethers.getContractFactory("Disperse")
-        disperse = await disperseFactory.deploy(1,1);
-
-        await Promise.all([disperse.waitForDeployment()])
+        disperse = disperseFactory.attach(address);
     });
 
     async function doDisperse(disperseContract, wallets, values, options) {
-        await sendAndWaitForReceipt(async () => {
-            return disperseContract.disperseEther(wallets, values, overrides);
-        });
-    }
-
-    async function sendAndWaitForReceipt(sendFunc) {
+        const overrides = {
+            ...options,
+            [await signers[0].getAddress()]: {
+                balance: ethers.parseEther("1000000000000") // Give sender 1000 ETH
+            }
+        }
         const start = new Date().getTime();
-        let resp = await sendFunc();
-        const receipt = await resp.wait();
+        const resp = await disperseContract.disperseEther.estimateGas(wallets, values, overrides);
         const end = new Date().getTime();
-        console.log("Block", receipt.blockNumber,
-            "Gas used:", receipt.gasUsed.toString(),
-            "Time (ms):", (end-start));
-        return receipt;
+        console.log("resp", resp, "time (ms):", (end-start));
     }
 
     it("should send one", async function() {
@@ -50,7 +45,7 @@ describe("Disperse test", function () {
     })
 
     // from 0xadde91e7ab72b3e74bad538149cd5f0b7d7dbbbd45c4e9b4bcca1a0b878a6b92
-    it("should generate wallets and send", async function() {
+    it.only("should generate wallets and send", async function() {
         // lazy way to produce same length because i didn't count
         const targets = []
         const count = 100;

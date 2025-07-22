@@ -12,14 +12,16 @@ import (
 )
 
 func (s *DBImpl) CreateAccount(acc common.Address) {
-	s.k.PrepareReplayedAddr(s.ctx, acc)
-	// clear any existing state but keep balance untouched
-	if !s.ctx.IsTracing() {
-		// too slow on historical DB so not doing it for tracing for now.
-		// could cause tracing to be incorrect in theory.
-		s.clearAccountState(acc)
-	}
-	s.MarkAccount(acc, AccountCreated)
+	withTimerLog(s.ctx, "CreateAccount", func() {
+		s.k.PrepareReplayedAddr(s.ctx, acc)
+		// clear any existing state but keep balance untouched
+		if !s.ctx.IsTracing() {
+			// too slow on historical DB so not doing it for tracing for now.
+			// could cause tracing to be incorrect in theory.
+			s.clearAccountState(acc)
+		}
+		s.MarkAccount(acc, AccountCreated)
+	})
 }
 
 func (s *DBImpl) GetCommittedState(addr common.Address, hash common.Hash) common.Hash {
@@ -140,12 +142,15 @@ func (s *DBImpl) clearAccountStateIfDestructed(st *TemporaryState) {
 }
 
 func (s *DBImpl) clearAccountState(acc common.Address) {
-	s.k.PrepareReplayedAddr(s.ctx, acc)
-	s.k.PurgePrefix(s.ctx, types.StateKey(acc))
-	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), acc[:])
-	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), acc[:])
-	deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:])
-	deleteIfExists(s.k.PrefixStore(s.ctx, types.NonceKeyPrefix), acc[:])
+	withTimerLog(s.ctx, "clearAccountState", func() {
+		s.k.PrepareReplayedAddr(s.ctx, acc)
+		if deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), acc[:]) {
+			s.k.PurgePrefix(s.ctx, types.StateKey(acc))
+			deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), acc[:])
+			deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:])
+			deleteIfExists(s.k.PrefixStore(s.ctx, types.NonceKeyPrefix), acc[:])
+		}
+	})
 }
 
 func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {
@@ -199,8 +204,10 @@ func (s *DBImpl) getTransientState(acc common.Address, key common.Hash) (common.
 	return val, found
 }
 
-func deleteIfExists(store storetypes.KVStore, key []byte) {
+func deleteIfExists(store storetypes.KVStore, key []byte) bool {
 	if store.Has(key) {
 		store.Delete(key)
+		return true
 	}
+	return false
 }
