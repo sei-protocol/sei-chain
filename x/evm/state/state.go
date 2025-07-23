@@ -146,10 +146,10 @@ func (s *DBImpl) clearAccountStateIfDestructed(st *TemporaryState) {
 
 func (s *DBImpl) clearAccountState(acc common.Address) {
 	s.k.PrepareReplayedAddr(s.ctx, acc)
-	if deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), acc[:]) {
+	if deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:]) {
 		s.k.PurgePrefix(s.ctx, types.StateKey(acc))
 		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeKeyPrefix), acc[:])
-		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeHashKeyPrefix), acc[:])
+		deleteIfExists(s.k.PrefixStore(s.ctx, types.CodeSizeKeyPrefix), acc[:])
 		deleteIfExists(s.k.PrefixStore(s.ctx, types.NonceKeyPrefix), acc[:])
 	}
 }
