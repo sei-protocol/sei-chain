@@ -9,6 +9,7 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
+	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -41,6 +42,8 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 
 	chainID := svd.evmKeeper.ChainID(ctx)
 	txChainID := ethTx.ChainId()
+
+	fee := new(big.Int).Mul(ethTx.GasPrice(), new(big.Int).SetUint64(ethTx.Gas()))
 
 	// validate chain ID on the transaction
 	switch ethTx.Type() {
@@ -94,6 +97,12 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 					// this nonce has already been mined, we cannot accept it again
 					return abci.Rejected
 				} else if txNonce < nextPendingNonce {
+					// check if the sender still has enough funds to pay for gas
+					balance := svd.evmKeeper.BankKeeper().GetBalance(latestCtx, types.MustGetEVMTransactionMessage(tx).Derived.SenderSeiAddr, keeper.BaseDenom).Amount
+					if balance.LT(sdk.NewIntFromBigInt(fee)) {
+						// not enough funds
+						return abci.Rejected
+					}
 					// this nonce is allowed to process as it is part of the
 					// consecutive nonces from nextNonceToBeMined to nextPendingNonce
 					// This logic allows multiple nonces from an account to be processed in a block.
