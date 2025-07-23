@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 // BIP44Params wraps BIP 44 params (5 level BIP 32 path).
@@ -227,7 +227,7 @@ func DerivePrivateKeyForPath(privKeyBytes, chainCode [32]byte, path string) ([]b
 // If harden is true, the derivation is 'hardened'.
 // It returns the new private key and new chain code.
 // For more information on hardened keys see:
-//  - https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki
+//   - https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki
 func derivePrivateKey(privKeyBytes [32]byte, chainCode [32]byte, index uint32, harden bool) ([32]byte, [32]byte) {
 	var data []byte
 
@@ -237,7 +237,7 @@ func derivePrivateKey(privKeyBytes [32]byte, chainCode [32]byte, index uint32, h
 		data = append([]byte{byte(0)}, privKeyBytes[:]...)
 	} else {
 		// this can't return an error:
-		_, ecPub := btcec.PrivKeyFromBytes(btcec.S256(), privKeyBytes[:])
+		_, ecPub := btcec.PrivKeyFromBytes(privKeyBytes[:])
 		pubkeyBytes := ecPub.SerializeCompressed()
 		data = pubkeyBytes
 

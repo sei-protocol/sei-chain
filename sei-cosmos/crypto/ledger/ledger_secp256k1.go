@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/pkg/errors"
 
 	tmbtcec "github.com/tendermint/btcd/btcec"
@@ -172,12 +172,24 @@ func warnIfErrors(f func() error) {
 }
 
 func convertDERtoBER(signatureDER []byte) ([]byte, error) {
-	sigDER, err := btcec.ParseDERSignature(signatureDER, btcec.S256())
+	// Use tendermint btcec to parse DER signature since that's where it comes from
+	sig, err := tmbtcec.ParseSignature(signatureDER, tmbtcec.S256())
 	if err != nil {
 		return nil, err
 	}
-	sigBER := tmbtcec.Signature{R: sigDER.R, S: sigDER.S}
-	return sigBER.Serialize(), nil
+
+	// Convert to 64-byte R||S format expected by secp256k1.VerifySignature
+	// R and S are each 32 bytes, zero-padded if necessary
+	rBytes := sig.R.Bytes()
+	sBytes := sig.S.Bytes()
+
+	signature := make([]byte, 64)
+	// Copy R to first 32 bytes, right-aligned (zero-padded on left if needed)
+	copy(signature[32-len(rBytes):32], rBytes)
+	// Copy S to last 32 bytes, right-aligned (zero-padded on left if needed)
+	copy(signature[64-len(sBytes):64], sBytes)
+
+	return signature, nil
 }
 
 func getDevice() (SECP256K1, error) {
@@ -241,7 +253,7 @@ func getPubKeyUnsafe(device SECP256K1, path hd.BIP44Params) (types.PubKey, error
 	}
 
 	// re-serialize in the 33-byte compressed format
-	cmp, err := btcec.ParsePubKey(publicKey, btcec.S256())
+	cmp, err := btcec.ParsePubKey(publicKey)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing public key: %v", err)
 	}
@@ -265,7 +277,7 @@ func getPubKeyAddrSafe(device SECP256K1, path hd.BIP44Params, hrp string) (types
 	}
 
 	// re-serialize in the 33-byte compressed format
-	cmp, err := btcec.ParsePubKey(publicKey, btcec.S256())
+	cmp, err := btcec.ParsePubKey(publicKey)
 	if err != nil {
 		return nil, "", fmt.Errorf("error parsing public key: %v", err)
 	}

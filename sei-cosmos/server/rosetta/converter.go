@@ -9,7 +9,7 @@ import (
 	cosmoscrypto "github.com/cosmos/cosmos-sdk/crypto/utils"
 	auth "github.com/cosmos/cosmos-sdk/x/auth/types"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	tmcoretypes "github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
 
@@ -35,9 +35,9 @@ import (
 // Converter is a utility that can be used to convert
 // back and forth from rosetta to sdk and tendermint types
 // IMPORTANT NOTES:
-// - IT SHOULD BE USED ONLY TO DEAL WITH THINGS
-//   IN A STATELESS WAY! IT SHOULD NEVER INTERACT DIRECTLY
-//   WITH TENDERMINT RPC AND COSMOS GRPC
+//   - IT SHOULD BE USED ONLY TO DEAL WITH THINGS
+//     IN A STATELESS WAY! IT SHOULD NEVER INTERACT DIRECTLY
+//     WITH TENDERMINT RPC AND COSMOS GRPC
 //
 // - IT SHOULD RETURN cosmos rosetta gateway error types!
 type Converter interface {
@@ -653,7 +653,7 @@ func (c converter) PubKey(pubKey *rosettatypes.PublicKey) (cryptotypes.PubKey, e
 		return nil, crgerrs.WrapError(crgerrs.ErrUnsupportedCurve, "only secp256k1 supported")
 	}
 
-	cmp, err := btcec.ParsePubKey(pubKey.Bytes, btcec.S256())
+	cmp, err := btcec.ParsePubKey(pubKey.Bytes)
 	if err != nil {
 		return nil, crgerrs.WrapError(crgerrs.ErrBadArgument, err.Error())
 	}
