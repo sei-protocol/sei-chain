@@ -383,14 +383,13 @@ func TestNotPassedBallotSlashingInvalidVotes(t *testing.T) {
 	oracle.EndBlocker(input.Ctx, input.OracleKeeper)
 
 	// 4-7 should be counted as abstained due to not voting
-	// 3 should be missed due to out of bounds
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[2]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[3]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[4]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[5]))
-	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[6]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetSuccessCount(input.Ctx, keeper.ValAddrs[0]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetSuccessCount(input.Ctx, keeper.ValAddrs[1]))
+	require.Equal(t, uint64(1), input.OracleKeeper.GetSuccessCount(input.Ctx, keeper.ValAddrs[2]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetSuccessCount(input.Ctx, keeper.ValAddrs[3]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetSuccessCount(input.Ctx, keeper.ValAddrs[4]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetSuccessCount(input.Ctx, keeper.ValAddrs[5]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetSuccessCount(input.Ctx, keeper.ValAddrs[6]))
 
 	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[0]))
 	require.Equal(t, uint64(0), input.OracleKeeper.GetAbstainCount(input.Ctx, keeper.ValAddrs[1]))
@@ -471,10 +470,9 @@ func TestInvalidVoteOnAssetUnderThresholdMisses(t *testing.T) {
 	newEndBlockerHeight := input.Ctx.BlockHeight()
 
 	// 4-7 should be missed due to not voting on second asset
-	// 3 should have missed due to out of bounds value even though it didnt meet voting threshold
 	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[0]))
 	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[1]))
-	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[2]))
+	require.Equal(t, uint64(0), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[2]))
 	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[3]))
 	require.Equal(t, uint64(1), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[4]))
 	require.Equal(t, uint64(2), input.OracleKeeper.GetMissCount(input.Ctx, keeper.ValAddrs[5]))
