@@ -14,6 +14,8 @@ enum PointerType {
 }
 
 enum AssetType {
-    TYPECW20 = 0;
-    TYPECW721 = 1;
+    TYPEUNKNOWN = 0;
+    TYPECW20 = 1;
+    TYPECW721 = 2;
+    TYPENATIVE = 3;
 }
