@@ -71,6 +71,9 @@ type Config struct {
 	// controls whether to have txns go through one by one
 	Slow bool `mapstructure:"slow"`
 
+	// controls whether to synchronously flush receipts before block finalze or not
+	FlushReceiptSync bool `mapstructure:"flush_receipt_sync"`
+
 	// Deny list defines list of methods that EVM RPC should fail fast
 	DenyList []string `mapstructure:"deny_list"`
 
@@ -114,6 +117,7 @@ var DefaultConfig = Config{
 	CheckTxTimeout:          5 * time.Second,
 	MaxTxPoolTxs:            1000,
 	Slow:                    false,
+	FlushReceiptSync:        false,
 	DenyList:                make([]string, 0),
 	MaxLogNoBlock:           10000,
 	MaxBlocksForLog:         2000,
