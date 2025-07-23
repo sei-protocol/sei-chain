@@ -340,9 +340,11 @@ func EncodeTmBlock(
 				}
 				receipt, err := k.GetReceipt(ctx, hash)
 				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(receipt) {
+					fmt.Printf("[Debug] Skipping tx for block %d with err:%v, isReceiptFromAnteError %v\n", number, err, isReceiptFromAnteError(receipt))
 					continue
 				}
 				if !includeSyntheticTxs && receipt.TxType == ShellEVMTxType {
+					fmt.Printf("[Debug] Skipping tx for block %d because includeSyntheticTxs is %v\n", number, includeSyntheticTxs)
 					continue
 				}
 				if !fullTx {
@@ -444,6 +446,7 @@ func EncodeTmBlock(
 	if fullTx {
 		result["totalDifficulty"] = (*hexutil.Big)(big.NewInt(0)) // inapplicable to Sei
 	}
+	fmt.Printf("[Debug] EncodeTmBlock return with %d txs for block %d\n", len(transactions), number)
 	return result, nil
 }
 
