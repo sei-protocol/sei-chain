@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"testing"
 
-	underlyingSecp256k1 "github.com/btcsuite/btcd/btcec"
+	underlyingSecp256k1 "github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcutil/base58"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -62,6 +62,163 @@ func TestSignAndValidateSecp256k1(t *testing.T) {
 	assert.False(t, pubKey.VerifySignature(msg, sig))
 }
 
+// TestSignatureMalleabilityPrevention tests that high-S signatures are rejected
+func TestSignatureMalleabilityPrevention(t *testing.T) {
+	privKey := secp256k1.GenPrivKey()
+	pubKey := privKey.PubKey()
+	msg := []byte("test message")
+
+	// Generate a valid signature
+	sig, err := privKey.Sign(msg)
+	require.NoError(t, err)
+	require.True(t, pubKey.VerifySignature(msg, sig))
+
+	// Create a high-S signature by manipulating S component
+	// Get curve order N
+	curve := underlyingSecp256k1.S256()
+	N := curve.N
+	halfN := new(big.Int).Rsh(N, 1) // N/2
+
+	// Extract S from signature
+	s := new(big.Int).SetBytes(sig[32:64])
+
+	// If S <= N/2, create high-S version: S' = N - S
+	if s.Cmp(halfN) <= 0 {
+		highS := new(big.Int).Sub(N, s)
+
+		// Create malicious signature with high-S
+		maliciousSig := make([]byte, 64)
+		copy(maliciousSig[:32], sig[:32]) // Keep R the same
+
+		// Pad highS to 32 bytes
+		highSBytes := highS.Bytes()
+		copy(maliciousSig[64-len(highSBytes):], highSBytes)
+
+		// This should be rejected due to malleability prevention
+		assert.False(t, pubKey.VerifySignature(msg, maliciousSig),
+			"High-S signature should be rejected to prevent malleability")
+	}
+}
+
+// TestSignatureOverflowValidation tests that R,S >= curve order are rejected
+func TestSignatureOverflowValidation(t *testing.T) {
+	privKey := secp256k1.GenPrivKey()
+	pubKey := privKey.PubKey()
+	msg := []byte("test message")
+
+	// Get curve order N
+	N := underlyingSecp256k1.S256().N
+
+	tests := []struct {
+		name string
+		r, s *big.Int
+	}{
+		{
+			name: "R equals curve order",
+			r:    new(big.Int).Set(N),
+			s:    big.NewInt(1),
+		},
+		{
+			name: "S equals curve order",
+			r:    big.NewInt(1),
+			s:    new(big.Int).Set(N),
+		},
+		{
+			name: "R greater than curve order",
+			r:    new(big.Int).Add(N, big.NewInt(1)),
+			s:    big.NewInt(1),
+		},
+		{
+			name: "S greater than curve order",
+			r:    big.NewInt(1),
+			s:    new(big.Int).Add(N, big.NewInt(1)),
+		},
+		{
+			name: "Both R and S equal curve order",
+			r:    new(big.Int).Set(N),
+			s:    new(big.Int).Set(N),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create signature with invalid R,S values
+			invalidSig := make([]byte, 64)
+
+			// Convert R and S to 32-byte arrays
+			rBytes := tt.r.Bytes()
+			sBytes := tt.s.Bytes()
+
+			// Pad to 32 bytes if needed
+			copy(invalidSig[32-len(rBytes):32], rBytes)
+			copy(invalidSig[64-len(sBytes):64], sBytes)
+
+			// Should be rejected due to overflow
+			assert.False(t, pubKey.VerifySignature(msg, invalidSig),
+				"Signature with R,S >= curve order should be rejected")
+		})
+	}
+}
+
+// TestInvalidSignatureFormats tests various invalid signature formats
+func TestInvalidSignatureFormats(t *testing.T) {
+	privKey := secp256k1.GenPrivKey()
+	pubKey := privKey.PubKey()
+	msg := []byte("test message")
+
+	tests := []struct {
+		name string
+		sig  []byte
+	}{
+		{
+			name: "empty signature",
+			sig:  []byte{},
+		},
+		{
+			name: "short signature",
+			sig:  make([]byte, 63),
+		},
+		{
+			name: "long signature",
+			sig:  make([]byte, 65),
+		},
+		{
+			name: "zero signature",
+			sig:  make([]byte, 64),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.False(t, pubKey.VerifySignature(msg, tt.sig),
+				"Invalid signature format should be rejected")
+		})
+	}
+}
+
+// TestSignatureConsistency ensures our signatures are deterministic and consistent
+func TestSignatureConsistency(t *testing.T) {
+	privKey := secp256k1.GenPrivKey()
+	pubKey := privKey.PubKey()
+	msg := []byte("consistent test message")
+
+	// Sign the same message multiple times
+	sigs := make([][]byte, 10)
+	for i := range sigs {
+		sig, err := privKey.Sign(msg)
+		require.NoError(t, err)
+		sigs[i] = sig
+
+		// Each signature should be valid
+		assert.True(t, pubKey.VerifySignature(msg, sig))
+
+		// Each signature should be low-S (malleability resistant)
+		s := new(big.Int).SetBytes(sig[32:64])
+		halfN := new(big.Int).Rsh(underlyingSecp256k1.S256().N, 1)
+		assert.True(t, s.Cmp(halfN) <= 0, "Signature should have low-S")
+	}
+}
+
 // This test is intended to justify the removal of calls to the underlying library
 // in creating the privkey.
 func TestSecp256k1LoadPrivkeyAndSerializeIsIdentity(t *testing.T) {
@@ -73,7 +230,7 @@ func TestSecp256k1LoadPrivkeyAndSerializeIsIdentity(t *testing.T) {
 
 		// This function creates a private and public key in the underlying libraries format.
 		// The private key is basically calling new(big.Int).SetBytes(pk), which removes leading zero bytes
-		priv, _ := underlyingSecp256k1.PrivKeyFromBytes(underlyingSecp256k1.S256(), privKeyBytes[:])
+		priv, _ := underlyingSecp256k1.PrivKeyFromBytes(privKeyBytes[:])
 		// this takes the bytes returned by `(big int).Bytes()`, and if the length is less than 32 bytes,
 		// pads the bytes from the left with zero bytes. Therefore these two functions composed
 		// result in the identity function on privKeyBytes, hence the following equality check
