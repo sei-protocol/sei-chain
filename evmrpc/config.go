@@ -145,6 +145,7 @@ const (
 	flagMaxTxPoolTxs            = "evm.max_tx_pool_txs"
 	flagCheckTxTimeout          = "evm.checktx_timeout"
 	flagSlow                    = "evm.slow"
+	flagFlushReceiptSync        = "evm.flush_receipt_sync"
 	flagDenyList                = "evm.deny_list"
 	flagMaxLogNoBlock           = "evm.max_log_no_block"
 	flagMaxBlocksForLog         = "evm.max_blocks_for_log"
@@ -235,6 +236,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagSlow); v != nil {
 		if cfg.Slow, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagFlushReceiptSync); v != nil {
+		if cfg.FlushReceiptSync, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}
