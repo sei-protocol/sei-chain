@@ -44,6 +44,9 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	txChainID := ethTx.ChainId()
 
 	fee := new(big.Int).Mul(ethTx.GasPrice(), new(big.Int).SetUint64(ethTx.Gas()))
+	if ethTx.Value() != nil {
+		fee = new(big.Int).Add(fee, ethTx.Value())
+	}
 
 	// validate chain ID on the transaction
 	switch ethTx.Type() {
