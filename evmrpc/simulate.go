@@ -5,10 +5,11 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	tmtypes "github.com/tendermint/tendermint/types"
 	"math/big"
 	"strings"
 	"time"
+
+	tmtypes "github.com/tendermint/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 
