@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
@@ -255,7 +256,7 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 	backend := evmrpc.NewBackend(
 		ctxProvider,
 		&testApp.EvmKeeper,
-		TxConfig,
+		func(int64) client.TxConfig { return TxConfig },
 		&MockClient{},
 		config,
 		testApp.BaseApp,
@@ -287,7 +288,7 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 	backendDifferentChain := evmrpc.NewBackend(
 		ctxProviderDifferentChain,
 		&testApp.EvmKeeper,
-		TxConfig,
+		func(int64) client.TxConfig { return TxConfig },
 		&MockClient{},
 		config,
 		testApp.BaseApp,

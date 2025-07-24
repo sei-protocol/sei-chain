@@ -35,7 +35,7 @@ func NewEVMHTTPServer(
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	ctxProvider func(int64) sdk.Context,
-	txConfig client.TxConfig,
+	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	isPanicOrSyntheticTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // used in *ExcludeTraceFail endpoints
 ) (EVMServer, error) {
@@ -53,18 +53,19 @@ func NewEVMHTTPServer(
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
 	}
-	sendAPI := NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP)
+	sendAPI := NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP)
+
 	ctx := ctxProvider(LatestCtxHeight)
 
-	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP)
-	debugAPI := NewDebugAPI(tmClient, k, ctxProvider, txConfig, simulateConfig, app, antehandler, ConnectionTypeHTTP, config)
+	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP)
+	debugAPI := NewDebugAPI(tmClient, k, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config)
 	if isPanicOrSyntheticTxFunc == nil {
 		isPanicOrSyntheticTxFunc = func(ctx context.Context, hash common.Hash) (bool, error) {
 			return debugAPI.isPanicOrSyntheticTx(ctx, hash)
 		}
 	}
-	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc)
-	seiDebugAPI := NewSeiDebugAPI(tmClient, k, ctxProvider, txConfig, simulateConfig, app, antehandler, ConnectionTypeHTTP, config)
+	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc)
+	seiDebugAPI := NewSeiDebugAPI(tmClient, k, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config)
 
 	apis := []rpc.API{
 		{
@@ -73,15 +74,15 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeHTTP),
+			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP),
 		},
 		{
 			Namespace: "sei",
-			Service:   NewSeiBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc),
+			Service:   NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc),
 		},
 		{
 			Namespace: "sei2",
-			Service:   NewSei2BlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc),
+			Service:   NewSei2BlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc),
 		},
 		{
 			Namespace: "eth",
@@ -97,7 +98,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), homeDir, config.MaxBlocksForLog, ConnectionTypeHTTP),
+			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, config.MaxBlocksForLog, ConnectionTypeHTTP),
 		},
 		{
 			Namespace: "eth",
@@ -105,27 +106,27 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSimulationAPI(ctxProvider, k, txConfig, tmClient, simulateConfig, app, antehandler, ConnectionTypeHTTP),
+			Service:   NewSimulationAPI(ctxProvider, k, txConfigProvider, tmClient, simulateConfig, app, antehandler, ConnectionTypeHTTP),
 		},
 		{
 			Namespace: "net",
-			Service:   NewNetAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), ConnectionTypeHTTP),
+			Service:   NewNetAPI(tmClient, k, ctxProvider, ConnectionTypeHTTP),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewFilterAPI(tmClient, k, ctxProvider, txConfig, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeHTTP, "eth"),
+			Service:   NewFilterAPI(tmClient, k, ctxProvider, txConfigProvider, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeHTTP, "eth"),
 		},
 		{
 			Namespace: "sei",
-			Service:   NewFilterAPI(tmClient, k, ctxProvider, txConfig, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeHTTP, "sei"),
+			Service:   NewFilterAPI(tmClient, k, ctxProvider, txConfigProvider, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeHTTP, "sei"),
 		},
 		{
 			Namespace: "sei",
-			Service:   NewAssociationAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), sendAPI, ConnectionTypeHTTP),
+			Service:   NewAssociationAPI(tmClient, k, ctxProvider, txConfigProvider, sendAPI, ConnectionTypeHTTP),
 		},
 		{
 			Namespace: "txpool",
-			Service:   NewTxPoolAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), &TxPoolConfig{maxNumTxs: int(config.MaxTxPoolTxs)}, ConnectionTypeHTTP),
+			Service:   NewTxPoolAPI(tmClient, k, ctxProvider, txConfigProvider, &TxPoolConfig{maxNumTxs: int(config.MaxTxPoolTxs)}, ConnectionTypeHTTP),
 		},
 		{
 			Namespace: "web3",
@@ -169,7 +170,7 @@ func NewEVMWebSocketServer(
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	ctxProvider func(int64) sdk.Context,
-	txConfig client.TxConfig,
+	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 ) (EVMServer, error) {
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
@@ -193,11 +194,11 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfig, ConnectionTypeWS),
+			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeWS),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeWS),
+			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeWS),
 		},
 		{
 			Namespace: "eth",
@@ -205,23 +206,23 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), homeDir, config.MaxBlocksForLog, ConnectionTypeWS),
+			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, config.MaxBlocksForLog, ConnectionTypeWS),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSendAPI(tmClient, txConfig, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeWS),
+			Service:   NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeWS),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSimulationAPI(ctxProvider, k, txConfig, tmClient, simulateConfig, app, antehandler, ConnectionTypeWS),
+			Service:   NewSimulationAPI(ctxProvider, k, txConfigProvider, tmClient, simulateConfig, app, antehandler, ConnectionTypeWS),
 		},
 		{
 			Namespace: "net",
-			Service:   NewNetAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), ConnectionTypeWS),
+			Service:   NewNetAPI(tmClient, k, ctxProvider, ConnectionTypeWS),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSubscriptionAPI(tmClient, k, ctxProvider, &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, txConfig: txConfig}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS),
+			Service:   NewSubscriptionAPI(tmClient, k, ctxProvider, &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS),
 		},
 		{
 			Namespace: "web3",
