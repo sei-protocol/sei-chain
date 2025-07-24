@@ -92,7 +92,13 @@ func (wsc *WebsocketController) Start() {
 		go wsc.readWebSocket()
 		go wsc.pingLoop()
 
-		if err := wsc.subscribe(wsc.subscriptionMsgs); err != nil {
+		// Safely read subscriptionMsgs with mutex protection
+		wsc.mtx.Lock()
+		subscriptionMsgsCopy := make([]interface{}, len(wsc.subscriptionMsgs))
+		copy(subscriptionMsgsCopy, wsc.subscriptionMsgs)
+		wsc.mtx.Unlock()
+
+		if err := wsc.subscribe(subscriptionMsgsCopy); err != nil {
 			wsc.logger.Err(err).Send()
 			wsc.close()
 			continue
@@ -147,7 +153,12 @@ func (wsc *WebsocketController) AddSubscriptionMsgs(msgs []interface{}) error {
 	if err != nil {
 		return err
 	}
+
+	// Safely write to subscriptionMsgs with mutex protection
+	wsc.mtx.Lock()
 	wsc.subscriptionMsgs = append(wsc.subscriptionMsgs, msgs...)
+	wsc.mtx.Unlock()
+
 	return nil
 }
 

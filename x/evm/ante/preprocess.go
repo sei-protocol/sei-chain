@@ -7,7 +7,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/utils/helpers"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -301,7 +301,7 @@ func (p *EVMAddressDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bo
 				sdk.NewAttribute(evmtypes.AttributeKeySeiAddress, signer.String())))
 			continue
 		}
-		pk, err := btcec.ParsePubKey(acc.GetPubKey().Bytes(), btcec.S256())
+		pk, err := btcec.ParsePubKey(acc.GetPubKey().Bytes())
 		if err != nil {
 			ctx.Logger().Debug(fmt.Sprintf("failed to parse pubkey for %s, likely due to the fact that it isn't on secp256k1 curve", acc.GetPubKey()), "err", err)
 			ctx.EventManager().EmitEvent(sdk.NewEvent(evmtypes.EventTypeSigner,

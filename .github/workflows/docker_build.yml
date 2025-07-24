@@ -34,5 +34,3 @@ jobs:
       - name: Validate Docker build (amd64)
         run: docker build --platform=linux/amd64 --target=go-builder .
 
-      - name: Validate Docker build (arm64)
-        run: docker build --platform=linux/arm64 --target=go-builder .

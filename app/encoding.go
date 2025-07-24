@@ -14,3 +14,13 @@ func MakeEncodingConfig() params.EncodingConfig {
 	ModuleBasics.RegisterInterfaces(encodingConfig.InterfaceRegistry)
 	return encodingConfig
 }
+
+// MakeLegacyEncodingConfig creates an EncodingConfig for testing.
+func MakeLegacyEncodingConfig() params.EncodingConfig {
+	encodingConfig := params.MakeLegacyEncodingConfig()
+	std.RegisterLegacyAminoCodec(encodingConfig.Amino)
+	std.RegisterInterfaces(encodingConfig.InterfaceRegistry)
+	ModuleBasics.RegisterLegacyAminoCodec(encodingConfig.Amino)
+	ModuleBasics.RegisterInterfaces(encodingConfig.InterfaceRegistry)
+	return encodingConfig
+}
