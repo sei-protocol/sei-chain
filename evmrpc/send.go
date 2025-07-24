@@ -24,31 +24,31 @@ import (
 )
 
 type SendAPI struct {
-	tmClient       rpcclient.Client
-	txConfig       client.TxConfig
-	sendConfig     *SendConfig
-	keeper         *keeper.Keeper
-	ctxProvider    func(int64) sdk.Context
-	homeDir        string
-	backend        *Backend
-	connectionType ConnectionType
+	tmClient         rpcclient.Client
+	txConfigProvider func(int64) client.TxConfig
+	sendConfig       *SendConfig
+	keeper           *keeper.Keeper
+	ctxProvider      func(int64) sdk.Context
+	homeDir          string
+	backend          *Backend
+	connectionType   ConnectionType
 }
 
 type SendConfig struct {
 	slow bool
 }
 
-func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig *SendConfig, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, homeDir string, simulateConfig *SimulateConfig, app *baseapp.BaseApp,
+func NewSendAPI(tmClient rpcclient.Client, txConfigProvider func(int64) client.TxConfig, sendConfig *SendConfig, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, homeDir string, simulateConfig *SimulateConfig, app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler, connectionType ConnectionType) *SendAPI {
 	return &SendAPI{
-		tmClient:       tmClient,
-		txConfig:       txConfig,
-		sendConfig:     sendConfig,
-		keeper:         k,
-		ctxProvider:    ctxProvider,
-		homeDir:        homeDir,
-		backend:        NewBackend(ctxProvider, k, txConfig, tmClient, simulateConfig, app, antehandler),
-		connectionType: connectionType,
+		tmClient:         tmClient,
+		txConfigProvider: txConfigProvider,
+		sendConfig:       sendConfig,
+		keeper:           k,
+		ctxProvider:      ctxProvider,
+		homeDir:          homeDir,
+		backend:          NewBackend(ctxProvider, k, txConfigProvider, tmClient, simulateConfig, app, antehandler),
+		connectionType:   connectionType,
 	}
 }
 
@@ -73,12 +73,12 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		tx, _ = msg.AsTransaction()
 		gasUsedEstimate = tx.Gas() // if issue simulating, fallback to gas limit
 	}
-	txBuilder := s.txConfig.NewTxBuilder()
+	txBuilder := s.txConfigProvider(LatestCtxHeight).NewTxBuilder()
 	if err = txBuilder.SetMsgs(msg); err != nil {
 		return
 	}
 	txBuilder.SetGasEstimate(gasUsedEstimate)
-	txbz, encodeErr := s.txConfig.TxEncoder()(txBuilder.GetTx())
+	txbz, encodeErr := s.txConfigProvider(LatestCtxHeight).TxEncoder()(txBuilder.GetTx())
 	if encodeErr != nil {
 		return hash, encodeErr
 	}

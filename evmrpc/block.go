@@ -35,7 +35,7 @@ type BlockAPI struct {
 	tmClient             rpcclient.Client
 	keeper               *keeper.Keeper
 	ctxProvider          func(int64) sdk.Context
-	txConfig             client.TxConfig
+	txConfigProvider     func(int64) client.TxConfig
 	connectionType       ConnectionType
 	namespace            string
 	includeShellReceipts bool
@@ -47,12 +47,12 @@ type SeiBlockAPI struct {
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
 }
 
-func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, connectionType ConnectionType) *BlockAPI {
+func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType) *BlockAPI {
 	return &BlockAPI{
 		tmClient:             tmClient,
 		keeper:               k,
 		ctxProvider:          ctxProvider,
-		txConfig:             txConfig,
+		txConfigProvider:     txConfigProvider,
 		connectionType:       connectionType,
 		includeShellReceipts: false,
 		includeBankTransfers: false,
@@ -64,7 +64,7 @@ func NewSeiBlockAPI(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
-	txConfig client.TxConfig,
+	txConfigProvider func(int64) client.TxConfig,
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 ) *SeiBlockAPI {
@@ -72,7 +72,7 @@ func NewSeiBlockAPI(
 		tmClient:             tmClient,
 		keeper:               k,
 		ctxProvider:          ctxProvider,
-		txConfig:             txConfig,
+		txConfigProvider:     txConfigProvider,
 		connectionType:       connectionType,
 		includeShellReceipts: true,
 		includeBankTransfers: false,
@@ -88,11 +88,11 @@ func NewSei2BlockAPI(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
-	txConfig client.TxConfig,
+	txConfigProvider func(int64) client.TxConfig,
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 ) *SeiBlockAPI {
-	blockAPI := NewSeiBlockAPI(tmClient, k, ctxProvider, txConfig, connectionType, isPanicTx)
+	blockAPI := NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, connectionType, isPanicTx)
 	blockAPI.namespace = "sei2"
 	blockAPI.includeBankTransfers = true
 	return blockAPI
@@ -119,7 +119,7 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if err != nil {
 		return nil, err
 	}
-	return a.getEvmTxCount(block.Block.Txs), nil
+	return a.getEvmTxCount(block.Block.Txs, block.Block.Height), nil
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
@@ -129,7 +129,7 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 	if err != nil {
 		return nil, err
 	}
-	return a.getEvmTxCount(block.Block.Txs), nil
+	return a.getEvmTxCount(block.Block.Txs, block.Block.Height), nil
 }
 
 func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
@@ -149,7 +149,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 		return nil, err
 	}
 	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	return EncodeTmBlock(a.ctxProvider(block.Block.Height), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
+	return EncodeTmBlock(a.ctxProvider(block.Block.Height), a.ctxProvider(block.Block.Height-1), block, blockRes, blockBloom, a.keeper, a.txConfigProvider(block.Block.Height).TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
@@ -205,7 +205,7 @@ func (a *BlockAPI) getBlockByNumber(
 		return nil, err
 	}
 	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	return EncodeTmBlock(a.ctxProvider(block.Block.Height), block, blockRes, blockBloom, a.keeper, a.txConfig.TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
+	return EncodeTmBlock(a.ctxProvider(block.Block.Height), a.ctxProvider(block.Block.Height-1), block, blockRes, blockBloom, a.keeper, a.txConfigProvider(blockRes.Height).TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
@@ -224,7 +224,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 
 	// Get all tx hashes for the block
 	height := block.Block.Header.Height
-	txHashes := getTxHashesFromBlock(block, a.txConfig, shouldIncludeSynthetic(a.namespace))
+	txHashes := getTxHashesFromBlock(block, a.txConfigProvider(height), shouldIncludeSynthetic(a.namespace))
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}
@@ -261,7 +261,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 				if receipt.BlockNumber != uint64(height) {
 					return
 				}
-				encodedReceipt, err := encodeReceipt(receipt, a.txConfig.TxDecoder(), block, func(h common.Hash) *types.Receipt {
+				encodedReceipt, err := encodeReceipt(receipt, a.txConfigProvider(height).TxDecoder(), block, func(h common.Hash) *types.Receipt {
 					r, err := a.keeper.GetReceipt(a.ctxProvider(height), h)
 					if err != nil {
 						return nil
@@ -459,11 +459,11 @@ func FullBloom() ethtypes.Bloom {
 }
 
 // filters out non-evm txs
-func (a *BlockAPI) getEvmTxCount(txs tmtypes.Txs) *hexutil.Uint {
+func (a *BlockAPI) getEvmTxCount(txs tmtypes.Txs, height int64) *hexutil.Uint {
 	cnt := 0
 	// Only count eth txs
 	for _, tx := range txs {
-		ethtx := getEthTxForTxBz(tx, a.txConfig.TxDecoder())
+		ethtx := getEthTxForTxBz(tx, a.txConfigProvider(height).TxDecoder())
 		if ethtx != nil {
 			cnt += 1
 		}

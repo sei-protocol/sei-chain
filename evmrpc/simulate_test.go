@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/sei-protocol/sei-chain/evmrpc"
@@ -216,4 +217,81 @@ func TestConvertBlockNumber(t *testing.T) {
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-2))
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-3))
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-4))
+}
+
+func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
+	// Set up a test context with a height before v6.2.0 upgrade
+	// For pacific-1 chain, we need to set a height that's before the v6.2.0 upgrade
+	testHeight := int64(1000) // A height before v6.2.0 upgrade
+
+	// Create a new test app to have control over the upgrade keeper
+	testApp := app.Setup(false, false, false)
+	testCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(testHeight)
+
+	// Set the chain ID to "pacific-1" to trigger the upgrade check
+	testCtx = testCtx.WithChainID("pacific-1")
+
+	// Set the v6.2.0 upgrade height to a height higher than our test height
+	// This simulates that the upgrade hasn't happened yet
+	v620UpgradeHeight := int64(2000)
+	testApp.UpgradeKeeper.SetDone(testCtx.WithBlockHeight(v620UpgradeHeight), "6.2.0")
+
+	// Create a backend with our test context provider
+	ctxProvider := func(height int64) sdk.Context {
+		return testCtx.WithBlockHeight(height)
+	}
+
+	config := &evmrpc.SimulateConfig{
+		GasCap:     10000000,
+		EVMTimeout: time.Second * 30,
+	}
+
+	backend := evmrpc.NewBackend(
+		ctxProvider,
+		&testApp.EvmKeeper,
+		func(int64) client.TxConfig { return TxConfig },
+		&MockClient{},
+		config,
+		testApp.BaseApp,
+		testApp.TracerAnteHandler,
+	)
+
+	// Test HeaderByNumber with a height before v6.2.0 upgrade
+	header, err := backend.HeaderByNumber(context.Background(), 1000)
+	require.NoError(t, err)
+	require.NotNil(t, header)
+
+	// For pacific-1 chain before v6.2.0 upgrade, base fee should be nil
+	require.Nil(t, header.BaseFee, "Base fee should be nil for pacific-1 chain before v6.2.0 upgrade")
+
+	// Test with a height after v6.2.0 upgrade
+	headerAfterUpgrade, err := backend.HeaderByNumber(context.Background(), 2500)
+	require.NoError(t, err)
+	require.NotNil(t, headerAfterUpgrade)
+
+	// For pacific-1 chain after v6.2.0 upgrade, base fee should not be nil
+	require.NotNil(t, headerAfterUpgrade.BaseFee, "Base fee should not be nil for pacific-1 chain after v6.2.0 upgrade")
+
+	// Test with a different chain ID (not pacific-1)
+	testCtxDifferentChain := testCtx.WithChainID("test-chain")
+	ctxProviderDifferentChain := func(height int64) sdk.Context {
+		return testCtxDifferentChain.WithBlockHeight(height)
+	}
+
+	backendDifferentChain := evmrpc.NewBackend(
+		ctxProviderDifferentChain,
+		&testApp.EvmKeeper,
+		func(int64) client.TxConfig { return TxConfig },
+		&MockClient{},
+		config,
+		testApp.BaseApp,
+		testApp.TracerAnteHandler,
+	)
+
+	headerDifferentChain, err := backendDifferentChain.HeaderByNumber(context.Background(), 1000)
+	require.NoError(t, err)
+	require.NotNil(t, headerDifferentChain)
+
+	// For non-pacific-1 chains, base fee should not be nil regardless of upgrade status
+	require.NotNil(t, headerDifferentChain.BaseFee, "Base fee should not be nil for non-pacific-1 chains")
 }

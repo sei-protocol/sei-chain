@@ -23,3 +23,18 @@ func MakeEncodingConfig() EncodingConfig {
 		Amino:             amino,
 	}
 }
+
+// MakeLegacyEncodingConfig creates an EncodingConfig for an amino based test configuration.
+func MakeLegacyEncodingConfig() EncodingConfig {
+	amino := codec.NewLegacyAmino()
+	interfaceRegistry := types.NewLegacyInterfaceRegistry()
+	marshaler := codec.NewProtoCodec(interfaceRegistry)
+	txCfg := tx.NewTxConfig(marshaler, tx.DefaultSignModes)
+
+	return EncodingConfig{
+		InterfaceRegistry: interfaceRegistry,
+		Marshaler:         marshaler,
+		TxConfig:          txCfg,
+		Amino:             amino,
+	}
+}
