@@ -32,7 +32,7 @@ func TestChainID(t *testing.T) {
 
 func TestAccounts(t *testing.T) {
 	homeDir := t.TempDir()
-	api := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir, 1024, evmrpc.ConnectionTypeHTTP)
+	api := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir, 1024, evmrpc.ConnectionTypeHTTP, nil)
 	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
 	clientCtx, err := config.ReadFromClientConfig(clientCtx)
 	require.Nil(t, err)
@@ -210,7 +210,7 @@ func TestGasPriceLogic(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		i := evmrpc.NewInfoAPI(nil, nil, nil, nil, t.TempDir(), 1024, evmrpc.ConnectionTypeHTTP)
+		i := evmrpc.NewInfoAPI(nil, nil, nil, nil, t.TempDir(), 1024, evmrpc.ConnectionTypeHTTP, nil)
 		gasPrice, err := i.GasPriceHelper(
 			context.Background(),
 			test.baseFee,
