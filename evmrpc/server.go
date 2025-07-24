@@ -61,6 +61,9 @@ func NewEVMHTTPServer(
 	}
 	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfig, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc)
 	seiDebugAPI := NewSeiDebugAPI(tmClient, k, ctxProvider, txConfig, simulateConfig, app, antehandler, ConnectionTypeHTTP, config)
+	txConfigProvider := func(height int64) client.TxConfig {
+		return txConfig
+	}
 
 	apis := []rpc.API{
 		{
@@ -93,7 +96,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), homeDir, config.MaxBlocksForLog, ConnectionTypeHTTP),
+			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, config.MaxBlocksForLog, ConnectionTypeHTTP, txConfigProvider(LatestCtxHeight).TxDecoder()),
 		},
 		{
 			Namespace: "eth",
@@ -178,6 +181,9 @@ func NewEVMWebSocketServer(
 		return nil, err
 	}
 	simulateConfig := &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}
+	txConfigProvider := func(height int64) client.TxConfig {
+		return txConfig
+	}
 	apis := []rpc.API{
 		{
 			Namespace: "echo",
@@ -197,7 +203,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfig.TxDecoder(), homeDir, config.MaxBlocksForLog, ConnectionTypeWS),
+			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, config.MaxBlocksForLog, ConnectionTypeWS, txConfigProvider(LatestCtxHeight).TxDecoder()),
 		},
 		{
 			Namespace: "eth",
