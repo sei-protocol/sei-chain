@@ -170,10 +170,9 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 	}
 
 	result.Reward = [][]*hexutil.Big{}
-	result.GasUsedRatio = []float64{} // Initialize as empty slice instead of nil
+	result.GasUsedRatio = []float64{}
 	// Potentially parallelize the following logic
 	for blockNum := result.OldestBlock.ToInt().Int64(); blockNum <= lastBlockNumber; blockNum++ {
-		// Always add a gas used ratio entry for each block in the range
 		var gasUsedRatio float64
 
 		sdkCtx := i.ctxProvider(blockNum)
