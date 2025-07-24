@@ -438,18 +438,13 @@ func TestCalculateGasUsedRatioMultipleTransactionsAccumulation(t *testing.T) {
 	ratioBlock2, err := api.CalculateGasUsedRatio(context.Background(), 2)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, ratioBlock2, 0.0)
-	require.LessOrEqual(t, ratioBlock2, 1.0)
+	require.LessOrEqual(t, ratioBlock2, 0.0008)
 
 	// Test block 8 which also has transactions
 	ratioBlock8, err := api.CalculateGasUsedRatio(context.Background(), 8)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, ratioBlock8, 0.0)
-	require.LessOrEqual(t, ratioBlock8, 1.0)
-
-	// Both blocks should have some gas usage (ratios should be > 0 if there are EVM transactions)
-	// The exact values depend on the mock setup, but they should be valid ratios
-	t.Logf("Block 2 gas used ratio: %f", ratioBlock2)
-	t.Logf("Block 8 gas used ratio: %f", ratioBlock8)
+	require.LessOrEqual(t, ratioBlock8, 0.000001)
 }
 
 func TestCalculateGasUsedRatioWithDifferentGasLimits(t *testing.T) {
@@ -475,8 +470,5 @@ func TestCalculateGasUsedRatioWithDifferentGasLimits(t *testing.T) {
 	ratio, err := api.CalculateGasUsedRatio(context.Background(), 2)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, ratio, 0.0)
-	require.LessOrEqual(t, ratio, 1.0)
-
-	// Log the ratio to verify it's calculated correctly with custom gas limit
-	t.Logf("Gas used ratio with custom gas limit (5M): %f", ratio)
+	require.LessOrEqual(t, ratio, 0.02)
 }
