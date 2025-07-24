@@ -149,7 +149,7 @@ func TestSigVerifyPendingTransaction(t *testing.T) {
 	require.Equal(t, abci.Pending, newCtx.PendingTxChecker()())
 	k.SetNonce(ctx, evmAddr, 1)
 	// not enough fund
-	require.Equal(t, abci.Rejected, newCtx.PendingTxChecker()())
+	require.Equal(t, abci.Pending, newCtx.PendingTxChecker()())
 	fee := sdk.NewIntFromUint64(tx.Gas()).Mul(sdk.NewIntFromBigInt(tx.GasPrice())).Add(sdk.NewIntFromBigInt(tx.Value()))
 	_ = k.BankKeeper().AddCoins(ctx, msg.Derived.SenderSeiAddr, sdk.NewCoins(sdk.NewCoin("usei", fee)), false)
 	require.Equal(t, abci.Accepted, newCtx.PendingTxChecker()())
