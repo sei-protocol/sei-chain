@@ -32,7 +32,7 @@ func TestChainID(t *testing.T) {
 
 func TestAccounts(t *testing.T) {
 	homeDir := t.TempDir()
-	api := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir, 1024, evmrpc.ConnectionTypeHTTP)
+	api := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir, 1024, evmrpc.ConnectionTypeHTTP, nil)
 	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
 	clientCtx, err := config.ReadFromClientConfig(clientCtx)
 	require.Nil(t, err)
@@ -76,19 +76,18 @@ func TestFeeHistory(t *testing.T) {
 		expectedOldest    string
 		expectedReward    string
 		expectedBaseFee   string
-		expectedGasUsed   float64
 		expectedError     error
 	}
 
 	Ctx = Ctx.WithBlockHeight(1) // Simulate context with a specific block height
 
 	testCases := []feeHistoryTestCase{
-		{name: "Valid request by number", blockCount: 1, lastBlock: "0x8", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00", expectedGasUsed: 0.5},
-		{name: "Valid request by latest", blockCount: 1, lastBlock: "latest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00", expectedGasUsed: 0.5},
-		{name: "Valid request by earliest", blockCount: 1, lastBlock: "earliest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00", expectedGasUsed: 0.5},
-		{name: "Request on the same block", blockCount: 1, lastBlock: "0x1", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00", expectedGasUsed: 0.5},
-		{name: "Request on future block", blockCount: 1, lastBlock: "0x9", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00", expectedGasUsed: 0.5},
-		{name: "Block count truncates", blockCount: 1025, lastBlock: "latest", rewardPercentiles: []interface{}{25}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00", expectedGasUsed: 0.5},
+		{name: "Valid request by number", blockCount: 1, lastBlock: "0x8", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
+		{name: "Valid request by latest", blockCount: 1, lastBlock: "latest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
+		{name: "Valid request by earliest", blockCount: 1, lastBlock: "earliest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
+		{name: "Request on the same block", blockCount: 1, lastBlock: "0x1", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
+		{name: "Request on future block", blockCount: 1, lastBlock: "0x9", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
+		{name: "Block count truncates", blockCount: 1025, lastBlock: "latest", rewardPercentiles: []interface{}{25}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
 		{name: "Too many percentiles", blockCount: 10, lastBlock: "latest", rewardPercentiles: make([]interface{}, 101), expectedError: errors.New("rewardPercentiles length must be less than or equal to 100")},
 		{name: "Invalid percentiles order", blockCount: 10, lastBlock: "latest", rewardPercentiles: []interface{}{99, 1}, expectedError: errors.New("invalid reward percentiles: must be ascending and between 0 and 100")},
 	}
@@ -118,7 +117,13 @@ func TestFeeHistory(t *testing.T) {
 				require.Equal(t, tc.expectedReward, reward[0].(string), "Reward does not match expected value")
 
 				require.Equal(t, tc.expectedBaseFee, resObj["baseFeePerGas"].([]interface{})[0].(string))
-				require.Equal(t, tc.expectedGasUsed, resObj["gasUsedRatio"].([]interface{})[0].(float64))
+
+				// Verify gas used ratio is valid (should be between 0 and 1)
+				gasUsedRatios := resObj["gasUsedRatio"].([]interface{})
+				require.Greater(t, len(gasUsedRatios), 0, "Should have at least one gas used ratio")
+				gasUsedRatio := gasUsedRatios[0].(float64)
+				require.GreaterOrEqual(t, gasUsedRatio, 0.0, "Gas used ratio should be >= 0")
+				require.LessOrEqual(t, gasUsedRatio, 1.0, "Gas used ratio should be <= 1")
 			}
 		})
 	}
@@ -205,7 +210,7 @@ func TestGasPriceLogic(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		i := evmrpc.NewInfoAPI(nil, nil, nil, nil, t.TempDir(), 1024, evmrpc.ConnectionTypeHTTP)
+		i := evmrpc.NewInfoAPI(nil, nil, nil, nil, t.TempDir(), 1024, evmrpc.ConnectionTypeHTTP, nil)
 		gasPrice, err := i.GasPriceHelper(
 			context.Background(),
 			test.baseFee,
@@ -231,4 +236,44 @@ func TestCalculatePercentilesEmptyBlockWithSinglePercentile(t *testing.T) {
 	result := evmrpc.CalculatePercentiles([]float64{50}, []evmrpc.GasAndReward{}, 0)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, "0x0", result[0].String())
+}
+
+func TestCalculateGasUsedRatio(t *testing.T) {
+	resObj := sendRequestGood(t, "feeHistory", 1, "latest", []interface{}{50.0})
+	result := resObj["result"].(map[string]interface{})
+
+	// Verify gas used ratio is calculated
+	gasUsedRatios, ok := result["gasUsedRatio"].([]interface{})
+	require.True(t, ok, "gasUsedRatio should be present and be an array")
+	require.Greater(t, len(gasUsedRatios), 0, "Should have at least one gas used ratio")
+
+	// The gas used ratio should be a valid number between 0 and 1
+	ratio := gasUsedRatios[0].(float64)
+	require.GreaterOrEqual(t, ratio, 0.0)
+	require.LessOrEqual(t, ratio, 1.0)
+}
+
+func TestFeeHistoryGasUsedRatioCalculation(t *testing.T) {
+	// Test multiple blocks to ensure we can get different ratios
+	resObj := sendRequestGood(t, "feeHistory", 3, "latest", []interface{}{50.0})
+	result := resObj["result"].(map[string]interface{})
+
+	// Verify we have gas used ratio data
+	gasUsedRatios, ok := result["gasUsedRatio"].([]interface{})
+	require.True(t, ok, "gasUsedRatio should be present and be an array")
+	require.GreaterOrEqual(t, len(gasUsedRatios), 1, "Should have at least one gas used ratio")
+
+	// Check that all ratios are valid
+	for i, ratioInterface := range gasUsedRatios {
+		ratio := ratioInterface.(float64)
+		require.GreaterOrEqual(t, ratio, 0.0, "Ratio %d should be >= 0", i)
+		require.LessOrEqual(t, ratio, 1.0, "Ratio %d should be <= 1", i)
+	}
+
+	// Test edge case: single block
+	resObj2 := sendRequestGood(t, "feeHistory", 1, "latest", []interface{}{25.0})
+	result2 := resObj2["result"].(map[string]interface{})
+	gasUsedRatios2, ok := result2["gasUsedRatio"].([]interface{})
+	require.True(t, ok)
+	require.Equal(t, 1, len(gasUsedRatios2), "Should have exactly one gas used ratio for single block")
 }

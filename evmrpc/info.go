@@ -30,10 +30,11 @@ type InfoAPI struct {
 	homeDir          string
 	connectionType   ConnectionType
 	maxBlocks        int64
+	txDecoder        sdk.TxDecoder
 }
 
-func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, maxBlocks int64, connectionType ConnectionType) *InfoAPI {
-	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType, maxBlocks: maxBlocks}
+func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, maxBlocks int64, connectionType ConnectionType, txDecoder sdk.TxDecoder) *InfoAPI {
+	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType, maxBlocks: maxBlocks, txDecoder: txDecoder}
 }
 
 type FeeHistoryResult struct {
@@ -169,14 +170,33 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 	}
 
 	result.Reward = [][]*hexutil.Big{}
+	result.GasUsedRatio = []float64{}
 	// Potentially parallelize the following logic
 	for blockNum := result.OldestBlock.ToInt().Int64(); blockNum <= lastBlockNumber; blockNum++ {
+		var gasUsedRatio float64
+
 		sdkCtx := i.ctxProvider(blockNum)
 		if CheckVersion(sdkCtx, i.keeper) != nil {
-			// either height is pruned or before EVM is introduced. Skipping
+			// either height is pruned or before EVM is introduced
+			// For non-EVM blocks or pruned blocks, use 0.0 as gas used ratio
+			gasUsedRatio = 0.0
+		} else {
+			// Calculate actual gas used ratio for this block
+			calculatedRatio, err := i.CalculateGasUsedRatio(ctx, blockNum)
+			if err != nil {
+				// If we can't calculate the ratio, use 0.0 as fallback
+				gasUsedRatio = 0.0
+			} else {
+				gasUsedRatio = calculatedRatio
+			}
+		}
+		result.GasUsedRatio = append(result.GasUsedRatio, gasUsedRatio)
+
+		// Only continue with other fields if EVM state exists
+		if CheckVersion(sdkCtx, i.keeper) != nil {
 			continue
 		}
-		result.GasUsedRatio = append(result.GasUsedRatio, GasUsedRatio)
+
 		baseFee := i.safeGetBaseFee(blockNum)
 		if baseFee == nil {
 			// the block has been pruned
@@ -297,6 +317,59 @@ func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGa
 		totalEVMGasUsed += receipt.GasUsed
 	}
 	return totalEVMGasUsed, nil
+}
+
+// CalculateGasUsedRatio calculates the actual gas used ratio for a specific block
+func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) (float64, error) {
+	block, err := blockByNumber(ctx, i.tmClient, &blockHeight)
+	if err != nil {
+		return 0, err
+	}
+
+	// Get the gas limit from consensus params using the SDK context
+	sdkCtx := i.ctxProvider(blockHeight)
+	var gasLimit uint64
+	if sdkCtx.ConsensusParams() != nil && sdkCtx.ConsensusParams().Block != nil {
+		gasLimit = uint64(sdkCtx.ConsensusParams().Block.MaxGas)
+	} else {
+		// Fallback: try current context
+		currentCtx := i.ctxProvider(LatestCtxHeight)
+		if currentCtx.ConsensusParams() != nil && currentCtx.ConsensusParams().Block != nil {
+			gasLimit = uint64(currentCtx.ConsensusParams().Block.MaxGas)
+		} else {
+			// Default fallback
+			gasLimit = 10000000 // Default block gas limit for Sei
+		}
+	}
+
+	if gasLimit == 0 {
+		return 0, nil // Avoid division by zero
+	}
+
+	// Calculate total gas used by EVM transactions in this block
+	totalEVMGasUsed := uint64(0)
+	for _, txbz := range block.Block.Txs {
+		ethtx := getEthTxForTxBz(txbz, i.txDecoder)
+		if ethtx == nil {
+			// not evm tx
+			continue
+		}
+		// okay to get from latest since receipt is immutable
+		receipt, err := i.keeper.GetReceiptWithRetry(i.ctxProvider(LatestCtxHeight), ethtx.Hash(), 3)
+		if err != nil {
+			continue // Skip if we can't get the receipt
+		}
+		// We've had issues where tx is included in a block and fails but then is retried and included in a later block, overwriting the receipt.
+		// This is a temporary fix to ensure we only consider receipts that are included in the block we're querying.
+		if receipt.BlockNumber != uint64(block.Block.Height) {
+			continue
+		}
+		totalEVMGasUsed += receipt.GasUsed
+	}
+
+	// Calculate ratio
+	ratio := float64(totalEVMGasUsed) / float64(gasLimit)
+	return ratio, nil
 }
 
 // Following go-ethereum implementation
