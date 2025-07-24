@@ -325,7 +325,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 	simAPI := evmrpc.NewSimulationAPI(
 		ctxProvider,
 		EVMKeeper,
-		TxConfig,
+		func(int64) client.TxConfig { return TxConfig },
 		&MockClient{},
 		config,
 		testApp.BaseApp,
