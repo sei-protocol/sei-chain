@@ -979,7 +979,12 @@ func New(
 
 // HandlePreCommit happens right before the block is committed
 func (app *App) HandlePreCommit(ctx sdk.Context) error {
-	return app.EvmKeeper.FlushTransientReceipts(ctx)
+	if app.evmRPCConfig.FlushReceiptSync {
+		return app.EvmKeeper.FlushTransientReceiptsSync(ctx)
+	} else {
+		return app.EvmKeeper.FlushTransientReceiptsAsync(ctx)
+	}
+
 }
 
 // Close closes all items that needs closing (called by baseapp)

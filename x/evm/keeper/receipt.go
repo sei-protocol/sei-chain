@@ -111,14 +111,21 @@ func (k *Keeper) MockReceipt(ctx sdk.Context, txHash common.Hash, receipt *types
 	if err := k.SetTransientReceipt(ctx, txHash, receipt); err != nil {
 		return err
 	}
-	return k.FlushTransientReceipts(ctx)
+	return k.FlushTransientReceiptsSync(ctx)
 }
 
-func (k *Keeper) FlushTransientReceipts(ctx sdk.Context) error {
+func (k *Keeper) FlushTransientReceiptsSync(ctx sdk.Context) error {
+	return k.flushTransientReceipts(ctx, true)
+}
+
+func (k *Keeper) FlushTransientReceiptsAsync(ctx sdk.Context) error {
+	return k.flushTransientReceipts(ctx, false)
+}
+
+func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 	iter := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix).Iterator(nil, nil)
 	defer iter.Close()
 	var pairs []*iavl.KVPair
-	var changesets []*proto.NamedChangeSet
 	for ; iter.Valid(); iter.Next() {
 		kvPair := &iavl.KVPair{Key: types.ReceiptKey(common.Hash(iter.Key())), Value: iter.Value()}
 		pairs = append(pairs, kvPair)
@@ -130,9 +137,13 @@ func (k *Keeper) FlushTransientReceipts(ctx sdk.Context) error {
 		Name:      types.ReceiptStoreKey,
 		Changeset: iavl.ChangeSet{Pairs: pairs},
 	}
-	changesets = append(changesets, ncs)
-
-	return k.receiptStore.ApplyChangesetAsync(ctx.BlockHeight(), changesets)
+	if sync {
+		return k.receiptStore.ApplyChangeset(ctx.BlockHeight(), ncs)
+	} else {
+		var changesets []*proto.NamedChangeSet
+		changesets = append(changesets, ncs)
+		return k.receiptStore.ApplyChangesetAsync(ctx.BlockHeight(), changesets)
+	}
 }
 
 func (k *Keeper) WriteReceipt(
