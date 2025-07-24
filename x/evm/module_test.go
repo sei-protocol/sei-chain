@@ -121,7 +121,7 @@ func TestABCI(t *testing.T) {
 	k.SetMsgs([]*types.MsgEVMTransaction{msg})
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 1, Log: "test error"}})
 	m.EndBlock(ctx, abci.RequestEndBlock{})
-	err = k.FlushTransientReceipts(ctx)
+	err = k.FlushTransientReceiptsSync(ctx)
 	require.NoError(t, err)
 	tx, _ := msg.AsTransaction()
 	receipt, err := k.GetReceipt(ctx, tx.Hash())

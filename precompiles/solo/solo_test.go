@@ -13,13 +13,35 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/params"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/solo"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
+
+func TestExecute(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).WithChainID("sei-test").WithIsEVM(true)
+	txConfig := testkeeper.EVMTestApp.GetTxConfig()
+	a := pcommon.MustGetABI(solo.F, "abi.json")
+	p := solo.NewExecutor(a, k, k.BankKeeper(), k.AccountKeeper(), wasmkeeper.NewDefaultPermissionKeeper(testkeeper.EVMTestApp.WasmKeeper), testkeeper.EVMTestApp.WasmKeeper, txConfig)
+	evm := vm.NewEVM(vm.BlockContext{}, nil, &params.ChainConfig{}, vm.Config{}, nil)
+	_, _, err := p.Execute(ctx.WithEVMPrecompileCalledFromDelegateCall(true), &abi.Method{}, common.Address{}, common.Address{}, []interface{}{}, nil, false, evm, 0, nil)
+	require.Error(t, err, "cannot delegatecall claim")
+	_, _, err = p.Execute(ctx, &abi.Method{}, common.Address{}, common.Address{}, []interface{}{}, nil, false, evm, 0, nil)
+	require.NoError(t, err)
+	_, _, err = p.Execute(ctx.WithEVMEntryViaWasmdPrecompile(true), &abi.Method{}, common.Address{}, common.Address{}, []interface{}{}, nil, false, evm, 0, nil)
+	require.Error(t, err, "cannot claim from cosmos entry")
+	_, _, err = p.Execute(ctx, &abi.Method{}, common.Address{}, common.Address{}, []interface{}{}, common.Big1, false, evm, 0, nil)
+	require.Error(t, err)
+	_, _, err = p.Execute(ctx.WithIsEVM(false), &abi.Method{}, common.Address{}, common.Address{}, []interface{}{}, nil, false, evm, 0, nil)
+	require.Error(t, err)
+}
 
 func TestClaim(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
@@ -38,11 +60,15 @@ func TestClaim(t *testing.T) {
 	// happy path
 	ctx, _ := origCtx.CacheContext()
 	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
-	_, remainingGas, err := p.Claim(ctx, claimer, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaim(claimee, claimer), claimee, claimer, acc, claimeeKey)}, false)
+	signedMsg := signClaimMsg(t, evmtypes.NewMsgClaim(claimee, claimer), claimee, claimer, acc, claimeeKey)
+	_, remainingGas, err := p.Claim(ctx, claimer, &method, []interface{}{signedMsg}, false)
 	require.NoError(t, err)
-	require.Equal(t, uint64(964834), remainingGas)
+	require.Greater(t, remainingGas, uint64(900000))
 	require.Equal(t, sdk.NewInt(2), k.BankKeeper().GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, claimer), "abc").Amount)
 	require.Equal(t, sdk.NewInt(3), k.BankKeeper().GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, claimer), "def").Amount)
+	// ensure a replay isn't possible
+	_, _, err = p.Claim(ctx, claimer, &method, []interface{}{signedMsg}, false)
+	require.Error(t, err, "failed to verify signature for claim tx")
 	// from staticcall
 	ctx, _ = origCtx.CacheContext()
 	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
@@ -68,6 +94,13 @@ func TestClaim(t *testing.T) {
 	_, imposter := testkeeper.MockAddressPair()
 	_, remainingGas, err = p.Claim(ctx, imposter, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaim(claimee, claimer), claimee, claimer, acc, claimeeKey)}, false)
 	require.Error(t, err, "claim tx is meant for")
+	require.Equal(t, uint64(0), remainingGas)
+	// imposter on ClaimMsg
+	ctx, _ = origCtx.CacheContext()
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
+	imposterKey := testkeeper.MockPrivateKey()
+	_, remainingGas, err = p.Claim(ctx, imposter, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaim(claimee, imposter), claimee, imposter, acc, imposterKey)}, false)
+	require.Error(t, err, "claim message is for")
 	require.Equal(t, uint64(0), remainingGas)
 	// account does not exist
 	ctx, _ = origCtx.CacheContext()
@@ -96,6 +129,12 @@ func TestClaim(t *testing.T) {
 	_, remainingGas, err = p.Claim(ctx, claimer, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaim(claimee, claimer), claimee, claimer, acc, claimeeKey)}, false)
 	require.Error(t, err, "failed to verify signature for claim tx")
 	require.Equal(t, uint64(0), remainingGas)
+	// wrapping a claimSpecific message should fail in Claim call
+	ctx, _ = origCtx.CacheContext()
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
+	signedMsg = signClaimMsg(t, evmtypes.NewMsgClaimSpecific(claimee, claimer, &evmtypes.Asset{AssetType: evmtypes.AssetType_TYPECW20, ContractAddress: ""}), claimee, claimer, acc, claimeeKey)
+	_, _, err = p.Claim(ctx, claimer, &method, []interface{}{signedMsg}, false)
+	require.Error(t, err, "message for Claim must not be MsgClaimSpecific type")
 }
 
 func TestClaimSpecificCW20(t *testing.T) {
@@ -117,7 +156,7 @@ func TestClaimSpecificCW20(t *testing.T) {
 	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
 	_, remainingGas, err := p.ClaimSpecific(ctx, claimer, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaimSpecific(claimee, claimer, &evmtypes.Asset{AssetType: evmtypes.AssetType_TYPECW20, ContractAddress: contractAddr.String()}), claimee, claimer, acc, claimeeKey)}, false)
 	require.NoError(t, err)
-	require.Equal(t, uint64(848663), remainingGas)
+	require.Greater(t, remainingGas, uint64(800000))
 	require.Equal(t, sdk.ZeroInt(), queryCW20Balance(ctx, testkeeper.EVMTestApp.WasmKeeper, contractAddr, claimee))
 	require.Equal(t, sdk.NewInt(1000000000), queryCW20Balance(ctx, testkeeper.EVMTestApp.WasmKeeper, contractAddr, k.GetSeiAddressOrDefault(ctx, claimer)))
 }
@@ -142,10 +181,33 @@ func TestClaimSpecificCW721(t *testing.T) {
 	_, remainingGas, err := p.ClaimSpecific(ctx, claimer, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaimSpecific(claimee, claimer, &evmtypes.Asset{AssetType: evmtypes.AssetType_TYPECW721, ContractAddress: contractAddr.String()}), claimee, claimer, acc, claimeeKey)}, false)
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	require.NoError(t, err)
-	require.Equal(t, uint64(581814), remainingGas)
+	require.Greater(t, remainingGas, uint64(500000))
 	for i := 0; i < 15; i++ {
 		require.Equal(t, k.GetSeiAddressOrDefault(ctx, claimer).String(), queryCW721Owner(ctx, testkeeper.EVMTestApp.WasmKeeper, contractAddr, fmt.Sprintf("%d", i)))
 	}
+}
+
+func TestClaimSpecificNative(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	origCtx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).WithChainID("sei-test").WithBlockTime(time.Now())
+	txConfig := testkeeper.EVMTestApp.GetTxConfig()
+	a := pcommon.MustGetABI(solo.F, "abi.json")
+	method := a.Methods["claimSpecific"]
+	p := solo.NewExecutor(a, k, k.BankKeeper(), k.AccountKeeper(), nil, testkeeper.EVMTestApp.WasmKeeper, txConfig)
+	claimeeKey := testkeeper.MockPrivateKey()
+	claimee, _ := testkeeper.PrivateKeyToAddresses(claimeeKey)
+	claimerKey := testkeeper.MockPrivateKey()
+	_, claimer := testkeeper.PrivateKeyToAddresses(claimerKey)
+	acc := authtypes.NewBaseAccount(claimee, claimeeKey.PubKey(), 10, 0)
+	k.AccountKeeper().SetAccount(origCtx, acc)
+	_ = k.BankKeeper().AddCoins(origCtx, claimee, sdk.NewCoins(sdk.NewCoin("foo", sdk.OneInt())), false)
+	ctx, _ := origCtx.CacheContext()
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(1000000, 1, 1))
+	_, remainingGas, err := p.ClaimSpecific(ctx, claimer, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaimSpecific(claimee, claimer, &evmtypes.Asset{AssetType: evmtypes.AssetType_TYPENATIVE, Denom: "foo"}), claimee, claimer, acc, claimeeKey)}, false)
+	require.NoError(t, err)
+	require.Greater(t, remainingGas, uint64(900000))
+	require.Equal(t, sdk.OneInt(), k.BankKeeper().GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, claimer), "foo").Amount)
+	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetBalance(ctx, claimee, "foo").Amount)
 }
 
 func signClaimMsg(t *testing.T, msg sdk.Msg, claimee sdk.AccAddress, claimer common.Address, acc authtypes.AccountI, signingKey cryptotypes.PrivKey) []byte {

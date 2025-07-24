@@ -1,6 +1,7 @@
 package solo
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -91,8 +92,28 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("execution reverted: %v", r)
+			ret = nil
+			remainingGas = 0
+			return
 		}
 	}()
+	if !ctx.IsEVM() {
+		return nil, 0, errors.New("cannot claim from a CW call")
+	}
+	if err := pcommon.ValidateNonPayable(value); err != nil {
+		return nil, 0, err
+	}
+	if !ctx.IsEVM() || ctx.EVMEntryViaWasmdPrecompile() {
+		return nil, 0, errors.New("cannot claim from cosmos entry")
+	}
+	if ctx.EVMPrecompileCalledFromDelegateCall() {
+		return nil, 0, errors.New("cannot delegatecall claim")
+	}
+	// depth is incremented upon entering the precompile call so it's
+	// expected to be 1.
+	if evm.GetDepth() > 1 {
+		return nil, 0, errors.New("claim must be called by an EOA directly")
+	}
 	switch method.Name {
 	case ClaimMethod:
 		return p.Claim(ctx, caller, method, args, readOnly)
@@ -117,9 +138,13 @@ type claimSpecificMsg interface {
 }
 
 func (p PrecompileExecutor) Claim(ctx sdk.Context, caller common.Address, method *abi.Method, args []interface{}, readOnly bool) (ret []byte, remainingGas uint64, err error) {
-	_, sender, err := p.validate(ctx, caller, args, readOnly)
+	claimMsg, sender, err := p.validate(ctx, caller, args, readOnly)
 	if err != nil {
 		return nil, 0, err
+	}
+	_, ok := claimMsg.(claimSpecificMsg)
+	if ok {
+		return nil, 0, errors.New("message for Claim must not be MsgClaimSpecific type")
 	}
 	if err := p.bankKeeper.SendCoins(ctx, sender,
 		p.evmKeeper.GetSeiAddressOrDefault(ctx, caller), p.bankKeeper.GetAllBalances(ctx, sender)); err != nil {
@@ -140,6 +165,16 @@ func (p PrecompileExecutor) ClaimSpecific(ctx sdk.Context, caller common.Address
 	}
 	callerSeiAddr := p.evmKeeper.GetSeiAddressOrDefault(ctx, caller)
 	for _, asset := range claimSpecificMsg.GetIAssets() {
+		if asset.IsNative() {
+			denom := asset.GetDenom()
+			balance := p.bankKeeper.GetBalance(ctx, sender, denom)
+			if !balance.IsZero() {
+				if err := p.bankKeeper.SendCoins(ctx, sender, callerSeiAddr, sdk.NewCoins(balance)); err != nil {
+					return nil, 0, err
+				}
+			}
+			continue
+		}
 		contractAddr, err := sdk.AccAddressFromBech32(asset.GetContractAddress())
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to parse contract address %s: %w", asset.GetContractAddress(), err)
@@ -242,6 +277,10 @@ func (p PrecompileExecutor) sigverify(ctx sdk.Context, tx sdk.Tx, claimMsg claim
 			return errors.New("must provide pubkey from accounts that have never sent transactions")
 		}
 	}
+	pubkeyAddr := sdk.AccAddress(pubkey.Address())
+	if !bytes.Equal(pubkeyAddr, sender) {
+		return fmt.Errorf("claim message is for %s but was signed by %s", sender.String(), pubkeyAddr.String())
+	}
 	sigs, err := sigTx.GetSignaturesV2()
 	if err != nil {
 		return fmt.Errorf("failed to get signatures due to %w", err)
@@ -264,6 +303,9 @@ func (p PrecompileExecutor) sigverify(ctx sdk.Context, tx sdk.Tx, claimMsg claim
 	if err := authsigning.VerifySignature(pubkey, signerData, sig.Data, p.txConfig.SignModeHandler(), tx); err != nil {
 		return fmt.Errorf("failed to verify signature for claim tx: %w", err)
 	}
+	// increment sequence
+	_ = acct.SetSequence(acct.GetSequence() + 1)
+	p.accountKeeper.SetAccount(ctx, acct)
 	return nil
 }
 
