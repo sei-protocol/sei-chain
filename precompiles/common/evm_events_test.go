@@ -155,6 +155,16 @@ func TestEmitEVMLog(t *testing.T) {
 			wantErr: true,
 			errMsg:  "cannot emit log: invalid StateDB type",
 		},
+		{
+			name: "too many topics",
+			setup: func() (*vm.EVM, common.Address, []common.Hash, []byte) {
+				// Create 5 topics to trigger the error
+				topics := make([]common.Hash, 5)
+				return nil, common.Address{}, topics, []byte{}
+			},
+			wantErr: true,
+			errMsg:  "log topics cannot be more than 4",
+		},
 	}
 
 	for _, tc := range testCases {

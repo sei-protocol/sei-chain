@@ -1,6 +1,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -14,6 +15,9 @@ import (
 
 // EmitEVMLog emits an EVM log from a precompile
 func EmitEVMLog(evm *vm.EVM, address common.Address, topics []common.Hash, data []byte) error {
+	if len(topics) > 4 {
+		return errors.New("log topics cannot be more than 4")
+	}
 	if evm == nil {
 		return fmt.Errorf("EVM is nil")
 	}
@@ -30,6 +34,8 @@ func EmitEVMLog(evm *vm.EVM, address common.Address, topics []common.Hash, data 
 		Address: address,
 		Topics:  topics,
 		Data:    data,
+		// BlockNumber, BlockHash, TxHash, TxIndex, and Index are added later
+		// by the consensus engine when the block is being finalized.
 	})
 	return nil
 }
@@ -81,14 +87,19 @@ func EmitDelegateEvent(ctx sdk.Context, evm *vm.EVM, precompileAddr common.Addre
 
 func EmitRedelegateEvent(ctx sdk.Context, evm *vm.EVM, precompileAddr common.Address, delegator common.Address, srcValidator, dstValidator string, amount *big.Int) error {
 	// Pack the non-indexed data: srcValidator, dstValidator, amount
-	data := make([]byte, 0)
-
-	// Offsets for two strings and one uint256
-	data = append(data, common.LeftPadBytes(big.NewInt(96).Bytes(), 32)...)  // offset for srcValidator
-	data = append(data, common.LeftPadBytes(big.NewInt(160).Bytes(), 32)...) // offset for dstValidator
-	data = append(data, common.LeftPadBytes(amount.Bytes(), 32)...)          // amount
-
-	// srcValidator string
+	// - dstValidator string data (padded to 32 bytes)
+	var data []byte
+	// offset for srcValidator
+	// The static part consists of 3 items (2 offsets and amount), so 3 * 32 = 96 bytes.
+	// The dynamic data for srcValidator starts at offset 96.
+	data = append(data, common.LeftPadBytes(big.NewInt(96).Bytes(), 32)...)
+	// offset for dstValidator
+	// The data for srcValidator consists of its length (32 bytes) and data (padded to 32 bytes), so 64 bytes total.
+	// The dynamic data for dstValidator starts after srcValidator's data, so at offset 96 + 64 = 160.
+	data = append(data, common.LeftPadBytes(big.NewInt(160).Bytes(), 32)...)
+	// amount
+	data = append(data, common.LeftPadBytes(amount.Bytes(), 32)...)
+	// length of srcValidator
 	srcBytes := []byte(srcValidator)
 	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(srcBytes))).Bytes(), 32)...)
 	data = append(data, common.RightPadBytes(srcBytes, ((len(srcBytes)+31)/32)*32)...)
