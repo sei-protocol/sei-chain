@@ -25,6 +25,7 @@ type opts struct {
 	checkTxTimeout               interface{}
 	maxTxPoolTxs                 interface{}
 	slow                         interface{}
+	flushReceiptSync             interface{}
 	denyList                     interface{}
 	maxLogNoBlock                interface{}
 	maxBlocksForLog              interface{}
@@ -85,6 +86,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.slow" {
 		return o.slow
 	}
+	if k == "evm.flush_receipt_sync" {
+		return o.flushReceiptSync
+	}
 	if k == "evm.deny_list" {
 		return o.denyList
 	}
@@ -132,6 +136,7 @@ func TestReadConfig(t *testing.T) {
 		time.Duration(5),
 		time.Duration(5),
 		1000,
+		false,
 		false,
 		make([]string, 0),
 		20000,

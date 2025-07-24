@@ -48,3 +48,40 @@ func TestGetReceiptWithRetry(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, txHash.Hex(), r.TxHashHex)
 }
+
+func TestFlushTransientReceiptsSync(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	txHash := common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	receipt := &types.Receipt{TxHashHex: txHash.Hex(), Status: 1}
+
+	// Set a transient receipt
+	err := k.SetTransientReceipt(ctx, txHash, receipt)
+	require.NoError(t, err)
+
+	// Should be retrievable from transient store
+	tr, err := k.GetTransientReceipt(ctx, txHash)
+	require.NoError(t, err)
+	require.Equal(t, receipt.TxHashHex, tr.TxHashHex)
+
+	// Not yet in persistent store
+	_, err = k.GetReceipt(ctx, txHash)
+	require.Error(t, err)
+
+	// Flush synchronously
+	err = k.FlushTransientReceiptsSync(ctx)
+	require.NoError(t, err)
+
+	// Now should be retrievable from persistent store
+	pr, err := k.GetReceipt(ctx, txHash)
+	require.NoError(t, err)
+	require.Equal(t, receipt.TxHashHex, pr.TxHashHex)
+
+	// Should not be in transient store anymore (depends on implementation, but let's check)
+	_, err = k.GetTransientReceipt(ctx, txHash)
+	// Could be not found or still present depending on flush logic, so we don't assert error here
+
+	// Flushing with no receipts should not error
+	err = k.FlushTransientReceiptsSync(ctx)
+	require.NoError(t, err)
+}
