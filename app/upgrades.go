@@ -93,3 +93,5 @@ func (app App) RegisterUpgradeHandlers() {
 		})
 	}
 }
+
+const v606UpgradeHeight = 151573570

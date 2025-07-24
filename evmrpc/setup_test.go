@@ -557,7 +557,8 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, TxConfig, "", isPanicTxFunc)
+	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
+	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", isPanicTxFunc)
 	if err != nil {
 		panic(err)
 	}
@@ -569,7 +570,7 @@ func init() {
 	badConfig := evmrpc.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, TxConfig, "", nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -591,7 +592,7 @@ func init() {
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		ctxProvider,
-		TxConfig,
+		txConfigProvider,
 		"",
 		isPanicTxFunc,
 	)
@@ -615,7 +616,7 @@ func init() {
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		ctxProvider,
-		TxConfig,
+		txConfigProvider,
 		"",
 		isPanicTxFunc,
 	)
@@ -627,7 +628,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, TxConfig, "")
+	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "")
 	if err != nil {
 		panic(err)
 	}

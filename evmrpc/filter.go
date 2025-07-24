@@ -265,7 +265,7 @@ type EventItemDataWrapper struct {
 	Value json.RawMessage `json:"value"`
 }
 
-func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfig client.TxConfig, filterConfig *FilterConfig, connectionType ConnectionType, namespace string) *FilterAPI {
+func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, filterConfig *FilterConfig, connectionType ConnectionType, namespace string) *FilterAPI {
 	if filterConfig.maxBlock <= 0 {
 		filterConfig.maxBlock = DefaultMaxBlockRange
 	}
@@ -274,7 +274,7 @@ func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(
 	}
 
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, txConfig: txConfig, filterConfig: filterConfig, includeSyntheticReceipts: shouldIncludeSynthetic(namespace)}
+	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, filterConfig: filterConfig, includeSyntheticReceipts: shouldIncludeSynthetic(namespace)}
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
 		namespace:      namespace,
@@ -627,7 +627,7 @@ func (a *FilterAPI) Cleanup() {
 type LogFetcher struct {
 	tmClient                 rpcclient.Client
 	k                        *keeper.Keeper
-	txConfig                 client.TxConfig
+	txConfigProvider         func(int64) client.TxConfig
 	ctxProvider              func(int64) sdk.Context
 	filterConfig             *FilterConfig
 	includeSyntheticReceipts bool
@@ -825,7 +825,7 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	totalLogs := uint(0)
 	evmTxIndex := 0
 
-	for _, hash := range getTxHashesFromBlock(block, f.txConfig, f.includeSyntheticReceipts) {
+	for _, hash := range getTxHashesFromBlock(block, f.txConfigProvider(block.Block.Height), f.includeSyntheticReceipts) {
 		receipt, found := getCachedReceipt(block.Block.Height, hash)
 		if !found {
 			var err error
