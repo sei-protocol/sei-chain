@@ -21,7 +21,7 @@ var ConnectionTypeWS ConnectionType = "websocket"
 var ConnectionTypeHTTP ConnectionType = "http"
 
 const LocalAddress = "0.0.0.0"
-const DefaultWebsocketMaxMessageSize = 2 * 1024 * 1024
+const DefaultWebsocketMaxMessageSize = 10 * 1024 * 1024
 
 type EVMServer interface {
 	Start() error
