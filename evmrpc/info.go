@@ -357,7 +357,7 @@ func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) 
 		// okay to get from latest since receipt is immutable
 		receipt, err := i.keeper.GetReceiptWithRetry(i.ctxProvider(LatestCtxHeight), ethtx.Hash(), 3)
 		if err != nil {
-			continue // Skip if we can't get the receipt
+			return 0, err
 		}
 		// We've had issues where tx is included in a block and fails but then is retried and included in a later block, overwriting the receipt.
 		// This is a temporary fix to ensure we only consider receipts that are included in the block we're querying.
