@@ -86,26 +86,31 @@ func EmitDelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator com
 
 func EmitRedelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator common.Address, srcValidator, dstValidator string, amount *big.Int) error {
 	// Pack the non-indexed data: srcValidator, dstValidator, amount
-	// - dstValidator string data (padded to 32 bytes)
 	var data []byte
-	// offset for srcValidator
-	// The static part consists of 3 items (2 offsets and amount), so 3 * 32 = 96 bytes.
-	// The dynamic data for srcValidator starts at offset 96.
+	// offset for srcValidator. Static part is 3 * 32 = 96 bytes.
 	data = append(data, common.LeftPadBytes(big.NewInt(96).Bytes(), 32)...)
-	// offset for dstValidator
-	// The data for srcValidator consists of its length (32 bytes) and data (padded to 32 bytes), so 64 bytes total.
-	// The dynamic data for dstValidator starts after srcValidator's data, so at offset 96 + 64 = 160.
-	data = append(data, common.LeftPadBytes(big.NewInt(160).Bytes(), 32)...)
+	// placeholder offset for dstValidator, to be updated after we know the length of srcValidator
+	data = append(data, common.LeftPadBytes(big.NewInt(0).Bytes(), 32)...)
 	// amount
 	data = append(data, common.LeftPadBytes(amount.Bytes(), 32)...)
-	// length of srcValidator
-	srcBytes := []byte(srcValidator)
-	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(srcBytes))).Bytes(), 32)...)
-	data = append(data, common.RightPadBytes(srcBytes, ((len(srcBytes)+31)/32)*32)...)
 
-	// dstValidator string
+	// srcValidator data part
+	srcBytes := []byte(srcValidator)
+	// length of srcValidator
+	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(srcBytes))).Bytes(), 32)...)
+	// data of srcValidator
+	paddedSrcBytes := common.RightPadBytes(srcBytes, ((len(srcBytes)+31)/32)*32)
+	data = append(data, paddedSrcBytes...)
+
+	// now calculate and update dstValidator offset
+	dstOffset := 96 + 32 + len(paddedSrcBytes)
+	copy(data[32:64], common.LeftPadBytes(big.NewInt(int64(dstOffset)).Bytes(), 32))
+
+	// dstValidator data part
 	dstBytes := []byte(dstValidator)
+	// length of dstValidator
 	data = append(data, common.LeftPadBytes(big.NewInt(int64(len(dstBytes))).Bytes(), 32)...)
+	// data of dstValidator
 	data = append(data, common.RightPadBytes(dstBytes, ((len(dstBytes)+31)/32)*32)...)
 
 	topics := []common.Hash{
