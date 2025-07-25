@@ -268,3 +268,6 @@ ss-import-num-workers = 1
 
 # EnableTestAPI enables the EVM test API
 enable_test_api = true
+
+# Disable request limiter
+max_concurrent_simulation_calls = -1
