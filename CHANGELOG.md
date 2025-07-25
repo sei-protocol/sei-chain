@@ -27,6 +27,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v6.1.4
+sei-chain
+* [#2223](https://github.com/sei-protocol/sei-chain/pull/2223) Update Pointer Cache
+
 ## v6.1.0
 sei-chain
 * [#2194](https://github.com/sei-protocol/sei-chain/pull/2194) Fix access list height check
