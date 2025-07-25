@@ -205,7 +205,7 @@ func (e *RevertError) ErrorData() interface{} {
 type SimulateConfig struct {
 	GasCap                       uint64
 	EVMTimeout                   time.Duration
-	MaxConcurrentSimulationCalls uint64
+	MaxConcurrentSimulationCalls int
 }
 
 var _ tracers.Backend = (*Backend)(nil)
