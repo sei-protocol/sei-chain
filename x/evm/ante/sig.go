@@ -42,6 +42,11 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	chainID := svd.evmKeeper.ChainID(ctx)
 	txChainID := ethTx.ChainId()
 
+	fee := new(big.Int).Mul(ethTx.GasPrice(), new(big.Int).SetUint64(ethTx.Gas()))
+	if ethTx.Value() != nil {
+		fee = new(big.Int).Add(fee, ethTx.Value())
+	}
+
 	// validate chain ID on the transaction
 	switch ethTx.Type() {
 	case ethtypes.LegacyTxType:
@@ -94,6 +99,12 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 					// this nonce has already been mined, we cannot accept it again
 					return abci.Rejected
 				} else if txNonce < nextPendingNonce {
+					// check if the sender still has enough funds to pay for gas
+					balance := svd.evmKeeper.BankKeeper().GetBalance(latestCtx, types.MustGetEVMTransactionMessage(tx).Derived.SenderSeiAddr, evmkeeper.BaseDenom).Amount
+					if balance.LT(sdk.NewIntFromBigInt(fee)) {
+						// not enough funds. Go back to pending as it may obtain sufficient funds later.
+						return abci.Pending
+					}
 					// this nonce is allowed to process as it is part of the
 					// consecutive nonces from nextNonceToBeMined to nextPendingNonce
 					// This logic allows multiple nonces from an account to be processed in a block.
