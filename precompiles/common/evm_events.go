@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/big"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -59,7 +58,7 @@ var (
 )
 
 // Helper functions for common event patterns
-func EmitDelegateEvent(ctx sdk.Context, evm *vm.EVM, precompileAddr common.Address, delegator common.Address, validator string, amount *big.Int) error {
+func EmitDelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator common.Address, validator string, amount *big.Int) error {
 	// Pack the non-indexed data: validator string and amount
 	// For strings in events, we need to encode: offset, length, and actual string data
 	data := make([]byte, 0)
@@ -85,7 +84,7 @@ func EmitDelegateEvent(ctx sdk.Context, evm *vm.EVM, precompileAddr common.Addre
 	return EmitEVMLog(evm, precompileAddr, topics, data)
 }
 
-func EmitRedelegateEvent(ctx sdk.Context, evm *vm.EVM, precompileAddr common.Address, delegator common.Address, srcValidator, dstValidator string, amount *big.Int) error {
+func EmitRedelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator common.Address, srcValidator, dstValidator string, amount *big.Int) error {
 	// Pack the non-indexed data: srcValidator, dstValidator, amount
 	// - dstValidator string data (padded to 32 bytes)
 	var data []byte
@@ -117,7 +116,7 @@ func EmitRedelegateEvent(ctx sdk.Context, evm *vm.EVM, precompileAddr common.Add
 	return EmitEVMLog(evm, precompileAddr, topics, data)
 }
 
-func EmitUndelegateEvent(ctx sdk.Context, evm *vm.EVM, precompileAddr common.Address, delegator common.Address, validator string, amount *big.Int) error {
+func EmitUndelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator common.Address, validator string, amount *big.Int) error {
 	// Pack the non-indexed data: validator string and amount
 	data := make([]byte, 0)
 
@@ -140,7 +139,7 @@ func EmitUndelegateEvent(ctx sdk.Context, evm *vm.EVM, precompileAddr common.Add
 	return EmitEVMLog(evm, precompileAddr, topics, data)
 }
 
-func EmitValidatorCreatedEvent(ctx sdk.Context, evm *vm.EVM, precompileAddr common.Address, creator common.Address, validatorAddr string, moniker string) error {
+func EmitValidatorCreatedEvent(evm *vm.EVM, precompileAddr common.Address, creator common.Address, validatorAddr string, moniker string) error {
 	// Pack the non-indexed data: validatorAddr string and moniker string
 	data := make([]byte, 0)
 
@@ -171,7 +170,7 @@ func EmitValidatorCreatedEvent(ctx sdk.Context, evm *vm.EVM, precompileAddr comm
 	return EmitEVMLog(evm, precompileAddr, topics, data)
 }
 
-func EmitValidatorEditedEvent(ctx sdk.Context, evm *vm.EVM, precompileAddr common.Address, editor common.Address, validatorAddr string, moniker string) error {
+func EmitValidatorEditedEvent(evm *vm.EVM, precompileAddr common.Address, editor common.Address, validatorAddr string, moniker string) error {
 	// Pack the non-indexed data: validatorAddr string and moniker string
 	data := make([]byte, 0)
 
