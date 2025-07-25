@@ -58,7 +58,7 @@ var (
 )
 
 // Helper functions for common event patterns
-func EmitDelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator common.Address, validator string, amount *big.Int) error {
+func BuildDelegateEvent(delegator common.Address, validator string, amount *big.Int) ([]common.Hash, []byte, error) {
 	// Pack the non-indexed data: validator string and amount
 	// For strings in events, we need to encode: offset, length, and actual string data
 	data := make([]byte, 0)
@@ -80,11 +80,18 @@ func EmitDelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator com
 		DelegateEventSig,
 		common.BytesToHash(delegator.Bytes()), // indexed
 	}
+	return topics, data, nil
+}
 
+func EmitDelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator common.Address, validator string, amount *big.Int) error {
+	topics, data, err := BuildDelegateEvent(delegator, validator, amount)
+	if err != nil {
+		return err
+	}
 	return EmitEVMLog(evm, precompileAddr, topics, data)
 }
 
-func EmitRedelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator common.Address, srcValidator, dstValidator string, amount *big.Int) error {
+func BuildRedelegateEvent(delegator common.Address, srcValidator, dstValidator string, amount *big.Int) ([]common.Hash, []byte, error) {
 	// Pack the non-indexed data: srcValidator, dstValidator, amount
 	var data []byte
 	// offset for srcValidator. Static part is 3 * 32 = 96 bytes.
@@ -117,11 +124,18 @@ func EmitRedelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator c
 		RedelegateEventSig,
 		common.BytesToHash(delegator.Bytes()), // indexed
 	}
+	return topics, data, nil
+}
 
+func EmitRedelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator common.Address, srcValidator, dstValidator string, amount *big.Int) error {
+	topics, data, err := BuildRedelegateEvent(delegator, srcValidator, dstValidator, amount)
+	if err != nil {
+		return err
+	}
 	return EmitEVMLog(evm, precompileAddr, topics, data)
 }
 
-func EmitUndelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator common.Address, validator string, amount *big.Int) error {
+func BuildUndelegateEvent(delegator common.Address, validator string, amount *big.Int) ([]common.Hash, []byte, error) {
 	// Pack the non-indexed data: validator string and amount
 	data := make([]byte, 0)
 
@@ -140,11 +154,18 @@ func EmitUndelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator c
 		UndelegateEventSig,
 		common.BytesToHash(delegator.Bytes()), // indexed
 	}
+	return topics, data, nil
+}
 
+func EmitUndelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator common.Address, validator string, amount *big.Int) error {
+	topics, data, err := BuildUndelegateEvent(delegator, validator, amount)
+	if err != nil {
+		return err
+	}
 	return EmitEVMLog(evm, precompileAddr, topics, data)
 }
 
-func EmitValidatorCreatedEvent(evm *vm.EVM, precompileAddr common.Address, creator common.Address, validatorAddr string, moniker string) error {
+func BuildValidatorCreatedEvent(creator common.Address, validatorAddr string, moniker string) ([]common.Hash, []byte, error) {
 	// Pack the non-indexed data: validatorAddr string and moniker string
 	data := make([]byte, 0)
 
@@ -171,11 +192,18 @@ func EmitValidatorCreatedEvent(evm *vm.EVM, precompileAddr common.Address, creat
 		ValidatorCreatedEventSig,
 		common.BytesToHash(creator.Bytes()), // indexed
 	}
+	return topics, data, nil
+}
 
+func EmitValidatorCreatedEvent(evm *vm.EVM, precompileAddr common.Address, creator common.Address, validatorAddr string, moniker string) error {
+	topics, data, err := BuildValidatorCreatedEvent(creator, validatorAddr, moniker)
+	if err != nil {
+		return err
+	}
 	return EmitEVMLog(evm, precompileAddr, topics, data)
 }
 
-func EmitValidatorEditedEvent(evm *vm.EVM, precompileAddr common.Address, editor common.Address, validatorAddr string, moniker string) error {
+func BuildValidatorEditedEvent(editor common.Address, validatorAddr string, moniker string) ([]common.Hash, []byte, error) {
 	// Pack the non-indexed data: validatorAddr string and moniker string
 	data := make([]byte, 0)
 
@@ -202,6 +230,13 @@ func EmitValidatorEditedEvent(evm *vm.EVM, precompileAddr common.Address, editor
 		ValidatorEditedEventSig,
 		common.BytesToHash(editor.Bytes()), // indexed
 	}
+	return topics, data, nil
+}
 
+func EmitValidatorEditedEvent(evm *vm.EVM, precompileAddr common.Address, editor common.Address, validatorAddr string, moniker string) error {
+	topics, data, err := BuildValidatorEditedEvent(editor, validatorAddr, moniker)
+	if err != nil {
+		return err
+	}
 	return EmitEVMLog(evm, precompileAddr, topics, data)
 }

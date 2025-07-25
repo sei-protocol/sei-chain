@@ -273,73 +273,84 @@ func TestEventDataEncodingManual(t *testing.T) {
 		testFunc func(t *testing.T)
 	}{
 		{
-			name: "Delegate event manual encoding",
+			name: "Delegate event build",
 			testFunc: func(t *testing.T) {
+				delegator := common.HexToAddress("0x111")
 				validator := "seivaloper1test"
 				amount := big.NewInt(1000000)
 
-				// Manually encode as done in EmitDelegateEvent
-				data := make([]byte, 0)
-				data = append(data, common.LeftPadBytes(big.NewInt(64).Bytes(), 32)...)
-				data = append(data, common.LeftPadBytes(amount.Bytes(), 32)...)
-				data = append(data, common.LeftPadBytes(big.NewInt(int64(len(validator))).Bytes(), 32)...)
-				valBytes := []byte(validator)
-				data = append(data, common.RightPadBytes(valBytes, ((len(valBytes)+31)/32)*32)...)
-
-				require.NotEmpty(t, data)
-				require.Len(t, data, 32+32+32+32) // offset + amount + length + padded string
+				topics, data, err := BuildDelegateEvent(delegator, validator, amount)
+				require.NoError(t, err)
+				require.NotNil(t, topics)
+				require.NotNil(t, data)
+				require.Len(t, topics, 2)
+				require.Equal(t, DelegateEventSig, topics[0])
+				require.Equal(t, common.BytesToHash(delegator.Bytes()), topics[1])
 			},
 		},
 		{
-			name: "Redelegate event manual encoding",
+			name: "Redelegate event build",
 			testFunc: func(t *testing.T) {
+				delegator := common.HexToAddress("0x222")
 				srcValidator := "seivaloper1src"
 				dstValidator := "seivaloper1dst"
 				amount := big.NewInt(2000000)
 
-				// Manually encode as done in EmitRedelegateEvent
-				data := make([]byte, 0)
-				data = append(data, common.LeftPadBytes(big.NewInt(96).Bytes(), 32)...)
-				data = append(data, common.LeftPadBytes(big.NewInt(160).Bytes(), 32)...)
-				data = append(data, common.LeftPadBytes(amount.Bytes(), 32)...)
-
-				srcBytes := []byte(srcValidator)
-				data = append(data, common.LeftPadBytes(big.NewInt(int64(len(srcBytes))).Bytes(), 32)...)
-				data = append(data, common.RightPadBytes(srcBytes, ((len(srcBytes)+31)/32)*32)...)
-
-				dstBytes := []byte(dstValidator)
-				data = append(data, common.LeftPadBytes(big.NewInt(int64(len(dstBytes))).Bytes(), 32)...)
-				data = append(data, common.RightPadBytes(dstBytes, ((len(dstBytes)+31)/32)*32)...)
-
-				require.NotEmpty(t, data)
-				require.True(t, len(data) > 96) // At least the header offsets and amount
+				topics, data, err := BuildRedelegateEvent(delegator, srcValidator, dstValidator, amount)
+				require.NoError(t, err)
+				require.NotNil(t, topics)
+				require.NotNil(t, data)
+				require.Len(t, topics, 2)
+				require.Equal(t, RedelegateEventSig, topics[0])
+				require.Equal(t, common.BytesToHash(delegator.Bytes()), topics[1])
 			},
 		},
 		{
-			name: "ValidatorCreated event manual encoding with offset adjustment",
+			name: "Undelegate event build",
 			testFunc: func(t *testing.T) {
+				delegator := common.HexToAddress("0x333")
+				validator := "seivaloper1test"
+				amount := big.NewInt(3000000)
+
+				topics, data, err := BuildUndelegateEvent(delegator, validator, amount)
+				require.NoError(t, err)
+				require.NotNil(t, topics)
+				require.NotNil(t, data)
+				require.Len(t, topics, 2)
+				require.Equal(t, UndelegateEventSig, topics[0])
+				require.Equal(t, common.BytesToHash(delegator.Bytes()), topics[1])
+			},
+		},
+		{
+			name: "ValidatorCreated event build",
+			testFunc: func(t *testing.T) {
+				creator := common.HexToAddress("0x444")
 				validatorAddr := "seivaloper1new"
 				moniker := "New Validator"
 
-				// Manually encode as done in EmitValidatorCreatedEvent
-				data := make([]byte, 0)
-				data = append(data, common.LeftPadBytes(big.NewInt(64).Bytes(), 32)...)
-				data = append(data, common.LeftPadBytes(big.NewInt(128).Bytes(), 32)...) // temporary
+				topics, data, err := BuildValidatorCreatedEvent(creator, validatorAddr, moniker)
+				require.NoError(t, err)
+				require.NotNil(t, topics)
+				require.NotNil(t, data)
+				require.Len(t, topics, 2)
+				require.Equal(t, ValidatorCreatedEventSig, topics[0])
+				require.Equal(t, common.BytesToHash(creator.Bytes()), topics[1])
+			},
+		},
+		{
+			name: "ValidatorEdited event build",
+			testFunc: func(t *testing.T) {
+				editor := common.HexToAddress("0x555")
+				validatorAddr := "seivaloper1edited"
+				moniker := "Edited Validator"
 
-				valAddrBytes := []byte(validatorAddr)
-				data = append(data, common.LeftPadBytes(big.NewInt(int64(len(valAddrBytes))).Bytes(), 32)...)
-				data = append(data, common.RightPadBytes(valAddrBytes, ((len(valAddrBytes)+31)/32)*32)...)
-
-				// Adjust offset for moniker
-				monikerOffset := 64 + 32 + ((len(valAddrBytes)+31)/32)*32
-				copy(data[32:64], common.LeftPadBytes(big.NewInt(int64(monikerOffset)).Bytes(), 32))
-
-				monikerBytes := []byte(moniker)
-				data = append(data, common.LeftPadBytes(big.NewInt(int64(len(monikerBytes))).Bytes(), 32)...)
-				data = append(data, common.RightPadBytes(monikerBytes, ((len(monikerBytes)+31)/32)*32)...)
-
-				require.NotEmpty(t, data)
-				require.True(t, len(data) > 64) // At least the header offsets
+				topics, data, err := BuildValidatorEditedEvent(editor, validatorAddr, moniker)
+				require.NoError(t, err)
+				require.NotNil(t, topics)
+				require.NotNil(t, data)
+				require.Len(t, topics, 2)
+				require.Equal(t, ValidatorEditedEventSig, topics[0])
+				require.Equal(t, common.BytesToHash(editor.Bytes()), topics[1])
 			},
 		},
 	}
