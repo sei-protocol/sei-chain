@@ -270,4 +270,4 @@ ss-import-num-workers = 1
 enable_test_api = true
 
 # Disable request limiter
-max_concurrent_simulation_calls = -1
+max_concurrent_simulation_calls = 0

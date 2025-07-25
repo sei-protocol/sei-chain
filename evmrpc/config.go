@@ -96,7 +96,7 @@ type Config struct {
 
 	// MaxConcurrentSimulationCalls defines the maximum number of concurrent eth_call calls.
 	// Set to 0 for unlimited.
-	MaxConcurrentSimulationCalls uint64 `mapstructure:"max_concurrent_simulation_calls"`
+	MaxConcurrentSimulationCalls int `mapstructure:"max_concurrent_simulation_calls"`
 
 	// Max number of blocks allowed to look back for tracing
 	MaxTraceLookbackBlocks int64 `mapstructure:"max_trace_lookback_blocks"`
@@ -129,7 +129,7 @@ var DefaultConfig = Config{
 	MaxSubscriptionsNewHead:      10000,
 	EnableTestAPI:                false,
 	MaxConcurrentTraceCalls:      10,
-	MaxConcurrentSimulationCalls: uint64(runtime.NumCPU()),
+	MaxConcurrentSimulationCalls: runtime.NumCPU(),
 	MaxTraceLookbackBlocks:       10000,
 	TraceTimeout:                 30 * time.Second,
 }
@@ -282,7 +282,7 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 		}
 	}
 	if v := opts.Get(flagMaxConcurrentSimulationCalls); v != nil {
-		if cfg.MaxConcurrentSimulationCalls, err = cast.ToUint64E(v); err != nil {
+		if cfg.MaxConcurrentSimulationCalls, err = cast.ToIntE(v); err != nil {
 			return cfg, err
 		}
 	}
