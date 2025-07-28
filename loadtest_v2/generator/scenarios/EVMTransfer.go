@@ -5,7 +5,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	
+
 	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/types"
 )
@@ -24,9 +24,21 @@ func NewEVMTransferScenario() TxGenerator {
 	return scenario
 }
 
+// Name returns the name of the scenario.
+func (s *EVMTransferScenario) Name() string {
+	return EVMTransfer
+}
+
 // DeployScenario implements ScenarioDeployer interface - no deployment needed for ETH transfers
 func (s *EVMTransferScenario) DeployScenario(config *config.LoadConfig, deployer *types.Account) common.Address {
 	// No deployment needed for simple ETH transfers
+	// Return zero address to indicate no contract deployment
+	return common.Address{}
+}
+
+// AttachScenario implements ScenarioDeployer interface - no attachment needed for ETH transfers.
+func (s *EVMTransferScenario) AttachScenario(config *config.LoadConfig, address common.Address) common.Address {
+	// No attachment needed for simple ETH transfers
 	// Return zero address to indicate no contract deployment
 	return common.Address{}
 }

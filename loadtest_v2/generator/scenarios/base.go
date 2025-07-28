@@ -15,7 +15,9 @@ var bigOne = big.NewInt(1)
 
 // TxGenerator defines the interface for generating transactions.
 type TxGenerator interface {
+	Name() string
 	Generate(scenario *types.TxScenario) *types.LoadTx
+	Attach(config *config.LoadConfig, address common.Address) error
 	Deploy(config *config.LoadConfig, deployer *types.Account) common.Address
 }
 
@@ -26,6 +28,9 @@ type ScenarioDeployer interface {
 	// For contracts: deploys the contract and returns its address
 	// For non-contracts: performs any initialization and returns zero address
 	DeployScenario(config *config.LoadConfig, deployer *types.Account) common.Address
+
+	// AttachScenario connects to an existing contract.
+	AttachScenario(config *config.LoadConfig, address common.Address) common.Address
 
 	// CreateTransaction creates a transaction for this scenario
 	CreateTransaction(config *config.LoadConfig, scenario *types.TxScenario) (*ethtypes.Transaction, error)
@@ -75,6 +80,14 @@ func (s *ScenarioBase) Deploy(config *config.LoadConfig, deployer *types.Account
 	return s.address
 }
 
+// Attach connects to an existing contract.
+func (s *ScenarioBase) Attach(config *config.LoadConfig, address common.Address) error {
+	s.config = config
+	s.address = s.deployer.AttachScenario(config, address)
+	s.deployed = true
+	return nil
+}
+
 // Generate handles the common transaction generation flow
 func (s *ScenarioBase) Generate(scenario *types.TxScenario) *types.LoadTx {
 	if !s.deployed {
@@ -115,9 +128,35 @@ func NewContractScenarioBase[T any](deployer ContractDeployer[T]) *ContractScena
 	return base
 }
 
+func dial(config *config.LoadConfig) (*ethclient.Client, error) {
+	if len(config.Endpoints) == 0 {
+		return ethclient.NewClient(nil), nil
+	}
+	return ethclient.Dial(config.Endpoints[0])
+}
+
+// AttachScenario implements AttachScenario interface for contract scenarios
+func (c *ContractScenarioBase[T]) AttachScenario(config *config.LoadConfig, address common.Address) common.Address {
+	client, err := dial(config)
+	if err != nil {
+		panic("Failed to connect to Ethereum client: " + err.Error())
+	}
+
+	// Bind contract instance using the provided bind function
+	bindFunc := c.deployer.GetBindFunc()
+	contract, err := bindFunc(address, client)
+	if err != nil {
+		panic("Failed to bind contract: " + err.Error())
+	}
+
+	// Store the contract instance
+	c.deployer.SetContract(contract)
+	return address
+}
+
 // DeployScenario implements ScenarioDeployer interface for contract scenarios
 func (c *ContractScenarioBase[T]) DeployScenario(config *config.LoadConfig, deployer *types.Account) common.Address {
-	client, err := ethclient.Dial(config.Endpoints[0])
+	client, err := dial(config)
 	if err != nil {
 		panic("Failed to connect to Ethereum client: " + err.Error())
 	}

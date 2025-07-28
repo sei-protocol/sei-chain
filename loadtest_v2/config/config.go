@@ -4,10 +4,11 @@ import "math/big"
 
 // LoadConfig stores the configuration for load-related settings.
 type LoadConfig struct {
-	ChainID   int64          `json:"chain_id,omitempty"`
-	Endpoints []string       `json:"endpoints"`
-	Accounts  *AccountConfig `json:"accounts,omitempty"`
-	Scenarios []Scenario     `json:"scenarios,omitempty"`
+	ChainID    int64          `json:"chain_id,omitempty"`
+	Endpoints  []string       `json:"endpoints"`
+	Accounts   *AccountConfig `json:"accounts,omitempty"`
+	Scenarios  []Scenario     `json:"scenarios,omitempty"`
+	MockDeploy bool           `json:"mock_deploy,omitempty"`
 }
 
 // GetChainID returns the chain ID as a big.Int.

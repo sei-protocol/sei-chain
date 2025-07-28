@@ -18,6 +18,11 @@ type ERC20Scenario struct {
 	contract *bindings.ERC20
 }
 
+// Name returns the name of the scenario.
+func (s *ERC20Scenario) Name() string {
+	return ERC20
+}
+
 // NewERC20Scenario creates a new ERC20 scenario
 func NewERC20Scenario() TxGenerator {
 	scenario := &ERC20Scenario{}

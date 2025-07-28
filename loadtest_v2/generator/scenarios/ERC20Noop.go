@@ -18,6 +18,11 @@ type ERC20NoopScenario struct {
 	contract *bindings.ERC20Noop
 }
 
+// Name returns the name of the scenario.
+func (s *ERC20NoopScenario) Name() string {
+	return ERC20Noop
+}
+
 // NewERC20NoopScenario creates a new ERC20Noop scenario
 func NewERC20NoopScenario() TxGenerator {
 	scenario := &ERC20NoopScenario{}

@@ -29,6 +29,11 @@ func NewERC721Scenario() TxGenerator {
 	return scenario
 }
 
+// Name returns the name of the scenario.
+func (s *ERC721Scenario) Name() string {
+	return ERC721
+}
+
 // DeployContract implements ContractDeployer interface - deploys ERC721 with specific constructor args
 func (s *ERC721Scenario) DeployContract(opts *bind.TransactOpts, client *ethclient.Client) (common.Address, *ethtypes.Transaction, error) {
 	// TODO: Update with actual constructor arguments

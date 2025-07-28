@@ -30,6 +30,7 @@ func (g *scenarioGenerator) Generate() *types.LoadTx {
 	sender := g.accounts.NextAccount()
 	receiver := g.accounts.NextAccount()
 	return g.txg.Generate(&types.TxScenario{
+		Name:     g.txg.Name(),
 		Sender:   sender,
 		Receiver: receiver.Address,
 		Nonce:    sender.GetAndIncrementNonce(),

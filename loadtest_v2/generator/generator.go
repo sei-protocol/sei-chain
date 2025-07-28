@@ -105,8 +105,23 @@ func (g *configBasedGenerator) createScenarios() error {
 	return nil
 }
 
+// mockDeployAll deploys all scenario instances that require deployment (for unit tests).
+func (g *configBasedGenerator) mockDeployAll() error {
+	for _, instance := range g.instances {
+		addr := types.GenerateAccounts(1)[0].Address
+		if err := instance.Scenario.Attach(g.config, addr); err != nil {
+			return err
+		}
+		instance.Deployed = true
+	}
+	return nil
+}
+
 // DeployAll deploys all scenario instances that require deployment
 func (g *configBasedGenerator) deployAll() error {
+	if g.config.MockDeploy {
+		return g.mockDeployAll()
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 

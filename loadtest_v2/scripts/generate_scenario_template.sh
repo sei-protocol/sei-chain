@@ -53,6 +53,11 @@ func New${CONTRACT_NAME}Scenario() TxGenerator {
 	return scenario
 }
 
+// Name returns the name of the scenario.
+func (s *${CONTRACT_NAME}Scenario) Name() string {
+	return ${SCENARIO_CONST}
+}
+
 // DeployContract implements ContractDeployer interface - deploys ${CONTRACT_NAME} with specific constructor args
 func (s *${CONTRACT_NAME}Scenario) DeployContract(opts *bind.TransactOpts, client *ethclient.Client) (common.Address, *ethtypes.Transaction, error) {
 	// TODO: Update with actual constructor arguments
