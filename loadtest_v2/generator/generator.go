@@ -33,15 +33,6 @@ type configBasedGenerator struct {
 	mu             sync.RWMutex
 }
 
-// NewConfigBasedGenerator creates a new config-based scenarioGenerator
-func newConfigBasedGenerator(cfg *config.LoadConfig) *configBasedGenerator {
-	return &configBasedGenerator{
-		config:    cfg,
-		instances: make([]*scenarioInstance, 0),
-		deployer:  types2.GenerateAccounts(1)[0],
-	}
-}
-
 // CreateScenarios creates scenario instances based on the configuration
 // Each scenario entry in config creates a separate instance, even if same name
 func (g *configBasedGenerator) createScenarios() error {
@@ -185,9 +176,13 @@ func (g *configBasedGenerator) createWeightedGenerator() (Generator, error) {
 	return NewWeightedGenerator(weightedConfigs...), nil
 }
 
-// CreateConfigBasedGenerator is a convenience method that combines all steps
-func CreateConfigBasedGenerator(cfg *config.LoadConfig) (Generator, error) {
-	generator := newConfigBasedGenerator(cfg)
+// NewConfigBasedGenerator is a convenience method that combines all steps
+func NewConfigBasedGenerator(cfg *config.LoadConfig) (Generator, error) {
+	generator := &configBasedGenerator{
+		config:    cfg,
+		instances: make([]*scenarioInstance, 0),
+		deployer:  types2.GenerateAccounts(1)[0],
+	}
 
 	// Step 1: Create scenarios
 	if err := generator.createScenarios(); err != nil {

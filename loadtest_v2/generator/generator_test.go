@@ -34,7 +34,7 @@ func TestScenarioWeightsAndAccountDistribution(t *testing.T) {
 		},
 	}
 
-	gen, err := generator.CreateConfigBasedGenerator(cfg)
+	gen, err := generator.NewConfigBasedGenerator(cfg)
 	require.NoError(t, err)
 	require.NotNil(t, gen)
 
