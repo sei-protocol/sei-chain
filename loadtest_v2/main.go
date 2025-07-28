@@ -30,7 +30,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "seiload",
 	Short: "Sei Chain Load Test v2",
-	Long: `A flexible, modular load test scenario generator for Sei Chain.
+	Long: `A load test generator for Sei Chain.
 
 Supports both contract and non-contract scenarios with factory 
 and weighted scenario selection mechanisms. Features sharded sending 
