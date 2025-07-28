@@ -22,7 +22,7 @@ fi
 echo "📝 Generating scenario template for $CONTRACT_NAME ..."
 
 # Convert contract name to uppercase for constant
-SCENARIO_CONST=$(echo "$CONTRACT_NAME" | tr '[:lower:]' '[:upper:]')
+SCENARIO_CONST=$CONTRACT_NAME
 
 # Generate the scenario template file
 cat > "$OUTPUT_FILE" << EOF
