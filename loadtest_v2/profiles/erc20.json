@@ -1,6 +1,10 @@
 {
   "chain_id": 7777,
-  "endpoints": ["http://localhost:8545"],
+  "endpoints": [
+    "http://localhost:8545",
+    "http://localhost:8546",
+    "http://localhost:8547"
+  ],
   "accounts": {
     "accounts": 5000
   },
