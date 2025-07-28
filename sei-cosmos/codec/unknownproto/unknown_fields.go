@@ -20,6 +20,10 @@ import (
 
 const bit11NonCritical = 1 << 10
 
+// MaxProtobufNestingDepth defines the maximum allowed nesting depth for protobuf messages
+// to prevent stack overflow attacks. This matches similar limits in other protobuf implementations.
+const MaxProtobufNestingDepth = 100
+
 type descriptorIface interface {
 	Descriptor() ([]byte, []int)
 }
@@ -39,6 +43,15 @@ func RejectUnknownFieldsStrict(bz []byte, msg proto.Message, resolver jsonpb.Any
 // This function traverses inside of messages nested via google.protobuf.Any. It does not do any deserialization of the proto.Message.
 // An AnyResolver must be provided for traversing inside google.protobuf.Any's.
 func RejectUnknownFields(bz []byte, msg proto.Message, allowUnknownNonCriticals bool, resolver jsonpb.AnyResolver) (hasUnknownNonCriticals bool, err error) {
+	return rejectUnknownFieldsWithDepth(bz, msg, allowUnknownNonCriticals, resolver, 0)
+}
+
+// rejectUnknownFieldsWithDepth is the internal implementation that tracks recursion depth
+func rejectUnknownFieldsWithDepth(bz []byte, msg proto.Message, allowUnknownNonCriticals bool, resolver jsonpb.AnyResolver, depth int) (hasUnknownNonCriticals bool, err error) {
+	if depth > MaxProtobufNestingDepth {
+		return false, fmt.Errorf("protobuf message nesting depth exceeded maximum of %d", MaxProtobufNestingDepth)
+	}
+
 	if len(bz) == 0 {
 		return hasUnknownNonCriticals, nil
 	}
@@ -129,7 +142,7 @@ func RejectUnknownFields(bz []byte, msg proto.Message, allowUnknownNonCriticals 
 
 		if protoMessageName == ".google.protobuf.Any" {
 			// Firstly typecheck types.Any to ensure nothing snuck in.
-			hasUnknownNonCriticalsChild, err := RejectUnknownFields(fieldBytes, (*types.Any)(nil), allowUnknownNonCriticals, resolver)
+			hasUnknownNonCriticalsChild, err := rejectUnknownFieldsWithDepth(fieldBytes, (*types.Any)(nil), allowUnknownNonCriticals, resolver, depth+1)
 			hasUnknownNonCriticals = hasUnknownNonCriticals || hasUnknownNonCriticalsChild
 			if err != nil {
 				return hasUnknownNonCriticals, err
@@ -152,7 +165,7 @@ func RejectUnknownFields(bz []byte, msg proto.Message, allowUnknownNonCriticals 
 			}
 		}
 
-		hasUnknownNonCriticalsChild, err := RejectUnknownFields(fieldBytes, msg, allowUnknownNonCriticals, resolver)
+		hasUnknownNonCriticalsChild, err := rejectUnknownFieldsWithDepth(fieldBytes, msg, allowUnknownNonCriticals, resolver, depth+1)
 		hasUnknownNonCriticals = hasUnknownNonCriticals || hasUnknownNonCriticalsChild
 		if err != nil {
 			return hasUnknownNonCriticals, err

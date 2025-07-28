@@ -671,3 +671,50 @@ func mustMarshal(msg proto.Message) []byte {
 	}
 	return blob
 }
+
+// generateProperlyNestedPayload creates a payload with actual nested TestVersion3 messages
+// that will trigger recursion in the validation code
+func generateProperlyNestedPayload(depth int) []byte {
+	if depth == 0 {
+		// Base case: just an empty message
+		return []byte{}
+	}
+
+	// Create a nested TestVersion3 message recursively
+	inner := generateProperlyNestedPayload(depth - 1)
+
+	// Create a TestVersion3 with field 'a' (tag 2) containing the inner message
+	// Wire format: tag 2 (field a) + wire type 2 (length-delimited) = 0x12
+	// followed by the length of the inner message, then the inner message
+	var result []byte
+	result = append(result, 0x12) // Tag 2, wire type 2 for field 'a'
+
+	// Encode the length of the inner message as a varint
+	innerLen := len(inner)
+	for innerLen >= 0x80 {
+		result = append(result, byte(innerLen)|0x80)
+		innerLen >>= 7
+	}
+	result = append(result, byte(innerLen))
+
+	// Append the inner message
+	result = append(result, inner...)
+
+	return result
+}
+
+func TestRejectUnknownFields_ProperRecursionLimit(t *testing.T) {
+	// Test with proper nested messages that will trigger recursion
+
+	// First test a message within our limit
+	payload := generateProperlyNestedPayload(50)
+	unmarshalled := &testdata.TestVersion3{}
+	_, err := RejectUnknownFields(payload, unmarshalled, false, DefaultAnyResolver{})
+	require.NoError(t, err, "Messages within recursion limit should be accepted")
+
+	// Now test a message that exceeds our limit
+	payload = generateProperlyNestedPayload(110)
+	_, err = RejectUnknownFields(payload, unmarshalled, false, DefaultAnyResolver{})
+	require.Error(t, err, "Messages exceeding recursion limit should be rejected")
+	require.Contains(t, err.Error(), "protobuf message nesting depth exceeded maximum of 100")
+}
