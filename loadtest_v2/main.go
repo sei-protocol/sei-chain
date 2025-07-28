@@ -29,9 +29,9 @@ var rootCmd = &cobra.Command{
 	Short: "Sei Chain Load Test v2",
 	Long: `A flexible, modular load test scenario generator for Sei Chain.
 
-Supports both contract and non-contract scenarios with robust factory 
+Supports both contract and non-contract scenarios with factory 
 and weighted scenario selection mechanisms. Features sharded sending 
-to multiple endpoints with proper account pooling management.`,
+to multiple endpoints with account pooling management.`,
 	Run: runLoadTest,
 }
 
@@ -41,12 +41,17 @@ func init() {
 	rootCmd.Flags().IntVarP(&bufferSize, "buffer-size", "b", 100, "Buffer size per worker")
 	rootCmd.Flags().DurationVarP(&rateLimit, "rate-limit", "r", 0, "Rate limit between transactions (0 = no limit)")
 
-	rootCmd.MarkFlagRequired("config")
+	if err := rootCmd.MarkFlagRequired("config"); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		_, err := fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		if err != nil {
+			log.Fatal(err)
+		}
 		os.Exit(1)
 	}
 }
