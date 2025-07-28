@@ -20,6 +20,9 @@ type Collector struct {
 	// TPS tracking with 10-second windows
 	tpsWindows map[string]*TPSWindow // [endpoint] -> TPS window
 
+	// Overall TPS tracking across all endpoints
+	overallTpsWindow *TPSWindow
+
 	// Window-based tracking for periodic reporting
 	windowStats map[string]*WindowStats // [endpoint] -> window stats
 
@@ -46,6 +49,7 @@ func NewCollector() *Collector {
 		latencies:         make(map[string][]time.Duration),
 		tpsWindows:        make(map[string]*TPSWindow),
 		windowStats:       make(map[string]*WindowStats),
+		overallTpsWindow:  &TPSWindow{timestamps: make([]time.Time, 0)},
 		startTime:         time.Now(),
 		lastWindowTime:    time.Now(),
 		maxLatencyHistory: 10000, // Keep last 10k latencies per endpoint
@@ -86,6 +90,7 @@ func (c *Collector) RecordTransaction(scenario, endpoint string, latency time.Du
 
 	// Record TPS
 	c.recordTPS(endpoint)
+	c.recordOverallTPS()
 
 	// Record window stats
 	c.recordWindowStats(endpoint, latency)
@@ -130,6 +135,32 @@ func (c *Collector) recordTPS(endpoint string) {
 	currentTPS := float64(len(window.timestamps)) / 10.0
 	if currentTPS > window.maxTPS {
 		window.maxTPS = currentTPS
+	}
+}
+
+// recordOverallTPS updates the overall TPS window
+func (c *Collector) recordOverallTPS() {
+	now := time.Now()
+	c.overallTpsWindow.mu.Lock()
+	defer c.overallTpsWindow.mu.Unlock()
+
+	c.overallTpsWindow.timestamps = append(c.overallTpsWindow.timestamps, now)
+
+	// Remove timestamps older than 10 seconds
+	cutoff := now.Add(-10 * time.Second)
+	validIndex := 0
+	for i, ts := range c.overallTpsWindow.timestamps {
+		if ts.After(cutoff) {
+			validIndex = i
+			break
+		}
+	}
+	c.overallTpsWindow.timestamps = c.overallTpsWindow.timestamps[validIndex:]
+
+	// Calculate current TPS and update max
+	currentTPS := float64(len(c.overallTpsWindow.timestamps)) / 10.0
+	if currentTPS > c.overallTpsWindow.maxTPS {
+		c.overallTpsWindow.maxTPS = currentTPS
 	}
 }
 
@@ -255,6 +286,20 @@ func (c *Collector) GetStats() Stats {
 		stats.EndpointStats[endpoint] = endpointStats
 	}
 
+	// Get overall TPS
+	c.overallTpsWindow.mu.RLock()
+	stats.OverallMaxTPS = c.overallTpsWindow.maxTPS
+	now := time.Now()
+	cutoff := now.Add(-10 * time.Second)
+	currentCount := 0
+	for _, ts := range c.overallTpsWindow.timestamps {
+		if ts.After(cutoff) {
+			currentCount++
+		}
+	}
+	stats.OverallCurrentTPS = float64(currentCount) / 10.0
+	c.overallTpsWindow.mu.RUnlock()
+
 	return stats
 }
 
@@ -278,6 +323,8 @@ type Stats struct {
 	TotalTxs      uint64
 	TxCounts      map[string]map[string]uint64 // [scenario][endpoint] -> count
 	EndpointStats map[string]EndpointStats
+	OverallMaxTPS float64
+	OverallCurrentTPS float64
 }
 
 // EndpointStats represents statistics for a specific endpoint
@@ -351,6 +398,10 @@ func (s *Stats) FormatStats() string {
 		result += fmt.Sprintf("    Cumulative Max TPS: %.2f | Cumulative Max Latency: %v\n",
 			stats.CumulativeMaxTPS, stats.CumulativeMaxLatency.Round(time.Millisecond))
 	}
+
+	// Overall TPS
+	result += fmt.Sprintf("\nOverall TPS: Current: %.2f | Max (10s): %.2f\n",
+		s.OverallCurrentTPS, s.OverallMaxTPS)
 
 	return result
 }

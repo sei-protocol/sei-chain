@@ -190,6 +190,7 @@ func (l *Logger) LogFinalStats() {
 		fmt.Printf("  Total Runtime: %v\n", duration.Round(time.Second))
 		fmt.Printf("  Total Transactions: %d\n", stats.TotalTxs)
 		fmt.Printf("  Average TPS: %.2f\n", float64(stats.TotalTxs)/duration.Seconds())
+		fmt.Printf("  Max TPS: %.2f\n", stats.OverallMaxTPS)
 
 		// Calculate total transactions per scenario
 		scenarioTotals := make(map[string]uint64)
