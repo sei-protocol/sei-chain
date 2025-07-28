@@ -20,9 +20,13 @@ type Collector struct {
 	// TPS tracking with 10-second windows
 	tpsWindows map[string]*TPSWindow // [endpoint] -> TPS window
 
+	// Window-based tracking for periodic reporting
+	windowStats map[string]*WindowStats // [endpoint] -> window stats
+
 	// Global metrics
 	startTime time.Time
 	totalTxs  uint64
+	lastWindowTime time.Time
 
 	// Configuration
 	maxLatencyHistory int // Limit latency history to prevent memory leaks
@@ -41,7 +45,9 @@ func NewCollector() *Collector {
 		txCounts:          make(map[string]map[string]uint64),
 		latencies:         make(map[string][]time.Duration),
 		tpsWindows:        make(map[string]*TPSWindow),
+		windowStats:       make(map[string]*WindowStats),
 		startTime:         time.Now(),
+		lastWindowTime:    time.Now(),
 		maxLatencyHistory: 10000, // Keep last 10k latencies per endpoint
 	}
 }
@@ -63,6 +69,11 @@ func (c *Collector) RecordTransaction(scenario, endpoint string, latency time.Du
 			timestamps: make([]time.Time, 0),
 		}
 	}
+	if c.windowStats[endpoint] == nil {
+		c.windowStats[endpoint] = &WindowStats{
+			windowStart: time.Now(),
+		}
+	}
 
 	// Record transaction count
 	c.txCounts[scenario][endpoint]++
@@ -75,6 +86,9 @@ func (c *Collector) RecordTransaction(scenario, endpoint string, latency time.Du
 
 	// Record TPS
 	c.recordTPS(endpoint)
+
+	// Record window stats
+	c.recordWindowStats(endpoint, latency)
 }
 
 // recordLatency adds a latency measurement, maintaining history limit
@@ -117,6 +131,58 @@ func (c *Collector) recordTPS(endpoint string) {
 	if currentTPS > window.maxTPS {
 		window.maxTPS = currentTPS
 	}
+}
+
+// recordWindowStats updates the window stats for an endpoint
+func (c *Collector) recordWindowStats(endpoint string, latency time.Duration) {
+	windowStats := c.windowStats[endpoint]
+
+	// Update tx count
+	windowStats.txCount++
+
+	// Update latency sum and count
+	windowStats.latencySum += latency
+	windowStats.latencyCount++
+
+	// Update max and min latency
+	if latency > windowStats.maxLatency {
+		windowStats.maxLatency = latency
+	}
+	if latency < windowStats.minLatency || windowStats.minLatency == 0 {
+		windowStats.minLatency = latency
+	}
+
+	// Update cumulative max TPS and latency
+	if windowStats.txCount > 0 {
+		currentTPS := float64(windowStats.txCount) / time.Since(windowStats.windowStart).Seconds()
+		if currentTPS > windowStats.cumulativeMaxTPS {
+			windowStats.cumulativeMaxTPS = currentTPS
+		}
+	}
+	if latency > windowStats.cumulativeMaxLatency {
+		windowStats.cumulativeMaxLatency = latency
+	}
+}
+
+// ResetWindowStats resets the window statistics for all endpoints
+func (c *Collector) ResetWindowStats() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := time.Now()
+	for endpoint, windowStats := range c.windowStats {
+		// Preserve cumulative maximums
+		cumulativeMaxTPS := windowStats.cumulativeMaxTPS
+		cumulativeMaxLatency := windowStats.cumulativeMaxLatency
+
+		// Reset window stats
+		c.windowStats[endpoint] = &WindowStats{
+			windowStart:          now,
+			cumulativeMaxTPS:     cumulativeMaxTPS,
+			cumulativeMaxLatency: cumulativeMaxLatency,
+		}
+	}
+	c.lastWindowTime = now
 }
 
 // GetStats returns comprehensive statistics
@@ -175,6 +241,17 @@ func (c *Collector) GetStats() Stats {
 			window.mu.RUnlock()
 		}
 
+		// Get window stats
+		if windowStats := c.windowStats[endpoint]; windowStats != nil {
+			endpointStats.WindowTxCount = windowStats.txCount
+			endpointStats.WindowLatencySum = windowStats.latencySum
+			endpointStats.WindowLatencyCount = windowStats.latencyCount
+			endpointStats.WindowMaxLatency = windowStats.maxLatency
+			endpointStats.WindowMinLatency = windowStats.minLatency
+			endpointStats.CumulativeMaxTPS = windowStats.cumulativeMaxTPS
+			endpointStats.CumulativeMaxLatency = windowStats.cumulativeMaxLatency
+		}
+
 		stats.EndpointStats[endpoint] = endpointStats
 	}
 
@@ -212,6 +289,29 @@ type EndpointStats struct {
 	CurrentTPS  float64
 	SampleCount int
 	QueueDepth  int // Current queue depth for monitoring backpressure
+
+	// Window stats
+	WindowTxCount        uint64
+	WindowLatencySum     time.Duration
+	WindowLatencyCount   int
+	WindowMaxLatency     time.Duration
+	WindowMinLatency     time.Duration
+	CumulativeMaxTPS     float64
+	CumulativeMaxLatency time.Duration
+}
+
+// WindowStats tracks metrics for the current reporting window
+type WindowStats struct {
+	windowStart    time.Time
+	txCount        uint64
+	latencySum     time.Duration
+	latencyCount   int
+	maxLatency     time.Duration
+	minLatency     time.Duration
+	
+	// Cumulative maximums
+	cumulativeMaxTPS     float64
+	cumulativeMaxLatency time.Duration
 }
 
 // FormatStats returns a formatted string representation of the statistics
@@ -242,6 +342,14 @@ func (s *Stats) FormatStats() string {
 			stats.SampleCount)
 		result += fmt.Sprintf("    TPS Current: %.2f | Max (10s): %.2f\n",
 			stats.CurrentTPS, stats.MaxTPS)
+
+		// Window stats
+		result += fmt.Sprintf("    Window TXs: %d | Latency Sum: %v | Latency Count: %d\n",
+			stats.WindowTxCount, stats.WindowLatencySum.Round(time.Millisecond), stats.WindowLatencyCount)
+		result += fmt.Sprintf("    Window Max Latency: %v | Window Min Latency: %v\n",
+			stats.WindowMaxLatency.Round(time.Millisecond), stats.WindowMinLatency.Round(time.Millisecond))
+		result += fmt.Sprintf("    Cumulative Max TPS: %.2f | Cumulative Max Latency: %v\n",
+			stats.CumulativeMaxTPS, stats.CumulativeMaxLatency.Round(time.Millisecond))
 	}
 
 	return result
