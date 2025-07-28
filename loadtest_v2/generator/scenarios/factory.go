@@ -11,6 +11,7 @@ var scenarioFactories = map[string]ScenarioFactory{
 	// Auto-generated entries will be added below this line by make generate
 	// DO NOT EDIT BELOW THIS LINE - AUTO-GENERATED CONTENT
 	ERC20Conflict: NewERC20ConflictScenario,
+	ERC20Noop: NewERC20NoopScenario,
 	ERC20: NewERC20Scenario,
 	ERC721: NewERC721Scenario,
 
