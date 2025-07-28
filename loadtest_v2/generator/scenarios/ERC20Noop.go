@@ -49,6 +49,5 @@ func (s *ERC20NoopScenario) SetContract(contract *bindings.ERC20Noop) {
 
 // CreateContractTransaction implements ContractDeployer interface - creates ERC20Noop transaction
 func (s *ERC20NoopScenario) CreateContractTransaction(auth *bind.TransactOpts, scenario *types.TxScenario) (*ethtypes.Transaction, error) {
-	// TODO: Implement contract interaction logic
-	panic("unimplemented - add contract interaction logic here")
+	return s.contract.Transfer(auth, scenario.Receiver, bigOne)
 }

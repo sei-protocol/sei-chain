@@ -1,11 +1,18 @@
 # Loadtest_v2 Makefile
-# Generates Go bindings for smart contracts
+# Generates Go bindings for smart contracts and builds the load test CLI
 
 # Directories
 CONTRACTS_DIR := generator/contracts
 SCENARIOS_DIR := generator/scenarios
 BINDINGS_DIR := generator/bindings
 BUILD_DIR := build
+
+# Binary configuration
+BINARY_NAME := seiload
+INSTALL_PATH := $(GOPATH)/bin
+ifeq ($(GOPATH),)
+	INSTALL_PATH := $(HOME)/go/bin
+endif
 
 # Tools
 SOLC := solc
@@ -21,7 +28,7 @@ BIN_FILES := $(addprefix $(BUILD_DIR)/, $(addsuffix .bin, $(CONTRACT_NAMES)))
 BINDING_FILES := $(addprefix $(BINDINGS_DIR)/, $(addsuffix .go, $(CONTRACT_NAMES)))
 SCENARIO_TEMPLATE_FILES := $(addprefix $(SCENARIOS_DIR)/, $(addsuffix .go, $(CONTRACT_NAMES)))
 
-.PHONY: generate clean help
+.PHONY: generate clean help build install
 
 # Default target
 help:
@@ -29,6 +36,8 @@ help:
 	@echo "  generate  - Generate Go bindings and scenario templates for all contracts"
 	@echo "  clean     - Remove generated files"
 	@echo "  help      - Show this help message"
+	@echo "  build     - Build the load test CLI"
+	@echo "  install   - Install the load test CLI"
 
 # Main generate target
 generate: $(BINDING_FILES) $(SCENARIO_TEMPLATE_FILES)
@@ -94,3 +103,15 @@ install-tools:
 	@echo "Installing abigen ..."
 	@go install github.com/ethereum/go-ethereum/cmd/abigen@latest
 	@echo "✅ Tools installation complete"
+
+# Build the load test CLI
+build: $(BINDING_FILES)
+	@echo "🔨 Building load test CLI ..."
+	@go build -o $(BUILD_DIR)/$(BINARY_NAME) main.go
+	@echo "✅ Built load test CLI"
+
+# Install the load test CLI
+install: build
+	@echo "📦 Installing load test CLI ..."
+	@cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_PATH)/$(BINARY_NAME)
+	@echo "✅ Installed load test CLI"

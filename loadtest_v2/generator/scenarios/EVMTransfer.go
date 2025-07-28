@@ -46,13 +46,14 @@ func (s *EVMTransferScenario) AttachScenario(config *config.LoadConfig, address 
 // CreateTransaction implements ScenarioDeployer interface - creates ETH transfer transaction
 func (s *EVMTransferScenario) CreateTransaction(config *config.LoadConfig, scenario *types2.TxScenario) (*ethtypes.Transaction, error) {
 	// Create transaction with value transfer
-	tx := &ethtypes.LegacyTx{
-		Nonce:    scenario.Nonce,
-		To:       &scenario.Receiver,
-		Value:    bigOne,
-		Gas:      21000,                   // Standard gas limit for ETH transfer
-		GasPrice: big.NewInt(20000000000), // 20 gwei, same as used in utils
-		Data:     nil,                     // No data for simple transfer
+	tx := &ethtypes.DynamicFeeTx{
+		Nonce:     scenario.Nonce,
+		To:        &scenario.Receiver,
+		Value:     bigOne,
+		Gas:       21000,                   // Standard gas limit for ETH transfer
+		GasTipCap: big.NewInt(2000000000),  // 2 gwei
+		GasFeeCap: big.NewInt(20000000000), // 20 gwei
+		Data:      nil,                     // No data for simple transfer
 	}
 
 	// Sign the transaction
