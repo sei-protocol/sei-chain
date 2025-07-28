@@ -33,6 +33,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/bindings"
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/types"
 )

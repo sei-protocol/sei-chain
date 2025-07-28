@@ -2,13 +2,14 @@ package utils
 
 import (
 	"context"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/config"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+
+	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/types"
 )
 
