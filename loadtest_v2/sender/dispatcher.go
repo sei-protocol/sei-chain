@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator"
+	"github.com/sei-protocol/sei-chain/loadtest_v2/stats"
 )
 
 // Dispatcher continuously generates transactions and dispatches them to the sender
@@ -23,6 +24,8 @@ type Dispatcher struct {
 	// Statistics
 	totalSent uint64
 	mu        sync.RWMutex
+	collector *stats.Collector
+	logger    *stats.Logger
 }
 
 // NewDispatcher creates a new dispatcher
@@ -43,6 +46,14 @@ func (d *Dispatcher) SetRateLimit(duration time.Duration) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.rateLimit = duration
+}
+
+// SetStatsCollector sets the statistics collector for the dispatcher
+func (d *Dispatcher) SetStatsCollector(collector *stats.Collector, logger *stats.Logger) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.collector = collector
+	d.logger = logger
 }
 
 // Start begins the dispatcher's transaction generation and sending loop

@@ -8,24 +8,28 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/sei-protocol/sei-chain/loadtest_v2/stats"
 	"github.com/sei-protocol/sei-chain/loadtest_v2/types"
 )
 
 // Worker handles sending transactions to a specific endpoint
 type Worker struct {
-	id       int
-	endpoint string
-	client   *http.Client
-	txChan   chan *types.LoadTx
-	ctx      context.Context
-	cancel   context.CancelFunc
-	dryRun   bool
+	id        int
+	endpoint  string
+	client    *http.Client
+	txChan    chan *types.LoadTx
+	ctx       context.Context
+	cancel    context.CancelFunc
+	dryRun    bool
+	debug     bool
+	collector *stats.Collector
+	logger    *stats.Logger
 }
 
 // NewWorker creates a new worker for a specific endpoint
 func NewWorker(id int, endpoint string, bufferSize int) *Worker {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &Worker{
 		id:       id,
 		endpoint: endpoint,
@@ -36,6 +40,12 @@ func NewWorker(id int, endpoint string, bufferSize int) *Worker {
 		ctx:    ctx,
 		cancel: cancel,
 	}
+}
+
+// SetStatsCollector sets the statistics collector for this worker
+func (w *Worker) SetStatsCollector(collector *stats.Collector, logger *stats.Logger) {
+	w.collector = collector
+	w.logger = logger
 }
 
 // Start begins the worker's processing loop
@@ -56,9 +66,12 @@ func (w *Worker) Send(tx *types.LoadTx) error {
 		return nil
 	case <-w.ctx.Done():
 		return fmt.Errorf("worker %d is shutting down", w.id)
-	default:
-		return fmt.Errorf("worker %d channel is full", w.id)
 	}
+}
+
+// SetDebug sets the dry-run mode for the worker
+func (w *Worker) SetDebug(debug bool) {
+	w.debug = debug
 }
 
 // SetDryRun sets the dry-run mode for the worker
@@ -85,13 +98,27 @@ func (w *Worker) processTransactions() {
 
 // sendTransaction sends a single transaction to the endpoint
 func (w *Worker) sendTransaction(tx *types.LoadTx) {
-	// In dry-run mode, log the transaction details instead of sending
+	startTime := time.Now()
+	success := false
+
+	defer func() {
+		// Record statistics if collector is available
+		if w.collector != nil {
+			latency := time.Since(startTime)
+			w.collector.RecordTransaction(tx.Scenario.Name, w.endpoint, latency, success)
+		}
+
+		// Log transaction
+		if w.logger != nil {
+			w.logger.LogTransaction(tx)
+		}
+	}()
+
 	if w.dryRun {
-		fmt.Printf("[DRY-RUN] Endpoint: %-30s | Scenario: %-15s | Sender: %s | Nonce: %d\n",
-			w.endpoint,
-			tx.Scenario.Name,
-			tx.Scenario.Sender.Address.Hex(),
-			tx.Scenario.Nonce)
+		// In dry-run mode, simulate processing time and mark as successful
+		// Use very minimal delay to avoid channel overflow
+		time.Sleep(10 * time.Microsecond) // Much faster simulation
+		success = true
 		return
 	}
 
@@ -121,8 +148,12 @@ func (w *Worker) sendTransaction(tx *types.LoadTx) {
 		return
 	}
 
-	// Success - could add metrics/logging here
-	// fmt.Printf("Worker %d: Transaction sent successfully\n", w.id)
+	// Check if request was successful
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		success = true
+	} else {
+		fmt.Printf("Worker %d: HTTP error %d for transaction to %s\n", w.id, resp.StatusCode, w.endpoint)
+	}
 }
 
 // GetChannelLength returns the current length of the worker's channel (for monitoring)

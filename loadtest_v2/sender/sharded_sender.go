@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
+	"github.com/sei-protocol/sei-chain/loadtest_v2/stats"
 	"github.com/sei-protocol/sei-chain/loadtest_v2/types"
 )
 
@@ -14,7 +15,10 @@ type ShardedSender struct {
 	numShards  int
 	bufferSize int
 	dryRun     bool
+	debug      bool
 	mu         sync.RWMutex
+	collector  *stats.Collector
+	logger     *stats.Logger
 }
 
 // NewShardedSender creates a new sharded sender with workers for each endpoint
@@ -63,7 +67,7 @@ func (s *ShardedSender) Send(tx *types.LoadTx) error {
 
 	// Calculate shard ID based on the transaction
 	shardID := tx.ShardID(s.numShards)
-	
+
 	// Validate shard ID
 	if shardID < 0 || shardID >= s.numShards {
 		return fmt.Errorf("invalid shard ID %d for %d shards", shardID, s.numShards)
@@ -113,5 +117,29 @@ func (s *ShardedSender) SetDryRun(dryRun bool) {
 	s.dryRun = dryRun
 	for _, worker := range s.workers {
 		worker.SetDryRun(dryRun)
+	}
+}
+
+func (s *ShardedSender) SetDebug(debug bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.debug = debug
+	for _, worker := range s.workers {
+		worker.SetDebug(debug)
+	}
+}
+
+// SetStatsCollector sets the statistics collector for all workers
+func (s *ShardedSender) SetStatsCollector(collector *stats.Collector, logger *stats.Logger) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.collector = collector
+	s.logger = logger
+
+	// Pass to all workers
+	for _, worker := range s.workers {
+		worker.SetStatsCollector(collector, logger)
 	}
 }

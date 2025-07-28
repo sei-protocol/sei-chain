@@ -15,6 +15,7 @@ import (
 	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator"
 	"github.com/sei-protocol/sei-chain/loadtest_v2/sender"
+	"github.com/sei-protocol/sei-chain/loadtest_v2/stats"
 )
 
 var (
@@ -23,6 +24,7 @@ var (
 	bufferSize    int
 	rateLimit     time.Duration
 	dryRun        bool
+	debug         bool
 )
 
 var rootCmd = &cobra.Command{
@@ -42,9 +44,10 @@ without actually sending requests or deploying contracts.`,
 func init() {
 	rootCmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to configuration file (required)")
 	rootCmd.Flags().DurationVarP(&statsInterval, "stats-interval", "s", 10*time.Second, "Interval for logging statistics")
-	rootCmd.Flags().IntVarP(&bufferSize, "buffer-size", "b", 100, "Buffer size per worker")
+	rootCmd.Flags().IntVarP(&bufferSize, "buffer-size", "b", 1000, "Buffer size per worker")
 	rootCmd.Flags().DurationVarP(&rateLimit, "rate-limit", "r", 0, "Rate limit between transactions (0 = no limit)")
-	rootCmd.Flags().BoolVarP(&dryRun, "dry-run", "d", false, "Mock deployment and request logging")
+	rootCmd.Flags().BoolVarP(&dryRun, "dry-run", "", false, "Mock deployment and requests")
+	rootCmd.Flags().BoolVarP(&debug, "debug", "", false, "Log each request")
 
 	if err := rootCmd.MarkFlagRequired("config"); err != nil {
 		log.Fatal(err)
@@ -99,16 +102,29 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 		log.Fatalf("Failed to create sender: %v", err)
 	}
 
+	// Create statistics collector and logger
+	collector := stats.NewCollector()
+	logger := stats.NewLogger(collector, statsInterval, debug)
+
 	// Enable dry-run mode in sender if specified
 	if dryRun {
 		snd.SetDryRun(true)
 	}
+	if debug {
+		snd.SetDebug(true)
+	}
+
+	// Set statistics collector for sender and its workers
+	snd.SetStatsCollector(collector, logger)
 
 	// Create dispatcher
 	dispatcher := sender.NewDispatcher(gen, snd)
 	if rateLimit > 0 {
 		dispatcher.SetRateLimit(rateLimit)
 	}
+
+	// Set statistics collector for dispatcher
+	dispatcher.SetStatsCollector(collector, logger)
 
 	// Start the sender (starts all workers)
 	snd.Start()
@@ -118,41 +134,45 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	dispatcher.Start()
 	fmt.Printf("✅ Started transaction dispatcher\n")
 
+	// Start statistics logger
+	logger.Start()
+	fmt.Printf("✅ Started statistics logger\n")
+
 	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Start periodic statistics logging
-	statsTicker := time.NewTicker(statsInterval)
-	defer statsTicker.Stop()
-
 	fmt.Printf("📈 Logging statistics every %v (Press Ctrl+C to stop)\n", statsInterval)
+	if dryRun {
+		fmt.Printf("📝 Dry-run mode: Simulating requests without sending\n")
+	}
+	if debug {
+		fmt.Printf("🐛 Debug mode: Each transaction will be logged\n")
+	}
 	fmt.Println(strings.Repeat("=", 60))
 
-	// Main loop - periodically log statistics until signal received
-	for {
-		select {
-		case <-sigChan:
-			fmt.Println("\n🛑 Received shutdown signal, stopping gracefully...")
+	// Main loop - wait for shutdown signal
+	select {
+	case <-sigChan:
+		fmt.Println("\n🛑 Received shutdown signal, stopping gracefully...")
 
-			// Stop dispatcher first
-			dispatcher.Stop()
-			fmt.Println("✅ Stopped dispatcher")
+		// Stop statistics logger first
+		logger.Stop()
+		fmt.Println("✅ Stopped statistics logger")
 
-			// Stop sender and all workers
-			snd.Stop()
-			fmt.Println("✅ Stopped sender and workers")
+		// Stop dispatcher
+		dispatcher.Stop()
+		fmt.Println("✅ Stopped dispatcher")
 
-			// Print final statistics
-			printFinalStats(dispatcher, snd)
+		// Stop sender and all workers
+		snd.Stop()
+		fmt.Println("✅ Stopped sender and workers")
 
-			fmt.Println("👋 Shutdown complete")
-			return
+		// Print final statistics
+		logger.LogFinalStats()
 
-		case <-statsTicker.C:
-			// Log statistics in a non-disruptive way
-			logStatistics(dispatcher, snd)
-		}
+		fmt.Println("👋 Shutdown complete")
+		return
 	}
 }
 
@@ -178,62 +198,4 @@ func loadConfig(filename string) (*config.LoadConfig, error) {
 	}
 
 	return &cfg, nil
-}
-
-// logStatistics prints current statistics in a clean, non-disruptive format
-func logStatistics(dispatcher *sender.Dispatcher, snd *sender.ShardedSender) {
-	dispatcherStats := dispatcher.GetStats()
-	workerStats := snd.GetWorkerStats()
-
-	// Calculate total pending transactions across all workers
-	totalPending := 0
-	for _, stat := range workerStats {
-		totalPending += stat.ChannelLength
-	}
-
-	// Print compact statistics line
-	fmt.Printf("[%s] 📊 Sent: %d | Pending: %d | Workers: %d\n",
-		time.Now().Format("15:04:05"),
-		dispatcherStats.TotalSent,
-		totalPending,
-		len(workerStats))
-
-	// Optionally show per-worker details if there are pending transactions
-	if totalPending > 0 {
-		fmt.Printf("         Worker details: ")
-		for i, stat := range workerStats {
-			if i > 0 {
-				fmt.Printf(", ")
-			}
-			fmt.Printf("W%d:%d", stat.WorkerID, stat.ChannelLength)
-		}
-		fmt.Println()
-	}
-}
-
-// printFinalStats shows detailed final statistics
-func printFinalStats(dispatcher *sender.Dispatcher, snd *sender.ShardedSender) {
-	fmt.Println("\n" + strings.Repeat("=", 60))
-	fmt.Println("📈 FINAL STATISTICS")
-	fmt.Println(strings.Repeat("=", 60))
-
-	dispatcherStats := dispatcher.GetStats()
-	workerStats := snd.GetWorkerStats()
-
-	fmt.Printf("Total transactions sent: %d\n", dispatcherStats.TotalSent)
-	fmt.Printf("Number of workers: %d\n", len(workerStats))
-
-	fmt.Println("\nWorker details:")
-	totalPending := 0
-	for _, stat := range workerStats {
-		fmt.Printf("  Worker %d: %d pending, endpoint: %s\n",
-			stat.WorkerID, stat.ChannelLength, stat.Endpoint)
-		totalPending += stat.ChannelLength
-	}
-
-	if totalPending > 0 {
-		fmt.Printf("\n⚠️  Warning: %d transactions still pending in worker queues\n", totalPending)
-	}
-
-	fmt.Println(strings.Repeat("=", 60))
 }
