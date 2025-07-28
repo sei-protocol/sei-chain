@@ -1,15 +1,12 @@
 package types
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-
-	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
 )
 
 // LoadTx is a wrapper that has pre-encoded json rpc payload and eth transaction.
@@ -57,12 +54,7 @@ type TxScenario struct {
 	Receiver common.Address
 }
 
-// TxGenerator is an interface for generating transactions.
-type TxGenerator interface {
-	Deploy(ctx context.Context, config *config.LoadConfig, deployer *Account) common.Address
-	Generate(scenario *TxScenario) *LoadTx
-}
-
+// CreateTxFromEthTx creates a LoadTx from an EthTx (pre-marshaled).
 func CreateTxFromEthTx(tx *ethtypes.Transaction, scenario *TxScenario) *LoadTx {
 	// Convert to raw transaction bytes for JSON-RPC payload
 	rawTx, err := tx.MarshalBinary()
