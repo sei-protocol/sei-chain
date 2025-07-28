@@ -107,6 +107,7 @@ install-tools:
 # Build the seiload CLI binary
 build-cli: | $(BUILD_DIR)
 	@echo "🔨 Building CLI"
+	@go mod tidy
 	@go build -o $(BUILD_DIR)/$(BINARY_NAME) main.go
 	@echo "✅ Built CLI: $(BUILD_DIR)/$(BINARY_NAME)"
 
