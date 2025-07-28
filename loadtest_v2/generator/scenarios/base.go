@@ -1,14 +1,16 @@
 package scenarios
 
 import (
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+
 	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/types"
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/utils"
-	"math/big"
 )
 
 var bigOne = big.NewInt(1)

@@ -1,12 +1,13 @@
 package generator_test
 
 import (
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/scenarios"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator"
-	"github.com/stretchr/testify/require"
+	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/scenarios"
 )
 
 func TestScenarioWeightsAndAccountDistribution(t *testing.T) {
