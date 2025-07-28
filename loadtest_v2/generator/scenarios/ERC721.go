@@ -1,6 +1,7 @@
 package scenarios
 
 import (
+	"github.com/sei-protocol/sei-chain/loadtest_v2/types"
 	"math/big"
 	"sync/atomic"
 
@@ -10,7 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/bindings"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/types"
 )
 
 const ERC721 = "ERC721"

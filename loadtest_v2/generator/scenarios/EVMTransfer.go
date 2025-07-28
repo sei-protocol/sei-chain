@@ -1,13 +1,13 @@
 package scenarios
 
 import (
+	types2 "github.com/sei-protocol/sei-chain/loadtest_v2/types"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/types"
 )
 
 const EVMTransfer = "EVMTransfer"
@@ -30,7 +30,7 @@ func (s *EVMTransferScenario) Name() string {
 }
 
 // DeployScenario implements ScenarioDeployer interface - no deployment needed for ETH transfers
-func (s *EVMTransferScenario) DeployScenario(config *config.LoadConfig, deployer *types.Account) common.Address {
+func (s *EVMTransferScenario) DeployScenario(config *config.LoadConfig, deployer *types2.Account) common.Address {
 	// No deployment needed for simple ETH transfers
 	// Return zero address to indicate no contract deployment
 	return common.Address{}
@@ -44,7 +44,7 @@ func (s *EVMTransferScenario) AttachScenario(config *config.LoadConfig, address 
 }
 
 // CreateTransaction implements ScenarioDeployer interface - creates ETH transfer transaction
-func (s *EVMTransferScenario) CreateTransaction(config *config.LoadConfig, scenario *types.TxScenario) (*ethtypes.Transaction, error) {
+func (s *EVMTransferScenario) CreateTransaction(config *config.LoadConfig, scenario *types2.TxScenario) (*ethtypes.Transaction, error) {
 	// Create transaction with value transfer
 	tx := &ethtypes.LegacyTx{
 		Nonce:    scenario.Nonce,

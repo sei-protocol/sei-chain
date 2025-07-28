@@ -2,17 +2,17 @@ package generator
 
 import (
 	"fmt"
+	types2 "github.com/sei-protocol/sei-chain/loadtest_v2/types"
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/scenarios"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/types"
 )
 
 // Generator is an interface for generating transactions
 type Generator interface {
-	Generate() *types.LoadTx
-	GenerateN(n int) []*types.LoadTx
+	Generate() *types2.LoadTx
+	GenerateN(n int) []*types2.LoadTx
 }
 
 // scenarioInstance represents a scenario instance with its configuration
@@ -20,7 +20,7 @@ type scenarioInstance struct {
 	Name     string
 	Weight   int
 	Scenario scenarios.TxGenerator
-	Accounts types.AccountPool
+	Accounts types2.AccountPool
 	Deployed bool
 }
 
@@ -28,8 +28,8 @@ type scenarioInstance struct {
 type configBasedGenerator struct {
 	config         *config.LoadConfig
 	instances      []*scenarioInstance
-	deployer       *types.Account
-	sharedAccounts types.AccountPool // Shared account pool when using top-level config
+	deployer       *types2.Account
+	sharedAccounts types2.AccountPool // Shared account pool when using top-level config
 	mu             sync.RWMutex
 }
 
@@ -38,7 +38,7 @@ func newConfigBasedGenerator(cfg *config.LoadConfig) *configBasedGenerator {
 	return &configBasedGenerator{
 		config:    cfg,
 		instances: make([]*scenarioInstance, 0),
-		deployer:  types.GenerateAccounts(1)[0],
+		deployer:  types2.GenerateAccounts(1)[0],
 	}
 }
 
@@ -50,8 +50,8 @@ func (g *configBasedGenerator) createScenarios() error {
 
 	// Create shared account pool if top-level account config exists
 	if g.config.Accounts != nil {
-		accounts := types.GenerateAccounts(g.config.Accounts.Accounts)
-		g.sharedAccounts = types.NewAccountPool(&types.AccountConfig{
+		accounts := types2.GenerateAccounts(g.config.Accounts.Accounts)
+		g.sharedAccounts = types2.NewAccountPool(&types2.AccountConfig{
 			Accounts:       accounts,
 			NewAccountRate: g.config.Accounts.NewAccountRate,
 		})
@@ -62,7 +62,7 @@ func (g *configBasedGenerator) createScenarios() error {
 		scenario := scenarios.CreateScenario(scenarioCfg.Name)
 
 		// Determine account pool to use
-		var accountPool types.AccountPool
+		var accountPool types2.AccountPool
 		if scenarioCfg.Accounts != nil {
 			// Scenario defines its own account settings - create separate pool
 			accountCount := scenarioCfg.Accounts.Accounts
@@ -73,8 +73,8 @@ func (g *configBasedGenerator) createScenarios() error {
 				newAccountRate = scenarioCfg.NewAccountRate
 			}
 
-			accounts := types.GenerateAccounts(accountCount)
-			accountPool = types.NewAccountPool(&types.AccountConfig{
+			accounts := types2.GenerateAccounts(accountCount)
+			accountPool = types2.NewAccountPool(&types2.AccountConfig{
 				Accounts:       accounts,
 				NewAccountRate: newAccountRate,
 			})
@@ -83,8 +83,8 @@ func (g *configBasedGenerator) createScenarios() error {
 			accountPool = g.sharedAccounts
 		} else {
 			// No account configuration found - use defaults
-			accounts := types.GenerateAccounts(10) // Default 10 accounts
-			accountPool = types.NewAccountPool(&types.AccountConfig{
+			accounts := types2.GenerateAccounts(10) // Default 10 accounts
+			accountPool = types2.NewAccountPool(&types2.AccountConfig{
 				Accounts:       accounts,
 				NewAccountRate: scenarioCfg.NewAccountRate, // Use scenario's rate if provided
 			})
@@ -108,7 +108,7 @@ func (g *configBasedGenerator) createScenarios() error {
 // mockDeployAll deploys all scenario instances that require deployment (for unit tests).
 func (g *configBasedGenerator) mockDeployAll() error {
 	for _, instance := range g.instances {
-		addr := types.GenerateAccounts(1)[0].Address
+		addr := types2.GenerateAccounts(1)[0].Address
 		if err := instance.Scenario.Attach(g.config, addr); err != nil {
 			return err
 		}

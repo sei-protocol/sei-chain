@@ -2,15 +2,15 @@ package generator
 
 import (
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/scenarios"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/types"
+	types2 "github.com/sei-protocol/sei-chain/loadtest_v2/types"
 )
 
 type scenarioGenerator struct {
-	accounts types.AccountPool
+	accounts types2.AccountPool
 	txg      scenarios.TxGenerator
 }
 
-func NewScenarioGenerator(accounts types.AccountPool,
+func NewScenarioGenerator(accounts types2.AccountPool,
 	txg scenarios.TxGenerator) Generator {
 	return &scenarioGenerator{
 		accounts: accounts,
@@ -18,18 +18,18 @@ func NewScenarioGenerator(accounts types.AccountPool,
 	}
 }
 
-func (g *scenarioGenerator) GenerateN(n int) []*types.LoadTx {
-	result := make([]*types.LoadTx, 0, n)
+func (g *scenarioGenerator) GenerateN(n int) []*types2.LoadTx {
+	result := make([]*types2.LoadTx, 0, n)
 	for i := 0; i < n; i++ {
 		result = append(result, g.Generate())
 	}
 	return result
 }
 
-func (g *scenarioGenerator) Generate() *types.LoadTx {
+func (g *scenarioGenerator) Generate() *types2.LoadTx {
 	sender := g.accounts.NextAccount()
 	receiver := g.accounts.NextAccount()
-	return g.txg.Generate(&types.TxScenario{
+	return g.txg.Generate(&types2.TxScenario{
 		Name:     g.txg.Name(),
 		Sender:   sender,
 		Receiver: receiver.Address,

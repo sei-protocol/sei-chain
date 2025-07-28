@@ -2,10 +2,9 @@ package generator
 
 import (
 	"context"
+	"github.com/sei-protocol/sei-chain/loadtest_v2/types"
 	"math/rand"
 	"sync"
-
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/types"
 )
 
 // WeightedCfg is a configuration for a weighted scenarioGenerator.

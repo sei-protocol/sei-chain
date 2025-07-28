@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	types2 "github.com/sei-protocol/sei-chain/loadtest_v2/types"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -10,14 +11,13 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/types"
 )
 
 type DeployFunc[T any] func(
 	opts *bind.TransactOpts,
 	client *ethclient.Client) (common.Address, *ethtypes.Transaction, *T, error)
 
-func Deploy[T any](config *config.LoadConfig, deployer *types.Account, deployFunc DeployFunc[T]) common.Address {
+func Deploy[T any](config *config.LoadConfig, deployer *types2.Account, deployFunc DeployFunc[T]) common.Address {
 	client, err := ethclient.Dial(config.Endpoints[0])
 	if err != nil {
 		panic("Failed to connect to Ethereum client: " + err.Error())
@@ -38,7 +38,7 @@ func Deploy[T any](config *config.LoadConfig, deployer *types.Account, deployFun
 }
 
 // CreateTransactOpts creates transaction options for contract deployment or interaction
-func createTransactOpts(chainID *big.Int, account *types.Account, gasLimit uint64, noSend bool) (*bind.TransactOpts, error) {
+func createTransactOpts(chainID *big.Int, account *types2.Account, gasLimit uint64, noSend bool) (*bind.TransactOpts, error) {
 	// Create transactor
 	auth, err := bind.NewKeyedTransactorWithChainID(account.PrivKey, chainID)
 	if err != nil {
@@ -55,7 +55,7 @@ func createTransactOpts(chainID *big.Int, account *types.Account, gasLimit uint6
 }
 
 // CreateDeploymentOpts creates transaction options specifically for contract deployment
-func CreateDeploymentOpts(chainID *big.Int, client *ethclient.Client, account *types.Account) (*bind.TransactOpts, error) {
+func CreateDeploymentOpts(chainID *big.Int, client *ethclient.Client, account *types2.Account) (*bind.TransactOpts, error) {
 	nonce, err := client.NonceAt(context.Background(), account.Address, nil)
 	if err != nil {
 		return nil, err
@@ -65,7 +65,7 @@ func CreateDeploymentOpts(chainID *big.Int, client *ethclient.Client, account *t
 }
 
 // CreateTransactionOpts creates transaction options for regular contract interactions
-func CreateTransactionOpts(chainID *big.Int, scenario *types.TxScenario) *bind.TransactOpts {
+func CreateTransactionOpts(chainID *big.Int, scenario *types2.TxScenario) *bind.TransactOpts {
 	opts, err := createTransactOpts(chainID, scenario.Sender, 200000, true) // 200k gas limit for transactions
 	if err != nil {
 		panic("Failed to create transaction options: " + err.Error())
