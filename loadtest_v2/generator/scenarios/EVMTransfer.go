@@ -1,13 +1,13 @@
 package scenarios
 
 import (
-	types2 "github.com/sei-protocol/sei-chain/loadtest_v2/types"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
+	types2 "github.com/sei-protocol/sei-chain/loadtest_v2/types"
 )
 
 const EVMTransfer = "EVMTransfer"

@@ -35,7 +35,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/bindings"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/types"
+	"github.com/sei-protocol/sei-chain/loadtest_v2/types"
 )
 
 const ${SCENARIO_CONST} = "${CONTRACT_NAME}"

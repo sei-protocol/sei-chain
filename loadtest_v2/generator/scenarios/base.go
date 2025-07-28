@@ -1,7 +1,6 @@
 package scenarios
 
 import (
-	types2 "github.com/sei-protocol/sei-chain/loadtest_v2/types"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/utils"
+	types2 "github.com/sei-protocol/sei-chain/loadtest_v2/types"
 )
 
 // bigOne is 1 in big.Int.
