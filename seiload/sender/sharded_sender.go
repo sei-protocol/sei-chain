@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/stats"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/types"
+	"github.com/sei-protocol/sei-chain/seiload/config"
+	"github.com/sei-protocol/sei-chain/seiload/stats"
+	"github.com/sei-protocol/sei-chain/seiload/types"
 )
 
 // ShardedSender implements TxSender with multiple workers, one per endpoint

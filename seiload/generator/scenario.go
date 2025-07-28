@@ -1,8 +1,8 @@
 package generator
 
 import (
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/scenarios"
-	types2 "github.com/sei-protocol/sei-chain/loadtest_v2/types"
+	"github.com/sei-protocol/sei-chain/seiload/generator/scenarios"
+	types2 "github.com/sei-protocol/sei-chain/seiload/types"
 )
 
 type scenarioGenerator struct {

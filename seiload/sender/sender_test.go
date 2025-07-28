@@ -13,17 +13,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/scenarios"
+	"github.com/sei-protocol/sei-chain/seiload/config"
+	"github.com/sei-protocol/sei-chain/seiload/generator"
+	"github.com/sei-protocol/sei-chain/seiload/generator/scenarios"
 )
 
 // JSONRPCRequest represents a captured JSON-RPC request
 type JSONRPCRequest struct {
-	JSONRPC string      `json:"jsonrpc"`
-	Method  string      `json:"method"`
-	Params  []string    `json:"params"`
-	ID      int         `json:"id"`
+	JSONRPC string   `json:"jsonrpc"`
+	Method  string   `json:"method"`
+	Params  []string `json:"params"`
+	ID      int      `json:"id"`
 }
 
 // MockServer captures JSON-RPC requests for testing
@@ -38,7 +38,7 @@ func NewMockServer() *MockServer {
 	ms := &MockServer{
 		requests: make([]JSONRPCRequest, 0),
 	}
-	
+
 	ms.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Read the request body
 		body, err := io.ReadAll(r.Body)
@@ -46,30 +46,30 @@ func NewMockServer() *MockServer {
 			http.Error(w, "Failed to read body", http.StatusBadRequest)
 			return
 		}
-		
+
 		// Parse JSON-RPC request
 		var req JSONRPCRequest
 		if err := json.Unmarshal(body, &req); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
-		
+
 		// Store the request
 		ms.mu.Lock()
 		ms.requests = append(ms.requests, req)
 		ms.mu.Unlock()
-		
+
 		// Send a mock response
 		response := map[string]interface{}{
 			"jsonrpc": "2.0",
 			"id":      req.ID,
 			"result":  "0x1234567890abcdef", // Mock transaction hash
 		}
-		
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(response)
 	}))
-	
+
 	return ms
 }
 
@@ -77,7 +77,7 @@ func NewMockServer() *MockServer {
 func (ms *MockServer) GetRequests() []JSONRPCRequest {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
-	
+
 	// Return a copy to avoid race conditions
 	requests := make([]JSONRPCRequest, len(ms.requests))
 	copy(requests, ms.requests)
@@ -100,19 +100,19 @@ func TestShardedSenderWithMockServers(t *testing.T) {
 	numShards := 4
 	mockServers := make([]*MockServer, numShards)
 	endpoints := make([]string, numShards)
-	
+
 	for i := 0; i < numShards; i++ {
 		mockServers[i] = NewMockServer()
 		endpoints[i] = mockServers[i].GetURL()
 	}
-	
+
 	// Cleanup servers when test completes
 	defer func() {
 		for _, server := range mockServers {
 			server.Close()
 		}
 	}()
-	
+
 	// Create test configuration
 	cfg := &config.LoadConfig{
 		ChainID:    7777,
@@ -137,7 +137,7 @@ func TestShardedSenderWithMockServers(t *testing.T) {
 
 	// Create dispatcher
 	dispatcher := NewDispatcher(gen, sender)
-	
+
 	// Set a small rate limit to prevent overwhelming the workers
 	dispatcher.SetRateLimit(5 * time.Millisecond)
 
@@ -159,15 +159,15 @@ func TestShardedSenderWithMockServers(t *testing.T) {
 	// Verify requests were distributed across shards
 	totalRequests := 0
 	shardDistribution := make(map[int]int)
-	
+
 	for shardID, server := range mockServers {
 		requests := server.GetRequests()
 		requestCount := len(requests)
 		totalRequests += requestCount
 		shardDistribution[shardID] = requestCount
-		
+
 		fmt.Printf("Shard %d received %d requests\n", shardID, requestCount)
-		
+
 		// Verify all requests are valid JSON-RPC
 		for _, req := range requests {
 			assert.Equal(t, "2.0", req.JSONRPC)
@@ -176,10 +176,10 @@ func TestShardedSenderWithMockServers(t *testing.T) {
 			assert.GreaterOrEqual(t, req.ID, 0)
 		}
 	}
-	
+
 	// Verify total requests match what we sent
 	assert.Equal(t, batchSize, totalRequests, "Total requests should match batch size")
-	
+
 	// Verify distribution is reasonable (each shard should get at least one request for sufficient batch size)
 	if batchSize >= numShards*2 {
 		usedShards := 0
@@ -190,7 +190,7 @@ func TestShardedSenderWithMockServers(t *testing.T) {
 		}
 		assert.GreaterOrEqual(t, usedShards, numShards/2, "At least half the shards should be used")
 	}
-	
+
 	fmt.Printf("Distribution: %v\n", shardDistribution)
 }
 
@@ -200,18 +200,18 @@ func TestShardDistributionVerification(t *testing.T) {
 	numShards := 2
 	mockServers := make([]*MockServer, numShards)
 	endpoints := make([]string, numShards)
-	
+
 	for i := 0; i < numShards; i++ {
 		mockServers[i] = NewMockServer()
 		endpoints[i] = mockServers[i].GetURL()
 	}
-	
+
 	defer func() {
 		for _, server := range mockServers {
 			server.Close()
 		}
 	}()
-	
+
 	cfg := &config.LoadConfig{
 		ChainID:    7777,
 		MockDeploy: true,
@@ -234,7 +234,7 @@ func TestShardDistributionVerification(t *testing.T) {
 	// Generate transactions and verify shard assignment
 	numTxs := 10
 	expectedShards := make(map[int]int) // map[shardID]count
-	
+
 	for i := 0; i < numTxs; i++ {
 		tx := gen.Generate()
 		require.NotNil(t, tx)
@@ -242,23 +242,23 @@ func TestShardDistributionVerification(t *testing.T) {
 		// Calculate expected shard
 		expectedShard := tx.ShardID(numShards)
 		expectedShards[expectedShard]++
-		
+
 		// Send transaction
 		err := sender.Send(tx)
 		require.NoError(t, err)
 	}
-	
+
 	// Wait for processing
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Verify actual distribution matches expected
 	for shardID, server := range mockServers {
 		requests := server.GetRequests()
 		actualCount := len(requests)
 		expectedCount := expectedShards[shardID]
-		
-		assert.Equal(t, expectedCount, actualCount, 
-			"Shard %d should have received %d requests, got %d", 
+
+		assert.Equal(t, expectedCount, actualCount,
+			"Shard %d should have received %d requests, got %d",
 			shardID, expectedCount, actualCount)
 	}
 }

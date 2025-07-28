@@ -5,9 +5,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/scenarios"
+	"github.com/sei-protocol/sei-chain/seiload/config"
+	"github.com/sei-protocol/sei-chain/seiload/generator"
+	"github.com/sei-protocol/sei-chain/seiload/generator/scenarios"
 )
 
 func TestScenarioWeightsAndAccountDistribution(t *testing.T) {

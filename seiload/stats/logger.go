@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/loadtest_v2/types"
+	"github.com/sei-protocol/sei-chain/seiload/types"
 )
 
 // Logger handles periodic statistics logging and dry-run transaction printing
@@ -88,7 +88,7 @@ func (l *Logger) logLoop() {
 // logCurrentStats logs the current statistics
 func (l *Logger) logCurrentStats() {
 	stats := l.collector.GetStats()
-	
+
 	// Aggregate metrics for overall summary
 	var totalWindowTxs uint64
 	var totalTxs uint64
@@ -98,7 +98,7 @@ func (l *Logger) logCurrentStats() {
 	var totalLatencyCount int
 	var maxCumulativeLatency time.Duration
 	var maxP50, maxP99 time.Duration
-	
+
 	// Log one line per endpoint with concise metrics
 	for endpoint, endpointStats := range stats.EndpointStats {
 		// Calculate window TPS based on actual window duration
@@ -108,13 +108,13 @@ func (l *Logger) logCurrentStats() {
 			windowDuration := l.interval.Seconds()
 			windowTPS = float64(endpointStats.WindowTxCount) / windowDuration
 		}
-		
+
 		// Calculate window average latency
 		var windowAvgLatency time.Duration
 		if endpointStats.WindowLatencyCount > 0 {
 			windowAvgLatency = endpointStats.WindowLatencySum / time.Duration(endpointStats.WindowLatencyCount)
 		}
-		
+
 		// Get total transactions for this endpoint
 		totalTxsForEndpoint := uint64(0)
 		for _, endpoints := range stats.TxCounts {
@@ -122,7 +122,7 @@ func (l *Logger) logCurrentStats() {
 				totalTxsForEndpoint += count
 			}
 		}
-		
+
 		// Aggregate for overall summary
 		totalWindowTxs += endpointStats.WindowTxCount
 		totalTxs += totalTxsForEndpoint
@@ -139,7 +139,7 @@ func (l *Logger) logCurrentStats() {
 		if endpointStats.P99Latency > maxP99 {
 			maxP99 = endpointStats.P99Latency
 		}
-		
+
 		// Format: [timestamp] endpoint | TXs: total | TPS: window(max) | Latency: avg(max) | P50: x P99: x
 		fmt.Printf("[%s] %s | TXs: %d | TPS: %.1f(%.1f) | Lat: %v(%v) | P50: %v P99: %v\n",
 			time.Now().Format("15:04:05"),
@@ -152,13 +152,13 @@ func (l *Logger) logCurrentStats() {
 			endpointStats.P50Latency.Round(time.Millisecond),
 			endpointStats.P99Latency.Round(time.Millisecond))
 	}
-	
+
 	// Calculate overall average latency
 	var overallAvgLatency time.Duration
 	if totalLatencyCount > 0 {
 		overallAvgLatency = weightedLatencySum / time.Duration(totalLatencyCount)
 	}
-	
+
 	// Print overall summary line
 	fmt.Printf("[%s] OVERALL | TXs: %d | TPS: %.1f(%.1f) | Lat: %v(%v) | P50: %v P99: %v\n",
 		time.Now().Format("15:04:05"),
@@ -169,7 +169,7 @@ func (l *Logger) logCurrentStats() {
 		maxCumulativeLatency.Round(time.Millisecond),
 		maxP50.Round(time.Millisecond),
 		maxP99.Round(time.Millisecond))
-	
+
 	// Reset window stats for next period
 	l.collector.ResetWindowStats()
 }

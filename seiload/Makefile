@@ -1,5 +1,5 @@
 # Loadtest_v2 Makefile
-# Generates Go bindings for smart contracts and builds the load test CLI
+# Generates Go bindings for smart contracts and builds the seiload CLI
 
 # Directories
 CONTRACTS_DIR := generator/contracts
@@ -36,8 +36,8 @@ help:
 	@echo "  generate  - Generate Go bindings and scenario templates for all contracts"
 	@echo "  clean     - Remove generated files"
 	@echo "  help      - Show this help message"
-	@echo "  build-cli - Build the load test CLI"
-	@echo "  install   - Install the load test CLI"
+	@echo "  build-cli - Build the seiload CLI"
+	@echo "  install   - Install the seiload CLI"
 
 # Main generate target
 generate: $(BINDING_FILES) $(SCENARIO_TEMPLATE_FILES)
@@ -104,14 +104,14 @@ install-tools:
 	@go install github.com/ethereum/go-ethereum/cmd/abigen@latest
 	@echo "✅ Tools installation complete"
 
-# Build the load test CLI binary
+# Build the seiload CLI binary
 build-cli: | $(BUILD_DIR)
-	@echo "🔨 Building load test CLI"
+	@echo "🔨 Building CLI"
 	@go build -o $(BUILD_DIR)/$(BINARY_NAME) main.go
-	@echo "✅ Built load test CLI: $(BUILD_DIR)/$(BINARY_NAME)"
+	@echo "✅ Built CLI: $(BUILD_DIR)/$(BINARY_NAME)"
 
-# Install the load test CLI
+# Install the seiload CLI
 install: build-cli
-	@echo "📦 Installing load test CLI ..."
+	@echo "📦 Installing CLI ..."
 	@cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_PATH)/$(BINARY_NAME)
-	@echo "✅ Installed load test CLI": $(BINARY_NAME)
+	@echo "✅ Installed CLI": $(BINARY_NAME)

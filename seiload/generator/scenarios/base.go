@@ -8,9 +8,9 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 
-	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/utils"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/types"
+	"github.com/sei-protocol/sei-chain/seiload/config"
+	"github.com/sei-protocol/sei-chain/seiload/generator/utils"
+	"github.com/sei-protocol/sei-chain/seiload/types"
 )
 
 // bigOne is 1 in big.Int.

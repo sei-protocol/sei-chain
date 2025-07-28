@@ -2,7 +2,7 @@ package utils
 
 import (
 	"context"
-	types2 "github.com/sei-protocol/sei-chain/loadtest_v2/types"
+	types2 "github.com/sei-protocol/sei-chain/seiload/types"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -10,7 +10,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 
-	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
+	"github.com/sei-protocol/sei-chain/seiload/config"
 )
 
 type DeployFunc[T any] func(

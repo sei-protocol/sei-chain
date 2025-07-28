@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/loadtest_v2/stats"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/types"
+	"github.com/sei-protocol/sei-chain/seiload/stats"
+	"github.com/sei-protocol/sei-chain/seiload/types"
 )
 
 // Worker handles sending transactions to a specific endpoint

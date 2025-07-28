@@ -2,7 +2,7 @@ package generator
 
 import (
 	"context"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/types"
+	"github.com/sei-protocol/sei-chain/seiload/types"
 	"math/rand"
 	"sync"
 )

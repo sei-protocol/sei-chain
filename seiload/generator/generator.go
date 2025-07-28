@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/scenarios"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/types"
+	"github.com/sei-protocol/sei-chain/seiload/config"
+	"github.com/sei-protocol/sei-chain/seiload/generator/scenarios"
+	"github.com/sei-protocol/sei-chain/seiload/types"
 )
 
 // Generator is an interface for generating transactions

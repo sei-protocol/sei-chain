@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/loadtest_v2/generator"
-	"github.com/sei-protocol/sei-chain/loadtest_v2/stats"
+	"github.com/sei-protocol/sei-chain/seiload/generator"
+	"github.com/sei-protocol/sei-chain/seiload/stats"
 )
 
 // Dispatcher continuously generates transactions and dispatches them to the sender
@@ -17,10 +17,10 @@ type Dispatcher struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
-	
+
 	// Configuration
 	rateLimit time.Duration // Minimum time between transactions
-	
+
 	// Statistics
 	totalSent uint64
 	mu        sync.RWMutex
@@ -31,7 +31,7 @@ type Dispatcher struct {
 // NewDispatcher creates a new dispatcher
 func NewDispatcher(gen generator.Generator, sender TxSender) *Dispatcher {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &Dispatcher{
 		generator: gen,
 		sender:    sender,
@@ -71,9 +71,9 @@ func (d *Dispatcher) Stop() {
 // dispatchLoop is the main loop that generates and dispatches transactions
 func (d *Dispatcher) dispatchLoop() {
 	defer d.wg.Done()
-	
+
 	var lastSent time.Time
-	
+
 	for {
 		select {
 		case <-d.ctx.Done():
@@ -83,21 +83,21 @@ func (d *Dispatcher) dispatchLoop() {
 			d.mu.RLock()
 			rateLimit := d.rateLimit
 			d.mu.RUnlock()
-			
+
 			if rateLimit > 0 {
 				elapsed := time.Since(lastSent)
 				if elapsed < rateLimit {
 					time.Sleep(rateLimit - elapsed)
 				}
 			}
-			
+
 			// Generate a transaction
 			tx := d.generator.Generate()
 			if tx == nil {
 				fmt.Println("Dispatcher: Generator returned nil transaction")
 				continue
 			}
-			
+
 			// Send the transaction
 			err := d.sender.Send(tx)
 			if err != nil {
@@ -108,7 +108,7 @@ func (d *Dispatcher) dispatchLoop() {
 				d.totalSent++
 				d.mu.Unlock()
 			}
-			
+
 			lastSent = time.Now()
 		}
 	}
@@ -119,13 +119,13 @@ func (d *Dispatcher) StartBatch(count int) error {
 	if count <= 0 {
 		return fmt.Errorf("count must be positive")
 	}
-	
+
 	d.wg.Add(1)
 	go func() {
 		defer d.wg.Done()
-		
+
 		var lastSent time.Time
-		
+
 		for i := 0; i < count; i++ {
 			select {
 			case <-d.ctx.Done():
@@ -135,21 +135,21 @@ func (d *Dispatcher) StartBatch(count int) error {
 				d.mu.RLock()
 				rateLimit := d.rateLimit
 				d.mu.RUnlock()
-				
+
 				if rateLimit > 0 && i > 0 {
 					elapsed := time.Since(lastSent)
 					if elapsed < rateLimit {
 						time.Sleep(rateLimit - elapsed)
 					}
 				}
-				
+
 				// Generate a transaction
 				tx := d.generator.Generate()
 				if tx == nil {
 					fmt.Printf("Dispatcher: Generator returned nil transaction (batch %d/%d)\n", i+1, count)
 					continue
 				}
-				
+
 				// Send the transaction
 				err := d.sender.Send(tx)
 				if err != nil {
@@ -160,12 +160,12 @@ func (d *Dispatcher) StartBatch(count int) error {
 					d.totalSent++
 					d.mu.Unlock()
 				}
-				
+
 				lastSent = time.Now()
 			}
 		}
 	}()
-	
+
 	return nil
 }
 
@@ -173,7 +173,7 @@ func (d *Dispatcher) StartBatch(count int) error {
 func (d *Dispatcher) GetStats() DispatcherStats {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	
+
 	return DispatcherStats{
 		TotalSent: d.totalSent,
 	}
