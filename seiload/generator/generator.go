@@ -3,6 +3,7 @@ package generator
 import (
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/common"
 	"sync"
 
 	"github.com/sei-protocol/sei-chain/seiload/config"
@@ -72,9 +73,14 @@ func (g *configBasedGenerator) createScenarios() error {
 			return errors.New("no accounts config defined")
 		}
 
+		name := scenarioCfg.Name
+		if i > 0 {
+			name = fmt.Sprintf("%s_%d", name, i)
+		}
+
 		// Create scenario instance
 		instance := &scenarioInstance{
-			Name:     fmt.Sprintf("%s_%d", scenarioCfg.Name, i), // Unique name per instance
+			Name:     name,
 			Weight:   scenarioCfg.Weight,
 			Scenario: scenario,
 			Accounts: accountPool,
@@ -119,7 +125,9 @@ func (g *configBasedGenerator) deployAll() error {
 			address := inst.Scenario.Deploy(g.config, g.deployer)
 			inst.Deployed = true
 
-			fmt.Printf("✅ Deployed %s at address: %s\n", inst.Name, address.Hex())
+			if address.Cmp(common.Address{}) != 0 {
+				fmt.Printf("✅ Deployed %s at address: %s\n", inst.Name, address.Hex())
+			}
 		}(instance)
 	}
 
