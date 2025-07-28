@@ -28,7 +28,7 @@ BIN_FILES := $(addprefix $(BUILD_DIR)/, $(addsuffix .bin, $(CONTRACT_NAMES)))
 BINDING_FILES := $(addprefix $(BINDINGS_DIR)/, $(addsuffix .go, $(CONTRACT_NAMES)))
 SCENARIO_TEMPLATE_FILES := $(addprefix $(SCENARIOS_DIR)/, $(addsuffix .go, $(CONTRACT_NAMES)))
 
-.PHONY: generate clean help build install
+.PHONY: generate clean help build-cli install
 
 # Default target
 help:
@@ -36,7 +36,7 @@ help:
 	@echo "  generate  - Generate Go bindings and scenario templates for all contracts"
 	@echo "  clean     - Remove generated files"
 	@echo "  help      - Show this help message"
-	@echo "  build     - Build the load test CLI"
+	@echo "  build-cli - Build the load test CLI"
 	@echo "  install   - Install the load test CLI"
 
 # Main generate target
@@ -104,14 +104,14 @@ install-tools:
 	@go install github.com/ethereum/go-ethereum/cmd/abigen@latest
 	@echo "✅ Tools installation complete"
 
-# Build the load test CLI
-build: $(BINDING_FILES)
-	@echo "🔨 Building load test CLI ..."
+# Build the load test CLI binary
+build-cli: | $(BUILD_DIR)
+	@echo "🔨 Building load test CLI"
 	@go build -o $(BUILD_DIR)/$(BINARY_NAME) main.go
-	@echo "✅ Built load test CLI"
+	@echo "✅ Built load test CLI: $(BUILD_DIR)/$(BINARY_NAME)"
 
 # Install the load test CLI
-install: build
+install: build-cli
 	@echo "📦 Installing load test CLI ..."
 	@cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_PATH)/$(BINARY_NAME)
-	@echo "✅ Installed load test CLI"
+	@echo "✅ Installed load test CLI": $(BINARY_NAME)

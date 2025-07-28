@@ -25,7 +25,7 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "loadtest_v2",
+	Use:   "seiload",
 	Short: "Sei Chain Load Test v2",
 	Long: `A flexible, modular load test scenario generator for Sei Chain.
 
