@@ -13,6 +13,7 @@ type ShardedSender struct {
 	workers    []*Worker
 	numShards  int
 	bufferSize int
+	dryRun     bool
 	mu         sync.RWMutex
 }
 
@@ -102,4 +103,15 @@ type WorkerStats struct {
 // GetNumShards returns the number of shards (workers)
 func (s *ShardedSender) GetNumShards() int {
 	return s.numShards
+}
+
+// SetDryRun sets the dry-run flag for the sender and its workers
+func (s *ShardedSender) SetDryRun(dryRun bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.dryRun = dryRun
+	for _, worker := range s.workers {
+		worker.SetDryRun(dryRun)
+	}
 }

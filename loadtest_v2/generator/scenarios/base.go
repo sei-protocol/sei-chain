@@ -10,7 +10,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/loadtest_v2/config"
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/utils"
-	types2 "github.com/sei-protocol/sei-chain/loadtest_v2/types"
+	"github.com/sei-protocol/sei-chain/loadtest_v2/types"
 )
 
 // bigOne is 1 in big.Int.
@@ -19,9 +19,9 @@ var bigOne = big.NewInt(1)
 // TxGenerator defines the interface for generating transactions.
 type TxGenerator interface {
 	Name() string
-	Generate(scenario *types2.TxScenario) *types2.LoadTx
+	Generate(scenario *types.TxScenario) *types.LoadTx
 	Attach(config *config.LoadConfig, address common.Address) error
-	Deploy(config *config.LoadConfig, deployer *types2.Account) common.Address
+	Deploy(config *config.LoadConfig, deployer *types.Account) common.Address
 }
 
 // ScenarioDeployer defines the interface for scenario-specific deployment logic
@@ -30,13 +30,13 @@ type ScenarioDeployer interface {
 	// DeployScenario handles any setup required for the scenario
 	// For contracts: deploys the contract and returns its address
 	// For non-contracts: performs any initialization and returns zero address
-	DeployScenario(config *config.LoadConfig, deployer *types2.Account) common.Address
+	DeployScenario(config *config.LoadConfig, deployer *types.Account) common.Address
 
 	// AttachScenario connects to an existing contract.
 	AttachScenario(config *config.LoadConfig, address common.Address) common.Address
 
 	// CreateTransaction creates a transaction for this scenario
-	CreateTransaction(config *config.LoadConfig, scenario *types2.TxScenario) (*ethtypes.Transaction, error)
+	CreateTransaction(config *config.LoadConfig, scenario *types.TxScenario) (*ethtypes.Transaction, error)
 }
 
 // ContractBindFunc defines a function that creates a contract instance from an address
@@ -57,7 +57,7 @@ type ContractDeployer[T any] interface {
 	SetContract(contract *T)
 
 	// CreateContractTransaction creates a contract interaction transaction
-	CreateContractTransaction(auth *bind.TransactOpts, scenario *types2.TxScenario) (*ethtypes.Transaction, error)
+	CreateContractTransaction(auth *bind.TransactOpts, scenario *types.TxScenario) (*ethtypes.Transaction, error)
 }
 
 // ScenarioBase provides common functionality for all scenarios
@@ -76,7 +76,7 @@ func NewScenarioBase(deployer ScenarioDeployer) *ScenarioBase {
 }
 
 // Deploy handles the common deployment flow
-func (s *ScenarioBase) Deploy(config *config.LoadConfig, deployer *types2.Account) common.Address {
+func (s *ScenarioBase) Deploy(config *config.LoadConfig, deployer *types.Account) common.Address {
 	s.config = config
 	s.address = s.deployer.DeployScenario(config, deployer)
 	s.deployed = true
@@ -92,7 +92,7 @@ func (s *ScenarioBase) Attach(config *config.LoadConfig, address common.Address)
 }
 
 // Generate handles the common transaction generation flow
-func (s *ScenarioBase) Generate(scenario *types2.TxScenario) *types2.LoadTx {
+func (s *ScenarioBase) Generate(scenario *types.TxScenario) *types.LoadTx {
 	if !s.deployed {
 		panic("Scenario not deployed/initialized")
 	}
@@ -103,7 +103,7 @@ func (s *ScenarioBase) Generate(scenario *types2.TxScenario) *types2.LoadTx {
 		panic("Failed to create transaction: " + err.Error())
 	}
 
-	return types2.CreateTxFromEthTx(tx, scenario)
+	return types.CreateTxFromEthTx(tx, scenario)
 }
 
 // GetConfig returns the configuration
@@ -158,7 +158,7 @@ func (c *ContractScenarioBase[T]) AttachScenario(config *config.LoadConfig, addr
 }
 
 // DeployScenario implements ScenarioDeployer interface for contract scenarios
-func (c *ContractScenarioBase[T]) DeployScenario(config *config.LoadConfig, deployer *types2.Account) common.Address {
+func (c *ContractScenarioBase[T]) DeployScenario(config *config.LoadConfig, deployer *types.Account) common.Address {
 	client, err := dial(config)
 	if err != nil {
 		panic("Failed to connect to Ethereum client: " + err.Error())
@@ -189,7 +189,7 @@ func (c *ContractScenarioBase[T]) DeployScenario(config *config.LoadConfig, depl
 }
 
 // CreateTransaction implements ScenarioDeployer interface for contract scenarios
-func (c *ContractScenarioBase[T]) CreateTransaction(config *config.LoadConfig, scenario *types2.TxScenario) (*ethtypes.Transaction, error) {
+func (c *ContractScenarioBase[T]) CreateTransaction(config *config.LoadConfig, scenario *types.TxScenario) (*ethtypes.Transaction, error) {
 	auth := utils.CreateTransactionOpts(config.GetChainID(), scenario)
 	return c.deployer.CreateContractTransaction(auth, scenario)
 }

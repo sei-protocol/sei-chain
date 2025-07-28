@@ -57,7 +57,7 @@ func (s *EVMTransferScenario) CreateTransaction(config *config.LoadConfig, scena
 	}
 
 	// Sign the transaction
-	signer := ethtypes.NewEIP155Signer(config.GetChainID())
+	signer := ethtypes.NewCancunSigner(config.GetChainID())
 	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(tx), signer, scenario.Sender.PrivKey)
 	if err != nil {
 		return nil, err

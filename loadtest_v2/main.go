@@ -22,6 +22,7 @@ var (
 	statsInterval time.Duration
 	bufferSize    int
 	rateLimit     time.Duration
+	dryRun        bool
 )
 
 var rootCmd = &cobra.Command{
@@ -31,7 +32,10 @@ var rootCmd = &cobra.Command{
 
 Supports both contract and non-contract scenarios with factory 
 and weighted scenario selection mechanisms. Features sharded sending 
-to multiple endpoints with account pooling management.`,
+to multiple endpoints with account pooling management.
+
+Use --dry-run to test configuration and view transaction details 
+without actually sending requests or deploying contracts.`,
 	Run: runLoadTest,
 }
 
@@ -40,6 +44,7 @@ func init() {
 	rootCmd.Flags().DurationVarP(&statsInterval, "stats-interval", "s", 10*time.Second, "Interval for logging statistics")
 	rootCmd.Flags().IntVarP(&bufferSize, "buffer-size", "b", 100, "Buffer size per worker")
 	rootCmd.Flags().DurationVarP(&rateLimit, "rate-limit", "r", 0, "Rate limit between transactions (0 = no limit)")
+	rootCmd.Flags().BoolVarP(&dryRun, "dry-run", "d", false, "Mock deployment and request logging")
 
 	if err := rootCmd.MarkFlagRequired("config"); err != nil {
 		log.Fatal(err)
@@ -72,7 +77,15 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	if rateLimit > 0 {
 		fmt.Printf("🐌 Rate limit: %v\n", rateLimit)
 	}
+	if dryRun {
+		fmt.Printf("📝 Dry run: enabled\n")
+	}
 	fmt.Println()
+
+	// Enable mock deployment in dry-run mode
+	if dryRun {
+		cfg.MockDeploy = true
+	}
 
 	// Create the generator from the config struct
 	gen, err := generator.NewConfigBasedGenerator(cfg)
@@ -84,6 +97,11 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	snd, err := sender.NewShardedSender(cfg, bufferSize)
 	if err != nil {
 		log.Fatalf("Failed to create sender: %v", err)
+	}
+
+	// Enable dry-run mode in sender if specified
+	if dryRun {
+		snd.SetDryRun(true)
 	}
 
 	// Create dispatcher

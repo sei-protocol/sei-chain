@@ -19,6 +19,7 @@ type Worker struct {
 	txChan   chan *types.LoadTx
 	ctx      context.Context
 	cancel   context.CancelFunc
+	dryRun   bool
 }
 
 // NewWorker creates a new worker for a specific endpoint
@@ -60,6 +61,11 @@ func (w *Worker) Send(tx *types.LoadTx) error {
 	}
 }
 
+// SetDryRun sets the dry-run mode for the worker
+func (w *Worker) SetDryRun(dryRun bool) {
+	w.dryRun = dryRun
+}
+
 // processTransactions is the main worker loop that processes transactions
 func (w *Worker) processTransactions() {
 	for {
@@ -79,6 +85,16 @@ func (w *Worker) processTransactions() {
 
 // sendTransaction sends a single transaction to the endpoint
 func (w *Worker) sendTransaction(tx *types.LoadTx) {
+	// In dry-run mode, log the transaction details instead of sending
+	if w.dryRun {
+		fmt.Printf("[DRY-RUN] Endpoint: %-30s | Scenario: %-15s | Sender: %s | Nonce: %d\n",
+			w.endpoint,
+			tx.Scenario.Name,
+			tx.Scenario.Sender.Address.Hex(),
+			tx.Scenario.Nonce)
+		return
+	}
+
 	// Create HTTP request with JSON-RPC payload
 	req, err := http.NewRequestWithContext(w.ctx, "POST", w.endpoint, bytes.NewReader(tx.JSONRPCPayload))
 	if err != nil {

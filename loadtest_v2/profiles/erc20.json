@@ -1,0 +1,17 @@
+{
+  "chain_id": 7777,
+  "endpoints": ["http://localhost:8545"],
+  "accounts": {
+    "accounts": 5000
+  },
+  "scenarios": [
+    {
+      "name": "ERC20",
+      "weight": 1
+    },
+    {
+      "name": "EVMTransfer",
+      "weight": 1
+    }
+  ]
+}
