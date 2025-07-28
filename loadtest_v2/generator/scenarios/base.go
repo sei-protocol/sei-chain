@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/utils"
 )
 
+// bigOne is 1 in big.Int.
 var bigOne = big.NewInt(1)
 
 // TxGenerator defines the interface for generating transactions.
