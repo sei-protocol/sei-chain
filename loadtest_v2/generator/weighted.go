@@ -8,13 +8,13 @@ import (
 	"github.com/sei-protocol/sei-chain/loadtest_v2/generator/types"
 )
 
-// WeightedCfg is a configuration for a weighted generator.
+// WeightedCfg is a configuration for a weighted scenarioGenerator.
 type WeightedCfg struct {
 	Weight    int
 	Generator Generator
 }
 
-// WeightedConfig creates a configuration for a weighted generator.
+// WeightedConfig creates a configuration for a weighted scenarioGenerator.
 func WeightedConfig(weight int, generator Generator) *WeightedCfg {
 	return &WeightedCfg{
 		Weight:    weight,
@@ -78,9 +78,9 @@ func (w *weightedGenerator) Generate() *types.LoadTx {
 	return w.nextGenerator().Generate()
 }
 
-// NewWeightedGenerator creates a new generator that will randomly select from the provided generators.
+// NewWeightedGenerator creates a new scenarioGenerator that will randomly select from the provided generators.
 func NewWeightedGenerator(cfgs ...*WeightedCfg) Generator {
-	// no need for clever weighting logic if we just have 1 generator anyway.
+	// no need for clever weighting logic if we just have 1 scenarioGenerator anyway.
 	if len(cfgs) == 1 {
 		return cfgs[0].Generator
 	}
