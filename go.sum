@@ -1987,8 +1987,8 @@ github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529/go.mod h1:DxrIzT+xaE7yg
 github.com/securego/gosec/v2 v2.11.0 h1:+PDkpzR41OI2jrw1q6AdXZCbsNGNGT7pQjal0H0cArI=
 github.com/securego/gosec/v2 v2.11.0/go.mod h1:SX8bptShuG8reGC0XS09+a4H2BoWSJi+fscA+Pulbpo=
 github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KRMzBtS3oedY=
-github.com/sei-protocol/go-ethereum v1.15.7-sei-1 h1:BSr6//keTxlamS+jEM3JLsJhkUrhN4Sn2RNfWEx7TC8=
-github.com/sei-protocol/go-ethereum v1.15.7-sei-1/go.mod h1:+S9k+jFzlyVTNcYGvqFhzN/SFhI6vA+aOY4T5tLSPL0=
+github.com/sei-protocol/go-ethereum v1.15.7-sei-2 h1:yuY8u5viMt+zzVGB/lTo21qarEkJwgoYiSQd9coru54=
+github.com/sei-protocol/go-ethereum v1.15.7-sei-2/go.mod h1:+S9k+jFzlyVTNcYGvqFhzN/SFhI6vA+aOY4T5tLSPL0=
 github.com/sei-protocol/goutils v0.0.2 h1:Bfa7Sv+4CVLNM20QcpvGb81B8C5HkQC/kW1CQpIbXDA=
 github.com/sei-protocol/goutils v0.0.2/go.mod h1:iYE2DuJfEnM+APPehr2gOUXfuLuPsVxorcDO+Tzq9q8=
 github.com/sei-protocol/sei-cosmos v0.3.65 h1:tV2+OvWpRWHD9ts1JyA/d4fmXHxFIGJTkCLLcws1B1g=
