@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 
+	"github.com/sei-protocol/sei-chain/precompiles/solo"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -79,6 +80,9 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	}
 	if to == nil && len(data) > params.MaxInitCodeSize {
 		return nil, fmt.Errorf("%w: code size %v, limit %v", core.ErrMaxInitCodeSizeExceeded, len(data), params.MaxInitCodeSize)
+	}
+	if to != nil && to.Cmp(common.HexToAddress(solo.SoloAddress)) == 0 {
+		return nil, errors.New("cannot call Solo precompile via CosmWasm")
 	}
 	value := utils.Big0
 	if val != nil {

@@ -19,3 +19,15 @@ func TestGetTransactionSkipSyntheticIndex(t *testing.T) {
 		},
 	)
 }
+
+func TestGetTransactionAnteFailed(t *testing.T) {
+	tx1Data := send(1) // incorrect nonce
+	signedTx1 := signTxWithMnemonic(tx1Data, mnemonic1)
+	tx1 := encodeEvmTx(tx1Data, signedTx1)
+	SetupTestServer([][][]byte{{tx1}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("eth", port, "getTransactionByHash", signedTx1.Hash().Hex())
+			require.Equal(t, "not found", res["error"].(map[string]interface{})["message"].(string))
+		},
+	)
+}

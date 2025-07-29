@@ -28,6 +28,7 @@ func TestState(t *testing.T) {
 	key := common.BytesToHash([]byte("abc"))
 	val := common.BytesToHash([]byte("def"))
 	statedb.SetState(evmAddr, key, val)
+	statedb.SetCode(evmAddr, []byte("code"))
 	require.Equal(t, val, statedb.GetState(evmAddr, key))
 	require.Equal(t, common.Hash{}, statedb.GetCommittedState(evmAddr, key))
 	// fork the store and overwrite the key
@@ -66,6 +67,7 @@ func TestCreate(t *testing.T) {
 	val := common.BytesToHash([]byte("def"))
 	tkey := common.BytesToHash([]byte("jkl"))
 	tval := common.BytesToHash([]byte("mno"))
+	statedb.SetCode(evmAddr, []byte("code"))
 	statedb.SetState(evmAddr, key, val)
 	statedb.SetTransientState(evmAddr, tkey, tval)
 	statedb.AddBalance(evmAddr, uint256.NewInt(10000000000000), tracing.BalanceChangeUnspecified)
@@ -101,6 +103,7 @@ func TestSelfDestructAssociated(t *testing.T) {
 	tkey := common.BytesToHash([]byte("jkl"))
 	tval := common.BytesToHash([]byte("mno"))
 	statedb.SetState(evmAddr, key, val)
+	statedb.SetCode(evmAddr, []byte("code"))
 	statedb.SetTransientState(evmAddr, tkey, tval)
 	amt := sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(10)))
 	k.BankKeeper().MintCoins(statedb.Ctx(), types.ModuleName, amt)

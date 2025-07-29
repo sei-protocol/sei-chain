@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -29,6 +29,7 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -47,22 +48,27 @@ const CtxIsWasmdPrecompileCallKey CtxIsWasmdPrecompileCallKeyType = "CtxIsWasmdP
 type SimulationAPI struct {
 	backend        *Backend
 	connectionType ConnectionType
+	requestLimiter *semaphore.Weighted
 }
 
 func NewSimulationAPI(
 	ctxProvider func(int64) sdk.Context,
 	keeper *keeper.Keeper,
-	txConfig client.TxConfig,
+	txConfigProvider func(int64) client.TxConfig,
 	tmClient rpcclient.Client,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 ) *SimulationAPI {
-	return &SimulationAPI{
-		backend:        NewBackend(ctxProvider, keeper, txConfig, tmClient, config, app, antehandler),
+	api := &SimulationAPI{
+		backend:        NewBackend(ctxProvider, keeper, txConfigProvider, tmClient, config, app, antehandler),
 		connectionType: connectionType,
 	}
+	if config.MaxConcurrentSimulationCalls > 0 {
+		api.requestLimiter = semaphore.NewWeighted(int64(config.MaxConcurrentSimulationCalls))
+	}
+	return api
 }
 
 type AccessListResult struct {
@@ -93,6 +99,14 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args export.Transa
 func (s *SimulationAPI) EstimateGas(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_estimateGas", s.connectionType, startTime, returnErr)
+	/* ---------- fail‑fast limiter ---------- */
+	if s.requestLimiter != nil {
+		if !s.requestLimiter.TryAcquire(1) {
+			returnErr = errors.New("eth_estimateGas rejected due to rate limit: server busy")
+			return
+		}
+		defer s.requestLimiter.Release(1)
+	}
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -105,6 +119,14 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args export.Transaction
 func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.TransactionArgs, calls []export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_estimateGasAfterCalls", s.connectionType, startTime, returnErr)
+	/* ---------- fail‑fast limiter ---------- */
+	if s.requestLimiter != nil {
+		if !s.requestLimiter.TryAcquire(1) {
+			returnErr = errors.New("eth_estimateGasAfterCalls rejected due to rate limit: server busy")
+			return
+		}
+		defer s.requestLimiter.Release(1)
+	}
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -117,6 +139,14 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 func (s *SimulationAPI) Call(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride, blockOverrides *export.BlockOverrides) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
+	/* ---------- fail‑fast limiter ---------- */
+	if s.requestLimiter != nil {
+		if !s.requestLimiter.TryAcquire(1) {
+			returnErr = errors.New("eth_call rejected due to rate limit: server busy")
+			return
+		}
+		defer s.requestLimiter.Release(1)
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			if strings.Contains(fmt.Sprintf("%s", r), "Int overflow") {
@@ -173,32 +203,33 @@ func (e *RevertError) ErrorData() interface{} {
 }
 
 type SimulateConfig struct {
-	GasCap     uint64
-	EVMTimeout time.Duration
+	GasCap                       uint64
+	EVMTimeout                   time.Duration
+	MaxConcurrentSimulationCalls int
 }
 
 var _ tracers.Backend = (*Backend)(nil)
 
 type Backend struct {
 	*eth.EthAPIBackend
-	ctxProvider func(int64) sdk.Context
-	txConfig    client.TxConfig
-	keeper      *keeper.Keeper
-	tmClient    rpcclient.Client
-	config      *SimulateConfig
-	app         *baseapp.BaseApp
-	antehandler sdk.AnteHandler
+	ctxProvider      func(int64) sdk.Context
+	txConfigProvider func(int64) client.TxConfig
+	keeper           *keeper.Keeper
+	tmClient         rpcclient.Client
+	config           *SimulateConfig
+	app              *baseapp.BaseApp
+	antehandler      sdk.AnteHandler
 }
 
-func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txConfig client.TxConfig, tmClient rpcclient.Client, config *SimulateConfig, app *baseapp.BaseApp, antehandler sdk.AnteHandler) *Backend {
+func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txConfigProvider func(int64) client.TxConfig, tmClient rpcclient.Client, config *SimulateConfig, app *baseapp.BaseApp, antehandler sdk.AnteHandler) *Backend {
 	return &Backend{
-		ctxProvider: ctxProvider,
-		keeper:      keeper,
-		txConfig:    txConfig,
-		tmClient:    tmClient,
-		config:      config,
-		app:         app,
-		antehandler: antehandler,
+		ctxProvider:      ctxProvider,
+		keeper:           keeper,
+		txConfigProvider: txConfigProvider,
+		tmClient:         tmClient,
+		config:           config,
+		app:              app,
+		antehandler:      antehandler,
 	}
 }
 
@@ -230,7 +261,7 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found
 	}
 	txIndex := hexutil.Uint(receipt.TransactionIndex)
 	tmTx := block.Block.Txs[int(txIndex)]
-	tx = getEthTxForTxBz(tmTx, b.txConfig.TxDecoder())
+	tx = getEthTxForTxBz(tmTx, b.txConfigProvider(block.Block.Height).TxDecoder())
 	blockHash = common.BytesToHash(block.Block.Header.Hash().Bytes())
 	return true, tx, blockHash, uint64(txHeight), uint64(txIndex), nil
 }
@@ -271,7 +302,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
 	for i := range blockRes.TxsResults {
-		decoded, err := b.txConfig.TxDecoder()(tmBlock.Block.Txs[i])
+		decoded, err := b.txConfigProvider(blockRes.Height).TxDecoder()(tmBlock.Block.Txs[i])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -368,7 +399,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		return nil, vm.BlockContext{}, nil, emptyRelease, errors.New("transaction not found")
 	}
 	tx := txs[txIndex]
-	sdkTx, err := b.txConfig.TxDecoder()(tx)
+	sdkTx, err := b.txConfigProvider(block.Number().Int64()).TxDecoder()(tx)
 	if err != nil {
 		panic(err)
 	}
@@ -406,7 +437,7 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 		if idx > txIndex {
 			break
 		}
-		sdkTx, err := b.txConfig.TxDecoder()(tx)
+		sdkTx, err := b.txConfigProvider(block.Number().Int64()).TxDecoder()(tx)
 		if err != nil {
 			panic(err)
 		}
@@ -545,7 +576,7 @@ func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error 
 	if err != nil {
 		return fmt.Errorf("transaction cannot be converted to MsgEVMTransaction due to %s", err)
 	}
-	tb := b.txConfig.NewTxBuilder()
+	tb := b.txConfigProvider(ctx.BlockHeight()).NewTxBuilder()
 	_ = tb.SetMsgs(msg)
 	newCtx, err := b.antehandler(ctx, tb.GetTx(), false)
 	if err != nil {
