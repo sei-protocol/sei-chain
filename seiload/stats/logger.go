@@ -118,17 +118,19 @@ func (l *Logger) logCurrentStats() {
 			maxP99 = endpointStats.P99Latency
 		}
 
-		// Format: [timestamp] endpoint | TXs: total | TPS: window(max) | Latency: avg(max) | P50: x P99: x
-		fmt.Printf("[%s] %s | TXs: %d | TPS: %.1f(%.1f) | Lat: %v(%v) | P50: %v P99: %v\n",
-			time.Now().Format("15:04:05"),
-			endpoint,
-			totalTxsForEndpoint,
-			windowTPS,
-			endpointStats.CumulativeMaxTPS,
-			windowAvgLatency.Round(time.Millisecond),
-			endpointStats.CumulativeMaxLatency.Round(time.Millisecond),
-			endpointStats.P50Latency.Round(time.Millisecond),
-			endpointStats.P99Latency.Round(time.Millisecond))
+		if l.debug {
+			// Format: [timestamp] endpoint | TXs: total | TPS: window(max) | Latency: avg(max) | P50: x P99: x
+			fmt.Printf("[%s] %s | TXs: %d | TPS: %.1f(%.1f) | Lat: %v(%v) | P50: %v P99: %v\n",
+				time.Now().Format("15:04:05"),
+				endpoint,
+				totalTxsForEndpoint,
+				windowTPS,
+				endpointStats.CumulativeMaxTPS,
+				windowAvgLatency.Round(time.Millisecond),
+				endpointStats.CumulativeMaxLatency.Round(time.Millisecond),
+				endpointStats.P50Latency.Round(time.Millisecond),
+				endpointStats.P99Latency.Round(time.Millisecond))
+		}
 	}
 
 	// Calculate overall average latency
@@ -138,15 +140,14 @@ func (l *Logger) logCurrentStats() {
 	}
 
 	// Print overall summary line
-	fmt.Printf("[%s] OVERALL | TXs: %d | TPS: %.1f(%.1f) | Lat: %v(%v) | P50: %v P99: %v\n",
+	fmt.Printf("[%s] txs=%d, tps=%.2f, api-latency(avg=%v p50=%v p99=%v max=%v)\n",
 		time.Now().Format("15:04:05"),
 		totalTxs,
 		totalWindowTPS,
-		totalCumulativeMaxTPS,
 		overallAvgLatency.Round(time.Millisecond),
-		maxCumulativeLatency.Round(time.Millisecond),
 		maxP50.Round(time.Millisecond),
-		maxP99.Round(time.Millisecond))
+		maxP99.Round(time.Millisecond),
+		maxCumulativeLatency.Round(time.Millisecond))
 
 	// Reset window stats for next period
 	l.collector.ResetWindowStats()
