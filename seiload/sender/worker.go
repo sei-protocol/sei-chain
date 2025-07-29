@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"io"
 	"net/http"
 	"time"
@@ -18,6 +19,7 @@ type Worker struct {
 	endpoint  string
 	client    *http.Client
 	txChan    chan *types.LoadTx
+	sentTxs   chan *types.LoadTx
 	ctx       context.Context
 	cancel    context.CancelFunc
 	dryRun    bool
@@ -36,9 +38,10 @@ func NewWorker(id int, endpoint string, bufferSize int) *Worker {
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		txChan: make(chan *types.LoadTx, bufferSize),
-		ctx:    ctx,
-		cancel: cancel,
+		txChan:  make(chan *types.LoadTx, bufferSize),
+		sentTxs: make(chan *types.LoadTx, bufferSize),
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 }
 
@@ -51,6 +54,7 @@ func (w *Worker) SetStatsCollector(collector *stats.Collector, logger *stats.Log
 // Start begins the worker's processing loop
 func (w *Worker) Start() {
 	go w.processTransactions()
+	go w.watchTransactions()
 }
 
 // Stop gracefully shuts down the worker
@@ -77,6 +81,62 @@ func (w *Worker) SetDebug(debug bool) {
 // SetDryRun sets the dry-run mode for the worker
 func (w *Worker) SetDryRun(dryRun bool) {
 	w.dryRun = dryRun
+}
+
+func (w *Worker) watchTransactions() {
+	if w.dryRun {
+		return
+	}
+	eth, err := ethclient.Dial(w.endpoint)
+	if err != nil {
+		panic(err)
+	}
+
+	for {
+		select {
+		case tx, ok := <-w.sentTxs:
+			if !ok {
+				return // Channel closed, worker should exit
+			}
+			w.waitForReceipt(eth, tx)
+
+		case <-w.ctx.Done():
+			return // Context cancelled, worker should exit
+		}
+	}
+}
+
+func (w *Worker) waitForReceipt(eth *ethclient.Client, tx *types.LoadTx) {
+	timeout := time.After(10 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			fmt.Printf("Worker %d: Timeout waiting for receipt for tx %s\n", w.id, tx.EthTx.Hash().Hex())
+			return
+
+		case <-ticker.C:
+			receipt, err := eth.TransactionReceipt(context.Background(), tx.EthTx.Hash())
+			if err != nil {
+				if err.Error() == "not found" {
+					continue // Keep waiting
+				}
+				fmt.Printf("Worker %d: Error getting receipt for tx %s: %v\n", w.id, tx.EthTx.Hash().Hex(), err)
+				return
+			}
+
+			// Receipt found - log status and return
+			if receipt.Status != 1 {
+				fmt.Printf("Worker %d: Transaction %s failed\n", w.id, tx.EthTx.Hash().Hex())
+			}
+			return
+
+		case <-w.ctx.Done():
+			return
+		}
+	}
 }
 
 // processTransactions is the main worker loop that processes transactions
@@ -153,6 +213,12 @@ func (w *Worker) sendTransaction(tx *types.LoadTx) {
 		success = true
 	} else {
 		fmt.Printf("Worker %d: HTTP error %d for transaction to %s\n", w.id, resp.StatusCode, w.endpoint)
+	}
+
+	// Write to sentTxs channel without blocking
+	select {
+	case w.sentTxs <- tx:
+	default:
 	}
 }
 

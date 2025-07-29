@@ -208,17 +208,3 @@ func (l *Logger) LogFinalStats() {
 
 	fmt.Println("==============================")
 }
-
-// formatTxData formats transaction data for readable logging
-func formatTxData(data []byte) string {
-	if len(data) == 0 {
-		return "empty"
-	}
-
-	// Show first 20 bytes in hex, truncate if longer
-	if len(data) <= 20 {
-		return fmt.Sprintf("0x%x", data)
-	}
-
-	return fmt.Sprintf("0x%x... (%d bytes)", data[:20], len(data))
-}
