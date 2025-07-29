@@ -872,8 +872,6 @@ github.com/cosmos/go-bip39 v1.0.0 h1:pcomnQdrdH22njcAatO0yWojsUnCO3y2tNoV1cb6hHY
 github.com/cosmos/go-bip39 v1.0.0/go.mod h1:RNJv0H/pOIVgxw6KS7QeX2a0Uo0aKUlfhZ4xuwvCdJw=
 github.com/cosmos/gorocksdb v1.2.0 h1:d0l3jJG8M4hBouIZq0mDUHZ+zjOx044J3nGRskwTb4Y=
 github.com/cosmos/gorocksdb v1.2.0/go.mod h1:aaKvKItm514hKfNJpUJXnnOWeBnk2GL4+Qw9NHizILw=
-github.com/cosmos/interchain-accounts v0.1.0 h1:QmuwNsf1Hxl3P5GSGt7Z+JeuHPiZw4Z34R/038P5T6s=
-github.com/cosmos/interchain-accounts v0.1.0/go.mod h1:Fv6LXDs+0ng4mIDVWwEJMXbAIMxY4kiq+A7Bw1Fb9AY=
 github.com/cosmos/ledger-cosmos-go v0.12.2 h1:/XYaBlE2BJxtvpkHiBm97gFGSGmYGKunKyF3nNqAXZA=
 github.com/cosmos/ledger-cosmos-go v0.12.2/go.mod h1:ZcqYgnfNJ6lAXe4HPtWgarNEY+B74i+2/8MhZw4ziiI=
 github.com/cpuguy83/go-md2man v1.0.10/go.mod h1:SmD6nW6nTyfqj6ABTjUi3V3JVMnlJmwcJI5acqYI6dE=
@@ -2003,8 +2001,8 @@ github.com/sei-protocol/sei-tendermint v0.6.0 h1:H/qN54IUUnqMKbqL9rVt61ViIgPzpHi
 github.com/sei-protocol/sei-tendermint v0.6.0/go.mod h1:hLgRpS2d6VM8XzlhEtFeosCYkpuviU2ztqmOairIivc=
 github.com/sei-protocol/sei-tm-db v0.0.5 h1:3WONKdSXEqdZZeLuWYfK5hP37TJpfaUa13vAyAlvaQY=
 github.com/sei-protocol/sei-tm-db v0.0.5/go.mod h1:Cpa6rGyczgthq7/0pI31jys2Fw0Nfrc+/jKdP1prVqY=
-github.com/sei-protocol/sei-wasmd v0.3.9 h1:gHbJcczxZYon4cYfdQz04sKmPdfDUtqA5mDDKW4dp2E=
-github.com/sei-protocol/sei-wasmd v0.3.9/go.mod h1:/++yXN121FLs9hmArfX97ukm4q4wMC0REcUYZKrIw5Q=
+github.com/sei-protocol/sei-wasmd v0.3.10 h1:3sa8zEtUrpOwusIaojl8Jv4+OCFzcU1JZYhQx27ij/o=
+github.com/sei-protocol/sei-wasmd v0.3.10/go.mod h1:C5TM6FIG7Nao2t1v5cdJYZEVXrRUswRNPdJ5XjCsCFk=
 github.com/sei-protocol/sei-wasmvm v1.5.4-sei.0.0.3 h1:hhZdZLR8g+6bxWBZiMflSnIuHgLcK/QEpzyjx0/yXYU=
 github.com/sei-protocol/sei-wasmvm v1.5.4-sei.0.0.3/go.mod h1:Q0bSEtlktzh7W2hhEaifrFp1Erx11ckQZmjq8FLCyys=
 github.com/sei-protocol/tm-db v0.0.4 h1:7Y4EU62Xzzg6wKAHEotm7SXQR0aPLcGhKHkh3qd0tnk=
