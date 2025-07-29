@@ -48,8 +48,13 @@ func NewEVMHTTPServer(
 	if err := httpServer.SetListenAddr(LocalAddress, config.HTTPPort); err != nil {
 		return nil, err
 	}
-	simulateConfig := &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}
+	simulateConfig := &SimulateConfig{
+		GasCap:                       config.SimulationGasLimit,
+		EVMTimeout:                   config.SimulationEVMTimeout,
+		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
+	}
 	sendAPI := NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP)
+
 	ctx := ctxProvider(LatestCtxHeight)
 
 	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP)
@@ -177,7 +182,11 @@ func NewEVMWebSocketServer(
 	if err := httpServer.SetListenAddr(LocalAddress, config.WSPort); err != nil {
 		return nil, err
 	}
-	simulateConfig := &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}
+	simulateConfig := &SimulateConfig{
+		GasCap:                       config.SimulationGasLimit,
+		EVMTimeout:                   config.SimulationEVMTimeout,
+		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
+	}
 	apis := []rpc.API{
 		{
 			Namespace: "echo",

@@ -9,30 +9,31 @@ import (
 )
 
 type opts struct {
-	httpEnabled             interface{}
-	httpPort                interface{}
-	wsEnabled               interface{}
-	wsPort                  interface{}
-	readTimeout             interface{}
-	readHeaderTimeout       interface{}
-	writeTimeout            interface{}
-	idleTimeout             interface{}
-	simulationGasLimit      interface{}
-	simulationEVMTimeout    interface{}
-	corsOrigins             interface{}
-	wsOrigins               interface{}
-	filterTimeout           interface{}
-	checkTxTimeout          interface{}
-	maxTxPoolTxs            interface{}
-	slow                    interface{}
-	denyList                interface{}
-	maxLogNoBlock           interface{}
-	maxBlocksForLog         interface{}
-	maxSubscriptionsNewHead interface{}
-	enableTestAPI           interface{}
-	maxConcurrentTraceCalls interface{}
-	maxTraceLookbackBlocks  interface{}
-	traceTimeout            interface{}
+	httpEnabled                  interface{}
+	httpPort                     interface{}
+	wsEnabled                    interface{}
+	wsPort                       interface{}
+	readTimeout                  interface{}
+	readHeaderTimeout            interface{}
+	writeTimeout                 interface{}
+	idleTimeout                  interface{}
+	simulationGasLimit           interface{}
+	simulationEVMTimeout         interface{}
+	corsOrigins                  interface{}
+	wsOrigins                    interface{}
+	filterTimeout                interface{}
+	checkTxTimeout               interface{}
+	maxTxPoolTxs                 interface{}
+	slow                         interface{}
+	denyList                     interface{}
+	maxLogNoBlock                interface{}
+	maxBlocksForLog              interface{}
+	maxSubscriptionsNewHead      interface{}
+	enableTestAPI                interface{}
+	maxConcurrentTraceCalls      interface{}
+	maxConcurrentSimulationCalls interface{}
+	maxTraceLookbackBlocks       interface{}
+	traceTimeout                 interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -102,6 +103,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.max_concurrent_trace_calls" {
 		return o.maxConcurrentTraceCalls
 	}
+	if k == "evm.max_concurrent_simulation_calls" {
+		return o.maxConcurrentSimulationCalls
+	}
 	if k == "evm.max_trace_lookback_blocks" {
 		return o.maxTraceLookbackBlocks
 	}
@@ -134,6 +138,7 @@ func TestReadConfig(t *testing.T) {
 		1000,
 		10000,
 		false,
+		uint64(10),
 		uint64(10),
 		int64(100),
 		30 * time.Second,
@@ -212,6 +217,12 @@ func TestReadConfig(t *testing.T) {
 	// Test bad types for new trace config options
 	badOpts = goodOpts
 	badOpts.maxConcurrentTraceCalls = "bad"
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	// Test bad types for new trace config options
+	badOpts = goodOpts
+	badOpts.maxConcurrentSimulationCalls = "bad"
 	_, err = evmrpc.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 
