@@ -1,0 +1,31 @@
+{
+  "chain_id": 713714,
+  "endpoints": [
+    "http://127.0.0.1:8545"
+  ],
+  "accounts": {
+    "accounts": 5000
+  },
+  "scenarios": [
+    {
+      "name": "ERC20",
+      "weight": 1
+    },
+    {
+      "name": "EVMTransfer",
+      "weight": 1
+    },
+    {
+      "name": "ERC20Noop",
+      "weight": 1
+    },
+    {
+      "name": "ERC20Conflict",
+      "weight": 1
+    },
+    {
+      "name": "ERC721",
+      "weight": 1
+    }
+  ]
+}

@@ -73,9 +73,21 @@ func (g *configBasedGenerator) createScenarios() error {
 			return errors.New("no accounts config defined")
 		}
 
+		// Count how many times this scenario name appears in the config
+		nameCount := 0
+		nameIndex := 0
+		for j, otherScenario := range g.config.Scenarios {
+			if otherScenario.Name == scenarioCfg.Name {
+				if j == i {
+					nameIndex = nameCount
+				}
+				nameCount++
+			}
+		}
+
 		name := scenarioCfg.Name
-		if i > 0 {
-			name = fmt.Sprintf("%s_%d", name, i)
+		if nameCount > 1 {
+			name = fmt.Sprintf("%s_%d", name, nameIndex)
 		}
 
 		// Create scenario instance
@@ -113,33 +125,18 @@ func (g *configBasedGenerator) deployAll() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	var wg sync.WaitGroup
-	errChan := make(chan error, len(g.instances))
-
+	// Deploy sequentially to ensure proper nonce management
 	for _, instance := range g.instances {
-		wg.Add(1)
-		go func(inst *scenarioInstance) {
-			defer wg.Done()
+		// Deploy the scenario
+		address := instance.Scenario.Deploy(g.config, g.deployer)
+		instance.Deployed = true
 
-			// Deploy the scenario
-			address := inst.Scenario.Deploy(g.config, g.deployer)
-			inst.Deployed = true
-
-			if address.Cmp(common.Address{}) != 0 {
-				fmt.Printf("✅ Deployed %s at address: %s\n", inst.Name, address.Hex())
-			}
-		}(instance)
-	}
-
-	// Wait for all deployments to complete
-	wg.Wait()
-	close(errChan)
-
-	// Check for any deployment errors
-	for err := range errChan {
-		if err != nil {
-			return err
+		if address.Cmp(common.Address{}) != 0 {
+			fmt.Printf("✅ Deployed %s at address: %s\n", instance.Name, address.Hex())
 		}
+
+		// Increment deployer nonce for next deployment
+		g.deployer.GetAndIncrementNonce()
 	}
 
 	return nil

@@ -3,11 +3,8 @@ package stats
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
-
-	"seiload/types"
 )
 
 // Logger handles periodic statistics logging and dry-run transaction printing
@@ -47,22 +44,6 @@ func (l *Logger) Start() {
 func (l *Logger) Stop() {
 	l.cancel()
 	l.wg.Wait()
-}
-
-// LogTransaction logs individual transactions in dry-run mode
-func (l *Logger) LogTransaction(tx *types.LoadTx) {
-	if !l.debug {
-		return
-	}
-
-	l.txCounterMu.Lock()
-	l.txCounter++
-	counter := l.txCounter
-	l.txCounterMu.Unlock()
-
-	// Use JSONRPCPayload for logging since that's the actual data being sent
-	log.Printf("[TX #%d] %s (%s)",
-		counter, tx.EthTx.Hash().Hex(), tx.Scenario.Name)
 }
 
 // logLoop runs the periodic statistics logging

@@ -130,6 +130,8 @@ func (w *Worker) waitForReceipt(eth *ethclient.Client, tx *types.LoadTx) {
 			// Receipt found - log status and return
 			if receipt.Status != 1 {
 				fmt.Printf("❌ tx %s failed\n", tx.EthTx.Hash().Hex())
+			} else if w.debug {
+				fmt.Printf("✅ tx %s, %s, gas=%d succeeded\n", tx.Scenario.Name, tx.EthTx.Hash().Hex(), receipt.GasUsed)
 			}
 			return
 
@@ -166,11 +168,6 @@ func (w *Worker) sendTransaction(tx *types.LoadTx) {
 		if w.collector != nil {
 			latency := time.Since(startTime)
 			w.collector.RecordTransaction(tx.Scenario.Name, w.endpoint, latency, success)
-		}
-
-		// Log transaction
-		if w.logger != nil {
-			w.logger.LogTransaction(tx)
 		}
 	}()
 
