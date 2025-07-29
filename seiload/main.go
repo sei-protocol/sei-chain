@@ -22,7 +22,7 @@ var (
 	configFile    string
 	statsInterval time.Duration
 	bufferSize    int
-	rateLimit     time.Duration
+	tps           float64
 	dryRun        bool
 	debug         bool
 )
@@ -45,7 +45,7 @@ func init() {
 	rootCmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to configuration file (required)")
 	rootCmd.Flags().DurationVarP(&statsInterval, "stats-interval", "s", 10*time.Second, "Interval for logging statistics")
 	rootCmd.Flags().IntVarP(&bufferSize, "buffer-size", "b", 1000, "Buffer size per worker")
-	rootCmd.Flags().DurationVarP(&rateLimit, "rate-limit", "r", 0, "Rate limit between transactions (0 = no limit)")
+	rootCmd.Flags().Float64VarP(&tps, "tps", "t", 0, "Transactions per second (0 = no limit)")
 	rootCmd.Flags().BoolVarP(&dryRun, "dry-run", "", false, "Mock deployment and requests")
 	rootCmd.Flags().BoolVarP(&debug, "debug", "", false, "Log each request")
 
@@ -77,8 +77,8 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	fmt.Printf("📊 Scenarios: %d\n", len(cfg.Scenarios))
 	fmt.Printf("⏱️  Stats interval: %v\n", statsInterval)
 	fmt.Printf("📦 Buffer size per worker: %d\n", bufferSize)
-	if rateLimit > 0 {
-		fmt.Printf("🐌 Rate limit: %v\n", rateLimit)
+	if tps > 0 {
+		fmt.Printf("📈 Transactions per second: %.2f\n", tps)
 	}
 	if dryRun {
 		fmt.Printf("📝 Dry run: enabled\n")
@@ -119,8 +119,8 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 
 	// Create dispatcher
 	dispatcher := sender.NewDispatcher(gen, snd)
-	if rateLimit > 0 {
-		dispatcher.SetRateLimit(rateLimit)
+	if tps > 0 {
+		dispatcher.SetRateLimit(time.Duration(1/tps) * time.Second)
 	}
 
 	// Set statistics collector for dispatcher
