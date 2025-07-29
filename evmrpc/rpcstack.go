@@ -58,6 +58,7 @@ type RPCEndpointConfig struct {
 	JwtSecret              []byte // optional JWT secret
 	batchItemLimit         int
 	batchResponseSizeLimit int
+	readLimit              int64
 }
 
 type rpcHandler struct {
@@ -332,6 +333,7 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
+	srv.SetReadLimits(config.readLimit)
 	h.log.Info("Registering apis for evm websocket")
 	if err := RegisterApis(h.log, apis, config.Modules, srv); err != nil {
 		return err
