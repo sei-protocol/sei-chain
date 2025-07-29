@@ -1,4 +1,4 @@
-module github.com/sei-protocol/sei-chain/seiload
+module seiload
 
 go 1.23.7
 

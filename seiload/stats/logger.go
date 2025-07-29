@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/seiload/types"
+	"seiload/types"
 )
 
 // Logger handles periodic statistics logging and dry-run transaction printing

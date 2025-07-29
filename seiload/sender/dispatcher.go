@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/seiload/generator"
-	"github.com/sei-protocol/sei-chain/seiload/stats"
+	"seiload/generator"
+	"seiload/stats"
 )
 
 // Dispatcher continuously generates transactions and dispatches them to the sender

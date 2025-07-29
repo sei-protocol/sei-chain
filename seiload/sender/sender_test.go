@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/sei-protocol/sei-chain/seiload/config"
-	"github.com/sei-protocol/sei-chain/seiload/generator"
-	"github.com/sei-protocol/sei-chain/seiload/generator/scenarios"
+	"seiload/config"
+	"seiload/generator"
+	"seiload/generator/scenarios"
 )
 
 // JSONRPCRequest represents a captured JSON-RPC request

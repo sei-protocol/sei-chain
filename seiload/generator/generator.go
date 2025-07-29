@@ -6,9 +6,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"sync"
 
-	"github.com/sei-protocol/sei-chain/seiload/config"
-	"github.com/sei-protocol/sei-chain/seiload/generator/scenarios"
-	"github.com/sei-protocol/sei-chain/seiload/types"
+	"seiload/config"
+	"seiload/generator/scenarios"
+	"seiload/types"
 )
 
 // Generator is an interface for generating transactions
