@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 	"runtime/debug"
 	"strings"
@@ -30,6 +29,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
+
+const DEFAULT_BLOCK_GAS_LIMIT = 10_000_000
 
 type msgServer struct {
 	*Keeper
@@ -71,7 +72,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 
 	stateDB := state.NewDBImpl(ctx, &server, false)
 	emsg := server.GetEVMMessage(ctx, tx, msg.Derived.SenderEVMAddr)
-	gp := server.GetGasPool()
+	gp := server.GetGasPool(ctx)
 
 	defer func() {
 		defer stateDB.Cleanup()
@@ -206,8 +207,11 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	return
 }
 
-func (k *Keeper) GetGasPool() core.GasPool {
-	return math.MaxUint64
+func (k *Keeper) GetGasPool(ctx sdk.Context) core.GasPool {
+	if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
+		return core.GasPool(uint64(cp.Block.MaxGas))
+	}
+	return core.GasPool(DEFAULT_BLOCK_GAS_LIMIT)
 }
 
 func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender common.Address) *core.Message {
