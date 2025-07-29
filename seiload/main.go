@@ -120,7 +120,9 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	// Create dispatcher
 	dispatcher := sender.NewDispatcher(gen, snd)
 	if tps > 0 {
-		dispatcher.SetRateLimit(time.Duration(1/tps) * time.Second)
+		// Convert TPS to interval: 1/tps seconds = (1/tps) * 1e9 nanoseconds
+		intervalNs := int64((1.0 / tps) * 1e9)
+		dispatcher.SetRateLimit(time.Duration(intervalNs))
 	}
 
 	// Set statistics collector for dispatcher
