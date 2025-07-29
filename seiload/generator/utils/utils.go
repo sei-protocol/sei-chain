@@ -59,7 +59,7 @@ func createTransactOpts(chainID *big.Int, account *loadtypes.Account, gasLimit u
 func CreateDeploymentOpts(chainID *big.Int, client *ethclient.Client, account *loadtypes.Account) (*bind.TransactOpts, error) {
 	// For deployment, use the account's current nonce (don't fetch from blockchain)
 	// This allows sequential deployments with incrementing nonces
-	return createTransactOpts(chainID, account, 30000000, false) // 3M gas limit for deployment
+	return createTransactOpts(chainID, account, 3000000, false) // 3M gas limit for deployment
 }
 
 // CreateTransactionOpts creates transaction options for regular contract interactions
