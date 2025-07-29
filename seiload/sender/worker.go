@@ -114,22 +114,22 @@ func (w *Worker) waitForReceipt(eth *ethclient.Client, tx *types.LoadTx) {
 	for {
 		select {
 		case <-timeout:
-			fmt.Printf("Worker %d: Timeout waiting for receipt for tx %s\n", w.id, tx.EthTx.Hash().Hex())
+			fmt.Printf("❌ timeout waiting for receipt for tx %s\n", tx.EthTx.Hash().Hex())
 			return
 
 		case <-ticker.C:
 			receipt, err := eth.TransactionReceipt(context.Background(), tx.EthTx.Hash())
 			if err != nil {
 				if err.Error() == "not found" {
-					continue // Keep waiting
+					continue
 				}
-				fmt.Printf("Worker %d: Error getting receipt for tx %s: %v\n", w.id, tx.EthTx.Hash().Hex(), err)
-				return
+				fmt.Printf("❌ error getting receipt for tx %s: %v\n", tx.EthTx.Hash().Hex(), err)
+				continue
 			}
 
 			// Receipt found - log status and return
 			if receipt.Status != 1 {
-				fmt.Printf("Worker %d: Transaction %s failed\n", w.id, tx.EthTx.Hash().Hex())
+				fmt.Printf("❌ tx %s failed\n", tx.EthTx.Hash().Hex())
 			}
 			return
 
