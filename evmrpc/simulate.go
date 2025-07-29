@@ -506,18 +506,35 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < b.keeper.UpgradeKeeper().GetDoneHeight(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "6.2.0") {
 		baseFee = nil
 	}
+	// Get block results to access consensus parameters
+	number := blockNumber.Int64()
+	block, blockErr := blockByNumber(context.Background(), b.tmClient, &number)
+	var gasLimit uint64
+	if blockErr == nil {
+		// Try to get consensus parameters from block results
+		blockRes, blockResErr := blockResultsWithRetry(context.Background(), b.tmClient, &number)
+		if blockResErr == nil && blockRes.ConsensusParamUpdates != nil && blockRes.ConsensusParamUpdates.Block != nil {
+			gasLimit = uint64(blockRes.ConsensusParamUpdates.Block.MaxGas)
+		} else {
+			// Fallback to config if block results unavailable
+			gasLimit = b.config.GasCap
+		}
+	} else {
+		// Fallback to config if block unavailable
+		gasLimit = b.config.GasCap
+	}
+
 	header := &ethtypes.Header{
 		Difficulty:    common.Big0,
 		Number:        blockNumber,
 		BaseFee:       baseFee,
-		GasLimit:      b.config.GasCap,
+		GasLimit:      gasLimit,
 		Time:          uint64(time.Now().Unix()),
 		ExcessBlobGas: &zeroExcessBlobGas,
 	}
-	number := blockNumber.Int64()
-	block, err := blockByNumber(context.Background(), b.tmClient, &number)
+
 	//TODO: what should happen if an err occurs here?
-	if err == nil {
+	if blockErr == nil {
 		header.ParentHash = common.BytesToHash(block.BlockID.Hash)
 		header.Time = uint64(block.Block.Header.Time.Unix())
 	}
