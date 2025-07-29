@@ -130,6 +130,16 @@ func (s *ShardedSender) SetDebug(debug bool) {
 	}
 }
 
+// SetNoReceipts sets the no-receipts flag for the sender and its workers
+func (s *ShardedSender) SetNoReceipts(noReceipts bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, worker := range s.workers {
+		worker.SetNoReceipts(noReceipts)
+	}
+}
+
 // SetStatsCollector sets the statistics collector for all workers
 func (s *ShardedSender) SetStatsCollector(collector *stats.Collector, logger *stats.Logger) {
 	s.mu.Lock()

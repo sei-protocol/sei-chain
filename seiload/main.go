@@ -26,6 +26,7 @@ var (
 	dryRun        bool
 	debug         bool
 	workers       int
+	noReceipts    bool
 )
 
 var rootCmd = &cobra.Command{
@@ -49,6 +50,7 @@ func init() {
 	rootCmd.Flags().Float64VarP(&tps, "tps", "t", 0, "Transactions per second (0 = no limit)")
 	rootCmd.Flags().BoolVarP(&dryRun, "dry-run", "", false, "Mock deployment and requests")
 	rootCmd.Flags().BoolVarP(&debug, "debug", "", false, "Log each request")
+	rootCmd.Flags().BoolVarP(&noReceipts, "no-receipts", "", false, "Disable receipts")
 	rootCmd.Flags().IntVarP(&workers, "workers", "w", 1, "Number of workers")
 
 	if err := rootCmd.MarkFlagRequired("config"); err != nil {
@@ -87,6 +89,9 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	if dryRun {
 		fmt.Printf("📝 Dry run: enabled\n")
 	}
+	if noReceipts {
+		fmt.Printf("📝 No receipts: enabled\n")
+	}
 	fmt.Println()
 
 	// Enable mock deployment in dry-run mode
@@ -117,6 +122,9 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	if debug {
 		snd.SetDebug(true)
 	}
+	if noReceipts {
+		snd.SetNoReceipts(true)
+	}
 
 	// Set statistics collector for sender and its workers
 	snd.SetStatsCollector(collector, logger)
@@ -134,7 +142,7 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 
 	// Start the sender (starts all workers)
 	snd.Start()
-	fmt.Printf("✅ Started %d workers\n", snd.GetNumShards())
+	fmt.Printf("✅ Connected to %d endpoints\n", snd.GetNumShards())
 
 	// Start the dispatcher
 	dispatcher.Start()
@@ -154,6 +162,9 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	}
 	if debug {
 		fmt.Printf("🐛 Debug mode: Each transaction will be logged\n")
+	}
+	if noReceipts {
+		fmt.Printf("📝 No receipts mode: Receipts will not be requested\n")
 	}
 	fmt.Println(strings.Repeat("=", 60))
 

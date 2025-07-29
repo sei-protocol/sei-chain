@@ -15,18 +15,19 @@ import (
 
 // Worker handles sending transactions to a specific endpoint
 type Worker struct {
-	id        int
-	endpoint  string
-	client    *http.Client
-	txChan    chan *types.LoadTx
-	sentTxs   chan *types.LoadTx
-	ctx       context.Context
-	cancel    context.CancelFunc
-	dryRun    bool
-	debug     bool
-	collector *stats.Collector
-	logger    *stats.Logger
-	workers   int
+	id         int
+	endpoint   string
+	client     *http.Client
+	txChan     chan *types.LoadTx
+	sentTxs    chan *types.LoadTx
+	ctx        context.Context
+	cancel     context.CancelFunc
+	dryRun     bool
+	debug      bool
+	collector  *stats.Collector
+	logger     *stats.Logger
+	workers    int
+	noReceipts bool
 }
 
 // NewWorker creates a new worker for a specific endpoint
@@ -34,16 +35,17 @@ func NewWorker(id int, endpoint string, bufferSize int, workers int) *Worker {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Worker{
-		id:       id,
-		endpoint: endpoint,
+		id:         id,
+		endpoint:   endpoint,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		txChan:  make(chan *types.LoadTx, bufferSize),
-		sentTxs: make(chan *types.LoadTx, bufferSize),
-		ctx:     ctx,
-		cancel:  cancel,
-		workers: workers,
+		txChan:     make(chan *types.LoadTx, bufferSize),
+		sentTxs:    make(chan *types.LoadTx, bufferSize),
+		ctx:        ctx,
+		cancel:     cancel,
+		workers:    workers,
+		noReceipts: false,
 	}
 }
 
@@ -59,7 +61,10 @@ func (w *Worker) Start() {
 	for i := 0; i < w.workers; i++ {
 		go w.processTransactions()
 	}
-	go w.watchTransactions()
+	// Only start receipt checking if not disabled
+	if !w.noReceipts {
+		go w.watchTransactions()
+	}
 }
 
 // Stop gracefully shuts down the worker
@@ -86,6 +91,11 @@ func (w *Worker) SetDebug(debug bool) {
 // SetDryRun sets the dry-run mode for the worker
 func (w *Worker) SetDryRun(dryRun bool) {
 	w.dryRun = dryRun
+}
+
+// SetNoReceipts sets the no-receipts mode for the worker
+func (w *Worker) SetNoReceipts(noReceipts bool) {
+	w.noReceipts = noReceipts
 }
 
 func (w *Worker) watchTransactions() {
