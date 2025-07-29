@@ -47,9 +47,11 @@ func createTransactOpts(chainID *big.Int, account *types2.Account, gasLimit uint
 
 	// Set transaction parameters
 	auth.Nonce = big.NewInt(int64(account.Nonce))
-	auth.GasLimit = gasLimit
-	auth.GasPrice = big.NewInt(20000000000) // 20 gwei
 	auth.NoSend = noSend
+
+	auth.GasLimit = gasLimit
+	auth.GasTipCap = big.NewInt(2000000000)  // 2 gwei tip (priority fee)
+	auth.GasFeeCap = big.NewInt(20000000000) // 20 gwei max fee (base + priority)
 
 	return auth, nil
 }
@@ -61,7 +63,7 @@ func CreateDeploymentOpts(chainID *big.Int, client *ethclient.Client, account *t
 		return nil, err
 	}
 	account.Nonce = nonce
-	return createTransactOpts(chainID, account, 3000000, false) // 3M gas limit for deployment
+	return createTransactOpts(chainID, account, 30000000, false) // 3M gas limit for deployment
 }
 
 // CreateTransactionOpts creates transaction options for regular contract interactions
