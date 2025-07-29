@@ -64,7 +64,7 @@ func TestWithdraw(t *testing.T) {
 	addr := common.HexToAddress(staking.StakingAddress)
 	txData := ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
-		Gas:      200000,
+		Gas:      20000000,
 		To:       &addr,
 		Value:    big.NewInt(100_000_000_000_000),
 		Data:     args,
@@ -108,7 +108,7 @@ func TestWithdraw(t *testing.T) {
 	addr = common.HexToAddress(distribution.DistrAddress)
 	txData = ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
-		Gas:      200000,
+		Gas:      20000000,
 		To:       &addr,
 		Value:    big.NewInt(0),
 		Data:     args,
@@ -132,7 +132,7 @@ func TestWithdraw(t *testing.T) {
 	require.Nil(t, err)
 	txData = ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
-		Gas:      200000,
+		Gas:      20000000,
 		To:       &addr,
 		Value:    big.NewInt(0),
 		Data:     args,
@@ -205,7 +205,7 @@ func delegate(ctx sdk.Context,
 
 	txData := ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
-		Gas:      200000,
+		Gas:      20000000,
 		To:       &addr,
 		Value:    big.NewInt(100_000_000_000_000),
 		Data:     args,
@@ -254,7 +254,7 @@ func setWithdrawAddressAndWithdraw(
 	addr = common.HexToAddress(distribution.DistrAddress)
 	txData := ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
-		Gas:      200000,
+		Gas:      20000000,
 		To:       &addr,
 		Value:    big.NewInt(0),
 		Data:     args,
@@ -285,7 +285,7 @@ func setWithdrawAddressAndWithdraw(
 	require.Nil(t, err)
 	txData = ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
-		Gas:      200000,
+		Gas:      20000000,
 		To:       &addr,
 		Value:    big.NewInt(0),
 		Data:     args,
@@ -1178,7 +1178,7 @@ func TestWithdrawValidatorCommission_noCommissionToWithdrawRightAfterDelegation(
 
 	txData := ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
-		Gas:      200000,
+		Gas:      20000000,
 		To:       &addr,
 		Value:    big.NewInt(100_000_000_000_000),
 		Data:     args,
@@ -1211,7 +1211,7 @@ func TestWithdrawValidatorCommission_noCommissionToWithdrawRightAfterDelegation(
 	addr = common.HexToAddress(distribution.DistrAddress)
 	txData = ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
-		Gas:      200000,
+		Gas:      20000000,
 		To:       &addr,
 		Value:    big.NewInt(0),
 		Data:     args,

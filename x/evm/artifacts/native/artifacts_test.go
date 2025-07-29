@@ -36,7 +36,7 @@ func TestSimple(t *testing.T) {
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	txData := ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
-		Gas:      2000000,
+		Gas:      20000000,
 		To:       nil,
 		Value:    big.NewInt(0),
 		Data:     contractData,
@@ -86,7 +86,7 @@ func TestSimple(t *testing.T) {
 	require.Nil(t, err)
 	txData = ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
-		Gas:      300000,
+		Gas:      2000000,
 		To:       &contractAddr,
 		Value:    big.NewInt(0),
 		Data:     data,
