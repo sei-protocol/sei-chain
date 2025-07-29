@@ -287,7 +287,7 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 			if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
 				return uint64(cp.Block.MaxGas)
 			}
-			return uint64(gp.Gas())
+			return gp.Gas()
 		}(),
 		BlockNumber: big.NewInt(ctx.BlockHeight()),
 		Time:        uint64(ctx.BlockHeader().Time.Unix()),
