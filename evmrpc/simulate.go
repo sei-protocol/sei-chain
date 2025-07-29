@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -29,6 +29,7 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -47,6 +48,7 @@ const CtxIsWasmdPrecompileCallKey CtxIsWasmdPrecompileCallKeyType = "CtxIsWasmdP
 type SimulationAPI struct {
 	backend        *Backend
 	connectionType ConnectionType
+	requestLimiter *semaphore.Weighted
 }
 
 func NewSimulationAPI(
@@ -59,10 +61,14 @@ func NewSimulationAPI(
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 ) *SimulationAPI {
-	return &SimulationAPI{
+	api := &SimulationAPI{
 		backend:        NewBackend(ctxProvider, keeper, txConfigProvider, tmClient, config, app, antehandler),
 		connectionType: connectionType,
 	}
+	if config.MaxConcurrentSimulationCalls > 0 {
+		api.requestLimiter = semaphore.NewWeighted(int64(config.MaxConcurrentSimulationCalls))
+	}
+	return api
 }
 
 type AccessListResult struct {
@@ -93,6 +99,14 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args export.Transa
 func (s *SimulationAPI) EstimateGas(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_estimateGas", s.connectionType, startTime, returnErr)
+	/* ---------- fail‑fast limiter ---------- */
+	if s.requestLimiter != nil {
+		if !s.requestLimiter.TryAcquire(1) {
+			returnErr = errors.New("eth_estimateGas rejected due to rate limit: server busy")
+			return
+		}
+		defer s.requestLimiter.Release(1)
+	}
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -105,6 +119,14 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args export.Transaction
 func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.TransactionArgs, calls []export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_estimateGasAfterCalls", s.connectionType, startTime, returnErr)
+	/* ---------- fail‑fast limiter ---------- */
+	if s.requestLimiter != nil {
+		if !s.requestLimiter.TryAcquire(1) {
+			returnErr = errors.New("eth_estimateGasAfterCalls rejected due to rate limit: server busy")
+			return
+		}
+		defer s.requestLimiter.Release(1)
+	}
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -117,6 +139,14 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 func (s *SimulationAPI) Call(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride, blockOverrides *export.BlockOverrides) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
+	/* ---------- fail‑fast limiter ---------- */
+	if s.requestLimiter != nil {
+		if !s.requestLimiter.TryAcquire(1) {
+			returnErr = errors.New("eth_call rejected due to rate limit: server busy")
+			return
+		}
+		defer s.requestLimiter.Release(1)
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			if strings.Contains(fmt.Sprintf("%s", r), "Int overflow") {
@@ -173,8 +203,9 @@ func (e *RevertError) ErrorData() interface{} {
 }
 
 type SimulateConfig struct {
-	GasCap     uint64
-	EVMTimeout time.Duration
+	GasCap                       uint64
+	EVMTimeout                   time.Duration
+	MaxConcurrentSimulationCalls int
 }
 
 var _ tracers.Backend = (*Backend)(nil)
