@@ -108,7 +108,7 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 
 	anteHandler, anteDepGenerator := sdk.ChainAnteDecorators(anteDecorators...)
 
-	evmanAnteDecorators := []sdk.AnteFullDecorator{
+	evmAnteDecorators := []sdk.AnteFullDecorator{
 		evmante.NewEVMPreprocessDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper()),
 		sdk.DefaultWrappedAnteDecorator(ante.NewValidateMemoDecorator(options.AccountKeeper)),
 		ante.NewConsumeGasForTxSizeDecorator(options.AccountKeeper),
@@ -117,7 +117,7 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMSigVerifyDecorator(options.EVMKeeper, options.LatestCtxGetter)),
 		sdk.DefaultWrappedAnteDecorator(evmante.NewGasDecorator(options.EVMKeeper)),
 	}
-	evmAnteHandler, evmAnteDepGenerator := sdk.ChainAnteDecorators(evmanAnteDecorators...)
+	evmAnteHandler, evmAnteDepGenerator := sdk.ChainAnteDecorators(evmAnteDecorators...)
 
 	router := evmante.NewEVMRouterDecorator(anteHandler, evmAnteHandler, anteDepGenerator, evmAnteDepGenerator)
 
