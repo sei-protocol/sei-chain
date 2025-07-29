@@ -60,12 +60,9 @@ func (l *Logger) LogTransaction(tx *types.LoadTx) {
 	counter := l.txCounter
 	l.txCounterMu.Unlock()
 
-	// Calculate shard ID for display (assuming 4 shards for logging purposes)
-	shardID := tx.ShardID(4)
-
 	// Use JSONRPCPayload for logging since that's the actual data being sent
-	log.Printf("[DEBUG TX #%d] Scenario: %s | To: %s | Shard: %d | Data: %s",
-		counter, tx.Scenario.Name, tx.Scenario.Receiver.Hex(), shardID, formatTxData(tx.JSONRPCPayload))
+	log.Printf("[TX #%d] %s (%s)",
+		counter, tx.EthTx.Hash().Hex(), tx.Scenario.Name)
 }
 
 // logLoop runs the periodic statistics logging
