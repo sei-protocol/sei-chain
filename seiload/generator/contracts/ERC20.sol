@@ -24,10 +24,11 @@ contract ERC20 {
 
     function transfer(address recipient, uint256 amount) public returns (bool) {
         if(_balances[msg.sender] < amount) {
-            _mint(msg.sender, amount+DEFAULT_BALANCE);
+            _balances[msg.sender] += amount;
+        } else{
+            _balances[msg.sender] -= amount;
         }
 
-        _balances[msg.sender] -= amount;
         _balances[recipient] = _balances[recipient] + amount;
 
         emit Transfer(msg.sender, recipient, amount);
