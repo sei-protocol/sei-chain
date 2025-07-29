@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"slices"
 	"time"
@@ -185,6 +186,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 			calculatedRatio, err := i.CalculateGasUsedRatio(ctx, blockNum)
 			if err != nil {
 				// If we can't calculate the ratio, use 0.0 as fallback
+				sdkCtx.Logger().Error("Error calculating gas used ratio, falling back to 0.0", "error", err)
 				gasUsedRatio = 0.0
 			} else {
 				gasUsedRatio = calculatedRatio
@@ -367,8 +369,9 @@ func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) 
 		totalEVMGasUsed += receipt.GasUsed
 	}
 
-	// Calculate ratio
+	// Calculate ratio and round to 6 decimal places for cross-architecture consistency
 	ratio := float64(totalEVMGasUsed) / float64(gasLimit)
+	ratio = math.Round(ratio*1e6) / 1e6
 	return ratio, nil
 }
 
