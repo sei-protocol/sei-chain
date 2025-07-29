@@ -25,6 +25,7 @@ var (
 	tps           float64
 	dryRun        bool
 	debug         bool
+	workers       int
 )
 
 var rootCmd = &cobra.Command{
@@ -48,6 +49,7 @@ func init() {
 	rootCmd.Flags().Float64VarP(&tps, "tps", "t", 0, "Transactions per second (0 = no limit)")
 	rootCmd.Flags().BoolVarP(&dryRun, "dry-run", "", false, "Mock deployment and requests")
 	rootCmd.Flags().BoolVarP(&debug, "debug", "", false, "Log each request")
+	rootCmd.Flags().IntVarP(&workers, "workers", "w", 1, "Number of workers")
 
 	if err := rootCmd.MarkFlagRequired("config"); err != nil {
 		log.Fatal(err)
@@ -97,7 +99,7 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	}
 
 	// Create the sender from the config struct
-	snd, err := sender.NewShardedSender(cfg, bufferSize)
+	snd, err := sender.NewShardedSender(cfg, bufferSize, workers)
 	if err != nil {
 		log.Fatalf("Failed to create sender: %v", err)
 	}

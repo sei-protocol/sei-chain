@@ -26,10 +26,11 @@ type Worker struct {
 	debug     bool
 	collector *stats.Collector
 	logger    *stats.Logger
+	workers   int
 }
 
 // NewWorker creates a new worker for a specific endpoint
-func NewWorker(id int, endpoint string, bufferSize int) *Worker {
+func NewWorker(id int, endpoint string, bufferSize int, workers int) *Worker {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Worker{
@@ -42,6 +43,7 @@ func NewWorker(id int, endpoint string, bufferSize int) *Worker {
 		sentTxs: make(chan *types.LoadTx, bufferSize),
 		ctx:     ctx,
 		cancel:  cancel,
+		workers: workers,
 	}
 }
 
@@ -53,7 +55,10 @@ func (w *Worker) SetStatsCollector(collector *stats.Collector, logger *stats.Log
 
 // Start begins the worker's processing loop
 func (w *Worker) Start() {
-	go w.processTransactions()
+	// Start multiple worker goroutines that share the same channel
+	for i := 0; i < w.workers; i++ {
+		go w.processTransactions()
+	}
 	go w.watchTransactions()
 }
 

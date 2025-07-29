@@ -22,18 +22,18 @@ type ShardedSender struct {
 }
 
 // NewShardedSender creates a new sharded sender with workers for each endpoint
-func NewShardedSender(cfg *config.LoadConfig, bufferSize int) (*ShardedSender, error) {
+func NewShardedSender(cfg *config.LoadConfig, bufferSize int, workers int) (*ShardedSender, error) {
 	if len(cfg.Endpoints) == 0 {
 		return nil, fmt.Errorf("no endpoints configured")
 	}
 
-	workers := make([]*Worker, len(cfg.Endpoints))
+	workerList := make([]*Worker, len(cfg.Endpoints))
 	for i, endpoint := range cfg.Endpoints {
-		workers[i] = NewWorker(i, endpoint, bufferSize)
+		workerList[i] = NewWorker(i, endpoint, bufferSize, workers)
 	}
 
 	return &ShardedSender{
-		workers:    workers,
+		workers:    workerList,
 		numShards:  len(cfg.Endpoints),
 		bufferSize: bufferSize,
 	}, nil
