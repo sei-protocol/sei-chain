@@ -21,6 +21,7 @@ var ConnectionTypeWS ConnectionType = "websocket"
 var ConnectionTypeHTTP ConnectionType = "http"
 
 const LocalAddress = "0.0.0.0"
+const DefaultWebsocketMaxMessageSize = 10 * 1024 * 1024
 
 type EVMServer interface {
 	Start() error
@@ -229,7 +230,9 @@ func NewEVMWebSocketServer(
 			Service:   &Web3API{},
 		},
 	}
-	if err := httpServer.EnableWS(apis, WsConfig{Origins: strings.Split(config.WSOrigins, ",")}); err != nil {
+	wsConfig := WsConfig{Origins: strings.Split(config.WSOrigins, ",")}
+	wsConfig.readLimit = DefaultWebsocketMaxMessageSize
+	if err := httpServer.EnableWS(apis, wsConfig); err != nil {
 		return nil, err
 	}
 	return httpServer, nil
