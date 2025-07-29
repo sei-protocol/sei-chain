@@ -192,14 +192,14 @@ func (k *Keeper) createReadOnlyEVM(ctx sdk.Context, from sdk.AccAddress) (*vm.EV
 func (k *Keeper) getEvmGasLimitFromCtx(ctx sdk.Context) uint64 {
 	seiGasRemaining := ctx.GasMeter().Limit() - ctx.GasMeter().GasConsumedToLimit()
 	if ctx.GasMeter().Limit() <= 0 {
-		return math.MaxUint64
+		return DEFAULT_BLOCK_GAS_LIMIT
 	}
 	if ctx.ChainID() != Pacific1ChainID || ctx.BlockHeight() >= 119821526 {
 		ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	}
 	evmGasBig := sdk.NewDecFromInt(sdk.NewIntFromUint64(seiGasRemaining)).Quo(k.GetPriorityNormalizer(ctx)).TruncateInt().BigInt()
-	if evmGasBig.Cmp(MaxUint64BigInt) > 0 {
-		evmGasBig = MaxUint64BigInt
+	if evmGasBig.Cmp(sdk.NewIntFromUint64(DEFAULT_BLOCK_GAS_LIMIT).BigInt()) > 0 {
+		evmGasBig = sdk.NewIntFromUint64(DEFAULT_BLOCK_GAS_LIMIT).BigInt()
 	}
 	return evmGasBig.Uint64()
 }

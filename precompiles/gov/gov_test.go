@@ -282,7 +282,7 @@ func TestGovPrecompile(t *testing.T) {
 			addr := common.HexToAddress(gov.GovAddress)
 			txData := ethtypes.LegacyTx{
 				GasPrice: big.NewInt(1000000000000),
-				Gas:      20000000,
+				Gas:      200000,
 				To:       &addr,
 				Value:    tt.args.value,
 				Data:     args,
@@ -977,7 +977,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 
 			txData := ethtypes.LegacyTx{
 				GasPrice: big.NewInt(1000000000000),
-				Gas:      20000000,
+				Gas:      200000,
 				To:       &addr,
 				Value:    tt.args.value,
 				Data:     inputs,
