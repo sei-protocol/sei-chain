@@ -76,6 +76,8 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	fmt.Printf("🚀 Starting Sei Chain Load Test v2\n")
 	fmt.Printf("📁 Config file: %s\n", configFile)
 	fmt.Printf("🎯 Endpoints: %d\n", len(cfg.Endpoints))
+	fmt.Printf("👥 Workers per endpoint: %d\n", workers)
+	fmt.Printf("🔧 Total workers: %d\n", len(cfg.Endpoints)*workers)
 	fmt.Printf("📊 Scenarios: %d\n", len(cfg.Scenarios))
 	fmt.Printf("⏱️  Stats interval: %v\n", statsInterval)
 	fmt.Printf("📦 Buffer size per worker: %d\n", bufferSize)
