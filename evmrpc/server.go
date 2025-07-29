@@ -21,6 +21,7 @@ var ConnectionTypeWS ConnectionType = "websocket"
 var ConnectionTypeHTTP ConnectionType = "http"
 
 const LocalAddress = "0.0.0.0"
+const DefaultWebsocketMaxMessageSize = 10 * 1024 * 1024
 
 type EVMServer interface {
 	Start() error
@@ -48,8 +49,13 @@ func NewEVMHTTPServer(
 	if err := httpServer.SetListenAddr(LocalAddress, config.HTTPPort); err != nil {
 		return nil, err
 	}
-	simulateConfig := &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}
+	simulateConfig := &SimulateConfig{
+		GasCap:                       config.SimulationGasLimit,
+		EVMTimeout:                   config.SimulationEVMTimeout,
+		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
+	}
 	sendAPI := NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP)
+
 	ctx := ctxProvider(LatestCtxHeight)
 
 	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP)
@@ -177,7 +183,11 @@ func NewEVMWebSocketServer(
 	if err := httpServer.SetListenAddr(LocalAddress, config.WSPort); err != nil {
 		return nil, err
 	}
-	simulateConfig := &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}
+	simulateConfig := &SimulateConfig{
+		GasCap:                       config.SimulationGasLimit,
+		EVMTimeout:                   config.SimulationEVMTimeout,
+		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
+	}
 	apis := []rpc.API{
 		{
 			Namespace: "echo",
@@ -220,7 +230,9 @@ func NewEVMWebSocketServer(
 			Service:   &Web3API{},
 		},
 	}
-	if err := httpServer.EnableWS(apis, WsConfig{Origins: strings.Split(config.WSOrigins, ",")}); err != nil {
+	wsConfig := WsConfig{Origins: strings.Split(config.WSOrigins, ",")}
+	wsConfig.readLimit = DefaultWebsocketMaxMessageSize
+	if err := httpServer.EnableWS(apis, wsConfig); err != nil {
 		return nil, err
 	}
 	return httpServer, nil
