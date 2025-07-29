@@ -298,3 +298,24 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 	// For non-pacific-1 chains, base fee should not be nil regardless of upgrade status
 	require.NotNil(t, headerDifferentChain.BaseFee, "Base fee should not be nil for non-pacific-1 chains")
 }
+
+// Concise gas-limit sanity test
+func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
+	testApp := app.Setup(false, false, false)
+	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
+
+	ctxProvider := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
+	cfg := &evmrpc.SimulateConfig{GasCap: 10_000_000, EVMTimeout: time.Second}
+
+	backend := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper,
+		func(int64) client.TxConfig { return TxConfig },
+		&MockClient{}, cfg, testApp.BaseApp, testApp.TracerAnteHandler)
+
+	header, err := backend.HeaderByNumber(context.Background(), 1)
+	require.NoError(t, err)
+	require.Equal(t, uint64(200_000_000), header.GasLimit)
+
+	header2, err := backend.HeaderByNumber(context.Background(), 0)
+	require.NoError(t, err)
+	require.Equal(t, uint64(200_000_000), header2.GasLimit)
+}

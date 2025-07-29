@@ -181,7 +181,7 @@ contract EVMCompatibilityTester {
         return fee;
     }
 
-    // lets set the gas limit to the opcode gasLimit, then have a separate read function to read it
+    // write function to set the gas limit so it's not a simulation
     uint256 public gasLimit;
     function setGasLimit() public {
         uint256 _gasLimit;
@@ -191,7 +191,6 @@ contract EVMCompatibilityTester {
         gasLimit = _gasLimit;
     }
 
-    // read the gas limit
     function getGasLimit() public view returns (uint256) {
         return gasLimit;
     }

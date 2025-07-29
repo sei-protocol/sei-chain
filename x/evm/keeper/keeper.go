@@ -283,7 +283,12 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		Transfer:    txfer,
 		GetHash:     k.GetHashFn(ctx),
 		Coinbase:    coinbase,
-		GasLimit:    uint64(ctx.ConsensusParams().Block.MaxGas),
+		GasLimit: func() uint64 {
+			if cp := ctx.ConsensusParams(); cp != nil && cp.Block != nil {
+				return uint64(cp.Block.MaxGas)
+			}
+			return uint64(gp.Gas())
+		}(),
 		BlockNumber: big.NewInt(ctx.BlockHeight()),
 		Time:        uint64(ctx.BlockHeader().Time.Unix()),
 		Difficulty:  utils.Big0, // only needed for PoW
