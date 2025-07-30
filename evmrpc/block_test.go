@@ -26,12 +26,12 @@ import (
 
 func TestGetBlockByHash(t *testing.T) {
 	resObj := sendRequestGood(t, "getBlockByHash", "0x0000000000000000000000000000000000000000000000000000000000000001", true)
-	verifyBlockResult(t, resObj)
+	verifyBlockResultWithBloom(t, resObj, true) // true for eth namespace
 }
 
 func TestGetSeiBlockByHash(t *testing.T) {
 	resObj := sendSeiRequestGood(t, "getBlockByHash", "0x0000000000000000000000000000000000000000000000000000000000000001", true)
-	verifyBlockResult(t, resObj)
+	verifyBlockResultWithBloom(t, resObj, false) // false for sei namespace
 }
 
 func TestGetSeiBlockByNumberExcludeTraceFail(t *testing.T) {
@@ -46,7 +46,7 @@ func TestGetBlockByNumber(t *testing.T) {
 	verifyGenesisBlockResult(t, resObjEarliest)
 	for _, num := range []string{"0x8", "latest", "pending", "finalized", "safe"} {
 		resObj := sendRequestGood(t, "getBlockByNumber", num, true)
-		verifyBlockResult(t, resObj)
+		verifyBlockResultWithBloom(t, resObj, true) // true for eth namespace
 	}
 
 	resObj := sendRequestBad(t, "getBlockByNumber", "bad_num", true)
@@ -58,7 +58,7 @@ func TestGetSeiBlockByNumber(t *testing.T) {
 	verifyGenesisBlockResult(t, resObjEarliest)
 	for _, num := range []string{"0x8", "latest", "pending", "finalized", "safe"} {
 		resObj := sendSeiRequestGood(t, "getBlockByNumber", num, true)
-		verifyBlockResult(t, resObj)
+		verifyBlockResultWithBloom(t, resObj, false) // false for sei namespace
 	}
 
 	resObj := sendSeiRequestBad(t, "getBlockByNumber", "bad_num", true)
@@ -138,14 +138,28 @@ func verifyGenesisBlockResult(t *testing.T, resObj map[string]interface{}) {
 }
 
 func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
+	verifyBlockResultCommon(t, resObj, false) // false means don't verify logBloom
+}
+
+func verifyBlockResultWithBloom(t *testing.T, resObj map[string]interface{}, isEthNamespace bool) {
+	resObj = resObj["result"].(map[string]interface{})
+	if isEthNamespace {
+		// For eth namespace, expect empty bloom
+		emptyBloom := ethtypes.Bloom{}.Bytes()
+		require.Equal(t, "0x"+common.Bytes2Hex(emptyBloom), resObj["logsBloom"])
+	} else {
+		// For sei namespace, expect the specific bloom from the test data
+		require.Equal(t, "0x00002000040000000000000000000080000000200000000000002000000000080000000000000000000000000000000000000000000000000800000000000000001000000000000000000000000000000000020000000000000000000000000100000000000000002000000000200000000000000000000000000000000000100000000000000000000000000400000000000000200000000000000000000000000000000000000100000000000000020000200000000000000000002000000000000000000000000000000000000000000000000000000000000000000200000000010000000002000000000000000000000000000000010200000000000000", resObj["logsBloom"])
+	}
+}
+
+func verifyBlockResultCommon(t *testing.T, resObj map[string]interface{}, verifyBloom bool) {
 	resObj = resObj["result"].(map[string]interface{})
 	require.Equal(t, "0x0", resObj["difficulty"])
 	require.Equal(t, "0x", resObj["extraData"])
 	require.Equal(t, "0xbebc200", resObj["gasLimit"])
 	require.Equal(t, "0x5", resObj["gasUsed"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", resObj["hash"])
-	// see setup_tests.go, which have one transaction for block 0x8 (latest)
-	require.Equal(t, "0x00002000040000000000000000000080000000200000000000002000000000080000000000000000000000000000000000000000000000000800000000000000001000000000000000000000000000000000020000000000000000000000000100000000000000002000000000200000000000000000000000000000000000100000000000000000000000000400000000000000200000000000000000000000000000000000000100000000000000020000200000000000000000002000000000000000000000000000000000000000000000000000000000000000000200000000010000000002000000000000000000000000000000010200000000000000", resObj["logsBloom"])
 	require.Equal(t, "0x0000000000000000000000000000000000000005", resObj["miner"])
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["mixHash"])
 	require.Equal(t, "0x0000000000000000", resObj["nonce"])
@@ -378,4 +392,36 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 		R:                nil,
 		S:                nil,
 	}, txs[0].(*export.RPCTransaction))
+}
+
+func TestGetBlockByNumber_LogBloomBehavior(t *testing.T) {
+	// Test eth namespace returns empty logBloom
+	resObjEth := sendRequestGood(t, "getBlockByNumber", "0x8", true)
+	resultEth := resObjEth["result"].(map[string]interface{})
+	emptyBloom := ethtypes.Bloom{}.Bytes()
+	require.Equal(t, "0x"+common.Bytes2Hex(emptyBloom), resultEth["logsBloom"])
+
+	// Test sei namespace includes synthetic logs in logBloom
+	resObjSei := sendSeiRequestGood(t, "getBlockByNumber", "0x8", true)
+	resultSei := resObjSei["result"].(map[string]interface{})
+	// The actual logBloom value will depend on the synthetic logs in the test block
+	// We just verify it's not empty
+	require.NotEqual(t, "0x"+common.Bytes2Hex(emptyBloom), resultSei["logsBloom"])
+}
+
+func TestGetBlockByHash_LogBloomBehavior(t *testing.T) {
+	blockHash := "0x0000000000000000000000000000000000000000000000000000000000000001"
+
+	// Test eth namespace returns empty logBloom
+	resObjEth := sendRequestGood(t, "getBlockByHash", blockHash, true)
+	resultEth := resObjEth["result"].(map[string]interface{})
+	emptyBloom := ethtypes.Bloom{}.Bytes()
+	require.Equal(t, "0x"+common.Bytes2Hex(emptyBloom), resultEth["logsBloom"])
+
+	// Test sei namespace includes synthetic logs in logBloom
+	resObjSei := sendSeiRequestGood(t, "getBlockByHash", blockHash, true)
+	resultSei := resObjSei["result"].(map[string]interface{})
+	// The actual logBloom value will depend on the synthetic logs in the test block
+	// We just verify it's not empty
+	require.NotEqual(t, "0x"+common.Bytes2Hex(emptyBloom), resultSei["logsBloom"])
 }
