@@ -368,10 +368,10 @@ func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) 
 		totalEVMGasUsed += receipt.GasUsed
 	}
 
-	// Calculate ratio using integer arithmetic to avoid floating point non-determinism
-	// We want 2 decimal places, so multiply by 100, do integer division, then convert to float
-	ratioInt := (totalEVMGasUsed * 100) / gasLimit
-	ratio := float64(ratioInt) / 100.0
+	// We want 4 decimal places, so multiply by 10000, do integer division, then divide by 10000
+	// This preserves more precision during the integer calculation
+	ratioInt := (totalEVMGasUsed * 10000) / gasLimit
+	ratio := float64(ratioInt) / 10000.0
 	return ratio, nil
 }
 
