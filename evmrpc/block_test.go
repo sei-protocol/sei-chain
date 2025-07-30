@@ -26,12 +26,14 @@ import (
 
 func TestGetBlockByHash(t *testing.T) {
 	resObj := sendRequestGood(t, "getBlockByHash", "0x0000000000000000000000000000000000000000000000000000000000000001", true)
-	verifyBlockResultWithBloom(t, resObj, true) // true for eth namespace
+	// true for eth namespace
+	verifyBlockResultWithBloom(t, resObj, true)
 }
 
 func TestGetSeiBlockByHash(t *testing.T) {
 	resObj := sendSeiRequestGood(t, "getBlockByHash", "0x0000000000000000000000000000000000000000000000000000000000000001", true)
-	verifyBlockResultWithBloom(t, resObj, false) // false for sei namespace
+	// false for sei namespace
+	verifyBlockResultWithBloom(t, resObj, false)
 }
 
 func TestGetSeiBlockByNumberExcludeTraceFail(t *testing.T) {
@@ -46,7 +48,8 @@ func TestGetBlockByNumber(t *testing.T) {
 	verifyGenesisBlockResult(t, resObjEarliest)
 	for _, num := range []string{"0x8", "latest", "pending", "finalized", "safe"} {
 		resObj := sendRequestGood(t, "getBlockByNumber", num, true)
-		verifyBlockResultWithBloom(t, resObj, true) // true for eth namespace
+		// true for eth namespace
+		verifyBlockResultWithBloom(t, resObj, true)
 	}
 
 	resObj := sendRequestBad(t, "getBlockByNumber", "bad_num", true)
@@ -58,7 +61,8 @@ func TestGetSeiBlockByNumber(t *testing.T) {
 	verifyGenesisBlockResult(t, resObjEarliest)
 	for _, num := range []string{"0x8", "latest", "pending", "finalized", "safe"} {
 		resObj := sendSeiRequestGood(t, "getBlockByNumber", num, true)
-		verifyBlockResultWithBloom(t, resObj, false) // false for sei namespace
+		// false for sei namespace
+		verifyBlockResultWithBloom(t, resObj, false)
 	}
 
 	resObj := sendSeiRequestBad(t, "getBlockByNumber", "bad_num", true)
@@ -138,7 +142,8 @@ func verifyGenesisBlockResult(t *testing.T, resObj map[string]interface{}) {
 }
 
 func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
-	verifyBlockResultCommon(t, resObj, false) // false means don't verify logBloom
+	// false means don't verify logBloom
+	verifyBlockResultCommon(t, resObj, false)
 }
 
 func verifyBlockResultWithBloom(t *testing.T, resObj map[string]interface{}, isEthNamespace bool) {
