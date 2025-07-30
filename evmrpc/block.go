@@ -61,7 +61,7 @@ func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 		connectionType:       connectionType,
 		includeShellReceipts: false,
 		includeBankTransfers: false,
-		namespace:            "eth",
+		namespace:            EthNamespace,
 	}
 }
 
@@ -155,7 +155,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	}
 	var blockBloom ethtypes.Bloom
 	// Only include synthetic logs in sei_ namespace
-	if a.namespace != "eth" {
+	if a.namespace != EthNamespace {
 		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
 	}
 	return EncodeTmBlock(a.ctxProvider(block.Block.Height), a.ctxProvider(block.Block.Height-1), block, blockRes, blockBloom, a.keeper, a.txConfigProvider(block.Block.Height).TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
@@ -215,7 +215,7 @@ func (a *BlockAPI) getBlockByNumber(
 	}
 	var blockBloom ethtypes.Bloom
 	// Only include synthetic logs in sei_ namespace
-	if a.namespace != "eth" {
+	if a.namespace != EthNamespace {
 		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
 	}
 	return EncodeTmBlock(a.ctxProvider(block.Block.Height), a.ctxProvider(block.Block.Height-1), block, blockRes, blockBloom, a.keeper, a.txConfigProvider(blockRes.Height).TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
