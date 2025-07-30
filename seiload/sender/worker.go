@@ -93,9 +93,9 @@ func (w *Worker) SetDryRun(dryRun bool) {
 	w.dryRun = dryRun
 }
 
-// SetNoReceipts sets the no-receipts mode for the worker
-func (w *Worker) SetNoReceipts(noReceipts bool) {
-	w.noReceipts = noReceipts
+// SetTrackReceipts sets the track-receipts mode for the worker
+func (w *Worker) SetTrackReceipts(trackReceipts bool) {
+	w.noReceipts = !trackReceipts
 }
 
 func (w *Worker) watchTransactions() {

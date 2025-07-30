@@ -140,7 +140,7 @@ func (l *Logger) logCurrentStats() {
 	}
 
 	// Print overall summary line
-	fmt.Printf("[%s] txs=%d, tps=%.2f, api-latency(avg=%v p50=%v p99=%v max=%v)\n",
+	fmt.Printf("[%s] txs=%d, tps=%.2f, latency(avg=%v p50=%v p99=%v max=%v)\n",
 		time.Now().Format("15:04:05"),
 		totalTxs,
 		totalWindowTPS,
@@ -149,8 +149,20 @@ func (l *Logger) logCurrentStats() {
 		maxP99.Round(time.Millisecond),
 		maxCumulativeLatency.Round(time.Millisecond))
 
+	// Print block statistics if available
+	if stats.BlockStats != nil && stats.BlockStats.SampleCount > 0 {
+		fmt.Printf("[%s] %s\n",
+			time.Now().Format("15:04:05"),
+			stats.BlockStats.FormatBlockStats())
+	}
+
 	// Reset window stats for next period
 	l.collector.ResetWindowStats()
+	
+	// Reset block collector window stats
+	if blockCollector := l.collector.GetBlockCollector(); blockCollector != nil {
+		blockCollector.ResetWindowStats()
+	}
 }
 
 // LogFinalStats logs comprehensive final statistics
@@ -186,6 +198,21 @@ func (l *Logger) LogFinalStats() {
 			percentage := float64(total) / float64(stats.TotalTxs) * 100
 			fmt.Printf("  %s: %d (%.1f%%)\n", scenario, total, percentage)
 		}
+	}
+
+	// Print overall gas statistics if available (use cumulative data)
+	if cumulativeBlockStats := l.collector.GetCumulativeBlockStats(); cumulativeBlockStats != nil && cumulativeBlockStats.SampleCount > 0 {
+		fmt.Printf("\nOverall Gas Statistics:\n")
+		fmt.Printf("  Max Block Number: %d\n", cumulativeBlockStats.MaxBlockNumber)
+		fmt.Printf("  Block Times: p50=%v p99=%v max=%v\n", 
+			cumulativeBlockStats.P50BlockTime.Round(time.Millisecond),
+			cumulativeBlockStats.P99BlockTime.Round(time.Millisecond),
+			cumulativeBlockStats.MaxBlockTime.Round(time.Millisecond))
+		fmt.Printf("  Gas Usage: p50=%d p99=%d max=%d\n",
+			cumulativeBlockStats.P50GasUsed,
+			cumulativeBlockStats.P99GasUsed,
+			cumulativeBlockStats.MaxGasUsed)
+		fmt.Printf("  Block Samples: %d\n", cumulativeBlockStats.SampleCount)
 	}
 
 	fmt.Println("==============================")

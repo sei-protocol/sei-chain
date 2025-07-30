@@ -26,6 +26,9 @@ type Collector struct {
 	// Window-based tracking for periodic reporting
 	windowStats map[string]*WindowStats // [endpoint] -> window stats
 
+	// Block data collector
+	blockCollector *BlockCollector
+
 	// Global metrics
 	startTime time.Time
 	totalTxs  uint64
@@ -300,7 +303,25 @@ func (c *Collector) GetStats() Stats {
 	stats.OverallCurrentTPS = float64(currentCount) / 10.0
 	c.overallTpsWindow.mu.RUnlock()
 
+	// Get block stats
+	if c.blockCollector != nil {
+		blockStats := c.blockCollector.GetWindowBlockStats()
+		stats.BlockStats = &blockStats
+	}
+
 	return stats
+}
+
+// GetCumulativeBlockStats returns cumulative block stats for final summary
+func (c *Collector) GetCumulativeBlockStats() *BlockStats {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	
+	if c.blockCollector != nil {
+		stats := c.blockCollector.GetBlockStats()
+		return &stats
+	}
+	return nil
 }
 
 // calculatePercentile calculates the given percentile from sorted durations
@@ -325,6 +346,7 @@ type Stats struct {
 	EndpointStats map[string]EndpointStats
 	OverallMaxTPS float64
 	OverallCurrentTPS float64
+	BlockStats    *BlockStats // Block-related statistics
 }
 
 // EndpointStats represents statistics for a specific endpoint
@@ -355,10 +377,22 @@ type WindowStats struct {
 	latencyCount   int
 	maxLatency     time.Duration
 	minLatency     time.Duration
-	
-	// Cumulative maximums
 	cumulativeMaxTPS     float64
 	cumulativeMaxLatency time.Duration
+}
+
+// SetBlockCollector sets the block collector for this stats collector
+func (c *Collector) SetBlockCollector(bc *BlockCollector) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.blockCollector = bc
+}
+
+// GetBlockCollector returns the block collector
+func (c *Collector) GetBlockCollector() *BlockCollector {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.blockCollector
 }
 
 // FormatStats returns a formatted string representation of the statistics
@@ -402,6 +436,11 @@ func (s *Stats) FormatStats() string {
 	// Overall TPS
 	result += fmt.Sprintf("\nOverall TPS: Current: %.2f | Max (10s): %.2f\n",
 		s.OverallCurrentTPS, s.OverallMaxTPS)
+
+	// Block stats
+	if s.BlockStats != nil {
+		result += "\n" + s.BlockStats.FormatBlockStats()
+	}
 
 	return result
 }
