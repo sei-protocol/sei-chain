@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"math/rand"
 	"net/http"
@@ -139,7 +140,7 @@ func deployEvmContracts(config *Config) {
 
 func run(config *Config) {
 	config.EVMAddresses = &EVMAddresses{}
-	// Start metrics collector in another thread
+	log.Printf("Start metrics collector in another thread")
 	metricsServer := MetricsServer{}
 	go metricsServer.StartMetricsClient(*config)
 
@@ -147,12 +148,14 @@ func run(config *Config) {
 	client.SetValidators()
 	deployEvmContracts(config)
 
-	// initialize clients with addresses on clients
+	log.Printf("initialize clients with addresses on clients")
 	for _, txClient := range client.EvmTxClients {
 		txClient.evmAddresses = config.EVMAddresses
 	}
 
+	log.Printf("startLoadtestWorkers")
 	startLoadtestWorkers(client, *config)
+	log.Printf("runEvmQueries")
 	runEvmQueries(*config)
 }
 
