@@ -12,11 +12,12 @@ import (
 
 // Dispatcher continuously generates transactions and dispatches them to the sender
 type Dispatcher struct {
-	generator generator.Generator
-	sender    TxSender
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
+	generator  generator.Generator
+	prewarmGen generator.Generator // Optional prewarm generator
+	sender     TxSender
+	ctx        context.Context
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
 
 	// Configuration
 	rateLimit time.Duration // Minimum time between transactions
@@ -48,12 +49,59 @@ func (d *Dispatcher) SetRateLimit(duration time.Duration) {
 	d.rateLimit = duration
 }
 
-// SetStatsCollector sets the statistics collector for the dispatcher
+// SetStatsCollector sets the statistics collector for this dispatcher
 func (d *Dispatcher) SetStatsCollector(collector *stats.Collector, logger *stats.Logger) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.collector = collector
 	d.logger = logger
+}
+
+// SetPrewarmGenerator sets the prewarm generator for this dispatcher
+func (d *Dispatcher) SetPrewarmGenerator(prewarmGen generator.Generator) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.prewarmGen = prewarmGen
+}
+
+// Prewarm runs the prewarm generator to completion before starting the main load test
+func (d *Dispatcher) Prewarm() error {
+	d.mu.RLock()
+	prewarmGen := d.prewarmGen
+	d.mu.RUnlock()
+
+	if prewarmGen == nil {
+		return nil // No prewarming configured
+	}
+
+	fmt.Println("🔥 Starting account prewarming...")
+	processedAccounts := 0
+	logInterval := 100
+
+	// Run prewarm generator until completion
+	for {
+		tx, ok := prewarmGen.Generate()
+		if !ok {
+			break // Prewarming is complete
+		}
+
+		// Send the prewarming transaction
+		err := d.sender.Send(tx)
+		if err != nil {
+			fmt.Printf("🔥 Failed to send prewarm transaction for account %s: %v\n", tx.Scenario.Sender.Address.Hex(), err)
+			continue
+		}
+
+		processedAccounts++
+
+		// Log progress periodically
+		if processedAccounts%logInterval == 0 {
+			fmt.Printf("🔥 Prewarming progress: %d accounts processed...\n", processedAccounts)
+		}
+	}
+
+	fmt.Printf("🔥 Prewarming complete! Processed %d accounts\n", processedAccounts)
+	return nil
 }
 
 // Start begins the dispatcher's transaction generation and sending loop
@@ -91,10 +139,10 @@ func (d *Dispatcher) dispatchLoop() {
 				}
 			}
 
-			// Generate a transaction
-			tx := d.generator.Generate()
-			if tx == nil {
-				fmt.Println("Dispatcher: Generator returned nil transaction")
+			// Generate a transaction from main generator
+			tx, ok := d.generator.Generate()
+			if !ok || tx == nil {
+				fmt.Println("Dispatcher: Generator returned no more transactions")
 				continue
 			}
 
@@ -144,8 +192,8 @@ func (d *Dispatcher) StartBatch(count int) error {
 				}
 
 				// Generate a transaction
-				tx := d.generator.Generate()
-				if tx == nil {
+				tx, ok := d.generator.Generate()
+				if !ok {
 					fmt.Printf("Dispatcher: Generator returned nil transaction (batch %d/%d)\n", i+1, count)
 					continue
 				}

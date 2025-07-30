@@ -28,6 +28,7 @@ var (
 	workers       int
 	trackReceipts bool
 	trackBlocks   bool
+	prewarm       bool
 )
 
 var rootCmd = &cobra.Command{
@@ -53,6 +54,7 @@ func init() {
 	rootCmd.Flags().BoolVarP(&debug, "debug", "", false, "Log each request")
 	rootCmd.Flags().BoolVarP(&trackReceipts, "track-receipts", "", false, "Track receipts")
 	rootCmd.Flags().BoolVarP(&trackBlocks, "track-blocks", "", false, "Track blocks")
+	rootCmd.Flags().BoolVarP(&prewarm, "prewarm", "", false, "Prewarm accounts with self-transactions")
 	rootCmd.Flags().IntVarP(&workers, "workers", "w", 1, "Number of workers")
 
 	if err := rootCmd.MarkFlagRequired("config"); err != nil {
@@ -97,6 +99,9 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	if trackBlocks {
 		fmt.Printf("📝 Track blocks: enabled\n")
 	}
+	if prewarm {
+		fmt.Printf("📝 Prewarm: enabled\n")
+	}
 	fmt.Println()
 
 	// Enable mock deployment in dry-run mode
@@ -125,7 +130,6 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	if len(cfg.Endpoints) > 0 && trackBlocks {
 		blockCollector = stats.NewBlockCollector(cfg.Endpoints[0])
 		collector.SetBlockCollector(blockCollector)
-		
 		// Start block collector
 		if err := blockCollector.Start(); err != nil {
 			log.Printf("⚠️  Failed to start block collector: %v", err)
@@ -160,22 +164,45 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	// Set statistics collector for dispatcher
 	dispatcher.SetStatsCollector(collector, logger)
 
+	// Set up prewarming if enabled
+	if prewarm {
+		fmt.Println("🔥 Creating prewarm generator...")
+		prewarmGen := generator.NewPrewarmGenerator(cfg, gen)
+		dispatcher.SetPrewarmGenerator(prewarmGen)
+		fmt.Println("✅ Prewarm generator ready")
+		fmt.Printf("📝 Prewarm mode: Accounts will be prewarmed\n")
+	}
+
 	// Start the sender (starts all workers)
 	snd.Start()
 	fmt.Printf("✅ Connected to %d endpoints\n", snd.GetNumShards())
 
-	// Start the dispatcher
-	dispatcher.Start()
-	fmt.Printf("✅ Started transaction dispatcher\n")
-
-	// Start statistics logger
-	logger.Start()
-	fmt.Printf("✅ Started statistics logger\n")
-
-	// Show block collector status
-	if trackBlocks && blockCollector != nil {
-		fmt.Printf("✅ Started block collector\n")
+	// Start block collector if enabled
+	if trackBlocks {
+		blockCollector = stats.NewBlockCollector(cfg.Endpoints[0])
+		collector.SetBlockCollector(blockCollector)
+		err = blockCollector.Start()
+		if err != nil {
+			log.Fatalf("Failed to start block collector: %v", err)
+		}
+		fmt.Println("✅ Started block collector")
 	}
+
+	// Perform prewarming if enabled (before starting logger to avoid logging prewarm transactions)
+	if prewarm {
+		err = dispatcher.Prewarm()
+		if err != nil {
+			log.Fatalf("Failed to prewarm accounts: %v", err)
+		}
+	}
+
+	// Start logger (after prewarming to capture only main load test metrics)
+	logger.Start()
+	fmt.Println("✅ Started statistics logger")
+
+	// Start dispatcher for main load test
+	dispatcher.Start()
+	fmt.Println("✅ Started dispatcher")
 
 	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
