@@ -49,19 +49,7 @@
         }
     },
     "message_types": [
-      "bank",
-      "dex",
-      "staking",
-      "failure_dex_malformed",
-      "failure_dex_invalid",
-      "collect_rewards",
-      "distribute_rewards",
-      "wasm_instantiate",
-      "wasm_occ_iterator_write",
-      "wasm_occ_iterator_range",
-      "wasm_occ_parallel_write",
-      "evm",
-      "univ2"
+      "erc20"
     ],
     "evm_use_eip1559_txs": true,
     "run_oracle": false,
