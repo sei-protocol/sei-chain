@@ -2,6 +2,8 @@
 # require success for commands
 set -e
 
+# Parse command line arguments
+MOCK_BALANCES=${MOCK_BALANCES:-false}
 
 # Use python3 as default, but fall back to python if python3 doesn't exist
 PYTHON_CMD=python3
@@ -30,8 +32,14 @@ keyname=admin
 # clean up old sei directory
 rm -rf ~/.sei
 echo "Building..."
-# install seid -- build it with the mock balance function enabled
-make install LDFLAGS="-X github.com/sei-protocol/sei-chain/x/evm/state.mockBalanceTesting=enabled"
+# install seid -- conditionally build with mock balance function
+if [ "$MOCK_BALANCES" = true ]; then
+    echo "Building with mock balances enabled..."
+    make install LDFLAGS="-X github.com/sei-protocol/sei-chain/x/evm/state.mockBalanceTesting=enabled"
+else
+    echo "Building with standard configuration..."
+    make install
+fi
 # initialize chain with chain ID and add the first key
 ~/go/bin/seid init demo --chain-id sei-chain
 ~/go/bin/seid keys add $keyname --keyring-backend test

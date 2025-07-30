@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/holiman/uint256"
+	"github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -106,6 +107,10 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 func (s *DBImpl) mockBalance(evmAddr common.Address) *uint256.Int {
 	if mockBalanceTesting != "enabled" {
 		panic("mockBalance is only intended for use in TESTING")
+	}
+	// Prevent calling mockBalance on sei mainnet
+	if config.GetEVMChainID(s.ctx.ChainID()) == big.NewInt(1329) {
+		panic("Prevent mock balance from ever being called on mainnet")
 	}
 
 	// Mint enough for many gas operations (10 ETH worth)
