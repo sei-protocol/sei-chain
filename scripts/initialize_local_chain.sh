@@ -30,8 +30,8 @@ keyname=admin
 # clean up old sei directory
 rm -rf ~/.sei
 echo "Building..."
-#install seid
-make install
+# install seid -- build it with the mock balance function enabled
+make install LDFLAGS="-X github.com/sei-protocol/sei-chain/x/evm/state.mockBalanceTesting=enabled"
 # initialize chain with chain ID and add the first key
 ~/go/bin/seid init demo --chain-id sei-chain
 ~/go/bin/seid keys add $keyname --keyring-backend test
