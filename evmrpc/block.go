@@ -154,7 +154,8 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 		return nil, err
 	}
 	var blockBloom ethtypes.Bloom
-	if a.namespace != "eth" { // Only include synthetic logs in sei_ namespace
+	// Only include synthetic logs in sei_ namespace
+	if a.namespace != "eth" {
 		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
 	}
 	return EncodeTmBlock(a.ctxProvider(block.Block.Height), a.ctxProvider(block.Block.Height-1), block, blockRes, blockBloom, a.keeper, a.txConfigProvider(block.Block.Height).TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
@@ -213,7 +214,8 @@ func (a *BlockAPI) getBlockByNumber(
 		return nil, err
 	}
 	var blockBloom ethtypes.Bloom
-	if a.namespace != "eth" { // Only include synthetic logs in sei_ namespace
+	// Only include synthetic logs in sei_ namespace
+	if a.namespace != "eth" {
 		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
 	}
 	return EncodeTmBlock(a.ctxProvider(block.Block.Height), a.ctxProvider(block.Block.Height-1), block, blockRes, blockBloom, a.keeper, a.txConfigProvider(blockRes.Height).TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
