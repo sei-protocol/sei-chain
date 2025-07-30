@@ -29,7 +29,12 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
-const ShellEVMTxType = math.MaxUint32
+const (
+	ShellEVMTxType = math.MaxUint32
+	EthNamespace   = "eth"
+	SeiNamespace   = "sei"
+	Sei2Namespace  = "sei2"
+)
 
 type BlockAPI struct {
 	tmClient             rpcclient.Client
@@ -76,7 +81,7 @@ func NewSeiBlockAPI(
 		connectionType:       connectionType,
 		includeShellReceipts: true,
 		includeBankTransfers: false,
-		namespace:            "sei",
+		namespace:            SeiNamespace,
 	}
 	return &SeiBlockAPI{
 		BlockAPI:  blockAPI,
@@ -93,7 +98,7 @@ func NewSei2BlockAPI(
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 ) *SeiBlockAPI {
 	blockAPI := NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, connectionType, isPanicTx)
-	blockAPI.namespace = "sei2"
+	blockAPI.namespace = Sei2Namespace
 	blockAPI.includeBankTransfers = true
 	return blockAPI
 }
