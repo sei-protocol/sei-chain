@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log"
 	"math/rand"
 	"strings"
 	"sync"
@@ -56,6 +57,7 @@ func NewLoadTestClient(config Config) *LoadTestClient {
 	var evmTxClients []*EvmTxClient
 	if config.EvmRpcEndpoints != "" {
 		if config.ContainsAnyMessageTypes(EVM, ERC20, ERC721, UNIV2) {
+			log.Printf("BuildEvmTxClients()")
 			evmTxClients = BuildEvmTxClients(&config, keys)
 		}
 	}
@@ -146,23 +148,24 @@ func BuildEvmTxClients(config *Config, keys []cryptotypes.PrivKey) []*EvmTxClien
 	}
 	ethClients := make([]*ethclient.Client, len(ethEndpoints))
 	for i, endpoint := range ethEndpoints {
+		log.Printf("ethclient.Dial(%s)", endpoint)
 		client, err := ethclient.Dial(endpoint)
 		if err != nil {
 			fmt.Printf("Failed to connect to endpoint %s with error %s", endpoint, err.Error())
 		}
 		ethClients[i] = client
 	}
-	// Get chainId
+	log.Printf("Get chainId")
 	chainID, err := ethClients[0].NetworkID(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("Failed to get chain ID: %v \n", err))
 	}
-	// Get gas price
+	log.Printf("Get gas price")
 	gasPrice, err := ethClients[0].SuggestGasPrice(context.Background())
 	if err != nil {
 		panic(fmt.Sprintf("Failed to suggest gas price: %v\n", err))
 	}
-	// Build one client per key
+	log.Printf("Build one client per key")
 	for i, key := range keys {
 		clients[i] = NewEvmTxClient(key, chainID, gasPrice, ethClients, config.EVMAddresses, config.EvmUseEip1559Txs)
 	}
