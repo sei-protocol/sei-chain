@@ -53,6 +53,7 @@ type LoadTestClient struct {
 func NewLoadTestClient(config Config) *LoadTestClient {
 	signerClient := NewSignerClient(config.NodeURI)
 	keys := signerClient.GetTestAccountsKeys(int(config.MaxAccounts))
+	log.Printf("BuildGrpcClients()")
 	txClients, grpcConns := BuildGrpcClients(&config)
 	var evmTxClients []*EvmTxClient
 	if config.EvmRpcEndpoints != "" {
@@ -114,6 +115,7 @@ func BuildGrpcClients(config *Config) ([]typestx.ServiceClient, []*grpc.ClientCo
 		dialOptions = append(dialOptions, grpc.WithInsecure())
 	}
 	for i, endpoint := range grpcEndpoints {
+		log.Printf("grpc.Dial(%s)", endpoint)
 		grpcConn, _ := grpc.Dial(
 			endpoint,
 			dialOptions...)
