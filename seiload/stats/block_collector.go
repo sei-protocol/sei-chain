@@ -302,7 +302,7 @@ func (bs *BlockStats) FormatBlockStats() string {
 		return "block stats: no data available"
 	}
 
-	return fmt.Sprintf("block #%d  times(p50=%v p99=%v max=%v)  gas(p50=%d p99=%d max=%d) samples=%d",
+	return fmt.Sprintf("block height=%d, times(p50=%v p99=%v max=%v), gas(p50=%d p99=%d max=%d) samples=%d",
 		bs.MaxBlockNumber,
 		bs.P50BlockTime.Round(time.Millisecond),
 		bs.P99BlockTime.Round(time.Millisecond),

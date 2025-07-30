@@ -140,10 +140,10 @@ func (l *Logger) logCurrentStats() {
 	}
 
 	// Print overall summary line
-	fmt.Printf("[%s] txs=%d, tps=%.2f, latency(avg=%v p50=%v p99=%v max=%v)\n",
+	fmt.Printf("[%s] throughput tps=%.2f, txs=%d,  latency(avg=%v p50=%v p99=%v max=%v)\n",
 		time.Now().Format("15:04:05"),
-		totalTxs,
 		totalWindowTPS,
+		totalTxs,
 		overallAvgLatency.Round(time.Millisecond),
 		maxP50.Round(time.Millisecond),
 		maxP99.Round(time.Millisecond),
@@ -158,7 +158,7 @@ func (l *Logger) logCurrentStats() {
 
 	// Reset window stats for next period
 	l.collector.ResetWindowStats()
-	
+
 	// Reset block collector window stats
 	if blockCollector := l.collector.GetBlockCollector(); blockCollector != nil {
 		blockCollector.ResetWindowStats()
@@ -204,7 +204,7 @@ func (l *Logger) LogFinalStats() {
 	if cumulativeBlockStats := l.collector.GetCumulativeBlockStats(); cumulativeBlockStats != nil && cumulativeBlockStats.SampleCount > 0 {
 		fmt.Printf("\nOverall Gas Statistics:\n")
 		fmt.Printf("  Max Block Number: %d\n", cumulativeBlockStats.MaxBlockNumber)
-		fmt.Printf("  Block Times: p50=%v p99=%v max=%v\n", 
+		fmt.Printf("  Block Times: p50=%v p99=%v max=%v\n",
 			cumulativeBlockStats.P50BlockTime.Round(time.Millisecond),
 			cumulativeBlockStats.P99BlockTime.Round(time.Millisecond),
 			cumulativeBlockStats.MaxBlockTime.Round(time.Millisecond))

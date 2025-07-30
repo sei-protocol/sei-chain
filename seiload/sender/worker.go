@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"io"
+	"net"
 	"net/http"
 	"time"
 
@@ -34,11 +35,26 @@ type Worker struct {
 func NewWorker(id int, endpoint string, bufferSize int, workers int) *Worker {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Configure HTTP transport with proper connection pooling
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   10,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		DisableKeepAlives:     false,
+	}
+
 	return &Worker{
 		id:         id,
 		endpoint:   endpoint,
 		client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   30 * time.Second,
+			Transport: transport,
 		},
 		txChan:     make(chan *types.LoadTx, bufferSize),
 		sentTxs:    make(chan *types.LoadTx, bufferSize),
@@ -70,6 +86,11 @@ func (w *Worker) Start() {
 // Stop gracefully shuts down the worker
 func (w *Worker) Stop() {
 	w.cancel()
+	
+	// Close HTTP transport to release connections
+	if transport, ok := w.client.Transport.(*http.Transport); ok {
+		transport.CloseIdleConnections()
+	}
 	close(w.txChan)
 }
 
@@ -213,19 +234,21 @@ func (w *Worker) sendTransaction(tx *types.LoadTx) {
 	}
 	defer resp.Body.Close()
 
-	// Read response (optional, for debugging)
+	// Always read and discard response body to enable connection reuse
+	// Limit read to prevent memory issues with large responses
+	_, err = io.CopyN(io.Discard, resp.Body, 64*1024) // Read up to 64KB
+	if err != nil && err != io.EOF {
+		// Log but don't fail - this is just for connection reuse
+	}
+
+	// Check response status
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("Worker %d: HTTP error %d: %s\n", w.id, resp.StatusCode, string(body))
+		fmt.Printf("Worker %d: HTTP error %d for transaction to %s\n", w.id, resp.StatusCode, w.endpoint)
 		return
 	}
 
-	// Check if request was successful
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		success = true
-	} else {
-		fmt.Printf("Worker %d: HTTP error %d for transaction to %s\n", w.id, resp.StatusCode, w.endpoint)
-	}
+	// Mark as successful
+	success = true
 
 	// Write to sentTxs channel without blocking
 	select {

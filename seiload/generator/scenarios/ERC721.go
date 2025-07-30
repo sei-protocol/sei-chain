@@ -53,6 +53,6 @@ func (s *ERC721Scenario) SetContract(contract *bindings.ERC721) {
 
 // CreateContractTransaction implements ContractDeployer interface - creates ERC721 transaction
 func (s *ERC721Scenario) CreateContractTransaction(auth *bind.TransactOpts, scenario *types.TxScenario) (*ethtypes.Transaction, error) {
-	auth.GasLimit = 22430
+	auth.GasLimit = 22460
 	return s.contract.Mint(auth, scenario.Receiver, big.NewInt(atomic.AddInt64(&s.id, 1)))
 }
