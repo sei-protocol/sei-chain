@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 	"slices"
 	"time"
@@ -13,7 +12,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/common/math"
+	gmath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -114,7 +113,7 @@ func (i *InfoAPI) GasPriceHelper(ctx context.Context, baseFee *big.Int, totalGas
 }
 
 // lastBlock is inclusive
-func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (result *FeeHistoryResult, returnErr error) {
+func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (result *FeeHistoryResult, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_feeHistory", i.connectionType, startTime, returnErr == nil)
 	result = &FeeHistoryResult{}
@@ -126,8 +125,8 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 
 	// default go-ethereum max block history is 1024
 	// https://github.com/ethereum/go-ethereum/blob/master/eth/gasprice/feehistory.go#L235
-	if blockCount > math.HexOrDecimal64(i.maxBlocks) {
-		blockCount = math.HexOrDecimal64(i.maxBlocks)
+	if blockCount > gmath.HexOrDecimal64(i.maxBlocks) {
+		blockCount = gmath.HexOrDecimal64(i.maxBlocks)
 	}
 
 	// if someone needs more than 100 reward percentiles, we can discuss, but it's not likely
@@ -369,9 +368,10 @@ func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) 
 		totalEVMGasUsed += receipt.GasUsed
 	}
 
-	// Calculate ratio and round to 6 decimal places for cross-architecture consistency
-	ratio := float64(totalEVMGasUsed) / float64(gasLimit)
-	ratio = math.Round(ratio*1e6) / 1e6
+	// Calculate ratio using integer arithmetic to avoid floating point non-determinism
+	// We want 2 decimal places, so multiply by 100, do integer division, then convert to float
+	ratioInt := (totalEVMGasUsed * 100) / gasLimit
+	ratio := float64(ratioInt) / 100.0
 	return ratio, nil
 }
 
