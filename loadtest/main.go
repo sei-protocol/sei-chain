@@ -144,8 +144,11 @@ func run(config *Config) {
 	metricsServer := MetricsServer{}
 	go metricsServer.StartMetricsClient(*config)
 
+	log.Printf("NewLoadTestClient")
 	client := NewLoadTestClient(*config)
+	log.Printf("SetValidators()")
 	client.SetValidators()
+	log.Printf("deployEvmContracts")
 	deployEvmContracts(config)
 
 	log.Printf("initialize clients with addresses on clients")
