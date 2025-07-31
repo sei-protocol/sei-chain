@@ -35,7 +35,7 @@ echo "Building..."
 # install seid -- conditionally build with mock balance function
 if [ "$MOCK_BALANCES" = true ]; then
     echo "Building with mock balances enabled..."
-    make install LDFLAGS="-X github.com/sei-protocol/sei-chain/x/evm/state.mockBalanceTesting=enabled"
+    make install-mock-balances
 else
     echo "Building with standard configuration..."
     make install
