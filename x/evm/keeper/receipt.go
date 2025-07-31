@@ -43,7 +43,7 @@ func (k *Keeper) GetTransientReceipt(ctx sdk.Context, txHash common.Hash, txInde
 	return r, nil
 }
 
-func (k *Keeper) DeleteTransientReceipt(ctx sdk.Context, txHash common.Hash, txIndex uint64) error {
+func (k *Keeper) DeleteTransientReceipt(ctx sdk.Context, txHash common.Hash, txIndex uint64) {
 	store := ctx.TransientStore(k.transientStoreKey)
 	store.Delete(types.TransientReceiptKey(txIndex, txHash))
 }
