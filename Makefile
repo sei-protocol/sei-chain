@@ -75,7 +75,7 @@ install: go.sum
 		go install $(BUILD_FLAGS) ./cmd/seid
 
 install-mock-balances: go.sum
-	go install -tags "$(build_tags)" -ldflags '$(ldflags) -X github.com/sei-protocol/sei-chain/x/evm/state.mockBalanceTesting=enabled' ./cmd/seid
+		go install -tags "$(build_tags) mock_balances" -ldflags '$(ldflags)' ./cmd/seid
 
 install-with-race-detector: go.sum
 		go install -race $(BUILD_FLAGS) ./cmd/seid
