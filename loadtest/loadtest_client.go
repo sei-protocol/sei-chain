@@ -21,6 +21,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
+	"github.com/sei-protocol/sei-chain/utils2"
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -181,45 +182,35 @@ func (c *LoadTestClient) Close() {
 }
 
 func (c *LoadTestClient) BuildTxs(
-	txQueue chan SignedTx,
+	ctx context.Context,
+	txQueue chan<- SignedTx,
 	keyIndex int,
-	wg *sync.WaitGroup,
-	done <-chan struct{},
 	rateLimiter *rate.Limiter,
 	producedCountPerMsgType map[string]*int64,
-) {
-	wg.Add(1)
-	defer wg.Done()
+) error {
 	config := c.LoadTestConfig
 	for {
-		select {
-		case <-done:
-			return
-		default:
-			if !rateLimiter.Allow() {
-				continue
-			}
-			// Generate a message type first
-			messageType := c.getRandomMessageType(config.MessageTypes)
-			metrics.IncrProducerEventCount(messageType)
-			var signedTx SignedTx
-			// Sign EVM and Cosmos TX differently
-			switch messageType {
-			case EVM, ERC20, ERC721, UNIV2:
-				signedTx = SignedTx{EvmTx: c.generateSignedEvmTx(keyIndex, messageType), MsgType: messageType}
-				EvmTxHashes = append(EvmTxHashes, signedTx.EvmTx.Hash())
-			default:
-				msgTypeCount := atomic.LoadInt64(producedCountPerMsgType[messageType])
-				signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(keyIndex, messageType, msgTypeCount), MsgType: messageType}
-			}
-
-			select {
-			case txQueue <- signedTx:
-				atomic.AddInt64(producedCountPerMsgType[messageType], 1)
-			case <-done:
-				return
-			}
+		if err := rateLimiter.Wait(ctx); err!=nil {
+			return err
 		}
+		// Generate a message type first
+		messageType := c.getRandomMessageType(config.MessageTypes)
+		metrics.IncrProducerEventCount(messageType)
+		var signedTx SignedTx
+		// Sign EVM and Cosmos TX differently
+		switch messageType {
+		case EVM, ERC20, ERC721, UNIV2:
+			signedTx = SignedTx{EvmTx: c.generateSignedEvmTx(keyIndex, messageType), MsgType: messageType}
+			EvmTxHashes = append(EvmTxHashes, signedTx.EvmTx.Hash())
+		default:
+			msgTypeCount := atomic.LoadInt64(producedCountPerMsgType[messageType])
+			signedTx = SignedTx{TxBytes: c.generateSignedCosmosTxs(keyIndex, messageType, msgTypeCount), MsgType: messageType}
+		}
+
+		if err:=utils.Send(ctx, txQueue, signedTx); err != nil {
+			return err
+		}
+		atomic.AddInt64(producedCountPerMsgType[messageType], 1)
 	}
 }
 
@@ -243,46 +234,38 @@ func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string, m
 }
 
 func (c *LoadTestClient) SendTxs(
-	txQueue chan SignedTx,
+	ctx context.Context,
+	txQueue <-chan SignedTx,
 	keyIndex int,
-	done <-chan struct{},
 	sentCountPerMsgType map[string]*int64,
 	semaphore *semaphore.Weighted,
-	wg *sync.WaitGroup,
-) {
-	wg.Add(1)
-	defer wg.Done()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+) error {
 	for {
-		select {
-		case <-done:
-			return
-		case tx, ok := <-txQueue:
-			atomic.AddInt64(sentCountPerMsgType[tx.MsgType], 1)
-			metrics.IncrConsumerEventCount(tx.MsgType)
-			if !ok {
-				fmt.Printf("Stopping consumers\n")
-				return
+		tx,err := utils.Recv(ctx, txQueue)
+		if err != nil {
+			return err
+		}
+		atomic.AddInt64(sentCountPerMsgType[tx.MsgType], 1)
+		metrics.IncrConsumerEventCount(tx.MsgType)
+		// Acquire a semaphore
+		if err := semaphore.Acquire(ctx, 1); err != nil {
+			return err
+		}
+		defer semaphore.Release(1)
+		if len(tx.TxBytes) > 0 {
+			// Send Cosmos Transactions
+			if err := SendTx(ctx, tx.TxBytes, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, *c); err!=nil {
+				log.Printf("SendTx(): %v", err)
+			} else {
+				atomic.AddInt64(producedCountPerMsgType[tx.MsgType], 1)
 			}
-			// Acquire a semaphore
-			if err := semaphore.Acquire(ctx, 1); err != nil {
-				fmt.Printf("Failed to acquire semaphore: %v", err)
-				break
+		} else if tx.EvmTx != nil {
+			// Send EVM Transactions
+			if err:=c.EvmTxClients[keyIndex].SendEvmTx(ctx, tx.EvmTx); err!=nil {
+				log.Printf("SendEvmTx(): %v", err)
+			} else {
+				atomic.AddInt64(producedCountPerMsgType[tx.MsgType], 1)
 			}
-			if len(tx.TxBytes) > 0 {
-				// Send Cosmos Transactions
-				if SendTx(ctx, tx.TxBytes, typestx.BroadcastMode_BROADCAST_MODE_BLOCK, *c) {
-					atomic.AddInt64(producedCountPerMsgType[tx.MsgType], 1)
-				}
-			} else if tx.EvmTx != nil {
-				// Send EVM Transactions
-				c.EvmTxClients[keyIndex].SendEvmTx(tx.EvmTx, func() {
-					atomic.AddInt64(producedCountPerMsgType[tx.MsgType], 1)
-				})
-			}
-			// Release the semaphore
-			semaphore.Release(1)
 		}
 	}
 }

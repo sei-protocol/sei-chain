@@ -17,7 +17,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -37,6 +36,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/time/rate"
+	"github.com/sei-protocol/sei-chain/utils2/service"
 
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
@@ -104,32 +104,31 @@ func deployEvmContract(scriptPath string, config *Config) (common.Address, error
 func deployEvmContracts(config *Config) {
 	config.EVMAddresses = &EVMAddresses{}
 	if config.ContainsAnyMessageTypes(ERC20) {
-		fmt.Println("Deploying ERC20 contract")
+		log.Println("Deploying ERC20 contract")
 		erc20, err := deployEvmContract("loadtest/contracts/deploy_erc20.sh", config)
 		if err != nil {
-			fmt.Println("error deploying, make sure 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 is funded")
+			log.Println("error deploying, make sure 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 is funded")
 			panic(err)
 		}
 		config.EVMAddresses.ERC20 = erc20
 	}
 	if config.ContainsAnyMessageTypes(ERC721) {
-		fmt.Println("Deploying ERC721 contract")
+		log.Println("Deploying ERC721 contract")
 		erc721, err := deployEvmContract("loadtest/contracts/deploy_erc721.sh", config)
 		if err != nil {
-			fmt.Println("error deploying, make sure 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 is funded")
+			log.Println("error deploying, make sure 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52 is funded")
 			panic(err)
 		}
 		config.EVMAddresses.ERC721 = erc721
 	}
 	if config.ContainsAnyMessageTypes(UNIV2) {
 		//TODO: this really should use `deployEvmContract`
-		fmt.Println("Deploying Uniswap contracts")
+		log.Println("Deploying Uniswap contracts")
 		cmd := exec.Command("loadtest/contracts/deploy_univ2.sh", config.EVMRpcEndpoint())
 		var out bytes.Buffer
 		cmd.Stdout = &out
-		err := cmd.Run()
-		if err != nil {
-			panic("deploy_univ2.sh failed with error: " + err.Error())
+		if err := cmd.Run(); err != nil {
+			panic(fmt.Sprintf("deploy_univ2.sh failed with error: %v",err))
 		}
 		UniV2SwapperRe := regexp.MustCompile(`Swapper Address: "(\w+)"`)
 		match := UniV2SwapperRe.FindStringSubmatch(out.String())
@@ -138,7 +137,7 @@ func deployEvmContracts(config *Config) {
 	}
 }
 
-func run(config *Config) {
+func run(ctx context.Context, config *Config) error {
 	config.EVMAddresses = &EVMAddresses{}
 	log.Printf("Start metrics collector in another thread")
 	metricsServer := MetricsServer{}
@@ -156,15 +155,18 @@ func run(config *Config) {
 		txClient.evmAddresses = config.EVMAddresses
 	}
 
-	log.Printf("startLoadtestWorkers")
-	startLoadtestWorkers(client, *config)
+	log.Printf("runLoadtestWorkers")
+	runLoadtestWorkers(ctx, client, *config)
 	log.Printf("runEvmQueries")
-	runEvmQueries(*config)
+	if err:=runEvmQueries(ctx, *config); err!=nil {
+		return fmt.Errorf("runEvmQueries(): %w", err)
+	}
+	return nil
 }
 
 // starts loadtest workers. If config.Constant is true, then we don't gather loadtest results and let producer/consumer
 // workers continue running. If config.Constant is false, then we will gather load test results in a file
-func startLoadtestWorkers(client *LoadTestClient, config Config) {
+func runLoadtestWorkers(ctx context.Context, client *LoadTestClient, config Config) {
 	configString, _ := json.Marshal(config)
 	fmt.Printf("Running with \n %s \n", string(configString))
 
@@ -179,33 +181,31 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 
 	// Create producers and consumers
 	fmt.Printf("Starting loadtest producers and consumers\n")
-	txQueues := make([]chan SignedTx, len(keys))
-	for i := range txQueues {
-		txQueues[i] = make(chan SignedTx, 10)
-	}
-	done := make(chan struct{})
 	producerRateLimiter := rate.NewLimiter(rate.Limit(config.TargetTps), int(config.TargetTps))
 	consumerSemaphore := semaphore.NewWeighted(int64(config.TargetTps))
-	var wg sync.WaitGroup
-	for i := 0; i < len(keys); i++ {
-		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, producedCountPerMsgType)
-		go client.SendTxs(txQueues[i], i, done, sentCountPerMsgType, consumerSemaphore, &wg)
-	}
-
-	// Statistics reporting goroutine
-	ticker := time.NewTicker(10 * time.Second)
-	ticks := 0
-	go func() {
+	if err:=service.Run(ctx, func(ctx context.Context, s service.Scope) error {
+		for i := range keys {
+			q := make(chan SignedTx, 10)
+			s.SpawnBg(func() error { return client.BuildTxs(ctx, q, i, producerRateLimiter, producedCountPerMsgType) })
+			s.SpawnBg(func() error { return client.SendTxs(ctx, q, i, sentCountPerMsgType, consumerSemaphore) })
+		}
+		// Statistics reporting goroutine
+		ticker := time.NewTicker(10 * time.Second)
+		ticks := 0
 		start := time.Now()
 		for {
 			select {
+			case <-ctx.Done():
+				return nil
+			case <-signals:
+				fmt.Println("SIGINT received, shutting down producers and consumers...")
+				return nil
 			case <-ticker.C:
 				currHeight := getLastHeight(config.BlockchainEndpoint)
 				for i := startHeight; i <= currHeight; i++ {
 					txCnt, blockTime, err := getTxBlockInfo(config.BlockchainEndpoint, strconv.Itoa(i))
 					if err != nil {
-						fmt.Printf("Encountered error scraping data: %s\n", err)
-						return
+						return fmt.Errorf("Encountered error scraping data: %w", err)
 					}
 					blockHeights = append(blockHeights, i)
 					blockTimes = append(blockTimes, blockTime)
@@ -225,28 +225,12 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 				}
 				ticks++
 				if config.Ticks > 0 && ticks >= int(config.Ticks) {
-					close(done)
+					return nil
 				}
-			case <-done:
-				ticker.Stop()
-				return
 			}
 		}
-	}()
+	}); err!=nil {
 
-	// Wait for a termination signal
-	if config.Ticks == 0 {
-		<-signals
-		fmt.Println("SIGINT received, shutting down producers and consumers...")
-		close(done)
-	}
-
-	fmt.Println("Waiting for wait groups...")
-
-	wg.Wait()
-	fmt.Println("Closing channels...")
-	for i := range txQueues {
-		close(txQueues[i])
 	}
 }
 
@@ -584,7 +568,6 @@ func getLastHeight(blockchainEndpoint string) int {
 }
 
 func getTxBlockInfo(blockchainEndpoint string, height string) (int, string, error) {
-
 	resp, err := http.Get(blockchainEndpoint + "/block?height=" + height)
 	if err != nil {
 		fmt.Printf("Error query block data: %s\n", err)
@@ -613,72 +596,73 @@ func getTxBlockInfo(blockchainEndpoint string, height string) (int, string, erro
 	return len(blockResponse.Block.Data.Txs), blockResponse.Block.Header.Time, nil
 }
 
-func runEvmQueries(config Config) {
+func runEvmQueries(ctx context.Context, config Config) error {
 	ethEndpoints := strings.Split(config.EvmRpcEndpoints, ",")
 	if len(ethEndpoints) == 0 {
-		return
+		return nil
 	}
 	ethClients := make([]*ethclient.Client, len(ethEndpoints))
 	for i, endpoint := range ethEndpoints {
 		client, err := ethclient.Dial(endpoint)
 		if err != nil {
-			fmt.Printf("Failed to connect to endpoint %s with error %s", endpoint, err.Error())
+			log.Printf("Failed to connect to endpoint %s: %s", endpoint, err.Error())
 		}
 		ethClients[i] = client
 	}
-	wg := sync.WaitGroup{}
 	start := time.Now()
-	for i := 0; i < config.PostTxEvmQueries.BlockByNumber; i++ {
-		wg.Add(1)
-		i := i
-		go func() {
-			defer func() { wg.Done() }()
-			height := int64(BlockHeightsWithTxs[i%len(BlockHeightsWithTxs)])
-			_, err := ethClients[i%len(ethClients)].BlockByNumber(context.Background(), big.NewInt(height))
-			if err != nil {
-				fmt.Printf("Failed to get full block of height %d due to %s\n", height, err)
-			}
-		}()
+	if err:=service.Run(ctx, func(ctx context.Context, s service.Scope) error {
+		for i := 0; i < config.PostTxEvmQueries.BlockByNumber; i++ {
+			s.Spawn(func() error {
+				height := int64(BlockHeightsWithTxs[i%len(BlockHeightsWithTxs)])
+				if _, err := ethClients[i%len(ethClients)].BlockByNumber(context.Background(), big.NewInt(height)); err != nil {
+					log.Printf("Failed to get full block of height %d due to %s\n", height, err)
+				}
+				return nil
+			})
+		}
+		return nil
+	}); err!=nil {
+		return err
 	}
-	wg.Wait()
-	fmt.Printf("Querying %d blocks in parallel took %fs\n", config.PostTxEvmQueries.BlockByNumber, time.Since(start).Seconds())
+	log.Printf("Querying %d blocks in parallel took %fs\n", config.PostTxEvmQueries.BlockByNumber, time.Since(start).Seconds())
 
-	wg = sync.WaitGroup{}
 	start = time.Now()
-	for i := 0; i < config.PostTxEvmQueries.Receipt; i++ {
-		wg.Add(1)
-		i := i
-		go func() {
-			defer func() { wg.Done() }()
-			hash := EvmTxHashes[i%len(EvmTxHashes)]
-			_, err := ethClients[i%len(ethClients)].TransactionReceipt(context.Background(), hash)
-			if err != nil {
-				fmt.Printf("Failed to get receipt of tx %s due to %s\n", hash.Hex(), err)
-			}
-		}()
+	if err:=service.Run(ctx, func(ctx context.Context, s service.Scope) error {
+		for i := range config.PostTxEvmQueries.Receipt {
+			s.Spawn(func() error {
+				hash := EvmTxHashes[i%len(EvmTxHashes)]
+				if _, err := ethClients[i%len(ethClients)].TransactionReceipt(context.Background(), hash); err != nil {
+					log.Printf("Failed to get receipt of tx %s due to %s", hash.Hex(), err)
+				}
+				return nil
+			})
+		}
+		return nil
+	}); err!=nil {
+		return err
 	}
-	wg.Wait()
-	fmt.Printf("Querying %d receipts in parallel took %fs\n", config.PostTxEvmQueries.Receipt, time.Since(start).Seconds())
+	log.Printf("Querying %d receipts in parallel took %fs\n", config.PostTxEvmQueries.Receipt, time.Since(start).Seconds())
 
 	if config.EVMAddresses.ERC20.Cmp(common.Address{}) != 0 {
-		wg = sync.WaitGroup{}
 		start = time.Now()
-		for i := 0; i < config.PostTxEvmQueries.Filters; i++ {
-			wg.Add(1)
-			i := i
-			go func() {
-				defer func() { wg.Done() }()
-				_, err := ethClients[i%len(ethClients)].FilterLogs(context.Background(), ethereum.FilterQuery{
-					Addresses: []common.Address{config.EVMAddresses.ERC20},
+		if err:= service.Run(ctx, func(ctx context.Context, s service.Scope) error {
+			for i := range config.PostTxEvmQueries.Filters {
+				s.Spawn(func() error {
+					if _, err := ethClients[i%len(ethClients)].FilterLogs(context.Background(), ethereum.FilterQuery{
+						Addresses: []common.Address{config.EVMAddresses.ERC20},
+					}); err != nil {
+						log.Printf("Failed to get logs due to %s\n", err)
+					}
+					return nil
 				})
-				if err != nil {
-					fmt.Printf("Failed to get logs due to %s\n", err)
-				}
-			}()
+			}
+			return nil
+		}); err!=nil {
+			return err
 		}
-		wg.Wait()
-		fmt.Printf("Querying %d filter logs in parallel took %fs\n", config.PostTxEvmQueries.Filters, time.Since(start).Seconds())
+		log.Printf("Querying %d filter logs in parallel took %fs\n", config.PostTxEvmQueries.Filters, time.Since(start).Seconds())
 	}
+	return nil
 }
 
 func GetDefaultConfigFilePath() string {
@@ -700,6 +684,8 @@ func main() {
 	flag.Parse()
 
 	config := ReadConfig(*configFilePath)
-	fmt.Printf("Using config file: %s\n", *configFilePath)
-	run(&config)
+	log.Printf("Using config file: %s", *configFilePath)
+	if err:=run(context.Background(),&config); err!=nil {
+		log.Fatal(err)
+	}
 }
