@@ -72,6 +72,7 @@ BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)'
 all: lint install
 
 install: go.sum
+		@echo "PATH=$(PATH)"
 		go install $(BUILD_FLAGS) ./cmd/seid
 
 install-with-race-detector: go.sum
