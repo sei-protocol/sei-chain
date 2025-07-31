@@ -9,8 +9,8 @@ import (
 
 	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
 	"github.com/tendermint/tendermint/libs/bits"
-	"github.com/tendermint/tendermint/libs/log"
 	tmjson "github.com/tendermint/tendermint/libs/json"
+	"github.com/tendermint/tendermint/libs/log"
 	tmtime "github.com/tendermint/tendermint/libs/time"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
@@ -109,6 +109,17 @@ func (ps *PeerState) GetHeight() int64 {
 
 // SetHasProposal sets the given proposal as known for the peer.
 func (ps *PeerState) SetHasProposal(proposal *types.Proposal) {
+	// ignore nil proposals
+	if proposal == nil {
+		return
+	}
+
+	// Check memory limits before acquiring lock or setting any state
+	if proposal.BlockID.PartSetHeader.Total > types.MaxBlockPartsCount {
+		ps.logger.Debug("PartSetHeader.Total exceeds maximum", "total", proposal.BlockID.PartSetHeader.Total, "max", types.MaxBlockPartsCount)
+		return
+	}
+
 	ps.mtx.Lock()
 	defer ps.mtx.Unlock()
 
@@ -131,6 +142,8 @@ func (ps *PeerState) SetHasProposal(proposal *types.Proposal) {
 	ps.PRS.ProposalBlockParts = bits.NewBitArray(int(proposal.BlockID.PartSetHeader.Total))
 	ps.PRS.ProposalPOLRound = proposal.POLRound
 	ps.PRS.ProposalPOL = nil // Nil until ProposalPOLMessage received.
+
+	return
 }
 
 // InitProposalBlockParts initializes the peer's proposal block parts header
@@ -140,6 +153,12 @@ func (ps *PeerState) InitProposalBlockParts(partSetHeader types.PartSetHeader) {
 	defer ps.mtx.Unlock()
 
 	if ps.PRS.ProposalBlockParts != nil {
+		return
+	}
+
+	// Apply the same memory exhaustion protection as in SetHasProposal
+	if partSetHeader.Total > types.MaxBlockPartsCount {
+		ps.logger.Debug("InitProposalBlockParts: PartSetHeader.Total exceeds maximum", "total", partSetHeader.Total, "max", types.MaxBlockPartsCount)
 		return
 	}
 

@@ -3189,3 +3189,113 @@ func signAddPrecommitWithExtension(ctx context.Context,
 	require.NoError(t, err, "failed to sign vote")
 	addVotes(cs, v)
 }
+
+func TestAddProposalBlockPartMemoryLimit(t *testing.T) {
+	config := configSetup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cs1, _ := makeState(ctx, t, makeStateArgs{config: config})
+	height, round := cs1.roundState.Height(), cs1.roundState.Round()
+
+	// Create a large block that exceeds the maximum bytes
+	// First, create a normal block
+	cs1.mtx.Lock()
+	block, err := cs1.createProposalBlock(ctx)
+	require.NoError(t, err)
+	cs1.mtx.Unlock()
+
+	// Make the consensus parameters have a very small MaxBytes limit to trigger the validation
+	cs1.state.ConsensusParams.Block.MaxBytes = 100 // Very small limit
+
+	// Create part set from the block
+	partSet, err := block.MakePartSet(types.BlockPartSizeBytes)
+	require.NoError(t, err)
+
+	// Initialize the proposal block parts in the round state
+	cs1.mtx.Lock()
+	cs1.roundState.SetProposalBlockParts(partSet)
+	cs1.mtx.Unlock()
+
+	// Create a block part message
+	part := partSet.GetPart(0)
+	msg := &BlockPartMessage{
+		Height: height,
+		Round:  round,
+		Part:   part,
+	}
+
+	// Test addProposalBlockPart - should return error due to byte size limit
+	peerID := types.NodeID("test-peer")
+	added, err := cs1.addProposalBlockPart(msg, peerID)
+
+	// Should not add the part and should return an error
+	require.False(t, added, "Part should not be added when exceeding byte limit")
+	require.Error(t, err, "Expected error when block parts exceed maximum bytes")
+	require.Contains(t, err.Error(), "exceeds maximum block bytes", "Error should mention exceeding maximum block bytes")
+}
+
+func TestAddProposalBlockPartWrongHeight(t *testing.T) {
+	config := configSetup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cs1, _ := makeState(ctx, t, makeStateArgs{config: config})
+	height, round := cs1.roundState.Height(), cs1.roundState.Round()
+
+	// Create a valid block part but with wrong height
+	block, err := cs1.createProposalBlock(ctx)
+	require.NoError(t, err)
+
+	partSet, err := block.MakePartSet(types.BlockPartSizeBytes)
+	require.NoError(t, err)
+	part := partSet.GetPart(0)
+
+	msg := &BlockPartMessage{
+		Height: height + 1, // Wrong height
+		Round:  round,
+		Part:   part,
+	}
+
+	peerID := types.NodeID("test-peer")
+	added, err := cs1.addProposalBlockPart(msg, peerID)
+
+	// Should not add the part and should not return an error (just a debug log)
+	require.False(t, added, "Part should not be added for wrong height")
+	require.NoError(t, err, "No error expected for wrong height, just debug logging")
+}
+
+func TestAddProposalBlockPartNilProposalBlockParts(t *testing.T) {
+	config := configSetup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cs1, _ := makeState(ctx, t, makeStateArgs{config: config})
+	height, round := cs1.roundState.Height(), cs1.roundState.Round()
+
+	// Ensure ProposalBlockParts is nil
+	cs1.mtx.Lock()
+	cs1.roundState.SetProposalBlockParts(nil)
+	cs1.mtx.Unlock()
+
+	// Create a valid block part
+	block, err := cs1.createProposalBlock(ctx)
+	require.NoError(t, err)
+
+	partSet, err := block.MakePartSet(types.BlockPartSizeBytes)
+	require.NoError(t, err)
+	part := partSet.GetPart(0)
+
+	msg := &BlockPartMessage{
+		Height: height,
+		Round:  round,
+		Part:   part,
+	}
+
+	peerID := types.NodeID("test-peer")
+	added, err := cs1.addProposalBlockPart(msg, peerID)
+
+	// Should not add the part and should not return an error (just a debug log)
+	require.False(t, added, "Part should not be added when ProposalBlockParts is nil")
+	require.NoError(t, err, "No error expected when ProposalBlockParts is nil, just debug logging")
+}

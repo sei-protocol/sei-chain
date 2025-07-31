@@ -20,7 +20,8 @@ const (
 	// BlockPartSizeBytes is the size of one block part.
 	BlockPartSizeBytes uint32 = 1048576 // 1MB
 
-	// MaxBlockPartsCount is the maximum number of block parts.
+	// MaxBlockPartsCount is the maximum number of block parts,
+	// this also the maximum number of bits in the bit array
 	MaxBlockPartsCount = (MaxBlockSizeBytes / BlockPartSizeBytes) + 1
 
 	ABCIPubKeyTypeEd25519   = ed25519.KeyType

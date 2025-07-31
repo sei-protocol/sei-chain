@@ -8,6 +8,7 @@ import (
 	"io"
 	"sync"
 
+	"github.com/rs/zerolog/log"
 	"github.com/tendermint/tendermint/crypto/merkle"
 	"github.com/tendermint/tendermint/libs/bits"
 	tmbytes "github.com/tendermint/tendermint/libs/bytes"
@@ -92,7 +93,7 @@ func PartFromProto(pb *tmproto.Part) (*Part, error) {
 //-------------------------------------
 
 type PartSetHeader struct {
-	Total uint32           `json:"total"`
+	Total uint32           `json:"total"` // BlockPartsCount
 	Hash  tmbytes.HexBytes `json:"hash"`
 }
 
@@ -201,6 +202,18 @@ func NewPartSetFromData(data []byte, partSize uint32) *PartSet {
 
 // Returns an empty PartSet ready to be populated.
 func NewPartSetFromHeader(header PartSetHeader) *PartSet {
+	if header.Total > MaxBlockPartsCount {
+		log.Warn().Msgf("Attempted to create PartSet with excessive Total: %d (max: %d). Creating minimal safe PartSet instead.", header.Total, MaxBlockPartsCount)
+		return &PartSet{
+			total:         1,           // Minimal safe size
+			hash:          header.Hash, // Keep original hash for compatibility
+			parts:         make([]*Part, 1),
+			partsBitArray: bits.NewBitArray(1),
+			count:         0,
+			byteSize:      0,
+		}
+	}
+
 	return &PartSet{
 		total:         header.Total,
 		hash:          header.Hash,

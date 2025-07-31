@@ -40,10 +40,11 @@ import (
 
 // Consensus sentinel errors
 var (
-	ErrInvalidProposalSignature   = errors.New("error invalid proposal signature")
-	ErrInvalidProposalPOLRound    = errors.New("error invalid proposal POL round")
-	ErrAddingVote                 = errors.New("error adding vote")
-	ErrSignatureFoundInPastBlocks = errors.New("found signature from the same key")
+	ErrInvalidProposalSignature     = errors.New("error invalid proposal signature")
+	ErrInvalidProposalPOLRound      = errors.New("error invalid proposal POL round")
+	ErrAddingVote                   = errors.New("error adding vote")
+	ErrSignatureFoundInPastBlocks   = errors.New("found signature from the same key")
+	ErrInvalidProposalPartSetHeader = errors.New("error invalid proposal part set header")
 
 	errPubKeyIsNotSet = errors.New("pubkey is not set. Look for \"Can't get private validator pubkey\" errors")
 )
@@ -2394,6 +2395,11 @@ func (cs *State) defaultSetProposal(proposal *types.Proposal, recvTime time.Time
 	// This happens if we're already in cstypes.RoundStepCommit or if there is a valid block in the current round.
 	// TODO: We can check if Proposal is for a different block as this is a sign of misbehavior!
 	if cs.roundState.ProposalBlockParts() == nil {
+		// apply the same check as in SetHasProposal
+		if proposal.BlockID.PartSetHeader.Total > types.MaxBlockPartsCount {
+			cs.logger.Debug("rejecting proposal with too many parts", "total", proposal.BlockID.PartSetHeader.Total, "max", types.MaxBlockPartsCount)
+			return ErrInvalidProposalPartSetHeader
+		}
 		cs.metrics.MarkBlockGossipStarted()
 		cs.roundState.SetProposalBlockParts(types.NewPartSetFromHeader(proposal.BlockID.PartSetHeader))
 	}

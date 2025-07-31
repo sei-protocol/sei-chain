@@ -3,6 +3,7 @@ package bits
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"math"
 	"testing"
 
@@ -314,5 +315,30 @@ func TestBitArrayFromProto(t *testing.T) {
 			assert.NoError(t, err, "#%d", i)
 			assert.Equal(t, tc.resA, bA, "#%d", i)
 		}
+	}
+}
+
+func TestBitArrayMemoryAllocation(t *testing.T) {
+	testCases := []struct {
+		bits     int
+		numElems int // Expected number of uint64 elements
+		bytes    int // Expected bytes allocated
+	}{
+		{1, 1, 8},    // 1-64 bits needs 1 uint64 (8 bytes)
+		{64, 1, 8},   // exactly 64 bits still needs just 1 uint64
+		{65, 2, 16},  // 65 bits needs 2 uint64s
+		{101, 2, 16}, // MaxBlockPartsCount (101) needs 2 uint64s
+		{128, 2, 16}, // 128 bits needs 2 uint64s
+		{150, 3, 24}, // 150 bits needs 3 uint64s
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("%d_bits", tc.bits), func(t *testing.T) {
+			ba := NewBitArray(tc.bits)
+			require.NotNil(t, ba)
+			require.Equal(t, tc.bits, ba.Bits)
+			require.Equal(t, tc.numElems, len(ba.Elems))
+			require.Equal(t, tc.bytes, len(ba.Elems)*8) // Each uint64 is 8 bytes
+		})
 	}
 }
