@@ -66,6 +66,7 @@ ldflags := $(strip $(ldflags))
 
 # BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)' -race
 BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)'
+BUILD_FLAGS_MOCK_BALANCES := -tags "$(build_tags) mock_balances" -ldflags '$(ldflags)'
 
 #### Command List ####
 
@@ -75,7 +76,7 @@ install: go.sum
 		go install $(BUILD_FLAGS) ./cmd/seid
 
 install-mock-balances: go.sum
-		go install -tags "$(build_tags) mock_balances" -ldflags '$(ldflags)' ./cmd/seid
+		go install $(BUILD_FLAGS_MOCK_BALANCES) ./cmd/seid
 
 install-with-race-detector: go.sum
 		go install -race $(BUILD_FLAGS) ./cmd/seid
