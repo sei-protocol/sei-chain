@@ -26,7 +26,9 @@ var (
 	dryRun        bool
 	debug         bool
 	workers       int
-	noReceipts    bool
+	trackReceipts bool
+	trackBlocks   bool
+	prewarm       bool
 )
 
 var rootCmd = &cobra.Command{
@@ -50,7 +52,9 @@ func init() {
 	rootCmd.Flags().Float64VarP(&tps, "tps", "t", 0, "Transactions per second (0 = no limit)")
 	rootCmd.Flags().BoolVarP(&dryRun, "dry-run", "", false, "Mock deployment and requests")
 	rootCmd.Flags().BoolVarP(&debug, "debug", "", false, "Log each request")
-	rootCmd.Flags().BoolVarP(&noReceipts, "no-receipts", "", false, "Disable receipts")
+	rootCmd.Flags().BoolVarP(&trackReceipts, "track-receipts", "", false, "Track receipts")
+	rootCmd.Flags().BoolVarP(&trackBlocks, "track-blocks", "", false, "Track blocks")
+	rootCmd.Flags().BoolVarP(&prewarm, "prewarm", "", false, "Prewarm accounts with self-transactions")
 	rootCmd.Flags().IntVarP(&workers, "workers", "w", 1, "Number of workers")
 
 	if err := rootCmd.MarkFlagRequired("config"); err != nil {
@@ -89,8 +93,14 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	if dryRun {
 		fmt.Printf("📝 Dry run: enabled\n")
 	}
-	if noReceipts {
-		fmt.Printf("📝 No receipts: enabled\n")
+	if trackReceipts {
+		fmt.Printf("📝 Track receipts: enabled\n")
+	}
+	if trackBlocks {
+		fmt.Printf("📝 Track blocks: enabled\n")
+	}
+	if prewarm {
+		fmt.Printf("📝 Prewarm: enabled\n")
 	}
 	fmt.Println()
 
@@ -115,6 +125,17 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	collector := stats.NewCollector()
 	logger := stats.NewLogger(collector, statsInterval, debug)
 
+	// Create and start block collector if endpoints are available
+	var blockCollector *stats.BlockCollector
+	if len(cfg.Endpoints) > 0 && trackBlocks {
+		blockCollector = stats.NewBlockCollector(cfg.Endpoints[0])
+		collector.SetBlockCollector(blockCollector)
+		// Start block collector
+		if err := blockCollector.Start(); err != nil {
+			log.Printf("⚠️  Failed to start block collector: %v", err)
+		}
+	}
+
 	// Enable dry-run mode in sender if specified
 	if dryRun {
 		snd.SetDryRun(true)
@@ -122,8 +143,11 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	if debug {
 		snd.SetDebug(true)
 	}
-	if noReceipts {
-		snd.SetNoReceipts(true)
+	if trackReceipts {
+		snd.SetTrackReceipts(true)
+	}
+	if trackBlocks {
+		snd.SetTrackBlocks(true)
 	}
 
 	// Set statistics collector for sender and its workers
@@ -140,17 +164,45 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	// Set statistics collector for dispatcher
 	dispatcher.SetStatsCollector(collector, logger)
 
+	// Set up prewarming if enabled
+	if prewarm {
+		fmt.Println("🔥 Creating prewarm generator...")
+		prewarmGen := generator.NewPrewarmGenerator(cfg, gen)
+		dispatcher.SetPrewarmGenerator(prewarmGen)
+		fmt.Println("✅ Prewarm generator ready")
+		fmt.Printf("📝 Prewarm mode: Accounts will be prewarmed\n")
+	}
+
 	// Start the sender (starts all workers)
 	snd.Start()
 	fmt.Printf("✅ Connected to %d endpoints\n", snd.GetNumShards())
 
-	// Start the dispatcher
-	dispatcher.Start()
-	fmt.Printf("✅ Started transaction dispatcher\n")
+	// Start block collector if enabled
+	if trackBlocks {
+		blockCollector = stats.NewBlockCollector(cfg.Endpoints[0])
+		collector.SetBlockCollector(blockCollector)
+		err = blockCollector.Start()
+		if err != nil {
+			log.Fatalf("Failed to start block collector: %v", err)
+		}
+		fmt.Println("✅ Started block collector")
+	}
 
-	// Start statistics logger
+	// Perform prewarming if enabled (before starting logger to avoid logging prewarm transactions)
+	if prewarm {
+		err = dispatcher.Prewarm()
+		if err != nil {
+			log.Fatalf("Failed to prewarm accounts: %v", err)
+		}
+	}
+
+	// Start logger (after prewarming to capture only main load test metrics)
 	logger.Start()
-	fmt.Printf("✅ Started statistics logger\n")
+	fmt.Println("✅ Started statistics logger")
+
+	// Start dispatcher for main load test
+	dispatcher.Start()
+	fmt.Println("✅ Started dispatcher")
 
 	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -163,8 +215,11 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	if debug {
 		fmt.Printf("🐛 Debug mode: Each transaction will be logged\n")
 	}
-	if noReceipts {
-		fmt.Printf("📝 No receipts mode: Receipts will not be requested\n")
+	if trackReceipts {
+		fmt.Printf("📝 Track receipts mode: Receipts will be tracked\n")
+	}
+	if trackBlocks {
+		fmt.Printf("📝 Track blocks mode: Block data will be collected\n")
 	}
 	fmt.Println(strings.Repeat("=", 60))
 
@@ -172,6 +227,12 @@ func runLoadTest(cmd *cobra.Command, args []string) {
 	select {
 	case <-sigChan:
 		fmt.Println("\n🛑 Received shutdown signal, stopping gracefully...")
+
+		// Stop block collector first
+		if blockCollector != nil {
+			blockCollector.Stop()
+			fmt.Println("✅ Stopped block collector")
+		}
 
 		// Stop statistics logger first
 		logger.Stop()

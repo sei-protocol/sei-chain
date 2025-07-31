@@ -3,18 +3,20 @@ package generator
 import (
 	"errors"
 	"fmt"
-	"github.com/ethereum/go-ethereum/common"
 	"sync"
+
+	"github.com/ethereum/go-ethereum/common"
 
 	"seiload/config"
 	"seiload/generator/scenarios"
 	"seiload/types"
 )
 
-// Generator is an interface for generating transactions
+// Generator interface defines the contract for transaction generators
 type Generator interface {
-	Generate() *types.LoadTx
+	Generate() (*types.LoadTx, bool) // Returns transaction and true if more available, nil/false when done
 	GenerateN(n int) []*types.LoadTx
+	GetAccountPools() []types.AccountPool
 }
 
 // scenarioInstance represents a scenario instance with its configuration
@@ -31,7 +33,8 @@ type configBasedGenerator struct {
 	config         *config.LoadConfig
 	instances      []*scenarioInstance
 	deployer       *types.Account
-	sharedAccounts types.AccountPool // Shared account pool when using top-level config
+	sharedAccounts types.AccountPool   // Shared account pool when using top-level config
+	accountPools   []types.AccountPool // All account pools (shared + scenario-specific)
 	mu             sync.RWMutex
 }
 
@@ -48,6 +51,7 @@ func (g *configBasedGenerator) createScenarios() error {
 			Accounts:       accounts,
 			NewAccountRate: g.config.Accounts.NewAccountRate,
 		})
+		g.accountPools = append(g.accountPools, g.sharedAccounts)
 	}
 
 	for i, scenarioCfg := range g.config.Scenarios {
@@ -66,6 +70,7 @@ func (g *configBasedGenerator) createScenarios() error {
 				Accounts:       accounts,
 				NewAccountRate: newAccountRate,
 			})
+			g.accountPools = append(g.accountPools, accountPool)
 		} else if g.sharedAccounts != nil {
 			// Use shared account pool from top-level config
 			accountPool = g.sharedAccounts
@@ -170,6 +175,17 @@ func (g *configBasedGenerator) createWeightedGenerator() (Generator, error) {
 
 	// Create and return the weighted scenarioGenerator
 	return NewWeightedGenerator(weightedConfigs...), nil
+}
+
+// GetAccountPools returns all account pools managed by this generator
+func (g *configBasedGenerator) GetAccountPools() []types.AccountPool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	// Return a copy of the slice to prevent external modification
+	pools := make([]types.AccountPool, len(g.accountPools))
+	copy(pools, g.accountPools)
+	return pools
 }
 
 // NewConfigBasedGenerator is a convenience method that combines all steps

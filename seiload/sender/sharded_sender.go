@@ -130,14 +130,20 @@ func (s *ShardedSender) SetDebug(debug bool) {
 	}
 }
 
-// SetNoReceipts sets the no-receipts flag for the sender and its workers
-func (s *ShardedSender) SetNoReceipts(noReceipts bool) {
+// SetTrackReceipts sets the track-receipts flag for the sender and its workers
+func (s *ShardedSender) SetTrackReceipts(trackReceipts bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for _, worker := range s.workers {
-		worker.SetNoReceipts(noReceipts)
+		worker.SetTrackReceipts(trackReceipts)
 	}
+}
+
+// SetTrackBlocks sets the track-blocks flag (placeholder - blocks are tracked separately)
+func (s *ShardedSender) SetTrackBlocks(trackBlocks bool) {
+	// Block tracking is handled by the BlockCollector, not the sender
+	// This method exists for consistency with the CLI interface
 }
 
 // SetStatsCollector sets the statistics collector for all workers

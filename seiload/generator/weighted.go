@@ -2,8 +2,8 @@ package generator
 
 import (
 	"context"
-	"seiload/types"
 	"math/rand"
+	"seiload/types"
 	"sync"
 )
 
@@ -23,7 +23,7 @@ func WeightedConfig(weight int, generator Generator) *WeightedCfg {
 
 type weightedGenerator struct {
 	generators []Generator
-	mx         sync.Mutex
+	mx         sync.RWMutex
 	counter    int64
 }
 
@@ -40,7 +40,10 @@ func (w *weightedGenerator) GenerateInfinite(ctx context.Context) <-chan *types.
 				select {
 				case <-ctx.Done():
 					return
-				case output <- w.nextGenerator().Generate():
+				case output <- func() *types.LoadTx {
+					tx, _ := w.nextGenerator().Generate()
+					return tx
+				}():
 				}
 			}
 		}
@@ -67,14 +70,34 @@ func (w *weightedGenerator) nextGenerator() Generator {
 func (w *weightedGenerator) GenerateN(n int) []*types.LoadTx {
 	txs := make([]*types.LoadTx, 0, n)
 	for range n {
-		txs = append(txs, w.Generate())
+		if tx, ok := w.Generate(); ok {
+			txs = append(txs, tx)
+		} else {
+			break // Generator is done
+		}
 	}
 	return txs
 }
 
 // Generate generates 1 transaction.
-func (w *weightedGenerator) Generate() *types.LoadTx {
+func (w *weightedGenerator) Generate() (*types.LoadTx, bool) {
 	return w.nextGenerator().Generate()
+}
+
+// GetAccountPools returns all account pools from underlying generators
+func (w *weightedGenerator) GetAccountPools() []types.AccountPool {
+	w.mx.RLock()
+	defer w.mx.RUnlock()
+
+	var allPools []types.AccountPool
+
+	// Collect pools from all underlying generators
+	for _, gen := range w.generators {
+		pools := gen.GetAccountPools()
+		allPools = append(allPools, pools...)
+	}
+
+	return allPools
 }
 
 // NewWeightedGenerator creates a new scenarioGenerator that will randomly select from the provided generators.
