@@ -99,7 +99,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, config.MaxBlocksForLog, ConnectionTypeHTTP),
+			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, config.MaxBlocksForLog, ConnectionTypeHTTP, txConfigProvider(LatestCtxHeight).TxDecoder()),
 		},
 		{
 			Namespace: "eth",
@@ -207,7 +207,7 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, config.MaxBlocksForLog, ConnectionTypeWS),
+			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, config.MaxBlocksForLog, ConnectionTypeWS, txConfigProvider(LatestCtxHeight).TxDecoder()),
 		},
 		{
 			Namespace: "eth",
