@@ -3,10 +3,6 @@ package evmrpc_test
 import (
 	"encoding/hex"
 	"fmt"
-	"math/big"
-	"os"
-	"testing"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/sei-protocol/sei-chain/evmrpc"
@@ -14,6 +10,9 @@ import (
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
+	"math/big"
+	"os"
+	"testing"
 )
 
 func TestEstimateGas(t *testing.T) {

@@ -3,6 +3,7 @@ package evmrpc_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -130,9 +131,10 @@ func TestCalculatePercentiles(t *testing.T) {
 	result := evmrpc.CalculatePercentiles([]float64{}, []evmrpc.GasAndReward{}, 0)
 	require.Equal(t, 0, len(result))
 
-	// empty GasAndRewards
+	// empty GasAndRewards should return zeros for each percentile
 	result = evmrpc.CalculatePercentiles([]float64{1}, []evmrpc.GasAndReward{}, 0)
-	require.Equal(t, 0, len(result))
+	require.Equal(t, 1, len(result))
+	require.Equal(t, "0x0", result[0].String())
 
 	// empty percentiles
 	result = evmrpc.CalculatePercentiles([]float64{}, []evmrpc.GasAndReward{{Reward: big.NewInt(10), GasUsed: 1}}, 1)
@@ -213,4 +215,20 @@ func TestGasPriceLogic(t *testing.T) {
 		require.Nil(t, err)
 		require.Equal(t, test.expectedGasPrice, gasPrice.ToInt())
 	}
+}
+
+func TestCalculatePercentilesEmptyBlockWithMultiplePercentiles(t *testing.T) {
+	// Test with multiple percentiles and empty block
+	result := evmrpc.CalculatePercentiles([]float64{25, 50, 75}, []evmrpc.GasAndReward{}, 0)
+	require.Equal(t, 3, len(result))
+	for i, r := range result {
+		require.Equal(t, "0x0", r.String(), fmt.Sprintf("percentile %d should be zero", i))
+	}
+}
+
+func TestCalculatePercentilesEmptyBlockWithSinglePercentile(t *testing.T) {
+	// Test with single percentile and empty block
+	result := evmrpc.CalculatePercentiles([]float64{50}, []evmrpc.GasAndReward{}, 0)
+	require.Equal(t, 1, len(result))
+	require.Equal(t, "0x0", result[0].String())
 }
