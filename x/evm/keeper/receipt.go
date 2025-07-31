@@ -26,13 +26,13 @@ func (k *Keeper) SetTransientReceipt(ctx sdk.Context, txHash common.Hash, receip
 	if err != nil {
 		return err
 	}
-	store.Set(types.ReceiptKey(txHash), bz)
+	store.Set(types.TransientReceiptKey(uint64(receipt.TransactionIndex), txHash), bz)
 	return nil
 }
 
-func (k *Keeper) GetTransientReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
+func (k *Keeper) GetTransientReceipt(ctx sdk.Context, txHash common.Hash, txIndex uint64) (*types.Receipt, error) {
 	store := ctx.TransientStore(k.transientStoreKey)
-	bz := store.Get(types.ReceiptKey(txHash))
+	bz := store.Get(types.TransientReceiptKey(txIndex, txHash))
 	if bz == nil {
 		return nil, errors.New("not found")
 	}
@@ -43,9 +43,9 @@ func (k *Keeper) GetTransientReceipt(ctx sdk.Context, txHash common.Hash) (*type
 	return r, nil
 }
 
-func (k *Keeper) DeleteTransientReceipt(ctx sdk.Context, txHash common.Hash) {
+func (k *Keeper) DeleteTransientReceipt(ctx sdk.Context, txHash common.Hash, txIndex uint64) error {
 	store := ctx.TransientStore(k.transientStoreKey)
-	store.Delete(types.ReceiptKey(txHash))
+	store.Delete(types.TransientReceiptKey(txIndex, txHash))
 }
 
 // GetReceipt returns a data structure that stores EVM specific transaction metadata.
@@ -126,8 +126,28 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 	iter := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix).Iterator(nil, nil)
 	defer iter.Close()
 	var pairs []*iavl.KVPair
+
+	cumulativeGasUsed := uint64(0)
 	for ; iter.Valid(); iter.Next() {
-		kvPair := &iavl.KVPair{Key: types.ReceiptKey(common.Hash(iter.Key())), Value: iter.Value()}
+		receipt := &types.Receipt{}
+		// figure out how should we react to an unmarshalling error
+		if err := receipt.Unmarshal(iter.Value()); err != nil {
+			ctx.Logger().Error(fmt.Sprintf("Failed to unmarshal receipt for tx %s: %v", "", err))
+			// can't continue here, unmarshal should never fail - should we panic?
+			continue
+		}
+
+		// check if receipts are sorted - write a test
+		cumulativeGasUsed += receipt.GasUsed
+		receipt.CumulativeGasUsed = cumulativeGasUsed
+
+		marshalledReceipt, err := receipt.Marshal()
+		// figure out if this should be an error - whether we ignore it or bubble up and can it ever happen
+		if err != nil {
+			return err
+		}
+
+		kvPair := &iavl.KVPair{Key: types.ReceiptKey(common.Hash(iter.Key())), Value: marshalledReceipt}
 		pairs = append(pairs, kvPair)
 	}
 	if len(pairs) == 0 {
