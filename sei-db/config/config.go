@@ -100,6 +100,7 @@ type StateStoreConfig struct {
 
 func DefaultStateCommitConfig() StateCommitConfig {
 	return StateCommitConfig{
+		Enable:             true,
 		AsyncCommitBuffer:  DefaultAsyncCommitBuffer,
 		CacheSize:          DefaultCacheSize,
 		SnapshotInterval:   DefaultSnapshotInterval,
@@ -109,6 +110,7 @@ func DefaultStateCommitConfig() StateCommitConfig {
 
 func DefaultStateStoreConfig() StateStoreConfig {
 	return StateStoreConfig{
+		Enable:               true,
 		Backend:              "pebbledb",
 		AsyncWriteBuffer:     DefaultSSAsyncBuffer,
 		KeepRecent:           DefaultSSKeepRecent,
