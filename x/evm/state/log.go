@@ -11,7 +11,8 @@ type Logs struct {
 
 func (s *DBImpl) AddLog(l *ethtypes.Log) {
 	l.Index = uint(len(s.GetAllLogs()))
-	s.tempStateCurrent.logs = append(s.tempStateCurrent.logs, l)
+	s.tempState.logs = append(s.tempState.logs, l)
+	s.journal = append(s.journal, &addLogChange{})
 
 	if s.logger != nil && s.logger.OnLog != nil {
 		s.logger.OnLog(l)
@@ -20,10 +21,7 @@ func (s *DBImpl) AddLog(l *ethtypes.Log) {
 
 func (s *DBImpl) GetAllLogs() []*ethtypes.Log {
 	res := []*ethtypes.Log{}
-	for _, st := range s.tempStatesHist {
-		res = append(res, st.logs...)
-	}
-	res = append(res, s.tempStateCurrent.logs...)
+	res = append(res, s.tempState.logs...)
 	return res
 }
 
