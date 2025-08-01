@@ -37,9 +37,8 @@ interface IDistr {
 
     /// @notice Withdraws validator commission (only callable by the validator operator)
     /// @dev Only the validator operator can withdraw their commission
-    /// @param validator The validator's Sei address (must match caller's validator)
     /// @return success True if commission was withdrawn successfully
-    function withdrawValidatorCommission(string memory validator) external returns (bool success);
+    function withdrawValidatorCommission() external returns (bool success);
 
     // Queries
     
