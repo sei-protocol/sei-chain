@@ -85,9 +85,6 @@ install-with-race-detector: go.sum
 install-price-feeder: go.sum
 		go install $(BUILD_FLAGS) ./oracle/price-feeder
 
-install-mock-balances: go.sum
-	go install -tags "$(build_tags)" -ldflags '$(ldflags) -X github.com/sei-protocol/sei-chain/x/evm/state.mockBalanceTesting=enabled' ./cmd/seid
-
 loadtest: go.sum
 		go build $(BUILD_FLAGS) -o ./build/loadtest ./loadtest/
 
