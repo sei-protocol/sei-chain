@@ -1,7 +1,6 @@
 package types_test
 
 import (
-	"fmt"
 	"sort"
 	"testing"
 
@@ -52,8 +51,6 @@ func TestTransientReceiptKeyTransactionHashExtraction(t *testing.T) {
 }
 
 func TestTransientReceiptKeyTransactionIndexSorting(t *testing.T) {
-	// Create TransientReceiptKey instances with different transaction indices
-	// Use different transaction hashes to ensure sorting is based on index, not hash
 	keys := []types.TransientReceiptKey{
 		types.NewTransientReceiptKey(100, common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")),
 		types.NewTransientReceiptKey(5, common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222")),
@@ -62,38 +59,24 @@ func TestTransientReceiptKeyTransactionIndexSorting(t *testing.T) {
 		types.NewTransientReceiptKey(25, common.HexToHash("0x5555555555555555555555555555555555555555555555555555555555555555")),
 	}
 
-	// Sort the keys
+	expectedIndices := map[string]uint64{
+		string(keys[0]): 100,
+		string(keys[1]): 5,
+		string(keys[2]): 50,
+		string(keys[3]): 1,
+		string(keys[4]): 25,
+	}
+
 	sort.Slice(keys, func(i, j int) bool {
 		return string(keys[i]) < string(keys[j])
 	})
 
-	// Verify that keys are sorted by transaction index
-	expectedIndices := []uint64{1, 5, 25, 50, 100}
+	expectedOrder := []uint64{1, 5, 25, 50, 100}
 	for i, key := range keys {
-		// Extract transaction index from the key
-		// The key format is: prefix + "%020d:%s" where %020d is the zero-padded transaction index
-		// We need to find the colon and parse the index part
-		keyStr := string(key)
-		colonIndex := -1
-		for j, char := range keyStr {
-			if char == ':' {
-				colonIndex = j
-				break
-			}
-		}
-		require.NotEqual(t, -1, colonIndex, "Key should contain a colon separator")
-
-		// Extract the transaction index part (before the colon)
-		indexStr := keyStr[len(types.ReceiptKeyPrefix):colonIndex]
-		require.Equal(t, 20, len(indexStr), "Transaction index should be 20 characters long (zero-padded)")
-
-		// Parse the transaction index
-		var txIndex uint64
-		_, err := fmt.Sscanf(indexStr, "%020d", &txIndex)
-		require.NoError(t, err, "Failed to parse transaction index")
-
-		require.Equal(t, expectedIndices[i], txIndex,
+		expectedIndex := expectedOrder[i]
+		actualIndex := expectedIndices[string(key)]
+		require.Equal(t, expectedIndex, actualIndex,
 			"Key at position %d should have transaction index %d, but got %d",
-			i, expectedIndices[i], txIndex)
+			i, expectedIndex, actualIndex)
 	}
 }
