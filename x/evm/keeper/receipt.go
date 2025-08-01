@@ -144,6 +144,7 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 			return err
 		}
 
+		// todo(pdrobnjak): Extract tx hash from transient receipt key
 		kvPair := &iavl.KVPair{Key: types.ReceiptKey(common.HexToHash(receipt.TxHashHex)), Value: marshalledReceipt}
 		pairs = append(pairs, kvPair)
 	}
