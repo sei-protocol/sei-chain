@@ -130,3 +130,23 @@ func TestEVMTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 		},
 	)
 }
+
+func TestGetTransactionGasPrice(t *testing.T) {
+	txData := send(0)
+	signedTx := signTxWithMnemonic(txData, mnemonic1)
+	tx := encodeEvmTx(txData, signedTx)
+	SetupTestServer([][][]byte{{tx}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("eth", port, "getTransactionByHash", signedTx.Hash().Hex())
+			result := res["result"].(map[string]any)
+
+			// Verify gasPrice field exists and has the expected value
+			gasPrice, exists := result["gasPrice"]
+			require.True(t, exists, "gasPrice field should exist in response")
+
+			// The gasPrice should match the GasFeeCap from the DynamicFeeTx
+			expectedGasPrice := "0x3b9aca00" // 1000000000 in hex
+			require.Equal(t, expectedGasPrice, gasPrice, "gasPrice should match the transaction's GasFeeCap")
+		},
+	)
+}
