@@ -26,13 +26,13 @@ func (k *Keeper) SetTransientReceipt(ctx sdk.Context, txHash common.Hash, receip
 	if err != nil {
 		return err
 	}
-	store.Set(types.TransientReceiptKey(uint64(receipt.TransactionIndex), txHash), bz)
+	store.Set(types.NewTransientReceiptKey(uint64(receipt.TransactionIndex), txHash), bz)
 	return nil
 }
 
 func (k *Keeper) GetTransientReceipt(ctx sdk.Context, txHash common.Hash, txIndex uint64) (*types.Receipt, error) {
 	store := ctx.TransientStore(k.transientStoreKey)
-	bz := store.Get(types.TransientReceiptKey(txIndex, txHash))
+	bz := store.Get(types.NewTransientReceiptKey(txIndex, txHash))
 	if bz == nil {
 		return nil, errors.New("not found")
 	}
@@ -45,7 +45,7 @@ func (k *Keeper) GetTransientReceipt(ctx sdk.Context, txHash common.Hash, txInde
 
 func (k *Keeper) DeleteTransientReceipt(ctx sdk.Context, txHash common.Hash, txIndex uint64) {
 	store := ctx.TransientStore(k.transientStoreKey)
-	store.Delete(types.TransientReceiptKey(txIndex, txHash))
+	store.Delete(types.NewTransientReceiptKey(txIndex, txHash))
 }
 
 // GetReceipt returns a data structure that stores EVM specific transaction metadata.
@@ -144,7 +144,7 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 			return err
 		}
 
-		kvPair := &iavl.KVPair{Key: types.ReceiptKey(common.HexToHash(receipt.TxHashHex)), Value: marshalledReceipt}
+		kvPair := &iavl.KVPair{Key: types.ReceiptKey(types.TransientReceiptKey(iter.Key()).TransactionHash()), Value: marshalledReceipt}
 		pairs = append(pairs, kvPair)
 	}
 	if len(pairs) == 0 {
