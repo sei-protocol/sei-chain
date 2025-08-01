@@ -1,9 +1,11 @@
 package tests
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,7 +14,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	seiutils "github.com/sei-protocol/sei-chain/utils"
 	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/bytes"
+	tmbytes "github.com/tendermint/tendermint/libs/bytes"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/rpc/client/mock"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -66,15 +68,19 @@ func (c *MockClient) BlockByHash(_ context.Context, hash tmbytes.HexBytes) (*cor
 			return rb, nil
 		}
 	}
-	return c.getBlock(int64(binary.BigEndian.Uint64(bz))), nil
+	return nil, errors.New("not found")
 }
 
 func (c *MockClient) getBlock(i int64) *coretypes.ResultBlock {
+	if i < 1 {
+		return nil
+	}
+	header := mockBlockHeader(i)
 	return &coretypes.ResultBlock{
-		BlockID: tmtypes.BlockID{Hash: mockHash(i, 0)},
+		BlockID: tmtypes.BlockID{Hash: header.Hash()},
 		Block: &tmtypes.Block{
 			Data:       tmtypes.Data{Txs: seiutils.Map(c.blocks[i-1], func(tx []byte) tmtypes.Tx { return tmtypes.Tx(tx) })},
-			Header:     mockBlockHeader(i),
+			Header:     *header,
 			LastCommit: &tmtypes.Commit{Height: i},
 		},
 	}
@@ -174,29 +180,40 @@ func (c *MockClient) Events(_ context.Context, req *coretypes.RequestEvents) (*c
 	}
 }
 
-func mockHash(height int64, prefix int64) bytes.HexBytes {
+func (c *MockClient) UnconfirmedTxs(context.Context, *int, *int) (*coretypes.ResultUnconfirmedTxs, error) {
+	return &coretypes.ResultUnconfirmedTxs{}, nil
+}
+
+func mockHash(height int64, prefix int64) tmbytes.HexBytes {
 	heightBz, prefixBz := make([]byte, 8), make([]byte, 8)
 	binary.BigEndian.PutUint64(heightBz, uint64(height))
 	binary.BigEndian.PutUint64(prefixBz, uint64(prefix))
-	return bytes.HexBytes(append(prefixBz, heightBz...))
+	return tmbytes.HexBytes(append(prefixBz, heightBz...))
 }
 
-func mockBlockHeader(height int64) tmtypes.Header {
-	return tmtypes.Header{
-		ChainID:         "test",
-		Height:          height,
-		Time:            time.Unix(1696941649+height, 0),
-		DataHash:        mockHash(height, 1),
-		AppHash:         mockHash(height, 2),
-		LastResultsHash: mockHash(height, 3),
-		ProposerAddress: mockHash(height, 4),
-		LastBlockID: tmtypes.BlockID{
-			Hash: mockHash(height-1, 0),
-		},
+func mockBlockHeader(height int64) *tmtypes.Header {
+	header := tmtypes.Header{
+		ChainID:            "test",
+		Height:             height,
+		Time:               time.Unix(1696941649+height, 0),
+		DataHash:           mockHash(height, 1),
+		AppHash:            mockHash(height, 2),
+		LastResultsHash:    mockHash(height, 3),
+		ProposerAddress:    mockHash(height, 4),
 		LastCommitHash:     mockHash(height, 5),
 		ValidatorsHash:     mockHash(height, 6),
 		NextValidatorsHash: mockHash(height, 7),
 		ConsensusHash:      mockHash(height, 8),
 		EvidenceHash:       mockHash(height, 9),
 	}
+	if height <= 0 {
+		header.LastBlockID = tmtypes.BlockID{
+			Hash: tmbytes.HexBytes([]byte{}),
+		}
+	} else {
+		header.LastBlockID = tmtypes.BlockID{
+			Hash: mockBlockHeader(height - 1).Hash(),
+		}
+	}
+	return &header
 }

@@ -3,10 +3,12 @@ package evmrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"slices"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -21,17 +23,17 @@ const highTotalGasUsedThreshold = 8500000
 const defaultPriorityFeePerGas = 1000000000 // 1gwei
 
 type InfoAPI struct {
-	tmClient       rpcclient.Client
-	keeper         *keeper.Keeper
-	ctxProvider    func(int64) sdk.Context
-	txDecoder      sdk.TxDecoder
-	homeDir        string
-	connectionType ConnectionType
-	maxBlocks      int64
+	tmClient         rpcclient.Client
+	keeper           *keeper.Keeper
+	ctxProvider      func(int64) sdk.Context
+	txConfigProvider func(int64) client.TxConfig
+	homeDir          string
+	connectionType   ConnectionType
+	maxBlocks        int64
 }
 
-func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, homeDir string, maxBlocks int64, connectionType ConnectionType) *InfoAPI {
-	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, homeDir: homeDir, connectionType: connectionType, maxBlocks: maxBlocks}
+func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, maxBlocks int64, connectionType ConnectionType) *InfoAPI {
+	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType, maxBlocks: maxBlocks}
 }
 
 type FeeHistoryResult struct {
@@ -243,7 +245,7 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 	GasAndRewards := []GasAndReward{}
 	totalEVMGasUsed := uint64(0)
 	for _, txbz := range block.Block.Txs {
-		ethtx := getEthTxForTxBz(txbz, i.txDecoder)
+		ethtx := getEthTxForTxBz(txbz, i.txConfigProvider(block.Block.Height).TxDecoder())
 		if ethtx == nil {
 			// not evm tx
 			continue
@@ -252,6 +254,15 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 		receipt, err := i.keeper.GetReceipt(i.ctxProvider(LatestCtxHeight), ethtx.Hash())
 		if err != nil {
 			return nil, err
+		}
+		receiptEffectiveGasPrice := new(big.Int).SetUint64(receipt.EffectiveGasPrice)
+		if receiptEffectiveGasPrice.Cmp(baseFee) < 0 {
+			// if effective gas price is 0, it's expected behavior for txs that failed ante.
+			// if it's not zero but still smaller than baseFee then something is wrong.
+			if receiptEffectiveGasPrice.Cmp(common.Big0) != 0 {
+				fmt.Printf("Error: tx %s has an unexpected gas price %s set on its receipt\n", ethtx.Hash().Hex(), receiptEffectiveGasPrice)
+			}
+			continue
 		}
 		reward := new(big.Int).Sub(new(big.Int).SetUint64(receipt.EffectiveGasPrice), baseFee)
 		GasAndRewards = append(GasAndRewards, GasAndReward{GasUsed: receipt.GasUsed, Reward: reward})
@@ -268,7 +279,7 @@ func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGa
 	}
 	totalEVMGasUsed := uint64(0)
 	for _, txbz := range block.Block.Txs {
-		ethtx := getEthTxForTxBz(txbz, i.txDecoder)
+		ethtx := getEthTxForTxBz(txbz, i.txConfigProvider(block.Block.Height).TxDecoder())
 		if ethtx == nil {
 			// not evm tx
 			continue
@@ -298,6 +309,10 @@ func CalculatePercentiles(rewardPercentiles []float64, GasAndRewards []GasAndRew
 	})
 	res := []*hexutil.Big{}
 	if len(GasAndRewards) == 0 {
+		// Return array of zeros for each percentile when no transactions exist
+		for range rewardPercentiles {
+			res = append(res, (*hexutil.Big)(big.NewInt(0)))
+		}
 		return res
 	}
 	var txIndex int

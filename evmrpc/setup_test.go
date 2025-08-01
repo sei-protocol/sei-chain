@@ -48,6 +48,7 @@ const TestPort = 7777
 const TestWSPort = 7778
 const TestBadPort = 7779
 const TestStrictPort = 7780
+const TestArchivePort = 7782
 
 const GenesisBlockHeight = 0
 const MockHeight8 = 8
@@ -557,7 +558,8 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, TxConfig, "", isPanicTxFunc)
+	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
+	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", isPanicTxFunc)
 	if err != nil {
 		panic(err)
 	}
@@ -569,7 +571,7 @@ func init() {
 	badConfig := evmrpc.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, TxConfig, "", nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -591,7 +593,7 @@ func init() {
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		ctxProvider,
-		TxConfig,
+		txConfigProvider,
 		"",
 		isPanicTxFunc,
 	)
@@ -602,8 +604,32 @@ func init() {
 		panic(err)
 	}
 
+	// Start archive http server
+	archiveConfig := goodConfig
+	archiveConfig.HTTPPort = TestArchivePort
+	archiveConfig.WSPort = TestArchivePort + 1
+	archiveConfig.MaxTraceLookbackBlocks = -1 // No lookback limit
+	archiveServer, err := evmrpc.NewEVMHTTPServer(
+		infoLog,
+		archiveConfig,
+		&MockClient{},
+		EVMKeeper,
+		testApp.BaseApp,
+		testApp.TracerAnteHandler,
+		ctxProvider,
+		txConfigProvider,
+		"",
+		isPanicTxFunc,
+	)
+	if err != nil {
+		panic(err)
+	}
+	if err := archiveServer.Start(); err != nil {
+		panic(err)
+	}
+
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, TxConfig, "")
+	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "")
 	if err != nil {
 		panic(err)
 	}
@@ -1016,6 +1042,11 @@ func sendRequestGoodWithNamespace(t *testing.T, namespace string, method string,
 //nolint:deadcode
 func sendRequestStrictWithNamespace(t *testing.T, namespace, method string, params ...interface{}) map[string]interface{} {
 	return sendRequestWithNamespace(t, namespace, TestStrictPort, method, params...)
+}
+
+//nolint:deadcode
+func sendRequestArchiveWithNamespace(t *testing.T, namespace, method string, params ...interface{}) map[string]interface{} {
+	return sendRequestWithNamespace(t, namespace, TestArchivePort, method, params...)
 }
 
 func sendRequest(t *testing.T, port int, method string, params ...interface{}) map[string]interface{} {

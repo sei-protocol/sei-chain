@@ -79,3 +79,19 @@ func TestTraceBlockByNumberLookbackLimit(t *testing.T) {
 	require.True(t, ok, "expected look‑back guard to trigger")
 	require.NotEmpty(t, errObj["message"].(string))
 }
+
+func TestTraceBlockByNumberUnlimitedLookback(t *testing.T) {
+	// Using the archive server (look‑back = -1). Block 0 should be accessible.
+	resObj := sendRequestArchiveWithNamespace(
+		t,
+		"sei",
+		"traceBlockByNumberExcludeTraceFail",
+		"0x0",                    // genesis block
+		map[string]interface{}{}, // empty TraceConfig
+	)
+
+	_, ok := resObj["error"]
+	require.False(t, ok, "expected look-back to be unlimited")
+	_, ok = resObj["result"]
+	require.True(t, ok, "expected result to be present")
+}
