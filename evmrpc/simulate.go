@@ -547,11 +547,11 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 		if blockResErr == nil && blockRes.ConsensusParamUpdates != nil && blockRes.ConsensusParamUpdates.Block != nil {
 			gasLimit = uint64(blockRes.ConsensusParamUpdates.Block.MaxGas)
 		} else {
-			// Fallback to config if block results unavailable
+			// Fallback to default if block results unavailable
 			gasLimit = keeper.DefaultBlockGasLimit
 		}
 	} else {
-		// Fallback to config if block unavailable
+		// Fallback to default if block unavailable
 		gasLimit = keeper.DefaultBlockGasLimit
 	}
 

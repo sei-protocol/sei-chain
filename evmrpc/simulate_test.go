@@ -345,23 +345,23 @@ func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 }
 
 // Gas‐limit fallback tests
-func TestGasLimitFallbackToConfig(t *testing.T) {
+func TestGasLimitFallbackToDefault(t *testing.T) {
 	testApp := app.Setup(false, false, false)
 	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
 	ctxProvider := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
-	cfg := &evmrpc.SimulateConfig{GasCap: 11_000_000, EVMTimeout: time.Second}
+	cfg := &evmrpc.SimulateConfig{GasCap: 20_000_000, EVMTimeout: time.Second}
 
 	// Case 1: BlockResults fails
 	backend1 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &brFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler)
 	h1, err := backend1.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
-	require.Equal(t, cfg.GasCap, h1.GasLimit)
+	require.Equal(t, uint64(10_000_000), h1.GasLimit) // DefaultBlockGasLimit
 
 	// Case 2: Block fails
 	backend2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &bcFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler)
 	h2, err := backend2.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
-	require.Equal(t, cfg.GasCap, h2.GasLimit)
+	require.Equal(t, uint64(10_000_000), h2.GasLimit) // DefaultBlockGasLimit
 }
 
 func TestSimulationAPIRequestLimiter(t *testing.T) {
