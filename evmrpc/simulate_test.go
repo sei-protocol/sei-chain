@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
@@ -297,4 +300,294 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 
 	// For non-pacific-1 chains, base fee should not be nil regardless of upgrade status
 	require.NotNil(t, headerDifferentChain.BaseFee, "Base fee should not be nil for non-pacific-1 chains")
+}
+
+func TestSimulationAPIRequestLimiter(t *testing.T) {
+	// Test setup using a proper context similar to other tests
+	testCtx := Ctx.WithBlockHeight(1)
+
+	// Create a simulation API with a very small request limiter to test rate limiting
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return testCtx.WithIsTracing(true)
+		}
+		return testCtx.WithBlockHeight(height).WithIsTracing(true)
+	}
+
+	// Create a config with a small concurrency limit for reliable testing
+	config := &evmrpc.SimulateConfig{
+		GasCap:                       1000000,
+		EVMTimeout:                   5 * time.Second,
+		MaxConcurrentSimulationCalls: 2, // Small limit to easily trigger rate limiting
+	}
+
+	// Use the existing test app from the global setup
+	testApp := testkeeper.TestApp()
+
+	// Create simulation API
+	simAPI := evmrpc.NewSimulationAPI(
+		ctxProvider,
+		EVMKeeper,
+		func(int64) client.TxConfig { return TxConfig },
+		&MockClient{},
+		config,
+		testApp.BaseApp,
+		testApp.TracerAnteHandler,
+		evmrpc.ConnectionTypeHTTP,
+	)
+
+	// Setup test data - create addresses and fund account
+	_, from := testkeeper.MockAddressPair()
+	_, to := testkeeper.MockAddressPair()
+
+	// Fund the account for actual transactions
+	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(testCtx), sdk.NewInt(2000000)))
+	EVMKeeper.BankKeeper().MintCoins(testCtx, types.ModuleName, amts)
+	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(testCtx, types.ModuleName, sdk.AccAddress(from[:]), amts)
+
+	// Helper function to create uint64 pointer
+	uint64Ptr := func(v uint64) *uint64 { return &v }
+
+	// Convert to export.TransactionArgs for eth_call
+	args := export.TransactionArgs{
+		From:  &from,
+		To:    &to,
+		Value: (*hexutil.Big)(big.NewInt(16)),
+		Nonce: (*hexutil.Uint64)(uint64Ptr(1)),
+	}
+
+	t.Run("TestEthCallRateLimiting", func(t *testing.T) {
+		// Test eth_call rate limiting with concurrent requests
+		numRequests := 10 // Much more than the limit of 2
+		results := make(chan error, numRequests)
+
+		// Start all requests concurrently to overwhelm the rate limiter
+		for i := 0; i < numRequests; i++ {
+			go func() {
+				_, err := simAPI.Call(context.Background(), args, nil, nil, nil)
+				results <- err
+			}()
+		}
+
+		// Collect all results
+		var errors []error
+		for i := 0; i < numRequests; i++ {
+			errors = append(errors, <-results)
+		}
+
+		// Count successful vs rejected requests
+		successCount := 0
+		rejectedCount := 0
+		for _, err := range errors {
+			if err == nil {
+				successCount++
+			} else if strings.Contains(err.Error(), "eth_call rejected due to rate limit: server busy") {
+				rejectedCount++
+			} else {
+				t.Logf("Unexpected error: %v", err)
+			}
+		}
+
+		// With only 2 concurrent slots and 10 requests, we should have rejections
+		require.Greater(t, rejectedCount, 0, "Should have rejected requests due to rate limiting")
+		require.Greater(t, successCount, 0, "Should have some successful requests")
+		require.Equal(t, numRequests, successCount+rejectedCount, "All requests should be accounted for")
+
+		t.Logf("eth_call rate limiting: %d successful, %d rejected out of %d total", successCount, rejectedCount, numRequests)
+	})
+
+	t.Run("TestEstimateGasRateLimiting", func(t *testing.T) {
+		// Test eth_estimateGas rate limiting
+		numRequests := 8
+		results := make(chan error, numRequests)
+
+		// Start all requests concurrently
+		for i := 0; i < numRequests; i++ {
+			go func() {
+				_, err := simAPI.EstimateGas(context.Background(), args, nil, nil)
+				results <- err
+			}()
+		}
+
+		// Collect all results
+		var errors []error
+		for i := 0; i < numRequests; i++ {
+			errors = append(errors, <-results)
+		}
+
+		// Count successful vs rejected requests
+		successCount := 0
+		rejectedCount := 0
+		for _, err := range errors {
+			if err == nil {
+				successCount++
+			} else if strings.Contains(err.Error(), "eth_estimateGas rejected due to rate limit: server busy") {
+				rejectedCount++
+			} else {
+				t.Logf("Unexpected estimateGas error: %v", err)
+			}
+		}
+
+		// Should have some rejections due to rate limiting
+		require.Greater(t, rejectedCount, 0, "Should have rejected estimateGas requests due to rate limiting")
+		require.Equal(t, numRequests, successCount+rejectedCount, "All estimateGas requests should be accounted for")
+
+		t.Logf("eth_estimateGas rate limiting: %d successful, %d rejected out of %d total", successCount, rejectedCount, numRequests)
+	})
+
+	t.Run("TestEstimateGasAfterCallsRateLimiting", func(t *testing.T) {
+		// Test eth_estimateGasAfterCalls rate limiting
+		numRequests := 2
+		results := make(chan error, numRequests)
+
+		// Create a simple call to use as a precondition
+		callArgs := export.TransactionArgs{
+			From:  &from,
+			To:    &to,
+			Value: (*hexutil.Big)(big.NewInt(8)),
+			Nonce: (*hexutil.Uint64)(uint64Ptr(0)),
+		}
+
+		// Start all requests concurrently
+		for i := 0; i < numRequests; i++ {
+			go func() {
+				_, err := simAPI.EstimateGasAfterCalls(context.Background(), args, []export.TransactionArgs{callArgs}, nil, nil)
+				results <- err
+			}()
+		}
+
+		// Collect all results
+		var errors []error
+		for i := 0; i < numRequests; i++ {
+			errors = append(errors, <-results)
+		}
+
+		// Count successful vs rejected requests
+		successCount := 0
+		rejectedCount := 0
+		for _, err := range errors {
+			if err == nil {
+				successCount++
+			} else if strings.Contains(err.Error(), "eth_estimateGasAfterCalls rejected due to rate limit: server busy") {
+				rejectedCount++
+			} else {
+				t.Logf("Unexpected estimateGasAfterCalls error: %v", err)
+			}
+		}
+
+		// Should have no rejections within the rate limiting
+		require.Equal(t, rejectedCount, 0, "Should have no rejected estimateGasAfterCalls requests")
+		require.Equal(t, numRequests, successCount+rejectedCount, "All estimateGasAfterCalls requests should be accounted for")
+
+		t.Logf("eth_estimateGasAfterCalls rate limiting: %d successful, %d rejected out of %d total", successCount, rejectedCount, numRequests)
+	})
+
+	t.Run("TestSequentialRequestsAfterLoad", func(t *testing.T) {
+		numRequests := 10
+		results := make(chan error, numRequests)
+
+		for i := 0; i < numRequests; i++ {
+			go func() {
+				_, err := simAPI.Call(context.Background(), args, nil, nil, nil)
+				results <- err
+			}()
+		}
+
+		// Wait for all concurrent requests to finish
+		for i := 0; i < numRequests; i++ {
+			<-results
+		}
+
+		// Give a small amount of time for any ongoing operations to complete
+		time.Sleep(50 * time.Millisecond)
+
+		// Now send sequential requests and ensure they succeed
+		for i := 0; i < 3; i++ {
+			_, err := simAPI.Call(context.Background(), args, nil, nil, nil)
+			require.NoError(t, err, "Sequential request %d should succeed after rate limiter recovers", i+1)
+		}
+
+		t.Log("Sequential requests after load: all succeeded")
+	})
+
+	t.Run("TestDifferentMethodsShareSameLimiter", func(t *testing.T) {
+		// Test that different simulation methods share the same rate limiter
+		numCallRequests := 3
+		numEstimateRequests := 3
+		totalRequests := numCallRequests + numEstimateRequests
+
+		results := make(chan error, totalRequests)
+
+		// Start mixed requests concurrently to verify they share the same limiter
+		for i := 0; i < numCallRequests; i++ {
+			go func() {
+				_, err := simAPI.Call(context.Background(), args, nil, nil, nil)
+				results <- err
+			}()
+		}
+
+		for i := 0; i < numEstimateRequests; i++ {
+			go func() {
+				_, err := simAPI.EstimateGas(context.Background(), args, nil, nil)
+				results <- err
+			}()
+		}
+
+		// Collect all results
+		var errors []error
+		for i := 0; i < totalRequests; i++ {
+			errors = append(errors, <-results)
+		}
+
+		// Count results
+		successCount := 0
+		rejectedCount := 0
+		for _, err := range errors {
+			if err == nil {
+				successCount++
+			} else if strings.Contains(err.Error(), "rejected due to rate limit: server busy") {
+				rejectedCount++
+			}
+		}
+
+		// Since the rate limiter allows 2 concurrent requests total, we should see some rejections
+		// when running 6 concurrent requests across different methods
+		require.Greater(t, rejectedCount, 0, "Different methods should share the same rate limiter")
+		require.Equal(t, totalRequests, successCount+rejectedCount, "All mixed method requests should be accounted for")
+
+		t.Logf("Mixed methods rate limiting: %d successful, %d rejected out of %d total", successCount, rejectedCount, totalRequests)
+	})
+
+	t.Run("TestRateLimitErrorFormat", func(t *testing.T) {
+		// Test the error message format by overwhelming the rate limiter
+		numRequests := 5
+		results := make(chan error, numRequests)
+
+		// Start requests concurrently to trigger rate limiting
+		for i := 0; i < numRequests; i++ {
+			go func() {
+				_, err := simAPI.Call(context.Background(), args, nil, nil, nil)
+				results <- err
+			}()
+		}
+
+		// Collect results and check error messages
+		var rateLimitErrors []error
+		for i := 0; i < numRequests; i++ {
+			if err := <-results; err != nil && strings.Contains(err.Error(), "rejected due to rate limit") {
+				rateLimitErrors = append(rateLimitErrors, err)
+			}
+		}
+
+		// Should have at least one rate limit error
+		require.Greater(t, len(rateLimitErrors), 0, "Should have at least one rate limit error")
+
+		// Verify error message format
+		for _, err := range rateLimitErrors {
+			require.Contains(t, err.Error(), "eth_call rejected due to rate limit: server busy")
+			require.Contains(t, err.Error(), "server busy")
+		}
+
+		t.Logf("Found %d rate limit errors with correct format", len(rateLimitErrors))
+	})
 }
