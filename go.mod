@@ -1,8 +1,8 @@
 module github.com/sei-protocol/sei-chain
 
-go 1.23.0
+go 1.24.5
 
-toolchain go1.23.7
+toolchain go1.24.5
 
 require (
 	github.com/BurntSushi/toml v1.4.0
