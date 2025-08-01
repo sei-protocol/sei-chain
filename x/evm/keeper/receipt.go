@@ -26,13 +26,13 @@ func (k *Keeper) SetTransientReceipt(ctx sdk.Context, txHash common.Hash, receip
 	if err != nil {
 		return err
 	}
-	store.Set(types.ReceiptKey(txHash), bz)
+	store.Set(types.NewTransientReceiptKey(uint64(receipt.TransactionIndex), txHash), bz)
 	return nil
 }
 
-func (k *Keeper) GetTransientReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
+func (k *Keeper) GetTransientReceipt(ctx sdk.Context, txHash common.Hash, txIndex uint64) (*types.Receipt, error) {
 	store := ctx.TransientStore(k.transientStoreKey)
-	bz := store.Get(types.ReceiptKey(txHash))
+	bz := store.Get(types.NewTransientReceiptKey(txIndex, txHash))
 	if bz == nil {
 		return nil, errors.New("not found")
 	}
@@ -43,9 +43,9 @@ func (k *Keeper) GetTransientReceipt(ctx sdk.Context, txHash common.Hash) (*type
 	return r, nil
 }
 
-func (k *Keeper) DeleteTransientReceipt(ctx sdk.Context, txHash common.Hash) {
+func (k *Keeper) DeleteTransientReceipt(ctx sdk.Context, txHash common.Hash, txIndex uint64) {
 	store := ctx.TransientStore(k.transientStoreKey)
-	store.Delete(types.ReceiptKey(txHash))
+	store.Delete(types.NewTransientReceiptKey(txIndex, txHash))
 }
 
 // GetReceipt returns a data structure that stores EVM specific transaction metadata.
@@ -123,11 +123,31 @@ func (k *Keeper) FlushTransientReceiptsAsync(ctx sdk.Context) error {
 }
 
 func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
-	iter := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix).Iterator(nil, nil)
+	transientReceiptStore := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix)
+	iter := transientReceiptStore.Iterator(nil, nil)
 	defer iter.Close()
 	var pairs []*iavl.KVPair
+
+	// TransientReceiptStore is recreated on commit meaning it will only contain receipts for a single block at a time
+	// and will never flush a subset of block's receipts.
+	// However in our test suite it can happen that the transient store can contain receipts from different blocks
+	// and we need to account for that.
+	cumulativeGasUsedPerBlock := make(map[uint64]uint64)
 	for ; iter.Valid(); iter.Next() {
-		kvPair := &iavl.KVPair{Key: types.ReceiptKey(common.Hash(iter.Key())), Value: iter.Value()}
+		receipt := &types.Receipt{}
+		if err := receipt.Unmarshal(iter.Value()); err != nil {
+			return err
+		}
+
+		cumulativeGasUsedPerBlock[receipt.BlockNumber] += receipt.GasUsed
+		receipt.CumulativeGasUsed = cumulativeGasUsedPerBlock[receipt.BlockNumber]
+
+		marshalledReceipt, err := receipt.Marshal()
+		if err != nil {
+			return err
+		}
+
+		kvPair := &iavl.KVPair{Key: types.ReceiptKey(types.TransientReceiptKey(iter.Key()).TransactionHash()), Value: marshalledReceipt}
 		pairs = append(pairs, kvPair)
 	}
 	if len(pairs) == 0 {
@@ -137,6 +157,7 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 		Name:      types.ReceiptStoreKey,
 		Changeset: iavl.ChangeSet{Pairs: pairs},
 	}
+
 	if sync {
 		return k.receiptStore.ApplyChangeset(ctx.BlockHeight(), ncs)
 	} else {
