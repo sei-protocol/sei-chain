@@ -59,24 +59,24 @@ func TestTransientReceiptKeyTransactionIndexSorting(t *testing.T) {
 		types.NewTransientReceiptKey(25, common.HexToHash("0x5555555555555555555555555555555555555555555555555555555555555555")),
 	}
 
-	expectedIndices := map[string]uint64{
-		string(keys[0]): 100,
-		string(keys[1]): 5,
-		string(keys[2]): 50,
-		string(keys[3]): 1,
-		string(keys[4]): 25,
-	}
-
 	sort.Slice(keys, func(i, j int) bool {
 		return string(keys[i]) < string(keys[j])
 	})
 
-	expectedOrder := []uint64{1, 5, 25, 50, 100}
+	// Expected order of hashes based on transaction indices: 1, 5, 25, 50, 100
+	expectedHashes := []common.Hash{
+		common.HexToHash("0x4444444444444444444444444444444444444444444444444444444444444444"), // index 1
+		common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222"), // index 5
+		common.HexToHash("0x5555555555555555555555555555555555555555555555555555555555555555"), // index 25
+		common.HexToHash("0x3333333333333333333333333333333333333333333333333333333333333333"), // index 50
+		common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"), // index 100
+	}
+
 	for i, key := range keys {
-		expectedIndex := expectedOrder[i]
-		actualIndex := expectedIndices[string(key)]
-		require.Equal(t, expectedIndex, actualIndex,
-			"Key at position %d should have transaction index %d, but got %d",
-			i, expectedIndex, actualIndex)
+		expectedHash := expectedHashes[i]
+		actualHash := key.TransactionHash()
+		require.Equal(t, expectedHash, actualHash,
+			"Key at position %d should have hash %s, but got %s",
+			i, expectedHash.Hex(), actualHash.Hex())
 	}
 }
