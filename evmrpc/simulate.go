@@ -548,11 +548,11 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 			gasLimit = uint64(blockRes.ConsensusParamUpdates.Block.MaxGas)
 		} else {
 			// Fallback to config if block results unavailable
-			gasLimit = b.config.GasCap
+			gasLimit = keeper.DefaultBlockGasLimit
 		}
 	} else {
 		// Fallback to config if block unavailable
-		gasLimit = b.config.GasCap
+		gasLimit = keeper.DefaultBlockGasLimit
 	}
 
 	header := &ethtypes.Header{
