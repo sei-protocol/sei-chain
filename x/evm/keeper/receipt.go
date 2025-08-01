@@ -128,7 +128,10 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 	defer iter.Close()
 	var pairs []*iavl.KVPair
 
-	// TransientReceiptStore is not flushed, therefore it can contain receipts from multiple blocks
+	// TransientReceiptStore is recreated on commit meaning it will only contain receipts for a single block at a time
+	// and will never flush a subset of block's receipts.
+	// However in our test suite it can happen that the transient store can contain receipts from different blocks
+	// and we need to account for that.
 	cumulativeGasUsedPerBlock := make(map[uint64]uint64)
 	for ; iter.Valid(); iter.Next() {
 		receipt := &types.Receipt{}
