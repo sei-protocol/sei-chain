@@ -310,22 +310,23 @@ func TestGetTransactionReceiptExcludeTraceFail(t *testing.T) {
 }
 
 func TestCumulativeGasUsedPopulation(t *testing.T) {
-	blockHeight := int64(100)
+	blockHeight := int64(1000)
 	Ctx = Ctx.WithBlockHeight(blockHeight)
 
 	txHashes := []common.Hash{
-		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"),
-		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000001"),
-		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000002"),
-		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000003"),
-		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000004"),
-		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000005"),
-		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000006"),
-		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000007"),
-		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000008"),
-		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000009"),
-		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000010"),
+		common.HexToHash("0xc90ff2909ee2bba49a1a84bc3eb44fd1f0b389f6fb204ce77fcc48f58f1b8967"),
+		common.HexToHash("0xb71247ff6fa4d16f68b559d3f37e6a76662e8c4bda795dec534c118740b993f4"),
+		common.HexToHash("0xe81adea20595a48d49f6856c9d45de5d1874b7120c7fb053acacc9a297cd7106"),
+		common.HexToHash("0xd768d6dff68f95fea0a096c43976fee8fe1f7bde24bdd6b48e086b7283967a0f"),
+		common.HexToHash("0xe22b36ac447615070cb93f178ca41e4ca0482908d54c688cd0b9f42ccb81eed0"),
+		common.HexToHash("0x65fda2369f700599385c9dbe2870f8a56051a8a45c3ebc49a8c56a46b7ecc9fb"),
+		common.HexToHash("0x331decb2e371768a8b78eb03bcd91e54a65b35d43accd789900901a77a94c701"),
+		common.HexToHash("0xef71e67093ace8649c4b5bc66fc823e7746e504c05d5c41deca909b3f5a66c4c"),
+		common.HexToHash("0x96b8b807b31edef98c1486a3ca6326f61a09f9a825b2de76845ac7a8ff59912d"),
+		common.HexToHash("0x194dd7db211b09b1e86ee2f188c75e20f31b602d78cbb4762aeb704406b8a6e0"),
+		common.HexToHash("0x06a58c740f3f7f1af8f0e9eaded8578a099c3fe8ef8ee947c539af34ecf70aa8"),
 	}
+	correctCumulativeGasUsedValues := []uint64{21000, 43000, 66000, 90000, 115000, 141000, 168000, 196000, 225000, 255000, 286000}
 
 	stateDB := state.NewDBImpl(Ctx, EVMKeeper, true)
 
@@ -354,7 +355,9 @@ func TestCumulativeGasUsedPopulation(t *testing.T) {
 	err := EVMKeeper.FlushTransientReceiptsSync(Ctx)
 	require.Nil(t, err)
 
-	receipt, err := EVMKeeper.GetReceipt(Ctx, common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"))
-	require.Nil(t, err)
-	require.Equal(t, receipt.CumulativeGasUsed,  uint64(21000))
+	for i := 0 ; i < len(txHashes); i++ {
+		receipt, err := EVMKeeper.GetReceipt(Ctx, txHashes[i])
+		require.Nil(t, err)
+		require.Equal(t, receipt.CumulativeGasUsed,  correctCumulativeGasUsedValues[i])
+	}
 }
