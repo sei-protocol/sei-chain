@@ -3,7 +3,7 @@ package generator
 import (
 	"context"
 	"math/rand"
-	"seiload/types"
+	"github.com/sei-protocol/sei-chain/seiload/types"
 	"sync"
 )
 

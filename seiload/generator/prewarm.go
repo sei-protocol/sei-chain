@@ -3,9 +3,9 @@ package generator
 import (
 	"sync"
 
-	"seiload/config"
-	"seiload/generator/scenarios"
-	"seiload/types"
+	"github.com/sei-protocol/sei-chain/seiload/config"
+	"github.com/sei-protocol/sei-chain/seiload/generator/scenarios"
+	"github.com/sei-protocol/sei-chain/seiload/types"
 )
 
 // PrewarmGenerator generates self-transfer transactions to prewarm account nonces
