@@ -3,10 +3,12 @@ package sender
 import (
 	"fmt"
 	"sync"
+	"context"
 
-	"seiload/config"
-	"seiload/stats"
-	"seiload/types"
+	"github.com/sei-protocol/sei-chain/seiload/config"
+	"github.com/sei-protocol/sei-chain/seiload/stats"
+	"github.com/sei-protocol/sei-chain/seiload/types"
+	"github.com/sei-protocol/sei-chain/utils2/service"
 )
 
 // ShardedSender implements TxSender with multiple workers, one per endpoint
@@ -40,45 +42,29 @@ func NewShardedSender(cfg *config.LoadConfig, bufferSize int, workers int) (*Sha
 }
 
 // Start initializes and starts all workers
-func (s *ShardedSender) Start() {
+func (s *ShardedSender) Run(ctx context.Context) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for _, worker := range s.workers {
-		worker.Start()
-	}
-}
-
-// Stop gracefully shuts down all workers
-func (s *ShardedSender) Stop() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	for _, worker := range s.workers {
-		worker.Stop()
-	}
+	workers := s.workers
+	s.mu.Unlock()
+	return service.Run(ctx, func(ctx context.Context, s service.Scope) error {
+		for _, worker := range workers {
+			s.Spawn(func() error { return worker.Run(ctx) })
+		}
+		return nil
+	})
 }
 
 // Send implements TxSender interface - calculates shard ID and routes to appropriate worker
-func (s *ShardedSender) Send(tx *types.LoadTx) error {
-	if tx == nil {
-		return fmt.Errorf("transaction is nil")
-	}
-
+func (s *ShardedSender) Send(ctx context.Context, tx *types.LoadTx) error {
 	// Calculate shard ID based on the transaction
 	shardID := tx.ShardID(s.numShards)
-
-	// Validate shard ID
-	if shardID < 0 || shardID >= s.numShards {
-		return fmt.Errorf("invalid shard ID %d for %d shards", shardID, s.numShards)
-	}
 
 	// Send to the appropriate worker
 	s.mu.RLock()
 	worker := s.workers[shardID]
 	s.mu.RUnlock()
 
-	return worker.Send(tx)
+	return worker.Send(ctx, tx)
 }
 
 // GetWorkerStats returns statistics for all workers

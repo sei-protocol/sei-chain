@@ -15,7 +15,7 @@ ifeq ($(GOPATH),)
 endif
 
 # Tools
-SOLC := solc
+SOLC := /tmp/solc
 ABIGEN := abigen
 NVM_DIR := $(HOME)/.nvm
 NODE_VERSION := 20
@@ -60,8 +60,8 @@ setup-node:
 	nvm install $(NODE_VERSION) && \
 	nvm use $(NODE_VERSION)
 	@echo "📦 Installing native solc binary..."
-	@curl -L https://github.com/ethereum/solidity/releases/download/v0.8.19/solc-static-linux -o /usr/local/bin/solc && \
-	chmod +x /usr/local/bin/solc
+	@curl -L https://github.com/ethereum/solidity/releases/download/v0.8.19/solc-static-linux -o /tmp/solc && \
+	chmod +x /tmp/solc
 	@echo "✅ Node.js environment setup complete"
 	@echo "ℹ️  Note: You may need to restart your shell or run 'source ~/.bashrc' to use nvm in new sessions"
 

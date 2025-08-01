@@ -15,6 +15,7 @@ services:
       - SKIP_BUILD
       - INVARIANT_CHECK_INTERVAL
       - UPGRADE_VERSION_LIST
+      - MOCK_BALANCES
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
       - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"

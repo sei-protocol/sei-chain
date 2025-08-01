@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"seiload/config"
-	"seiload/generator"
-	"seiload/generator/scenarios"
+	"github.com/sei-protocol/sei-chain/seiload/config"
+	"github.com/sei-protocol/sei-chain/seiload/generator"
+	"github.com/sei-protocol/sei-chain/seiload/generator/scenarios"
 )
 
 // JSONRPCRequest represents a captured JSON-RPC request
@@ -128,55 +128,58 @@ func TestShardedSenderWithMockServers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create sharded sender with larger buffer to handle burst
-	sender, err := NewShardedSender(cfg, 50) // Larger buffer for testing
+	sender, err := NewShardedSender(cfg, 50, 3) // Larger buffer for testing
 	require.NoError(t, err)
 
-	// Start the sender (starts all workers)
-	sender.Start()
-	defer sender.Stop()
+	if err:=service.Run(ctx, func(ctx context.Context, s service.Scope) error {
+		// Start the sender (starts all workers)
+		s.SpawnBg(func() error { return sender.Run(ctx) })
 
-	// Create dispatcher
-	dispatcher := NewDispatcher(gen, sender)
+		// Create dispatcher
+		dispatcher := NewDispatcher(gen, sender)
 
-	// Set a small rate limit to prevent overwhelming the workers
-	dispatcher.SetRateLimit(5 * time.Millisecond)
+		// Set a small rate limit to prevent overwhelming the workers
+		dispatcher.SetRateLimit(5 * time.Millisecond)
 
-	// Send a batch of transactions
-	batchSize := 20
-	err = dispatcher.StartBatch(batchSize)
-	require.NoError(t, err)
-
-	// Wait for batch to complete
-	dispatcher.Wait()
-
-	// Give workers more time to process all requests
-	time.Sleep(200 * time.Millisecond)
-
-	// Check dispatcher statistics
-	stats := dispatcher.GetStats()
-	assert.Equal(t, uint64(batchSize), stats.TotalSent)
-
-	// Verify requests were distributed across shards
-	totalRequests := 0
-	shardDistribution := make(map[int]int)
-
-	for shardID, server := range mockServers {
-		requests := server.GetRequests()
-		requestCount := len(requests)
-		totalRequests += requestCount
-		shardDistribution[shardID] = requestCount
-
-		fmt.Printf("Shard %d received %d requests\n", shardID, requestCount)
-
-		// Verify all requests are valid JSON-RPC
-		for _, req := range requests {
-			assert.Equal(t, "2.0", req.JSONRPC)
-			assert.Equal(t, "eth_sendRawTransaction", req.Method)
-			assert.Len(t, req.Params, 1) // Should have one parameter (raw transaction)
-			assert.GreaterOrEqual(t, req.ID, 0)
+		// Send a batch of transactions
+		batchSize := 20
+		if err := dispatcher.RunBatch(batchSize); err!=nil {
+			return fmt.Errorf("dispatcher.RunBatch(): %w",err)
 		}
-	}
+		
+		// Give workers more time to process all requests
+		if err := utils.Sleep(ctx, 200 * time.Millisecond); err!=nil {
+			return err
+		}
 
+		// Check dispatcher statistics
+		stats := dispatcher.GetStats()
+		if want,got := uint64(batchSize), stats.TotalSent; got != want {
+			return fmt.Errorf("expected %d transactions sent, got %d", want, got)
+		}
+
+		// Verify requests were distributed across shards
+		totalRequests := 0
+		shardDistribution := make(map[int]int)
+
+		for shardID, server := range mockServers {
+			requests := server.GetRequests()
+			requestCount := len(requests)
+			totalRequests += requestCount
+			shardDistribution[shardID] = requestCount
+
+			t.Logf("Shard %d received %d requests", shardID, requestCount)
+
+			// Verify all requests are valid JSON-RPC
+			for _, req := range requests {
+				assert.Equal(t, "2.0", req.JSONRPC)
+				assert.Equal(t, "eth_sendRawTransaction", req.Method)
+				assert.Len(t, req.Params, 1) // Should have one parameter (raw transaction)
+				assert.GreaterOrEqual(t, req.ID, 0)
+			}
+		}
+		
+		if 
 	// Verify total requests match what we sent
 	assert.Equal(t, batchSize, totalRequests, "Total requests should match batch size")
 

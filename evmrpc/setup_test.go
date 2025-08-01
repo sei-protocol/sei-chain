@@ -888,6 +888,7 @@ func setupLogs() {
 			Address: "0x1111111111111111111111111111111111111112",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123"},
 		}},
+		GasUsed:           21000,
 		EffectiveGasPrice: 100,
 	})
 	bloom2 := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: []*ethtypes.Log{{
@@ -906,6 +907,7 @@ func setupLogs() {
 			Address: "0x1111111111111111111111111111111111111113",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
 		}},
+		GasUsed:           30000,
 		EffectiveGasPrice: 100,
 	})
 	bloom3 := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: []*ethtypes.Log{{
@@ -924,6 +926,7 @@ func setupLogs() {
 			Address: "0x1111111111111111111111111111111111111114",
 			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
 		}},
+		GasUsed:           25000,
 		EffectiveGasPrice: 100,
 	})
 	bloom4 := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: []*ethtypes.Log{{

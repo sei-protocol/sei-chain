@@ -61,7 +61,7 @@ func NewBlockCollector(firstEndpoint string) *BlockCollector {
 }
 
 // Start begins block subscription and data collection
-func (bc *BlockCollector) Start() error {
+func (bc *BlockCollector) Run(ctx context.Context) error {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 

@@ -106,7 +106,8 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 		Data:      data,
 		From:      from,
 	}
-	res, err := k.applyEVMMessage(ctx, evmMsg, stateDB, gp)
+	// should not increment nonce since this isn't a transaction
+	res, err := k.applyEVMMessage(ctx, evmMsg, stateDB, gp, false)
 	if err != nil {
 		return nil, err
 	}

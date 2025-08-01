@@ -87,6 +87,7 @@ func TestInternalCall(t *testing.T) {
 	require.Nil(t, k.BankKeeper().MintCoins(ctx, types.ModuleName, sdk.NewCoins(sdk.NewCoin("test", sdk.NewInt(200000000)))))
 	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, testAddr, sdk.NewCoins(sdk.NewCoin("test", sdk.NewInt(200000000)))))
 	val := sdk.NewInt(0)
+	oldNonce := k.GetNonce(ctx, k.GetEVMAddressOrDefault(ctx, testAddr))
 	req = &types.MsgInternalEVMCall{
 		Sender: testAddr.String(),
 		To:     contractAddr.Hex(),
@@ -96,6 +97,8 @@ func TestInternalCall(t *testing.T) {
 	_, err = k.HandleInternalEVMCall(ctx, req)
 	require.Nil(t, err)
 	require.Equal(t, int64(1000), testkeeper.EVMTestApp.BankKeeper.GetBalance(ctx, receiverAddr, "test").Amount.Int64())
+	// nonce should not change
+	require.Equal(t, oldNonce, k.GetNonce(ctx, k.GetEVMAddressOrDefault(ctx, testAddr)))
 }
 
 func TestStaticCall(t *testing.T) {

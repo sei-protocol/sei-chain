@@ -216,13 +216,8 @@ func (txClient *EvmTxClient) nextNonce() uint64 {
 }
 
 // SendEvmTx takes any signed evm tx and send it out
-func (txClient *EvmTxClient) SendEvmTx(signedTx *ethtypes.Transaction, onSuccess func()) {
-	err := GetNextEthClient(txClient.ethClients).SendTransaction(context.Background(), signedTx)
-	if err != nil {
-		fmt.Printf("Failed to send evm transaction: %v \n", err)
-	} else {
-		onSuccess()
-	}
+func (txClient *EvmTxClient) SendEvmTx(ctx context.Context, signedTx *ethtypes.Transaction) error {
+	return GetNextEthClient(txClient.ethClients).SendTransaction(ctx, signedTx)
 }
 
 // GetNextEthClient return the next available eth client randomly
