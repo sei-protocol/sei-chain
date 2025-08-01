@@ -13,7 +13,7 @@ make clean
 # build seid with the mock balance function enabled
 if [ "$MOCK_BALANCES" = true ]; then
     echo "Building with mock balances enabled..."
-    make build-linux LDFLAGS="-X github.com/sei-protocol/sei-chain/x/evm/state.mockBalanceTesting=enabled"
+    make build-linux BUILD_TAGS="mock_balances"
 else
     echo "Building with standard configuration..."
     make build-linux
