@@ -309,25 +309,33 @@ func TestGetTransactionReceiptExcludeTraceFail(t *testing.T) {
 	require.Nil(t, resObj["result"])
 }
 
-func TestWriteReceiptMultipleTransactions(t *testing.T) {
+func TestCumulativeGasUsedPopulation(t *testing.T) {
 	blockHeight := int64(100)
-	Ctx.WithBlockHeight(blockHeight)
+	Ctx = Ctx.WithBlockHeight(blockHeight)
 
 	txHashes := []common.Hash{
-		common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
-		common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222"),
-		common.HexToHash("0x3333333333333333333333333333333333333333333333333333333333333333"),
+		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"),
+		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000001"),
+		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000002"),
+		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000003"),
+		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000004"),
+		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000005"),
+		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000006"),
+		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000007"),
+		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000008"),
+		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000009"),
+		common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000010"),
 	}
 
 	stateDB := state.NewDBImpl(Ctx, EVMKeeper, true)
 
 	for i, txHash := range txHashes {
-		Ctx.WithTxIndex(len(txHashes) - i - 1)
+		Ctx = Ctx.WithTxIndex(i)
 
 		msg := &core.Message{
 			From:     common.HexToAddress("0x1234567890123456789012345678901234567890"),
 			To:       &common.Address{},
-			GasPrice: big.NewInt(1000000000), // 1 gwei
+			GasPrice: big.NewInt(1000000000),
 			Nonce:    uint64(i),
 		}
 
@@ -340,23 +348,13 @@ func TestWriteReceiptMultipleTransactions(t *testing.T) {
 			uint64(21000+i*1000),
 			"",
 		)
-		// do smth here
-		if err != nil {
-
-		}
+		require.Nil(t, err)
 	}
 
 	err := EVMKeeper.FlushTransientReceiptsSync(Ctx)
-	// do smth here
-	if err != nil {
+	require.Nil(t, err)
 
-	}
-
-	receipt, err := EVMKeeper.GetReceipt(Ctx, common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"))
-	// do smth here
-	if err != nil {
-
-	}
-
+	receipt, err := EVMKeeper.GetReceipt(Ctx, common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"))
+	require.Nil(t, err)
 	require.Equal(t, receipt.CumulativeGasUsed,  uint64(21000))
 }

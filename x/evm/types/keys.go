@@ -88,7 +88,7 @@ func ReceiptKey(txHash common.Hash) []byte {
 }
 
 func TransientReceiptKey(txIndex uint64, txHash common.Hash) []byte {
-	return append(ReceiptKeyPrefix, fmt.Sprintf("%s:%s", txIndex, txHash.String())[:]...)
+	return append(ReceiptKeyPrefix, fmt.Sprintf("%020d:%s", txIndex, txHash.String())[:]...)
 }
 
 func BlockBloomKey(height int64) []byte {

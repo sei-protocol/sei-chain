@@ -128,22 +128,18 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 	defer iter.Close()
 	var pairs []*iavl.KVPair
 
-	cumulativeGasUsed := uint64(0)
+	// TransientReceiptStore is not flushed, therefore it can contain receipts from multiple blocks
+	cumulativeGasUsedPerBlock := make(map[uint64]uint64)
 	for ; iter.Valid(); iter.Next() {
 		receipt := &types.Receipt{}
-		// figure out how should we react to an unmarshalling error
 		if err := receipt.Unmarshal(iter.Value()); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("Failed to unmarshal receipt for tx %s: %v", "", err))
-			// can't continue here, unmarshal should never fail - should we panic?
-			continue
+			return err
 		}
 
-		// check if receipts are sorted - write a test
-		cumulativeGasUsed += receipt.GasUsed
-		receipt.CumulativeGasUsed = cumulativeGasUsed
+		cumulativeGasUsedPerBlock[receipt.BlockNumber] += receipt.GasUsed
+		receipt.CumulativeGasUsed = cumulativeGasUsedPerBlock[receipt.BlockNumber]
 
 		marshalledReceipt, err := receipt.Marshal()
-		// figure out if this should be an error - whether we ignore it or bubble up and can it ever happen
 		if err != nil {
 			return err
 		}
@@ -157,11 +153,6 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 	ncs := &proto.NamedChangeSet{
 		Name:      types.ReceiptStoreKey,
 		Changeset: iavl.ChangeSet{Pairs: pairs},
-	}
-
-	err := transientReceiptStore.DeleteAll(nil, nil)
-	if err != nil {
-		// do smth here
 	}
 
 	if sync {
