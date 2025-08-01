@@ -27,6 +27,19 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## v6.1.4
+sei-chain
+* [#2234](https://github.com/sei-protocol/sei-chain/pull/2234) Use legacy transaction decoder for historical height
+* [#2223](https://github.com/sei-protocol/sei-chain/pull/2223) Update Pointer Cache
+* [#2211](https://github.com/sei-protocol/sei-chain/pull/2211) Fix: use evm only index in eth_getLogs
+* [#2220](https://github.com/sei-protocol/sei-chain/pull/2220) Exclude transactions that failed ante from fee history calculation
+* [#2204](https://github.com/sei-protocol/sei-chain/pull/2204) Fix: blockhash issue in eth_getLog
+* [#2203](https://github.com/sei-protocol/sei-chain/pull/2203) Make MaxFee and MaxPriorityFee optional for eth_call (NoBaseFee:true)
+* [#2217](https://github.com/sei-protocol/sei-chain/pull/2217) Fix eth_feeHistory empty blocks
+* [#2215](https://github.com/sei-protocol/sei-chain/pull/2215) Option for unlimited Debug Trace lookback
+* [#2214](https://github.com/sei-protocol/sei-chain/pull/2214) Fix log index on tx receipt
+* [#2195](https://github.com/sei-protocol/sei-chain/pull/2195) Feat: optimize eth_getLogs scalability
+ 
 ## v6.1.0
 sei-chain
 * [#2194](https://github.com/sei-protocol/sei-chain/pull/2194) Fix access list height check
