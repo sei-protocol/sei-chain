@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"math/big"
+
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
@@ -15,7 +17,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/go-bip39"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
@@ -303,4 +307,56 @@ func TestGetTransactionReceiptExcludeTraceFail(t *testing.T) {
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
 	require.Greater(t, len(resObj["error"].(map[string]interface{})["message"].(string)), 0)
 	require.Nil(t, resObj["result"])
+}
+
+func TestWriteReceiptMultipleTransactions(t *testing.T) {
+	blockHeight := int64(100)
+	Ctx.WithBlockHeight(blockHeight)
+
+	txHashes := []common.Hash{
+		common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"),
+		common.HexToHash("0x2222222222222222222222222222222222222222222222222222222222222222"),
+		common.HexToHash("0x3333333333333333333333333333333333333333333333333333333333333333"),
+	}
+
+	stateDB := state.NewDBImpl(Ctx, EVMKeeper, true)
+
+	for i, txHash := range txHashes {
+		Ctx.WithTxIndex(len(txHashes) - i - 1)
+
+		msg := &core.Message{
+			From:     common.HexToAddress("0x1234567890123456789012345678901234567890"),
+			To:       &common.Address{},
+			GasPrice: big.NewInt(1000000000), // 1 gwei
+			Nonce:    uint64(i),
+		}
+
+		_, err := EVMKeeper.WriteReceipt(
+			Ctx,
+			stateDB,
+			msg,
+			2,
+			txHash,
+			uint64(21000+i*1000),
+			"",
+		)
+		// do smth here
+		if err != nil {
+
+		}
+	}
+
+	err := EVMKeeper.FlushTransientReceiptsSync(Ctx)
+	// do smth here
+	if err != nil {
+
+	}
+
+	receipt, err := EVMKeeper.GetReceipt(Ctx, common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111"))
+	// do smth here
+	if err != nil {
+
+	}
+
+	require.Equal(t, receipt.CumulativeGasUsed,  uint64(21000))
 }

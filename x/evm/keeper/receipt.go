@@ -123,7 +123,8 @@ func (k *Keeper) FlushTransientReceiptsAsync(ctx sdk.Context) error {
 }
 
 func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
-	iter := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix).Iterator(nil, nil)
+	transientReceiptStore := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix)
+	iter := transientReceiptStore.Iterator(nil, nil)
 	defer iter.Close()
 	var pairs []*iavl.KVPair
 
@@ -147,7 +148,7 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 			return err
 		}
 
-		kvPair := &iavl.KVPair{Key: types.ReceiptKey(common.Hash(iter.Key())), Value: marshalledReceipt}
+		kvPair := &iavl.KVPair{Key: types.ReceiptKey(common.HexToHash(receipt.TxHashHex)), Value: marshalledReceipt}
 		pairs = append(pairs, kvPair)
 	}
 	if len(pairs) == 0 {
@@ -157,6 +158,12 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 		Name:      types.ReceiptStoreKey,
 		Changeset: iavl.ChangeSet{Pairs: pairs},
 	}
+
+	err := transientReceiptStore.DeleteAll(nil, nil)
+	if err != nil {
+		// do smth here
+	}
+
 	if sync {
 		return k.receiptStore.ApplyChangeset(ctx.BlockHeight(), ncs)
 	} else {
