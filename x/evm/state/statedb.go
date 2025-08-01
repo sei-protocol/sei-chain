@@ -17,8 +17,9 @@ type DBImpl struct {
 	ctx             sdk.Context
 	snapshottedCtxs []sdk.Context
 
-	tempStateCurrent *TemporaryState
-	tempStatesHist   []*TemporaryState
+	tempState *TemporaryState
+	journal   []journalEntry
+
 	// If err is not nil at the end of the execution, the transaction will be rolled
 	// back.
 	err error
@@ -49,18 +50,12 @@ func NewDBImpl(ctx sdk.Context, k EVMKeeper, simulation bool) *DBImpl {
 		snapshottedCtxs:    []sdk.Context{},
 		coinbaseAddress:    GetCoinbaseAddress(ctx.TxIndex()),
 		simulation:         simulation,
-		tempStateCurrent:   NewTemporaryState(),
+		tempState:          NewTemporaryState(),
+		journal:            []journalEntry{},
 		coinbaseEvmAddress: feeCollector,
 	}
 	s.Snapshot() // take an initial snapshot for GetCommitted
 	return s
-}
-
-func (s *DBImpl) AddSurplus(surplus sdk.Int) {
-	if surplus.IsNil() || surplus.IsZero() {
-		return
-	}
-	s.tempStateCurrent.surplus = s.tempStateCurrent.surplus.Add(surplus)
 }
 
 func (s *DBImpl) DisableEvents() {
@@ -85,8 +80,7 @@ func (s *DBImpl) SetEVM(evm *vm.EVM) {}
 func (s *DBImpl) AddPreimage(_ common.Hash, _ []byte) {}
 
 func (s *DBImpl) Cleanup() {
-	s.tempStateCurrent = nil
-	s.tempStatesHist = []*TemporaryState{}
+	s.tempState = nil
 	s.logger = nil
 	s.snapshottedCtxs = nil
 }
@@ -98,8 +92,8 @@ func (s *DBImpl) CleanupForTracer() {
 	}
 	feeCollector, _ := s.k.GetFeeCollectorAddress(s.Ctx())
 	s.coinbaseEvmAddress = feeCollector
-	s.tempStateCurrent = NewTemporaryState()
-	s.tempStatesHist = []*TemporaryState{}
+	s.tempState = NewTemporaryState()
+	s.journal = []journalEntry{}
 	s.snapshottedCtxs = []sdk.Context{}
 	s.Snapshot()
 }
@@ -114,12 +108,8 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	}
 
 	// delete state of self-destructed accounts
-	s.handleResidualFundsInDestructedAccounts(s.tempStateCurrent)
-	s.clearAccountStateIfDestructed(s.tempStateCurrent)
-	for _, ts := range s.tempStatesHist {
-		s.handleResidualFundsInDestructedAccounts(ts)
-		s.clearAccountStateIfDestructed(ts)
-	}
+	s.handleResidualFundsInDestructedAccounts(s.tempState)
+	s.clearAccountStateIfDestructed(s.tempState)
 
 	s.flushCtxs()
 	// write all events in order
@@ -128,10 +118,7 @@ func (s *DBImpl) Finalize() (surplus sdk.Int, err error) {
 	}
 	s.flushEvents(s.ctx)
 
-	surplus = s.tempStateCurrent.surplus
-	for _, ts := range s.tempStatesHist {
-		surplus = surplus.Add(ts.surplus)
-	}
+	surplus = s.tempState.surplus
 	return
 }
 
@@ -167,11 +154,13 @@ func (s *DBImpl) GetStorageRoot(common.Address) common.Hash {
 
 func (s *DBImpl) Copy() vm.StateDB {
 	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
+	journal := make([]journalEntry, len(s.journal))
+	copy(journal, s.journal)
 	return &DBImpl{
 		ctx:                newCtx,
 		snapshottedCtxs:    append(s.snapshottedCtxs, s.ctx),
-		tempStateCurrent:   NewTemporaryState(),
-		tempStatesHist:     append(s.tempStatesHist, s.tempStateCurrent),
+		tempState:          s.tempState.DeepCopy(),
+		journal:            journal,
 		k:                  s.k,
 		coinbaseAddress:    s.coinbaseAddress,
 		coinbaseEvmAddress: s.coinbaseEvmAddress,
@@ -261,6 +250,41 @@ func NewTemporaryState() *TemporaryState {
 		transientAccessLists:  &accessList{Addresses: make(map[common.Address]int), Slots: []map[common.Hash]struct{}{}},
 		surplus:               utils.Sdk0,
 	}
+}
+
+func (ts *TemporaryState) DeepCopy() *TemporaryState {
+	res := &TemporaryState{}
+	res.logs = make([]*ethtypes.Log, len(ts.logs))
+	copy(res.logs, ts.logs)
+	res.transientStates = make(map[string]map[string]common.Hash, len(ts.transientStates))
+	for k, v := range ts.transientStates {
+		res.transientStates[k] = make(map[string]common.Hash, len(v))
+		for k2, v2 := range v {
+			res.transientStates[k][k2] = v2
+		}
+	}
+	res.transientAccounts = make(map[string][]byte, len(ts.transientAccounts))
+	for k, v := range ts.transientAccounts {
+		res.transientAccounts[k] = v
+	}
+	res.transientModuleStates = make(map[string][]byte, len(ts.transientModuleStates))
+	for k, v := range ts.transientModuleStates {
+		res.transientModuleStates[k] = v
+	}
+	res.transientAccessLists = &accessList{}
+	res.transientAccessLists.Addresses = make(map[common.Address]int, len(ts.transientAccessLists.Addresses))
+	for k, v := range ts.transientAccessLists.Addresses {
+		res.transientAccessLists.Addresses[k] = v
+	}
+	res.transientAccessLists.Slots = make([]map[common.Hash]struct{}, len(ts.transientAccessLists.Slots))
+	for i, v := range ts.transientAccessLists.Slots {
+		res.transientAccessLists.Slots[i] = make(map[common.Hash]struct{}, len(v))
+		for k2, v2 := range v {
+			res.transientAccessLists.Slots[i][k2] = v2
+		}
+	}
+	res.surplus = sdk.NewIntFromBigInt(ts.surplus.BigInt())
+	return res
 }
 
 func GetDBImpl(vmsdb vm.StateDB) *DBImpl {
