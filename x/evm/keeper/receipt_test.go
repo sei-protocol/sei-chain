@@ -85,3 +85,19 @@ func TestFlushTransientReceiptsSync(t *testing.T) {
 	err = k.FlushTransientReceiptsSync(ctx)
 	require.NoError(t, err)
 }
+
+func TestDeleteTransientReceipt(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	txHash := common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	receipt := &types.Receipt{TxHashHex: txHash.Hex(), Status: 1}
+
+	err := k.SetTransientReceipt(ctx, txHash, receipt)
+	require.NoError(t, err)
+
+	k.DeleteTransientReceipt(ctx, txHash, 0)
+
+	receipt, err = k.GetTransientReceipt(ctx, txHash, 0)
+	require.Nil(t, receipt)
+	require.Equal(t, "not found", err.Error())
+}
