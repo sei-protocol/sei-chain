@@ -21,7 +21,28 @@ import (
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/rpc/coretypes"
 )
+
+// brFailClient fails BlockResults; bcFailClient fails Block
+type brFailClient struct{ *MockClient }
+
+func (br brFailClient) BlockResults(ctx context.Context, h *int64) (*coretypes.ResultBlockResults, error) {
+	return nil, fmt.Errorf("fail br")
+}
+
+type bcFailClient struct {
+	*MockClient
+	first bool
+}
+
+func (bc *bcFailClient) Block(ctx context.Context, h *int64) (*coretypes.ResultBlock, error) {
+	if !bc.first {
+		bc.first = true
+		return bc.MockClient.Block(ctx, h)
+	}
+	return nil, fmt.Errorf("fail bc")
+}
 
 func TestEstimateGas(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(1)
@@ -300,6 +321,47 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 
 	// For non-pacific-1 chains, base fee should not be nil regardless of upgrade status
 	require.NotNil(t, headerDifferentChain.BaseFee, "Base fee should not be nil for non-pacific-1 chains")
+}
+
+// Concise gas-limit sanity test
+func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
+	testApp := app.Setup(false, false, false)
+	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
+
+	ctxProvider := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
+	cfg := &evmrpc.SimulateConfig{GasCap: 10_000_000, EVMTimeout: time.Second}
+
+	backend := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper,
+		func(int64) client.TxConfig { return TxConfig },
+		&MockClient{}, cfg, testApp.BaseApp, testApp.TracerAnteHandler)
+
+	header, err := backend.HeaderByNumber(context.Background(), 1)
+	require.NoError(t, err)
+	require.Equal(t, uint64(200_000_000), header.GasLimit)
+
+	header2, err := backend.HeaderByNumber(context.Background(), 0)
+	require.NoError(t, err)
+	require.Equal(t, uint64(200_000_000), header2.GasLimit)
+}
+
+// Gas‐limit fallback tests
+func TestGasLimitFallbackToDefault(t *testing.T) {
+	testApp := app.Setup(false, false, false)
+	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
+	ctxProvider := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
+	cfg := &evmrpc.SimulateConfig{GasCap: 20_000_000, EVMTimeout: time.Second}
+
+	// Case 1: BlockResults fails
+	backend1 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &brFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler)
+	h1, err := backend1.HeaderByNumber(context.Background(), 1)
+	require.NoError(t, err)
+	require.Equal(t, uint64(10_000_000), h1.GasLimit) // DefaultBlockGasLimit
+
+	// Case 2: Block fails
+	backend2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &bcFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler)
+	h2, err := backend2.HeaderByNumber(context.Background(), 1)
+	require.NoError(t, err)
+	require.Equal(t, uint64(10_000_000), h2.GasLimit) // DefaultBlockGasLimit
 }
 
 func TestSimulationAPIRequestLimiter(t *testing.T) {

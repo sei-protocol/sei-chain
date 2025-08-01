@@ -209,6 +209,100 @@ describe("EVM Test", function () {
         const result2 = await ethers.provider.call(tx);
         expect(result).to.equal(result2)
       });
+
+      it("Should return correct gas limit via GASLIMIT opcode", async function () {
+         // First call setGasLimit() to capture the gas limit during transaction execution
+         const setGasLimitTx = await evmTester.setGasLimit({ gasPrice: ethers.parseUnits('100', 'gwei') });
+         await setGasLimitTx.wait();
+
+         // Now read the captured gas limit
+         const contractGasLimit = await evmTester.getGasLimit();
+
+         // Get the current block and its gas limit
+         const currentBlock = await ethers.provider.getBlock("latest");
+         const blockGasLimit = currentBlock.gasLimit;
+
+         // The gas limit returned by the contract should match the block's gas limit
+         expect(contractGasLimit).to.equal(blockGasLimit);
+         
+         // Gas limit should be a reasonable value (greater than 0)
+         expect(contractGasLimit).to.be.greaterThan(0);
+         
+         debug(`Contract gas limit: ${contractGasLimit}`);
+         debug(`Block gas limit: ${blockGasLimit}`);
+       });
+
+      it("Should return consistent gas limit across multiple calls", async function () {
+        // Set gas limit multiple times and verify consistency
+        const setTx1 = await evmTester.setGasLimit({ gasPrice: ethers.parseUnits('100', 'gwei') });
+        await setTx1.wait();
+        const gasLimit1 = await evmTester.getGasLimit();
+
+        const setTx2 = await evmTester.setGasLimit({ gasPrice: ethers.parseUnits('100', 'gwei') });
+        await setTx2.wait();
+        const gasLimit2 = await evmTester.getGasLimit();
+
+        const setTx3 = await evmTester.setGasLimit({ gasPrice: ethers.parseUnits('100', 'gwei') });
+        await setTx3.wait();
+        const gasLimit3 = await evmTester.getGasLimit();
+
+        // All calls should return the same gas limit
+        expect(gasLimit1).to.equal(gasLimit2);
+        expect(gasLimit2).to.equal(gasLimit3);
+      });
+
+      it("Should access gas limit directly via inline assembly", async function () {
+        // First capture the gas limit using setGasLimit() in a transaction context
+        const setGasLimitTx = await evmTester.setGasLimit({ gasPrice: ethers.parseUnits('100', 'gwei') });
+        await setGasLimitTx.wait();
+
+        // Read the captured gas limit
+        const gasLimitFromAssembly = await evmTester.getGasLimit();
+        
+        // Also get it from getBlockProperties for comparison
+        const blockProperties = await evmTester.getBlockProperties();
+        const gasLimitFromBlockProperties = blockProperties.gaslimit;
+
+        // Both methods should return the same value
+        expect(gasLimitFromAssembly).to.equal(gasLimitFromBlockProperties);
+
+        // Get the current block and verify against its gas limit
+        const currentBlock = await ethers.provider.getBlock("latest");
+        const blockGasLimit = currentBlock.gasLimit;
+        expect(gasLimitFromAssembly).to.equal(blockGasLimit);
+
+        // Verify it's a valid gas limit value
+        expect(gasLimitFromAssembly).to.be.greaterThan(0);
+        
+        // Gas limit should be within reasonable bounds (not too small, not too large)
+        expect(gasLimitFromAssembly).to.be.greaterThan(21000); // Minimum for a simple transaction
+        expect(gasLimitFromAssembly).to.be.lessThan(100_000_000); // 100M gas seems reasonable as upper bound
+        
+        debug(`Gas limit from assembly: ${gasLimitFromAssembly}`);
+      });
+
+      it("Should access gas limit correctly within a state-changing transaction", async function () {
+        // Call setGasLimit() to capture the gas limit during transaction execution
+        const setGasLimitTx = await evmTester.setGasLimit({ gasPrice: ethers.parseUnits('100', 'gwei') });
+        const receipt = await setGasLimitTx.wait();
+
+        // Get the gas limit from the contract after the transaction
+        const gasLimitFromContract = await evmTester.getGasLimit();
+        
+        // Get the block that contains our transaction
+        const transactionBlock = await ethers.provider.getBlock(receipt.blockNumber);
+        const blockGasLimit = transactionBlock.gasLimit;
+
+        // The gas limit should match the block's gas limit
+        expect(gasLimitFromContract).to.equal(blockGasLimit);
+        
+        // Verify the transaction was successful and gas limit is reasonable
+        expect(receipt.status).to.equal(1);
+        expect(gasLimitFromContract).to.be.greaterThan(receipt.gasUsed);
+        
+        debug(`Transaction gas used: ${receipt.gasUsed}`);
+        debug(`Block gas limit: ${gasLimitFromContract}`);
+      });
     });
 
     describe("Variable Types", function () {
