@@ -253,8 +253,8 @@ sei-cosmos
 * [#528](https://github.com/sei-protocol/sei-cosmos/pull/528) Add logs for snapshot export and impor
 
 sei-wasmd
-* [63](https://github.com/sei-protocol/sei-wasmd/pull/63) Add CW dispatch call depth
-* [62](https://github.com/sei-protocol/sei-wasmd/pull/62) Patch Gas mispricing in CW VM
+* [#63](https://github.com/sei-protocol/sei-wasmd/pull/63) Add CW dispatch call depth
+* [#62](https://github.com/sei-protocol/sei-wasmd/pull/62) Patch Gas mispricing in CW VM
 
 sei-tendermint
 * [#242](https://github.com/sei-protocol/sei-tendermint/pull/242) Allow hyphen in event query
@@ -272,7 +272,7 @@ sei-cosmos
 * [#528](https://github.com/sei-protocol/sei-cosmos/pull/528) Add logs for snapshot export and import
 
 sei-wasmd
-* [58](https://github.com/sei-protocol/sei-wasmd/pull/58) Genesis Export OOM
+* [#58](https://github.com/sei-protocol/sei-wasmd/pull/58) Genesis Export OOM
 
 sei-tendermint
 * [#239](https://github.com/sei-protocol/sei-tendermint/pull/239) Use Marshal and UnmarshalJSON For HexBytes
@@ -285,7 +285,7 @@ sei-chain
 * [#1775](https://github.com/sei-protocol/sei-chain/pull/1775) Disallow sending to direct cast addr after association
 
 sei-wasmd
-* [60](https://github.com/sei-protocol/sei-wasmd/pull/60) Query penalty fixes
+* [#60](https://github.com/sei-protocol/sei-wasmd/pull/60) Query penalty fixes
 
 sei-tendermint
 * [#237](https://github.com/sei-protocol/sei-tendermint/pull/237) Add metrics for total txs bytes in mempool
@@ -324,8 +324,8 @@ sei-wasmd
 
 
 sei-tendermint
-* [238](https://github.com/sei-protocol/sei-tendermint/pull/238) Make RPC timeout configurable
-* [219](https://github.com/sei-protocol/sei-tendermint/pull/219) Add metrics for mempool change
+* [#238](https://github.com/sei-protocol/sei-tendermint/pull/238) Make RPC timeout configurable
+* [#219](https://github.com/sei-protocol/sei-tendermint/pull/219) Add metrics for mempool change
 
 
 ## v5.5.5
@@ -405,24 +405,24 @@ sei-cosmos:
 * [#477](https://github.com/sei-protocol/sei-cosmos/pull/477) [OCC] if synchronous, reset non-pending
 
 sei-tendermint:
-* [211](https://github.com/sei-protocol/sei-tendermint/pull/211) Replay events during restart to avoid tx missing
+* [#211](https://github.com/sei-protocol/sei-tendermint/pull/211) Replay events during restart to avoid tx missing
 
 sei-db:
 * [#62](https://github.com/sei-protocol/sei-db/pull/62) Set CreateIfMissing to false when copyExisting
 
 sei-wasmd:
-* [45](https://github.com/sei-protocol/sei-wasmd/pull/45) Update LimitSimulationGasDecorator with custom Gas Meter Setter
-* [44](https://github.com/sei-protocol/sei-wasmd/pull/44) Bump wasmvm to v1.5.2
+* [#45](https://github.com/sei-protocol/sei-wasmd/pull/45) Update LimitSimulationGasDecorator with custom Gas Meter Setter
+* [#44](https://github.com/sei-protocol/sei-wasmd/pull/44) Bump wasmvm to v1.5.2
 
 ## v3.8.0
 sei-tendermint:
-* [209](https://github.com/sei-protocol/sei-tendermint/pull/209) Use write-lock in (*TxPriorityQueue).ReapMax funcs
+* [#209](https://github.com/sei-protocol/sei-tendermint/pull/209) Use write-lock in (*TxPriorityQueue).ReapMax funcs
 
 sei-db:
 * [#61](https://github.com/sei-protocol/sei-db/pull/61) LoadVersion should open DB with read only
 
 sei-wasmd:
-* [41](https://github.com/sei-protocol/sei-wasmd/pull/42) Bump wasmd version
+* [#41](https://github.com/sei-protocol/sei-wasmd/pull/42) Bump wasmd version
 
 ## v3.7.0
 sei-chain:
