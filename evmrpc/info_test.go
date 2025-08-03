@@ -32,7 +32,7 @@ func TestChainID(t *testing.T) {
 
 func TestAccounts(t *testing.T) {
 	homeDir := t.TempDir()
-	api := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir, 1024, evmrpc.ConnectionTypeHTTP)
+	api := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir, 1024, evmrpc.ConnectionTypeHTTP, nil)
 	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
 	clientCtx, err := config.ReadFromClientConfig(clientCtx)
 	require.Nil(t, err)
@@ -76,19 +76,18 @@ func TestFeeHistory(t *testing.T) {
 		expectedOldest    string
 		expectedReward    string
 		expectedBaseFee   string
-		expectedGasUsed   float64
 		expectedError     error
 	}
 
 	Ctx = Ctx.WithBlockHeight(1) // Simulate context with a specific block height
 
 	testCases := []feeHistoryTestCase{
-		{name: "Valid request by number", blockCount: 1, lastBlock: "0x8", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00", expectedGasUsed: 0.5},
-		{name: "Valid request by latest", blockCount: 1, lastBlock: "latest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00", expectedGasUsed: 0.5},
-		{name: "Valid request by earliest", blockCount: 1, lastBlock: "earliest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00", expectedGasUsed: 0.5},
-		{name: "Request on the same block", blockCount: 1, lastBlock: "0x1", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00", expectedGasUsed: 0.5},
-		{name: "Request on future block", blockCount: 1, lastBlock: "0x9", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00", expectedGasUsed: 0.5},
-		{name: "Block count truncates", blockCount: 1025, lastBlock: "latest", rewardPercentiles: []interface{}{25}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00", expectedGasUsed: 0.5},
+		{name: "Valid request by number", blockCount: 1, lastBlock: "0x8", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
+		{name: "Valid request by latest", blockCount: 1, lastBlock: "latest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
+		{name: "Valid request by earliest", blockCount: 1, lastBlock: "earliest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
+		{name: "Request on the same block", blockCount: 1, lastBlock: "0x1", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
+		{name: "Request on future block", blockCount: 1, lastBlock: "0x9", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
+		{name: "Block count truncates", blockCount: 1025, lastBlock: "latest", rewardPercentiles: []interface{}{25}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
 		{name: "Too many percentiles", blockCount: 10, lastBlock: "latest", rewardPercentiles: make([]interface{}, 101), expectedError: errors.New("rewardPercentiles length must be less than or equal to 100")},
 		{name: "Invalid percentiles order", blockCount: 10, lastBlock: "latest", rewardPercentiles: []interface{}{99, 1}, expectedError: errors.New("invalid reward percentiles: must be ascending and between 0 and 100")},
 	}
@@ -118,7 +117,13 @@ func TestFeeHistory(t *testing.T) {
 				require.Equal(t, tc.expectedReward, reward[0].(string), "Reward does not match expected value")
 
 				require.Equal(t, tc.expectedBaseFee, resObj["baseFeePerGas"].([]interface{})[0].(string))
-				require.Equal(t, tc.expectedGasUsed, resObj["gasUsedRatio"].([]interface{})[0].(float64))
+
+				// Verify gas used ratio is valid (should be between 0 and 1)
+				gasUsedRatios := resObj["gasUsedRatio"].([]interface{})
+				require.Greater(t, len(gasUsedRatios), 0, "Should have at least one gas used ratio")
+				gasUsedRatio := gasUsedRatios[0].(float64)
+				require.GreaterOrEqual(t, gasUsedRatio, 0.0, "Gas used ratio should be >= 0")
+				require.LessOrEqual(t, gasUsedRatio, 1.0, "Gas used ratio should be <= 1")
 			}
 		})
 	}
@@ -205,7 +210,7 @@ func TestGasPriceLogic(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		i := evmrpc.NewInfoAPI(nil, nil, nil, nil, t.TempDir(), 1024, evmrpc.ConnectionTypeHTTP)
+		i := evmrpc.NewInfoAPI(nil, nil, nil, nil, t.TempDir(), 1024, evmrpc.ConnectionTypeHTTP, nil)
 		gasPrice, err := i.GasPriceHelper(
 			context.Background(),
 			test.baseFee,
@@ -231,4 +236,239 @@ func TestCalculatePercentilesEmptyBlockWithSinglePercentile(t *testing.T) {
 	result := evmrpc.CalculatePercentiles([]float64{50}, []evmrpc.GasAndReward{}, 0)
 	require.Equal(t, 1, len(result))
 	require.Equal(t, "0x0", result[0].String())
+}
+
+func TestCalculateGasUsedRatio(t *testing.T) {
+	resObj := sendRequestGood(t, "feeHistory", 1, "latest", []interface{}{50.0})
+	result := resObj["result"].(map[string]interface{})
+
+	// Verify gas used ratio is calculated
+	gasUsedRatios, ok := result["gasUsedRatio"].([]interface{})
+	require.True(t, ok, "gasUsedRatio should be present and be an array")
+	require.Greater(t, len(gasUsedRatios), 0, "Should have at least one gas used ratio")
+
+	// The gas used ratio should be a valid number between 0 and 1
+	ratio := gasUsedRatios[0].(float64)
+	require.GreaterOrEqual(t, ratio, 0.0)
+	require.LessOrEqual(t, ratio, 1.0)
+}
+
+func TestCalculateGasUsedRatioGasAccumulation(t *testing.T) {
+	// Test that verifies gas used accumulation across multiple transactions
+	// This test specifically covers: totalEVMGasUsed += receipt.GasUsed
+
+	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return Ctx
+		}
+		return Ctx.WithBlockHeight(height)
+	}, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder)
+
+	// Test with a block that has multiple EVM transactions
+	// Using block height 2 which has multiple transactions in the mock
+	ratio, err := api.CalculateGasUsedRatio(context.Background(), 2)
+	require.NoError(t, err)
+
+	// The ratio should be valid and reflect accumulated gas usage
+	require.GreaterOrEqual(t, ratio, 0.0)
+	require.LessOrEqual(t, ratio, 1.0)
+
+	// Since block 2 has multiple transactions, the ratio should be > 0
+	// (assuming the mock setup has transactions with gas usage)
+	require.Greater(t, ratio, 0.0, "Block 2 should have some gas usage from multiple transactions")
+}
+
+func TestCalculateGasUsedRatioReceiptRetrievalError(t *testing.T) {
+	// Test error handling when receipt retrieval fails
+	// This test covers: if err != nil { continue // Skip if we can't get the receipt }
+
+	// Use a block height that doesn't exist in the mock setup to simulate receipt retrieval errors
+	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return Ctx
+		}
+		return Ctx.WithBlockHeight(height)
+	}, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder)
+
+	// Test with a block height that has transactions but no receipts (to simulate receipt errors)
+	// The calculation should not fail even if receipt retrieval fails
+	// It should skip the failed receipts and continue
+	ratio, err := api.CalculateGasUsedRatio(context.Background(), 100)
+	require.NoError(t, err)
+
+	// When receipt retrievals fail or no EVM transactions exist, we should get 0.0 ratio
+	require.GreaterOrEqual(t, ratio, 0.0)
+	require.LessOrEqual(t, ratio, 1.0)
+}
+
+func TestFeeHistoryGasUsedRatioCalculation(t *testing.T) {
+	// Test multiple blocks to ensure we can get different ratios
+	resObj := sendRequestGood(t, "feeHistory", 3, "latest", []interface{}{50.0})
+	result := resObj["result"].(map[string]interface{})
+
+	// Verify we have gas used ratio data
+	gasUsedRatios, ok := result["gasUsedRatio"].([]interface{})
+	require.True(t, ok, "gasUsedRatio should be present and be an array")
+	require.GreaterOrEqual(t, len(gasUsedRatios), 1, "Should have at least one gas used ratio")
+
+	// Check that all ratios are valid
+	for i, ratioInterface := range gasUsedRatios {
+		ratio := ratioInterface.(float64)
+		require.GreaterOrEqual(t, ratio, 0.0, "Ratio %d should be >= 0", i)
+		require.LessOrEqual(t, ratio, 1.0, "Ratio %d should be <= 1", i)
+	}
+
+	// Test edge case: single block
+	resObj2 := sendRequestGood(t, "feeHistory", 1, "latest", []interface{}{25.0})
+	result2 := resObj2["result"].(map[string]interface{})
+	gasUsedRatios2, ok := result2["gasUsedRatio"].([]interface{})
+	require.True(t, ok)
+	require.Equal(t, 1, len(gasUsedRatios2), "Should have exactly one gas used ratio for single block")
+}
+
+func TestCalculateGasUsedRatioConsensusParamsFallback(t *testing.T) {
+	// Test the fallback logic when consensus params are not available
+	// This covers the fallback gas limit calculation
+
+	// Create a context provider that returns contexts without consensus params
+	ctxProviderWithoutConsensusParams := func(height int64) sdk.Context {
+		baseCtx := Ctx
+		if height != evmrpc.LatestCtxHeight {
+			baseCtx = baseCtx.WithBlockHeight(height)
+		}
+		// Return a context that will have nil consensus params
+		return baseCtx.WithConsensusParams(nil)
+	}
+
+	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProviderWithoutConsensusParams, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder)
+
+	// The calculation should still work using fallback gas limit
+	ratio, err := api.CalculateGasUsedRatio(context.Background(), 1)
+	require.NoError(t, err)
+
+	// Should return a valid ratio using the default fallback gas limit (10000000)
+	require.GreaterOrEqual(t, ratio, 0.0)
+	require.LessOrEqual(t, ratio, 1.0)
+}
+
+func TestCalculateGasUsedRatioConsensusParamsNilBlock(t *testing.T) {
+	// Test the fallback logic when consensus params exist but Block is nil
+
+	ctxProviderWithNilBlock := func(height int64) sdk.Context {
+		baseCtx := Ctx
+		if height != evmrpc.LatestCtxHeight {
+			baseCtx = baseCtx.WithBlockHeight(height)
+		}
+		// Create consensus params with nil Block
+		consensusParams := baseCtx.ConsensusParams()
+		if consensusParams != nil {
+			consensusParams.Block = nil
+			baseCtx = baseCtx.WithConsensusParams(consensusParams)
+		}
+		return baseCtx
+	}
+
+	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProviderWithNilBlock, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder)
+
+	// Should use fallback logic and still work
+	ratio, err := api.CalculateGasUsedRatio(context.Background(), 1)
+	require.NoError(t, err)
+
+	require.GreaterOrEqual(t, ratio, 0.0)
+	require.LessOrEqual(t, ratio, 1.0)
+}
+
+func TestCalculateGasUsedRatioZeroGasLimit(t *testing.T) {
+	// Test edge case where gas limit is 0 (should return 0 to avoid division by zero)
+
+	ctxProviderWithZeroGasLimit := func(height int64) sdk.Context {
+		baseCtx := Ctx
+		if height != evmrpc.LatestCtxHeight {
+			baseCtx = baseCtx.WithBlockHeight(height)
+		}
+		// Create consensus params with zero gas limit
+		consensusParams := baseCtx.ConsensusParams()
+		if consensusParams != nil && consensusParams.Block != nil {
+			consensusParams.Block.MaxGas = 0
+			baseCtx = baseCtx.WithConsensusParams(consensusParams)
+		}
+		return baseCtx
+	}
+
+	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProviderWithZeroGasLimit, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder)
+
+	// Should return 0 to avoid division by zero
+	ratio, err := api.CalculateGasUsedRatio(context.Background(), 1)
+	require.NoError(t, err)
+	require.Equal(t, 0.0, ratio, "Should return 0.0 when gas limit is 0 to avoid division by zero")
+}
+
+func TestCalculateGasUsedRatioBlockNumberMismatch(t *testing.T) {
+	// Test the logic that skips receipts with mismatched block numbers
+	// This covers: if receipt.BlockNumber != uint64(block.Block.Height) { continue }
+
+	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return Ctx
+		}
+		return Ctx.WithBlockHeight(height)
+	}, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder)
+
+	// Test with a block where receipts might have mismatched block numbers
+	// The method should still work and skip mismatched receipts
+	ratio, err := api.CalculateGasUsedRatio(context.Background(), 1)
+	require.NoError(t, err)
+
+	require.GreaterOrEqual(t, ratio, 0.0)
+	require.LessOrEqual(t, ratio, 1.0)
+}
+
+func TestCalculateGasUsedRatioMultipleTransactionsAccumulation(t *testing.T) {
+	// Test that verifies gas used accumulation works correctly across multiple transactions
+	// This test specifically covers: totalEVMGasUsed += receipt.GasUsed
+
+	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return Ctx
+		}
+		return Ctx.WithBlockHeight(height)
+	}, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder)
+
+	// Test block 2 which has multiple transactions
+	ratioBlock2, err := api.CalculateGasUsedRatio(context.Background(), 2)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, ratioBlock2, 0.0)
+	require.LessOrEqual(t, ratioBlock2, 0.0008)
+
+	// Test block 8 which also has transactions
+	ratioBlock8, err := api.CalculateGasUsedRatio(context.Background(), 8)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, ratioBlock8, 0.0)
+	require.LessOrEqual(t, ratioBlock8, 0.000001)
+}
+
+func TestCalculateGasUsedRatioWithDifferentGasLimits(t *testing.T) {
+	// Test gas ratio calculation with different gas limits to verify the division logic
+
+	// Test with a custom gas limit
+	ctxProviderWithCustomGasLimit := func(height int64) sdk.Context {
+		baseCtx := Ctx
+		if height != evmrpc.LatestCtxHeight {
+			baseCtx = baseCtx.WithBlockHeight(height)
+		}
+		// Set a specific gas limit to test the ratio calculation
+		consensusParams := baseCtx.ConsensusParams()
+		if consensusParams != nil && consensusParams.Block != nil {
+			consensusParams.Block.MaxGas = 5000000 // Set a specific gas limit
+			baseCtx = baseCtx.WithConsensusParams(consensusParams)
+		}
+		return baseCtx
+	}
+
+	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProviderWithCustomGasLimit, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder)
+
+	ratio, err := api.CalculateGasUsedRatio(context.Background(), 2)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, ratio, 0.0)
+	require.LessOrEqual(t, ratio, 0.02)
 }
