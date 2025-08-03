@@ -353,7 +353,8 @@ type App struct {
 
 	configurator module.Configurator
 
-	optimisticProcessingInfo *OptimisticProcessingInfo
+	optimisticProcessingInfo      OptimisticProcessingInfo
+	optimisticProcessingInfoMutex sync.RWMutex
 
 	// batchVerifier *ante.SR25519BatchVerifier
 	txDecoder         sdk.TxDecoder
@@ -1120,12 +1121,16 @@ func (app *App) PrepareProposalHandler(_ sdk.Context, req *abci.RequestPreparePr
 	}, nil
 }
 
-func (app *App) GetOptimisticProcessingInfo() *OptimisticProcessingInfo {
+func (app *App) GetOptimisticProcessingInfo() OptimisticProcessingInfo {
+	app.optimisticProcessingInfoMutex.RLock()
+	defer app.optimisticProcessingInfoMutex.RUnlock()
 	return app.optimisticProcessingInfo
 }
 
 func (app *App) ClearOptimisticProcessingInfo() {
-	app.optimisticProcessingInfo = nil
+	app.optimisticProcessingInfoMutex.Lock()
+	defer app.optimisticProcessingInfoMutex.Unlock()
+	app.optimisticProcessingInfo = OptimisticProcessingInfo{}
 }
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
@@ -1138,31 +1143,41 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			Status: abci.ResponseProcessProposal_REJECT,
 		}, nil
 	}
-	if app.optimisticProcessingInfo == nil {
+	if app.GetOptimisticProcessingInfo().Completion == nil {
 		completionSignal := make(chan struct{}, 1)
-		optimisticProcessingInfo := &OptimisticProcessingInfo{
+		optimisticProcessingInfo := OptimisticProcessingInfo{
 			Height:     req.Height,
 			Hash:       req.Hash,
 			Completion: completionSignal,
 		}
+		app.optimisticProcessingInfoMutex.Lock()
 		app.optimisticProcessingInfo = optimisticProcessingInfo
+		app.optimisticProcessingInfoMutex.Unlock()
 
 		plan, found := app.UpgradeKeeper.GetUpgradePlan(ctx)
 		if found && plan.ShouldExecute(ctx) {
 			app.Logger().Info(fmt.Sprintf("Potential upgrade planned for height=%d skipping optimistic processing", plan.Height))
+			app.optimisticProcessingInfoMutex.Lock()
 			app.optimisticProcessingInfo.Aborted = true
-			app.optimisticProcessingInfo.Completion <- struct{}{}
+			completion := app.optimisticProcessingInfo.Completion
+			app.optimisticProcessingInfoMutex.Unlock()
+			completion <- struct{}{}
 		} else {
 			go func() {
 				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit, false)
-				optimisticProcessingInfo.Events = events
-				optimisticProcessingInfo.TxRes = txResults
-				optimisticProcessingInfo.EndBlockResp = endBlockResp
-				optimisticProcessingInfo.Completion <- struct{}{}
+				app.optimisticProcessingInfoMutex.Lock()
+				app.optimisticProcessingInfo.Events = events
+				app.optimisticProcessingInfo.TxRes = txResults
+				app.optimisticProcessingInfo.EndBlockResp = endBlockResp
+				completion := app.optimisticProcessingInfo.Completion
+				app.optimisticProcessingInfoMutex.Unlock()
+				completion <- struct{}{}
 			}()
 		}
-	} else if !bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
+	} else if !bytes.Equal(app.GetOptimisticProcessingInfo().Hash, req.Hash) {
+		app.optimisticProcessingInfoMutex.Lock()
 		app.optimisticProcessingInfo.Aborted = true
+		app.optimisticProcessingInfoMutex.Unlock()
 	}
 	return &abci.ResponseProcessProposal{
 		Status: abci.ResponseProcessProposal_ACCEPT,
@@ -1176,9 +1191,25 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		duration := time.Since(startTime)
 		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
 	}()
-	if app.optimisticProcessingInfo != nil {
-		<-app.optimisticProcessingInfo.Completion
-		if !app.optimisticProcessingInfo.Aborted && bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
+
+	// Get all optimistic processing info atomically
+	app.optimisticProcessingInfoMutex.RLock()
+	completion := app.optimisticProcessingInfo.Completion
+	app.optimisticProcessingInfoMutex.RUnlock()
+
+	if completion != nil {
+		<-completion
+
+		// Get the final state atomically after completion
+		app.optimisticProcessingInfoMutex.RLock()
+		aborted := app.optimisticProcessingInfo.Aborted
+		finalHash := app.optimisticProcessingInfo.Hash
+		events := app.optimisticProcessingInfo.Events
+		txRes := app.optimisticProcessingInfo.TxRes
+		endBlockResp := app.optimisticProcessingInfo.EndBlockResp
+		app.optimisticProcessingInfoMutex.RUnlock()
+
+		if !aborted && bytes.Equal(finalHash, req.Hash) {
 			metrics.IncrementOptimisticProcessingCounter(true)
 			app.SetProcessProposalStateToCommit()
 			if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
@@ -1187,7 +1218,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			cms := app.WriteState()
 			app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
-			resp := app.getFinalizeBlockResponse(appHash, app.optimisticProcessingInfo.Events, app.optimisticProcessingInfo.TxRes, app.optimisticProcessingInfo.EndBlockResp)
+			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
 			return &resp, nil
 		}
 	}
