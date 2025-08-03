@@ -1,0 +1,27 @@
+Contribution (GitHub / Email / Commit)
+            │
+            ▼
+  GitBot / Verification Event
+            │
+            ▼
+  ┌──────────────────────────────┐
+  │ SeiContribRouter.sol         │
+  │ ─ Maps Contributor → Wallet  │
+  │ ─ Routes Payment             │
+  └──────────────────────────────┘
+            │
+            ▼
+  ┌──────────────────────────────┐
+  │ ContributorWallet.sol        │
+  │ ─ Immutable Ownership        │
+  │ ─ Direct Payment Receipt     │
+  └──────────────────────────────┘
+            │
+            ▼
+  ┌──────────────────────────────┐
+  │ SeiKey.sol                   │
+  │ ─ Validates Ephemeral Session│
+  └──────────────────────────────┘
+            │
+            ▼
+  Contributor Withdraws Sovereignly
