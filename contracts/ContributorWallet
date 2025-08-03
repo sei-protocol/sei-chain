@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+/// @title Contributor Wallet for SeiContrib402
+/// @notice Immutable sovereign wallet tied to contributor identity.
+contract ContributorWallet {
+    address public immutable owner;
+    address public immutable seiKeyRegistry;
+
+    event Withdrawn(address indexed to, uint256 amount);
+    event Received(address indexed from, uint256 amount);
+
+    constructor(address _owner, address _seiKeyRegistry) {
+        owner = _owner;
+        seiKeyRegistry = _seiKeyRegistry;
+    }
+
+    receive() external payable {
+        emit Received(msg.sender, msg.value);
+    }
+
+    function withdraw(address payable _to, uint256 _amount) external {
+        require(msg.sender == seiKeyRegistry, "Unauthorized: Only SeiKeyRegistry");
+        require(ISeiKeyRegistry(seiKeyRegistry).isValidSession(owner), "Invalid or expired SeiKey session");
+        require(address(this).balance >= _amount, "Insufficient balance");
+
+        (bool success, ) = _to.call{value: _amount}("");
+        require(success, "Transfer failed");
+
+        emit Withdrawn(_to, _amount);
+    }
+
+    function getBalance() external view returns (uint256) {
+        return address(this).balance;
+    }
+}
+
+interface ISeiKeyRegistry {
+    function isValidSession(address _owner) external view returns (bool);
+}
