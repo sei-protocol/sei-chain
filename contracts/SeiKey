@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+/// @title SeiKey Registry for Ephemeral Session Validation
+/// @notice Maintains active session states for contributor wallet access.
+contract SeiKey {
+    mapping(address => bytes32) public activeSessions;
+
+    event SessionCreated(address indexed contributor, bytes32 sessionHash);
+    event SessionRevoked(address indexed contributor);
+
+    /// @notice Creates a new ephemeral session for a contributor wallet.
+    function createSession(address _contributor, bytes32 _sessionHash) external {
+        activeSessions[_contributor] = _sessionHash;
+        emit SessionCreated(_contributor, _sessionHash);
+    }
+
+    /// @notice Revokes the active session for a contributor.
+    function revokeSession(address _contributor) external {
+        delete activeSessions[_contributor];
+        emit SessionRevoked(_contributor);
+    }
+
+    /// @notice Confirms whether a session is currently valid.
+    function isValidSession(address _contributor) external view returns (bool) {
+        return activeSessions[_contributor] != bytes32(0);
+    }
+}

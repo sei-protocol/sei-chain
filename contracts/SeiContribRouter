@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "./ContributorWallet.sol";
+import "./SeiKey.sol";
+
+/// @title Automated Payment Router for Contributors
+/// @notice Routes payments to immutable ContributorWallets based on contributor address.
+contract SeiContribRouter {
+    address public immutable seiKeyRegistry;
+    mapping(address => address) public contributorWallets;
+
+    event WalletCreated(address indexed contributor, address wallet);
+    event PaymentRouted(address indexed contributor, uint256 amount);
+
+    constructor(address _seiKeyRegistry) {
+        seiKeyRegistry = _seiKeyRegistry;
+    }
+
+    function createWallet(address _contributor) external returns (address wallet) {
+        require(contributorWallets[_contributor] == address(0), "Wallet already exists");
+        wallet = address(new ContributorWallet(_contributor, seiKeyRegistry));
+        contributorWallets[_contributor] = wallet;
+        emit WalletCreated(_contributor, wallet);
+    }
+
+    function routePayment(address _contributor) external payable {
+        address wallet = contributorWallets[_contributor];
+        require(wallet != address(0), "No wallet found for contributor");
+        (bool success, ) = payable(wallet).call{value: msg.value}("");
+        require(success, "Payment failed");
+        emit PaymentRouted(_contributor, msg.value);
+    }
+
+    function getWallet(address _contributor) external view returns (address) {
+        return contributorWallets[_contributor];
+    }
+}
