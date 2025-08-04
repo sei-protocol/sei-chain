@@ -50,10 +50,6 @@ async function runTest() {
     }
   });
 
-  listener.stderr.on("data", (data) => {
-    process.stderr.write(`[LISTENER ERROR] ${data}`);
-  });
-
   // Wait for listener to start
   await new Promise((resolve) => setTimeout(resolve, 3000));
 
@@ -71,10 +67,6 @@ async function runTest() {
   // Capture trigger output
   trigger.stdout.on("data", (data) => {
     process.stdout.write(`[TRIGGER] ${data}`);
-  });
-
-  trigger.stderr.on("data", (data) => {
-    process.stderr.write(`[TRIGGER ERROR] ${data}`);
   });
 
   // Wait for trigger to complete
