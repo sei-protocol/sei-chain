@@ -2,8 +2,6 @@ module github.com/sei-protocol/sei-chain
 
 go 1.24.5
 
-toolchain go1.24.5
-
 require (
 	github.com/BurntSushi/toml v1.4.0
 	github.com/CosmWasm/wasmd v0.27.0
