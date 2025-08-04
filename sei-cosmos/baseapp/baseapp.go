@@ -876,6 +876,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	)
 	ok := false
 	defer func() {
+		app.logger.Info("dupa123 OK")
 		if ok { return }
 		app.logger.Error("dupa123 runTx(): %v", err)
 	}()
