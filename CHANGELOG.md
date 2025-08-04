@@ -497,6 +497,7 @@ sei-tendermint:
 ## 3.0.8
 sei-chain:
 * [#1018](https://github.com/sei-protocol/sei-chain/pull/1018) Reorder tx results into absolute order
+
 ## 3.0.7
 sei-chain:
 * [#1002](https://github.com/sei-protocol/sei-chain/pull/1002) Tokenfactory Query Wasmbindings
@@ -722,9 +723,9 @@ sei-tendermint:
 * [#73](https://github.com/sei-protocol/sei-tendermint/pull/73) reduce checktx log noise
 
 ## 2.0.36beta - 2023-02-27
-### Features
+
+sei-chain:
 * [#603](https://github.com/sei-protocol/sei-chain/pull/603) Set mempool ttl
-### Bug Fixes
 * [#612](https://github.com/sei-protocol/sei-chain/pull/612) Optimistic Processing should finish before main goroutine
 * [#613](https://github.com/sei-protocol/sei-chain/pull/613) Incorporate IAVL change that removes mutex locking
 * Various audit fixes
