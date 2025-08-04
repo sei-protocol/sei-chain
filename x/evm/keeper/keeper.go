@@ -46,6 +46,7 @@ import (
 )
 
 const Pacific1ChainID = "pacific-1"
+const DefaultBlockGasLimit = 10000000
 
 type Keeper struct {
 	storeKey          sdk.StoreKey
@@ -283,7 +284,12 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		Transfer:    txfer,
 		GetHash:     k.GetHashFn(ctx),
 		Coinbase:    coinbase,
-		GasLimit:    gp.Gas(),
+		GasLimit: func() uint64 {
+			if ctx.ConsensusParams() != nil && ctx.ConsensusParams().Block != nil {
+				return uint64(ctx.ConsensusParams().Block.MaxGas)
+			}
+			return DefaultBlockGasLimit
+		}(),
 		BlockNumber: big.NewInt(ctx.BlockHeight()),
 		Time:        uint64(ctx.BlockHeader().Time.Unix()),
 		Difficulty:  utils.Big0, // only needed for PoW
