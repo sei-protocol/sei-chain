@@ -1053,7 +1053,10 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 			})
 		}
 	}
-	return gInfo, result, anteEvents, priority, pendingTxChecker, expireHandler, ctx, fmt.Errorf("app.runMsgs(): %w", err)
+	if err!=nil {
+		err = fmt.Errorf("app.runMsgs(): %w", err)
+	}
+	return gInfo, result, anteEvents, priority, pendingTxChecker, expireHandler, ctx, err
 }
 
 // runMsgs iterates through a list of messages and executes them with the provided
