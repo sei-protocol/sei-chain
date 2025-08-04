@@ -877,9 +877,8 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	)
 	ok := false
 	defer func() {
-		app.logger.Error(fmt.Sprintf("dupa123 runTx(): OK"))
 		if ok { return }
-		app.logger.Error(fmt.Sprintf("dupa123 runTx(): %v", err))
+		slog.Printf("dupa123 runTx(): %v", err)
 	}()
 
 	// Reset events after each checkTx or simulateTx or recheckTx
@@ -928,7 +927,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	msgs := tx.GetMsgs()
 
 	if err := validateBasicTxMsgs(msgs); err != nil {
-		return sdk.GasInfo{}, nil, nil, 0, nil, nil, ctx, err
+		return sdk.GasInfo{}, nil, nil, 0, nil, nil, ctx, fmt.Errorf("validateBasicTxMsgs(): %w",err)
 	}
 
 	if app.anteHandler != nil {
@@ -976,7 +975,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		events := ctx.EventManager().Events()
 
 		if err != nil {
-			return gInfo, nil, nil, 0, nil, nil, ctx, err
+			return gInfo, nil, nil, 0, nil, nil, ctx, fmt.Errorf("app.anteHandler(): %w", err)
 		}
 		// GasMeter expected to be set in AnteHandler
 		gasWanted = ctx.GasMeter().Limit()
@@ -1054,7 +1053,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 			})
 		}
 	}
-	return gInfo, result, anteEvents, priority, pendingTxChecker, expireHandler, ctx, err
+	return gInfo, result, anteEvents, priority, pendingTxChecker, expireHandler, ctx, fmt.Errorf("app.runMsgs(): %w", err)
 }
 
 // runMsgs iterates through a list of messages and executes them with the provided
