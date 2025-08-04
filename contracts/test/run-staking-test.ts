@@ -1,4 +1,7 @@
 import { spawn } from "child_process";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 async function runTest() {
   console.log("🚀 Starting Staking Event Test\n");
@@ -9,10 +12,24 @@ async function runTest() {
   console.log("4. Wait for the event to be captured");
   console.log("5. Clean up and exit\n");
 
+  // Check for required environment variable
+  if (!process.env.TEST_ADMIN_PRIVATE_KEY) {
+    console.error(
+      "❌ Error: TEST_ADMIN_PRIVATE_KEY environment variable not set"
+    );
+    console.error("\nFor local testing with the default admin account:");
+    console.error("  export TEST_ADMIN_PRIVATE_KEY=0x.....");
+    console.error(
+      "\nThis is ONLY for local testing - NEVER use real private keys!"
+    );
+    process.exit(1);
+  }
+
   // Start the listener
   console.log("📡 Starting event listener...");
   const listener = spawn("tsx", ["test/staking-event-listener.ts"], {
     stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env }, // Pass environment variables to child process
   });
 
   let eventCaptured = false;
@@ -47,6 +64,7 @@ async function runTest() {
     ["test/staking-event-trigger.ts", "delegate", "10"],
     {
       stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env }, // Pass environment variables to child process
     }
   );
 

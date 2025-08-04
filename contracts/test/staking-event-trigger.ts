@@ -21,10 +21,22 @@ const STAKING_ABI = parseAbi([
 async function main() {
   console.log("🚀 Sei Staking Event Trigger\n");
 
-  // Use the admin account which has an associated EVM address
-  const privateKey =
-    "0xd8ad3f4721da2cb78fac64351851e47bfbd27deb0692a26844b18b0fbb8d640a" as `0x${string}`;
-  const account = privateKeyToAccount(privateKey);
+  // Get private key from environment variable
+  const privateKey = process.env.TEST_ADMIN_PRIVATE_KEY;
+  if (!privateKey) {
+    console.error(
+      "❌ Error: TEST_ADMIN_PRIVATE_KEY environment variable not set"
+    );
+    console.error("\nPlease set the environment variable:");
+    console.error("  export TEST_ADMIN_PRIVATE_KEY=0x...");
+    console.error(
+      "\nFor local testing, you can use the admin key from initialize_local_chain.sh"
+    );
+    console.error("NEVER use a real private key!");
+    process.exit(1);
+  }
+
+  const account = privateKeyToAccount(privateKey as `0x${string}`);
   console.log("Using account:", account.address);
 
   // Define custom chain for Sei
