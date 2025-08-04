@@ -877,8 +877,9 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	)
 	ok := false
 	defer func() {
+		app.logger.Error(fmt.Sprintf("dupa123 runTx(): OK"))
 		if ok { return }
-		slog.Printf("dupa123 runTx(): %v", err)
+		app.logger.Error(fmt.Sprintf("dupa123 runTx(): %v", err))
 	}()
 
 	// Reset events after each checkTx or simulateTx or recheckTx
