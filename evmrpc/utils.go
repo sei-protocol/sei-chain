@@ -31,11 +31,6 @@ import (
 
 const LatestCtxHeight int64 = -1
 
-// Since we use a static base fee, we want GasUsedRatio returned in RPC queries
-// to reflect the fact that base fee would never change, which is only true if
-// the block is exactly half-utilized.
-const GasUsedRatio float64 = 0.5
-
 func GetBlockNumberByNrOrHash(ctx context.Context, tmClient rpcclient.Client, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
 	if blockNrOrHash.BlockHash != nil {
 		res, err := blockByHash(ctx, tmClient, blockNrOrHash.BlockHash[:])

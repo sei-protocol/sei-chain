@@ -181,6 +181,20 @@ contract EVMCompatibilityTester {
         return fee;
     }
 
+    // write function to set the gas limit so it's not a simulation
+    uint256 public gasLimit;
+    function setGasLimit() public {
+        uint256 _gasLimit;
+        assembly {
+            _gasLimit := gaslimit()
+        }
+        gasLimit = _gasLimit;
+    }
+
+    function getGasLimit() public view returns (uint256) {
+        return gasLimit;
+    }
+
     // useGas will at least use gasToUse amount of gas
     function useGas(uint256 gasToUse) public {
         // while gasleft() > gasUse, use use storage to use gas
