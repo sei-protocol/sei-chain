@@ -1174,7 +1174,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	defer func() {
 		app.ClearOptimisticProcessingInfo()
 		duration := time.Since(startTime)
-		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
+		ctx.Logger().Info(fmt.Sprintf("DEBUG FinalizeBlock took %dms", duration/time.Millisecond))
 	}()
 	if app.optimisticProcessingInfo != nil {
 		<-app.optimisticProcessingInfo.Completion
@@ -1525,6 +1525,7 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedT
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+	start := time.Now()
 	defer func() {
 		if !app.httpServerStartSignalSent {
 			app.httpServerStartSignalSent = true
@@ -1534,6 +1535,8 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 			app.wsServerStartSignalSent = true
 			app.wsServerStartSignal <- struct{}{}
 		}
+		endTime := time.Now()
+		ctx.Logger().Info("DEBUG ProcessBlock", "duration_ms", endTime.Sub(start).Milliseconds(), "txs", len(txs))
 	}()
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
