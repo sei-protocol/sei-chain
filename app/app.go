@@ -1072,10 +1072,10 @@ func (app *App) SetStoreUpgradeHandlers() {
 func (app *App) Name() string { return app.BaseApp.Name() }
 
 // GetBaseApp returns the base app of the application
-func (app App) GetBaseApp() *baseapp.BaseApp { return app.BaseApp }
+func (app *App) GetBaseApp() *baseapp.BaseApp { return app.BaseApp }
 
 // GetStateStore returns the state store of the application
-func (app App) GetStateStore() seidb.StateStore { return app.stateStore }
+func (app *App) GetStateStore() seidb.StateStore { return app.stateStore }
 
 // BeginBlocker application updates every begin block
 func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {

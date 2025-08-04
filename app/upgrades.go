@@ -40,7 +40,7 @@ func overrideList() {
 	}
 }
 
-func (app App) RegisterUpgradeHandlers() {
+func (app *App) RegisterUpgradeHandlers() {
 	// Upgrades names must be in alphabetical order
 	// https://github.com/cosmos/cosmos-sdk/issues/11707
 	if !sort.StringsAreSorted(upgradesList) {
