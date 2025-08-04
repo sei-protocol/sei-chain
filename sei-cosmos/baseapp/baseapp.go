@@ -874,6 +874,11 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		},
 		time.Now(),
 	)
+	ok := false
+	defer func() {
+		if ok { return }
+		app.logger.Error("dupa123 runTx(): %v", err)
+	}()
 
 	// Reset events after each checkTx or simulateTx or recheckTx
 	// DeliverTx is garbage collected after FinalizeBlocker
@@ -1006,6 +1011,8 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	// in case message processing fails. At this point, the MultiStore
 	// is a branch of a branch.
 	runMsgCtx, msCache := app.cacheTxContext(ctx, checksum)
+
+	ok = true
 
 	// Attempt to execute all messages and only update state if all messages pass
 	// and we're in DeliverTx. Note, runMsgs will never return a reference to a
