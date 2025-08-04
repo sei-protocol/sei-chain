@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	slog "log"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"go.opentelemetry.io/otel"
@@ -876,9 +877,8 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	)
 	ok := false
 	defer func() {
-		app.logger.Info("dupa123 OK")
 		if ok { return }
-		app.logger.Error("dupa123 runTx(): %v", err)
+		slog.Printf("dupa123 runTx(): %v", err)
 	}()
 
 	// Reset events after each checkTx or simulateTx or recheckTx
