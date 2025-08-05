@@ -355,17 +355,17 @@ func TestCumulativeGasUsedPopulation(t *testing.T) {
 	err := EVMKeeper.FlushTransientReceiptsSync(Ctx)
 	require.Nil(t, err)
 
-	for i := 0 ; i < len(txHashes); i++ {
+	for i := 0; i < len(txHashes); i++ {
 		receipt, err := EVMKeeper.GetReceipt(Ctx, txHashes[i])
 		require.Nil(t, err)
-		require.Equal(t, receipt.CumulativeGasUsed,  correctCumulativeGasUsedValues[i])
+		require.Equal(t, receipt.CumulativeGasUsed, correctCumulativeGasUsedValues[i])
 	}
 }
 
 func TestTransactionIndexResponseConsistency(t *testing.T) {
 	txHash := multiTxBlockTx2.Hash()
 	blockHash := MultiTxBlockHash
-	blockNumber := "0x2" // MockHeight2 = 2
+	blockNumber := "0x2"
 	txIndex := "0x3"
 
 	receiptResult := sendRequestGood(t, "getTransactionReceipt", txHash.Hex())
@@ -392,7 +392,7 @@ func TestTransactionIndexResponseConsistency(t *testing.T) {
 	require.NotNil(t, blockByHashResult["result"])
 	blockByHash := blockByHashResult["result"].(map[string]interface{})
 	transactionsByHash := blockByHash["transactions"].([]interface{})
-	require.Greater(t, len(transactionsByHash), 3) // Should have at least 4 transactions (index 0,1,2,3)
+	require.Greater(t, len(transactionsByHash), 3)                      // Should have at least 4 transactions (index 0,1,2,3)
 	txFromBlockByHash := transactionsByHash[3].(map[string]interface{}) // Index 3
 	txIndexFromBlockByHash := txFromBlockByHash["transactionIndex"].(string)
 
@@ -400,28 +400,21 @@ func TestTransactionIndexResponseConsistency(t *testing.T) {
 	require.NotNil(t, blockByNumberResult["result"])
 	blockByNumber := blockByNumberResult["result"].(map[string]interface{})
 	transactionsByNumber := blockByNumber["transactions"].([]interface{})
-	require.Greater(t, len(transactionsByNumber), 3) // Should have at least 4 transactions (index 0,1,2,3)
+	require.Greater(t, len(transactionsByNumber), 3)                        // Should have at least 4 transactions (index 0,1,2,3)
 	txFromBlockByNumber := transactionsByNumber[3].(map[string]interface{}) // Index 3
 	txIndexFromBlockByNumber := txFromBlockByNumber["transactionIndex"].(string)
 
-	require.Equal(t, receiptTxIndex, txIndexFromHash,
-		"Transaction index should be the same between eth_getTransactionReceipt and eth_getTransactionByHash")
-	require.Equal(t, receiptTxIndex, txIndexFromBlockHashAndIndex,
-		"Transaction index should be the same between eth_getTransactionReceipt and eth_getTransactionByBlockHashAndIndex")
-	require.Equal(t, receiptTxIndex, txIndexFromBlockNumberAndIndex,
-		"Transaction index should be the same between eth_getTransactionReceipt and eth_getTransactionByBlockNumberAndIndex")
-	require.Equal(t, receiptTxIndex, txIndexFromBlockByHash,
-		"Transaction index should be the same between eth_getTransactionReceipt and eth_getBlockByHash")
-	require.Equal(t, receiptTxIndex, txIndexFromBlockByNumber,
-		"Transaction index should be the same between eth_getTransactionReceipt and eth_getBlockByNumber")
+	allIndices := []string{
+		receiptTxIndex,
+		txIndexFromHash,
+		txIndexFromBlockHashAndIndex,
+		txIndexFromBlockNumberAndIndex,
+		txIndexFromBlockByHash,
+		txIndexFromBlockByNumber,
+	}
 
-	require.Equal(t, txIndexFromHash, txIndexFromBlockHashAndIndex,
-		"Transaction index should be the same between eth_getTransactionByHash and eth_getTransactionByBlockHashAndIndex")
-	require.Equal(t, txIndexFromHash, txIndexFromBlockNumberAndIndex,
-		"Transaction index should be the same between eth_getTransactionByHash and eth_getTransactionByBlockNumberAndIndex")
-	require.Equal(t, txIndexFromHash, txIndexFromBlockByHash,
-		"Transaction index should be the same between eth_getTransactionByHash and eth_getBlockByHash")
-	require.Equal(t, txIndexFromHash, txIndexFromBlockByNumber,
-		"Transaction index should be the same between eth_getTransactionByHash and eth_getBlockByNumber")
+	for i := 1; i < len(allIndices); i++ {
+		require.Equal(t, allIndices[0], allIndices[i],
+			fmt.Sprintf("Transaction index should be the same across all endpoints. Expected: %s, Got: %s", allIndices[0], allIndices[i]))
+	}
 }
-
