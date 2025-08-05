@@ -1229,3 +1229,24 @@ func isPanicTxFunc(ctx context.Context, hash common.Hash) (bool, error) {
 	result := hash == common.HexToHash(TestPanicTxHash) || hash == common.HexToHash(TestSyntheticTxHash)
 	return result, nil
 }
+
+// add the other problematic endpoint as well
+func TestTransactionIndexConsistency(t *testing.T) {
+	txHash := multiTxBlockTx2.Hash()
+
+	receiptResult := sendRequestGood(t, "getTransactionReceipt", txHash.Hex())
+	require.NotNil(t, receiptResult["result"])
+	receipt := receiptResult["result"].(map[string]interface{})
+	receiptTxIndex := receipt["transactionIndex"].(string)
+
+	txResult := sendRequestGood(t, "getTransactionByHash", txHash.Hex())
+	require.NotNil(t, txResult["result"])
+	tx := txResult["result"].(map[string]interface{})
+	txIndex := tx["transactionIndex"].(string)
+
+	require.Equal(t, receiptTxIndex, txIndex,
+		"Transaction index should be the same between eth_getTransactionReceipt and eth_getTransactionByHash")
+	
+	t.Logf("Receipt transaction index: %s", receiptTxIndex)
+	t.Logf("Transaction transaction index: %s", txIndex)
+}
