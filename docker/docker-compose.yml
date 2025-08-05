@@ -18,8 +18,6 @@ services:
       - MOCK_BALANCES
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
-      - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
-      - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${PROJECT_HOME}/../sei-db:/sei-protocol/sei-db:Z"
       - "${PROJECT_HOME}/../go-ethereum:/sei-protocol/go-ethereum:Z"
       - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
@@ -45,8 +43,6 @@ services:
       - UPGRADE_VERSION_LIST
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
-      - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
-      - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${PROJECT_HOME}/../sei-db:/sei-protocol/sei-db:Z"
       - "${PROJECT_HOME}/../go-ethereum:/sei-protocol/go-ethereum:Z"
       - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
@@ -72,8 +68,6 @@ services:
       - "9094-9095:9090-9091"
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
-      - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
-      - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${PROJECT_HOME}/../sei-db:/sei-protocol/sei-db:Z"
       - "${PROJECT_HOME}/../go-ethereum:/sei-protocol/go-ethereum:Z"
       - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"
@@ -99,8 +93,6 @@ services:
       - "9096-9097:9090-9091"
     volumes:
       - "${PROJECT_HOME}:/sei-protocol/sei-chain:Z"
-      - "${PROJECT_HOME}/../sei-tendermint:/sei-protocol/sei-tendermint:Z"
-      - "${PROJECT_HOME}/../sei-cosmos:/sei-protocol/sei-cosmos:Z"
       - "${PROJECT_HOME}/../sei-db:/sei-protocol/sei-db:Z"
       - "${PROJECT_HOME}/../go-ethereum:/sei-protocol/go-ethereum:Z"
       - "${GO_PKG_PATH}/mod:/root/go/pkg/mod:Z"

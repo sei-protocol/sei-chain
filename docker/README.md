@@ -74,15 +74,6 @@ One of the fanciest thing of using docker is fast iteration. Here we support:
 In order to make local debugging work, you can follow these steps:
 ```sh
 # Clone your dependency repo and put them under the same path as sei-chain
-cd sei-chain
-cd ../
-git clone https://github.com/sei-protocol/sei-tendermint.git
-git clone https://github.com/sei-protocol/sei-cosmos.git
-
-# Modify go.mod file to point to local repo, must use the exact same path as below:
-go mod edit -replace github.com/cosmos/cosmos-sdk=../sei-cosmos
-go mod edit -replace github.com/tendermint/tendermint=../sei-tendermint
-
 # You are good to go now! Make changes as you wish to any of the dependency repo and run docker to test it out.
 
 ```
