@@ -34,7 +34,9 @@ jobs:
         run: cat ./pkgs.txt 
       - name: Split pkgs into 10 files
         run: split -d -n l/10 ./pkgs.txt ./pkgs.txt.part.
-      # cache multiple
+      - name: cat0
+        run: cat ./pkgs.txt.part.00
+        # cache multiple
       - uses: actions/upload-artifact@v4
         with:
           name: "cosmos-${{ github.sha }}-00"
