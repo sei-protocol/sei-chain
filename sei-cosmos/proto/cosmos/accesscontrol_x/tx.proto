@@ -1,0 +1,39 @@
+syntax = "proto3";
+package cosmos.accesscontrol_x.v1beta1;
+
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
+
+import "cosmos/accesscontrol/accesscontrol.proto";
+import "cosmos/accesscontrol_x/genesis.proto";
+
+option go_package = "github.com/cosmos/cosmos-sdk/x/accesscontrol/types";
+
+service Msg {
+    rpc RegisterWasmDependency(MsgRegisterWasmDependency) returns (MsgRegisterWasmDependencyResponse);
+}
+
+message RegisterWasmDependencyJSONFile {
+    option (gogoproto.equal)           = false;
+
+    cosmos.accesscontrol.v1beta1.WasmDependencyMapping wasm_dependency_mapping = 1 [
+        (gogoproto.nullable) = false,
+        (gogoproto.moretags) = "yaml:\"wasm_dependency_mapping\""
+    ];
+}
+
+message MsgRegisterWasmDependency {
+    option (gogoproto.equal)           = false;
+
+    string from_address = 1 [
+        (gogoproto.moretags) = "yaml:\"from_address\"",
+        (gogoproto.jsontag) = "from_address"
+    ];
+    cosmos.accesscontrol.v1beta1.WasmDependencyMapping wasm_dependency_mapping = 2 [
+        (gogoproto.nullable) = false,
+        (gogoproto.moretags) = "yaml:\"wasm_dependency_mapping\""
+    ];
+}
+
+message MsgRegisterWasmDependencyResponse {}

@@ -1,0 +1,50 @@
+> echo hello
+-> code: OK
+-> data: hello
+-> data.hex: 0x68656C6C6F
+
+> info 
+-> code: OK
+-> data: {"size":0}
+-> data.hex: 0x7B2273697A65223A307D
+
+> finalize_block "abc"
+-> code: OK
+-> code: OK
+-> data.hex: 0x0200000000000000
+
+> commit 
+-> code: OK
+
+> info 
+-> code: OK
+-> data: {"size":1}
+-> data.hex: 0x7B2273697A65223A317D
+
+> query "abc"
+-> code: OK
+-> log: exists
+-> height: 1
+-> key: abc
+-> key.hex: 616263
+-> value: abc
+-> value.hex: 616263
+
+> finalize_block "def=xyz" "ghi=123"
+-> code: OK
+-> code: OK
+-> code: OK
+-> data.hex: 0x0600000000000000
+
+> commit 
+-> code: OK
+
+> query "def"
+-> code: OK
+-> log: exists
+-> height: 2
+-> key: def
+-> key.hex: 646566
+-> value: xyz
+-> value.hex: 78797A
+

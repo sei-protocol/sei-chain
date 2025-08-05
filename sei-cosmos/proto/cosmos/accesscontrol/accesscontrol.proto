@@ -1,0 +1,55 @@
+syntax = "proto3";
+package cosmos.accesscontrol.v1beta1;
+
+import "gogoproto/gogo.proto";
+import "cosmos/accesscontrol/constants.proto";
+
+option go_package = "github.com/cosmos/cosmos-sdk/types/accesscontrol";
+
+message AccessOperation {
+    AccessType access_type  = 1;
+    ResourceType resource_type  = 2;
+    string identifier_template = 3;
+}
+
+message WasmAccessOperation {
+    AccessOperation operation = 1;
+    AccessOperationSelectorType selector_type = 2;
+    string selector = 3;
+}
+
+message WasmContractReference {
+    string contract_address = 1;
+    WasmMessageSubtype message_type = 2;
+    string message_name = 3;
+    string json_translation_template = 4;
+}
+
+message WasmContractReferences {
+    string message_name = 1;
+    repeated WasmContractReference contract_references = 2;
+}
+
+message WasmAccessOperations {
+    string message_name = 1;
+    repeated WasmAccessOperation wasm_operations = 2;
+}
+
+message MessageDependencyMapping {
+    string message_key = 1;
+    repeated AccessOperation access_ops = 2 [
+        (gogoproto.nullable) = false
+    ];
+    bool dynamic_enabled = 3;
+}
+
+message WasmDependencyMapping {
+    repeated WasmAccessOperation base_access_ops = 1;
+    repeated WasmAccessOperations query_access_ops = 2;
+    repeated WasmAccessOperations execute_access_ops = 3;
+    repeated WasmContractReference base_contract_references = 4;
+    repeated WasmContractReferences query_contract_references = 5;
+    repeated WasmContractReferences execute_contract_references = 6;
+    string reset_reason = 7;
+    string contract_address = 8;
+}
