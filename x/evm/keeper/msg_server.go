@@ -111,7 +111,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			return
 		}
 		if ctx.EVMEntryViaWasmdPrecompile() {
-			syntheticReceipt, err := server.GetTransientReceipt(ctx, ctx.TxSum())
+			syntheticReceipt, err := server.GetTransientReceipt(ctx, ctx.TxSum(), uint64(ctx.TxIndex()))
 			if err == nil {
 				for _, l := range syntheticReceipt.Logs {
 					stateDB.AddLog(&ethtypes.Log{
@@ -123,7 +123,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 				if syntheticReceipt.VmError != "" {
 					serverRes.VmError = fmt.Sprintf("%s\n%s\n", serverRes.VmError, syntheticReceipt.VmError)
 				}
-				server.DeleteTransientReceipt(ctx, ctx.TxSum())
+				server.DeleteTransientReceipt(ctx, ctx.TxSum(), uint64(ctx.TxIndex()))
 			}
 			syntheticDeferredInfo, found := server.GetEVMTxDeferredInfo(ctx)
 			if found {
