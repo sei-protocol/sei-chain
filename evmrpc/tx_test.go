@@ -362,8 +362,10 @@ func TestCumulativeGasUsedPopulation(t *testing.T) {
 	}
 }
 
-func TestTransactionIndexConsistency(t *testing.T) {
+func TestTransactionIndexResponseConsistency(t *testing.T) {
 	txHash := multiTxBlockTx2.Hash()
+	blockHash := MultiTxBlockHash
+	txIndex := "0x3"
 
 	receiptResult := sendRequestGood(t, "getTransactionReceipt", txHash.Hex())
 	require.NotNil(t, receiptResult["result"])
@@ -373,9 +375,18 @@ func TestTransactionIndexConsistency(t *testing.T) {
 	txResult := sendRequestGood(t, "getTransactionByHash", txHash.Hex())
 	require.NotNil(t, txResult["result"])
 	tx := txResult["result"].(map[string]interface{})
-	txIndex := tx["transactionIndex"].(string)
+	txIndexFromHash := tx["transactionIndex"].(string)
 
-	require.Equal(t, receiptTxIndex, txIndex,
+	blockHashAndIndexResult := sendRequestGood(t, "getTransactionByBlockHashAndIndex", blockHash, txIndex)
+	require.NotNil(t, blockHashAndIndexResult["result"])
+	txFromBlockHashAndIndex := blockHashAndIndexResult["result"].(map[string]interface{})
+	txIndexFromBlockHashAndIndex := txFromBlockHashAndIndex["transactionIndex"].(string)
+
+	require.Equal(t, receiptTxIndex, txIndexFromHash,
 		"Transaction index should be the same between eth_getTransactionReceipt and eth_getTransactionByHash")
+	require.Equal(t, receiptTxIndex, txIndexFromBlockHashAndIndex,
+		"Transaction index should be the same between eth_getTransactionReceipt and eth_getTransactionByBlockHashAndIndex")
+	require.Equal(t, txIndexFromHash, txIndexFromBlockHashAndIndex,
+		"Transaction index should be the same between eth_getTransactionByHash and eth_getTransactionByBlockHashAndIndex")
 }
 
