@@ -33,7 +33,7 @@ jobs:
       - name: cat
         run: cat ./pkgs.txt 
       - name: Split pkgs into 10 files
-        run: split -d -n l/10 ./pkgs.txt ./pkgs.txt.part.
+        run: split -d -n l/10 ./pkgs.txt ../pkgs.txt.part.
       - name: cat0
         run: cat ./pkgs.txt.part.00
         # cache multiple
@@ -114,7 +114,7 @@ jobs:
 
       - name: test & coverage report creation
         run: |
-          cat pkgs.txt.part.${{ matrix.part }} | xargs go test -mod=readonly -race -timeout 5m -coverprofile=${{ matrix.part }}profile.out -covermode=atomic -tags='ledger test_ledger_mock'
+          cat ../pkgs.txt.part.${{ matrix.part }} | xargs go test -mod=readonly -race -timeout 5m -coverprofile=../${{ matrix.part }}profile.out -covermode=atomic -tags='ledger test_ledger_mock'
 
       - uses: actions/upload-artifact@v4
         with:
@@ -124,9 +124,6 @@ jobs:
   upload-coverage-report:
     needs: tests
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./sei-cosmos
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
