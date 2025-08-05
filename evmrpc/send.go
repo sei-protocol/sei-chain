@@ -68,11 +68,13 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	if err != nil {
 		return
 	}
-	gasUsedEstimate, err := s.simulateTx(ctx, tx)
-	if err != nil {
-		tx, _ = msg.AsTransaction()
-		gasUsedEstimate = tx.Gas() // if issue simulating, fallback to gas limit
-	}
+	gasUsedEstimate := tx.Gas()
+	//TODO: disabled simulation
+	//gasUsedEstimate, err := s.simulateTx(ctx, tx)
+	//if err != nil {
+	//	tx, _ = msg.AsTransaction()
+	//	gasUsedEstimate = tx.Gas() // if issue simulating, fallback to gas limit
+	//}
 	txBuilder := s.txConfigProvider(LatestCtxHeight).NewTxBuilder()
 	if err = txBuilder.SetMsgs(msg); err != nil {
 		return

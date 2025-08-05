@@ -1999,8 +1999,8 @@ github.com/sei-protocol/sei-iavl v0.2.0 h1:OisPjXiDT+oe+aeckzDEFgkZCYuUjHgs/PP8D
 github.com/sei-protocol/sei-iavl v0.2.0/go.mod h1:qRf8QYUPfrAO7K6VDB2B2l/N7K5L76OorioGBcJBIbw=
 github.com/sei-protocol/sei-ibc-go/v3 v3.3.6 h1:HHWvrslBpkXBHUFs+azwl36NuFEJyMo6huvsNPG854c=
 github.com/sei-protocol/sei-ibc-go/v3 v3.3.6/go.mod h1:VwB/vWu4ysT5DN2aF78d17LYmx3omSAdq6gpKvM7XRA=
-github.com/sei-protocol/sei-tendermint v0.6.1-0.20250804193806-0194ea21c859 h1:LnvxZwPuRG9pTfeO+IhJMz1pW8m7csa9opIwo7FPTz4=
-github.com/sei-protocol/sei-tendermint v0.6.1-0.20250804193806-0194ea21c859/go.mod h1:hLgRpS2d6VM8XzlhEtFeosCYkpuviU2ztqmOairIivc=
+github.com/sei-protocol/sei-tendermint v0.6.1-0.20250805174939-c524339d1e4b h1:/8cEZoBMlGw1ItZo5itUfjMBleYbJpx9AsAl9lqGUo4=
+github.com/sei-protocol/sei-tendermint v0.6.1-0.20250805174939-c524339d1e4b/go.mod h1:hLgRpS2d6VM8XzlhEtFeosCYkpuviU2ztqmOairIivc=
 github.com/sei-protocol/sei-tm-db v0.0.5 h1:3WONKdSXEqdZZeLuWYfK5hP37TJpfaUa13vAyAlvaQY=
 github.com/sei-protocol/sei-tm-db v0.0.5/go.mod h1:Cpa6rGyczgthq7/0pI31jys2Fw0Nfrc+/jKdP1prVqY=
 github.com/sei-protocol/sei-wasmd v0.3.9 h1:gHbJcczxZYon4cYfdQz04sKmPdfDUtqA5mDDKW4dp2E=
