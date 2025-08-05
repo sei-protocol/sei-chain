@@ -29,9 +29,9 @@ jobs:
         with:
           go-version: 1.21
       - name: Create a file with all core Cosmos SDK pkgs
-        run: go list ./... > pkgs.txt
+        run: go list ./... > ./pkgs.txt
       - name: Split pkgs into 10 files
-        run: split -d -n l/10 pkgs.txt pkgs.txt.part.
+        run: split -d -n l/10 ./pkgs.txt ./pkgs.txt.part.
       # cache multiple
       - uses: actions/upload-artifact@v4
         with:
