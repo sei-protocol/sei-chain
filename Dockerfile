@@ -16,7 +16,7 @@ RUN apk add --no-cache ca-certificates build-base git
 WORKDIR /code
 
 # Download dependencies and CosmWasm libwasmvm if found.
-ADD ./ ./
+COPY . .
 RUN set -eux; \
     export ARCH=$(uname -m); \
     # Currently github.com/CosmWasm/wasmvm is being overriden by github.com/sei-protocol/sei-wasmvm
@@ -31,9 +31,6 @@ RUN set -eux; \
     wget -O /lib/libwasmvm152_muslc.a https://github.com/sei-protocol/sei-wasmd/releases/download/v0.3.6/libwasmvm152_muslc.${ARCH}.a; \
     wget -O /lib/libwasmvm155_muslc.a https://github.com/sei-protocol/sei-wasmd/releases/download/v0.3.6/libwasmvm155_muslc.${ARCH}.a; \
     go mod download;
-
-# Copy over code
-COPY . /code/
 
 # force it to use static lib (from above) not standard libgo_cosmwasm.so file
 # then log output of file /code/build/seid
