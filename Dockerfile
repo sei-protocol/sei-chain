@@ -16,7 +16,7 @@ RUN apk add --no-cache ca-certificates build-base git
 WORKDIR /code
 
 # Download dependencies and CosmWasm libwasmvm if found.
-ADD go.mod go.sum ./
+ADD go.mod go.sum sei-cosmos/go.mod sei-cosmos/go.sum sei-tendermint/go.mod sei-tendermint/go.sum ./
 RUN set -eux; \
     export ARCH=$(uname -m); \
     # Currently github.com/CosmWasm/wasmvm is being overriden by github.com/sei-protocol/sei-wasmvm
