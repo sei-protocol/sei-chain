@@ -1211,8 +1211,27 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 		Tx: tx,
 	}, typedTx, sha256.Sum256(tx))
 
-	metrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)
-	metrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted)
+	// Check if transaction is gasless before recording metrics
+	// perf optimization: skip gasless check for obviously non-gasless transaction types
+	shouldCheckGasless := app.isLikelyGaslessTransaction(typedTx)
+
+	var skipMetrics bool
+	if shouldCheckGasless {
+		// Only do expensive validation for potentially gasless transactions
+		isGasless, err := antedecorators.IsTxGasless(typedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
+		if err != nil {
+			ctx.Logger().Error("error checking if tx is gasless for metrics", "error", err)
+			// If we can't determine if it's gasless, record metrics to maintain existing behavior
+		} else if isGasless {
+			skipMetrics = true // Skip metrics for confirmed gasless transactions
+		}
+	}
+
+	if !skipMetrics {
+		// Record metrics for non-gasless transactions
+		metrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)
+		metrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted)
+	}
 
 	return &abci.ExecTxResult{
 		Code:      deliverTxResp.Code,
@@ -1473,10 +1492,31 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
 
 	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
-	for _, r := range batchResult.Results {
+	for i, r := range batchResult.Results {
 		metrics.IncrTxProcessTypeCounter(metrics.OCC_CONCURRENT)
-		metrics.IncrGasCounter("gas_used", r.Response.GasUsed)
-		metrics.IncrGasCounter("gas_wanted", r.Response.GasWanted)
+
+		// Check if transaction is gasless before recording gas metrics
+		var recordGasMetrics = true
+		if i < len(typedTxs) {
+			// perf optimization: skip gasless check for obviously non-gasless transaction types
+			shouldCheckGasless := app.isLikelyGaslessTransaction(typedTxs[i])
+			if shouldCheckGasless {
+				// Only do expensive validation for potentially gasless transactions
+				isGasless, err := antedecorators.IsTxGasless(typedTxs[i], ctx, app.OracleKeeper, &app.EvmKeeper)
+				if err != nil {
+					ctx.Logger().Error("error checking if tx is gasless for OCC metrics", "error", err, "txIndex", i)
+					// If we can't determine if it's gasless, record metrics to maintain existing behavior
+				} else if isGasless {
+					recordGasMetrics = false
+				}
+			}
+		}
+
+		if recordGasMetrics {
+			metrics.IncrGasCounter("gas_used", r.Response.GasUsed)
+			metrics.IncrGasCounter("gas_wanted", r.Response.GasWanted)
+		}
+
 		execResults = append(execResults, &abci.ExecTxResult{
 			Code:      r.Response.Code,
 			Data:      r.Response.Data,
@@ -1940,6 +1980,24 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 		}
 	}
 	return true
+}
+
+// isLikelyGaslessTransaction performs a quick check to identify potentially gasless transactions
+// without expensive keeper queries, optimizing performance for the common case
+func (app *App) isLikelyGaslessTransaction(tx sdk.Tx) bool {
+	msgs := tx.GetMsgs()
+	if len(msgs) != 1 {
+		return false // gasless transactions typically have exactly one message
+	}
+
+	switch msgs[0].(type) {
+	case *evmtypes.MsgAssociate:
+		return true
+	case *oracletypes.MsgAggregateExchangeRateVote:
+		return true
+	default:
+		return false
+	}
 }
 
 func (app *App) GetTxConfig() client.TxConfig {
