@@ -35,9 +35,9 @@ jobs:
           PATTERNS: |
             **/**.go
             "!test/"
-            go.mod
-            go.sum
-            Makefile
+            **/go.mod
+            **/go.sum
+            **/Makefile
       - name: Run Go Tests
         run: |
           NUM_SPLIT=20
