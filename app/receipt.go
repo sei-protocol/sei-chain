@@ -113,7 +113,7 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		txHash = common.HexToHash(response.EvmTxInfo.TxHash)
 	}
 	var bloom ethtypes.Bloom
-	if r, err := app.EvmKeeper.GetTransientReceipt(wasmToEvmEventCtx, txHash); err == nil && r != nil {
+	if r, err := app.EvmKeeper.GetTransientReceipt(wasmToEvmEventCtx, txHash, uint64(ctx.TxIndex())); err == nil && r != nil {
 		r.Logs = append(r.Logs, utils.Map(logs, evmkeeper.ConvertSyntheticEthLog)...)
 		for i, l := range r.Logs {
 			l.Index = uint32(i)
