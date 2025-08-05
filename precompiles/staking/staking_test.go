@@ -935,55 +935,48 @@ func TestStakingPrecompile_RequiredGas(t *testing.T) {
 
 	// Test gas costs for all methods
 	testCases := []struct {
-		name          string
-		methodID      []byte
-		methodName    string
-		inputSize     int
-		expectedGas   uint64
-		isTransaction bool
+		name        string
+		methodID    []byte
+		methodName  string
+		inputSize   int
+		expectedGas uint64
 	}{
 		{
-			name:          "delegate method",
-			methodID:      executor.DelegateID,
-			methodName:    "delegate",
-			expectedGas:   50000,
-			isTransaction: true,
+			name:        "delegate method",
+			methodID:    executor.DelegateID,
+			methodName:  staking.DelegateMethod,
+			expectedGas: 50000,
 		},
 		{
-			name:          "redelegate method",
-			methodID:      executor.RedelegateID,
-			methodName:    "redelegate",
-			expectedGas:   70000, // exact value
-			isTransaction: true,
+			name:        "redelegate method",
+			methodID:    executor.RedelegateID,
+			methodName:  staking.RedelegateMethod,
+			expectedGas: 70000,
 		},
 		{
-			name:          "undelegate method",
-			methodID:      executor.UndelegateID,
-			methodName:    "undelegate",
-			expectedGas:   50000,
-			isTransaction: true,
+			name:        "undelegate method",
+			methodID:    executor.UndelegateID,
+			methodName:  staking.UndelegateMethod,
+			expectedGas: 50000,
 		},
 		{
-			name:          "createValidator method",
-			methodID:      executor.CreateValidatorID,
-			methodName:    "createValidator",
-			expectedGas:   100000,
-			isTransaction: true,
+			name:        "createValidator method",
+			methodID:    executor.CreateValidatorID,
+			methodName:  staking.CreateValidatorMethod,
+			expectedGas: 100000,
 		},
 		{
-			name:          "editValidator method",
-			methodID:      executor.EditValidatorID,
-			methodName:    "editValidator",
-			expectedGas:   100000,
-			isTransaction: true,
+			name:        "editValidator method",
+			methodID:    executor.EditValidatorID,
+			methodName:  "editValidator",
+			expectedGas: 100000,
 		},
 		{
-			name:          "delegation method (query)",
-			methodID:      executor.DelegationID,
-			methodName:    "delegation",
-			inputSize:     100,
-			expectedGas:   1300,
-			isTransaction: false,
+			name:        "delegation method (query)",
+			methodID:    executor.DelegationID,
+			methodName:  staking.DelegationMethod,
+			inputSize:   100,
+			expectedGas: 1300,
 		},
 	}
 
@@ -999,7 +992,7 @@ func TestStakingPrecompile_RequiredGas(t *testing.T) {
 			copy(input[:4], tc.methodID)
 
 			// Test RequiredGas
-			gasRequired := executor.RequiredGas(input[4:], method) // RequiredGas takes input without method ID
+			gasRequired := executor.RequiredGas(input[4:], method)
 
 			// Verify gas
 			require.Equal(t, tc.expectedGas, gasRequired,
