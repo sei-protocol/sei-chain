@@ -99,7 +99,8 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 					// This logic allows multiple nonces from an account to be processed in a block.
 					return abci.Accepted
 				}
-				return abci.Pending
+				// for loadtest, making it so we can only process one nonce at a time to avoid a spin-out.
+				return abci.Rejected
 			})
 		}
 	} else if txNonce != nextNonce {
