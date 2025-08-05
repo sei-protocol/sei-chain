@@ -3,6 +3,7 @@ package evmrpc_test
 import (
 	"fmt"
 	"testing"
+        "time"
 
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/stretchr/testify/require"
@@ -52,6 +53,9 @@ func TestTraceCall(t *testing.T) {
 
 func TestTraceTransactionTimeout(t *testing.T) {
 	args := map[string]interface{}{"tracer": "callTracer"}
+
+        // Simulate slow node response to trigger timeout
+        time.Sleep(2 * time.Second)
 
 	resObj := sendRequestStrictWithNamespace(
 		t,
