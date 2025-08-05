@@ -1,4 +1,4 @@
-name: Buf-Push
+name: Cosmos Buf-Push
 # Protobuf runs buf (https://buf.build/) push updated proto files to https://buf.build/sei-protocol/cosmos-sdk
 # This workflow is only run when a .proto file has been changed
 on:

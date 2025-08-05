@@ -1,4 +1,4 @@
-name: Test
+name: Tendermint Test
 on:
   pull_request:
   push:

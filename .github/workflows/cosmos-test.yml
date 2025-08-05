@@ -1,4 +1,4 @@
-name: Tests / Code Coverage
+name: Cosmos Tests / Code Coverage
 #  Tests / Code Coverage workflow runs unit tests and uploads a code coverage report
 #  This workflow is run on pushes to main & every Pull Requests where a .go, .mod, .sum have been changed
 on:
