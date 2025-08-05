@@ -584,7 +584,7 @@ func (txmp *TxMempool) Update(
 		}
 	}
 
-	txmp.purgeExpiredTxs(blockHeight)
+	//txmp.purgeExpiredTxs(blockHeight)
 	txmp.handlePendingTransactions()
 
 	// If there any uncommitted transactions left in the mempool, we either
