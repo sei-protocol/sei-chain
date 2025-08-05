@@ -926,3 +926,85 @@ func TestEditValidator(t *testing.T) {
 	require.Equal(t, validator.OperatorAddress, updatedValidator.OperatorAddress, "Operator address should remain the same")
 	require.Equal(t, validator.ConsensusPubkey, updatedValidator.ConsensusPubkey, "Consensus pubkey should remain the same")
 }
+
+func TestStakingPrecompile_RequiredGas(t *testing.T) {
+	pre, err := staking.NewPrecompile(&utils.EmptyKeepers{})
+	require.NoError(t, err)
+
+	executor := pre.GetExecutor().(*staking.PrecompileExecutor)
+
+	// Test gas costs for all methods
+	testCases := []struct {
+		name          string
+		methodID      []byte
+		methodName    string
+		inputSize     int
+		expectedGas   uint64
+		isTransaction bool
+	}{
+		{
+			name:          "delegate method",
+			methodID:      executor.DelegateID,
+			methodName:    "delegate",
+			expectedGas:   50000,
+			isTransaction: true,
+		},
+		{
+			name:          "redelegate method",
+			methodID:      executor.RedelegateID,
+			methodName:    "redelegate",
+			expectedGas:   70000, // exact value
+			isTransaction: true,
+		},
+		{
+			name:          "undelegate method",
+			methodID:      executor.UndelegateID,
+			methodName:    "undelegate",
+			expectedGas:   50000,
+			isTransaction: true,
+		},
+		{
+			name:          "createValidator method",
+			methodID:      executor.CreateValidatorID,
+			methodName:    "createValidator",
+			expectedGas:   100000,
+			isTransaction: true,
+		},
+		{
+			name:          "editValidator method",
+			methodID:      executor.EditValidatorID,
+			methodName:    "editValidator",
+			expectedGas:   100000,
+			isTransaction: true,
+		},
+		{
+			name:          "delegation method (query)",
+			methodID:      executor.DelegationID,
+			methodName:    "delegation",
+			inputSize:     100,
+			expectedGas:   1300,
+			isTransaction: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Get the method from ABI
+			method, err := pre.ABI.MethodById(tc.methodID)
+			require.NoError(t, err, "Should be able to find method by ID")
+			require.Equal(t, tc.methodName, method.Name, "Method name should match")
+
+			// Create mock input (method ID + some data)
+			input := make([]byte, 4+tc.inputSize) // method ID (4 bytes) + input data
+			copy(input[:4], tc.methodID)
+
+			// Test RequiredGas
+			gasRequired := executor.RequiredGas(input[4:], method) // RequiredGas takes input without method ID
+
+			// Verify gas
+			require.Equal(t, tc.expectedGas, gasRequired,
+				"Gas should be at least %d, got %d", tc.expectedGas, gasRequired)
+
+		})
+	}
+}
