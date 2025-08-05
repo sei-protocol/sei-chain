@@ -35,43 +35,43 @@ jobs:
       # cache multiple
       - uses: actions/upload-artifact@v4
         with:
-          name: "${{ github.sha }}-00"
+          name: "cosmos-${{ github.sha }}-00"
           path: ./pkgs.txt.part.00
       - uses: actions/upload-artifact@v4
         with:
-          name: "${{ github.sha }}-01"
+          name: "cosmos-${{ github.sha }}-01"
           path: ./pkgs.txt.part.01
       - uses: actions/upload-artifact@v4
         with:
-          name: "${{ github.sha }}-02"
+          name: "cosmos-${{ github.sha }}-02"
           path: ./pkgs.txt.part.02
       - uses: actions/upload-artifact@v4
         with:
-          name: "${{ github.sha }}-03"
+          name: "cosmos-${{ github.sha }}-03"
           path: ./pkgs.txt.part.03
       - uses: actions/upload-artifact@v4
         with:
-          name: "${{ github.sha }}-04"
+          name: "cosmos-${{ github.sha }}-04"
           path: ./pkgs.txt.part.04
       - uses: actions/upload-artifact@v4
         with:
-          name: "${{ github.sha }}-05"
+          name: "cosmos-${{ github.sha }}-05"
           path: ./pkgs.txt.part.05
       - uses: actions/upload-artifact@v4
         with:
-          name: "${{ github.sha }}-06"
+          name: "cosmos-${{ github.sha }}-06"
           path: ./pkgs.txt.part.06
       - uses: actions/upload-artifact@v4
         with:
-          name: "${{ github.sha }}-07"
+          name: "cosmos-${{ github.sha }}-07"
           path: ./pkgs.txt.part.07
       - uses: actions/upload-artifact@v4
         with:
-          name: "${{ github.sha }}-08"
+          name: "cosmos-${{ github.sha }}-08"
           path: ./pkgs.txt.part.08
       - uses: actions/upload-artifact@v4
         with:
-          name: "${{ github.sha }}-09"
+          name: "cosmos-${{ github.sha }}-09"
           path: ./pkgs.txt.part.09
 
   tests:
@@ -94,11 +94,11 @@ jobs:
         with:
           PATTERNS: |
             **/**.go
-            go.mod
-            go.sum
+            **/go.mod
+            **/go.sum
       - uses: actions/download-artifact@v4
         with:
-          name: "${{ github.sha }}-${{ matrix.part }}"
+          name: "cosmos-${{ github.sha }}-${{ matrix.part }}"
       - name: Get data from Go build cache
         uses: actions/cache@v3
         with:
@@ -114,7 +114,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: "${{ github.sha }}-${{ matrix.part }}-coverage"
+          name: "cosmos-${{ github.sha }}-${{ matrix.part }}-coverage"
           path: ./${{ matrix.part }}profile.out
 
   upload-coverage-report:
