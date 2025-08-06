@@ -365,7 +365,6 @@ func TestCumulativeGasUsedPopulation(t *testing.T) {
 func TestTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 	txHash := multiTxBlockTx2.Hash()
 	blockHash := MultiTxBlockHash
-	blockNumber := "0x2"
 	txIndex := "0x3"
 
 	receiptResult := sendRequestGood(t, "getTransactionReceipt", txHash.Hex())
@@ -383,7 +382,7 @@ func TestTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 	txFromBlockHashAndIndex := blockHashAndIndexResult["result"].(map[string]interface{})
 	txIndexFromBlockHashAndIndex := txFromBlockHashAndIndex["transactionIndex"].(string)
 
-	blockNumberAndIndexResult := sendRequestGood(t, "getTransactionByBlockNumberAndIndex", blockNumber, txIndex)
+	blockNumberAndIndexResult := sendRequestGood(t, "getTransactionByBlockNumberAndIndex", MockHeight2, txIndex)
 	require.NotNil(t, blockNumberAndIndexResult["result"])
 	txFromBlockNumberAndIndex := blockNumberAndIndexResult["result"].(map[string]interface{})
 	txIndexFromBlockNumberAndIndex := txFromBlockNumberAndIndex["transactionIndex"].(string)
@@ -396,7 +395,7 @@ func TestTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 	txFromBlockByHash := transactionsByHash[3].(map[string]interface{}) // Index 3
 	txIndexFromBlockByHash := txFromBlockByHash["transactionIndex"].(string)
 
-	blockByNumberResult := sendRequestGood(t, "getBlockByNumber", blockNumber, true)
+	blockByNumberResult := sendRequestGood(t, "getBlockByNumber", MockHeight2, true)
 	require.NotNil(t, blockByNumberResult["result"])
 	blockByNumber := blockByNumberResult["result"].(map[string]interface{})
 	transactionsByNumber := blockByNumber["transactions"].([]interface{})
