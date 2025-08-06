@@ -35,13 +35,13 @@ func TestGetTransactionAnteFailed(t *testing.T) {
 
 func TestTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 	cosmosTx1 := signAndEncodeCosmosTx(bankSendMsg(mnemonic1), mnemonic1, 7, 0)
-	
+
 	tx1Data := send(0)
 	signedTx1 := signTxWithMnemonic(tx1Data, mnemonic1)
 	tx1 := encodeEvmTx(tx1Data, signedTx1)
 
 	cosmosTx2 := signAndEncodeCosmosTx(bankSendMsg(mnemonic1), mnemonic1, 7, 1)
-	
+
 	tx2Data := send(1)
 	signedTx2 := signTxWithMnemonic(tx2Data, mnemonic1)
 	tx2 := encodeEvmTx(tx2Data, signedTx2)
@@ -56,9 +56,12 @@ func TestTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 
 	SetupTestServer([][][]byte{{cosmosTx1, tx1, cosmosTx2, tx2, tx3, tx4}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
-			blockHash := "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe"
-			blockNumber := "0x0"
-			numberOfEVMTransactions := 4 // Only EVM transactions are counted
+			blockNumber := "0x2"
+			numberOfEVMTransactions := 4
+
+			blockResult := sendRequestWithNamespace("eth", port, "getBlockByNumber", blockNumber, false)
+			require.NotNil(t, blockResult["result"])
+			blockHash := blockResult["result"].(map[string]interface{})["hash"].(string)
 
 			txHash := signedTx2.Hash()
 			correctTxIndex := int64(1) // This should be the second EVM transaction (index 1)
