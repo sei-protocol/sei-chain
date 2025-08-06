@@ -11,6 +11,7 @@ import (
 	oraclev605 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v605"
 	oraclev606 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v606"
 	oraclev610 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v610"
+	oraclev614 "github.com/sei-protocol/sei-chain/precompiles/oracle/legacy/v614"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
@@ -26,6 +27,7 @@ func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPr
 		"v6.0.5":      check(oraclev605.NewPrecompile(keepers)),
 		"v6.0.6":      check(oraclev606.NewPrecompile(keepers)),
 		"v6.1.0":      check(oraclev610.NewPrecompile(keepers)),
+		"v6.1.4":      check(oraclev614.NewPrecompile(keepers)),
 	}
 }
 

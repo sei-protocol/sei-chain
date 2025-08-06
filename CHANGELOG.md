@@ -193,6 +193,33 @@ sei-tendermint
 * [#289](https://github.com/sei-protocol/sei-tendermint/pull/289) Purge expired txs from mempool cleanly
 * [#287](https://github.com/sei-protocol/sei-tendermint/pull/287) Bump btcec to v2.3.2, x/crypto to v0.31.0
 
+## v6.2.0
+sei-chain
+* [#2271](https://github.com/sei-protocol/sei-chain/pull/2271) Fix cumulativeGasUsed == 0
+* [#2262](https://github.com/sei-protocol/sei-chain/pull/2262) Consistent Gas Limit across RPC and Opcode
+* [#2263](https://github.com/sei-protocol/sei-chain/pull/2263) Do not take a new snapshot upon RevertToSnapshot
+* [#2272](https://github.com/sei-protocol/sei-chain/pull/2272) Add make target for mock balances
+* [#2258](https://github.com/sei-protocol/sei-chain/pull/2258) Fix static fee history gas used ratio
+* [#2269](https://github.com/sei-protocol/sei-chain/pull/2269) Add compile flagged mock balance testing functionality
+* [#2265](https://github.com/sei-protocol/sei-chain/pull/2265) Bump geth to allow for skipping nonce bump
+* [#2235](https://github.com/sei-protocol/sei-chain/pull/2235) Rate limit eth call in Simulation API
+* [#2261](https://github.com/sei-protocol/sei-chain/pull/2261) Bump Geth for request size limit to 10MB
+* [#2255](https://github.com/sei-protocol/sei-chain/pull/2255) Optimization: CreateAccount only clears state if code hash exists
+* [#2238](https://github.com/sei-protocol/sei-chain/pull/2238) Bump btcec to v2.3.2, x/crypto to v0.31.0
+* [#2234](https://github.com/sei-protocol/sei-chain/pull/2234) Use legacy transaction decoder for historical height
+* [#2250](https://github.com/sei-protocol/sei-chain/pull/2250) Make flushing receipt synchronous
+* [#2251](https://github.com/sei-protocol/sei-chain/pull/2251) Update oracle MidBlock logic
+* [#2256](https://github.com/sei-protocol/sei-chain/pull/2256) Fix data race in price-feeder websocket controller
+* [#2236](https://github.com/sei-protocol/sei-chain/pull/2236) Harden solo precompile
+* [#2232](https://github.com/sei-protocol/sei-chain/pull/2232) Require MsgClaim sender to match signer
+* [#2239](https://github.com/sei-protocol/sei-chain/pull/2239) Remove writeset estimation to alleviate AccAddress mutex contention
+* [#2233](https://github.com/sei-protocol/sei-chain/pull/2233) Exclude transactions that failed ante from getTransaction
+* [#2210](https://github.com/sei-protocol/sei-chain/pull/2210) Refactor versioned precompiles & add automation scripts
+* [#2225](https://github.com/sei-protocol/sei-chain/pull/2225) Fix tx index in getTransactionByHash response
+* [#2218](https://github.com/sei-protocol/sei-chain/pull/2218) Add gov proposal for rechecktx
+* [#2219](https://github.com/sei-protocol/sei-chain/pull/2219) Re-enable p256 precompile
+* [#2074](https://github.com/sei-protocol/sei-chain/pull/2074) Pectra upgrade
+
 go-ethereum
 * [#63](https://github.com/sei-protocol/go-ethereum/pull/63) Allow nonce bump to be skipped
 * [#62](https://github.com/sei-protocol/go-ethereum/pull/62) Expose set read limits for websocket server to prevent OOM
