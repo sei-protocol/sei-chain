@@ -10,6 +10,9 @@ import (
 	"path/filepath"
 	"time"
 
+	"go.opentelemetry.io/otel/sdk/trace"
+	"github.com/tendermint/tendermint/cmd/tendermint/commands"
+	tmlog "github.com/tendermint/tendermint/libs/log"
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -29,6 +32,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
+	tmdebug "github.com/tendermint/tendermint/cmd/tendermint/commands/debug"
 	authcmd "github.com/cosmos/cosmos-sdk/x/auth/client/cli"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
@@ -48,20 +52,66 @@ import (
 	tmcli "github.com/tendermint/tendermint/libs/cli"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
+	"github.com/cosmos/cosmos-sdk/version"
 )
 
-// Option configures root command option.
-type Option func(*rootOptions)
-
-// scaffoldingOptions keeps set of options to apply scaffolding.
-//
-//nolint:unused // preserving this becase don't know if it is needed.
-type rootOptions struct{}
-
-func (s *rootOptions) apply(options ...Option) { //nolint:unused // I figure this gets used later.
-	for _, o := range options {
-		o(s)
+// add server commands
+func AddCommands(
+	rootCmd *cobra.Command,
+	defaultNodeHome string,
+	appCreator servertypes.AppCreator,
+	appExport servertypes.AppExporter,
+	addStartFlags servertypes.ModuleInitFlags,
+	tracerProviderOptions []trace.TracerProviderOption,
+) {
+	tendermintCmd := &cobra.Command{
+		Use:   "tendermint",
+		Short: "Tendermint subcommands",
 	}
+
+	conf, err := commands.ParseConfig(tmcfg.DefaultConfig())
+	if err != nil {
+		panic(err)
+	}
+
+	logger, err := tmlog.NewDefaultLogger(conf.LogFormat, conf.LogLevel)
+	if err != nil {
+		panic(err)
+	}
+	tendermintCmd.AddCommand(
+		server.ShowNodeIDCmd(),
+		server.ShowValidatorCmd(),
+		server.ShowAddressCmd(),
+		server.VersionCmd(),
+		commands.MakeGenValidatorCommand(),
+		commands.MakeReindexEventCommand(conf, logger),
+		commands.MakeLightCommand(conf, logger),
+		commands.MakeReplayCommand(conf, logger),
+		commands.MakeReplayConsoleCommand(conf, logger),
+		commands.MakeResetCommand(conf, logger),
+		commands.MakeUnsafeResetAllCommand(conf, logger),
+		commands.GenNodeKeyCmd,
+		commands.MakeInspectCommand(conf, logger),
+		commands.MakeKeyMigrateCommand(conf, logger),
+		tmdebug.GetDebugCommand(logger),
+		commands.NewCompletionCmd(tendermintCmd, true),
+		commands.MakeSnapshotCommand(server.InterceptConfigs),
+	)
+
+	startCmd := StartCmd(appCreator, defaultNodeHome, tracerProviderOptions)
+	addStartFlags(startCmd)
+	inPlaceTestnetCmd := server.InPlaceTestnetCreator(appCreator, defaultNodeHome)
+	addStartFlags(inPlaceTestnetCmd)
+
+	rootCmd.AddCommand(
+		startCmd,
+		tendermintCmd,
+		server.ExportCmd(appExport, defaultNodeHome),
+		version.NewVersionCommand(),
+		server.NewRollbackCmd(appCreator, defaultNodeHome),
+		server.LatestVersionCmd(defaultNodeHome),
+		inPlaceTestnetCmd,
+	)
 }
 
 // NewRootCmd creates a new root command for a Cosmos SDK application
@@ -403,7 +453,7 @@ func getPrimeNums(lo int, hi int) []int {
 // initAppConfig helps to override default appConfig template and configs.
 // return "", nil if no custom configuration is required for the application.
 // nolint: staticcheck
-func initAppConfig() (string, interface{}) {
+func initAppConfig() (string, any) {
 	// The following code snippet is just for reference.
 
 	// WASMConfig defines configuration for the wasm module.
