@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -363,9 +364,14 @@ func TestCumulativeGasUsedPopulation(t *testing.T) {
 }
 
 func TestTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
-	txHash := multiTxBlockTx2.Hash()
 	blockHash := MultiTxBlockHash
-	txIndex := "0x3"
+	blockNumber := "0x2"
+	numberOfEVMTransactions := 3
+
+	txHash := multiTxBlockTx2.Hash()
+	// retrievalTxIndex should be identical to the correctTxIndex this will be solved by addressing SEI-9891
+	retrievalTxIndex := "0x3"
+	correctTxIndex := int64(1)
 
 	receiptResult := sendRequestGood(t, "getTransactionReceipt", txHash.Hex())
 	require.NotNil(t, receiptResult["result"])
@@ -377,12 +383,12 @@ func TestTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 	tx := txResult["result"].(map[string]interface{})
 	txIndexFromHash := tx["transactionIndex"].(string)
 
-	blockHashAndIndexResult := sendRequestGood(t, "getTransactionByBlockHashAndIndex", blockHash, txIndex)
+	blockHashAndIndexResult := sendRequestGood(t, "getTransactionByBlockHashAndIndex", blockHash, retrievalTxIndex)
 	require.NotNil(t, blockHashAndIndexResult["result"])
 	txFromBlockHashAndIndex := blockHashAndIndexResult["result"].(map[string]interface{})
 	txIndexFromBlockHashAndIndex := txFromBlockHashAndIndex["transactionIndex"].(string)
 
-	blockNumberAndIndexResult := sendRequestGood(t, "getTransactionByBlockNumberAndIndex", MockHeight2, txIndex)
+	blockNumberAndIndexResult := sendRequestGood(t, "getTransactionByBlockNumberAndIndex", blockNumber, "0x3")
 	require.NotNil(t, blockNumberAndIndexResult["result"])
 	txFromBlockNumberAndIndex := blockNumberAndIndexResult["result"].(map[string]interface{})
 	txIndexFromBlockNumberAndIndex := txFromBlockNumberAndIndex["transactionIndex"].(string)
@@ -391,21 +397,22 @@ func TestTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 	require.NotNil(t, blockByHashResult["result"])
 	blockByHash := blockByHashResult["result"].(map[string]interface{})
 	transactionsByHash := blockByHash["transactions"].([]interface{})
-	require.Greater(t, len(transactionsByHash), 3)                      // Should have at least 4 transactions (index 0,1,2,3)
-	txFromBlockByHash := transactionsByHash[3].(map[string]interface{}) // Index 3
+	require.Equal(t, len(transactionsByHash), numberOfEVMTransactions)
+	txFromBlockByHash := transactionsByHash[correctTxIndex].(map[string]interface{})
 	txIndexFromBlockByHash := txFromBlockByHash["transactionIndex"].(string)
 
-	blockByNumberResult := sendRequestGood(t, "getBlockByNumber", MockHeight2, true)
+	blockByNumberResult := sendRequestGood(t, "getBlockByNumber", blockNumber, true)
 	require.NotNil(t, blockByNumberResult["result"])
 	blockByNumber := blockByNumberResult["result"].(map[string]interface{})
 	transactionsByNumber := blockByNumber["transactions"].([]interface{})
-	require.Greater(t, len(transactionsByNumber), 3)                        // Should have at least 4 transactions (index 0,1,2,3)
-	txFromBlockByNumber := transactionsByNumber[3].(map[string]interface{}) // Index 3
+	require.Equal(t, len(transactionsByNumber), 3)
+	txFromBlockByNumber := transactionsByNumber[correctTxIndex].(map[string]interface{})
 	txIndexFromBlockByNumber := txFromBlockByNumber["transactionIndex"].(string)
 
 	blockReceiptsResult := sendRequestGood(t, "getBlockReceipts", blockHash)
 	require.NotNil(t, blockReceiptsResult["result"])
 	blockReceipts := blockReceiptsResult["result"].([]interface{})
+	require.Equal(t, len(blockReceipts), numberOfEVMTransactions)
 	var txIndexFromBlockReceipts string
 	for _, receipt := range blockReceipts {
 		receiptMap := receipt.(map[string]interface{})
@@ -427,7 +434,9 @@ func TestTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 	}
 
 	for i := 1; i < len(allIndices); i++ {
-		require.Equal(t, allIndices[0], allIndices[i],
-			fmt.Sprintf("Transaction index should be the same across all endpoints. Expected: %s, Got: %s", allIndices[0], allIndices[i]))
+		actualTxIndex, err := strconv.ParseInt(allIndices[i], 0, 64)
+		require.Nil(t, err)
+		require.Equal(t, correctTxIndex, actualTxIndex,
+			fmt.Sprintf("Transaction index should be the same and correct across all endpoints that serve it. Expected: %d, Got: %d", correctTxIndex, actualTxIndex))
 	}
 }

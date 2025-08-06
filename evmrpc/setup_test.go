@@ -350,6 +350,59 @@ func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.
 			},
 		}, nil
 	}
+	if *height == MockHeight2 {
+		// MockHeight2 has 6 transactions: 2 non-EVM, 3 EVM, 1 synthetic
+		TxResults := []*abci.ExecTxResult{
+			{
+				Data:      []byte{}, // non-EVM tx
+				GasWanted: 0,
+				GasUsed:   0,
+			},
+			{
+				Data: func() []byte {
+					bz, _ := Encoder(MultiTxBlockTx1)
+					return bz
+				}(),
+				GasWanted: 10,
+				GasUsed:   5,
+			},
+			{
+				Data:      []byte{}, // non-EVM tx
+				GasWanted: 0,
+				GasUsed:   0,
+			},
+			{
+				Data: func() []byte {
+					bz, _ := Encoder(MultiTxBlockTx2)
+					return bz
+				}(),
+				GasWanted: 10,
+				GasUsed:   5,
+			},
+			{
+				Data: func() []byte {
+					bz, _ := Encoder(MultiTxBlockTx3)
+					return bz
+				}(),
+				GasWanted: 10,
+				GasUsed:   5,
+			},
+			{
+				Data: func() []byte {
+					bz, _ := Encoder(MultiTxBlockSynthTx)
+					return bz
+				}(),
+				GasWanted: 10,
+				GasUsed:   5,
+			},
+		}
+		return &coretypes.ResultBlockResults{TxsResults: TxResults, ConsensusParamUpdates: &types2.ConsensusParams{
+			Block: &types2.BlockParams{
+				MaxBytes: 100000000,
+				MaxGas:   200000000,
+			},
+		}}, nil
+	}
 	if *height == MockHeight103 {
 		TxResults := []*abci.ExecTxResult{
 			{
