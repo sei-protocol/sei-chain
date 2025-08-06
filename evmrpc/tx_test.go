@@ -362,7 +362,7 @@ func TestCumulativeGasUsedPopulation(t *testing.T) {
 	}
 }
 
-func TestTransactionIndexResponseConsistency(t *testing.T) {
+func TestTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 	txHash := multiTxBlockTx2.Hash()
 	blockHash := MultiTxBlockHash
 	blockNumber := "0x2"
