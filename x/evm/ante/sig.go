@@ -92,6 +92,8 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 
 				if txNonce < nextNonceToBeMined {
 					// this nonce has already been mined, we cannot accept it again
+					ctx.Logger().Error("rejecting tx because txNonce < nextNonceToBeMined",
+						"nonce", txNonce, "nextNonce", nextNonceToBeMined, "nextPending", nextPendingNonce)
 					return abci.Rejected
 				} else if txNonce < nextPendingNonce {
 					// this nonce is allowed to process as it is part of the
@@ -100,6 +102,8 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 					return abci.Accepted
 				}
 				// for loadtest, making it so we can only process one nonce at a time to avoid a spin-out.
+				ctx.Logger().Error("rejecting tx because txNonce >= nextNonceToBeMined",
+					"nonce", txNonce, "nextNonce", nextNonceToBeMined, "nextPending", nextPendingNonce)
 				return abci.Rejected
 			})
 		}
