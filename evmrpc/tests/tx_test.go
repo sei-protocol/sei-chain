@@ -33,7 +33,8 @@ func TestGetTransactionAnteFailed(t *testing.T) {
 	)
 }
 
-func TestTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
+// Does not check trace_*, debug_*, and log endpoints
+func TestEVMTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 	cosmosTx1 := signAndEncodeCosmosTx(bankSendMsg(mnemonic1), mnemonic1, 7, 0)
 
 	tx1Data := send(0)
