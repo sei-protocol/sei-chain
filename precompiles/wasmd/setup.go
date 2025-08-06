@@ -2,6 +2,8 @@ package wasmd
 
 import (
 	"github.com/ethereum/go-ethereum/core/vm"
+
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	wasmdv552 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v552"
 	wasmdv555 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v555"
 	wasmdv562 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v562"
@@ -13,7 +15,6 @@ import (
 	wasmdv605 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v605"
 	wasmdv606 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v606"
 	wasmdv610 "github.com/sei-protocol/sei-chain/precompiles/wasmd/legacy/v610"
-	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
 func GetVersioned(latestUpgrade string, keepers utils.Keepers) utils.VersionedPrecompiles {
