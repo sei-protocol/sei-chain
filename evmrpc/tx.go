@@ -189,6 +189,7 @@ func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
+	// index is already EVM index here
 	return t.getTransactionWithBlock(block, index, t.includeSynthetic)
 }
 
@@ -298,7 +299,7 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 	if int(index) >= len(block.Block.Txs) {
 		return nil, nil
 	}
-	txIdx, found, ethtx, _ := GetEvmTxIndex(block.Block.Txs, uint32(index), t.txConfigProvider(block.Block.Height).TxDecoder(), func(h common.Hash) *types.Receipt {
+	_, found, ethtx, _ := GetEvmTxIndex(block.Block.Txs, uint32(index), t.txConfigProvider(block.Block.Height).TxDecoder(), func(h common.Hash) *types.Receipt {
 		r, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), h)
 		if err != nil {
 			return nil
@@ -321,7 +322,7 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 	blockHash := common.HexToHash(block.BlockID.Hash.String())
 	blockNumber := uint64(block.Block.Height)
 	blockTime := block.Block.Time
-	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(txIdx), baseFeePerGas, chainConfig)
+	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(index), baseFeePerGas, chainConfig)
 	return res, nil
 }
 
@@ -359,6 +360,7 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 	return ethtx
 }
 
+// this function returns too much shit - should only return the index
 // Gets the EVM tx index based on the tx index (typically from receipt.TransactionIndex
 // Essentially loops through and calculates the index if we ignore cosmos txs
 func GetEvmTxIndex(txs tmtypes.Txs, txIndex uint32, decoder sdk.TxDecoder, receiptChecker func(common.Hash) *types.Receipt, includeSynthetic bool) (index int, found bool, etx *ethtypes.Transaction, logIndexOffset int) {

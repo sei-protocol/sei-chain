@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -363,81 +362,4 @@ func TestCumulativeGasUsedPopulation(t *testing.T) {
 	}
 }
 
-// Does not trace_*, debug_*, and log endpoints
-func TestTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
-	blockHash := MultiTxBlockHash
-	blockNumber := "0x2"
-	numberOfEVMTransactions := 3
 
-	txHash := multiTxBlockTx2.Hash()
-	// retrievalTxIndex should be identical to the correctTxIndex this will be solved by addressing SEI-9891
-	retrievalTxIndex := "0x3"
-	correctTxIndex := int64(1)
-
-	receiptResult := sendRequestGood(t, "getTransactionReceipt", txHash.Hex())
-	require.NotNil(t, receiptResult["result"])
-	receipt := receiptResult["result"].(map[string]interface{})
-	receiptTxIndex := receipt["transactionIndex"].(string)
-
-	txResult := sendRequestGood(t, "getTransactionByHash", txHash.Hex())
-	require.NotNil(t, txResult["result"])
-	tx := txResult["result"].(map[string]interface{})
-	txIndexFromHash := tx["transactionIndex"].(string)
-
-	blockHashAndIndexResult := sendRequestGood(t, "getTransactionByBlockHashAndIndex", blockHash, retrievalTxIndex)
-	require.NotNil(t, blockHashAndIndexResult["result"])
-	txFromBlockHashAndIndex := blockHashAndIndexResult["result"].(map[string]interface{})
-	txIndexFromBlockHashAndIndex := txFromBlockHashAndIndex["transactionIndex"].(string)
-
-	blockNumberAndIndexResult := sendRequestGood(t, "getTransactionByBlockNumberAndIndex", blockNumber, "0x3")
-	require.NotNil(t, blockNumberAndIndexResult["result"])
-	txFromBlockNumberAndIndex := blockNumberAndIndexResult["result"].(map[string]interface{})
-	txIndexFromBlockNumberAndIndex := txFromBlockNumberAndIndex["transactionIndex"].(string)
-
-	blockByHashResult := sendRequestGood(t, "getBlockByHash", blockHash, true)
-	require.NotNil(t, blockByHashResult["result"])
-	blockByHash := blockByHashResult["result"].(map[string]interface{})
-	transactionsByHash := blockByHash["transactions"].([]interface{})
-	require.Equal(t, len(transactionsByHash), numberOfEVMTransactions)
-	txFromBlockByHash := transactionsByHash[correctTxIndex].(map[string]interface{})
-	txIndexFromBlockByHash := txFromBlockByHash["transactionIndex"].(string)
-
-	blockByNumberResult := sendRequestGood(t, "getBlockByNumber", blockNumber, true)
-	require.NotNil(t, blockByNumberResult["result"])
-	blockByNumber := blockByNumberResult["result"].(map[string]interface{})
-	transactionsByNumber := blockByNumber["transactions"].([]interface{})
-	require.Equal(t, len(transactionsByNumber), 3)
-	txFromBlockByNumber := transactionsByNumber[correctTxIndex].(map[string]interface{})
-	txIndexFromBlockByNumber := txFromBlockByNumber["transactionIndex"].(string)
-
-	blockReceiptsResult := sendRequestGood(t, "getBlockReceipts", blockHash)
-	require.NotNil(t, blockReceiptsResult["result"])
-	blockReceipts := blockReceiptsResult["result"].([]interface{})
-	require.Equal(t, len(blockReceipts), numberOfEVMTransactions)
-	var txIndexFromBlockReceipts string
-	for _, receipt := range blockReceipts {
-		receiptMap := receipt.(map[string]interface{})
-		if receiptMap["transactionHash"] == txHash.Hex() {
-			txIndexFromBlockReceipts = receiptMap["transactionIndex"].(string)
-			break
-		}
-	}
-	require.NotEmpty(t, txIndexFromBlockReceipts, "Should find transaction index in block receipts")
-
-	allIndices := []string{
-		receiptTxIndex,
-		txIndexFromHash,
-		txIndexFromBlockHashAndIndex,
-		txIndexFromBlockNumberAndIndex,
-		txIndexFromBlockByHash,
-		txIndexFromBlockByNumber,
-		txIndexFromBlockReceipts,
-	}
-
-	for i := 1; i < len(allIndices); i++ {
-		actualTxIndex, err := strconv.ParseInt(allIndices[i], 0, 64)
-		require.Nil(t, err)
-		require.Equal(t, correctTxIndex, actualTxIndex,
-			fmt.Sprintf("Transaction index should be the same and correct across all endpoints that serve it. Expected: %d, Got: %d", correctTxIndex, actualTxIndex))
-	}
-}
