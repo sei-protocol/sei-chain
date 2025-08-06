@@ -355,11 +355,9 @@ func TestCumulativeGasUsedPopulation(t *testing.T) {
 	err := EVMKeeper.FlushTransientReceiptsSync(Ctx)
 	require.Nil(t, err)
 
-	for i := 0; i < len(txHashes); i++ {
+	for i := 0 ; i < len(txHashes); i++ {
 		receipt, err := EVMKeeper.GetReceipt(Ctx, txHashes[i])
 		require.Nil(t, err)
-		require.Equal(t, receipt.CumulativeGasUsed, correctCumulativeGasUsedValues[i])
+		require.Equal(t, receipt.CumulativeGasUsed,  correctCumulativeGasUsedValues[i])
 	}
 }
-
-
