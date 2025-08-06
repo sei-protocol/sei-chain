@@ -1,6 +1,7 @@
 package evmrpc
 
 import (
+	"runtime"
 	"time"
 
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
@@ -71,6 +72,9 @@ type Config struct {
 	// controls whether to have txns go through one by one
 	Slow bool `mapstructure:"slow"`
 
+	// controls whether to synchronously flush receipts before block finalze or not
+	FlushReceiptSync bool `mapstructure:"flush_receipt_sync"`
+
 	// Deny list defines list of methods that EVM RPC should fail fast
 	DenyList []string `mapstructure:"deny_list"`
 
@@ -90,6 +94,10 @@ type Config struct {
 	// Set to 0 for unlimited.
 	MaxConcurrentTraceCalls uint64 `mapstructure:"max_concurrent_trace_calls"`
 
+	// MaxConcurrentSimulationCalls defines the maximum number of concurrent eth_call calls.
+	// Set to 0 for unlimited.
+	MaxConcurrentSimulationCalls int `mapstructure:"max_concurrent_simulation_calls"`
+
 	// Max number of blocks allowed to look back for tracing
 	MaxTraceLookbackBlocks int64 `mapstructure:"max_trace_lookback_blocks"`
 
@@ -98,57 +106,61 @@ type Config struct {
 }
 
 var DefaultConfig = Config{
-	HTTPEnabled:             true,
-	HTTPPort:                8545,
-	WSEnabled:               true,
-	WSPort:                  8546,
-	ReadTimeout:             rpc.DefaultHTTPTimeouts.ReadTimeout,
-	ReadHeaderTimeout:       rpc.DefaultHTTPTimeouts.ReadHeaderTimeout,
-	WriteTimeout:            rpc.DefaultHTTPTimeouts.WriteTimeout,
-	IdleTimeout:             rpc.DefaultHTTPTimeouts.IdleTimeout,
-	SimulationGasLimit:      10_000_000, // 10M
-	SimulationEVMTimeout:    60 * time.Second,
-	CORSOrigins:             "*",
-	WSOrigins:               "*",
-	FilterTimeout:           120 * time.Second,
-	CheckTxTimeout:          5 * time.Second,
-	MaxTxPoolTxs:            1000,
-	Slow:                    false,
-	DenyList:                make([]string, 0),
-	MaxLogNoBlock:           10000,
-	MaxBlocksForLog:         2000,
-	MaxSubscriptionsNewHead: 10000,
-	EnableTestAPI:           false,
-	MaxConcurrentTraceCalls: 10,
-	MaxTraceLookbackBlocks:  10000,
-	TraceTimeout:            30 * time.Second,
+	HTTPEnabled:                  true,
+	HTTPPort:                     8545,
+	WSEnabled:                    true,
+	WSPort:                       8546,
+	ReadTimeout:                  rpc.DefaultHTTPTimeouts.ReadTimeout,
+	ReadHeaderTimeout:            rpc.DefaultHTTPTimeouts.ReadHeaderTimeout,
+	WriteTimeout:                 rpc.DefaultHTTPTimeouts.WriteTimeout,
+	IdleTimeout:                  rpc.DefaultHTTPTimeouts.IdleTimeout,
+	SimulationGasLimit:           10_000_000, // 10M
+	SimulationEVMTimeout:         60 * time.Second,
+	CORSOrigins:                  "*",
+	WSOrigins:                    "*",
+	FilterTimeout:                120 * time.Second,
+	CheckTxTimeout:               5 * time.Second,
+	MaxTxPoolTxs:                 1000,
+	Slow:                         false,
+	FlushReceiptSync:             false,
+	DenyList:                     make([]string, 0),
+	MaxLogNoBlock:                10000,
+	MaxBlocksForLog:              2000,
+	MaxSubscriptionsNewHead:      10000,
+	EnableTestAPI:                false,
+	MaxConcurrentTraceCalls:      10,
+	MaxConcurrentSimulationCalls: runtime.NumCPU(),
+	MaxTraceLookbackBlocks:       10000,
+	TraceTimeout:                 30 * time.Second,
 }
 
 const (
-	flagHTTPEnabled             = "evm.http_enabled"
-	flagHTTPPort                = "evm.http_port"
-	flagWSEnabled               = "evm.ws_enabled"
-	flagWSPort                  = "evm.ws_port"
-	flagReadTimeout             = "evm.read_timeout"
-	flagReadHeaderTimeout       = "evm.read_header_timeout"
-	flagWriteTimeout            = "evm.write_timeout"
-	flagIdleTimeout             = "evm.idle_timeout"
-	flagSimulationGasLimit      = "evm.simulation_gas_limit"
-	flagSimulationEVMTimeout    = "evm.simulation_evm_timeout"
-	flagCORSOrigins             = "evm.cors_origins"
-	flagWSOrigins               = "evm.ws_origins"
-	flagFilterTimeout           = "evm.filter_timeout"
-	flagMaxTxPoolTxs            = "evm.max_tx_pool_txs"
-	flagCheckTxTimeout          = "evm.checktx_timeout"
-	flagSlow                    = "evm.slow"
-	flagDenyList                = "evm.deny_list"
-	flagMaxLogNoBlock           = "evm.max_log_no_block"
-	flagMaxBlocksForLog         = "evm.max_blocks_for_log"
-	flagMaxSubscriptionsNewHead = "evm.max_subscriptions_new_head"
-	flagEnableTestAPI           = "evm.enable_test_api"
-	flagMaxConcurrentTraceCalls = "evm.max_concurrent_trace_calls"
-	flagMaxTraceLookbackBlocks  = "evm.max_trace_lookback_blocks"
-	flagTraceTimeout            = "evm.trace_timeout"
+	flagHTTPEnabled                  = "evm.http_enabled"
+	flagHTTPPort                     = "evm.http_port"
+	flagWSEnabled                    = "evm.ws_enabled"
+	flagWSPort                       = "evm.ws_port"
+	flagReadTimeout                  = "evm.read_timeout"
+	flagReadHeaderTimeout            = "evm.read_header_timeout"
+	flagWriteTimeout                 = "evm.write_timeout"
+	flagIdleTimeout                  = "evm.idle_timeout"
+	flagSimulationGasLimit           = "evm.simulation_gas_limit"
+	flagSimulationEVMTimeout         = "evm.simulation_evm_timeout"
+	flagCORSOrigins                  = "evm.cors_origins"
+	flagWSOrigins                    = "evm.ws_origins"
+	flagFilterTimeout                = "evm.filter_timeout"
+	flagMaxTxPoolTxs                 = "evm.max_tx_pool_txs"
+	flagCheckTxTimeout               = "evm.checktx_timeout"
+	flagSlow                         = "evm.slow"
+	flagFlushReceiptSync             = "evm.flush_receipt_sync"
+	flagDenyList                     = "evm.deny_list"
+	flagMaxLogNoBlock                = "evm.max_log_no_block"
+	flagMaxBlocksForLog              = "evm.max_blocks_for_log"
+	flagMaxSubscriptionsNewHead      = "evm.max_subscriptions_new_head"
+	flagEnableTestAPI                = "evm.enable_test_api"
+	flagMaxConcurrentTraceCalls      = "evm.max_concurrent_trace_calls"
+	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
+	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
+	flagTraceTimeout                 = "evm.trace_timeout"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -234,6 +246,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
+	if v := opts.Get(flagFlushReceiptSync); v != nil {
+		if cfg.FlushReceiptSync, err = cast.ToBoolE(v); err != nil {
+			return cfg, err
+		}
+	}
 	if v := opts.Get(flagDenyList); v != nil {
 		if cfg.DenyList, err = cast.ToStringSliceE(v); err != nil {
 			return cfg, err
@@ -261,6 +278,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagMaxConcurrentTraceCalls); v != nil {
 		if cfg.MaxConcurrentTraceCalls, err = cast.ToUint64E(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagMaxConcurrentSimulationCalls); v != nil {
+		if cfg.MaxConcurrentSimulationCalls, err = cast.ToIntE(v); err != nil {
 			return cfg, err
 		}
 	}
