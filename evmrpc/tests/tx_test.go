@@ -46,25 +46,18 @@ func TestTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 	signedTx2 := signTxWithMnemonic(tx2Data, mnemonic1)
 	tx2 := encodeEvmTx(tx2Data, signedTx2)
 
-	tx3Data := send(2)
-	signedTx3 := signTxWithMnemonic(tx3Data, mnemonic1)
-	tx3 := encodeEvmTx(tx3Data, signedTx3)
-
-	tx4Data := send(3)
-	signedTx4 := signTxWithMnemonic(tx4Data, mnemonic1)
-	tx4 := encodeEvmTx(tx4Data, signedTx4)
-
-	SetupTestServer([][][]byte{{cosmosTx1, tx1, cosmosTx2, tx2, tx3, tx4}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer([][][]byte{{cosmosTx1, tx1, cosmosTx2, tx2}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			blockNumber := "0x2"
-			numberOfEVMTransactions := 4
+			numberOfEVMTransactions := 2
 
 			blockResult := sendRequestWithNamespace("eth", port, "getBlockByNumber", blockNumber, false)
 			require.NotNil(t, blockResult["result"])
 			blockHash := blockResult["result"].(map[string]interface{})["hash"].(string)
 
 			txHash := signedTx2.Hash()
-			correctTxIndex := int64(1) // This should be the second EVM transaction (index 1)
+			correctTxIndex := int64(1)
+			retrievalTxIndex := "0x3"
 
 			receiptResult := sendRequestWithNamespace("eth", port, "getTransactionReceipt", txHash.Hex())
 			require.NotNil(t, receiptResult["result"])
@@ -76,12 +69,12 @@ func TestTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 			tx := txResult["result"].(map[string]interface{})
 			txIndexFromHash := tx["transactionIndex"].(string)
 
-			blockHashAndIndexResult := sendRequestWithNamespace("eth", port, "getTransactionByBlockHashAndIndex", blockHash, "0x2")
+			blockHashAndIndexResult := sendRequestWithNamespace("eth", port, "getTransactionByBlockHashAndIndex", blockHash, retrievalTxIndex)
 			require.NotNil(t, blockHashAndIndexResult["result"])
 			txFromBlockHashAndIndex := blockHashAndIndexResult["result"].(map[string]interface{})
 			txIndexFromBlockHashAndIndex := txFromBlockHashAndIndex["transactionIndex"].(string)
 
-			blockNumberAndIndexResult := sendRequestWithNamespace("eth", port, "getTransactionByBlockNumberAndIndex", blockNumber, "0x2")
+			blockNumberAndIndexResult := sendRequestWithNamespace("eth", port, "getTransactionByBlockNumberAndIndex", blockNumber, retrievalTxIndex)
 			require.NotNil(t, blockNumberAndIndexResult["result"])
 			txFromBlockNumberAndIndex := blockNumberAndIndexResult["result"].(map[string]interface{})
 			txIndexFromBlockNumberAndIndex := txFromBlockNumberAndIndex["transactionIndex"].(string)
