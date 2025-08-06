@@ -388,7 +388,7 @@ func TestTransactionIndexResponseConsistency(t *testing.T) {
 	txFromBlockNumberAndIndex := blockNumberAndIndexResult["result"].(map[string]interface{})
 	txIndexFromBlockNumberAndIndex := txFromBlockNumberAndIndex["transactionIndex"].(string)
 
-	blockByHashResult := sendRequestGood(t, "getBlockByHash", blockHash, false)
+	blockByHashResult := sendRequestGood(t, "getBlockByHash", blockHash, true)
 	require.NotNil(t, blockByHashResult["result"])
 	blockByHash := blockByHashResult["result"].(map[string]interface{})
 	transactionsByHash := blockByHash["transactions"].([]interface{})
@@ -396,13 +396,26 @@ func TestTransactionIndexResponseConsistency(t *testing.T) {
 	txFromBlockByHash := transactionsByHash[3].(map[string]interface{}) // Index 3
 	txIndexFromBlockByHash := txFromBlockByHash["transactionIndex"].(string)
 
-	blockByNumberResult := sendRequestGood(t, "getBlockByNumber", blockNumber, false)
+	blockByNumberResult := sendRequestGood(t, "getBlockByNumber", blockNumber, true)
 	require.NotNil(t, blockByNumberResult["result"])
 	blockByNumber := blockByNumberResult["result"].(map[string]interface{})
 	transactionsByNumber := blockByNumber["transactions"].([]interface{})
 	require.Greater(t, len(transactionsByNumber), 3)                        // Should have at least 4 transactions (index 0,1,2,3)
 	txFromBlockByNumber := transactionsByNumber[3].(map[string]interface{}) // Index 3
 	txIndexFromBlockByNumber := txFromBlockByNumber["transactionIndex"].(string)
+
+	blockReceiptsResult := sendRequestGood(t, "getBlockReceipts", blockHash)
+	require.NotNil(t, blockReceiptsResult["result"])
+	blockReceipts := blockReceiptsResult["result"].([]interface{})
+	var txIndexFromBlockReceipts string
+	for _, receipt := range blockReceipts {
+		receiptMap := receipt.(map[string]interface{})
+		if receiptMap["transactionHash"] == txHash.Hex() {
+			txIndexFromBlockReceipts = receiptMap["transactionIndex"].(string)
+			break
+		}
+	}
+	require.NotEmpty(t, txIndexFromBlockReceipts, "Should find transaction index in block receipts")
 
 	allIndices := []string{
 		receiptTxIndex,
@@ -411,6 +424,7 @@ func TestTransactionIndexResponseConsistency(t *testing.T) {
 		txIndexFromBlockNumberAndIndex,
 		txIndexFromBlockByHash,
 		txIndexFromBlockByNumber,
+		txIndexFromBlockReceipts,
 	}
 
 	for i := 1; i < len(allIndices); i++ {
