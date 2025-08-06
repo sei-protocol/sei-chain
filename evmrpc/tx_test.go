@@ -363,6 +363,7 @@ func TestCumulativeGasUsedPopulation(t *testing.T) {
 	}
 }
 
+// Does not trace_*, debug_*, and log endpoints
 func TestTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 	blockHash := MultiTxBlockHash
 	blockNumber := "0x2"
