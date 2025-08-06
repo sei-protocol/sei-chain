@@ -1073,3 +1073,29 @@ func TestAppendCheckTxErr(t *testing.T) {
 
 	require.Equal(t, newLogData, actualResult)
 }
+
+func TestMempoolExpiration(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	client := abciclient.NewLocalClient(log.NewNopLogger(), &application{Application: kvstore.NewApplication()})
+	if err := client.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Wait)
+
+	txmp := setup(t, client, 0)
+	txmp.config.TTLDuration = time.Nanosecond // we want tx to expire immediately
+	txmp.config.RemoveExpiredTxsFromQueue = true
+	txs := checkTxs(ctx, t, txmp, 100, 0)
+	require.Equal(t, len(txs), txmp.priorityIndex.Len())
+	require.Equal(t, len(txs), txmp.heightIndex.Size())
+	require.Equal(t, len(txs), txmp.timestampIndex.Size())
+	require.Equal(t, len(txs), txmp.txStore.Size())
+	time.Sleep(time.Millisecond)
+	txmp.purgeExpiredTxs(txmp.height)
+	require.Equal(t, 0, txmp.priorityIndex.Len())
+	require.Equal(t, 0, txmp.heightIndex.Size())
+	require.Equal(t, 0, txmp.timestampIndex.Size())
+	require.Equal(t, 0, txmp.txStore.Size())
+}

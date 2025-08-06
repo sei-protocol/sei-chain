@@ -817,6 +817,8 @@ type MempoolConfig struct {
 	PendingTTLDuration time.Duration `mapstructure:"pending-ttl-duration"`
 
 	PendingTTLNumBlocks int64 `mapstructure:"pending-ttl-num-blocks"`
+
+	RemoveExpiredTxsFromQueue bool `mapstructure:"remove-expired-txs-from-queue"`
 }
 
 // DefaultMempoolConfig returns a default configuration for the Tendermint mempool.
@@ -838,6 +840,7 @@ func DefaultMempoolConfig() *MempoolConfig {
 		MaxPendingTxsBytes:           1024 * 1024 * 1024, // 1GB
 		PendingTTLDuration:           0 * time.Second,
 		PendingTTLNumBlocks:          0,
+		RemoveExpiredTxsFromQueue:    false,
 	}
 }
 
