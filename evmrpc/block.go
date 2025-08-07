@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 	"strings"
 	"sync"
@@ -30,10 +29,9 @@ import (
 )
 
 const (
-	ShellEVMTxType = math.MaxUint32
-	EthNamespace   = "eth"
-	SeiNamespace   = "sei"
-	Sei2Namespace  = "sei2"
+	EthNamespace  = "eth"
+	SeiNamespace  = "sei"
+	Sei2Namespace = "sei2"
 )
 
 type BlockAPI struct {
@@ -155,7 +153,9 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	}
 	var blockBloom ethtypes.Bloom
 	// Only include synthetic logs in sei_ namespace
-	if a.namespace != EthNamespace {
+	if a.namespace == EthNamespace {
+		blockBloom = a.keeper.GetEvmOnlyBlockBloom(a.ctxProvider(block.Block.Height))
+	} else {
 		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
 	}
 	return EncodeTmBlock(a.ctxProvider(block.Block.Height), a.ctxProvider(block.Block.Height-1), block, blockRes, blockBloom, a.keeper, a.txConfigProvider(block.Block.Height).TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
@@ -215,7 +215,9 @@ func (a *BlockAPI) getBlockByNumber(
 	}
 	var blockBloom ethtypes.Bloom
 	// Only include synthetic logs in sei_ namespace
-	if a.namespace != EthNamespace {
+	if a.namespace == EthNamespace {
+		blockBloom = a.keeper.GetEvmOnlyBlockBloom(a.ctxProvider(block.Block.Height))
+	} else {
 		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
 	}
 	return EncodeTmBlock(a.ctxProvider(block.Block.Height), a.ctxProvider(block.Block.Height-1), block, blockRes, blockBloom, a.keeper, a.txConfigProvider(blockRes.Height).TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
@@ -266,7 +268,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					return
 				}
 				// If the receipt has synthetic logs, we actually want to include them in the response.
-				if !a.includeShellReceipts && receipt.TxType == ShellEVMTxType {
+				if !a.includeShellReceipts && receipt.TxType == types.ShellEVMTxType {
 					return
 				}
 				// tx hash is included in a future block (because it failed in the current block due to
@@ -364,7 +366,7 @@ func EncodeTmBlock(
 				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(receipt) {
 					continue
 				}
-				if !includeSyntheticTxs && receipt.TxType == ShellEVMTxType {
+				if !includeSyntheticTxs && receipt.TxType == types.ShellEVMTxType {
 					continue
 				}
 				if !fullTx {

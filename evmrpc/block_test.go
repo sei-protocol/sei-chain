@@ -148,12 +148,13 @@ func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
 
 func verifyBlockResultWithBloom(t *testing.T, resObj map[string]interface{}, isEthNamespace bool) {
 	resObj = resObj["result"].(map[string]interface{})
+	emptyBloom := "0x" + common.Bytes2Hex(ethtypes.Bloom{}.Bytes())
+
 	if isEthNamespace {
-		// For eth namespace, expect empty bloom
-		emptyBloom := ethtypes.Bloom{}.Bytes()
-		require.Equal(t, "0x"+common.Bytes2Hex(emptyBloom), resObj["logsBloom"])
+		// Eth namespace now returns EVM-only bloom where present → should be non-empty
+		require.NotEqual(t, emptyBloom, resObj["logsBloom"])
 	} else {
-		// For sei namespace, expect the specific bloom from the test data
+		// Sei namespace still uses all-logs bloom; if you want to keep the exact value check, keep it:
 		require.Equal(t, "0x00002000040000000000000000000080000000200000000000002000000000080000000000000000000000000000000000000000000000000800000000000000001000000000000000000000000000000000020000000000000000000000000100000000000000002000000000200000000000000000000000000000000000100000000000000000000000000400000000000000200000000000000000000000000000000000000100000000000000020000200000000000000000002000000000000000000000000000000000000000000000000000000000000000000200000000010000000002000000000000000000000000000000010200000000000000", resObj["logsBloom"])
 	}
 }
@@ -400,33 +401,44 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 }
 
 func TestGetBlockByNumber_LogBloomBehavior(t *testing.T) {
-	// Test eth namespace returns empty logBloom
+	emptyBloom := "0x" + common.Bytes2Hex(ethtypes.Bloom{}.Bytes())
+
+	// Eth namespace should now be NON-empty at 0x8
 	resObjEth := sendRequestGood(t, "getBlockByNumber", "0x8", true)
 	resultEth := resObjEth["result"].(map[string]interface{})
-	emptyBloom := ethtypes.Bloom{}.Bytes()
-	require.Equal(t, "0x"+common.Bytes2Hex(emptyBloom), resultEth["logsBloom"])
+	require.NotEqual(t, emptyBloom, resultEth["logsBloom"])
 
-	// Test sei namespace includes synthetic logs in logBloom
+	// Sei namespace includes synthetic logs and should also be non-empty
 	resObjSei := sendSeiRequestGood(t, "getBlockByNumber", "0x8", true)
 	resultSei := resObjSei["result"].(map[string]interface{})
-	// The actual logBloom value will depend on the synthetic logs in the test block
-	// We just verify it's not empty
-	require.NotEqual(t, "0x"+common.Bytes2Hex(emptyBloom), resultSei["logsBloom"])
+	require.NotEqual(t, emptyBloom, resultSei["logsBloom"])
 }
 
 func TestGetBlockByHash_LogBloomBehavior(t *testing.T) {
+	emptyBloom := "0x" + common.Bytes2Hex(ethtypes.Bloom{}.Bytes())
 	blockHash := "0x0000000000000000000000000000000000000000000000000000000000000001"
 
-	// Test eth namespace returns empty logBloom
+	// Eth: now non-empty
 	resObjEth := sendRequestGood(t, "getBlockByHash", blockHash, true)
 	resultEth := resObjEth["result"].(map[string]interface{})
-	emptyBloom := ethtypes.Bloom{}.Bytes()
-	require.Equal(t, "0x"+common.Bytes2Hex(emptyBloom), resultEth["logsBloom"])
+	require.NotEqual(t, emptyBloom, resultEth["logsBloom"])
 
-	// Test sei namespace includes synthetic logs in logBloom
+	// Sei: also non-empty (all logs)
 	resObjSei := sendSeiRequestGood(t, "getBlockByHash", blockHash, true)
 	resultSei := resObjSei["result"].(map[string]interface{})
-	// The actual logBloom value will depend on the synthetic logs in the test block
-	// We just verify it's not empty
-	require.NotEqual(t, "0x"+common.Bytes2Hex(emptyBloom), resultSei["logsBloom"])
+	require.NotEqual(t, emptyBloom, resultSei["logsBloom"])
+}
+
+func TestEthBloom_NonEmptyWhenEvmLogsPresent(t *testing.T) {
+	emptyBloom := "0x" + common.Bytes2Hex(ethtypes.Bloom{}.Bytes())
+
+	// Non-empty at 0x8 (EVM-only bloom has been set in setupLogs)
+	resObjNonEmpty := sendRequestGood(t, "getBlockByNumber", "0x8", true)
+	resultNonEmpty := resObjNonEmpty["result"].(map[string]interface{})
+	require.NotEqual(t, emptyBloom, resultNonEmpty["logsBloom"], "eth logsBloom should be non-empty when EVM logs exist")
+
+	// Empty at genesis (earliest)
+	resObjEmpty := sendRequestGood(t, "getBlockByNumber", "earliest", true)
+	resultEmpty := resObjEmpty["result"].(map[string]interface{})
+	require.Equal(t, emptyBloom, resultEmpty["logsBloom"], "eth logsBloom should be empty at genesis")
 }
