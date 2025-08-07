@@ -330,7 +330,7 @@ func (c *Client) initializeWithTrustOptions(ctx context.Context, options TrustOp
 	}
 
 	// 4) Cross-verify with witnesses to ensure everybody has the same state.
-	if err := c.compareFirstHeaderWithWitnesses(ctx, l.SignedHeader); err != nil {
+	if err := c.compareFirstLightBlockWithWitnesses(ctx, l); err != nil {
 		return err
 	}
 
@@ -1153,9 +1153,9 @@ func (c *Client) findNewPrimary(ctx context.Context, height int64, remove bool) 
 	return nil, lastError
 }
 
-// compareFirstHeaderWithWitnesses concurrently compares h with all witnesses. If any
+// compareFirstLightBlockWithWitnesses concurrently compares light block l with all witnesses. If any
 // witness reports a different header than h, the function returns an error.
-func (c *Client) compareFirstHeaderWithWitnesses(ctx context.Context, h *types.SignedHeader) error {
+func (c *Client) compareFirstLightBlockWithWitnesses(ctx context.Context, l *types.LightBlock) error {
 	compareCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -1168,7 +1168,7 @@ func (c *Client) compareFirstHeaderWithWitnesses(ctx context.Context, h *types.S
 
 	errc := make(chan error, len(c.witnesses))
 	for i, witness := range c.witnesses {
-		go c.compareNewHeaderWithWitness(compareCtx, errc, h, witness, i)
+		go c.compareNewLightBlockWithWitness(compareCtx, errc, l, witness, i)
 	}
 
 	witnessesToRemove := make([]int, 0, len(c.witnesses))
@@ -1180,16 +1180,21 @@ func (c *Client) compareFirstHeaderWithWitnesses(ctx context.Context, h *types.S
 		switch e := err.(type) {
 		case nil:
 			continue
-		case errConflictingHeaders:
-			c.logger.Error(`witness has a different header. Please check primary is
-correct and remove witness. Otherwise, use a different primary`,
-				"Witness", c.witnesses[e.WitnessIndex], "ExpHeader", h.Hash(), "GotHeader", e.Block.Hash())
+		case ErrConflictingHeaders:
+			c.logger.Error("Witness reports a conflicting light block. "+
+				"Please check if the primary is correct or use a different witness.",
+				"witness", c.witnesses[e.WitnessIndex], "err", err)
 			return err
 		case errBadWitness:
 			// If witness sent us an invalid header, then remove it
-			c.logger.Info("witness returned an error, removing...",
+			c.logger.Info("Witness returned an error, removing...",
 				"err", err)
 			witnessesToRemove = append(witnessesToRemove, e.WitnessIndex)
+		case ErrProposerPrioritiesDiverge:
+			c.logger.Error("Witness reports conflicting proposer priorities. "+
+				"Please check if the primary is correct or use a different witness.",
+				"witness", c.witnesses[e.WitnessIndex], "err", err)
+			return err
 		default:
 			// check for canceled contexts or deadlines
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

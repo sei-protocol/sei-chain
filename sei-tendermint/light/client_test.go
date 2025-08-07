@@ -44,26 +44,28 @@ func TestClient(t *testing.T) {
 		vals        = keys.ToValidators(20, 10)
 		trustPeriod = 4 * time.Hour
 
-		valSet = map[int64]*types.ValidatorSet{
-			1: vals,
-			2: vals,
-			3: vals,
-			4: vals,
-		}
-
 		h1 = keys.GenSignedHeader(t, chainID, 1, bTime, nil, vals, vals,
 			hash("app_hash"), hash("cons_hash"), hash("results_hash"), 0, len(keys))
 		// 3/3 signed
-		h2 = keys.GenSignedHeaderLastBlockID(t, chainID, 2, bTime.Add(30*time.Minute), nil, vals, vals,
+		vals2 = vals.CopyIncrementProposerPriority(1)
+		h2    = keys.GenSignedHeaderLastBlockID(t, chainID, 2, bTime.Add(30*time.Minute), nil, vals2, vals2,
 			hash("app_hash"), hash("cons_hash"), hash("results_hash"), 0, len(keys), types.BlockID{Hash: h1.Hash()})
 		// 3/3 signed
-		h3 = keys.GenSignedHeaderLastBlockID(t, chainID, 3, bTime.Add(1*time.Hour), nil, vals, vals,
+		vals3 = vals2.CopyIncrementProposerPriority(1)
+		h3    = keys.GenSignedHeaderLastBlockID(t, chainID, 3, bTime.Add(1*time.Hour), nil, vals3, vals3,
 			hash("app_hash"), hash("cons_hash"), hash("results_hash"), 0, len(keys), types.BlockID{Hash: h2.Hash()})
 		trustOptions = light.TrustOptions{
 			Period: 4 * time.Hour,
 			Height: 1,
 			Hash:   h1.Hash(),
 		}
+		valSet = map[int64]*types.ValidatorSet{
+			1: vals,
+			2: vals2,
+			3: vals3,
+			4: vals.CopyIncrementProposerPriority(1),
+		}
+
 		headerSet = map[int64]*types.SignedHeader{
 			1: h1,
 			// interim header (3/3 signed)
@@ -72,7 +74,7 @@ func TestClient(t *testing.T) {
 			3: h3,
 		}
 		l1  = &types.LightBlock{SignedHeader: h1, ValidatorSet: vals}
-		l2  = &types.LightBlock{SignedHeader: h2, ValidatorSet: vals}
+		l2  = &types.LightBlock{SignedHeader: h2, ValidatorSet: vals2}
 		l3  = &types.LightBlock{SignedHeader: h3, ValidatorSet: vals}
 		id1 = "id1"
 		id2 = "id2"
@@ -921,13 +923,13 @@ func TestClient(t *testing.T) {
 		// different headers hash then primary plus less than 1/3 signed (no fork)
 		headers1 := map[int64]*types.SignedHeader{
 			1: h1,
-			2: keys.GenSignedHeaderLastBlockID(t, chainID, 2, bTime.Add(30*time.Minute), nil, vals, vals,
+			2: keys.GenSignedHeaderLastBlockID(t, chainID, 2, bTime.Add(30*time.Minute), nil, vals2, vals2,
 				hash("app_hash2"), hash("cons_hash"), hash("results_hash"),
 				len(keys), len(keys), types.BlockID{Hash: h1.Hash()}),
 		}
 		vals1 := map[int64]*types.ValidatorSet{
 			1: vals,
-			2: vals,
+			2: vals2,
 		}
 		mockBadNode1 := mockNodeFromHeadersAndVals(headers1, vals1)
 		mockBadNode1.On("LightBlock", mock.Anything, mock.Anything).Return(nil, provider.ErrLightBlockNotFound)
@@ -940,7 +942,7 @@ func TestClient(t *testing.T) {
 		}
 		vals2 := map[int64]*types.ValidatorSet{
 			1: vals,
-			2: vals,
+			2: vals2,
 		}
 		mockBadNode2 := mockNodeFromHeadersAndVals(headers2, vals2)
 		mockBadNode2.On("LightBlock", mock.Anything, mock.Anything).Return(nil, provider.ErrLightBlockNotFound)
@@ -997,7 +999,7 @@ func TestClient(t *testing.T) {
 		}
 		vals1 := map[int64]*types.ValidatorSet{
 			1: vals,
-			2: vals,
+			2: vals2,
 		}
 		mockBadNode1 := mockNodeFromHeadersAndVals(headers1, vals1)
 		mockBadNode1.On("LightBlock", mock.Anything, mock.Anything).Return(nil, provider.ErrLightBlockNotFound)
@@ -1010,7 +1012,7 @@ func TestClient(t *testing.T) {
 		}
 		vals2 := map[int64]*types.ValidatorSet{
 			1: vals,
-			2: vals,
+			2: vals2,
 		}
 		mockBadNode2 := mockNodeFromHeadersAndVals(headers2, vals2)
 		mockBadNode2.On("LightBlock", mock.Anything, mock.Anything).Return(nil, provider.ErrLightBlockNotFound)

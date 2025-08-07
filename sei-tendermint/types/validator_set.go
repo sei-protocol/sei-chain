@@ -2,6 +2,7 @@ package types
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/tendermint/tendermint/crypto/merkle"
+	"github.com/tendermint/tendermint/crypto/tmhash"
 	tmmath "github.com/tendermint/tendermint/libs/math"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
@@ -34,6 +36,9 @@ const (
 // resulting validator set exceeds MaxTotalVotingPower.
 var ErrTotalVotingPowerOverflow = fmt.Errorf("total voting power of resulting valset exceeds max %d",
 	MaxTotalVotingPower)
+
+// ErrProposerNotInVals is returned if the proposer is not in the validator set.
+var ErrProposerNotInVals = errors.New("proposer not in validator set")
 
 // ValidatorSet represent a set of *Validator at a given height.
 //
@@ -94,7 +99,13 @@ func (vals *ValidatorSet) ValidateBasic() error {
 		return fmt.Errorf("proposer failed validate basic, error: %w", err)
 	}
 
-	return nil
+	for _, val := range vals.Validators {
+		if bytes.Equal(val.Address, vals.Proposer.Address) {
+			return nil
+		}
+	}
+
+	return ErrProposerNotInVals
 }
 
 // IsNilOrEmpty returns true if validator set is nil or empty.
@@ -349,6 +360,23 @@ func (vals *ValidatorSet) Hash() []byte {
 	return merkle.HashFromByteSlices(bzs)
 }
 
+// Validator set must be sorted to get the same hash.
+// If the validator set is empty, nil is returned.
+func (vals *ValidatorSet) ProposerPriorityHash() []byte {
+	if len(vals.Validators) == 0 {
+		return nil
+	}
+
+	buf := make([]byte, binary.MaxVarintLen64*len(vals.Validators))
+
+	total := 0
+	for _, val := range vals.Validators {
+		n := binary.PutVarint(buf, val.ProposerPriority)
+		total += n
+	}
+	return tmhash.Sum(buf[:total])
+}
+
 // Iterate will run the given function over the set.
 func (vals *ValidatorSet) Iterate(fn func(index int, val *Validator) bool) {
 	for i, val := range vals.Validators {
@@ -408,14 +436,17 @@ func processChanges(origChanges []*Validator) (updates, removals []*Validator, e
 //
 // Inputs:
 // updates - a list of proper validator changes, i.e. they have been verified by processChanges for duplicates
-//   and invalid values.
+//
+//	and invalid values.
+//
 // vals - the original validator set. Note that vals is NOT modified by this function.
 // removedPower - the total voting power that will be removed after the updates are verified and applied.
 //
 // Returns:
 // tvpAfterUpdatesBeforeRemovals -  the new total voting power if these updates would be applied without the removals.
-//   Note that this will be < 2 * MaxTotalVotingPower in case high power validators are removed and
-//   validators are added/ updated with high power values.
+//
+//	Note that this will be < 2 * MaxTotalVotingPower in case high power validators are removed and
+//	validators are added/ updated with high power values.
 //
 // err - non-nil if the maximum allowed total voting power would be exceeded
 func verifyUpdates(
@@ -464,8 +495,9 @@ func numNewValidators(updates []*Validator, vals *ValidatorSet) int {
 // 'updates' parameter must be a list of unique validators to be added or updated.
 //
 // 'updatedTotalVotingPower' is the total voting power of a set where all updates would be applied but
-//   not the removals. It must be < 2*MaxTotalVotingPower and may be close to this limit if close to
-//   MaxTotalVotingPower will be removed. This is still safe from overflow since MaxTotalVotingPower is maxInt64/8.
+//
+//	not the removals. It must be < 2*MaxTotalVotingPower and may be close to this limit if close to
+//	MaxTotalVotingPower will be removed. This is still safe from overflow since MaxTotalVotingPower is maxInt64/8.
 //
 // No changes are made to the validator set 'vals'.
 func computeNewPriorities(updates []*Validator, vals *ValidatorSet, updatedTotalVotingPower int64) {
@@ -635,14 +667,15 @@ func (vals *ValidatorSet) updateWithChangeSet(changes []*Validator, allowDeletes
 
 // UpdateWithChangeSet attempts to update the validator set with 'changes'.
 // It performs the following steps:
-// - validates the changes making sure there are no duplicates and splits them in updates and deletes
-// - verifies that applying the changes will not result in errors
-// - computes the total voting power BEFORE removals to ensure that in the next steps the priorities
-//   across old and newly added validators are fair
-// - computes the priorities of new validators against the final set
-// - applies the updates against the validator set
-// - applies the removals against the validator set
-// - performs scaling and centering of priority values
+//   - validates the changes making sure there are no duplicates and splits them in updates and deletes
+//   - verifies that applying the changes will not result in errors
+//   - computes the total voting power BEFORE removals to ensure that in the next steps the priorities
+//     across old and newly added validators are fair
+//   - computes the priorities of new validators against the final set
+//   - applies the updates against the validator set
+//   - applies the removals against the validator set
+//   - performs scaling and centering of priority values
+//
 // If an error is detected during verification steps, it is returned and the validator set
 // is not changed.
 func (vals *ValidatorSet) UpdateWithChangeSet(changes []*Validator) error {
@@ -928,7 +961,6 @@ func safeMul(a, b int64) (int64, bool) {
 
 	return a * b, false
 }
-
 
 // RandValidatorSet returns a randomized validator set (size: +numValidators+),
 // where each validator has a voting power of +votingPower+.

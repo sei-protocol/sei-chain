@@ -86,6 +86,8 @@ func TestValidatorSetValidateBasic(t *testing.T) {
 
 	val, _, err := randValidator(ctx, false, 1)
 	require.NoError(t, err)
+	val2, _, err := randValidator(ctx, false, 1)
+	require.NoError(t, err)
 
 	badVal := &Validator{}
 
@@ -128,6 +130,14 @@ func TestValidatorSetValidateBasic(t *testing.T) {
 			err: false,
 			msg: "",
 		},
+		{
+			vals: ValidatorSet{
+				Validators: []*Validator{val},
+				Proposer:   val2,
+			},
+			err: true,
+			msg: ErrProposerNotInVals.Error(),
+		},
 	}
 
 	for _, tc := range testCases {
@@ -156,6 +166,30 @@ func TestCopy(t *testing.T) {
 	if !bytes.Equal(vsetHash, vsetCopyHash) {
 		t.Fatalf("ValidatorSet copy had wrong hash. Orig: %X, Copy: %X", vsetHash, vsetCopyHash)
 	}
+}
+
+func TestValidatorSet_ProposerPriorityHash(t *testing.T) {
+	vset := NewValidatorSet(nil)
+	assert.Equal(t, []byte(nil), vset.ProposerPriorityHash())
+
+	vset = randModuloValidatorSet(3)
+	assert.NotNil(t, vset.ProposerPriorityHash())
+
+	// Marshaling and unmarshalling do not affect ProposerPriorityHash
+	bz, err := vset.ToProto()
+	assert.NoError(t, err)
+	vsetProto, err := ValidatorSetFromProto(bz)
+	assert.NoError(t, err)
+	assert.Equal(t, vset.ProposerPriorityHash(), vsetProto.ProposerPriorityHash())
+
+	// Copy does not affect ProposerPriorityHash
+	vsetCopy := vset.Copy()
+	assert.Equal(t, vset.ProposerPriorityHash(), vsetCopy.ProposerPriorityHash())
+
+	// Incrementing priorities changes ProposerPriorityHash() but not Hash()
+	vset.IncrementProposerPriority(1)
+	assert.Equal(t, vset.Hash(), vsetCopy.Hash())
+	assert.NotEqual(t, vset.ProposerPriorityHash(), vsetCopy.ProposerPriorityHash())
 }
 
 // Test that IncrementProposerPriority requires positive times.
@@ -1452,7 +1486,7 @@ func TestValidatorSetProtoBuf(t *testing.T) {
 	}
 }
 
-//---------------------
+// ---------------------
 // Sort validators by priority and address
 type validatorsByPriority []*Validator
 
@@ -1493,9 +1527,8 @@ func (tvals testValsByVotingPower) Swap(i, j int) {
 	tvals[i], tvals[j] = tvals[j], tvals[i]
 }
 
-//-------------------------------------
+// -------------------------------------
 // Benchmark tests
-//
 func BenchmarkUpdates(b *testing.B) {
 	const (
 		n = 100
