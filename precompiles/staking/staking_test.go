@@ -926,6 +926,81 @@ func TestEditValidator(t *testing.T) {
 	require.Equal(t, validator.ConsensusPubkey, updatedValidator.ConsensusPubkey, "Consensus pubkey should remain the same")
 }
 
+func TestStakingPrecompile_RequiredGas(t *testing.T) {
+	pre, err := staking.NewPrecompile(&utils.EmptyKeepers{})
+	require.NoError(t, err)
+
+	executor := pre.GetExecutor().(*staking.PrecompileExecutor)
+
+	// Test gas costs for all methods
+	testCases := []struct {
+		name        string
+		methodID    []byte
+		methodName  string
+		inputSize   int
+		expectedGas uint64
+	}{
+		{
+			name:        "delegate method",
+			methodID:    executor.DelegateID,
+			methodName:  staking.DelegateMethod,
+			expectedGas: 50000,
+		},
+		{
+			name:        "redelegate method",
+			methodID:    executor.RedelegateID,
+			methodName:  staking.RedelegateMethod,
+			expectedGas: 70000,
+		},
+		{
+			name:        "undelegate method",
+			methodID:    executor.UndelegateID,
+			methodName:  staking.UndelegateMethod,
+			expectedGas: 50000,
+		},
+		{
+			name:        "createValidator method",
+			methodID:    executor.CreateValidatorID,
+			methodName:  staking.CreateValidatorMethod,
+			expectedGas: 100000,
+		},
+		{
+			name:        "editValidator method",
+			methodID:    executor.EditValidatorID,
+			methodName:  "editValidator",
+			expectedGas: 100000,
+		},
+		{
+			name:        "delegation method (query)",
+			methodID:    executor.DelegationID,
+			methodName:  staking.DelegationMethod,
+			inputSize:   100,
+			expectedGas: 1300,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Get the method from ABI
+			method, err := pre.ABI.MethodById(tc.methodID)
+			require.NoError(t, err, "Should be able to find method by ID")
+			require.Equal(t, tc.methodName, method.Name, "Method name should match")
+
+			// Create mock input (method ID + some data)
+			input := make([]byte, 4+tc.inputSize) // method ID (4 bytes) + input data
+			copy(input[:4], tc.methodID)
+
+			// Test RequiredGas
+			gasRequired := executor.RequiredGas(input[4:], method)
+
+			// Verify gas
+			require.Equal(t, tc.expectedGas, gasRequired,
+				"Gas should be at least %d, got %d", tc.expectedGas, gasRequired)
+
+		})
+	}
+}
+
 func TestStakingPrecompileDelegateCallPrevention(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)

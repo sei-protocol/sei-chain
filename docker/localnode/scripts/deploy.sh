@@ -17,7 +17,7 @@ mkdir -p $GOBIN
 # Step 0: Build on node 0
 if [ "$NODE_ID" = 0 ] && [ -z "$SKIP_BUILD" ]
 then
-  /usr/bin/build.sh
+  /usr/bin/build.sh $MOCK_BALANCES
 fi
 
 if ! [ "$SKIP_BUILD" ]

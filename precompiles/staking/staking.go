@@ -95,8 +95,9 @@ func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64
 		return 100000
 	} else if bytes.Equal(method.ID, p.EditValidatorID) {
 		return 100000
+	} else if bytes.Equal(method.ID, p.DelegationID) {
+		return pcommon.DefaultGasCost(input, false)
 	}
-
 	// This should never happen since this is going to fail during Run
 	return pcommon.UnknownMethodCallGas
 }

@@ -115,7 +115,6 @@ func (s *DBImpl) RevertToSnapshot(rev int) {
 	s.snapshottedCtxs = s.snapshottedCtxs[:rev]
 	s.tempStateCurrent = s.tempStatesHist[rev]
 	s.tempStatesHist = s.tempStatesHist[:rev]
-	s.Snapshot()
 }
 
 func (s *DBImpl) handleResidualFundsInDestructedAccounts(st *TemporaryState) {
