@@ -43,7 +43,7 @@ func TestInternalCallCreateContract(t *testing.T) {
 	k.SetNextBaseFeePerGas(ctx, sdk.ZeroDec())
 	_, err = k.HandleInternalEVMCall(ctx, req)
 	require.Nil(t, err)
-	receipt, err := k.GetTransientReceipt(ctx, [32]byte{1, 2, 3})
+	receipt, err := k.GetTransientReceipt(ctx, [32]byte{1, 2, 3}, 0)
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
 	// reset base fee
