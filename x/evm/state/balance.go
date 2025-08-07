@@ -1,3 +1,5 @@
+//go:build !mock_balances
+
 package state
 
 import (
