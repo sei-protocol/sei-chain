@@ -109,8 +109,8 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 	anteHandler, anteDepGenerator := sdk.ChainAnteDecorators(anteDecorators...)
 
 	evmAnteDecorators := []sdk.AnteFullDecorator{
-		evmante.NewEVMPreprocessDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper()),
 		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMNoCosmosFieldsDecorator()),
+		evmante.NewEVMPreprocessDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper()),
 		sdk.DefaultWrappedAnteDecorator(evmante.NewBasicDecorator(options.EVMKeeper)),
 		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMFeeCheckDecorator(options.EVMKeeper, options.UpgradeKeeper)),
 		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMSigVerifyDecorator(options.EVMKeeper, options.LatestCtxGetter)),
@@ -121,6 +121,7 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 	router := evmante.NewEVMRouterDecorator(anteHandler, evmAnteHandler, anteDepGenerator, evmAnteDepGenerator)
 
 	tracerAnteDecorators := []sdk.AnteFullDecorator{
+		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMNoCosmosFieldsDecorator()),
 		evmante.NewEVMPreprocessDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper()),
 		sdk.DefaultWrappedAnteDecorator(evmante.NewBasicDecorator(options.EVMKeeper)),
 		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMSigVerifyDecorator(options.EVMKeeper, options.LatestCtxGetter)),
