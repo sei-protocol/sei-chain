@@ -1,5 +1,6 @@
 package abi
 
-// Stubbed ABI definitions to satisfy compiler
+import "math/big"
 
-type Event struct{}
+// Stub for U256 to satisfy compiler
+var U256 = big.NewInt(0)
