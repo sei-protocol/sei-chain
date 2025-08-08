@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"math/big"
 	"strings"
 
@@ -18,8 +17,6 @@ import (
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
-
-const ShellEVMTxType = math.MaxUint32
 
 var ERC20ApprovalTopic = common.HexToHash("0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925")
 var ERC20TransferTopic = common.HexToHash("0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
@@ -124,7 +121,7 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 	} else {
 		bloom = ethtypes.CreateBloom(&ethtypes.Receipt{Logs: logs})
 		receipt := &evmtypes.Receipt{
-			TxType:           ShellEVMTxType,
+			TxType:           evmtypes.ShellEVMTxType,
 			TxHashHex:        txHash.Hex(),
 			GasUsed:          ctx.GasMeter().GasConsumed(),
 			BlockNumber:      uint64(ctx.BlockHeight()),

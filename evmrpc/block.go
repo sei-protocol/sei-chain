@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 	"strings"
 	"sync"
@@ -29,7 +28,11 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
-const ShellEVMTxType = math.MaxUint32
+const (
+	EthNamespace  = "eth"
+	SeiNamespace  = "sei"
+	Sei2Namespace = "sei2"
+)
 
 type BlockAPI struct {
 	tmClient             rpcclient.Client
@@ -56,7 +59,7 @@ func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 		connectionType:       connectionType,
 		includeShellReceipts: false,
 		includeBankTransfers: false,
-		namespace:            "eth",
+		namespace:            EthNamespace,
 	}
 }
 
@@ -76,7 +79,7 @@ func NewSeiBlockAPI(
 		connectionType:       connectionType,
 		includeShellReceipts: true,
 		includeBankTransfers: false,
-		namespace:            "sei",
+		namespace:            SeiNamespace,
 	}
 	return &SeiBlockAPI{
 		BlockAPI:  blockAPI,
@@ -93,7 +96,7 @@ func NewSei2BlockAPI(
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 ) *SeiBlockAPI {
 	blockAPI := NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, connectionType, isPanicTx)
-	blockAPI.namespace = "sei2"
+	blockAPI.namespace = Sei2Namespace
 	blockAPI.includeBankTransfers = true
 	return blockAPI
 }
@@ -148,7 +151,13 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	if err != nil {
 		return nil, err
 	}
-	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
+	var blockBloom ethtypes.Bloom
+	// Only include synthetic logs in sei_ namespace
+	if a.namespace == EthNamespace {
+		blockBloom = a.keeper.GetEvmOnlyBlockBloom(a.ctxProvider(block.Block.Height))
+	} else {
+		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
+	}
 	return EncodeTmBlock(a.ctxProvider(block.Block.Height), a.ctxProvider(block.Block.Height-1), block, blockRes, blockBloom, a.keeper, a.txConfigProvider(block.Block.Height).TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
 }
 
@@ -204,7 +213,13 @@ func (a *BlockAPI) getBlockByNumber(
 	if err != nil {
 		return nil, err
 	}
-	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
+	var blockBloom ethtypes.Bloom
+	// Only include synthetic logs in sei_ namespace
+	if a.namespace == EthNamespace {
+		blockBloom = a.keeper.GetEvmOnlyBlockBloom(a.ctxProvider(block.Block.Height))
+	} else {
+		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
+	}
 	return EncodeTmBlock(a.ctxProvider(block.Block.Height), a.ctxProvider(block.Block.Height-1), block, blockRes, blockBloom, a.keeper, a.txConfigProvider(blockRes.Height).TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
 }
 
@@ -253,7 +268,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					return
 				}
 				// If the receipt has synthetic logs, we actually want to include them in the response.
-				if !a.includeShellReceipts && receipt.TxType == ShellEVMTxType {
+				if !a.includeShellReceipts && receipt.TxType == types.ShellEVMTxType {
 					return
 				}
 				// tx hash is included in a future block (because it failed in the current block due to
@@ -351,7 +366,7 @@ func EncodeTmBlock(
 				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(receipt) {
 					continue
 				}
-				if !includeSyntheticTxs && receipt.TxType == ShellEVMTxType {
+				if !includeSyntheticTxs && receipt.TxType == types.ShellEVMTxType {
 					continue
 				}
 				if !fullTx {
