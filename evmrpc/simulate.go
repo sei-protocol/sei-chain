@@ -65,9 +65,6 @@ func NewSimulationAPI(
 		backend:        NewBackend(ctxProvider, keeper, txConfigProvider, tmClient, config, app, antehandler),
 		connectionType: connectionType,
 	}
-	if config.MaxConcurrentSimulationCalls > 0 {
-		api.requestLimiter = semaphore.NewWeighted(int64(config.MaxConcurrentSimulationCalls))
-	}
 	return api
 }
 
