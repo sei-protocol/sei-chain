@@ -2,5 +2,8 @@ package abi
 
 import "math/big"
 
-// Stub for U256 to satisfy compiler
-var U256 = big.NewInt(0)
+// U256 is a stub function to mimic conversion to big.Int
+func U256(x interface{}) *big.Int {
+	return big.NewInt(0)
+}
+
