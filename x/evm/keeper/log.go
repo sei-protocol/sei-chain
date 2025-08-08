@@ -30,6 +30,11 @@ func (k *Keeper) GetEvmOnlyBlockBloom(ctx sdk.Context) (res ethtypes.Bloom) {
 	bz := store.Get(types.EvmOnlyBlockBloomPrefix)
 	if bz != nil {
 		res.SetBytes(bz)
+		return
+	}
+	cutoff := k.GetLegacyBlockBloomCutoffHeight(ctx)
+	if cutoff == 0 || ctx.BlockHeight() < cutoff {
+		return k.GetLegacyBlockBloom(ctx, ctx.BlockHeight())
 	}
 	return
 }

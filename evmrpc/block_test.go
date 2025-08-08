@@ -471,3 +471,31 @@ func TestEthBloom_ExcludesSyntheticTopics(t *testing.T) {
 	require.True(t, ethtypes.BloomLookup(bloomSei, syntheticTopic), "sei bloom should include synthetic")
 	require.True(t, ethtypes.BloomLookup(bloomSei, evmTopic), "sei bloom should include real EVM topic")
 }
+
+func TestGetLogs_SyntheticTopic_EthVsSei(t *testing.T) {
+	// Synthetic-only topic
+	synthTopic := common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234")
+
+	// Query a small range that has bloom + synthetic activity
+	crit := map[string]interface{}{
+		"fromBlock": "0x8",
+		"toBlock":   "0x8",
+		"topics":    [][]common.Hash{{synthTopic}},
+	}
+
+	// eth_: should exclude synthetic logs completely
+	resEth := sendRequestGood(t, "getLogs", crit)
+	logsEth, ok := resEth["result"].([]interface{})
+	require.True(t, ok, "eth_getLogs: result should be an array")
+	require.Equal(t, 0, len(logsEth), "eth_getLogs should NOT return synthetic-only logs")
+
+	// sei_: should include synthetic logs
+	resSei := sendSeiRequestGood(t, "getLogs", crit)
+	logsSei, ok := resSei["result"].([]interface{})
+	require.True(t, ok, "sei_getLogs: result should be an array")
+	require.GreaterOrEqual(t, len(logsSei), 1, "sei_getLogs should include synthetic logs")
+
+	first := logsSei[0].(map[string]interface{})
+	topics := first["topics"].([]interface{})
+	require.Equal(t, synthTopic.Hex(), topics[0].(string))
+}
