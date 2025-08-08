@@ -75,10 +75,11 @@ func TestSkipOptimisticProcessingOnUpgrade(t *testing.T) {
 		}()
 
 		require.Eventually(t, func() bool {
-			if testWrapper.App.GetOptimisticProcessingInfo() == nil {
+			opi := testWrapper.App.GetOptimisticProcessingInfo()
+			if opi.Completion == nil {
 				return false
 			}
-			<-testWrapper.App.GetOptimisticProcessingInfo().Completion
+			<-opi.Completion
 			return true
 		}, 5*time.Second, time.Millisecond*100)
 
