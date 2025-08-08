@@ -123,6 +123,7 @@ func (k *Keeper) FlushTransientReceiptsAsync(ctx sdk.Context) error {
 }
 
 func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
+<<<<<<< HEAD
 	transientReceiptStore := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix)
 	iter := transientReceiptStore.Iterator(nil, nil)
 	defer iter.Close()
@@ -133,6 +134,11 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 	// However in our test suite it can happen that the transient store can contain receipts from different blocks
 	// and we need to account for that.
 	cumulativeGasUsedPerBlock := make(map[uint64]uint64)
+=======
+	iter := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix).Iterator(nil, nil)
+	defer iter.Close()
+	var pairs []*iavl.KVPair
+>>>>>>> 70026112 (Make flushing receipt synchronous (#2250))
 	for ; iter.Valid(); iter.Next() {
 		receipt := &types.Receipt{}
 		if err := receipt.Unmarshal(iter.Value()); err != nil {
@@ -157,7 +163,10 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 		Name:      types.ReceiptStoreKey,
 		Changeset: iavl.ChangeSet{Pairs: pairs},
 	}
+<<<<<<< HEAD
 
+=======
+>>>>>>> 70026112 (Make flushing receipt synchronous (#2250))
 	if sync {
 		return k.receiptStore.ApplyChangeset(ctx.BlockHeight(), ncs)
 	} else {
