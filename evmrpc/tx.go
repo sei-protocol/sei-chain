@@ -316,7 +316,12 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 		return nil, errors.New("not found")
 	}
 	height := int64(receipt.BlockNumber)
-	baseFeePerGas := t.keeper.GetBaseFee(t.ctxProvider(height))
+	var baseFeePerGas *big.Int
+	if block.Block.Height > 1 {
+		baseFeePerGas = t.keeper.GetNextBaseFeePerGas(t.ctxProvider(height - 1)).TruncateInt().BigInt()
+	} else {
+		baseFeePerGas = types.DefaultMinFeePerGas.TruncateInt().BigInt()
+	}
 	chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(t.ctxProvider(height)))
 	blockHash := common.HexToHash(block.BlockID.Hash.String())
 	blockNumber := uint64(block.Block.Height)

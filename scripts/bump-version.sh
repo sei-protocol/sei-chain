@@ -72,7 +72,6 @@ find "$ROOT_DIR" -mindepth 1 -maxdepth 1 -type d | while read -r dir; do
   [ "$subfolder" = "common" ] && continue
   [ "$subfolder" = "utils" ] && continue
 
-  src_go="$dir/$subfolder.go"
   src_json="$dir/abi.json"
   target_dir="$dir/legacy/$TAG_FOLDER"
   version_file="$dir/versions"
@@ -88,16 +87,19 @@ find "$ROOT_DIR" -mindepth 1 -maxdepth 1 -type d | while read -r dir; do
     echo "Copying $subfolder → legacy/$TAG_FOLDER/"
     mkdir -p "$target_dir"
 
-    if [ -f "$src_go" ]; then
-      cp "$src_go" "$target_dir/"
+    # Copy and process all matching .go files
+    find "$dir" -maxdepth 1 -type f -name "*.go" ! -name "*_test.go" ! -name "setup.go" | while read -r gofile; do
+      filename=$(basename "$gofile")
+      cp "$gofile" "$target_dir/$filename"
+
       # Replace package line
-      sed -i '' "1s|^package .*|package $TAG_FOLDER|" "$target_dir/$subfolder.go"
+      sed -i '' "1s|^package .*|package $TAG_FOLDER|" "$target_dir/$filename"
 
       # Rewrite import if common was copied
       if [ "$any_change" = true ]; then
-        sed -i '' "s|\"github.com/sei-protocol/sei-chain/precompiles/common\"|\"github.com/sei-protocol/sei-chain/precompiles/common/legacy/$TAG_FOLDER\"|g" "$target_dir/$subfolder.go"
+        sed -i '' "s|\"github.com/sei-protocol/sei-chain/precompiles/common\"|\"github.com/sei-protocol/sei-chain/precompiles/common/legacy/$TAG_FOLDER\"|g" "$target_dir/$filename"
       fi
-    fi
+    done
 
     if [ -f "$src_json" ]; then
       cp "$src_json" "$target_dir/"
