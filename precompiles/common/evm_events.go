@@ -24,7 +24,7 @@ func EmitDelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator com
 	evm.StateDB.AddLog(&types.Log{
 		Address: precompileAddr,
 		Topics:  topics,
-		Data:    data,
+		Data: data.Bytes(),
 	})
 	return nil
 }
@@ -43,7 +43,7 @@ func EmitUndelegateEvent(evm *vm.EVM, precompileAddr common.Address, delegator c
 	evm.StateDB.AddLog(&types.Log{
 		Address: precompileAddr,
 		Topics:  topics,
-		Data:    data,
+		Data: data.Bytes(),
 	})
 	return nil
 }
@@ -63,7 +63,7 @@ func EmitBeginRedelegateEvent(evm *vm.EVM, precompileAddr common.Address, delega
 	evm.StateDB.AddLog(&types.Log{
 		Address: precompileAddr,
 		Topics:  topics,
-		Data:    data,
+		Data: data.Bytes(),
 	})
 	return nil
 }
@@ -81,8 +81,8 @@ func EmitCancelUndelegationEvent(evm *vm.EVM, precompileAddr common.Address, del
 	}
 	evm.StateDB.AddLog(&types.Log{
 		Address: precompileAddr,
-		Topics:  topics,
-		Data:    data,
+		Topics: topics,
+		Data: data.Bytes(),
 	})
 	return nil
 }
