@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/lib/pq"
@@ -74,7 +75,7 @@ func (p *PostgreSQLImporter) ImportAll() error {
 		{
 			table:   "asset",
 			file:    "assets.csv",
-			columns: []string{"name", "type", "label", "code_id", "creator", "admin", "has_admin", "pointer"},
+			columns: []string{"type", "name", "label", "code_id", "creator", "admin", "has_admin", "pointer"},
 			resolver: func(row []string) ([]interface{}, error) {
 				if len(row) != 8 {
 					return nil, fmt.Errorf("invalid asset row length: %d", len(row))
@@ -93,6 +94,8 @@ func (p *PostgreSQLImporter) ImportAll() error {
 				admin := nullString(row[5])
 				pointer := nullString(row[7])
 
+				// CSV order: name, type, label, code_id, creator, admin, has_admin, pointer
+				// DB order:  type, name, label, code_id, creator, admin, has_admin, pointer
 				return []interface{}{row[1], row[0], label, codeId, creator, admin, hasAdmin, pointer}, nil
 			},
 		},
@@ -102,7 +105,7 @@ func (p *PostgreSQLImporter) ImportAll() error {
 		if err := p.importTable(imp.table, imp.file, imp.columns, imp.resolver); err != nil {
 			return fmt.Errorf("failed to import %s: %w", imp.table, err)
 		}
-		p.ctx.Logger().Info("Successfully imported table", "table", imp.table)
+		p.ctx.Logger().Info("CSV_IMPORT: Successfully imported table", "table", imp.table)
 	}
 
 	// Import account_asset with foreign key resolution
@@ -115,7 +118,7 @@ func (p *PostgreSQLImporter) importTable(tableName, fileName string, columns []s
 	file, err := os.Open(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			p.ctx.Logger().Info("CSV file not found, skipping", "file", filePath)
+			p.ctx.Logger().Info("CSV_IMPORT: CSV file not found, skipping", "file", filePath)
 			return nil
 		}
 		return fmt.Errorf("failed to open %s: %w", filePath, err)
@@ -154,7 +157,7 @@ func (p *PostgreSQLImporter) importTable(tableName, fileName string, columns []s
 
 		values, err := resolver(row)
 		if err != nil {
-			p.ctx.Logger().Info("Skipping invalid row", "error", err, "row", row)
+			p.ctx.Logger().Info("CSV_IMPORT: Skipping invalid row", "error", err, "row", row)
 			continue
 		}
 
@@ -167,7 +170,6 @@ func (p *PostgreSQLImporter) importTable(tableName, fileName string, columns []s
 	if _, err := stmt.Exec(); err != nil {
 		return fmt.Errorf("failed to finalize COPY: %w", err)
 	}
-
 	if err := stmt.Close(); err != nil {
 		return fmt.Errorf("failed to close COPY statement: %w", err)
 	}
@@ -176,42 +178,93 @@ func (p *PostgreSQLImporter) importTable(tableName, fileName string, columns []s
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	p.ctx.Logger().Info("Imported rows", "table", tableName, "count", rowCount)
+	p.ctx.Logger().Info("CSV_IMPORT: Imported rows", "table", tableName, "count", rowCount)
 	return nil
 }
 
 func (p *PostgreSQLImporter) importAccountAsset() error {
+	p.ctx.Logger().Info("CSV_IMPORT: Starting importAccountAsset method")
+	
 	filePath := fmt.Sprintf("%s/account_asset.csv", p.outputDir)
+	p.ctx.Logger().Info("CSV_IMPORT: Looking for account_asset file", "path", filePath)
 
 	file, err := os.Open(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			p.ctx.Logger().Info("CSV file not found, skipping", "file", filePath)
+			p.ctx.Logger().Info("CSV_IMPORT: CSV file not found, skipping", "file", filePath)
 			return nil
 		}
+		p.ctx.Logger().Error("CSV_IMPORT: Failed to open account_asset file", "error", err, "file", filePath)
 		return fmt.Errorf("failed to open %s: %w", filePath, err)
 	}
 	defer file.Close()
 
+	p.ctx.Logger().Info("CSV_IMPORT: Successfully opened account_asset file")
+
 	reader := csv.NewReader(file)
 
 	// Skip header
-	if _, err := reader.Read(); err != nil {
+	header, err := reader.Read()
+	if err != nil {
+		p.ctx.Logger().Error("CSV_IMPORT: Failed to read header", "error", err)
 		return fmt.Errorf("failed to read header: %w", err)
 	}
+	p.ctx.Logger().Info("CSV_IMPORT: Read header", "header", header)
 
 	// Begin transaction
+	p.ctx.Logger().Info("CSV_IMPORT: Beginning transaction")
 	tx, err := p.db.Begin()
 	if err != nil {
+		p.ctx.Logger().Error("CSV_IMPORT: Failed to begin transaction", "error", err)
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	// Prepare COPY statement with foreign key resolution
-	stmt, err := tx.Prepare(pq.CopyIn("account_asset", "account_id", "asset_id", "balance", "token_id"))
+	// Add diagnostic info
+	var accountCount, assetCount int
+	tx.QueryRow("SELECT COUNT(*) FROM account").Scan(&accountCount)
+	tx.QueryRow("SELECT COUNT(*) FROM asset").Scan(&assetCount)
+	p.ctx.Logger().Info("CSV_IMPORT: Starting account_asset import", "accounts_in_db", accountCount, "assets_in_db", assetCount)
+
+	// Create table for bulk COPY
+	p.ctx.Logger().Info("CSV_IMPORT: Creating table")
+	tempTableName := fmt.Sprintf("temp_account_asset_%d", time.Now().Unix())
+	createTableSQL := fmt.Sprintf(`
+		CREATE TABLE %s (
+			account_name TEXT,
+			asset_name TEXT,
+			balance TEXT,
+			token_id TEXT
+		)
+	`, tempTableName)
+	_, err = tx.Exec(createTableSQL)
 	if err != nil {
+		p.ctx.Logger().Error("CSV_IMPORT: Failed to create table", "error", err)
+		return fmt.Errorf("failed to create table: %w", err)
+	}
+	p.ctx.Logger().Info("CSV_IMPORT: Table created successfully", "table", tempTableName)
+
+	// Ensure cleanup of table
+	defer func() {
+		// Temporarily disable cleanup for debugging
+		/*
+		if _, err := p.db.Exec(fmt.Sprintf("DROP TABLE IF EXISTS %s", tempTableName)); err != nil {
+			p.ctx.Logger().Error("CSV_IMPORT: Failed to drop table", "error", err, "table", tempTableName)
+		} else {
+			p.ctx.Logger().Info("CSV_IMPORT: Dropped table", "table", tempTableName)
+		}
+		*/
+		p.ctx.Logger().Info("CSV_IMPORT: Keeping temp table for debugging", "table", tempTableName)
+	}()
+
+	// Use COPY for fast bulk import to table
+	p.ctx.Logger().Info("CSV_IMPORT: Preparing COPY statement")
+	stmt, err := tx.Prepare(pq.CopyIn(tempTableName, "account_name", "asset_name", "balance", "token_id"))
+	if err != nil {
+		p.ctx.Logger().Error("CSV_IMPORT: Failed to prepare COPY statement", "error", err)
 		return fmt.Errorf("failed to prepare COPY statement: %w", err)
 	}
+	p.ctx.Logger().Info("CSV_IMPORT: COPY statement prepared successfully")
 
 	rowCount := 0
 	for {
@@ -224,53 +277,97 @@ func (p *PostgreSQLImporter) importAccountAsset() error {
 		}
 
 		if len(row) != 4 {
-			p.ctx.Logger().Info("Skipping invalid account_asset row", "length", len(row))
+			p.ctx.Logger().Info("CSV_IMPORT: Skipping invalid account_asset row", "length", len(row))
 			continue
 		}
 
-		// Resolve account_id
-		var accountID int
-		err = tx.QueryRow("SELECT account_id FROM account WHERE account = $1", row[0]).Scan(&accountID)
-		if err != nil {
-			p.ctx.Logger().Info("Account not found, skipping", "account", row[0])
-			continue
-		}
-
-		// Resolve asset_id
-		var assetID int
-		err = tx.QueryRow("SELECT asset_id FROM asset WHERE name = $1", row[1]).Scan(&assetID)
-		if err != nil {
-			p.ctx.Logger().Info("Asset not found, skipping", "asset", row[1])
-			continue
-		}
-
-		balance := nullString(row[2])
-		tokenID := nullString(row[3])
-
-		if _, err := stmt.Exec(accountID, assetID, balance, tokenID); err != nil {
+		if _, err := stmt.Exec(row[0], row[1], nullString(row[2]), nullString(row[3])); err != nil {
 			return fmt.Errorf("failed to execute COPY: %w", err)
 		}
 		rowCount++
 	}
 
+	// Finalize COPY
 	if _, err := stmt.Exec(); err != nil {
 		return fmt.Errorf("failed to finalize COPY: %w", err)
 	}
-
 	if err := stmt.Close(); err != nil {
 		return fmt.Errorf("failed to close COPY statement: %w", err)
+	}
+
+	p.ctx.Logger().Info("CSV_IMPORT: Bulk imported to table", "rows", rowCount)
+
+	// Check table contents
+	var tableRowCount int
+	err = tx.QueryRow("SELECT COUNT(*) FROM "+tempTableName).Scan(&tableRowCount)
+	if err != nil {
+		return fmt.Errorf("failed to count table rows: %w", err)
+	}
+	p.ctx.Logger().Info("CSV_IMPORT: Table verification", "table_rows", tableRowCount)
+
+	// Check for sample data in table
+	var sampleAccount, sampleAsset string
+	err = tx.QueryRow("SELECT account_name, asset_name FROM "+tempTableName+" LIMIT 1").Scan(&sampleAccount, &sampleAsset)
+	if err != nil {
+		p.ctx.Logger().Info("CSV_IMPORT: No sample data in table", "error", err.Error())
+	} else {
+		p.ctx.Logger().Info("CSV_IMPORT: Sample table data", "account", sampleAccount, "asset", sampleAsset)
+	}
+
+	// Check JOIN compatibility - see if we can find matching accounts/assets
+	var matchingAccounts, matchingAssets int
+	tx.QueryRow(`
+		SELECT COUNT(DISTINCT t.account_name) 
+		FROM `+tempTableName+` t 
+		JOIN account a ON a.account = t.account_name
+	`).Scan(&matchingAccounts)
+	
+	tx.QueryRow(`
+		SELECT COUNT(DISTINCT t.asset_name) 
+		FROM `+tempTableName+` t 
+		JOIN asset ast ON ast.name = t.asset_name
+	`).Scan(&matchingAssets)
+	
+	p.ctx.Logger().Info("CSV_IMPORT: JOIN compatibility check", "matching_accounts", matchingAccounts, "matching_assets", matchingAssets)
+
+	// Now do efficient INSERT SELECT with JOINs for foreign key resolution
+	p.ctx.Logger().Info("CSV_IMPORT: Starting INSERT SELECT operation")
+	insertSQL := fmt.Sprintf(`
+		INSERT INTO account_asset (account_id, asset_id, balance, token_id)
+		SELECT a.account_id, ast.asset_id, 
+			CASE WHEN t.balance = '' THEN NULL ELSE t.balance::NUMERIC END,
+			COALESCE(t.token_id, '')
+		FROM %s t
+		JOIN account a ON a.account = t.account_name
+		JOIN asset ast ON ast.name = t.asset_name
+	`, tempTableName)
+	
+	p.ctx.Logger().Info("CSV_IMPORT: Executing INSERT SELECT", "sql", insertSQL)
+	result, err := tx.Exec(insertSQL)
+	if err != nil {
+		p.ctx.Logger().Error("CSV_IMPORT: INSERT SELECT failed", "error", err, "sql", insertSQL)
+		return fmt.Errorf("failed to insert from table: %w", err)
+	}
+	p.ctx.Logger().Info("CSV_IMPORT: INSERT SELECT completed successfully")
+
+	insertedRows, _ := result.RowsAffected()
+	p.ctx.Logger().Info("CSV_IMPORT: Inserted account_asset rows", "inserted", insertedRows, "table_rows", rowCount)
+
+	if insertedRows < int64(rowCount) {
+		p.ctx.Logger().Info("CSV_IMPORT: Some rows were skipped due to missing foreign keys", 
+			"skipped", int64(rowCount)-insertedRows)
 	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
-	p.ctx.Logger().Info("Imported account_asset rows", "count", rowCount)
+	p.ctx.Logger().Info("CSV_IMPORT: Successfully imported account_asset", "rows", insertedRows)
 	return nil
 }
 
 func (p *PostgreSQLImporter) createSchemaIfNotExists() error {
-	p.ctx.Logger().Info("Creating database schema if not exists")
+	p.ctx.Logger().Info("CSV_IMPORT: Creating database schema if not exists")
 	
 	// Create tables with the exact schema you provided
 	schema := `
@@ -321,7 +418,7 @@ func (p *PostgreSQLImporter) createSchemaIfNotExists() error {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
 
-	p.ctx.Logger().Info("Database schema created successfully")
+	p.ctx.Logger().Info("CSV_IMPORT: Database schema created successfully")
 	return nil
 }
 
