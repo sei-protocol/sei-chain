@@ -2,7 +2,9 @@ package evmrpc_test
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 
@@ -440,4 +442,32 @@ func TestEthBloom_NonEmptyWhenEvmLogsPresent(t *testing.T) {
 	resObjEmpty := sendRequestGood(t, "getBlockByNumber", "earliest", true)
 	resultEmpty := resObjEmpty["result"].(map[string]interface{})
 	require.Equal(t, emptyBloom, resultEmpty["logsBloom"], "eth logsBloom should be empty at genesis")
+}
+
+func mustParseBloomHex(t *testing.T, hexStr interface{}) ethtypes.Bloom {
+	s := hexStr.(string)
+	b, err := hex.DecodeString(strings.TrimPrefix(s, "0x"))
+	require.NoError(t, err)
+	var bloom ethtypes.Bloom
+	copy(bloom[:], b)
+	return bloom
+}
+
+func TestEthBloom_ExcludesSyntheticTopics(t *testing.T) {
+	// Synthetic-only topic from setup
+	syntheticTopic := common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234")
+	// Topic present in real EVM logs
+	evmTopic := common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")
+
+	// eth_
+	resEth := sendRequestGood(t, "getBlockByNumber", "0x8", true)
+	bloomEth := mustParseBloomHex(t, resEth["result"].(map[string]interface{})["logsBloom"])
+	require.False(t, ethtypes.BloomLookup(bloomEth, syntheticTopic), "eth bloom should exclude synthetic")
+	require.True(t, ethtypes.BloomLookup(bloomEth, evmTopic), "eth bloom should include real EVM topic")
+
+	// sei_
+	resSei := sendSeiRequestGood(t, "getBlockByNumber", "0x8", true)
+	bloomSei := mustParseBloomHex(t, resSei["result"].(map[string]interface{})["logsBloom"])
+	require.True(t, ethtypes.BloomLookup(bloomSei, syntheticTopic), "sei bloom should include synthetic")
+	require.True(t, ethtypes.BloomLookup(bloomSei, evmTopic), "sei bloom should include real EVM topic")
 }

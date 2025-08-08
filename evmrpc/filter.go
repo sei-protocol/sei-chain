@@ -1005,7 +1005,11 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
 			// Bloom cache miss - read from database
 			providerCtx := f.ctxProvider(height)
-			blockBloom = f.k.GetBlockBloom(providerCtx)
+			if f.includeSyntheticReceipts {
+				blockBloom = f.k.GetBlockBloom(providerCtx)
+			} else {
+				blockBloom = f.k.GetEvmOnlyBlockBloom(providerCtx)
+			}
 
 			if !MatchFilters(blockBloom, bloomIndexes) {
 				<-dbReadSemaphore
