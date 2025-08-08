@@ -167,6 +167,75 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 	}
 }
 
+// Number of blocks between legacy receipt migration batches
+const LegacyReceiptMigrationInterval int64 = 10
+
+// Number of receipts to migrate per batch
+const LegacyReceiptMigrationBatchSize int = 100
+
+// MigrateLegacyReceiptsBatch moves up to batchSize receipts from the legacy KV store
+// into the persistent receipt store and deletes them from the legacy store.
+// It returns the number of receipts migrated.
+func (k *Keeper) MigrateLegacyReceiptsBatch(ctx sdk.Context, batchSize int) (int, error) {
+    // Iterate over legacy receipt keys under prefix types.ReceiptKeyPrefix
+    legacyStore := prefix.NewStore(ctx.KVStore(k.storeKey), types.ReceiptKeyPrefix)
+    iter := legacyStore.Iterator(nil, nil)
+    defer iter.Close()
+
+    // Early exit if nothing to migrate
+    if !iter.Valid() {
+        return 0, nil
+    }
+
+    if batchSize <= 0 {
+        return 0, nil
+    }
+
+    var (
+        pairs        []*iavl.KVPair
+        keysToDelete [][]byte
+        migrated     int
+    )
+
+    pairs = make([]*iavl.KVPair, 0, batchSize)
+    keysToDelete = make([][]byte, 0, batchSize)
+
+    for ; migrated < batchSize && iter.Valid(); iter.Next() {
+        keySuffix := iter.Key()   // key without prefix
+        value := iter.Value()     // serialized receipt bytes
+
+        // Build full key expected by receipt store (with prefix)
+        fullKey := append([]byte{}, types.ReceiptKeyPrefix...)
+        fullKey = append(fullKey, keySuffix...)
+
+        pairs = append(pairs, &iavl.KVPair{Key: fullKey, Value: value})
+        // Save the suffix for deletion from legacy store after successful write
+        keysToDelete = append(keysToDelete, append([]byte{}, keySuffix...))
+        migrated++
+    }
+
+    if migrated == 0 {
+        return 0, nil
+    }
+
+    ncs := &proto.NamedChangeSet{
+        Name:      types.ReceiptStoreKey,
+        Changeset: iavl.ChangeSet{Pairs: pairs},
+    }
+
+    // Write to persistent receipt store first
+    if err := k.receiptStore.ApplyChangeset(ctx.BlockHeight(), ncs); err != nil {
+        return 0, err
+    }
+
+    // Only after a successful write, delete from legacy store
+    for _, kdel := range keysToDelete {
+        legacyStore.Delete(kdel)
+    }
+
+    return migrated, nil
+}
+
 func (k *Keeper) WriteReceipt(
 	ctx sdk.Context,
 	stateDB *state.DBImpl,
