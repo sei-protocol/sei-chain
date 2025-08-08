@@ -114,6 +114,7 @@ import (
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/precompiles"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
@@ -146,7 +147,6 @@ import (
 	tmos "github.com/tendermint/tendermint/libs/os"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
-	"go.opentelemetry.io/otel/trace"
 
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
@@ -370,6 +370,7 @@ type App struct {
 	HardForkManager *upgrades.HardForkManager
 
 	encodingConfig        appparams.EncodingConfig
+	legacyEncodingConfig  appparams.EncodingConfig
 	evmRPCConfig          evmrpc.Config
 	lightInvarianceConfig LightInvarianceConfig
 
@@ -444,6 +445,7 @@ func New(
 		versionInfo:           version.NewInfo(),
 		metricCounter:         &map[string]float32{},
 		encodingConfig:        encodingConfig,
+		legacyEncodingConfig:  MakeLegacyEncodingConfig(),
 		stateStore:            stateStore,
 		httpServerStartSignal: make(chan struct{}, 1),
 		wsServerStartSignal:   make(chan struct{}, 1),
@@ -706,24 +708,7 @@ func New(
 	app.IBCKeeper.SetRouter(ibcRouter)
 
 	if enableCustomEVMPrecompiles {
-		customPrecompiles := precompiles.GetCustomPrecompiles(
-			LatestUpgrade,
-			&app.EvmKeeper,
-			app.BankKeeper,
-			bankkeeper.NewMsgServerImpl(app.BankKeeper),
-			wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper),
-			app.WasmKeeper,
-			stakingkeeper.NewMsgServerImpl(app.StakingKeeper),
-			stakingkeeper.Querier{Keeper: app.StakingKeeper},
-			app.GovKeeper,
-			app.DistrKeeper,
-			app.OracleKeeper,
-			app.TransferKeeper,
-			app.IBCKeeper.ClientKeeper,
-			app.IBCKeeper.ConnectionKeeper,
-			app.IBCKeeper.ChannelKeeper,
-			app.AccountKeeper,
-		)
+		customPrecompiles := precompiles.GetCustomPrecompiles(LatestUpgrade, app.GetPrecompileKeepers())
 		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles, LatestUpgrade)
 	}
 
@@ -925,6 +910,7 @@ func New(
 			WasmKeeper:          &app.WasmKeeper,
 			OracleKeeper:        &app.OracleKeeper,
 			EVMKeeper:           &app.EvmKeeper,
+			UpgradeKeeper:       &app.UpgradeKeeper,
 			TracingInfo:         app.GetBaseApp().TracingInfo,
 			AccessControlKeeper: &app.AccessControlKeeper,
 			LatestCtxGetter: func() sdk.Context {
@@ -995,7 +981,12 @@ func New(
 
 // HandlePreCommit happens right before the block is committed
 func (app *App) HandlePreCommit(ctx sdk.Context) error {
-	return app.EvmKeeper.FlushTransientReceipts(ctx)
+	if app.evmRPCConfig.FlushReceiptSync {
+		return app.EvmKeeper.FlushTransientReceiptsSync(ctx)
+	} else {
+		return app.EvmKeeper.FlushTransientReceiptsAsync(ctx)
+	}
+
 }
 
 // Close closes all items that needs closing (called by baseapp)
@@ -1438,19 +1429,7 @@ func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []
 			continue
 		}
 
-		prioritized := false
-		// if all messages are prioritized, we want to add to prioritizedTxs
-	msgLoop:
-		for _, msg := range typedTxs[idx].GetMsgs() {
-			switch msg.(type) {
-			case *oracletypes.MsgAggregateExchangeRateVote:
-				prioritized = true
-			default:
-				prioritized = false
-				break msgLoop
-			}
-		}
-		if prioritized {
+		if utils.IsTxPrioritized(typedTxs[idx]) {
 			prioritizedTxs = append(prioritizedTxs, tx)
 			prioritizedTypedTxs = append(prioritizedTypedTxs, typedTxs[idx])
 			prioritizedIndices = append(prioritizedIndices, idx)
@@ -1481,43 +1460,14 @@ func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex i
 		Checksum:      sha256.Sum256(bz),
 		AbsoluteIndex: absoluateIndex,
 	}
-	if tx == nil {
-		return
-	}
-	defer func() {
-		if err := recover(); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("panic when generating estimated writeset for %X: %s", bz, err))
-		}
-	}()
-	// get prefill estimate
-	estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.GetAnteDepGenerator(), txIndex, tx)
-	// if no error, then we assign the mapped writesets for prefill estimate
-	if err == nil {
-		res.EstimatedWritesets = estimatedWritesets
-	}
 	return
 }
 
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
 func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
-	var span trace.Span
-	if app.TracingEnabled {
-		_, span = app.TracingInfo.Start("GenerateEstimatedWritesets")
-	}
-	wg := sync.WaitGroup{}
 	for txIndex, tx := range txs {
-		wg.Add(1)
-		go func(txIndex int, tx []byte) {
-			defer wg.Done()
-			entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
-		}(txIndex, tx)
-	}
-
-	wg.Wait()
-
-	if app.TracingEnabled {
-		span.End()
+		entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
 	}
 
 	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
@@ -1688,7 +1638,7 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 			} else {
 				if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM {
 					msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
-					if err := evmante.Preprocess(ctx, msg); err != nil {
+					if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.ChainID(ctx)); err != nil {
 						ctx.Logger().Error(fmt.Sprintf("error preprocessing EVM tx due to %s", err))
 						typedTxs[idx] = nil
 						return
@@ -1868,22 +1818,30 @@ func (app *App) RPCContextProvider(i int64) sdk.Context {
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
 func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
-
-	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, &app.WasmKeeper, app.BaseApp, app.AnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome, nil)
-		if err != nil {
-			panic(err)
+	txConfigProvider := func(height int64) client.TxConfig {
+		if app.ChainID != "pacific-1" {
+			return app.encodingConfig.TxConfig
 		}
-		go func() {
-			<-app.httpServerStartSignal
-			if err := evmHTTPServer.Start(); err != nil {
-				panic(err)
-			}
-		}()
+		// use current for post v6.0.6 heights
+		if height >= v606UpgradeHeight {
+			return app.encodingConfig.TxConfig
+		}
+		return app.legacyEncodingConfig.TxConfig
 	}
 
+	evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, &app.WasmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, nil)
+	if err != nil {
+		panic(err)
+	}
+	go func() {
+		<-app.httpServerStartSignal
+		if err := evmHTTPServer.Start(); err != nil {
+			panic(err)
+		}
+	}()
+
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, app.encodingConfig.TxConfig, DefaultNodeHome)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome)
 		if err != nil {
 			panic(err)
 		}
@@ -1986,6 +1944,10 @@ func (app *App) GetTxConfig() client.TxConfig {
 	return app.encodingConfig.TxConfig
 }
 
+func (app *App) GetLegacyTxConfig() client.TxConfig {
+	return app.legacyEncodingConfig.TxConfig
+}
+
 // GetMaccPerms returns a copy of the module account permissions
 func GetMaccPerms() map[string][]string {
 	dupMaccPerms := make(map[string][]string)
@@ -2032,6 +1994,10 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 	}
 
 	return blacklistedAddrs
+}
+
+func (app *App) GetPrecompileKeepers() putils.Keepers {
+	return NewPrecompileKeepers(app)
 }
 
 // test-only

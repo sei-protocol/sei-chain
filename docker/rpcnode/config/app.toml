@@ -267,5 +267,5 @@ ss-import-num-workers = 1
 # EnableTestAPI enables the EVM test API
 enable_test_api = true
 
-# EnableReportAPI enables the EVM report API
-enable_report_api = true
+# Set to 0 to disable request limiter, otherwise this limits the number of concurrent simulation calls.
+max_concurrent_simulation_calls = 0

@@ -10,7 +10,7 @@ import (
 
 // returns context and an app with updated mint keeper
 func createTestApp(isCheckTx bool) (*app.App, sdk.Context) {
-	app := app.Setup(isCheckTx, false)
+	app := app.Setup(isCheckTx, false, false)
 
 	ctx := app.BaseApp.NewContext(isCheckTx, tmproto.Header{})
 	app.MintKeeper.SetParams(ctx, types.DefaultParams())

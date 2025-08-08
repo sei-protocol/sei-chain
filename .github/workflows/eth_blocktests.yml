@@ -52,7 +52,7 @@ jobs:
         run: |
           git clone https://github.com/ethereum/tests.git ethtests
           cd ethtests
-          git checkout 763f4f44818e3fc06a8b2e0fb9b3d8d91c864a5a
+          git checkout c67e485ff8b5be9abc8ad15345ec21aa22e290d9
 
       - name: "Run ETH Blocktest"
         run: ./run_blocktests.sh ./ethtests/BlockchainTests/ ${{ matrix.runner-index }} ${{ env.TOTAL_RUNNERS }}

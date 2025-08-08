@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -36,8 +37,8 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	distrKeeper pcommon.DistributionKeeper
-	evmKeeper   pcommon.EVMKeeper
+	distrKeeper utils.DistributionKeeper
+	evmKeeper   utils.EVMKeeper
 	address     common.Address
 
 	SetWithdrawAddrID                   []byte
@@ -47,12 +48,12 @@ type PrecompileExecutor struct {
 	RewardsID                           []byte
 }
 
-func NewPrecompile(distrKeeper pcommon.DistributionKeeper, evmKeeper pcommon.EVMKeeper) (*pcommon.DynamicGasPrecompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		distrKeeper: distrKeeper,
-		evmKeeper:   evmKeeper,
+		distrKeeper: keepers.DistributionK(),
+		evmKeeper:   keepers.EVMK(),
 		address:     common.HexToAddress(DistrAddress),
 	}
 
@@ -95,17 +96,20 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 		}
 		return p.withdrawMultipleDelegationRewards(ctx, method, caller, args, value)
 	case WithdrawValidatorCommissionMethod:
+		if err = pcommon.ValidateNonPayable(value); err != nil {
+			return nil, 0, err
+		}
 		if readOnly {
 			return nil, 0, errors.New("cannot call distr precompile from staticcall")
 		}
-		return p.withdrawValidatorCommission(ctx, method, caller, args, value)
+		return p.withdrawValidatorCommission(ctx, method, caller)
 	case RewardsMethod:
 		return p.rewards(ctx, method, args)
 	}
 	return
 }
 
-func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+func (p PrecompileExecutor) EVMKeeper() utils.EVMKeeper {
 	return p.evmKeeper
 }
 
@@ -338,7 +342,7 @@ func getResponseOutput(response *distrtypes.QueryDelegationTotalRewardsResponse)
 	}
 }
 
-func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method *abi.Method, caller common.Address, args []interface{}, value *big.Int) (ret []byte, remainingGas uint64, rerr error) {
+func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method *abi.Method, caller common.Address) (ret []byte, remainingGas uint64, rerr error) {
 	defer func() {
 		if err := recover(); err != nil {
 			ret = nil
@@ -348,21 +352,22 @@ func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method 
 		}
 	}()
 
-	err := p.validateInput(value, args, 1)
-	if err != nil {
-		rerr = err
+	validatorSeiAddr, found := p.evmKeeper.GetSeiAddress(ctx, caller)
+	if !found {
+		rerr = types.NewAssociationMissingErr(caller.Hex())
 		return
 	}
 
-	// The caller must be associated with a validator address
-	validatorAddr, err := p.getValidatorFromArg(ctx, args[0])
+	validatorAddr := sdk.ValAddress(validatorSeiAddr)
+
+	validator, err := sdk.ValAddressFromBech32(validatorAddr.String())
 	if err != nil {
 		rerr = err
 		return
 	}
 
 	// Call the distribution keeper to withdraw validator commission
-	_, err = p.distrKeeper.WithdrawValidatorCommission(ctx, validatorAddr)
+	_, err = p.distrKeeper.WithdrawValidatorCommission(ctx, validator)
 	if err != nil {
 		rerr = err
 		return
@@ -371,13 +376,4 @@ func (p PrecompileExecutor) withdrawValidatorCommission(ctx sdk.Context, method 
 	ret, rerr = method.Outputs.Pack(true)
 	remainingGas = pcommon.GetRemainingGas(ctx, p.evmKeeper)
 	return
-}
-
-func (p PrecompileExecutor) getValidatorFromArg(ctx sdk.Context, arg interface{}) (sdk.ValAddress, error) {
-	validatorAddress := arg.(string)
-	validator, err := sdk.ValAddressFromBech32(validatorAddress)
-	if err != nil {
-		return nil, err
-	}
-	return validator, nil
 }

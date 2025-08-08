@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
 const (
@@ -33,7 +34,7 @@ type PrecompileExecutor struct {
 	VerifyID []byte
 }
 
-func NewPrecompile() (*pcommon.Precompile, error) {
+func NewPrecompile(utils.Keepers) (*pcommon.Precompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{}

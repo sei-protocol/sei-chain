@@ -10,9 +10,10 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/trie"
-	"github.com/ethereum/go-ethereum/trie/triedb/hashdb"
-	"github.com/ethereum/go-ethereum/trie/triedb/pathdb"
+	"github.com/ethereum/go-ethereum/node"
+	"github.com/ethereum/go-ethereum/triedb"
+	"github.com/ethereum/go-ethereum/triedb/hashdb"
+	"github.com/ethereum/go-ethereum/triedb/pathdb"
 
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc1155"
 	"github.com/sei-protocol/sei-chain/x/evm/artifacts/erc20"
@@ -74,7 +75,7 @@ func (k *Keeper) InitGenesis(ctx sdk.Context, genState types.GenesisState) {
 }
 
 func (k *Keeper) OpenEthDatabase() *ethtypes.Header {
-	db, err := rawdb.Open(rawdb.OpenOptions{
+	db, err := node.OpenDatabase(node.OpenOptions{
 		Type:              "pebble",
 		Directory:         k.EthReplayConfig.EthDataDir,
 		AncientsDirectory: fmt.Sprintf("%s/ancient", k.EthReplayConfig.EthDataDir),
@@ -86,7 +87,7 @@ func (k *Keeper) OpenEthDatabase() *ethtypes.Header {
 	if err != nil {
 		panic(err)
 	}
-	config := &trie.Config{
+	config := &triedb.Config{
 		Preimages: true,
 		IsVerkle:  false,
 	}
@@ -94,16 +95,16 @@ func (k *Keeper) OpenEthDatabase() *ethtypes.Header {
 	if err != nil {
 		panic(err)
 	}
-	var triedb *trie.Database
+	var trieDB *triedb.Database
 	if scheme == rawdb.HashScheme {
 		config.HashDB = hashdb.Defaults
-		triedb = trie.NewDatabase(db, config)
+		trieDB = triedb.NewDatabase(db, config)
 	} else {
 		config.PathDB = pathdb.ReadOnly
-		triedb = trie.NewDatabase(db, config)
+		trieDB = triedb.NewDatabase(db, config)
 	}
 	header := rawdb.ReadHeadHeader(db)
-	sdb := state.NewDatabaseWithNodeDB(db, triedb)
+	sdb := state.NewDatabase(trieDB, nil)
 	tr, err := sdb.OpenTrie(header.Root)
 	if err != nil {
 		panic(err)
@@ -111,5 +112,6 @@ func (k *Keeper) OpenEthDatabase() *ethtypes.Header {
 	k.Root = header.Root
 	k.DB = sdb
 	k.Trie = tr
+	k.CachingDB = state.NewDatabase(trieDB, nil)
 	return header
 }

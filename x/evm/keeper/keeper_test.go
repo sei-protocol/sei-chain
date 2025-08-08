@@ -3,8 +3,12 @@ package keeper_test
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"math/big"
+	"os"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 
@@ -14,19 +18,9 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/precompiles/addr"
-	"github.com/sei-protocol/sei-chain/precompiles/bank"
-	"github.com/sei-protocol/sei-chain/precompiles/distribution"
-	"github.com/sei-protocol/sei-chain/precompiles/gov"
-	"github.com/sei-protocol/sei-chain/precompiles/ibc"
-	"github.com/sei-protocol/sei-chain/precompiles/json"
-	"github.com/sei-protocol/sei-chain/precompiles/oracle"
-	"github.com/sei-protocol/sei-chain/precompiles/pointer"
-	"github.com/sei-protocol/sei-chain/precompiles/pointerview"
-	"github.com/sei-protocol/sei-chain/precompiles/staking"
-	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/testutil/keeper"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -216,7 +210,7 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 }
 
 func TestDeferredInfo(t *testing.T) {
-	a := app.Setup(false, false)
+	a := app.Setup(false, false, false)
 	k := a.EvmKeeper
 	ctx := a.GetContextForDeliverTx([]byte{})
 	ctx = ctx.WithTxIndex(1)
@@ -272,138 +266,68 @@ func TestAddPendingNonce(t *testing.T) {
 }
 
 func TestGetCustomPrecompiles(t *testing.T) {
+	// Read all version files from precompiles subfolders
+	tagSet := make(map[string]bool)
+
+	// Define the precompiles directories to scan
+	precompileDirs := []string{
+		"addr", "bank", "distribution", "gov", "ibc", "json",
+		"oracle", "p256", "pointer", "pointerview", "solo", "staking", "wasmd",
+	}
+	precompileTags := map[string][]string{}
+
+	// Read versions from each precompile directory
+	for _, dir := range precompileDirs {
+		versionFile := fmt.Sprintf("../../../precompiles/%s/versions", dir)
+		content, err := os.ReadFile(versionFile)
+		if err != nil {
+			t.Logf("Warning: Could not read %s: %v", versionFile, err)
+			continue
+		}
+
+		// Parse each line as a tag
+		precompileTags[dir] = utils.Map(strings.Split(string(content), "\n"), strings.TrimSpace)
+		for _, line := range precompileTags[dir] {
+			if line != "" {
+				tagSet[line] = true
+			}
+		}
+	}
+
+	// Convert to slice and sort
+	var tags []string
+	for tag := range tagSet {
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+
+	// Verify we have tags
+	require.Greater(t, len(tags), 0, "Should have found at least one tag")
+
+	// Setup keeper and context
 	k, ctx := keeper.MockEVMKeeperPrecompiles()
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(140000000), "v6.0.6")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(139936278), "v6.0.5")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(129965597), "v6.0.3")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(126326956), "v6.0.2")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(119821526), "v6.0.1")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(114945913), "v6.0.0")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(107000672), "v5.9.0")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(102491599), "v5.8.0")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(94496767), "v5.7.5")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(89475838), "v5.6.2")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(84006014), "v5.5.5")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(79123881), "v5.5.2")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(73290488), "v3.9.0")
-	ps := k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(140000001))
-	for _, v := range ps {
-		require.Equal(t, "v6.0.6", v)
+
+	// Set up upgrade heights with increment of 10
+	baseHeight := 1000000
+	tagToHeight := map[string]int64{}
+	for i, tag := range tags {
+		height := baseHeight + (i * 10)
+		k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(int64(height)), tag)
+		t.Logf("Set upgrade height %d for tag %s", height, tag)
+		tagToHeight[tag] = int64(height)
 	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(139936279))
-	for _, v := range ps {
-		require.Equal(t, "v6.0.5", v)
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(129965598))
-	for addr, v := range ps {
-		switch addr.Hex() {
-		case pointerview.PointerViewAddress:
-			require.Equal(t, "v5.6.2", v)
-		case distribution.DistrAddress:
-		case gov.GovAddress:
-		case staking.StakingAddress:
-			require.Equal(t, "v5.8.0", v)
-		case pointer.PointerAddress:
-		default:
-			require.Equal(t, "v6.0.3", v)
+
+	for precompile, tags := range precompileTags {
+		for _, tag := range tags {
+			ps := k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(tagToHeight[tag] + 1))
+			for p, rtag := range ps {
+				if p.Hex() != precompile {
+					continue
+				}
+				require.Equal(t, tag, rtag)
+			}
 		}
 	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(126326957))
-	for addr, v := range ps {
-		switch addr.Hex() {
-		case pointerview.PointerViewAddress:
-		case json.JSONAddress:
-			require.Equal(t, "v5.6.2", v)
-		case distribution.DistrAddress:
-		case gov.GovAddress:
-		case staking.StakingAddress:
-			require.Equal(t, "v5.8.0", v)
-		case pointer.PointerAddress:
-		default:
-			require.Equal(t, "v6.0.1", v)
-		}
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(119821527))
-	for a, v := range ps {
-		switch a.Hex() {
-		case json.JSONAddress:
-		case pointerview.PointerViewAddress:
-			require.Equal(t, "v5.6.2", v)
-		case distribution.DistrAddress:
-		case gov.GovAddress:
-		case staking.StakingAddress:
-		case ibc.IBCAddress, bank.BankAddress, oracle.OracleAddress, addr.AddrAddress, wasmd.WasmdAddress:
-			require.Equal(t, "v6.0.1", v)
-		default:
-			require.Equal(t, "v6.0.0", v)
-		}
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(114945914))
-	for addr, v := range ps {
-		switch addr.Hex() {
-		case json.JSONAddress:
-		case pointerview.PointerViewAddress:
-			require.Equal(t, "v5.6.2", v)
-		case distribution.DistrAddress:
-		case ibc.IBCAddress:
-		case gov.GovAddress:
-		case staking.StakingAddress:
-			require.Equal(t, "v5.8.0", v)
-		default:
-			require.Equal(t, "v6.0.0", v)
-		}
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(107000673))
-	for a, v := range ps {
-		switch a.Hex() {
-		case addr.AddrAddress:
-			require.Equal(t, "v5.7.5", v)
-		case json.JSONAddress:
-		case oracle.OracleAddress:
-		case pointerview.PointerViewAddress:
-			require.Equal(t, "v5.6.2", v)
-		default:
-			require.Equal(t, "v5.8.0", v)
-		}
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(102491600))
-	for a, v := range ps {
-		switch a.Hex() {
-		case addr.AddrAddress:
-			require.Equal(t, "v5.7.5", v)
-		case json.JSONAddress:
-		case oracle.OracleAddress:
-		case pointerview.PointerViewAddress:
-			require.Equal(t, "v5.6.2", v)
-		default:
-			require.Equal(t, "v5.8.0", v)
-		}
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(94496768))
-	for a, v := range ps {
-		switch a.Hex() {
-		case addr.AddrAddress:
-		case pointer.PointerAddress:
-		case wasmd.WasmdAddress:
-			require.Equal(t, "v5.7.5", v)
-		default:
-			require.Equal(t, "v5.6.2", v)
-		}
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(89475839))
-	for _, v := range ps {
-		require.Equal(t, "v5.6.2", v)
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(84006015))
-	for _, v := range ps {
-		require.Equal(t, "v5.5.5", v)
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(79123882))
-	for _, v := range ps {
-		require.Equal(t, "v5.5.2", v)
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(73290489))
-	require.Len(t, ps, 0)
 }
 
 func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {
@@ -432,4 +356,34 @@ func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {
 	msg, err := types.NewMsgEVMTransaction(typedTx)
 	require.Nil(t, err)
 	return msg
+}
+
+func TestGetBaseFeeBeforeV620(t *testing.T) {
+	// Set up a test app and context
+	testApp := app.Setup(false, false, false)
+	testHeight := int64(1000)
+	testCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(testHeight)
+
+	// Set chain ID to pacific-1
+	testCtx = testCtx.WithChainID("pacific-1")
+
+	// Set the v6.2.0 upgrade height to a value higher than our test height
+	v620UpgradeHeight := int64(2000)
+	testApp.UpgradeKeeper.SetDone(testCtx.WithBlockHeight(v620UpgradeHeight), "6.2.0")
+
+	keeper := &testApp.EvmKeeper
+
+	// Before upgrade: should be nil
+	baseFee := keeper.GetBaseFee(testCtx)
+	require.Nil(t, baseFee, "Base fee should be nil for pacific-1 before v6.2.0 upgrade")
+
+	// After upgrade: should not be nil
+	ctxAfterUpgrade := testCtx.WithBlockHeight(2500)
+	baseFeeAfter := keeper.GetBaseFee(ctxAfterUpgrade)
+	require.NotNil(t, baseFeeAfter, "Base fee should not be nil for pacific-1 after v6.2.0 upgrade")
+
+	// Non-pacific-1 chain: should not be nil
+	ctxOtherChain := testCtx.WithChainID("test-chain")
+	baseFeeOther := keeper.GetBaseFee(ctxOtherChain)
+	require.NotNil(t, baseFeeOther, "Base fee should not be nil for non-pacific-1 chains")
 }

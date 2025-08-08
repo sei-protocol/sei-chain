@@ -20,7 +20,7 @@ func TestExtractAsBytes(t *testing.T) {
 	stateDB := &state.DBImpl{}
 	stateDB.WithCtx(sdk.Context{})
 	evm := &vm.EVM{StateDB: stateDB}
-	p, err := json.NewPrecompile()
+	p, err := json.NewPrecompile(nil)
 	require.Nil(t, err)
 	method, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesID)
 	require.Nil(t, err)
@@ -55,7 +55,7 @@ func TestExtractAsBytesList(t *testing.T) {
 	stateDB := &state.DBImpl{}
 	stateDB.WithCtx(sdk.Context{})
 	evm := &vm.EVM{StateDB: stateDB}
-	p, err := json.NewPrecompile()
+	p, err := json.NewPrecompile(nil)
 	require.Nil(t, err)
 	method, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesListID)
 	require.Nil(t, err)
@@ -93,7 +93,7 @@ func TestExtractAsUint256(t *testing.T) {
 	stateDB := &state.DBImpl{}
 	stateDB.WithCtx(sdk.Context{})
 	evm := &vm.EVM{StateDB: stateDB}
-	p, err := json.NewPrecompile()
+	p, err := json.NewPrecompile(nil)
 	require.Nil(t, err)
 	method, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsUint256ID)
 	require.Nil(t, err)
@@ -271,7 +271,7 @@ func TestPrecompileExecutor_extractAsBytesFromArray(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := json.NewPrecompile()
+			p, err := json.NewPrecompile(nil)
 			require.Nil(t, err)
 			method, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesFromArrayID)
 			inputArgs, err := method.Inputs.Pack(tt.input.body, tt.input.indexArray)
@@ -304,7 +304,7 @@ func TestExtractElementFromNestedArray(t *testing.T) {
 	stateDB := &state.DBImpl{}
 	stateDB.WithCtx(sdk.Context{})
 	evm := &vm.EVM{StateDB: stateDB}
-	p, err := json.NewPrecompile()
+	p, err := json.NewPrecompile(nil)
 	require.NoError(t, err)
 	methodExtractAsBytes, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesID)
 	methodExtractAsBytesList, err := p.MethodById(p.GetExecutor().(*json.PrecompileExecutor).ExtractAsBytesListID)

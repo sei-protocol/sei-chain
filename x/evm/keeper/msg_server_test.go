@@ -83,8 +83,8 @@ func TestEVMTransaction(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy Simple Storage contract
-	ante.Preprocess(ctx, req)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -96,7 +96,7 @@ func TestEVMTransaction(t *testing.T) {
 	require.NotEmpty(t, res.Hash)
 	require.Equal(t, uint64(1000000)-res.GasUsed, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
 	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx.TxIndex()), k.GetBaseDenom(ctx)).Amount.Uint64())
-	require.NoError(t, k.FlushTransientReceipts(ctx))
+	require.NoError(t, k.FlushTransientReceiptsSync(ctx))
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -122,8 +122,8 @@ func TestEVMTransaction(t *testing.T) {
 	require.Nil(t, err)
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
-	ante.Preprocess(ctx, req)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -132,7 +132,7 @@ func TestEVMTransaction(t *testing.T) {
 	require.NotEmpty(t, res.Logs)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
 	require.Empty(t, res.VmError)
-	require.NoError(t, k.FlushTransientReceipts(ctx))
+	require.NoError(t, k.FlushTransientReceiptsSync(ctx))
 	receipt, err = k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -174,8 +174,8 @@ func TestEVMTransactionError(t *testing.T) {
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -184,7 +184,7 @@ func TestEVMTransactionError(t *testing.T) {
 	require.NotEmpty(t, res.VmError)
 	// gas should be charged and receipt should be created
 	require.Equal(t, uint64(800000), k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64())
-	require.NoError(t, k.FlushTransientReceipts(ctx))
+	require.NoError(t, k.FlushTransientReceiptsSync(ctx))
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.Equal(t, uint32(ethtypes.ReceiptStatusFailed), receipt.Status)
@@ -230,8 +230,8 @@ func TestEVMTransactionInsufficientGas(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy Simple Storage contract with insufficient gas
-	ante.Preprocess(ctx, req)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -251,7 +251,7 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 	testPrivHex := hex.EncodeToString(privKey.Bytes())
 	key, _ := crypto.HexToECDSA(testPrivHex)
 	txData := ethtypes.DynamicFeeTx{
-		GasFeeCap: big.NewInt(1000000000000),
+		GasFeeCap: big.NewInt(1000000000), // 1 gwei
 		Gas:       200000,
 		To:        nil,
 		Value:     big.NewInt(0),
@@ -278,8 +278,8 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy Simple Storage contract
-	ante.Preprocess(ctx, req)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -289,8 +289,9 @@ func TestEVMDynamicFeeTransaction(t *testing.T) {
 	require.Empty(t, res.VmError)
 	require.NotEmpty(t, res.ReturnData)
 	require.NotEmpty(t, res.Hash)
-	require.LessOrEqual(t, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64(), uint64(1000000)-res.GasUsed)
-	require.NoError(t, k.FlushTransientReceipts(ctx))
+	maxUseiBalanceChange := (200000 * 1000000000) / 1000000000000000000 // 200000 gas * 1 gwei / 1 usei per wei
+	require.LessOrEqual(t, k.BankKeeper().GetBalance(ctx, sdk.AccAddress(evmAddr[:]), "usei").Amount.Uint64(), uint64(1000000)-uint64(maxUseiBalanceChange))
+	require.NoError(t, k.FlushTransientReceiptsSync(ctx))
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -336,8 +337,8 @@ func TestEVMPrecompiles(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy SendAll contract
-	ante.Preprocess(ctx, req)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -352,7 +353,7 @@ func TestEVMPrecompiles(t *testing.T) {
 	coinbaseBalanceAfter := k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx.TxIndex()), k.GetBaseDenom(ctx)).Amount.Uint64()
 	diff := coinbaseBalanceAfter - coinbaseBalanceBefore
 	require.Equal(t, res.GasUsed, diff)
-	require.NoError(t, k.FlushTransientReceipts(ctx))
+	require.NoError(t, k.FlushTransientReceiptsSync(ctx))
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -387,8 +388,8 @@ func TestEVMPrecompiles(t *testing.T) {
 	require.Nil(t, err)
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
-	ante.Preprocess(ctx, req)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -396,7 +397,7 @@ func TestEVMPrecompiles(t *testing.T) {
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
 	require.Empty(t, res.VmError)
-	require.NoError(t, k.FlushTransientReceipts(ctx))
+	require.NoError(t, k.FlushTransientReceiptsSync(ctx))
 	receipt, err = k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -413,7 +414,7 @@ func TestEVMAssociateTx(t *testing.T) {
 	require.Nil(t, err)
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Equal(t, types.MsgEVMTransactionResponse{}, *res)
@@ -456,8 +457,8 @@ func TestEVMBlockEnv(t *testing.T) {
 	msgServer := keeper.NewMsgServerImpl(k)
 
 	// Deploy Simple Storage contract
-	ante.Preprocess(ctx, req)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -473,7 +474,7 @@ func TestEVMBlockEnv(t *testing.T) {
 	fmt.Println("wei = ", k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx.TxIndex()), "wei").Amount.Uint64())
 	require.Equal(t, res.GasUsed, k.BankKeeper().GetBalance(ctx, state.GetCoinbaseAddress(ctx.TxIndex()), "usei").Amount.Uint64())
 
-	require.NoError(t, k.FlushTransientReceipts(ctx))
+	require.NoError(t, k.FlushTransientReceiptsSync(ctx))
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -499,8 +500,8 @@ func TestEVMBlockEnv(t *testing.T) {
 	require.Nil(t, err)
 	req, err = types.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
-	ante.Preprocess(ctx, req)
-	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, &testkeeper.EVMTestApp.UpgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
@@ -508,7 +509,7 @@ func TestEVMBlockEnv(t *testing.T) {
 	require.Nil(t, err)
 	require.LessOrEqual(t, res.GasUsed, uint64(200000))
 	require.Empty(t, res.VmError)
-	require.NoError(t, k.FlushTransientReceipts(ctx))
+	require.NoError(t, k.FlushTransientReceiptsSync(ctx))
 	receipt, err = k.GetReceipt(ctx, common.HexToHash(res.Hash))
 	require.Nil(t, err)
 	require.NotNil(t, receipt)
@@ -746,7 +747,7 @@ func TestEvmError(t *testing.T) {
 
 	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
-	require.NoError(t, k.FlushTransientReceipts(ctx))
+	require.NoError(t, k.FlushTransientReceiptsSync(ctx))
 	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.EvmTxInfo.TxHash))
 	require.Nil(t, err)
 
@@ -778,7 +779,7 @@ func TestEvmError(t *testing.T) {
 	require.Nil(t, err)
 
 	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
-	require.NoError(t, k.FlushTransientReceipts(ctx))
+	require.NoError(t, k.FlushTransientReceiptsSync(ctx))
 	require.Equal(t, sdkerrors.ErrEVMVMError.ABCICode(), res.Code)
 	receipt, err = k.GetReceipt(ctx, common.HexToHash(res.EvmTxInfo.TxHash))
 	require.Nil(t, err)
@@ -869,4 +870,77 @@ func TestAssociate(t *testing.T) {
 
 	res = testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, sdktx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
+}
+
+func TestRegisterPointerDisabled(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	sender, _ := testkeeper.MockAddressPair()
+	pointer, pointee := testkeeper.MockAddressPair()
+	// set params to disable registering CW->ERC pointers
+	params := k.GetParams(ctx)
+	params.RegisterPointerDisabled = true
+	k.SetParams(ctx, params)
+
+	// Test register-pointer for ERC20 fails with useLatest = true
+	_, err := keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC20,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
+	_, _, exists := k.GetCW20ERC20Pointer(ctx, pointee)
+	require.False(t, exists)
+
+	// Test register-pointer for ERC721 fails with useLatest = true
+	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC721,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
+	_, _, exists = k.GetCW721ERC721Pointer(ctx, pointee)
+	require.False(t, exists)
+
+	// Test register-pointer for ERC1155 fails with useLatest = true
+	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC1155,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
+	_, _, exists = k.GetCW1155ERC1155Pointer(ctx, pointee)
+	require.False(t, exists)
+
+	// Test that no events are emitted
+	hasRegisteredEvent := false
+	for _, e := range ctx.EventManager().Events() {
+		if e.Type == types.EventTypePointerRegistered {
+			hasRegisteredEvent = true
+			break
+		}
+	}
+	require.False(t, hasRegisteredEvent)
+
+	// Test that existing pointers can still be queried
+	// First manually set up a pointer
+	err = k.SetCW20ERC20PointerWithVersion(ctx, pointee, pointer.String(), erc20.CurrentVersion)
+	require.Nil(t, err)
+
+	// Verify the pointer exists and can be queried
+	gotPointer, version, exists := k.GetCW20ERC20Pointer(ctx, pointee)
+	require.True(t, exists)
+	require.Equal(t, erc20.CurrentVersion, version)
+	require.Equal(t, pointer, gotPointer)
+
+	// Test that attempting to register a pointer for an address that already has one still fails
+	_, err = keeper.NewMsgServerImpl(k).RegisterPointer(sdk.WrapSDKContext(ctx), &types.MsgRegisterPointer{
+		Sender:      sender.String(),
+		PointerType: types.PointerType_ERC20,
+		ErcAddress:  pointee.Hex(),
+	})
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "registering CW->ERC pointers has been disabled")
 }

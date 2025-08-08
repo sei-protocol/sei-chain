@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/sei-protocol/sei-chain/utils"
 )
 
 const CurrentVersion uint16 = 2
@@ -18,6 +20,7 @@ var f embed.FS
 
 var cachedBin []byte
 var cachedABI *abi.ABI
+var cacheMtx *sync.RWMutex = &sync.RWMutex{}
 
 func GetABI() []byte {
 	bz, err := f.ReadFile("CW1155ERC1155Pointer.abi")
@@ -28,20 +31,20 @@ func GetABI() []byte {
 }
 
 func GetParsedABI() *abi.ABI {
-	if cachedABI != nil {
-		return cachedABI
+	if cached := getCachedABI(); cached != nil {
+		return cached
 	}
 	parsedABI, err := abi.JSON(strings.NewReader(string(GetABI())))
 	if err != nil {
 		panic(err)
 	}
-	cachedABI = &parsedABI
-	return cachedABI
+	setCachedABI(&parsedABI)
+	return &parsedABI
 }
 
 func GetBin() []byte {
-	if cachedBin != nil {
-		return cachedBin
+	if cached := getCachedBin(); len(cached) > 0 {
+		return cached
 	}
 	code, err := f.ReadFile("CW1155ERC1155Pointer.bin")
 	if err != nil {
@@ -51,8 +54,32 @@ func GetBin() []byte {
 	if err != nil {
 		panic("failed to decode CW1155ERC1155Pointer contract binary")
 	}
-	cachedBin = bz
-	return bz
+	setCachedBin(bz)
+	return utils.Copy(bz)
+}
+
+func getCachedABI() *abi.ABI {
+	cacheMtx.RLock()
+	defer cacheMtx.RUnlock()
+	return cachedABI
+}
+
+func setCachedABI(a *abi.ABI) {
+	cacheMtx.Lock()
+	defer cacheMtx.Unlock()
+	cachedABI = a
+}
+
+func getCachedBin() []byte {
+	cacheMtx.RLock()
+	defer cacheMtx.RUnlock()
+	return utils.Copy(cachedBin)
+}
+
+func setCachedBin(bin []byte) {
+	cacheMtx.Lock()
+	defer cacheMtx.Unlock()
+	cachedBin = bin
 }
 
 func IsCodeFromBin(code []byte) bool {

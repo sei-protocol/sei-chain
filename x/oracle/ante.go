@@ -125,6 +125,8 @@ func (VoteAloneDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, 
 		switch msg.(type) {
 		case *types.MsgAggregateExchangeRateVote:
 			oracleVote = true
+		case *types.MsgDelegateFeedConsent:
+			oracleVote = true
 
 		default:
 			otherMsg = true

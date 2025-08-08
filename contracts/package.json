@@ -18,7 +18,7 @@
     "@openzeppelin/hardhat-upgrades": "^3.0.2",
     "@openzeppelin/test-helpers": "^0.5.16",
     "dotenv": "^16.3.1",
-    "ethers": "^6.11.1",
+    "ethers": "^v6.14.4",
     "hardhat": "^2.20.1"
   },
   "dependencies": {
@@ -26,6 +26,7 @@
     "@openzeppelin/upgrades-core": "^1.32.3",
     "bignumber.js": "^9.1.2",
     "dotenv": "^16.3.1",
-    "lodash": "^4.17.21"
+    "lodash": "^4.17.21",
+    "viem": "^2.31.4"
   }
 }

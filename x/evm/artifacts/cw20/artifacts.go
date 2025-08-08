@@ -6,10 +6,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"sync"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
 )
 
@@ -35,6 +37,7 @@ var f embed.FS
 var cachedBin []byte
 var cachedLegacyBin []byte
 var cachedABI *abi.ABI
+var cacheMtx *sync.RWMutex = &sync.RWMutex{}
 
 func GetABI() []byte {
 	bz, err := f.ReadFile("CW20ERC20Pointer.abi")
@@ -45,20 +48,20 @@ func GetABI() []byte {
 }
 
 func GetParsedABI() *abi.ABI {
-	if cachedABI != nil {
-		return cachedABI
+	if cached := getCachedABI(); cached != nil {
+		return cached
 	}
 	parsedABI, err := abi.JSON(strings.NewReader(string(GetABI())))
 	if err != nil {
 		panic(err)
 	}
-	cachedABI = &parsedABI
-	return cachedABI
+	setCachedABI(&parsedABI)
+	return &parsedABI
 }
 
 func GetBin() []byte {
-	if cachedBin != nil {
-		return cachedBin
+	if cached := getCachedBin(); len(cached) > 0 {
+		return cached
 	}
 	code, err := f.ReadFile("CW20ERC20Pointer.bin")
 	if err != nil {
@@ -68,13 +71,13 @@ func GetBin() []byte {
 	if err != nil {
 		panic("failed to decode CW20ERC20 contract binary")
 	}
-	cachedBin = bz
-	return bz
+	setCachedBin(bz)
+	return utils.Copy(bz)
 }
 
 func GetLegacyBin() []byte {
-	if cachedLegacyBin != nil {
-		return cachedLegacyBin
+	if cached := getCachedLegacyBin(); len(cached) > 0 {
+		return cached
 	}
 	code, err := f.ReadFile("legacy.bin")
 	if err != nil {
@@ -84,8 +87,44 @@ func GetLegacyBin() []byte {
 	if err != nil {
 		panic("failed to decode CW20ERC20 legacy contract binary")
 	}
-	cachedLegacyBin = bz
-	return bz
+	setCachedLegacyBin(bz)
+	return utils.Copy(bz)
+}
+
+func getCachedABI() *abi.ABI {
+	cacheMtx.RLock()
+	defer cacheMtx.RUnlock()
+	return cachedABI
+}
+
+func setCachedABI(a *abi.ABI) {
+	cacheMtx.Lock()
+	defer cacheMtx.Unlock()
+	cachedABI = a
+}
+
+func getCachedBin() []byte {
+	cacheMtx.RLock()
+	defer cacheMtx.RUnlock()
+	return utils.Copy(cachedBin)
+}
+
+func setCachedBin(bin []byte) {
+	cacheMtx.Lock()
+	defer cacheMtx.Unlock()
+	cachedBin = bin
+}
+
+func getCachedLegacyBin() []byte {
+	cacheMtx.RLock()
+	defer cacheMtx.RUnlock()
+	return utils.Copy(cachedLegacyBin)
+}
+
+func setCachedLegacyBin(bin []byte) {
+	cacheMtx.Lock()
+	defer cacheMtx.Unlock()
+	cachedLegacyBin = bin
 }
 
 func IsCodeFromBin(code []byte) bool {

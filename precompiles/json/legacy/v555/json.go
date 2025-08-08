@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v555"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
@@ -57,7 +58,7 @@ func ABI() (*abi.ABI, error) {
 	return &newAbi, nil
 }
 
-func NewPrecompile() (*Precompile, error) {
+func NewPrecompile(keepers putils.Keepers) (*Precompile, error) {
 	newAbi, err := ABI()
 	if err != nil {
 		return nil, err
@@ -105,7 +106,7 @@ func (p Precompile) GetName() string {
 func (p Precompile) Run(evm *vm.EVM, _ common.Address, _ common.Address, input []byte, value *big.Int, _ bool, _ bool, hooks *tracing.Hooks) (bz []byte, err error) {
 	defer func() {
 		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+			state.GetDBImpl(evm.StateDB).SetPrecompileError(err)
 		}
 	}()
 	ctx, method, args, err := p.Prepare(evm, input)

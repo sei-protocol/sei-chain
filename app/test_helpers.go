@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
+	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	crptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/simapp"
@@ -82,7 +83,7 @@ func newTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enable
 	if useSc {
 		appPtr = SetupWithSc(false, enableEVMCustomPrecompiles, baseAppOptions...)
 	} else {
-		appPtr = Setup(false, enableEVMCustomPrecompiles, baseAppOptions...)
+		appPtr = Setup(false, enableEVMCustomPrecompiles, false, baseAppOptions...)
 	}
 	ctx := appPtr.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
 	wrapper := &TestWrapper{
@@ -175,7 +176,7 @@ func (s *TestWrapper) EndBlock() {
 	s.App.EndBlocker(s.Ctx, reqEndBlock)
 }
 
-func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*baseapp.BaseApp)) (res *App) {
+func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*baseapp.BaseApp)) (res *App) {
 	db := dbm.NewMemDB()
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
@@ -184,6 +185,18 @@ func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions ...fu
 		func(app *App) {
 			app.receiptStore = NewInMemoryStateStore()
 		},
+	}
+	wasmOpts := EmptyWasmOpts
+	if overrideWasmGasMultiplier {
+		gasRegisterConfig := wasmkeeper.DefaultGasRegisterConfig()
+		gasRegisterConfig.GasMultiplier = 21_000_000
+		wasmOpts = []wasm.Option{
+			wasmkeeper.WithGasRegister(
+				wasmkeeper.NewWasmGasRegister(
+					gasRegisterConfig,
+				),
+			),
+		}
 	}
 
 	res = New(
@@ -199,7 +212,7 @@ func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions ...fu
 		encodingConfig,
 		wasm.EnableAllProposals,
 		TestAppOpts{},
-		EmptyWasmOpts,
+		wasmOpts,
 		EmptyACLOpts,
 		options,
 		baseAppOptions...,

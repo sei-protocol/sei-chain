@@ -240,6 +240,14 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 		}
 		return migrations.MigrateERCCW1155Pointers(ctx, am.keeper)
 	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 18, func(ctx sdk.Context) error {
+		return migrations.MigrateDisableRegisterPointer(ctx, am.keeper)
+	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 19, func(ctx sdk.Context) error {
+		return migrations.MigrateRemoveCurrBlockBaseFee(ctx, am.keeper)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -277,7 +285,7 @@ func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 18 }
+func (AppModule) ConsensusVersion() uint64 { return 20 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
@@ -294,12 +302,26 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 				panic(err)
 			}
 			statedb := state.NewDBImpl(ctx, am.keeper, false)
-			vmenv := vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{}, am.keeper.CustomPrecompiles(ctx))
-			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv, statedb)
+			vmenv := vm.NewEVM(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{}, am.keeper.CustomPrecompiles(ctx))
+			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv)
 			_, err = statedb.Finalize()
 			if err != nil {
 				panic(err)
 			}
+		}
+	}
+	if am.keeper.EthBlockTestConfig.Enabled {
+		parentHash := common.BytesToHash(ctx.BlockHeader().LastBlockId.Hash)
+		blockCtx, err := am.keeper.GetVMBlockContext(ctx, core.GasPool(math.MaxUint64))
+		if err != nil {
+			panic(err)
+		}
+		statedb := state.NewDBImpl(ctx, am.keeper, false)
+		vmenv := vm.NewEVM(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{}, am.keeper.CustomPrecompiles(ctx))
+		core.ProcessParentBlockHash(parentHash, vmenv)
+		_, err = statedb.Finalize()
+		if err != nil {
+			panic(err)
 		}
 	}
 }

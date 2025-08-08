@@ -117,6 +117,12 @@ async function getSeiBalance(seiAddr, denom="usei") {
     return 0
 }
 
+async function addKey(name) {
+    try {
+        return await execute(`seid keys add ${name}`, `printf "12345678\\n12345678\\n"`)
+    } catch(e) {}
+}
+
 async function importKey(name, keyfile) {
     try {
         return await execute(`seid keys import ${name} ${keyfile}`, `printf "12345678\\n12345678\\n"`)
@@ -494,6 +500,24 @@ async function associateWasm(contractAddress) {
     return JSON.parse(output);
 }
 
+async function printClaimMsg(sender, claimer) {
+    const command = `seid tx evm print-claim ${claimer} --from ${sender} -y`;
+    try { return await execute(command); }
+    catch(e) { console.log(e); }
+}
+
+async function printClaimMsgBySender(sender, claimer, senderAddr) {
+    const command = `seid tx evm print-claim-by-sender ${claimer} ${senderAddr} --from ${sender} -y`;
+    try { return await execute(command); }
+    catch(e) { console.log(e); }
+}
+
+async function printClaimSpecificMsg(sender, claimer, ...assets) {
+    const command = `seid tx evm print-claim-specific ${claimer} ${assets.join(' ')} --from ${sender} -y`;
+    try { return await execute(command); }
+    catch(e) { console.log(e); }
+}
+
 async function isDocker() {
     return new Promise((resolve, reject) => {
         exec("docker ps --filter 'name=sei-node-0' --format '{{.Names}}'", (error, stdout, stderr) => {
@@ -554,6 +578,47 @@ async function waitForReceipt(txHash) {
     return receipt
 }
 
+async function waitForBaseFeeToEq(baseFee, timeoutMs=10000) {
+    const startTime = Date.now();
+    while (true) {
+        const block = await ethers.provider.getBlock("latest");
+        const blockBaseFee = Number(block.baseFeePerGas);
+        if (blockBaseFee === Number(baseFee)) {
+            break
+        }
+        if((Date.now() - startTime) > timeoutMs) {
+            throw new Error(`base fee hasn't dropped to ${baseFee} in ${timeoutMs}ms`)
+        }
+        await sleep(200);
+    }
+}
+
+async function waitForBaseFeeToBeGt(baseFee, timeoutMs=10000) {
+    const startTime = Date.now();
+    while (true) {
+        const block = await ethers.provider.getBlock("latest");
+        const blockBaseFee = Number(block.baseFeePerGas);
+        if (blockBaseFee > Number(baseFee)) {
+            break
+        }
+        if((Date.now() - startTime) > timeoutMs) {
+            throw new Error(`base fee hasn't risen above ${baseFee} in ${timeoutMs}ms`)
+        }
+        await sleep(200);
+    }
+}
+
+function hex2uint8(hex) {
+    const hex_chars = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'];
+    hex = hex.toUpperCase();
+    let uint8 = new Uint8Array(Math.floor(hex.length/2));
+    for (let i=0; i < Math.floor(hex.length/2); i++) {
+      uint8[i] = hex_chars.indexOf(hex[i*2])*16;
+      uint8[i] += hex_chars.indexOf(hex[i*2+1]);
+    }
+    return uint8;
+}
+
 module.exports = {
     fundAddress,
     fundSeiAddress,
@@ -596,6 +661,14 @@ module.exports = {
     incrementPointerVersion,
     associateWasm,
     generateWallet,
+    printClaimMsg,
+    printClaimMsgBySender,
+    printClaimSpecificMsg,
+    addKey,
+    getKeySeiAddress,
+    hex2uint8,
     WASM,
     ABI,
+    waitForBaseFeeToEq,
+    waitForBaseFeeToBeGt,
 };

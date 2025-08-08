@@ -9,6 +9,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/holiman/uint256"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -54,13 +55,13 @@ func TestModuleExportGenesis(t *testing.T) {
 	cdc := app.MakeEncodingConfig().Marshaler
 	jsonMsg := module.ExportGenesis(ctx, cdc)
 	jsonStr := string(jsonMsg)
-	assert.Equal(t, `{"params":{"priority_normalizer":"1.000000000000000000","base_fee_per_gas":"0.000000000000000000","minimum_fee_per_gas":"1000000000.000000000000000000","whitelisted_cw_code_hashes_for_delegate_call":[],"deliver_tx_hook_wasm_gas_limit":"300000","max_dynamic_base_fee_upward_adjustment":"0.018900000000000000","max_dynamic_base_fee_downward_adjustment":"0.003900000000000000","target_gas_used_per_block":"250000","maximum_fee_per_gas":"1000000000000.000000000000000000"},"address_associations":[{"sei_address":"sei17xpfvakm2amg962yls6f84z3kell8c5la4jkdu","eth_address":"0x27F7B8B8B5A4e71E8E9aA671f4e4031E3773303F"}],"codes":[],"states":[],"nonces":[],"serialized":[{"prefix":"Fg==","key":"AwAC","value":"AAAAAAAAAAQ="},{"prefix":"Fg==","key":"BAAG","value":"AAAAAAAAAAU="},{"prefix":"Fg==","key":"BgAB","value":"AAAAAAAAAAY="}]}`, jsonStr)
+	assert.Equal(t, `{"params":{"priority_normalizer":"1.000000000000000000","base_fee_per_gas":"0.000000000000000000","minimum_fee_per_gas":"1000000000.000000000000000000","whitelisted_cw_code_hashes_for_delegate_call":[],"deliver_tx_hook_wasm_gas_limit":"300000","max_dynamic_base_fee_upward_adjustment":"0.018900000000000000","max_dynamic_base_fee_downward_adjustment":"0.003900000000000000","target_gas_used_per_block":"250000","maximum_fee_per_gas":"1000000000000.000000000000000000","register_pointer_disabled":false},"address_associations":[{"sei_address":"sei17xpfvakm2amg962yls6f84z3kell8c5la4jkdu","eth_address":"0x27F7B8B8B5A4e71E8E9aA671f4e4031E3773303F"}],"codes":[],"states":[],"nonces":[],"serialized":[{"prefix":"Fg==","key":"AwAC","value":"AAAAAAAAAAQ="},{"prefix":"Fg==","key":"BAAG","value":"AAAAAAAAAAU="},{"prefix":"Fg==","key":"BgAB","value":"AAAAAAAAAAY="}]}`, jsonStr)
 }
 
 func TestConsensusVersion(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper()
 	module := evm.NewAppModule(nil, k)
-	assert.Equal(t, uint64(18), module.ConsensusVersion())
+	assert.Equal(t, uint64(20), module.ConsensusVersion())
 }
 
 func TestABCI(t *testing.T) {
@@ -75,19 +76,19 @@ func TestABCI(t *testing.T) {
 	m.BeginBlock(ctx, abci.RequestBeginBlock{})
 	// 1st tx
 	s := state.NewDBImpl(ctx.WithTxIndex(1), k, false)
-	s.SubBalance(evmAddr1, big.NewInt(10000000000000), tracing.BalanceChangeUnspecified)
-	s.AddBalance(evmAddr2, big.NewInt(8000000000000), tracing.BalanceChangeUnspecified)
+	s.SubBalance(evmAddr1, uint256.NewInt(10000000000000), tracing.BalanceChangeUnspecified)
+	s.AddBalance(evmAddr2, uint256.NewInt(8000000000000), tracing.BalanceChangeUnspecified)
 	feeCollectorAddr, err := k.GetFeeCollectorAddress(ctx)
 	require.Nil(t, err)
-	s.AddBalance(feeCollectorAddr, big.NewInt(2000000000000), tracing.BalanceChangeUnspecified)
+	s.AddBalance(feeCollectorAddr, uint256.NewInt(2000000000000), tracing.BalanceChangeUnspecified)
 	surplus, err := s.Finalize()
 	require.Nil(t, err)
 	require.Equal(t, sdk.ZeroInt(), surplus)
 	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(1), ethtypes.Bloom{}, common.Hash{4}, surplus)
 	// 3rd tx
 	s = state.NewDBImpl(ctx.WithTxIndex(3), k, false)
-	s.SubBalance(evmAddr2, big.NewInt(5000000000000), tracing.BalanceChangeUnspecified)
-	s.AddBalance(evmAddr1, big.NewInt(5000000000000), tracing.BalanceChangeUnspecified)
+	s.SubBalance(evmAddr2, uint256.NewInt(5000000000000), tracing.BalanceChangeUnspecified)
+	s.AddBalance(evmAddr1, uint256.NewInt(5000000000000), tracing.BalanceChangeUnspecified)
 	surplus, err = s.Finalize()
 	require.Nil(t, err)
 	require.Equal(t, sdk.ZeroInt(), surplus)
@@ -102,8 +103,8 @@ func TestABCI(t *testing.T) {
 	m.BeginBlock(ctx, abci.RequestBeginBlock{})
 	// 2nd tx
 	s = state.NewDBImpl(ctx.WithTxIndex(2), k, false)
-	s.SubBalance(evmAddr2, big.NewInt(3000000000000), tracing.BalanceChangeUnspecified)
-	s.AddBalance(evmAddr1, big.NewInt(2000000000000), tracing.BalanceChangeUnspecified)
+	s.SubBalance(evmAddr2, uint256.NewInt(3000000000000), tracing.BalanceChangeUnspecified)
+	s.AddBalance(evmAddr1, uint256.NewInt(2000000000000), tracing.BalanceChangeUnspecified)
 	surplus, err = s.Finalize()
 	require.Nil(t, err)
 	require.Equal(t, sdk.NewInt(1000000000000), surplus)
@@ -120,7 +121,7 @@ func TestABCI(t *testing.T) {
 	k.SetMsgs([]*types.MsgEVMTransaction{msg})
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 1, Log: "test error"}})
 	m.EndBlock(ctx, abci.RequestEndBlock{})
-	err = k.FlushTransientReceipts(ctx)
+	err = k.FlushTransientReceiptsSync(ctx)
 	require.NoError(t, err)
 	tx, _ := msg.AsTransaction()
 	receipt, err := k.GetReceipt(ctx, tx.Hash())
@@ -142,7 +143,7 @@ func TestABCI(t *testing.T) {
 }
 
 func TestAnteSurplus(t *testing.T) {
-	a := app.Setup(false, false)
+	a := app.Setup(false, false, false)
 	k := a.EvmKeeper
 	ctx := a.GetContextForDeliverTx([]byte{})
 	m := evm.NewAppModule(nil, &k)

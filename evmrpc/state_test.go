@@ -206,7 +206,7 @@ func TestGetStorageAt(t *testing.T) {
 }
 
 func TestGetProof(t *testing.T) {
-	testApp := app.Setup(false, false)
+	testApp := app.Setup(false, false, false)
 	_, evmAddr := testkeeper.MockAddressPair()
 	key, val := []byte("test"), []byte("abc")
 	testApp.EvmKeeper.SetState(testApp.GetContextForDeliverTx([]byte{}), evmAddr, common.BytesToHash(key), common.BytesToHash(val))

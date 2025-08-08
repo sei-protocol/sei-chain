@@ -3,14 +3,16 @@ package evmrpc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"slices"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/common/math"
+	gmath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -21,17 +23,18 @@ const highTotalGasUsedThreshold = 8500000
 const defaultPriorityFeePerGas = 1000000000 // 1gwei
 
 type InfoAPI struct {
-	tmClient       rpcclient.Client
-	keeper         *keeper.Keeper
-	ctxProvider    func(int64) sdk.Context
-	txDecoder      sdk.TxDecoder
-	homeDir        string
-	connectionType ConnectionType
-	maxBlocks      int64
+	tmClient         rpcclient.Client
+	keeper           *keeper.Keeper
+	ctxProvider      func(int64) sdk.Context
+	txConfigProvider func(int64) client.TxConfig
+	homeDir          string
+	connectionType   ConnectionType
+	maxBlocks        int64
+	txDecoder        sdk.TxDecoder
 }
 
-func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, homeDir string, maxBlocks int64, connectionType ConnectionType) *InfoAPI {
-	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txDecoder, homeDir: homeDir, connectionType: connectionType, maxBlocks: maxBlocks}
+func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, maxBlocks int64, connectionType ConnectionType, txDecoder sdk.TxDecoder) *InfoAPI {
+	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType, maxBlocks: maxBlocks, txDecoder: txDecoder}
 }
 
 type FeeHistoryResult struct {
@@ -76,7 +79,7 @@ func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
 func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_GasPrice", i.connectionType, startTime, returnErr == nil)
-	baseFee := i.keeper.GetCurrBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	totalGasUsed, err := i.getCongestionData(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -110,7 +113,7 @@ func (i *InfoAPI) GasPriceHelper(ctx context.Context, baseFee *big.Int, totalGas
 }
 
 // lastBlock is inclusive
-func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (result *FeeHistoryResult, returnErr error) {
+func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (result *FeeHistoryResult, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_feeHistory", i.connectionType, startTime, returnErr == nil)
 	result = &FeeHistoryResult{}
@@ -122,8 +125,8 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 
 	// default go-ethereum max block history is 1024
 	// https://github.com/ethereum/go-ethereum/blob/master/eth/gasprice/feehistory.go#L235
-	if blockCount > math.HexOrDecimal64(i.maxBlocks) {
-		blockCount = math.HexOrDecimal64(i.maxBlocks)
+	if blockCount > gmath.HexOrDecimal64(i.maxBlocks) {
+		blockCount = gmath.HexOrDecimal64(i.maxBlocks)
 	}
 
 	// if someone needs more than 100 reward percentiles, we can discuss, but it's not likely
@@ -167,14 +170,34 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount math.HexOrDecimal64
 	}
 
 	result.Reward = [][]*hexutil.Big{}
+	result.GasUsedRatio = []float64{}
 	// Potentially parallelize the following logic
 	for blockNum := result.OldestBlock.ToInt().Int64(); blockNum <= lastBlockNumber; blockNum++ {
+		var gasUsedRatio float64
+
 		sdkCtx := i.ctxProvider(blockNum)
 		if CheckVersion(sdkCtx, i.keeper) != nil {
-			// either height is pruned or before EVM is introduced. Skipping
+			// either height is pruned or before EVM is introduced
+			// For non-EVM blocks or pruned blocks, use 0.0 as gas used ratio
+			gasUsedRatio = 0.0
+		} else {
+			// Calculate actual gas used ratio for this block
+			calculatedRatio, err := i.CalculateGasUsedRatio(ctx, blockNum)
+			if err != nil {
+				// If we can't calculate the ratio, use 0.0 as fallback
+				sdkCtx.Logger().Error("Error calculating gas used ratio, falling back to 0.0", "error", err)
+				gasUsedRatio = 0.0
+			} else {
+				gasUsedRatio = calculatedRatio
+			}
+		}
+		result.GasUsedRatio = append(result.GasUsedRatio, gasUsedRatio)
+
+		// Only continue with other fields if EVM state exists
+		if CheckVersion(sdkCtx, i.keeper) != nil {
 			continue
 		}
-		result.GasUsedRatio = append(result.GasUsedRatio, GasUsedRatio)
+
 		baseFee := i.safeGetBaseFee(blockNum)
 		if baseFee == nil {
 			// the block has been pruned
@@ -229,7 +252,7 @@ func (i *InfoAPI) safeGetBaseFee(targetHeight int64) (res *big.Int) {
 			res = nil
 		}
 	}()
-	baseFee := i.keeper.GetCurrBaseFeePerGas(i.ctxProvider(targetHeight))
+	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(targetHeight))
 	res = baseFee.TruncateInt().BigInt()
 	return
 }
@@ -243,7 +266,7 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 	GasAndRewards := []GasAndReward{}
 	totalEVMGasUsed := uint64(0)
 	for _, txbz := range block.Block.Txs {
-		ethtx := getEthTxForTxBz(txbz, i.txDecoder)
+		ethtx := getEthTxForTxBz(txbz, i.txConfigProvider(block.Block.Height).TxDecoder())
 		if ethtx == nil {
 			// not evm tx
 			continue
@@ -252,6 +275,15 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 		receipt, err := i.keeper.GetReceipt(i.ctxProvider(LatestCtxHeight), ethtx.Hash())
 		if err != nil {
 			return nil, err
+		}
+		receiptEffectiveGasPrice := new(big.Int).SetUint64(receipt.EffectiveGasPrice)
+		if receiptEffectiveGasPrice.Cmp(baseFee) < 0 {
+			// if effective gas price is 0, it's expected behavior for txs that failed ante.
+			// if it's not zero but still smaller than baseFee then something is wrong.
+			if receiptEffectiveGasPrice.Cmp(common.Big0) != 0 {
+				fmt.Printf("Error: tx %s has an unexpected gas price %s set on its receipt\n", ethtx.Hash().Hex(), receiptEffectiveGasPrice)
+			}
+			continue
 		}
 		reward := new(big.Int).Sub(new(big.Int).SetUint64(receipt.EffectiveGasPrice), baseFee)
 		GasAndRewards = append(GasAndRewards, GasAndReward{GasUsed: receipt.GasUsed, Reward: reward})
@@ -268,7 +300,7 @@ func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGa
 	}
 	totalEVMGasUsed := uint64(0)
 	for _, txbz := range block.Block.Txs {
-		ethtx := getEthTxForTxBz(txbz, i.txDecoder)
+		ethtx := getEthTxForTxBz(txbz, i.txConfigProvider(block.Block.Height).TxDecoder())
 		if ethtx == nil {
 			// not evm tx
 			continue
@@ -288,6 +320,61 @@ func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGa
 	return totalEVMGasUsed, nil
 }
 
+// CalculateGasUsedRatio calculates the actual gas used ratio for a specific block
+func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) (float64, error) {
+	block, err := blockByNumber(ctx, i.tmClient, &blockHeight)
+	if err != nil {
+		return 0, err
+	}
+
+	// Get the gas limit from consensus params using the SDK context
+	sdkCtx := i.ctxProvider(blockHeight)
+	var gasLimit uint64
+	if sdkCtx.ConsensusParams() != nil && sdkCtx.ConsensusParams().Block != nil {
+		gasLimit = uint64(sdkCtx.ConsensusParams().Block.MaxGas)
+	} else {
+		// Fallback: try current context
+		currentCtx := i.ctxProvider(LatestCtxHeight)
+		if currentCtx.ConsensusParams() != nil && currentCtx.ConsensusParams().Block != nil {
+			gasLimit = uint64(currentCtx.ConsensusParams().Block.MaxGas)
+		} else {
+			// Default fallback
+			gasLimit = 10000000 // Default block gas limit for Sei
+		}
+	}
+
+	if gasLimit == 0 {
+		return 0, nil // Avoid division by zero
+	}
+
+	// Calculate total gas used by EVM transactions in this block
+	totalEVMGasUsed := uint64(0)
+	for _, txbz := range block.Block.Txs {
+		ethtx := getEthTxForTxBz(txbz, i.txDecoder)
+		if ethtx == nil {
+			// not evm tx
+			continue
+		}
+		// okay to get from latest since receipt is immutable
+		receipt, err := i.keeper.GetReceiptWithRetry(i.ctxProvider(LatestCtxHeight), ethtx.Hash(), 3)
+		if err != nil {
+			return 0, err
+		}
+		// We've had issues where tx is included in a block and fails but then is retried and included in a later block, overwriting the receipt.
+		// This is a temporary fix to ensure we only consider receipts that are included in the block we're querying.
+		if receipt.BlockNumber != uint64(block.Block.Height) {
+			continue
+		}
+		totalEVMGasUsed += receipt.GasUsed
+	}
+
+	// We want 4 decimal places, so multiply by 10000, do integer division, then divide by 10000
+	// This preserves more precision during the integer calculation
+	ratioInt := (totalEVMGasUsed * 10000) / gasLimit
+	ratio := float64(ratioInt) / 10000.0
+	return ratio, nil
+}
+
 // Following go-ethereum implementation
 // Specifically, the reward value at a percentile of p% will be the reward value of the
 // lowest-rewarded transaction such that the sum of its gasUsed value and gasUsed values
@@ -298,6 +385,10 @@ func CalculatePercentiles(rewardPercentiles []float64, GasAndRewards []GasAndRew
 	})
 	res := []*hexutil.Big{}
 	if len(GasAndRewards) == 0 {
+		// Return array of zeros for each percentile when no transactions exist
+		for range rewardPercentiles {
+			res = append(res, (*hexutil.Big)(big.NewInt(0)))
+		}
 		return res
 	}
 	var txIndex int

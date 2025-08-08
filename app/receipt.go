@@ -113,16 +113,16 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		txHash = common.HexToHash(response.EvmTxInfo.TxHash)
 	}
 	var bloom ethtypes.Bloom
-	if r, err := app.EvmKeeper.GetTransientReceipt(wasmToEvmEventCtx, txHash); err == nil && r != nil {
+	if r, err := app.EvmKeeper.GetTransientReceipt(wasmToEvmEventCtx, txHash, uint64(ctx.TxIndex())); err == nil && r != nil {
 		r.Logs = append(r.Logs, utils.Map(logs, evmkeeper.ConvertSyntheticEthLog)...)
 		for i, l := range r.Logs {
 			l.Index = uint32(i)
 		}
-		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: evmkeeper.GetLogsForTx(r, 0)}})
+		bloom = ethtypes.CreateBloom(&ethtypes.Receipt{Logs: evmkeeper.GetLogsForTx(r, 0)})
 		r.LogsBloom = bloom[:]
 		_ = app.EvmKeeper.SetTransientReceipt(wasmToEvmEventCtx, txHash, r)
 	} else {
-		bloom = ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: logs}})
+		bloom = ethtypes.CreateBloom(&ethtypes.Receipt{Logs: logs})
 		receipt := &evmtypes.Receipt{
 			TxType:           ShellEVMTxType,
 			TxHashHex:        txHash.Hex(),

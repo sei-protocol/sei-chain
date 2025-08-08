@@ -64,7 +64,7 @@ func NewSubscriptionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider
 			res := <-subCh
 			eventHeader := res.Data.(tmtypes.EventDataNewBlockHeader)
 			ctx := ctxProvider(eventHeader.Header.Height)
-			baseFeePerGas := k.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt()
+			baseFeePerGas := k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
 			ethHeader, err := encodeTmHeader(eventHeader, baseFeePerGas)
 			if err != nil {
 				fmt.Printf("error encoding new head event %#v due to %s\n", res.Data, err)
@@ -129,8 +129,6 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 					break OUTER
 				}
 			case <-rpcSub.Err():
-				break OUTER
-			case <-notifier.Closed():
 				break OUTER
 			}
 		}

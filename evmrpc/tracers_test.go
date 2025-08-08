@@ -14,6 +14,7 @@ func TestTraceTransaction(t *testing.T) {
 	// test callTracer
 	args["tracer"] = "callTracer"
 	resObj := sendRequestGoodWithNamespace(t, "debug", "traceTransaction", DebugTraceHashHex, args)
+	fmt.Println(resObj)
 	result := resObj["result"].(map[string]interface{})
 	require.Equal(t, "0x5b4eba929f3811980f5ae0c5d04fa200f837df4e", result["from"])
 	require.Equal(t, "0x30d40", result["gas"])
@@ -35,12 +36,12 @@ func TestTraceTransaction(t *testing.T) {
 }
 
 func TestTraceCall(t *testing.T) {
-	_, from := testkeeper.MockAddressPair()
 	_, contractAddr := testkeeper.MockAddressPair()
 	txArgs := map[string]interface{}{
-		"from":    from.Hex(),
-		"to":      contractAddr.Hex(),
-		"chainId": fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
+		"from":         "0x5B4eba929F3811980f5AE0c5D04fa200f837DF4E",
+		"to":           contractAddr.Hex(),
+		"chainId":      fmt.Sprintf("%#x", EVMKeeper.ChainID(Ctx)),
+		"maxFeePerGas": "0x3B9ACA00",
 	}
 
 	resObj := sendRequestGoodWithNamespace(t, "debug", "traceCall", txArgs, "0x65")
@@ -78,4 +79,20 @@ func TestTraceBlockByNumberLookbackLimit(t *testing.T) {
 	errObj, ok := resObj["error"].(map[string]interface{})
 	require.True(t, ok, "expected look‑back guard to trigger")
 	require.NotEmpty(t, errObj["message"].(string))
+}
+
+func TestTraceBlockByNumberUnlimitedLookback(t *testing.T) {
+	// Using the archive server (look‑back = -1). Block 0 should be accessible.
+	resObj := sendRequestArchiveWithNamespace(
+		t,
+		"sei",
+		"traceBlockByNumberExcludeTraceFail",
+		"0x0",                    // genesis block
+		map[string]interface{}{}, // empty TraceConfig
+	)
+
+	_, ok := resObj["error"]
+	require.False(t, ok, "expected look-back to be unlimited")
+	_, ok = resObj["result"]
+	require.True(t, ok, "expected result to be present")
 }

@@ -47,12 +47,12 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 		return ctx, sdkerrors.ErrInvalidCoins
 	}
 
-	intrGas, err := core.IntrinsicGas(etx.Data(), etx.AccessList(), etx.To() == nil, true, true, true)
+	intrGas, err := core.IntrinsicGas(etx.Data(), etx.AccessList(), etx.SetCodeAuthorizations(), etx.To() == nil, true, true, true)
 	if err != nil {
 		return ctx, err
 	}
 	if etx.Gas() < intrGas {
-		return ctx, sdkerrors.ErrOutOfGas
+		return ctx, core.ErrIntrinsicGas
 	}
 
 	if etx.Type() == ethtypes.BlobTxType {

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"math/big"
 
-	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -63,7 +63,6 @@ func PubkeyToEVMAddress(pub []byte) (common.Address, error) {
 }
 
 func PubkeyBytesToSeiPubKey(pub []byte) secp256k1.PubKey {
-	pubKey, _ := crypto.UnmarshalPubkey(pub)
-	pubkeyObj := (*btcec.PublicKey)(pubKey)
+	pubkeyObj, _ := btcec.ParsePubKey(pub)
 	return secp256k1.PubKey{Key: pubkeyObj.SerializeCompressed()}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v562"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -49,30 +50,25 @@ func GetABI() abi.ABI {
 }
 
 type PrecompileExecutor struct {
-	transferKeeper   pcommon.TransferKeeper
-	evmKeeper        pcommon.EVMKeeper
-	clientKeeper     pcommon.ClientKeeper
-	connectionKeeper pcommon.ConnectionKeeper
-	channelKeeper    pcommon.ChannelKeeper
+	transferKeeper   putils.TransferKeeper
+	evmKeeper        putils.EVMKeeper
+	clientKeeper     putils.ClientKeeper
+	connectionKeeper putils.ConnectionKeeper
+	channelKeeper    putils.ChannelKeeper
 
 	TransferID                   []byte
 	TransferWithDefaultTimeoutID []byte
 }
 
-func NewPrecompile(
-	transferKeeper pcommon.TransferKeeper,
-	evmKeeper pcommon.EVMKeeper,
-	clientKeeper pcommon.ClientKeeper,
-	connectionKeeper pcommon.ConnectionKeeper,
-	channelKeeper pcommon.ChannelKeeper) (*pcommon.DynamicGasPrecompile, error) {
+func NewPrecompile(keepers putils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := GetABI()
 
 	p := &PrecompileExecutor{
-		transferKeeper:   transferKeeper,
-		evmKeeper:        evmKeeper,
-		clientKeeper:     clientKeeper,
-		connectionKeeper: connectionKeeper,
-		channelKeeper:    channelKeeper,
+		transferKeeper:   keepers.TransferK(),
+		evmKeeper:        keepers.EVMK(),
+		clientKeeper:     keepers.ClientK(),
+		connectionKeeper: keepers.ConnectionK(),
+		channelKeeper:    keepers.ChannelK(),
 	}
 
 	for name, m := range newAbi.Methods {
@@ -104,7 +100,7 @@ func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller 
 	return
 }
 
-func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+func (p PrecompileExecutor) EVMKeeper() putils.EVMKeeper {
 	return p.evmKeeper
 }
 

@@ -31,11 +31,6 @@ import (
 
 const LatestCtxHeight int64 = -1
 
-// Since we use a static base fee, we want GasUsedRatio returned in RPC queries
-// to reflect the fact that base fee would never change, which is only true if
-// the block is exactly half-utilized.
-const GasUsedRatio float64 = 0.5
-
 func GetBlockNumberByNrOrHash(ctx context.Context, tmClient rpcclient.Client, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
 	if blockNrOrHash.BlockHash != nil {
 		res, err := blockByHash(ctx, tmClient, blockNrOrHash.BlockHash[:])
@@ -57,6 +52,7 @@ func getBlockNumber(ctx context.Context, tmClient rpcclient.Client, number rpc.B
 		if err != nil {
 			return nil, err
 		}
+		TraceTendermintIfApplicable(ctx, "Genesis", []string{}, genesisRes)
 		numberPtr = &genesisRes.Genesis.InitialHeight
 	default:
 		numberI64 := number.Int64()
@@ -148,6 +144,7 @@ func blockByNumberWithRetry(ctx context.Context, client rpcclient.Client, height
 	if blockRes.Block == nil {
 		return nil, fmt.Errorf("could not find block for height %d", height)
 	}
+	TraceTendermintIfApplicable(ctx, "Block", []string{stringifyInt64Ptr(height)}, blockRes)
 	return blockRes, err
 }
 
@@ -171,6 +168,7 @@ func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash byt
 	if blockRes.Block == nil {
 		return nil, fmt.Errorf("could not find block for hash %s", hash.String())
 	}
+	TraceTendermintIfApplicable(ctx, "BlockByHash", []string{hash.String()}, blockRes)
 	return blockRes, err
 }
 

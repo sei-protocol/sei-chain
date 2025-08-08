@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -14,7 +13,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/tendermint/tendermint/libs/log"
 )
 
@@ -39,10 +40,10 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	accountKeeper pcommon.AccountKeeper
-	bankKeeper    pcommon.BankKeeper
-	bankMsgServer pcommon.BankMsgServer
-	evmKeeper     pcommon.EVMKeeper
+	accountKeeper putils.AccountKeeper
+	bankKeeper    putils.BankKeeper
+	bankMsgServer putils.BankMsgServer
+	evmKeeper     putils.EVMKeeper
 	address       common.Address
 
 	SendID        []byte
@@ -64,13 +65,13 @@ func GetABI() abi.ABI {
 	return pcommon.MustGetABI(f, "abi.json")
 }
 
-func NewPrecompile(bankKeeper pcommon.BankKeeper, bankMsgServer pcommon.BankMsgServer, evmKeeper pcommon.EVMKeeper, accountKeeper pcommon.AccountKeeper) (*pcommon.DynamicGasPrecompile, error) {
+func NewPrecompile(keepers putils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := GetABI()
 	p := &PrecompileExecutor{
-		bankKeeper:    bankKeeper,
-		bankMsgServer: bankMsgServer,
-		evmKeeper:     evmKeeper,
-		accountKeeper: accountKeeper,
+		bankKeeper:    keepers.BankK(),
+		bankMsgServer: keepers.BankMS(),
+		evmKeeper:     keepers.EVMK(),
+		accountKeeper: keepers.AccountK(),
 		address:       common.HexToAddress(BankAddress),
 	}
 
@@ -223,7 +224,7 @@ func (p PrecompileExecutor) sendNative(ctx sdk.Context, method *abi.Method, args
 	}
 	accExists := p.accountKeeper.HasAccount(ctx, receiverSeiAddr)
 	if !accExists {
-		defer telemetry.IncrCounter(1, "new", "account")
+		defer metrics.SafeTelemetryIncrCounter(1, "new", "account")
 		p.accountKeeper.SetAccount(ctx, p.accountKeeper.NewAccountWithAddress(ctx, receiverSeiAddr))
 	}
 
@@ -385,6 +386,6 @@ func (p PrecompileExecutor) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("precompile", "bank")
 }
 
-func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+func (p PrecompileExecutor) EVMKeeper() putils.EVMKeeper {
 	return p.evmKeeper
 }

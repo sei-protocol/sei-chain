@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v555"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
@@ -32,7 +33,7 @@ var f embed.FS
 
 type Precompile struct {
 	pcommon.Precompile
-	evmKeeper pcommon.EVMKeeper
+	evmKeeper utils.EVMKeeper
 	address   common.Address
 
 	GetNativePointerID []byte
@@ -40,7 +41,7 @@ type Precompile struct {
 	GetCW721PointerID  []byte
 }
 
-func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*Precompile, error) {
 	abiBz, err := f.ReadFile("abi.json")
 	if err != nil {
 		return nil, fmt.Errorf("error loading the pointer ABI %s", err)
@@ -53,7 +54,7 @@ func NewPrecompile(evmKeeper pcommon.EVMKeeper) (*Precompile, error) {
 
 	p := &Precompile{
 		Precompile: pcommon.Precompile{ABI: newAbi},
-		evmKeeper:  evmKeeper,
+		evmKeeper:  keepers.EVMK(),
 		address:    common.HexToAddress(PointerViewAddress),
 	}
 
@@ -87,7 +88,7 @@ func (p Precompile) GetName() string {
 func (p Precompile) Run(evm *vm.EVM, _ common.Address, _ common.Address, input []byte, _ *big.Int, _ bool, _ bool, hooks *tracing.Hooks) (ret []byte, err error) {
 	defer func() {
 		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+			state.GetDBImpl(evm.StateDB).SetPrecompileError(err)
 		}
 	}()
 	ctx, method, args, err := p.Prepare(evm, input)

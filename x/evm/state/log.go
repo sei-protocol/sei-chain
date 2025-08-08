@@ -30,3 +30,7 @@ func (s *DBImpl) GetAllLogs() []*ethtypes.Log {
 func (s *DBImpl) GetLogs(common.Hash, uint64, common.Hash) []*ethtypes.Log {
 	return s.GetAllLogs()
 }
+
+func (s *DBImpl) Logs() []*ethtypes.Log {
+	return s.GetAllLogs()
+}

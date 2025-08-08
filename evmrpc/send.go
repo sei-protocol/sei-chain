@@ -13,7 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/lib/ethapi"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
@@ -24,31 +24,31 @@ import (
 )
 
 type SendAPI struct {
-	tmClient       rpcclient.Client
-	txConfig       client.TxConfig
-	sendConfig     *SendConfig
-	keeper         *keeper.Keeper
-	ctxProvider    func(int64) sdk.Context
-	homeDir        string
-	backend        *Backend
-	connectionType ConnectionType
+	tmClient         rpcclient.Client
+	txConfigProvider func(int64) client.TxConfig
+	sendConfig       *SendConfig
+	keeper           *keeper.Keeper
+	ctxProvider      func(int64) sdk.Context
+	homeDir          string
+	backend          *Backend
+	connectionType   ConnectionType
 }
 
 type SendConfig struct {
 	slow bool
 }
 
-func NewSendAPI(tmClient rpcclient.Client, txConfig client.TxConfig, sendConfig *SendConfig, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, homeDir string, simulateConfig *SimulateConfig, app *baseapp.BaseApp,
+func NewSendAPI(tmClient rpcclient.Client, txConfigProvider func(int64) client.TxConfig, sendConfig *SendConfig, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, homeDir string, simulateConfig *SimulateConfig, app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler, connectionType ConnectionType) *SendAPI {
 	return &SendAPI{
-		tmClient:       tmClient,
-		txConfig:       txConfig,
-		sendConfig:     sendConfig,
-		keeper:         k,
-		ctxProvider:    ctxProvider,
-		homeDir:        homeDir,
-		backend:        NewBackend(ctxProvider, k, txConfig, tmClient, simulateConfig, app, antehandler),
-		connectionType: connectionType,
+		tmClient:         tmClient,
+		txConfigProvider: txConfigProvider,
+		sendConfig:       sendConfig,
+		keeper:           k,
+		ctxProvider:      ctxProvider,
+		homeDir:          homeDir,
+		backend:          NewBackend(ctxProvider, k, txConfigProvider, tmClient, simulateConfig, app, antehandler),
+		connectionType:   connectionType,
 	}
 }
 
@@ -73,12 +73,12 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		tx, _ = msg.AsTransaction()
 		gasUsedEstimate = tx.Gas() // if issue simulating, fallback to gas limit
 	}
-	txBuilder := s.txConfig.NewTxBuilder()
+	txBuilder := s.txConfigProvider(LatestCtxHeight).NewTxBuilder()
 	if err = txBuilder.SetMsgs(msg); err != nil {
 		return
 	}
 	txBuilder.SetGasEstimate(gasUsedEstimate)
-	txbz, encodeErr := s.txConfig.TxEncoder()(txBuilder.GetTx())
+	txbz, encodeErr := s.txConfigProvider(LatestCtxHeight).TxEncoder()(txBuilder.GetTx())
 	if encodeErr != nil {
 		return hash, encodeErr
 	}
@@ -144,7 +144,7 @@ func (s *SendAPI) simulateTx(ctx context.Context, tx *ethtypes.Transaction) (est
 	} else {
 		gp = nil
 	}
-	txArgs := ethapi.TransactionArgs{
+	txArgs := export.TransactionArgs{
 		From:                 &from,
 		To:                   tx.To(),
 		Gas:                  &gas_,
@@ -157,7 +157,7 @@ func (s *SendAPI) simulateTx(ctx context.Context, tx *ethtypes.Transaction) (est
 		AccessList:           &al,
 		ChainID:              (*hexutil.Big)(tx.ChainId()),
 	}
-	estimate_, err := ethapi.DoEstimateGas(ctx, s.backend, txArgs, bNrOrHash, nil, s.backend.RPCGasCap())
+	estimate_, err := export.DoEstimateGas(ctx, s.backend, txArgs, bNrOrHash, nil, nil, s.backend.RPCGasCap())
 	if err != nil {
 		err = fmt.Errorf("failed to estimate gas: %w", err)
 		return
@@ -165,10 +165,13 @@ func (s *SendAPI) simulateTx(ctx context.Context, tx *ethtypes.Transaction) (est
 	return uint64(estimate_), nil
 }
 
-func (s *SendAPI) SignTransaction(_ context.Context, args apitypes.SendTxArgs, _ *string) (result *ethapi.SignTransactionResult, returnErr error) {
+func (s *SendAPI) SignTransaction(_ context.Context, args apitypes.SendTxArgs, _ *string) (result *export.SignTransactionResult, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_signTransaction", s.connectionType, startTime, returnErr == nil)
-	var unsignedTx = args.ToTransaction()
+	unsignedTx, err := args.ToTransaction()
+	if err != nil {
+		return nil, err
+	}
 	signedTx, err := s.signTransaction(unsignedTx, args.From.Address().Hex())
 	if err != nil {
 		return nil, err
@@ -177,16 +180,16 @@ func (s *SendAPI) SignTransaction(_ context.Context, args apitypes.SendTxArgs, _
 	if err != nil {
 		return nil, err
 	}
-	return &ethapi.SignTransactionResult{Raw: data, Tx: signedTx}, nil
+	return &export.SignTransactionResult{Raw: data, Tx: signedTx}, nil
 }
 
-func (s *SendAPI) SendTransaction(ctx context.Context, args ethapi.TransactionArgs) (result common.Hash, returnErr error) {
+func (s *SendAPI) SendTransaction(ctx context.Context, args export.TransactionArgs) (result common.Hash, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_sendTransaction", s.connectionType, startTime, returnErr == nil)
-	if err := args.SetDefaults(ctx, s.backend); err != nil {
+	if err := args.SetDefaults(ctx, s.backend, false); err != nil {
 		return common.Hash{}, err
 	}
-	var unsignedTx = args.ToTransaction()
+	var unsignedTx = args.ToTransaction(ethtypes.LegacyTxType)
 	signedTx, err := s.signTransaction(unsignedTx, args.From.Hex())
 	if err != nil {
 		return common.Hash{}, err

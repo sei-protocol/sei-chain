@@ -14,7 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/lib/ethapi"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -205,7 +205,7 @@ func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
 	}
 
 	// Call EncodeTmBlock with empty transactions
-	result, err := evmrpc.EncodeTmBlock(ctx, block, blockRes, ethtypes.Bloom{}, k, Decoder, true, false, false, nil)
+	result, err := evmrpc.EncodeTmBlock(ctx, ctx, block, blockRes, ethtypes.Bloom{}, k, Decoder, true, false, false, nil)
 	require.Nil(t, err)
 
 	// Assert txHash is equal to ethtypes.EmptyTxsHash
@@ -251,7 +251,7 @@ func TestEncodeBankMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, false, false, nil)
+	res, err := evmrpc.EncodeTmBlock(ctx, ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, false, false, nil)
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 0, len(txs))
@@ -299,14 +299,14 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, false, true, nil)
+	res, err := evmrpc.EncodeTmBlock(ctx, ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, false, true, nil)
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 1, len(txs))
 	ti := uint64(0)
 	bh := common.HexToHash(MockBlockID.Hash.String())
 	to := common.Address(toSeiAddr)
-	require.Equal(t, &ethapi.RPCTransaction{
+	require.Equal(t, &export.RPCTransaction{
 		BlockHash:        &bh,
 		BlockNumber:      (*hexutil.Big)(big.NewInt(MockHeight8)),
 		From:             fromEvmAddr,
@@ -317,7 +317,7 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 		V:                nil,
 		R:                nil,
 		S:                nil,
-	}, txs[0].(*ethapi.RPCTransaction))
+	}, txs[0].(*export.RPCTransaction))
 }
 
 func TestEncodeBankTransferMsg(t *testing.T) {
@@ -360,13 +360,13 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, true, false, nil)
+	res, err := evmrpc.EncodeTmBlock(ctx, ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, true, false, nil)
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 1, len(txs))
 	bh := common.HexToHash(MockBlockID.Hash.String())
 	to := common.Address(toSeiAddr)
-	require.Equal(t, &ethapi.RPCTransaction{
+	require.Equal(t, &export.RPCTransaction{
 		BlockHash:        &bh,
 		BlockNumber:      (*hexutil.Big)(big.NewInt(MockHeight8)),
 		From:             fromEvmAddr,
@@ -377,5 +377,5 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 		V:                nil,
 		R:                nil,
 		S:                nil,
-	}, txs[0].(*ethapi.RPCTransaction))
+	}, txs[0].(*export.RPCTransaction))
 }

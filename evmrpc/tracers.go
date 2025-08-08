@@ -2,7 +2,10 @@ package evmrpc
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -12,10 +15,11 @@ import (
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/js"     // run init()s to register JS tracers
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // run init()s to register native tracers
-	"github.com/ethereum/go-ethereum/lib/ethapi"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
 
@@ -29,10 +33,11 @@ type DebugAPI struct {
 	tmClient           rpcclient.Client
 	keeper             *keeper.Keeper
 	ctxProvider        func(int64) sdk.Context
-	txDecoder          sdk.TxDecoder
+	txConfigProvider   func(int64) client.TxConfig
 	connectionType     ConnectionType
 	isPanicCache       *expirable.LRU[common.Hash, bool] // hash to isPanic
-	traceCallSemaphore chan struct{}                     // Semaphore for limiting concurrent trace calls
+	backend            *Backend
+	traceCallSemaphore chan struct{} // Semaphore for limiting concurrent trace calls
 	maxBlockLookback   int64
 	traceTimeout       time.Duration
 }
@@ -56,14 +61,14 @@ func NewDebugAPI(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
-	txConfig client.TxConfig,
+	txConfigProvider func(int64) client.TxConfig,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 	debugCfg Config,
 ) *DebugAPI {
-	backend := NewBackend(ctxProvider, k, txConfig, tmClient, config, app, antehandler)
+	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler)
 	tracersAPI := tracers.NewAPI(backend)
 	evictCallback := func(key common.Hash, value bool) {}
 	isPanicCache := expirable.NewLRU[common.Hash, bool](IsPanicCacheSize, evictCallback, IsPanicCacheTTL)
@@ -78,9 +83,10 @@ func NewDebugAPI(
 		tmClient:           tmClient,
 		keeper:             k,
 		ctxProvider:        ctxProvider,
-		txDecoder:          txConfig.TxDecoder(),
+		txConfigProvider:   txConfigProvider,
 		connectionType:     connectionType,
 		isPanicCache:       isPanicCache,
+		backend:            backend,
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
 		traceTimeout:       debugCfg.TraceTimeout,
@@ -91,14 +97,14 @@ func NewSeiDebugAPI(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
-	txConfig client.TxConfig,
+	txConfigProvider func(int64) client.TxConfig,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 	debugCfg Config,
 ) *SeiDebugAPI {
-	backend := NewBackend(ctxProvider, k, txConfig, tmClient, config, app, antehandler)
+	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler)
 	tracersAPI := tracers.NewAPI(backend)
 
 	var sem chan struct{}
@@ -112,7 +118,7 @@ func NewSeiDebugAPI(
 		tmClient:           tmClient,
 		keeper:             k,
 		ctxProvider:        ctxProvider,
-		txDecoder:          txConfig.TxDecoder(),
+		txConfigProvider:   txConfigProvider,
 		connectionType:     connectionType,
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
@@ -146,7 +152,7 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 	defer cancel()
 
 	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
-	if number.Int64() < latest-api.maxBlockLookback {
+	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
 
@@ -260,7 +266,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	defer cancel()
 
 	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
-	if number.Int64() < latest-api.maxBlockLookback {
+	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
 
@@ -283,7 +289,7 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	return
 }
 
-func (api *DebugAPI) TraceCall(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (result interface{}, returnErr error) {
+func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (result interface{}, returnErr error) {
 	release := api.acquireTraceSemaphore()
 	defer release()
 
@@ -294,4 +300,50 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args ethapi.TransactionArgs,
 	defer recordMetrics("debug_traceCall", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
 	return
+}
+
+type StateAccessResponse struct {
+	AppState        json.RawMessage `json:"app"`
+	TendermintState json.RawMessage `json:"tendermint"`
+	Receipt         json.RawMessage `json:"receipt"`
+}
+
+func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (result interface{}, returnErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			result = nil
+			debug.PrintStack()
+			returnErr = fmt.Errorf("panic occurred: %v, could not trace tx state: %s", r, hash.Hex())
+		}
+	}()
+	tendermintTraces := &TendermintTraces{Traces: []TendermintTrace{}}
+	ctx = WithTendermintTraces(ctx, tendermintTraces)
+	receiptTraces := &ReceiptTraces{Traces: []RawResponseReceipt{}}
+	ctx = WithReceiptTraces(ctx, receiptTraces)
+	_, tx, blockHash, blockNumber, index, err := api.backend.GetTransaction(ctx, hash)
+	if err != nil {
+		return nil, err
+	}
+	// Only mined txes are supported
+	if tx == nil {
+		return nil, errors.New("transaction not found")
+	}
+	// It shouldn't happen in practice.
+	if blockNumber == 0 {
+		return nil, errors.New("genesis is not traceable")
+	}
+	block, _, err := api.backend.BlockByHash(ctx, blockHash)
+	if err != nil {
+		return nil, err
+	}
+	stateDB, _, err := api.backend.ReplayTransactionTillIndex(ctx, block, int(index))
+	if err != nil {
+		return nil, err
+	}
+	response := StateAccessResponse{
+		AppState:        state.GetDBImpl(stateDB).Ctx().StoreTracer().DerivePrestateToJson(),
+		TendermintState: tendermintTraces.MustMarshalToJson(),
+		Receipt:         receiptTraces.MustMarshalToJson(),
+	}
+	return response, nil
 }

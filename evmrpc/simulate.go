@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
@@ -26,9 +26,10 @@ import (
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/ethereum/go-ethereum/eth/tracers/tracersutils"
 	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/lib/ethapi"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -37,6 +38,7 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
+	tmtypes "github.com/tendermint/tendermint/types"
 )
 
 type CtxIsWasmdPrecompileCallKeyType string
@@ -46,22 +48,27 @@ const CtxIsWasmdPrecompileCallKey CtxIsWasmdPrecompileCallKeyType = "CtxIsWasmdP
 type SimulationAPI struct {
 	backend        *Backend
 	connectionType ConnectionType
+	requestLimiter *semaphore.Weighted
 }
 
 func NewSimulationAPI(
 	ctxProvider func(int64) sdk.Context,
 	keeper *keeper.Keeper,
-	txConfig client.TxConfig,
+	txConfigProvider func(int64) client.TxConfig,
 	tmClient rpcclient.Client,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 ) *SimulationAPI {
-	return &SimulationAPI{
-		backend:        NewBackend(ctxProvider, keeper, txConfig, tmClient, config, app, antehandler),
+	api := &SimulationAPI{
+		backend:        NewBackend(ctxProvider, keeper, txConfigProvider, tmClient, config, app, antehandler),
 		connectionType: connectionType,
 	}
+	if config.MaxConcurrentSimulationCalls > 0 {
+		api.requestLimiter = semaphore.NewWeighted(int64(config.MaxConcurrentSimulationCalls))
+	}
+	return api
 }
 
 type AccessListResult struct {
@@ -70,7 +77,7 @@ type AccessListResult struct {
 	GasUsed    hexutil.Uint64       `json:"gasUsed"`
 }
 
-func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (result *AccessListResult, returnErr error) {
+func (s *SimulationAPI) CreateAccessList(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (result *AccessListResult, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_createAccessList", s.connectionType, startTime, returnErr == nil)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
@@ -78,7 +85,7 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.Transa
 		bNrOrHash = *blockNrOrHash
 	}
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
-	acl, gasUsed, vmerr, err := ethapi.AccessList(ctx, s.backend, bNrOrHash, args)
+	acl, gasUsed, vmerr, err := export.AccessList(ctx, s.backend, bNrOrHash, args, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -89,33 +96,57 @@ func (s *SimulationAPI) CreateAccessList(ctx context.Context, args ethapi.Transa
 	return result, nil
 }
 
-func (s *SimulationAPI) EstimateGas(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride) (result hexutil.Uint64, returnErr error) {
+func (s *SimulationAPI) EstimateGas(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_estimateGas", s.connectionType, startTime, returnErr)
+	/* ---------- fail‑fast limiter ---------- */
+	if s.requestLimiter != nil {
+		if !s.requestLimiter.TryAcquire(1) {
+			returnErr = errors.New("eth_estimateGas rejected due to rate limit: server busy")
+			return
+		}
+		defer s.requestLimiter.Release(1)
+	}
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
 	}
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
-	estimate, err := ethapi.DoEstimateGas(ctx, s.backend, args, bNrOrHash, overrides, s.backend.RPCGasCap())
+	estimate, err := export.DoEstimateGas(ctx, s.backend, args, bNrOrHash, overrides, nil, s.backend.RPCGasCap())
 	return estimate, err
 }
 
-func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args ethapi.TransactionArgs, calls []ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride) (result hexutil.Uint64, returnErr error) {
+func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.TransactionArgs, calls []export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride) (result hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_estimateGasAfterCalls", s.connectionType, startTime, returnErr)
+	/* ---------- fail‑fast limiter ---------- */
+	if s.requestLimiter != nil {
+		if !s.requestLimiter.TryAcquire(1) {
+			returnErr = errors.New("eth_estimateGasAfterCalls rejected due to rate limit: server busy")
+			return
+		}
+		defer s.requestLimiter.Release(1)
+	}
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
 	}
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
-	estimate, err := ethapi.DoEstimateGasAfterCalls(ctx, s.backend, args, calls, bNrOrHash, overrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
+	estimate, err := export.DoEstimateGasAfterCalls(ctx, s.backend, args, calls, bNrOrHash, overrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
 	return estimate, err
 }
 
-func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *ethapi.StateOverride, blockOverrides *ethapi.BlockOverrides) (result hexutil.Bytes, returnErr error) {
+func (s *SimulationAPI) Call(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride, blockOverrides *export.BlockOverrides) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
+	/* ---------- fail‑fast limiter ---------- */
+	if s.requestLimiter != nil {
+		if !s.requestLimiter.TryAcquire(1) {
+			returnErr = errors.New("eth_call rejected due to rate limit: server busy")
+			return
+		}
+		defer s.requestLimiter.Release(1)
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			if strings.Contains(fmt.Sprintf("%s", r), "Int overflow") {
@@ -130,7 +161,7 @@ func (s *SimulationAPI) Call(ctx context.Context, args ethapi.TransactionArgs, b
 		blockNrOrHash = &latest
 	}
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
-	callResult, err := ethapi.DoCall(ctx, s.backend, args, *blockNrOrHash, overrides, blockOverrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
+	callResult, err := export.DoCall(ctx, s.backend, args, *blockNrOrHash, overrides, blockOverrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
 	if err != nil {
 		return nil, err
 	}
@@ -172,32 +203,33 @@ func (e *RevertError) ErrorData() interface{} {
 }
 
 type SimulateConfig struct {
-	GasCap     uint64
-	EVMTimeout time.Duration
+	GasCap                       uint64
+	EVMTimeout                   time.Duration
+	MaxConcurrentSimulationCalls int
 }
 
 var _ tracers.Backend = (*Backend)(nil)
 
 type Backend struct {
 	*eth.EthAPIBackend
-	ctxProvider func(int64) sdk.Context
-	txConfig    client.TxConfig
-	keeper      *keeper.Keeper
-	tmClient    rpcclient.Client
-	config      *SimulateConfig
-	app         *baseapp.BaseApp
-	antehandler sdk.AnteHandler
+	ctxProvider      func(int64) sdk.Context
+	txConfigProvider func(int64) client.TxConfig
+	keeper           *keeper.Keeper
+	tmClient         rpcclient.Client
+	config           *SimulateConfig
+	app              *baseapp.BaseApp
+	antehandler      sdk.AnteHandler
 }
 
-func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txConfig client.TxConfig, tmClient rpcclient.Client, config *SimulateConfig, app *baseapp.BaseApp, antehandler sdk.AnteHandler) *Backend {
+func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txConfigProvider func(int64) client.TxConfig, tmClient rpcclient.Client, config *SimulateConfig, app *baseapp.BaseApp, antehandler sdk.AnteHandler) *Backend {
 	return &Backend{
-		ctxProvider: ctxProvider,
-		keeper:      keeper,
-		txConfig:    txConfig,
-		tmClient:    tmClient,
-		config:      config,
-		app:         app,
-		antehandler: antehandler,
+		ctxProvider:      ctxProvider,
+		keeper:           keeper,
+		txConfigProvider: txConfigProvider,
+		tmClient:         tmClient,
+		config:           config,
+		app:              app,
+		antehandler:      antehandler,
 	}
 }
 
@@ -212,26 +244,26 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 		return nil, nil, err
 	}
 	header := b.getHeader(big.NewInt(height))
-	header.BaseFee = b.keeper.GetCurrBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return state.NewDBImpl(sdkCtx, b.keeper, true), header, nil
 }
 
-func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *ethtypes.Transaction, blockHash common.Hash, blockNumber uint64, index uint64, err error) {
+func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found bool, tx *ethtypes.Transaction, blockHash common.Hash, blockNumber uint64, index uint64, err error) {
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
 	receipt, err := b.keeper.GetReceipt(sdkCtx, txHash)
 	if err != nil {
-		return nil, common.Hash{}, 0, 0, err
+		return false, nil, common.Hash{}, 0, 0, err
 	}
 	txHeight := int64(receipt.BlockNumber)
 	block, err := blockByNumber(ctx, b.tmClient, &txHeight)
 	if err != nil {
-		return nil, common.Hash{}, 0, 0, err
+		return false, nil, common.Hash{}, 0, 0, err
 	}
 	txIndex := hexutil.Uint(receipt.TransactionIndex)
 	tmTx := block.Block.Txs[int(txIndex)]
-	tx = getEthTxForTxBz(tmTx, b.txConfig.TxDecoder())
+	tx = getEthTxForTxBz(tmTx, b.txConfigProvider(block.Block.Height).TxDecoder())
 	blockHash = common.BytesToHash(block.Block.Header.Hash().Bytes())
-	return tx, blockHash, uint64(txHeight), uint64(txIndex), nil
+	return true, tx, blockHash, uint64(txHeight), uint64(txIndex), nil
 }
 
 func (b *Backend) ChainDb() ethdb.Database {
@@ -265,13 +297,18 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	if err != nil {
 		return nil, nil, err
 	}
+	TraceTendermintIfApplicable(ctx, "BlockResults", []string{stringifyInt64Ptr(&tmBlock.Block.Height)}, blockRes)
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
 	for i := range blockRes.TxsResults {
-		decoded, err := b.txConfig.TxDecoder()(tmBlock.Block.Txs[i])
+		decoded, err := b.txConfigProvider(blockRes.Height).TxDecoder()(tmBlock.Block.Txs[i])
 		if err != nil {
 			return nil, nil, err
+		}
+		isPrioritized := utils.IsTxPrioritized(decoded)
+		if isPrioritized {
+			continue
 		}
 		shouldTrace := false
 		for _, msg := range decoded.GetMsgs() {
@@ -285,6 +322,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 				if err != nil || receipt.BlockNumber != uint64(tmBlock.Block.Height) || isReceiptFromAnteError(receipt) {
 					continue
 				}
+				TraceReceiptIfApplicable(ctx, receipt)
 				shouldTrace = true
 				metadata = append(metadata, tracersutils.TraceBlockMetadata{
 					ShouldIncludeInTraceResult: true,
@@ -298,7 +336,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 				ShouldIncludeInTraceResult: false,
 				IdxInEthBlock:              -1,
 				TraceRunnable: func(sd vm.StateDB) {
-					typedStateDB := sd.(*state.DBImpl)
+					typedStateDB := state.GetDBImpl(sd)
 					_ = b.app.DeliverTx(typedStateDB.Ctx(), abci.RequestDeliverTx{}, decoded, sha256.Sum256(tmBlock.Block.Txs[i]))
 				},
 			})
@@ -349,38 +387,66 @@ func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*etht
 
 func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block, txIndex int, reexec uint64) (*ethtypes.Transaction, vm.BlockContext, vm.StateDB, tracers.StateReleaseFunc, error) {
 	emptyRelease := func() {}
+	stateDB, txs, err := b.ReplayTransactionTillIndex(ctx, block, txIndex-1)
+	if err != nil {
+		return nil, vm.BlockContext{}, nil, emptyRelease, err
+	}
+	blockContext, err := b.keeper.GetVMBlockContext(state.GetDBImpl(stateDB).Ctx(), core.GasPool(b.RPCGasCap()))
+	if err != nil {
+		return nil, vm.BlockContext{}, nil, emptyRelease, err
+	}
+	if txIndex > len(txs)-1 {
+		return nil, vm.BlockContext{}, nil, emptyRelease, errors.New("transaction not found")
+	}
+	tx := txs[txIndex]
+	sdkTx, err := b.txConfigProvider(block.Number().Int64()).TxDecoder()(tx)
+	if err != nil {
+		panic(err)
+	}
+	if utils.IsTxPrioritized(sdkTx) {
+		return nil, vm.BlockContext{}, nil, emptyRelease, errors.New("cannot trace oracle tx")
+	}
+	var evmMsg *types.MsgEVMTransaction
+	if msgs := sdkTx.GetMsgs(); len(msgs) != 1 {
+		return nil, vm.BlockContext{}, nil, emptyRelease, fmt.Errorf("cannot replay non-EVM transaction %d at block %d", txIndex, block.Number().Int64())
+	} else if msg, ok := msgs[0].(*types.MsgEVMTransaction); !ok {
+		return nil, vm.BlockContext{}, nil, emptyRelease, fmt.Errorf("cannot replay non-EVM transaction %d at block %d", txIndex, block.Number().Int64())
+	} else {
+		evmMsg = msg
+	}
+	ethTx, _ := evmMsg.AsTransaction()
+	return ethTx, *blockContext, stateDB, emptyRelease, nil
+}
+
+func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtypes.Block, txIndex int) (vm.StateDB, tmtypes.Txs, error) {
 	// Short circuit if it's genesis block.
 	if block.Number().Int64() == 0 {
-		return nil, vm.BlockContext{}, nil, emptyRelease, errors.New("no transaction in genesis")
+		return nil, nil, errors.New("no transaction in genesis")
 	}
 	sdkCtx, tmBlock, err := b.initializeBlock(ctx, block)
 	if err != nil {
-		return nil, vm.BlockContext{}, nil, emptyRelease, err
+		return nil, nil, err
 	}
-	blockContext, err := b.keeper.GetVMBlockContext(sdkCtx, core.GasPool(b.RPCGasCap()))
-	if err != nil {
-		return nil, vm.BlockContext{}, nil, emptyRelease, err
+	if txIndex > len(tmBlock.Block.Txs)-1 {
+		return nil, nil, errors.New("did not find transaction")
+	}
+	if txIndex < 0 {
+		return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, nil
 	}
 	for idx, tx := range tmBlock.Block.Txs {
-		sdkTx, err := b.txConfig.TxDecoder()(tx)
+		if idx > txIndex {
+			break
+		}
+		sdkTx, err := b.txConfigProvider(block.Number().Int64()).TxDecoder()(tx)
 		if err != nil {
 			panic(err)
 		}
-		if idx == txIndex {
-			var evmMsg *types.MsgEVMTransaction
-			if msgs := sdkTx.GetMsgs(); len(msgs) != 1 {
-				return nil, vm.BlockContext{}, nil, emptyRelease, fmt.Errorf("cannot replay non-EVM transaction %d at block %d", idx, block.Number().Int64())
-			} else if msg, ok := msgs[0].(*types.MsgEVMTransaction); !ok {
-				return nil, vm.BlockContext{}, nil, emptyRelease, fmt.Errorf("cannot replay non-EVM transaction %d at block %d", idx, block.Number().Int64())
-			} else {
-				evmMsg = msg
-			}
-			ethTx, _ := evmMsg.AsTransaction()
-			return ethTx, *blockContext, state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), emptyRelease, nil
+		if utils.IsTxPrioritized(sdkTx) {
+			continue
 		}
-		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTx{}, sdkTx, sha256.Sum256(tx))
+		_ = b.app.DeliverTx(sdkCtx, abci.RequestDeliverTx{Tx: tx}, sdkTx, sha256.Sum256(tx))
 	}
-	return nil, vm.BlockContext{}, nil, nil, fmt.Errorf("transaction index %d out of range for block %#x", txIndex, block.Hash())
+	return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, nil
 }
 
 func (b *Backend) StateAtBlock(ctx context.Context, block *ethtypes.Block, reexec uint64, base vm.StateDB, readOnly bool, preferDisk bool) (vm.StateDB, tracers.StateReleaseFunc, error) {
@@ -402,14 +468,20 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block) (s
 	if err != nil {
 		return sdk.Context{}, nil, fmt.Errorf("cannot find block %d from tendermint", blockNumber)
 	}
+	TraceTendermintIfApplicable(ctx, "Block", []string{stringifyInt64Ptr(&blockNumber)}, tmBlock)
 	res, err := b.tmClient.Validators(ctx, &prevBlockHeight, nil, nil) // todo: load all
 	if err != nil {
 		return sdk.Context{}, nil, fmt.Errorf("failed to load validators for block %d from tendermint", prevBlockHeight)
 	}
+	TraceTendermintIfApplicable(ctx, "Validators", []string{stringifyInt64Ptr(&prevBlockHeight)}, res)
 	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(res.Validators)
 	reqBeginBlock.Simulate = true
 	sdkCtx := b.ctxProvider(prevBlockHeight).WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
 	_ = b.app.BeginBlock(sdkCtx, reqBeginBlock)
+	sdkCtx = sdkCtx.WithNextMs(
+		b.ctxProvider(sdkCtx.BlockHeight()).MultiStore(),
+		[]string{"oracle", "oracle_mem"},
+	)
 	return sdkCtx, tmBlock, nil
 }
 
@@ -418,12 +490,14 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 	if blockCtx == nil {
 		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(wasmd.IsWasmdCall(msg.To)), core.GasPool(b.RPCGasCap()))
 	}
-	return vm.NewEVM(*blockCtx, txContext, stateDB, b.ChainConfig(), *vmConfig, b.keeper.CustomPrecompiles(b.ctxProvider(h.Number.Int64())))
+	evm := vm.NewEVM(*blockCtx, stateDB, b.ChainConfig(), *vmConfig, b.keeper.CustomPrecompiles(b.ctxProvider(h.Number.Int64())))
+	evm.SetTxContext(txContext)
+	return evm
 }
 
 func (b *Backend) CurrentHeader() *ethtypes.Header {
 	header := b.getHeader(big.NewInt(b.ctxProvider(LatestCtxHeight).BlockHeight()))
-	header.BaseFee = b.keeper.GetCurrBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return header
 }
 
@@ -458,18 +532,40 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 
 func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 	zeroExcessBlobGas := uint64(0)
+	baseFee := b.keeper.GetNextBaseFeePerGas(b.ctxProvider(blockNumber.Int64() - 1)).TruncateInt().BigInt()
+	ctx := b.ctxProvider(blockNumber.Int64())
+	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < b.keeper.UpgradeKeeper().GetDoneHeight(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "6.2.0") {
+		baseFee = nil
+	}
+	// Get block results to access consensus parameters
+	number := blockNumber.Int64()
+	block, blockErr := blockByNumber(context.Background(), b.tmClient, &number)
+	var gasLimit uint64
+	if blockErr == nil {
+		// Try to get consensus parameters from block results
+		blockRes, blockResErr := blockResultsWithRetry(context.Background(), b.tmClient, &number)
+		if blockResErr == nil && blockRes.ConsensusParamUpdates != nil && blockRes.ConsensusParamUpdates.Block != nil {
+			gasLimit = uint64(blockRes.ConsensusParamUpdates.Block.MaxGas)
+		} else {
+			// Fallback to default if block results unavailable
+			gasLimit = keeper.DefaultBlockGasLimit
+		}
+	} else {
+		// Fallback to default if block unavailable
+		gasLimit = keeper.DefaultBlockGasLimit
+	}
+
 	header := &ethtypes.Header{
 		Difficulty:    common.Big0,
 		Number:        blockNumber,
-		BaseFee:       nil,
-		GasLimit:      b.config.GasCap,
+		BaseFee:       baseFee,
+		GasLimit:      gasLimit,
 		Time:          uint64(time.Now().Unix()),
 		ExcessBlobGas: &zeroExcessBlobGas,
 	}
-	number := blockNumber.Int64()
-	block, err := blockByNumber(context.Background(), b.tmClient, &number)
+
 	//TODO: what should happen if an err occurs here?
-	if err == nil {
+	if blockErr == nil {
 		header.ParentHash = common.BytesToHash(block.BlockID.Hash)
 		header.Time = uint64(block.Block.Header.Time.Unix())
 	}
@@ -481,7 +577,7 @@ func (b *Backend) GetCustomPrecompiles(h int64) map[common.Address]vm.Precompile
 }
 
 func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error {
-	typedStateDB := statedb.(*state.DBImpl)
+	typedStateDB := state.GetDBImpl(statedb)
 	typedStateDB.CleanupForTracer()
 	ctx, _ := b.keeper.PrepareCtxForEVMTransaction(typedStateDB.Ctx(), tx)
 	ctx = ctx.WithIsEVM(true)
@@ -497,7 +593,7 @@ func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error 
 	if err != nil {
 		return fmt.Errorf("transaction cannot be converted to MsgEVMTransaction due to %s", err)
 	}
-	tb := b.txConfig.NewTxBuilder()
+	tb := b.txConfigProvider(ctx.BlockHeight()).NewTxBuilder()
 	_ = tb.SetMsgs(msg)
 	newCtx, err := b.antehandler(ctx, tb.GetTx(), false)
 	if err != nil {
@@ -507,8 +603,8 @@ func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error 
 	return nil
 }
 
-func (b *Backend) GetBlockContext(ctx context.Context, block *ethtypes.Block, statedb vm.StateDB, backend ethapi.ChainContextBackend) (vm.BlockContext, error) {
-	blockCtx, err := b.keeper.GetVMBlockContext(statedb.(*state.DBImpl).Ctx(), core.GasPool(b.RPCGasCap()))
+func (b *Backend) GetBlockContext(ctx context.Context, block *ethtypes.Block, statedb vm.StateDB, backend export.ChainContextBackend) (vm.BlockContext, error) {
+	blockCtx, err := b.keeper.GetVMBlockContext(state.GetDBImpl(statedb).Ctx(), core.GasPool(b.RPCGasCap()))
 	if err != nil {
 		return vm.BlockContext{}, nil
 	}
