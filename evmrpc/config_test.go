@@ -9,6 +9,7 @@ import (
 )
 
 type opts struct {
+<<<<<<< HEAD
 	httpEnabled                  interface{}
 	httpPort                     interface{}
 	wsEnabled                    interface{}
@@ -35,6 +36,33 @@ type opts struct {
 	maxConcurrentSimulationCalls interface{}
 	maxTraceLookbackBlocks       interface{}
 	traceTimeout                 interface{}
+=======
+	httpEnabled             interface{}
+	httpPort                interface{}
+	wsEnabled               interface{}
+	wsPort                  interface{}
+	readTimeout             interface{}
+	readHeaderTimeout       interface{}
+	writeTimeout            interface{}
+	idleTimeout             interface{}
+	simulationGasLimit      interface{}
+	simulationEVMTimeout    interface{}
+	corsOrigins             interface{}
+	wsOrigins               interface{}
+	filterTimeout           interface{}
+	checkTxTimeout          interface{}
+	maxTxPoolTxs            interface{}
+	slow                    interface{}
+	flushReceiptSync        interface{}
+	denyList                interface{}
+	maxLogNoBlock           interface{}
+	maxBlocksForLog         interface{}
+	maxSubscriptionsNewHead interface{}
+	enableTestAPI           interface{}
+	maxConcurrentTraceCalls interface{}
+	maxTraceLookbackBlocks  interface{}
+	traceTimeout            interface{}
+>>>>>>> 70026112 (Make flushing receipt synchronous (#2250))
 }
 
 func (o *opts) Get(k string) interface{} {

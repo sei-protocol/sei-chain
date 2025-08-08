@@ -60,7 +60,11 @@ func TestFlushTransientReceiptsSync(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should be retrievable from transient store
+<<<<<<< HEAD
 	tr, err := k.GetTransientReceipt(ctx, txHash, 0)
+=======
+	tr, err := k.GetTransientReceipt(ctx, txHash)
+>>>>>>> 70026112 (Make flushing receipt synchronous (#2250))
 	require.NoError(t, err)
 	require.Equal(t, receipt.TxHashHex, tr.TxHashHex)
 
@@ -78,13 +82,18 @@ func TestFlushTransientReceiptsSync(t *testing.T) {
 	require.Equal(t, receipt.TxHashHex, pr.TxHashHex)
 
 	// Should not be in transient store anymore (depends on implementation, but let's check)
+<<<<<<< HEAD
 	_, err = k.GetTransientReceipt(ctx, txHash, 0)
+=======
+	_, err = k.GetTransientReceipt(ctx, txHash)
+>>>>>>> 70026112 (Make flushing receipt synchronous (#2250))
 	// Could be not found or still present depending on flush logic, so we don't assert error here
 
 	// Flushing with no receipts should not error
 	err = k.FlushTransientReceiptsSync(ctx)
 	require.NoError(t, err)
 }
+<<<<<<< HEAD
 
 func TestDeleteTransientReceipt(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
@@ -101,3 +110,5 @@ func TestDeleteTransientReceipt(t *testing.T) {
 	require.Nil(t, receipt)
 	require.Equal(t, "not found", err.Error())
 }
+=======
+>>>>>>> 70026112 (Make flushing receipt synchronous (#2250))
