@@ -315,3 +315,57 @@ func (r *ReportAPI) decorateCoinWithDetails(c sdk.Coin, ctx sdk.Context, coin *R
 		coin.Pointer = r.pointers[c.Denom].Hex()
 	}
 }
+
+func (r *ReportAPI) StartCSVReport(outputDir string) (string, error) {
+	r.mx.Lock()
+	defer r.mx.Unlock()
+	ctx := r.ctxProvider(0)
+
+	bk := r.k.BankKeeper()
+	ak := r.k.AccountKeeper()
+
+	s := report.NewCSVService(bk, ak, r.k, r.wk, outputDir)
+	r.reports[s.Name()] = s
+
+	ctx = ctx.WithBlockTime(time.Now())
+	go func() {
+		if err := s.Start(ctx); err != nil {
+			ctx.Logger().Error("CSV report failed", "error", err)
+		}
+	}()
+
+	return s.Name(), nil
+}
+
+func (r *ReportAPI) ExportToPostgreSQL(reportName string, host string, port int, database string, username string, password string, sslMode string) (string, error) {
+	r.mx.RLock()
+	svc, ok := r.reports[reportName]
+	r.mx.RUnlock()
+	
+	if !ok {
+		return "", fmt.Errorf("report %s not found", reportName)
+	}
+
+	csvSvc, ok := svc.(report.CSVService)
+	if !ok {
+		return "", fmt.Errorf("report %s is not a CSV service", reportName)
+	}
+
+	config := report.PostgreSQLConfig{
+		Host:     host,
+		Port:     port,
+		Database: database,
+		Username: username,
+		Password: password,
+		SSLMode:  sslMode,
+	}
+
+	go func() {
+		if err := csvSvc.ExportToPostgreSQL(config); err != nil {
+			ctx := r.ctxProvider(0)
+			ctx.Logger().Error("PostgreSQL export failed", "error", err, "report", reportName)
+		}
+	}()
+
+	return "PostgreSQL export started", nil
+}
