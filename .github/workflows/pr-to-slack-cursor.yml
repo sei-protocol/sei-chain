@@ -20,11 +20,12 @@ jobs:
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
-      - name: Post parent message in Slack
+      - name: Post parent message in Slack (bot token)
         id: post_parent
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+        shell: bash
         run: |
           resp=$(curl -s -X POST https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
@@ -33,19 +34,20 @@ jobs:
               --arg ch "$SLACK_CHANNEL_ID" \
               --arg txt "${{ steps.summary.outputs.text }}" \
               '{channel:$ch,text:$txt,unfurl_links:false,unfurl_media:false}')")
-          echo "$resp"
-          echo "ts=$(echo "$resp" | jq -r '.ts')" >> $GITHUB_OUTPUT
+          echo "ts=$(echo "$resp" | jq -r '.ts')" >> "$GITHUB_OUTPUT"
 
-      - name: Start Cursor agent (thread reply w/ vuln review)
+      - name: Start Cursor agent (thread reply AS YOU)
         env:
-          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_USER_TOKEN: ${{ secrets.SLACK_USER_TOKEN }}   # xoxp / xoxe-...-xoxp-...
           SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
-          CURSOR_BOT_ID: ${{ secrets.CURSOR_BOT_ID }}
+          CURSOR_BOT_ID: ${{ secrets.CURSOR_BOT_ID }}         # e.g., U09ADQGLKU0
+        shell: bash
         run: |
-          PR_URL="${{ github.event.pull_request.html_url }}"
+          PR_URL='${{ github.event.pull_request.html_url }}'
           PROMPT="<@${CURSOR_BOT_ID}> Analyze ${PR_URL} for security vulnerabilities (secrets exposure, auth/authz, input validation, SSRF, SQLi, path traversal, deserialization, RCE, dependency CVEs). Provide severity (high/med/low), file:line pointers, and concrete fixes. Start with a short exec summary."
+
           curl -s -X POST https://slack.com/api/chat.postMessage \
-            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Authorization: Bearer $SLACK_USER_TOKEN" \
             -H 'Content-type: application/json; charset=utf-8' \
             --data "$(jq -n \
               --arg ch "$SLACK_CHANNEL_ID" \
