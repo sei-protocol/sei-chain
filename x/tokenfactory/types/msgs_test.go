@@ -2,15 +2,15 @@ package types_test
 
 import (
 	"fmt"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 
-	"github.com/tendermint/tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 )
 
 // TestMsgCreateDenom tests if valid/invalid create denom messages are properly validated/invalidated

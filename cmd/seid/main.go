@@ -6,7 +6,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/cmd/seid/cmd"
 
-	svrcmd "github.com/cosmos/cosmos-sdk/server/cmd"
+	svrcmd "github.com/sei-protocol/sei-chain/sei-cosmos/server/cmd"
 	"github.com/sei-protocol/sei-chain/app"
 )
 

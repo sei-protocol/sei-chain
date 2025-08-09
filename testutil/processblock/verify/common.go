@@ -3,7 +3,7 @@ package verify
 import (
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/x/auth/signing"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
 )
 

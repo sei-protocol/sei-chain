@@ -7,9 +7,9 @@ import (
 	"sort"
 	"strings"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/module"
-	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
+	upgradetypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/upgrade/types"
 )
 
 //go:embed tags
@@ -42,7 +42,7 @@ func overrideList() {
 
 func (app App) RegisterUpgradeHandlers() {
 	// Upgrades names must be in alphabetical order
-	// https://github.com/cosmos/cosmos-sdk/issues/11707
+	// https://github.com/sei-protocol/sei-chain/sei-cosmos/issues/11707
 	if !sort.StringsAreSorted(upgradesList) {
 		log.Fatal("New upgrades must be appended to 'upgradesList' in alphabetical order")
 	}

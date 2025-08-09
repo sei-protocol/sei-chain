@@ -7,9 +7,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/tools/hash_verification/iavl"
 	"github.com/sei-protocol/sei-chain/tools/hash_verification/pebbledb"
-	"github.com/sei-protocol/sei-db/config"
-	sstypes "github.com/sei-protocol/sei-db/ss"
-	"github.com/tendermint/tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/ss"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 )
 

@@ -3,11 +3,11 @@ package params
 import (
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/types/address"
-	tmcfg "github.com/tendermint/tendermint/config"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/address"
+	tmcfg "github.com/sei-protocol/sei-chain/sei-tendermint/config"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 )
 
 const (
@@ -61,7 +61,7 @@ func SetAddressPrefixes() {
 	config.SetBech32PrefixForConsensusNode(Bech32PrefixConsAddr, Bech32PrefixConsPub)
 
 	// This is copied from the cosmos sdk v0.43.0-beta1
-	// source: https://github.com/cosmos/cosmos-sdk/blob/v0.43.0-beta1/types/address.go#L141
+	// source: https://github.com/sei-protocol/sei-chain/sei-cosmos/blob/v0.43.0-beta1/types/address.go#L141
 	config.SetAddressVerifier(func(bytes []byte) error {
 		if len(bytes) == 0 {
 			return sdkerrors.Wrap(sdkerrors.ErrUnknownAddress, "addresses cannot be empty")

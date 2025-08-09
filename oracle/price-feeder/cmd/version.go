@@ -14,7 +14,7 @@ import (
 const (
 	flagFormat = "format"
 
-	pathCosmosSDK = "github.com/cosmos/cosmos-sdk"
+	pathCosmosSDK = "github.com/sei-protocol/sei-chain/sei-cosmos"
 )
 
 var (

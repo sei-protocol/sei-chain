@@ -16,14 +16,14 @@ import (
 	"github.com/sei-protocol/sei-chain/utils"
 	helpers "github.com/sei-protocol/sei-chain/utils/helpers/legacy/v600"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v600"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/types"

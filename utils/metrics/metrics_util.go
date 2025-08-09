@@ -8,7 +8,7 @@ import (
 	"time"
 
 	metrics "github.com/armon/go-metrics"
-	"github.com/cosmos/cosmos-sdk/telemetry"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/telemetry"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 

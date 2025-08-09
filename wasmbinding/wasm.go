@@ -1,13 +1,13 @@
 package wasmbinding
 
 import (
-	"github.com/CosmWasm/wasmd/x/wasm"
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
-	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
+	"github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm"
+	wasmkeeper "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/keeper"
+	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	aclkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/accesscontrol/keeper"
+	authkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/keeper"
+	stakingkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/keeper"
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
 	epochkeeper "github.com/sei-protocol/sei-chain/x/epoch/keeper"
 	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"

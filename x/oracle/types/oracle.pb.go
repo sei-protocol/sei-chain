@@ -5,8 +5,8 @@ package types
 
 import (
 	fmt "fmt"
-	_ "github.com/cosmos/cosmos-sdk/types"
-	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
+	_ "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	github_com_cosmos_cosmos_sdk_types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	io "io"
@@ -28,14 +28,14 @@ const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 type Params struct {
 	// The number of blocks per voting window, at the end of the vote period, the oracle votes are assessed and exchange rates are calculated. If the vote period is 1 this is equivalent to having oracle votes assessed and exchange rates calculated in each block.
 	VotePeriod    uint64                                 `protobuf:"varint,1,opt,name=vote_period,json=votePeriod,proto3" json:"vote_period,omitempty" yaml:"vote_period"`
-	VoteThreshold github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=vote_threshold,json=voteThreshold,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"vote_threshold" yaml:"vote_threshold"`
-	RewardBand    github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,3,opt,name=reward_band,json=rewardBand,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"reward_band" yaml:"reward_band"`
+	VoteThreshold github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=vote_threshold,json=voteThreshold,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"vote_threshold" yaml:"vote_threshold"`
+	RewardBand    github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,3,opt,name=reward_band,json=rewardBand,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"reward_band" yaml:"reward_band"`
 	Whitelist     DenomList                              `protobuf:"bytes,4,rep,name=whitelist,proto3,castrepeated=DenomList" json:"whitelist" yaml:"whitelist"`
-	SlashFraction github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,5,opt,name=slash_fraction,json=slashFraction,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"slash_fraction" yaml:"slash_fraction"`
+	SlashFraction github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,5,opt,name=slash_fraction,json=slashFraction,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"slash_fraction" yaml:"slash_fraction"`
 	// The interval in blocks at which the oracle module will assess validator penalty counters, and penalize validators with too poor performance.
 	SlashWindow uint64 `protobuf:"varint,6,opt,name=slash_window,json=slashWindow,proto3" json:"slash_window,omitempty" yaml:"slash_window"`
 	// The minimum percentage of voting windows for which a validator must have `success`es in order to not be penalized at the end of the slash window.
-	MinValidPerWindow github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,7,opt,name=min_valid_per_window,json=minValidPerWindow,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"min_valid_per_window" yaml:"min_valid_per_window"`
+	MinValidPerWindow github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,7,opt,name=min_valid_per_window,json=minValidPerWindow,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"min_valid_per_window" yaml:"min_valid_per_window"`
 	LookbackDuration  uint64                                 `protobuf:"varint,9,opt,name=lookback_duration,json=lookbackDuration,proto3" json:"lookback_duration,omitempty" yaml:"lookback_duration"`
 }
 
@@ -174,7 +174,7 @@ var xxx_messageInfo_AggregateExchangeRateVote proto.InternalMessageInfo
 
 type ExchangeRateTuple struct {
 	Denom        string                                 `protobuf:"bytes,1,opt,name=denom,proto3" json:"denom,omitempty" yaml:"denom"`
-	ExchangeRate github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=exchange_rate,json=exchangeRate,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"exchange_rate" yaml:"exchange_rate"`
+	ExchangeRate github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=exchange_rate,json=exchangeRate,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"exchange_rate" yaml:"exchange_rate"`
 }
 
 func (m *ExchangeRateTuple) Reset()      { *m = ExchangeRateTuple{} }
@@ -210,8 +210,8 @@ func (m *ExchangeRateTuple) XXX_DiscardUnknown() {
 var xxx_messageInfo_ExchangeRateTuple proto.InternalMessageInfo
 
 type OracleExchangeRate struct {
-	ExchangeRate        github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,1,opt,name=exchange_rate,json=exchangeRate,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"exchange_rate" yaml:"exchange_rate"`
-	LastUpdate          github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,2,opt,name=last_update,json=lastUpdate,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"last_update" yaml:"last_update"`
+	ExchangeRate        github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,1,opt,name=exchange_rate,json=exchangeRate,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"exchange_rate" yaml:"exchange_rate"`
+	LastUpdate          github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,2,opt,name=last_update,json=lastUpdate,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"last_update" yaml:"last_update"`
 	LastUpdateTimestamp int64                                  `protobuf:"varint,3,opt,name=last_update_timestamp,json=lastUpdateTimestamp,proto3" json:"last_update_timestamp,omitempty" yaml:"last_update_timestamp"`
 }
 
@@ -353,7 +353,7 @@ func (m *PriceSnapshot) GetPriceSnapshotItems() PriceSnapshotItems {
 
 type OracleTwap struct {
 	Denom           string                                 `protobuf:"bytes,1,opt,name=denom,proto3" json:"denom,omitempty"`
-	Twap            github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=twap,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"twap" yaml:"twap"`
+	Twap            github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=twap,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"twap" yaml:"twap"`
 	LookbackSeconds int64                                  `protobuf:"varint,3,opt,name=lookback_seconds,json=lookbackSeconds,proto3" json:"lookback_seconds,omitempty"`
 }
 

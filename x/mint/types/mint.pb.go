@@ -5,7 +5,7 @@ package types
 
 import (
 	fmt "fmt"
-	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
+	github_com_cosmos_cosmos_sdk_types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	io "io"
@@ -241,7 +241,7 @@ func (m *Params) GetTokenReleaseSchedule() []ScheduledTokenRelease {
 
 // Minter represents the most recent
 type Version2Minter struct {
-	LastMintAmount github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,1,opt,name=last_mint_amount,json=lastMintAmount,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"last_mint_amount" yaml:"last_mint_amount"`
+	LastMintAmount github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,1,opt,name=last_mint_amount,json=lastMintAmount,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"last_mint_amount" yaml:"last_mint_amount"`
 	LastMintDate   string                                 `protobuf:"bytes,2,opt,name=last_mint_date,json=lastMintDate,proto3" json:"last_mint_date,omitempty" yaml:"last_mint_date"`
 	LastMintHeight int64                                  `protobuf:"varint,3,opt,name=last_mint_height,json=lastMintHeight,proto3" json:"last_mint_height,omitempty" yaml:"last_mint_height"`
 	Denom          string                                 `protobuf:"bytes,4,opt,name=denom,proto3" json:"denom,omitempty" yaml:"denom"`

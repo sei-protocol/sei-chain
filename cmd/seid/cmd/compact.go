@@ -6,13 +6,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/server"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/server"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/spf13/cobra"
 	leveldbutils "github.com/syndtr/goleveldb/leveldb/util"
-	"github.com/tendermint/tendermint/libs/cli"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/cli"
 	dbm "github.com/tendermint/tm-db"
 )
 

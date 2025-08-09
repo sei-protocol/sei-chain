@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	sdkacltypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/accesscontrol"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 )
 
