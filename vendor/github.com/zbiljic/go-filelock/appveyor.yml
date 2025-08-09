@@ -1,0 +1,23 @@
+version: "{build}"
+
+platform:
+  - x86
+  - x64
+
+clone_folder: c:\gopath\src\github.com\zbiljic\go-filelock
+
+environment:
+  GOPATH: c:\gopath
+
+install:
+  - echo %PATH%
+  - echo %GOPATH%
+  - set PATH=%GOPATH%\bin;c:\go\bin;%PATH%
+  - go version
+  - go env
+  - go get -v -t ./...
+
+build: off
+
+test_script:
+  - go test -v -race ./...
