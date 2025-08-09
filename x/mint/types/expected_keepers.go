@@ -1,8 +1,8 @@
 package types // noalias
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/auth/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 )
 
@@ -16,7 +16,7 @@ type StakingKeeper interface {
 type AccountKeeper interface {
 	GetModuleAddress(name string) sdk.AccAddress
 
-	// TODO remove with genesis 2-phases refactor https://github.com/cosmos/cosmos-sdk/issues/2862
+	// TODO remove with genesis 2-phases refactor https://github.com/sei-protocol/sei-chain/sei-cosmos/issues/2862
 	SetModuleAccount(sdk.Context, types.ModuleAccountI)
 	GetModuleAccount(ctx sdk.Context, moduleName string) types.ModuleAccountI
 }

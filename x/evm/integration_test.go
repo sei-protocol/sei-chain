@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	clienttx "github.com/cosmos/cosmos-sdk/client/tx"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/tx/signing"
-	xauthsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	clienttx "github.com/sei-protocol/sei-chain/sei-cosmos/client/tx"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/tx/signing"
+	xauthsigning "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/signing"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
 	ethabi "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -33,7 +33,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 )
 
 //go:embed pointer_abi.json

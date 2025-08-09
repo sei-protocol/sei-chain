@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/sei-cosmos/crypto/types"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"

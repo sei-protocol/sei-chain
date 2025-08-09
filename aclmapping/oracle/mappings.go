@@ -4,11 +4,11 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
-	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkacltypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/accesscontrol"
+	aclkeeper "github.com/sei-protocol/sei-chain/sei-cosmos/x/accesscontrol/keeper"
+	acltypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/accesscontrol/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	utils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 )

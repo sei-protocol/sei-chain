@@ -5,8 +5,8 @@ import (
 	"math/big"
 	"testing"
 
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"

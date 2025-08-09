@@ -10,14 +10,14 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
 
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/module"
-	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/codec"
+	codectypes "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/module"
+	simtypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/simulation"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/client/cli"
 	"github.com/sei-protocol/sei-chain/x/oracle/client/rest"

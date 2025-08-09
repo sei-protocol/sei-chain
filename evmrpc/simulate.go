@@ -11,9 +11,9 @@ import (
 
 	"golang.org/x/sync/semaphore"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/client"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -35,10 +35,10 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
-	abci "github.com/tendermint/tendermint/abci/types"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	tmtypes "github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
+	rpcclient "github.com/sei-protocol/sei-chain/sei-tendermint/rpc/client"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/types"
 )
 
 type CtxIsWasmdPrecompileCallKeyType string

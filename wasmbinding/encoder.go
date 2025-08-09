@@ -3,10 +3,10 @@ package wasmbinding
 import (
 	"encoding/json"
 
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
-	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
+	wasmvmtypes "github.com/sei-protocol/sei-chain/sei-wasmvm/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
 	evmwasm "github.com/sei-protocol/sei-chain/x/evm/client/wasm"
 	tokenfactorywasm "github.com/sei-protocol/sei-chain/x/tokenfactory/client/wasm"
 )

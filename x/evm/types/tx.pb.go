@@ -6,9 +6,9 @@ package types
 import (
 	context "context"
 	fmt "fmt"
-	types "github.com/cosmos/cosmos-sdk/codec/types"
-	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
-	types1 "github.com/cosmos/cosmos-sdk/types"
+	types "github.com/sei-protocol/sei-chain/sei-cosmos/codec/types"
+	github_com_cosmos_cosmos_sdk_types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	types1 "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	grpc1 "github.com/gogo/protobuf/grpc"
 	proto "github.com/gogo/protobuf/proto"
@@ -155,7 +155,7 @@ func (m *MsgEVMTransactionResponse) GetLogs() []*Log {
 
 type MsgInternalEVMCall struct {
 	Sender string                                  `protobuf:"bytes,1,opt,name=sender,proto3" json:"sender,omitempty"`
-	Value  *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,2,opt,name=value,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Int" json:"value,omitempty"`
+	Value  *github_com_cosmos_cosmos_sdk_types.Int `protobuf:"bytes,2,opt,name=value,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Int" json:"value,omitempty"`
 	To     string                                  `protobuf:"bytes,3,opt,name=to,proto3" json:"to,omitempty"`
 	Data   []byte                                  `protobuf:"bytes,4,opt,name=data,proto3" json:"data,omitempty"`
 }
@@ -365,7 +365,7 @@ var xxx_messageInfo_MsgInternalEVMDelegateCallResponse proto.InternalMessageInfo
 type MsgSend struct {
 	FromAddress string                                   `protobuf:"bytes,1,opt,name=from_address,json=fromAddress,proto3" json:"from_address,omitempty"`
 	ToAddress   string                                   `protobuf:"bytes,2,opt,name=to_address,json=toAddress,proto3" json:"to_address,omitempty"`
-	Amount      github_com_cosmos_cosmos_sdk_types.Coins `protobuf:"bytes,3,rep,name=amount,proto3,castrepeated=github.com/cosmos/cosmos-sdk/types.Coins" json:"amount"`
+	Amount      github_com_cosmos_cosmos_sdk_types.Coins `protobuf:"bytes,3,rep,name=amount,proto3,castrepeated=github.com/sei-protocol/sei-chain/sei-cosmos/types.Coins" json:"amount"`
 }
 
 func (m *MsgSend) Reset()         { *m = MsgSend{} }

@@ -6,12 +6,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/testutil/testdata"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/testutil/testdata"
 
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/x/epoch"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 func TestNewHandler(t *testing.T) {

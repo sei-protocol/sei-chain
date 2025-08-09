@@ -3,13 +3,13 @@ package app
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/storev2/rootmulti"
-	"github.com/sei-protocol/sei-db/config"
-	seidb "github.com/sei-protocol/sei-db/ss/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/baseapp"
+	servertypes "github.com/sei-protocol/sei-chain/sei-cosmos/server/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/storev2/rootmulti"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
+	seidb "github.com/sei-protocol/sei-chain/sei-db/ss/types"
 	"github.com/spf13/cast"
-	"github.com/tendermint/tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
 const (

@@ -3,12 +3,12 @@ package migrations_test
 import (
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/migrations"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
-	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmtypes "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 func TestMigrateEip1559Params(t *testing.T) {

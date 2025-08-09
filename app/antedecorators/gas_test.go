@@ -3,15 +3,15 @@ package antedecorators_test
 import (
 	"testing"
 
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	wasmtypes "github.com/sei-protocol/sei-chain/sei-wasmd/x/wasm/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/accesscontrol"
+	acltypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/accesscontrol/types"
+	paramtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/params/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/proto/tendermint/types"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 func TestMultiplierGasSetter(t *testing.T) {

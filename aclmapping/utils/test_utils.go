@@ -1,7 +1,7 @@
 package utils
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 )
 
 func CacheTxContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {

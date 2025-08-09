@@ -3,9 +3,9 @@ package oracle_test
 import (
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkacltypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/accesscontrol"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/x/oracle"
@@ -14,7 +14,7 @@ import (
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 	"github.com/stretchr/testify/require"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmproto "github.com/sei-protocol/sei-chain/sei-tendermint/proto/tendermint/types"
 )
 
 func TestOracleVoteAloneAnteHandler(t *testing.T) {

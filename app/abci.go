@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/sei-protocol/sei-chain/sei-tendermint/abci/types"
 	"go.opentelemetry.io/otel/attribute"
 )
 

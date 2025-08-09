@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"math/big"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -16,7 +16,7 @@ import (
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
-	"github.com/tendermint/tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 )
 
 const (

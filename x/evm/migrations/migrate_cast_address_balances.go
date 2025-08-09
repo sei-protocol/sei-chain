@@ -3,7 +3,7 @@ package migrations
 import (
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 )

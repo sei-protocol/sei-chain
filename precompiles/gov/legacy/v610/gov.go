@@ -6,8 +6,8 @@ import (
 	"errors"
 	"math/big"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	govtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/gov/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"

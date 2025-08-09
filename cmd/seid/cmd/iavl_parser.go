@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	authtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/auth/types"
+	banktypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/bank/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	"github.com/sei-protocol/sei-chain/app/params"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )

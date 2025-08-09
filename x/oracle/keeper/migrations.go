@@ -1,7 +1,7 @@
 package keeper
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	gogotypes "github.com/gogo/protobuf/types"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"

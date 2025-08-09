@@ -6,15 +6,15 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/store/rootmulti"
-	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/store/rootmulti"
+	"github.com/sei-protocol/sei-chain/sei-iavl"
 	"github.com/sei-protocol/sei-chain/tools/migration/sc"
 	"github.com/sei-protocol/sei-chain/tools/migration/ss"
 	"github.com/sei-protocol/sei-chain/tools/utils"
-	"github.com/sei-protocol/sei-db/config"
-	sstypes "github.com/sei-protocol/sei-db/ss"
+	"github.com/sei-protocol/sei-chain/sei-db/config"
+	sstypes "github.com/sei-protocol/sei-chain/sei-db/ss"
 	"github.com/spf13/cobra"
-	"github.com/tendermint/tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
 )
 

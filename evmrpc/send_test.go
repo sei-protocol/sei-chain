@@ -5,8 +5,8 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/crypto/hd"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"

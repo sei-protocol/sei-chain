@@ -3,11 +3,11 @@ package oracle
 import (
 	"encoding/hex"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	sdkacltypes "github.com/sei-protocol/sei-chain/sei-cosmos/types/accesscontrol"
 
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/sei-cosmos/types/errors"
+	stakingtypes "github.com/sei-protocol/sei-chain/sei-cosmos/x/staking/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )

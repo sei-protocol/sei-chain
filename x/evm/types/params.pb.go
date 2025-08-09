@@ -5,7 +5,7 @@ package types
 
 import (
 	fmt "fmt"
-	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
+	github_com_cosmos_cosmos_sdk_types "github.com/sei-protocol/sei-chain/sei-cosmos/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	io "io"
@@ -32,14 +32,14 @@ type Params struct {
 	//	(gogoproto.jsontag) = "base_denom"
 	//
 	// ];
-	PriorityNormalizer github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=priority_normalizer,json=priorityNormalizer,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"priority_normalizer" yaml:"priority_normalizer"`
-	BaseFeePerGas      github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,3,opt,name=base_fee_per_gas,json=baseFeePerGas,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"base_fee_per_gas" yaml:"base_fee_per_gas"`
-	MinimumFeePerGas   github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,4,opt,name=minimum_fee_per_gas,json=minimumFeePerGas,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"minimum_fee_per_gas" yaml:"minimum_fee_per_gas"`
+	PriorityNormalizer github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=priority_normalizer,json=priorityNormalizer,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"priority_normalizer" yaml:"priority_normalizer"`
+	BaseFeePerGas      github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,3,opt,name=base_fee_per_gas,json=baseFeePerGas,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"base_fee_per_gas" yaml:"base_fee_per_gas"`
+	MinimumFeePerGas   github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,4,opt,name=minimum_fee_per_gas,json=minimumFeePerGas,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"minimum_fee_per_gas" yaml:"minimum_fee_per_gas"`
 	// ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
 	//
 	//	string chain_id = 6 [
 	//	(gogoproto.moretags)   = "yaml:\"chain_id\"",
-	//	(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+	//	(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
 	//	(gogoproto.nullable)   = false,
 	//	(gogoproto.jsontag) = "chain_id"
 	//
@@ -52,10 +52,10 @@ type Params struct {
 	// ];
 	WhitelistedCwCodeHashesForDelegateCall [][]byte                               `protobuf:"bytes,8,rep,name=whitelisted_cw_code_hashes_for_delegate_call,json=whitelistedCwCodeHashesForDelegateCall,proto3" json:"whitelisted_cw_code_hashes_for_delegate_call" yaml:"whitelisted_cw_code_hashes_for_delegate_call"`
 	DeliverTxHookWasmGasLimit              uint64                                 `protobuf:"varint,9,opt,name=deliver_tx_hook_wasm_gas_limit,json=deliverTxHookWasmGasLimit,proto3" json:"deliver_tx_hook_wasm_gas_limit,omitempty"`
-	MaxDynamicBaseFeeUpwardAdjustment      github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,10,opt,name=max_dynamic_base_fee_upward_adjustment,json=maxDynamicBaseFeeUpwardAdjustment,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"max_dynamic_base_fee_upward_adjustment" yaml:"max_dynamic_base_fee_upward_adjustment"`
-	MaxDynamicBaseFeeDownwardAdjustment    github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,11,opt,name=max_dynamic_base_fee_downward_adjustment,json=maxDynamicBaseFeeDownwardAdjustment,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"max_dynamic_base_fee_downward_adjustment" yaml:"max_dynamic_base_fee_downward_adjustment"`
+	MaxDynamicBaseFeeUpwardAdjustment      github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,10,opt,name=max_dynamic_base_fee_upward_adjustment,json=maxDynamicBaseFeeUpwardAdjustment,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"max_dynamic_base_fee_upward_adjustment" yaml:"max_dynamic_base_fee_upward_adjustment"`
+	MaxDynamicBaseFeeDownwardAdjustment    github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,11,opt,name=max_dynamic_base_fee_downward_adjustment,json=maxDynamicBaseFeeDownwardAdjustment,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"max_dynamic_base_fee_downward_adjustment" yaml:"max_dynamic_base_fee_downward_adjustment"`
 	TargetGasUsedPerBlock                  uint64                                 `protobuf:"varint,12,opt,name=target_gas_used_per_block,json=targetGasUsedPerBlock,proto3" json:"target_gas_used_per_block,omitempty"`
-	MaximumFeePerGas                       github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,13,opt,name=maximum_fee_per_gas,json=maximumFeePerGas,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"maximum_fee_per_gas" yaml:"maximum_fee_per_gas"`
+	MaximumFeePerGas                       github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,13,opt,name=maximum_fee_per_gas,json=maximumFeePerGas,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"maximum_fee_per_gas" yaml:"maximum_fee_per_gas"`
 	RegisterPointerDisabled                bool                                   `protobuf:"varint,14,opt,name=register_pointer_disabled,json=registerPointerDisabled,proto3" json:"register_pointer_disabled" yaml:"register_pointer_disabled"`
 }
 
@@ -126,14 +126,14 @@ type ParamsPreV580 struct {
 	//	(gogoproto.jsontag) = "base_denom"
 	//
 	// ];
-	PriorityNormalizer github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=priority_normalizer,json=priorityNormalizer,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"priority_normalizer" yaml:"priority_normalizer"`
-	BaseFeePerGas      github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,3,opt,name=base_fee_per_gas,json=baseFeePerGas,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"base_fee_per_gas" yaml:"base_fee_per_gas"`
-	MinimumFeePerGas   github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,4,opt,name=minimum_fee_per_gas,json=minimumFeePerGas,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"minimum_fee_per_gas" yaml:"minimum_fee_per_gas"`
+	PriorityNormalizer github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=priority_normalizer,json=priorityNormalizer,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"priority_normalizer" yaml:"priority_normalizer"`
+	BaseFeePerGas      github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,3,opt,name=base_fee_per_gas,json=baseFeePerGas,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"base_fee_per_gas" yaml:"base_fee_per_gas"`
+	MinimumFeePerGas   github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,4,opt,name=minimum_fee_per_gas,json=minimumFeePerGas,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"minimum_fee_per_gas" yaml:"minimum_fee_per_gas"`
 	// ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
 	//
 	//	string chain_id = 6 [
 	//	(gogoproto.moretags)   = "yaml:\"chain_id\"",
-	//	(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+	//	(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
 	//	(gogoproto.nullable)   = false,
 	//	(gogoproto.jsontag) = "chain_id"
 	//
@@ -193,14 +193,14 @@ type ParamsPreV606 struct {
 	//	(gogoproto.jsontag) = "base_denom"
 	//
 	// ];
-	PriorityNormalizer github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=priority_normalizer,json=priorityNormalizer,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"priority_normalizer" yaml:"priority_normalizer"`
-	BaseFeePerGas      github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,3,opt,name=base_fee_per_gas,json=baseFeePerGas,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"base_fee_per_gas" yaml:"base_fee_per_gas"`
-	MinimumFeePerGas   github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,4,opt,name=minimum_fee_per_gas,json=minimumFeePerGas,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"minimum_fee_per_gas" yaml:"minimum_fee_per_gas"`
+	PriorityNormalizer github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=priority_normalizer,json=priorityNormalizer,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"priority_normalizer" yaml:"priority_normalizer"`
+	BaseFeePerGas      github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,3,opt,name=base_fee_per_gas,json=baseFeePerGas,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"base_fee_per_gas" yaml:"base_fee_per_gas"`
+	MinimumFeePerGas   github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,4,opt,name=minimum_fee_per_gas,json=minimumFeePerGas,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"minimum_fee_per_gas" yaml:"minimum_fee_per_gas"`
 	// ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
 	//
 	//	string chain_id = 6 [
 	//	(gogoproto.moretags)   = "yaml:\"chain_id\"",
-	//	(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+	//	(gogoproto.customtype) = "github.com/sei-protocol/sei-chain/sei-cosmos/types.Int",
 	//	(gogoproto.nullable)   = false,
 	//	(gogoproto.jsontag) = "chain_id"
 	//
@@ -213,10 +213,10 @@ type ParamsPreV606 struct {
 	// ];
 	WhitelistedCwCodeHashesForDelegateCall [][]byte                               `protobuf:"bytes,8,rep,name=whitelisted_cw_code_hashes_for_delegate_call,json=whitelistedCwCodeHashesForDelegateCall,proto3" json:"whitelisted_cw_code_hashes_for_delegate_call" yaml:"whitelisted_cw_code_hashes_for_delegate_call"`
 	DeliverTxHookWasmGasLimit              uint64                                 `protobuf:"varint,9,opt,name=deliver_tx_hook_wasm_gas_limit,json=deliverTxHookWasmGasLimit,proto3" json:"deliver_tx_hook_wasm_gas_limit,omitempty"`
-	MaxDynamicBaseFeeUpwardAdjustment      github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,10,opt,name=max_dynamic_base_fee_upward_adjustment,json=maxDynamicBaseFeeUpwardAdjustment,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"max_dynamic_base_fee_upward_adjustment" yaml:"max_dynamic_base_fee_upward_adjustment"`
-	MaxDynamicBaseFeeDownwardAdjustment    github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,11,opt,name=max_dynamic_base_fee_downward_adjustment,json=maxDynamicBaseFeeDownwardAdjustment,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"max_dynamic_base_fee_downward_adjustment" yaml:"max_dynamic_base_fee_downward_adjustment"`
+	MaxDynamicBaseFeeUpwardAdjustment      github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,10,opt,name=max_dynamic_base_fee_upward_adjustment,json=maxDynamicBaseFeeUpwardAdjustment,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"max_dynamic_base_fee_upward_adjustment" yaml:"max_dynamic_base_fee_upward_adjustment"`
+	MaxDynamicBaseFeeDownwardAdjustment    github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,11,opt,name=max_dynamic_base_fee_downward_adjustment,json=maxDynamicBaseFeeDownwardAdjustment,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"max_dynamic_base_fee_downward_adjustment" yaml:"max_dynamic_base_fee_downward_adjustment"`
 	TargetGasUsedPerBlock                  uint64                                 `protobuf:"varint,12,opt,name=target_gas_used_per_block,json=targetGasUsedPerBlock,proto3" json:"target_gas_used_per_block,omitempty"`
-	MaximumFeePerGas                       github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,13,opt,name=maximum_fee_per_gas,json=maximumFeePerGas,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"maximum_fee_per_gas" yaml:"maximum_fee_per_gas"`
+	MaximumFeePerGas                       github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,13,opt,name=maximum_fee_per_gas,json=maximumFeePerGas,proto3,customtype=github.com/sei-protocol/sei-chain/sei-cosmos/types.Dec" json:"maximum_fee_per_gas" yaml:"maximum_fee_per_gas"`
 }
 
 func (m *ParamsPreV606) Reset()      { *m = ParamsPreV606{} }

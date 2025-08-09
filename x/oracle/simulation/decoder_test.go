@@ -6,10 +6,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/crypto/ed25519"
+	"github.com/sei-protocol/sei-chain/sei-tendermint/crypto/ed25519"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/kv"
+	sdk "github.com/sei-protocol/sei-chain/sei-cosmos/types"
+	"github.com/sei-protocol/sei-chain/sei-cosmos/types/kv"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	sim "github.com/sei-protocol/sei-chain/x/oracle/simulation"
