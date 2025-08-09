@@ -1,0 +1,51 @@
+name: PR → Slack thread → Cursor review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+jobs:
+  notify_and_review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build PR summary text
+        id: summary
+        run: |
+          printf "text=*PR #${{ github.event.pull_request.number }}:* %s\n• Author: %s\n• Link: %s" \
+            "${{ github.event.pull_request.title }}" \
+            "${{ github.event.pull_request.user.login }}" \
+            "${{ github.event.pull_request.html_url }}" >> $GITHUB_OUTPUT
+
+      - name: Post parent message in Slack
+        id: post_parent
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+        run: |
+          resp=$(curl -s -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H 'Content-type: application/json; charset=utf-8' \
+            --data "$(jq -n \
+              --arg ch "$SLACK_CHANNEL_ID" \
+              --arg txt "${{ steps.summary.outputs.text }}" \
+              '{channel:$ch,text:$txt,unfurl_links:false,unfurl_media:false}')")
+          echo "$resp"
+          echo "ts=$(echo "$resp" | jq -r '.ts')" >> $GITHUB_OUTPUT
+
+      - name: Start Cursor agent (thread reply w/ vuln review)
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+          CURSOR_BOT_ID: ${{ secrets.CURSOR_BOT_ID }}
+        run: |
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          PROMPT="<@${CURSOR_BOT_ID}> Analyze ${PR_URL} for security vulnerabilities (secrets exposure, auth/authz, input validation, SSRF, SQLi, path traversal, deserialization, RCE, dependency CVEs). Provide severity (high/med/low), file:line pointers, and concrete fixes. Start with a short exec summary."
+          curl -s -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H 'Content-type: application/json; charset=utf-8' \
+            --data "$(jq -n \
+              --arg ch "$SLACK_CHANNEL_ID" \
+              --arg ts "${{ steps.post_parent.outputs.ts }}" \
+              --arg txt "$PROMPT" \
+              '{channel:$ch,thread_ts:$ts,text:$txt,unfurl_links:false,unfurl_media:false}')"
+
