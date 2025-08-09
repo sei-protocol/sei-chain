@@ -10,11 +10,15 @@ jobs:
     steps:
       - name: Build PR summary text
         id: summary
+        shell: bash
         run: |
-          printf "text=*PR #${{ github.event.pull_request.number }}:* %s\n• Author: %s\n• Link: %s" \
-            "${{ github.event.pull_request.title }}" \
-            "${{ github.event.pull_request.user.login }}" \
-            "${{ github.event.pull_request.html_url }}" >> $GITHUB_OUTPUT
+          {
+            echo 'text<<EOF'
+            echo "*PR #${{ github.event.pull_request.number }}:* ${{ github.event.pull_request.title }}"
+            echo "• Author: ${{ github.event.pull_request.user.login }}"
+            echo "• Link: ${{ github.event.pull_request.html_url }}"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Post parent message in Slack
         id: post_parent
@@ -48,4 +52,3 @@ jobs:
               --arg ts "${{ steps.post_parent.outputs.ts }}" \
               --arg txt "$PROMPT" \
               '{channel:$ch,thread_ts:$ts,text:$txt,unfurl_links:false,unfurl_media:false}')"
-
