@@ -1,9 +1,11 @@
 package report
 
 import (
+	"bufio"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"time"
@@ -121,12 +123,43 @@ func (s *csvService) determineBucket(account *Account) string {
 	}
 }
 
+type AutoFlushWriter struct {
+	*bufio.Writer
+	writeCount int
+	flushEvery int
+}
+
+func NewAutoFlushWriter(w io.Writer, flushEvery int) *AutoFlushWriter {
+	return &AutoFlushWriter{
+		Writer:     bufio.NewWriter(w),
+		writeCount: 0,
+		flushEvery: flushEvery,
+	}
+}
+
+func (w *AutoFlushWriter) Write(p []byte) (n int, err error) {
+	n, err = w.Writer.Write(p)
+	if err != nil {
+		return n, err
+	}
+
+	w.writeCount++
+	if w.writeCount%w.flushEvery == 0 {
+		if flushErr := w.Writer.Flush(); flushErr != nil {
+			return n, flushErr
+		}
+	}
+
+	return n, nil
+}
+
 func (s *csvService) openCSVFile(name string) (*os.File, *csv.Writer) {
 	file, err := os.Create(fmt.Sprintf("%s/%s", s.outputDir, name))
 	if err != nil {
 		panic(err)
 	}
-	writer := csv.NewWriter(file)
+	autoFlushWriter := NewAutoFlushWriter(file, 10000)
+	writer := csv.NewWriter(autoFlushWriter)
 	return file, writer
 }
 
@@ -182,7 +215,6 @@ func (s *csvService) getCoinByDenom(ctx sdk.Context, denom string) *Coin {
 		Denom: denom,
 	}
 
-	// Check for pointer using the correct method from coins.go
 	p, _, exists := s.ek.GetERC20NativePointer(ctx, coin.Denom)
 	if exists {
 		coin.HasPointer = true
