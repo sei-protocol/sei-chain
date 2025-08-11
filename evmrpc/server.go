@@ -188,9 +188,8 @@ func NewEVMWebSocketServer(
 		return nil, err
 	}
 	simulateConfig := &SimulateConfig{
-		GasCap:                       config.SimulationGasLimit,
-		EVMTimeout:                   config.SimulationEVMTimeout,
-		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
+		GasCap:     config.SimulationGasLimit,
+		EVMTimeout: config.SimulationEVMTimeout,
 	}
 	apis := []rpc.API{
 		{
