@@ -149,7 +149,7 @@ require (
 	github.com/godbus/dbus v0.0.0-20190726142602-4481cbc300e2 // indirect
 	github.com/gofrs/flock v0.8.1 // indirect
 	github.com/gogo/gateway v1.1.0 // indirect
-	github.com/golang/glog v1.1.0 // indirect
+	github.com/golang/glog v1.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/snappy v0.0.5-0.20220116011046-fa5810519dcb // indirect
 	github.com/golangci/check v0.0.0-20180506172741-cfe4005ccda2 // indirect
@@ -167,7 +167,7 @@ require (
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/orderedcode v0.0.1 // indirect
 	github.com/google/pprof v0.0.0-20230207041349-798e818bf904 // indirect
-	github.com/google/uuid v1.3.0 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/gordonklaus/ineffassign v0.0.0-20210914165742-4cc7213b9bc8 // indirect
 	github.com/gorilla/handlers v1.5.1 // indirect
 	github.com/gostaticanalysis/analysisutil v0.7.1 // indirect
@@ -364,5 +364,4 @@ replace (
 	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.6.0
 	github.com/tendermint/tm-db => github.com/sei-protocol/tm-db v0.0.4
 	golang.org/x/crypto => golang.org/x/crypto v0.31.0
-	google.golang.org/grpc => google.golang.org/grpc v1.33.2
 )
