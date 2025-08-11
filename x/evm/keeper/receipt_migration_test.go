@@ -1,7 +1,6 @@
 package keeper_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
@@ -76,7 +75,6 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 
 	// Verify all receipts are retrievable from receipt.db after migration
 	for _, tx := range txs {
-		fmt.Println("tx", tx.Hex())
 		r, err := k.GetReceiptFromReceiptStore(ctx, tx)
 		require.NoError(t, err)
 		require.Equal(t, tx.Hex(), r.TxHashHex)

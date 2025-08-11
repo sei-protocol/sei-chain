@@ -88,7 +88,7 @@ type Keeper struct {
 	Root        common.Hash
 	ReplayBlock *ethtypes.Block
 
-	receiptStore seidbtypes.StateStore
+	ReceiptStore seidbtypes.StateStore
 
 	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
@@ -151,7 +151,7 @@ func NewKeeper(
 		nonceMx:                      &sync.RWMutex{},
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*AddressNoncePair),
-		receiptStore:                 receiptStateStore,
+		ReceiptStore:                 receiptStateStore,
 	}
 	return k
 }
