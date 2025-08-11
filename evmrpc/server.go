@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -21,6 +22,7 @@ var ConnectionTypeWS ConnectionType = "websocket"
 var ConnectionTypeHTTP ConnectionType = "http"
 
 const LocalAddress = "0.0.0.0"
+const DefaultWebsocketMaxMessageSize = 10 * 1024 * 1024
 
 type EVMServer interface {
 	Start() error
@@ -32,6 +34,7 @@ func NewEVMHTTPServer(
 	config Config,
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
+	wk *wasmkeeper.Keeper,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	ctxProvider func(int64) sdk.Context,
@@ -136,6 +139,13 @@ func NewEVMHTTPServer(
 			Service:   seiDebugAPI,
 		},
 	}
+
+	logger.Info("Enabling Report API")
+	apis = append(apis, rpc.API{
+		Namespace: "sei",
+		Service:   NewReportAPI(k, wk, ctxProvider),
+	})
+
 	// Test API can only exist on non-live chain IDs.  These APIs instrument certain overrides.
 	if config.EnableTestAPI && !evmCfg.IsLiveChainID(ctx) {
 		logger.Info("Enabling Test EVM APIs")
@@ -177,7 +187,11 @@ func NewEVMWebSocketServer(
 	if err := httpServer.SetListenAddr(LocalAddress, config.WSPort); err != nil {
 		return nil, err
 	}
-	simulateConfig := &SimulateConfig{GasCap: config.SimulationGasLimit, EVMTimeout: config.SimulationEVMTimeout}
+	simulateConfig := &SimulateConfig{
+		GasCap:                       config.SimulationGasLimit,
+		EVMTimeout:                   config.SimulationEVMTimeout,
+		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
+	}
 	apis := []rpc.API{
 		{
 			Namespace: "echo",
