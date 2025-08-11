@@ -1213,7 +1213,7 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 
 	// Check if transaction is gasless before recording metrics
 	// perf optimization: skip gasless check for obviously non-gasless transaction types
-	shouldCheckGasless := app.isLikelyGaslessTransaction(typedTx)
+	shouldCheckGasless := app.couldBeGaslessTransaction(typedTx)
 
 	var skipMetrics bool
 	if shouldCheckGasless {
@@ -1499,7 +1499,7 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 		var recordGasMetrics = true
 		if i < len(typedTxs) {
 			// perf optimization: skip gasless check for obviously non-gasless transaction types
-			shouldCheckGasless := app.isLikelyGaslessTransaction(typedTxs[i])
+			shouldCheckGasless := app.couldBeGaslessTransaction(typedTxs[i])
 			if shouldCheckGasless {
 				// Only do expensive validation for potentially gasless transactions
 				isGasless, err := antedecorators.IsTxGasless(typedTxs[i], ctx, app.OracleKeeper, &app.EvmKeeper)
@@ -1982,22 +1982,33 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 	return true
 }
 
-// isLikelyGaslessTransaction performs a quick check to identify potentially gasless transactions
-// without expensive keeper queries, optimizing performance for the common case
-func (app *App) isLikelyGaslessTransaction(tx sdk.Tx) bool {
+// couldBeGaslessTransaction performs a fast heuristic check to identify potentially
+// gasless transactions, avoiding expensive keeper queries for performance.
+//
+// Returns true if the transaction COULD be gasless (needs expensive check).
+// Returns false only if DEFINITELY not gasless.
+// False negatives are unacceptable as they cause incorrect gas metrics.
+func (app *App) couldBeGaslessTransaction(tx sdk.Tx) bool {
 	msgs := tx.GetMsgs()
-	if len(msgs) != 1 {
-		return false // gasless transactions typically have exactly one message
-	}
-
-	switch msgs[0].(type) {
-	case *evmtypes.MsgAssociate:
-		return true
-	case *oracletypes.MsgAggregateExchangeRateVote:
-		return true
-	default:
+	if len(msgs) == 0 {
+		// Empty transactions are definitely not gasless
 		return false
 	}
+
+	// Check if ANY message could potentially be gasless
+	for _, msg := range msgs {
+		switch msg.(type) {
+		case *evmtypes.MsgAssociate:
+			// Associate txs can be gasless, so we need to check
+			return true
+		case *oracletypes.MsgAggregateExchangeRateVote:
+			// Oracle vote txs can be gasless, so we need to check
+			return true
+		}
+	}
+
+	// If none of the messages are known gasless types, it's definitely not gasless
+	return false
 }
 
 func (app *App) GetTxConfig() client.TxConfig {
