@@ -46,6 +46,7 @@ import (
 )
 
 const Pacific1ChainID = "pacific-1"
+const Atlantic2ChainID = "atlantic-2"
 const DefaultBlockGasLimit = 10000000
 
 type Keeper struct {
