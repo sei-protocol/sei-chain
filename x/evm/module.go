@@ -396,7 +396,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 		if len(di.TxHash) == 0 {
 			continue
 		}
-		r, err := am.keeper.GetReceipt(ctx, common.BytesToHash(di.TxHash))
+		r, err := am.keeper.GetTransientReceipt(ctx, common.BytesToHash(di.TxHash), uint64(di.TxIndex))
 		if err != nil {
 			continue
 		}
