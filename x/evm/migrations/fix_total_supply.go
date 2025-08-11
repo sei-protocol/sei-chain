@@ -1,8 +1,8 @@
 package migrations
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	bankkeeper "github.com/sei-protocol/sei-chain/cosmos-sdk/x/bank/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )

@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/crypto/hd"
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos-sdk/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/cosmos/go-bip39"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"

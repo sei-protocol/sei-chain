@@ -1,0 +1,25 @@
+{
+  "src": {
+    "chain-id": "test-1",
+    "client-id": "",
+    "connection-id": "",
+    "channel-id": "",
+    "port-id": "ibcaccount",
+    "order": "ordered",
+    "version": "ics27-1"
+  },
+  "dst": {
+    "chain-id": "test-2",
+    "client-id": "",
+    "connection-id": "",
+    "channel-id": "",
+    "port-id": "ibcaccount",
+    "order": "ordered",
+    "version": "ics27-1"
+  },
+  "strategy": {
+    "type": "naive"
+  }
+}
+
+

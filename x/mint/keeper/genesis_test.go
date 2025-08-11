@@ -6,7 +6,7 @@ import (
 
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/testutil/nullify"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmproto "github.com/sei-protocol/sei-chain/tendermint/proto/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"

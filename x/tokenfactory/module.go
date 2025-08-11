@@ -14,21 +14,21 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/codec"
-	cdctypes "github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/module"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/codec"
+	cdctypes "github.com/sei-protocol/sei-chain/cosmos-sdk/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/types/module"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/sei-protocol/sei-chain/tendermint/abci/types"
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/client/cli"
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 
-	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
+	simtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/types/simulation"
 )
 
 var (

@@ -8,9 +8,9 @@ import (
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/sei-protocol/sei-chain/tendermint/abci/types"
 
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmproto "github.com/sei-protocol/sei-chain/tendermint/proto/tendermint/types"
 )
 
 func getGenesisTime() time.Time {

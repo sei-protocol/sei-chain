@@ -1,9 +1,9 @@
 package v600
 
 import (
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos-sdk/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )

@@ -1,7 +1,7 @@
 package aclmapping
 
 import (
-	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
+	aclkeeper "github.com/sei-protocol/sei-chain/cosmos-sdk/x/accesscontrol/keeper"
 	aclbankmapping "github.com/sei-protocol/sei-chain/aclmapping/bank"
 	aclevmmapping "github.com/sei-protocol/sei-chain/aclmapping/evm"
 	acloraclemapping "github.com/sei-protocol/sei-chain/aclmapping/oracle"

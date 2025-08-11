@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/server/config"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/server/config"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/occ_tests/messages"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/tendermint/abci/types"
 )
 
 func assertEqualState(t *testing.T, expectedCtx sdk.Context, actualCtx sdk.Context, testName string) {

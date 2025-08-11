@@ -33,7 +33,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/stretchr/testify/assert"
-	"github.com/tendermint/tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/tendermint/libs/log"
 )
 
 const testMethod = "rpc_modules"

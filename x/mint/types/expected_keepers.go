@@ -1,8 +1,8 @@
 package types // noalias
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/auth/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/x/auth/types"
 	epochtypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 )
 

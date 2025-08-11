@@ -10,11 +10,11 @@ import (
 
 	"math/big"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/config"
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client/config"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/crypto/hd"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/crypto/keyring"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/cosmos/go-bip39"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
@@ -355,9 +355,9 @@ func TestCumulativeGasUsedPopulation(t *testing.T) {
 	err := EVMKeeper.FlushTransientReceiptsSync(Ctx)
 	require.Nil(t, err)
 
-	for i := 0 ; i < len(txHashes); i++ {
+	for i := 0; i < len(txHashes); i++ {
 		receipt, err := EVMKeeper.GetReceipt(Ctx, txHashes[i])
 		require.Nil(t, err)
-		require.Equal(t, receipt.CumulativeGasUsed,  correctCumulativeGasUsedValues[i])
+		require.Equal(t, receipt.CumulativeGasUsed, correctCumulativeGasUsedValues[i])
 	}
 }

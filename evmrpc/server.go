@@ -4,15 +4,15 @@ import (
 	"context"
 	"strings"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/baseapp"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
 	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
-	"github.com/tendermint/tendermint/libs/log"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
+	"github.com/sei-protocol/sei-chain/tendermint/libs/log"
+	rpcclient "github.com/sei-protocol/sei-chain/tendermint/rpc/client"
 )
 
 type ConnectionType string

@@ -5,10 +5,10 @@ import (
 
 	tmdb "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/store"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/store"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmproto "github.com/sei-protocol/sei-chain/tendermint/proto/tendermint/types"
 )
 
 func TestCacheTxContext(t *testing.T) {

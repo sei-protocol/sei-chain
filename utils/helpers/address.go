@@ -5,9 +5,9 @@ import (
 	"math/big"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/crypto/keys/secp256k1"
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos-sdk/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"

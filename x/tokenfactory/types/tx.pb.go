@@ -6,8 +6,8 @@ package types
 import (
 	context "context"
 	fmt "fmt"
-	types1 "github.com/cosmos/cosmos-sdk/types"
-	types "github.com/cosmos/cosmos-sdk/x/bank/types"
+	types1 "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	types "github.com/sei-protocol/sei-chain/cosmos-sdk/x/bank/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	grpc1 "github.com/gogo/protobuf/grpc"
 	proto "github.com/gogo/protobuf/proto"

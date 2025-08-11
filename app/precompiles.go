@@ -1,11 +1,11 @@
 package app
 
 import (
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
-	"github.com/cosmos/cosmos-sdk/client"
-	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
-	govkeeper "github.com/cosmos/cosmos-sdk/x/gov/keeper"
-	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
+	wasmkeeper "github.com/sei-protocol/sei-chain/wasmd/x/wasm/keeper"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client"
+	bankkeeper "github.com/sei-protocol/sei-chain/cosmos-sdk/x/bank/keeper"
+	govkeeper "github.com/sei-protocol/sei-chain/cosmos-sdk/x/gov/keeper"
+	stakingkeeper "github.com/sei-protocol/sei-chain/cosmos-sdk/x/staking/keeper"
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 

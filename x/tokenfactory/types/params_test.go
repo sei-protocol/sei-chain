@@ -2,7 +2,7 @@ package types
 
 import (
 	"bytes"
-	"github.com/cosmos/cosmos-sdk/x/params/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/x/params/types"
 	"reflect"
 	"testing"
 )

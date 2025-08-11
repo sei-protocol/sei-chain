@@ -1,0 +1,42 @@
+syntax = "proto3";
+package iavl;
+
+option go_package = "proto";
+
+// ValueOp is a Protobuf representation of iavl.ValueOp.
+message ValueOp {
+  RangeProof proof = 1;
+}
+
+// AbsenceOp is a Protobuf representation of iavl.AbsenceOp.
+message AbsenceOp {
+  RangeProof proof = 1;
+}
+
+// RangeProof is a Protobuf representation of iavl.RangeProof.
+message RangeProof {
+  repeated ProofInnerNode left_path   = 1;
+  repeated PathToLeaf     inner_nodes = 2;
+  repeated ProofLeafNode  leaves      = 3;
+}
+
+// PathToLeaf is a Protobuf representation of iavl.PathToLeaf.
+message PathToLeaf {
+  repeated ProofInnerNode inners = 1;
+}
+
+// ProofInnerNode is a Protobuf representation of iavl.ProofInnerNode.
+message ProofInnerNode {
+  sint32 height  = 1;
+  int64  size    = 2;
+  int64  version = 3;
+  bytes  left    = 4;
+  bytes  right   = 5;
+}
+
+// ProofLeafNode is a Protobuf representation of iavl.ProofInnerNode.
+message ProofLeafNode {
+  bytes key        = 1;
+  bytes value_hash = 2;
+  int64 version    = 3;
+}

@@ -10,12 +10,12 @@ import (
 
 	"github.com/sei-protocol/sei-chain/utils/helpers"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	vestingtypes "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/crypto/keys/secp256k1"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	sdkacltypes "github.com/sei-protocol/sei-chain/cosmos-sdk/types/accesscontrol"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/auth/types"
+	vestingtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/auth/vesting/types"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"

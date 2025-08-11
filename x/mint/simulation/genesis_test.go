@@ -7,10 +7,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/types/module"
-	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/codec"
+	codectypes "github.com/sei-protocol/sei-chain/cosmos-sdk/codec/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/types/module"
+	simtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/types/simulation"
 	"github.com/sei-protocol/sei-chain/x/mint/simulation"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
 )

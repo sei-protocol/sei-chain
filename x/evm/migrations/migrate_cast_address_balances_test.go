@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/migrations"
 	"github.com/sei-protocol/sei-chain/x/evm/types"

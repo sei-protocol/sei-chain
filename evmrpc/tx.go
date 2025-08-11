@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -20,9 +20,9 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
-	"github.com/tendermint/tendermint/rpc/coretypes"
-	tmtypes "github.com/tendermint/tendermint/types"
+	rpcclient "github.com/sei-protocol/sei-chain/tendermint/rpc/client"
+	"github.com/sei-protocol/sei-chain/tendermint/rpc/coretypes"
+	tmtypes "github.com/sei-protocol/sei-chain/tendermint/types"
 )
 
 var ErrPanicTx = errors.New("transaction is panic tx")

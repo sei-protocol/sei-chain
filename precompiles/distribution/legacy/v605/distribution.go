@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"math/big"
 
-	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
+	distrtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/distribution/types"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"

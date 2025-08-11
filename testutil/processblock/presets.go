@@ -3,12 +3,12 @@ package processblock
 import (
 	"fmt"
 
-	"github.com/CosmWasm/wasmd/x/wasm"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/x/auth/signing"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/sei-chain/wasmd/x/wasm"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/x/auth/signing"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/auth/types"
+	distrtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/distribution/types"
+	stakingtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/staking/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 

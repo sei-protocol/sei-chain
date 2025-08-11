@@ -6,13 +6,13 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
+	rpcclient "github.com/sei-protocol/sei-chain/tendermint/rpc/client"
 )
 
 type TxPoolAPI struct {

@@ -4,7 +4,7 @@ import (
 	"math/big"
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/x/evm/state"

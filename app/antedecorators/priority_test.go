@@ -5,11 +5,11 @@ import (
 
 	"math"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmproto "github.com/sei-protocol/sei-chain/tendermint/proto/tendermint/types"
 )
 
 func TestPriorityAnteDecorator(t *testing.T) {

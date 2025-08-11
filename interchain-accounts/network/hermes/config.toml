@@ -1,0 +1,132 @@
+# The global section has parameters that apply globally to the relayer operation.
+[global]
+
+# Specify the verbosity for the relayer logging output. Default: 'info'
+# Valid options are 'error', 'warn', 'info', 'debug', 'trace'.
+log_level = 'trace'
+
+
+# Specify the mode to be used by the relayer. [Required]
+[mode]
+
+# Specify the client mode.
+[mode.clients]
+
+# Whether or not to enable the client workers. [Required]
+enabled = true
+
+# Whether or not to enable periodic refresh of clients. [Default: true]
+# Note: Even if this is disabled, clients will be refreshed automatically if
+#      there is activity on a connection or channel they are involved with.
+refresh = true
+
+# Whether or not to enable misbehaviour detection for clients. [Default: false]
+misbehaviour = true
+
+# Specify the connections mode.
+[mode.connections]
+
+# Whether or not to enable the connection workers for handshake completion. [Required]
+enabled = true
+
+# Specify the channels mode.
+[mode.channels]
+
+# Whether or not to enable the channel workers for handshake completion. [Required]
+enabled = true
+
+# Specify the packets mode.
+[mode.packets]
+
+# Whether or not to enable the packet workers. [Required]
+enabled = true
+
+# Parametrize the periodic packet clearing feature.
+# Interval (in number of blocks) at which pending packets
+# should be eagerly cleared. A value of '0' will disable
+# periodic packet clearing. [Default: 100]
+clear_interval = 100
+
+# Whether or not to clear packets on start. [Default: false]
+clear_on_start = true
+
+# Toggle the transaction confirmation mechanism.
+# The tx confirmation mechanism periodically queries the `/tx_search` RPC
+# endpoint to check that previously-submitted transactions
+# (to any chain in this config file) have delivered successfully.
+# Experimental feature. Affects telemetry if set to false.
+# [Default: true]
+tx_confirmation = true
+
+# The REST section defines parameters for Hermes' built-in RESTful API.
+# https://hermes.informal.systems/rest.html
+[rest]
+
+# Whether or not to enable the REST service. Default: false
+enabled = true
+
+# Specify the IPv4/6 host over which the built-in HTTP server will serve the RESTful
+# API requests. Default: 127.0.0.1
+host = '127.0.0.1'
+
+# Specify the port over which the built-in HTTP server will serve the restful API
+# requests. Default: 3000
+port = 3000
+
+
+# The telemetry section defines parameters for Hermes' built-in telemetry capabilities.
+# https://hermes.informal.systems/telemetry.html
+[telemetry]
+
+# Whether or not to enable the telemetry service. Default: false
+enabled = false
+
+# Specify the IPv4/6 host over which the built-in HTTP server will serve the metrics
+# gathered by the telemetry service. Default: 127.0.0.1
+host = '127.0.0.1'
+
+# Specify the port over which the built-in HTTP server will serve the metrics gathered
+# by the telemetry service. Default: 3001
+port = 3001
+
+[[chains]]
+id = 'test-1'
+rpc_addr = 'http://127.0.0.1:16657'
+grpc_addr = 'http://127.0.0.1:8090'
+websocket_addr = 'ws://127.0.0.1:16657/websocket'
+rpc_timeout = '10s'
+account_prefix = 'cosmos'
+key_name = 'testkey'
+store_prefix = 'ibc'
+default_gas = 100000
+max_gas = 3000000
+gas_price = { price = 0.001, denom = 'stake' }
+gas_adjustment = 0.1
+max_msg_num = 30
+max_tx_size = 2097152
+clock_drift = '5s'
+max_block_time = '10s'
+trusting_period = '14days'
+trust_threshold = { numerator = '1', denominator = '3' }
+address_type = { derivation = 'cosmos' }
+
+[[chains]]
+id = 'test-2'
+rpc_addr = 'http://127.0.0.1:26657'
+grpc_addr = 'http://127.0.0.1:9090'
+websocket_addr = 'ws://127.0.0.1:26657/websocket'
+rpc_timeout = '10s'
+account_prefix = 'cosmos'
+key_name = 'testkey'
+store_prefix = 'ibc'
+default_gas = 100000
+max_gas = 3000000
+gas_price = { price = 0.001, denom = 'stake' }
+gas_adjustment = 0.1
+max_msg_num = 30
+max_tx_size = 2097152
+clock_drift = '5s'
+max_block_time = '10s'
+trusting_period = '14days'
+trust_threshold = { numerator = '1', denominator = '3' }
+address_type = { derivation = 'cosmos' }

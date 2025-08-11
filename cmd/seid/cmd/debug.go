@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cosmos/cosmos-sdk/version"
-	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/version"
+	"github.com/sei-protocol/sei-chain/iavl"
 	"github.com/spf13/cobra"
 	dbm "github.com/tendermint/tm-db"
 )

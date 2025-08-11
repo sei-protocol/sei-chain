@@ -3,9 +3,9 @@ package v0
 import (
 	"fmt"
 
-	"github.com/CosmWasm/wasmd/x/wasm"
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/wasmd/x/wasm"
+	wasmkeeper "github.com/sei-protocol/sei-chain/wasmd/x/wasm/keeper"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app/upgrades"
 )
 

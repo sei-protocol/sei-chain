@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	typestx "github.com/cosmos/cosmos-sdk/types/tx"
+	typestx "github.com/sei-protocol/sei-chain/cosmos-sdk/types/tx"
 )
 
 func SendTx(

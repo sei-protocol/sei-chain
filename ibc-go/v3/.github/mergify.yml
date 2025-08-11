@@ -1,0 +1,52 @@
+queue_rules:
+  - name: default
+    conditions:
+      - "#approved-reviews-by>=1"
+      - base=main
+      - label=automerge
+
+pull_request_rules:
+  - name: automerge to main with label automerge and branch protection passing
+    conditions:
+      - "#approved-reviews-by>=1"
+      - base=main
+      - label=automerge
+    actions:
+      queue:
+        name: default
+        method: squash
+        commit_message_template: |
+           {{ title }} (#{{ number }})
+           {{ body }}
+  - name: backport patches to v1.1.x branch
+    conditions:
+      - base=main
+      - label=backport-to-v1.1.x
+    actions:
+      backport:
+        branches:
+          - release/v1.1.x
+  - name: backport patches to v1.2x branch
+    conditions:
+      - base=main
+      - label=backport-to-v1.2.x
+    actions:
+      backport:
+        branches:
+          - release/v1.2.x
+  - name: backport patches to v2.0.x branch
+    conditions:
+      - base=main
+      - label=backport-to-v2.0.x
+    actions:
+      backport:
+        branches:
+          - release/v2.0.x
+  - name: backport patches to v3.0.x branch
+    conditions:
+      - base=main
+      - label=backport-to-v3.0.x
+    actions:
+      backport:
+        branches:
+          - release/v3.0.x

@@ -1,0 +1,56 @@
+FROM centos:centos7
+
+RUN yum -y update \
+  && yum -y install clang gcc gcc-c++ make wget \
+  # Obtain dependencies for cross compiling
+  # The only prebuilt glibc was done by third party Computational
+  && yum -y install epel-release \
+  # See https://centos.pkgs.org/7/epel-aarch64/gcc-aarch64-linux-gnu-4.8.5-16.el7.1.aarch64.rpm.html
+  # and https://centos.pkgs.org/7/epel-aarch64/gcc-c++-aarch64-linux-gnu-4.8.5-16.el7.1.aarch64.rpm.html:
+  # "Support for cross-building user space programs is not currently provided as that would massively multiply
+  # the number of packages."
+  && yum -y install gcc-aarch64-linux-gnu gcc-c++-aarch64-linux-gnu \
+  # See https://stackoverflow.com/a/64920961
+  && wget http://springdale.princeton.edu/data/springdale/7/x86_64/os/Computational/glibc-aarch64-linux-gnu-2.24-2.sdl7.2.noarch.rpm \
+  && sha256sum glibc-aarch64-linux-gnu-2.24-2.sdl7.2.noarch.rpm | grep 8caf8654ba0c15e1792bf0aaa1ac0cd4ad94ac905e97d6ea0f0e56e9ca1f5e78 \
+  && wget http://springdale.princeton.edu/data/springdale/7/x86_64/os/Computational/glibc-aarch64-linux-gnu-devel-2.24-2.sdl7.2.noarch.rpm \
+  && sha256sum glibc-aarch64-linux-gnu-devel-2.24-2.sdl7.2.noarch.rpm | grep bf050dc2389630f50e90f4cdaf6e4e1d986e89dcd2c8432f72738abe38b3bce2 \
+  && yum install -y glibc-aarch64-linux-gnu-2.24-2.sdl7.2.noarch.rpm \
+  && yum install -y glibc-aarch64-linux-gnu-devel-2.24-2.sdl7.2.noarch.rpm \
+  && rm glibc-aarch64-*.rpm
+
+# GET FROM https://github.com/rust-lang/docker-rust-nightly
+ENV RUSTUP_HOME=/usr/local/rustup \
+  CARGO_HOME=/usr/local/cargo \
+  PATH=/usr/local/cargo/bin:$PATH
+
+RUN wget "https://static.rust-lang.org/rustup/dist/x86_64-unknown-linux-gnu/rustup-init" \
+  && chmod +x rustup-init \
+  && ./rustup-init -y --no-modify-path --profile minimal --default-toolchain 1.73.0 \
+  && rm rustup-init \
+  && chmod -R a+w $RUSTUP_HOME $CARGO_HOME \
+  && rustup --version \
+  && cargo --version \
+  && rustc --version \
+  && chmod -R 777 /usr/local/cargo \
+  && rustup target add aarch64-unknown-linux-gnu
+
+## COPY BUILD SCRIPTS
+
+WORKDIR /code
+
+COPY guest/*.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/*.sh
+
+RUN mkdir /.cargo
+RUN chmod +rx /.cargo
+COPY guest/cargo-config /.cargo/config
+
+# Copy the missing library libgcc_s.so that gcc does not provide
+RUN wget http://mirror.centos.org/altarch/7/os/aarch64/Packages/libgcc-4.8.5-44.el7.aarch64.rpm \
+  && sha256sum libgcc-4.8.5-44.el7.aarch64.rpm | grep 4f44c5be70ed9d8d74c2a616cde92a842b15eefaccd766959e5fbd7fbe965d2d \
+  && rpm2cpio libgcc-4.8.5-44.el7.aarch64.rpm | cpio -idmv \
+  && cp /code/lib64/libgcc_s-4.8.5-20150702.so.1 /usr/lib/gcc/aarch64-linux-gnu/4.8.5/libgcc_s.so \
+  && rm libgcc-*.el7.aarch64.rpm
+
+CMD ["bash", "-c", "echo 'Argument missing. Pass one build script (e.g. build_linux.sh) to docker run' && exit 1"]

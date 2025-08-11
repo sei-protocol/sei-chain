@@ -3,11 +3,11 @@ package params
 import (
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/types/address"
-	tmcfg "github.com/tendermint/tendermint/config"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/types/address"
+	tmcfg "github.com/sei-protocol/sei-chain/tendermint/config"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos-sdk/types/errors"
 )
 
 const (

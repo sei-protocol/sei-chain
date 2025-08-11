@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethcore "github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/tracing"
@@ -22,8 +22,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmtypes "github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/tendermint/abci/types"
+	tmtypes "github.com/sei-protocol/sei-chain/tendermint/types"
 )
 
 func Replay(a *App) {

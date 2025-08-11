@@ -2,7 +2,7 @@ package oracle
 
 import (
 	"github.com/armon/go-metrics"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/rs/zerolog"
 
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/provider"

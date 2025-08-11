@@ -5,14 +5,14 @@ import (
 	"time"
 
 	"github.com/armon/go-metrics"
-	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/storev2/commitment"
+	servertypes "github.com/sei-protocol/sei-chain/cosmos-sdk/server/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/storev2/commitment"
 	"github.com/spf13/cast"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 
-	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	bankkeeper "github.com/sei-protocol/sei-chain/cosmos-sdk/x/bank/keeper"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/bank/types"
 
 	seimetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 )

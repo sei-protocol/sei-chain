@@ -8,19 +8,19 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	iavlstore "github.com/cosmos/cosmos-sdk/store/iavl"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/store/cachekv"
+	iavlstore "github.com/sei-protocol/sei-chain/cosmos-sdk/store/iavl"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/proto/tendermint/crypto"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
-	"github.com/tendermint/tendermint/rpc/coretypes"
+	abci "github.com/sei-protocol/sei-chain/tendermint/abci/types"
+	"github.com/sei-protocol/sei-chain/tendermint/proto/tendermint/crypto"
+	rpcclient "github.com/sei-protocol/sei-chain/tendermint/rpc/client"
+	"github.com/sei-protocol/sei-chain/tendermint/rpc/coretypes"
 )
 
 type StateAPI struct {

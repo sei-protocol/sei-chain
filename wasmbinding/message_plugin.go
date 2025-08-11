@@ -1,14 +1,14 @@
 package wasmbinding
 
 import (
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
-	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	wasmkeeper "github.com/sei-protocol/sei-chain/wasmd/x/wasm/keeper"
+	wasmtypes "github.com/sei-protocol/sei-chain/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/baseapp"
+	codectypes "github.com/sei-protocol/sei-chain/cosmos-sdk/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	sdkacltypes "github.com/sei-protocol/sei-chain/cosmos-sdk/types/accesscontrol"
+	aclkeeper "github.com/sei-protocol/sei-chain/cosmos-sdk/x/accesscontrol/keeper"
+	acltypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/accesscontrol/types"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )

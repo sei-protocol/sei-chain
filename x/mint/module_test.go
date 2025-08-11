@@ -6,11 +6,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	abcitypes "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	abcitypes "github.com/sei-protocol/sei-chain/tendermint/abci/types"
+	tmproto "github.com/sei-protocol/sei-chain/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/simapp"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/auth/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/x/mint"
 	"github.com/sei-protocol/sei-chain/x/mint/types"

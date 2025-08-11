@@ -7,14 +7,14 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/holiman/uint256"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
-	vestingtypes "github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/auth/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/x/auth/vesting"
+	vestingtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/auth/vesting/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -27,7 +27,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/sei-protocol/sei-chain/tendermint/abci/types"
 )
 
 func TestModuleName(t *testing.T) {

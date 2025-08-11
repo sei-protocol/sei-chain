@@ -3,15 +3,15 @@ package antedecorators
 import (
 	"encoding/hex"
 
-	wasm "github.com/CosmWasm/wasmd/x/wasm"
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	acl "github.com/cosmos/cosmos-sdk/x/accesscontrol"
-	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
-	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
-	"github.com/cosmos/cosmos-sdk/x/authz"
+	wasm "github.com/sei-protocol/sei-chain/wasmd/x/wasm"
+	wasmtypes "github.com/sei-protocol/sei-chain/wasmd/x/wasm/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	sdkacltypes "github.com/sei-protocol/sei-chain/cosmos-sdk/types/accesscontrol"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos-sdk/types/errors"
+	acl "github.com/sei-protocol/sei-chain/cosmos-sdk/x/accesscontrol"
+	aclkeeper "github.com/sei-protocol/sei-chain/cosmos-sdk/x/accesscontrol/keeper"
+	acltypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/accesscontrol/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/x/authz"
 )
 
 type ACLWasmDependencyDecorator struct {

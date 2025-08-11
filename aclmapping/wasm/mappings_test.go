@@ -3,17 +3,17 @@ package aclwasmmapping
 import (
 	"testing"
 
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/simapp"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	"github.com/cosmos/cosmos-sdk/x/bank/types"
+	wasmtypes "github.com/sei-protocol/sei-chain/wasmd/x/wasm/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/crypto/keys/secp256k1"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/simapp"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/types/accesscontrol"
+	acltypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/accesscontrol/types"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/auth/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/x/bank/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmproto "github.com/sei-protocol/sei-chain/tendermint/proto/tendermint/types"
 )
 
 func TestWasmDependencyGenerator(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/go-playground/validator/v10"
 )
 

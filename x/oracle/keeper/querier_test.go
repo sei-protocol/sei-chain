@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"

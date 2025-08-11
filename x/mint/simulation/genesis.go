@@ -8,8 +8,8 @@ import (
 	"math/rand"
 	"time"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/module"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/types/module"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
 )
 

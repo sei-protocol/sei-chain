@@ -3,11 +3,11 @@ package ante
 import (
 	"math/big"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos-sdk/types/errors"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmtypes "github.com/tendermint/tendermint/types"
+	abci "github.com/sei-protocol/sei-chain/tendermint/abci/types"
+	tmtypes "github.com/sei-protocol/sei-chain/tendermint/types"
 
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"

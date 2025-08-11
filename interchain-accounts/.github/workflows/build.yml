@@ -1,0 +1,42 @@
+# This is a basic workflow that is manually triggered
+
+name: icad
+
+# Controls when the action will run. Workflow runs when manually triggered using the UI
+# or API.
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+# This workflow makes x86_64 binaries for mac, windows, and linux.
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+        targetos: [windows, darwin, linux]
+    name: interchainaccount ${{ matrix.arch }} for ${{ matrix.targetos }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup go
+        uses: actions/setup-go@v1
+        with:
+          go-version: 1.15
+        env:
+          GOOS: ${{ matrix.targetos }}
+          GOARCH: ${{ matrix.arch }}
+
+      - name: Compile
+        run: |
+          go mod download
+          cd cmd/icad
+          go build .
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: icad ${{ matrix.targetos }} ${{ matrix.arch }}
+          path: cmd/icad/icad

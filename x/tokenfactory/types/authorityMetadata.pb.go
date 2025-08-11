@@ -5,7 +5,7 @@ package types
 
 import (
 	fmt "fmt"
-	_ "github.com/cosmos/cosmos-sdk/types"
+	_ "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
 	io "io"

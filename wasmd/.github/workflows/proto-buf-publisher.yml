@@ -1,0 +1,34 @@
+name: Proto Buf Publishing - Action
+# Protobuf runs buf (https://buf.build/) push updated proto files to https://buf.build/cosmwasm/wasmd
+# This workflow is only run when a .proto file has been changed
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'proto/**'
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: bufbuild/buf-setup-action@v0.7.0
+
+      # lint checks
+      - uses: bufbuild/buf-lint-action@v1
+        with:
+          input: 'proto'
+
+      # TODO: Add this when project is more stable.
+      # backward compatibility breaking checks
+      #- uses: bufbuild/buf-breaking-action@v1
+      #  with:
+      #    input: 'proto'
+      #    against: 'https://github.com/CosmWasm/wasmd.git#branch=master'
+
+      # publish proto files
+      - uses: bufbuild/buf-push-action@v1
+        with:
+          input: 'proto'
+          buf_token: ${{ secrets.BUF_TOKEN }}

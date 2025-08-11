@@ -5,10 +5,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/tendermint/tendermint/crypto/secp256k1"
+	"github.com/sei-protocol/sei-chain/tendermint/crypto/secp256k1"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/bank/types"
 
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"

@@ -9,9 +9,9 @@ import (
 
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/rest"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/types/rest"
 )
 
 func registerQueryRoutes(cliCtx client.Context, rtr *mux.Router) {

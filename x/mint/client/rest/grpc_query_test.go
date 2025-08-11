@@ -7,14 +7,14 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/testutil"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	grpctypes "github.com/cosmos/cosmos-sdk/types/grpc"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/testutil"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	grpctypes "github.com/sei-protocol/sei-chain/cosmos-sdk/types/grpc"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/cosmos/cosmos-sdk/testutil/network"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/testutil/network"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 

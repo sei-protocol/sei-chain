@@ -1,10 +1,10 @@
 package types
 
 import (
-	"github.com/cosmos/cosmos-sdk/codec"
-	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/msgservice"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/codec"
+	codectypes "github.com/sei-protocol/sei-chain/cosmos-sdk/codec/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/types/msgservice"
 )
 
 func RegisterCodec(cdc *codec.LegacyAmino) {

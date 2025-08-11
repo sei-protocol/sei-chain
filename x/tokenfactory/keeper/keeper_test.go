@@ -1,12 +1,12 @@
 package keeper_test
 
 import (
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/bank/types"
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/stretchr/testify/suite"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmproto "github.com/sei-protocol/sei-chain/tendermint/proto/tendermint/types"
 
 	"github.com/sei-protocol/sei-chain/app/apptesting"
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"

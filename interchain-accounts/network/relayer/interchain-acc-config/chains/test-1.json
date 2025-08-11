@@ -1,0 +1,12 @@
+{
+  "key": "test-1",
+  "chain-id": "test-1",
+  "rpc-addr": "http://127.0.0.1:16657",
+  "account-prefix": "cosmos",
+  "gas-prices": "0.0025stake",
+  "default-denom": "stake",
+  "gas-adjustment":1.5,
+  "gas":900000,
+  "trusting-period": "330h"
+}
+

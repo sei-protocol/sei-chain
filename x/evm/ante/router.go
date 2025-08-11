@@ -3,8 +3,8 @@ package ante
 import (
 	"errors"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	sdkacltypes "github.com/sei-protocol/sei-chain/cosmos-sdk/types/accesscontrol"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
