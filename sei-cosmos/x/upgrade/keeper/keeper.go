@@ -289,6 +289,26 @@ func (k Keeper) GetDoneHeight(ctx sdk.Context, name string) int64 {
 	return int64(binary.BigEndian.Uint64(bz))
 }
 
+func (k Keeper) GetClosestUpgrade(ctx sdk.Context, height int64) (string, int64) {
+	iter := sdk.KVStoreReversePrefixIterator(ctx.KVStore(k.storeKey), []byte{types.DoneByte})
+	defer iter.Close()
+
+	var (
+		closest upgrade
+		found   bool
+	)
+	for ; iter.Valid(); iter.Next() {
+		upgradeHeight := int64(sdk.BigEndianToUint64(iter.Value()))
+		if !found || (upgradeHeight >= height && upgradeHeight < closest.BlockHeight) {
+			found = true
+			name := parseDoneKey(iter.Key())
+			closest = upgrade{Name: name, BlockHeight: upgradeHeight}
+		}
+	}
+
+	return closest.Name, closest.BlockHeight
+}
+
 // ClearIBCState clears any planned IBC state
 func (k Keeper) ClearIBCState(ctx sdk.Context, lastHeight int64) {
 	// delete IBC client and consensus state from store if this is IBC plan

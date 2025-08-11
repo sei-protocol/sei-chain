@@ -68,6 +68,8 @@ type Context struct {
 	messageIndex int // Used to track current message being processed
 	txIndex      int
 
+	closestUpgradeName string
+
 	traceSpanContext context.Context
 
 	isTracing   bool
@@ -609,4 +611,13 @@ func WrapSDKContext(ctx Context) context.Context {
 // attached
 func UnwrapSDKContext(ctx context.Context) Context {
 	return ctx.Value(SdkContextKey).(Context)
+}
+
+func (c Context) ClosestUpgradeName() string {
+	return c.closestUpgradeName
+}
+
+func (c Context) WithClosestUpgradeName(name string) Context {
+	c.closestUpgradeName = name
+	return c
 }
