@@ -59,13 +59,13 @@ func (k *Keeper) DeleteTransientReceipt(ctx sdk.Context, txHash common.Hash, txI
 // by EVM transaction hash (not Sei transaction hash) to function properly.
 func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	// receipts are immutable, use latest version
-	lv, err := k.ReceiptStore.GetLatestVersion()
+	lv, err := k.receiptStore.GetLatestVersion()
 	if err != nil {
 		return nil, err
 	}
 
 	// try persistent store
-	bz, err := k.ReceiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
+	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
 	if err != nil {
 		return nil, err
 	}
@@ -86,15 +86,16 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 	return &r, nil
 }
 
+// Only used for testing
 func (k *Keeper) GetReceiptFromReceiptStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	// receipts are immutable, use latest version
-	lv, err := k.ReceiptStore.GetLatestVersion()
+	lv, err := k.receiptStore.GetLatestVersion()
 	if err != nil {
 		return nil, err
 	}
 
 	// try persistent store
-	bz, err := k.ReceiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
+	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
 	if err != nil {
 		return nil, err
 	}
@@ -187,11 +188,11 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 	}
 
 	if sync {
-		return k.ReceiptStore.ApplyChangeset(ctx.BlockHeight(), ncs)
+		return k.receiptStore.ApplyChangeset(ctx.BlockHeight(), ncs)
 	} else {
 		var changesets []*proto.NamedChangeSet
 		changesets = append(changesets, ncs)
-		return k.ReceiptStore.ApplyChangesetAsync(ctx.BlockHeight(), changesets)
+		return k.receiptStore.ApplyChangesetAsync(ctx.BlockHeight(), changesets)
 	}
 }
 
@@ -246,7 +247,7 @@ func (k *Keeper) MigrateLegacyReceiptsBatch(ctx sdk.Context, batchSize int) (int
 	}
 
 	// Write to persistent receipt store first
-	if err := k.ReceiptStore.ApplyChangeset(ctx.BlockHeight(), ncs); err != nil {
+	if err := k.receiptStore.ApplyChangeset(ctx.BlockHeight(), ncs); err != nil {
 		return 0, err
 	}
 
