@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -1845,6 +1846,12 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 }
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
+	defer func() {
+		if err := recover(); err != nil {
+			debug.PrintStack()
+			panic(err)
+		}
+	}()
 	if i == evmrpc.LatestCtxHeight {
 		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
