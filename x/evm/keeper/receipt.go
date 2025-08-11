@@ -58,7 +58,6 @@ func (k *Keeper) DeleteTransientReceipt(ctx sdk.Context, txHash common.Hash, txI
 // Many EVM applications (e.g. MetaMask) relies on being on able to query receipt
 // by EVM transaction hash (not Sei transaction hash) to function properly.
 func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
-
 	// receipts are immutable, use latest version
 	lv, err := k.receiptStore.GetLatestVersion()
 	if err != nil {
@@ -78,6 +77,29 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 		if bz == nil {
 			return nil, errors.New("not found")
 		}
+	}
+
+	var r types.Receipt
+	if err := r.Unmarshal(bz); err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+func (k *Keeper) GetReceiptFromReceiptStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
+	// receipts are immutable, use latest version
+	lv, err := k.receiptStore.GetLatestVersion()
+	if err != nil {
+		return nil, err
+	}
+
+	// try persistent store
+	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
+	if err != nil {
+		return nil, err
+	}
+	if bz == nil {
+		return nil, errors.New("not found")
 	}
 
 	var r types.Receipt

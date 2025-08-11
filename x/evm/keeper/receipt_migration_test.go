@@ -1,6 +1,7 @@
 package keeper_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
@@ -27,15 +28,44 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 
 	require.Equal(t, 101, getLegacyReceiptCount(ctx, k))
 
+	// Verify some sample legacy receipts exist before migration
+	checkLegacyReceipt(t, ctx, k, txs[0], true)
+	checkLegacyReceipt(t, ctx, k, txs[len(txs)-1], true)
+
+	// Verify some sample legacy receipts are not retrievable from receipt.db before migration
+	for _, tx := range txs {
+		_, err := k.GetReceiptFromReceiptStore(ctx, tx)
+		require.Error(t, err)
+	}
+
 	migrated, err := k.MigrateLegacyReceiptsBatch(ctx, keeper.LegacyReceiptMigrationBatchSize)
 	require.NoError(t, err)
 	require.Equal(t, 100, migrated)
 	require.Equal(t, 1, getLegacyReceiptCount(ctx, k))
 
-	// A migrated receipt should now be retrievable via persistent store
-	r, err := k.GetReceipt(ctx, txs[0])
-	require.NoError(t, err)
-	require.Equal(t, txs[0].Hex(), r.TxHashHex)
+	// The first tx should have been removed from legacy store; the last should still exist
+	for i := 0; i < 100; i++ {
+		checkLegacyReceipt(t, ctx, k, txs[i], false)
+	}
+	checkLegacyReceipt(t, ctx, k, txs[len(txs)-1], true)
+
+	// Verify first 100 legacy receipts are retrievable from receipt.db after migration
+	for i := 0; i < 100; i++ {
+		tx := txs[i]
+		r, err := k.GetReceiptFromReceiptStore(ctx, tx)
+		require.NoError(t, err)
+		require.Equal(t, tx.Hex(), r.TxHashHex)
+	}
+	// Verify last receipt is not retrievable from receipt.db after migration
+	_, err = k.GetReceiptFromReceiptStore(ctx, txs[len(txs)-1])
+	require.Error(t, err)
+
+	// Check GetReceipt works for migrated receipts
+	for _, tx := range txs[:100] {
+		r, err := k.GetReceipt(ctx, tx)
+		require.NoError(t, err)
+		require.Equal(t, tx.Hex(), r.TxHashHex)
+	}
 
 	// Advance height to ensure subsequent ApplyChangeset uses a new version
 	ctx = ctx.WithBlockHeight(ctx.BlockHeight() + 1)
@@ -44,10 +74,25 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 	require.Equal(t, 1, migrated)
 	require.Equal(t, 0, getLegacyReceiptCount(ctx, k))
 
-	// The last receipt should also be retrievable
-	r, err = k.GetReceipt(ctx, txs[len(txs)-1])
-	require.NoError(t, err)
-	require.Equal(t, txs[len(txs)-1].Hex(), r.TxHashHex)
+	// Verify all receipts are retrievable from receipt.db after migration
+	for _, tx := range txs {
+		fmt.Println("tx", tx.Hex())
+		r, err := k.GetReceiptFromReceiptStore(ctx, tx)
+		require.NoError(t, err)
+		require.Equal(t, tx.Hex(), r.TxHashHex)
+	}
+
+	// Check all receipts not retrievable from legacy store
+	for i := 0; i < 100; i++ {
+		checkLegacyReceipt(t, ctx, k, txs[i], false)
+	}
+
+	// Check GetReceipt works for all receipts
+	for _, tx := range txs {
+		r, err := k.GetReceipt(ctx, tx)
+		require.NoError(t, err)
+		require.Equal(t, tx.Hex(), r.TxHashHex)
+	}
 }
 
 func setLegacyReceipt(ctx sdk.Context, k *keeper.Keeper, txHash common.Hash, receipt *types.Receipt) {
@@ -67,4 +112,16 @@ func getLegacyReceiptCount(ctx sdk.Context, k *keeper.Keeper) (cnt int) {
 		cnt++
 	}
 	return
+}
+
+// checkLegacyReceipt asserts the presence of a legacy receipt (stored in KV under ReceiptKeyPrefix)
+// prior to migration, and its absence after migration.
+func checkLegacyReceipt(t *testing.T, ctx sdk.Context, k *keeper.Keeper, txHash common.Hash, shouldExist bool) {
+	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), types.ReceiptKeyPrefix)
+	exists := store.Get(txHash[:]) != nil
+	if shouldExist {
+		require.Truef(t, exists, "expected legacy receipt to exist for %s", txHash.Hex())
+	} else {
+		require.Falsef(t, exists, "expected legacy receipt to be migrated for %s", txHash.Hex())
+	}
 }
