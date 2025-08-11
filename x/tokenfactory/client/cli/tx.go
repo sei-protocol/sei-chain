@@ -11,12 +11,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/client/tx"
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client/flags"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client/tx"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/codec"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/bank/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"

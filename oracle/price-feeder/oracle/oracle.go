@@ -10,9 +10,9 @@ import (
 	"time"
 
 	gometrics "github.com/armon/go-metrics"
-	sdkclient "github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/telemetry"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkclient "github.com/sei-protocol/sei-chain/cosmos-sdk/client"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/telemetry"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/pkg/errors"
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/errgroup"

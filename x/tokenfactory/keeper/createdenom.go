@@ -3,8 +3,8 @@ package keeper
 import (
 	"fmt"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/bank/types"
 
 	"github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 )

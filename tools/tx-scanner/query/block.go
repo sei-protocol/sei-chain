@@ -3,7 +3,7 @@ package query
 import (
 	"context"
 
-	"github.com/cosmos/cosmos-sdk/client/grpc/tmservice"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client/grpc/tmservice"
 	"github.com/sei-protocol/sei-chain/tools/tx-scanner/client"
 )
 

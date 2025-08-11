@@ -1,9 +1,9 @@
 package types
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos-sdk/types/errors"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/bank/types"
 )
 
 // constants

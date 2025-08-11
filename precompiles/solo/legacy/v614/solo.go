@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	authante "github.com/cosmos/cosmos-sdk/x/auth/ante"
-	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
+	cryptotypes "github.com/sei-protocol/sei-chain/cosmos-sdk/crypto/types"
+	authante "github.com/sei-protocol/sei-chain/cosmos-sdk/x/auth/ante"
+	authsigning "github.com/sei-protocol/sei-chain/cosmos-sdk/x/auth/signing"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"

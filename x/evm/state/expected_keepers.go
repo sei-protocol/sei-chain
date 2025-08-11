@@ -3,10 +3,10 @@ package state
 import (
 	"math/big"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
-	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
-	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	authkeeper "github.com/sei-protocol/sei-chain/cosmos-sdk/x/auth/keeper"
+	bankkeeper "github.com/sei-protocol/sei-chain/cosmos-sdk/x/bank/keeper"
+	upgradekeeper "github.com/sei-protocol/sei-chain/cosmos-sdk/x/upgrade/keeper"
 	"github.com/ethereum/go-ethereum/common"
 )
 

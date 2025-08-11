@@ -18,9 +18,9 @@ package state
 import (
 	"math/big"
 
-	"github.com/tendermint/tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/tendermint/libs/log"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/holiman/uint256"

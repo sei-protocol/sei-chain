@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
-	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
+	distrtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/distribution/types"
 
-	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	crptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
-	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/crypto/keys/secp256k1"
+	crptotypes "github.com/sei-protocol/sei-chain/cosmos-sdk/crypto/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	slashingtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/slashing/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/x/staking/teststaking"
+	stakingtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/staking/types"
 	abitypes "github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -36,7 +36,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/require"
-	tmtypes "github.com/tendermint/tendermint/proto/tendermint/types"
+	tmtypes "github.com/sei-protocol/sei-chain/tendermint/proto/tendermint/types"
 )
 
 //go:embed abi.json

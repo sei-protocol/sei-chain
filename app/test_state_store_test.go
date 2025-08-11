@@ -3,8 +3,8 @@ package app
 import (
 	"testing"
 
-	"github.com/cosmos/iavl"
-	seidbproto "github.com/sei-protocol/sei-db/proto"
+	"github.com/sei-protocol/sei-chain/iavl"
+	seidbproto "github.com/sei-protocol/sei-chain/sei-db/proto"
 	"github.com/stretchr/testify/assert"
 )
 

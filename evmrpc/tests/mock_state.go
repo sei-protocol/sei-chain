@@ -9,12 +9,12 @@ import (
 	"os"
 	"strconv"
 
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	wasmtypes "github.com/sei-protocol/sei-chain/wasmd/x/wasm/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	"github.com/tendermint/tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/tendermint/rpc/coretypes"
 )
 
 type RpcResponse struct {

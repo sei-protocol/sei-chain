@@ -3,11 +3,11 @@ package aclwasmmapping
 import (
 	"fmt"
 
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
-	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	wasmtypes "github.com/sei-protocol/sei-chain/wasmd/x/wasm/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	sdkacltypes "github.com/sei-protocol/sei-chain/cosmos-sdk/types/accesscontrol"
+	aclkeeper "github.com/sei-protocol/sei-chain/cosmos-sdk/x/accesscontrol/keeper"
+	acltypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/accesscontrol/types"
 )
 
 var (

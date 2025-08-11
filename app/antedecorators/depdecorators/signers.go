@@ -3,11 +3,11 @@ package depdecorators
 import (
 	"encoding/hex"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	sdkacltypes "github.com/sei-protocol/sei-chain/cosmos-sdk/types/accesscontrol"
+	sdkerrors "github.com/sei-protocol/sei-chain/cosmos-sdk/types/errors"
+	authsigning "github.com/sei-protocol/sei-chain/cosmos-sdk/x/auth/signing"
+	authtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/auth/types"
 )
 
 type SignerDepDecorator struct {

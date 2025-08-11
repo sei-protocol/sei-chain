@@ -13,7 +13,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/crypto/hd"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -22,11 +22,11 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/spf13/cobra"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/flags"
-	"github.com/cosmos/cosmos-sdk/client/tx"
-	"github.com/cosmos/cosmos-sdk/codec/legacy"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client/flags"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client/tx"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/codec/legacy"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/crypto/keyring"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/precompiles"

@@ -3,12 +3,12 @@ package epoch
 import (
 	"math/rand"
 
-	"github.com/cosmos/cosmos-sdk/baseapp"
-	simappparams "github.com/cosmos/cosmos-sdk/simapp/params"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/module"
-	simtypes "github.com/cosmos/cosmos-sdk/types/simulation"
-	"github.com/cosmos/cosmos-sdk/x/simulation"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/baseapp"
+	simappparams "github.com/sei-protocol/sei-chain/cosmos-sdk/simapp/params"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/types/module"
+	simtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/types/simulation"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/x/simulation"
 	"github.com/sei-protocol/sei-chain/testutil/sample"
 	epochsimulation "github.com/sei-protocol/sei-chain/x/epoch/simulation"
 	"github.com/sei-protocol/sei-chain/x/epoch/types"

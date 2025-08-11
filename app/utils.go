@@ -3,7 +3,7 @@ package app
 import (
 	"time"
 
-	abci "github.com/tendermint/tendermint/abci/types"
+	abci "github.com/sei-protocol/sei-chain/tendermint/abci/types"
 )
 
 type OptimisticProcessingInfo struct {

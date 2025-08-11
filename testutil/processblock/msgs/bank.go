@@ -1,8 +1,8 @@
 package msgs
 
 import (
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	banktypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/bank/types"
 )
 
 func Send(from sdk.AccAddress, to sdk.AccAddress, amount int64) *banktypes.MsgSend {

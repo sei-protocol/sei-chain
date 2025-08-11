@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	tmrpcclient "github.com/tendermint/tendermint/rpc/client"
-	tmtypes "github.com/tendermint/tendermint/types"
+	tmrpcclient "github.com/sei-protocol/sei-chain/tendermint/rpc/client"
+	tmtypes "github.com/sei-protocol/sei-chain/tendermint/types"
 )
 
 var (

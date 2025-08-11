@@ -11,22 +11,22 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/crypto/hd"
 
-	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/cosmos-sdk/client/config"
-	"github.com/cosmos/cosmos-sdk/codec/legacy"
-	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/client/config"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/codec/legacy"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/crypto/keyring"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
-	"github.com/tendermint/tendermint/libs/bytes"
-	rpcclient "github.com/tendermint/tendermint/rpc/client"
-	"github.com/tendermint/tendermint/rpc/coretypes"
+	"github.com/sei-protocol/sei-chain/tendermint/libs/bytes"
+	rpcclient "github.com/sei-protocol/sei-chain/tendermint/rpc/client"
+	"github.com/sei-protocol/sei-chain/tendermint/rpc/coretypes"
 )
 
 const LatestCtxHeight int64 = -1

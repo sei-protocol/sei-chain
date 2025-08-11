@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	paramtypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	"github.com/sei-protocol/sei-chain/cosmos-sdk/codec"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
+	paramtypes "github.com/sei-protocol/sei-chain/cosmos-sdk/x/params/types"
 	epochTypes "github.com/sei-protocol/sei-chain/x/epoch/types"
 	"github.com/sei-protocol/sei-chain/x/mint/types"
-	"github.com/tendermint/tendermint/libs/log"
+	"github.com/sei-protocol/sei-chain/tendermint/libs/log"
 )
 
 // Keeper of the mint store

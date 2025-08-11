@@ -3,9 +3,9 @@ package processblock
 import (
 	"os"
 
-	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
-	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
-	sdk "github.com/cosmos/cosmos-sdk/types"
+	wasmkeeper "github.com/sei-protocol/sei-chain/wasmd/x/wasm/keeper"
+	wasmtypes "github.com/sei-protocol/sei-chain/wasmd/x/wasm/types"
+	sdk "github.com/sei-protocol/sei-chain/cosmos-sdk/types"
 )
 
 func (a *App) NewContract(admin sdk.AccAddress, filePath string) sdk.AccAddress {
