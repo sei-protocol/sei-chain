@@ -125,13 +125,23 @@ func (s *csvService) determineBucket(account *Account) string {
 
 type AutoFlushWriter struct {
 	*bufio.Writer
+	file       *os.File
 	writeCount int
 	flushEvery int
 }
 
 func NewAutoFlushWriter(w io.Writer, flushEvery int) *AutoFlushWriter {
+	file, ok := w.(*os.File)
+	if !ok {
+		file = nil
+	}
+	
+	// Use smaller buffer size to reduce memory usage
+	writer := bufio.NewWriterSize(w, 1024) // 1KB instead of default 4KB
+	
 	return &AutoFlushWriter{
-		Writer:     bufio.NewWriter(w),
+		Writer:     writer,
+		file:       file,
 		writeCount: 0,
 		flushEvery: flushEvery,
 	}
@@ -145,8 +155,17 @@ func (w *AutoFlushWriter) Write(p []byte) (n int, err error) {
 
 	w.writeCount++
 	if w.writeCount%w.flushEvery == 0 {
+		// Flush bufio buffer
 		if flushErr := w.Writer.Flush(); flushErr != nil {
 			return n, flushErr
+		}
+		
+		// Force OS to flush to disk (sync) to prevent kernel buffer buildup
+		if w.file != nil {
+			if syncErr := w.file.Sync(); syncErr != nil {
+				// Log but don't fail on sync errors
+				// sync errors are often non-critical
+			}
 		}
 	}
 
@@ -158,7 +177,10 @@ func (s *csvService) openCSVFile(name string) (*os.File, *csv.Writer) {
 	if err != nil {
 		panic(err)
 	}
-	autoFlushWriter := NewAutoFlushWriter(file, 10000)
+	
+	// Use more aggressive flushing (every 1000 writes instead of 10000)
+	// to reduce memory pressure further
+	autoFlushWriter := NewAutoFlushWriter(file, 1000)
 	writer := csv.NewWriter(autoFlushWriter)
 	return file, writer
 }

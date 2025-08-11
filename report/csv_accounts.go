@@ -20,45 +20,66 @@ func (s *csvService) exportAccountsCSV(ctx sdk.Context) error {
 
 	var iterateErr error
 	s.ak.IterateAccounts(ctx, func(account authtypes.AccountI) (stop bool) {
-		acct := &Account{
-			Account:  account.GetAddress().String(),
-			Sequence: account.GetSequence(),
-		}
+		// Get basic account info
+		seiAddr := account.GetAddress()
+		seiAddrStr := seiAddr.String()
+		sequence := account.GetSequence()
 
-		acct.IsCWContract = len(account.GetAddress().String()) == 62
+		// Determine if it's a CW contract (62 char length check)
+		isCWContract := len(seiAddrStr) == 62
 
-		evmAddr, associated := s.ek.GetEVMAddress(ctx, account.GetAddress())
-		acct.IsAssociated = associated
+		// Get EVM address info
+		evmAddr, associated := s.ek.GetEVMAddress(ctx, seiAddr)
 		if !associated {
-			evmAddr = s.ek.GetEVMAddressOrDefault(ctx, account.GetAddress())
+			evmAddr = s.ek.GetEVMAddressOrDefault(ctx, seiAddr)
 		}
-		acct.EVMAddress = evmAddr.Hex()
-		acct.EVMNonce = s.ek.GetNonce(ctx, evmAddr)
-		c := s.ek.GetCode(ctx, evmAddr)
-		acct.IsEVMContract = len(c) > 0
+		evmAddrStr := evmAddr.Hex()
+		evmNonce := s.ek.GetNonce(ctx, evmAddr)
 
+		// Check if it's an EVM contract
+		code := s.ek.GetCode(ctx, evmAddr)
+		isEVMContract := len(code) > 0
+
+		// Check if it's a multisig
+		isMultisig := false
 		if baseAcct, ok := account.(*authtypes.BaseAccount); ok {
 			_, multiOk := baseAcct.GetPubKey().(multisig.PubKey)
-			acct.IsMultisig = multiOk
+			isMultisig = multiOk
+		}
+
+		// Create minimal account struct for bucket determination
+		acct := &Account{
+			Account:       seiAddrStr,
+			EVMAddress:    evmAddrStr,
+			EVMNonce:      evmNonce,
+			Sequence:      sequence,
+			IsAssociated:  associated,
+			IsCWContract:  isCWContract,
+			IsEVMContract: isEVMContract,
+			IsMultisig:    isMultisig,
 		}
 
 		bucket := s.determineBucket(acct)
 
-		// Write CSV row
+		// Write CSV row directly without storing intermediate strings
 		row := []string{
-			acct.Account,
-			acct.EVMAddress,
-			strconv.FormatUint(acct.EVMNonce, 10),
-			strconv.FormatUint(acct.Sequence, 10),
-			strconv.FormatBool(acct.IsAssociated),
+			seiAddrStr,
+			evmAddrStr,
+			strconv.FormatUint(evmNonce, 10),
+			strconv.FormatUint(sequence, 10),
+			strconv.FormatBool(associated),
 			bucket,
 		}
 
 		if err := writer.Write(row); err != nil {
-			ctx.Logger().Error("failed to write account CSV row", "account", account.GetAddress().String(), "error", err)
+			ctx.Logger().Error("failed to write account CSV row", "account", seiAddrStr, "error", err)
 			iterateErr = err
 			return true
 		}
+
+		// Clear references to help GC
+		acct = nil
+		code = nil
 
 		return false
 	})
