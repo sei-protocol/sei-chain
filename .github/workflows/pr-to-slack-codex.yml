@@ -1,0 +1,70 @@
+name: PR → Codex review → Slack
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+jobs:
+  codex_review:
+    runs-on: ubuntu-latest   # or: self-hosted
+    permissions:
+      contents: read
+      pull-requests: write   # if you also want to comment on the PR
+    env:
+      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}   # or use codex auth.json (see notes)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+
+      - name: Install Codex CLI
+        run: npm i -g @openai/codex
+
+      - name: Fetch PR diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }} \
+            -H "Accept: application/vnd.github.v3.diff" > pr.diff
+
+      - name: Run Codex to produce security review
+        run: |
+          # Read-only, no human approvals; safe for CI
+          codex exec --ask-for-approval never --sandbox read-only > review.md <<'EOF'
+          You are a senior AppSec reviewer. Analyze this PR for:
+          secrets exposure, auth/authz, input validation, SSRF, SQLi, path traversal,
+          deserialization, RCE, dependency CVEs.
+
+          Return a tight executive summary, then bullets with:
+          - severity (high/med/low)
+          - file:line pointers
+          - concrete fixes & example patches
+
+          PR URL: ${{ github.event.pull_request.html_url }}
+
+          Unified diff:
+          ```diff
+          $(sed 's/`/\\`/g' pr.diff)
+          ```
+          EOF
+
+      - name: Post parent message in Slack
+        id: post_parent
+        run: |
+          summary="*PR #${{ github.event.pull_request.number }}:* ${{ github.event.pull_request.title }}\n• Author: ${{ github.event.pull_request.user.login }}\n• Link: ${{ github.event.pull_request.html_url }}"
+          resp=$(curl -s -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H 'Content-type: application/json; charset=utf-8' \
+            --data "$(jq -n --arg ch "$SLACK_CHANNEL_ID" --arg txt "$summary" '{channel:$ch,text:$txt,unfurl_links:false,unfurl_media:false}')")
+          echo "ts=$(echo "$resp" | jq -r '.ts')" >> "$GITHUB_OUTPUT"
+
+      - name: Reply in thread with Codex review
+        run: |
+          body=$(jq -Rs . < review.md)
+          curl -s -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H 'Content-type: application/json; charset=utf-8' \
+            --data "{\"channel\":\"$SLACK_CHANNEL_ID\",\"thread_ts\":\"${{ steps.post_parent.outputs.ts }}\",\"text\":$body,\"unfurl_links\":false,\"unfurl_media\":false}"
