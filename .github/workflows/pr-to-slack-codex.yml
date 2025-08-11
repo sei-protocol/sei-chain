@@ -6,14 +6,14 @@ on:
 
 jobs:
   codex_review:
-    runs-on: ubuntu-latest   # or: self-hosted
+    runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write   # if you also want to comment on the PR
+      pull-requests: write
     env:
       SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
       SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}   # or use codex auth.json (see notes)
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
