@@ -111,7 +111,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			return
 		}
 		if ctx.EVMEntryViaWasmdPrecompile() {
-			syntheticReceipt, err := server.GetTransientReceipt(ctx, ctx.TxSum())
+			syntheticReceipt, err := server.GetTransientReceipt(ctx, ctx.TxSum(), uint64(ctx.TxIndex()))
 			if err == nil {
 				for _, l := range syntheticReceipt.Logs {
 					stateDB.AddLog(&ethtypes.Log{
@@ -123,7 +123,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 				if syntheticReceipt.VmError != "" {
 					serverRes.VmError = fmt.Sprintf("%s\n%s\n", serverRes.VmError, syntheticReceipt.VmError)
 				}
-				server.DeleteTransientReceipt(ctx, ctx.TxSum())
+				server.DeleteTransientReceipt(ctx, ctx.TxSum(), uint64(ctx.TxIndex()))
 			}
 			syntheticDeferredInfo, found := server.GetEVMTxDeferredInfo(ctx)
 			if found {
@@ -166,7 +166,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		originalGasMeter.ConsumeGas(adjustedGasUsed.TruncateInt().Uint64(), "evm transaction")
 	}()
 
-	res, applyErr := server.applyEVMMessage(ctx, emsg, stateDB, gp)
+	res, applyErr := server.applyEVMMessage(ctx, emsg, stateDB, gp, true)
 	serverRes = &types.MsgEVMTransactionResponse{
 		Hash: tx.Hash().Hex(),
 	}
@@ -237,7 +237,7 @@ func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender
 	return msg
 }
 
-func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool) (*core.ExecutionResult, error) {
+func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool, shouldIncrementNonce bool) (*core.ExecutionResult, error) {
 	blockCtx, err := k.GetVMBlockContext(ctx, gp)
 	if err != nil {
 		return nil, err
@@ -246,7 +246,7 @@ func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *sta
 	txCtx := core.NewEVMTxContext(msg)
 	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
 	evmInstance.SetTxContext(txCtx)
-	st := core.NewStateTransition(evmInstance, msg, &gp, true) // fee already charged in ante handler
+	st := core.NewStateTransition(evmInstance, msg, &gp, true, shouldIncrementNonce) // fee already charged in ante handler
 	return st.Execute()
 }
 
