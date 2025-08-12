@@ -949,7 +949,7 @@ func setupLogs() {
 		},
 	}}}})
 	EVMKeeper.MockReceipt(CtxMock, multiTxBlockSynthTx.Hash(), &types.Receipt{
-		TxType:           evmrpc.ShellEVMTxType,
+		TxType:           types.ShellEVMTxType,
 		BlockNumber:      MockHeight100,
 		TransactionIndex: 0,
 		TxHashHex:        multiTxBlockSynthTx.Hash().Hex(),
@@ -963,7 +963,7 @@ func setupLogs() {
 	})
 	CtxMock = Ctx.WithBlockHeight(MockHeight103)
 	EVMKeeper.MockReceipt(CtxMock, common.HexToHash(TestSyntheticTxHash), &types.Receipt{
-		TxType:           evmrpc.ShellEVMTxType,
+		TxType:           types.ShellEVMTxType,
 		BlockNumber:      MockHeight103,
 		TransactionIndex: 2,
 		TxHashHex:        TestSyntheticTxHash,
@@ -1004,6 +1004,7 @@ func setupLogs() {
 
 	// block 2
 	EVMKeeper.SetBlockBloom(MultiTxCtx, []ethtypes.Bloom{bloom1, bloom2, bloom3})
+	EVMKeeper.SetEvmOnlyBlockBloom(MultiTxCtx, []ethtypes.Bloom{bloom1, bloom2, bloom3})
 
 	// block 8
 	bloomTx1 := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{Logs: []*ethtypes.Log{{
@@ -1012,6 +1013,8 @@ func setupLogs() {
 			common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111112")},
 	}}}})
 	EVMKeeper.SetBlockBloom(Ctx, []ethtypes.Bloom{bloomSynth, bloom4, bloomTx1})
+	EVMKeeper.SetEvmOnlyBlockBloom(Ctx, []ethtypes.Bloom{bloom4, bloomTx1})
+
 }
 
 //nolint:deadcode
