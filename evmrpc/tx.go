@@ -511,20 +511,6 @@ func NewTransactionIndexFromCosmosIndex(cosmosTxIndex uint32) *TransactionIndex 
 	}
 }
 
-func (ti *TransactionIndex) CalculateEVMTxIndex(block *coretypes.ResultBlock, decoder sdk.TxDecoder, receiptChecker func(common.Hash) *types.Receipt, includeSynthetic bool) (uint32, bool) {
-	if ti.hasEVMTxIndex {
-		return ti.evmTxIndex, ti.hasEVMTxIndex
-	}
-
-	evmTxIndex, found, _, _ := GetEvmTxIndex(block.Block.Txs, ti.cosmosTxIndex, decoder, receiptChecker, includeSynthetic)
-	if found {
-		ti.evmTxIndex = uint32(evmTxIndex)
-		ti.hasEVMTxIndex = true
-	}
-
-	return ti.evmTxIndex, ti.hasEVMTxIndex
-}
-
 func (ti *TransactionIndex) CalculateCosmosTxIndex(block *coretypes.ResultBlock, decoder sdk.TxDecoder, receiptChecker func(common.Hash) *types.Receipt, includeSynthetic bool) (uint32, bool) {
 	if ti.hasCosmosTxIndex {
 		return ti.cosmosTxIndex, ti.hasCosmosTxIndex
