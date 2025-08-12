@@ -1,56 +1,60 @@
 package report
 
 import (
-	"strconv"
-
+	"fmt"
 	"github.com/cosmos/cosmos-sdk/crypto/types/multisig"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
+	"os"
 )
 
 func (s *csvService) exportAccountsCSV(ctx sdk.Context) error {
-	file, writer := s.openCSVFile("accounts.csv")
+	// Open file for direct writing - no buffering at all
+	filename := fmt.Sprintf("%s/accounts.csv", s.outputDir)
+	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
 	defer file.Close()
-	defer writer.Flush()
 
-	// Write CSV header
-	if err := writer.Write([]string{"account", "evm_address", "evm_nonce", "sequence", "associated", "bucket"}); err != nil {
+	// Write header directly to file
+	header := "account,evm_address,evm_nonce,sequence,associated,bucket\n"
+	if _, err := file.WriteString(header); err != nil {
 		return err
 	}
 
 	var iterateErr error
 	s.ak.IterateAccounts(ctx, func(account authtypes.AccountI) (stop bool) {
-		// Get basic account info
+		// Get address once
 		seiAddr := account.GetAddress()
 		seiAddrStr := seiAddr.String()
-		sequence := account.GetSequence()
 
-		// Determine if it's a CW contract (62 char length check)
-		isCWContract := len(seiAddrStr) == 62
-
-		// Get EVM address info
+		// Get EVM info
 		evmAddr, associated := s.ek.GetEVMAddress(ctx, seiAddr)
 		if !associated {
 			evmAddr = s.ek.GetEVMAddressOrDefault(ctx, seiAddr)
 		}
-		evmAddrStr := evmAddr.Hex()
-		evmNonce := s.ek.GetNonce(ctx, evmAddr)
 
-		// Check if it's an EVM contract
+		// Get other data
+		evmNonce := s.ek.GetNonce(ctx, evmAddr)
+		sequence := account.GetSequence()
+
+		// Check contract types
+		isCWContract := len(seiAddrStr) == 62
 		code := s.ek.GetCode(ctx, evmAddr)
 		isEVMContract := len(code) > 0
 
-		// Check if it's a multisig
+		// Check multisig
 		isMultisig := false
 		if baseAcct, ok := account.(*authtypes.BaseAccount); ok {
 			_, multiOk := baseAcct.GetPubKey().(multisig.PubKey)
 			isMultisig = multiOk
 		}
 
-		// Create minimal account struct for bucket determination
+		// Create minimal struct only for bucket determination
 		acct := &Account{
 			Account:       seiAddrStr,
-			EVMAddress:    evmAddrStr,
+			EVMAddress:    evmAddr.Hex(),
 			EVMNonce:      evmNonce,
 			Sequence:      sequence,
 			IsAssociated:  associated,
@@ -58,28 +62,29 @@ func (s *csvService) exportAccountsCSV(ctx sdk.Context) error {
 			IsEVMContract: isEVMContract,
 			IsMultisig:    isMultisig,
 		}
-
 		bucket := s.determineBucket(acct)
 
-		// Write CSV row directly without storing intermediate strings
-		row := []string{
+		// Write directly to file as single string - no CSV writer, no buffering
+		line := fmt.Sprintf("%s,%s,%d,%d,%t,%s\n",
 			seiAddrStr,
-			evmAddrStr,
-			strconv.FormatUint(evmNonce, 10),
-			strconv.FormatUint(sequence, 10),
-			strconv.FormatBool(associated),
+			evmAddr.Hex(),
+			evmNonce,
+			sequence,
+			associated,
 			bucket,
-		}
+		)
 
-		if err := writer.Write(row); err != nil {
-			ctx.Logger().Error("failed to write account CSV row", "account", seiAddrStr, "error", err)
+		if _, err := file.WriteString(line); err != nil {
+			ctx.Logger().Error("failed to write account line", "account", seiAddrStr, "error", err)
 			iterateErr = err
 			return true
 		}
 
-		// Clear references to help GC
-		acct = nil
-		code = nil
+		// Force immediate write to disk - no OS buffering
+		if err := file.Sync(); err != nil {
+			ctx.Logger().Error("failed to sync file", "error", err)
+			// Don't fail on sync errors, just log
+		}
 
 		return false
 	})
