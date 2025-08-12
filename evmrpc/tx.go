@@ -556,7 +556,6 @@ func (ti *TransactionIndex) CalculateCosmosTxIndex(block *coretypes.ResultBlock,
 		
 		if includeSynthetic {
 			if isEVMTx {
-				// must have receipt
 				if evmTxIndex == int(ti.evmTxIndex) {
 					ti.cosmosTxIndex = uint32(i)
 					ti.hasCosmosTxIndex = true
@@ -575,7 +574,6 @@ func (ti *TransactionIndex) CalculateCosmosTxIndex(block *coretypes.ResultBlock,
 			}
 		} else {
 			if isEVMTx {
-				// must have receipt
 				if evmTxIndex == int(ti.evmTxIndex) {
 					ti.cosmosTxIndex = uint32(i)
 					ti.hasCosmosTxIndex = true
@@ -583,7 +581,6 @@ func (ti *TransactionIndex) CalculateCosmosTxIndex(block *coretypes.ResultBlock,
 				}
 				evmTxIndex++
 			} else {
-				// would still find the tx, but not count it towards index
 				if hasReceipt {
 					if evmTxIndex == int(ti.evmTxIndex) {
 						ti.cosmosTxIndex = uint32(i)
