@@ -131,9 +131,6 @@ func TestEVMTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 }
 
 func TestEVMTransactionIndexResolutionOnInput(t *testing.T) {
-    // [evm indices - 0, 1] [evm cosmos indices - 2, 4]
-    // [cosmos indices - 0, 1, 2, 3, 4]
-
 	cosmosTx1 := signAndEncodeCosmosTx(bankSendMsg(mnemonic1), mnemonic1, 7, 0)
 	cosmosTx2 := signAndEncodeCosmosTx(bankSendMsg(mnemonic1), mnemonic1, 7, 1)
 
@@ -191,7 +188,7 @@ func TestEVMTransactionIndexResolutionOnInput(t *testing.T) {
 	)
 }
 
-func TestEVMTransactionIndexWithCosmosIndexCollision(t *testing.T) {
+func TestEVMTransactionIndexWithCosmosIndexCollisionOnInput(t *testing.T) {
 	// Create a block where an EVM transaction has a Cosmos index that could be confused with EVM index
 	// Order: [cosmos_tx, evm_tx, cosmos_tx, evm_tx]
 	// Cosmos indices: 0, 1, 2, 3
