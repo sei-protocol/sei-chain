@@ -491,7 +491,6 @@ func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretyp
 	return fields, nil
 }
 
-// this could be optimised by using int32 and encoding an invalid/uninitalised value as -1
 type TransactionIndex struct {
 	evmTxIndex       uint32
 	hasEVMTxIndex    bool
