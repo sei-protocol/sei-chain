@@ -130,6 +130,58 @@ func TestEVMTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 	)
 }
 
+func TestEVMTransactionIndexResolutionOnInput(t *testing.T) {
+    cosmosTx1 := signAndEncodeCosmosTx(bankSendMsg(mnemonic1), mnemonic1, 7, 0)
+	cosmosTx2 := signAndEncodeCosmosTx(bankSendMsg(mnemonic1), mnemonic1, 7, 1)
+
+	tx1Data := send(0)
+	signedTx1 := signTxWithMnemonic(tx1Data, mnemonic1)
+	tx1 := encodeEvmTx(tx1Data, signedTx1)
+
+	cosmosTx3 := signAndEncodeCosmosTx(bankSendMsg(mnemonic1), mnemonic1, 7, 2)
+
+	tx2Data := send(1)
+	signedTx2 := signTxWithMnemonic(tx2Data, mnemonic1)
+	tx2 := encodeEvmTx(tx2Data, signedTx2)
+
+	SetupTestServer([][][]byte{{cosmosTx1, cosmosTx2, tx1, cosmosTx3, tx2}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			blockNumber := "0x2"
+
+			blockResult := sendRequestWithNamespace("eth", port, "getBlockByNumber", blockNumber, false)
+			require.NotNil(t, blockResult["result"])
+			blockHash := blockResult["result"].(map[string]interface{})["hash"].(string)
+
+			result1 := sendRequestWithNamespace("eth", port, "getTransactionByBlockNumberAndIndex", blockNumber, "0x0")
+			require.NotNil(t, result1["result"])
+			txFromIndex0 := result1["result"].(map[string]interface{})
+			require.Equal(t, signedTx1.Hash().Hex(), txFromIndex0["hash"].(string))
+			require.Equal(t, "0x0", txFromIndex0["transactionIndex"].(string))
+            result4 := sendRequestWithNamespace("eth", port, "getTransactionByBlockHashAndIndex", blockHash, "0x0")
+            require.NotNil(t, result4["result"])
+            txFromHashIndex0 := result4["result"].(map[string]interface{})
+            require.Equal(t, signedTx1.Hash().Hex(), txFromHashIndex0["hash"].(string))
+            require.Equal(t, "0x0", txFromHashIndex0["transactionIndex"].(string))
+
+			result2 := sendRequestWithNamespace("eth", port, "getTransactionByBlockNumberAndIndex", blockNumber, "0x1")
+			require.NotNil(t, result2["result"])
+			txFromIndex1 := result2["result"].(map[string]interface{})
+			require.Equal(t, signedTx2.Hash().Hex(), txFromIndex1["hash"].(string))
+			require.Equal(t, "0x1", txFromIndex1["transactionIndex"].(string))
+            result5 := sendRequestWithNamespace("eth", port, "getTransactionByBlockHashAndIndex", blockHash, "0x1")
+            require.NotNil(t, result5["result"])
+            txFromHashIndex1 := result5["result"].(map[string]interface{})
+            require.Equal(t, signedTx2.Hash().Hex(), txFromHashIndex1["hash"].(string))
+            require.Equal(t, "0x1", txFromHashIndex1["transactionIndex"].(string))
+
+			result3 := sendRequestWithNamespace("eth", port, "getTransactionByBlockNumberAndIndex", blockNumber, "0x2")
+			require.Nil(t, result3["result"])
+			result6 := sendRequestWithNamespace("eth", port, "getTransactionByBlockHashAndIndex", blockHash, "0x2")
+			require.Nil(t, result6["result"])
+		},
+	)
+}
+
 func TestGetTransactionGasPrice(t *testing.T) {
 	txData := send(0)
 	signedTx := signTxWithMnemonic(txData, mnemonic1)
