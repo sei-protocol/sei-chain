@@ -58,8 +58,7 @@ func TestEVMTransactionIndexResponseCorrectnessAndConsistency(t *testing.T) {
 
 			txHash := signedTx2.Hash()
 			correctTxIndex := int64(1)
-			// retrievalTxIndex should be identical to the correctTxIndex this will be solved by addressing SEI-9891
-			retrievalTxIndex := "0x3"
+			retrievalTxIndex := "0x1"
 
 			receiptResult := sendRequestWithNamespace("eth", port, "getTransactionReceipt", txHash.Hex())
 			require.NotNil(t, receiptResult["result"])
