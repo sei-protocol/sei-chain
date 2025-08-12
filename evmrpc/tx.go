@@ -178,28 +178,32 @@ func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr 
 	return receipt.VmError, nil
 }
 
-func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, index hexutil.Uint) (result *export.RPCTransaction, returnErr error) {
+func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, txIndex hexutil.Uint) (result *export.RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getTransactionByBlockNumberAndIndex", t.connectionType, startTime, returnErr == nil)
-	blockNumber, err := getBlockNumber(ctx, t.tmClient, blockNr)
-	if err != nil {
-		return nil, err
-	}
-	block, err := blockByNumberWithRetry(ctx, t.tmClient, blockNumber, 1)
-	if err != nil {
-		return nil, err
-	}
-	return t.getTransactionWithBlock(block, index, t.includeSynthetic)
+	return t.getTransactionByBlockNumberAndIndex(ctx, blockNr, NewTransactionIndexFromEVMIndex(uint32(txIndex)))
 }
 
-func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, index hexutil.Uint) (result *export.RPCTransaction, returnErr error) {
+func (t *TransactionAPI) getTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, txIndex *TransactionIndex) (result *export.RPCTransaction, returnErr error) {
+    blockNumber, err := getBlockNumber(ctx, t.tmClient, blockNr)
+    if err != nil {
+        return nil, err
+    }
+    block, err := blockByNumberWithRetry(ctx, t.tmClient, blockNumber, 1)
+    if err != nil {
+        return nil, err
+    }
+    return t.getTransactionWithBlock(block, txIndex, t.includeSynthetic)
+}
+
+func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, txIndex hexutil.Uint) (result *export.RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getTransactionByBlockHashAndIndex", t.connectionType, startTime, returnErr == nil)
 	block, err := blockByHash(ctx, t.tmClient, blockHash[:])
 	if err != nil {
 		return nil, err
 	}
-	return t.getTransactionWithBlock(block, index, t.includeSynthetic)
+	return t.getTransactionWithBlock(block, NewTransactionIndexFromEVMIndex(uint32(txIndex)), t.includeSynthetic)
 }
 
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *export.RPCTransaction, returnErr error) {
@@ -252,7 +256,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	if isReceiptFromAnteError(receipt) {
 		return nil, errors.New("not found")
 	}
-	return t.GetTransactionByBlockNumberAndIndex(ctx, rpc.BlockNumber(receipt.BlockNumber), hexutil.Uint(receipt.TransactionIndex))
+	return t.getTransactionByBlockNumberAndIndex(ctx, rpc.BlockNumber(receipt.BlockNumber), NewTransactionIndexFromCosmosIndex(receipt.TransactionIndex))
 }
 
 func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash common.Hash) (result string, returnErr error) {
@@ -294,7 +298,7 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	return (*hexutil.Uint64)(&nonce), nil
 }
 
-func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, index hexutil.Uint, includeSynthetic bool) (*export.RPCTransaction, error) {
+func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, txIndex *TransactionIndex, includeSynthetic bool) (*export.RPCTransaction, error) {
 	if int(index) >= len(block.Block.Txs) {
 		return nil, nil
 	}
@@ -468,4 +472,46 @@ func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretyp
 		fields["to"] = common.HexToAddress(receipt.To)
 	}
 	return fields, nil
+}
+
+// this could be optimised by using int32 and encoding an invalid/uninitalised value as -1
+type TransactionIndex struct {
+    evmTxIndex uint32
+    hasEVMTxIndex bool
+    cosmosTxIndex uint32
+    hasCosmosTxIndex bool
+}
+
+func NewTransactionIndexFromEVMIndex(evmTxIndex uint32) *TransactionIndex {
+    return &TransactionIndex{
+        evmTxIndex: evmTxIndex,
+        hasEVMTxIndex: true,
+        cosmosTxIndex: 0,
+        hasCosmosTxIndex: false,
+    }
+}
+
+func NewTransactionIndexFromCosmosIndex(cosmosTxIndex uint32) *TransactionIndex {
+    return &TransactionIndex{
+        evmTxIndex: 0,
+        hasEVMTxIndex: false,
+        cosmosTxIndex: cosmosTxIndex,
+        hasCosmosTxIndex: true,
+    }
+}
+
+func (ti *TransactionIndex) EVMTxIndex() (uint32, bool) {
+    return ti.evmTxIndex, ti.hasEVMTxIndex
+}
+
+func (ti *TransactionIndex) CosmosTxIndex() (uint32, bool) {
+    return ti.cosmosTxIndex, ti.hasCosmosTxIndex
+}
+
+func (ti *TransactionIndex) CalculateEVMTxIndex(block *coretypes.ResultBlock) {
+
+}
+
+func (ti *TransactionIndex) CalculateCosmosTxIndex(block *coretypes.ResultBlock) {
+
 }
