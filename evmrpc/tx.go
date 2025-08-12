@@ -378,44 +378,25 @@ func GetEvmTxIndex(txs tmtypes.Txs, txIndex uint32, decoder sdk.TxDecoder, recei
 			receipt = receiptChecker(sha256.Sum256(tx))
 		}
 		hasReceipt := receipt != nil
-		if includeSynthetic {
-			if isEVMTx {
-				// must have receipt
-				if i == int(txIndex) {
-					return evmTxIndex, true, etx, logIndex
-				}
-				evmTxIndex++
-				if hasReceipt {
-					logIndex += len(receipt.Logs)
-				}
-			} else {
-				if hasReceipt {
-					if i == int(txIndex) {
-						return evmTxIndex, true, etx, logIndex
-					}
-					evmTxIndex++
-					logIndex += len(receipt.Logs)
-				}
-			}
-		} else {
-			if isEVMTx {
-				// must have receipt
-				if i == int(txIndex) {
-					return evmTxIndex, true, etx, logIndex
-				}
-				evmTxIndex++
-				if hasReceipt {
-					logIndex += len(receipt.Logs)
-				}
-			} else {
-				// would still find the tx, but not count it towards index
-				if hasReceipt {
-					if i == int(txIndex) {
-						return evmTxIndex, true, etx, logIndex
-					}
-				}
-			}
-		}
+
+        isSynthetic := hasReceipt && !isEVMTx
+
+        if !isEVMTx && !isSynthetic {
+            continue
+        }
+
+        if i == int(txIndex) {
+            return evmTxIndex, true, etx, logIndex
+        }
+
+        if isSynthetic && !includeSynthetic {
+            continue
+        }
+
+        evmTxIndex++
+        if hasReceipt {
+            logIndex += len(receipt.Logs)
+        }
 	}
 	return -1, false, nil, -1
 }
