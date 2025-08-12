@@ -112,7 +112,7 @@ func PrintStateSize(module string, db *memiavl.DB) error {
 					}
 
 					if totalNumKeys%1000000 == 0 {
-						fmt.Printf("Scanned %d keys\n", totalNumKeys)
+						fmt.Printf("Scanned %d keys for module %s\n", totalNumKeys, moduleName)
 					}
 				}
 				return true
