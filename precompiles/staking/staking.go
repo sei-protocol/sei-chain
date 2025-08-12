@@ -367,9 +367,7 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 		return nil, err
 	}
 
-	description := stakingtypes.Description{
-		Moniker: moniker,
-	}
+	description := stakingtypes.NewDescription(moniker, "", "", "", "")
 
 	msg, err := stakingtypes.NewMsgCreateValidator(
 		sdk.ValAddress(valAddress),
@@ -380,6 +378,10 @@ func (p PrecompileExecutor) createValidator(ctx sdk.Context, method *abi.Method,
 		sdk.NewIntFromBigInt(minSelfDelegation),
 	)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := msg.ValidateBasic(); err != nil {
 		return nil, err
 	}
 
@@ -434,10 +436,13 @@ func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, c
 		minSelfDelegationInt = &msd
 	}
 
-	description := stakingtypes.Description{
-		Moniker: moniker,
-		// Identity field is not updated to maintain backward compatibility
-	}
+	description := stakingtypes.NewDescription(
+		moniker,
+		stakingtypes.DoNotModifyDesc,
+		stakingtypes.DoNotModifyDesc,
+		stakingtypes.DoNotModifyDesc,
+		stakingtypes.DoNotModifyDesc,
+	)
 
 	msg := stakingtypes.NewMsgEditValidator(
 		sdk.ValAddress(valAddress),
@@ -445,6 +450,10 @@ func (p PrecompileExecutor) editValidator(ctx sdk.Context, method *abi.Method, c
 		commissionRate,
 		minSelfDelegationInt,
 	)
+
+	if err := msg.ValidateBasic(); err != nil {
+		return nil, err
+	}
 
 	_, err := p.stakingKeeper.EditValidator(sdk.WrapSDKContext(ctx), msg)
 	if err != nil {

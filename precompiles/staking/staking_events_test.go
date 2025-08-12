@@ -203,7 +203,7 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 		require.NoError(t, err)
 
 		addr := common.HexToAddress(staking.StakingAddress)
-		delegateAmount := big.NewInt(100_000_000_000_000) // 100 usei in wei
+		delegateAmount := big.NewInt(1_000_000_000_000_000_000) // 1 SEI in wei (1,000,000 usei)
 
 		tx := createEVMTx(t, k, ctx, validatorPrivKey, &addr, args, delegateAmount)
 		res := executeEVMTx(t, testApp, ctx, tx, validatorPrivKey)
@@ -253,7 +253,7 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 		require.NoError(t, err)
 
 		addr := common.HexToAddress(staking.StakingAddress)
-		createTx := createEVMTx(t, k, ctx, validatorPrivKey, &addr, createArgs, big.NewInt(100_000_000_000_000))
+		createTx := createEVMTx(t, k, ctx, validatorPrivKey, &addr, createArgs, big.NewInt(1_000_000_000_000_000_000))
 		createRes := executeEVMTx(t, testApp, ctx, createTx, validatorPrivKey)
 		require.Empty(t, createRes.VmError)
 
