@@ -215,23 +215,30 @@ func (k *Keeper) MigrateLegacyReceiptsBatch(ctx sdk.Context, batchSize int) (int
 	}
 
 	var (
-		pairs        []*iavl.KVPair
+		txHashes     []common.Hash
+		receipts     []*types.Receipt
 		keysToDelete [][]byte
 		migrated     int
 	)
 
-	pairs = make([]*iavl.KVPair, 0, batchSize)
+	txHashes = make([]common.Hash, 0, batchSize)
+	receipts = make([]*types.Receipt, 0, batchSize)
 	keysToDelete = make([][]byte, 0, batchSize)
 
 	for ; migrated < batchSize && iter.Valid(); iter.Next() {
-		keySuffix := iter.Key() // key without prefix
+		keySuffix := iter.Key() // tx hash bytes (without prefix)
 		value := iter.Value()   // serialized receipt bytes
 
-		// Build full key expected by receipt store (with prefix)
-		fullKey := append([]byte{}, types.ReceiptKeyPrefix...)
-		fullKey = append(fullKey, keySuffix...)
+		receipt := &types.Receipt{}
+		if err := receipt.Unmarshal(value); err != nil {
+			return 0, err
+		}
 
-		pairs = append(pairs, &iavl.KVPair{Key: fullKey, Value: value})
+		// Derive tx hash directly from key suffix
+		txHash := common.BytesToHash(keySuffix)
+
+		receipts = append(receipts, receipt)
+		txHashes = append(txHashes, txHash)
 		// Save the suffix for deletion from legacy store after successful write
 		keysToDelete = append(keysToDelete, append([]byte{}, keySuffix...))
 		migrated++
@@ -241,17 +248,14 @@ func (k *Keeper) MigrateLegacyReceiptsBatch(ctx sdk.Context, batchSize int) (int
 		return 0, nil
 	}
 
-	ncs := &proto.NamedChangeSet{
-		Name:      types.ReceiptStoreKey,
-		Changeset: iavl.ChangeSet{Pairs: pairs},
+	// Write to transient receipt store first; they'll be flushed to receipt.db at pre-commit
+	for i := range receipts {
+		if err := k.SetTransientReceipt(ctx, txHashes[i], receipts[i]); err != nil {
+			return 0, err
+		}
 	}
 
-	// Write to persistent receipt store first
-	if err := k.receiptStore.ApplyChangeset(ctx.BlockHeight(), ncs); err != nil {
-		return 0, err
-	}
-
-	// Only after a successful write, delete from legacy store
+	// After a successful write, delete from legacy store
 	for _, kdel := range keysToDelete {
 		legacyStore.Delete(kdel)
 	}

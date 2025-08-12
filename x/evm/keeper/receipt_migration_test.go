@@ -40,6 +40,8 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 	migrated, err := k.MigrateLegacyReceiptsBatch(ctx, keeper.LegacyReceiptMigrationBatchSize)
 	require.NoError(t, err)
 	require.Equal(t, 100, migrated)
+	// Flush transient receipts so they are available in receipt.db for assertions below
+	require.NoError(t, k.FlushTransientReceiptsSync(ctx))
 	require.Equal(t, 1, getLegacyReceiptCount(ctx, k))
 
 	// The first tx should have been removed from legacy store; the last should still exist
@@ -71,6 +73,8 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 	migrated, err = k.MigrateLegacyReceiptsBatch(ctx, keeper.LegacyReceiptMigrationBatchSize)
 	require.NoError(t, err)
 	require.Equal(t, 1, migrated)
+	// Flush remaining transient receipt
+	require.NoError(t, k.FlushTransientReceiptsSync(ctx))
 	require.Equal(t, 0, getLegacyReceiptCount(ctx, k))
 
 	// Verify all receipts are retrievable from receipt.db after migration
