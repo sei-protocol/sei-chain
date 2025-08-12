@@ -509,9 +509,13 @@ func (ti *TransactionIndex) CosmosTxIndex() (uint32, bool) {
 }
 
 func (ti *TransactionIndex) CalculateEVMTxIndex(block *coretypes.ResultBlock) {
-
+    if ti.hasEVMTxIndex {
+        return
+    }
 }
 
 func (ti *TransactionIndex) CalculateCosmosTxIndex(block *coretypes.ResultBlock) {
-
+    if ti.hasCosmosTxIndex {
+        return
+    }
 }
