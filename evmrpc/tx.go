@@ -379,24 +379,24 @@ func GetEvmTxIndex(txs tmtypes.Txs, txIndex uint32, decoder sdk.TxDecoder, recei
 		}
 		hasReceipt := receipt != nil
 
-        isSynthetic := hasReceipt && !isEVMTx
+		isSynthetic := hasReceipt && !isEVMTx
 
-        if !isEVMTx && !isSynthetic {
-            continue
-        }
+		if !isEVMTx && !isSynthetic {
+			continue
+		}
 
-        if i == int(txIndex) {
-            return evmTxIndex, true, etx, logIndex
-        }
+		if i == int(txIndex) {
+			return evmTxIndex, true, etx, logIndex
+		}
 
-        if isSynthetic && !includeSynthetic {
-            continue
-        }
+		if isSynthetic && !includeSynthetic {
+			continue
+		}
 
-        evmTxIndex++
-        if hasReceipt {
-            logIndex += len(receipt.Logs)
-        }
+		evmTxIndex++
+		if hasReceipt {
+			logIndex += len(receipt.Logs)
+		}
 	}
 	return -1, false, nil, -1
 }
