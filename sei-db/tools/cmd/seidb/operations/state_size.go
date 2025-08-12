@@ -92,15 +92,15 @@ func PrintStateSize(module string, db *memiavl.DB) error {
 					totalKeySize += keySize
 					totalValueSize += valueSize
 					totalSize += keySize + valueSize
-					prefix := fmt.Sprintf("%X", node.Key())
-					prefix = prefix[:2]
+					prefixKey := fmt.Sprintf("%X", node.Key())
+					prefix := prefixKey[:2]
 					keySizeByPrefix[prefix] += int64(keySize)
 					valueSizeByPrefix[prefix] += int64(valueSize)
 					numKeysByPrefix[prefix]++
 
-					if module == "evm" && prefix[:2] == "03" {
+					if module == "evm" && prefix == "03" {
 						// Extract contract address from key (assuming it follows after "03")
-						addr := prefix[2:42] // Adjust indices based on your key format
+						addr := prefixKey[2:42] // Adjust indices based on your key format
 						if _, exists := contractSizes[addr]; !exists {
 							contractSizes[addr] = &contractSizeEntry{Address: addr}
 						}
