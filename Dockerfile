@@ -1,5 +1,5 @@
 # ---------- Builder ----------
-FROM public.ecr.aws/docker/library/golang:1.23.7 AS go-builder
+FROM golang:1.23.7 AS go-builder
 WORKDIR /app/sei-chain
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && \
@@ -45,7 +45,7 @@ RUN set -eux; \
     ls -l /build/deps
 
 # ---------- Runtime ----------
-FROM public.ecr.aws/docker/library/ubuntu:24.04
+FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
