@@ -308,15 +308,17 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, t
 			}
 			return r
 		}, includeSynthetic)
-		cosmosTxIndex, hasCosmosTxIndex = txIndex.CosmosTxIndex()
-		if !hasCosmosTxIndex {
-			return nil, nil
-		}
 	}
+
+    cosmosTxIndex, hasCosmosTxIndex = txIndex.CosmosTxIndex()
+    if !hasCosmosTxIndex {
+        return nil, nil
+    }
 	
 	if int(cosmosTxIndex) >= len(block.Block.Txs) {
 		return nil, nil
 	}
+
 	txIdx, found, ethtx, _ := GetEvmTxIndex(block.Block.Txs, cosmosTxIndex, t.txConfigProvider(block.Block.Height).TxDecoder(), func(h common.Hash) *types.Receipt {
 		r, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), h)
 		if err != nil {
