@@ -528,23 +528,23 @@ func (ti *TransactionIndex) CalculateCosmosTxIndex(block *coretypes.ResultBlock,
 		}
 		hasReceipt := receipt != nil
 
-        isSynthetic := !isEVMTx && hasReceipt
+		isSynthetic := !isEVMTx && hasReceipt
 
-        if !isEVMTx && !isSynthetic {
-            continue
-        }
+		if !isEVMTx && !isSynthetic {
+			continue
+		}
 
-        if evmTxIndex == int(ti.evmTxIndex) {
-            ti.cosmosTxIndex = uint32(i)
-            ti.hasCosmosTxIndex = true
-            break
-        }
+		if evmTxIndex == int(ti.evmTxIndex) {
+			ti.cosmosTxIndex = uint32(i)
+			ti.hasCosmosTxIndex = true
+			break
+		}
 
-        if isSynthetic && !includeSynthetic {
-            continue
-        }
+		if isSynthetic && !includeSynthetic {
+			continue
+		}
 
-        evmTxIndex++
+		evmTxIndex++
 	}
 
 	return ti.cosmosTxIndex, ti.hasCosmosTxIndex
