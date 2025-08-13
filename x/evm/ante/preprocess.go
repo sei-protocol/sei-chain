@@ -2,6 +2,7 @@ package ante
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -169,7 +170,7 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, 
 		V = AdjustV(V, ethTx.Type(), ethCfg.ChainID)
 		txHash = signer.Hash(ethTx)
 	} else {
-		txHash = ethtypes.FrontierSigner{}.Hash(ethTx)
+		return errors.New("unsupported tx type: unsafe legacy tx")
 	}
 	evmAddr, seiAddr, seiPubkey, err := helpers.GetAddresses(V, R, S, txHash)
 	if err != nil {
