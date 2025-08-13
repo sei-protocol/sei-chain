@@ -7,6 +7,7 @@ on:
 jobs:
   codex_review:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       pull-requests: write
@@ -15,7 +16,11 @@ jobs:
       SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout PR HEAD (full history)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with: { node-version: '22' }
@@ -23,29 +28,33 @@ jobs:
       - name: Install Codex CLI
         run: npm i -g @openai/codex
 
-      - name: Fetch PR diff
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Compute merge-base diff (compact)
         run: |
-          gh api repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }} \
-            -H "Accept: application/vnd.github.v3.diff" > pr.diff
+          set -euo pipefail
+          BASE_REF='${{ github.event.pull_request.base.ref }}'
+          git fetch --no-tags origin "$BASE_REF":"refs/remotes/origin/$BASE_REF"
+          MB=$(git merge-base "origin/$BASE_REF" HEAD)
+          git diff --unified=0 "$MB"..HEAD > pr.diff
+          git --no-pager diff --stat "$MB"..HEAD > pr.stat || true
 
-      - name: Run Codex to produce security review
+      - name: Run Codex to produce security review (read-only)
         run: |
-          # Read-only, no human approvals; safe for CI
+          set -euo pipefail
           codex exec --ask-for-approval never --sandbox read-only > review.md <<'EOF'
           You are a senior AppSec reviewer. Analyze this PR for:
-          secrets exposure, auth/authz, input validation, SSRF, SQLi, path traversal,
-          deserialization, RCE, dependency CVEs.
+          bugs, vulnerabilities, loss of funds issues, crypto attack vectors, etc.
+          Prioritize the *changed hunks* in pr.diff, but open any other files
+          in the checkout as needed for context.
 
           Return a tight executive summary, then bullets with:
           - severity (high/med/low)
           - file:line pointers
           - concrete fixes & example patches
+          - if N/A, say "No significant issues found."
 
           PR URL: ${{ github.event.pull_request.html_url }}
 
-          Unified diff:
+          Unified diff (merge-base vs HEAD):
           ```diff
           $(sed 's/`/\\`/g' pr.diff)
           ```
@@ -58,13 +67,30 @@ jobs:
           resp=$(curl -s -X POST https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H 'Content-type: application/json; charset=utf-8' \
-            --data "$(jq -n --arg ch "$SLACK_CHANNEL_ID" --arg txt "$summary" '{channel:$ch,text:$txt,unfurl_links:false,unfurl_media:false}')")
+            --data "$(jq -n --arg ch "$SLACK_CHANNEL_ID" --arg txt "$summary" '{channel:$ch,text:$txt,unfurl_links:false,unfurl_media:false}')" )
           echo "ts=$(echo "$resp" | jq -r '.ts')" >> "$GITHUB_OUTPUT"
 
-      - name: Reply in thread with Codex review
+      - name: Thread reply with review (auto file upload if large)
+        env:
+          TS: ${{ steps.post_parent.outputs.ts }}
         run: |
-          body=$(jq -Rs . < review.md)
-          curl -s -X POST https://slack.com/api/chat.postMessage \
-            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-            -H 'Content-type: application/json; charset=utf-8' \
-            --data "{\"channel\":\"$SLACK_CHANNEL_ID\",\"thread_ts\":\"${{ steps.post_parent.outputs.ts }}\",\"text\":$body,\"unfurl_links\":false,\"unfurl_media\":false}"
+          set -euo pipefail
+          BYTES=$(wc -c < review.md || echo 0)
+          if [ "$BYTES" -gt 35000 ]; then
+            # Safer path for big outputs: upload as a file in the thread
+            curl -s -F "channels=$SLACK_CHANNEL_ID" \
+                   -F "thread_ts=$TS" \
+                   -F "filename=codex_review.md" \
+                   -F "title=Codex Security Review" \
+                   -F "initial_comment=Automated Codex review attached." \
+                   -F "file=@review.md" \
+                   -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+                   https://slack.com/api/files.upload >/dev/null
+          else
+            body=$(jq -Rs . < review.md)
+            curl -s -X POST https://slack.com/api/chat.postMessage \
+              -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+              -H 'Content-type: application/json; charset=utf-8' \
+              --data "{\"channel\":\"$SLACK_CHANNEL_ID\",\"thread_ts\":\"$TS\",\"text\":$body,\"unfurl_links\":false,\"unfurl_media\":false}" \
+              >/dev/null
+          fi
