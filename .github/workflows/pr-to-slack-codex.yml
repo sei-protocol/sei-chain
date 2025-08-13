@@ -39,31 +39,93 @@ jobs:
           git diff --unified=0 "$MB"..HEAD > pr.diff
           git --no-pager diff --stat "$MB"..HEAD > pr.stat || true
 
-      - name: Run Codex to produce security review (read-only, quiet)
+      - name: Build prompt and run Codex (guard + fallback)
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          codex --ask-for-approval never exec \
-            --sandbox read-only \
-            --output-last-message review.md \
-            > codex.log 2>&1 <<EOF
-          You are a skilled AppSec reviewer. Analyze this PR for:
-          bugs, vulnerabilities, loss of funds issues, crypto attack vectors, etc.
-          Prioritize the *changed hunks* in pr.diff, but open any other files
-          in the checkout as needed for context.
+          MAX=${MAX_DIFF_BYTES:-900000} # ~0.9MB ceiling; override via env if needed
 
-          Return a tight executive summary, then bullets with:
-          - severity (high/med/low)
-          - file:line pointers
-          - concrete fixes & example patches
-          - if N/A, say "No significant issues found."
+          BYTES=$(wc -c < pr.diff || echo 0)
+          echo "pr.diff size: $BYTES bytes (limit: $MAX)"
 
-          PR URL: ${{ github.event.pull_request.html_url }}
+          # Common prelude for AppSec review
+          {
+            echo "You are a skilled AppSec reviewer. Analyze this PR for:"
+            echo "bugs, vulnerabilities, loss of funds issues, crypto attack vectors, etc."
+            echo "Prioritize the *changed hunks* in pr.diff, but open any other files"
+            echo "in the checkout as needed for context."
+            echo
+            echo "Return a tight executive summary, then bullets with:"
+            echo "- severity (high/med/low)"
+            echo "- file:line pointers"
+            echo "- concrete fixes & example patches"
+            echo '- if N/A, say "No significant issues found."'
+            echo
+            echo "PR URL: $PR_URL"
+            echo
+          } > prompt.txt
 
-          Unified diff (merge-base vs HEAD):
-          ```diff
-          $(sed 's/`/\\`/g' pr.diff)
-          ```
-          EOF
+          if [ "$BYTES" -le "$MAX" ] && [ "$BYTES" -gt 0 ]; then
+            echo "Using embedded diff path (<= $MAX bytes)"
+            {
+              echo "Unified diff (merge-base vs HEAD):"
+              echo '```diff'
+              cat pr.diff
+              echo '```'
+            } >> prompt.txt
+
+            echo "---- prompt head ----"; head -n 40 prompt.txt >&2
+            echo "---- prompt size ----"; wc -c prompt.txt >&2
+
+            codex --ask-for-approval never exec \
+              --sandbox read-only \
+              --output-last-message review.md \
+              < prompt.txt \
+              > codex.log 2>&1
+
+          else
+            echo "Large diff – switching to fallback that lets Codex fetch the .diff URL"
+            # Recompute merge-base and HEAD for clarity in the prompt
+            BASE_REF='${{ github.event.pull_request.base.ref }}'
+            git fetch --no-tags origin "$BASE_REF":"refs/remotes/origin/$BASE_REF"
+            MB=$(git merge-base "origin/$BASE_REF" HEAD)
+            HEAD_SHA=$(git rev-parse HEAD)
+            DIFF_URL="${PR_URL}.diff"
+
+            {
+              echo "The diff is too large to embed safely in this CI run."
+              echo "Please fetch and analyze the diff from this URL:"
+              echo "$DIFF_URL"
+              echo
+              echo "Commit range (merge-base...HEAD):"
+              echo "merge-base: $MB"
+              echo "head:       $HEAD_SHA"
+              echo
+              echo "For quick orientation, here is the diffstat:"
+              echo '```'
+              cat pr.stat || true
+              echo '```'
+              echo
+              echo "After fetching the diff, continue with the same review instructions above."
+            } >> prompt.txt
+
+            echo "---- fallback prompt head ----"; head -n 80 prompt.txt >&2
+            echo "---- fallback prompt size ----"; wc -c prompt.txt >&2
+
+            # Network-enabled only for this large-diff case
+            codex --ask-for-approval never exec \
+              --sandbox danger-full-access \
+              --output-last-message review.md \
+              < prompt.txt \
+              > codex.log 2>&1
+          fi
+
+          # Defensive: ensure later steps don't explode
+          if [ ! -s review.md ]; then
+            echo "_Codex produced no output._" > review.md
+          fi
 
       - name: Post parent message in Slack (blocks)
         id: post_parent
