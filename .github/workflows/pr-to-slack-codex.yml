@@ -9,7 +9,6 @@ jobs:
     # Run only for trusted contributors
     if: ${{ contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association) }}
 
-
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -17,9 +16,6 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Log author_association
-        run: echo "author_association=${{ github.event.pull_request.author_association }}"
-
       - name: Checkout PR HEAD (full history)
         uses: actions/checkout@v4
         with:
@@ -166,19 +162,39 @@ jobs:
               }')" )
           echo "ts=$(echo "$resp" | jq -r '.ts')" >> "$GITHUB_OUTPUT"
 
-      - name: Thread reply with review (always upload file for consistent formatting)
+      - name: Thread reply with review (upload via Slack external upload API)
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
           TS: ${{ steps.post_parent.outputs.ts }}
         run: |
           set -euo pipefail
-          # Always upload the review as a .md file in the thread to keep formatting consistent
-          curl -s -F "channels=$SLACK_CHANNEL_ID" \
-                 -F "thread_ts=$TS" \
-                 -F "filename=codex_review.md" \
-                 -F "title=Codex Security Review" \
-                 -F "initial_comment=Automated Codex review attached." \
-                 -F "file=@review.md" \
-                 -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-                 https://slack.com/api/files.upload >/dev/null
+
+          # robust byte count (works on Linux & macOS)
+          BYTES=$( (stat -c%s review.md 2>/dev/null || stat -f%z review.md 2>/dev/null) )
+          BYTES=${BYTES:-$(wc -c < review.md | tr -d '[:space:]')}
+
+          ticket=$(curl -sS -X POST https://slack.com/api/files.getUploadURLExternal \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-type: application/x-www-form-urlencoded" \
+            --data-urlencode "filename=codex_review.md" \
+            --data "length=$BYTES" \
+            --data "snippet_type=markdown")
+          echo "$ticket"
+          upload_url=$(echo "$ticket" | jq -r '.upload_url')
+          file_id=$(echo "$ticket" | jq -r '.file_id')
+          test "$upload_url" != "null" -a "$file_id" != "null" || { echo "getUploadURLExternal failed: $ticket" >&2; exit 1; }
+
+          curl -sS -X POST "$upload_url" \
+            -F "filename=@review.md;type=text/markdown" \
+            > /dev/null
+
+          payload=$(jq -n --arg fid "$file_id" --arg ch "$SLACK_CHANNEL_ID" --arg ts "$TS" \
+            --arg title "Codex Security Review" --arg ic "Automated Codex review attached." \
+            '{files:[{id:$fid, title:$title}], channel_id:$ch, thread_ts:$ts, initial_comment:$ic}')
+          resp=$(curl -sS -X POST https://slack.com/api/files.completeUploadExternal \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-type: application/json; charset=utf-8" \
+            --data "$payload")
+          echo "$resp"
+          test "$(echo "$resp" | jq -r '.ok')" = "true" || { echo "files.completeUploadExternal failed: $resp" >&2; exit 1; }
