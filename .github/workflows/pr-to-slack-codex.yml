@@ -6,15 +6,14 @@ on:
 
 jobs:
   codex_review:
+    # Run only for trusted contributors
+    if: ${{ contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) }}
+
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
       pull-requests: write
-    env:
-      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-      SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
     steps:
       - name: Checkout PR HEAD (full history)
@@ -65,6 +64,12 @@ jobs:
             echo
             echo "PR URL: $PR_URL"
             echo
+            echo "Formatting requirements:"
+            echo "- Output MUST be GitHub-flavored Markdown (GFM)."
+            echo "- Start with '## Executive summary' (one short paragraph)."
+            echo "- Then '## Findings and fixes' as a bullet list."
+            echo "- Use fenced code blocks for patches/configs with language tags (diff, yaml, etc.)."
+            echo "- Use inline code for file:line and identifiers."
           } > prompt.txt
 
           if [ "$BYTES" -le "$MAX" ] && [ "$BYTES" -gt 0 ]; then
@@ -79,6 +84,8 @@ jobs:
             echo "---- prompt head ----"; head -n 40 prompt.txt >&2
             echo "---- prompt size ----"; wc -c prompt.txt >&2
 
+            # Run Codex with a scrubbed env: only OPENAI_API_KEY, PATH, HOME
+            env -i OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" PATH="$PATH" HOME="$HOME" \
             codex --ask-for-approval never exec \
               --sandbox read-only \
               --output-last-message review.md \
@@ -114,7 +121,8 @@ jobs:
             echo "---- fallback prompt head ----"; head -n 80 prompt.txt >&2
             echo "---- fallback prompt size ----"; wc -c prompt.txt >&2
 
-            # Network-enabled only for this large-diff case
+            # Network-enabled only for this large-diff case; still scrub env
+            env -i OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" PATH="$PATH" HOME="$HOME" \
             codex --ask-for-approval never exec \
               --sandbox danger-full-access \
               --output-last-message review.md \
@@ -129,6 +137,9 @@ jobs:
 
       - name: Post parent message in Slack (blocks)
         id: post_parent
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
         run: |
           resp=$(curl -s -X POST https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
@@ -151,27 +162,19 @@ jobs:
               }')" )
           echo "ts=$(echo "$resp" | jq -r '.ts')" >> "$GITHUB_OUTPUT"
 
-      - name: Thread reply with review (auto file upload if large)
+      - name: Thread reply with review (always upload file for consistent formatting)
         env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
           TS: ${{ steps.post_parent.outputs.ts }}
         run: |
           set -euo pipefail
-          BYTES=$(wc -c < review.md || echo 0)
-          if [ "$BYTES" -gt 35000 ]; then
-            # Safer path for big outputs: upload as a file in the thread
-            curl -s -F "channels=$SLACK_CHANNEL_ID" \
-                   -F "thread_ts=$TS" \
-                   -F "filename=codex_review.md" \
-                   -F "title=Codex Security Review" \
-                   -F "initial_comment=Automated Codex review attached." \
-                   -F "file=@review.md" \
-                   -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-                   https://slack.com/api/files.upload >/dev/null
-          else
-            body=$(jq -Rs . < review.md)
-            curl -s -X POST https://slack.com/api/chat.postMessage \
-              -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
-              -H 'Content-type: application/json; charset=utf-8' \
-              --data "{\"channel\":\"$SLACK_CHANNEL_ID\",\"thread_ts\":\"$TS\",\"text\":$body,\"unfurl_links\":false,\"unfurl_media\":false}" \
-              >/dev/null
-          fi
+          # Always upload the review as a .md file in the thread to keep formatting consistent
+          curl -s -F "channels=$SLACK_CHANNEL_ID" \
+                 -F "thread_ts=$TS" \
+                 -F "filename=codex_review.md" \
+                 -F "title=Codex Security Review" \
+                 -F "initial_comment=Automated Codex review attached." \
+                 -F "file=@review.md" \
+                 -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+                 https://slack.com/api/files.upload >/dev/null
