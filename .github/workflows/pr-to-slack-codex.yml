@@ -15,6 +15,7 @@ jobs:
       SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
       SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
     steps:
       - name: Checkout PR HEAD (full history)
         uses: actions/checkout@v4
@@ -23,7 +24,8 @@ jobs:
           fetch-depth: 0
 
       - uses: actions/setup-node@v4
-        with: { node-version: '22' }
+        with:
+          node-version: '22'
 
       - name: Install Codex CLI
         run: npm i -g @openai/codex
@@ -37,11 +39,14 @@ jobs:
           git diff --unified=0 "$MB"..HEAD > pr.diff
           git --no-pager diff --stat "$MB"..HEAD > pr.stat || true
 
-      - name: Run Codex to produce security review (read-only)
+      - name: Run Codex to produce security review (read-only, quiet)
         run: |
           set -euo pipefail
-          codex --ask-for-approval never exec --sandbox read-only > review.md <<'EOF'
-          You are a senior AppSec reviewer. Analyze this PR for:
+          codex --ask-for-approval never exec \
+            --sandbox read-only \
+            --output-last-message review.md \
+            > codex.log 2>&1 <<EOF
+          You are a skilled AppSec reviewer. Analyze this PR for:
           bugs, vulnerabilities, loss of funds issues, crypto attack vectors, etc.
           Prioritize the *changed hunks* in pr.diff, but open any other files
           in the checkout as needed for context.
