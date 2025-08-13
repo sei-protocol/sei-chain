@@ -7,7 +7,8 @@ on:
 jobs:
   codex_review:
     # Run only for trusted contributors
-    if: ${{ contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) }}
+    if: ${{ contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association) }}
+
 
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -16,6 +17,9 @@ jobs:
       pull-requests: write
 
     steps:
+      - name: Log author_association
+        run: echo "author_association=${{ github.event.pull_request.author_association }}"
+
       - name: Checkout PR HEAD (full history)
         uses: actions/checkout@v4
         with:
