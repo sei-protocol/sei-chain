@@ -20,8 +20,16 @@ func (k *Keeper) GetParams(ctx sdk.Context) (params types.Params) {
 	return k.GetParamsIfExists(ctx)
 }
 
-func (k *Keeper) GetParamsPre580(ctx sdk.Context) (params types.ParamsPreV580) {
-	return k.GetParamsPre580IfExists(ctx)
+func (k *Keeper) GetParamsPreV580(ctx sdk.Context) (params types.ParamsPreV580) {
+	return k.GetParamsPreV580IfExists(ctx)
+}
+
+func (k *Keeper) GetParamsPreV600(ctx sdk.Context) (params types.ParamsPreV600) {
+	return k.GetParamsPreV600IfExists(ctx)
+}
+
+func (k *Keeper) GetParamsPreV601(ctx sdk.Context) (params types.ParamsPreV601) {
+	return k.GetParamsPreV601IfExists(ctx)
 }
 
 func (k *Keeper) GetParamsPreV606(ctx sdk.Context) (params types.ParamsPreV606) {
@@ -34,8 +42,20 @@ func (k *Keeper) GetParamsIfExists(ctx sdk.Context) types.Params {
 	return params
 }
 
-func (k *Keeper) GetParamsPre580IfExists(ctx sdk.Context) types.ParamsPreV580 {
+func (k *Keeper) GetParamsPreV580IfExists(ctx sdk.Context) types.ParamsPreV580 {
 	params := types.ParamsPreV580{}
+	k.Paramstore.GetParamSetIfExists(ctx, &params)
+	return params
+}
+
+func (k *Keeper) GetParamsPreV600IfExists(ctx sdk.Context) types.ParamsPreV600 {
+	params := types.ParamsPreV600{}
+	k.Paramstore.GetParamSetIfExists(ctx, &params)
+	return params
+}
+
+func (k *Keeper) GetParamsPreV601IfExists(ctx sdk.Context) types.ParamsPreV601 {
+	params := types.ParamsPreV601{}
 	k.Paramstore.GetParamSetIfExists(ctx, &params)
 	return params
 }
@@ -56,7 +76,11 @@ func (k *Keeper) GetPriorityNormalizer(ctx sdk.Context) sdk.Dec {
 	}
 	switch {
 	case strings.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0:
-		return k.GetParamsPre580(ctx).PriorityNormalizer
+		return k.GetParamsPreV580(ctx).PriorityNormalizer
+	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.0") < 0:
+		return k.GetParamsPreV600(ctx).PriorityNormalizer
+	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.1") < 0:
+		return k.GetParamsPreV601(ctx).PriorityNormalizer
 	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.6") < 0:
 		return k.GetParamsPreV606(ctx).PriorityNormalizer
 	default:
@@ -70,7 +94,11 @@ func (k *Keeper) GetBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 	}
 	switch {
 	case strings.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0:
-		return k.GetParamsPre580(ctx).BaseFeePerGas
+		return k.GetParamsPreV580(ctx).BaseFeePerGas
+	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.0") < 0:
+		return k.GetParamsPreV600(ctx).BaseFeePerGas
+	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.1") < 0:
+		return k.GetParamsPreV601(ctx).BaseFeePerGas
 	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.6") < 0:
 		return k.GetParamsPreV606(ctx).BaseFeePerGas
 	default:
@@ -83,9 +111,11 @@ func (k *Keeper) GetMaxDynamicBaseFeeUpwardAdjustment(ctx sdk.Context) sdk.Dec {
 		return k.GetParams(ctx).MaxDynamicBaseFeeUpwardAdjustment
 	}
 	switch {
-	case strings.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0:
-		// Not present in pre-5.8.0 params; use default
+	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.0") < 0:
+		// Not present in pre-6.0.0 params; use default
 		return types.DefaultMaxDynamicBaseFeeUpwardAdjustment
+	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.1") < 0:
+		return k.GetParamsPreV601(ctx).MaxDynamicBaseFeeUpwardAdjustment
 	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.6") < 0:
 		return k.GetParamsPreV606(ctx).MaxDynamicBaseFeeUpwardAdjustment
 	default:
@@ -98,9 +128,11 @@ func (k *Keeper) GetMaxDynamicBaseFeeDownwardAdjustment(ctx sdk.Context) sdk.Dec
 		return k.GetParams(ctx).MaxDynamicBaseFeeDownwardAdjustment
 	}
 	switch {
-	case strings.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0:
-		// Not present in pre-5.8.0 params; use default
+	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.0") < 0:
+		// Not present in pre-6.0.0 params; use default
 		return types.DefaultMaxDynamicBaseFeeDownwardAdjustment
+	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.1") < 0:
+		return k.GetParamsPreV601(ctx).MaxDynamicBaseFeeDownwardAdjustment
 	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.6") < 0:
 		return k.GetParamsPreV606(ctx).MaxDynamicBaseFeeDownwardAdjustment
 	default:
@@ -114,7 +146,11 @@ func (k *Keeper) GetMinimumFeePerGas(ctx sdk.Context) sdk.Dec {
 	}
 	switch {
 	case strings.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0:
-		return k.GetParamsPre580(ctx).MinimumFeePerGas
+		return k.GetParamsPreV580(ctx).MinimumFeePerGas
+	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.0") < 0:
+		return k.GetParamsPreV600(ctx).MinimumFeePerGas
+	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.1") < 0:
+		return k.GetParamsPreV601(ctx).MinimumFeePerGas
 	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.6") < 0:
 		return k.GetParamsPreV606(ctx).MinimumFeePerGas
 	default:
@@ -127,8 +163,8 @@ func (k *Keeper) GetMaximumFeePerGas(ctx sdk.Context) sdk.Dec {
 		return k.GetParams(ctx).MaximumFeePerGas
 	}
 	switch {
-	case strings.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0:
-		// Not present in pre-5.8.0 params; use default
+	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.1") < 0:
+		// Not present in pre-6.0.1 params; use default
 		return types.DefaultMaxFeePerGas
 	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.6") < 0:
 		return k.GetParamsPreV606(ctx).MaximumFeePerGas
@@ -142,9 +178,11 @@ func (k *Keeper) GetTargetGasUsedPerBlock(ctx sdk.Context) uint64 {
 		return k.GetParams(ctx).TargetGasUsedPerBlock
 	}
 	switch {
-	case strings.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0:
-		// Not present in pre-5.8.0 params; use default
+	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.0") < 0:
+		// Not present in pre-6.0.0 params; use default
 		return types.DefaultTargetGasUsedPerBlock
+	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.1") < 0:
+		return k.GetParamsPreV601(ctx).TargetGasUsedPerBlock
 	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.6") < 0:
 		return k.GetParamsPreV606(ctx).TargetGasUsedPerBlock
 	default:
@@ -160,6 +198,10 @@ func (k *Keeper) GetDeliverTxHookWasmGasLimit(ctx sdk.Context) uint64 {
 	case strings.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0:
 		// Not present in pre-5.8.0 params; use default
 		return types.DefaultDeliverTxHookWasmGasLimit
+	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.0") < 0:
+		return k.GetParamsPreV600(ctx).DeliverTxHookWasmGasLimit
+	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.1") < 0:
+		return k.GetParamsPreV601(ctx).DeliverTxHookWasmGasLimit
 	case strings.Compare(ctx.ClosestUpgradeName(), "v6.0.6") < 0:
 		return k.GetParamsPreV606(ctx).DeliverTxHookWasmGasLimit
 	default:

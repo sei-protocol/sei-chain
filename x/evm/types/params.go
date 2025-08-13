@@ -85,6 +85,29 @@ func (ppre580 *ParamsPreV580) ParamSetPairs() paramtypes.ParamSetPairs {
 	}
 }
 
+func (ppre600 *ParamsPreV600) ParamSetPairs() paramtypes.ParamSetPairs {
+	return paramtypes.ParamSetPairs{
+		paramtypes.NewParamSetPair(KeyPriorityNormalizer, &ppre600.PriorityNormalizer, validatePriorityNormalizer),
+		paramtypes.NewParamSetPair(KeyBaseFeePerGas, &ppre600.BaseFeePerGas, validateBaseFeePerGas),
+		paramtypes.NewParamSetPair(KeyMinFeePerGas, &ppre600.MinimumFeePerGas, validateMinFeePerGas),
+		paramtypes.NewParamSetPair(KeyWhitelistedCwCodeHashesForDelegateCall, &ppre600.WhitelistedCwCodeHashesForDelegateCall, validateWhitelistedCwHashesForDelegateCall),
+		paramtypes.NewParamSetPair(KeyDeliverTxHookWasmGasLimit, &ppre600.DeliverTxHookWasmGasLimit, validateDeliverTxHookWasmGasLimit),
+	}
+}
+
+func (ppre601 *ParamsPreV601) ParamSetPairs() paramtypes.ParamSetPairs {
+	return paramtypes.ParamSetPairs{
+		paramtypes.NewParamSetPair(KeyPriorityNormalizer, &ppre601.PriorityNormalizer, validatePriorityNormalizer),
+		paramtypes.NewParamSetPair(KeyBaseFeePerGas, &ppre601.BaseFeePerGas, validateBaseFeePerGas),
+		paramtypes.NewParamSetPair(KeyMaxDynamicBaseFeeUpwardAdjustment, &ppre601.MaxDynamicBaseFeeUpwardAdjustment, validateBaseFeeAdjustment),
+		paramtypes.NewParamSetPair(KeyMaxDynamicBaseFeeDownwardAdjustment, &ppre601.MaxDynamicBaseFeeDownwardAdjustment, validateBaseFeeAdjustment),
+		paramtypes.NewParamSetPair(KeyMinFeePerGas, &ppre601.MinimumFeePerGas, validateMinFeePerGas),
+		paramtypes.NewParamSetPair(KeyWhitelistedCwCodeHashesForDelegateCall, &ppre601.WhitelistedCwCodeHashesForDelegateCall, validateWhitelistedCwHashesForDelegateCall),
+		paramtypes.NewParamSetPair(KeyDeliverTxHookWasmGasLimit, &ppre601.DeliverTxHookWasmGasLimit, validateDeliverTxHookWasmGasLimit),
+		paramtypes.NewParamSetPair(KeyTargetGasUsedPerBlock, &ppre601.TargetGasUsedPerBlock, func(i interface{}) error { return nil }),
+	}
+}
+
 func (ppre606 *ParamsPreV606) ParamSetPairs() paramtypes.ParamSetPairs {
 	return paramtypes.ParamSetPairs{
 		paramtypes.NewParamSetPair(KeyPriorityNormalizer, &ppre606.PriorityNormalizer, validatePriorityNormalizer),
@@ -148,6 +171,21 @@ func (p Params) String() string {
 
 func (ppre580 ParamsPreV580) String() string {
 	out, _ := yaml.Marshal(ppre580)
+	return string(out)
+}
+
+func (ppre600 ParamsPreV600) String() string {
+	out, _ := yaml.Marshal(ppre600)
+	return string(out)
+}
+
+func (ppre601 ParamsPreV601) String() string {
+	out, _ := yaml.Marshal(ppre601)
+	return string(out)
+}
+
+func (ppre606 ParamsPreV606) String() string {
+	out, _ := yaml.Marshal(ppre606)
 	return string(out)
 }
 
