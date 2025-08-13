@@ -60,14 +60,28 @@ jobs:
           ```
           EOF
 
-      - name: Post parent message in Slack
+      - name: Post parent message in Slack (blocks)
         id: post_parent
         run: |
-          summary="*PR #${{ github.event.pull_request.number }}:* ${{ github.event.pull_request.title }}\n• Author: ${{ github.event.pull_request.user.login }}\n• Link: ${{ github.event.pull_request.html_url }}"
           resp=$(curl -s -X POST https://slack.com/api/chat.postMessage \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H 'Content-type: application/json; charset=utf-8' \
-            --data "$(jq -n --arg ch "$SLACK_CHANNEL_ID" --arg txt "$summary" '{channel:$ch,text:$txt,unfurl_links:false,unfurl_media:false}')" )
+            --data "$(jq -n \
+              --arg ch "$SLACK_CHANNEL_ID" \
+              --arg n  "${{ github.event.pull_request.number }}" \
+              --arg t  "${{ github.event.pull_request.title }}" \
+              --arg a  "${{ github.event.pull_request.user.login }}" \
+              --arg u  "${{ github.event.pull_request.html_url }}" \
+              '{
+                channel: $ch,
+                text: ("PR #" + $n + ": " + $t),
+                blocks: [
+                  { "type":"section", "text":{"type":"mrkdwn","text":("*PR #"+$n+":* "+$t)} },
+                  { "type":"section", "text":{"type":"mrkdwn","text":("• Author: "+$a)} },
+                  { "type":"section", "text":{"type":"mrkdwn","text":("• Link: <"+$u+">")} }
+                ],
+                unfurl_links:false, unfurl_media:false
+              }')" )
           echo "ts=$(echo "$resp" | jq -r '.ts')" >> "$GITHUB_OUTPUT"
 
       - name: Thread reply with review (auto file upload if large)
