@@ -53,7 +53,7 @@ jobs:
           {
             echo "You are a skilled AppSec reviewer. Analyze this PR for:"
             echo "bugs, vulnerabilities, loss of funds issues, crypto attack vectors, etc."
-            echo "Prioritize the *changed hunks* in pr.diff, but open any other files"
+            echo "Think deeply. Prioritize the *changed hunks* in pr.diff, but open any other files"
             echo "in the checkout as needed for context."
             echo
             echo "Return a tight executive summary, then bullets with:"
