@@ -40,7 +40,7 @@ jobs:
       - name: Run Codex to produce security review (read-only)
         run: |
           set -euo pipefail
-          codex exec --ask-for-approval never --sandbox read-only > review.md <<'EOF'
+          codex --ask-for-approval never exec --sandbox read-only > review.md <<'EOF'
           You are a senior AppSec reviewer. Analyze this PR for:
           bugs, vulnerabilities, loss of funds issues, crypto attack vectors, etc.
           Prioritize the *changed hunks* in pr.diff, but open any other files
