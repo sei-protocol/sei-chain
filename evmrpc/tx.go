@@ -299,29 +299,29 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 }
 
 func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, txIndex *TransactionIndex, includeSynthetic bool) (*export.RPCTransaction, error) {
-    receiptChecker := func(h common.Hash) *types.Receipt {
-        r, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), h)
-        if err != nil {
-            return nil
-        }
-        return r
-    }
+	receiptChecker := func(h common.Hash) *types.Receipt {
+		r, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), h)
+		if err != nil {
+			return nil
+		}
+		return r
+	}
 
 	cosmosTxIndex, hasCosmosTxIndex := txIndex.CalculateCosmosTxIndex(block, t.txConfigProvider(block.Block.Height).TxDecoder(), receiptChecker, includeSynthetic)
 	if !hasCosmosTxIndex {
 		return nil, nil
 	}
 
-    evmTxIndex, hasEVMTxIndex := txIndex.CalculateEVMTxIndex(block, t.txConfigProvider(block.Block.Height).TxDecoder(), receiptChecker, includeSynthetic)
-    if !hasEVMTxIndex {
-        return nil, nil
-    }
+	evmTxIndex, hasEVMTxIndex := txIndex.CalculateEVMTxIndex(block, t.txConfigProvider(block.Block.Height).TxDecoder(), receiptChecker, includeSynthetic)
+	if !hasEVMTxIndex {
+		return nil, nil
+	}
 
-    ethtx := getEthTxForTxBz(block.Block.Txs[cosmosTxIndex], t.txConfigProvider(block.Block.Height).TxDecoder())
-    if ethtx == nil {
-        return nil, nil
-    }
-    
+	ethtx := getEthTxForTxBz(block.Block.Txs[cosmosTxIndex], t.txConfigProvider(block.Block.Height).TxDecoder())
+	if ethtx == nil {
+		return nil, nil
+	}
+
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), ethtx.Hash())
 	if err != nil {
 		return nil, err
@@ -491,35 +491,35 @@ func NewTransactionIndexFromCosmosIndex(cosmosTxIndex uint32) *TransactionIndex 
 }
 
 func (ti *TransactionIndex) CalculateEVMTxIndex(
-    block *coretypes.ResultBlock, decoder sdk.TxDecoder, receiptChecker func(common.Hash) *types.Receipt,
-    includeSynthetic bool,
+	block *coretypes.ResultBlock, decoder sdk.TxDecoder, receiptChecker func(common.Hash) *types.Receipt,
+	includeSynthetic bool,
 ) (uint32, bool) {
-    if ti.hasEVMTxIndex {
-        return ti.evmTxIndex, ti.hasEVMTxIndex
-    }
+	if ti.hasEVMTxIndex {
+		return ti.evmTxIndex, ti.hasEVMTxIndex
+	}
 
-    var evmTxIndex uint32
-    for i, tx := range block.Block.Txs {
-        isEVMTx, isSynthetic := extractTxInfo(tx, decoder, receiptChecker)
+	var evmTxIndex uint32
+	for i, tx := range block.Block.Txs {
+		isEVMTx, isSynthetic := extractTxInfo(tx, decoder, receiptChecker)
 
-        if !isEVMTx && !isSynthetic {
-            continue
-        }
+		if !isEVMTx && !isSynthetic {
+			continue
+		}
 
-        if i == int(ti.cosmosTxIndex) {
-            ti.evmTxIndex = evmTxIndex
-            ti.hasEVMTxIndex = true
-            break
-        }
+		if i == int(ti.cosmosTxIndex) {
+			ti.evmTxIndex = evmTxIndex
+			ti.hasEVMTxIndex = true
+			break
+		}
 
-        if isSynthetic && !includeSynthetic {
-            continue
-        }
+		if isSynthetic && !includeSynthetic {
+			continue
+		}
 
-        evmTxIndex++
-    }
+		evmTxIndex++
+	}
 
-    return ti.evmTxIndex, ti.hasEVMTxIndex
+	return ti.evmTxIndex, ti.hasEVMTxIndex
 }
 
 func (ti *TransactionIndex) CalculateCosmosTxIndex(block *coretypes.ResultBlock, decoder sdk.TxDecoder, receiptChecker func(common.Hash) *types.Receipt, includeSynthetic bool) (uint32, bool) {
@@ -529,7 +529,7 @@ func (ti *TransactionIndex) CalculateCosmosTxIndex(block *coretypes.ResultBlock,
 
 	var evmTxIndex int
 	for i, tx := range block.Block.Txs {
-        isEVMTx, isSynthetic := extractTxInfo(tx, decoder, receiptChecker)
+		isEVMTx, isSynthetic := extractTxInfo(tx, decoder, receiptChecker)
 
 		if !isEVMTx && !isSynthetic {
 			continue
@@ -552,20 +552,20 @@ func (ti *TransactionIndex) CalculateCosmosTxIndex(block *coretypes.ResultBlock,
 }
 
 func extractTxInfo(
-    tx tmtypes.Tx, decoder sdk.TxDecoder, receiptChecker func(common.Hash) *types.Receipt,
+	tx tmtypes.Tx, decoder sdk.TxDecoder, receiptChecker func(common.Hash) *types.Receipt,
 ) (bool, bool) {
-    etx := getEthTxForTxBz(tx, decoder)
-    isEVMTx := tx != nil
+	etx := getEthTxForTxBz(tx, decoder)
+	isEVMTx := tx != nil
 
-    var receipt *types.Receipt
-    if isEVMTx {
-        receipt = receiptChecker(etx.Hash())
-    } else {
-        receipt = receiptChecker(sha256.Sum256(tx))
-    }
-    hasReceipt := receipt != nil
+	var receipt *types.Receipt
+	if isEVMTx {
+		receipt = receiptChecker(etx.Hash())
+	} else {
+		receipt = receiptChecker(sha256.Sum256(tx))
+	}
+	hasReceipt := receipt != nil
 
-    isSynthetic := !isEVMTx && hasReceipt
+	isSynthetic := !isEVMTx && hasReceipt
 
-    return isEVMTx, isSynthetic
+	return isEVMTx, isSynthetic
 }
