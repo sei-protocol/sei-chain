@@ -299,24 +299,20 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 }
 
 func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, txIndex *TransactionIndex, includeSynthetic bool) (*export.RPCTransaction, error) {
-	cosmosTxIndex, hasCosmosTxIndex := txIndex.CalculateCosmosTxIndex(block, t.txConfigProvider(block.Block.Height).TxDecoder(), func(h common.Hash) *types.Receipt {
-		r, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), h)
-		if err != nil {
-			return nil
-		}
-		return r
-	}, includeSynthetic)
-	if !hasCosmosTxIndex {
-		return nil, nil
-	}
-
-    evmTxIndex, hasEVMTxIndex := txIndex.CalculateEVMTxIndex(block, t.txConfigProvider(block.Block.Height).TxDecoder(), func(h common.Hash) *types.Receipt {
+    receiptChecker := func(h common.Hash) *types.Receipt {
         r, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), h)
         if err != nil {
             return nil
         }
         return r
-    }, includeSynthetic)
+    }
+
+	cosmosTxIndex, hasCosmosTxIndex := txIndex.CalculateCosmosTxIndex(block, t.txConfigProvider(block.Block.Height).TxDecoder(), receiptChecker, includeSynthetic)
+	if !hasCosmosTxIndex {
+		return nil, nil
+	}
+
+    evmTxIndex, hasEVMTxIndex := txIndex.CalculateEVMTxIndex(block, t.txConfigProvider(block.Block.Height).TxDecoder(), receiptChecker, includeSynthetic)
     if !hasEVMTxIndex {
         return nil, nil
     }
