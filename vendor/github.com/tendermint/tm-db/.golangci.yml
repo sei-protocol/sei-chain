@@ -1,0 +1,49 @@
+linters:
+  disable-all: true
+  enable:
+    - deadcode
+    - depguard
+    - dogsled
+    - dupl
+    - errcheck
+    - exportloopref
+    - goconst
+    - gocritic
+    - gofumpt
+    - revive
+    - gosec
+    - gosimple
+    - govet
+    - ineffassign
+    - lll
+    - misspell
+    - nakedret
+    - prealloc
+    - staticcheck
+    - stylecheck
+    - typecheck
+    - revive
+    - unconvert
+    - unused
+    - varcheck
+    - nolintlint
+
+run:
+  build-tags:
+    - cleveldb
+    - rocksdb
+    - badgerdb
+    - boltdb
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+linters-settings:
+  maligned:
+    suggest-new: true
+  errcheck:
+    # report about assignment of errors to blank identifier: `num, _ := strconv.Atoi(numStr)`;
+    # default is false: such cases aren't reported by default.
+    check-blank: true

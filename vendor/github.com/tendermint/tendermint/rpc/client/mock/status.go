@@ -1,0 +1,72 @@
+package mock
+
+import (
+	"context"
+
+	"github.com/tendermint/tendermint/rpc/client"
+	"github.com/tendermint/tendermint/rpc/coretypes"
+)
+
+// StatusMock returns the result specified by the Call
+type StatusMock struct {
+	Call
+}
+
+var (
+	_ client.StatusClient = (*StatusMock)(nil)
+	_ client.StatusClient = (*StatusRecorder)(nil)
+)
+
+func (m *StatusMock) Status(ctx context.Context) (*coretypes.ResultStatus, error) {
+	res, err := m.GetResponse(nil)
+	if err != nil {
+		return nil, err
+	}
+	return res.(*coretypes.ResultStatus), nil
+}
+
+func (m *StatusMock) LagStatus(ctx context.Context) (*coretypes.ResultLagStatus, error) {
+	res, err := m.GetResponse(nil)
+	if err != nil {
+		return nil, err
+	}
+	return res.(*coretypes.ResultLagStatus), nil
+}
+
+// StatusRecorder can wrap another type (StatusMock, full client)
+// and record the status calls
+type StatusRecorder struct {
+	Client client.StatusClient
+	Calls  []Call
+}
+
+func NewStatusRecorder(client client.StatusClient) *StatusRecorder {
+	return &StatusRecorder{
+		Client: client,
+		Calls:  []Call{},
+	}
+}
+
+func (r *StatusRecorder) addCall(call Call) {
+	r.Calls = append(r.Calls, call)
+}
+
+func (r *StatusRecorder) Status(ctx context.Context) (*coretypes.ResultStatus, error) {
+	res, err := r.Client.Status(ctx)
+	r.addCall(Call{
+		Name:     "status",
+		Response: res,
+		Error:    err,
+	})
+	return res, err
+}
+
+func (r *StatusRecorder) LagStatus(ctx context.Context) (*coretypes.ResultLagStatus, error) {
+	res, err := r.Client.LagStatus(ctx)
+	r.addCall(Call{
+		Name:     "lag_status",
+		Response: res,
+		Error:    err,
+	})
+	return res, err
+}
