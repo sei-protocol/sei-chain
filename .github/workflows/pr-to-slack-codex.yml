@@ -52,7 +52,7 @@ jobs:
           # Common prelude for AppSec review
           {
             echo "You are a skilled AppSec reviewer. Analyze this PR for:"
-            echo "bugs, vulnerabilities, loss of funds issues, crypto attack vectors, etc."
+            echo "bugs, vulnerabilities, loss of funds issues, crypto attack vectors, signature vulnerability, replay attacks etc.."
             echo "Think deeply. Prioritize the *changed hunks* in pr.diff, but open any other files"
             echo "in the checkout as needed for context."
             echo
