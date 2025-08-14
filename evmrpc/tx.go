@@ -310,20 +310,22 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, t
 		return nil, nil
 	}
 
-	if int(cosmosTxIndex) >= len(block.Block.Txs) {
-		return nil, nil
-	}
+    evmTxIndex, hasEVMTxIndex := txIndex.CalculateEVMTxIndex(block, t.txConfigProvider(block.Block.Height).TxDecoder(), func(h common.Hash) *types.Receipt {
+        r, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), h)
+        if err != nil {
+            return nil
+        }
+        return r
+    }, includeSynthetic)
+    if !hasEVMTxIndex {
+        return nil, nil
+    }
 
-	txIdx, found, ethtx, _ := GetEvmTxIndex(block.Block.Txs, cosmosTxIndex, t.txConfigProvider(block.Block.Height).TxDecoder(), func(h common.Hash) *types.Receipt {
-		r, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), h)
-		if err != nil {
-			return nil
-		}
-		return r
-	}, includeSynthetic)
-	if ethtx == nil || !found {
-		return nil, nil
-	}
+    ethtx := getEthTxForTxBz(block.Block.Txs[cosmosTxIndex], t.txConfigProvider(block.Block.Height).TxDecoder())
+    if ethtx == nil {
+        return nil, nil
+    }
+    
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), ethtx.Hash())
 	if err != nil {
 		return nil, err
@@ -342,7 +344,7 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, t
 	blockHash := common.HexToHash(block.BlockID.Hash.String())
 	blockNumber := uint64(block.Block.Height)
 	blockTime := block.Block.Time
-	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(txIdx), baseFeePerGas, chainConfig)
+	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(evmTxIndex), baseFeePerGas, chainConfig)
 	return res, nil
 }
 
@@ -492,6 +494,38 @@ func NewTransactionIndexFromCosmosIndex(cosmosTxIndex uint32) *TransactionIndex 
 	}
 }
 
+func (ti *TransactionIndex) CalculateEVMTxIndex(
+    block *coretypes.ResultBlock, decoder sdk.TxDecoder, receiptChecker func(common.Hash) *types.Receipt,
+    includeSynthetic bool,
+) (uint32, bool) {
+    if ti.hasEVMTxIndex {
+        return ti.evmTxIndex, ti.hasEVMTxIndex
+    }
+
+    var evmTxIndex uint32
+    for i, tx := range block.Block.Txs {
+        isEVMTx, isSynthetic := extractTxInfo(tx, decoder, receiptChecker)
+
+        if !isEVMTx && !isSynthetic {
+            continue
+        }
+
+        if i == int(ti.cosmosTxIndex) {
+            ti.evmTxIndex = evmTxIndex
+            ti.hasEVMTxIndex = true
+            break
+        }
+
+        if isSynthetic && !includeSynthetic {
+            continue
+        }
+
+        evmTxIndex++
+    }
+
+    return ti.evmTxIndex, ti.hasEVMTxIndex
+}
+
 func (ti *TransactionIndex) CalculateCosmosTxIndex(block *coretypes.ResultBlock, decoder sdk.TxDecoder, receiptChecker func(common.Hash) *types.Receipt, includeSynthetic bool) (uint32, bool) {
 	if ti.hasCosmosTxIndex {
 		return ti.cosmosTxIndex, ti.hasCosmosTxIndex
@@ -499,17 +533,7 @@ func (ti *TransactionIndex) CalculateCosmosTxIndex(block *coretypes.ResultBlock,
 
 	var evmTxIndex int
 	for i, tx := range block.Block.Txs {
-		etx := getEthTxForTxBz(tx, decoder)
-		isEVMTx := etx != nil
-		var receipt *types.Receipt
-		if isEVMTx {
-			receipt = receiptChecker(etx.Hash())
-		} else {
-			receipt = receiptChecker(sha256.Sum256(tx))
-		}
-		hasReceipt := receipt != nil
-
-		isSynthetic := !isEVMTx && hasReceipt
+        isEVMTx, isSynthetic := extractTxInfo(tx, decoder, receiptChecker)
 
 		if !isEVMTx && !isSynthetic {
 			continue
@@ -529,4 +553,23 @@ func (ti *TransactionIndex) CalculateCosmosTxIndex(block *coretypes.ResultBlock,
 	}
 
 	return ti.cosmosTxIndex, ti.hasCosmosTxIndex
+}
+
+func extractTxInfo(
+    tx tmtypes.Tx, decoder sdk.TxDecoder, receiptChecker func(common.Hash) *types.Receipt,
+) (bool, bool) {
+    etx := getEthTxForTxBz(tx, decoder)
+    isEVMTx := tx != nil
+
+    var receipt *types.Receipt
+    if isEVMTx {
+        receipt = receiptChecker(etx.Hash())
+    } else {
+        receipt = receiptChecker(sha256.Sum256(tx))
+    }
+    hasReceipt := receipt != nil
+
+    isSynthetic := !isEVMTx && hasReceipt
+
+    return isEVMTx, isSynthetic
 }
