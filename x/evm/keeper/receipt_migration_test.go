@@ -20,7 +20,7 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 	var txs []common.Hash
 	for i := byte(1); i <= 101; i++ {
 		tx := common.BytesToHash([]byte{i})
-		receipt := &types.Receipt{TxHashHex: tx.Hex()}
+		receipt := &types.Receipt{TxHashHex: tx.Hex(), BlockNumber: uint64(i)}
 		setLegacyReceipt(ctx, k, tx, receipt)
 		txs = append(txs, tx)
 	}
