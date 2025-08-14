@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+  checks: write
+  statuses: write
+  id-token: write   # not strictly needed for token mode
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build/test that produces coverage (e.g. coverage.out or coverage.xml)
+      - name: Run tests
+        run: |
+          go test ./... -coverprofile=coverage.out
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}   # Add this secret in repo settings
+          files: ./coverage.out
+          flags: unittests
+          fail_ci_if_error: true
+          verbose: true
