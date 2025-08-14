@@ -166,6 +166,7 @@ func TestLegacyReceiptMigrationInterval(t *testing.T) {
 		m.BeginBlock(ctx, abci.RequestBeginBlock{})
 		m.EndBlock(ctx, abci.RequestEndBlock{})
 	}
+	k.FlushTransientReceiptsSync(ctx)
 
 	// After migration interval, legacy KV entry should be gone
 	exists := k.PrefixStore(ctx, types.ReceiptKeyPrefix).Get(txHash[:]) != nil
