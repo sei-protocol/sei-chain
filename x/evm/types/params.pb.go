@@ -5,12 +5,13 @@ package types
 
 import (
 	fmt "fmt"
-	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
-	_ "github.com/gogo/protobuf/gogoproto"
-	proto "github.com/gogo/protobuf/proto"
 	io "io"
 	math "math"
 	math_bits "math/bits"
+
+	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
+	_ "github.com/gogo/protobuf/gogoproto"
+	proto "github.com/gogo/protobuf/proto"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -27,28 +28,22 @@ const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 // Params defines the parameters for the module
 type Params struct {
 	// string base_denom = 1 [
-	//
-	//	(gogoproto.moretags)   = "yaml:\"base_denom\"",
-	//	(gogoproto.jsontag) = "base_denom"
-	//
+	//   (gogoproto.moretags)   = "yaml:\"base_denom\"",
+	//   (gogoproto.jsontag) = "base_denom"
 	// ];
 	PriorityNormalizer github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=priority_normalizer,json=priorityNormalizer,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"priority_normalizer" yaml:"priority_normalizer"`
 	BaseFeePerGas      github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,3,opt,name=base_fee_per_gas,json=baseFeePerGas,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"base_fee_per_gas" yaml:"base_fee_per_gas"`
 	MinimumFeePerGas   github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,4,opt,name=minimum_fee_per_gas,json=minimumFeePerGas,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"minimum_fee_per_gas" yaml:"minimum_fee_per_gas"`
 	// ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
-	//
-	//	string chain_id = 6 [
-	//	(gogoproto.moretags)   = "yaml:\"chain_id\"",
-	//	(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-	//	(gogoproto.nullable)   = false,
-	//	(gogoproto.jsontag) = "chain_id"
-	//
+	//   string chain_id = 6 [
+	//   (gogoproto.moretags)   = "yaml:\"chain_id\"",
+	//   (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+	//   (gogoproto.nullable)   = false,
+	//   (gogoproto.jsontag) = "chain_id"
 	// ];
 	// repeated string whitelisted_codehashes_bank_send = 7 [
-	//
-	//	(gogoproto.moretags)   = "yaml:\"whitelisted_codehashes_bank_send\"",
-	//	(gogoproto.jsontag) = "whitelisted_codehashes_bank_send"
-	//
+	//   (gogoproto.moretags)   = "yaml:\"whitelisted_codehashes_bank_send\"",
+	//   (gogoproto.jsontag) = "whitelisted_codehashes_bank_send"
 	// ];
 	WhitelistedCwCodeHashesForDelegateCall [][]byte                               `protobuf:"bytes,8,rep,name=whitelisted_cw_code_hashes_for_delegate_call,json=whitelistedCwCodeHashesForDelegateCall,proto3" json:"whitelisted_cw_code_hashes_for_delegate_call" yaml:"whitelisted_cw_code_hashes_for_delegate_call"`
 	DeliverTxHookWasmGasLimit              uint64                                 `protobuf:"varint,9,opt,name=deliver_tx_hook_wasm_gas_limit,json=deliverTxHookWasmGasLimit,proto3" json:"deliver_tx_hook_wasm_gas_limit,omitempty"`
@@ -186,6 +181,166 @@ func (m *ParamsPreV580) GetWhitelistedCwCodeHashesForDelegateCall() [][]byte {
 	return nil
 }
 
+type ParamsPreV600 struct {
+	// string base_denom = 1 [
+	//
+	//	(gogoproto.moretags)   = "yaml:\"base_denom\"",
+	//	(gogoproto.jsontag) = "base_denom"
+	//
+	// ];
+	PriorityNormalizer        github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=priority_normalizer,json=priorityNormalizer,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"priority_normalizer" yaml:"priority_normalizer"`
+	BaseFeePerGas             github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,3,opt,name=base_fee_per_gas,json=baseFeePerGas,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"base_fee_per_gas" yaml:"base_fee_per_gas"`
+	MinimumFeePerGas          github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,4,opt,name=minimum_fee_per_gas,json=minimumFeePerGas,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"minimum_fee_per_gas" yaml:"minimum_fee_per_gas"`
+	DeliverTxHookWasmGasLimit uint64                                 `protobuf:"varint,5,opt,name=deliver_tx_hook_wasm_gas_limit,json=deliverTxHookWasmGasLimit,proto3" json:"deliver_tx_hook_wasm_gas_limit,omitempty"`
+	// ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
+	//
+	//	string chain_id = 6 [
+	//	(gogoproto.moretags)   = "yaml:\"chain_id\"",
+	//	(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+	//	(gogoproto.nullable)   = false,
+	//	(gogoproto.jsontag) = "chain_id"
+	//
+	// ];
+	// repeated string whitelisted_codehashes_bank_send = 7 [
+	//
+	//	(gogoproto.moretags)   = "yaml:\"whitelisted_codehashes_bank_send\"",
+	//	(gogoproto.jsontag) = "whitelisted_codehashes_bank_send"
+	//
+	// ];
+	WhitelistedCwCodeHashesForDelegateCall [][]byte `protobuf:"bytes,8,rep,name=whitelisted_cw_code_hashes_for_delegate_call,json=whitelistedCwCodeHashesForDelegateCall,proto3" json:"whitelisted_cw_code_hashes_for_delegate_call" yaml:"whitelisted_cw_code_hashes_for_delegate_call"`
+}
+
+func (m *ParamsPreV600) Reset()      { *m = ParamsPreV600{} }
+func (*ParamsPreV600) ProtoMessage() {}
+func (*ParamsPreV600) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9272f3679901ea94, []int{2}
+}
+func (m *ParamsPreV600) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ParamsPreV600) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ParamsPreV600.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ParamsPreV600) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ParamsPreV600.Merge(m, src)
+}
+func (m *ParamsPreV600) XXX_Size() int {
+	return m.Size()
+}
+func (m *ParamsPreV600) XXX_DiscardUnknown() {
+	xxx_messageInfo_ParamsPreV600.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ParamsPreV600 proto.InternalMessageInfo
+
+func (m *ParamsPreV600) GetDeliverTxHookWasmGasLimit() uint64 {
+	if m != nil {
+		return m.DeliverTxHookWasmGasLimit
+	}
+	return 0
+}
+
+func (m *ParamsPreV600) GetWhitelistedCwCodeHashesForDelegateCall() [][]byte {
+	if m != nil {
+		return m.WhitelistedCwCodeHashesForDelegateCall
+	}
+	return nil
+}
+
+type ParamsPreV601 struct {
+	// string base_denom = 1 [
+	//
+	//	(gogoproto.moretags)   = "yaml:\"base_denom\"",
+	//	(gogoproto.jsontag) = "base_denom"
+	//
+	// ];
+	PriorityNormalizer github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=priority_normalizer,json=priorityNormalizer,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"priority_normalizer" yaml:"priority_normalizer"`
+	BaseFeePerGas      github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,3,opt,name=base_fee_per_gas,json=baseFeePerGas,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"base_fee_per_gas" yaml:"base_fee_per_gas"`
+	MinimumFeePerGas   github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,4,opt,name=minimum_fee_per_gas,json=minimumFeePerGas,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"minimum_fee_per_gas" yaml:"minimum_fee_per_gas"`
+	// ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
+	//
+	//	string chain_id = 6 [
+	//	(gogoproto.moretags)   = "yaml:\"chain_id\"",
+	//	(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+	//	(gogoproto.nullable)   = false,
+	//	(gogoproto.jsontag) = "chain_id"
+	//
+	// ];
+	// repeated string whitelisted_codehashes_bank_send = 7 [
+	//
+	//	(gogoproto.moretags)   = "yaml:\"whitelisted_codehashes_bank_send\"",
+	//	(gogoproto.jsontag) = "whitelisted_codehashes_bank_send"
+	//
+	// ];
+	WhitelistedCwCodeHashesForDelegateCall [][]byte                               `protobuf:"bytes,8,rep,name=whitelisted_cw_code_hashes_for_delegate_call,json=whitelistedCwCodeHashesForDelegateCall,proto3" json:"whitelisted_cw_code_hashes_for_delegate_call" yaml:"whitelisted_cw_code_hashes_for_delegate_call"`
+	DeliverTxHookWasmGasLimit              uint64                                 `protobuf:"varint,9,opt,name=deliver_tx_hook_wasm_gas_limit,json=deliverTxHookWasmGasLimit,proto3" json:"deliver_tx_hook_wasm_gas_limit,omitempty"`
+	MaxDynamicBaseFeeUpwardAdjustment      github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,10,opt,name=max_dynamic_base_fee_upward_adjustment,json=maxDynamicBaseFeeUpwardAdjustment,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"max_dynamic_base_fee_upward_adjustment" yaml:"max_dynamic_base_fee_upward_adjustment"`
+	MaxDynamicBaseFeeDownwardAdjustment    github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,11,opt,name=max_dynamic_base_fee_downward_adjustment,json=maxDynamicBaseFeeDownwardAdjustment,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"max_dynamic_base_fee_downward_adjustment" yaml:"max_dynamic_base_fee_downward_adjustment"`
+	TargetGasUsedPerBlock                  uint64                                 `protobuf:"varint,12,opt,name=target_gas_used_per_block,json=targetGasUsedPerBlock,proto3" json:"target_gas_used_per_block,omitempty"`
+}
+
+func (m *ParamsPreV601) Reset()      { *m = ParamsPreV601{} }
+func (*ParamsPreV601) ProtoMessage() {}
+func (*ParamsPreV601) Descriptor() ([]byte, []int) {
+	return fileDescriptor_9272f3679901ea94, []int{3}
+}
+func (m *ParamsPreV601) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *ParamsPreV601) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_ParamsPreV601.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *ParamsPreV601) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ParamsPreV601.Merge(m, src)
+}
+func (m *ParamsPreV601) XXX_Size() int {
+	return m.Size()
+}
+func (m *ParamsPreV601) XXX_DiscardUnknown() {
+	xxx_messageInfo_ParamsPreV601.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ParamsPreV601 proto.InternalMessageInfo
+
+func (m *ParamsPreV601) GetWhitelistedCwCodeHashesForDelegateCall() [][]byte {
+	if m != nil {
+		return m.WhitelistedCwCodeHashesForDelegateCall
+	}
+	return nil
+}
+
+func (m *ParamsPreV601) GetDeliverTxHookWasmGasLimit() uint64 {
+	if m != nil {
+		return m.DeliverTxHookWasmGasLimit
+	}
+	return 0
+}
+
+func (m *ParamsPreV601) GetTargetGasUsedPerBlock() uint64 {
+	if m != nil {
+		return m.TargetGasUsedPerBlock
+	}
+	return 0
+}
+
 type ParamsPreV606 struct {
 	// string base_denom = 1 [
 	//
@@ -222,7 +377,7 @@ type ParamsPreV606 struct {
 func (m *ParamsPreV606) Reset()      { *m = ParamsPreV606{} }
 func (*ParamsPreV606) ProtoMessage() {}
 func (*ParamsPreV606) Descriptor() ([]byte, []int) {
-	return fileDescriptor_9272f3679901ea94, []int{2}
+	return fileDescriptor_9272f3679901ea94, []int{4}
 }
 func (m *ParamsPreV606) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -272,67 +427,67 @@ func (m *ParamsPreV606) GetTargetGasUsedPerBlock() uint64 {
 	return 0
 }
 
-func (m *ParamsPreV606) String() string {
-	return fmt.Sprintf("ParamsPreV606{PriorityNormalizer: %s, BaseFeePerGas: %s, MinimumFeePerGas: %s, WhitelistedCwCodeHashesForDelegateCall: %v, DeliverTxHookWasmGasLimit: %d, MaxDynamicBaseFeeUpwardAdjustment: %s, MaxDynamicBaseFeeDownwardAdjustment: %s, TargetGasUsedPerBlock: %d, MaximumFeePerGas: %s}",
-		m.PriorityNormalizer.String(), m.BaseFeePerGas.String(), m.MinimumFeePerGas.String(), m.WhitelistedCwCodeHashesForDelegateCall, m.DeliverTxHookWasmGasLimit, m.MaxDynamicBaseFeeUpwardAdjustment.String(), m.MaxDynamicBaseFeeDownwardAdjustment.String(), m.TargetGasUsedPerBlock, m.MaximumFeePerGas.String())
-}
-
 func init() {
 	proto.RegisterType((*Params)(nil), "seiprotocol.seichain.evm.Params")
 	proto.RegisterType((*ParamsPreV580)(nil), "seiprotocol.seichain.evm.ParamsPreV580")
+	proto.RegisterType((*ParamsPreV600)(nil), "seiprotocol.seichain.evm.ParamsPreV600")
+	proto.RegisterType((*ParamsPreV601)(nil), "seiprotocol.seichain.evm.ParamsPreV601")
 	proto.RegisterType((*ParamsPreV606)(nil), "seiprotocol.seichain.evm.ParamsPreV606")
 }
 
 func init() { proto.RegisterFile("evm/params.proto", fileDescriptor_9272f3679901ea94) }
 
 var fileDescriptor_9272f3679901ea94 = []byte{
-	// 738 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xec, 0x57, 0xc1, 0x4b, 0x1b, 0x4f,
-	0x14, 0xce, 0xfe, 0xf4, 0x27, 0xba, 0x6a, 0x91, 0xb5, 0xc5, 0xd5, 0x43, 0x36, 0xdd, 0x82, 0xe4,
-	0xd0, 0x24, 0x82, 0x54, 0xc4, 0x9b, 0x31, 0x18, 0x0f, 0xa5, 0x84, 0xa5, 0xb6, 0x50, 0x28, 0xc3,
-	0x64, 0xf7, 0xb9, 0x99, 0x66, 0x27, 0x13, 0x66, 0x36, 0x26, 0x29, 0xf4, 0x5a, 0xe8, 0xa1, 0x50,
-	0xa4, 0x87, 0x1e, 0xfb, 0xcf, 0x14, 0x3c, 0x7a, 0x2c, 0x85, 0x2e, 0x45, 0xdb, 0x8b, 0xf4, 0x94,
-	0xbf, 0xa0, 0xec, 0xec, 0xaa, 0xa9, 0x89, 0xc5, 0x48, 0xa1, 0x97, 0x3d, 0xed, 0xee, 0xfb, 0xbe,
-	0x79, 0xf3, 0xde, 0xbe, 0xf7, 0x3d, 0x66, 0xd4, 0x39, 0xd8, 0xa7, 0x85, 0x26, 0xe6, 0x98, 0x8a,
-	0x7c, 0x93, 0x33, 0x9f, 0x69, 0xba, 0x00, 0x22, 0xdf, 0x6c, 0xe6, 0xe5, 0x05, 0x10, 0xbb, 0x86,
-	0x49, 0x23, 0x0f, 0xfb, 0x74, 0xe9, 0xb6, 0xcb, 0x5c, 0x26, 0xa1, 0x42, 0xf8, 0x16, 0xf1, 0xcd,
-	0xef, 0xd3, 0xea, 0x44, 0x45, 0x3a, 0xd0, 0xde, 0x2b, 0xea, 0x7c, 0x93, 0x13, 0xc6, 0x89, 0xdf,
-	0x45, 0x0d, 0xc6, 0x29, 0xf6, 0xc8, 0x4b, 0xe0, 0xfa, 0x7f, 0x19, 0x25, 0x3b, 0x55, 0xb4, 0x0f,
-	0x03, 0x23, 0xf5, 0x25, 0x30, 0x96, 0x5d, 0xe2, 0xd7, 0x5a, 0xd5, 0xbc, 0xcd, 0x68, 0xc1, 0x66,
-	0x82, 0x32, 0x11, 0x3f, 0x72, 0xc2, 0xa9, 0x17, 0xfc, 0x6e, 0x13, 0x44, 0xbe, 0x04, 0xf6, 0x69,
-	0x60, 0x0c, 0x73, 0xd6, 0x0b, 0x8c, 0xa5, 0x2e, 0xa6, 0xde, 0x86, 0x39, 0x04, 0x34, 0x2d, 0xed,
-	0xcc, 0xfa, 0xe8, 0xdc, 0xa8, 0xbd, 0x56, 0xd4, 0xb9, 0x2a, 0x16, 0x80, 0xf6, 0x00, 0x50, 0x13,
-	0x38, 0x72, 0xb1, 0xd0, 0xc7, 0x64, 0x4c, 0xcf, 0x47, 0x8e, 0x69, 0xc0, 0x53, 0x2f, 0x30, 0x16,
-	0xa2, 0x80, 0x2e, 0x23, 0xa6, 0x35, 0x1b, 0x9a, 0xb6, 0x01, 0x2a, 0xc0, 0xcb, 0x58, 0x68, 0x07,
-	0x8a, 0x3a, 0x4f, 0x49, 0x83, 0xd0, 0x16, 0xfd, 0x2d, 0x96, 0xf1, 0x9b, 0xfe, 0x9f, 0x21, 0xce,
-	0x2e, 0xfe, 0xcf, 0x10, 0xd0, 0xb4, 0xe6, 0x62, 0xeb, 0x45, 0x50, 0x9f, 0x14, 0xf5, 0x7e, 0xbb,
-	0x46, 0x7c, 0xf0, 0x88, 0xf0, 0xc1, 0x41, 0x76, 0x1b, 0xd9, 0xcc, 0x01, 0x54, 0xc3, 0xa2, 0x06,
-	0x02, 0xed, 0x31, 0x8e, 0x1c, 0xf0, 0xc0, 0xc5, 0x3e, 0x20, 0x1b, 0x7b, 0x9e, 0x3e, 0x99, 0x19,
-	0xcb, 0xce, 0x14, 0xdd, 0xd3, 0xc0, 0x18, 0x69, 0x5d, 0x2f, 0x30, 0x56, 0xa3, 0xc0, 0x46, 0x59,
-	0x65, 0x5a, 0xcb, 0x7d, 0xf4, 0xad, 0xf6, 0x16, 0x73, 0x60, 0x47, 0x72, 0xb7, 0x19, 0x2f, 0xc5,
-	0xcc, 0x2d, 0xec, 0x79, 0xda, 0xa6, 0x9a, 0x76, 0xc0, 0x23, 0xfb, 0xc0, 0x91, 0xdf, 0x41, 0x35,
-	0xc6, 0xea, 0xa8, 0x8d, 0x05, 0x0d, 0xd3, 0x46, 0x1e, 0xa1, 0xc4, 0xd7, 0xa7, 0x32, 0x4a, 0x76,
-	0xdc, 0x5a, 0x8c, 0x59, 0x8f, 0x3b, 0x3b, 0x8c, 0xd5, 0x9f, 0x62, 0x41, 0xcb, 0x58, 0x3c, 0x0c,
-	0x09, 0xda, 0x57, 0x45, 0x5d, 0xa6, 0xb8, 0x83, 0x9c, 0x6e, 0x03, 0x53, 0x62, 0xa3, 0xf3, 0x82,
-	0xb6, 0x9a, 0x6d, 0xcc, 0x1d, 0x84, 0x9d, 0x17, 0x2d, 0xe1, 0x53, 0x68, 0xf8, 0xba, 0x2a, 0x4b,
-	0xf6, 0x46, 0x19, 0xb9, 0x66, 0xd7, 0xdc, 0xa0, 0x17, 0x18, 0xb9, 0xb8, 0x8c, 0xd7, 0xe2, 0x9b,
-	0xd6, 0x5d, 0x8a, 0x3b, 0xa5, 0x88, 0x57, 0x8c, 0xba, 0x6e, 0x57, 0x92, 0x36, 0xcf, 0x39, 0xda,
-	0x0f, 0x45, 0xcd, 0x0e, 0x75, 0xe7, 0xb0, 0x76, 0xe3, 0x72, 0x86, 0xd3, 0x32, 0xc3, 0xb7, 0xa3,
-	0x67, 0x78, 0xed, 0x2d, 0x7a, 0x81, 0x51, 0xf8, 0x43, 0x8e, 0x43, 0x56, 0x98, 0xd6, 0xbd, 0x81,
-	0x2c, 0x4b, 0x31, 0xad, 0x2f, 0xcf, 0x75, 0x75, 0xd1, 0xc7, 0xdc, 0x05, 0x5f, 0x16, 0xbf, 0x25,
-	0xc0, 0x91, 0x02, 0xa8, 0x7a, 0xcc, 0xae, 0xeb, 0x33, 0xb2, 0x0b, 0xee, 0x44, 0x84, 0x32, 0x16,
-	0xbb, 0x02, 0x9c, 0x0a, 0xf0, 0x62, 0x08, 0x46, 0x0a, 0xc5, 0x9d, 0x01, 0x85, 0xce, 0xde, 0x58,
-	0xa1, 0x83, 0xce, 0xfa, 0x14, 0x3a, 0x08, 0x86, 0x0a, 0x8d, 0xac, 0x17, 0x0a, 0x7d, 0xa5, 0x2e,
-	0x72, 0x70, 0x43, 0x01, 0x70, 0xd4, 0x64, 0xa4, 0x11, 0x3e, 0x1d, 0x22, 0x70, 0xd5, 0x03, 0x47,
-	0xbf, 0x95, 0x51, 0xb2, 0x93, 0xc5, 0xcd, 0xd3, 0xc0, 0xb8, 0x9a, 0xd4, 0x0b, 0x8c, 0x4c, 0xb4,
-	0xe3, 0x95, 0x14, 0xd3, 0x5a, 0x38, 0xc3, 0x2a, 0x11, 0x54, 0x8a, 0x91, 0x8d, 0xf1, 0x0f, 0x1f,
-	0x8d, 0x94, 0x79, 0xf0, 0xbf, 0x3a, 0x1b, 0x8d, 0xf9, 0x0a, 0x87, 0x27, 0x0f, 0xd6, 0x57, 0x92,
-	0x69, 0x9f, 0x4c, 0xfb, 0x7f, 0x36, 0xed, 0xe3, 0xa6, 0xfc, 0xa9, 0xf6, 0x37, 0xe5, 0xda, 0xca,
-	0x5a, 0xd2, 0x94, 0x49, 0x53, 0x26, 0x47, 0x90, 0xe4, 0x08, 0x92, 0x1c, 0x41, 0xfe, 0xea, 0x11,
-	0x24, 0x1a, 0xb7, 0xc5, 0xf2, 0xe1, 0x71, 0x5a, 0x39, 0x3a, 0x4e, 0x2b, 0xdf, 0x8e, 0xd3, 0xca,
-	0xbb, 0x93, 0x74, 0xea, 0xe8, 0x24, 0x9d, 0xfa, 0x7c, 0x92, 0x4e, 0x3d, 0xcb, 0xf5, 0x85, 0x23,
-	0x80, 0xe4, 0xce, 0x2e, 0x90, 0xf2, 0x43, 0xde, 0x20, 0x0b, 0x9d, 0x42, 0x78, 0xd5, 0x94, 0x91,
-	0x55, 0x27, 0x24, 0xbe, 0xfa, 0x2b, 0x00, 0x00, 0xff, 0xff, 0x99, 0x6d, 0x67, 0x96, 0x7e, 0x0e,
+	// 786 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xec, 0x58, 0xcd, 0x6b, 0xdb, 0x48,
+	0x14, 0xb7, 0x36, 0x1f, 0x24, 0x4a, 0xb2, 0x04, 0x65, 0x97, 0x28, 0x39, 0x58, 0x5e, 0x2d, 0x04,
+	0x1f, 0xd6, 0x76, 0x96, 0xb0, 0x21, 0xe4, 0x16, 0xc7, 0xc4, 0x39, 0x2c, 0x8b, 0x11, 0x9b, 0x5d,
+	0x28, 0x94, 0x61, 0x2c, 0xbd, 0xc8, 0x53, 0x6b, 0x3c, 0x66, 0x46, 0xfe, 0x2a, 0xf4, 0x5a, 0xe8,
+	0xa1, 0x50, 0x42, 0x0f, 0x3d, 0xf6, 0x9f, 0x29, 0xe4, 0x98, 0x4b, 0x69, 0x29, 0x54, 0x94, 0xa4,
+	0xbd, 0x84, 0x9e, 0xfc, 0x17, 0x14, 0x7d, 0x24, 0xb1, 0x63, 0xa7, 0x89, 0x43, 0xa1, 0xa4, 0xe8,
+	0x64, 0xf9, 0xfd, 0x7e, 0xf3, 0xe6, 0x3d, 0xbd, 0xf7, 0x7e, 0x1a, 0x46, 0x9e, 0x87, 0x26, 0xcd,
+	0xd5, 0x31, 0xc7, 0x54, 0x64, 0xeb, 0x9c, 0xb9, 0x4c, 0x51, 0x05, 0x90, 0xe0, 0xc9, 0x64, 0x4e,
+	0x56, 0x00, 0x31, 0x2b, 0x98, 0xd4, 0xb2, 0xd0, 0xa4, 0xcb, 0xbf, 0xd8, 0xcc, 0x66, 0x01, 0x94,
+	0xf3, 0x9f, 0x42, 0xbe, 0xfe, 0x71, 0x46, 0x9e, 0x2c, 0x05, 0x0e, 0x94, 0xe7, 0x92, 0xbc, 0x50,
+	0xe7, 0x84, 0x71, 0xe2, 0x76, 0x50, 0x8d, 0x71, 0x8a, 0x1d, 0xf2, 0x10, 0xb8, 0xfa, 0x53, 0x4a,
+	0x4a, 0x4f, 0xe7, 0xcd, 0x43, 0x4f, 0x4b, 0xbc, 0xf3, 0xb4, 0x15, 0x9b, 0xb8, 0x95, 0x46, 0x39,
+	0x6b, 0x32, 0x9a, 0x33, 0x99, 0xa0, 0x4c, 0x44, 0x3f, 0x19, 0x61, 0x55, 0x73, 0x6e, 0xa7, 0x0e,
+	0x22, 0x5b, 0x00, 0xf3, 0xd4, 0xd3, 0x86, 0x39, 0xeb, 0x7a, 0xda, 0x72, 0x07, 0x53, 0x67, 0x53,
+	0x1f, 0x02, 0xea, 0x86, 0x72, 0x66, 0xfd, 0xe7, 0xdc, 0xa8, 0x3c, 0x96, 0xe4, 0xf9, 0x32, 0x16,
+	0x80, 0xf6, 0x01, 0x50, 0x1d, 0x38, 0xb2, 0xb1, 0x50, 0xc7, 0x82, 0x98, 0xee, 0x8f, 0x1c, 0xd3,
+	0x80, 0xa7, 0xae, 0xa7, 0x2d, 0x86, 0x01, 0x5d, 0x46, 0x74, 0x63, 0xce, 0x37, 0xed, 0x00, 0x94,
+	0x80, 0x17, 0xb1, 0x50, 0x0e, 0x24, 0x79, 0x81, 0x92, 0x1a, 0xa1, 0x0d, 0xda, 0x17, 0xcb, 0xf8,
+	0x6d, 0xdf, 0xcf, 0x10, 0x67, 0x17, 0xef, 0x67, 0x08, 0xa8, 0x1b, 0xf3, 0x91, 0xf5, 0x22, 0xa8,
+	0x57, 0x92, 0xfc, 0x47, 0xab, 0x42, 0x5c, 0x70, 0x88, 0x70, 0xc1, 0x42, 0x66, 0x0b, 0x99, 0xcc,
+	0x02, 0x54, 0xc1, 0xa2, 0x02, 0x02, 0xed, 0x33, 0x8e, 0x2c, 0x70, 0xc0, 0xc6, 0x2e, 0x20, 0x13,
+	0x3b, 0x8e, 0x3a, 0x95, 0x1a, 0x4b, 0xcf, 0xe6, 0xed, 0x53, 0x4f, 0x1b, 0x69, 0x5d, 0xd7, 0xd3,
+	0xd6, 0xc2, 0xc0, 0x46, 0x59, 0xa5, 0x1b, 0x2b, 0x3d, 0xf4, 0xed, 0xd6, 0x36, 0xb3, 0x60, 0x37,
+	0xe0, 0xee, 0x30, 0x5e, 0x88, 0x98, 0xdb, 0xd8, 0x71, 0x94, 0x2d, 0x39, 0x69, 0x81, 0x43, 0x9a,
+	0xc0, 0x91, 0xdb, 0x46, 0x15, 0xc6, 0xaa, 0xa8, 0x85, 0x05, 0xf5, 0xd3, 0x46, 0x0e, 0xa1, 0xc4,
+	0x55, 0xa7, 0x53, 0x52, 0x7a, 0xdc, 0x58, 0x8a, 0x58, 0xff, 0xb6, 0x77, 0x19, 0xab, 0xfe, 0x8f,
+	0x05, 0x2d, 0x62, 0xf1, 0xb7, 0x4f, 0x50, 0xde, 0x4b, 0xf2, 0x0a, 0xc5, 0x6d, 0x64, 0x75, 0x6a,
+	0x98, 0x12, 0x13, 0x9d, 0x17, 0xb4, 0x51, 0x6f, 0x61, 0x6e, 0x21, 0x6c, 0x3d, 0x68, 0x08, 0x97,
+	0x42, 0xcd, 0x55, 0xe5, 0xa0, 0x64, 0x4f, 0xa4, 0x91, 0x6b, 0x76, 0xc3, 0x0d, 0xba, 0x9e, 0x96,
+	0x89, 0xca, 0x78, 0x23, 0xbe, 0x6e, 0xfc, 0x46, 0x71, 0xbb, 0x10, 0xf2, 0xf2, 0x61, 0xd7, 0xed,
+	0x05, 0xa4, 0xad, 0x73, 0x8e, 0xf2, 0x49, 0x92, 0xd3, 0x43, 0xdd, 0x59, 0xac, 0x55, 0xbb, 0x9c,
+	0xe1, 0x4c, 0x90, 0xe1, 0xd3, 0xd1, 0x33, 0xbc, 0xf1, 0x16, 0x5d, 0x4f, 0xcb, 0x7d, 0x25, 0xc7,
+	0x21, 0x2b, 0x74, 0xe3, 0xf7, 0x81, 0x2c, 0x0b, 0x11, 0xad, 0x27, 0xcf, 0x0d, 0x79, 0xc9, 0xc5,
+	0xdc, 0x06, 0x37, 0x28, 0x7e, 0x43, 0x80, 0x15, 0x0c, 0x40, 0xd9, 0x61, 0x66, 0x55, 0x9d, 0x0d,
+	0xba, 0xe0, 0xd7, 0x90, 0x50, 0xc4, 0x62, 0x4f, 0x80, 0x55, 0x02, 0x9e, 0xf7, 0xc1, 0x70, 0x42,
+	0x71, 0x7b, 0x60, 0x42, 0xe7, 0x6e, 0x3d, 0xa1, 0x83, 0xce, 0x7a, 0x26, 0x74, 0x10, 0xf4, 0x27,
+	0x34, 0xb4, 0x5e, 0x4c, 0xe8, 0x23, 0x79, 0x89, 0x83, 0xed, 0x0f, 0x00, 0x47, 0x75, 0x46, 0x6a,
+	0xfe, 0xaf, 0x45, 0x04, 0x2e, 0x3b, 0x60, 0xa9, 0x3f, 0xa7, 0xa4, 0xf4, 0x54, 0x7e, 0xeb, 0xd4,
+	0xd3, 0xae, 0x26, 0x75, 0x3d, 0x2d, 0x15, 0xee, 0x78, 0x25, 0x45, 0x37, 0x16, 0xcf, 0xb0, 0x52,
+	0x08, 0x15, 0x22, 0x64, 0x73, 0xfc, 0xc5, 0x4b, 0x2d, 0xa1, 0x1f, 0x4c, 0xc8, 0x73, 0xa1, 0xcc,
+	0x97, 0x38, 0xfc, 0xf7, 0xd7, 0xc6, 0x6a, 0xac, 0xf6, 0xb1, 0xda, 0x7f, 0x37, 0xb5, 0x8f, 0x9a,
+	0xf2, 0x75, 0x5f, 0x53, 0xae, 0xaf, 0xc6, 0x4d, 0x79, 0x27, 0x9b, 0xf2, 0xfa, 0x4f, 0xf7, 0xc4,
+	0x75, 0x9f, 0xee, 0x1f, 0xab, 0xaf, 0xdf, 0x4c, 0xf7, 0xf7, 0xf5, 0x9f, 0x71, 0x5f, 0xc7, 0x62,
+	0x1b, 0x1f, 0xad, 0xe3, 0xa3, 0xf5, 0xdd, 0x3d, 0x5a, 0x47, 0xca, 0xf6, 0x59, 0xee, 0x57, 0xb6,
+	0xf5, 0x58, 0xd9, 0x62, 0x65, 0x8b, 0x95, 0x2d, 0x56, 0xb6, 0xf8, 0xd2, 0xe0, 0x9b, 0x5e, 0x1a,
+	0x84, 0x72, 0x9b, 0x2f, 0x1e, 0x1e, 0x27, 0xa5, 0xa3, 0xe3, 0xa4, 0xf4, 0xe1, 0x38, 0x29, 0x3d,
+	0x3b, 0x49, 0x26, 0x8e, 0x4e, 0x92, 0x89, 0xb7, 0x27, 0xc9, 0xc4, 0xbd, 0x4c, 0x4f, 0x38, 0x02,
+	0x48, 0xe6, 0xec, 0xca, 0x37, 0xf8, 0x13, 0xdc, 0xf9, 0xe6, 0xda, 0x39, 0x68, 0xd2, 0x30, 0xb2,
+	0xf2, 0x64, 0x80, 0xaf, 0x7d, 0x09, 0x00, 0x00, 0xff, 0xff, 0x49, 0x45, 0xb9, 0x66, 0x30, 0x16,
 	0x00, 0x00,
 }
 
@@ -468,6 +623,165 @@ func (m *ParamsPreV580) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if len(m.WhitelistedCwCodeHashesForDelegateCall) > 0 {
+		for iNdEx := len(m.WhitelistedCwCodeHashesForDelegateCall) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.WhitelistedCwCodeHashesForDelegateCall[iNdEx])
+			copy(dAtA[i:], m.WhitelistedCwCodeHashesForDelegateCall[iNdEx])
+			i = encodeVarintParams(dAtA, i, uint64(len(m.WhitelistedCwCodeHashesForDelegateCall[iNdEx])))
+			i--
+			dAtA[i] = 0x42
+		}
+	}
+	{
+		size := m.MinimumFeePerGas.Size()
+		i -= size
+		if _, err := m.MinimumFeePerGas.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x22
+	{
+		size := m.BaseFeePerGas.Size()
+		i -= size
+		if _, err := m.BaseFeePerGas.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1a
+	{
+		size := m.PriorityNormalizer.Size()
+		i -= size
+		if _, err := m.PriorityNormalizer.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	return len(dAtA) - i, nil
+}
+
+func (m *ParamsPreV600) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ParamsPreV600) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ParamsPreV600) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if len(m.WhitelistedCwCodeHashesForDelegateCall) > 0 {
+		for iNdEx := len(m.WhitelistedCwCodeHashesForDelegateCall) - 1; iNdEx >= 0; iNdEx-- {
+			i -= len(m.WhitelistedCwCodeHashesForDelegateCall[iNdEx])
+			copy(dAtA[i:], m.WhitelistedCwCodeHashesForDelegateCall[iNdEx])
+			i = encodeVarintParams(dAtA, i, uint64(len(m.WhitelistedCwCodeHashesForDelegateCall[iNdEx])))
+			i--
+			dAtA[i] = 0x42
+		}
+	}
+	if m.DeliverTxHookWasmGasLimit != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.DeliverTxHookWasmGasLimit))
+		i--
+		dAtA[i] = 0x28
+	}
+	{
+		size := m.MinimumFeePerGas.Size()
+		i -= size
+		if _, err := m.MinimumFeePerGas.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x22
+	{
+		size := m.BaseFeePerGas.Size()
+		i -= size
+		if _, err := m.BaseFeePerGas.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1a
+	{
+		size := m.PriorityNormalizer.Size()
+		i -= size
+		if _, err := m.PriorityNormalizer.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x12
+	return len(dAtA) - i, nil
+}
+
+func (m *ParamsPreV601) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *ParamsPreV601) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *ParamsPreV601) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.TargetGasUsedPerBlock != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.TargetGasUsedPerBlock))
+		i--
+		dAtA[i] = 0x60
+	}
+	{
+		size := m.MaxDynamicBaseFeeDownwardAdjustment.Size()
+		i -= size
+		if _, err := m.MaxDynamicBaseFeeDownwardAdjustment.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x5a
+	{
+		size := m.MaxDynamicBaseFeeUpwardAdjustment.Size()
+		i -= size
+		if _, err := m.MaxDynamicBaseFeeUpwardAdjustment.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintParams(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x52
+	if m.DeliverTxHookWasmGasLimit != 0 {
+		i = encodeVarintParams(dAtA, i, uint64(m.DeliverTxHookWasmGasLimit))
+		i--
+		dAtA[i] = 0x48
+	}
 	if len(m.WhitelistedCwCodeHashesForDelegateCall) > 0 {
 		for iNdEx := len(m.WhitelistedCwCodeHashesForDelegateCall) - 1; iNdEx >= 0; iNdEx-- {
 			i -= len(m.WhitelistedCwCodeHashesForDelegateCall[iNdEx])
@@ -676,6 +990,61 @@ func (m *ParamsPreV580) Size() (n int) {
 			l = len(b)
 			n += 1 + l + sovParams(uint64(l))
 		}
+	}
+	return n
+}
+
+func (m *ParamsPreV600) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = m.PriorityNormalizer.Size()
+	n += 1 + l + sovParams(uint64(l))
+	l = m.BaseFeePerGas.Size()
+	n += 1 + l + sovParams(uint64(l))
+	l = m.MinimumFeePerGas.Size()
+	n += 1 + l + sovParams(uint64(l))
+	if m.DeliverTxHookWasmGasLimit != 0 {
+		n += 1 + sovParams(uint64(m.DeliverTxHookWasmGasLimit))
+	}
+	if len(m.WhitelistedCwCodeHashesForDelegateCall) > 0 {
+		for _, b := range m.WhitelistedCwCodeHashesForDelegateCall {
+			l = len(b)
+			n += 1 + l + sovParams(uint64(l))
+		}
+	}
+	return n
+}
+
+func (m *ParamsPreV601) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = m.PriorityNormalizer.Size()
+	n += 1 + l + sovParams(uint64(l))
+	l = m.BaseFeePerGas.Size()
+	n += 1 + l + sovParams(uint64(l))
+	l = m.MinimumFeePerGas.Size()
+	n += 1 + l + sovParams(uint64(l))
+	if len(m.WhitelistedCwCodeHashesForDelegateCall) > 0 {
+		for _, b := range m.WhitelistedCwCodeHashesForDelegateCall {
+			l = len(b)
+			n += 1 + l + sovParams(uint64(l))
+		}
+	}
+	if m.DeliverTxHookWasmGasLimit != 0 {
+		n += 1 + sovParams(uint64(m.DeliverTxHookWasmGasLimit))
+	}
+	l = m.MaxDynamicBaseFeeUpwardAdjustment.Size()
+	n += 1 + l + sovParams(uint64(l))
+	l = m.MaxDynamicBaseFeeDownwardAdjustment.Size()
+	n += 1 + l + sovParams(uint64(l))
+	if m.TargetGasUsedPerBlock != 0 {
+		n += 1 + sovParams(uint64(m.TargetGasUsedPerBlock))
 	}
 	return n
 }
@@ -1226,6 +1595,499 @@ func (m *ParamsPreV580) Unmarshal(dAtA []byte) error {
 			m.WhitelistedCwCodeHashesForDelegateCall = append(m.WhitelistedCwCodeHashesForDelegateCall, make([]byte, postIndex-iNdEx))
 			copy(m.WhitelistedCwCodeHashesForDelegateCall[len(m.WhitelistedCwCodeHashesForDelegateCall)-1], dAtA[iNdEx:postIndex])
 			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipParams(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthParams
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ParamsPreV600) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowParams
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ParamsPreV600: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ParamsPreV600: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PriorityNormalizer", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.PriorityNormalizer.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field BaseFeePerGas", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.BaseFeePerGas.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MinimumFeePerGas", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.MinimumFeePerGas.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DeliverTxHookWasmGasLimit", wireType)
+			}
+			m.DeliverTxHookWasmGasLimit = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.DeliverTxHookWasmGasLimit |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 8:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field WhitelistedCwCodeHashesForDelegateCall", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.WhitelistedCwCodeHashesForDelegateCall = append(m.WhitelistedCwCodeHashesForDelegateCall, make([]byte, postIndex-iNdEx))
+			copy(m.WhitelistedCwCodeHashesForDelegateCall[len(m.WhitelistedCwCodeHashesForDelegateCall)-1], dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipParams(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthParams
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *ParamsPreV601) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowParams
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: ParamsPreV601: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: ParamsPreV601: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field PriorityNormalizer", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.PriorityNormalizer.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field BaseFeePerGas", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.BaseFeePerGas.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MinimumFeePerGas", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.MinimumFeePerGas.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 8:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field WhitelistedCwCodeHashesForDelegateCall", wireType)
+			}
+			var byteLen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				byteLen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if byteLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + byteLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.WhitelistedCwCodeHashesForDelegateCall = append(m.WhitelistedCwCodeHashesForDelegateCall, make([]byte, postIndex-iNdEx))
+			copy(m.WhitelistedCwCodeHashesForDelegateCall[len(m.WhitelistedCwCodeHashesForDelegateCall)-1], dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 9:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DeliverTxHookWasmGasLimit", wireType)
+			}
+			m.DeliverTxHookWasmGasLimit = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.DeliverTxHookWasmGasLimit |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 10:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxDynamicBaseFeeUpwardAdjustment", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.MaxDynamicBaseFeeUpwardAdjustment.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 11:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MaxDynamicBaseFeeDownwardAdjustment", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthParams
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthParams
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if err := m.MaxDynamicBaseFeeDownwardAdjustment.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 12:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TargetGasUsedPerBlock", wireType)
+			}
+			m.TargetGasUsedPerBlock = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowParams
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.TargetGasUsedPerBlock |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipParams(dAtA[iNdEx:])
