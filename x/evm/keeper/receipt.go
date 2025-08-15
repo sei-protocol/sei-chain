@@ -225,8 +225,6 @@ func (k *Keeper) MigrateLegacyReceiptsBatch(ctx sdk.Context, batchSize int) (int
 	receipts = make([]*types.Receipt, 0, batchSize)
 	keysToDelete = make([][]byte, 0, batchSize)
 
-	// Ensure at most one receipt per unique block number per batch
-	seenBlockNumbers := make(map[uint64]struct{})
 	for ; migrated < batchSize && iter.Valid(); iter.Next() {
 		keySuffix := iter.Key() // tx hash bytes (without prefix)
 		value := iter.Value()   // serialized receipt bytes
@@ -236,17 +234,11 @@ func (k *Keeper) MigrateLegacyReceiptsBatch(ctx sdk.Context, batchSize int) (int
 			return 0, err
 		}
 
-		// Skip if we've already included a receipt for this block number in this batch
-		if _, exists := seenBlockNumbers[receipt.BlockNumber]; exists {
-			continue
-		}
-
 		// Derive tx hash directly from key suffix
 		txHash := common.BytesToHash(keySuffix)
 
 		receipts = append(receipts, receipt)
 		txHashes = append(txHashes, txHash)
-		seenBlockNumbers[receipt.BlockNumber] = struct{}{}
 		// Save the suffix for deletion from legacy store after successful write
 		keysToDelete = append(keysToDelete, append([]byte{}, keySuffix...))
 		migrated++

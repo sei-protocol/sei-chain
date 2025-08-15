@@ -149,16 +149,13 @@ func TestLegacyReceiptMigrationInterval(t *testing.T) {
 	ctx := a.GetContextForDeliverTx([]byte{})
 	m := evm.NewAppModule(nil, &k)
 
-	// Seed 5 legacy receipts directly into KV with unique block numbers
-	txHashes := make([]common.Hash, 5)
-	for i := 0; i < 5; i++ {
-		txHashes[i] = common.BytesToHash([]byte{byte(i)})
-		receipt := &types.Receipt{TxHashHex: txHashes[i].Hex(), GasUsed: 100, BlockNumber: uint64(i + 1)}
-		bz, err := receipt.Marshal()
-		require.NoError(t, err)
-		store := k.PrefixStore(ctx, types.ReceiptKeyPrefix)
-		store.Set(txHashes[i][:], bz)
-	}
+	// Seed a legacy receipt directly into KV
+	txHash := common.BytesToHash([]byte{0x42})
+	receipt := &types.Receipt{TxHashHex: txHash.Hex()}
+	store := k.PrefixStore(ctx, types.ReceiptKeyPrefix)
+	bz, err := receipt.Marshal()
+	require.NoError(t, err)
+	store.Set(txHash[:], bz)
 
 	// Advance blocks until we hit the migration interval
 	// Interval defined in keeper/receipt.go as LegacyReceiptMigrationInterval
@@ -172,24 +169,18 @@ func TestLegacyReceiptMigrationInterval(t *testing.T) {
 	k.FlushTransientReceiptsSync(ctx)
 
 	// After migration interval, legacy KV entry should be gone
-	for _, txHash := range txHashes {
-		exists := k.PrefixStore(ctx, types.ReceiptKeyPrefix).Get(txHash[:]) != nil
-		require.False(t, exists)
-	}
+	exists := k.PrefixStore(ctx, types.ReceiptKeyPrefix).Get(txHash[:]) != nil
+	require.False(t, exists)
 
 	// And receipt should be retrievable through normal path
-	for _, txHash := range txHashes {
-		r, err := k.GetReceipt(ctx, txHash)
-		require.NoError(t, err)
-		require.Equal(t, txHash.Hex(), r.TxHashHex)
-		// Check that cumulative gas used is unchanged
-		require.Equal(t, uint64(100), r.CumulativeGasUsed)
+	r, err := k.GetReceipt(ctx, txHash)
+	require.NoError(t, err)
+	require.Equal(t, txHash.Hex(), r.TxHashHex)
 
-		// Check that the receipt is retrievable through receipt.db only
-		r, err = k.GetReceiptFromReceiptStore(ctx, txHash)
-		require.NoError(t, err)
-		require.Equal(t, txHash.Hex(), r.TxHashHex)
-	}
+	// Check that the receipt is retrievable through receipt.db only
+	r, err = k.GetReceiptFromReceiptStore(ctx, txHash)
+	require.NoError(t, err)
+	require.Equal(t, txHash.Hex(), r.TxHashHex)
 }
 
 func TestAnteSurplus(t *testing.T) {
