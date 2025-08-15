@@ -21,10 +21,10 @@ type PostgreSQLImporter struct {
 }
 
 func NewPostgreSQLImporter(config PostgreSQLConfig, outputDir string, ctx sdk.Context) (*PostgreSQLImporter, error) {
-	connStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		config.Host, config.Port, config.Username, config.Password, config.Database, config.SSLMode)
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		config.Host, config.Port, config.User, config.Password, config.Database, config.SSLMode)
 
-	db, err := sql.Open("postgres", connStr)
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to PostgreSQL: %w", err)
 	}
@@ -77,7 +77,7 @@ func (p *PostgreSQLImporter) ImportAll() error {
 			file:    "assets.csv",
 			columns: []string{"type", "name", "label", "code_id", "creator", "admin", "has_admin", "pointer"},
 			resolver: func(row []string) ([]interface{}, error) {
-				if len(row) != 8 {
+				if len(row) != 9 {
 					return nil, fmt.Errorf("invalid asset row length: %d", len(row))
 				}
 				var codeId *int
@@ -87,16 +87,19 @@ func (p *PostgreSQLImporter) ImportAll() error {
 					}
 				}
 				hasAdmin, _ := strconv.ParseBool(row[6])
+				// Note: row[7] is has_pointer from CSV, but we don't store it in DB
 
-				// Handle empty values
+				// Handle empty values - CSV format: name,type,label,code_id,creator,admin,has_admin,has_pointer,pointer
+				name := row[0]      // name is first column in CSV
+				assetType := row[1] // type is second column in CSV
 				label := nullString(row[2])
 				creator := nullString(row[4])
 				admin := nullString(row[5])
-				pointer := nullString(row[7])
+				pointer := nullString(row[8]) // pointer is last column in CSV
 
-				// CSV order: name, type, label, code_id, creator, admin, has_admin, pointer
-				// DB order:  type, name, label, code_id, creator, admin, has_admin, pointer
-				return []interface{}{row[1], row[0], label, codeId, creator, admin, hasAdmin, pointer}, nil
+				// Return in database column order: type, name, label, code_id, creator, admin, has_admin, pointer
+				// Database schema: type, name, label, code_id, creator, admin, has_admin, pointer (8 columns)
+				return []interface{}{assetType, name, label, codeId, creator, admin, hasAdmin, pointer}, nil
 			},
 		},
 	}
