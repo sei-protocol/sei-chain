@@ -87,7 +87,7 @@ func TestStaking(t *testing.T) {
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -114,7 +114,7 @@ func TestStaking(t *testing.T) {
 	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -141,7 +141,7 @@ func TestStaking(t *testing.T) {
 	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -195,7 +195,7 @@ func TestStakingError(t *testing.T) {
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.NotEmpty(t, res.VmError)
@@ -218,7 +218,7 @@ func TestStakingError(t *testing.T) {
 	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.NotEmpty(t, res.VmError)
@@ -685,7 +685,7 @@ func TestCreateValidator(t *testing.T) {
 			req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 			require.NoError(t, err)
 
-			ante.Preprocess(setup.ctx, req, setup.k.ChainID(setup.ctx))
+			ante.Preprocess(setup.ctx, req, setup.k.ChainID(setup.ctx), false)
 			res, err := setup.msgServer.EVMTransaction(sdk.WrapSDKContext(setup.ctx), req)
 			require.NoError(t, err)
 
@@ -748,7 +748,7 @@ func TestCreateValidator_UnassociatedAddress(t *testing.T) {
 	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.NoError(t, err)
 
-	ante.Preprocess(setup.ctx, req, setup.k.ChainID(setup.ctx))
+	ante.Preprocess(setup.ctx, req, setup.k.ChainID(setup.ctx), false)
 	res, err := setup.msgServer.EVMTransaction(sdk.WrapSDKContext(setup.ctx), req)
 	require.NoError(t, err)
 	require.NotEmpty(t, res.VmError, "Should fail with unassociated address")
@@ -804,7 +804,7 @@ func TestEditValidator_ErorrIfDoesNotExist(t *testing.T) {
 	require.NoError(t, err)
 
 	msgServer := keeper.NewMsgServerImpl(k)
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.NoError(t, err)
 	// Should fail because validator doesn't exist
@@ -870,7 +870,7 @@ func TestEditValidator(t *testing.T) {
 	createReq, err := evmtypes.NewMsgEVMTransaction(createTxWrapper)
 	require.NoError(t, err)
 
-	ante.Preprocess(ctx, createReq, k.ChainID(ctx))
+	ante.Preprocess(ctx, createReq, k.ChainID(ctx), false)
 	createRes, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), createReq)
 	require.NoError(t, err)
 	require.Empty(t, createRes.VmError, "Validator creation should succeed: %s", createRes.VmError)
@@ -909,7 +909,7 @@ func TestEditValidator(t *testing.T) {
 	editReq, err := evmtypes.NewMsgEVMTransaction(editTxWrapper)
 	require.NoError(t, err)
 
-	ante.Preprocess(ctx, editReq, k.ChainID(ctx))
+	ante.Preprocess(ctx, editReq, k.ChainID(ctx), false)
 	editRes, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), editReq)
 	require.NoError(t, err)
 	require.Empty(t, editRes.VmError, "Edit validator should succeed: %s", editRes.VmError)

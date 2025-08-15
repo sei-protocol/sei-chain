@@ -1357,7 +1357,7 @@ describe("EVM Validations ", function() {
       expect(response.data.error.message).to.include("invalid chain-id")
     });
 
-    it("should allow empty chainId for legacy txs", async function() {
+    it("should not allow empty chainId for legacy txs", async function() {
       const nonce = await ethers.provider.getTransactionCount(signer, "pending")
 
       // const accounts = await setupSigners(await hre.ethers.getSigners())
@@ -1377,11 +1377,8 @@ describe("EVM Validations ", function() {
         jsonrpc: "2.0"
       })
 
-      expect(response.data.result).to.match(/0x.*/)
+      expect(response.data.result).not.to.match(/0x.*/)
     });
-
-
-
   })
 
 })

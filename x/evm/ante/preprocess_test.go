@@ -70,7 +70,7 @@ func TestPreprocessAnteHandler(t *testing.T) {
 	require.Equal(t, sdk.ZeroInt(), k.BankKeeper().GetWeiBalance(ctx, sdk.AccAddress(evmAddr[:])))
 }
 
-func TestPreprocessAnteHandlerUnprotected(t *testing.T) {
+func TestPreprocessAnteHandlerUnprotectedShouldFail(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
 	handler := ante.NewEVMPreprocessDecorator(k, k.AccountKeeper())
@@ -95,8 +95,8 @@ func TestPreprocessAnteHandlerUnprotected(t *testing.T) {
 	_, err = handler.AnteHandle(ctx, mockTx{msgs: []sdk.Msg{msg}}, false, func(ctx sdk.Context, _ sdk.Tx, _ bool) (sdk.Context, error) {
 		return ctx, nil
 	})
-	require.Nil(t, err)
-	require.Equal(t, "0xc39BDF685F289B1F261EE9b0b1B2Bf9eae4C1980", msg.Derived.SenderEVMAddr.Hex())
+	require.NotNil(t, err)
+	require.Contains(t, err.Error(), "unsafe legacy tx")
 }
 
 func TestPreprocessAssociateTx(t *testing.T) {

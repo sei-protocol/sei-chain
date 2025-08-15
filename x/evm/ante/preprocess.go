@@ -2,6 +2,7 @@ package ante
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -58,7 +59,7 @@ func NewEVMPreprocessDecorator(evmKeeper *evmkeeper.Keeper, accountKeeper *accou
 //nolint:revive
 func (p *EVMPreprocessDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
-	if err := Preprocess(ctx, msg, p.evmKeeper.ChainID(ctx)); err != nil {
+	if err := Preprocess(ctx, msg, p.evmKeeper.ChainID(ctx), p.evmKeeper.EthBlockTestConfig.Enabled); err != nil {
 		return ctx, err
 	}
 
@@ -118,7 +119,7 @@ func (p *EVMPreprocessDecorator) IsAccountBalancePositive(ctx sdk.Context, seiAd
 }
 
 // stateless
-func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, chainID *big.Int) error {
+func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, chainID *big.Int, isBlockTest bool) error {
 	if msgEVMTransaction.Derived != nil {
 		if msgEVMTransaction.Derived.PubKey == nil {
 			// this means the message has `Derived` set from the outside, in which case we should reject
@@ -169,7 +170,13 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, 
 		V = AdjustV(V, ethTx.Type(), ethCfg.ChainID)
 		txHash = signer.Hash(ethTx)
 	} else {
-		txHash = ethtypes.FrontierSigner{}.Hash(ethTx)
+		if isBlockTest {
+			// need to allow unprotected legacy txs in blocktest
+			// to not lose coverage for other parts of the code
+			txHash = ethtypes.FrontierSigner{}.Hash(ethTx)
+		} else {
+			return errors.New("unsupported tx type: unsafe legacy tx")
+		}
 	}
 	evmAddr, seiAddr, seiPubkey, err := helpers.GetAddresses(V, R, S, txHash)
 	if err != nil {
