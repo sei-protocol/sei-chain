@@ -151,6 +151,19 @@ func (k *Keeper) FlushTransientReceiptsAsync(ctx sdk.Context) error {
 	return k.flushTransientReceipts(ctx, false)
 }
 
+func isLegacyReceipt(ctx sdk.Context, receipt *types.Receipt) bool {
+	if ctx.ChainID() == "pacific-1" {
+		return receipt.BlockNumber < 162745893
+	}
+	if ctx.ChainID() == "atlantic-2" {
+		return receipt.BlockNumber < 191939681
+	}
+	if ctx.ChainID() == "arctic-1" {
+		return receipt.BlockNumber < 109393643
+	}
+	return false
+}
+
 func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 	transientReceiptStore := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix)
 	iter := transientReceiptStore.Iterator(nil, nil)
@@ -168,8 +181,10 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 			return err
 		}
 
-		cumulativeGasUsedPerBlock[receipt.BlockNumber] += receipt.GasUsed
-		receipt.CumulativeGasUsed = cumulativeGasUsedPerBlock[receipt.BlockNumber]
+		if !isLegacyReceipt(ctx, receipt) {
+			cumulativeGasUsedPerBlock[receipt.BlockNumber] += receipt.GasUsed
+			receipt.CumulativeGasUsed = cumulativeGasUsedPerBlock[receipt.BlockNumber]
+		}
 
 		marshalledReceipt, err := receipt.Marshal()
 		if err != nil {
