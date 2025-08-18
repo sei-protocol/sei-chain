@@ -148,9 +148,21 @@ func (s *service) Start(ctx sdk.Context) error {
 	// Track unique assets to avoid duplicates
 	seenAssets := make(map[string]bool)
 
+	// Counter for progress tracking
+	accountCount := 0
+
 	// 2. Process accounts and their balances
 	fmt.Printf("EXPORT Starting account iteration\n")
+	var iterationError error
 	s.ak.IterateAccounts(ctx, func(account authtypes.AccountI) bool {
+		accountCount++
+		defer func() {
+			if r := recover(); r != nil {
+				iterationError = fmt.Errorf("panic during account processing: %v", r)
+				fmt.Printf("EXPORT PANIC during account processing: %v\n", r)
+			}
+		}()
+
 		addr := account.GetAddress()
 
 		// Write account data
@@ -192,7 +204,8 @@ func (s *service) Start(ctx sdk.Context) error {
 			bucket,
 		})
 		if err != nil {
-			fmt.Printf("EXPORT Error writing account: %v\n", err)
+			iterationError = fmt.Errorf("failed to write account %s: %w", addr.String(), err)
+			fmt.Printf("EXPORT Error writing account %s: %v\n", addr.String(), err)
 			return false
 		}
 
@@ -215,7 +228,8 @@ func (s *service) Start(ctx sdk.Context) error {
 					"6",           // decimals (default for native)
 				})
 				if err != nil {
-					fmt.Printf("EXPORT Error writing native asset: %v\n", err)
+					iterationError = fmt.Errorf("failed to write native asset %s: %w", balance.Denom, err)
+					fmt.Printf("EXPORT Error writing native asset %s: %v\n", balance.Denom, err)
 					return false
 				}
 				seenAssets[balance.Denom] = true
@@ -230,13 +244,31 @@ func (s *service) Start(ctx sdk.Context) error {
 				"", // No token ID for native tokens
 			})
 			if err != nil {
-				fmt.Printf("EXPORT Error writing balance: %v\n", err)
+				iterationError = fmt.Errorf("failed to write balance for account %s, denom %s: %w", addr.String(), balance.Denom, err)
+				fmt.Printf("EXPORT Error writing balance for account %s, denom %s: %v\n", addr.String(), balance.Denom, err)
 				return false
 			}
 		}
 
+		// Log progress periodically to help identify where process might stop
+		if accountCount%10000 == 0 {
+			fmt.Printf("EXPORT Progress: processed %d accounts so far\n", accountCount)
+		}
+
 		return false // Continue iteration
 	})
+
+	// Check for iteration errors
+	if iterationError != nil {
+		s.setStatus("failed")
+		return fmt.Errorf("account iteration failed: %w", iterationError)
+	}
+
+	// Force flush all writers after account processing
+	accountWriter.Flush()
+	assetWriter.Flush()
+	balanceWriter.Flush()
+	fmt.Printf("EXPORT Completed account iteration, processed %d accounts. Flushed all writers.\n", accountCount)
 
 	// 3. Process CW20 and CW721 contracts
 	fmt.Printf("EXPORT Starting contract iteration\n")
@@ -506,12 +538,15 @@ func (s *service) processCW721Balances(ctx sdk.Context, contractAddr sdk.AccAddr
 		}
 
 		fmt.Printf("EXPORT Writing CW721 balance: account=%s, asset=%s, balance=1, tokenID=%s\n", ownerResp.Owner, contractAddr.String(), tokenID)
-		balanceWriter.Write([]string{
+		err := balanceWriter.Write([]string{
 			ownerResp.Owner,
 			contractAddr.String(),
 			"1", // NFT balance is always 1
 			tokenID,
 		})
+		if err != nil {
+			panic("EXPORT Error writing CW721 balance: " + err.Error())
+		}
 	}
 }
 
