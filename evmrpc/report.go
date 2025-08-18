@@ -59,6 +59,7 @@ func (r *ReportAPI) StartCSVReport(outputDir string) (string, error) {
 	r.mx.Lock()
 	defer r.mx.Unlock()
 	ctx := r.ctxProvider(0)
+	ctx = ctx.WithIsTracing(false)
 
 	bk := r.k.BankKeeper()
 	ak := r.k.AccountKeeper()
