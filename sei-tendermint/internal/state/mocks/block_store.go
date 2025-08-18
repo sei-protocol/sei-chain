@@ -185,7 +185,6 @@ func (_m *BlockStore) LoadSeenCommit() *types.Commit {
 	return r0
 }
 
-
 // PruneBlocks provides a mock function with given fields: height
 func (_m *BlockStore) PruneBlocks(height int64) (uint64, error) {
 	ret := _m.Called(height)

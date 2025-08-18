@@ -2,10 +2,10 @@
 // implementations need to be stored as JSON. To do this, concrete values are
 // packaged in wrapper objects having the form:
 //
-//   {
-//     "type": "<type-tag>",
-//     "value": <json-encoding-of-value>
-//   }
+//	{
+//	  "type": "<type-tag>",
+//	  "value": <json-encoding-of-value>
+//	}
 //
 // This package provides a registry for type tag strings and functions to
 // encode and decode wrapper objects.

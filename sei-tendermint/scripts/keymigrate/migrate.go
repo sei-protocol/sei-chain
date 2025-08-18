@@ -352,7 +352,7 @@ func convertEvidence(key keyID, newPrefix int64) ([]byte, error) {
 // so checking the one-byte prefix alone is not enough to distinguish them.
 // Legacy evidence keys are suffixed with a string of the format:
 //
-//     "%0.16X/%X"
+//	"%0.16X/%X"
 //
 // where the first element is the height and the second is the hash.  Thus, we
 // check

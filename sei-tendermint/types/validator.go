@@ -212,7 +212,6 @@ func ValidatorFromProto(vp *tmproto.Validator) (*Validator, error) {
 	return v, nil
 }
 
-
 //----------------------------------------
 // RandValidator
 

@@ -8,7 +8,7 @@ Tendermint supports two primary means of block and transaction event indexing:
 
 An ABCI application can emit events during block and transaction execution in the form
 
-   <abci.Event.Type>.<abci.EventAttributeKey>=<abci.EventAttributeValue>
+	<abci.Event.Type>.<abci.EventAttributeKey>=<abci.EventAttributeValue>
 
 for example "transfer.amount=10000".
 

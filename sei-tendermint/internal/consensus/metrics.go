@@ -51,12 +51,12 @@ type Metrics struct {
 	ByzantineValidatorsPower metrics.Gauge
 
 	// Time in seconds between this and the last block.
-	BlockIntervalSeconds metrics.Histogram `metrics_bucketsizes:".3, .5, 1, 1.5, 2, 5, 10"`
+	BlockIntervalSeconds metrics.Histogram `metrics_buckettype:"exp" metrics_bucketsizes:"0.1, 1.3, 20"`
 
 	// Number of transactions.
 	NumTxs metrics.Gauge
 	// Size of the block.
-	BlockSizeBytes metrics.Histogram
+	BlockSizeBytes metrics.Histogram `metrics_buckettype:"exp" metrics_bucketsizes:"1000, 1.5, 25"`
 	// Total number of transactions.
 	TotalTxs metrics.Gauge
 	// The latest block height.
@@ -164,15 +164,15 @@ type Metrics struct {
 
 	// ConsensusTime the metric to track how long the consensus takes in each block
 	//metrics: Number of seconds spent on consensus
-	ConsensusTime metrics.Histogram
+	ConsensusTime metrics.Histogram `metrics_buckettype:"exp" metrics_bucketsizes:"0.01, 1.3, 25"`
 
 	// CompleteProposalTime measures how long it takes between receiving a proposal and finishing
 	// processing all of its parts. Note that this means it also includes network latency from
 	// block parts gossip
-	CompleteProposalTime metrics.Histogram
+	CompleteProposalTime metrics.Histogram `metrics_buckettype:"exp" metrics_bucketsizes:"0.01, 1.3, 25"`
 
 	// ApplyBlockLatency measures how long it takes to execute ApplyBlock in finalize commit step
-	ApplyBlockLatency metrics.Histogram `metrics_buckettype:"exprange" metrics_bucketsizes:"0.01, 10, 10"`
+	ApplyBlockLatency metrics.Histogram `metrics_buckettype:"exp" metrics_bucketsizes:"0.01, 1.3, 25"`
 
 	StepLatency                 metrics.Gauge `metrics_labels:"step"`
 	lastRecordedStepLatencyNano int64
@@ -240,12 +240,24 @@ func (m *Metrics) MarkFinalRound(round int32, proposer string) {
 	m.FinalRound.With("proposer_address", proposer).Observe(float64(round))
 }
 
-func (m *Metrics) MarkProposeLatency(proposer string, seconds float64) {
-	m.ProposeLatency.With("proposer_address", proposer).Observe(seconds)
+func (m *Metrics) MarkProposeLatency(proposer string, latency time.Duration) {
+	m.ProposeLatency.With("proposer_address", proposer).Observe(latency.Seconds())
 }
 
-func (m *Metrics) MarkPrevoteLatency(validator string, seconds float64) {
-	m.PrevoteLatency.With("validator_address", validator).Observe(seconds)
+func (m *Metrics) MarkPrevoteLatency(validator string, latency time.Duration) {
+	m.PrevoteLatency.With("validator_address", validator).Observe(latency.Seconds())
+}
+
+func (m *Metrics) MarkCompleteProposalTime(latency time.Duration) {
+	m.CompleteProposalTime.Observe(latency.Seconds())
+}
+
+func (m *Metrics) MarkConsensusTime(latency time.Duration) {
+	m.ConsensusTime.Observe(latency.Seconds())
+}
+
+func (m *Metrics) MarkApplyBlockLatency(latency time.Duration) {
+	m.ApplyBlockLatency.Observe(latency.Seconds())
 }
 
 func (m *Metrics) MarkStep(s cstypes.RoundStepType) {

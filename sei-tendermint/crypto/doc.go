@@ -33,7 +33,6 @@
 
 // We also provide hashing wrappers around algorithms:
 
-
 package crypto
 
 // TODO: Add more docs in here

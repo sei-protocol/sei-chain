@@ -1027,7 +1027,7 @@ func (cs *State) fsyncAndCompleteProposal(ctx context.Context, fsyncUponCompleti
 			cs.logger.Error("Error flushing wal after receiving all block parts", "error", err)
 		}
 	}
-	cs.metrics.CompleteProposalTime.Observe(float64(time.Since(cs.roundState.ProposalReceiveTime())))
+	cs.metrics.MarkCompleteProposalTime(time.Since(cs.roundState.ProposalReceiveTime()))
 	cs.handleCompleteProposal(ctx, height, span)
 }
 
@@ -2168,7 +2168,7 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 			cs.blockStore.SaveBlock(block, blockParts, seenExtendedCommit.ToCommit())
 		}
 		// Calculate consensus time
-		cs.metrics.ConsensusTime.Observe(time.Since(cs.roundState.StartTime()).Seconds())
+		cs.metrics.MarkConsensusTime(time.Since(cs.roundState.StartTime()))
 	} else {
 		// Happens during replay if we already saved the block but didn't commit
 		logger.Debug("calling finalizeCommit on already stored block", "height", block.Height)
@@ -2213,7 +2213,7 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 		block,
 		cs.tracer,
 	)
-	cs.metrics.ApplyBlockLatency.Observe(float64(time.Since(startTime).Milliseconds()))
+	cs.metrics.MarkApplyBlockLatency(time.Since(startTime))
 	if err != nil {
 		logger.Error("failed to apply block", "err", err)
 		return
@@ -2334,7 +2334,7 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 	// Latency metric for prevote delay
 	if proposal != nil {
 		cs.metrics.MarkFinalRound(roundState.Round, proposal.ProposerAddress.String())
-		cs.metrics.MarkProposeLatency(proposal.ProposerAddress.String(), proposal.Timestamp.Sub(roundState.StartTime).Seconds())
+		cs.metrics.MarkProposeLatency(proposal.ProposerAddress.String(), proposal.Timestamp.Sub(roundState.StartTime))
 		for roundId := 0; int32(roundId) <= roundState.ValidRound; roundId++ {
 			preVotes := roundState.Votes.Prevotes(int32(roundId))
 			pl := preVotes.List()
@@ -2345,9 +2345,9 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 			sort.Slice(pl, func(i, j int) bool {
 				return pl[i].Timestamp.Before(pl[j].Timestamp)
 			})
-			firstVoteDelay := pl[0].Timestamp.Sub(roundState.StartTime).Seconds()
+			firstVoteDelay := pl[0].Timestamp.Sub(roundState.StartTime)
 			for _, vote := range pl {
-				currVoteDelay := vote.Timestamp.Sub(roundState.StartTime).Seconds()
+				currVoteDelay := vote.Timestamp.Sub(roundState.StartTime)
 				relativeVoteDelay := currVoteDelay - firstVoteDelay
 				cs.metrics.MarkPrevoteLatency(vote.ValidatorAddress.String(), relativeVoteDelay)
 			}

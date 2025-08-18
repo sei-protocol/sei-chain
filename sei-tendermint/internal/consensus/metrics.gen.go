@@ -94,7 +94,7 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Name:      "block_interval_seconds",
 			Help:      "Time in seconds between this and the last block.",
 
-			Buckets: []float64{.3, .5, 1, 1.5, 2, 5, 10},
+			Buckets: stdprometheus.ExponentialBuckets(0.1, 1.3, 20),
 		}, labels).With(labelsAndValues...),
 		NumTxs: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
 			Namespace: namespace,
@@ -107,6 +107,8 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Subsystem: MetricsSubsystem,
 			Name:      "block_size_bytes",
 			Help:      "Size of the block.",
+
+			Buckets: stdprometheus.ExponentialBuckets(1000, 1.5, 25),
 		}, labels).With(labelsAndValues...),
 		TotalTxs: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
 			Namespace: namespace,
@@ -263,12 +265,16 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Subsystem: MetricsSubsystem,
 			Name:      "consensus_time",
 			Help:      "Number of seconds spent on consensus",
+
+			Buckets: stdprometheus.ExponentialBuckets(0.01, 1.3, 25),
 		}, labels).With(labelsAndValues...),
 		CompleteProposalTime: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
 			Namespace: namespace,
 			Subsystem: MetricsSubsystem,
 			Name:      "complete_proposal_time",
 			Help:      "CompleteProposalTime measures how long it takes between receiving a proposal and finishing processing all of its parts. Note that this means it also includes network latency from block parts gossip",
+
+			Buckets: stdprometheus.ExponentialBuckets(0.01, 1.3, 25),
 		}, labels).With(labelsAndValues...),
 		ApplyBlockLatency: prometheus.NewHistogramFrom(stdprometheus.HistogramOpts{
 			Namespace: namespace,
@@ -276,7 +282,7 @@ func PrometheusMetrics(namespace string, labelsAndValues ...string) *Metrics {
 			Name:      "apply_block_latency",
 			Help:      "ApplyBlockLatency measures how long it takes to execute ApplyBlock in finalize commit step",
 
-			Buckets: stdprometheus.ExponentialBucketsRange(0.01, 10, 10),
+			Buckets: stdprometheus.ExponentialBuckets(0.01, 1.3, 25),
 		}, labels).With(labelsAndValues...),
 		StepLatency: prometheus.NewGaugeFrom(stdprometheus.GaugeOpts{
 			Namespace: namespace,
