@@ -1846,14 +1846,14 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
-		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false)
+		return app.GetCheckCtx().WithIsTracing(false).WithIsCheckTx(false)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
 		app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
-		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false)
+		return app.GetCheckCtx().WithIsTracing(false).WithIsCheckTx(false)
 	}
-	return ctx.WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false)
+	return ctx.WithIsEVM(true).WithIsTracing(false).WithIsCheckTx(false)
 }
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
