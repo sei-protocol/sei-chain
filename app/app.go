@@ -1709,7 +1709,7 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 			} else {
 				if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM {
 					msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
-					if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.ChainID(ctx)); err != nil {
+					if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.ChainID(ctx), app.EvmKeeper.EthBlockTestConfig.Enabled); err != nil {
 						ctx.Logger().Error(fmt.Sprintf("error preprocessing EVM tx due to %s", err))
 						typedTxs[idx] = nil
 						return
