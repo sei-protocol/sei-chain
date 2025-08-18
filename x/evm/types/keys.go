@@ -1,7 +1,9 @@
 package types
 
 import (
+	"bytes"
 	"encoding/binary"
+	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -58,6 +60,7 @@ var (
 	LegacyBlockBloomCutoffHeightKey = []byte{0x1a}
 	BaseFeePerGasPrefix             = []byte{0x1b}
 	NextBaseFeePerGasPrefix         = []byte{0x1c}
+	EvmOnlyBlockBloomPrefix         = []byte{0x1d}
 )
 
 var (
@@ -84,6 +87,19 @@ func StateKey(evmAddress common.Address) []byte {
 
 func ReceiptKey(txHash common.Hash) []byte {
 	return append(ReceiptKeyPrefix, txHash[:]...)
+}
+
+type TransientReceiptKey []byte
+
+func NewTransientReceiptKey(txIndex uint64, txHash common.Hash) TransientReceiptKey {
+	return append(ReceiptKeyPrefix, fmt.Sprintf("%020d:%s", txIndex, txHash.String())[:]...)
+}
+
+func (trk TransientReceiptKey) TransactionHash() common.Hash {
+	if i := bytes.LastIndexByte(trk, ':'); i != -1 {
+		return common.HexToHash(string(trk[i+1:]))
+	}
+	return common.Hash{}
 }
 
 func BlockBloomKey(height int64) []byte {
