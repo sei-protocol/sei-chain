@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"github.com/cosmos/cosmos-sdk/crypto/types/multisig"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,39 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
+)
+
+// Hardcoded address mappings for account classification
+var (
+	gringottsAddresses = map[string]bool{
+		"sei18qgau4n88tdaxu9y2t2y2px29yvwp50mk4xctp7grwfj7fkcdn8qvs9ry8": true,
+		"sei19se8ass0qvpa2cc60ehnv5dtccznnn5m505cug5tg2gwsjqw5drqm5ptnx": true,
+		"sei1letzrrlgdlrpxj6z279fx85hn5u34mm9nrc9hq4e6wxz5c79je2swt6x4a": true,
+		"sei1w0fvamykx7v2e6n5x0e2s39m0jz3krejjkpmgc3tmnqdf8p9fy5syg05yv": true,
+	}
+
+	seiMultisigs = map[string]bool{
+		"sei1xt3u4l0nzulhqxtcqhqdmgzt0p76vlwzr84t2g": true,
+		"sei1vlrvsppftvaqlf4sy5muaea8jtgs2afn7xfr0w": true,
+		"sei1prndl4f7hg6nsdavrlk6a26ea9a4q4780zjfgp": true,
+		"sei1xhxnad3c86q3d8ggsyu24j7r0y5k3ef4zcxtc6": true,
+		"sei1rufv5d36yrc57gjjs0gfur7ltj3jnhcs2lhz88": true,
+		"sei19ey2jrj5qyd68sa4a34w6v6vgf6tar0zpv0cf8": true,
+		"sei13u95lctpvwzmqy3thkczrhx3t4eczx7890xzky": true,
+		"sei1sdwkgny20e7t5gv0533w4re5mukuusdkhmy433": true,
+		"sei1y7xkz75wpgnazl47ttm72kj06wfp9u4du3ejqt": true,
+		"sei1z64wl5hfdjwwadwcgf65lkze9mznydkw5j9heh": true,
+		"sei15nz8xv0efg4mlaq26cue3u808ghdy29jyd0gaz": true,
+		"sei1hrps2v9kl0kmhr0jdge0whfx3ulpfzlu6ptnk4": true,
+	}
+
+	burnAddress = map[string]bool{
+		"sei1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq703fpu": true,
+	}
+
+	bondingPool = map[string]bool{
+		"sei1fl48vsnmsdzcv85q5d2q4z5ajdha8yu3chcelk": true,
+	}
 )
 
 // Main service implementation
@@ -98,9 +132,18 @@ func (s *service) Start(ctx sdk.Context) error {
 	defer balanceWriter.Flush()
 
 	// Write CSV headers
-	accountWriter.Write([]string{"account_id", "evm_address", "nonce", "account_number", "sequence", "bucket"})
-	assetWriter.Write([]string{"name", "type", "label", "code_id", "creator", "admin", "has_admin", "pointer", "decimals"})
-	balanceWriter.Write([]string{"account_id", "asset_id", "balance", "token_id"})
+	err = accountWriter.Write([]string{"account_id", "evm_address", "nonce", "account_number", "sequence", "bucket"})
+	if err != nil {
+		return err
+	}
+	err = assetWriter.Write([]string{"name", "type", "label", "code_id", "creator", "admin", "has_admin", "pointer", "decimals"})
+	if err != nil {
+		return err
+	}
+	err = balanceWriter.Write([]string{"account_id", "asset_id", "balance", "token_id"})
+	if err != nil {
+		return err
+	}
 
 	// Track unique assets to avoid duplicates
 	seenAssets := make(map[string]bool)
@@ -111,17 +154,47 @@ func (s *service) Start(ctx sdk.Context) error {
 		addr := account.GetAddress()
 
 		// Write account data
-		evmAddr := s.ek.GetEVMAddressOrDefault(ctx, addr)
-		bucket := s.classifyAccount(addr.String())
+		evmAddr, associated := s.ek.GetEVMAddress(ctx, addr)
+		if !associated {
+			evmAddr = s.ek.GetEVMAddressOrDefault(ctx, account.GetAddress())
+		}
 
-		accountWriter.Write([]string{
+		var isMultiSig bool
+		if baseAcct, ok := account.(*authtypes.BaseAccount); ok {
+			_, multiOk := baseAcct.GetPubKey().(multisig.PubKey)
+			isMultiSig = multiOk
+		}
+
+		// Detect contract types
+		isCWContract := false
+		isEVMContract := false
+		evmNonce := s.ek.GetNonce(ctx, evmAddr)
+
+		// Check if this is a CW contract by trying to get contract info
+		if contractInfo := s.wk.GetContractInfo(ctx, addr); contractInfo != nil {
+			isCWContract = true
+		}
+
+		// Check if this is an EVM contract by checking if it has code
+		evmCode := s.ek.GetCode(ctx, evmAddr)
+		if evmCode != nil && len(evmCode) > 0 {
+			isEVMContract = true
+		}
+
+		bucket := ClassifyAccount(addr.String(), associated, isMultiSig, isCWContract, isEVMContract, evmNonce)
+
+		err = accountWriter.Write([]string{
 			addr.String(),
 			evmAddr.Hex(),
-			fmt.Sprintf("%d", s.ek.GetNonce(ctx, evmAddr)),
+			fmt.Sprintf("%d", evmNonce),
 			fmt.Sprintf("%d", account.GetAccountNumber()),
 			fmt.Sprintf("%d", account.GetSequence()),
 			bucket,
 		})
+		if err != nil {
+			fmt.Printf("EXPORT Error writing account: %v\n", err)
+			return false
+		}
 
 		// Get and write balances for this account
 		balances := s.bk.GetAllBalances(ctx, addr)
@@ -130,7 +203,7 @@ func (s *service) Start(ctx sdk.Context) error {
 			if !seenAssets[balance.Denom] {
 				// Get native coin pointer information
 				pointer := s.getNativeCoinPointer(ctx, balance.Denom)
-				assetWriter.Write([]string{
+				err = assetWriter.Write([]string{
 					balance.Denom, // name
 					"native",      // type
 					"",            // label (empty for native)
@@ -141,17 +214,25 @@ func (s *service) Start(ctx sdk.Context) error {
 					pointer,       // pointer address
 					"6",           // decimals (default for native)
 				})
+				if err != nil {
+					fmt.Printf("EXPORT Error writing native asset: %v\n", err)
+					return false
+				}
 				seenAssets[balance.Denom] = true
 				fmt.Printf("EXPORT Created native asset: %s\n", balance.Denom)
 			}
 
 			// Write balance
-			balanceWriter.Write([]string{
+			err = balanceWriter.Write([]string{
 				addr.String(),
 				balance.Denom,
 				balance.Amount.String(),
 				"", // No token ID for native tokens
 			})
+			if err != nil {
+				fmt.Printf("EXPORT Error writing balance: %v\n", err)
+				return false
+			}
 		}
 
 		return false // Continue iteration
@@ -205,7 +286,7 @@ func (s *service) Start(ctx sdk.Context) error {
 					creator = contractInfo.Creator
 				}
 
-				assetWriter.Write([]string{
+				err = assetWriter.Write([]string{
 					contractAddr.String(),     // name
 					contractType,              // type
 					label,                     // label
@@ -216,6 +297,10 @@ func (s *service) Start(ctx sdk.Context) error {
 					pointer,                   // pointer
 					decimals,                  // decimals
 				})
+				if err != nil {
+					fmt.Printf("EXPORT Error writing contract asset: %v\n", err)
+					return false
+				}
 				seenAssets[contractAddr.String()] = true
 				fmt.Printf("EXPORT Created %s asset: %s\n", contractType, contractAddr.String())
 			}
@@ -238,17 +323,33 @@ func (s *service) Start(ctx sdk.Context) error {
 	return nil
 }
 
-func (s *service) classifyAccount(addr string) string {
-	if strings.Contains(addr, "bonding") || strings.HasPrefix(addr, "sei1fl48vsnmsdzcv85q5d2q4z5ajdha8yu3h6cprl") {
+// ClassifyAccount is a pure function that classifies an account into a bucket
+// based on the provided parameters. It makes no external calls.
+func ClassifyAccount(addr string, associated, multisig, isCWContract, isEVMContract bool, evmNonce uint64) string {
+	switch {
+	case bondingPool[addr]:
 		return "bonding_pool"
-	}
-	if strings.Contains(addr, "burn") || strings.HasPrefix(addr, "sei1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a") {
+	case burnAddress[addr]:
 		return "burn_address"
+	case seiMultisigs[addr]:
+		return "sei_multisig"
+	case multisig:
+		return "multisig"
+	case gringottsAddresses[addr]:
+		return "gringotts"
+	case isCWContract:
+		return "cw_contract"
+	case isEVMContract:
+		return "evm_contract"
+	case associated && evmNonce > 0:
+		return "associated_evm"
+	case associated && evmNonce == 0:
+		return "associated_sei"
+	case !associated:
+		return "unassociated"
+	default:
+		return "unknown"
 	}
-	if len(addr) == 62 {
-		return "contract"
-	}
-	return "user"
 }
 
 func (s *service) getCW20Decimals(contractAddr sdk.AccAddress, ctx sdk.Context) string {

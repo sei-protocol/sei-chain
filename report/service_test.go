@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -146,18 +145,6 @@ func (s *testableService) setStatus(status string) {
 	s.status = status
 }
 
-func (s *testableService) classifyAccount(addr string) string {
-	if strings.Contains(addr, "bonding") || strings.HasPrefix(addr, "sei1fl48vsnmsdzcv85q5d2q4z5ajdha8yu3h6cprl") {
-		return "bonding_pool"
-	}
-	if strings.Contains(addr, "burn") || strings.HasPrefix(addr, "sei1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a") {
-		return "burn_address"
-	}
-	if len(addr) == 62 {
-		return "contract"
-	}
-	return "user"
-}
 
 func (s *testableService) getCW20Decimals(contractAddr sdk.AccAddress, ctx sdk.Context) string {
 	var decimalsResp struct {
@@ -361,13 +348,19 @@ func (s *testableService) Start(ctx sdk.Context) error {
 		addr := account.GetAddress()
 
 		// Write account data
-		evmAddr := s.ek.GetEVMAddressOrDefault(ctx, addr)
-		bucket := s.classifyAccount(addr.String())
+		evmAddr, associated := s.ek.GetEVMAddress(ctx, addr)
+		if !associated {
+			evmAddr = s.ek.GetEVMAddressOrDefault(ctx, addr)
+		}
+		evmNonce := s.ek.GetNonce(ctx, evmAddr)
+
+		// For test purposes, use simple defaults for contract detection
+		bucket := ClassifyAccount(addr.String(), associated, false, false, false, evmNonce)
 
 		accountWriter.Write([]string{
 			addr.String(),
 			evmAddr.Hex(),
-			fmt.Sprintf("%d", s.ek.GetNonce(ctx, evmAddr)),
+			fmt.Sprintf("%d", evmNonce),
 			fmt.Sprintf("%d", account.GetAccountNumber()),
 			fmt.Sprintf("%d", account.GetSequence()),
 			bucket,
@@ -423,13 +416,13 @@ func (s *testableService) Start(ctx sdk.Context) error {
 			if !seenAssets[contractAddr.String()] {
 				// Get contract info for creator/admin (same as real service)
 				contractInfo := s.wk.GetContractInfo(ctx, contractAddr)
-				
+
 				// Get token label (same as real service)
 				label := s.getTokenLabel(ctx, contractAddr, contractType)
-				
+
 				// Get pointer address (same as real service)
 				pointer := s.getTokenPointer(ctx, contractAddr, contractType)
-				
+
 				// Get decimals based on token type (same as real service)
 				decimals := "0" // Default for CW721 (NFTs don't have decimals)
 				if contractType == "cw20" {
@@ -439,7 +432,7 @@ func (s *testableService) Start(ctx sdk.Context) error {
 						decimals = "6" // Default fallback for CW20
 					}
 				}
-				
+
 				// Determine admin info (same as real service)
 				admin := ""
 				hasAdmin := "false"
@@ -447,22 +440,22 @@ func (s *testableService) Start(ctx sdk.Context) error {
 					admin = contractInfo.Admin
 					hasAdmin = "true"
 				}
-				
+
 				creator := ""
 				if contractInfo != nil {
 					creator = contractInfo.Creator
 				}
-				
+
 				assetWriter.Write([]string{
-					contractAddr.String(),           // name
-					contractType,                    // type
-					label,                          // label
-					fmt.Sprintf("%d", codeID),      // code_id
-					creator,                        // creator
-					admin,                          // admin
-					hasAdmin,                       // has_admin
-					pointer,                        // pointer
-					decimals,                       // decimals
+					contractAddr.String(),     // name
+					contractType,              // type
+					label,                     // label
+					fmt.Sprintf("%d", codeID), // code_id
+					creator,                   // creator
+					admin,                     // admin
+					hasAdmin,                  // has_admin
+					pointer,                   // pointer
+					decimals,                  // decimals
 				})
 				seenAssets[contractAddr.String()] = true
 				fmt.Printf("DEBUG Created %s asset: %s\n", contractType, contractAddr.String())
@@ -522,12 +515,22 @@ func TestStreamingCSVService(t *testing.T) {
 	// Setup EVM keeper mocks
 	for i, account := range accounts {
 		evmAddr := common.HexToAddress(fmt.Sprintf("0x%040d", i))
+		// Mock GetEVMAddress to return address and association status
+		mockEK.On("GetEVMAddress", mock.Anything, account.GetAddress()).Return(evmAddr, false) // not associated by default
 		mockEK.On("GetEVMAddressOrDefault", mock.Anything, account.GetAddress()).Return(evmAddr)
 		mockEK.On("GetNonce", mock.Anything, evmAddr).Return(uint64(0))
 	}
+	
+	// Mock GetCode for any EVM address - the service calls this during account processing
+	// Use Maybe() to allow flexible number of calls
+	mockEK.On("GetCode", mock.Anything, mock.AnythingOfType("common.Address")).Return([]byte(nil)).Maybe()
 
 	// Setup wasm keeper mocks for contract iteration (no contracts in this test)
 	mockWK.On("IterateCodeInfos", mock.Anything, mock.AnythingOfType("func(uint64, types.CodeInfo) bool")).Return(nil)
+	
+	// Mock GetContractInfo for any address - the service calls this during account processing
+	// Use Maybe() to allow flexible number of calls
+	mockWK.On("GetContractInfo", mock.Anything, mock.AnythingOfType("types.AccAddress")).Return((*wasmtypes.ContractInfo)(nil)).Maybe()
 
 	// Create test service
 	svc := NewTestService(mockBK, mockAK, mockEK, mockWK, tempDir)
@@ -638,21 +641,22 @@ func TestStreamingCSVService(t *testing.T) {
 }
 
 func TestDetermineBucket(t *testing.T) {
-	svc := &testableService{}
-
 	tests := []struct {
 		address  string
 		expected string
 	}{
-		{"sei1bonding123", "bonding_pool"},
-		{"sei1burn456", "burn_address"},
-		{"sei12345678901234567890123456789012345678901234567890123456789", "contract"}, // exactly 62 chars
-		{"sei1normaladdress", "user"},
+		// Test actual hardcoded addresses
+		{"sei1fl48vsnmsdzcv85q5d2q4z5ajdha8yu3chcelk", "bonding_pool"}, // actual bonding pool address
+		{"sei1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq703fpu", "burn_address"}, // actual burn address
+		{"sei1xt3u4l0nzulhqxtcqhqdmgzt0p76vlwzr84t2g", "sei_multisig"}, // actual sei multisig address
+		{"sei18qgau4n88tdaxu9y2t2y2px29yvwp50mk4xctp7grwfj7fkcdn8qvs9ry8", "gringotts"}, // actual gringotts address
+		{"sei1normaladdress", "unassociated"}, // normal address with associated=false returns unassociated
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.address, func(t *testing.T) {
-			result := svc.classifyAccount(tt.address)
+			// Use default values for test - associated=false, multisig=false, contracts=false, nonce=0
+			result := ClassifyAccount(tt.address, false, false, false, false, 0)
 			require.Equal(t, tt.expected, result)
 		})
 	}
@@ -717,9 +721,18 @@ func TestCW721TokenExportOnly(t *testing.T) {
 	// Setup EVM keeper mocks
 	for i, account := range accounts {
 		evmAddr := common.HexToAddress(fmt.Sprintf("0x%040d", i))
+		// Mock GetEVMAddress to return address and association status
+		mockEK.On("GetEVMAddress", mock.Anything, account.GetAddress()).Return(evmAddr, false) // not associated by default
 		mockEK.On("GetEVMAddressOrDefault", mock.Anything, account.GetAddress()).Return(evmAddr)
 		mockEK.On("GetNonce", mock.Anything, evmAddr).Return(uint64(0))
 	}
+	
+	// Mock GetCode for any EVM address - the service calls this during account processing
+	mockEK.On("GetCode", mock.Anything, mock.AnythingOfType("common.Address")).Return([]byte(nil)).Maybe()
+	
+	// Mock GetContractInfo for any address - the service calls this during account processing
+	// This is separate from the specific contract info mocks below
+	mockWK.On("GetContractInfo", mock.Anything, mock.AnythingOfType("types.AccAddress")).Return((*wasmtypes.ContractInfo)(nil)).Maybe()
 
 	// Mock wasm keeper for contract iteration - ONLY CW721 (code ID 1)
 	mockWK.On("IterateCodeInfos", mock.Anything, mock.AnythingOfType("func(uint64, types.CodeInfo) bool")).Run(func(args mock.Arguments) {
@@ -872,9 +885,18 @@ func TestCW20TokenExportOnly(t *testing.T) {
 	// Setup EVM keeper mocks
 	for i, account := range accounts {
 		evmAddr := common.HexToAddress(fmt.Sprintf("0x%040d", i))
+		// Mock GetEVMAddress to return address and association status
+		mockEK.On("GetEVMAddress", mock.Anything, account.GetAddress()).Return(evmAddr, false) // not associated by default
 		mockEK.On("GetEVMAddressOrDefault", mock.Anything, account.GetAddress()).Return(evmAddr)
 		mockEK.On("GetNonce", mock.Anything, evmAddr).Return(uint64(0))
 	}
+	
+	// Mock GetCode for any EVM address - the service calls this during account processing
+	mockEK.On("GetCode", mock.Anything, mock.AnythingOfType("common.Address")).Return([]byte(nil)).Maybe()
+	
+	// Mock GetContractInfo for any address - the service calls this during account processing
+	// This is separate from the specific contract info mocks below
+	mockWK.On("GetContractInfo", mock.Anything, mock.AnythingOfType("types.AccAddress")).Return((*wasmtypes.ContractInfo)(nil)).Maybe()
 
 	// Mock wasm keeper for contract iteration - ONLY CW20 (code ID 1)
 	mockWK.On("IterateCodeInfos", mock.Anything, mock.AnythingOfType("func(uint64, types.CodeInfo) bool")).Run(func(args mock.Arguments) {
