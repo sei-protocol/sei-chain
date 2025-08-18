@@ -2,9 +2,9 @@ name: PR → Codex review → Slack
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review]
 
 jobs:
+  
   codex_review:
     # Run only for trusted contributors
     if: ${{ contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association) }}
@@ -16,6 +16,16 @@ jobs:
       pull-requests: write
 
     steps:
+      - name: Dump GitHub event + author association
+        run: |
+          echo "=== Debug Info ==="
+          echo "Action: ${{ github.event.action }}"
+          echo "Author login: ${{ github.event.pull_request.user.login }}"
+          echo "Author association: ${{ github.event.pull_request.author_association }}"
+          echo "=================="
+          echo "Full event payload:"
+          echo '${{ toJSON(github.event) }}'
+
       - name: Checkout PR HEAD (full history)
         uses: actions/checkout@v4
         with:
