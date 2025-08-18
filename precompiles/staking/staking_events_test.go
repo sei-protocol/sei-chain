@@ -259,8 +259,8 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 
 		// Now edit the validator
 		newMoniker := "Edited Validator"
-		newCommissionRate := ""  // Empty string to not change commission rate
-		newMinSelfDelegation := big.NewInt(0)  // 0 to not change minimum self-delegation
+		newCommissionRate := ""               // Empty string to not change commission rate
+		newMinSelfDelegation := big.NewInt(0) // 0 to not change minimum self-delegation
 
 		editArgs, err := abi.Pack("editValidator", newMoniker, newCommissionRate, newMinSelfDelegation)
 		require.NoError(t, err)
@@ -323,7 +323,7 @@ func executeEVMTx(t *testing.T, testApp *app.App, ctx sdk.Context, tx *ethtypes.
 	require.NoError(t, err)
 
 	msgServer := evmkeeper.NewMsgServerImpl(&testApp.EvmKeeper)
-	ante.Preprocess(ctx, req, testApp.EvmKeeper.ChainID(ctx))
+	ante.Preprocess(ctx, req, testApp.EvmKeeper.ChainID(ctx), false)
 
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.NoError(t, err)

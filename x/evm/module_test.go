@@ -83,7 +83,7 @@ func TestABCI(t *testing.T) {
 	s.AddBalance(feeCollectorAddr, uint256.NewInt(2000000000000), tracing.BalanceChangeUnspecified)
 	surplus, err := s.Finalize()
 	require.Nil(t, err)
-	require.Equal(t, sdk.ZeroInt(), surplus)
+	require.True(t, surplus.Equal(sdk.ZeroInt()))
 	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(1), ethtypes.Bloom{}, common.Hash{4}, surplus)
 	// 3rd tx
 	s = state.NewDBImpl(ctx.WithTxIndex(3), k, false)
@@ -91,7 +91,7 @@ func TestABCI(t *testing.T) {
 	s.AddBalance(evmAddr1, uint256.NewInt(5000000000000), tracing.BalanceChangeUnspecified)
 	surplus, err = s.Finalize()
 	require.Nil(t, err)
-	require.Equal(t, sdk.ZeroInt(), surplus)
+	require.True(t, surplus.Equal(sdk.ZeroInt()))
 	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(3), ethtypes.Bloom{}, common.Hash{3}, surplus)
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 0}, {Code: 0}, {Code: 0}, {Code: 0}})
 	k.SetMsgs([]*types.MsgEVMTransaction{nil, {}, nil, {}})
