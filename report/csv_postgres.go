@@ -75,7 +75,7 @@ func (p *PostgreSQLImporter) ImportAll() error {
 		{
 			table:   "asset",
 			file:    "assets.csv",
-			columns: []string{"type", "name", "label", "code_id", "creator", "admin", "has_admin", "pointer"},
+			columns: []string{"type", "name", "label", "code_id", "creator", "admin", "has_admin", "pointer", "decimals"},
 			resolver: func(row []string) ([]interface{}, error) {
 				if len(row) != 9 {
 					return nil, fmt.Errorf("invalid asset row length: %d", len(row))
@@ -87,19 +87,19 @@ func (p *PostgreSQLImporter) ImportAll() error {
 					}
 				}
 				hasAdmin, _ := strconv.ParseBool(row[6])
-				// Note: row[7] is has_pointer from CSV, but we don't store it in DB
+				decimals, _ := strconv.Atoi(row[8])
 
-				// Handle empty values - CSV format: name,type,label,code_id,creator,admin,has_admin,has_pointer,pointer
+				// Handle empty values - CSV format: name,type,label,code_id,creator,admin,has_admin,pointer,decimals
 				name := row[0]      // name is first column in CSV
 				assetType := row[1] // type is second column in CSV
 				label := nullString(row[2])
 				creator := nullString(row[4])
 				admin := nullString(row[5])
-				pointer := nullString(row[8]) // pointer is last column in CSV
+				pointer := nullString(row[7]) // pointer is 8th column in CSV
 
-				// Return in database column order: type, name, label, code_id, creator, admin, has_admin, pointer
-				// Database schema: type, name, label, code_id, creator, admin, has_admin, pointer (8 columns)
-				return []interface{}{assetType, name, label, codeId, creator, admin, hasAdmin, pointer}, nil
+				// Return in database column order: type, name, label, code_id, creator, admin, has_admin, pointer, decimals
+				// Database schema: type, name, label, code_id, creator, admin, has_admin, pointer, decimals (9 columns)
+				return []interface{}{assetType, name, label, codeId, creator, admin, hasAdmin, pointer, decimals}, nil
 			},
 		},
 	}

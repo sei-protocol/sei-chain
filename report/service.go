@@ -1,15 +1,12 @@
 package report
 
 import (
-	"bufio"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/sync/errgroup"
 	"os"
-	"regexp"
+	"path/filepath"
 	"strings"
-	"sync"
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
@@ -30,19 +27,6 @@ type service struct {
 	ctx       sdk.Context
 	outputDir string
 	status    string
-
-	// CSV streaming channels
-	accountWorkChan chan *AccountWork
-	accountDataChan chan *AccountData
-	assetDataChan   chan *AssetData
-	balanceDataChan chan *BalanceData
-
-	// Deduplication maps
-	seenAssets map[string]bool
-	mu         sync.Mutex
-
-	// PostgreSQL config (optional)
-	pgConfig *PostgreSQLConfig
 }
 
 // NewService creates a new report service
@@ -60,15 +44,6 @@ func NewService(
 		wk:        wk,
 		outputDir: outputDir,
 		status:    "ready",
-
-		// Initialize channels
-		accountWorkChan: make(chan *AccountWork, 1000),
-		accountDataChan: make(chan *AccountData, 1000),
-		assetDataChan:   make(chan *AssetData, 1000),
-		balanceDataChan: make(chan *BalanceData, 1000),
-
-		// Initialize deduplication
-		seenAssets: make(map[string]bool),
 	}
 }
 
@@ -93,378 +68,356 @@ func (s *service) Start(ctx sdk.Context) error {
 		return err
 	}
 
-	grp, gctx := errgroup.WithContext(ctx.Context())
-	ctx = ctx.WithContext(gctx)
+	// Simple sequential processing - no complex workers or channels
 
-	// Start all workers
-	grp.Go(func() error {
-		return s.iteratorWorker(ctx)
-	})
-
-	grp.Go(func() error {
-		return s.accountWorker(ctx)
-	})
-
-	grp.Go(func() error {
-		return s.assetWorker(ctx)
-	})
-
-	grp.Go(func() error {
-		return s.accountWriter(ctx)
-	})
-
-	grp.Go(func() error {
-		return s.assetWriter(ctx)
-	})
-
-	grp.Go(func() error {
-		return s.balanceWriter(ctx)
-	})
-
-	err := grp.Wait()
-
+	// 1. Create CSV writers
+	accountFile, err := os.Create(filepath.Join(s.outputDir, "accounts.csv"))
 	if err != nil {
-		s.setStatus(err.Error())
-	} else {
-		s.setStatus("success")
+		return err
 	}
+	defer accountFile.Close()
 
-	return err
-}
+	assetFile, err := os.Create(filepath.Join(s.outputDir, "assets.csv"))
+	if err != nil {
+		return err
+	}
+	defer assetFile.Close()
 
-// Worker 1: Iterator - streams accounts into work channel
-func (s *service) iteratorWorker(ctx sdk.Context) error {
-	defer close(s.accountWorkChan)
+	balanceFile, err := os.Create(filepath.Join(s.outputDir, "account_asset.csv"))
+	if err != nil {
+		return err
+	}
+	defer balanceFile.Close()
 
-	s.ak.IterateAccounts(ctx, func(account authtypes.AccountI) (stop bool) {
-		select {
-		case s.accountWorkChan <- &AccountWork{Account: account.GetAddress()}:
-		case <-ctx.Context().Done():
-			return true
+	accountWriter := csv.NewWriter(accountFile)
+	assetWriter := csv.NewWriter(assetFile)
+	balanceWriter := csv.NewWriter(balanceFile)
+
+	defer accountWriter.Flush()
+	defer assetWriter.Flush()
+	defer balanceWriter.Flush()
+
+	// Write CSV headers
+	accountWriter.Write([]string{"account_id", "evm_address", "nonce", "account_number", "sequence", "bucket"})
+	assetWriter.Write([]string{"name", "type", "label", "code_id", "creator", "admin", "has_admin", "pointer", "decimals"})
+	balanceWriter.Write([]string{"account_id", "asset_id", "balance", "token_id"})
+
+	// Track unique assets to avoid duplicates
+	seenAssets := make(map[string]bool)
+
+	// 2. Process accounts and their balances
+	fmt.Printf("EXPORT Starting account iteration\n")
+	s.ak.IterateAccounts(ctx, func(account authtypes.AccountI) bool {
+		addr := account.GetAddress()
+
+		// Write account data
+		evmAddr := s.ek.GetEVMAddressOrDefault(ctx, addr)
+		bucket := s.classifyAccount(addr.String())
+
+		accountWriter.Write([]string{
+			addr.String(),
+			evmAddr.Hex(),
+			fmt.Sprintf("%d", s.ek.GetNonce(ctx, evmAddr)),
+			fmt.Sprintf("%d", account.GetAccountNumber()),
+			fmt.Sprintf("%d", account.GetSequence()),
+			bucket,
+		})
+
+		// Get and write balances for this account
+		balances := s.bk.GetAllBalances(ctx, addr)
+		for _, balance := range balances {
+			// Add native asset if not seen
+			if !seenAssets[balance.Denom] {
+				// Get native coin pointer information
+				pointer := s.getNativeCoinPointer(ctx, balance.Denom)
+				assetWriter.Write([]string{
+					balance.Denom, // name
+					"native",      // type
+					"",            // label (empty for native)
+					"",            // code_id (empty for native)
+					"",            // creator (empty for native)
+					"",            // admin (empty for native)
+					"false",       // has_admin (false for native)
+					pointer,       // pointer address
+					"6",           // decimals (default for native)
+				})
+				seenAssets[balance.Denom] = true
+				fmt.Printf("EXPORT Created native asset: %s\n", balance.Denom)
+			}
+
+			// Write balance
+			balanceWriter.Write([]string{
+				addr.String(),
+				balance.Denom,
+				balance.Amount.String(),
+				"", // No token ID for native tokens
+			})
 		}
-		return false
+
+		return false // Continue iteration
 	})
-	return nil
-}
 
-// Worker 2: Account processor - processes accounts and fetches balances
-func (s *service) accountWorker(ctx sdk.Context) error {
-	defer close(s.accountDataChan)
-	defer close(s.balanceDataChan)
+	// 3. Process CW20 and CW721 contracts
+	fmt.Printf("EXPORT Starting contract iteration\n")
+	s.wk.IterateCodeInfos(ctx, func(codeID uint64, info wasmtypes.CodeInfo) bool {
+		fmt.Printf("EXPORT CodeID: %d\n", codeID)
 
-	for accountWork := range s.accountWorkChan {
-		select {
-		case <-ctx.Context().Done():
-			return ctx.Context().Err()
-		default:
-		}
-
-		seiAddr := accountWork.Account
-		seiAddrStr := seiAddr.String()
-
-		// Get EVM association
-		evmAddr, associated := s.ek.GetEVMAddress(ctx, seiAddr)
-		if !associated {
-			evmAddr = s.ek.GetEVMAddressOrDefault(ctx, seiAddr)
-		}
-
-		evmNonce := s.ek.GetNonce(ctx, evmAddr)
-
-		// Get account info
-		account := s.ak.GetAccount(ctx, seiAddr)
-		sequence := uint64(0)
-		if account != nil {
-			sequence = account.GetSequence()
-		}
-
-		accountData := &AccountData{
-			Account:    seiAddrStr,
-			EVMAddress: evmAddr.Hex(),
-			EVMNonce:   evmNonce,
-			Sequence:   sequence,
-			Associated: associated,
-			Bucket:     s.determineBucket(seiAddrStr),
-		}
-
-		select {
-		case s.accountDataChan <- accountData:
-		case <-ctx.Context().Done():
-			return ctx.Context().Err()
-		}
-
-		// Get balances for this account
-		balances := s.bk.GetAllBalances(ctx, seiAddr)
-
-		for _, coin := range balances {
-			// Send asset data if we haven't seen this denom before
-			s.mu.Lock()
-			if !s.seenAssets[coin.Denom] {
-				s.seenAssets[coin.Denom] = true
-				s.mu.Unlock()
-
-				coinData := s.getCoinByDenom(ctx, coin.Denom)
-				assetData := &AssetData{
-					Name:       coinData.Denom,
-					Type:       "native",
-					Label:      "",
-					CodeID:     0,
-					Creator:    "",
-					Admin:      "",
-					HasAdmin:   false,
-					HasPointer: coinData.HasPointer,
-					Pointer:    coinData.Pointer,
-				}
-
-				select {
-				case s.assetDataChan <- assetData:
-				case <-ctx.Context().Done():
-					return ctx.Context().Err()
-				}
-			} else {
-				s.mu.Unlock()
+		badPayload := []byte(`{"bad_query":{}}`)
+		s.wk.IterateContractsByCode(ctx, codeID, func(contractAddr sdk.AccAddress) bool {
+			contractType, isToken := s.extractType(contractAddr, ctx, badPayload)
+			if !isToken {
+				return false // Continue to next contract
 			}
 
-			balanceData := &BalanceData{
-				AccountID: seiAddrStr,
-				AssetID:   coin.Denom,
-				Balance:   coin.Amount.String(),
-				TokenID:   "",
-			}
+			fmt.Printf("EXPORT Contract %s: type=%s, isToken=%t\n", contractAddr.String(), contractType, isToken)
 
-			select {
-			case s.balanceDataChan <- balanceData:
-			case <-ctx.Context().Done():
-				return ctx.Context().Err()
-			}
-		}
-	}
-	return nil
-}
+			// Add contract asset if not seen
+			if !seenAssets[contractAddr.String()] {
+				// Get contract info for creator/admin
+				contractInfo := s.wk.GetContractInfo(ctx, contractAddr)
 
-// Worker 3: Asset discovery - finds CW20/CW721 tokens
-func (s *service) assetWorker(ctx sdk.Context) error {
-	defer close(s.assetDataChan)
+				// Get token label
+				label := s.getTokenLabel(ctx, contractAddr, contractType)
 
-	badPayload := []byte(`{"invalid_query":{}}`)
-	errorMatch := CW20ErrorRegex
+				// Get pointer address
+				pointer := s.getTokenPointer(ctx, contractAddr, contractType)
 
-	s.wk.IterateCodeInfos(ctx, func(codeID uint64, codeInfo wasmtypes.CodeInfo) bool {
-		select {
-		case <-ctx.Context().Done():
-			return true
-		default:
-		}
-
-		var contractType string
-		var isToken bool
-		first := true
-
-		s.wk.IterateContractsByCode(ctx, codeID, func(addr sdk.AccAddress) bool {
-			if first {
-				contractType, isToken = s.extractType(addr, ctx, badPayload, errorMatch)
-				if !isToken {
-					return true
-				}
-				first = false
-			}
-
-			contractInfo := s.wk.GetContractInfo(ctx, addr)
-
-			s.mu.Lock()
-			addrStr := addr.String()
-			if !s.seenAssets[addrStr] {
-				s.seenAssets[addrStr] = true
-				s.mu.Unlock()
-
-				assetData := &AssetData{
-					Name:     addrStr,
-					Type:     contractType,
-					Label:    "",
-					CodeID:   codeID,
-					Creator:  contractInfo.Creator,
-					Admin:    contractInfo.Admin,
-					HasAdmin: contractInfo.Admin != "",
-				}
-
-				// Try to get token name
+				// Get decimals based on token type
+				decimals := "0" // Default for CW721 (NFTs don't have decimals)
 				if contractType == "cw20" {
-					var tokenInfo struct {
-						Name string `json:"name"`
-					}
-					if err := s.queryContract(addr, ctx, []byte(`{"token_info":{}}`), &tokenInfo); err == nil {
-						assetData.Label = tokenInfo.Name
-					}
-				} else if contractType == "cw721" {
-					var contractInfoQuery struct {
-						Name string `json:"name"`
-					}
-					if err := s.queryContract(addr, ctx, []byte(`{"contract_info":{}}`), &contractInfoQuery); err == nil {
-						assetData.Label = contractInfoQuery.Name
+					if dec := s.getCW20Decimals(contractAddr, ctx); dec != "" {
+						decimals = dec
+					} else {
+						decimals = "6" // Default fallback for CW20
 					}
 				}
 
-				select {
-				case s.assetDataChan <- assetData:
-				case <-ctx.Context().Done():
-					return true
+				// Determine admin info
+				admin := ""
+				hasAdmin := "false"
+				if contractInfo != nil && contractInfo.Admin != "" {
+					admin = contractInfo.Admin
+					hasAdmin = "true"
 				}
-			} else {
-				s.mu.Unlock()
+
+				creator := ""
+				if contractInfo != nil {
+					creator = contractInfo.Creator
+				}
+
+				assetWriter.Write([]string{
+					contractAddr.String(),     // name
+					contractType,              // type
+					label,                     // label
+					fmt.Sprintf("%d", codeID), // code_id
+					creator,                   // creator
+					admin,                     // admin
+					hasAdmin,                  // has_admin
+					pointer,                   // pointer
+					decimals,                  // decimals
+				})
+				seenAssets[contractAddr.String()] = true
+				fmt.Printf("EXPORT Created %s asset: %s\n", contractType, contractAddr.String())
 			}
 
-			return false
+			// Process token balances based on type
+			if contractType == "cw20" {
+				s.processCW20Balances(ctx, contractAddr, balanceWriter)
+			} else if contractType == "cw721" {
+				s.processCW721Balances(ctx, contractAddr, balanceWriter)
+			}
+
+			return false // Continue to next contract
 		})
-		return false
+
+		return false // Continue to next code ID
 	})
 
+	fmt.Printf("EXPORT Processing complete\n")
+	s.setStatus("completed")
 	return nil
 }
 
-// CSV Writers
-func (s *service) accountWriter(ctx sdk.Context) error {
-	file, err := os.Create(fmt.Sprintf("%s/accounts.csv", s.outputDir))
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	writer := csv.NewWriter(bufio.NewWriterSize(file, 64*1024))
-
-	// Write header
-	err = writer.Write([]string{"account", "evm_address", "evm_nonce", "sequence", "associated", "bucket"})
-	if err != nil {
-		return err
-	}
-
-	for accountData := range s.accountDataChan {
-		err := writer.Write([]string{
-			accountData.Account,
-			accountData.EVMAddress,
-			fmt.Sprintf("%d", accountData.EVMNonce),
-			fmt.Sprintf("%d", accountData.Sequence),
-			fmt.Sprintf("%t", accountData.Associated),
-			accountData.Bucket,
-		})
-		if err != nil {
-			return err
-		}
-	}
-
-	writer.Flush()
-	return writer.Error()
-}
-
-func (s *service) assetWriter(ctx sdk.Context) error {
-	file, err := os.Create(fmt.Sprintf("%s/assets.csv", s.outputDir))
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	writer := csv.NewWriter(bufio.NewWriterSize(file, 64*1024))
-
-	// Write header
-	err = writer.Write([]string{"name", "type", "label", "code_id", "creator", "admin", "has_admin", "has_pointer", "pointer"})
-	if err != nil {
-		return err
-	}
-
-	for assetData := range s.assetDataChan {
-		err := writer.Write([]string{
-			assetData.Name,
-			assetData.Type,
-			assetData.Label,
-			fmt.Sprintf("%d", assetData.CodeID),
-			assetData.Creator,
-			assetData.Admin,
-			fmt.Sprintf("%t", assetData.HasAdmin),
-			fmt.Sprintf("%t", assetData.HasPointer),
-			assetData.Pointer,
-		})
-		if err != nil {
-			return err
-		}
-	}
-
-	writer.Flush()
-	return writer.Error()
-}
-
-func (s *service) balanceWriter(ctx sdk.Context) error {
-	file, err := os.Create(fmt.Sprintf("%s/account_asset.csv", s.outputDir))
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	writer := csv.NewWriter(bufio.NewWriterSize(file, 64*1024))
-
-	// Write header
-	err = writer.Write([]string{"account_id", "asset_id", "balance", "token_id"})
-	if err != nil {
-		return err
-	}
-
-	for balanceData := range s.balanceDataChan {
-		err := writer.Write([]string{
-			balanceData.AccountID,
-			balanceData.AssetID,
-			balanceData.Balance,
-			balanceData.TokenID,
-		})
-		if err != nil {
-			return err
-		}
-	}
-
-	writer.Flush()
-	return writer.Error()
-}
-
-// Helper functions
-func (s *service) determineBucket(address string) string {
-	// Simple bucket classification
-	if strings.Contains(address, "bonding") {
+func (s *service) classifyAccount(addr string) string {
+	if strings.Contains(addr, "bonding") || strings.HasPrefix(addr, "sei1fl48vsnmsdzcv85q5d2q4z5ajdha8yu3h6cprl") {
 		return "bonding_pool"
 	}
-	if strings.Contains(address, "burn") {
+	if strings.Contains(addr, "burn") || strings.HasPrefix(addr, "sei1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqnrql8a") {
 		return "burn_address"
 	}
-	if len(address) == 62 {
+	if len(addr) == 62 {
 		return "contract"
 	}
 	return "user"
 }
 
-func (s *service) getCoinByDenom(ctx sdk.Context, denom string) *Coin {
-	coin := &Coin{
-		Denom: denom,
+func (s *service) getCW20Decimals(contractAddr sdk.AccAddress, ctx sdk.Context) string {
+	// Query CW20 for decimals
+	var decimalsResp struct {
+		Decimals int `json:"decimals"`
 	}
+	if err := s.queryContract(contractAddr, ctx, []byte(`{"decimals":{}}`), &decimalsResp); err != nil {
+		return "" // Default fallback if query fails
+	}
+	return fmt.Sprintf("%d", decimalsResp.Decimals)
+}
 
-	p, _, exists := s.ek.GetERC20NativePointer(ctx, coin.Denom)
+// getNativeCoinPointer gets pointer information for native coins
+func (s *service) getNativeCoinPointer(ctx sdk.Context, denom string) string {
+	np, _, exists := s.ek.GetERC20NativePointer(ctx, denom)
 	if exists {
-		coin.HasPointer = true
-		coin.Pointer = p.Hex()
-	}
+		fmt.Printf("EXPORT Getting native coin pointer for %s, exists=%v\n", denom, true)
 
-	return coin
+		return np.Hex()
+	}
+	fmt.Printf("EXPORT Getting native coin pointer for %s, exists=%v\n", denom, false)
+	return ""
 }
 
-func (s *service) queryContract(addr sdk.AccAddress, ctx sdk.Context, query []byte, target interface{}) error {
-	res, err := s.wk.QuerySmart(ctx, addr, query)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(res, target)
-}
-
-func (s *service) extractType(addr sdk.AccAddress, ctx sdk.Context, badPayload []byte, errorMatch *regexp.Regexp) (string, bool) {
-	_, err := s.wk.QuerySmart(ctx, addr, badPayload)
-	if err != nil && errorMatch.MatchString(err.Error()) {
-		matches := errorMatch.FindStringSubmatch(err.Error())
-		if len(matches) > 1 {
-			return normalizeType(matches[1])
+// getTokenLabel gets the display label for CW20/CW721 tokens
+func (s *service) getTokenLabel(ctx sdk.Context, contractAddr sdk.AccAddress, tokenType string) string {
+	if tokenType == "cw20" {
+		var tokenInfo struct {
+			Name string `json:"name"`
 		}
+		if err := s.queryContract(contractAddr, ctx, []byte(`{"token_info":{}}`), &tokenInfo); err == nil {
+			return tokenInfo.Name
+		}
+	} else if tokenType == "cw721" {
+		var contractInfoQuery struct {
+			Name string `json:"name"`
+		}
+		if err := s.queryContract(contractAddr, ctx, []byte(`{"contract_info":{}}`), &contractInfoQuery); err == nil {
+			return contractInfoQuery.Name
+		}
+	}
+	return "" // Return empty if query fails
+}
+
+// getTokenPointer gets EVM pointer address for tokens
+func (s *service) getTokenPointer(ctx sdk.Context, contractAddr sdk.AccAddress, tokenType string) string {
+	if tokenType == "cw20" {
+		p, _, exists := s.ek.GetERC20CW20Pointer(ctx, contractAddr.String())
+		if exists {
+			return p.Hex()
+		}
+	} else if tokenType == "cw721" {
+		p, _, exists := s.ek.GetERC721CW721Pointer(ctx, contractAddr.String())
+		if exists {
+			return p.Hex()
+		}
+	}
+	return ""
+}
+
+func (s *service) processCW20Balances(ctx sdk.Context, contractAddr sdk.AccAddress, balanceWriter *csv.Writer) {
+	fmt.Printf("EXPORT Processing CW20 balances for contract: %s\n", contractAddr.String())
+
+	var resp AccountsResponse
+	var owners []string
+
+	// Get all accounts
+	if err := s.queryContract(contractAddr, ctx, []byte(`{"all_accounts":{}}`), &resp); err != nil {
+		fmt.Printf("EXPORT Error querying all_accounts for CW20 %s: %v\n", contractAddr.String(), err)
+		return
+	}
+	owners = append(owners, resp.Accounts...)
+	fmt.Printf("EXPORT Found %d initial CW20 accounts for %s\n", len(resp.Accounts), contractAddr.String())
+
+	// Handle pagination
+	for len(resp.Accounts) > 0 {
+		paginationKey := resp.Accounts[len(resp.Accounts)-1]
+		query := []byte(fmt.Sprintf(`{"all_accounts":{"start_after":"%s"}}`, paginationKey))
+		if err := s.queryContract(contractAddr, ctx, query, &resp); err != nil {
+			fmt.Printf("EXPORT Pagination error for CW20 %s: %v\n", contractAddr.String(), err)
+			break
+		}
+		if len(resp.Accounts) == 0 {
+			break
+		}
+		owners = append(owners, resp.Accounts...)
+		fmt.Printf("EXPORT Found %d more CW20 accounts (total: %d) for %s\n", len(resp.Accounts), len(owners), contractAddr.String())
+	}
+
+	fmt.Printf("EXPORT Processing CW20 contract %s with %d total accounts\n", contractAddr.String(), len(owners))
+
+	// Get balance for each owner
+	for _, owner := range owners {
+		var balanceResp BalanceResponse
+		query := []byte(fmt.Sprintf(`{"balance":{"address":"%s"}}`, owner))
+		if err := s.queryContract(contractAddr, ctx, query, &balanceResp); err != nil {
+			fmt.Printf("EXPORT Error querying CW20 balance for %s on %s: %v\n", owner, contractAddr.String(), err)
+			continue
+		}
+
+		if balanceResp.Balance == "0" {
+			continue // Skip zero balances
+		}
+
+		// Write balance to CSV
+		balanceWriter.Write([]string{
+			owner,                 // account_id
+			contractAddr.String(), // asset_id
+			balanceResp.Balance,   // balance
+			"",                    // empty token_id for fungible tokens
+		})
+
+		fmt.Printf("EXPORT Writing CW20 balance: account=%s, asset=%s, balance=%s\n",
+			owner, contractAddr.String(), balanceResp.Balance)
+	}
+}
+
+func (s *service) processCW721Balances(ctx sdk.Context, contractAddr sdk.AccAddress, balanceWriter *csv.Writer) {
+	fmt.Printf("EXPORT Processing CW721 balances for contract: %s\n", contractAddr.String())
+
+	// Query CW721 for all tokens using correct format
+	var resp TokensResponse
+	var allTokens []string
+
+	// Query all tokens with pagination
+	if err := s.queryContract(contractAddr, ctx, []byte(`{"all_tokens":{}}`), &resp); err != nil {
+		fmt.Printf("EXPORT Error querying CW721 contract %s: %v\n", contractAddr.String(), err)
+		return
+	}
+
+	allTokens = append(allTokens, resp.Tokens...)
+
+	// Handle pagination
+	for len(resp.Tokens) > 0 {
+		paginationKey := resp.Tokens[len(resp.Tokens)-1]
+		query := []byte(fmt.Sprintf(`{"all_tokens":{"start_after":"%s"}}`, paginationKey))
+		if err := s.queryContract(contractAddr, ctx, query, &resp); err != nil {
+			fmt.Printf("EXPORT Error querying page of cw721 contract: %v, start_after: %s\n", err, paginationKey)
+			break
+		}
+		allTokens = append(allTokens, resp.Tokens...)
+	}
+
+	fmt.Printf("EXPORT Processing CW721 contract %s with %d tokens\n", contractAddr.String(), len(allTokens))
+
+	// Query owner for each token and write balance records
+	for _, tokenID := range allTokens {
+		var ownerResp OwnerResponse
+		query := []byte(fmt.Sprintf(`{"owner_of":{"token_id":"%s"}}`, tokenID))
+		if err := s.queryContract(contractAddr, ctx, query, &ownerResp); err != nil {
+			fmt.Printf("EXPORT Error querying owner for token %s: %v\n", tokenID, err)
+			continue
+		}
+
+		fmt.Printf("EXPORT Writing CW721 balance: account=%s, asset=%s, balance=1, tokenID=%s\n", ownerResp.Owner, contractAddr.String(), tokenID)
+		balanceWriter.Write([]string{
+			ownerResp.Owner,
+			contractAddr.String(),
+			"1", // NFT balance is always 1
+			tokenID,
+		})
+	}
+}
+
+func (s *service) extractType(addr sdk.AccAddress, ctx sdk.Context, badPayload []byte) (string, bool) {
+	_, err := s.wk.QuerySmart(ctx, addr, badPayload)
+	if err != nil {
+		return normalizeType(err.Error())
 	}
 	return "", false
 }
@@ -484,4 +437,12 @@ func normalizeType(s string) (string, bool) {
 		return "cw404", true
 	}
 	return s, false
+}
+
+func (s *service) queryContract(addr sdk.AccAddress, ctx sdk.Context, query []byte, target interface{}) error {
+	result, err := s.wk.QuerySmart(ctx, addr, query)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(result, target)
 }

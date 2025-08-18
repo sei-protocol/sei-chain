@@ -1,7 +1,6 @@
 package evmrpc
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -78,20 +77,6 @@ func (r *ReportAPI) StartCSVReport(outputDir string) (string, error) {
 }
 
 func (r *ReportAPI) ExportToPostgreSQL(reportName string, host string, port int, database string, username string, password string, sslMode string) (string, error) {
-	r.mx.RLock()
-	svc, ok := r.reports[reportName]
-	r.mx.RUnlock()
-
-	if !ok {
-		return "", fmt.Errorf("report %s not found", reportName)
-	}
-
-	// Check if the CSV export is complete before starting PostgreSQL export
-	status := svc.Status()
-	if status != "success" {
-		return "", fmt.Errorf("CSV export must be complete before PostgreSQL export (current status: %s)", status)
-	}
-
 	config := report.PostgreSQLConfig{
 		Host:     host,
 		Port:     port,
@@ -103,7 +88,7 @@ func (r *ReportAPI) ExportToPostgreSQL(reportName string, host string, port int,
 
 	go func() {
 		ctx := r.ctxProvider(0)
-		
+
 		// Use reportName directly as the output directory
 		importer, err := report.NewPostgreSQLImporter(config, reportName, ctx)
 		if err != nil {

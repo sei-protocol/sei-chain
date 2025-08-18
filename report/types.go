@@ -1,8 +1,6 @@
 package report
 
 import (
-	"regexp"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
@@ -47,6 +45,7 @@ type AssetData struct {
 	HasAdmin   bool
 	HasPointer bool
 	Pointer    string
+	Decimals   int
 }
 
 type BalanceData struct {
@@ -54,6 +53,12 @@ type BalanceData struct {
 	AssetID   string
 	Balance   string
 	TokenID   string
+}
+
+type CW721Data struct {
+	Contract string
+	TokenID  string
+	Owner    string
 }
 
 // Legacy types for backward compatibility
@@ -72,6 +77,7 @@ type Coin struct {
 	Denom      string `json:"denom"`
 	HasPointer bool   `json:"hasPointer"`
 	Pointer    string `json:"pointer,omitempty"`
+	Decimals   int    `json:"decimals"`
 }
 
 type CoinBalance struct {
@@ -98,15 +104,11 @@ type BalanceResponse struct {
 }
 
 // Global regex patterns for token type detection
-var (
-	CW20ErrorRegex = regexp.MustCompile(`Generic error: Querying contract: query wasm contract failed: invalid request: (.*?): execute wasm contract failed`)
-	CW721ErrorRegex = regexp.MustCompile(`Generic error: Querying contract: query wasm contract failed: invalid request: (.*?): execute wasm contract failed`)
-)
 
 // Token type normalization mapping
 var TypeNormalizationMap = map[string]string{
-	"cw20-base":         "cw20",
-	"cw721-base":        "cw721",
+	"cw20-base":              "cw20",
+	"cw721-base":             "cw721",
 	"cw721-metadata-onchain": "cw721",
 	// Add more mappings as needed
 }
