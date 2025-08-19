@@ -5,11 +5,18 @@ on:
     branches: [ main ]
   pull_request:
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   buf-push:
-    # Run only on the upstream repo
+    # Only run this workflow in the upstream repo
     if: ${{ github.repository == 'sei-protocol/sei-chain' }}
     runs-on: ubuntu-latest
+    env:
+      BUF_TOKEN: ${{ secrets.BUF_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
 
     steps:
       - uses: actions/checkout@v4
@@ -24,16 +31,14 @@ jobs:
           curl -sSL https://github.com/bufbuild/buf/releases/download/v1.31.0/buf-Linux-x86_64 -o /usr/local/bin/buf
           chmod +x /usr/local/bin/buf
 
-      - name: Login to Buf
-        # ✅ we no longer use secrets.* in "if"
+      - name: Login & Push Buf module
         run: |
           if [ -n "${BUF_TOKEN}" ]; then
+            echo "::add-mask::${BUF_TOKEN}"
+            echo "Logging into Buf..."
             echo "${BUF_TOKEN}" | buf registry login buf.build --token-stdin
+            echo "Pushing module..."
+            buf push
           else
-            echo "BUF_TOKEN not set, skipping login."
+            echo "No BUF_TOKEN provided, skipping Buf push."
           fi
-        env:
-          BUF_TOKEN: ${{ secrets.BUF_TOKEN }}
-
-      - name: Push Buf module
-        run: buf push
