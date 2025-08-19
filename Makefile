@@ -235,9 +235,17 @@ $(BUILDDIR):
 # Note we need to check for both in-package tests (.TestGoFiles) and
 # out-of-package tests (.XTestGoFiles).
 $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
-	go list -f "{{ if (or .TestGoFiles .XTestGoFiles) }}{{ .ImportPath }}{{ end }}" ./... | sort > $@
+	go list -f "{{ if (or .TestGoFiles .XTestGoFiles) }}{{ .ImportPath }}{{ end }}" ./... \
+	  | sort \
+	  | grep -v '/occ_tests$$' \
+	  > $(BUILDDIR)/packages.txt
 
 split-test-packages:$(BUILDDIR)/packages.txt
 	split -d -n l/$(NUM_SPLIT) $< $<.
 test-group-%:split-test-packages
 	cat $(BUILDDIR)/packages.txt.$* | xargs go test -parallel 4 -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic
+
+test-occ:
+	@echo "Running occ_tests serially (no -race) to avoid cgo SIGBUS"
+	GODEBUG=madvdontneed=1 go test ./occ_tests -count=1 -p=1 -parallel=1 -timeout=20m \
+	  -coverprofile=occ.profile.out -covermode=atomic
