@@ -63,14 +63,14 @@ jobs:
           if (( ${#FILES[@]} == 0 )); then
             echo "⚠️ No test files found under tests/evm — creating fallback smoke test"
             mkdir -p tests/evm
-            cat > tests/evm/ci-smoke.test.js <<'EOF'
-            const assert = require("assert");
-            describe("CI Smoke", () => {
-              it("runs to keep CI green", () => {
-                assert.strictEqual(1 + 1, 2);
-              });
-            });
-            EOF
+cat > tests/evm/ci-smoke.test.js <<'EOF'
+const assert = require("assert");
+describe("CI Smoke", () => {
+  it("runs to keep CI green", () => {
+    assert.strictEqual(1 + 1, 2);
+  });
+});
+EOF
             FILES=(tests/evm/ci-smoke.test.js)
           fi
 
@@ -84,3 +84,4 @@ jobs:
 
           echo "Running $((END-START)) tests on shard $INDEX/$PARTS"
           xargs -a shard-files.txt npx mocha --reporter spec --timeout 900000 --forbid-only --exit
+
