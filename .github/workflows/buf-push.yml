@@ -7,7 +7,7 @@ on:
 
 jobs:
   buf-push:
-    # ✅ Guard so this only runs in the upstream repo, not forks
+    # Run only on the upstream repo
     if: ${{ github.repository == 'sei-protocol/sei-chain' }}
     runs-on: ubuntu-latest
 
@@ -24,9 +24,16 @@ jobs:
           curl -sSL https://github.com/bufbuild/buf/releases/download/v1.31.0/buf-Linux-x86_64 -o /usr/local/bin/buf
           chmod +x /usr/local/bin/buf
 
-      - name: Login to Buf (only if BUF_TOKEN is provided)
-        if: ${{ secrets.BUF_TOKEN != '' }}
-        run: echo "${{ secrets.BUF_TOKEN }}" | buf registry login buf.build --token-stdin
+      - name: Login to Buf
+        # ✅ we no longer use secrets.* in "if"
+        run: |
+          if [ -n "${BUF_TOKEN}" ]; then
+            echo "${BUF_TOKEN}" | buf registry login buf.build --token-stdin
+          else
+            echo "BUF_TOKEN not set, skipping login."
+          fi
+        env:
+          BUF_TOKEN: ${{ secrets.BUF_TOKEN }}
 
       - name: Push Buf module
         run: buf push
