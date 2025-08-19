@@ -4,13 +4,13 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"github.com/cosmos/cosmos-sdk/crypto/types/multisig"
 	"os"
 	"path/filepath"
 	"strings"
 
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
+	"github.com/cosmos/cosmos-sdk/crypto/types/multisig"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -58,9 +58,10 @@ type service struct {
 	ek *evmkeeper.Keeper
 	wk *wasmkeeper.Keeper
 
-	ctx       sdk.Context
-	outputDir string
-	status    string
+	ctx          sdk.Context
+	outputDir    string
+	status       string
+	accountCount int
 }
 
 // NewService creates a new report service
@@ -86,6 +87,9 @@ func (s *service) Name() string {
 }
 
 func (s *service) Status() string {
+	if s.status == "processing" {
+		return fmt.Sprintf("%s: %d accounts", s.status, s.accountCount)
+	}
 	return s.status
 }
 
@@ -148,14 +152,11 @@ func (s *service) Start(ctx sdk.Context) error {
 	// Track unique assets to avoid duplicates
 	seenAssets := make(map[string]bool)
 
-	// Counter for progress tracking
-	accountCount := 0
-
 	// 2. Process accounts and their balances
 	fmt.Printf("EXPORT Starting account iteration\n")
 	var iterationError error
 	s.ak.IterateAccounts(ctx, func(account authtypes.AccountI) bool {
-		accountCount++
+		s.accountCount++
 		defer func() {
 			if r := recover(); r != nil {
 				iterationError = fmt.Errorf("panic during account processing: %v", r)
@@ -251,8 +252,8 @@ func (s *service) Start(ctx sdk.Context) error {
 		}
 
 		// Log progress periodically to help identify where process might stop
-		if accountCount%10000 == 0 {
-			fmt.Printf("EXPORT Progress: processed %d accounts so far\n", accountCount)
+		if s.accountCount%10000 == 0 {
+			fmt.Printf("EXPORT Progress: processed %d accounts\n", s.accountCount)
 		}
 
 		return false // Continue iteration
@@ -268,7 +269,7 @@ func (s *service) Start(ctx sdk.Context) error {
 	accountWriter.Flush()
 	assetWriter.Flush()
 	balanceWriter.Flush()
-	fmt.Printf("EXPORT Completed account iteration, processed %d accounts. Flushed all writers.\n", accountCount)
+	fmt.Printf("EXPORT Completed account iteration, processed %d accounts. Flushed all writers.\n", s.accountCount)
 
 	// 3. Process CW20 and CW721 contracts
 	fmt.Printf("EXPORT Starting contract iteration\n")
@@ -566,9 +567,9 @@ func normalizeType(s string) (string, bool) {
 	if strings.Contains(s, "cw1155") {
 		return "cw1155", true
 	}
-	//if strings.Contains(s, "cw721") {
-	//	return "cw721", true
-	//}
+	if strings.Contains(s, "cw721") {
+		return "cw721", true
+	}
 	if strings.Contains(s, "cw404") {
 		return "cw404", true
 	}

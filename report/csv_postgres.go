@@ -334,7 +334,8 @@ func (p *PostgreSQLImporter) importAccountAsset() error {
 	p.ctx.Logger().Info("CSV_IMPORT: JOIN compatibility check", "matching_accounts", matchingAccounts, "matching_assets", matchingAssets)
 
 	// Now do efficient INSERT SELECT with JOINs for foreign key resolution
-	p.ctx.Logger().Info("CSV_IMPORT: Starting INSERT SELECT operation")
+	// Use ON CONFLICT DO NOTHING to skip duplicates (preserves first occurrence)
+	p.ctx.Logger().Info("CSV_IMPORT: Starting INSERT SELECT operation with duplicate handling")
 	insertSQL := fmt.Sprintf(`
 		INSERT INTO account_asset (account_id, asset_id, balance, token_id)
 		SELECT a.account_id, ast.asset_id, 
@@ -343,6 +344,7 @@ func (p *PostgreSQLImporter) importAccountAsset() error {
 		FROM %s t
 		JOIN account a ON a.account = t.account_name
 		JOIN asset ast ON ast.name = t.asset_name
+		ON CONFLICT (account_id, asset_id, token_id) DO NOTHING
 	`, tempTableName)
 	
 	p.ctx.Logger().Info("CSV_IMPORT: Executing INSERT SELECT", "sql", insertSQL)
