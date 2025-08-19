@@ -1,0 +1,7 @@
+# at the job level
+jobs:
+  buf-push:
+    if: ${{ github.repository == 'sei-protocol/sei-chain' }}
+    runs-on: ubuntu-latest
+    steps:
+      # ... existing steps
