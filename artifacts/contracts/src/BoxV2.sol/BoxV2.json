@@ -1,0 +1,83 @@
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "BoxV2",
+  "sourceName": "contracts/src/BoxV2.sol",
+  "abi": [
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "value",
+          "type": "uint256"
+        }
+      ],
+      "name": "ValueChanged",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "boxV2Incr",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "retrieve",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "retrieve2",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "value",
+          "type": "uint256"
+        }
+      ],
+      "name": "store",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "value",
+          "type": "uint256"
+        }
+      ],
+      "name": "store2",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x6080604052348015600e575f80fd5b506101ce8061001c5f395ff3fe608060405234801561000f575f80fd5b5060043610610055575f3560e01c80632711432d1461005957806327f151f51461006f5780632e64cec1146100845780636057361d1461008b5780636fee623d1461009e575b5f80fd5b6001545b60405190815260200160405180910390f35b61008261007d36600461015c565b6100a6565b005b5f5461005d565b61008261009936600461015c565b6100e2565b610082610116565b60018190556040518181527f93fe6d397c74fdf1402a8b72e47b68512f0510d7b98a4bc4cbdf6ac7108b3c59906020015b60405180910390a150565b5f8190556040518181527f93fe6d397c74fdf1402a8b72e47b68512f0510d7b98a4bc4cbdf6ac7108b3c59906020016100d7565b5f54610123906001610173565b5f8190556040519081527f93fe6d397c74fdf1402a8b72e47b68512f0510d7b98a4bc4cbdf6ac7108b3c599060200160405180910390a1565b5f6020828403121561016c575f80fd5b5035919050565b8082018082111561019257634e487b7160e01b5f52601160045260245ffd5b9291505056fea2646970667358221220ef3594840b20631c7057291a87fd698de7779ee3040b4e136cf661773bd8351964736f6c63430008190033",
+  "deployedBytecode": "0x608060405234801561000f575f80fd5b5060043610610055575f3560e01c80632711432d1461005957806327f151f51461006f5780632e64cec1146100845780636057361d1461008b5780636fee623d1461009e575b5f80fd5b6001545b60405190815260200160405180910390f35b61008261007d36600461015c565b6100a6565b005b5f5461005d565b61008261009936600461015c565b6100e2565b610082610116565b60018190556040518181527f93fe6d397c74fdf1402a8b72e47b68512f0510d7b98a4bc4cbdf6ac7108b3c59906020015b60405180910390a150565b5f8190556040518181527f93fe6d397c74fdf1402a8b72e47b68512f0510d7b98a4bc4cbdf6ac7108b3c59906020016100d7565b5f54610123906001610173565b5f8190556040519081527f93fe6d397c74fdf1402a8b72e47b68512f0510d7b98a4bc4cbdf6ac7108b3c599060200160405180910390a1565b5f6020828403121561016c575f80fd5b5035919050565b8082018082111561019257634e487b7160e01b5f52601160045260245ffd5b9291505056fea2646970667358221220ef3594840b20631c7057291a87fd698de7779ee3040b4e136cf661773bd8351964736f6c63430008190033",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}
