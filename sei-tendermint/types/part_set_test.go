@@ -16,6 +16,8 @@ const (
 )
 
 func TestBasicPartSet(t *testing.T) {
+
+	assert.False(t, (*PartSet)(nil).IsComplete())
 	// Construct random data of size partSize * 100
 	nParts := 100
 	data := tmrand.Bytes(testPartSize * nParts)

@@ -319,6 +319,9 @@ func (ps *PartSet) GetPart(index int) *Part {
 }
 
 func (ps *PartSet) IsComplete() bool {
+	if ps == nil {
+		return false
+	}
 	return ps.count == ps.total
 }
 
