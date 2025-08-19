@@ -21,9 +21,13 @@ type Connection struct {
 	mock.Mock
 }
 
-// Close provides a mock function with given fields:
+// Close provides a mock function with no fields
 func (_m *Connection) Close() error {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Close")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func() error); ok {
@@ -39,14 +43,22 @@ func (_m *Connection) Close() error {
 func (_m *Connection) Handshake(_a0 context.Context, _a1 types.NodeInfo, _a2 crypto.PrivKey) (types.NodeInfo, crypto.PubKey, error) {
 	ret := _m.Called(_a0, _a1, _a2)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Handshake")
+	}
+
 	var r0 types.NodeInfo
+	var r1 crypto.PubKey
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, types.NodeInfo, crypto.PrivKey) (types.NodeInfo, crypto.PubKey, error)); ok {
+		return rf(_a0, _a1, _a2)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, types.NodeInfo, crypto.PrivKey) types.NodeInfo); ok {
 		r0 = rf(_a0, _a1, _a2)
 	} else {
 		r0 = ret.Get(0).(types.NodeInfo)
 	}
 
-	var r1 crypto.PubKey
 	if rf, ok := ret.Get(1).(func(context.Context, types.NodeInfo, crypto.PrivKey) crypto.PubKey); ok {
 		r1 = rf(_a0, _a1, _a2)
 	} else {
@@ -55,7 +67,6 @@ func (_m *Connection) Handshake(_a0 context.Context, _a1 types.NodeInfo, _a2 cry
 		}
 	}
 
-	var r2 error
 	if rf, ok := ret.Get(2).(func(context.Context, types.NodeInfo, crypto.PrivKey) error); ok {
 		r2 = rf(_a0, _a1, _a2)
 	} else {
@@ -65,9 +76,13 @@ func (_m *Connection) Handshake(_a0 context.Context, _a1 types.NodeInfo, _a2 cry
 	return r0, r1, r2
 }
 
-// LocalEndpoint provides a mock function with given fields:
+// LocalEndpoint provides a mock function with no fields
 func (_m *Connection) LocalEndpoint() p2p.Endpoint {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for LocalEndpoint")
+	}
 
 	var r0 p2p.Endpoint
 	if rf, ok := ret.Get(0).(func() p2p.Endpoint); ok {
@@ -83,14 +98,22 @@ func (_m *Connection) LocalEndpoint() p2p.Endpoint {
 func (_m *Connection) ReceiveMessage(_a0 context.Context) (conn.ChannelID, []byte, error) {
 	ret := _m.Called(_a0)
 
+	if len(ret) == 0 {
+		panic("no return value specified for ReceiveMessage")
+	}
+
 	var r0 conn.ChannelID
+	var r1 []byte
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context) (conn.ChannelID, []byte, error)); ok {
+		return rf(_a0)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context) conn.ChannelID); ok {
 		r0 = rf(_a0)
 	} else {
 		r0 = ret.Get(0).(conn.ChannelID)
 	}
 
-	var r1 []byte
 	if rf, ok := ret.Get(1).(func(context.Context) []byte); ok {
 		r1 = rf(_a0)
 	} else {
@@ -99,7 +122,6 @@ func (_m *Connection) ReceiveMessage(_a0 context.Context) (conn.ChannelID, []byt
 		}
 	}
 
-	var r2 error
 	if rf, ok := ret.Get(2).(func(context.Context) error); ok {
 		r2 = rf(_a0)
 	} else {
@@ -109,9 +131,13 @@ func (_m *Connection) ReceiveMessage(_a0 context.Context) (conn.ChannelID, []byt
 	return r0, r1, r2
 }
 
-// RemoteEndpoint provides a mock function with given fields:
+// RemoteEndpoint provides a mock function with no fields
 func (_m *Connection) RemoteEndpoint() p2p.Endpoint {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for RemoteEndpoint")
+	}
 
 	var r0 p2p.Endpoint
 	if rf, ok := ret.Get(0).(func() p2p.Endpoint); ok {
@@ -127,6 +153,10 @@ func (_m *Connection) RemoteEndpoint() p2p.Endpoint {
 func (_m *Connection) SendMessage(_a0 context.Context, _a1 conn.ChannelID, _a2 []byte) error {
 	ret := _m.Called(_a0, _a1, _a2)
 
+	if len(ret) == 0 {
+		panic("no return value specified for SendMessage")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, conn.ChannelID, []byte) error); ok {
 		r0 = rf(_a0, _a1, _a2)
@@ -137,9 +167,13 @@ func (_m *Connection) SendMessage(_a0 context.Context, _a1 conn.ChannelID, _a2 [
 	return r0
 }
 
-// String provides a mock function with given fields:
+// String provides a mock function with no fields
 func (_m *Connection) String() string {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for String")
+	}
 
 	var r0 string
 	if rf, ok := ret.Get(0).(func() string); ok {
@@ -151,13 +185,12 @@ func (_m *Connection) String() string {
 	return r0
 }
 
-type mockConstructorTestingTNewConnection interface {
+// NewConnection creates a new instance of Connection. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewConnection(t interface {
 	mock.TestingT
 	Cleanup(func())
-}
-
-// NewConnection creates a new instance of Connection. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-func NewConnection(t mockConstructorTestingTNewConnection) *Connection {
+}) *Connection {
 	mock := &Connection{}
 	mock.Mock.Test(t)
 

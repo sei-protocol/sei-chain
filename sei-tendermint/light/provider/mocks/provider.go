@@ -15,9 +15,13 @@ type Provider struct {
 	mock.Mock
 }
 
-// ID provides a mock function with given fields:
+// ID provides a mock function with no fields
 func (_m *Provider) ID() string {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for ID")
+	}
 
 	var r0 string
 	if rf, ok := ret.Get(0).(func() string); ok {
@@ -33,7 +37,15 @@ func (_m *Provider) ID() string {
 func (_m *Provider) LightBlock(ctx context.Context, height int64) (*types.LightBlock, error) {
 	ret := _m.Called(ctx, height)
 
+	if len(ret) == 0 {
+		panic("no return value specified for LightBlock")
+	}
+
 	var r0 *types.LightBlock
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, int64) (*types.LightBlock, error)); ok {
+		return rf(ctx, height)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, int64) *types.LightBlock); ok {
 		r0 = rf(ctx, height)
 	} else {
@@ -42,7 +54,6 @@ func (_m *Provider) LightBlock(ctx context.Context, height int64) (*types.LightB
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, int64) error); ok {
 		r1 = rf(ctx, height)
 	} else {
@@ -56,6 +67,10 @@ func (_m *Provider) LightBlock(ctx context.Context, height int64) (*types.LightB
 func (_m *Provider) ReportEvidence(_a0 context.Context, _a1 types.Evidence) error {
 	ret := _m.Called(_a0, _a1)
 
+	if len(ret) == 0 {
+		panic("no return value specified for ReportEvidence")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, types.Evidence) error); ok {
 		r0 = rf(_a0, _a1)
@@ -66,13 +81,12 @@ func (_m *Provider) ReportEvidence(_a0 context.Context, _a1 types.Evidence) erro
 	return r0
 }
 
-type mockConstructorTestingTNewProvider interface {
+// NewProvider creates a new instance of Provider. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewProvider(t interface {
 	mock.TestingT
 	Cleanup(func())
-}
-
-// NewProvider creates a new instance of Provider. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-func NewProvider(t mockConstructorTestingTNewProvider) *Provider {
+}) *Provider {
 	mock := &Provider{}
 	mock.Mock.Test(t)
 

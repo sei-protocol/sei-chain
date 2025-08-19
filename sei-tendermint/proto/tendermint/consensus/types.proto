@@ -84,7 +84,6 @@ message VoteSetBits {
   tendermint.libs.bits.BitArray votes = 5 [(gogoproto.nullable) = false];
 }
 
-
 message Message {
   oneof sum {
     NewRoundStep  new_round_step  = 1;

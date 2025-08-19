@@ -9,10 +9,10 @@ import "tendermint/types/params.proto";
 
 message Message {
   oneof sum {
-    MetadataRequest   metadata_request    = 1;
-    MetadataResponse  metadata_response   = 2;
-    FileRequest       file_request        = 3;
-    FileResponse      file_response       = 4;
+    MetadataRequest    metadata_request     = 1;
+    MetadataResponse   metadata_response    = 2;
+    FileRequest        file_request         = 3;
+    FileResponse       file_response        = 4;
     LightBlockRequest  light_block_request  = 5;
     LightBlockResponse light_block_response = 6;
     ParamsRequest      params_request       = 7;
@@ -23,21 +23,21 @@ message Message {
 message MetadataRequest {}
 
 message MetadataResponse {
-  uint64 height   = 1;
-  bytes  hash     = 2;
-  repeated string filenames = 3;
-  repeated bytes md5checksum = 4;
+  uint64          height      = 1;
+  bytes           hash        = 2;
+  repeated string filenames   = 3;
+  repeated bytes  md5checksum = 4;
 }
 
 message FileRequest {
-  uint64 height = 1;
+  uint64 height   = 1;
   string filename = 2;
 }
 
 message FileResponse {
-  uint64 height  = 1;
+  uint64 height   = 1;
   string filename = 2;
-  bytes data = 3;
+  bytes  data     = 3;
 }
 
 message LightBlockRequest {

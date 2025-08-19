@@ -20,6 +20,10 @@ type Store struct {
 func (_m *Store) Bootstrap(_a0 state.State) error {
 	ret := _m.Called(_a0)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Bootstrap")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(state.State) error); ok {
 		r0 = rf(_a0)
@@ -30,9 +34,13 @@ func (_m *Store) Bootstrap(_a0 state.State) error {
 	return r0
 }
 
-// Close provides a mock function with given fields:
+// Close provides a mock function with no fields
 func (_m *Store) Close() error {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Close")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func() error); ok {
@@ -44,18 +52,25 @@ func (_m *Store) Close() error {
 	return r0
 }
 
-// Load provides a mock function with given fields:
+// Load provides a mock function with no fields
 func (_m *Store) Load() (state.State, error) {
 	ret := _m.Called()
 
+	if len(ret) == 0 {
+		panic("no return value specified for Load")
+	}
+
 	var r0 state.State
+	var r1 error
+	if rf, ok := ret.Get(0).(func() (state.State, error)); ok {
+		return rf()
+	}
 	if rf, ok := ret.Get(0).(func() state.State); ok {
 		r0 = rf()
 	} else {
 		r0 = ret.Get(0).(state.State)
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func() error); ok {
 		r1 = rf()
 	} else {
@@ -69,14 +84,21 @@ func (_m *Store) Load() (state.State, error) {
 func (_m *Store) LoadConsensusParams(_a0 int64) (types.ConsensusParams, error) {
 	ret := _m.Called(_a0)
 
+	if len(ret) == 0 {
+		panic("no return value specified for LoadConsensusParams")
+	}
+
 	var r0 types.ConsensusParams
+	var r1 error
+	if rf, ok := ret.Get(0).(func(int64) (types.ConsensusParams, error)); ok {
+		return rf(_a0)
+	}
 	if rf, ok := ret.Get(0).(func(int64) types.ConsensusParams); ok {
 		r0 = rf(_a0)
 	} else {
 		r0 = ret.Get(0).(types.ConsensusParams)
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(int64) error); ok {
 		r1 = rf(_a0)
 	} else {
@@ -90,7 +112,15 @@ func (_m *Store) LoadConsensusParams(_a0 int64) (types.ConsensusParams, error) {
 func (_m *Store) LoadFinalizeBlockResponses(_a0 int64) (*abcitypes.ResponseFinalizeBlock, error) {
 	ret := _m.Called(_a0)
 
+	if len(ret) == 0 {
+		panic("no return value specified for LoadFinalizeBlockResponses")
+	}
+
 	var r0 *abcitypes.ResponseFinalizeBlock
+	var r1 error
+	if rf, ok := ret.Get(0).(func(int64) (*abcitypes.ResponseFinalizeBlock, error)); ok {
+		return rf(_a0)
+	}
 	if rf, ok := ret.Get(0).(func(int64) *abcitypes.ResponseFinalizeBlock); ok {
 		r0 = rf(_a0)
 	} else {
@@ -99,7 +129,6 @@ func (_m *Store) LoadFinalizeBlockResponses(_a0 int64) (*abcitypes.ResponseFinal
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(int64) error); ok {
 		r1 = rf(_a0)
 	} else {
@@ -113,7 +142,15 @@ func (_m *Store) LoadFinalizeBlockResponses(_a0 int64) (*abcitypes.ResponseFinal
 func (_m *Store) LoadValidators(_a0 int64) (*types.ValidatorSet, error) {
 	ret := _m.Called(_a0)
 
+	if len(ret) == 0 {
+		panic("no return value specified for LoadValidators")
+	}
+
 	var r0 *types.ValidatorSet
+	var r1 error
+	if rf, ok := ret.Get(0).(func(int64) (*types.ValidatorSet, error)); ok {
+		return rf(_a0)
+	}
 	if rf, ok := ret.Get(0).(func(int64) *types.ValidatorSet); ok {
 		r0 = rf(_a0)
 	} else {
@@ -122,7 +159,6 @@ func (_m *Store) LoadValidators(_a0 int64) (*types.ValidatorSet, error) {
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(int64) error); ok {
 		r1 = rf(_a0)
 	} else {
@@ -135,6 +171,10 @@ func (_m *Store) LoadValidators(_a0 int64) (*types.ValidatorSet, error) {
 // PruneStates provides a mock function with given fields: _a0
 func (_m *Store) PruneStates(_a0 int64) error {
 	ret := _m.Called(_a0)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PruneStates")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(int64) error); ok {
@@ -150,6 +190,10 @@ func (_m *Store) PruneStates(_a0 int64) error {
 func (_m *Store) Save(_a0 state.State) error {
 	ret := _m.Called(_a0)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Save")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(state.State) error); ok {
 		r0 = rf(_a0)
@@ -163,6 +207,10 @@ func (_m *Store) Save(_a0 state.State) error {
 // SaveFinalizeBlockResponses provides a mock function with given fields: _a0, _a1
 func (_m *Store) SaveFinalizeBlockResponses(_a0 int64, _a1 *abcitypes.ResponseFinalizeBlock) error {
 	ret := _m.Called(_a0, _a1)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SaveFinalizeBlockResponses")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(int64, *abcitypes.ResponseFinalizeBlock) error); ok {
@@ -178,6 +226,10 @@ func (_m *Store) SaveFinalizeBlockResponses(_a0 int64, _a1 *abcitypes.ResponseFi
 func (_m *Store) SaveValidatorSets(_a0 int64, _a1 int64, _a2 *types.ValidatorSet) error {
 	ret := _m.Called(_a0, _a1, _a2)
 
+	if len(ret) == 0 {
+		panic("no return value specified for SaveValidatorSets")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(int64, int64, *types.ValidatorSet) error); ok {
 		r0 = rf(_a0, _a1, _a2)
@@ -188,13 +240,12 @@ func (_m *Store) SaveValidatorSets(_a0 int64, _a1 int64, _a2 *types.ValidatorSet
 	return r0
 }
 
-type mockConstructorTestingTNewStore interface {
+// NewStore creates a new instance of Store. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewStore(t interface {
 	mock.TestingT
 	Cleanup(func())
-}
-
-// NewStore creates a new instance of Store. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-func NewStore(t mockConstructorTestingTNewStore) *Store {
+}) *Store {
 	mock := &Store{}
 	mock.Mock.Test(t)
 

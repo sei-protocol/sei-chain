@@ -13,9 +13,13 @@ type Source struct {
 	mock.Mock
 }
 
-// Now provides a mock function with given fields:
+// Now provides a mock function with no fields
 func (_m *Source) Now() time.Time {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Now")
+	}
 
 	var r0 time.Time
 	if rf, ok := ret.Get(0).(func() time.Time); ok {
@@ -27,13 +31,12 @@ func (_m *Source) Now() time.Time {
 	return r0
 }
 
-type mockConstructorTestingTNewSource interface {
+// NewSource creates a new instance of Source. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewSource(t interface {
 	mock.TestingT
 	Cleanup(func())
-}
-
-// NewSource creates a new instance of Source. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-func NewSource(t mockConstructorTestingTNewSource) *Source {
+}) *Source {
 	mock := &Source{}
 	mock.Mock.Test(t)
 

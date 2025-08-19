@@ -24,7 +24,15 @@ type Client struct {
 func (_m *Client) ABCIInfo(_a0 context.Context) (*coretypes.ResultABCIInfo, error) {
 	ret := _m.Called(_a0)
 
+	if len(ret) == 0 {
+		panic("no return value specified for ABCIInfo")
+	}
+
 	var r0 *coretypes.ResultABCIInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*coretypes.ResultABCIInfo, error)); ok {
+		return rf(_a0)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context) *coretypes.ResultABCIInfo); ok {
 		r0 = rf(_a0)
 	} else {
@@ -33,7 +41,6 @@ func (_m *Client) ABCIInfo(_a0 context.Context) (*coretypes.ResultABCIInfo, erro
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
 		r1 = rf(_a0)
 	} else {
@@ -47,7 +54,15 @@ func (_m *Client) ABCIInfo(_a0 context.Context) (*coretypes.ResultABCIInfo, erro
 func (_m *Client) ABCIQuery(ctx context.Context, path string, data bytes.HexBytes) (*coretypes.ResultABCIQuery, error) {
 	ret := _m.Called(ctx, path, data)
 
+	if len(ret) == 0 {
+		panic("no return value specified for ABCIQuery")
+	}
+
 	var r0 *coretypes.ResultABCIQuery
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, bytes.HexBytes) (*coretypes.ResultABCIQuery, error)); ok {
+		return rf(ctx, path, data)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, bytes.HexBytes) *coretypes.ResultABCIQuery); ok {
 		r0 = rf(ctx, path, data)
 	} else {
@@ -56,7 +71,6 @@ func (_m *Client) ABCIQuery(ctx context.Context, path string, data bytes.HexByte
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, string, bytes.HexBytes) error); ok {
 		r1 = rf(ctx, path, data)
 	} else {
@@ -70,7 +84,15 @@ func (_m *Client) ABCIQuery(ctx context.Context, path string, data bytes.HexByte
 func (_m *Client) ABCIQueryWithOptions(ctx context.Context, path string, data bytes.HexBytes, opts client.ABCIQueryOptions) (*coretypes.ResultABCIQuery, error) {
 	ret := _m.Called(ctx, path, data, opts)
 
+	if len(ret) == 0 {
+		panic("no return value specified for ABCIQueryWithOptions")
+	}
+
 	var r0 *coretypes.ResultABCIQuery
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, bytes.HexBytes, client.ABCIQueryOptions) (*coretypes.ResultABCIQuery, error)); ok {
+		return rf(ctx, path, data, opts)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, bytes.HexBytes, client.ABCIQueryOptions) *coretypes.ResultABCIQuery); ok {
 		r0 = rf(ctx, path, data, opts)
 	} else {
@@ -79,7 +101,6 @@ func (_m *Client) ABCIQueryWithOptions(ctx context.Context, path string, data by
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, string, bytes.HexBytes, client.ABCIQueryOptions) error); ok {
 		r1 = rf(ctx, path, data, opts)
 	} else {
@@ -93,7 +114,15 @@ func (_m *Client) ABCIQueryWithOptions(ctx context.Context, path string, data by
 func (_m *Client) Block(ctx context.Context, height *int64) (*coretypes.ResultBlock, error) {
 	ret := _m.Called(ctx, height)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Block")
+	}
+
 	var r0 *coretypes.ResultBlock
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *int64) (*coretypes.ResultBlock, error)); ok {
+		return rf(ctx, height)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, *int64) *coretypes.ResultBlock); ok {
 		r0 = rf(ctx, height)
 	} else {
@@ -102,7 +131,6 @@ func (_m *Client) Block(ctx context.Context, height *int64) (*coretypes.ResultBl
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, *int64) error); ok {
 		r1 = rf(ctx, height)
 	} else {
@@ -116,7 +144,15 @@ func (_m *Client) Block(ctx context.Context, height *int64) (*coretypes.ResultBl
 func (_m *Client) BlockByHash(ctx context.Context, hash bytes.HexBytes) (*coretypes.ResultBlock, error) {
 	ret := _m.Called(ctx, hash)
 
+	if len(ret) == 0 {
+		panic("no return value specified for BlockByHash")
+	}
+
 	var r0 *coretypes.ResultBlock
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, bytes.HexBytes) (*coretypes.ResultBlock, error)); ok {
+		return rf(ctx, hash)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, bytes.HexBytes) *coretypes.ResultBlock); ok {
 		r0 = rf(ctx, hash)
 	} else {
@@ -125,7 +161,6 @@ func (_m *Client) BlockByHash(ctx context.Context, hash bytes.HexBytes) (*corety
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, bytes.HexBytes) error); ok {
 		r1 = rf(ctx, hash)
 	} else {
@@ -139,7 +174,15 @@ func (_m *Client) BlockByHash(ctx context.Context, hash bytes.HexBytes) (*corety
 func (_m *Client) BlockResults(ctx context.Context, height *int64) (*coretypes.ResultBlockResults, error) {
 	ret := _m.Called(ctx, height)
 
+	if len(ret) == 0 {
+		panic("no return value specified for BlockResults")
+	}
+
 	var r0 *coretypes.ResultBlockResults
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *int64) (*coretypes.ResultBlockResults, error)); ok {
+		return rf(ctx, height)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, *int64) *coretypes.ResultBlockResults); ok {
 		r0 = rf(ctx, height)
 	} else {
@@ -148,7 +191,6 @@ func (_m *Client) BlockResults(ctx context.Context, height *int64) (*coretypes.R
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, *int64) error); ok {
 		r1 = rf(ctx, height)
 	} else {
@@ -162,7 +204,15 @@ func (_m *Client) BlockResults(ctx context.Context, height *int64) (*coretypes.R
 func (_m *Client) BlockSearch(ctx context.Context, query string, page *int, perPage *int, orderBy string) (*coretypes.ResultBlockSearch, error) {
 	ret := _m.Called(ctx, query, page, perPage, orderBy)
 
+	if len(ret) == 0 {
+		panic("no return value specified for BlockSearch")
+	}
+
 	var r0 *coretypes.ResultBlockSearch
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, *int, *int, string) (*coretypes.ResultBlockSearch, error)); ok {
+		return rf(ctx, query, page, perPage, orderBy)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, *int, *int, string) *coretypes.ResultBlockSearch); ok {
 		r0 = rf(ctx, query, page, perPage, orderBy)
 	} else {
@@ -171,7 +221,6 @@ func (_m *Client) BlockSearch(ctx context.Context, query string, page *int, perP
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, string, *int, *int, string) error); ok {
 		r1 = rf(ctx, query, page, perPage, orderBy)
 	} else {
@@ -185,7 +234,15 @@ func (_m *Client) BlockSearch(ctx context.Context, query string, page *int, perP
 func (_m *Client) BlockchainInfo(ctx context.Context, minHeight int64, maxHeight int64) (*coretypes.ResultBlockchainInfo, error) {
 	ret := _m.Called(ctx, minHeight, maxHeight)
 
+	if len(ret) == 0 {
+		panic("no return value specified for BlockchainInfo")
+	}
+
 	var r0 *coretypes.ResultBlockchainInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, int64, int64) (*coretypes.ResultBlockchainInfo, error)); ok {
+		return rf(ctx, minHeight, maxHeight)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, int64, int64) *coretypes.ResultBlockchainInfo); ok {
 		r0 = rf(ctx, minHeight, maxHeight)
 	} else {
@@ -194,7 +251,6 @@ func (_m *Client) BlockchainInfo(ctx context.Context, minHeight int64, maxHeight
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, int64, int64) error); ok {
 		r1 = rf(ctx, minHeight, maxHeight)
 	} else {
@@ -208,7 +264,15 @@ func (_m *Client) BlockchainInfo(ctx context.Context, minHeight int64, maxHeight
 func (_m *Client) BroadcastEvidence(_a0 context.Context, _a1 types.Evidence) (*coretypes.ResultBroadcastEvidence, error) {
 	ret := _m.Called(_a0, _a1)
 
+	if len(ret) == 0 {
+		panic("no return value specified for BroadcastEvidence")
+	}
+
 	var r0 *coretypes.ResultBroadcastEvidence
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, types.Evidence) (*coretypes.ResultBroadcastEvidence, error)); ok {
+		return rf(_a0, _a1)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, types.Evidence) *coretypes.ResultBroadcastEvidence); ok {
 		r0 = rf(_a0, _a1)
 	} else {
@@ -217,7 +281,6 @@ func (_m *Client) BroadcastEvidence(_a0 context.Context, _a1 types.Evidence) (*c
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, types.Evidence) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
@@ -231,7 +294,15 @@ func (_m *Client) BroadcastEvidence(_a0 context.Context, _a1 types.Evidence) (*c
 func (_m *Client) BroadcastTx(_a0 context.Context, _a1 types.Tx) (*coretypes.ResultBroadcastTx, error) {
 	ret := _m.Called(_a0, _a1)
 
+	if len(ret) == 0 {
+		panic("no return value specified for BroadcastTx")
+	}
+
 	var r0 *coretypes.ResultBroadcastTx
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, types.Tx) (*coretypes.ResultBroadcastTx, error)); ok {
+		return rf(_a0, _a1)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, types.Tx) *coretypes.ResultBroadcastTx); ok {
 		r0 = rf(_a0, _a1)
 	} else {
@@ -240,7 +311,6 @@ func (_m *Client) BroadcastTx(_a0 context.Context, _a1 types.Tx) (*coretypes.Res
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, types.Tx) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
@@ -254,7 +324,15 @@ func (_m *Client) BroadcastTx(_a0 context.Context, _a1 types.Tx) (*coretypes.Res
 func (_m *Client) BroadcastTxAsync(_a0 context.Context, _a1 types.Tx) (*coretypes.ResultBroadcastTx, error) {
 	ret := _m.Called(_a0, _a1)
 
+	if len(ret) == 0 {
+		panic("no return value specified for BroadcastTxAsync")
+	}
+
 	var r0 *coretypes.ResultBroadcastTx
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, types.Tx) (*coretypes.ResultBroadcastTx, error)); ok {
+		return rf(_a0, _a1)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, types.Tx) *coretypes.ResultBroadcastTx); ok {
 		r0 = rf(_a0, _a1)
 	} else {
@@ -263,7 +341,6 @@ func (_m *Client) BroadcastTxAsync(_a0 context.Context, _a1 types.Tx) (*coretype
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, types.Tx) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
@@ -277,7 +354,15 @@ func (_m *Client) BroadcastTxAsync(_a0 context.Context, _a1 types.Tx) (*coretype
 func (_m *Client) BroadcastTxCommit(_a0 context.Context, _a1 types.Tx) (*coretypes.ResultBroadcastTxCommit, error) {
 	ret := _m.Called(_a0, _a1)
 
+	if len(ret) == 0 {
+		panic("no return value specified for BroadcastTxCommit")
+	}
+
 	var r0 *coretypes.ResultBroadcastTxCommit
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, types.Tx) (*coretypes.ResultBroadcastTxCommit, error)); ok {
+		return rf(_a0, _a1)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, types.Tx) *coretypes.ResultBroadcastTxCommit); ok {
 		r0 = rf(_a0, _a1)
 	} else {
@@ -286,7 +371,6 @@ func (_m *Client) BroadcastTxCommit(_a0 context.Context, _a1 types.Tx) (*coretyp
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, types.Tx) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
@@ -300,7 +384,15 @@ func (_m *Client) BroadcastTxCommit(_a0 context.Context, _a1 types.Tx) (*coretyp
 func (_m *Client) BroadcastTxSync(_a0 context.Context, _a1 types.Tx) (*coretypes.ResultBroadcastTx, error) {
 	ret := _m.Called(_a0, _a1)
 
+	if len(ret) == 0 {
+		panic("no return value specified for BroadcastTxSync")
+	}
+
 	var r0 *coretypes.ResultBroadcastTx
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, types.Tx) (*coretypes.ResultBroadcastTx, error)); ok {
+		return rf(_a0, _a1)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, types.Tx) *coretypes.ResultBroadcastTx); ok {
 		r0 = rf(_a0, _a1)
 	} else {
@@ -309,7 +401,6 @@ func (_m *Client) BroadcastTxSync(_a0 context.Context, _a1 types.Tx) (*coretypes
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, types.Tx) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
@@ -323,7 +414,15 @@ func (_m *Client) BroadcastTxSync(_a0 context.Context, _a1 types.Tx) (*coretypes
 func (_m *Client) CheckTx(_a0 context.Context, _a1 types.Tx) (*coretypes.ResultCheckTx, error) {
 	ret := _m.Called(_a0, _a1)
 
+	if len(ret) == 0 {
+		panic("no return value specified for CheckTx")
+	}
+
 	var r0 *coretypes.ResultCheckTx
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, types.Tx) (*coretypes.ResultCheckTx, error)); ok {
+		return rf(_a0, _a1)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, types.Tx) *coretypes.ResultCheckTx); ok {
 		r0 = rf(_a0, _a1)
 	} else {
@@ -332,7 +431,6 @@ func (_m *Client) CheckTx(_a0 context.Context, _a1 types.Tx) (*coretypes.ResultC
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, types.Tx) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
@@ -346,7 +444,15 @@ func (_m *Client) CheckTx(_a0 context.Context, _a1 types.Tx) (*coretypes.ResultC
 func (_m *Client) Commit(ctx context.Context, height *int64) (*coretypes.ResultCommit, error) {
 	ret := _m.Called(ctx, height)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Commit")
+	}
+
 	var r0 *coretypes.ResultCommit
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *int64) (*coretypes.ResultCommit, error)); ok {
+		return rf(ctx, height)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, *int64) *coretypes.ResultCommit); ok {
 		r0 = rf(ctx, height)
 	} else {
@@ -355,7 +461,6 @@ func (_m *Client) Commit(ctx context.Context, height *int64) (*coretypes.ResultC
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, *int64) error); ok {
 		r1 = rf(ctx, height)
 	} else {
@@ -369,7 +474,15 @@ func (_m *Client) Commit(ctx context.Context, height *int64) (*coretypes.ResultC
 func (_m *Client) ConsensusParams(ctx context.Context, height *int64) (*coretypes.ResultConsensusParams, error) {
 	ret := _m.Called(ctx, height)
 
+	if len(ret) == 0 {
+		panic("no return value specified for ConsensusParams")
+	}
+
 	var r0 *coretypes.ResultConsensusParams
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *int64) (*coretypes.ResultConsensusParams, error)); ok {
+		return rf(ctx, height)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, *int64) *coretypes.ResultConsensusParams); ok {
 		r0 = rf(ctx, height)
 	} else {
@@ -378,7 +491,6 @@ func (_m *Client) ConsensusParams(ctx context.Context, height *int64) (*coretype
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, *int64) error); ok {
 		r1 = rf(ctx, height)
 	} else {
@@ -392,7 +504,15 @@ func (_m *Client) ConsensusParams(ctx context.Context, height *int64) (*coretype
 func (_m *Client) ConsensusState(_a0 context.Context) (*coretypes.ResultConsensusState, error) {
 	ret := _m.Called(_a0)
 
+	if len(ret) == 0 {
+		panic("no return value specified for ConsensusState")
+	}
+
 	var r0 *coretypes.ResultConsensusState
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*coretypes.ResultConsensusState, error)); ok {
+		return rf(_a0)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context) *coretypes.ResultConsensusState); ok {
 		r0 = rf(_a0)
 	} else {
@@ -401,7 +521,6 @@ func (_m *Client) ConsensusState(_a0 context.Context) (*coretypes.ResultConsensu
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
 		r1 = rf(_a0)
 	} else {
@@ -415,7 +534,15 @@ func (_m *Client) ConsensusState(_a0 context.Context) (*coretypes.ResultConsensu
 func (_m *Client) DumpConsensusState(_a0 context.Context) (*coretypes.ResultDumpConsensusState, error) {
 	ret := _m.Called(_a0)
 
+	if len(ret) == 0 {
+		panic("no return value specified for DumpConsensusState")
+	}
+
 	var r0 *coretypes.ResultDumpConsensusState
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*coretypes.ResultDumpConsensusState, error)); ok {
+		return rf(_a0)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context) *coretypes.ResultDumpConsensusState); ok {
 		r0 = rf(_a0)
 	} else {
@@ -424,7 +551,6 @@ func (_m *Client) DumpConsensusState(_a0 context.Context) (*coretypes.ResultDump
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
 		r1 = rf(_a0)
 	} else {
@@ -438,7 +564,15 @@ func (_m *Client) DumpConsensusState(_a0 context.Context) (*coretypes.ResultDump
 func (_m *Client) Events(ctx context.Context, req *coretypes.RequestEvents) (*coretypes.ResultEvents, error) {
 	ret := _m.Called(ctx, req)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Events")
+	}
+
 	var r0 *coretypes.ResultEvents
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *coretypes.RequestEvents) (*coretypes.ResultEvents, error)); ok {
+		return rf(ctx, req)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, *coretypes.RequestEvents) *coretypes.ResultEvents); ok {
 		r0 = rf(ctx, req)
 	} else {
@@ -447,7 +581,6 @@ func (_m *Client) Events(ctx context.Context, req *coretypes.RequestEvents) (*co
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, *coretypes.RequestEvents) error); ok {
 		r1 = rf(ctx, req)
 	} else {
@@ -461,7 +594,15 @@ func (_m *Client) Events(ctx context.Context, req *coretypes.RequestEvents) (*co
 func (_m *Client) Genesis(_a0 context.Context) (*coretypes.ResultGenesis, error) {
 	ret := _m.Called(_a0)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Genesis")
+	}
+
 	var r0 *coretypes.ResultGenesis
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*coretypes.ResultGenesis, error)); ok {
+		return rf(_a0)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context) *coretypes.ResultGenesis); ok {
 		r0 = rf(_a0)
 	} else {
@@ -470,7 +611,6 @@ func (_m *Client) Genesis(_a0 context.Context) (*coretypes.ResultGenesis, error)
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
 		r1 = rf(_a0)
 	} else {
@@ -484,7 +624,15 @@ func (_m *Client) Genesis(_a0 context.Context) (*coretypes.ResultGenesis, error)
 func (_m *Client) GenesisChunked(_a0 context.Context, _a1 uint) (*coretypes.ResultGenesisChunk, error) {
 	ret := _m.Called(_a0, _a1)
 
+	if len(ret) == 0 {
+		panic("no return value specified for GenesisChunked")
+	}
+
 	var r0 *coretypes.ResultGenesisChunk
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, uint) (*coretypes.ResultGenesisChunk, error)); ok {
+		return rf(_a0, _a1)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, uint) *coretypes.ResultGenesisChunk); ok {
 		r0 = rf(_a0, _a1)
 	} else {
@@ -493,7 +641,6 @@ func (_m *Client) GenesisChunked(_a0 context.Context, _a1 uint) (*coretypes.Resu
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, uint) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
@@ -507,7 +654,15 @@ func (_m *Client) GenesisChunked(_a0 context.Context, _a1 uint) (*coretypes.Resu
 func (_m *Client) Header(ctx context.Context, height *int64) (*coretypes.ResultHeader, error) {
 	ret := _m.Called(ctx, height)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Header")
+	}
+
 	var r0 *coretypes.ResultHeader
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *int64) (*coretypes.ResultHeader, error)); ok {
+		return rf(ctx, height)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, *int64) *coretypes.ResultHeader); ok {
 		r0 = rf(ctx, height)
 	} else {
@@ -516,7 +671,6 @@ func (_m *Client) Header(ctx context.Context, height *int64) (*coretypes.ResultH
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, *int64) error); ok {
 		r1 = rf(ctx, height)
 	} else {
@@ -530,7 +684,15 @@ func (_m *Client) Header(ctx context.Context, height *int64) (*coretypes.ResultH
 func (_m *Client) HeaderByHash(ctx context.Context, hash bytes.HexBytes) (*coretypes.ResultHeader, error) {
 	ret := _m.Called(ctx, hash)
 
+	if len(ret) == 0 {
+		panic("no return value specified for HeaderByHash")
+	}
+
 	var r0 *coretypes.ResultHeader
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, bytes.HexBytes) (*coretypes.ResultHeader, error)); ok {
+		return rf(ctx, hash)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, bytes.HexBytes) *coretypes.ResultHeader); ok {
 		r0 = rf(ctx, hash)
 	} else {
@@ -539,7 +701,6 @@ func (_m *Client) HeaderByHash(ctx context.Context, hash bytes.HexBytes) (*coret
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, bytes.HexBytes) error); ok {
 		r1 = rf(ctx, hash)
 	} else {
@@ -553,7 +714,15 @@ func (_m *Client) HeaderByHash(ctx context.Context, hash bytes.HexBytes) (*coret
 func (_m *Client) Health(_a0 context.Context) (*coretypes.ResultHealth, error) {
 	ret := _m.Called(_a0)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Health")
+	}
+
 	var r0 *coretypes.ResultHealth
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*coretypes.ResultHealth, error)); ok {
+		return rf(_a0)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context) *coretypes.ResultHealth); ok {
 		r0 = rf(_a0)
 	} else {
@@ -562,7 +731,36 @@ func (_m *Client) Health(_a0 context.Context) (*coretypes.ResultHealth, error) {
 		}
 	}
 
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(_a0)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// LagStatus provides a mock function with given fields: _a0
+func (_m *Client) LagStatus(_a0 context.Context) (*coretypes.ResultLagStatus, error) {
+	ret := _m.Called(_a0)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LagStatus")
+	}
+
+	var r0 *coretypes.ResultLagStatus
 	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*coretypes.ResultLagStatus, error)); ok {
+		return rf(_a0)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) *coretypes.ResultLagStatus); ok {
+		r0 = rf(_a0)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*coretypes.ResultLagStatus)
+		}
+	}
+
 	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
 		r1 = rf(_a0)
 	} else {
@@ -576,7 +774,15 @@ func (_m *Client) Health(_a0 context.Context) (*coretypes.ResultHealth, error) {
 func (_m *Client) NetInfo(_a0 context.Context) (*coretypes.ResultNetInfo, error) {
 	ret := _m.Called(_a0)
 
+	if len(ret) == 0 {
+		panic("no return value specified for NetInfo")
+	}
+
 	var r0 *coretypes.ResultNetInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*coretypes.ResultNetInfo, error)); ok {
+		return rf(_a0)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context) *coretypes.ResultNetInfo); ok {
 		r0 = rf(_a0)
 	} else {
@@ -585,7 +791,6 @@ func (_m *Client) NetInfo(_a0 context.Context) (*coretypes.ResultNetInfo, error)
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
 		r1 = rf(_a0)
 	} else {
@@ -599,7 +804,15 @@ func (_m *Client) NetInfo(_a0 context.Context) (*coretypes.ResultNetInfo, error)
 func (_m *Client) NumUnconfirmedTxs(_a0 context.Context) (*coretypes.ResultUnconfirmedTxs, error) {
 	ret := _m.Called(_a0)
 
+	if len(ret) == 0 {
+		panic("no return value specified for NumUnconfirmedTxs")
+	}
+
 	var r0 *coretypes.ResultUnconfirmedTxs
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*coretypes.ResultUnconfirmedTxs, error)); ok {
+		return rf(_a0)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context) *coretypes.ResultUnconfirmedTxs); ok {
 		r0 = rf(_a0)
 	} else {
@@ -608,7 +821,6 @@ func (_m *Client) NumUnconfirmedTxs(_a0 context.Context) (*coretypes.ResultUncon
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
 		r1 = rf(_a0)
 	} else {
@@ -621,6 +833,10 @@ func (_m *Client) NumUnconfirmedTxs(_a0 context.Context) (*coretypes.ResultUncon
 // RemoveTx provides a mock function with given fields: _a0, _a1
 func (_m *Client) RemoveTx(_a0 context.Context, _a1 types.TxKey) error {
 	ret := _m.Called(_a0, _a1)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RemoveTx")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, types.TxKey) error); ok {
@@ -636,6 +852,10 @@ func (_m *Client) RemoveTx(_a0 context.Context, _a1 types.TxKey) error {
 func (_m *Client) Start(_a0 context.Context) error {
 	ret := _m.Called(_a0)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Start")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
 		r0 = rf(_a0)
@@ -650,7 +870,15 @@ func (_m *Client) Start(_a0 context.Context) error {
 func (_m *Client) Status(_a0 context.Context) (*coretypes.ResultStatus, error) {
 	ret := _m.Called(_a0)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Status")
+	}
+
 	var r0 *coretypes.ResultStatus
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*coretypes.ResultStatus, error)); ok {
+		return rf(_a0)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context) *coretypes.ResultStatus); ok {
 		r0 = rf(_a0)
 	} else {
@@ -659,7 +887,6 @@ func (_m *Client) Status(_a0 context.Context) (*coretypes.ResultStatus, error) {
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
 		r1 = rf(_a0)
 	} else {
@@ -680,7 +907,15 @@ func (_m *Client) Subscribe(ctx context.Context, subscriber string, query string
 	_ca = append(_ca, _va...)
 	ret := _m.Called(_ca...)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Subscribe")
+	}
+
 	var r0 <-chan coretypes.ResultEvent
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, ...int) (<-chan coretypes.ResultEvent, error)); ok {
+		return rf(ctx, subscriber, query, outCapacity...)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, string, ...int) <-chan coretypes.ResultEvent); ok {
 		r0 = rf(ctx, subscriber, query, outCapacity...)
 	} else {
@@ -689,7 +924,6 @@ func (_m *Client) Subscribe(ctx context.Context, subscriber string, query string
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, string, string, ...int) error); ok {
 		r1 = rf(ctx, subscriber, query, outCapacity...)
 	} else {
@@ -703,7 +937,15 @@ func (_m *Client) Subscribe(ctx context.Context, subscriber string, query string
 func (_m *Client) Tx(ctx context.Context, hash bytes.HexBytes, prove bool) (*coretypes.ResultTx, error) {
 	ret := _m.Called(ctx, hash, prove)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Tx")
+	}
+
 	var r0 *coretypes.ResultTx
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, bytes.HexBytes, bool) (*coretypes.ResultTx, error)); ok {
+		return rf(ctx, hash, prove)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, bytes.HexBytes, bool) *coretypes.ResultTx); ok {
 		r0 = rf(ctx, hash, prove)
 	} else {
@@ -712,7 +954,6 @@ func (_m *Client) Tx(ctx context.Context, hash bytes.HexBytes, prove bool) (*cor
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, bytes.HexBytes, bool) error); ok {
 		r1 = rf(ctx, hash, prove)
 	} else {
@@ -726,7 +967,15 @@ func (_m *Client) Tx(ctx context.Context, hash bytes.HexBytes, prove bool) (*cor
 func (_m *Client) TxSearch(ctx context.Context, query string, prove bool, page *int, perPage *int, orderBy string) (*coretypes.ResultTxSearch, error) {
 	ret := _m.Called(ctx, query, prove, page, perPage, orderBy)
 
+	if len(ret) == 0 {
+		panic("no return value specified for TxSearch")
+	}
+
 	var r0 *coretypes.ResultTxSearch
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, bool, *int, *int, string) (*coretypes.ResultTxSearch, error)); ok {
+		return rf(ctx, query, prove, page, perPage, orderBy)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, bool, *int, *int, string) *coretypes.ResultTxSearch); ok {
 		r0 = rf(ctx, query, prove, page, perPage, orderBy)
 	} else {
@@ -735,7 +984,6 @@ func (_m *Client) TxSearch(ctx context.Context, query string, prove bool, page *
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, string, bool, *int, *int, string) error); ok {
 		r1 = rf(ctx, query, prove, page, perPage, orderBy)
 	} else {
@@ -749,7 +997,15 @@ func (_m *Client) TxSearch(ctx context.Context, query string, prove bool, page *
 func (_m *Client) UnconfirmedTxs(ctx context.Context, page *int, perPage *int) (*coretypes.ResultUnconfirmedTxs, error) {
 	ret := _m.Called(ctx, page, perPage)
 
+	if len(ret) == 0 {
+		panic("no return value specified for UnconfirmedTxs")
+	}
+
 	var r0 *coretypes.ResultUnconfirmedTxs
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *int, *int) (*coretypes.ResultUnconfirmedTxs, error)); ok {
+		return rf(ctx, page, perPage)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, *int, *int) *coretypes.ResultUnconfirmedTxs); ok {
 		r0 = rf(ctx, page, perPage)
 	} else {
@@ -758,7 +1014,6 @@ func (_m *Client) UnconfirmedTxs(ctx context.Context, page *int, perPage *int) (
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, *int, *int) error); ok {
 		r1 = rf(ctx, page, perPage)
 	} else {
@@ -771,6 +1026,10 @@ func (_m *Client) UnconfirmedTxs(ctx context.Context, page *int, perPage *int) (
 // Unsubscribe provides a mock function with given fields: ctx, subscriber, query
 func (_m *Client) Unsubscribe(ctx context.Context, subscriber string, query string) error {
 	ret := _m.Called(ctx, subscriber, query)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Unsubscribe")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
@@ -786,6 +1045,10 @@ func (_m *Client) Unsubscribe(ctx context.Context, subscriber string, query stri
 func (_m *Client) UnsubscribeAll(ctx context.Context, subscriber string) error {
 	ret := _m.Called(ctx, subscriber)
 
+	if len(ret) == 0 {
+		panic("no return value specified for UnsubscribeAll")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
 		r0 = rf(ctx, subscriber)
@@ -800,7 +1063,15 @@ func (_m *Client) UnsubscribeAll(ctx context.Context, subscriber string) error {
 func (_m *Client) Validators(ctx context.Context, height *int64, page *int, perPage *int) (*coretypes.ResultValidators, error) {
 	ret := _m.Called(ctx, height, page, perPage)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Validators")
+	}
+
 	var r0 *coretypes.ResultValidators
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *int64, *int, *int) (*coretypes.ResultValidators, error)); ok {
+		return rf(ctx, height, page, perPage)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, *int64, *int, *int) *coretypes.ResultValidators); ok {
 		r0 = rf(ctx, height, page, perPage)
 	} else {
@@ -809,7 +1080,6 @@ func (_m *Client) Validators(ctx context.Context, height *int64, page *int, perP
 		}
 	}
 
-	var r1 error
 	if rf, ok := ret.Get(1).(func(context.Context, *int64, *int, *int) error); ok {
 		r1 = rf(ctx, height, page, perPage)
 	} else {
@@ -819,13 +1089,12 @@ func (_m *Client) Validators(ctx context.Context, height *int64, page *int, perP
 	return r0, r1
 }
 
-type mockConstructorTestingTNewClient interface {
+// NewClient creates a new instance of Client. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewClient(t interface {
 	mock.TestingT
 	Cleanup(func())
-}
-
-// NewClient creates a new instance of Client. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-func NewClient(t mockConstructorTestingTNewClient) *Client {
+}) *Client {
 	mock := &Client{}
 	mock.Mock.Test(t)
 

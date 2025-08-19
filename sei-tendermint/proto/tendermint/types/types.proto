@@ -177,12 +177,12 @@ message Proposal {
       [(gogoproto.customname) = "BlockID", (gogoproto.nullable) = false];
   google.protobuf.Timestamp timestamp = 6
       [(gogoproto.nullable) = false, (gogoproto.stdtime) = true];
-  bytes signature = 7;
-  repeated TxKey tx_keys = 8;
-  EvidenceList evidence = 9;
-  Commit last_commit = 10;
-  Header header     = 11 [(gogoproto.nullable) = false];
-  bytes proposer_address = 12;
+  bytes          signature        = 7;
+  repeated TxKey tx_keys          = 8;
+  EvidenceList   evidence         = 9;
+  Commit         last_commit      = 10;
+  Header         header           = 11 [(gogoproto.nullable) = false];
+  bytes          proposer_address = 12;
 }
 
 message SignedHeader {
@@ -211,7 +211,6 @@ message TxProof {
   tendermint.crypto.Proof proof     = 3;
 }
 
-
 message Evidence {
   oneof sum {
     DuplicateVoteEvidence     duplicate_vote_evidence      = 1;
@@ -227,7 +226,7 @@ message DuplicateVoteEvidence {
   int64                     total_voting_power = 3;
   int64                     validator_power    = 4;
   google.protobuf.Timestamp timestamp          = 5
-  [(gogoproto.nullable) = false, (gogoproto.stdtime) = true];
+      [(gogoproto.nullable) = false, (gogoproto.stdtime) = true];
 }
 
 // LightClientAttackEvidence contains evidence of a set of validators attempting
@@ -238,7 +237,7 @@ message LightClientAttackEvidence {
   repeated tendermint.types.Validator byzantine_validators = 3;
   int64                               total_voting_power   = 4;
   google.protobuf.Timestamp           timestamp            = 5
-  [(gogoproto.nullable) = false, (gogoproto.stdtime) = true];
+      [(gogoproto.nullable) = false, (gogoproto.stdtime) = true];
 }
 
 message EvidenceList {

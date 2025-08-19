@@ -12,9 +12,13 @@ type BlockStore struct {
 	mock.Mock
 }
 
-// Height provides a mock function with given fields:
+// Height provides a mock function with no fields
 func (_m *BlockStore) Height() int64 {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Height")
+	}
 
 	var r0 int64
 	if rf, ok := ret.Get(0).(func() int64); ok {
@@ -29,6 +33,10 @@ func (_m *BlockStore) Height() int64 {
 // LoadBlockCommit provides a mock function with given fields: height
 func (_m *BlockStore) LoadBlockCommit(height int64) *types.Commit {
 	ret := _m.Called(height)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LoadBlockCommit")
+	}
 
 	var r0 *types.Commit
 	if rf, ok := ret.Get(0).(func(int64) *types.Commit); ok {
@@ -46,6 +54,10 @@ func (_m *BlockStore) LoadBlockCommit(height int64) *types.Commit {
 func (_m *BlockStore) LoadBlockMeta(height int64) *types.BlockMeta {
 	ret := _m.Called(height)
 
+	if len(ret) == 0 {
+		panic("no return value specified for LoadBlockMeta")
+	}
+
 	var r0 *types.BlockMeta
 	if rf, ok := ret.Get(0).(func(int64) *types.BlockMeta); ok {
 		r0 = rf(height)
@@ -58,13 +70,12 @@ func (_m *BlockStore) LoadBlockMeta(height int64) *types.BlockMeta {
 	return r0
 }
 
-type mockConstructorTestingTNewBlockStore interface {
+// NewBlockStore creates a new instance of BlockStore. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewBlockStore(t interface {
 	mock.TestingT
 	Cleanup(func())
-}
-
-// NewBlockStore creates a new instance of BlockStore. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-func NewBlockStore(t mockConstructorTestingTNewBlockStore) *BlockStore {
+}) *BlockStore {
 	mock := &BlockStore{}
 	mock.Mock.Test(t)
 

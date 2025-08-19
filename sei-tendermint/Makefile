@@ -15,6 +15,8 @@ LD_FLAGS = -X github.com/tendermint/tendermint/version.TMVersion=$(VERSION)
 BUILD_FLAGS = -mod=readonly -ldflags "$(LD_FLAGS)"
 CGO_ENABLED ?= 0
 
+BUF = go run github.com/bufbuild/buf/cmd/buf@v1.4.0
+
 # handle nostrip
 ifeq (,$(findstring nostrip,$(TENDERMINT_BUILD_OPTIONS)))
   BUILD_FLAGS += -trimpath
@@ -90,7 +92,7 @@ endif
 
 proto-gen: check-proto-deps
 	@echo "Generating Protobuf files"
-	@go run github.com/bufbuild/buf/cmd/buf generate
+	@$(BUF) generate
 	@mv ./proto/tendermint/abci/types.pb.go ./abci/types/
 .PHONY: proto-gen
 
@@ -98,7 +100,7 @@ proto-gen: check-proto-deps
 # execution only.
 proto-lint: check-proto-deps
 	@echo "Linting Protobuf files"
-	@go run github.com/bufbuild/buf/cmd/buf lint
+	@$(BUF) lint
 .PHONY: proto-lint
 
 proto-format: check-proto-format-deps
@@ -111,8 +113,11 @@ proto-check-breaking: check-proto-deps
 	@echo "Note: This is only useful if your changes have not yet been committed."
 	@echo "      Otherwise read up on buf's \"breaking\" command usage:"
 	@echo "      https://docs.buf.build/breaking/usage"
-	@go run github.com/bufbuild/buf/cmd/buf breaking --against ".git"
+	@$(BUF) breaking --against ".git"
 .PHONY: proto-check-breaking
+
+proto-all: proto-gen proto-format proto-check-breaking
+.PHONY: proto-all
 
 ###############################################################################
 ###                              Build ABCI                                 ###

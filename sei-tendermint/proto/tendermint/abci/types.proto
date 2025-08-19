@@ -35,12 +35,12 @@ message Request {
     RequestExtendVote          extend_vote           = 17;
     RequestVerifyVoteExtension verify_vote_extension = 18;
     RequestFinalizeBlock       finalize_block        = 19;
-    RequestBeginBlock         begin_block          = 20;
-    RequestDeliverTx          deliver_tx           = 21;
-    RequestEndBlock           end_block            = 22;
-    RequestLoadLatest load_latest = 23;
+    RequestBeginBlock          begin_block           = 20;
+    RequestDeliverTx           deliver_tx            = 21;
+    RequestEndBlock            end_block             = 22;
+    RequestLoadLatest          load_latest           = 23;
   }
-  reserved 6, 8, 9; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock
+  reserved 6, 8, 9;  // RequestBeginBlock, RequestDeliverTx, RequestEndBlock
 }
 
 message RequestEcho {
@@ -119,17 +119,17 @@ message RequestPrepareProposal {
   google.protobuf.Timestamp time                 = 6 [(gogoproto.nullable) = false, (gogoproto.stdtime) = true];
   bytes                     next_validators_hash = 7;
   // address of the public key of the validator proposing the block.
-  bytes proposer_address = 8;
-  bytes app_hash = 9;
-  bytes validators_hash = 10;
-  bytes consensus_hash = 11;
-  bytes data_hash = 12;
-  bytes evidence_hash = 13;
-  bytes last_block_hash = 14;
+  bytes proposer_address          = 8;
+  bytes app_hash                  = 9;
+  bytes validators_hash           = 10;
+  bytes consensus_hash            = 11;
+  bytes data_hash                 = 12;
+  bytes evidence_hash             = 13;
+  bytes last_block_hash           = 14;
   int64 last_block_part_set_total = 15;
-  bytes last_block_part_set_hash = 16;
-  bytes last_commit_hash = 17;
-  bytes last_results_hash = 18;
+  bytes last_block_part_set_hash  = 16;
+  bytes last_commit_hash          = 17;
+  bytes last_results_hash         = 18;
 }
 
 message RequestProcessProposal {
@@ -142,17 +142,17 @@ message RequestProcessProposal {
   google.protobuf.Timestamp time                 = 6 [(gogoproto.nullable) = false, (gogoproto.stdtime) = true];
   bytes                     next_validators_hash = 7;
   // address of the public key of the original proposer of the block.
-  bytes proposer_address = 8;
-  bytes app_hash = 10;
-  bytes validators_hash = 11;
-  bytes consensus_hash = 12;
-  bytes data_hash = 13;
-  bytes evidence_hash = 14;
-  bytes last_block_hash = 15;
+  bytes proposer_address          = 8;
+  bytes app_hash                  = 10;
+  bytes validators_hash           = 11;
+  bytes consensus_hash            = 12;
+  bytes data_hash                 = 13;
+  bytes evidence_hash             = 14;
+  bytes last_block_hash           = 15;
   int64 last_block_part_set_total = 16;
-  bytes last_block_part_set_hash = 17;
-  bytes last_commit_hash = 18;
-  bytes last_results_hash = 19;
+  bytes last_block_part_set_hash  = 17;
+  bytes last_commit_hash          = 18;
+  bytes last_results_hash         = 19;
 }
 
 // Extends a vote with application-side injection
@@ -179,17 +179,17 @@ message RequestFinalizeBlock {
   google.protobuf.Timestamp time                 = 6 [(gogoproto.nullable) = false, (gogoproto.stdtime) = true];
   bytes                     next_validators_hash = 7;
   // proposer_address is the address of the public key of the original proposer of the block.
-  bytes proposer_address = 8;
-  bytes app_hash = 10;
-  bytes validators_hash = 11;
-  bytes consensus_hash = 12;
-  bytes data_hash = 13;
-  bytes evidence_hash = 14;
-  bytes last_block_hash = 15;
+  bytes proposer_address          = 8;
+  bytes app_hash                  = 10;
+  bytes validators_hash           = 11;
+  bytes consensus_hash            = 12;
+  bytes data_hash                 = 13;
+  bytes evidence_hash             = 14;
+  bytes last_block_hash           = 15;
   int64 last_block_part_set_total = 16;
-  bytes last_block_part_set_hash = 17;
-  bytes last_commit_hash = 18;
-  bytes last_results_hash = 19;
+  bytes last_block_part_set_hash  = 17;
+  bytes last_commit_hash          = 18;
+  bytes last_results_hash         = 19;
 }
 
 message RequestBeginBlock {
@@ -201,12 +201,12 @@ message RequestBeginBlock {
 }
 
 message RequestDeliverTx {
-  bytes tx = 1;
-  bool sig_verified = 2;
+  bytes tx           = 1;
+  bool  sig_verified = 2;
 }
 
 message RequestEndBlock {
-  int64 height = 1;
+  int64 height         = 1;
   int64 block_gas_used = 2;
 }
 
@@ -234,12 +234,12 @@ message Response {
     ResponseExtendVote          extend_vote           = 18;
     ResponseVerifyVoteExtension verify_vote_extension = 19;
     ResponseFinalizeBlock       finalize_block        = 20;
-    ResponseBeginBlock         begin_block          = 21;
-    ResponseDeliverTx          deliver_tx           = 22;
-    ResponseEndBlock           end_block            = 23;
-    ResponseLoadLatest load_latest = 24;
+    ResponseBeginBlock          begin_block           = 21;
+    ResponseDeliverTx           deliver_tx            = 22;
+    ResponseEndBlock            end_block             = 23;
+    ResponseLoadLatest          load_latest           = 24;
   }
-  reserved 7, 9, 10; // ResponseBeginBlock, ResponseDeliverTx, ResponseEndBlock
+  reserved 7, 9, 10;  // ResponseBeginBlock, ResponseDeliverTx, ResponseEndBlock
 }
 
 // nondeterministic
@@ -260,9 +260,9 @@ message ResponseInfo {
   string version     = 2;
   uint64 app_version = 3;
 
-  int64 last_block_height   = 4;
-  bytes last_block_app_hash = 5;
-  string minimum_gas_prices = 6;
+  int64  last_block_height   = 4;
+  bytes  last_block_app_hash = 5;
+  string minimum_gas_prices  = 6;
 }
 
 message ResponseInitChain {
@@ -290,16 +290,16 @@ message ResponseBeginBlock {
 }
 
 message ResponseCheckTx {
-  uint32         code       = 1;
-  bytes          data       = 2;
-  string         log        = 3;  // nondeterministic
-  int64          gas_wanted = 5;
-  string         codespace  = 8;
-  string         sender     = 9;
-  int64          priority   = 10;
-  int64          gas_estimated = 12;
+  uint32 code          = 1;
+  bytes  data          = 2;
+  string log           = 3;  // nondeterministic
+  int64  gas_wanted    = 5;
+  string codespace     = 8;
+  string sender        = 9;
+  int64  priority      = 10;
+  int64  gas_estimated = 12;
 
-  reserved 4, 6, 7, 11; // see https://github.com/tendermint/tendermint/issues/8543
+  reserved 4, 6, 7, 11;  // see https://github.com/tendermint/tendermint/issues/8543
 }
 
 message ResponseDeliverTx {
@@ -311,7 +311,7 @@ message ResponseDeliverTx {
   int64          gas_used   = 6 [json_name = "gas_used"];
   repeated Event events     = 7
       [(gogoproto.nullable) = false, (gogoproto.jsontag) = "events,omitempty"];  // nondeterministic
-  string codespace = 8;
+  string    codespace   = 8;
   EvmTxInfo evm_tx_info = 9;
 }
 
@@ -445,9 +445,9 @@ message Event {
 
 // EventAttribute is a single key-value pair, associated with an event.
 message EventAttribute {
-  bytes  key   = 1;
-  bytes  value = 2;
-  bool   index = 3;  // nondeterministic
+  bytes key   = 1;
+  bytes value = 2;
+  bool  index = 3;  // nondeterministic
 }
 
 // ExecTxResult contains results of executing one individual transaction.
@@ -462,7 +462,7 @@ message ExecTxResult {
   int64          gas_used   = 6;
   repeated Event events     = 7
       [(gogoproto.nullable) = false, (gogoproto.jsontag) = "events,omitempty"];  // nondeterministic
-  string codespace = 8;
+  string    codespace   = 8;
   EvmTxInfo evm_tx_info = 9;
 }
 
@@ -576,9 +576,9 @@ message Evidence {
 
 message EvmTxInfo {
   string senderAddress = 1;
-  uint64 nonce = 2;
-  string txHash = 3;
-  string vmError = 4;
+  uint64 nonce         = 2;
+  string txHash        = 3;
+  string vmError       = 4;
 }
 
 //----------------------------------------

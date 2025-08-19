@@ -7,4 +7,3 @@ message BlockStoreState {
   int64 base   = 1;
   int64 height = 2;
 }
-
