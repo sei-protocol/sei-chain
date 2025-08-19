@@ -1,25 +1,32 @@
-permissions:
-  contents: read
-  packages: read
+name: Buf-Push
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
 jobs:
   buf-push:
+    # ✅ Guard so this only runs in the upstream repo, not forks
+    if: ${{ github.repository == 'sei-protocol/sei-chain' }}
     runs-on: ubuntu-latest
-    env:
-      BUF_TOKEN: ${{ secrets.BUF_TOKEN }}
-      GITHUB_TOKEN: ${{ github.token }}
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Mask BUF_TOKEN (only if provided)
-        if: ${{ secrets.BUF_TOKEN != '' }}
-        run: echo "::add-mask::${{ secrets.BUF_TOKEN }}"
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
 
-      - name: Login to Buf
+      - name: Install Buf
         run: |
-          if [ -z "${BUF_TOKEN}" ]; then
-            echo "Missing BUF_TOKEN"; exit 1
-          fi
-          buf registry login --token "${BUF_TOKEN}"
+          curl -sSL https://github.com/bufbuild/buf/releases/download/v1.31.0/buf-Linux-x86_64 -o /usr/local/bin/buf
+          chmod +x /usr/local/bin/buf
+
+      - name: Login to Buf (only if BUF_TOKEN is provided)
+        if: ${{ secrets.BUF_TOKEN != '' }}
+        run: echo "${{ secrets.BUF_TOKEN }}" | buf registry login buf.build --token-stdin
 
       - name: Push Buf module
         run: buf push
