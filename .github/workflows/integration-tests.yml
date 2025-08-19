@@ -1,0 +1,75 @@
+name: Integration Tests
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: integ-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evm-interoperability:
+    name: EVM Interoperability (shard ${{ matrix.shard }}/${{ matrix.total }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        total: [3]              # ⬅️ increase to 4–6 if still slow
+        shard: [1, 2, 3]
+
+    env:
+      CI: "true"
+      NODE_OPTIONS: --max-old-space-size=4096
+      SHARD_TOTAL: ${{ matrix.total }}
+      SHARD_INDEX: ${{ matrix.shard }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Cache Solidity compilers (hardhat/solcx)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/hardhat-nodejs/compilers
+            ~/.solcx
+          key: solc-${{ runner.os }}-${{ hashFiles('**/hardhat.config.*', '**/hardhat.config.*.ts', '**/package-lock.json') }}
+          restore-keys: |
+            solc-${{ runner.os }}-
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build
+        run: npm run build --if-present
+
+      - name: Select test shard
+        id: shard
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Adjust the globs to your layout if needed:
+          mapfile -t FILES < <(git ls-files 'tests/evm/**/*.test.ts' 'tests/evm/**/*.spec.ts' 'tests/evm/**/*.test.js' 'tests/evm/**/*.spec.js')
+          N=${#FILES[@]}
+          if (( N == 0 )); then
+            echo "No EVM tests found in tests/evm/**"; exit 1
+          fi
+          PARTS=${SHARD_TOTAL}
+          INDEX=${SHARD_INDEX}
+          START=$(( (N * (INDEX-1))/PARTS ))
+          END=$(( (N * INDEX)/PARTS ))
+          SLICE=( "${FILES[@]:START:END-START}" )
+          printf "%s\n" "${SLICE[@]}" > shard-files.txt
+          echo "Selected $((END-START)) tests for shard $INDEX/$PARTS"
+
+      - name: Run shard
+        run: |
+          xargs -a shard-files.txt npx mocha --reporter spec --timeout 900000 --forbid-only --exit
