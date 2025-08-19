@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        total: [3]              # ⬅️ increase to 4–6 if still slow
+        total: [3]
         shard: [1, 2, 3]
 
     env:
@@ -56,28 +56,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Adjust the globs to your layout if needed:
-          mapfile -t FILES < <(git ls-files \
-            'tests/evm/*.test.*' 'tests/evm/**/*.test.*' \
-            'tests/evm/*.spec.*' 'tests/evm/**/*.spec.*'
-
-          N=${#FILES[@]}
-          if (( N == 0 )); then
-            echo "No EVM tests found in tests/evm/**"; exit 1
-          fi
-          PARTS=${SHARD_TOTAL}
-          INDEX=${SHARD_INDEX}
-          START=$(( (N * (INDEX-1))/PARTS ))
-          END=$(( (N * INDEX)/PARTS ))
-          SLICE=( "${FILES[@]:START:END-START}" )
-          printf "%s\n" "${SLICE[@]}" > shard-files.txt
-          echo "Selected $((END-START)) tests for shard $INDEX/$PARTS"
-
-      - name: Select test shard
-        id: shard
-        shell: bash
-        run: |
-          set -euo pipefail
           mapfile -t FILES < <(git ls-files \
             'tests/evm/*.test.*' 'tests/evm/**/*.test.*' \
             'tests/evm/*.spec.*' 'tests/evm/**/*.spec.*')
@@ -93,3 +71,6 @@ jobs:
           printf "%s\n" "${SLICE[@]}" > shard-files.txt
           echo "Selected $((END-START)) tests for shard $INDEX/$PARTS"
 
+      - name: Run shard
+        run: |
+          xargs -a shard-files.txt npx mocha --reporter spec --timeout 900000 --forbid-only --exit
