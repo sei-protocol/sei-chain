@@ -183,11 +183,7 @@ func TestParseMetricsStruct(t *testing.T) {
 	}
 	for _, testCase := range metricsTests {
 		t.Run(testCase.name, func(t *testing.T) {
-			dir, err := os.MkdirTemp(os.TempDir(), "metricsdir")
-			if err != nil {
-				t.Fatalf("unable to create directory: %v", err)
-			}
-			defer os.Remove(dir)
+			dir := t.TempDir()
 			f, err := os.Create(filepath.Join(dir, "metrics.go"))
 			if err != nil {
 				t.Fatalf("unable to open file: %v", err)
@@ -228,11 +224,7 @@ func TestParseAliasedMetric(t *testing.T) {
 				m mymetrics.Gauge
 			}
 			`
-	dir, err := os.MkdirTemp(os.TempDir(), "metricsdir")
-	if err != nil {
-		t.Fatalf("unable to create directory: %v", err)
-	}
-	defer os.Remove(dir)
+	dir := t.TempDir()
 	f, err := os.Create(filepath.Join(dir, "metrics.go"))
 	if err != nil {
 		t.Fatalf("unable to open file: %v", err)
