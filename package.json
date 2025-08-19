@@ -1,0 +1,11 @@
+{
+  "name": "sei-chain-tests",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test:evm": "mocha \"tests/evm/**/*.{test,spec}.{ts,js}\" --reporter spec --timeout 900000 --forbid-only --exit"
+  },
+  "devDependencies": {
+    "mocha": "^10.8.2"
+  }
+}
