@@ -57,3 +57,7 @@ contracts/artifacts
 
 # Integration tests build artifacts
 integration_test/dapp_tests/artifacts
+
+# local build/test outputs
+*.profile.out
+sei-chain/
