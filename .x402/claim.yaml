@@ -1,1 +1,22 @@
-gh pr edit 2316 --add-label "x402-ready"
+version: 1
+contributor: "Pray4Love1"
+work_ref:
+  repo: "sei-protocol/sei-chain"
+  pr: 2316
+  branch: "seicontribx402-activation"
+  commit: "HEAD"
+scope:
+  title: "seicontribx402 payment trigger"
+  description: "Triggers Codex AI reviewer with sovereign signature and replay attack analysis logic."
+payout:
+  token: "USDC"
+  chain: "SEI"
+  amount: "5000"
+  memo: "x402:codex-review:2316"
+recipient:
+  address: "sei1zewftxlyv4gpv6tjpplnzgf3wy5tlu4f9amft8"
+  type: "native"
+attestation:
+  method: "oidc"
+  dry_run: true
+
