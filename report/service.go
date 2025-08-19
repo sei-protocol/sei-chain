@@ -566,9 +566,9 @@ func normalizeType(s string) (string, bool) {
 	if strings.Contains(s, "cw1155") {
 		return "cw1155", true
 	}
-	if strings.Contains(s, "cw721") {
-		return "cw721", true
-	}
+	//if strings.Contains(s, "cw721") {
+	//	return "cw721", true
+	//}
 	if strings.Contains(s, "cw404") {
 		return "cw404", true
 	}
