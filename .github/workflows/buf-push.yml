@@ -1,7 +1,25 @@
-# at the job level
+permissions:
+  contents: read
+  packages: read
 jobs:
   buf-push:
-    if: ${{ github.repository == 'sei-protocol/sei-chain' }}
     runs-on: ubuntu-latest
+    env:
+      BUF_TOKEN: ${{ secrets.BUF_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
-      # ... existing steps
+      - uses: actions/checkout@v4
+
+      - name: Mask BUF_TOKEN (only if provided)
+        if: ${{ secrets.BUF_TOKEN != '' }}
+        run: echo "::add-mask::${{ secrets.BUF_TOKEN }}"
+
+      - name: Login to Buf
+        run: |
+          if [ -z "${BUF_TOKEN}" ]; then
+            echo "Missing BUF_TOKEN"; exit 1
+          fi
+          buf registry login --token "${BUF_TOKEN}"
+
+      - name: Push Buf module
+        run: buf push
