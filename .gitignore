@@ -61,3 +61,7 @@ integration_test/dapp_tests/artifacts
 # local build/test outputs
 *.profile.out
 sei-chain/
+
+# local build/test outputs
+*.profile.out
+sei-chain/
