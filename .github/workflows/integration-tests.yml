@@ -57,7 +57,10 @@ jobs:
         run: |
           set -euo pipefail
           # Adjust the globs to your layout if needed:
-          mapfile -t FILES < <(git ls-files 'tests/evm/**/*.test.ts' 'tests/evm/**/*.spec.ts' 'tests/evm/**/*.test.js' 'tests/evm/**/*.spec.js')
+          mapfile -t FILES < <(git ls-files \
+            'tests/evm/*.test.*' 'tests/evm/**/*.test.*' \
+            'tests/evm/*.spec.*' 'tests/evm/**/*.spec.*'
+
           N=${#FILES[@]}
           if (( N == 0 )); then
             echo "No EVM tests found in tests/evm/**"; exit 1
