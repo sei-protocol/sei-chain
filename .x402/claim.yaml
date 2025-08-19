@@ -18,5 +18,5 @@ recipient:
   type: "native"
 attestation:
   method: "oidc"
-  dry_run: true
+  dry_run: "false"
 
