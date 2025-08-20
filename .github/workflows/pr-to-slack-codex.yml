@@ -86,7 +86,7 @@ jobs:
 
             # Run Codex with a scrubbed env: only OPENAI_API_KEY, PATH, HOME
             env -i OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" PATH="$PATH" HOME="$HOME" \
-            codex --ask-for-approval never exec \
+            codex --model gpt-5 --ask-for-approval never exec \
               --sandbox read-only \
               --output-last-message review.md \
               < prompt.txt \
