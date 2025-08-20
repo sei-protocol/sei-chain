@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/tendermint/tendermint/libs/log"
+
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 type Event struct {
@@ -21,7 +23,7 @@ type Event struct {
 	Timestamp  time.Time
 }
 
-// periodStats holds aggregated stats for a time period
+// periodStats holds aggregated stats for a time period.
 type periodStats struct {
 	periodStart  time.Time
 	connType     string
@@ -30,7 +32,7 @@ type periodStats struct {
 	methodData   map[string]*methodStats
 }
 
-// methodStats holds per-method aggregated stats
+// methodStats holds per-method aggregated stats.
 type methodStats struct {
 	count        int
 	successCount int
@@ -51,6 +53,7 @@ type Tracker struct {
 	currentPeriod *periodStats
 }
 
+// NewTracker creates a new stats tracker.
 func NewTracker(ctx context.Context, logger log.Logger, interval time.Duration) *Tracker {
 	trackerCtx, cancel := context.WithCancel(ctx)
 
@@ -67,6 +70,7 @@ func NewTracker(ctx context.Context, logger log.Logger, interval time.Duration) 
 	return t
 }
 
+// Middleware returns a http.Handler with stats tracking middleware.
 func (t *Tracker) Middleware(next http.Handler, connType string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -101,7 +105,7 @@ func (t *Tracker) Middleware(next http.Handler, connType string) http.Handler {
 				t.logger.Error("panic detected from response",
 					"method", method,
 					"connection", connType,
-					"response_body", string(rw.body))
+					"request", string(body))
 			}
 
 			// Create event and try to send non-blocking
@@ -163,10 +167,23 @@ func (t *Tracker) processEvent(event Event) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	// Initialize current period if needed
+	metrics.IncrementRpcRequestCounter(event.Method, event.Connection, event.Success)
+	metrics.MeasureRpcRequestLatency(event.Method, event.Connection, event.Timestamp)
+
+	// Truncate event timestamp to period boundary
+	eventPeriod := event.Timestamp.Truncate(t.interval)
+
+	// Check if we need to rotate periods
+	if t.currentPeriod != nil && eventPeriod.After(t.currentPeriod.periodStart) {
+		// Event is in a new period, so report the current period and start fresh
+		t.reportPeriodLocked(t.currentPeriod)
+		t.currentPeriod = nil
+	}
+
+	// Initialize current period if needed (using event timestamp)
 	if t.currentPeriod == nil {
 		t.currentPeriod = &periodStats{
-			periodStart:  time.Now().Truncate(t.interval),
+			periodStart:  eventPeriod,
 			connType:     event.Connection,
 			methodData:   make(map[string]*methodStats),
 			totalEvents:  0,
@@ -215,14 +232,14 @@ func (t *Tracker) reportCurrentPeriod() {
 	}
 
 	// Report the current period
-	t.reportPeriod(t.currentPeriod)
+	t.reportPeriodLocked(t.currentPeriod)
 
 	// Start a new period
 	t.currentPeriod = nil
 }
 
-// reportPeriod logs the stats for a completed period
-func (t *Tracker) reportPeriod(period *periodStats) {
+// reportPeriodLocked logs the stats for a completed period (assumes lock is held)
+func (t *Tracker) reportPeriodLocked(period *periodStats) {
 	// Always log overall stats, even for periods with no events
 	if period.totalEvents == 0 {
 		// Log overall stats for periods with no requests
@@ -266,6 +283,13 @@ func (t *Tracker) reportPeriod(period *periodStats) {
 			"latency_max", maxLatencyMs,
 		)
 	}
+}
+
+// reportPeriod logs the stats for a completed period (public interface)
+func (t *Tracker) reportPeriod(period *periodStats) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.reportPeriodLocked(period)
 }
 
 func (t *Tracker) Stop() {
