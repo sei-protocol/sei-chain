@@ -93,7 +93,7 @@ func TestTracker(t *testing.T) {
 			setup: func() (*tracker, *mockLogger, context.CancelFunc) {
 				logger := newMockLogger()
 				ctx, cancel := context.WithCancel(context.Background())
-				tracker := NewTracker(ctx, logger, 100*time.Millisecond)
+				tracker := newTracker(ctx, logger, "http", 100*time.Millisecond)
 				return tracker, logger, cancel
 			},
 			test: func(t *testing.T, tracker *tracker, logger *mockLogger) {
@@ -114,7 +114,7 @@ func TestTracker(t *testing.T) {
 			setup: func() (*tracker, *mockLogger, context.CancelFunc) {
 				logger := newMockLogger()
 				ctx, cancel := context.WithCancel(context.Background())
-				tracker := NewTracker(ctx, logger, 100*time.Millisecond)
+				tracker := newTracker(ctx, logger, "http", 100*time.Millisecond)
 				return tracker, logger, cancel
 			},
 			test: func(t *testing.T, tracker *tracker, logger *mockLogger) {
@@ -136,7 +136,7 @@ func TestTracker(t *testing.T) {
 			setup: func() (*tracker, *mockLogger, context.CancelFunc) {
 				logger := newMockLogger()
 				ctx, cancel := context.WithCancel(context.Background())
-				tracker := NewTracker(ctx, logger, 50*time.Millisecond)
+				tracker := newTracker(ctx, logger, "http", 50*time.Millisecond)
 				return tracker, logger, cancel
 			},
 			test: func(t *testing.T, tracker *tracker, logger *mockLogger) {
@@ -173,7 +173,7 @@ func TestTracker(t *testing.T) {
 			setup: func() (*tracker, *mockLogger, context.CancelFunc) {
 				logger := newMockLogger()
 				ctx, cancel := context.WithCancel(context.Background())
-				tracker := NewTracker(ctx, logger, 100*time.Millisecond)
+				tracker := newTracker(ctx, logger, "http", 100*time.Millisecond)
 				return tracker, logger, cancel
 			},
 			test: func(t *testing.T, tracker *tracker, logger *mockLogger) {
@@ -219,7 +219,7 @@ func TestTracker(t *testing.T) {
 			setup: func() (*tracker, *mockLogger, context.CancelFunc) {
 				logger := newMockLogger()
 				ctx, cancel := context.WithCancel(context.Background())
-				tracker := NewTracker(ctx, logger, 1*time.Second) // Longer interval to prevent flushing
+				tracker := newTracker(ctx, logger, "http", 1*time.Second) // Longer interval to prevent flushing
 				return tracker, logger, cancel
 			},
 			test: func(t *testing.T, tracker *tracker, logger *mockLogger) {
@@ -245,7 +245,7 @@ func TestTracker(t *testing.T) {
 			setup: func() (*tracker, *mockLogger, context.CancelFunc) {
 				logger := newMockLogger()
 				ctx, cancel := context.WithCancel(context.Background())
-				tracker := NewTracker(ctx, logger, 200*time.Millisecond)
+				tracker := newTracker(ctx, logger, "http", 200*time.Millisecond)
 				return tracker, logger, cancel
 			},
 			test: func(t *testing.T, tracker *tracker, logger *mockLogger) {
@@ -306,7 +306,7 @@ func TestTracker(t *testing.T) {
 				logger := newMockLogger()
 				ctx, cancel := context.WithCancel(context.Background())
 				// Use very short interval for faster testing
-				tracker := NewTracker(ctx, logger, 50*time.Millisecond)
+				tracker := newTracker(ctx, logger, "http", 50*time.Millisecond)
 				return tracker, logger, cancel
 			},
 			test: func(t *testing.T, tracker *tracker, logger *mockLogger) {
@@ -431,7 +431,7 @@ func TestTrackMessage(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	tracker := NewTracker(ctx, logger, 100*time.Millisecond)
+	tracker := newTracker(ctx, logger, "http", 100*time.Millisecond)
 	defer tracker.Stop()
 
 	// Test tracking different connection types

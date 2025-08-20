@@ -41,12 +41,12 @@ type methodStats struct {
 
 // InitRPCTracker initializes the HTTP/RPC tracker.
 func InitRPCTracker(ctx context.Context, logger log.Logger, interval time.Duration) {
-	httpTracker = initTracker(ctx, logger, "http", interval)
+	httpTracker = newTracker(ctx, logger, "http", interval)
 }
 
 // InitWSTracker initializes the WebSocket tracker.
 func InitWSTracker(ctx context.Context, logger log.Logger, interval time.Duration) {
-	wsTracker = initTracker(ctx, logger, "ws", interval)
+	wsTracker = newTracker(ctx, logger, "ws", interval)
 }
 
 type tracker struct {
@@ -62,8 +62,8 @@ type tracker struct {
 	currentPeriod *periodStats
 }
 
-// NewTracker creates a new stats tracker.
-func initTracker(ctx context.Context, logger log.Logger,
+// newTracker creates a new stats tracker.
+func newTracker(ctx context.Context, logger log.Logger,
 	connType string, interval time.Duration) *tracker {
 	logger = logger.With("conn_type", connType)
 	trackerCtx, cancel := context.WithCancel(ctx)
