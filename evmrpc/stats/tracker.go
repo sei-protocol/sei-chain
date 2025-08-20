@@ -1,33 +1,31 @@
 package stats
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"io"
-	"net/http"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/tendermint/tendermint/libs/log"
-
-	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
-type Event struct {
-	Method     string
-	Connection string
-	Duration   time.Duration
-	Success    bool
-	StartTime  time.Time
-	EndTime    time.Time
+// Global tracker state
+var (
+	httpTracker *tracker
+	wsTracker   *tracker
+)
+
+type apiEvent struct {
+	Method    string
+	Duration  time.Duration
+	Success   bool
+	StartTime time.Time
+	EndTime   time.Time
 }
 
 // periodStats holds aggregated stats for a time period.
 type periodStats struct {
 	periodStart  time.Time
-	connType     string
 	totalEvents  int
 	totalSuccess int
 	methodData   map[string]*methodStats
@@ -41,9 +39,19 @@ type methodStats struct {
 	maxLatency   time.Duration
 }
 
-type Tracker struct {
+// InitRPCTracker initializes the HTTP/RPC tracker.
+func InitRPCTracker(ctx context.Context, logger log.Logger, interval time.Duration) {
+	httpTracker = initTracker(ctx, logger, "http", interval)
+}
+
+// InitWSTracker initializes the WebSocket tracker.
+func InitWSTracker(ctx context.Context, logger log.Logger, interval time.Duration) {
+	wsTracker = initTracker(ctx, logger, "ws", interval)
+}
+
+type tracker struct {
 	logger   log.Logger
-	ch       chan Event
+	ch       chan apiEvent
 	interval time.Duration
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -55,12 +63,14 @@ type Tracker struct {
 }
 
 // NewTracker creates a new stats tracker.
-func NewTracker(ctx context.Context, logger log.Logger, interval time.Duration) *Tracker {
+func initTracker(ctx context.Context, logger log.Logger,
+	connType string, interval time.Duration) *tracker {
+	logger = logger.With("conn_type", connType)
 	trackerCtx, cancel := context.WithCancel(ctx)
 
-	t := &Tracker{
+	t := &tracker{
 		logger:   logger,
-		ch:       make(chan Event, 10000),
+		ch:       make(chan apiEvent, 10000),
 		interval: interval,
 		ctx:      trackerCtx,
 		cancel:   cancel,
@@ -71,82 +81,15 @@ func NewTracker(ctx context.Context, logger log.Logger, interval time.Duration) 
 	return t
 }
 
-// Middleware returns a http.Handler with stats tracking middleware.
-func (t *Tracker) Middleware(next http.Handler, connType string) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		// Read body for method extraction with error handling
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.logger.Debug("failed to read request body", "error", err)
-		}
-		r.Body = io.NopCloser(bytes.NewReader(body))
-		method := extractMethod(body)
-
-		rw := &responseCapture{ResponseWriter: w, status: 200, captureBody: true}
-
-		// Track panics as failures
-		var panicOccurred bool
-		var panicValue interface{}
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				panicOccurred = true
-				panicValue = recovered
-				// Log the panic for debugging
-				t.logger.Error("panic occurred in RPC handler",
-					"method", method,
-					"connection", connType,
-					"panic", recovered)
-			}
-
-			// Check if response indicates a panic (JSON-RPC error -32603 "method handler crashed")
-			isPanicResponse := rw.isPanicResponse()
-			if isPanicResponse {
-				t.logger.Error("panic detected from response",
-					"method", method,
-					"connection", connType,
-					"request", string(body))
-			}
-
-			endTime := time.Now()
-			// Create event and try to send non-blocking
-			event := Event{
-				Method:     method,
-				Connection: connType,
-				Duration:   endTime.Sub(start),
-				Success:    !panicOccurred && !isPanicResponse && rw.status < 400,
-				StartTime:  start,
-				EndTime:    endTime,
-			}
-
-			select {
-			case t.ch <- event:
-			default:
-				// Drop on overflow to not block RPC - log at debug level to avoid spam
-				t.logger.Debug("event channel full, dropping event",
-					"method", method,
-					"connection", connType)
-			}
-
-			// Re-panic to maintain original behavior
-			if panicOccurred {
-				panic(panicValue)
-			}
-		}()
-		next.ServeHTTP(rw, r)
-	})
-}
-
 // run processes events continuously and reports periods on interval
-func (t *Tracker) run() {
+func (t *tracker) run() {
 	defer t.wg.Done()
 
-	// Report stats every interval
+	// Report stats every interval.
 	ticker := time.NewTicker(t.interval)
 	defer ticker.Stop()
 
-	t.logger.Info("stats tracker started", "interval", t.interval)
+	t.logger.Info("stats tracker started", "interval", t.interval.String())
 
 	for {
 		select {
@@ -166,19 +109,16 @@ func (t *Tracker) run() {
 }
 
 // processEvent aggregates an event into the current period
-func (t *Tracker) processEvent(event Event) {
+func (t *tracker) processEvent(event apiEvent) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-
-	metrics.IncrementRpcRequestCounter(event.Method, event.Connection, event.Success)
-	metrics.MeasureRpcRequestLatency(event.Method, event.Connection, event.StartTime)
 
 	// Truncate event end time to period boundary (use completion time for period attribution)
 	eventPeriod := event.EndTime.Truncate(t.interval)
 
 	// Check if we need to rotate periods
 	if t.currentPeriod != nil && eventPeriod.After(t.currentPeriod.periodStart) {
-		// Event is in a new period, so report the current period and start fresh
+		// apiEvent is in a new period, so report the current period and start fresh
 		t.reportPeriodLocked(t.currentPeriod)
 		t.currentPeriod = nil
 	}
@@ -187,7 +127,6 @@ func (t *Tracker) processEvent(event Event) {
 	if t.currentPeriod == nil {
 		t.currentPeriod = &periodStats{
 			periodStart:  eventPeriod,
-			connType:     event.Connection,
 			methodData:   make(map[string]*methodStats),
 			totalEvents:  0,
 			totalSuccess: 0,
@@ -219,7 +158,7 @@ func (t *Tracker) processEvent(event Event) {
 }
 
 // reportCurrentPeriod reports the current period and starts a new one
-func (t *Tracker) reportCurrentPeriod() {
+func (t *tracker) reportCurrentPeriod() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -227,7 +166,6 @@ func (t *Tracker) reportCurrentPeriod() {
 	if t.currentPeriod == nil {
 		t.currentPeriod = &periodStats{
 			periodStart:  time.Now().Truncate(t.interval),
-			connType:     "http", // default connection type
 			methodData:   make(map[string]*methodStats),
 			totalEvents:  0,
 			totalSuccess: 0,
@@ -242,16 +180,14 @@ func (t *Tracker) reportCurrentPeriod() {
 }
 
 // reportPeriodLocked logs the stats for a completed period (assumes lock is held)
-func (t *Tracker) reportPeriodLocked(period *periodStats) {
+func (t *tracker) reportPeriodLocked(period *periodStats) {
 	// Always log overall stats, even for periods with no events
 	if period.totalEvents == 0 {
 		// Log overall stats for periods with no requests
 		t.logger.Info("stats",
 			"period", period.periodStart.Format("2006-01-02T15:04:05Z"),
 			"count", 0,
-			"conn_type", period.connType,
-			"connections", 0,
-			"interval_ms", t.interval.Milliseconds(),
+			"interval", t.interval.String(),
 		)
 		return // No method stats to report
 	}
@@ -264,9 +200,7 @@ func (t *Tracker) reportPeriodLocked(period *periodStats) {
 		"period", period.periodStart.Format("2006-01-02T15:04:05Z"),
 		"count", period.totalEvents,
 		"success_rate_pct", overallSuccessRate,
-		"conn_type", period.connType,
-		"connections", period.totalEvents,
-		"interval_ms", t.interval.Milliseconds(),
+		"interval", t.interval.String(),
 	)
 
 	// Log per-method stats for this period
@@ -289,57 +223,59 @@ func (t *Tracker) reportPeriodLocked(period *periodStats) {
 }
 
 // reportPeriod logs the stats for a completed period (public interface)
-func (t *Tracker) reportPeriod(period *periodStats) {
+func (t *tracker) reportPeriod(period *periodStats) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.reportPeriodLocked(period)
 }
 
-func (t *Tracker) Stop() {
+// TrackMessage tracks a JSON-RPC method call with timing information
+func (t *tracker) TrackMessage(method string, connectionType string, startTime time.Time, success bool) {
+	if t == nil {
+		return // Gracefully handle nil tracker
+	}
+
+	endTime := time.Now()
+	event := apiEvent{
+		Method:    method,
+		Duration:  endTime.Sub(startTime),
+		Success:   success,
+		StartTime: startTime,
+		EndTime:   endTime,
+	}
+
+	select {
+	case t.ch <- event:
+	default:
+		// Drop on overflow to not block RPC - log at debug level to avoid spam
+		t.logger.Debug("event channel full, dropping event",
+			"method", method,
+			"connection", connectionType)
+	}
+}
+
+func (t *tracker) Stop() {
 	t.cancel()  // Cancel context to stop the goroutine
 	t.wg.Wait() // Wait for goroutine to finish
 	t.logger.Info("stats tracker stopped")
 }
 
-type responseCapture struct {
-	http.ResponseWriter
-	status      int
-	body        []byte
-	captureBody bool
-}
-
-// WriteHeader captures status code.
-func (r *responseCapture) WriteHeader(code int) {
-	r.status = code
-	r.ResponseWriter.WriteHeader(code)
-}
-
-// Write captures response body if captureBody is enabled.
-func (r *responseCapture) Write(data []byte) (int, error) {
-	if r.captureBody {
-		r.body = append(r.body, data...)
+// RecordAPIInvocation is a simple entry point for recording API calls.
+// It uses the appropriate tracker based on connection type.
+// InitRPCTracker and InitWSTracker must be called first from server creation.
+func RecordAPIInvocation(method string, connectionType string, startTime time.Time, success bool) {
+	switch connectionType {
+	case "http":
+		if httpTracker == nil {
+			return
+		}
+		httpTracker.TrackMessage(method, connectionType, startTime, success)
+	case "websocket":
+		if wsTracker == nil {
+			return
+		}
+		wsTracker.TrackMessage(method, connectionType, startTime, success)
 	}
-	return r.ResponseWriter.Write(data)
-}
-
-// isPanicResponse checks if the response indicates a panic occurred.
-func (r *responseCapture) isPanicResponse() bool {
-	if !r.captureBody || len(r.body) == 0 {
-		return false
-	}
-
-	// Check for JSON-RPC error response with code -32603 and "method handler crashed"
-	bodyStr := string(r.body)
-	return strings.Contains(bodyStr, `"code":-32603`) &&
-		strings.Contains(bodyStr, `"method handler crashed"`)
-}
-
-// minInt returns the minimum of two integers.
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // extractMethod extracts method from JSON payload.

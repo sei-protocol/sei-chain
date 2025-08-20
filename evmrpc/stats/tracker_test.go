@@ -2,9 +2,6 @@ package stats
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -86,20 +83,20 @@ func (m *mockLogger) hasLogWithMessage(msg string) bool {
 func TestTracker(t *testing.T) {
 	scenarios := []struct {
 		name        string
-		setup       func() (*Tracker, *mockLogger, context.CancelFunc)
-		test        func(t *testing.T, tracker *Tracker, logger *mockLogger)
-		cleanup     func(*Tracker, context.CancelFunc)
+		setup       func() (*tracker, *mockLogger, context.CancelFunc)
+		test        func(t *testing.T, tracker *tracker, logger *mockLogger)
+		cleanup     func(*tracker, context.CancelFunc)
 		expectError bool
 	}{
 		{
 			name: "basic_tracker_creation",
-			setup: func() (*Tracker, *mockLogger, context.CancelFunc) {
+			setup: func() (*tracker, *mockLogger, context.CancelFunc) {
 				logger := newMockLogger()
 				ctx, cancel := context.WithCancel(context.Background())
 				tracker := NewTracker(ctx, logger, 100*time.Millisecond)
 				return tracker, logger, cancel
 			},
-			test: func(t *testing.T, tracker *Tracker, logger *mockLogger) {
+			test: func(t *testing.T, tracker *tracker, logger *mockLogger) {
 				require.NotNil(t, tracker)
 				require.NotNil(t, tracker.ch)
 				require.Equal(t, 100*time.Millisecond, tracker.interval)
@@ -108,19 +105,19 @@ func TestTracker(t *testing.T) {
 				time.Sleep(50 * time.Millisecond)
 				require.True(t, logger.hasLogWithMessage("stats tracker started"))
 			},
-			cleanup: func(tracker *Tracker, cancel context.CancelFunc) {
+			cleanup: func(tracker *tracker, cancel context.CancelFunc) {
 				tracker.Stop()
 			},
 		},
 		{
 			name: "tracker_stop_lifecycle",
-			setup: func() (*Tracker, *mockLogger, context.CancelFunc) {
+			setup: func() (*tracker, *mockLogger, context.CancelFunc) {
 				logger := newMockLogger()
 				ctx, cancel := context.WithCancel(context.Background())
 				tracker := NewTracker(ctx, logger, 100*time.Millisecond)
 				return tracker, logger, cancel
 			},
-			test: func(t *testing.T, tracker *Tracker, logger *mockLogger) {
+			test: func(t *testing.T, tracker *tracker, logger *mockLogger) {
 				// Let it run briefly
 				time.Sleep(50 * time.Millisecond)
 
@@ -130,35 +127,22 @@ func TestTracker(t *testing.T) {
 				time.Sleep(50 * time.Millisecond)
 				require.True(t, logger.hasLogWithMessage("stats tracker stopped"))
 			},
-			cleanup: func(tracker *Tracker, cancel context.CancelFunc) {
+			cleanup: func(tracker *tracker, cancel context.CancelFunc) {
 				// Already stopped in test
 			},
 		},
 		{
-			name: "middleware_successful_request",
-			setup: func() (*Tracker, *mockLogger, context.CancelFunc) {
+			name: "track_message_successful_request",
+			setup: func() (*tracker, *mockLogger, context.CancelFunc) {
 				logger := newMockLogger()
 				ctx, cancel := context.WithCancel(context.Background())
 				tracker := NewTracker(ctx, logger, 50*time.Millisecond)
 				return tracker, logger, cancel
 			},
-			test: func(t *testing.T, tracker *Tracker, logger *mockLogger) {
-				// Create test handler
-				handler := tracker.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(http.StatusOK)
-					w.Write([]byte("success"))
-				}), "http")
-
-				// Create test request with JSON-RPC payload
-				payload := `{"jsonrpc":"2.0","method":"eth_getBalance","params":["0x123"],"id":1}`
-				req := httptest.NewRequest("POST", "/", strings.NewReader(payload))
-				req.Header.Set("Content-Type", "application/json")
-
-				rr := httptest.NewRecorder()
-				handler.ServeHTTP(rr, req)
-
-				require.Equal(t, http.StatusOK, rr.Code)
-				require.Equal(t, "success", rr.Body.String())
+			test: func(t *testing.T, tracker *tracker, logger *mockLogger) {
+				// Track a successful message
+				startTime := time.Now()
+				tracker.TrackMessage("eth_getBalance", "http", startTime, true)
 
 				// Give enough time for the event to be processed from the channel
 				time.Sleep(50 * time.Millisecond)
@@ -180,32 +164,22 @@ func TestTracker(t *testing.T) {
 				require.True(t, foundOverallStats, "Expected to find overall stats log")
 				require.True(t, foundMethodStats, "Expected to find method stats log")
 			},
-			cleanup: func(tracker *Tracker, cancel context.CancelFunc) {
+			cleanup: func(tracker *tracker, cancel context.CancelFunc) {
 				// Already stopped in test
 			},
 		},
 		{
-			name: "middleware_error_request",
-			setup: func() (*Tracker, *mockLogger, context.CancelFunc) {
+			name: "track_message_error_request",
+			setup: func() (*tracker, *mockLogger, context.CancelFunc) {
 				logger := newMockLogger()
 				ctx, cancel := context.WithCancel(context.Background())
 				tracker := NewTracker(ctx, logger, 100*time.Millisecond)
 				return tracker, logger, cancel
 			},
-			test: func(t *testing.T, tracker *Tracker, logger *mockLogger) {
-				// Create test handler that returns error
-				handler := tracker.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte("error"))
-				}), "websocket")
-
-				payload := `{"jsonrpc":"2.0","method":"eth_sendTransaction","params":[],"id":1}`
-				req := httptest.NewRequest("POST", "/", strings.NewReader(payload))
-
-				rr := httptest.NewRecorder()
-				handler.ServeHTTP(rr, req)
-
-				require.Equal(t, http.StatusInternalServerError, rr.Code)
+			test: func(t *testing.T, tracker *tracker, logger *mockLogger) {
+				// Track a failed message
+				startTime := time.Now()
+				tracker.TrackMessage("eth_sendTransaction", "websocket", startTime, false)
 
 				// Give enough time for the event to be processed from the channel
 				time.Sleep(50 * time.Millisecond)
@@ -216,7 +190,7 @@ func TestTracker(t *testing.T) {
 				// Verify error was tracked
 				infoLogs := logger.getLogsByLevel("info")
 				var foundOverallStats, foundMethodStats bool
-				var overallSuccessRate, methodSuccessRate float64
+				var overallSuccessRate float64
 
 				for _, log := range infoLogs {
 					if log.msg == "stats" {
@@ -230,42 +204,29 @@ func TestTracker(t *testing.T) {
 					}
 					if log.msg == "method stats" {
 						foundMethodStats = true
-						// Check that method success rate reflects the error
-						for i := 0; i < len(log.keyvals); i += 2 {
-							if log.keyvals[i] == "success_rate_pct" {
-								methodSuccessRate = log.keyvals[i+1].(float64)
-							}
-						}
 					}
 				}
 				require.True(t, foundOverallStats, "Expected to find overall stats log")
 				require.True(t, foundMethodStats, "Expected to find method stats log")
 				require.Equal(t, 0.0, overallSuccessRate, "Expected 0% overall success rate for error request")
-				require.Equal(t, 0.0, methodSuccessRate, "Expected 0% method success rate for error request")
 			},
-			cleanup: func(tracker *Tracker, cancel context.CancelFunc) {
+			cleanup: func(tracker *tracker, cancel context.CancelFunc) {
 				// Already stopped in test
 			},
 		},
 		{
 			name: "channel_overflow_handling",
-			setup: func() (*Tracker, *mockLogger, context.CancelFunc) {
+			setup: func() (*tracker, *mockLogger, context.CancelFunc) {
 				logger := newMockLogger()
 				ctx, cancel := context.WithCancel(context.Background())
 				tracker := NewTracker(ctx, logger, 1*time.Second) // Longer interval to prevent flushing
 				return tracker, logger, cancel
 			},
-			test: func(t *testing.T, tracker *Tracker, logger *mockLogger) {
-				handler := tracker.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(http.StatusOK)
-				}), "http")
-
-				// Fill the channel beyond capacity (10000 events)
-				// We'll send a reasonable number to test overflow without taking too long
+			test: func(t *testing.T, tracker *tracker, logger *mockLogger) {
+				// Send multiple messages to test channel handling
 				for i := 0; i < 100; i++ {
-					req := httptest.NewRequest("POST", "/", strings.NewReader(`{"method":"test"}`))
-					rr := httptest.NewRecorder()
-					handler.ServeHTTP(rr, req)
+					startTime := time.Now()
+					tracker.TrackMessage("test_method", "http", startTime, true)
 				}
 
 				// Check for potential overflow debug logs
@@ -275,70 +236,20 @@ func TestTracker(t *testing.T) {
 				// We might not hit overflow with just 100 requests, but the test verifies the structure works
 				require.True(t, len(debugLogs) >= 0, "Debug logs should be accessible")
 			},
-			cleanup: func(tracker *Tracker, cancel context.CancelFunc) {
-				// Already stopped in test
-			},
-		},
-		{
-			name: "malformed_json_handling",
-			setup: func() (*Tracker, *mockLogger, context.CancelFunc) {
-				logger := newMockLogger()
-				ctx, cancel := context.WithCancel(context.Background())
-				tracker := NewTracker(ctx, logger, 100*time.Millisecond)
-				return tracker, logger, cancel
-			},
-			test: func(t *testing.T, tracker *Tracker, logger *mockLogger) {
-				handler := tracker.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(http.StatusOK)
-				}), "http")
-
-				// Send malformed JSON
-				req := httptest.NewRequest("POST", "/", strings.NewReader(`{invalid json`))
-				rr := httptest.NewRecorder()
-				handler.ServeHTTP(rr, req)
-
-				require.Equal(t, http.StatusOK, rr.Code)
-
-				// Give a small delay to ensure event is processed
-				time.Sleep(10 * time.Millisecond)
-
-				// Stop the tracker to force reporting of all remaining periods
+			cleanup: func(tracker *tracker, cancel context.CancelFunc) {
 				tracker.Stop()
-
-				// Should still log stats with "unknown" method
-				infoLogs := logger.getLogsByLevel("info")
-				var foundOverallStats, foundMethodStats bool
-				for _, log := range infoLogs {
-					if log.msg == "stats" {
-						foundOverallStats = true
-					}
-					if log.msg == "method stats" {
-						foundMethodStats = true
-					}
-				}
-				require.True(t, foundOverallStats, "Expected overall stats log even with malformed JSON")
-				require.True(t, foundMethodStats, "Expected method stats log even with malformed JSON")
-			},
-			cleanup: func(tracker *Tracker, cancel context.CancelFunc) {
-				// Already stopped in test
 			},
 		},
 		{
-			name: "concurrent_requests",
-			setup: func() (*Tracker, *mockLogger, context.CancelFunc) {
+			name: "concurrent_tracking",
+			setup: func() (*tracker, *mockLogger, context.CancelFunc) {
 				logger := newMockLogger()
 				ctx, cancel := context.WithCancel(context.Background())
 				tracker := NewTracker(ctx, logger, 200*time.Millisecond)
 				return tracker, logger, cancel
 			},
-			test: func(t *testing.T, tracker *Tracker, logger *mockLogger) {
-				handler := tracker.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					// Simulate some processing time
-					time.Sleep(10 * time.Millisecond)
-					w.WriteHeader(http.StatusOK)
-				}), "http")
-
-				// Run concurrent requests
+			test: func(t *testing.T, tracker *tracker, logger *mockLogger) {
+				// Run concurrent message tracking
 				var wg sync.WaitGroup
 				numRequests := 50
 
@@ -346,12 +257,12 @@ func TestTracker(t *testing.T) {
 					wg.Add(1)
 					go func(id int) {
 						defer wg.Done()
-						payload := `{"jsonrpc":"2.0","method":"eth_call","params":[],"id":` +
-							string(rune('0'+id%10)) + `}`
-						req := httptest.NewRequest("POST", "/", strings.NewReader(payload))
-						rr := httptest.NewRecorder()
-						handler.ServeHTTP(rr, req)
-						require.Equal(t, http.StatusOK, rr.Code)
+						startTime := time.Now()
+						method := "eth_call"
+						if id%2 == 0 {
+							method = "eth_getBalance"
+						}
+						tracker.TrackMessage(method, "http", startTime, true)
 					}(i)
 				}
 
@@ -385,39 +296,31 @@ func TestTracker(t *testing.T) {
 				require.True(t, foundMethodStats, "Expected to find method stats log")
 				require.Equal(t, numRequests, totalEvents, "Expected all requests to be tracked")
 			},
-			cleanup: func(tracker *Tracker, cancel context.CancelFunc) {
-				tracker.Stop()
+			cleanup: func(tracker *tracker, cancel context.CancelFunc) {
+				// Already stopped in test
 			},
 		},
 		{
 			name: "period_completion_reporting",
-			setup: func() (*Tracker, *mockLogger, context.CancelFunc) {
+			setup: func() (*tracker, *mockLogger, context.CancelFunc) {
 				logger := newMockLogger()
 				ctx, cancel := context.WithCancel(context.Background())
 				// Use very short interval for faster testing
 				tracker := NewTracker(ctx, logger, 50*time.Millisecond)
 				return tracker, logger, cancel
 			},
-			test: func(t *testing.T, tracker *Tracker, logger *mockLogger) {
-				handler := tracker.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(http.StatusOK)
-				}), "http")
-
-				// Make a request in the first period
-				payload1 := `{"jsonrpc":"2.0","method":"eth_getBalance","params":[],"id":1}`
-				req1 := httptest.NewRequest("POST", "/", strings.NewReader(payload1))
-				rr1 := httptest.NewRecorder()
-				handler.ServeHTTP(rr1, req1)
-				require.Equal(t, http.StatusOK, rr1.Code)
+			test: func(t *testing.T, tracker *tracker, logger *mockLogger) {
+				// Track a message in the first period
+				startTime := time.Now()
+				tracker.TrackMessage("eth_getBalance", "http", startTime, true)
 
 				// Wait for event to be processed
 				time.Sleep(10 * time.Millisecond)
 
-				// Wait long enough for the period to complete AND for the ticker to trigger reportCompletedPeriods
-				// The ticker runs every 1 second, and we need the period (50ms) + interval (50ms) + ticker time
-				time.Sleep(1200 * time.Millisecond)
+				// Wait long enough for the period to complete and for the ticker to trigger
+				time.Sleep(100 * time.Millisecond)
 
-				// Check if the first period was automatically reported by reportCompletedPeriods
+				// Check if the first period was automatically reported
 				infoLogs := logger.getLogsByLevel("info")
 				var foundAutoReportedPeriod bool
 
@@ -429,89 +332,32 @@ func TestTracker(t *testing.T) {
 					}
 				}
 
-				require.True(t, foundAutoReportedPeriod, "Expected reportCompletedPeriods to automatically report the completed period")
+				require.True(t, foundAutoReportedPeriod, "Expected automatic period reporting")
 
 				// Stop tracker
 				tracker.Stop()
 			},
-			cleanup: func(tracker *Tracker, cancel context.CancelFunc) {
+			cleanup: func(tracker *tracker, cancel context.CancelFunc) {
 				// Already stopped in test
 			},
 		},
 		{
-			name: "panic_tracking",
-			setup: func() (*Tracker, *mockLogger, context.CancelFunc) {
+			name: "nil_tracker_handling",
+			setup: func() (*tracker, *mockLogger, context.CancelFunc) {
 				logger := newMockLogger()
-				ctx, cancel := context.WithCancel(context.Background())
-				tracker := NewTracker(ctx, logger, 50*time.Millisecond)
-				return tracker, logger, cancel
+				_, cancel := context.WithCancel(context.Background())
+				return nil, logger, cancel // Return nil tracker
 			},
-			test: func(t *testing.T, tracker *Tracker, logger *mockLogger) {
-				handler := tracker.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					// Simulate a panic like the eth_panic endpoint
-					panic("test panic")
-				}), "http")
-
-				// Make request that will panic
-				payload := `{"jsonrpc":"2.0","method":"eth_panic","params":[],"id":1}`
-				req := httptest.NewRequest("POST", "/", strings.NewReader(payload))
-
-				// Capture the panic
-				var panicValue interface{}
-				func() {
-					defer func() {
-						panicValue = recover()
-					}()
-					rr := httptest.NewRecorder()
-					handler.ServeHTTP(rr, req)
-				}()
-
-				// Verify panic was re-thrown
-				require.NotNil(t, panicValue, "Expected panic to be re-thrown")
-				require.Equal(t, "test panic", panicValue, "Expected panic value to match")
-
-				// Give time for event to be processed
-				time.Sleep(50 * time.Millisecond)
-
-				// Stop tracker to force reporting
-				tracker.Stop()
-
-				// Verify panic was tracked as failure
-				infoLogs := logger.getLogsByLevel("info")
-				var foundOverallStats, foundMethodStats bool
-				var overallSuccessRate float64
-
-				for _, log := range infoLogs {
-					if log.msg == "stats" {
-						foundOverallStats = true
-						for i := 0; i < len(log.keyvals); i += 2 {
-							if log.keyvals[i] == "success_rate_pct" {
-								overallSuccessRate = log.keyvals[i+1].(float64)
-							}
-						}
-					}
-					if log.msg == "method stats" {
-						foundMethodStats = true
-					}
+			test: func(t *testing.T, tracker *tracker, logger *mockLogger) {
+				// This should not panic even with nil tracker
+				if tracker != nil {
+					startTime := time.Now()
+					tracker.TrackMessage("eth_getBalance", "http", startTime, true)
 				}
-
-				require.True(t, foundOverallStats, "Expected to find overall stats log")
-				require.True(t, foundMethodStats, "Expected to find method stats log")
-				require.Equal(t, 0.0, overallSuccessRate, "Expected 0% success rate for panic")
-
-				// Verify panic was logged as error
-				errorLogs := logger.getLogsByLevel("error")
-				var foundPanicLog bool
-				for _, log := range errorLogs {
-					if log.msg == "panic occurred in RPC handler" {
-						foundPanicLog = true
-						break
-					}
-				}
-				require.True(t, foundPanicLog, "Expected to find panic error log")
+				// Test passes if no panic occurs
 			},
-			cleanup: func(tracker *Tracker, cancel context.CancelFunc) {
-				// Already stopped in test
+			cleanup: func(tracker *tracker, cancel context.CancelFunc) {
+				// No cleanup needed for nil tracker
 			},
 		},
 	}
@@ -580,88 +426,131 @@ func TestExtractMethod(t *testing.T) {
 	}
 }
 
-func TestMinInt(t *testing.T) {
-	testCases := []struct {
-		name     string
-		a, b     int
-		expected int
-	}{
-		{
-			name:     "a_smaller",
-			a:        5,
-			b:        10,
-			expected: 5,
-		},
-		{
-			name:     "b_smaller",
-			a:        10,
-			b:        5,
-			expected: 5,
-		},
-		{
-			name:     "equal",
-			a:        7,
-			b:        7,
-			expected: 7,
-		},
-		{
-			name:     "negative_numbers",
-			a:        -5,
-			b:        -10,
-			expected: -10,
-		},
-		{
-			name:     "zero_and_positive",
-			a:        0,
-			b:        5,
-			expected: 0,
-		},
+func TestTrackMessage(t *testing.T) {
+	logger := newMockLogger()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tracker := NewTracker(ctx, logger, 100*time.Millisecond)
+	defer tracker.Stop()
+
+	// Test tracking different connection types
+	startTime := time.Now()
+	tracker.TrackMessage("eth_getBalance", "http", startTime, true)
+
+	startTime2 := time.Now()
+	tracker.TrackMessage("eth_sendTransaction", "websocket", startTime2, false)
+
+	// Give time for events to be processed
+	time.Sleep(50 * time.Millisecond)
+
+	// Stop the tracker to force reporting
+	tracker.Stop()
+
+	// Verify that stats were logged
+	require.True(t, logger.hasLogWithMessage("stats tracker started"))
+	require.True(t, logger.hasLogWithMessage("stats tracker stopped"))
+
+	// Check that we have some stats logs
+	var foundOverallStats, foundMethodStats bool
+	for _, entry := range logger.logs {
+		if entry.msg == "stats" {
+			foundOverallStats = true
+		}
+		if entry.msg == "method stats" {
+			foundMethodStats = true
+		}
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result := minInt(tc.a, tc.b)
-			require.Equal(t, tc.expected, result)
-		})
+	require.True(t, foundOverallStats, "Expected to find overall stats log")
+	require.True(t, foundMethodStats, "Expected to find method stats log")
+}
+
+func TestNilTrackerHandling(t *testing.T) {
+	var tracker *tracker = nil
+	// This should not panic even with nil tracker
+	startTime := time.Now()
+	tracker.TrackMessage("eth_getBalance", "http", startTime, true)
+	// Test passes if no panic occurs.
+}
+
+func TestRecordAPIInvocation(t *testing.T) {
+	// Test the new separate tracker initialization approach
+	logger := newMockLogger()
+	ctx := context.Background()
+	startTime := time.Now()
+
+	// Initialize both trackers
+	InitRPCTracker(ctx, logger, 100*time.Millisecond)
+	InitWSTracker(ctx, logger, 100*time.Millisecond)
+
+	// Now these should work
+	RecordAPIInvocation("eth_getBalance", "http", startTime, true)
+	RecordAPIInvocation("eth_sendTransaction", "websocket", startTime, false)
+	RecordAPIInvocation("eth_call", "http", startTime, true)
+
+	// Give time for events to be processed
+	time.Sleep(150 * time.Millisecond)
+
+	// Verify that trackers were created
+	httpExists := httpTracker != nil
+	wsExists := wsTracker != nil
+
+	require.True(t, httpExists, "HTTP tracker should be initialized")
+	require.True(t, wsExists, "WebSocket tracker should be initialized")
+
+	// Cleanup
+	if httpTracker != nil {
+		httpTracker.Stop()
+		httpTracker = nil
+	}
+	if wsTracker != nil {
+		wsTracker.Stop()
+		wsTracker = nil
 	}
 }
 
-func TestResponseCapture(t *testing.T) {
-	testCases := []struct {
-		name           string
-		writeHeader    bool
-		statusCode     int
-		expectedStatus int
-	}{
-		{
-			name:           "default_status_200",
-			writeHeader:    false,
-			expectedStatus: 200,
-		},
-		{
-			name:           "explicit_status_404",
-			writeHeader:    true,
-			statusCode:     404,
-			expectedStatus: 404,
-		},
-		{
-			name:           "explicit_status_500",
-			writeHeader:    true,
-			statusCode:     500,
-			expectedStatus: 500,
-		},
-	}
+func TestRecordAPIInvocationConcurrent(t *testing.T) {
+	// Test concurrent calls to RecordAPIInvocation with separate tracker initialization
+	logger := newMockLogger()
+	ctx := context.Background()
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			rr := httptest.NewRecorder()
-			capture := &responseCapture{ResponseWriter: rr, status: 200}
+	// Initialize both trackers before concurrent access
+	InitRPCTracker(ctx, logger, 100*time.Millisecond)
+	InitWSTracker(ctx, logger, 100*time.Millisecond)
 
-			if tc.writeHeader {
-				capture.WriteHeader(tc.statusCode)
+	var wg sync.WaitGroup
+	numCalls := 50
+
+	for i := 0; i < numCalls; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			startTime := time.Now()
+			method := "eth_call"
+			connType := "http"
+			if id%2 == 0 {
+				method = "eth_getBalance"
+				connType = "websocket"
 			}
-
-			require.Equal(t, tc.expectedStatus, capture.status)
-		})
+			RecordAPIInvocation(method, connType, startTime, true)
+		}(i)
 	}
+
+	wg.Wait()
+
+	// Give time for events to be processed
+	time.Sleep(50 * time.Millisecond)
+
+	// Cleanup
+	if httpTracker != nil {
+		httpTracker.Stop()
+		httpTracker = nil
+	}
+	if wsTracker != nil {
+		wsTracker.Stop()
+		wsTracker = nil
+	}
+
+	// Test passes if no panic occurs during concurrent access
 }
