@@ -1,11 +1,13 @@
 package utils_test
 
 import (
-	"errors"
-	"testing"
+       "errors"
+       "testing"
 
-	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/stretchr/testify/require"
+       log "github.com/tendermint/tendermint/libs/log"
+       sdk "github.com/cosmos/cosmos-sdk/types"
+       "github.com/sei-protocol/sei-chain/utils"
+       "github.com/stretchr/testify/require"
 )
 
 func TestHardFail(t *testing.T) {
@@ -17,4 +19,12 @@ func TestHardFail(t *testing.T) {
 		hardFailer()
 	}
 	require.Panics(t, panicHandlingFn)
+}
+
+func TestLogPanicCallback(t *testing.T) {
+       ctx := sdk.Context{}.WithLogger(log.NewNopLogger())
+       require.NotPanics(t, func() {
+               defer utils.PanicHandler(utils.LogPanicCallback(ctx))()
+               panic("test panic")
+       })
 }
