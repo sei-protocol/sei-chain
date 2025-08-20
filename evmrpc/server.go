@@ -3,12 +3,14 @@ package evmrpc
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/evmrpc/stats"
 	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/tendermint/tendermint/libs/log"
@@ -40,6 +42,7 @@ func NewEVMHTTPServer(
 	homeDir string,
 	isPanicOrSyntheticTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // used in *ExcludeTraceFail endpoints
 ) (EVMServer, error) {
+	logger = logger.With("module", "evmrpc")
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
 		ReadHeaderTimeout: config.ReadHeaderTimeout,
@@ -153,13 +156,20 @@ func NewEVMHTTPServer(
 		logger.Info("Disabling Test EVM APIs", "liveChainID", evmCfg.IsLiveChainID(ctx), "enableTestAPI", config.EnableTestAPI)
 	}
 
+	// Create stats tracker with 10 second interval
+	tracker := stats.NewTracker(ctx.Context(), logger, 10*time.Second)
+
 	if err := httpServer.EnableRPC(apis, HTTPConfig{
 		CorsAllowedOrigins: strings.Split(config.CORSOrigins, ","),
 		Vhosts:             []string{"*"},
 		DenyList:           config.DenyList,
-	}); err != nil {
+	}, tracker); err != nil {
 		return nil, err
 	}
+
+	// Store tracker for lifecycle management
+	httpServer.tracker = tracker
+
 	return httpServer, nil
 }
 
@@ -230,10 +240,18 @@ func NewEVMWebSocketServer(
 			Service:   &Web3API{},
 		},
 	}
+	// Create stats tracker with 10 second interval
+	ctx := context.Background() // Use background context for now
+	tracker := stats.NewTracker(ctx, logger, 10*time.Second)
+
 	wsConfig := WsConfig{Origins: strings.Split(config.WSOrigins, ",")}
 	wsConfig.readLimit = DefaultWebsocketMaxMessageSize
-	if err := httpServer.EnableWS(apis, wsConfig); err != nil {
+	if err := httpServer.EnableWS(apis, wsConfig, tracker); err != nil {
 		return nil, err
 	}
+
+	// Store tracker for lifecycle management
+	httpServer.tracker = tracker
+
 	return httpServer, nil
 }

@@ -33,6 +33,7 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/websocket"
 	"github.com/rs/cors"
+	"github.com/sei-protocol/sei-chain/evmrpc/stats"
 	"github.com/tendermint/tendermint/libs/log"
 )
 
@@ -84,6 +85,9 @@ type HTTPServer struct {
 	WsConfig  WsConfig
 	wsHandler atomic.Value // *rpcHandler
 
+	// Stats tracking
+	tracker *stats.Tracker
+
 	// These are set by SetListenAddr.
 	endpoint string
 	host     string
@@ -119,7 +123,7 @@ func (h *HTTPServer) SetListenAddr(host string, port int) error {
 	return nil
 }
 
-// listenAddr returns the listening address of the server.
+// ListenAddr returns the listening address of the server.
 func (h *HTTPServer) ListenAddr() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -130,7 +134,7 @@ func (h *HTTPServer) ListenAddr() string {
 	return h.endpoint
 }
 
-// start starts the HTTP server if it is enabled and not already running.
+// Start starts the HTTP server if it is enabled and not already running.
 func (h *HTTPServer) Start() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -242,11 +246,18 @@ func CheckPath(r *http.Request, path string) bool {
 	return len(r.URL.Path) >= len(path) && r.URL.Path[:len(path)] == path
 }
 
-// stop shuts down the HTTP server.
+// Stop shuts down the HTTP server.
 func (h *HTTPServer) Stop() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.log.Info("Stopping EVM HTTP Server")
+	
+	// Stop the stats tracker if it exists
+	if h.tracker != nil {
+		h.tracker.Stop()
+		h.tracker = nil
+	}
+	
 	h.doStop()
 	h.log.Info("EVM HTTP Server stopped")
 }
@@ -285,7 +296,7 @@ func (h *HTTPServer) doStop() {
 }
 
 // EnableRPC turns on JSON-RPC over HTTP on the server.
-func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
+func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig, tracker *stats.Tracker) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -306,7 +317,7 @@ func (h *HTTPServer) EnableRPC(apis []rpc.API, config HTTPConfig) error {
 	}
 	h.HTTPConfig = config
 	h.httpHandler.Store(&rpcHandler{
-		Handler: NewHTTPHandlerStack(srv, config.CorsAllowedOrigins, config.Vhosts, config.JwtSecret),
+		Handler: NewHTTPHandlerStack(srv, config.CorsAllowedOrigins, config.Vhosts, config.JwtSecret, tracker),
 		server:  srv,
 	})
 	return nil
@@ -323,7 +334,7 @@ func (h *HTTPServer) disableRPC() bool {
 }
 
 // EnableWS turns on JSON-RPC over WebSocket on the server.
-func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
+func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig, tracker *stats.Tracker) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -340,7 +351,7 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 	}
 	h.WsConfig = config
 	h.wsHandler.Store(&rpcHandler{
-		Handler: NewWSHandlerStack(srv.WebsocketHandler(config.Origins), config.JwtSecret),
+		Handler: NewWSHandlerStack(srv.WebsocketHandler(config.Origins), config.JwtSecret, tracker),
 		server:  srv,
 	})
 	return nil
@@ -378,23 +389,32 @@ func (h *HTTPServer) wsAllowed() bool {
 	return h.wsHandler.Load().(*rpcHandler) != nil
 }
 
-// NewHTTPHandlerStack returns wrapped http-related handlers
-func NewHTTPHandlerStack(srv http.Handler, cors []string, vhosts []string, JwtSecret []byte) http.Handler {
+// NewHTTPHandlerStack returns wrapped http-related handlers.
+func NewHTTPHandlerStack(srv http.Handler, cors []string, vhosts []string, JwtSecret []byte, tracker *stats.Tracker) http.Handler {
 	// Wrap the CORS-handler within a host-handler
 	handler := newCorsHandler(srv, cors)
 	handler = newVHostHandler(vhosts, handler)
 	if len(JwtSecret) != 0 {
 		handler = newJWTHandler(JwtSecret, handler)
 	}
+	// Add stats tracking middleware if tracker is provided
+	if tracker != nil {
+		handler = tracker.Middleware(handler, "http")
+	}
 	return NewGzipHandler(handler)
 }
 
 // NewWSHandlerStack returns a wrapped ws-related handler.
-func NewWSHandlerStack(srv http.Handler, JwtSecret []byte) http.Handler {
+func NewWSHandlerStack(srv http.Handler, JwtSecret []byte, tracker *stats.Tracker) http.Handler {
+	handler := srv
 	if len(JwtSecret) != 0 {
-		return NewWSConnectionHandler(newJWTHandler(JwtSecret, srv))
+		handler = newJWTHandler(JwtSecret, handler)
 	}
-	return NewWSConnectionHandler(srv)
+	// Add stats tracking middleware if tracker is provided
+	if tracker != nil {
+		handler = tracker.Middleware(handler, "websocket")
+	}
+	return NewWSConnectionHandler(handler)
 }
 
 func newCorsHandler(srv http.Handler, allowedOrigins []string) http.Handler {
