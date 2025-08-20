@@ -175,19 +175,7 @@ func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash byt
 }
 
 func recordMetrics(apiMethod string, connectionType ConnectionType, startTime time.Time) {
-	// Automatically detect success/failure based on panic state
-	panicValue := recover()
-	success := panicValue == nil
-
-	// Keep existing metrics for backward compatibility
-	metrics.IncrementRpcRequestCounter(apiMethod, string(connectionType), success)
-	metrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
-	stats.RecordAPIInvocation(apiMethod, string(connectionType), startTime, success)
-
-	// If there was a panic, re-panic to preserve the original behavior
-	if !success {
-		panic(panicValue)
-	}
+	recordMetricsWithError(apiMethod, connectionType, startTime, nil)
 }
 
 func recordMetricsWithError(apiMethod string, connectionType ConnectionType, startTime time.Time, err error) {
@@ -195,6 +183,7 @@ func recordMetricsWithError(apiMethod string, connectionType ConnectionType, sta
 	panicValue := recover()
 	success := panicValue == nil || err != nil
 
+	// these are only metrics that are specifically typed errors for tracking.
 	if err != nil {
 		metrics.IncrementErrorMetrics(apiMethod, err)
 	}

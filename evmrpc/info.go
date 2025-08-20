@@ -57,11 +57,6 @@ func (i *InfoAPI) ChainId() *hexutil.Big {
 	return (*hexutil.Big)(i.keeper.ChainID(i.ctxProvider(LatestCtxHeight)))
 }
 
-// nolint:revive
-func (i *InfoAPI) Panic() *hexutil.Big {
-	panic("panic intentionally")
-}
-
 func (i *InfoAPI) Coinbase() (addr common.Address, err error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_Coinbase", i.connectionType, startTime, err)
