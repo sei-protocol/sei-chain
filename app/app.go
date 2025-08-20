@@ -386,6 +386,8 @@ type App struct {
 	wsServerStartSignal       chan struct{}
 	httpServerStartSignalSent bool
 	wsServerStartSignalSent   bool
+
+	txPrioritizer sdk.TxPrioritizer
 }
 
 type AppOption func(*App)
@@ -977,6 +979,8 @@ func New(
 
 	app.RegisterDeliverTxHook(app.AddCosmosEventsToEVMReceiptIfApplicable)
 
+	app.txPrioritizer = NewSeiTxPrioritizer(&app.EvmKeeper, &app.UpgradeKeeper, &app.ParamsKeeper).GetTxPriority
+	app.BaseApp.SetTxPrioritizer(app.txPrioritizer)
 	return app
 }
 
