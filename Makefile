@@ -235,9 +235,22 @@ $(BUILDDIR):
 # Note we need to check for both in-package tests (.TestGoFiles) and
 # out-of-package tests (.XTestGoFiles).
 $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
-	go list -f "{{ if (or .TestGoFiles .XTestGoFiles) }}{{ .ImportPath }}{{ end }}" ./... | sort > $@
-
+	go list -f "{{ if (or .TestGoFiles .XTestGoFiles) }}{{ .ImportPath }}{{ end }}" ./... \
+  	  | sort \
+  	  | grep -v '^github.com/sei-protocol/sei-chain/occ_tests$' \
+	  > $(BUILD_DIR)/packages.txt
+print-test-groups:
+	@echo "== packages.txt =="
+	@cat $(BUILD_DIR)/packages.txt || true
+	@echo "== split slices =="
+	@ls -1 $(BUILD_DIR)/packages.txt.* 2>/dev/null || true
+	@for f in $(BUILD_DIR)/packages.txt.*; do echo "--- $$f"; cat $$f; done 2>/dev/null || true
 split-test-packages:$(BUILDDIR)/packages.txt
 	split -d -n l/$(NUM_SPLIT) $< $<.
 test-group-%:split-test-packages
 	cat $(BUILDDIR)/packages.txt.$* | xargs go test -parallel 4 -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic
+	test-occ:
+	@echo "Running occ_tests serially (no -race) to avoid cgo SIGBUS"
+	GODEBUG=madvdontneed=1 go test ./occ_tests -count=1 -p=1 -parallel=1 -timeout=20m \
+	  -coverprofile=occ.profile.out -covermode=atomic
+
