@@ -20,7 +20,8 @@ type Event struct {
 	Connection string
 	Duration   time.Duration
 	Success    bool
-	Timestamp  time.Time
+	StartTime  time.Time
+	EndTime    time.Time
 }
 
 // periodStats holds aggregated stats for a time period.
@@ -108,13 +109,15 @@ func (t *Tracker) Middleware(next http.Handler, connType string) http.Handler {
 					"request", string(body))
 			}
 
+			endTime := time.Now()
 			// Create event and try to send non-blocking
 			event := Event{
 				Method:     method,
 				Connection: connType,
-				Duration:   time.Since(start),
+				Duration:   endTime.Sub(start),
 				Success:    !panicOccurred && !isPanicResponse && rw.status < 400,
-				Timestamp:  start, // Use request start time for bucketing
+				StartTime:  start,
+				EndTime:    endTime,
 			}
 
 			select {
@@ -168,10 +171,10 @@ func (t *Tracker) processEvent(event Event) {
 	defer t.mu.Unlock()
 
 	metrics.IncrementRpcRequestCounter(event.Method, event.Connection, event.Success)
-	metrics.MeasureRpcRequestLatency(event.Method, event.Connection, event.Timestamp)
+	metrics.MeasureRpcRequestLatency(event.Method, event.Connection, event.StartTime)
 
-	// Truncate event timestamp to period boundary
-	eventPeriod := event.Timestamp.Truncate(t.interval)
+	// Truncate event end time to period boundary (use completion time for period attribution)
+	eventPeriod := event.EndTime.Truncate(t.interval)
 
 	// Check if we need to rotate periods
 	if t.currentPeriod != nil && eventPeriod.After(t.currentPeriod.periodStart) {
