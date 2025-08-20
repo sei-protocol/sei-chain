@@ -13,7 +13,6 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"strings"
-	"time"
 )
 
 type ConnectionType string
@@ -44,7 +43,7 @@ func NewEVMHTTPServer(
 	logger = logger.With("module", "evmrpc")
 
 	// Initialize RPC tracker
-	stats.InitRPCTracker(ctxProvider(LatestCtxHeight).Context(), logger, 10*time.Second)
+	stats.InitRPCTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
 
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
@@ -184,7 +183,7 @@ func NewEVMWebSocketServer(
 	logger = logger.With("module", "evmrpc")
 
 	// Initialize WebSocket tracker.
-	stats.InitWSTracker(ctxProvider(LatestCtxHeight).Context(), logger, 10*time.Second)
+	stats.InitWSTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
 
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
