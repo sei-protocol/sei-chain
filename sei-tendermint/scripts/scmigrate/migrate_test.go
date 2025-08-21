@@ -2,7 +2,6 @@ package scmigrate
 
 import (
 	"bytes"
-	"context"
 	"math/rand"
 	"testing"
 
@@ -118,8 +117,7 @@ func TestMigrations(t *testing.T) {
 	})
 
 	t.Run("GetSeenCommits", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		db := dbm.NewMemDB()
 		data := appendRandomMigrations([]toMigrate{}, 100)
@@ -135,8 +133,7 @@ func TestMigrations(t *testing.T) {
 		}
 	})
 	t.Run("Integration", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		db := dbm.NewMemDB()
 		data := appendRandomMigrations([]toMigrate{}, 1000)

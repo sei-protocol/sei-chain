@@ -104,8 +104,7 @@ func TestConcurrent(t *testing.T) {
 		t.Fatalf("New unexpectedly failed: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, cancel := context.WithCancel(t.Context())
 	var wg sync.WaitGroup
 
 	// Publisher: Add events and handle expirations.

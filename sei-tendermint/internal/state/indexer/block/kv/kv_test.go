@@ -1,7 +1,6 @@
 package kv_test
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -131,10 +130,8 @@ func TestBlockIndexer(t *testing.T) {
 	}
 
 	for name, tc := range testCases {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 
 			results, err := indexer.Search(ctx, tc.q)
 			require.NoError(t, err)

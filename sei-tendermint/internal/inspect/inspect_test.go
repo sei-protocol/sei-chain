@@ -53,7 +53,7 @@ func TestInspectRun(t *testing.T) {
 		logger := testLogger.With(t.Name())
 		d, err := inspect.NewFromConfig(logger, cfg)
 		require.NoError(t, err)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		stoppedWG := &sync.WaitGroup{}
 		stoppedWG.Add(1)
 		go func() {
@@ -86,7 +86,7 @@ func TestBlock(t *testing.T) {
 	rpcConfig := config.TestRPCConfig()
 	l := log.NewNopLogger()
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := t.Context()
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
@@ -104,11 +104,11 @@ func TestBlock(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, testBlock.Height, resultBlock.Block.Height)
 	require.Equal(t, testBlock.LastCommitHash, resultBlock.Block.LastCommitHash)
-	cancel()
-	wg.Wait()
-
-	blockStoreMock.AssertExpectations(t)
-	stateStoreMock.AssertExpectations(t)
+	t.Cleanup(func() {
+		wg.Wait()
+		blockStoreMock.AssertExpectations(t)
+		stateStoreMock.AssertExpectations(t)
+	})
 }
 
 func TestTxSearch(t *testing.T) {
@@ -133,7 +133,7 @@ func TestTxSearch(t *testing.T) {
 	rpcConfig := config.TestRPCConfig()
 	l := log.NewNopLogger()
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := t.Context()
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
@@ -157,12 +157,13 @@ func TestTxSearch(t *testing.T) {
 	require.Len(t, resultTxSearch.Txs, 1)
 	require.Equal(t, types.Tx(testTx), resultTxSearch.Txs[0].Tx)
 
-	cancel()
-	wg.Wait()
+	t.Cleanup(func() {
+		wg.Wait()
 
-	eventSinkMock.AssertExpectations(t)
-	stateStoreMock.AssertExpectations(t)
-	blockStoreMock.AssertExpectations(t)
+		eventSinkMock.AssertExpectations(t)
+		stateStoreMock.AssertExpectations(t)
+		blockStoreMock.AssertExpectations(t)
+	})
 }
 func TestTx(t *testing.T) {
 	testHash := []byte("test")
@@ -180,7 +181,7 @@ func TestTx(t *testing.T) {
 	rpcConfig := config.TestRPCConfig()
 	l := log.NewNopLogger()
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := t.Context()
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
@@ -202,12 +203,13 @@ func TestTx(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, types.Tx(testTx), res.Tx)
 
-	cancel()
-	wg.Wait()
+	t.Cleanup(func() {
+		wg.Wait()
 
-	eventSinkMock.AssertExpectations(t)
-	stateStoreMock.AssertExpectations(t)
-	blockStoreMock.AssertExpectations(t)
+		eventSinkMock.AssertExpectations(t)
+		stateStoreMock.AssertExpectations(t)
+		blockStoreMock.AssertExpectations(t)
+	})
 }
 func TestConsensusParams(t *testing.T) {
 	testHeight := int64(1)
@@ -229,7 +231,7 @@ func TestConsensusParams(t *testing.T) {
 	l := log.NewNopLogger()
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := t.Context()
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
@@ -250,11 +252,12 @@ func TestConsensusParams(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, params.ConsensusParams.Block.MaxGas, testMaxGas)
 
-	cancel()
-	wg.Wait()
+	t.Cleanup(func() {
+		wg.Wait()
 
-	blockStoreMock.AssertExpectations(t)
-	stateStoreMock.AssertExpectations(t)
+		blockStoreMock.AssertExpectations(t)
+		stateStoreMock.AssertExpectations(t)
+	})
 }
 
 func TestBlockResults(t *testing.T) {
@@ -280,7 +283,7 @@ func TestBlockResults(t *testing.T) {
 	l := log.NewNopLogger()
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := t.Context()
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
@@ -301,11 +304,12 @@ func TestBlockResults(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, res.TotalGasUsed, testGasUsed)
 
-	cancel()
-	wg.Wait()
+	t.Cleanup(func() {
+		wg.Wait()
 
-	blockStoreMock.AssertExpectations(t)
-	stateStoreMock.AssertExpectations(t)
+		blockStoreMock.AssertExpectations(t)
+		stateStoreMock.AssertExpectations(t)
+	})
 }
 
 func TestCommit(t *testing.T) {
@@ -328,7 +332,7 @@ func TestCommit(t *testing.T) {
 	l := log.NewNopLogger()
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := t.Context()
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
@@ -350,11 +354,12 @@ func TestCommit(t *testing.T) {
 	require.NotNil(t, res)
 	require.Equal(t, res.SignedHeader.Commit.Round, testRound)
 
-	cancel()
-	wg.Wait()
+	t.Cleanup(func() {
+		wg.Wait()
 
-	blockStoreMock.AssertExpectations(t)
-	stateStoreMock.AssertExpectations(t)
+		blockStoreMock.AssertExpectations(t)
+		stateStoreMock.AssertExpectations(t)
+	})
 }
 
 func TestBlockByHash(t *testing.T) {
@@ -382,7 +387,7 @@ func TestBlockByHash(t *testing.T) {
 	l := log.NewNopLogger()
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := t.Context()
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
@@ -404,11 +409,12 @@ func TestBlockByHash(t *testing.T) {
 	require.NotNil(t, res)
 	require.Equal(t, []byte(res.BlockID.Hash), testHash)
 
-	cancel()
-	wg.Wait()
+	t.Cleanup(func() {
+		wg.Wait()
 
-	blockStoreMock.AssertExpectations(t)
-	stateStoreMock.AssertExpectations(t)
+		blockStoreMock.AssertExpectations(t)
+		stateStoreMock.AssertExpectations(t)
+	})
 }
 
 func TestBlockchain(t *testing.T) {
@@ -435,7 +441,7 @@ func TestBlockchain(t *testing.T) {
 	l := log.NewNopLogger()
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := t.Context()
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
@@ -457,11 +463,12 @@ func TestBlockchain(t *testing.T) {
 	require.NotNil(t, res)
 	require.Equal(t, testBlockHash, []byte(res.BlockMetas[0].BlockID.Hash))
 
-	cancel()
-	wg.Wait()
+	t.Cleanup(func() {
+		wg.Wait()
 
-	blockStoreMock.AssertExpectations(t)
-	stateStoreMock.AssertExpectations(t)
+		blockStoreMock.AssertExpectations(t)
+		stateStoreMock.AssertExpectations(t)
+	})
 }
 
 func TestValidators(t *testing.T) {
@@ -488,7 +495,7 @@ func TestValidators(t *testing.T) {
 	l := log.NewNopLogger()
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := t.Context()
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
@@ -513,11 +520,12 @@ func TestValidators(t *testing.T) {
 	require.NotNil(t, res)
 	require.Equal(t, testVotingPower, res.Validators[0].VotingPower)
 
-	cancel()
-	wg.Wait()
+	t.Cleanup(func() {
+		wg.Wait()
 
-	blockStoreMock.AssertExpectations(t)
-	stateStoreMock.AssertExpectations(t)
+		blockStoreMock.AssertExpectations(t)
+		stateStoreMock.AssertExpectations(t)
+	})
 }
 
 func TestBlockSearch(t *testing.T) {
@@ -547,7 +555,7 @@ func TestBlockSearch(t *testing.T) {
 	l := log.NewNopLogger()
 	d := inspect.New(rpcConfig, blockStoreMock, stateStoreMock, []indexer.EventSink{eventSinkMock}, l)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := t.Context()
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 
@@ -573,11 +581,12 @@ func TestBlockSearch(t *testing.T) {
 	require.NotNil(t, res)
 	require.Equal(t, testBlockHash, []byte(res.Blocks[0].BlockID.Hash))
 
-	cancel()
-	wg.Wait()
+	t.Cleanup(func() {
+		wg.Wait()
 
-	blockStoreMock.AssertExpectations(t)
-	stateStoreMock.AssertExpectations(t)
+		blockStoreMock.AssertExpectations(t)
+		stateStoreMock.AssertExpectations(t)
+	})
 }
 
 func requireConnect(t testing.TB, addr string, retries int) {

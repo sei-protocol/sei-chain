@@ -1,7 +1,6 @@
 package null
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,8 +10,7 @@ import (
 )
 
 func TestNullEventSink(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	nullIndexer := NewEventSink()
 

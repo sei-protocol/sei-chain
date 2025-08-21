@@ -29,8 +29,7 @@ func (pubstring) TypeTag() string { return "pubstring" }
 func (e pubstring) ToLegacy() types.LegacyEventData { return e }
 
 func TestSubscribeWithArgs(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 	s := newTestServer(ctx, t, logger)
@@ -59,8 +58,7 @@ func TestSubscribeWithArgs(t *testing.T) {
 }
 
 func TestObserver(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	logger := log.NewNopLogger()
 
 	s := newTestServer(ctx, t, logger)
@@ -80,8 +78,7 @@ func TestObserver(t *testing.T) {
 }
 
 func TestObserverErrors(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 
@@ -93,8 +90,7 @@ func TestObserverErrors(t *testing.T) {
 }
 
 func TestPublishDoesNotBlock(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 
@@ -123,8 +119,7 @@ func TestPublishDoesNotBlock(t *testing.T) {
 }
 
 func TestSubscribeErrors(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 	s := newTestServer(ctx, t, logger)
@@ -140,8 +135,7 @@ func TestSubscribeErrors(t *testing.T) {
 }
 
 func TestSlowSubscriber(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 	s := newTestServer(ctx, t, logger)
@@ -162,8 +156,7 @@ func TestSlowSubscriber(t *testing.T) {
 }
 
 func TestDifferentClients(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 	s := newTestServer(ctx, t, logger)
@@ -217,8 +210,7 @@ func TestDifferentClients(t *testing.T) {
 }
 
 func TestSubscribeDuplicateKeys(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 	s := newTestServer(ctx, t, logger)
@@ -273,8 +265,7 @@ func TestSubscribeDuplicateKeys(t *testing.T) {
 }
 
 func TestClientSubscribesTwice(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 	s := newTestServer(ctx, t, logger)
@@ -309,8 +300,7 @@ func TestClientSubscribesTwice(t *testing.T) {
 }
 
 func TestUnsubscribe(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 	s := newTestServer(ctx, t, logger)
@@ -334,8 +324,7 @@ func TestUnsubscribe(t *testing.T) {
 }
 
 func TestClientUnsubscribesTwice(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 	s := newTestServer(ctx, t, logger)
@@ -356,8 +345,7 @@ func TestClientUnsubscribesTwice(t *testing.T) {
 }
 
 func TestResubscribe(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 	s := newTestServer(ctx, t, logger)
@@ -380,8 +368,7 @@ func TestResubscribe(t *testing.T) {
 }
 
 func TestUnsubscribeAll(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 	s := newTestServer(ctx, t, logger)
@@ -409,13 +396,12 @@ func TestBufferCapacity(t *testing.T) {
 
 	require.Equal(t, 2, s.BufferCapacity())
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	require.NoError(t, s.Publish(pubstring("Nighthawk")))
 	require.NoError(t, s.Publish(pubstring("Sage")))
 
-	ctx, cancel = context.WithTimeout(ctx, 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel()
 
 	sig := make(chan struct{})

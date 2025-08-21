@@ -66,8 +66,7 @@ func (impl *providerBenchmarkImpl) ReportEvidence(_ context.Context, _ types.Evi
 func (impl *providerBenchmarkImpl) ID() string { return "ip-not-defined.com" }
 
 func BenchmarkSequence(b *testing.B) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := b.Context()
 
 	headers, vals, _ := genLightBlocksWithKeys(b, 1000, 100, 1, bTime)
 	benchmarkFullNode := newProviderBenchmarkImpl(headers, vals)
@@ -104,9 +103,7 @@ func BenchmarkSequence(b *testing.B) {
 }
 
 func BenchmarkBisection(b *testing.B) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+	ctx := b.Context()
 	headers, vals, _ := genLightBlocksWithKeys(b, 1000, 100, 1, bTime)
 	benchmarkFullNode := newProviderBenchmarkImpl(headers, vals)
 	genesisBlock, _ := benchmarkFullNode.LightBlock(ctx, 1)
@@ -114,7 +111,7 @@ func BenchmarkBisection(b *testing.B) {
 	logger := log.NewTestingLogger(b)
 
 	c, err := light.NewClient(
-		context.Background(),
+		b.Context(),
 		chainID,
 		light.TrustOptions{
 			Period: 24 * time.Hour,
@@ -141,8 +138,7 @@ func BenchmarkBisection(b *testing.B) {
 }
 
 func BenchmarkBackwards(b *testing.B) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := b.Context()
 
 	headers, vals, _ := genLightBlocksWithKeys(b, 1000, 100, 1, bTime)
 	benchmarkFullNode := newProviderBenchmarkImpl(headers, vals)

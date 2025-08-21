@@ -1,7 +1,6 @@
 package p2p
 
 import (
-	"context"
 	"os"
 	"testing"
 
@@ -12,8 +11,7 @@ import (
 )
 
 func TestRouter_ConstructQueueFactory(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	t.Run("ValidateOptionsPopulatesDefaultQueue", func(t *testing.T) {
 		opts := RouterOptions{}

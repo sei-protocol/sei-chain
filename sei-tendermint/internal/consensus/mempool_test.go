@@ -32,8 +32,7 @@ func assertMempool(t *testing.T, txn txNotifier) mempool.Mempool {
 }
 
 func TestMempoolNoProgressUntilTxsAvailable(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	baseConfig := configSetup(t)
 
@@ -61,9 +60,8 @@ func TestMempoolNoProgressUntilTxsAvailable(t *testing.T) {
 }
 
 func TestMempoolProgressAfterCreateEmptyBlocksInterval(t *testing.T) {
+	ctx := t.Context()
 	baseConfig := configSetup(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	config, err := ResetConfig(t.TempDir(), "consensus_mempool_txs_available_test")
 	require.NoError(t, err)
@@ -87,9 +85,8 @@ func TestMempoolProgressAfterCreateEmptyBlocksInterval(t *testing.T) {
 }
 
 func TestMempoolProgressInHigherRound(t *testing.T) {
+	ctx := t.Context()
 	baseConfig := configSetup(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	config, err := ResetConfig(t.TempDir(), "consensus_mempool_txs_available_test")
 	require.NoError(t, err)
@@ -144,8 +141,7 @@ func checkTxsRange(ctx context.Context, t *testing.T, cs *State, start, end int)
 }
 
 func TestMempoolTxConcurrentWithCommit(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	config := configSetup(t)
 	logger := log.NewNopLogger()
@@ -183,9 +179,8 @@ func TestMempoolTxConcurrentWithCommit(t *testing.T) {
 }
 
 func TestMempoolRmBadTx(t *testing.T) {
+	ctx := t.Context()
 	config := configSetup(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	state, privVals := makeGenesisState(ctx, t, config, genesisStateArgs{
 		Validators: 1,

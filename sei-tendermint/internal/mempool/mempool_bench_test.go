@@ -1,7 +1,6 @@
 package mempool
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -15,8 +14,7 @@ import (
 )
 
 func BenchmarkTxMempool_CheckTx(b *testing.B) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := b.Context()
 
 	client := abciclient.NewLocalClient(log.NewNopLogger(), kvstore.NewApplication())
 	if err := client.Start(ctx); err != nil {

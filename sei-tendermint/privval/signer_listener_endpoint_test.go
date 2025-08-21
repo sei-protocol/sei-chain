@@ -42,8 +42,7 @@ func TestSignerRemoteRetryTCPOnly(t *testing.T) {
 
 	t.Cleanup(leaktest.Check(t))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 
@@ -94,8 +93,7 @@ func TestSignerRemoteRetryTCPOnly(t *testing.T) {
 func TestRetryConnToRemoteSigner(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 

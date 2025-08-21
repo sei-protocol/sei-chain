@@ -41,8 +41,7 @@ func echoReactor(ctx context.Context, channel *p2p.Channel) {
 }
 
 func TestRouter_Network(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	t.Cleanup(leaktest.Check(t))
 
@@ -98,8 +97,7 @@ func TestRouter_Network(t *testing.T) {
 func TestRouter_Channel_Basic(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Set up a router with no transports (so no peers).
 	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
@@ -163,8 +161,7 @@ func TestRouter_Channel_Basic(t *testing.T) {
 
 // Channel tests are hairy to mock, so we use an in-memory network instead.
 func TestRouter_Channel_SendReceive(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	t.Cleanup(leaktest.Check(t))
 
@@ -227,8 +224,7 @@ func TestRouter_Channel_SendReceive(t *testing.T) {
 func TestRouter_Channel_Broadcast(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Create a test network and open a channel on all nodes.
 	network := p2ptest.MakeNetwork(ctx, t, p2ptest.NetworkOptions{NumNodes: 4})
@@ -258,8 +254,7 @@ func TestRouter_Channel_Broadcast(t *testing.T) {
 func TestRouter_Channel_Wrapper(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Create a test network and open a channel on all nodes.
 	network := p2ptest.MakeNetwork(ctx, t, p2ptest.NetworkOptions{NumNodes: 2})
@@ -328,8 +323,7 @@ func (w *wrapperMessage) Unwrap() (proto.Message, error) {
 func TestRouter_Channel_Error(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Create a test network and open a channel on all nodes.
 	network := p2ptest.MakeNetwork(ctx, t, p2ptest.NetworkOptions{NumNodes: 3})
@@ -371,19 +365,14 @@ func TestRouter_AcceptPeers(t *testing.T) {
 		},
 	}
 
-	bctx, bcancel := context.WithCancel(context.Background())
-	defer bcancel()
-
 	for name, tc := range testcases {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(bctx)
-			defer cancel()
+			ctx := t.Context()
 
 			t.Cleanup(leaktest.Check(t))
 
 			// Set up a mock transport that handshakes.
-			connCtx, connCancel := context.WithCancel(context.Background())
+			connCtx, connCancel := context.WithCancel(ctx)
 			mockConnection := &mocks.Connection{}
 			mockConnection.On("String").Maybe().Return("mock")
 			mockConnection.On("Handshake", mock.Anything, selfInfo, selfKey).
@@ -450,8 +439,7 @@ func TestRouter_AcceptPeers_Errors(t *testing.T) {
 		t.Run(err.Error(), func(t *testing.T) {
 			t.Cleanup(leaktest.Check(t))
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 
 			// Set up a mock transport that returns io.EOF once, which should prevent
 			// the router from calling Accept again.
@@ -492,8 +480,7 @@ func TestRouter_AcceptPeers_Errors(t *testing.T) {
 func TestRouter_AcceptPeers_HeadOfLineBlocking(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Set up a mock transport that returns a connection that blocks during the
 	// handshake. It should be able to accept several of these in parallel, i.e.
@@ -573,21 +560,16 @@ func TestRouter_DialPeers(t *testing.T) {
 		},
 	}
 
-	bctx, bcancel := context.WithCancel(context.Background())
-	defer bcancel()
-
 	for name, tc := range testcases {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			t.Cleanup(leaktest.Check(t))
-			ctx, cancel := context.WithCancel(bctx)
-			defer cancel()
+			ctx := t.Context()
 
 			address := p2p.NodeAddress{Protocol: "mock", NodeID: tc.dialID}
 			endpoint := &p2p.Endpoint{Protocol: "mock", Path: string(tc.dialID)}
 
 			// Set up a mock transport that handshakes.
-			connCtx, connCancel := context.WithCancel(context.Background())
+			connCtx, connCancel := context.WithCancel(ctx)
 			defer connCancel()
 			mockConnection := &mocks.Connection{}
 			mockConnection.On("String").Maybe().Return("mock")
@@ -665,8 +647,7 @@ func TestRouter_DialPeers(t *testing.T) {
 func TestRouter_DialPeers_Parallel(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	a := p2p.NodeAddress{Protocol: "mock", NodeID: types.NodeID(strings.Repeat("a", 40))}
 	b := p2p.NodeAddress{Protocol: "mock", NodeID: types.NodeID(strings.Repeat("b", 40))}
@@ -754,8 +735,7 @@ func TestRouter_DialPeers_Parallel(t *testing.T) {
 func TestRouter_EvictPeers(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Set up a mock transport that we can evict.
 	closeCh := make(chan time.Time)
@@ -820,8 +800,7 @@ func TestRouter_EvictPeers(t *testing.T) {
 
 func TestRouter_ChannelCompatability(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	incompatiblePeer := types.NodeInfo{
 		NodeID:     peerID,
@@ -872,8 +851,7 @@ func TestRouter_ChannelCompatability(t *testing.T) {
 
 func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	peer := types.NodeInfo{
 		NodeID:     peerID,
@@ -940,7 +918,7 @@ func TestRouter_Channel_FilterByID(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 
 	// Set up a mock transport that handshakes.
-	connCtx, connCancel := context.WithCancel(context.Background())
+	connCtx, connCancel := context.WithCancel(t.Context())
 	defer connCancel()
 	peer := types.NodeInfo{
 		NodeID:     peerID,

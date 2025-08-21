@@ -65,13 +65,12 @@ func TestEcho(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Start server
 	s := server.NewSocketServer(logger.With("module", "abci-server"), sockPath, kvstore.NewApplication())
 	require.NoError(t, s.Start(ctx), "error starting socket server")
-	t.Cleanup(func() { cancel(); s.Wait() })
+	t.Cleanup(func() { s.Wait() })
 
 	// Start client
 	require.NoError(t, client.Start(ctx), "Error starting ABCI client")
@@ -105,13 +104,12 @@ func BenchmarkEcho(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := b.Context()
 
 	// Start server
 	s := server.NewSocketServer(logger.With("module", "abci-server"), sockPath, kvstore.NewApplication())
 	require.NoError(b, s.Start(ctx), "Error starting socket server")
-	b.Cleanup(func() { cancel(); s.Wait() })
+	b.Cleanup(func() { s.Wait() })
 
 	// Start client
 	require.NoError(b, client.Start(ctx), "Error starting ABCI client")
@@ -143,8 +141,7 @@ func BenchmarkEcho(b *testing.B) {
 }
 
 func TestInfo(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	sockPath := fmt.Sprintf("unix://%s/echo_%v.sock", t.TempDir(), tmrand.Str(6))
 	logger := log.NewNopLogger()
@@ -156,7 +153,7 @@ func TestInfo(t *testing.T) {
 	// Start server
 	s := server.NewSocketServer(logger.With("module", "abci-server"), sockPath, kvstore.NewApplication())
 	require.NoError(t, s.Start(ctx), "Error starting socket server")
-	t.Cleanup(func() { cancel(); s.Wait() })
+	t.Cleanup(func() { s.Wait() })
 
 	// Start client
 	require.NoError(t, client.Start(ctx), "Error starting ABCI client")
@@ -180,8 +177,7 @@ type noopStoppableClientImpl struct {
 func (c *noopStoppableClientImpl) Stop() { c.count++ }
 
 func TestAppConns_Start_Stop(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	clientMock := &abcimocks.Client{}
 	clientMock.On("Start", mock.Anything).Return(nil)
@@ -197,11 +193,12 @@ func TestAppConns_Start_Stop(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	cancel()
-	appConns.Wait()
+	t.Cleanup(func() {
+		appConns.Wait()
 
-	clientMock.AssertExpectations(t)
-	assert.Equal(t, 1, cl.count)
+		clientMock.AssertExpectations(t)
+		assert.Equal(t, 1, cl.count)
+	})
 }
 
 // Upon failure, we call tmos.Kill
@@ -209,7 +206,7 @@ func TestAppConns_Failure(t *testing.T) {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGTERM, syscall.SIGABRT)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	clientMock := &abcimocks.Client{}

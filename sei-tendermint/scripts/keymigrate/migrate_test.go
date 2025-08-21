@@ -1,7 +1,6 @@
 package keymigrate
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -230,7 +229,7 @@ func TestMigration(t *testing.T) {
 		t.Run("Migrate", func(t *testing.T) {
 			_, db := getLegacyDatabase(t)
 
-			ctx := context.Background()
+			ctx := t.Context()
 			err := Migrate(ctx, db)
 			require.NoError(t, err)
 			keys, err := getAllLegacyKeys(db)

@@ -23,8 +23,7 @@ var (
 )
 
 func TestBlockQueueBasic(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	peerID, err := types.NewNodeID("0011223344556677889900112233445566778899")
 	require.NoError(t, err)
@@ -73,8 +72,7 @@ loop:
 
 // Test with spurious failures and retries
 func TestBlockQueueWithFailures(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	peerID, err := types.NewNodeID("0011223344556677889900112233445566778899")
 	require.NoError(t, err)
@@ -132,8 +130,7 @@ func TestBlockQueueBlocks(t *testing.T) {
 	expectedHeight := startHeight
 	retryHeight := stopHeight + 2
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 loop:
 	for {
@@ -181,8 +178,7 @@ func TestBlockQueueAcceptsNoMoreBlocks(t *testing.T) {
 	queue := newBlockQueue(startHeight, stopHeight, 1, stopTime, 1)
 	defer queue.close()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 loop:
 	for {
@@ -210,8 +206,7 @@ func TestBlockQueueStopTime(t *testing.T) {
 	queue := newBlockQueue(startHeight, stopHeight, 1, stopTime, 1)
 	wg := &sync.WaitGroup{}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	baseTime := stopTime.Add(-50 * time.Second)
 
@@ -257,8 +252,7 @@ func TestBlockQueueInitialHeight(t *testing.T) {
 	queue := newBlockQueue(startHeight, stopHeight, initialHeight, stopTime, 1)
 	wg := &sync.WaitGroup{}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// asynchronously fetch blocks and add it to the queue
 	for i := 0; i <= numWorkers; i++ {

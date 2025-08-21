@@ -24,7 +24,6 @@ func TestBlockRequest_Validate(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			msg := &bcproto.Message{}
 			require.NoError(t, msg.Wrap(&bcproto.BlockRequest{Height: tc.requestHeight}))
@@ -44,9 +43,7 @@ func TestNoBlockResponse_Validate(t *testing.T) {
 		{"Valid Non-Response Message", 1, false},
 		{"Invalid Non-Response Message", -1, true},
 	}
-
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			msg := &bcproto.Message{}
 			require.NoError(t, msg.Wrap(&bcproto.NoBlockResponse{Height: tc.nonResponseHeight}))
@@ -74,7 +71,6 @@ func TestStatusResponse_Validate(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			msg := &bcproto.Message{}
 			require.NoError(t, msg.Wrap(&bcproto.StatusResponse{Height: tc.responseHeight}))
@@ -120,7 +116,6 @@ func TestBlockchainMessageVectors(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			bz, err := proto.Marshal(tc.bmsg)
 			require.NoError(t, err)

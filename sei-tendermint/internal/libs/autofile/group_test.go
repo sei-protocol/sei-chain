@@ -44,8 +44,7 @@ func assertGroupInfo(t *testing.T, gInfo GroupInfo, minIndex, maxIndex int, tota
 }
 
 func TestCheckHeadSizeLimit(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 
@@ -118,8 +117,7 @@ func TestCheckHeadSizeLimit(t *testing.T) {
 func TestRotateFile(t *testing.T) {
 	logger := log.NewNopLogger()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	g := createTestGroupWithHeadSizeLimit(ctx, t, logger, 0)
 
 	// Create a different temporary directory and move into it, to make sure
@@ -183,8 +181,7 @@ func TestRotateFile(t *testing.T) {
 func TestWrite(t *testing.T) {
 	logger := log.NewNopLogger()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	g := createTestGroupWithHeadSizeLimit(ctx, t, logger, 0)
 
@@ -211,8 +208,7 @@ func TestWrite(t *testing.T) {
 func TestGroupReaderRead(t *testing.T) {
 	logger := log.NewNopLogger()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	g := createTestGroupWithHeadSizeLimit(ctx, t, logger, 0)
 
@@ -249,8 +245,7 @@ func TestGroupReaderRead(t *testing.T) {
 func TestGroupReaderRead2(t *testing.T) {
 	logger := log.NewNopLogger()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	g := createTestGroupWithHeadSizeLimit(ctx, t, logger, 0)
 
@@ -288,8 +283,7 @@ func TestGroupReaderRead2(t *testing.T) {
 
 func TestMinIndex(t *testing.T) {
 	logger := log.NewNopLogger()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	g := createTestGroupWithHeadSizeLimit(ctx, t, logger, 0)
 
@@ -301,8 +295,7 @@ func TestMinIndex(t *testing.T) {
 
 func TestMaxIndex(t *testing.T) {
 	logger := log.NewNopLogger()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	g := createTestGroupWithHeadSizeLimit(ctx, t, logger, 0)
 

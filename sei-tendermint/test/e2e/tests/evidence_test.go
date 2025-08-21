@@ -1,7 +1,6 @@
 package e2e_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -10,8 +9,7 @@ import (
 // assert that all nodes that have blocks at the height of a misbehavior has evidence
 // for that misbehavior
 func TestEvidence_Misbehavior(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	blocks := fetchBlockChain(ctx, t)
 	testnet := loadTestnet(t)

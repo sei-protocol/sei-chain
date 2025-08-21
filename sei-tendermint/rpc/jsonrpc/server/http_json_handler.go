@@ -64,7 +64,7 @@ func makeJSONRPCHandler(funcMap map[string]*RPCFunc, logger log.Logger) http.Han
 
 			rpcFunc, ok := funcMap[req.Method]
 			if !ok || rpcFunc.ws {
-				responses = append(responses, req.MakeErrorf(rpctypes.CodeMethodNotFound, req.Method))
+				responses = append(responses, req.MakeErrorf(rpctypes.CodeMethodNotFound, "method %s not found", req.Method))
 				continue
 			}
 

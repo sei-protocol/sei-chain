@@ -2,7 +2,6 @@ package client_test
 
 import (
 	"bytes"
-	"context"
 	"log"
 	"net/http"
 	"testing"
@@ -18,8 +17,7 @@ import (
 )
 
 func TestHTTPSimple(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Start a tendermint node (and kvstore) in the background to test against
 	app := kvstore.NewApplication()
@@ -68,8 +66,7 @@ func TestHTTPSimple(t *testing.T) {
 }
 
 func TestHTTPBatching(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Start a tendermint node (and kvstore) in the background to test against
 	app := kvstore.NewApplication()

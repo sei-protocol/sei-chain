@@ -1,7 +1,6 @@
 package statesync
 
 import (
-	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -22,8 +21,7 @@ import (
 )
 
 func TestSyncer_SyncAny(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	state := sm.State{
 		ChainID: "chain",
@@ -223,8 +221,7 @@ func TestSyncer_SyncAny_noSnapshots(t *testing.T) {
 	stateProvider := &mocks.StateProvider{}
 	stateProvider.On("AppHash", mock.Anything, mock.Anything).Return([]byte("app_hash"), nil)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	rts := setup(ctx, t, nil, stateProvider, 2)
 
@@ -236,8 +233,7 @@ func TestSyncer_SyncAny_abort(t *testing.T) {
 	stateProvider := &mocks.StateProvider{}
 	stateProvider.On("AppHash", mock.Anything, mock.Anything).Return([]byte("app_hash"), nil)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	rts := setup(ctx, t, nil, stateProvider, 2)
 
@@ -260,8 +256,7 @@ func TestSyncer_SyncAny_reject(t *testing.T) {
 	stateProvider := &mocks.StateProvider{}
 	stateProvider.On("AppHash", mock.Anything, mock.Anything).Return([]byte("app_hash"), nil)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	rts := setup(ctx, t, nil, stateProvider, 2)
 
@@ -302,8 +297,7 @@ func TestSyncer_SyncAny_reject_format(t *testing.T) {
 	stateProvider := &mocks.StateProvider{}
 	stateProvider.On("AppHash", mock.Anything, mock.Anything).Return([]byte("app_hash"), nil)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	rts := setup(ctx, t, nil, stateProvider, 2)
 
@@ -340,8 +334,7 @@ func TestSyncer_SyncAny_reject_sender(t *testing.T) {
 	stateProvider := &mocks.StateProvider{}
 	stateProvider.On("AppHash", mock.Anything, mock.Anything).Return([]byte("app_hash"), nil)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	rts := setup(ctx, t, nil, stateProvider, 2)
 
@@ -389,8 +382,7 @@ func TestSyncer_SyncAny_abciError(t *testing.T) {
 	stateProvider := &mocks.StateProvider{}
 	stateProvider.On("AppHash", mock.Anything, mock.Anything).Return([]byte("app_hash"), nil)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	rts := setup(ctx, t, nil, stateProvider, 2)
 
@@ -430,14 +422,9 @@ func TestSyncer_offerSnapshot(t *testing.T) {
 		"unknown non-zero": {9, nil, unknownErr},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	for name, tc := range testcases {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
+			ctx := t.Context()
 
 			stateProvider := &mocks.StateProvider{}
 			stateProvider.On("AppHash", mock.Anything, mock.Anything).Return([]byte("app_hash"), nil)
@@ -483,15 +470,9 @@ func TestSyncer_applyChunks_Results(t *testing.T) {
 		"unknown non-zero": {9, nil, unknownErr},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	for name, tc := range testcases {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
-
+			ctx := t.Context()
 			stateProvider := &mocks.StateProvider{}
 			stateProvider.On("AppHash", mock.Anything, mock.Anything).Return([]byte("app_hash"), nil)
 
@@ -543,14 +524,10 @@ func TestSyncer_applyChunks_RefetchChunks(t *testing.T) {
 		"retry_snapshot":  {abci.ResponseApplySnapshotChunk_RETRY_SNAPSHOT},
 		"reject_snapshot": {abci.ResponseApplySnapshotChunk_REJECT_SNAPSHOT},
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	for name, tc := range testcases {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
+			ctx := t.Context()
 
 			stateProvider := &mocks.StateProvider{}
 			stateProvider.On("AppHash", mock.Anything, mock.Anything).Return([]byte("app_hash"), nil)
@@ -614,14 +591,9 @@ func TestSyncer_applyChunks_RejectSenders(t *testing.T) {
 		"retry_snapshot":  {abci.ResponseApplySnapshotChunk_RETRY_SNAPSHOT},
 		"reject_snapshot": {abci.ResponseApplySnapshotChunk_REJECT_SNAPSHOT},
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	for name, tc := range testcases {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
+			ctx := t.Context()
 
 			stateProvider := &mocks.StateProvider{}
 			stateProvider.On("AppHash", mock.Anything, mock.Anything).Return([]byte("app_hash"), nil)
@@ -750,14 +722,10 @@ func TestSyncer_verifyApp(t *testing.T) {
 		}, nil, errVerifyFailed},
 		"error": {nil, boom, boom},
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	for name, tc := range testcases {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
+			ctx := t.Context()
 
 			rts := setup(ctx, t, nil, nil, 2)
 

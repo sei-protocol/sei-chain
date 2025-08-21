@@ -1,14 +1,12 @@
 package p2p
 
 import (
-	"context"
 	"testing"
 	"time"
 )
 
 func TestSimpleQueue(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// set up a small queue with very small buffers so we can
 	// watch it shed load, then send a bunch of messages to the

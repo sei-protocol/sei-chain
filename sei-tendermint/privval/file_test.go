@@ -1,7 +1,6 @@
 package privval
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -36,8 +35,7 @@ func TestGenLoadValidator(t *testing.T) {
 }
 
 func TestResetValidator(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	privVal, _, tempStateFileName := newTestFilePV(t)
 	emptyState := FilePVLastSignState{filePath: tempStateFileName}
@@ -146,8 +144,7 @@ func TestUnmarshalValidatorKey(t *testing.T) {
 }
 
 func TestSignVote(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	privVal, _, _ := newTestFilePV(t)
 
@@ -195,8 +192,7 @@ func TestSignVote(t *testing.T) {
 }
 
 func TestSignProposal(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	privVal, _, _ := newTestFilePV(t)
 
@@ -237,8 +233,7 @@ func TestSignProposal(t *testing.T) {
 }
 
 func TestDifferByTimestamp(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	tempKeyFile, err := os.CreateTemp(t.TempDir(), "priv_validator_key_")
 	require.NoError(t, err)
@@ -278,8 +273,7 @@ func TestDifferByTimestamp(t *testing.T) {
 }
 
 func TestVoteExtensionsAreAlwaysSigned(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	privVal, _, _ := newTestFilePV(t)
 	pubKey, err := privVal.GetPubKey(ctx)

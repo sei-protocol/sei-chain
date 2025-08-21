@@ -77,8 +77,7 @@ func TestRootHome(t *testing.T) {
 		{nil, map[string]string{"TMHOME": newRoot}, newRoot},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	for i, tc := range cases {
 		t.Run(fmt.Sprint(i), func(t *testing.T) {
@@ -114,8 +113,7 @@ func TestRootFlagsEnv(t *testing.T) {
 		{nil, map[string]string{"TM_LOG_LEVEL": "debug"}, "debug"},       // right env
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	for i, tc := range cases {
 		t.Run(fmt.Sprint(i), func(t *testing.T) {
@@ -131,8 +129,7 @@ func TestRootFlagsEnv(t *testing.T) {
 }
 
 func TestRootConfig(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// write non-default config
 	nonDefaultLogLvl := "debug"

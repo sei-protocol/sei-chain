@@ -1,7 +1,6 @@
 package pubsub_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,8 +12,7 @@ import (
 )
 
 func TestExample(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	s := newTestServer(ctx, t, log.NewNopLogger())
 

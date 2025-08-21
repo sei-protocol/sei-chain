@@ -1,7 +1,6 @@
 package light_test
 
 import (
-	"context"
 	"github.com/tendermint/tendermint/light/provider"
 	"testing"
 	"time"
@@ -18,8 +17,7 @@ import (
 
 // Manually getting light blocks and verifying them.
 func TestExampleClient(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	conf, err := rpctest.CreateConfig(t, "ExampleClient_VerifyLightBlockAtHeight")
 	if err != nil {
 		t.Fatal(err)

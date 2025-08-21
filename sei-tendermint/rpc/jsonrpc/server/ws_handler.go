@@ -321,7 +321,7 @@ func (wsc *wsConnection) readRoutine(ctx context.Context) {
 			rpcFunc := wsc.funcMap[request.Method]
 			if rpcFunc == nil {
 				if err := wsc.WriteRPCResponse(writeCtx,
-					request.MakeErrorf(rpctypes.CodeMethodNotFound, request.Method)); err != nil {
+					request.MakeErrorf(rpctypes.CodeMethodNotFound, "method %s not found", request.Method)); err != nil {
 					wsc.Logger.Error("error writing RPC response", "err", err)
 				}
 				continue

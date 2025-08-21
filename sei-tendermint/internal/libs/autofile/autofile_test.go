@@ -1,7 +1,6 @@
 package autofile
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -13,8 +12,7 @@ import (
 )
 
 func TestSIGHUP(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	origDir, err := os.Getwd()
 	require.NoError(t, err)
@@ -102,8 +100,7 @@ func TestSIGHUP(t *testing.T) {
 // }
 
 func TestAutoFileSize(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// First, create an AutoFile writing to a tempfile dir
 	f, err := os.CreateTemp(t.TempDir(), "sighup_test")

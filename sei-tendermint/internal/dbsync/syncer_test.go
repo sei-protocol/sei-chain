@@ -45,7 +45,7 @@ func getTestSyncer(t *testing.T) *Syncer {
 func TestSetMetadata(t *testing.T) {
 	syncer := getTestSyncer(t)
 	// initial
-	syncer.SetMetadata(context.Background(), types.NodeID("someone"), &dbsync.MetadataResponse{
+	syncer.SetMetadata(t.Context(), types.NodeID("someone"), &dbsync.MetadataResponse{
 		Height:      1,
 		Hash:        []byte("hash"),
 		Filenames:   []string{"f1"},
@@ -58,7 +58,7 @@ func TestSetMetadata(t *testing.T) {
 	require.Equal(t, 1, len(syncer.peersToSync))
 
 	// second time
-	syncer.SetMetadata(context.Background(), types.NodeID("someone else"), &dbsync.MetadataResponse{
+	syncer.SetMetadata(t.Context(), types.NodeID("someone else"), &dbsync.MetadataResponse{
 		Height:      1,
 		Hash:        []byte("hash"),
 		Filenames:   []string{"f1"},
@@ -75,7 +75,7 @@ func TestFileProcessHappyPath(t *testing.T) {
 	syncer := getTestSyncer(t)
 	data := []byte("data")
 	sum := md5.Sum(data)
-	syncer.SetMetadata(context.Background(), types.NodeID("someone"), &dbsync.MetadataResponse{
+	syncer.SetMetadata(t.Context(), types.NodeID("someone"), &dbsync.MetadataResponse{
 		Height:      1,
 		Hash:        []byte("hash"),
 		Filenames:   []string{"f1"},
@@ -94,7 +94,7 @@ func TestFileProcessHappyPath(t *testing.T) {
 		Filename: "f1",
 		Data:     data,
 	})
-	syncer.Process(context.Background())
+	syncer.Process(t.Context())
 }
 
 func TestFileProcessTimeoutReprocess(t *testing.T) {
@@ -102,7 +102,7 @@ func TestFileProcessTimeoutReprocess(t *testing.T) {
 	syncer := getTestSyncer(t)
 	data := []byte("data")
 	sum := md5.Sum(data)
-	syncer.SetMetadata(context.Background(), types.NodeID("someone"), &dbsync.MetadataResponse{
+	syncer.SetMetadata(t.Context(), types.NodeID("someone"), &dbsync.MetadataResponse{
 		Height:      1,
 		Hash:        []byte("hash"),
 		Filenames:   []string{"f1"},
@@ -122,5 +122,5 @@ func TestFileProcessTimeoutReprocess(t *testing.T) {
 		Filename: "f1",
 		Data:     data,
 	})
-	syncer.Process(context.Background())
+	syncer.Process(t.Context())
 }

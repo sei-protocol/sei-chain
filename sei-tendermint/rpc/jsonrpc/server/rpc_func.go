@@ -108,11 +108,11 @@ func (rf *RPCFunc) parseParams(ctx context.Context, params json.RawMessage) ([]r
 	}
 	bits, err := rf.adjustParams(params)
 	if err != nil {
-		return nil, invalidParamsError(err.Error())
+		return nil, invalidParamsError("%s", err.Error())
 	}
 	arg := reflect.New(rf.param)
 	if err := json.Unmarshal(bits, arg.Interface()); err != nil {
-		return nil, invalidParamsError(err.Error())
+		return nil, invalidParamsError("%s", err.Error())
 	}
 	return []reflect.Value{reflect.ValueOf(ctx), arg}, nil
 }

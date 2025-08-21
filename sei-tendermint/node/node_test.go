@@ -45,8 +45,7 @@ func TestNodeStartStop(t *testing.T) {
 
 	defer os.RemoveAll(cfg.RootDir)
 
-	ctx, bcancel := context.WithCancel(context.Background())
-	defer bcancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 	// create & start node
@@ -56,7 +55,6 @@ func TestNodeStartStop(t *testing.T) {
 	n, ok := ns.(*nodeImpl)
 	require.True(t, ok)
 	t.Cleanup(func() {
-		bcancel()
 		n.Wait()
 	})
 	t.Cleanup(leaktest.CheckTimeout(t, time.Second))
@@ -75,17 +73,14 @@ func TestNodeStartStop(t *testing.T) {
 	_, err = blocksSub.Next(tctx)
 	require.NoError(t, err, "waiting for event")
 
-	cancel()  // stop the subscription context
-	bcancel() // stop the base context
-	n.Wait()
-
-	require.False(t, n.IsRunning(), "node must shut down")
+	t.Cleanup(func() {
+		n.Wait()
+		require.False(t, n.IsRunning(), "node must shut down")
+	})
 }
 
 func getTestNode(ctx context.Context, t *testing.T, conf *config.Config, logger log.Logger) *nodeImpl {
 	t.Helper()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	ns, err := newDefaultNode(ctx, conf, logger, make(chan struct{}))
 	require.NoError(t, err)
@@ -94,7 +89,6 @@ func getTestNode(ctx context.Context, t *testing.T, conf *config.Config, logger 
 	require.True(t, ok)
 
 	t.Cleanup(func() {
-		cancel()
 		if n.IsRunning() {
 			ns.Wait()
 		}
@@ -112,8 +106,7 @@ func TestNodeDelayedStart(t *testing.T) {
 	defer os.RemoveAll(cfg.RootDir)
 	now := tmtime.Now()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 
@@ -132,8 +125,7 @@ func TestNodeSetAppVersion(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(cfg.RootDir)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 
@@ -158,8 +150,7 @@ func TestNodeSetPrivValTCP(t *testing.T) {
 	addr := "tcp://" + testFreeAddr(t)
 
 	t.Cleanup(leaktest.Check(t))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 
@@ -195,8 +186,7 @@ func TestNodeSetPrivValTCP(t *testing.T) {
 
 // address without a protocol must result in error
 func TestPrivValidatorListenAddrNoProtocol(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	addrNoPrefix := testFreeAddr(t)
 
@@ -212,7 +202,6 @@ func TestPrivValidatorListenAddrNoProtocol(t *testing.T) {
 	assert.Error(t, err)
 
 	if n != nil && n.IsRunning() {
-		cancel()
 		n.Wait()
 	}
 }
@@ -221,8 +210,7 @@ func TestNodeSetPrivValIPC(t *testing.T) {
 	tmpfile := "/tmp/kms." + tmrand.Str(6) + ".sock"
 	defer os.Remove(tmpfile) // clean up
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_priv_val_tcp_test")
 	require.NoError(t, err)
@@ -268,8 +256,7 @@ func testFreeAddr(t *testing.T) string {
 // create a proposal block using real and full
 // mempool and evidence pool and validate it.
 func TestCreateProposalBlock(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_create_proposal")
 	require.NoError(t, err)
@@ -369,8 +356,7 @@ func TestCreateProposalBlock(t *testing.T) {
 }
 
 func TestMaxTxsProposalBlockSize(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_create_proposal")
 	require.NoError(t, err)
@@ -443,8 +429,7 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 }
 
 func TestMaxProposalBlockSize(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_create_proposal")
 	require.NoError(t, err)
@@ -592,8 +577,7 @@ func TestNodeNewSeedNode(t *testing.T) {
 	cfg.Mode = config.ModeSeed
 	defer os.RemoveAll(cfg.RootDir)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	nodeKey, err := types.LoadOrGenNodeKey(cfg.NodeKeyFile())
 	require.NoError(t, err)
@@ -622,10 +606,11 @@ func TestNodeNewSeedNode(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, n.pexReactor.IsRunning())
 
-	cancel()
-	n.Wait()
+	t.Cleanup(func() {
+		n.Wait()
 
-	assert.False(t, n.pexReactor.IsRunning())
+		assert.False(t, n.pexReactor.IsRunning())
+	})
 }
 
 func TestNodeSetEventSink(t *testing.T) {
@@ -634,8 +619,7 @@ func TestNodeSetEventSink(t *testing.T) {
 
 	defer os.RemoveAll(cfg.RootDir)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 
@@ -664,7 +648,6 @@ func TestNodeSetEventSink(t *testing.T) {
 			if !n.IsRunning() {
 				return
 			}
-			cancel()
 			n.Wait()
 		}
 	}
@@ -756,8 +739,7 @@ func state(t *testing.T, nVals int, height int64) (sm.State, dbm.DB, []types.Pri
 }
 
 func TestLoadStateFromGenesis(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	_ = loadStatefromGenesis(ctx, t)
 }

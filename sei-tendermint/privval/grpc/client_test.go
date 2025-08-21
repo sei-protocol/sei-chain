@@ -41,8 +41,7 @@ func dialer(t *testing.T, pv types.PrivValidator, logger log.Logger) (*grpc.Serv
 
 func TestSignerClient_GetPubKey(t *testing.T) {
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mockPV := types.NewMockPV()
 	logger := log.NewTestingLogger(t)
@@ -65,8 +64,7 @@ func TestSignerClient_GetPubKey(t *testing.T) {
 }
 
 func TestSignerClient_SignVote(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mockPV := types.NewMockPV()
 	logger := log.NewTestingLogger(t)
@@ -120,8 +118,7 @@ func TestSignerClient_SignVote(t *testing.T) {
 }
 
 func TestSignerClient_SignProposal(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mockPV := types.NewMockPV()
 	logger := log.NewTestingLogger(t)

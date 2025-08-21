@@ -17,8 +17,6 @@ import (
 func TestRollbackIntegration(t *testing.T) {
 	var height int64
 	dir := t.TempDir()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	cfg, err := rpctest.CreateConfig(t, t.Name())
 	require.NoError(t, err)
 	cfg.BaseConfig.DBBackend = "goleveldb"
@@ -27,18 +25,17 @@ func TestRollbackIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("First run", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(ctx)
-		defer cancel()
+		ctx := t.Context()
 		require.NoError(t, err)
 		node, _, err := rpctest.StartTendermint(ctx, cfg, app, rpctest.SuppressStdout)
 		require.NoError(t, err)
 		require.True(t, node.IsRunning())
 
 		time.Sleep(3 * time.Second)
-		cancel()
-		node.Wait()
-
-		require.False(t, node.IsRunning())
+		t.Cleanup(func() {
+			node.Wait()
+			require.False(t, node.IsRunning())
+		})
 	})
 	t.Run("Rollback", func(t *testing.T) {
 		time.Sleep(time.Second)
@@ -49,7 +46,7 @@ func TestRollbackIntegration(t *testing.T) {
 	t.Run("Restart", func(t *testing.T) {
 		require.True(t, height > 0, "%d", height)
 
-		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
 		node2, _, err2 := rpctest.StartTendermint(ctx, cfg, app, rpctest.SuppressStdout)
 		require.NoError(t, err2)

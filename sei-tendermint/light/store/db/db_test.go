@@ -19,8 +19,7 @@ import (
 
 func TestLast_FirstLightBlockHeight(t *testing.T) {
 	dbStore := New(dbm.NewMemDB())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Empty store
 	height, err := dbStore.LastLightBlockHeight()
@@ -46,8 +45,7 @@ func TestLast_FirstLightBlockHeight(t *testing.T) {
 
 func Test_SaveLightBlock(t *testing.T) {
 	dbStore := New(dbm.NewMemDB())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Empty store
 	h, err := dbStore.LightBlock(1)
@@ -78,8 +76,7 @@ func Test_SaveLightBlock(t *testing.T) {
 
 func Test_LightBlockBefore(t *testing.T) {
 	dbStore := New(dbm.NewMemDB())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	assert.Panics(t, func() {
 		_, _ = dbStore.LightBlockBefore(0)
@@ -101,8 +98,7 @@ func Test_LightBlockBefore(t *testing.T) {
 
 func Test_Prune(t *testing.T) {
 	dbStore := New(dbm.NewMemDB())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Empty store
 	assert.EqualValues(t, 0, dbStore.Size())
@@ -141,8 +137,7 @@ func Test_Prune(t *testing.T) {
 func Test_Concurrency(t *testing.T) {
 	dbStore := New(dbm.NewMemDB())
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	var wg sync.WaitGroup
 	for i := 1; i <= 100; i++ {

@@ -1,11 +1,11 @@
 package types
 
 import (
-	"context"
-	"github.com/tendermint/tendermint/version"
 	"math"
 	"testing"
 	"time"
+
+	"github.com/tendermint/tendermint/version"
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/assert"
@@ -74,8 +74,7 @@ func TestProposalString(t *testing.T) {
 }
 
 func TestProposalVerifySignature(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	privVal := NewMockPV()
 	pubKey, err := privVal.GetPubKey(ctx)
@@ -128,8 +127,7 @@ func BenchmarkProposalWriteSignBytes(b *testing.B) {
 }
 
 func BenchmarkProposalSign(b *testing.B) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := b.Context()
 
 	privVal := NewMockPV()
 
@@ -147,8 +145,7 @@ func BenchmarkProposalSign(b *testing.B) {
 func BenchmarkProposalVerifySignature(b *testing.B) {
 	testProposal := getTestProposal(b)
 	pbp := testProposal.ToProto()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := b.Context()
 
 	privVal := NewMockPV()
 	err := privVal.SignProposal(ctx, "test_chain_id", pbp)
@@ -189,10 +186,8 @@ func TestProposalValidateBasic(t *testing.T) {
 	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 
 			txKeys := make([]TxKey, 0)
 			pubKey, err := privVal.GetPubKey(ctx)

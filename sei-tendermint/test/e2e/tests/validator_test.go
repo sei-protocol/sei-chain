@@ -60,8 +60,7 @@ func TestValidator_Sets(t *testing.T) {
 // Tests that a validator proposes blocks when it's supposed to. It tolerates some
 // missed blocks, e.g. due to testnet perturbations.
 func TestValidator_Propose(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	blocks := fetchBlockChain(ctx, t)
 	testNode(t, func(ctx context.Context, t *testing.T, node e2e.Node) {
@@ -94,8 +93,7 @@ func TestValidator_Propose(t *testing.T) {
 // Tests that a validator signs blocks when it's supposed to. It tolerates some
 // missed blocks, e.g. due to testnet perturbations.
 func TestValidator_Sign(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	blocks := fetchBlockChain(ctx, t)
 	testNode(t, func(ctx context.Context, t *testing.T, node e2e.Node) {

@@ -2,7 +2,6 @@ package consensus
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 
@@ -28,8 +27,7 @@ func TestWALTruncate(t *testing.T) {
 	walFile := filepath.Join(walDir, "wal")
 	logger := log.NewNopLogger()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// this magic number 4K can truncate the content when RotateFile.
 	// defaultHeadSizeLimit(10M) is hard to simulate.
@@ -105,8 +103,7 @@ func TestWALWrite(t *testing.T) {
 	walDir := t.TempDir()
 	walFile := filepath.Join(walDir, "wal")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	wal, err := NewWAL(ctx, log.NewNopLogger(), walFile)
 	require.NoError(t, err)
@@ -138,8 +135,7 @@ func TestWALWrite(t *testing.T) {
 }
 
 func TestWALSearchForEndHeight(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 
@@ -170,8 +166,7 @@ func TestWALSearchForEndHeight(t *testing.T) {
 }
 
 func TestWALPeriodicSync(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	walDir := t.TempDir()
 	walFile := filepath.Join(walDir, "wal")

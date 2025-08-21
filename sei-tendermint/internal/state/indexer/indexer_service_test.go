@@ -1,7 +1,6 @@
 package indexer_test
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -40,8 +39,7 @@ var (
 )
 
 func TestIndexerServiceIndexesBlocks(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := tmlog.NewNopLogger()
 	// event bus

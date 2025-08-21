@@ -33,8 +33,7 @@ const (
 )
 
 func TestReactorBasic(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	// start a network with one mock reactor and one "real" reactor
 	testNet := setupNetwork(ctx, t, testOptions{
 		MockNodes:  1,
@@ -53,8 +52,7 @@ func TestReactorBasic(t *testing.T) {
 }
 
 func TestReactorConnectFullNetwork(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	testNet := setupNetwork(ctx, t, testOptions{
 		TotalNodes: 4,
@@ -72,8 +70,7 @@ func TestReactorConnectFullNetwork(t *testing.T) {
 }
 
 func TestReactorSendsRequestsTooOften(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	r := setupSingle(ctx, t)
 
@@ -103,8 +100,7 @@ func TestReactorSendsRequestsTooOften(t *testing.T) {
 
 func TestReactorSendsResponseWithoutRequest(t *testing.T) {
 	t.Skip("This test needs updated https://github.com/tendermint/tendermint/issue/7634")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	testNet := setupNetwork(ctx, t, testOptions{
 		MockNodes:  1,
@@ -125,8 +121,7 @@ func TestReactorSendsResponseWithoutRequest(t *testing.T) {
 
 func TestReactorNeverSendsTooManyPeers(t *testing.T) {
 	t.Skip("This test needs updated https://github.com/tendermint/tendermint/issue/7634")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	testNet := setupNetwork(ctx, t, testOptions{
 		MockNodes:  1,
@@ -148,8 +143,7 @@ func TestReactorNeverSendsTooManyPeers(t *testing.T) {
 }
 
 func TestReactorErrorsOnReceivingTooManyPeers(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	r := setupSingle(ctx, t)
 	peer := p2p.NodeAddress{Protocol: p2p.MemoryProtocol, NodeID: randomNodeID()}
@@ -195,8 +189,7 @@ func TestReactorErrorsOnReceivingTooManyPeers(t *testing.T) {
 }
 
 func TestReactorSmallPeerStoreInALargeNetwork(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	testNet := setupNetwork(ctx, t, testOptions{
 		TotalNodes:   8,
@@ -219,8 +212,7 @@ func TestReactorSmallPeerStoreInALargeNetwork(t *testing.T) {
 }
 
 func TestReactorLargePeerStoreInASmallNetwork(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	testNet := setupNetwork(ctx, t, testOptions{
 		TotalNodes:   3,
@@ -240,8 +232,7 @@ func TestReactorLargePeerStoreInASmallNetwork(t *testing.T) {
 
 func TestReactorWithNetworkGrowth(t *testing.T) {
 	t.Skip("This test needs updated https://github.com/tendermint/tendermint/issue/7634")
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	testNet := setupNetwork(ctx, t, testOptions{
 		TotalNodes: 5,

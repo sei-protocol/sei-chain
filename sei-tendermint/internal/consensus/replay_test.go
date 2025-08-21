@@ -134,10 +134,8 @@ func TestWALCrash(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 
 			consensusReplayConfig, err := ResetConfig(t.TempDir(), tc.name)
 			require.NoError(t, err)
@@ -596,8 +594,7 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 
 // Sync from scratch
 func TestHandshakeReplayAll(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	sim := setupSimulator(ctx, t)
 
@@ -613,8 +610,7 @@ func TestHandshakeReplayAll(t *testing.T) {
 
 // Sync many, not from scratch
 func TestHandshakeReplaySome(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	sim := setupSimulator(ctx, t)
 
@@ -630,8 +626,7 @@ func TestHandshakeReplaySome(t *testing.T) {
 
 // Sync from lagging by one
 func TestHandshakeReplayOne(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	sim := setupSimulator(ctx, t)
 
@@ -645,8 +640,7 @@ func TestHandshakeReplayOne(t *testing.T) {
 
 // Sync from caught up
 func TestHandshakeReplayNone(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	sim := setupSimulator(ctx, t)
 
@@ -956,8 +950,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 	//		- 0x02
 	//		- 0x03
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cfg, err := ResetConfig(t.TempDir(), "handshake_test_")
 	require.NoError(t, err)
@@ -992,7 +985,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 		proxyApp := proxy.New(client, logger, proxy.NopMetrics())
 		err := proxyApp.Start(ctx)
 		require.NoError(t, err)
-		t.Cleanup(func() { cancel(); proxyApp.Wait() })
+		t.Cleanup(func() { proxyApp.Wait() })
 
 		h := NewHandshaker(logger, stateStore, state, store, eventBus, genDoc)
 		assert.Error(t, h.Handshake(ctx, proxyApp))
@@ -1008,7 +1001,7 @@ func TestHandshakeErrorsIfAppReturnsWrongAppHash(t *testing.T) {
 		proxyApp := proxy.New(client, logger, proxy.NopMetrics())
 		err := proxyApp.Start(ctx)
 		require.NoError(t, err)
-		t.Cleanup(func() { cancel(); proxyApp.Wait() })
+		t.Cleanup(func() { proxyApp.Wait() })
 
 		h := NewHandshaker(logger, stateStore, state, store, eventBus, genDoc)
 		require.Error(t, h.Handshake(ctx, proxyApp))
@@ -1244,8 +1237,7 @@ func (bs *mockBlockStore) DeleteLatestBlock() error { return nil }
 // Test handshake/init chain
 
 func TestHandshakeUpdatesValidators(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewNopLogger()
 	votePower := 10 + int64(rand.Uint32())

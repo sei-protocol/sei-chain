@@ -19,8 +19,7 @@ import (
 )
 
 func TestEventBusPublishEventTx(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	eventBus := eventbus.NewDefault(log.NewNopLogger())
 	err := eventBus.Start(ctx)
@@ -73,8 +72,7 @@ func TestEventBusPublishEventTx(t *testing.T) {
 }
 
 func TestEventBusPublishEventNewBlock(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	eventBus := eventbus.NewDefault(log.NewNopLogger())
 	err := eventBus.Start(ctx)
 	require.NoError(t, err)
@@ -127,8 +125,7 @@ func TestEventBusPublishEventNewBlock(t *testing.T) {
 }
 
 func TestEventBusPublishEventTxDuplicateKeys(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	eventBus := eventbus.NewDefault(log.NewNopLogger())
 	err := eventBus.Start(ctx)
 	require.NoError(t, err)
@@ -200,7 +197,7 @@ func TestEventBusPublishEventTxDuplicateKeys(t *testing.T) {
 		}
 
 		t.Run(name, func(t *testing.T) {
-
+			ctx := t.Context()
 			sub, err := eventBus.SubscribeWithArgs(ctx, tmpubsub.SubscribeArgs{
 				ClientID: fmt.Sprintf("client-%d", i),
 				Query:    tmquery.MustCompile(tc.query),
@@ -244,8 +241,7 @@ func TestEventBusPublishEventTxDuplicateKeys(t *testing.T) {
 }
 
 func TestEventBusPublishEventNewBlockHeader(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	eventBus := eventbus.NewDefault(log.NewNopLogger())
 	err := eventBus.Start(ctx)
@@ -294,8 +290,7 @@ func TestEventBusPublishEventNewBlockHeader(t *testing.T) {
 }
 
 func TestEventBusPublishEventEvidenceValidated(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	eventBus := eventbus.NewDefault(log.NewNopLogger())
 	err := eventBus.Start(ctx)
@@ -336,8 +331,7 @@ func TestEventBusPublishEventEvidenceValidated(t *testing.T) {
 
 }
 func TestEventBusPublishEventNewEvidence(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	eventBus := eventbus.NewDefault(log.NewNopLogger())
 	err := eventBus.Start(ctx)
@@ -378,8 +372,7 @@ func TestEventBusPublishEventNewEvidence(t *testing.T) {
 }
 
 func TestEventBusPublish(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	eventBus := eventbus.NewDefault(log.NewNopLogger())
 	err := eventBus.Start(ctx)
@@ -397,7 +390,7 @@ func TestEventBusPublish(t *testing.T) {
 	count := make(chan int, 1)
 	go func() {
 		defer close(count)
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		ctx, cancel := context.WithTimeout(t.Context(), 1*time.Second)
 		defer cancel()
 
 		for n := 0; ; n++ {
@@ -455,17 +448,14 @@ func BenchmarkEventBus(b *testing.B) {
 	for _, bm := range benchmarks {
 		bm := bm
 		b.Run(bm.name, func(b *testing.B) {
-			benchmarkEventBus(bm.numClients, bm.randQueries, bm.randEvents, b)
+			benchmarkEventBus(b.Context(), bm.numClients, bm.randQueries, bm.randEvents, b)
 		})
 	}
 }
 
-func benchmarkEventBus(numClients int, randQueries bool, randEvents bool, b *testing.B) {
+func benchmarkEventBus(ctx context.Context, numClients int, randQueries bool, randEvents bool, b *testing.B) {
 	// for random* functions
 	mrand.Seed(time.Now().Unix())
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	eventBus := eventbus.NewDefault(log.NewNopLogger()) // set buffer capacity to 0 so we are not testing cache
 	err := eventBus.Start(ctx)

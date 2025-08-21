@@ -72,7 +72,7 @@ func TestWSClientReconnectsAfterReadFailure(t *testing.T) {
 	s := httptest.NewServer(h)
 	defer s.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
 	c := startClient(ctx, t, "//"+s.Listener.Addr().String())
@@ -104,8 +104,7 @@ func TestWSClientReconnectsAfterWriteFailure(t *testing.T) {
 	s := httptest.NewServer(h)
 	defer s.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	c := startClient(ctx, t, "//"+s.Listener.Addr().String())
 
@@ -133,8 +132,7 @@ func TestWSClientReconnectFailure(t *testing.T) {
 	h := &myTestHandler{t: t}
 	s := httptest.NewServer(h)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	c := startClient(ctx, t, "//"+s.Listener.Addr().String())
 
@@ -186,7 +184,7 @@ func TestNotBlockingOnStop(t *testing.T) {
 
 	s := httptest.NewServer(&myTestHandler{t: t})
 	defer s.Close()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	c := startClient(ctx, t, "//"+s.Listener.Addr().String())

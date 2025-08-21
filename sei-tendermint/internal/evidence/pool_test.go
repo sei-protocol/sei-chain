@@ -54,8 +54,7 @@ func TestEvidencePoolBasic(t *testing.T) {
 		blockStore = &mocks.BlockStore{}
 	)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	valSet, privVals := factory.ValidatorSet(ctx, t, 1, 10)
 	blockStore.On("LoadBlockMeta", mock.AnythingOfType("int64")).Return(
 		&types.BlockMeta{Header: types.Header{Time: defaultEvidenceTime}},
@@ -111,8 +110,7 @@ func TestEvidencePoolBasic(t *testing.T) {
 
 // Tests inbound evidence for the right time and height
 func TestAddExpiredEvidence(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	var (
 		val                 = types.NewMockPV()
@@ -153,11 +151,9 @@ func TestAddExpiredEvidence(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		t.Run(tc.evDescription, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 
 			ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, tc.evHeight, tc.evTime, val, evidenceChainID)
 			require.NoError(t, err)
@@ -174,8 +170,7 @@ func TestAddExpiredEvidence(t *testing.T) {
 func TestReportConflictingVotes(t *testing.T) {
 	var height int64 = 10
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	pool, pv, _ := defaultTestPool(ctx, t, height)
 
@@ -214,8 +209,7 @@ func TestReportConflictingVotes(t *testing.T) {
 
 func TestEvidencePoolUpdate(t *testing.T) {
 	height := int64(21)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	pool, val, _ := defaultTestPool(ctx, t, height)
 
@@ -284,8 +278,7 @@ func TestEvidencePoolUpdate(t *testing.T) {
 func TestVerifyPendingEvidencePasses(t *testing.T) {
 	var height int64 = 1
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	pool, val, _ := defaultTestPool(ctx, t, height)
 
@@ -304,8 +297,7 @@ func TestVerifyPendingEvidencePasses(t *testing.T) {
 func TestVerifyDuplicatedEvidenceFails(t *testing.T) {
 	var height int64 = 1
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	pool, val, _ := defaultTestPool(ctx, t, height)
 
@@ -328,8 +320,7 @@ func TestVerifyDuplicatedEvidenceFails(t *testing.T) {
 func TestEventOnEvidenceValidated(t *testing.T) {
 	const height = 1
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	pool, val, eventBus := defaultTestPool(ctx, t, height)
 
@@ -379,8 +370,7 @@ func TestLightClientAttackEvidenceLifecycle(t *testing.T) {
 		height       int64 = 100
 		commonHeight int64 = 90
 	)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	ev, trusted, common := makeLunaticEvidence(ctx, t, height, commonHeight,
 		10, 5, 5, defaultEvidenceTime, defaultEvidenceTime.Add(1*time.Hour))
@@ -443,8 +433,7 @@ func TestLightClientAttackEvidenceLifecycle(t *testing.T) {
 // Tests that restarting the evidence pool after a potential failure will recover the
 // pending evidence and continue to gossip it
 func TestRecoverPendingEvidence(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	height := int64(10)
 	val := types.NewMockPV()

@@ -125,14 +125,13 @@ func TestClose(t *testing.T) {
 }
 
 func TestWait(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	q := mustQueue(t, Options{SoftQuota: 2, HardLimit: 2})
 
 	// A wait on an empty queue should time out.
 	t.Run("WaitTimeout", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 		defer cancel()
 		got, err := q.Wait(ctx)
 		if err == nil {
@@ -144,8 +143,7 @@ func TestWait(t *testing.T) {
 
 	// A wait on a non-empty queue should report an item.
 	t.Run("WaitNonEmpty", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		const input = "figgy pudding"
 		q.mustAdd(input)

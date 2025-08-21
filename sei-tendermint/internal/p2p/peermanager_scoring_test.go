@@ -1,7 +1,6 @@
 package p2p
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -31,8 +30,7 @@ func TestPeerScoring(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, added)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	t.Run("Synchronous", func(t *testing.T) {
 		// update the manager and make sure it's correct

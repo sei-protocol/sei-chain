@@ -1,7 +1,6 @@
 package psql
 
 import (
-	"context"
 	"database/sql"
 	"flag"
 	"fmt"
@@ -152,8 +151,7 @@ func TestType(t *testing.T) {
 }
 
 func TestIndexing(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	t.Run("IndexBlockEvents", func(t *testing.T) {
 		indexer := &EventSink{store: testDB(), chainID: chainID}

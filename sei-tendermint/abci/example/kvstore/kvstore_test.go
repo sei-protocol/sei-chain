@@ -67,8 +67,7 @@ func testKVStore(ctx context.Context, t *testing.T, app types.Application, tx []
 }
 
 func TestKVStoreKV(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	kvstore := NewApplication()
 	key := testKey
@@ -82,8 +81,7 @@ func TestKVStoreKV(t *testing.T) {
 }
 
 func TestPersistentKVStoreKV(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	dir := t.TempDir()
 	logger := log.NewNopLogger()
@@ -100,8 +98,7 @@ func TestPersistentKVStoreKV(t *testing.T) {
 }
 
 func TestPersistentKVStoreInfo(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	dir := t.TempDir()
 	logger := log.NewNopLogger()
 
@@ -144,8 +141,7 @@ func TestPersistentKVStoreInfo(t *testing.T) {
 
 // add a validator, remove a validator, update a validator
 func TestValUpdates(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	kvstore := NewApplication()
 
@@ -313,16 +309,15 @@ func makeGRPCClientServer(
 }
 
 func TestClientServer(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	logger := log.NewNopLogger()
 
 	// set up socket app
 	kvstore := NewApplication()
 	client, server, err := makeSocketClientServer(ctx, t, logger, kvstore, "kvstore-socket")
 	require.NoError(t, err)
-	t.Cleanup(func() { cancel(); server.Wait() })
-	t.Cleanup(func() { cancel(); client.Wait() })
+	t.Cleanup(func() { server.Wait() })
+	t.Cleanup(func() { client.Wait() })
 
 	runClientTests(ctx, t, client)
 
@@ -331,8 +326,8 @@ func TestClientServer(t *testing.T) {
 	gclient, gserver, err := makeGRPCClientServer(ctx, t, logger, kvstore, "/tmp/kvstore-grpc")
 	require.NoError(t, err)
 
-	t.Cleanup(func() { cancel(); gserver.Wait() })
-	t.Cleanup(func() { cancel(); gclient.Wait() })
+	t.Cleanup(func() { gserver.Wait() })
+	t.Cleanup(func() { gclient.Wait() })
 
 	runClientTests(ctx, t, gclient)
 }

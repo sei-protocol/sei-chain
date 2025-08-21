@@ -16,8 +16,7 @@ import (
 )
 
 func TestVoteSet_AddVote_Good(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	height, round := int64(1), int32(0)
 	voteSet, _, privValidators := randVoteSet(ctx, t, height, round, tmproto.PrevoteType, 10, 1)
@@ -52,8 +51,7 @@ func TestVoteSet_AddVote_Good(t *testing.T) {
 }
 
 func TestVoteSet_AddVote_Bad(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	height, round := int64(1), int32(0)
 	voteSet, _, privValidators := randVoteSet(ctx, t, height, round, tmproto.PrevoteType, 10, 1)
@@ -131,8 +129,7 @@ func TestVoteSet_AddVote_Bad(t *testing.T) {
 }
 
 func TestVoteSet_2_3Majority(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	height, round := int64(1), int32(0)
 	voteSet, _, privValidators := randVoteSet(ctx, t, height, round, tmproto.PrevoteType, 10, 1)
@@ -184,8 +181,7 @@ func TestVoteSet_2_3Majority(t *testing.T) {
 }
 
 func TestVoteSet_2_3MajorityRedux(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	height, round := int64(1), int32(0)
 	voteSet, _, privValidators := randVoteSet(ctx, t, height, round, tmproto.PrevoteType, 100, 1)
@@ -286,8 +282,7 @@ func TestVoteSet_2_3MajorityRedux(t *testing.T) {
 }
 
 func TestVoteSet_Conflicts(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	height, round := int64(1), int32(0)
 	voteSet, _, privValidators := randVoteSet(ctx, t, height, round, tmproto.PrevoteType, 4, 1)
@@ -419,8 +414,7 @@ func TestVoteSet_Conflicts(t *testing.T) {
 }
 
 func TestVoteSet_MakeCommit(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	height, round := int64(1), int32(0)
 	voteSet, _, privValidators := randVoteSet(ctx, t, height, round, tmproto.PrecommitType, 10, 1)
@@ -533,8 +527,7 @@ func TestVoteSet_VoteExtensionsEnabled(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 
 			height, round := int64(1), int32(0)
 			valSet, privValidators := randValidatorPrivValSet(ctx, t, 5, 10)

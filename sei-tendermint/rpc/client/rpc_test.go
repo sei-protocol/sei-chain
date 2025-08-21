@@ -40,12 +40,11 @@ func getHTTPClient(t *testing.T, logger log.Logger, conf *config.Config) *rpchtt
 	rpcAddr := conf.RPC.ListenAddress
 	c, err := rpchttp.NewWithClient(rpcAddr, http.DefaultClient)
 	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := t.Context()
 	require.NoError(t, c.Start(ctx))
 
 	c.Logger = logger
 	t.Cleanup(func() {
-		cancel()
 		require.NoError(t, c.Stop())
 	})
 
@@ -60,12 +59,11 @@ func getHTTPClientWithTimeout(t *testing.T, logger log.Logger, conf *config.Conf
 	tclient := &http.Client{Timeout: timeout}
 	c, err := rpchttp.NewWithClient(rpcAddr, tclient)
 	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := t.Context()
 	require.NoError(t, c.Start(ctx))
 
 	c.Logger = logger
 	t.Cleanup(func() {
-		cancel()
 		require.NoError(t, c.Stop())
 	})
 
@@ -90,8 +88,7 @@ func GetClients(t *testing.T, ns service.Service, conf *config.Config) []client.
 }
 
 func TestClientOperations(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewTestingLogger(t)
 
@@ -189,11 +186,9 @@ func TestClientOperations(t *testing.T) {
 
 // Make sure info is correct (we connect properly)
 func TestClientMethodCalls(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	logger := log.NewTestingLogger(t)
 
-	n, conf := NodeSuite(ctx, t, logger)
+	n, conf := NodeSuite(t.Context(), t, logger)
 
 	// for broadcast tx tests
 	pool := getMempool(t, n)
@@ -205,11 +200,12 @@ func TestClientMethodCalls(t *testing.T) {
 	for i, c := range GetClients(t, n, conf) {
 		t.Run(fmt.Sprintf("%T", c), func(t *testing.T) {
 			t.Run("Status", func(t *testing.T) {
-				status, err := c.Status(ctx)
+				status, err := c.Status(t.Context())
 				require.NoError(t, err, "%d: %+v", i, err)
 				assert.Equal(t, conf.Moniker, status.NodeInfo.Moniker)
 			})
 			t.Run("Info", func(t *testing.T) {
+				ctx := t.Context()
 				info, err := c.ABCIInfo(ctx)
 				require.NoError(t, err)
 
@@ -222,7 +218,7 @@ func TestClientMethodCalls(t *testing.T) {
 			t.Run("NetInfo", func(t *testing.T) {
 				nc, ok := c.(client.NetworkClient)
 				require.True(t, ok, "%d", i)
-				netinfo, err := nc.NetInfo(ctx)
+				netinfo, err := nc.NetInfo(t.Context())
 				require.NoError(t, err, "%d: %+v", i, err)
 				assert.True(t, netinfo.Listening)
 				assert.Equal(t, 0, len(netinfo.Peers))
@@ -231,7 +227,7 @@ func TestClientMethodCalls(t *testing.T) {
 				// FIXME: fix server so it doesn't panic on invalid input
 				nc, ok := c.(client.NetworkClient)
 				require.True(t, ok, "%d", i)
-				cons, err := nc.DumpConsensusState(ctx)
+				cons, err := nc.DumpConsensusState(t.Context())
 				require.NoError(t, err, "%d: %+v", i, err)
 				assert.NotEmpty(t, cons.RoundState)
 				assert.Empty(t, cons.Peers)
@@ -240,17 +236,18 @@ func TestClientMethodCalls(t *testing.T) {
 				// FIXME: fix server so it doesn't panic on invalid input
 				nc, ok := c.(client.NetworkClient)
 				require.True(t, ok, "%d", i)
-				cons, err := nc.ConsensusState(ctx)
+				cons, err := nc.ConsensusState(t.Context())
 				require.NoError(t, err, "%d: %+v", i, err)
 				assert.NotEmpty(t, cons.RoundState)
 			})
 			t.Run("Health", func(t *testing.T) {
 				nc, ok := c.(client.NetworkClient)
 				require.True(t, ok, "%d", i)
-				_, err := nc.Health(ctx)
+				_, err := nc.Health(t.Context())
 				require.NoError(t, err, "%d: %+v", i, err)
 			})
 			t.Run("GenesisAndValidators", func(t *testing.T) {
+				ctx := t.Context()
 				// make sure this is the right genesis file
 				gen, err := c.Genesis(ctx)
 				require.NoError(t, err, "%d: %+v", i, err)
@@ -272,6 +269,7 @@ func TestClientMethodCalls(t *testing.T) {
 				assert.Equal(t, gval.PubKey, val.PubKey)
 			})
 			t.Run("GenesisChunked", func(t *testing.T) {
+				ctx := t.Context()
 				first, err := c.GenesisChunked(ctx, 0)
 				require.NoError(t, err)
 
@@ -291,6 +289,7 @@ func TestClientMethodCalls(t *testing.T) {
 					"first: %+v, doc: %s", first, string(doc))
 			})
 			t.Run("ABCIQuery", func(t *testing.T) {
+				ctx := t.Context()
 				// write something
 				k, v, tx := MakeTxKV()
 				status, err := c.Status(ctx)
@@ -309,6 +308,7 @@ func TestClientMethodCalls(t *testing.T) {
 				}
 			})
 			t.Run("AppCalls", func(t *testing.T) {
+				ctx := t.Context()
 				// get an offset of height to avoid racing and guessing
 				s, err := c.Status(ctx)
 				require.NoError(t, err)
@@ -409,8 +409,7 @@ func TestClientMethodCalls(t *testing.T) {
 				// XXX Test proof
 			})
 			t.Run("BlockchainInfo", func(t *testing.T) {
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
+				ctx := t.Context()
 
 				err := client.WaitForHeight(ctx, c, 10, nil)
 				require.NoError(t, err)
@@ -439,6 +438,7 @@ func TestClientMethodCalls(t *testing.T) {
 				assert.Contains(t, err.Error(), "can't be greater than max")
 			})
 			t.Run("BroadcastTxCommit", func(t *testing.T) {
+				ctx := t.Context()
 				_, _, tx := MakeTxKV()
 				bres, err := c.BroadcastTxCommit(ctx, tx)
 				require.NoError(t, err, "%d: %+v", i, err)
@@ -448,6 +448,7 @@ func TestClientMethodCalls(t *testing.T) {
 				require.Equal(t, 0, pool.Size())
 			})
 			t.Run("BroadcastTxSync", func(t *testing.T) {
+				ctx := t.Context()
 				_, _, tx := MakeTxKV()
 				initMempoolSize := pool.Size()
 				bres, err := c.BroadcastTxSync(ctx, tx)
@@ -461,6 +462,7 @@ func TestClientMethodCalls(t *testing.T) {
 				pool.Flush()
 			})
 			t.Run("CheckTx", func(t *testing.T) {
+				ctx := t.Context()
 				_, _, tx := MakeTxKV()
 
 				res, err := c.CheckTx(ctx, tx)
@@ -471,7 +473,7 @@ func TestClientMethodCalls(t *testing.T) {
 			})
 			t.Run("Events", func(t *testing.T) {
 				t.Run("Header", func(t *testing.T) {
-					ctx, cancel := context.WithTimeout(ctx, waitForEventTimeout)
+					ctx, cancel := context.WithTimeout(t.Context(), waitForEventTimeout)
 					defer cancel()
 					query := types.QueryForEvent(types.EventNewBlockHeaderValue).String()
 					evt, err := client.WaitForOneEvent(ctx, c, query)
@@ -481,12 +483,14 @@ func TestClientMethodCalls(t *testing.T) {
 					// TODO: more checks...
 				})
 				t.Run("Block", func(t *testing.T) {
+					ctx := t.Context()
 					const subscriber = "TestBlockEvents"
 
 					eventCh, err := c.Subscribe(ctx, subscriber, types.QueryForEvent(types.EventNewBlockValue).String())
 					require.NoError(t, err)
 					t.Cleanup(func() {
-						if err := c.UnsubscribeAll(ctx, subscriber); err != nil {
+						// At this point the ctx is cancelled, so the cleanup needs to run with a background context.
+						if err := c.UnsubscribeAll(context.Background(), subscriber); err != nil {
 							t.Error(err)
 						}
 					})
@@ -515,16 +519,17 @@ func TestClientMethodCalls(t *testing.T) {
 					}
 				})
 				t.Run("BroadcastTxAsync", func(t *testing.T) {
+					ctx := t.Context()
 					testTxEventsSent(ctx, t, "async", c)
 				})
 				t.Run("BroadcastTxSync", func(t *testing.T) {
+					ctx := t.Context()
 					testTxEventsSent(ctx, t, "sync", c)
 				})
 			})
 			t.Run("Evidence", func(t *testing.T) {
 				t.Run("BroadcastDuplicateVote", func(t *testing.T) {
-					ctx, cancel := context.WithCancel(context.Background())
-					defer cancel()
+					ctx := t.Context()
 
 					chainID := conf.ChainID()
 
@@ -567,6 +572,7 @@ func TestClientMethodCalls(t *testing.T) {
 					}
 				})
 				t.Run("BroadcastEmpty", func(t *testing.T) {
+					ctx := t.Context()
 					_, err := c.BroadcastEvidence(ctx, nil)
 					require.Error(t, err)
 				})
@@ -589,8 +595,7 @@ func getMempool(t *testing.T, srv service.Service) mempool.Mempool {
 // so making a separate suite makes more sense, though isn't strictly
 // speaking desirable.
 func TestClientMethodCallsAdvanced(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	logger := log.NewTestingLogger(t)
 

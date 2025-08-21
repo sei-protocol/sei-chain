@@ -21,8 +21,7 @@ func TestPeerCatchupRounds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	valSet, privVals := factory.ValidatorSet(ctx, t, 10, 1)
 

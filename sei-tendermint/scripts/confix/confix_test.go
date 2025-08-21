@@ -2,7 +2,6 @@ package main_test
 
 import (
 	"bytes"
-	"context"
 	"strings"
 	"testing"
 
@@ -44,7 +43,7 @@ func TestGuessConfigVersion(t *testing.T) {
 }
 
 func TestApplyFixes(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	t.Run("Unknown", func(t *testing.T) {
 		err := confix.ApplyFixes(ctx, mustParseConfig(t, "testdata/v31-config.toml"))

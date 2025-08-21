@@ -277,8 +277,7 @@ func (rts *reactorTestSuite) start(ctx context.Context, t *testing.T) {
 }
 
 func TestReactor_AbruptDisconnect(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "block_sync_reactor_test")
 	require.NoError(t, err)
@@ -317,8 +316,7 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 }
 
 func TestReactor_SyncTime(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	cfg, err := config.ResetTestRoot(t.TempDir(), "block_sync_reactor_test")
 	require.NoError(t, err)
@@ -426,7 +424,7 @@ func TestAutoRestartIfBehind(t *testing.T) {
 				blockSync:                 newAtomicBool(tt.isBlockSync),
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 			defer cancel()
 
 			go r.autoRestartIfBehind(ctx)

@@ -37,8 +37,7 @@ func init() {
 }
 
 func TestClient(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	var (
 		keys        = genPrivKeys(4)
 		vals        = keys.ToValidators(20, 10)
@@ -228,8 +227,7 @@ func TestClient(t *testing.T) {
 		for _, tc := range testCases {
 			testCase := tc
 			t.Run(testCase.name, func(t *testing.T) {
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
+				ctx := t.Context()
 
 				logger := log.NewNopLogger()
 
@@ -351,14 +349,9 @@ func TestClient(t *testing.T) {
 			},
 		}
 
-		bctx, bcancel := context.WithCancel(context.Background())
-		defer bcancel()
-
 		for _, tc := range testCases {
-			tc := tc
 			t.Run(tc.name, func(t *testing.T) {
-				ctx, cancel := context.WithCancel(bctx)
-				defer cancel()
+				ctx := t.Context()
 				logger := log.NewNopLogger()
 
 				mockNode := mockNodeFromHeadersAndVals(tc.otherHeaders, tc.vals)
@@ -411,8 +404,7 @@ func TestClient(t *testing.T) {
 
 		mockNode.On("LightBlock", mock.Anything, int64(0)).Return(lastBlock, nil)
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		trustedLightBlock, err := mockNode.LightBlock(ctx, int64(200))
 		require.NoError(t, err)
@@ -442,8 +434,7 @@ func TestClient(t *testing.T) {
 		mockNode.AssertExpectations(t)
 	})
 	t.Run("BisectionBetweenTrustedHeaders", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockFullNode := mockNodeFromHeadersAndVals(headerSet, valSet)
 		c, err := light.NewClient(
@@ -475,8 +466,7 @@ func TestClient(t *testing.T) {
 		mockFullNode.AssertExpectations(t)
 	})
 	t.Run("Cleanup", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 		logger := log.NewNopLogger()
 
 		mockFullNode := &provider_mocks.Provider{}
@@ -507,13 +497,9 @@ func TestClient(t *testing.T) {
 	t.Run("RestoresTrustedHeaderAfterStartup", func(t *testing.T) {
 		// trustedHeader.Height == options.Height
 
-		bctx, bcancel := context.WithCancel(context.Background())
-		defer bcancel()
-
 		// 1. options.Hash == trustedHeader.Hash
 		t.Run("hashes should match", func(t *testing.T) {
-			ctx, cancel := context.WithCancel(bctx)
-			defer cancel()
+			ctx := t.Context()
 
 			logger := log.NewNopLogger()
 
@@ -544,8 +530,7 @@ func TestClient(t *testing.T) {
 
 		// 2. options.Hash != trustedHeader.Hash
 		t.Run("hashes should not match", func(t *testing.T) {
-			ctx, cancel := context.WithCancel(bctx)
-			defer cancel()
+			ctx := t.Context()
 
 			trustedStore := dbs.New(dbm.NewMemDB())
 			err := trustedStore.SaveLightBlock(l1)
@@ -585,8 +570,7 @@ func TestClient(t *testing.T) {
 		})
 	})
 	t.Run("Update", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockFullNode := &provider_mocks.Provider{}
 		mockFullNode.On("LightBlock", mock.Anything, int64(0)).Return(l3, nil)
@@ -618,8 +602,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("Concurrency", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 		logger := log.NewNopLogger()
 
 		mockFullNode := &provider_mocks.Provider{}
@@ -667,8 +650,7 @@ func TestClient(t *testing.T) {
 		mockFullNode.AssertExpectations(t)
 	})
 	t.Run("AddProviders", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockFullNode := mockNodeFromHeadersAndVals(map[int64]*types.SignedHeader{
 			1: h1,
@@ -707,8 +689,7 @@ func TestClient(t *testing.T) {
 		mockFullNode.AssertExpectations(t)
 	})
 	t.Run("ReplacesPrimaryWithWitnessIfPrimaryIsUnavailable", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockFullNode := &provider_mocks.Provider{}
 		mockFullNode.On("LightBlock", mock.Anything, mock.Anything).Return(l1, nil)
@@ -744,9 +725,8 @@ func TestClient(t *testing.T) {
 		mockFullNode.AssertExpectations(t)
 	})
 	t.Run("TerminatesWitnessSearchAfterContextDeadlineExpires", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(1*time.Second))
+		ctx, cancel := context.WithTimeout(t.Context(), time.Duration(1*time.Second))
 		defer cancel()
-
 		mockDeadNode := &provider_mocks.Provider{}
 		mockDeadNode.On("LightBlock", mock.Anything, mock.Anything).Return(nil, provider.ErrNoResponse)
 		mockSlowNode := &provider_mocks.Provider{}
@@ -771,8 +751,7 @@ func TestClient(t *testing.T) {
 		mockSlowNode.AssertExpectations(t)
 	})
 	t.Run("ReplacesPrimaryWithWitnessIfPrimaryDoesntHaveBlock", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		mockFullNode := &provider_mocks.Provider{}
 		mockFullNode.On("LightBlock", mock.Anything, mock.Anything).Return(l1, nil)
@@ -800,8 +779,7 @@ func TestClient(t *testing.T) {
 		mockFullNode.AssertExpectations(t)
 	})
 	t.Run("BackwardsVerification", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 		logger := log.NewNopLogger()
 
 		{
@@ -950,8 +928,7 @@ func TestClient(t *testing.T) {
 		mockFullNode := mockNodeFromHeadersAndVals(headerSet, valSet)
 		mockFullNode.On("ID", mock.Anything, mock.Anything).Return(id3, nil)
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		lb1, _ := mockBadNode1.LightBlock(ctx, 2)
 		require.NotEqual(t, lb1.Hash(), l1.Hash())
@@ -1020,8 +997,7 @@ func TestClient(t *testing.T) {
 		mockFullNode := mockNodeFromHeadersAndVals(headerSet, valSet)
 		mockFullNode.On("ID", mock.Anything, mock.Anything).Return(id3, nil)
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		lb1, _ := mockBadNode1.LightBlock(ctx, 2)
 		require.NotEqual(t, lb1.Hash(), l1.Hash())
@@ -1058,8 +1034,7 @@ func TestClient(t *testing.T) {
 		mockBadNode2.AssertExpectations(t)
 	})
 	t.Run("TrustedValidatorSet", func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		logger := log.NewNopLogger()
 
@@ -1121,8 +1096,7 @@ func TestClient(t *testing.T) {
 				0: vals,
 			})
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 		logger := log.NewNopLogger()
 
 		c, err := light.NewClient(
@@ -1210,8 +1184,7 @@ func TestClient(t *testing.T) {
 		for i, tc := range testCases {
 			testCase := tc
 			t.Run(fmt.Sprintf("case: %d", i), func(t *testing.T) {
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
+				ctx := t.Context()
 
 				mockBadNode := mockNodeFromHeadersAndVals(testCase.headers, testCase.vals)
 				if testCase.errorToThrow != nil {

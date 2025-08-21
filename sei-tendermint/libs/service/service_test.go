@@ -57,14 +57,10 @@ func (t *testService) isMultiStopped() bool {
 
 func TestBaseService(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	logger := log.NewNopLogger()
 
 	t.Run("Wait", func(t *testing.T) {
-		wctx, wcancel := context.WithCancel(ctx)
-		defer wcancel()
+		wctx, wcancel := context.WithCancel(t.Context())
 		ts := &testService{}
 		ts.BaseService = *NewBaseService(logger, t.Name(), ts)
 		err := ts.Start(wctx)
@@ -88,6 +84,7 @@ func TestBaseService(t *testing.T) {
 		}
 	})
 	t.Run("ManualStop", func(t *testing.T) {
+		ctx := t.Context()
 		ts := &testService{}
 		ts.BaseService = *NewBaseService(logger, t.Name(), ts)
 		require.False(t, ts.IsRunning())
@@ -102,6 +99,7 @@ func TestBaseService(t *testing.T) {
 	})
 	t.Run("MultiStop", func(t *testing.T) {
 		t.Run("SingleThreaded", func(t *testing.T) {
+			ctx := t.Context()
 			ts := &testService{}
 			ts.BaseService = *NewBaseService(logger, t.Name(), ts)
 
@@ -114,8 +112,7 @@ func TestBaseService(t *testing.T) {
 			require.False(t, ts.isMultiStopped())
 		})
 		t.Run("MultiThreaded", func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 
 			ts := &testService{}
 			ts.BaseService = *NewBaseService(logger, t.Name(), ts)
@@ -123,13 +120,13 @@ func TestBaseService(t *testing.T) {
 			require.NoError(t, ts.Start(ctx))
 			require.True(t, ts.isStarted())
 
-			go ts.Stop()
-			go cancel()
+			t.Cleanup(func() {
+				ts.Stop()
+				ts.Wait()
 
-			ts.Wait()
-
-			require.True(t, ts.isStopped())
-			require.False(t, ts.isMultiStopped())
+				require.True(t, ts.isStopped())
+				require.False(t, ts.isMultiStopped())
+			})
 		})
 
 	})

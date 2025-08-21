@@ -38,7 +38,6 @@ func TestHashFromByteSlices(t *testing.T) {
 		},
 	}
 	for name, tc := range testcases {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			hash := HashFromByteSlices(tc.slices)
 			assert.Equal(t, tc.expectHash, hex.EncodeToString(hash))

@@ -175,8 +175,7 @@ func TestReIndexEvent(t *testing.T) {
 		{height, height, false},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	logger := log.NewNopLogger()
 	conf := config.DefaultConfig()
 

@@ -103,7 +103,6 @@ func TestValidateMsg(t *testing.T) {
 	}
 
 	for name, tc := range testcases {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			msg := new(ssproto.Message)
 
@@ -215,8 +214,6 @@ func TestStateSyncVectors(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
-
 		msg := new(ssproto.Message)
 		require.NoError(t, msg.Wrap(tc.msg))
 

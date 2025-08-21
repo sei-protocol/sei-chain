@@ -11,8 +11,7 @@ import (
 )
 
 func TestValidatorProtoBuf(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	val, _, err := randValidator(ctx, true, 100)
 	require.NoError(t, err)
@@ -47,8 +46,7 @@ func TestValidatorProtoBuf(t *testing.T) {
 }
 
 func TestValidatorValidateBasic(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	priv := NewMockPV()
 	pubKey, _ := priv.GetPubKey(ctx)

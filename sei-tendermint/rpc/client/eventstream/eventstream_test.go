@@ -19,6 +19,7 @@ import (
 )
 
 func TestStream_filterOrder(t *testing.T) {
+	ctx := t.Context()
 	defer leaktest.Check(t)
 
 	s := newStreamTester(t, `tm.event = 'good'`, eventlog.LogSettings{
@@ -44,7 +45,7 @@ func TestStream_filterOrder(t *testing.T) {
 		}
 	}
 
-	s.start()
+	s.start(ctx)
 	for _, itm := range items {
 		s.mustItem(t, itm)
 	}
@@ -52,6 +53,7 @@ func TestStream_filterOrder(t *testing.T) {
 }
 
 func TestStream_lostItem(t *testing.T) {
+	ctx := t.Context()
 	defer leaktest.Check(t)
 
 	s := newStreamTester(t, ``, eventlog.LogSettings{
@@ -60,7 +62,7 @@ func TestStream_lostItem(t *testing.T) {
 
 	// Publish an item and let the client observe it.
 	cur := s.publish("ok", "whatever")
-	s.start()
+	s.start(ctx)
 	s.mustItem(t, makeTestItem(cur, "whatever"))
 	s.stopWait()
 
@@ -72,7 +74,7 @@ func TestStream_lostItem(t *testing.T) {
 
 	// At this point, the oldest item in the log is newer than the point at
 	// which we continued, we should get an error.
-	s.start()
+	s.start(ctx)
 	var missed *eventstream.MissedItemsError
 	if err := s.mustError(t); !errors.As(err, &missed) {
 		t.Errorf("Wrong error: got %v, want %T", err, missed)
@@ -83,7 +85,7 @@ func TestStream_lostItem(t *testing.T) {
 	// If we reset the stream and continue from head, we should catch up.
 	s.stopWait()
 	s.stream.Reset()
-	s.start()
+	s.start(ctx)
 
 	s.mustItem(t, makeTestItem(next1, "more stuff"))
 	s.mustItem(t, makeTestItem(next2, "still more stuff"))
@@ -101,7 +103,7 @@ func TestMinPollTime(t *testing.T) {
 
 	// Waiting for an item on a log with no matching events incurs a minimum
 	// wait time and reports no events.
-	ctx := context.Background()
+	ctx := t.Context()
 	filter := &coretypes.EventFilter{Query: `tm.event = 'good'`}
 
 	t.Run("NoneMatch", func(t *testing.T) {
@@ -197,8 +199,8 @@ func newStreamTester(t *testing.T, query string, logOpts eventlog.LogSettings, s
 
 // start starts the stream receiver, which runs until it it terminated by
 // calling stop.
-func (s *streamTester) start() {
-	ctx, cancel := context.WithCancel(context.Background())
+func (s *streamTester) start(ctx context.Context) {
+	ctx, cancel := context.WithCancel(ctx)
 	s.errc = make(chan error, 1)
 	s.recv = make(chan *coretypes.EventItem)
 	s.stop = cancel

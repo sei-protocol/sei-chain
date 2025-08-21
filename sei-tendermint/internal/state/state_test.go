@@ -2,7 +2,6 @@ package state_test
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"math"
 	"math/big"
@@ -316,8 +315,7 @@ func TestOneValidatorChangesSaveLoad(t *testing.T) {
 }
 
 func TestProposerFrequency(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// some explicit test cases
 	testCases := []struct {

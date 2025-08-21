@@ -33,7 +33,7 @@ func TestNewProvider(t *testing.T) {
 }
 
 func TestProvider(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	cfg, err := rpctest.CreateConfig(t, t.Name())
 	require.NoError(t, err)

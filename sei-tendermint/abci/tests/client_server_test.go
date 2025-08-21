@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"context"
 	"testing"
 
 	"github.com/fortytw2/leaktest"
@@ -16,8 +15,7 @@ import (
 func TestClientServerNoAddrPrefix(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	const (
 		addr      = "localhost:26658"

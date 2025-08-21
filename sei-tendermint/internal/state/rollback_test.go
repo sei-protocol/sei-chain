@@ -1,7 +1,6 @@
 package state_test
 
 import (
-	"context"
 	"math/rand"
 	"testing"
 	"time"
@@ -125,8 +124,7 @@ func TestRollbackDifferentStateHeight(t *testing.T) {
 
 func setupStateStore(t *testing.T, height int64) state.Store {
 	stateStore := state.NewStore(dbm.NewMemDB())
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	valSet, _ := factory.ValidatorSet(ctx, t, 5, 10)
 
 	params := types.DefaultConsensusParams()

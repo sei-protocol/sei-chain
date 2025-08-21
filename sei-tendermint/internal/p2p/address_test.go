@@ -1,7 +1,6 @@
 package p2p_test
 
 import (
-	"context"
 	"net"
 	"strings"
 	"testing"
@@ -28,7 +27,6 @@ func TestNewNodeID(t *testing.T) {
 		{"00112233445566778899aabbccddeeff0011223g", "", false},
 	}
 	for _, tc := range testcases {
-		tc := tc
 		t.Run(tc.input, func(t *testing.T) {
 			id, err := types.NewNodeID(tc.input)
 			if !tc.ok {
@@ -61,7 +59,6 @@ func TestNodeID_Bytes(t *testing.T) {
 		{"01g0", nil, false},
 	}
 	for _, tc := range testcases {
-		tc := tc
 		t.Run(string(tc.nodeID), func(t *testing.T) {
 			bz, err := tc.nodeID.Bytes()
 			if tc.ok {
@@ -87,7 +84,6 @@ func TestNodeID_Validate(t *testing.T) {
 		{"00112233445566778899AABBCCDDEEFF00112233", false},
 	}
 	for _, tc := range testcases {
-		tc := tc
 		t.Run(string(tc.nodeID), func(t *testing.T) {
 			err := tc.nodeID.Validate()
 			if tc.ok {
@@ -189,7 +185,6 @@ func TestParseNodeAddress(t *testing.T) {
 		{"mconn://" + user + "@:80", p2p.NodeAddress{}, false},
 	}
 	for _, tc := range testcases {
-		tc := tc
 		t.Run(tc.url, func(t *testing.T) {
 			address, err := p2p.ParseNodeAddress(tc.url)
 			if !tc.ok {
@@ -205,9 +200,6 @@ func TestParseNodeAddress(t *testing.T) {
 func TestNodeAddress_Resolve(t *testing.T) {
 	id := types.NodeID("00112233445566778899aabbccddeeff00112233")
 
-	bctx, bcancel := context.WithCancel(context.Background())
-	defer bcancel()
-
 	testcases := []struct {
 		address p2p.NodeAddress
 		expect  *p2p.Endpoint
@@ -217,16 +209,6 @@ func TestNodeAddress_Resolve(t *testing.T) {
 		{
 			p2p.NodeAddress{Protocol: "tcp", Hostname: "127.0.0.1", Port: 80, Path: "/path"},
 			&p2p.Endpoint{Protocol: "tcp", IP: net.IPv4(127, 0, 0, 1), Port: 80, Path: "/path"},
-			true,
-		},
-		{
-			p2p.NodeAddress{Protocol: "tcp", Hostname: "localhost", Port: 80, Path: "/path"},
-			&p2p.Endpoint{Protocol: "tcp", IP: net.IPv4(127, 0, 0, 1), Port: 80, Path: "/path"},
-			true,
-		},
-		{
-			p2p.NodeAddress{Protocol: "tcp", Hostname: "localhost", Port: 80, Path: "/path"},
-			&p2p.Endpoint{Protocol: "tcp", IP: net.IPv6loopback, Port: 80, Path: "/path"},
 			true,
 		},
 		{
@@ -277,19 +259,48 @@ func TestNodeAddress_Resolve(t *testing.T) {
 		{p2p.NodeAddress{Protocol: "tcp", Hostname: "💥"}, &p2p.Endpoint{}, false},
 	}
 	for _, tc := range testcases {
-		tc := tc
 		t.Run(tc.address.String(), func(t *testing.T) {
-			ctx, cancel := context.WithCancel(bctx)
-			defer cancel()
-
-			endpoints, err := tc.address.Resolve(ctx)
+			endpoints, err := tc.address.Resolve(t.Context())
 			if !tc.ok {
 				require.Error(t, err)
 				return
 			}
+
+			// Special handling for localhost tests - accept either IPv4 or IPv6
+			if tc.address.Hostname == "localhost" && tc.address.Port == 80 && tc.address.Path == "/path" {
+				hasIPv4 := false
+				hasIPv6 := false
+				for _, ep := range endpoints {
+					if ep.Protocol == "tcp" && ep.Port == 80 && ep.Path == "/path" {
+						if ep.IP.Equal(net.IPv4(127, 0, 0, 1)) {
+							hasIPv4 = true
+						}
+						if ep.IP.Equal(net.IPv6loopback) {
+							hasIPv6 = true
+						}
+					}
+				}
+				require.True(t, hasIPv4 || hasIPv6, "localhost should resolve to either IPv4 or IPv6")
+				return
+			}
+
 			require.Contains(t, endpoints, tc.expect)
 		})
 	}
+	t.Run("Resolve localhost", func(t *testing.T) {
+		addr := p2p.NodeAddress{Protocol: "tcp", Hostname: "localhost", Port: 80, Path: "/path"}
+		endpoints, err := addr.Resolve(t.Context())
+		require.NoError(t, err)
+
+		want := &p2p.Endpoint{Protocol: "tcp", Port: 80, Path: "/path"}
+		require.True(t, len(endpoints) > 0)
+		for _, got := range endpoints {
+			require.True(t, got.IP.IsLoopback())
+			// Any loopback address is acceptable, so ignore it in comparison.
+			want.IP = got.IP
+			require.Equal(t, want, got)
+		}
+	})
 }
 
 func TestNodeAddress_String(t *testing.T) {
@@ -348,7 +359,6 @@ func TestNodeAddress_String(t *testing.T) {
 		},
 	}
 	for _, tc := range testcases {
-		tc := tc
 		t.Run(tc.address.String(), func(t *testing.T) {
 			require.Equal(t, tc.expect, tc.address.String())
 		})
@@ -375,7 +385,6 @@ func TestNodeAddress_Validate(t *testing.T) {
 		{p2p.NodeAddress{Protocol: "mconn", NodeID: id, Port: 80, Path: "path"}, false},
 	}
 	for _, tc := range testcases {
-		tc := tc
 		t.Run(tc.address.String(), func(t *testing.T) {
 			err := tc.address.Validate()
 			if tc.ok {

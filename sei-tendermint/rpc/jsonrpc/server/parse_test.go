@@ -156,7 +156,7 @@ func TestParseJSONRPC(t *testing.T) {
 		{`[7,"flew",100]`, 0, "", true},
 		{`{"name": -12, "height": "fred"}`, 0, "", true},
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	for idx, tc := range cases {
 		i := strconv.Itoa(idx)
 		vals, err := rfunc.parseParams(ctx, []byte(tc.raw))
@@ -315,7 +315,7 @@ func TestParseURI(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Parse %#q: unexpected error: %v", test.url, err)
 				}
-				rsp, err := echo.Call(context.Background(), bits)
+				rsp, err := echo.Call(t.Context(), bits)
 				if test.want != nil {
 					assert.Equal(t, test.want, rsp)
 				}

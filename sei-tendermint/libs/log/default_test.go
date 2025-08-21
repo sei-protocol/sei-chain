@@ -32,8 +32,6 @@ func TestNewDefaultLogger(t *testing.T) {
 	}
 
 	for name, tc := range testCases {
-		tc := tc
-
 		t.Run(name, func(t *testing.T) {
 			_, err := log.NewDefaultLogger(tc.format, tc.level)
 			if tc.expectErr {

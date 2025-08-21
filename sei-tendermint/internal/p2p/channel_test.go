@@ -33,16 +33,14 @@ func testChannel(size int) (*channelInternal, *Channel) {
 func TestChannel(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 
-	bctx, bcancel := context.WithCancel(context.Background())
-	defer bcancel()
-
 	testCases := []struct {
 		Name string
-		Case func(context.Context, *testing.T)
+		Case func(*testing.T)
 	}{
 		{
 			Name: "Send",
-			Case: func(ctx context.Context, t *testing.T) {
+			Case: func(t *testing.T) {
+				ctx := t.Context()
 				ins, ch := testChannel(1)
 				require.NoError(t, ch.Send(ctx, Envelope{From: "kip", To: "merlin"}))
 
@@ -54,7 +52,8 @@ func TestChannel(t *testing.T) {
 		},
 		{
 			Name: "SendError",
-			Case: func(ctx context.Context, t *testing.T) {
+			Case: func(t *testing.T) {
+				ctx := t.Context()
 				ins, ch := testChannel(1)
 				require.NoError(t, ch.SendError(ctx, PeerError{NodeID: "kip", Err: errors.New("merlin")}))
 
@@ -66,7 +65,8 @@ func TestChannel(t *testing.T) {
 		},
 		{
 			Name: "SendWithCanceledContext",
-			Case: func(ctx context.Context, t *testing.T) {
+			Case: func(t *testing.T) {
+				ctx := t.Context()
 				_, ch := testChannel(0)
 				cctx, ccancel := context.WithCancel(ctx)
 				ccancel()
@@ -75,7 +75,8 @@ func TestChannel(t *testing.T) {
 		},
 		{
 			Name: "SendErrorWithCanceledContext",
-			Case: func(ctx context.Context, t *testing.T) {
+			Case: func(t *testing.T) {
+				ctx := t.Context()
 				_, ch := testChannel(0)
 				cctx, ccancel := context.WithCancel(ctx)
 				ccancel()
@@ -85,7 +86,8 @@ func TestChannel(t *testing.T) {
 		},
 		{
 			Name: "ReceiveEmptyIteratorBlocks",
-			Case: func(ctx context.Context, t *testing.T) {
+			Case: func(t *testing.T) {
+				ctx := t.Context()
 				_, ch := testChannel(1)
 				iter := ch.Receive(ctx)
 				require.NotNil(t, iter)
@@ -107,7 +109,8 @@ func TestChannel(t *testing.T) {
 		},
 		{
 			Name: "ReceiveWithData",
-			Case: func(ctx context.Context, t *testing.T) {
+			Case: func(t *testing.T) {
+				ctx := t.Context()
 				ins, ch := testChannel(1)
 				ins.In <- Envelope{From: "kip", To: "merlin"}
 				iter := ch.Receive(ctx)
@@ -121,7 +124,8 @@ func TestChannel(t *testing.T) {
 		},
 		{
 			Name: "ReceiveWithCanceledContext",
-			Case: func(ctx context.Context, t *testing.T) {
+			Case: func(t *testing.T) {
+				ctx := t.Context()
 				_, ch := testChannel(0)
 				cctx, ccancel := context.WithCancel(ctx)
 				ccancel()
@@ -134,7 +138,8 @@ func TestChannel(t *testing.T) {
 		},
 		{
 			Name: "IteratorWithCanceledContext",
-			Case: func(ctx context.Context, t *testing.T) {
+			Case: func(t *testing.T) {
+				ctx := t.Context()
 				_, ch := testChannel(0)
 
 				iter := ch.Receive(ctx)
@@ -148,7 +153,8 @@ func TestChannel(t *testing.T) {
 		},
 		{
 			Name: "IteratorCanceledAfterFirstUseBecomesNil",
-			Case: func(ctx context.Context, t *testing.T) {
+			Case: func(t *testing.T) {
+				ctx := t.Context()
 				ins, ch := testChannel(1)
 
 				ins.In <- Envelope{From: "kip", To: "merlin"}
@@ -170,7 +176,8 @@ func TestChannel(t *testing.T) {
 		},
 		{
 			Name: "IteratorMultipleNextCalls",
-			Case: func(ctx context.Context, t *testing.T) {
+			Case: func(t *testing.T) {
+				ctx := t.Context()
 				ins, ch := testChannel(1)
 
 				ins.In <- Envelope{From: "kip", To: "merlin"}
@@ -189,7 +196,8 @@ func TestChannel(t *testing.T) {
 		},
 		{
 			Name: "IteratorProducesNilObjectBeforeNext",
-			Case: func(ctx context.Context, t *testing.T) {
+			Case: func(t *testing.T) {
+				ctx := t.Context()
 				ins, ch := testChannel(1)
 
 				iter := ch.Receive(ctx)
@@ -211,11 +219,7 @@ func TestChannel(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.Name, func(t *testing.T) {
 			t.Cleanup(leaktest.Check(t))
-
-			ctx, cancel := context.WithCancel(bctx)
-			defer cancel()
-
-			tc.Case(ctx, t)
+			tc.Case(t)
 		})
 	}
 }

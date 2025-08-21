@@ -21,8 +21,7 @@ import (
 var defaultVoteTime = time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC)
 
 func TestEvidenceList(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	ev := randomDuplicateVoteEvidence(ctx, t)
 	evl := EvidenceList([]Evidence{ev})
@@ -34,8 +33,7 @@ func TestEvidenceList(t *testing.T) {
 
 // TestEvidenceListProtoBuf to ensure parity in protobuf output and input
 func TestEvidenceListProtoBuf(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	const chainID = "mychain"
 	ev, err := NewMockDuplicateVoteEvidence(ctx, math.MaxInt64, time.Now(), chainID)
@@ -87,8 +85,7 @@ func randomDuplicateVoteEvidence(ctx context.Context, t *testing.T) *DuplicateVo
 
 func TestDuplicateVoteEvidence(t *testing.T) {
 	const height = int64(13)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	ev, err := NewMockDuplicateVoteEvidence(ctx, height, time.Now(), "mock-chain-id")
 	require.NoError(t, err)
@@ -103,8 +100,7 @@ func TestDuplicateVoteEvidenceValidation(t *testing.T) {
 	blockID2 := makeBlockID(crypto.Checksum([]byte("blockhash2")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
 	const chainID = "mychain"
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	testCases := []struct {
 		testName         string
@@ -128,7 +124,6 @@ func TestDuplicateVoteEvidenceValidation(t *testing.T) {
 		}, true},
 	}
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			vote1 := makeVote(ctx, t, val, chainID, math.MaxInt32, math.MaxInt64, math.MaxInt32, 0x02, blockID, defaultVoteTime)
 			vote2 := makeVote(ctx, t, val, chainID, math.MaxInt32, math.MaxInt64, math.MaxInt32, 0x02, blockID2, defaultVoteTime)
@@ -142,8 +137,7 @@ func TestDuplicateVoteEvidenceValidation(t *testing.T) {
 }
 
 func TestLightClientAttackEvidenceBasic(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	height := int64(5)
 	commonHeight := height - 1
@@ -207,8 +201,7 @@ func TestLightClientAttackEvidenceBasic(t *testing.T) {
 }
 
 func TestLightClientAttackEvidenceValidation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	height := int64(5)
 	commonHeight := height - 1
@@ -261,7 +254,6 @@ func TestLightClientAttackEvidenceValidation(t *testing.T) {
 		}, true},
 	}
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			lcae := &LightClientAttackEvidence{
 				ConflictingBlock: &LightBlock{
@@ -288,8 +280,7 @@ func TestLightClientAttackEvidenceValidation(t *testing.T) {
 }
 
 func TestMockEvidenceValidateBasic(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	goodEvidence, err := NewMockDuplicateVoteEvidence(ctx, int64(1), time.Now(), "mock-chain-id")
 	require.NoError(t, err)
@@ -348,8 +339,7 @@ func makeHeaderRandom() *Header {
 }
 
 func TestEvidenceProto(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// -------- Votes --------
 	val := NewMockPV()
@@ -392,8 +382,7 @@ func TestEvidenceProto(t *testing.T) {
 }
 
 func TestEvidenceVectors(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Votes for duplicateEvidence
 	val := NewMockPV()
@@ -465,7 +454,6 @@ func TestEvidenceVectors(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		hash := tc.evList.Hash()
 		require.Equal(t, tc.expBytes, hex.EncodeToString(hash), tc.testName)
 	}

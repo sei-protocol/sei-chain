@@ -241,7 +241,6 @@ func TestJSONMarshalUnmarshal(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.bA.String(), func(t *testing.T) {
 			bz, err := json.Marshal(tc.bA)
 			require.NoError(t, err)

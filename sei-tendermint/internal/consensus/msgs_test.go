@@ -1,7 +1,6 @@
 package consensus
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"github.com/tendermint/tendermint/version"
@@ -26,8 +25,7 @@ import (
 )
 
 func TestMsgToProto(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	psh := types.PartSetHeader{
 		Total: 1,
@@ -433,7 +431,6 @@ func TestConsMsgsVectors(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			bz, err := proto.Marshal(tc.cMsg)
 			require.NoError(t, err)
@@ -474,7 +471,6 @@ func TestVoteSetMaj23MessageValidateBasic(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			message := VoteSetMaj23Message{
 				Height:  tc.messageHeight,
@@ -510,7 +506,6 @@ func TestVoteSetBitsMessageValidateBasic(t *testing.T) {
 	}
 
 	for i, tc := range testCases {
-		tc := tc
 		t.Run(fmt.Sprintf("#%d", i), func(t *testing.T) {
 			msg := &VoteSetBitsMessage{
 				Height:  1,
@@ -548,7 +543,6 @@ func TestNewRoundStepMessageValidateBasic(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			message := NewRoundStepMessage{
 				Height:          tc.messageHeight,
@@ -583,7 +577,6 @@ func TestNewRoundStepMessageValidateHeight(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			message := NewRoundStepMessage{
 				Height:          tc.messageHeight,
@@ -628,7 +621,6 @@ func TestNewValidBlockMessageValidateBasic(t *testing.T) {
 	}
 
 	for i, tc := range testCases {
-		tc := tc
 		t.Run(fmt.Sprintf("#%d", i), func(t *testing.T) {
 			msg := &NewValidBlockMessage{
 				Height: 1,
@@ -662,7 +654,6 @@ func TestProposalPOLMessageValidateBasic(t *testing.T) {
 	}
 
 	for i, tc := range testCases {
-		tc := tc
 		t.Run(fmt.Sprintf("#%d", i), func(t *testing.T) {
 			msg := &ProposalPOLMessage{
 				Height:           1,
@@ -695,7 +686,6 @@ func TestBlockPartMessageValidateBasic(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			message := BlockPartMessage{
 				Height: tc.messageHeight,
@@ -735,7 +725,6 @@ func TestHasVoteMessageValidateBasic(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.testName, func(t *testing.T) {
 			message := HasVoteMessage{
 				Height: tc.messageHeight,

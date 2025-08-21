@@ -1,7 +1,6 @@
 package grpc_test
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -31,10 +30,8 @@ func TestGetPubKey(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 			logger := log.NewTestingLogger(t)
 
 			s := tmgrpc.NewSignerServer(logger, ChainID, tc.pv)
@@ -106,10 +103,8 @@ func TestSignVote(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 			logger := log.NewTestingLogger(t)
 
 			s := tmgrpc.NewSignerServer(logger, ChainID, tc.pv)
@@ -177,10 +172,8 @@ func TestSignProposal(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 			logger := log.NewTestingLogger(t)
 
 			s := tmgrpc.NewSignerServer(logger, ChainID, tc.pv)

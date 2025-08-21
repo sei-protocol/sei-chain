@@ -174,7 +174,7 @@ func waitForAndValidateBlock(
 ) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 1*time.Minute)
 	defer cancel()
 
 	fn := func(j int) {
@@ -232,7 +232,7 @@ func waitForAndValidateBlockWithTx(
 ) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 
 	fn := func(j int) {
@@ -347,7 +347,7 @@ func ensureBlockSyncStatus(t *testing.T, msg tmpubsub.Message, complete bool, he
 }
 
 func TestReactorBasic(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 
 	cfg := configSetup(t)
@@ -438,7 +438,7 @@ func TestReactorBasic(t *testing.T) {
 }
 
 func TestReactorWithEvidence(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 
 	cfg := configSetup(t)
@@ -546,7 +546,7 @@ func TestReactorWithEvidence(t *testing.T) {
 }
 
 func TestReactorCreatesBlockWhenEmptyBlocksFalse(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 
 	cfg := configSetup(t)
@@ -647,7 +647,7 @@ func TestSwitchToConsensusVoteExtensions(t *testing.T) {
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*15)
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*15)
 			defer cancel()
 			cs, vs := makeState(ctx, t, makeStateArgs{validators: 1})
 			validator := vs[0]
@@ -715,7 +715,7 @@ func TestSwitchToConsensusVoteExtensions(t *testing.T) {
 }
 
 func TestReactorRecordsVotesAndBlockParts(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 
 	cfg := configSetup(t)
@@ -782,7 +782,7 @@ func TestReactorRecordsVotesAndBlockParts(t *testing.T) {
 
 // TODO: fix flaky test
 //func TestReactorVotingPowerChange(t *testing.T) {
-//	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+//	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 //	defer cancel()
 //
 //	cfg := configSetup(t)
@@ -907,7 +907,7 @@ func TestReactorRecordsVotesAndBlockParts(t *testing.T) {
 //}
 
 func TestReactorValidatorSetChanges(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
 
 	cfg := configSetup(t)

@@ -1,7 +1,6 @@
 package client_test
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -15,8 +14,7 @@ import (
 )
 
 func TestWaitForHeight(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// test with error result - immediate failure
 	m := &mock.StatusMock{

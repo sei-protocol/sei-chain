@@ -41,6 +41,6 @@ func FuzzMempool(f *testing.F) {
 	mp := mempool.NewTxMempool(logger, cfg, conn, NewTestPeerEvictor())
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		_ = mp.CheckTx(context.Background(), data, nil, mempool.TxInfo{})
+		_ = mp.CheckTx(t.Context(), data, nil, mempool.TxInfo{})
 	})
 }

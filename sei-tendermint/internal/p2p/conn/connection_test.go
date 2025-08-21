@@ -51,8 +51,7 @@ func TestMConnectionSendFlushStop(t *testing.T) {
 	server, client := net.Pipe()
 	t.Cleanup(closeAll(t, client, server))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	clientConn := createTestMConnection(log.NewNopLogger(), client)
 	err := clientConn.Start(ctx)
@@ -88,8 +87,7 @@ func TestMConnectionSend(t *testing.T) {
 	server, client := net.Pipe()
 	t.Cleanup(closeAll(t, client, server))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mconn := createTestMConnection(log.NewNopLogger(), client)
 	err := mconn.Start(ctx)
@@ -135,8 +133,7 @@ func TestMConnectionReceive(t *testing.T) {
 	}
 	logger := log.NewNopLogger()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mconn1 := createMConnectionWithCallbacks(logger, client, onReceive, onError)
 	err := mconn1.Start(ctx)
@@ -165,8 +162,7 @@ func TestMConnectionWillEventuallyTimeout(t *testing.T) {
 	server, client := net.Pipe()
 	t.Cleanup(closeAll(t, client, server))
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mconn := createMConnectionWithCallbacks(log.NewNopLogger(), client, nil, nil)
 	err := mconn.Start(ctx)
@@ -221,8 +217,7 @@ func TestMConnectionMultiplePongsInTheBeginning(t *testing.T) {
 		}
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mconn := createMConnectionWithCallbacks(log.NewNopLogger(), client, onReceive, onError)
 	err := mconn.Start(ctx)
@@ -279,8 +274,7 @@ func TestMConnectionMultiplePings(t *testing.T) {
 		case <-ctx.Done():
 		}
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mconn := createMConnectionWithCallbacks(log.NewNopLogger(), client, onReceive, onError)
 	err := mconn.Start(ctx)
@@ -336,8 +330,7 @@ func TestMConnectionPingPongs(t *testing.T) {
 		}
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mconn := createMConnectionWithCallbacks(log.NewNopLogger(), client, onReceive, onError)
 	err := mconn.Start(ctx)
@@ -395,8 +388,7 @@ func TestMConnectionStopsAndReturnsError(t *testing.T) {
 		case <-ctx.Done():
 		}
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mconn := createMConnectionWithCallbacks(log.NewNopLogger(), client, onReceive, onError)
 	err := mconn.Start(ctx)
@@ -466,8 +458,7 @@ func expectSend(ch chan struct{}) bool {
 }
 
 func TestMConnectionReadErrorBadEncoding(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	chOnErr := make(chan struct{})
 	mconnClient, mconnServer := newClientAndServerConnsForReadErrors(ctx, t, chOnErr)
@@ -482,8 +473,7 @@ func TestMConnectionReadErrorBadEncoding(t *testing.T) {
 }
 
 func TestMConnectionReadErrorUnknownChannel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	chOnErr := make(chan struct{})
 	mconnClient, mconnServer := newClientAndServerConnsForReadErrors(ctx, t, chOnErr)
@@ -504,8 +494,7 @@ func TestMConnectionReadErrorLongMessage(t *testing.T) {
 	chOnErr := make(chan struct{})
 	chOnRcv := make(chan struct{})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mconnClient, mconnServer := newClientAndServerConnsForReadErrors(ctx, t, chOnErr)
 	t.Cleanup(waitAll(mconnClient, mconnServer))
@@ -544,8 +533,7 @@ func TestMConnectionReadErrorLongMessage(t *testing.T) {
 }
 
 func TestMConnectionReadErrorUnknownMsgType(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	chOnErr := make(chan struct{})
 	mconnClient, mconnServer := newClientAndServerConnsForReadErrors(ctx, t, chOnErr)
@@ -560,8 +548,7 @@ func TestMConnectionReadErrorUnknownMsgType(t *testing.T) {
 func TestMConnectionTrySend(t *testing.T) {
 	server, client := net.Pipe()
 	t.Cleanup(closeAll(t, client, server))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mconn := createTestMConnection(log.NewNopLogger(), client)
 	err := mconn.Start(ctx)
@@ -595,7 +582,6 @@ func TestConnVectors(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 
 		pm := mustWrapPacket(tc.msg)
 		bz, err := pm.Marshal()
@@ -609,8 +595,7 @@ func TestMConnectionChannelOverflow(t *testing.T) {
 	chOnErr := make(chan struct{})
 	chOnRcv := make(chan struct{})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	mconnClient, mconnServer := newClientAndServerConnsForReadErrors(ctx, t, chOnErr)
 	t.Cleanup(waitAll(mconnClient, mconnServer))

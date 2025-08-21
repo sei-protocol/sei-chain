@@ -184,7 +184,7 @@ func setup(
 }
 
 func TestReactor_Sync(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 
 	const snapshotHeight = 7
@@ -238,8 +238,7 @@ func TestReactor_Sync(t *testing.T) {
 }
 
 func TestReactor_ChunkRequest_InvalidRequest(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	rts := setup(ctx, t, nil, nil, 2)
 
@@ -284,13 +283,9 @@ func TestReactor_ChunkRequest(t *testing.T) {
 		},
 	}
 
-	bctx, bcancel := context.WithCancel(context.Background())
-	defer bcancel()
-
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(bctx)
-			defer cancel()
+			ctx := t.Context()
 
 			// mock ABCI connection to return local snapshots
 			conn := &clientmocks.Client{}
@@ -318,8 +313,7 @@ func TestReactor_ChunkRequest(t *testing.T) {
 }
 
 func TestReactor_SnapshotsRequest_InvalidRequest(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	rts := setup(ctx, t, nil, nil, 2)
 
@@ -371,15 +365,9 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 			},
 		},
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	for name, tc := range testcases {
-		tc := tc
-
 		t.Run(name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
+			ctx := t.Context()
 
 			// mock ABCI connection to return local snapshots
 			conn := &clientmocks.Client{}
@@ -412,8 +400,7 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 }
 
 func TestReactor_LightBlockResponse(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	rts := setup(ctx, t, nil, nil, 2)
 
@@ -470,7 +457,7 @@ func TestReactor_LightBlockResponse(t *testing.T) {
 }
 
 func TestReactor_BlockProviders(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	rts := setup(ctx, t, nil, nil, 2)
@@ -537,8 +524,7 @@ func TestReactor_BlockProviders(t *testing.T) {
 }
 
 func TestReactor_StateProviderP2P(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	rts := setup(ctx, t, nil, nil, 3)
 	// make syncer non nil else test won't think we are state syncing
@@ -633,17 +619,12 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 }
 
 func TestReactor_Backfill(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	// test backfill algorithm with varying failure rates [0, 10]
 	failureRates := []int{0, 2, 9}
 	for _, failureRate := range failureRates {
 		failureRate := failureRate
 		t.Run(fmt.Sprintf("failure rate: %d", failureRate), func(t *testing.T) {
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
-
+			ctx := t.Context()
 			t.Cleanup(leaktest.CheckTimeout(t, 1*time.Minute))
 			rts := setup(ctx, t, nil, nil, 21)
 

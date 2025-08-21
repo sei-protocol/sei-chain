@@ -12,8 +12,7 @@ import (
 
 // Tests that block headers are identical across nodes where present.
 func TestBlock_Header(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	blocks := fetchBlockChain(ctx, t)
 	testNode(t, func(ctx context.Context, t *testing.T, node e2e.Node) {

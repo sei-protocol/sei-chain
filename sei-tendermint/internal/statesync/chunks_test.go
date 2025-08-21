@@ -125,7 +125,6 @@ func TestChunkQueue_Add_ChunkErrors(t *testing.T) {
 		"invalid index": {&chunk{Height: 3, Format: 1, Index: 5, Chunk: []byte{3, 1, 0}}},
 	}
 	for name, tc := range testcases {
-		tc := tc
 		t.Run(name, func(t *testing.T) {
 			queue, teardown := setupChunkQueue(t)
 			defer teardown()
