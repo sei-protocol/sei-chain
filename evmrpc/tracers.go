@@ -89,6 +89,7 @@ func NewDebugAPI(
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
 		traceTimeout:       debugCfg.TraceTimeout,
+		backend:            backend,
 	}
 }
 
@@ -122,6 +123,7 @@ func NewSeiDebugAPI(
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
 		traceTimeout:       debugCfg.TraceTimeout,
+		backend:            backend,
 		// isPanicCache: nil, // Explicitly nil as per original structure for SeiDebugAPI's embedded DebugAPI
 	}
 
