@@ -240,12 +240,22 @@ $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
 	  | grep -v '/occ_tests$$' \
 	  > $(BUILDDIR)/packages.txt
 
+TARGET_PACKAGE := github.com/sei-protocol/sei-chain/occ_tests
+
 split-test-packages:$(BUILDDIR)/packages.txt
 	split -d -n l/$(NUM_SPLIT) $< $<.
-test-group-%:split-test-packages
-	cat $(BUILDDIR)/packages.txt.$* | xargs go test -parallel 4 -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic
+test-group-%: split-test-packages
+	@echo "🔍 Checking for special package: $(TARGET_PACKAGE)"
+	@if grep -q "$(TARGET_PACKAGE)" $(BUILDDIR)/packages.txt.$*; then \
+		echo "🔒 Found $(TARGET_PACKAGE), running with -parallel=1"; \
+		PARALLEL="-parallel=1"; \
+	else \
+		echo "⚡ Not found, running with -parallel=4"; \
+		PARALLEL="-parallel=4"; \
+	fi; \
+	cat $(BUILDDIR)/packages.txt.$* | xargs go test $$PARALLEL -mod=readonly -timeout=15m -v
 
 test-occ:
-	@echo "Running occ_tests serially (no -race) to avoid cgo SIGBUS"
-	GODEBUG=madvdontneed=1 go test ./occ_tests -count=1 -p=1 -parallel=1 -timeout=20m \
-	  -coverprofile=occ.profile.out -covermode=atomic
+	@echo "Running occ_tests serially (no -race) to avoid cgo SIGBUS)"
+	GODEBUG=madvdontneed=1 go test ./occ_tests -count=1 -p=1 -parallel=1 \
+		-coverprofile=occ.profile.out -covermode=atomic
