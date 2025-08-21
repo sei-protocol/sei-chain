@@ -234,14 +234,17 @@ func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txCo
 }
 
 func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
-	height, err := b.getBlockHeight(ctx, blockNrOrHash)
+	height, isLatestBlock, err := b.getBlockHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, nil, err
 	}
 	isWasmdCall, ok := ctx.Value(CtxIsWasmdPrecompileCallKey).(bool)
 	sdkCtx := b.ctxProvider(height).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(ok && isWasmdCall)
-	if err := CheckVersion(sdkCtx, b.keeper); err != nil {
-		return nil, nil, err
+	if !isLatestBlock {
+		// no need to check version for latest block
+		if err := CheckVersion(sdkCtx, b.keeper); err != nil {
+			return nil, nil, err
+		}
 	}
 	header := b.getHeader(big.NewInt(height))
 	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
@@ -378,7 +381,7 @@ func (b *Backend) Engine() consensus.Engine {
 }
 
 func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Header, error) {
-	height, err := b.getBlockHeight(ctx, rpc.BlockNumberOrHashWithNumber(bn))
+	height, _, err := b.getBlockHeight(ctx, rpc.BlockNumberOrHashWithNumber(bn))
 	if err != nil {
 		return nil, err
 	}
@@ -505,13 +508,14 @@ func (b *Backend) SuggestGasTipCap(context.Context) (*big.Int, error) {
 	return utils.Big0, nil
 }
 
-func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, error) {
+func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, bool, error) {
 	var block *coretypes.ResultBlock
 	var err error
+	var isLatestBlock bool
 	if blockNr, ok := blockNrOrHash.Number(); ok {
 		blockNumber, blockNumErr := getBlockNumber(ctx, b.tmClient, blockNr)
 		if blockNumErr != nil {
-			return 0, blockNumErr
+			return 0, false, blockNumErr
 		}
 		if blockNumber == nil {
 			// we don't want to get the latest block from Tendermint's perspective, because
@@ -519,15 +523,16 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 			// latest block in Tendermint may not have its application state committed yet.
 			currentHeight := b.ctxProvider(LatestCtxHeight).BlockHeight()
 			blockNumber = &currentHeight
+			isLatestBlock = true
 		}
 		block, err = blockByNumber(ctx, b.tmClient, blockNumber)
 	} else {
 		block, err = blockByHash(ctx, b.tmClient, blockNrOrHash.BlockHash[:])
 	}
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	return block.Block.Height, nil
+	return block.Block.Height, isLatestBlock, nil
 }
 
 func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
