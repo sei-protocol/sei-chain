@@ -123,7 +123,6 @@ func setupTestServer(
 		func(ctx context.Context, hash common.Hash) (bool, error) {
 			return false, nil
 		},
-		nil,
 	)
 	if err != nil {
 		panic(err)
