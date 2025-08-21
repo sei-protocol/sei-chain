@@ -59,11 +59,13 @@ func (s *SeiTxPrioritizer) getEvmTxPriority(ctx sdk.Context, evmTx *evmtypes.Msg
 	if err != nil {
 		return 0, err
 	}
-	if txData.GetGasFeeCap().Cmp(s.getEvmBaseFee(ctx)) < 0 {
+	feeCap := txData.GetGasFeeCap()
+	fee := s.getEvmBaseFee(ctx)
+	if feeCap.Cmp(fee) < 0 {
 		return 0, sdkerrors.ErrInsufficientFee
 	}
 	minimumFee := s.evmKeeper.GetMinimumFeePerGas(ctx).TruncateInt().BigInt()
-	if txData.GetGasFeeCap().Cmp(minimumFee) < 0 {
+	if feeCap.Cmp(minimumFee) < 0 {
 		return 0, sdkerrors.ErrInsufficientFee
 	}
 	if txData.GetGasTipCap().Sign() < 0 {
@@ -72,7 +74,7 @@ func (s *SeiTxPrioritizer) getEvmTxPriority(ctx sdk.Context, evmTx *evmtypes.Msg
 	// Check blob hashes for sanity.
 	// If EVM version is Cancun or later, and the transaction contains at least one blob, we need to
 	// make sure the transaction carries a non-zero blob fee cap.
-	if evmTx.Derived.Version >= derived.Cancun && len(txData.GetBlobHashes()) > 0 {
+	if evmTx.Derived != nil && evmTx.Derived.Version >= derived.Cancun && len(txData.GetBlobHashes()) > 0 {
 		// For now we are simply assuming excessive blob gas is 0. In the future we might change it to be
 		// dynamic based on prior block usage.
 		chainConfig := evmtypes.DefaultChainConfig().EthereumConfig(s.evmKeeper.ChainID(ctx))
@@ -127,15 +129,18 @@ func (s *SeiTxPrioritizer) getCosmosTxPriority(ctx sdk.Context, feeTx sdk.FeeTx)
 		return antedecorators.OraclePriority, nil
 	}
 
-	feeCoins := feeTx.GetFee()
-	feeParams := s.paramsKeeper.GetFeesParams(ctx)
-	feeCoins = feeCoins.NonZeroAmountsOf(append([]string{sdk.DefaultBondDenom}, feeParams.GetAllowedFeeDenoms()...))
 	gas := feeTx.GetGas()
-	// skip checking that fees meet a minimum threshold for the validator.
-	var priority int64
-	if gas > 0 {
-		priority = ante.GetTxPriority(feeCoins, int64(gas))
+	if gas <= 0 {
+		return 0, nil
 	}
+
+	feeParams := s.paramsKeeper.GetFeesParams(ctx)
+	allowedDenoms := feeParams.GetAllowedFeeDenoms()
+	demons := make([]string, 0, len(allowedDenoms)+1)
+	demons = append(demons, sdk.DefaultBondDenom)
+	demons = append(demons, allowedDenoms...)
+	feeCoins := feeTx.GetFee().NonZeroAmountsOf(demons)
+	priority := ante.GetTxPriority(feeCoins, int64(gas))
 	return min(antedecorators.MaxPriority, priority), nil
 }
 
