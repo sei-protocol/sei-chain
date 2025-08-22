@@ -5,13 +5,14 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/cosmos/cosmos-sdk/x/auth/ante"
+	cosmosante "github.com/cosmos/cosmos-sdk/x/auth/ante"
 	paramskeeper "github.com/cosmos/cosmos-sdk/x/params/keeper"
 	upgradekeeper "github.com/cosmos/cosmos-sdk/x/upgrade/keeper"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip4844"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	"github.com/sei-protocol/sei-chain/utils"
+	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -71,9 +72,15 @@ func (s *SeiTxPrioritizer) getEvmTxPriority(ctx sdk.Context, evmTx *evmtypes.Msg
 	if txData.GetGasTipCap().Sign() < 0 {
 		return 0, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "gas fee cap cannot be negative")
 	}
-	// Check blob hashes for sanity.
-	// If EVM version is Cancun or later, and the transaction contains at least one blob, we need to
-	// make sure the transaction carries a non-zero blob fee cap.
+	// Check blob hashes for sanity. If EVM version is Cancun or later, and the
+	// transaction contains at least one blob, we need to make sure the transaction
+	// carries a non-zero blob fee cap.
+	//
+	// Note that evmante.Preprocess is a stateless function and would return fast if
+	// tx is already pre-processed.
+	if err := evmante.Preprocess(ctx, evmTx, s.evmKeeper.ChainID(ctx), s.evmKeeper.EthBlockTestConfig.Enabled); err != nil {
+		return 0, err
+	}
 	if evmTx.Derived != nil && evmTx.Derived.Version >= derived.Cancun && len(txData.GetBlobHashes()) > 0 {
 		// For now we are simply assuming excessive blob gas is 0. In the future we might change it to be
 		// dynamic based on prior block usage.
@@ -140,7 +147,7 @@ func (s *SeiTxPrioritizer) getCosmosTxPriority(ctx sdk.Context, feeTx sdk.FeeTx)
 	demons = append(demons, sdk.DefaultBondDenom)
 	demons = append(demons, allowedDenoms...)
 	feeCoins := feeTx.GetFee().NonZeroAmountsOf(demons)
-	priority := ante.GetTxPriority(feeCoins, int64(gas))
+	priority := cosmosante.GetTxPriority(feeCoins, int64(gas))
 	return min(antedecorators.MaxPriority, priority), nil
 }
 
