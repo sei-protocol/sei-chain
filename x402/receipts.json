@@ -1,0 +1,4 @@
+[
+  {"txid":"0xabc...","amount":"125.00","currency":"USDC","status":"owed","to":"0xYourAddr","memo_private":"INV-2025-0819-A1"},
+  {"txid":"0xdef...","amount":"7.50","currency":"USDC","status":"settled","to":"0xYourAddr"}
+]
