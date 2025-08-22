@@ -50,9 +50,23 @@ func (s *SeiTxPrioritizer) GetTxPriority(ctx sdk.Context, tx sdk.Tx) (int64, err
 }
 
 func (s *SeiTxPrioritizer) getEvmTxPriority(ctx sdk.Context, evmTx *evmtypes.MsgEVMTransaction) (int64, error) {
-
-	if s.isUnassociatedAssociate(ctx, evmTx) {
-		return antedecorators.EVMAssociatePriority, nil
+	if err := evmante.Preprocess(ctx, evmTx, s.evmKeeper.ChainID(ctx), s.evmKeeper.EthBlockTestConfig.Enabled); err != nil {
+		return 0, err
+	}
+	if evmTx.Derived.IsAssociate {
+		_, isAssociated := s.evmKeeper.GetEVMAddress(
+			ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)),
+			evmTx.Derived.SenderSeiAddr)
+		if !isAssociated {
+			// Unassociated associate transactions have the second-highest priority.
+			// This is to ensure that associate transactions are processed before
+			// regular transactions, but after oracle transactions.
+			//
+			// Note that we are not checking if sufficient funds are present here to keep the
+			// priority calculation fast. CheckTx should fully check the transaction.
+			return antedecorators.EVMAssociatePriority, nil
+		}
+		return 0, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "account already has association set")
 	}
 
 	// Check txData for sanity.
@@ -75,12 +89,6 @@ func (s *SeiTxPrioritizer) getEvmTxPriority(ctx sdk.Context, evmTx *evmtypes.Msg
 	// Check blob hashes for sanity. If EVM version is Cancun or later, and the
 	// transaction contains at least one blob, we need to make sure the transaction
 	// carries a non-zero blob fee cap.
-	//
-	// Note that evmante.Preprocess is a stateless function and would return fast if
-	// tx is already pre-processed.
-	if err := evmante.Preprocess(ctx, evmTx, s.evmKeeper.ChainID(ctx), s.evmKeeper.EthBlockTestConfig.Enabled); err != nil {
-		return 0, err
-	}
 	if evmTx.Derived != nil && evmTx.Derived.Version >= derived.Cancun && len(txData.GetBlobHashes()) > 0 {
 		// For now we are simply assuming excessive blob gas is 0. In the future we might change it to be
 		// dynamic based on prior block usage.
@@ -96,18 +104,6 @@ func (s *SeiTxPrioritizer) getEvmTxPriority(ctx sdk.Context, evmTx *evmtypes.Msg
 		priority = big.NewInt(antedecorators.MaxPriority)
 	}
 	return priority.Int64(), nil
-}
-
-func (s *SeiTxPrioritizer) isUnassociatedAssociate(ctx sdk.Context, evmTx *evmtypes.MsgEVMTransaction) bool {
-	// TODO: when is derived populated? Check that it is reasonable to use it here.
-	if evmTx.Derived == nil {
-		return false
-	}
-
-	// TODO: this potentially looks up entries from KVstore. Do we want to?
-	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
-	_, isAssociated := s.evmKeeper.GetEVMAddress(ctx, evmTx.Derived.SenderSeiAddr)
-	return evmTx.Derived.IsAssociate && !isAssociated
 }
 
 func (s *SeiTxPrioritizer) getEvmBaseFee(ctx sdk.Context) *big.Int {
