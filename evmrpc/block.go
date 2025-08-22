@@ -113,7 +113,7 @@ func (a *SeiBlockAPI) GetBlockByHashExcludeTraceFail(ctx context.Context, blockH
 
 func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics(fmt.Sprintf("%s_getBlockTransactionCountByNumber", a.namespace), a.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockTransactionCountByNumber", a.namespace), a.connectionType, startTime, returnErr)
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
@@ -127,7 +127,7 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 
 func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics(fmt.Sprintf("%s_getBlockTransactionCountByHash", a.namespace), a.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockTransactionCountByHash", a.namespace), a.connectionType, startTime, returnErr)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
 	if err != nil {
 		return nil, err
@@ -142,7 +142,7 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 
 func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool, isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics(fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
 	if err != nil {
 		return nil, err
@@ -163,7 +163,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics(fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr)
 	if number == 0 {
 		// for compatibility with the graph, always return genesis block
 		return map[string]interface{}{
@@ -199,8 +199,6 @@ func (a *BlockAPI) getBlockByNumber(
 	includeSyntheticTxs bool,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 ) (result map[string]interface{}, returnErr error) {
-	startTime := time.Now()
-	defer recordMetrics(fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr == nil)
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
@@ -225,7 +223,7 @@ func (a *BlockAPI) getBlockByNumber(
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics(fmt.Sprintf("%s_getBlockReceipts", a.namespace), a.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockReceipts", a.namespace), a.connectionType, startTime, returnErr)
 	// Get height from params
 	heightPtr, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
 	if err != nil {

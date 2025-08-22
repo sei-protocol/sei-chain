@@ -46,26 +46,26 @@ type FeeHistoryResult struct {
 
 func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
 	startTime := time.Now()
-	defer recordMetrics("eth_BlockNumber", i.connectionType, startTime, true)
+	defer recordMetrics("eth_BlockNumber", i.connectionType, startTime)
 	return hexutil.Uint64(i.ctxProvider(LatestCtxHeight).BlockHeight())
 }
 
 //nolint:revive
 func (i *InfoAPI) ChainId() *hexutil.Big {
 	startTime := time.Now()
-	defer recordMetrics("eth_ChainId", i.connectionType, startTime, true)
+	defer recordMetrics("eth_ChainId", i.connectionType, startTime)
 	return (*hexutil.Big)(i.keeper.ChainID(i.ctxProvider(LatestCtxHeight)))
 }
 
-func (i *InfoAPI) Coinbase() (common.Address, error) {
+func (i *InfoAPI) Coinbase() (addr common.Address, err error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_Coinbase", i.connectionType, startTime, true)
+	defer recordMetricsWithError("eth_Coinbase", i.connectionType, startTime, err)
 	return i.keeper.GetFeeCollectorAddress(i.ctxProvider(LatestCtxHeight))
 }
 
 func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_Accounts", i.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError("eth_Accounts", i.connectionType, startTime, returnErr)
 	kb, err := getTestKeyring(i.homeDir)
 	if err != nil {
 		return []common.Address{}, err
@@ -78,7 +78,7 @@ func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
 
 func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_GasPrice", i.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError("eth_GasPrice", i.connectionType, startTime, returnErr)
 	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	totalGasUsed, err := i.getCongestionData(ctx, nil)
 	if err != nil {
@@ -115,7 +115,7 @@ func (i *InfoAPI) GasPriceHelper(ctx context.Context, baseFee *big.Int, totalGas
 // lastBlock is inclusive
 func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (result *FeeHistoryResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_feeHistory", i.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError("eth_feeHistory", i.connectionType, startTime, returnErr)
 	result = &FeeHistoryResult{}
 
 	// logic consistent with go-ethereum's validation (block < 1 means no block)
@@ -219,12 +219,12 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 	return result, nil
 }
 
-func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, error) {
+func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (fee *hexutil.Big, returnErr error) {
 	// Checks the most recent block. If it has high gas used, it will return the reward of the 50% percentile.
 	// Otherwise, since the previous block has low gas used, a user shouldn't need to tip a high amount to get included,
 	// so a default value is returned.
 	startTime := time.Now()
-	defer recordMetrics("eth_maxPriorityFeePerGas", i.connectionType, startTime, true)
+	defer recordMetricsWithError("eth_maxPriorityFeePerGas", i.connectionType, startTime, returnErr)
 	totalGasUsed, err := i.getCongestionData(ctx, nil)
 	if err != nil {
 		return nil, err
