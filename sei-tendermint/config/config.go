@@ -840,7 +840,7 @@ func DefaultMempoolConfig() *MempoolConfig {
 		MaxPendingTxsBytes:           1024 * 1024 * 1024, // 1GB
 		PendingTTLDuration:           0 * time.Second,
 		PendingTTLNumBlocks:          0,
-		RemoveExpiredTxsFromQueue:    false,
+		RemoveExpiredTxsFromQueue:    true,
 	}
 }
 
