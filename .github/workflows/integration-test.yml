@@ -19,6 +19,20 @@ defaults:
     shell: bash
 
 jobs:
+  slinky-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      slinky: ${{ steps.filter.outputs.slinky }}
+    steps:
+      - uses: actions/checkout@v3
+      - id: filter
+        uses: dorny/paths-filter@v2
+        with:
+          filters: |
+            slinky:
+              - 'scripts/modules/slinky_test/**'
+              - 'x/slinky/**'
+
   integration-tests:
     name: Integration Test (${{ matrix.test.name }})
     runs-on: ubuntu-large
@@ -195,6 +209,16 @@ jobs:
           go-version: 1.21
       - name: Run Slinky Integration Tests
         if: steps.filter.outputs.slinky == 'true'
+    needs: slinky-changes
+    if: needs.slinky-changes.outputs.slinky == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.21
+      - name: Run Slinky Integration Tests
         run: scripts/modules/slinky_test/run_slinky_test.sh
 
   integration-test-check:
