@@ -64,6 +64,12 @@ index-events = []
 # Default cache size is 50mb.
 iavl-cache-size = 781250
 
+# concurrency-workers defines how many workers to run for concurrent transaction execution
+concurrency-workers = 4
+
+# occ-enabled defines whether OCC is enabled or not for transaction execution
+occ-enabled = true
+
 ###############################################################################
 ###                         Telemetry Configuration                         ###
 ###############################################################################

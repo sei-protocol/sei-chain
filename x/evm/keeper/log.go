@@ -25,6 +25,20 @@ func (k *Keeper) GetBlockBloom(ctx sdk.Context) (res ethtypes.Bloom) {
 	return
 }
 
+func (k *Keeper) GetEvmOnlyBlockBloom(ctx sdk.Context) (res ethtypes.Bloom) {
+	store := ctx.KVStore(k.storeKey)
+	bz := store.Get(types.EvmOnlyBlockBloomPrefix)
+	if bz != nil {
+		res.SetBytes(bz)
+		return
+	}
+	cutoff := k.GetLegacyBlockBloomCutoffHeight(ctx)
+	if cutoff == 0 || ctx.BlockHeight() < cutoff {
+		return k.GetLegacyBlockBloom(ctx, ctx.BlockHeight())
+	}
+	return
+}
+
 func (k *Keeper) GetLegacyBlockBloom(ctx sdk.Context, height int64) (res ethtypes.Bloom) {
 	store := ctx.KVStore(k.storeKey)
 	bz := store.Get(types.BlockBloomKey(height))
@@ -32,6 +46,17 @@ func (k *Keeper) GetLegacyBlockBloom(ctx sdk.Context, height int64) (res ethtype
 		res.SetBytes(bz)
 	}
 	return
+}
+
+func (k *Keeper) SetEvmOnlyBlockBloom(ctx sdk.Context, blooms []ethtypes.Bloom) {
+	blockBloom := make([]byte, ethtypes.BloomByteLength)
+	for _, bloom := range blooms {
+		or := make([]byte, ethtypes.BloomByteLength)
+		bitutil.ORBytes(or, blockBloom, bloom[:])
+		blockBloom = or
+	}
+	store := ctx.KVStore(k.storeKey)
+	store.Set(types.EvmOnlyBlockBloomPrefix, blockBloom)
 }
 
 func (k *Keeper) SetBlockBloom(ctx sdk.Context, blooms []ethtypes.Bloom) {
@@ -63,6 +88,17 @@ func (k *Keeper) GetLegacyBlockBloomCutoffHeight(ctx sdk.Context) int64 {
 
 func GetLogsForTx(receipt *types.Receipt, logStartIndex uint) []*ethtypes.Log {
 	return utils.Map(receipt.Logs, func(l *types.Log) *ethtypes.Log { return convertLog(l, receipt, logStartIndex) })
+}
+
+func GetEvmOnlyLogsForTx(receipt *types.Receipt, logStartIndex uint) []*ethtypes.Log {
+	logs := make([]*ethtypes.Log, 0, len(receipt.Logs))
+	for _, l := range receipt.Logs {
+		if l.Synthetic {
+			continue
+		}
+		logs = append(logs, convertLog(l, receipt, logStartIndex))
+	}
+	return logs
 }
 
 func convertLog(l *types.Log, receipt *types.Receipt, logStartIndex uint) *ethtypes.Log {
