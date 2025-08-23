@@ -2,11 +2,11 @@
 pragma solidity ^0.8.20;
 
 /**
- * @title SomaProtocol
- * @dev Soma: a simple staking + reflection protocol, where deposited funds "rest" (soma = body)
- * and accrue balance over time. This is conceptual scaffolding to show how the protocol might work.
+ * @title SeiSoma
+ * @dev Example staking and reflection prototype for the Sei network. Deposits "rest" on chain
+ * and accrue balance over time, demonstrating how a simple interest model could be implemented.
  */
-contract SomaProtocol {
+contract SeiSoma {
     mapping(address => uint256) private balances;
     mapping(address => uint256) private depositBlock;
 
@@ -49,11 +49,11 @@ contract SomaProtocol {
 }
 
 /**
- * @title PaywordProtocol
- * @dev Payword: a micro-payment protocol where a user precommits a hash chain and reveals words step by step
- * to incrementally pay a merchant. This is a simplified smart contract sketch.
+ * @title SeiPayword
+ * @dev Sample hash-chain micropayment channel for Sei. A payer precommits a chain of hashes and
+ * reveals preimages sequentially to incrementally pay a merchant.
  */
-contract PaywordProtocol {
+contract SeiPayword {
     struct Channel {
         address payer;
         address payee;
