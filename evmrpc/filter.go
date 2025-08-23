@@ -821,7 +821,7 @@ func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCrite
 
 // Unified log collection logic
 func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, collector logCollector, applyExactMatch bool) {
-	ctx := f.ctxProvider(LatestCtxHeight)
+	ctx := f.ctxProvider(block.Block.Height)
 	totalLogs := uint(0)
 	evmTxIndex := 0
 
@@ -837,6 +837,10 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 				continue
 			}
 			setCachedReceipt(block.Block.Height, block, hash, receipt)
+		}
+
+		if int64(receipt.BlockNumber) != block.Block.Height {
+			fmt.Printf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height)
 		}
 
 		if !f.includeSyntheticReceipts && (receipt.TxType == evmtypes.ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
