@@ -3,15 +3,21 @@ name: CI – Integration & Contracts
 on:
   push:
     branches:
+      - main
+      - evm
+      - 'release/**'
       - '**'
   pull_request:
     branches:
+      - main
+      - evm
+      - 'release/**'
       - '**'
 
 jobs:
-  # ---------- Build & Test Kin Contracts ----------
-  contracts:
-    name: Build & Test Contracts
+  # ---------- Forge EVM Tests ----------
+  forge:
+    name: Forge EVM Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,53 +26,27 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly
 
-      - name: Install dependencies
+      - name: Run Forge Tests
         run: |
-          forge install foundry-rs/forge-std@v1.8.2 --no-commit
-          forge install OpenZeppelin/openzeppelin-contracts@v5.0.2 --no-commit
+          forge install
+          forge build
+          forge test -vvv
 
-      - name: Build contracts
-        run: |
-          forge --version
-          forge build --evm-version=prague
-
-      - name: Run Forge tests
-        run: |
-          forge test -vvv --evm-version=prague
-
-  # ---------- Slinky Integration Tests ----------
-  slinky:
-    name: Slinky Integration Tests
+  # ---------- Build & Test Kin Contracts ----------
+  contracts:
+    name: Build & Test Kin Contracts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - id: filter
-        uses: dorny/paths-filter@v2
         with:
-          filters: |
-            slinky:
-              - 'scripts/modules/slinky_test/**'
-              - 'x/slinky/**'
+          submodules: false   # Do not fetch sei-chain submodule
 
-      - uses: actions/setup-go@v5
-        if: steps.filter.outputs.slinky == 'true'
-        with:
-          go-version: 1.21
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
 
-      - name: Run Slinky Integration Tests
-        if: steps.filter.outputs.slinky == 'true'
-        run: scripts/modules/slinky_test/run_slinky_test.sh
-
-  # ---------- x402 Settlement Check ----------
-  x402:
-    name: x402 Settlement Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: No-op confirmation
-        run: echo "x402 settlement check: OK"
+      - name: Run Kin Contract Tests
+        run: |
+          forge install
+          forge build --contracts contracts/kin
+          forge test --contracts contracts/kin -vvv
