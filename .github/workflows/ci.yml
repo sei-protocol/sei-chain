@@ -42,13 +42,13 @@ jobs:
     name: Slinky integration tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Run Slinky tests if present
         run: |
           if [ -d "./x/slinky" ]; then
             echo "Slinky module found, running tests"
-            go test ./x/slinky/... -race -covermode=atomic -coverprofile=coverage.out
+            go test "./x/slinky/..." -race -covermode=atomic -coverprofile=coverage.out
           else
             echo "No Slinky module found, skipping"
           fi
