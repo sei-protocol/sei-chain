@@ -35,6 +35,7 @@ type opts struct {
 	maxConcurrentSimulationCalls interface{}
 	maxTraceLookbackBlocks       interface{}
 	traceTimeout                 interface{}
+	rpcStatsInterval             interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -116,6 +117,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.trace_timeout" {
 		return o.traceTimeout
 	}
+	if k == "evm.rpc_stats_interval" {
+		return o.rpcStatsInterval
+	}
 	panic("unknown key")
 }
 
@@ -147,6 +151,7 @@ func TestReadConfig(t *testing.T) {
 		uint64(10),
 		int64(100),
 		30 * time.Second,
+		10 * time.Second,
 	}
 	_, err := evmrpc.ReadConfig(&goodOpts)
 	require.Nil(t, err)

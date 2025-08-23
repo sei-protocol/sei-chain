@@ -97,123 +97,136 @@ func assertEqualExecTxResults(t *testing.T, expected, actual []*types.ExecTxResu
 	}
 }
 
-// TestParallelTransactions verifies that the store state is equivalent
-// between both parallel and sequential executions
-func TestParallelTransactions(t *testing.T) {
-	runs := 3
-	tests := []struct {
-		name    string
-		runs    int
-		shuffle bool
-		before  func(tCtx *utils.TestContext)
-		txs     func(tCtx *utils.TestContext) []*utils.TestMessage
-	}{
-		{
-			name: "Test wasm instantiations",
-			runs: runs,
-			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
-				return utils.JoinMsgs(
-					messages.WasmInstantiate(tCtx, 10),
-				)
-			},
+type Test struct {
+	name    string
+	runs    int
+	shuffle bool
+	before  func(tCtx *utils.TestContext)
+	txs     func(tCtx *utils.TestContext) []*utils.TestMessage
+}
+
+func TestParallelTransactionsWasmInstantiate(t *testing.T) {
+	runTest(t, Test{
+		name: "Test wasm instantiations",
+		runs: 3,
+		txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+			return utils.JoinMsgs(
+				messages.WasmInstantiate(tCtx, 10),
+			)
 		},
-		{
-			name: "Test bank transfer",
-			runs: runs,
-			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
-				return utils.JoinMsgs(
-					messages.BankTransfer(tCtx, 2),
-				)
-			},
+	})
+}
+
+func TestParallelTransactionsBankTransfer(t *testing.T) {
+	runTest(t, Test{
+		name: "Test bank transfer",
+		runs: 3,
+		txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+			return utils.JoinMsgs(
+				messages.BankTransfer(tCtx, 2),
+			)
 		},
-		{
-			name: "Test governance proposal",
-			runs: runs,
-			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
-				return utils.JoinMsgs(
-					messages.GovernanceSubmitProposal(tCtx, 10),
-				)
-			},
+	})
+}
+
+func TestParallelTransactionsGovProposal(t *testing.T) {
+	runTest(t, Test{
+		name: "Test governance proposal",
+		runs: 3,
+		txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+			return utils.JoinMsgs(
+				messages.GovernanceSubmitProposal(tCtx, 10),
+			)
 		},
-		{
-			name: "Test evm transfers non-conflicting",
-			runs: runs,
-			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
-				return utils.JoinMsgs(
-					messages.EVMTransferNonConflicting(tCtx, 10),
-				)
-			},
+	})
+}
+
+func TestParallelTransactionsEvmTransferNonConflicting(t *testing.T) {
+	runTest(t, Test{
+		name: "Test evm transfers non-conflicting",
+		runs: 3,
+		txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+			return utils.JoinMsgs(
+				messages.EVMTransferNonConflicting(tCtx, 10),
+			)
 		},
-		{
-			name: "Test evm transfers conflicting",
-			runs: runs,
-			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
-				return utils.JoinMsgs(
-					messages.EVMTransferConflicting(tCtx, 10),
-				)
-			},
+	})
+}
+
+func TestParallelTransactionsEvmTransferConflicting(t *testing.T) {
+	runTest(t, Test{
+		name: "Test evm transfers conflicting",
+		runs: 3,
+		txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+			return utils.JoinMsgs(
+				messages.EVMTransferConflicting(tCtx, 10),
+			)
 		},
-		{
-			name: "Test pointer creation",
-			runs: runs,
-			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
-				return utils.JoinMsgs(
-					messages.ERC20toCWAssets(tCtx, 10),
-				)
-			},
+	})
+}
+
+func TestParallelTransactionsPointerCreation(t *testing.T) {
+	runTest(t, Test{
+		name: "Test pointer creation",
+		runs: 3,
+		txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+			return utils.JoinMsgs(
+				messages.ERC20toCWAssets(tCtx, 10),
+			)
 		},
-		{
-			name:    "Test combinations",
-			runs:    runs,
-			shuffle: true,
-			txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
-				return utils.JoinMsgs(
-					messages.WasmInstantiate(tCtx, 10),
-					messages.BankTransfer(tCtx, 10),
-					messages.GovernanceSubmitProposal(tCtx, 10),
-					messages.EVMTransferConflicting(tCtx, 10),
-					messages.ERC20toCWAssets(tCtx, 10),
-					messages.EVMTransferNonConflicting(tCtx, 10),
-				)
-			},
+	})
+}
+
+func TestParallelTransactionsCombined(t *testing.T) {
+	runTest(t, Test{
+		name:    "Test combinations",
+		runs:    3,
+		shuffle: true,
+		txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
+			return utils.JoinMsgs(
+				messages.WasmInstantiate(tCtx, 10),
+				messages.BankTransfer(tCtx, 10),
+				messages.GovernanceSubmitProposal(tCtx, 10),
+				messages.EVMTransferConflicting(tCtx, 10),
+				messages.ERC20toCWAssets(tCtx, 10),
+				messages.EVMTransferNonConflicting(tCtx, 10),
+			)
 		},
+	})
+}
+
+func runTest(t *testing.T, tt Test) {
+	blockTime := time.Now()
+	accts := utils.NewTestAccounts(5)
+
+	// execute sequentially, then in parallel
+	// the responses and state should match for both
+	sCtx := utils.NewTestContext(t, accts, blockTime, 1, false)
+	txs := tt.txs(sCtx)
+	if tt.shuffle {
+		txs = utils.Shuffle(txs)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			blockTime := time.Now()
-			accts := utils.NewTestAccounts(5)
+	if tt.before != nil {
+		tt.before(sCtx)
+	}
 
-			// execute sequentially, then in parallel
-			// the responses and state should match for both
-			sCtx := utils.NewTestContext(t, accts, blockTime, 1, false)
-			txs := tt.txs(sCtx)
-			if tt.shuffle {
-				txs = utils.Shuffle(txs)
-			}
+	sEvts, sResults, _, sErr := utils.RunWithoutOCC(sCtx, txs)
+	require.NoError(t, sErr, tt.name)
+	require.Len(t, sResults, len(txs))
 
-			if tt.before != nil {
-				tt.before(sCtx)
-			}
+	for i := 0; i < tt.runs; i++ {
+		pCtx := utils.NewTestContext(t, accts, blockTime, config.DefaultConcurrencyWorkers, true)
+		if tt.before != nil {
+			tt.before(pCtx)
+		}
+		pEvts, pResults, _, pErr := utils.RunWithOCC(pCtx, txs)
+		require.NoError(t, pErr, tt.name)
+		require.Len(t, pResults, len(txs))
 
-			sEvts, sResults, _, sErr := utils.RunWithoutOCC(sCtx, txs)
-			require.NoError(t, sErr, tt.name)
-			require.Len(t, sResults, len(txs))
-
-			for i := 0; i < tt.runs; i++ {
-				pCtx := utils.NewTestContext(t, accts, blockTime, config.DefaultConcurrencyWorkers, true)
-				if tt.before != nil {
-					tt.before(pCtx)
-				}
-				pEvts, pResults, _, pErr := utils.RunWithOCC(pCtx, txs)
-				require.NoError(t, pErr, tt.name)
-				require.Len(t, pResults, len(txs))
-
-				assertExecTxResultCode(t, sResults, pResults, 0, tt.name)
-				assertEqualEvents(t, sEvts, pEvts, tt.name)
-				assertEqualExecTxResults(t, sResults, pResults, tt.name)
-				assertEqualState(t, sCtx.Ctx, pCtx.Ctx, tt.name)
-			}
-		})
+		assertExecTxResultCode(t, sResults, pResults, 0, tt.name)
+		assertEqualEvents(t, sEvts, pEvts, tt.name)
+		assertEqualExecTxResults(t, sResults, pResults, tt.name)
+		assertEqualState(t, sCtx.Ctx, pCtx.Ctx, tt.name)
 	}
 }
