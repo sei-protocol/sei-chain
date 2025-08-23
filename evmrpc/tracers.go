@@ -123,6 +123,7 @@ func NewSeiDebugAPI(
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
 		traceTimeout:       debugCfg.TraceTimeout,
+		backend:            backend,
 		// isPanicCache: nil, // Explicitly nil as per original structure for SeiDebugAPI's embedded DebugAPI
 	}
 
@@ -139,7 +140,7 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	defer cancel()
 
 	startTime := time.Now()
-	defer recordMetrics("debug_traceTransaction", api.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError("debug_traceTransaction", api.connectionType, startTime, returnErr)
 	result, returnErr = api.tracersAPI.TraceTransaction(ctx, hash, config)
 	return
 }
@@ -157,7 +158,7 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 	}
 
 	startTime := time.Now()
-	defer recordMetrics("sei_traceBlockByNumberExcludeTraceFail", api.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError("sei_traceBlockByNumberExcludeTraceFail", api.connectionType, startTime, returnErr)
 	// Accessing tracersAPI from the embedded DebugAPI
 	result, returnErr = api.DebugAPI.tracersAPI.TraceBlockByNumber(ctx, number, config)
 	if returnErr != nil {
@@ -185,7 +186,7 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 	defer cancel()
 
 	startTime := time.Now()
-	defer recordMetrics("sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError("sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr)
 	// Accessing tracersAPI from the embedded DebugAPI
 	result, returnErr = api.DebugAPI.tracersAPI.TraceBlockByHash(ctx, hash, config)
 	if returnErr != nil {
@@ -271,7 +272,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	}
 
 	startTime := time.Now()
-	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError("debug_traceBlockByNumber", api.connectionType, startTime, returnErr)
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
 	return
 }
@@ -284,7 +285,7 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	defer cancel()
 
 	startTime := time.Now()
-	defer recordMetrics("debug_traceBlockByHash", api.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError("debug_traceBlockByHash", api.connectionType, startTime, returnErr)
 	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
 	return
 }
@@ -297,7 +298,7 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs,
 	defer cancel()
 
 	startTime := time.Now()
-	defer recordMetrics("debug_traceCall", api.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError("debug_traceCall", api.connectionType, startTime, returnErr)
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
 	return
 }
