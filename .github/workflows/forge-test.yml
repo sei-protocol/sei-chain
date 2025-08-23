@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false   # 👈 stop fetching submodules
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
