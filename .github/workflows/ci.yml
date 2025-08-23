@@ -27,39 +27,52 @@ jobs:
         run: |
           forge install foundry-rs/forge-std@v1.8.2 --no-commit
           forge install OpenZeppelin/openzeppelin-contracts@v5.0.2 --no-commit
+# ---------- Forge Contract Build + Test ----------
+contracts:
+  name: Build & Test Kin Contracts
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
 
-      - name: Build contracts
-        run: |
-          forge --version
-          forge build --evm-version=prague
+    - name: Build contracts
+      run: |
+        forge --version
+        forge build --evm-version=prague
 
-      - name: Run Forge tests
-        run: |
-          forge test -vvv --evm-version=prague
+    - name: Run Forge tests
+      run: |
+        forge test -vvv --evm-version=prague
 
-  # ---------- Conditional Slinky tests ----------
-  slinky:
-    name: Slinky integration tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
+# ---------- Conditional Slinky Tests ----------
+slinky:
+  name: Slinky Integration Tests
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
 
-      - name: Run Slinky tests if present
-        run: |
-          if [ -d "./x/slinky" ]; then
-            echo "Slinky module found, running tests"
-            go test ./x/slinky/... -race -covermode=atomic -coverprofile=coverage.out
-          else
-            echo "No Slinky module found, skipping"
-          fi
+    - id: filter
+      uses: dorny/paths-filter@v2
+      with:
+        filters: |
+          slinky:
+            - 'scripts/modules/slinky_test/**'
+            - 'x/slinky/**'
 
-  # ---------- x402 settlement check ----------
-  x402:
-    name: x402 settlement check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      if: steps.filter.outputs.slinky == 'true'
+      with:
+        go-version: 1.21
 
-      - name: No-op confirmation
-        run: echo "x402 settlement check: OK"
+    - name: Run Slinky Integration Tests
+      if: steps.filter.outputs.slinky == 'true'
+      run: scripts/modules/slinky_test/run_slinky_test.sh
 
+# ---------- x402 Settlement Check ----------
+x402:
+  name: x402 Settlement Check
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+
+    - name: No-op confirmation
+      run: echo "x402 settlement check: OK"
