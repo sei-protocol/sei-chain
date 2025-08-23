@@ -353,7 +353,8 @@ type App struct {
 
 	configurator module.Configurator
 
-	optimisticProcessingInfo *OptimisticProcessingInfo
+	optimisticProcessingInfo      OptimisticProcessingInfo
+	optimisticProcessingInfoMutex sync.RWMutex
 
 	// batchVerifier *ante.SR25519BatchVerifier
 	txDecoder         sdk.TxDecoder
@@ -1071,10 +1072,10 @@ func (app *App) SetStoreUpgradeHandlers() {
 func (app *App) Name() string { return app.BaseApp.Name() }
 
 // GetBaseApp returns the base app of the application
-func (app App) GetBaseApp() *baseapp.BaseApp { return app.BaseApp }
+func (app *App) GetBaseApp() *baseapp.BaseApp { return app.BaseApp }
 
 // GetStateStore returns the state store of the application
-func (app App) GetStateStore() seidb.StateStore { return app.stateStore }
+func (app *App) GetStateStore() seidb.StateStore { return app.stateStore }
 
 // BeginBlocker application updates every begin block
 func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
@@ -1120,12 +1121,16 @@ func (app *App) PrepareProposalHandler(_ sdk.Context, req *abci.RequestPreparePr
 	}, nil
 }
 
-func (app *App) GetOptimisticProcessingInfo() *OptimisticProcessingInfo {
+func (app *App) GetOptimisticProcessingInfo() OptimisticProcessingInfo {
+	app.optimisticProcessingInfoMutex.RLock()
+	defer app.optimisticProcessingInfoMutex.RUnlock()
 	return app.optimisticProcessingInfo
 }
 
 func (app *App) ClearOptimisticProcessingInfo() {
-	app.optimisticProcessingInfo = nil
+	app.optimisticProcessingInfoMutex.Lock()
+	defer app.optimisticProcessingInfoMutex.Unlock()
+	app.optimisticProcessingInfo = OptimisticProcessingInfo{}
 }
 
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
@@ -1138,31 +1143,41 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			Status: abci.ResponseProcessProposal_REJECT,
 		}, nil
 	}
-	if app.optimisticProcessingInfo == nil {
+	if app.GetOptimisticProcessingInfo().Completion == nil {
 		completionSignal := make(chan struct{}, 1)
-		optimisticProcessingInfo := &OptimisticProcessingInfo{
+		optimisticProcessingInfo := OptimisticProcessingInfo{
 			Height:     req.Height,
 			Hash:       req.Hash,
 			Completion: completionSignal,
 		}
+		app.optimisticProcessingInfoMutex.Lock()
 		app.optimisticProcessingInfo = optimisticProcessingInfo
+		app.optimisticProcessingInfoMutex.Unlock()
 
 		plan, found := app.UpgradeKeeper.GetUpgradePlan(ctx)
 		if found && plan.ShouldExecute(ctx) {
 			app.Logger().Info(fmt.Sprintf("Potential upgrade planned for height=%d skipping optimistic processing", plan.Height))
+			app.optimisticProcessingInfoMutex.Lock()
 			app.optimisticProcessingInfo.Aborted = true
-			app.optimisticProcessingInfo.Completion <- struct{}{}
+			completion := app.optimisticProcessingInfo.Completion
+			app.optimisticProcessingInfoMutex.Unlock()
+			completion <- struct{}{}
 		} else {
 			go func() {
 				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit, false)
-				optimisticProcessingInfo.Events = events
-				optimisticProcessingInfo.TxRes = txResults
-				optimisticProcessingInfo.EndBlockResp = endBlockResp
-				optimisticProcessingInfo.Completion <- struct{}{}
+				app.optimisticProcessingInfoMutex.Lock()
+				app.optimisticProcessingInfo.Events = events
+				app.optimisticProcessingInfo.TxRes = txResults
+				app.optimisticProcessingInfo.EndBlockResp = endBlockResp
+				completion := app.optimisticProcessingInfo.Completion
+				app.optimisticProcessingInfoMutex.Unlock()
+				completion <- struct{}{}
 			}()
 		}
-	} else if !bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
+	} else if !bytes.Equal(app.GetOptimisticProcessingInfo().Hash, req.Hash) {
+		app.optimisticProcessingInfoMutex.Lock()
 		app.optimisticProcessingInfo.Aborted = true
+		app.optimisticProcessingInfoMutex.Unlock()
 	}
 	return &abci.ResponseProcessProposal{
 		Status: abci.ResponseProcessProposal_ACCEPT,
@@ -1176,9 +1191,25 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		duration := time.Since(startTime)
 		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
 	}()
-	if app.optimisticProcessingInfo != nil {
-		<-app.optimisticProcessingInfo.Completion
-		if !app.optimisticProcessingInfo.Aborted && bytes.Equal(app.optimisticProcessingInfo.Hash, req.Hash) {
+
+	// Get all optimistic processing info atomically
+	app.optimisticProcessingInfoMutex.RLock()
+	completion := app.optimisticProcessingInfo.Completion
+	app.optimisticProcessingInfoMutex.RUnlock()
+
+	if completion != nil {
+		<-completion
+
+		// Get the final state atomically after completion
+		app.optimisticProcessingInfoMutex.RLock()
+		aborted := app.optimisticProcessingInfo.Aborted
+		finalHash := app.optimisticProcessingInfo.Hash
+		events := app.optimisticProcessingInfo.Events
+		txRes := app.optimisticProcessingInfo.TxRes
+		endBlockResp := app.optimisticProcessingInfo.EndBlockResp
+		app.optimisticProcessingInfoMutex.RUnlock()
+
+		if !aborted && bytes.Equal(finalHash, req.Hash) {
 			metrics.IncrementOptimisticProcessingCounter(true)
 			app.SetProcessProposalStateToCommit()
 			if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
@@ -1187,7 +1218,7 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			cms := app.WriteState()
 			app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
 			appHash := app.GetWorkingHash()
-			resp := app.getFinalizeBlockResponse(appHash, app.optimisticProcessingInfo.Events, app.optimisticProcessingInfo.TxRes, app.optimisticProcessingInfo.EndBlockResp)
+			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
 			return &resp, nil
 		}
 	}
@@ -1211,8 +1242,27 @@ func (app *App) DeliverTxWithResult(ctx sdk.Context, tx []byte, typedTx sdk.Tx) 
 		Tx: tx,
 	}, typedTx, sha256.Sum256(tx))
 
-	metrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)
-	metrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted)
+	// Check if transaction is gasless before recording metrics
+	// perf optimization: skip gasless check for obviously non-gasless transaction types
+	shouldCheckGasless := app.couldBeGaslessTransaction(typedTx)
+
+	var skipMetrics bool
+	if shouldCheckGasless {
+		// Only do expensive validation for potentially gasless transactions
+		isGasless, err := antedecorators.IsTxGasless(typedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
+		if err != nil {
+			ctx.Logger().Error("error checking if tx is gasless for metrics", "error", err)
+			// If we can't determine if it's gasless, record metrics to maintain existing behavior
+		} else if isGasless {
+			skipMetrics = true // Skip metrics for confirmed gasless transactions
+		}
+	}
+
+	if !skipMetrics {
+		// Record metrics for non-gasless transactions
+		metrics.IncrGasCounter("gas_used", deliverTxResp.GasUsed)
+		metrics.IncrGasCounter("gas_wanted", deliverTxResp.GasWanted)
+	}
 
 	return &abci.ExecTxResult{
 		Code:      deliverTxResp.Code,
@@ -1473,10 +1523,31 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
 
 	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
-	for _, r := range batchResult.Results {
+	for i, r := range batchResult.Results {
 		metrics.IncrTxProcessTypeCounter(metrics.OCC_CONCURRENT)
-		metrics.IncrGasCounter("gas_used", r.Response.GasUsed)
-		metrics.IncrGasCounter("gas_wanted", r.Response.GasWanted)
+
+		// Check if transaction is gasless before recording gas metrics
+		var recordGasMetrics = true
+		if i < len(typedTxs) {
+			// perf optimization: skip gasless check for obviously non-gasless transaction types
+			shouldCheckGasless := app.couldBeGaslessTransaction(typedTxs[i])
+			if shouldCheckGasless {
+				// Only do expensive validation for potentially gasless transactions
+				isGasless, err := antedecorators.IsTxGasless(typedTxs[i], ctx, app.OracleKeeper, &app.EvmKeeper)
+				if err != nil {
+					ctx.Logger().Error("error checking if tx is gasless for OCC metrics", "error", err, "txIndex", i)
+					// If we can't determine if it's gasless, record metrics to maintain existing behavior
+				} else if isGasless {
+					recordGasMetrics = false
+				}
+			}
+		}
+
+		if recordGasMetrics {
+			metrics.IncrGasCounter("gas_used", r.Response.GasUsed)
+			metrics.IncrGasCounter("gas_wanted", r.Response.GasWanted)
+		}
+
 		execResults = append(execResults, &abci.ExecTxResult{
 			Code:      r.Response.Code,
 			Data:      r.Response.Data,
@@ -1638,7 +1709,7 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 			} else {
 				if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM {
 					msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
-					if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.ChainID(ctx)); err != nil {
+					if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.ChainID(ctx), app.EvmKeeper.EthBlockTestConfig.Enabled); err != nil {
 						ctx.Logger().Error(fmt.Sprintf("error preprocessing EVM tx due to %s", err))
 						typedTxs[idx] = nil
 						return
@@ -1805,12 +1876,14 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
-		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false)
+		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
+	closestUpgrade, _ := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
+	ctx = ctx.WithClosestUpgradeName(closestUpgrade)
 	if err != nil {
 		app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
-		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false)
+		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
 	return ctx.WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false)
 }
@@ -1940,6 +2013,35 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 		}
 	}
 	return true
+}
+
+// couldBeGaslessTransaction performs a fast heuristic check to identify potentially
+// gasless transactions, avoiding expensive keeper queries for performance.
+//
+// Returns true if the transaction COULD be gasless (needs expensive check).
+// Returns false only if DEFINITELY not gasless.
+// False negatives are unacceptable as they cause incorrect gas metrics.
+func (app *App) couldBeGaslessTransaction(tx sdk.Tx) bool {
+	msgs := tx.GetMsgs()
+	if len(msgs) == 0 {
+		// Empty transactions are definitely not gasless
+		return false
+	}
+
+	// Check if ANY message could potentially be gasless
+	for _, msg := range msgs {
+		switch msg.(type) {
+		case *evmtypes.MsgAssociate:
+			// Associate txs can be gasless, so we need to check
+			return true
+		case *oracletypes.MsgAggregateExchangeRateVote:
+			// Oracle vote txs can be gasless, so we need to check
+			return true
+		}
+	}
+
+	// If none of the messages are known gasless types, it's definitely not gasless
+	return false
 }
 
 func (app *App) GetTxConfig() client.TxConfig {
