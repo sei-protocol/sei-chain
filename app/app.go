@@ -1709,7 +1709,7 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 			} else {
 				if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM {
 					msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
-					if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.ChainID(ctx)); err != nil {
+					if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.ChainID(ctx), app.EvmKeeper.EthBlockTestConfig.Enabled); err != nil {
 						ctx.Logger().Error(fmt.Sprintf("error preprocessing EVM tx due to %s", err))
 						typedTxs[idx] = nil
 						return
@@ -1876,12 +1876,14 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
-		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false)
+		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
+	closestUpgrade, _ := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
+	ctx = ctx.WithClosestUpgradeName(closestUpgrade)
 	if err != nil {
 		app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
-		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false)
+		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
 	return ctx.WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false)
 }
