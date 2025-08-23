@@ -828,27 +828,36 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 				continue
 			}
 			if int64(receipt.BlockNumber) != block.Block.Height {
-				ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height))
-				continue
+				if !f.includeSyntheticReceipts {
+					ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height))
+					continue
+				}
 			}
 			setCachedReceipt(block.Block.Height, block, hash, receipt)
 		}
 
 		if int64(receipt.BlockNumber) != block.Block.Height {
-			ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height))
-			continue
+			if !f.includeSyntheticReceipts {
+				ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height))
+				continue
+			}
 		}
 
 		if !f.includeSyntheticReceipts && (receipt.TxType == evmtypes.ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
 			continue
 		}
 
-		// Apply bloom filter
+		var txLogs []*ethtypes.Log
+		if f.includeSyntheticReceipts {
+			txLogs = keeper.GetLogsForTx(receipt, totalLogs)
+		} else {
+			txLogs = keeper.GetEvmOnlyLogsForTx(receipt, totalLogs)
+		}
+
 		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
-			if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
-				allLogs := keeper.GetLogsForTx(receipt, totalLogs)
+			if len(receipt.LogsBloom) == 0 || MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
 				if applyExactMatch {
-					for _, log := range allLogs {
+					for _, log := range txLogs {
 						log.TxIndex = uint(evmTxIndex)
 						log.BlockNumber = uint64(block.Block.Height)
 						log.BlockHash = common.BytesToHash(block.BlockID.Hash)
@@ -857,7 +866,7 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 						}
 					}
 				} else {
-					for _, log := range allLogs {
+					for _, log := range txLogs {
 						log.TxIndex = uint(evmTxIndex)
 						log.BlockNumber = uint64(block.Block.Height)
 						log.BlockHash = common.BytesToHash(block.BlockID.Hash)
@@ -866,15 +875,15 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 				}
 			}
 		} else {
-			// No filter, return all logs
-			for _, log := range keeper.GetLogsForTx(receipt, totalLogs) {
+			for _, log := range txLogs {
 				log.TxIndex = uint(evmTxIndex)
 				log.BlockNumber = uint64(block.Block.Height)
 				log.BlockHash = common.BytesToHash(block.BlockID.Hash)
 				collector.Append(log)
 			}
 		}
-		totalLogs += uint(len(receipt.Logs))
+
+		totalLogs += uint(len(txLogs))
 		evmTxIndex++
 	}
 }
