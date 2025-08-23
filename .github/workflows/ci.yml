@@ -1,22 +1,20 @@
-name: CI
+name: CI – Integration & Contracts
 
 on:
-  pull_request:
   push:
     branches:
-      - main
-      - evm
-      - 'release/**'
+      - '**'
+  pull_request:
+    branches:
+      - '**'
 
 jobs:
-  # ---------- Forge EVM tests ----------
-  forge:
-    name: Forge project
+  # ---------- Build & Test Kin Contracts ----------
+  contracts:
+    name: Build & Test Contracts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: false   # stop trying to fetch sei-chain submodule
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -37,12 +35,13 @@ jobs:
         run: |
           forge test -vvv --evm-version=prague
 
-  # ---------- Conditional Slinky tests ----------
+  # ---------- Slinky Integration Tests ----------
   slinky:
-    name: Slinky integration tests
+    name: Slinky Integration Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - id: filter
         uses: dorny/paths-filter@v2
         with:
@@ -50,17 +49,19 @@ jobs:
             slinky:
               - 'scripts/modules/slinky_test/**'
               - 'x/slinky/**'
+
       - uses: actions/setup-go@v5
         if: steps.filter.outputs.slinky == 'true'
         with:
           go-version: 1.21
+
       - name: Run Slinky Integration Tests
         if: steps.filter.outputs.slinky == 'true'
         run: scripts/modules/slinky_test/run_slinky_test.sh
 
-  # ---------- x402 settlement check ----------
+  # ---------- x402 Settlement Check ----------
   x402:
-    name: x402 settlement check
+    name: x402 Settlement Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

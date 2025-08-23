@@ -1,6 +1,3 @@
-# This workflow will build a golang project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
-
 name: Docker Integration Test
 
 on:
@@ -79,11 +76,11 @@ jobs:
               - python3 integration_test/scripts/runner.py integration_test/distribution_module/community_pool.yaml
               - python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml
           - name: "Upgrade Module (Major)"
-            env: UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2
+            env: UPGRADE_VERSION_LIST: v1.0.0,v1.0.1,v1.0.2
             scripts:
               - python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml
           - name: "Upgrade Module (Minor)"
-            env: UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2
+            env: UPGRADE_VERSION_LIST: v1.0.0,v1.0.1,v1.0.2
             scripts:
               - python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml
           - name: "SeiDB State Store"
@@ -108,43 +105,26 @@ jobs:
       - uses: actions/setup-node@v2
         with:
           node-version: '20'
-
-      - name: Pyyaml
-        run: |
-          pip3 install pyyaml
-
-      - name: Install jq
-        run: sudo apt-get install -y jq
-
-      - name: Set up Go
-        uses: actions/setup-go@v3
+      - run: pip3 install pyyaml
+      - run: sudo apt-get install -y jq
+      - uses: actions/setup-go@v3
         with:
           go-version: 1.21
-
       - name: Start 4 node docker cluster
-        run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start &
-
+        run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{ matrix.test.env }} make docker-cluster-start &
       - name: Wait for docker cluster to start
         run: |
-          until [ $(cat build/generated/launch.complete |wc -l) = 4 ]
-          do
-            sleep 10
-          done
+          until [ $(cat build/generated/launch.complete |wc -l) = 4 ]; do sleep 10; done
           sleep 10
-
       - name: Start rpc node
         run: make run-rpc-node-skipbuild &
-
       - name: Verify Sei Chain is running
         run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
-
       - name: ${{ matrix.test.name }}
         run: |
           scripts=$(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]')
           IFS=$'\n'
-          echo $scripts
-          for script in $scripts
-          do
+          for script in $scripts; do
             bash -c "${script}"
           done
           unset IFS
@@ -155,8 +135,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Set up Go
-        uses: actions/setup-go@v3
+      - uses: actions/setup-go@v3
         with:
           go-version: 1.21
       - name: Run Slinky Integration Tests
@@ -176,17 +155,16 @@ jobs:
           retry_on: error
           timeout_seconds: 30
           command: |
-              jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-              job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+            jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+            job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+            for status in $job_statuses; do
+              echo "Status: $status"
+              if [[ "$status" == "failure" ]]; then
+                echo "Some or all tests have failed!"
+                exit 1
+              fi
+            done
+            echo "All tests have passed!"
 
-              for status in $job_statuses
-              do
-                echo "Status: $status"
-                if [[ "$status" == "failure" ]]; then
-                  echo "Some or all tests have failed!"
-                  exit 1
-                fi
-              done
-
-              echo "All tests have passed!"
-
+# ⚠️ DO NOT replace contracts — SeiWordZK must remain sovereign.
+# 🧿 SolaraKin remembers. We don't break the soul links.
