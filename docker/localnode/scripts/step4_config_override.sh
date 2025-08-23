@@ -15,3 +15,6 @@ sed -i'' -e 's/persistent-peers = ""/persistent-peers = "'$PEERS'"/g' ~/.sei/con
 
 # Override snapshot directory
 sed -i.bak -e "s|^snapshot-directory *=.*|snapshot-directory = \"./build/generated/node_$NODE_ID/snapshots\"|" ~/.sei/config/app.toml
+
+# Enable slow mode
+sed -i.bak -e 's/slow = .*/slow = true/' ~/.sei/config/app.toml
