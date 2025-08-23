@@ -796,16 +796,7 @@ func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log) []*ethtypes.Log 
 // Pooled version that reuses slice allocation
 func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, result *[]*ethtypes.Log) {
 	collector := &pooledCollector{logs: result}
-
-	// Store the initial count to identify newly added logs
-	initialCount := len(*result)
-
 	f.collectLogs(block, crit, filters, collector, true) // Apply exact matching
-
-	// Set block hash for all newly added logs
-	for i := initialCount; i < len(*result); i++ {
-		(*result)[i].BlockHash = common.BytesToHash(block.BlockID.Hash)
-	}
 }
 
 func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCriteria) bool {
@@ -836,11 +827,16 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 				}
 				continue
 			}
+			if int64(receipt.BlockNumber) != block.Block.Height {
+				ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height))
+				continue
+			}
 			setCachedReceipt(block.Block.Height, block, hash, receipt)
 		}
 
 		if int64(receipt.BlockNumber) != block.Block.Height {
-			fmt.Printf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height)
+			ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height))
+			continue
 		}
 
 		if !f.includeSyntheticReceipts && (receipt.TxType == evmtypes.ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
@@ -854,6 +850,8 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 				if applyExactMatch {
 					for _, log := range allLogs {
 						log.TxIndex = uint(evmTxIndex)
+						log.BlockNumber = uint64(block.Block.Height)
+						log.BlockHash = common.BytesToHash(block.BlockID.Hash)
 						if f.IsLogExactMatch(log, crit) {
 							collector.Append(log)
 						}
@@ -861,6 +859,8 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 				} else {
 					for _, log := range allLogs {
 						log.TxIndex = uint(evmTxIndex)
+						log.BlockNumber = uint64(block.Block.Height)
+						log.BlockHash = common.BytesToHash(block.BlockID.Hash)
 						collector.Append(log)
 					}
 				}
@@ -869,6 +869,8 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 			// No filter, return all logs
 			for _, log := range keeper.GetLogsForTx(receipt, totalLogs) {
 				log.TxIndex = uint(evmTxIndex)
+				log.BlockNumber = uint64(block.Block.Height)
+				log.BlockHash = common.BytesToHash(block.BlockID.Hash)
 				collector.Append(log)
 			}
 		}
