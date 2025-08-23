@@ -132,6 +132,29 @@ func (k *Keeper) GetReceiptWithRetry(ctx sdk.Context, txHash common.Hash, maxRet
 	return nil, lastErr
 }
 
+// GetReceiptAtHeight returns the receipt as of a specific block height, ensuring
+// consistency with historical queries (e.g. eth_getLogs over past blocks).
+func (k *Keeper) GetReceiptAtHeight(ctx sdk.Context, txHash common.Hash, height int64) (*types.Receipt, error) {
+	// Attempt to read from the versioned receipt store at the provided height
+	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, height, types.ReceiptKey(txHash))
+	if err != nil {
+		return nil, err
+	}
+	if bz == nil {
+		// Fallback to legacy KV store for older receipts (pre-receiptStore migration)
+		store := ctx.KVStore(k.storeKey)
+		bz = store.Get(types.ReceiptKey(txHash))
+		if bz == nil {
+			return nil, errors.New("not found")
+		}
+	}
+	var r types.Receipt
+	if err := r.Unmarshal(bz); err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
 //	MockReceipt sets a data structure that stores EVM specific transaction metadata.
 //
 // this is currently used by a number of tests to set receipts at the moment

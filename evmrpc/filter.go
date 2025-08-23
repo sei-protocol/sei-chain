@@ -826,17 +826,19 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	evmTxIndex := 0
 
 	for _, hash := range getTxHashesFromBlock(block, f.txConfigProvider(block.Block.Height), f.includeSyntheticReceipts) {
-		receipt, found := getCachedReceipt(block.Block.Height, hash)
+		// Pin receipt lookup to the block's height to avoid mismatches with block hash
+		providerHeight := block.Block.Height
+		receipt, found := getCachedReceipt(providerHeight, hash)
 		if !found {
 			var err error
-			receipt, err = f.k.GetReceipt(ctx, hash)
+			receipt, err = f.k.GetReceiptAtHeight(f.ctxProvider(providerHeight), hash, providerHeight)
 			if err != nil {
 				if !f.includeSyntheticReceipts {
-					ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", hash.Hex()))
+					ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s at height %d", hash.Hex(), providerHeight))
 				}
 				continue
 			}
-			setCachedReceipt(block.Block.Height, block, hash, receipt)
+			setCachedReceipt(providerHeight, block, hash, receipt)
 		}
 
 		if !f.includeSyntheticReceipts && (receipt.TxType == evmtypes.ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
