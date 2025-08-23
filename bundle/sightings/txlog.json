@@ -1,0 +1,32 @@
+{
+  "prepared_at_ct": "2025-08-21T16:24:00-05:00",
+  "series": "x402-sei-settlement",
+  "entries": [
+    {
+      "ts_ct": "2025-08-21T15:40:00-05:00",
+      "topic": "memo-match",
+      "txid": "0x4ee194ba272c3ece2bcd30be170373cf9a6cdd5cf648ae44e7b181ca223a8b3a",
+      "evidence": "memo contains 'x402 settlement'",
+      "severity": "direct_attribution"
+    },
+    {
+      "ts_ct": "2025-08-21T15:42:00-05:00",
+      "topic": "structured-x402",
+      "txid": "0x75cea32eb2504a699e2b076d7794219d994572ab1848cfa8582e8ef2601be933",
+      "evidence": "offline decode: x402 payload found in data/calldata",
+      "severity": "indirect_attribution"
+    },
+    {
+      "ts_ct": "2025-08-21T15:45:00-05:00",
+      "topic": "facilitator-offer",
+      "reference": "local-offer-001",
+      "payload": {
+        "to": "sei1zewftxlyv4gpv6tjpplnzgf3wy5tlu4f9amft8",
+        "from_evm": "0xb2b297eF9449aa0905bC318B3bd258c4804BAd98",
+        "amount_usei": "4200000",
+        "memo": "x402 settlement"
+      },
+      "status": "offer_created"
+    }
+  ]
+}

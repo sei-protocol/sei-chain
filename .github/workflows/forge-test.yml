@@ -15,26 +15,37 @@ jobs:
   check:
     strategy:
       fail-fast: true
-
     name: Foundry project
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false   # 👈 no submodules
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: nightly
 
+      - name: Install dependencies
+        run: |
+          forge install foundry-rs/forge-std@v1.8.2 --no-commit
+          forge install OpenZeppelin/openzeppelin-contracts@v5.0.2 --no-commit
+
       - name: Run Forge build
         run: |
           forge --version
           forge build --evm-version=prague
-        id: build
 
       - name: Run Forge tests
         run: |
           forge test -vvv --evm-version=prague
-        id: test
+
+      - name: Run Go slinky tests (if present)
+        run: |
+          set -euo pipefail
+          if [ -d "./x/slinky" ]; then
+            go test ./x/slinky/...
+          else
+            echo "No Slinky module found. Skipping tests."
+          fi
