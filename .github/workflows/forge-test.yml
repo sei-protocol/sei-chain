@@ -20,12 +20,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: false   # 👈 stop fetching submodules
+          submodules: false   # 👈 no submodules
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: nightly
+
+      - name: Install dependencies
+        run: |
+          forge install foundry-rs/forge-std@v1.8.2 --no-commit
+          forge install OpenZeppelin/openzeppelin-contracts@v5.0.2 --no-commit
 
       - name: Run Forge build
         run: |
