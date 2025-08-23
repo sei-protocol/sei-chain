@@ -103,6 +103,9 @@ type Config struct {
 
 	// Timeout for each trace call
 	TraceTimeout time.Duration `mapstructure:"trace_timeout"`
+
+	// RPCStatsInterval for how often to report stats
+	RPCStatsInterval time.Duration `mapstructure:"rpc_stats_interval"`
 }
 
 var DefaultConfig = Config{
@@ -132,6 +135,7 @@ var DefaultConfig = Config{
 	MaxConcurrentSimulationCalls: runtime.NumCPU(),
 	MaxTraceLookbackBlocks:       10000,
 	TraceTimeout:                 30 * time.Second,
+	RPCStatsInterval:             10 * time.Second,
 }
 
 const (
@@ -161,6 +165,7 @@ const (
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
 	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
 	flagTraceTimeout                 = "evm.trace_timeout"
+	flagRPCStatsInterval             = "evm.rpc_stats_interval"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -293,6 +298,11 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(flagTraceTimeout); v != nil {
 		if cfg.TraceTimeout, err = cast.ToDurationE(v); err != nil {
+			return cfg, err
+		}
+	}
+	if v := opts.Get(flagRPCStatsInterval); v != nil {
+		if cfg.RPCStatsInterval, err = cast.ToDurationE(v); err != nil {
 			return cfg, err
 		}
 	}
