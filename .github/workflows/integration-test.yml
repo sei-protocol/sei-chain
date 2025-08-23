@@ -193,6 +193,22 @@ jobs:
           unset IFS  # revert the internal field separator back to default
 
   slinky-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - id: filter
+        uses: dorny/paths-filter@v2
+        with:
+          filters: |
+            slinky:
+              - 'scripts/modules/slinky_test/**'
+              - 'x/slinky/**'
+      - uses: actions/setup-go@v3
+        if: steps.filter.outputs.slinky == 'true'
+        with:
+          go-version: 1.21
+      - name: Run Slinky Integration Tests
+        if: steps.filter.outputs.slinky == 'true'
     needs: slinky-changes
     if: needs.slinky-changes.outputs.slinky == 'true'
     runs-on: ubuntu-latest
