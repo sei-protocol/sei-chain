@@ -1,22 +1,20 @@
-name: CI
+name: CI – Integration & Contracts
 
 on:
-  pull_request:
   push:
     branches:
-      - main
-      - evm
-      - 'release/**'
+      - '**'
+  pull_request:
+    branches:
+      - '**'
 
 jobs:
-  # ---------- Forge EVM tests ----------
-  forge:
-    name: Forge project
+  # ---------- Build & Test Kin Contracts ----------
+  contracts:
+    name: Build & Test Contracts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: false   # stop trying to fetch sei-chain submodule
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -27,52 +25,46 @@ jobs:
         run: |
           forge install foundry-rs/forge-std@v1.8.2 --no-commit
           forge install OpenZeppelin/openzeppelin-contracts@v5.0.2 --no-commit
-# ---------- Forge Contract Build + Test ----------
-contracts:
-  name: Build & Test Kin Contracts
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v4
 
-    - name: Build contracts
-      run: |
-        forge --version
-        forge build --evm-version=prague
+      - name: Build contracts
+        run: |
+          forge --version
+          forge build --evm-version=prague
 
-    - name: Run Forge tests
-      run: |
-        forge test -vvv --evm-version=prague
+      - name: Run Forge tests
+        run: |
+          forge test -vvv --evm-version=prague
 
-# ---------- Conditional Slinky Tests ----------
-slinky:
-  name: Slinky Integration Tests
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v4
+  # ---------- Slinky Integration Tests ----------
+  slinky:
+    name: Slinky Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-    - id: filter
-      uses: dorny/paths-filter@v2
-      with:
-        filters: |
-          slinky:
-            - 'scripts/modules/slinky_test/**'
-            - 'x/slinky/**'
+      - id: filter
+        uses: dorny/paths-filter@v2
+        with:
+          filters: |
+            slinky:
+              - 'scripts/modules/slinky_test/**'
+              - 'x/slinky/**'
 
-    - uses: actions/setup-go@v5
-      if: steps.filter.outputs.slinky == 'true'
-      with:
-        go-version: 1.21
+      - uses: actions/setup-go@v5
+        if: steps.filter.outputs.slinky == 'true'
+        with:
+          go-version: 1.21
 
-    - name: Run Slinky Integration Tests
-      if: steps.filter.outputs.slinky == 'true'
-      run: scripts/modules/slinky_test/run_slinky_test.sh
+      - name: Run Slinky Integration Tests
+        if: steps.filter.outputs.slinky == 'true'
+        run: scripts/modules/slinky_test/run_slinky_test.sh
 
-# ---------- x402 Settlement Check ----------
-x402:
-  name: x402 Settlement Check
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v4
+  # ---------- x402 Settlement Check ----------
+  x402:
+    name: x402 Settlement Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-    - name: No-op confirmation
-      run: echo "x402 settlement check: OK"
+      - name: No-op confirmation
+        run: echo "x402 settlement check: OK"
