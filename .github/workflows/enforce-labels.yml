@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: yogevbd/enforce-label-action@2.1.0
-      with: non-app-hash-breaking
+      with:
         REQUIRED_LABELS_ANY: "non-app-hash-breaking"
         REQUIRED_LABELS_ANY_DESCRIPTION: "Select at least one label ['non-app-hash-breaking']"
 
