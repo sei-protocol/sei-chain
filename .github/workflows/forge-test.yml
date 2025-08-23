@@ -15,7 +15,6 @@ jobs:
   check:
     strategy:
       fail-fast: true
-
     name: Foundry project
     runs-on: ubuntu-latest
     steps:
@@ -32,9 +31,16 @@ jobs:
         run: |
           forge --version
           forge build --evm-version=prague
-        id: build
 
       - name: Run Forge tests
         run: |
           forge test -vvv --evm-version=prague
-        id: test
+
+      - name: Run Go slinky tests (if present)
+        run: |
+          set -euo pipefail
+          if [ -d "./x/slinky" ]; then
+            go test ./x/slinky/...
+          else
+            echo "No Slinky module found. Skipping tests."
+          fi
