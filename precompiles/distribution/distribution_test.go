@@ -90,7 +90,7 @@ func TestWithdraw(t *testing.T) {
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -121,7 +121,7 @@ func TestWithdraw(t *testing.T) {
 	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -145,7 +145,7 @@ func TestWithdraw(t *testing.T) {
 	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -225,7 +225,7 @@ func delegate(ctx sdk.Context,
 	require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))))
 	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
 
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -269,7 +269,7 @@ func setWithdrawAddressAndWithdraw(
 	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -298,7 +298,7 @@ func setWithdrawAddressAndWithdraw(
 	r, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, r, k.ChainID(ctx))
+	ante.Preprocess(ctx, r, k.ChainID(ctx), false)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), r)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -1200,7 +1200,7 @@ func TestWithdrawValidatorCommission_noCommissionToWithdrawRightAfterDelegation(
 	require.Nil(t, err)
 
 	msgServer := keeper.NewMsgServerImpl(k)
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -1232,7 +1232,7 @@ func TestWithdrawValidatorCommission_noCommissionToWithdrawRightAfterDelegation(
 	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Equal(t, "no validator commission to withdraw", string(res.ReturnData))

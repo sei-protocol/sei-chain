@@ -668,3 +668,32 @@ func isSwaggerRouteAdded(router *mux.Router) bool {
 	}
 	return isAdded
 }
+
+func TestGaslessTransactionExtremeGasValue(t *testing.T) {
+	sei := app.Setup(false, false, false)
+	ctx := sei.BaseApp.NewContext(false, types.Header{})
+
+	testAddr := sdk.AccAddress([]byte("test_address_1234567"))
+
+	// Create a potentially gasless transaction with extreme gas value
+	attackMsg := &evmtypes.MsgAssociate{
+		Sender:        testAddr.String(),
+		CustomMessage: "overflow_attack",
+	}
+
+	attackTxBuilder := sei.GetTxConfig().NewTxBuilder()
+	attackTxBuilder.SetMsgs(attackMsg)
+	attackTxBuilder.SetGasLimit(uint64(9223372036854775807)) // 2^63-1, extreme value
+	attackTx := attackTxBuilder.GetTx()
+
+	// Encode the transaction
+	attackTxBytes, err := sei.GetTxConfig().TxEncoder()(attackTx)
+	require.NoError(t, err)
+
+	// Gasless transactions skip metrics recording
+	// Non-gasless transactions have overflow protection in IncrGasCounter
+	require.NotPanics(t, func() {
+		result := sei.DeliverTxWithResult(ctx, attackTxBytes, attackTx)
+		require.NotNil(t, result)
+	}, "Extreme gas values should never cause panic due to overflow protection")
+}

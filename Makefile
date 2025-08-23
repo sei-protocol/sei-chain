@@ -237,7 +237,17 @@ $(BUILDDIR):
 $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
 	go list -f "{{ if (or .TestGoFiles .XTestGoFiles) }}{{ .ImportPath }}{{ end }}" ./... | sort > $@
 
+TARGET_PACKAGE := github.com/sei-protocol/sei-chain/occ_tests
+
 split-test-packages:$(BUILDDIR)/packages.txt
 	split -d -n l/$(NUM_SPLIT) $< $<.
 test-group-%:split-test-packages
-	cat $(BUILDDIR)/packages.txt.$* | xargs go test -parallel 4 -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic
+	@echo "🔍 Checking for special package: $(TARGET_PACKAGE)"
+	@if grep -q "$(TARGET_PACKAGE)" $(BUILDDIR)/packages.txt.$*; then \
+		echo "🔒 Found $(TARGET_PACKAGE), running with -parallel=1"; \
+		PARALLEL="-parallel=1"; \
+	else \
+		echo "⚡ Not found, running with -parallel=4"; \
+		PARALLEL="-parallel=4"; \
+	fi; \
+	cat $(BUILDDIR)/packages.txt.$* | xargs go test $$PARALLEL -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic
