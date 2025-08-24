@@ -110,7 +110,7 @@ jobs:
               "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
               "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
               "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
-            ],
+            ]
           },
           {
             name: "EVM Module",
@@ -166,6 +166,24 @@ jobs:
           unset IFS
 
   slinky-tests:
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v3
+    - id: filter
+      uses: dorny/paths-filter@v2
+      with:
+        filters: |
+          slinky:
+            - 'scripts/modules/slinky_test/**'
+            - 'x/slinky/**'
+    - uses: actions/setup-go@v3
+      if: steps.filter.outputs.slinky == 'true'
+      with:
+        go-version: 1.21
+    - name: Run Slinky Integration Tests
+      if: steps.filter.outputs.slinky == 'true'
+      run: scripts/modules/slinky_test/run_slinky_test.sh
+
     needs: slinky-changes
     runs-on: ubuntu-latest
     steps:
