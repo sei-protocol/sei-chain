@@ -396,7 +396,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 		evmOnlyBlooms = append(evmOnlyBlooms, evmOnlyBloom)
 	}
 	am.keeper.SetBlockBloom(ctx, allBlooms)
-	am.keeper.SetEvmOnlyBlockBloom(ctx, evmOnlyBlooms)
+	// am.keeper.SetEvmOnlyBlockBloom(ctx, evmOnlyBlooms)
 
 	return []abci.ValidatorUpdate{}
 }

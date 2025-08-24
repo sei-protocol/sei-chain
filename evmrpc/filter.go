@@ -1023,7 +1023,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 			if f.includeSyntheticReceipts {
 				blockBloom = f.k.GetBlockBloom(providerCtx)
 			} else {
-				blockBloom = f.k.GetEvmOnlyBlockBloom(providerCtx)
+				blockBloom = f.k.GetBlockBloom(providerCtx)
 			}
 
 			if !MatchFilters(blockBloom, bloomIndexes) {

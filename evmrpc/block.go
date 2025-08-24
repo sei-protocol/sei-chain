@@ -154,7 +154,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	var blockBloom ethtypes.Bloom
 	// Only include synthetic logs in sei_ namespace
 	if a.namespace == EthNamespace {
-		blockBloom = a.keeper.GetEvmOnlyBlockBloom(a.ctxProvider(block.Block.Height))
+		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
 	} else {
 		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
 	}
@@ -216,7 +216,7 @@ func (a *BlockAPI) getBlockByNumber(
 	var blockBloom ethtypes.Bloom
 	// Only include synthetic logs in sei_ namespace
 	if a.namespace == EthNamespace {
-		blockBloom = a.keeper.GetEvmOnlyBlockBloom(a.ctxProvider(block.Block.Height))
+		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
 	} else {
 		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
 	}
