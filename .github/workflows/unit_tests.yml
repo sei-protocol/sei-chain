@@ -61,7 +61,8 @@ jobs:
       - name: Set GOPATH
         run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
       - name: Add GOPATH/bin to PATH
-        run: echo "GOBIN=$(go env GOPATH)/bin" >> $GITHUB_ENV
+        # Ensure Go binaries are available in the GitHub Actions PATH
+        run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
       - name: Install gocovmerge
         run: go install github.com/wadey/gocovmerge@latest
       - name: Merge coverage reports
