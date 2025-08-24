@@ -58,8 +58,6 @@ jobs:
           go-version: 1.21
       - name: Download coverage reports
         uses: actions/download-artifact@v4
-      - name: Set GOPATH
-        run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
       - name: Add GOPATH/bin to PATH
         # Ensure Go binaries are available in the GitHub Actions PATH
         run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
