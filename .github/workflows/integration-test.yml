@@ -107,10 +107,11 @@ jobs:
       - uses: actions/setup-node@v2
         with:
           node-version: '20'
-      - name: Pyyaml
-        run: pip3 install pyyaml
-      - name: Install jq
-        run: sudo apt-get install -y jq
+      - name: Install dependencies
+        run: |
+          pip3 install pyyaml==6.0.1
+          sudo apt-get update
+          sudo apt-get install -y jq=1.6-2.1ubuntu3
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
