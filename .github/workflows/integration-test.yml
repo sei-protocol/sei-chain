@@ -177,7 +177,6 @@ jobs:
         run: |
           scripts=$(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]')
           IFS=$'\n'   # change the internal field separator to newline
-          echo $scripts
           for script in $scripts
           do
             bash -c "${script}"
