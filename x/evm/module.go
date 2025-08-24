@@ -378,7 +378,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 		if len(di.TxHash) == 0 {
 			continue
 		}
-		r, err := am.keeper.GetTransientReceipt(ctx, common.BytesToHash(di.TxHash), uint64(di.TxIndex))
+		r, err := am.keeper.GetTransientReceipt(ctx, common.BytesToHash(di.TxHash))
 		if err != nil {
 			continue
 		}
@@ -390,9 +390,9 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 			continue
 		}
 		// Re-create a per-tx bloom from EVM-only logs (exclude synthetic)
-		evmOnlyBloom := ethtypes.CreateBloom(&ethtypes.Receipt{
+		evmOnlyBloom := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{
 			Logs: keeper.GetEvmOnlyLogsForTx(r, 0),
-		})
+		}})
 		evmOnlyBlooms = append(evmOnlyBlooms, evmOnlyBloom)
 	}
 	am.keeper.SetBlockBloom(ctx, allBlooms)
