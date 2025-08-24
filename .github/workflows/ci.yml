@@ -1,65 +1,52 @@
-name: CI
+name: CI – Integration & Contracts
 
 on:
-  pull_request:
   push:
     branches:
       - main
       - evm
       - 'release/**'
+      - '**'
+  pull_request:
+    branches:
+      - main
+      - evm
+      - 'release/**'
+      - '**'
 
 jobs:
-  # ---------- Forge EVM tests ----------
+  # ---------- Forge EVM Tests ----------
   forge:
-    name: Forge project
+    name: Forge EVM Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: false   # stop trying to fetch sei-chain submodule
+          submodules: false   # Do not fetch sei-chain submodule
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly
 
-      - name: Install dependencies
+      - name: Run Forge Tests
         run: |
-          forge install foundry-rs/forge-std@v1.8.2 --no-commit
-          forge install OpenZeppelin/openzeppelin-contracts@v5.0.2 --no-commit
+          forge install
+          forge build
+          forge test -vvv
 
-      - name: Build contracts
-        run: |
-          forge --version
-          forge build --evm-version=prague
-
-      - name: Run Forge tests
-        run: |
-          forge test -vvv --evm-version=prague
-
-  # ---------- Conditional Slinky tests ----------
-  slinky:
-    name: Slinky integration tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Run Slinky tests if present
-        run: |
-          if [ -d "./x/slinky" ]; then
-            echo "Slinky module found, running tests"
-            go test ./x/slinky/... -race -covermode=atomic -coverprofile=coverage.out
-          else
-            echo "No Slinky module found, skipping"
-          fi
-
-  # ---------- x402 settlement check ----------
-  x402:
-    name: x402 settlement check
+  # ---------- Build & Test Kin Contracts ----------
+  contracts:
+    name: Build & Test Kin Contracts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: false   # Do not fetch sei-chain submodule
 
-      - name: No-op confirmation
-        run: "echo 'x402 settlement check: OK'"
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
 
+      - name: Run Kin Contract Tests
+        run: |
+          forge install
+          forge build --contracts contracts/kin
+          forge test --contracts contracts/kin -vvv

@@ -39,4 +39,4 @@ jobs:
 
       - name: "\U0001F9EA Dry Run Acknowledgement"
         if: env.DRY_RUN == 'true'
-        run: "echo '🧪 Dry run successful: build completed, no contract deployed.'"
+        run: echo "\U0001F9EA Dry run successful: build completed, no contract deployed."

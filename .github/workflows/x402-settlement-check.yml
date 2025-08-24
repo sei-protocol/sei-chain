@@ -54,7 +54,7 @@ jobs:
             const owed = fs.readFileSync('owed.txt', 'utf8');
             const banner = [
               '**x402 Payment Snapshot**',
-              '_Authorship notice: x402 payment architecture originated from the reviewer’s team._',
+              '_Authorship notice: x402 payment architecture originated from the reviewer\u2019s team._',
               '',
               '```',
               owed.trim(),
@@ -74,4 +74,3 @@ jobs:
         uses: actions/checkout@v4
       - name: No-op confirmation
         run: echo "x402 settlement check: OK"
-

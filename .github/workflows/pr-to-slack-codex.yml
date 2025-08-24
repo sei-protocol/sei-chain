@@ -29,9 +29,6 @@ jobs:
       - name: Install Codex CLI
         run: npm i -g @openai/codex
 
-      - name: Install Slack CLI
-        run: npm i -g @slack/cli
-
       - name: Compute merge-base diff (compact)
         run: |
           set -euo pipefail
