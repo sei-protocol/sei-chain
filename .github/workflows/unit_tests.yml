@@ -1,4 +1,5 @@
 name: Test
+
 on:
   pull_request:
   push:
@@ -57,7 +58,6 @@ jobs:
         with:
           go-version: 1.21
 
-      # Download all coverage reports from the 'tests' job
       - name: Download coverage reports
         uses: actions/download-artifact@v4
 
@@ -81,7 +81,6 @@ jobs:
         run: ls **/*profile.out
         continue-on-error: true
 
-      # Now we upload the merged report to Codecov
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
@@ -102,17 +101,22 @@ jobs:
           max_attempts: 2
           retry_on: error
           timeout_seconds: 30
+          retry_wait_seconds: 10
+          polling_interval_seconds: 1
+          warning_on_retry: true
+          continue_on_error: false
           command: |
-              jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-              job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+            echo "🔍 Fetching job results for run ${{ github.run_id }}..."
+            jobs=$(curl -s https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
 
-              for status in $job_statuses
-              do
-                echo "Status: $status"
-                if [[ "$status" == "failure" ]]; then
-                  echo "Some or all tests have failed!"
-                  exit 1
-                fi
-              done
+            echo "$jobs" | jq -r '.jobs[] | "\(.name): \(.conclusion)"' | while IFS=: read -r name conclusion; do
+              name=$(echo "$name" | xargs)         # trim whitespace
+              conclusion=$(echo "$conclusion" | xargs)
+              echo "🧪 Job: $name → Status: $conclusion"
+              if [[ "$conclusion" == "failure" ]]; then
+                echo "❌ Failed job: $name"
+                exit 1
+              fi
+            done
 
-              echo "All tests have passed!"
+            echo "✅ All matrix jobs completed successfully!"
