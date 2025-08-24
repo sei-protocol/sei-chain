@@ -139,11 +139,11 @@ jobs:
       - uses: actions/setup-node@v2
         with:
           node-version: '20'
-      - name: Install dependencies
-        run: |
-          pip3 install pyyaml==6.0.1
-          sudo apt-get update
-          sudo apt-get install -y jq=1.6-2.1ubuntu3
+- name: Install pinned dependencies (jq 1.6-2.1ubuntu3, PyYAML 6.0.1)
+  run: |
+    sudo apt-get update -y
+    sudo apt-get install -y --no-install-recommends jq=1.6-2.1ubuntu3
+    python3 -m pip install pyyaml==6.0.1
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
