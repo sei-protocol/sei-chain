@@ -1,0 +1,3 @@
+chain,network,txid,status,memo,tags,notes
+Sei,mainnet,0x4ee194ba272c3ece2bcd30be170373cf9a6cdd5cf648ae44e7b181ca223a8b3a,confirmed?,"x402 settlement","x402;memo;attribution:direct","Memo includes 'x402 settlement'"
+Sei,mainnet,0x75cea32eb2504a699e2b076d7794219d994572ab1848cfa8582e8ef2601be933,confirmed?,,"x402;structured_payload;calldata","x402 payload embedded in structured data"

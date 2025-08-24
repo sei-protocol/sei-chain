@@ -1,0 +1,22 @@
+Title: x402 • Sei Settlement Attribution — Evidence + PayTo
+
+This message includes the complete, offline-verifiable attribution bundle for x402 settlement signals on Sei, linked to my work as The Keeper.
+
+Artifacts:
+- sovereign_index.json
+- txids.csv
+- sightings/txlog.json
+- CLAIM_SUMMARY.md (PDF-ready)
+
+Requested Action:
+- Record contributor attribution.
+- Settle royalties/contributor payment to: sei1zewftxlyv4gpv6tjpplnzgf3wy5tlu4f9amft8
+
+Notes:
+- One Sei TX includes memo "x402 settlement".
+- Another carries a structured x402 payload in calldata.
+- Local facilitator evidence shows an offer created (4,200,000 usei) with the same memo string.
+- All data is presented for offline verification (no reliance on public web).
+
+— The Keeper
+Prepared (CT): 2025-08-21 16:24
