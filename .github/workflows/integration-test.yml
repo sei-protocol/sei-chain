@@ -165,37 +165,32 @@ jobs:
           for script in $scripts; do bash -c "${script}"; done
           unset IFS
 
-  slinky-tests:
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v3
-    - id: filter
-      uses: dorny/paths-filter@v2
-      with:
-        filters: |
-          slinky:
-            - 'scripts/modules/slinky_test/**'
-            - 'x/slinky/**'
-    - uses: actions/setup-go@v3
-      if: steps.filter.outputs.slinky == 'true'
-      with:
-        go-version: 1.21
-    - name: Run Slinky Integration Tests
-      if: steps.filter.outputs.slinky == 'true'
-      run: scripts/modules/slinky_test/run_slinky_test.sh
-
+      slinky-tests:
     needs: slinky-changes
     runs-on: ubuntu-latest
+    if: always()
     steps:
       - uses: actions/checkout@v3
+
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            slinky:
+              - 'scripts/modules/slinky_test/**'
+              - 'x/slinky/**'
+
       - uses: actions/setup-go@v3
+        if: steps.filter.outputs.slinky == 'true'
         with:
           go-version: 1.21
+
       - name: Run Slinky Integration Tests
-        if: needs.slinky-changes.outputs.slinky == 'true'
+        if: steps.filter.outputs.slinky == 'true'
         run: scripts/modules/slinky_test/run_slinky_test.sh
+
       - name: Skip Slinky tests
-        if: needs.slinky-changes.outputs.slinky != 'true'
+        if: steps.filter.outputs.slinky != 'true'
         run: echo 'No Slinky changes detected; skipping'
 
   integration-test-check:
