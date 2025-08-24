@@ -108,6 +108,7 @@ jobs:
         with:
           node-version: '20'
       - name: Install pinned dependencies (jq 1.6-2.1ubuntu3, PyYAML 6.0.1)
+        # Consolidated to ensure consistent environment
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq=1.6-2.1ubuntu3
