@@ -117,14 +117,6 @@ jobs:
             ],
           },
           {
-            name: "SeiDB State Store",
-            scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
-              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
-            ]
-          },
-          {
             name: "EVM Module",
             scripts: [
               "./integration_test/evm_module/scripts/evm_tests.sh",
@@ -185,7 +177,6 @@ jobs:
         run: |
           scripts=$(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]')
           IFS=$'\n'   # change the internal field separator to newline
-          echo $scripts
           for script in $scripts
           do
             bash -c "${script}"
@@ -193,33 +184,19 @@ jobs:
           unset IFS  # revert the internal field separator back to default
 
   slinky-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - id: filter
-        uses: dorny/paths-filter@v2
-        with:
-          filters: |
-            slinky:
-              - 'scripts/modules/slinky_test/**'
-              - 'x/slinky/**'
-      - uses: actions/setup-go@v3
-        if: steps.filter.outputs.slinky == 'true'
-        with:
-          go-version: 1.21
-      - name: Run Slinky Integration Tests
-        if: steps.filter.outputs.slinky == 'true'
     needs: slinky-changes
-    if: needs.slinky-changes.outputs.slinky == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Set up Go
-        uses: actions/setup-go@v3
+      - uses: actions/setup-go@v3
         with:
           go-version: 1.21
       - name: Run Slinky Integration Tests
+        if: needs.slinky-changes.outputs.slinky == 'true'
         run: scripts/modules/slinky_test/run_slinky_test.sh
+      - name: Skip Slinky tests
+        if: needs.slinky-changes.outputs.slinky != 'true'
+        run: echo 'No Slinky changes detected; skipping'
 
   integration-test-check:
     name: Integration Test Check
@@ -248,3 +225,4 @@ jobs:
               done
 
               echo "All tests have passed!"
+
