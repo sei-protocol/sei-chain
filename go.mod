@@ -362,7 +362,6 @@ replace (
 	// Latest goleveldb is broken, we have to stick to this version
 	replace (
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
-replace (
 	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.6.1
 	github.com/tendermint/tm-db => github.com/sei-protocol/tm-db v0.0.4
 	golang.org/x/crypto => golang.org/x/crypto v0.31.0
