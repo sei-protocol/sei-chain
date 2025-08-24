@@ -61,4 +61,5 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: No-op confirmation
-        run: echo 'x402 settlement check: OK'
+        run: "echo 'x402 settlement check: OK'"
+
