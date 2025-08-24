@@ -9,6 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/evmrpc/stats"
 	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/tendermint/tendermint/libs/log"
@@ -40,6 +41,11 @@ func NewEVMHTTPServer(
 	homeDir string,
 	isPanicOrSyntheticTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // used in *ExcludeTraceFail endpoints
 ) (EVMServer, error) {
+	logger = logger.With("module", "evmrpc")
+
+	// Initialize RPC tracker
+	stats.InitRPCTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
+
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
 		ReadHeaderTimeout: config.ReadHeaderTimeout,
@@ -160,6 +166,7 @@ func NewEVMHTTPServer(
 	}); err != nil {
 		return nil, err
 	}
+
 	return httpServer, nil
 }
 
@@ -174,6 +181,11 @@ func NewEVMWebSocketServer(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 ) (EVMServer, error) {
+	logger = logger.With("module", "evmrpc")
+
+	// Initialize WebSocket tracker.
+	stats.InitWSTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
+
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
 		ReadHeaderTimeout: config.ReadHeaderTimeout,
@@ -230,10 +242,12 @@ func NewEVMWebSocketServer(
 			Service:   &Web3API{},
 		},
 	}
+
 	wsConfig := WsConfig{Origins: strings.Split(config.WSOrigins, ",")}
 	wsConfig.readLimit = DefaultWebsocketMaxMessageSize
 	if err := httpServer.EnableWS(apis, wsConfig); err != nil {
 		return nil, err
 	}
+
 	return httpServer, nil
 }

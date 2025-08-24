@@ -1,0 +1,51 @@
+{
+  "version": "1.0.0",
+  "prepared_at_ct": "2025-08-21T16:24:00-05:00",
+  "protocol": "x402",
+  "scope": "Sei settlement attribution",
+  "author_handle": "The Keeper",
+  "items": [
+    {
+      "kind": "tx",
+      "chain": "Sei",
+      "network": "mainnet",
+      "txid": "0x4ee194ba272c3ece2bcd30be170373cf9a6cdd5cf648ae44e7b181ca223a8b3a",
+      "status": "confirmed? (user verification required)",
+      "memo": "x402 settlement",
+      "tags": ["x402", "memo:x402 settlement", "attribution:direct"],
+      "notes": "Direct memo containing `x402 settlement` (claimed by author as protocol-linked)."
+    },
+    {
+      "kind": "tx",
+      "chain": "Sei",
+      "network": "mainnet",
+      "txid": "0x75cea32eb2504a699e2b076d7794219d994572ab1848cfa8582e8ef2601be933",
+      "status": "confirmed? (user verification required)",
+      "memo": null,
+      "tags": ["x402", "structured_payload", "calldata:x402"],
+      "notes": "Structured data field contains x402 payload (per offline decode claim)."
+    },
+    {
+      "kind": "offer",
+      "chain": "Sei",
+      "network": "local-facilitator",
+      "facilitator_endpoint": "http://localhost:5000/x402/payments/accept",
+      "status": "offer_created",
+      "payload": {
+        "to": "sei1zewftxlyv4gpv6tjpplnzgf3wy5tlu4f9amft8",
+        "from_evm": "0xb2b297eF9449aa0905bC318B3bd258c4804BAd98",
+        "amount_usei": "4200000",
+        "denom": "usei",
+        "memo": "x402 settlement"
+      },
+      "evidence": "{\"offer\":{\"amount\":\"4200000\",\"denom\":\"usei\",\"from\":\"0xb2b297eF9449aa0905bC318B3bd258c4804BAd98\",\"memo\":\"x402 settlement\",\"to\":\"sei1zewftxlyv4gpv6tjpplnzgf3wy5tlu4f9amft8\"},\"status\":\"offer_created\"}"
+    }
+  ],
+  "claim": {
+    "statement": "I, The Keeper, assert authorship and protocol contribution for x402 integration and settlement flows on Sei. The listed transactions and offers reflect protocol-linked settlement signals attributable to my work.",
+    "requested_action": "Settle royalties and protocol contributor compensation to the address listed herein, and record attribution in project history."
+  },
+  "payto": {
+    "sei_address": "sei1zewftxlyv4gpv6tjpplnzgf3wy5tlu4f9amft8"
+  }
+}

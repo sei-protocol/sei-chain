@@ -19,15 +19,7 @@ type accessList struct {
 func (s *DBImpl) AddressInAccessList(addr common.Address) bool {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
 	_, ok := s.getCurrentAccessList().Addresses[addr]
-	if ok {
-		return true
-	}
-	for _, ts := range s.tempStatesHist {
-		if _, ok := ts.transientAccessLists.Addresses[addr]; ok {
-			return true
-		}
-	}
-	return false
+	return ok
 }
 
 func (s *DBImpl) SlotInAccessList(addr common.Address, slot common.Hash) (addressOk bool, slotOk bool) {
@@ -36,19 +28,7 @@ func (s *DBImpl) SlotInAccessList(addr common.Address, slot common.Hash) (addres
 	idx, addrOk := al.Addresses[addr]
 	if addrOk && idx != -1 {
 		_, slotOk := al.Slots[idx][slot]
-		if slotOk {
-			return true, true
-		}
-	}
-	for _, ts := range s.tempStatesHist {
-		idx, ok := ts.transientAccessLists.Addresses[addr]
-		addrOk = addrOk || ok
-		if ok && idx != -1 {
-			_, slotOk := ts.transientAccessLists.Slots[idx][slot]
-			if slotOk {
-				return true, true
-			}
-		}
+		return addrOk, slotOk
 	}
 	return addrOk, false
 }
@@ -60,17 +40,22 @@ func (s *DBImpl) AddAddressToAccessList(addr common.Address) {
 		return
 	}
 	al.Addresses[addr] = -1
+	s.journal = append(s.journal, &accessListAddAccountChange{address: addr})
 }
 
 func (s *DBImpl) AddSlotToAccessList(addr common.Address, slot common.Hash) {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
 	al := s.getCurrentAccessList()
 	idx, addrPresent := al.Addresses[addr]
+	if !addrPresent {
+		s.AddAddressToAccessList(addr)
+	}
 	if !addrPresent || idx == -1 {
 		// Address not present, or addr present but no slots there
 		al.Addresses[addr] = len(al.Slots)
 		slotmap := map[common.Hash]struct{}{slot: {}}
 		al.Slots = append(al.Slots, slotmap)
+		s.journal = append(s.journal, &accessListAddSlotChange{address: addr, slot: slot})
 		return
 	}
 	// There is already an (address,slot) mapping
@@ -78,6 +63,7 @@ func (s *DBImpl) AddSlotToAccessList(addr common.Address, slot common.Hash) {
 	if _, ok := slotmap[slot]; !ok {
 		slotmap[slot] = struct{}{}
 	}
+	s.journal = append(s.journal, &accessListAddSlotChange{address: addr, slot: slot})
 }
 
 func (s *DBImpl) Prepare(_ params.Rules, sender, coinbase common.Address, dest *common.Address, precompiles []common.Address, txAccesses ethtypes.AccessList) {
@@ -114,5 +100,5 @@ func (s *DBImpl) Prepare(_ params.Rules, sender, coinbase common.Address, dest *
 }
 
 func (s *DBImpl) getCurrentAccessList() *accessList {
-	return s.tempStateCurrent.transientAccessLists
+	return s.tempState.transientAccessLists
 }

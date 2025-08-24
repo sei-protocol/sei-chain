@@ -34,3 +34,10 @@ jobs:
       - name: Validate Docker build (amd64)
         run: docker build --platform=linux/amd64 --target=go-builder .
 
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ -d "./x/slinky" ]; then
+  go test ./x/slinky/...
+else
+  echo "No Slinky module found. Skipping tests.
