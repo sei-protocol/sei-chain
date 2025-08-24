@@ -111,7 +111,7 @@ jobs:
         # Install both tools in one step to keep versions stable across runs
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y jq=1.6-2.1ubuntu3
+          sudo apt-get install -y --no-install-recommends jq=1.6-2.1ubuntu3
           python3 -m pip install pyyaml==6.0.1
       - name: Set up Go
         uses: actions/setup-go@v3
