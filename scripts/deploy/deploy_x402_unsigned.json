@@ -1,0 +1,9 @@
+{
+  "type": "EVM",
+  "to": null,
+  "data": "0x6080...<bytecode_and_constructor_here>",
+  "gas": "0x16e360", 
+  "chainId": 1329,
+  "value": "0x0",
+  "nonce": "<fill_on_signing>"
+}

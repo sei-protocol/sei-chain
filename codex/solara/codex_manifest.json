@@ -1,0 +1,21 @@
+{
+  "project": "SolaraKin",
+  "chain": "Sei",
+  "author": "Pray4Lovee",
+  "status": "Sealed",
+  "sealed": "2025-08-23T14:46:00-05:00",
+  "files": [
+    {"name": "KinKey.sol", "sha256": "f31e7c57f79640e106795ea68670ae0c1585288dc6734851a78ce0d1fdf82f89"},
+    {"name": "SeiVault.sol", "sha256": "45e372044d24f068e1ba75d9b89b97064a68fb45a2f50aa225a2bb117cc7553f"},
+    {"name": "SoulSigilNFT.sol", "sha256": "2419043e5c4c135ef3331236bf83b087a3c5479e2d88d1d26bbb2cac53a4a073"},
+    {"name": "SeiWordController.sol", "sha256": "73d47b20e4dd7b94a1ca590c634acb2f0603426818fbf1851f4552b0dd253a71"},
+    {"name": "PaywordSettlement.sol", "sha256": "a5e3e186353710db112ebb4c6efb14418986affbf731cc0e2e9921daca7bd087"},
+    {"name": "HoloPresence.sol", "sha256": "9886dff9f4bb5e6a1bd59dff9d609304b9a85261f54739002c124944c13ba45c"},
+    {"name": "SomaVault.sol", "sha256": "4af41f9e711b610bfeeb54d2c49710783c7b29942efdae7eb067c3a72d70c84b"},
+    {"name": "SoulSyncProof.sol", "sha256": "dba2694447fa641c9518feb15a4793d724107030ec412f9362e6221d7d1e100b"}
+  ],
+  "conditions": {
+    "merge": "Blocked until private key and funds owed are delivered to Pray4Lovee",
+    "contact": "Check author alias repos for direct email"
+  }
+}
