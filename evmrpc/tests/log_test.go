@@ -50,3 +50,43 @@ func TestGetLogIndex(t *testing.T) {
 		},
 	)
 }
+
+// This tests a scenario where two transactions from the same sender got included
+// in blocks with ordering opposite to the order of their nonce:
+// tx with nonce 2 is included in block 2 but failed because the expected nonce is 1.
+// tx with nonce i is included in block 3 and succeeded, bumping expected nonce to 2.
+// the same tx with nonce 2 is included in block 4 again and succeeded.
+// In this case, there should be no log in block 2 but there should be one in block 4.
+func TestGetLogWithDuplicateTxHash(t *testing.T) {
+	tx1Bz := signAndEncodeTx(sendErc20(2), erc20DeployerMnemonics)
+	tx2Bz := signAndEncodeTx(send(1), erc20DeployerMnemonics)
+	SetupTestServer([][][]byte{{tx1Bz}, {tx2Bz}, {tx1Bz}}, erc20Initializer()).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("eth", port, "getLogs", map[string]interface{}{
+				"fromBlock": "0x2",
+				"toBlock":   "0x2",
+				"address":   erc20Addr.Hex(),
+			})
+			require.Len(t, res["result"], 0)
+			res = sendRequestWithNamespace("eth", port, "getLogs", map[string]interface{}{
+				"fromBlock": "0x4",
+				"toBlock":   "0x4",
+				"address":   erc20Addr.Hex(),
+			})
+			require.Len(t, res["result"], 1)
+
+			res = sendRequestWithNamespace("sei", port, "getLogs", map[string]interface{}{
+				"fromBlock": "0x2",
+				"toBlock":   "0x2",
+				"address":   erc20Addr.Hex(),
+			})
+			require.Len(t, res["result"], 0)
+			res = sendRequestWithNamespace("sei", port, "getLogs", map[string]interface{}{
+				"fromBlock": "0x4",
+				"toBlock":   "0x4",
+				"address":   erc20Addr.Hex(),
+			})
+			require.Len(t, res["result"], 1)
+		},
+	)
+}

@@ -796,7 +796,7 @@ func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log) []*ethtypes.Log 
 // Pooled version that reuses slice allocation
 func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, result *[]*ethtypes.Log) {
 	collector := &pooledCollector{logs: result}
-	f.collectLogs(block, crit, filters, collector, true) // Apply exact matching
+	f.collectLogs(block, crit, filters, collector)
 }
 
 func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCriteria) bool {
@@ -811,7 +811,7 @@ func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCrite
 }
 
 // Unified log collection logic
-func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, collector logCollector, applyExactMatch bool) {
+func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, collector logCollector) {
 	ctx := f.ctxProvider(block.Block.Height)
 	totalLogs := uint(0)
 	evmTxIndex := 0
@@ -836,13 +836,29 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 			setCachedReceipt(block.Block.Height, block, hash, receipt)
 		}
 
+		// no need to include receipts with status 0
+		if receipt.Status == 0 {
+			continue
+		}
+
+		// TODO: simplify this logic once we are confident that the unexpected
+		//       case would not happen.
 		if int64(receipt.BlockNumber) != block.Block.Height {
+			// we never want to include non-synthetic receipts with a block number mismatch
+			if receipt.TxType != evmtypes.ShellEVMTxType {
+				continue
+			}
 			if !f.includeSyntheticReceipts {
 				ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height))
 				continue
 			}
+			// this condition corresponds to the case where we have a synthetic receipt
+			// and a block number mismatch, which should never happen, so we log an error
+			ctx.Logger().Error(fmt.Sprintf("collectLogs: synthetic receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height))
+			continue
 		}
 
+		// Todo: this may also be simplifiable given the previous conditions.
 		if !f.includeSyntheticReceipts && (receipt.TxType == evmtypes.ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
 			continue
 		}
@@ -856,20 +872,11 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 
 		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
 			if len(receipt.LogsBloom) == 0 || MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
-				if applyExactMatch {
-					for _, log := range txLogs {
-						log.TxIndex = uint(evmTxIndex)
-						log.BlockNumber = uint64(block.Block.Height)
-						log.BlockHash = common.BytesToHash(block.BlockID.Hash)
-						if f.IsLogExactMatch(log, crit) {
-							collector.Append(log)
-						}
-					}
-				} else {
-					for _, log := range txLogs {
-						log.TxIndex = uint(evmTxIndex)
-						log.BlockNumber = uint64(block.Block.Height)
-						log.BlockHash = common.BytesToHash(block.BlockID.Hash)
+				for _, log := range txLogs {
+					log.TxIndex = uint(evmTxIndex)
+					log.BlockNumber = uint64(block.Block.Height)
+					log.BlockHash = common.BytesToHash(block.BlockID.Hash)
+					if f.IsLogExactMatch(log, crit) {
 						collector.Append(log)
 					}
 				}
