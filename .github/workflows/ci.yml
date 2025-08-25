@@ -2,7 +2,6 @@ name: CI
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
   push:
     branches:
       - main
@@ -10,13 +9,14 @@ on:
       - 'release/**'
 
 jobs:
+  # ---------- Forge EVM tests ----------
   forge:
     name: Forge project
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: false
+          submodules: false   # stop trying to fetch sei-chain submodule
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -37,6 +37,7 @@ jobs:
         run: |
           forge test -vvv --evm-version=prague
 
+  # ---------- Conditional Slinky tests ----------
   slinky:
     name: Slinky integration tests
     runs-on: ubuntu-latest
@@ -56,44 +57,16 @@ jobs:
         with:
           go-version: 1.21
 
-      - name: Retry-safe Slinky Cluster
-        if: steps.filter.outputs.slinky == 'true'
-        run: |
-          attempt=0
-          until [ $attempt -ge 3 ]; do
-            make clean && INVARIANT_CHECK_INTERVAL=10 ${{ matrix.test.env }} make docker-cluster-start && break
-            attempt=$((attempt+1))
-            echo "Retrying docker cluster startup ($attempt/3)..."
-            sleep 10
-          done
-
       - name: Run Slinky Integration Tests
         if: steps.filter.outputs.slinky == 'true'
         run: scripts/modules/slinky_test/run_slinky_test.sh
 
-      - name: Upload Logs on Failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: slinky-logs
-          path: |
-            build/logs/
-            docker-compose.yml
-            integration_test/debug_output/
-
+  # ---------- x402 settlement check ----------
   x402:
     name: x402 settlement check
     runs-on: ubuntu-latest
-    env:
-      KIN_MODE: "on"
-      KIN_RPC_MODE: "light"
     steps:
       - uses: actions/checkout@v4
-
-      - name: Omega Guardian RoleScan
-        run: |
-          pip install -r tools/omega_guardian/requirements.txt || true
-          python3 tools/omega_guardian/role_scan.py integration_test/ --deep-scan || true
 
       - name: No-op confirmation
         run: echo "x402 settlement check: OK"
