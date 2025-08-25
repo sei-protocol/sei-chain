@@ -17,25 +17,39 @@ import (
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
+	"github.com/tendermint/tendermint/libs/log"
 )
 
-var _ sdk.TxPrioritizer = (*SeiTxPrioritizer)(nil).GetTxPriority
+var _ sdk.TxPrioritizer = (*SeiTxPrioritizer)(nil).GetTxPriorityHint
 
 type SeiTxPrioritizer struct {
 	evmKeeper     *evmkeeper.Keeper
 	upgradeKeeper *upgradekeeper.Keeper
 	paramsKeeper  *paramskeeper.Keeper
+	logger        log.Logger
 }
 
-func NewSeiTxPrioritizer(ek *evmkeeper.Keeper, uk *upgradekeeper.Keeper, pk *paramskeeper.Keeper) *SeiTxPrioritizer {
+func NewSeiTxPrioritizer(logger log.Logger, ek *evmkeeper.Keeper, uk *upgradekeeper.Keeper, pk *paramskeeper.Keeper) *SeiTxPrioritizer {
 	return &SeiTxPrioritizer{
+		logger:        logger,
 		evmKeeper:     ek,
 		upgradeKeeper: uk,
 		paramsKeeper:  pk,
 	}
 }
 
-func (s *SeiTxPrioritizer) GetTxPriority(ctx sdk.Context, tx sdk.Tx) (int64, error) {
+func (s *SeiTxPrioritizer) GetTxPriorityHint(ctx sdk.Context, tx sdk.Tx) (_priorityHint int64, _err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Fall back to no-op priority if we panic for any reason. This is to avoid DoS
+			// vectors where a malicious actor crafts a transaction that panics the
+			// prioritizer. Since the prioritizer is used as a hint only, it's safe to fall
+			// back to zero priority in this case and log the panic for monitoring purposes.
+			s.logger.Error("tx prioritizer panicked", "error", r)
+			_priorityHint = 0
+			_err = nil
+		}
+	}()
 	if ctx.HasPriority() {
 		// The context already has a priority set, return it.
 		return ctx.Priority(), nil

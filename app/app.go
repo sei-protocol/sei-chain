@@ -979,7 +979,7 @@ func New(
 
 	app.RegisterDeliverTxHook(app.AddCosmosEventsToEVMReceiptIfApplicable)
 
-	app.txPrioritizer = NewSeiTxPrioritizer(&app.EvmKeeper, &app.UpgradeKeeper, &app.ParamsKeeper).GetTxPriority
+	app.txPrioritizer = NewSeiTxPrioritizer(logger, &app.EvmKeeper, &app.UpgradeKeeper, &app.ParamsKeeper).GetTxPriorityHint
 	app.BaseApp.SetTxPrioritizer(app.txPrioritizer)
 	return app
 }
