@@ -60,10 +60,8 @@ jobs:
 
       - name: Download coverage reports
         uses: actions/download-artifact@v4
-
-      - name: Set Go bin PATH
+      - name: Add GOPATH/bin to PATH
         run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
       - name: Install gocovmerge
         run: go install github.com/wadey/gocovmerge@latest
 
