@@ -8,7 +8,10 @@
     "test": "test"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "listen:staking": "tsx test/staking-event-listener.ts",
+    "trigger:staking": "tsx test/staking-event-trigger.ts",
+    "e2e:staking": "tsx test/run-staking-test.ts"
   },
   "author": "",
   "license": "ISC",
@@ -17,9 +20,12 @@
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",
     "@openzeppelin/hardhat-upgrades": "^3.0.2",
     "@openzeppelin/test-helpers": "^0.5.16",
+    "@types/node": "^24.2.0",
     "dotenv": "^16.3.1",
     "ethers": "^v6.14.4",
-    "hardhat": "^2.20.1"
+    "hardhat": "^2.20.1",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.0.1",

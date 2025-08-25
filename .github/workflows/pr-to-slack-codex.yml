@@ -1,0 +1,203 @@
+name: PR → Codex review → Slack
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+
+jobs:
+  codex_review:
+    # Run only for trusted contributors
+    if: ${{ contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association) }}
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout PR HEAD (full history)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Codex CLI
+        run: npm i -g @openai/codex
+
+      - name: Install Slack CLI
+        run: npm i -g @slack/cli
+
+      - name: Compute merge-base diff (compact)
+        run: |
+          set -euo pipefail
+          BASE_REF='${{ github.event.pull_request.base.ref }}'
+          git fetch --no-tags origin "$BASE_REF":"refs/remotes/origin/$BASE_REF"
+          MB=$(git merge-base "origin/$BASE_REF" HEAD)
+          git diff --unified=0 "$MB"..HEAD > pr.diff
+          git --no-pager diff --stat "$MB"..HEAD > pr.stat || true
+
+      - name: Build prompt and run Codex (guard + fallback)
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          MAX=${MAX_DIFF_BYTES:-900000} # ~0.9MB ceiling; override via env if needed
+
+          BYTES=$(wc -c < pr.diff || echo 0)
+          echo "pr.diff size: $BYTES bytes (limit: $MAX)"
+
+          # Common prelude for AppSec review
+          {
+            echo "You are a skilled AppSec reviewer. Analyze this PR for:"
+            echo "bugs, vulnerabilities, loss of funds issues, crypto attack vectors, signature vulnerability, replay attacks etc.."
+            echo "Think deeply. Prioritize the *changed hunks* in pr.diff, but open any other files"
+            echo "in the checkout as needed for context."
+            echo
+            echo "Return a tight executive summary, then bullets with:"
+            echo "- severity (high/med/low)"
+            echo "- file:line pointers"
+            echo "- concrete fixes & example patches"
+            echo '- if N/A, say "No significant issues found."'
+            echo
+            echo "PR URL: $PR_URL"
+            echo
+            echo "Formatting requirements:"
+            echo "- Output MUST be GitHub-flavored Markdown (GFM)."
+            echo "- Start with '## Executive summary' (one short paragraph)."
+            echo "- Then '## Findings and fixes' as a bullet list."
+            echo "- Use fenced code blocks for patches/configs with language tags (diff, yaml, etc.)."
+            echo "- Use inline code for file:line and identifiers."
+          } > prompt.txt
+
+          if [ "$BYTES" -le "$MAX" ] && [ "$BYTES" -gt 0 ]; then
+            echo "Using embedded diff path (<= $MAX bytes)"
+            {
+              echo "Unified diff (merge-base vs HEAD):"
+              echo '```diff'
+              cat pr.diff
+              echo '```'
+            } >> prompt.txt
+
+            echo "---- prompt head ----"; head -n 40 prompt.txt >&2
+            echo "---- prompt size ----"; wc -c prompt.txt >&2
+
+            # Run Codex with a scrubbed env: only OPENAI_API_KEY, PATH, HOME
+            env -i OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" PATH="$PATH" HOME="$HOME" \
+            codex --model gpt-5 --ask-for-approval never exec \
+              --sandbox read-only \
+              --output-last-message review.md \
+              < prompt.txt \
+              > codex.log 2>&1
+
+          else
+            echo "Large diff – switching to fallback that lets Codex fetch the .diff URL"
+            # Recompute merge-base and HEAD for clarity in the prompt
+            BASE_REF='${{ github.event.pull_request.base.ref }}'
+            git fetch --no-tags origin "$BASE_REF":"refs/remotes/origin/$BASE_REF"
+            MB=$(git merge-base "origin/$BASE_REF" HEAD)
+            HEAD_SHA=$(git rev-parse HEAD)
+            DIFF_URL="${PR_URL}.diff"
+
+            {
+              echo "The diff is too large to embed safely in this CI run."
+              echo "Please fetch and analyze the diff from this URL:"
+              echo "$DIFF_URL"
+              echo
+              echo "Commit range (merge-base...HEAD):"
+              echo "merge-base: $MB"
+              echo "head:       $HEAD_SHA"
+              echo
+              echo "For quick orientation, here is the diffstat:"
+              echo '```'
+              cat pr.stat || true
+              echo '```'
+              echo
+              echo "After fetching the diff, continue with the same review instructions above."
+            } >> prompt.txt
+
+            echo "---- fallback prompt head ----"; head -n 80 prompt.txt >&2
+            echo "---- fallback prompt size ----"; wc -c prompt.txt >&2
+
+            # Network-enabled only for this large-diff case; still scrub env
+            env -i OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" PATH="$PATH" HOME="$HOME" \
+            codex --ask-for-approval never exec \
+              --sandbox danger-full-access \
+              --output-last-message review.md \
+              < prompt.txt \
+              > codex.log 2>&1
+          fi
+
+          # Defensive: ensure later steps don't explode
+          if [ ! -s review.md ]; then
+            echo "_Codex produced no output._" > review.md
+          fi
+
+      - name: Post parent message in Slack (blocks)
+        id: post_parent
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+        run: |
+          resp=$(curl -s -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H 'Content-type: application/json; charset=utf-8' \
+            --data "$(jq -n \
+              --arg ch "$SLACK_CHANNEL_ID" \
+              --arg n  "${{ github.event.pull_request.number }}" \
+              --arg t  "${{ github.event.pull_request.title }}" \
+              --arg a  "${{ github.event.pull_request.user.login }}" \
+              --arg u  "${{ github.event.pull_request.html_url }}" \
+              '{
+                channel: $ch,
+                text: ("PR #" + $n + ": " + $t),
+                blocks: [
+                  { "type":"section", "text":{"type":"mrkdwn","text":("*PR #"+$n+":* "+$t)} },
+                  { "type":"section", "text":{"type":"mrkdwn","text":("• Author: "+$a)} },
+                  { "type":"section", "text":{"type":"mrkdwn","text":("• Link: <"+$u+">")} }
+                ],
+                unfurl_links:false, unfurl_media:false
+              }')" )
+          echo "ts=$(echo "$resp" | jq -r '.ts')" >> "$GITHUB_OUTPUT"
+
+      - name: Thread reply with review (upload via Slack external upload API)
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+          TS: ${{ steps.post_parent.outputs.ts }}
+        run: |
+          set -euo pipefail
+
+          # robust byte count (works on Linux & macOS)
+          BYTES=$( (stat -c%s review.md 2>/dev/null || stat -f%z review.md 2>/dev/null) )
+          BYTES=${BYTES:-$(wc -c < review.md | tr -d '[:space:]')}
+
+          ticket=$(curl -sS -X POST https://slack.com/api/files.getUploadURLExternal \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-type: application/x-www-form-urlencoded" \
+            --data-urlencode "filename=codex_review.md" \
+            --data "length=$BYTES" \
+            --data "snippet_type=markdown")
+          echo "$ticket"
+          upload_url=$(echo "$ticket" | jq -r '.upload_url')
+          file_id=$(echo "$ticket" | jq -r '.file_id')
+          test "$upload_url" != "null" -a "$file_id" != "null" || { echo "getUploadURLExternal failed: $ticket" >&2; exit 1; }
+
+          curl -sS -X POST "$upload_url" \
+            -F "filename=@review.md;type=text/markdown" \
+            > /dev/null
+
+          payload=$(jq -n --arg fid "$file_id" --arg ch "$SLACK_CHANNEL_ID" --arg ts "$TS" \
+            --arg title "Codex Security Review" --arg ic "Automated Codex review attached." \
+            '{files:[{id:$fid, title:$title}], channel_id:$ch, thread_ts:$ts, initial_comment:$ic}')
+          resp=$(curl -sS -X POST https://slack.com/api/files.completeUploadExternal \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-type: application/json; charset=utf-8" \
+            --data "$payload")
+          echo "$resp"
+          test "$(echo "$resp" | jq -r '.ok')" = "true" || { echo "files.completeUploadExternal failed: $resp" >&2; exit 1; }

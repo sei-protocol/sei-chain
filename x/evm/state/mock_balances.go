@@ -2,18 +2,20 @@
 
 package state
 
-// ==============================================================================
-// ============================= !!! WARNING !!! ================================
-// ==============================================================================
-// == This file is ONLY for TESTING PURPOSES.                                  ==
-// == It enables MOCK BALANCES for EVM accounts.                               ==
-// == DO NOT USE IN PRODUCTION OR MAINNET BUILDS.                              ==
-// == This file is included only when the 'mock_balances' build tag is set,    ==
-// == and replaces the existing balance.go file.                               ==
-// == It is used to mock balances for accounts that don't have any balances    ==
-// == yet, and to top off balances when attempting to spend with insufficient  ==
-// == funds.                                                                   ==
-// ==============================================================================
+/*
+==============================================================================
+============================= !!! WARNING !!! ================================
+==============================================================================
+== This file is ONLY for TESTING PURPOSES.                                  ==
+== It enables MOCK BALANCES for EVM accounts.                               ==
+== DO NOT USE IN PRODUCTION OR MAINNET BUILDS.                              ==
+== This file is included only when the 'mock_balances' build tag is set,    ==
+== and replaces the existing balance.go file.                               ==
+== It is used to mock balances for accounts that don't have any balances    ==
+== yet, and to top off balances when attempting to spend with insufficient  ==
+== funds.                                                                   ==
+==============================================================================
+*/
 
 import (
 	"math/big"
@@ -68,7 +70,7 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 		s.logger.OnBalanceChange(evmAddr, oldBalance, newBalance, reason)
 	}
 
-	s.tempStateCurrent.surplus = s.tempStateCurrent.surplus.Add(sdk.NewIntFromBigInt(amt))
+	s.tempState.surplus = s.tempState.surplus.Add(sdk.NewIntFromBigInt(amt))
 	return *ZeroInt
 }
 
@@ -109,7 +111,7 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 		s.logger.OnBalanceChange(evmAddr, oldBalance, newBalance, reason)
 	}
 
-	s.tempStateCurrent.surplus = s.tempStateCurrent.surplus.Sub(sdk.NewIntFromBigInt(amt))
+	s.tempState.surplus = s.tempState.surplus.Sub(sdk.NewIntFromBigInt(amt))
 	return *ZeroInt
 }
 
