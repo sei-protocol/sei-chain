@@ -22,6 +22,8 @@ jobs:
         with:
           go-version: "1.21"
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Ensure full history for get-diff-action
       - uses: technote-space/get-diff-action@v6
         with:
           PATTERNS: |
@@ -53,6 +55,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v3
         with:
           go-version: 1.21
@@ -61,14 +65,11 @@ jobs:
       - name: Download coverage reports
         uses: actions/download-artifact@v4
 
-      - name: Set GOPATH
-        run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
-
       - name: Add GOPATH/bin to PATH
-        run: echo "GOBIN=$(go env GOPATH)/bin" >> $GITHUB_ENV
+        run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
       - name: Install gocovmerge
-        run: go get github.com/wadey/gocovmerge && go install github.com/wadey/gocovmerge
+        run: go install github.com/wadey/gocovmerge@latest
 
       - name: Merge coverage reports
         run: gocovmerge $(find . -type f -name '*profile.out') > coverage.txt
@@ -88,6 +89,27 @@ jobs:
           file: ./coverage.txt
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
+
+      - name: Coverage How-To
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const msg = [
+              '<details><summary>How to generate coverage locally</summary>',
+              '',
+              '```bash',
+              'go test ./... -race -covermode=atomic -coverprofile=coverage.out',
+              'go tool cover -html=coverage.out',
+              '```',
+              '</details>'
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: msg
+            });
 
   unit-test-check:
     name: Unit Test Check

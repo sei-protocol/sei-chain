@@ -1,0 +1,8 @@
+{
+  "id": "dbb06c61-5858-4ba5-a599-2990afaa2709",
+  "name": "kin_sei_link",
+  "timestamp": "2025-08-23T19:29:36Z",
+  "status": "active",
+  "codex_path": "codex/omega/payloads/kin_sei_link.sh",
+  "description": "Initial Codex–Omega link bridge payload for infinite build"
+}

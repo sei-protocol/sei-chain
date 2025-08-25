@@ -1,14 +1,16 @@
-name: Enforce PR labels
+name: Enforce PR Labels
 
 on:
   pull_request:
     types: [labeled, unlabeled, opened, edited, synchronize]
 jobs:
   enforce-label:
+    name: Enforce Required Labels
     runs-on: ubuntu-latest
     steps:
-    - uses: yogevbd/enforce-label-action@2.1.0
-      with: non-app-hash-breaking
-        REQUIRED_LABELS_ANY: "non-app-hash-breaking"
-        REQUIRED_LABELS_ANY_DESCRIPTION: "Select at least one label ['non-app-hash-breaking']"
+      - name: Enforce Label Action
+        uses: yogevbd/enforce-label-action@2.1.0
+        with:
+          REQUIRED_LABELS_ANY: "non-app-hash-breaking"
+          REQUIRED_LABELS_ANY_DESCRIPTION: "At least one of the following labels is required: ['non-app-hash-breaking']"
 
