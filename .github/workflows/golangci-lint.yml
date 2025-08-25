@@ -12,13 +12,15 @@ on:
 
 permissions:
   contents: read
-  # Uncomment below if needed for PR lint annotations
-  # pull-requests: read
+  pull-requests: write  # Enables PR annotations from golangci-lint
 
 jobs:
   golangci:
     name: 🧪 Lint Go Code
     runs-on: ubuntu-latest
+
+    env:
+      GOPRIVATE: github.com/sei-protocol/*
 
     steps:
       - name: ⬇️ Checkout Code
@@ -34,3 +36,5 @@ jobs:
         with:
           version: v1.60.1
           args: --timeout 10m0s
+          only-new-issues: true  # Comment only on new issues in PRs
+          github-token: ${{ secrets.GITHUB_TOKEN }}
