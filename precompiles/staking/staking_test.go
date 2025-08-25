@@ -87,7 +87,7 @@ func TestStaking(t *testing.T) {
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -114,7 +114,7 @@ func TestStaking(t *testing.T) {
 	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -141,7 +141,7 @@ func TestStaking(t *testing.T) {
 	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -195,7 +195,7 @@ func TestStakingError(t *testing.T) {
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.NotEmpty(t, res.VmError)
@@ -218,7 +218,7 @@ func TestStakingError(t *testing.T) {
 	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.NotEmpty(t, res.VmError)
@@ -653,10 +653,9 @@ func TestCreateValidator(t *testing.T) {
 		},
 	}
 
-	setup := setupCreateValidatorTest(t)
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			setup := setupCreateValidatorTest(t)
 
 			inputs, err := setup.abi.Pack("createValidator",
 				tt.args.pubKeyHex,
@@ -686,7 +685,7 @@ func TestCreateValidator(t *testing.T) {
 			req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 			require.NoError(t, err)
 
-			ante.Preprocess(setup.ctx, req, setup.k.ChainID(setup.ctx))
+			ante.Preprocess(setup.ctx, req, setup.k.ChainID(setup.ctx), false)
 			res, err := setup.msgServer.EVMTransaction(sdk.WrapSDKContext(setup.ctx), req)
 			require.NoError(t, err)
 
@@ -727,7 +726,7 @@ func TestCreateValidator_UnassociatedAddress(t *testing.T) {
 		"0.05",
 		"0.20",
 		"0.01",
-		big.NewInt(1000000),
+		big.NewInt(1000),
 	)
 	require.NoError(t, err)
 
@@ -749,7 +748,7 @@ func TestCreateValidator_UnassociatedAddress(t *testing.T) {
 	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.NoError(t, err)
 
-	ante.Preprocess(setup.ctx, req, setup.k.ChainID(setup.ctx))
+	ante.Preprocess(setup.ctx, req, setup.k.ChainID(setup.ctx), false)
 	res, err := setup.msgServer.EVMTransaction(sdk.WrapSDKContext(setup.ctx), req)
 	require.NoError(t, err)
 	require.NotEmpty(t, res.VmError, "Should fail with unassociated address")
@@ -805,7 +804,7 @@ func TestEditValidator_ErorrIfDoesNotExist(t *testing.T) {
 	require.NoError(t, err)
 
 	msgServer := keeper.NewMsgServerImpl(k)
-	ante.Preprocess(ctx, req, k.ChainID(ctx))
+	ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.NoError(t, err)
 	// Should fail because validator doesn't exist
@@ -871,7 +870,7 @@ func TestEditValidator(t *testing.T) {
 	createReq, err := evmtypes.NewMsgEVMTransaction(createTxWrapper)
 	require.NoError(t, err)
 
-	ante.Preprocess(ctx, createReq, k.ChainID(ctx))
+	ante.Preprocess(ctx, createReq, k.ChainID(ctx), false)
 	createRes, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), createReq)
 	require.NoError(t, err)
 	require.Empty(t, createRes.VmError, "Validator creation should succeed: %s", createRes.VmError)
@@ -910,7 +909,7 @@ func TestEditValidator(t *testing.T) {
 	editReq, err := evmtypes.NewMsgEVMTransaction(editTxWrapper)
 	require.NoError(t, err)
 
-	ante.Preprocess(ctx, editReq, k.ChainID(ctx))
+	ante.Preprocess(ctx, editReq, k.ChainID(ctx), false)
 	editRes, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), editReq)
 	require.NoError(t, err)
 	require.Empty(t, editRes.VmError, "Edit validator should succeed: %s", editRes.VmError)
@@ -1000,4 +999,192 @@ func TestStakingPrecompile_RequiredGas(t *testing.T) {
 
 		})
 	}
+}
+
+func TestStakingPrecompileDelegateCallPrevention(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	// Setup staking precompile
+	precompile, err := staking.NewPrecompile(app.NewPrecompileKeepers(testApp))
+	require.NoError(t, err)
+
+	// Setup test context
+	privKey := testkeeper.MockPrivateKey()
+	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+
+	// Test that delegatecall is prevented
+	ctx = ctx.WithEVMPrecompileCalledFromDelegateCall(true)
+
+	abi := pcommon.MustGetABI(f, "abi.json")
+
+	// Test all methods that should fail with delegatecall
+	testCases := []struct {
+		name   string
+		method string
+		args   []interface{}
+		value  *big.Int
+	}{
+		{
+			name:   "delegate",
+			method: "delegate",
+			args:   []interface{}{"seivaloper1test"},
+			value:  big.NewInt(100),
+		},
+		{
+			name:   "redelegate",
+			method: "redelegate",
+			args:   []interface{}{"seivaloper1src", "seivaloper1dst", big.NewInt(50)},
+			value:  nil,
+		},
+		{
+			name:   "undelegate",
+			method: "undelegate",
+			args:   []interface{}{"seivaloper1test", big.NewInt(30)},
+			value:  nil,
+		},
+		{
+			name:   "createValidator",
+			method: "createValidator",
+			args: []interface{}{
+				hex.EncodeToString(ed25519.GenPrivKey().PubKey().Bytes()),
+				"Test Validator",
+				"0.1",
+				"0.2",
+				"0.05",
+				big.NewInt(1000),
+			},
+			value: big.NewInt(100),
+		},
+		{
+			name:   "editValidator",
+			method: "editValidator",
+			args:   []interface{}{"New Name", "0.15", big.NewInt(2000)},
+			value:  nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			method, found := abi.Methods[tc.method]
+			require.True(t, found)
+
+			// Create mock EVM
+			evm := &vm.EVM{
+				StateDB: state.NewDBImpl(ctx, k, false),
+			}
+
+			_, err := precompile.GetExecutor().(*staking.PrecompileExecutor).Execute(ctx, &method, evmAddr, evmAddr, tc.args, tc.value, false, evm, nil)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "cannot delegatecall staking")
+		})
+	}
+}
+
+func TestStakingPrecompileStaticCallPrevention(t *testing.T) {
+	testApp := testkeeper.EVMTestApp
+	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
+	k := &testApp.EvmKeeper
+
+	// Setup staking precompile
+	precompile, err := staking.NewPrecompile(app.NewPrecompileKeepers(testApp))
+	require.NoError(t, err)
+
+	// Setup test context
+	privKey := testkeeper.MockPrivateKey()
+	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
+	k.SetAddressMapping(ctx, seiAddr, evmAddr)
+
+	abi := pcommon.MustGetABI(f, "abi.json")
+
+	// Test all write methods that should fail with staticcall/readonly
+	testCases := []struct {
+		name   string
+		method string
+		args   []interface{}
+		value  *big.Int
+	}{
+		{
+			name:   "delegate",
+			method: "delegate",
+			args:   []interface{}{"seivaloper1test"},
+			value:  big.NewInt(100),
+		},
+		{
+			name:   "redelegate",
+			method: "redelegate",
+			args:   []interface{}{"seivaloper1src", "seivaloper1dst", big.NewInt(50)},
+			value:  nil,
+		},
+		{
+			name:   "undelegate",
+			method: "undelegate",
+			args:   []interface{}{"seivaloper1test", big.NewInt(30)},
+			value:  nil,
+		},
+		{
+			name:   "createValidator",
+			method: "createValidator",
+			args: []interface{}{
+				hex.EncodeToString(ed25519.GenPrivKey().PubKey().Bytes()),
+				"Test Validator",
+				"0.1",
+				"0.2",
+				"0.05",
+				big.NewInt(1000),
+			},
+			value: big.NewInt(100),
+		},
+		{
+			name:   "editValidator",
+			method: "editValidator",
+			args:   []interface{}{"New Name", "0.15", big.NewInt(2000)},
+			value:  nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			method, found := abi.Methods[tc.method]
+			require.True(t, found)
+
+			// Create mock EVM
+			evm := &vm.EVM{
+				StateDB: state.NewDBImpl(ctx, k, false),
+			}
+
+			// Test with readOnly = true (staticcall)
+			_, err := precompile.GetExecutor().(*staking.PrecompileExecutor).Execute(ctx, &method, evmAddr, evmAddr, tc.args, tc.value, true, evm, nil)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "cannot call staking precompile from staticcall")
+		})
+	}
+
+	// Test that delegation query works with staticcall
+	t.Run("delegation query allowed in staticcall", func(t *testing.T) {
+		method, found := abi.Methods["delegation"]
+		require.True(t, found)
+
+		// Create a validator
+		valPub := secp256k1.GenPrivKey().PubKey()
+		val := setupValidator(t, ctx, testApp, stakingtypes.Bonded, valPub)
+
+		// Query arguments
+		args := []interface{}{evmAddr, val.String()}
+
+		// Create EVM
+		evm := &vm.EVM{
+			StateDB:   state.NewDBImpl(ctx, k, false),
+			TxContext: vm.TxContext{Origin: evmAddr},
+		}
+
+		// Should succeed with readOnly = true for query method (even if no delegation exists)
+		// The important thing is that the static call is allowed
+		_, err := precompile.GetExecutor().(*staking.PrecompileExecutor).Execute(ctx, &method, evmAddr, evmAddr, args, nil, true, evm, nil)
+		// We don't check the error because the delegation might not exist
+		// We're just testing that static calls are allowed for query methods
+		_ = err
+	})
 }

@@ -1,3 +1,4 @@
+# CodeQL analysis for Go
 name: "CodeQL"
 
 on:

@@ -21,6 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/evmrpc/stats"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -31,6 +32,7 @@ import (
 
 const LatestCtxHeight int64 = -1
 
+// GetBlockNumberByNrOrHash returns the height of the block with the given number or hash.
 func GetBlockNumberByNrOrHash(ctx context.Context, tmClient rpcclient.Client, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
 	if blockNrOrHash.BlockHash != nil {
 		res, err := blockByHash(ctx, tmClient, blockNrOrHash.BlockHash[:])
@@ -172,14 +174,27 @@ func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash byt
 	return blockRes, err
 }
 
-func recordMetrics(apiMethod string, connectionType ConnectionType, startTime time.Time, success bool) {
-	metrics.IncrementRpcRequestCounter(apiMethod, string(connectionType), success)
-	metrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
+func recordMetrics(apiMethod string, connectionType ConnectionType, startTime time.Time) {
+	recordMetricsWithError(apiMethod, connectionType, startTime, nil)
 }
 
 func recordMetricsWithError(apiMethod string, connectionType ConnectionType, startTime time.Time, err error) {
-	metrics.IncrementErrorMetrics(apiMethod, err)
-	recordMetrics(apiMethod, connectionType, startTime, err == nil)
+	// Automatically detect success/failure based on panic state
+	panicValue := recover()
+	success := panicValue == nil || err != nil
+
+	// these are only metrics that are specifically typed errors for tracking.
+	if err != nil {
+		metrics.IncrementErrorMetrics(apiMethod, err)
+	}
+
+	metrics.IncrementRpcRequestCounter(apiMethod, string(connectionType), success)
+	metrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
+	stats.RecordAPIInvocation(apiMethod, string(connectionType), startTime, success)
+
+	if panicValue != nil {
+		panic(panicValue)
+	}
 }
 
 func CheckVersion(ctx sdk.Context, k *keeper.Keeper) error {

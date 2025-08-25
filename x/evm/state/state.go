@@ -57,12 +57,17 @@ func (s *DBImpl) GetTransientState(addr common.Address, key common.Hash) common.
 }
 
 func (s *DBImpl) SetTransientState(addr common.Address, key, val common.Hash) {
-	st, ok := s.tempStateCurrent.transientStates[addr.Hex()]
+	st, ok := s.tempState.transientStates[addr.Hex()]
 	if !ok {
 		st = make(map[string]common.Hash)
-		s.tempStateCurrent.transientStates[addr.Hex()] = st
+		s.tempState.transientStates[addr.Hex()] = st
+	}
+	prev, ok := st[key.Hex()]
+	if !ok {
+		prev = common.Hash{}
 	}
 	st[key.Hex()] = val
+	s.journal = append(s.journal, &transientStorageChange{account: addr, key: key, prevalue: prev})
 }
 
 // debits account's balance. The corresponding credit happens here:
@@ -105,16 +110,35 @@ func (s *DBImpl) Snapshot() int {
 	newCtx := s.ctx.WithMultiStore(s.ctx.MultiStore().CacheMultiStore()).WithEventManager(sdk.NewEventManager())
 	s.snapshottedCtxs = append(s.snapshottedCtxs, s.ctx)
 	s.ctx = newCtx
-	s.tempStatesHist = append(s.tempStatesHist, s.tempStateCurrent)
-	s.tempStateCurrent = NewTemporaryState()
+	version := len(s.snapshottedCtxs) - 1
+	s.journal = append(s.journal, &watermark{version: version})
 	return len(s.snapshottedCtxs) - 1
 }
 
 func (s *DBImpl) RevertToSnapshot(rev int) {
+	// Add bounds checking
+	if rev < 0 || rev >= len(s.snapshottedCtxs) {
+		panic("invalid revision number")
+	}
+
 	s.ctx = s.snapshottedCtxs[rev]
 	s.snapshottedCtxs = s.snapshottedCtxs[:rev]
-	s.tempStateCurrent = s.tempStatesHist[rev]
-	s.tempStatesHist = s.tempStatesHist[:rev]
+
+	// Find the watermark index to truncate the journal
+	watermarkIndex := -1
+	for i := len(s.journal) - 1; i >= 0; i-- {
+		entry := s.journal[i]
+		entry.revert(s)
+		if wm, ok := entry.(*watermark); ok && wm.version == rev {
+			watermarkIndex = i
+			break
+		}
+	}
+
+	// Truncate the journal to remove reverted entries
+	if watermarkIndex >= 0 {
+		s.journal = s.journal[:watermarkIndex]
+	}
 }
 
 func (s *DBImpl) handleResidualFundsInDestructedAccounts(st *TemporaryState) {
@@ -154,8 +178,12 @@ func (s *DBImpl) clearAccountState(acc common.Address) {
 }
 
 func (s *DBImpl) MarkAccount(acc common.Address, status []byte) {
-	// val being nil means it's deleted
-	s.tempStateCurrent.transientAccounts[acc.Hex()] = status
+	prev, ok := s.tempState.transientAccounts[acc.Hex()]
+	if !ok {
+		prev = nil
+	}
+	s.tempState.transientAccounts[acc.Hex()] = status
+	s.journal = append(s.journal, &accountStatusChange{account: acc, prev: prev})
 }
 
 func (s *DBImpl) Created(acc common.Address) bool {
@@ -174,32 +202,20 @@ func (s *DBImpl) SetStorage(addr common.Address, states map[common.Hash]common.H
 }
 
 func (s *DBImpl) getTransientAccount(acc common.Address) ([]byte, bool) {
-	val, found := s.tempStateCurrent.transientAccounts[acc.Hex()]
-	for i := len(s.tempStatesHist) - 1; !found && i >= 0; i-- {
-		val, found = s.tempStatesHist[i].transientAccounts[acc.Hex()]
-	}
+	val, found := s.tempState.transientAccounts[acc.Hex()]
 	return val, found
 }
 
 func (s *DBImpl) getTransientModule(key []byte) ([]byte, bool) {
-	val, found := s.tempStateCurrent.transientModuleStates[string(key)]
-	for i := len(s.tempStatesHist) - 1; !found && i >= 0; i-- {
-		val, found = s.tempStatesHist[i].transientModuleStates[string(key)]
-	}
+	val, found := s.tempState.transientModuleStates[string(key)]
 	return val, found
 }
 
 func (s *DBImpl) getTransientState(acc common.Address, key common.Hash) (common.Hash, bool) {
 	var val common.Hash
-	m, found := s.tempStateCurrent.transientStates[acc.Hex()]
+	m, found := s.tempState.transientStates[acc.Hex()]
 	if found {
 		val, found = m[key.Hex()]
-	}
-	for i := len(s.tempStatesHist) - 1; !found && i >= 0; i-- {
-		m, found = s.tempStatesHist[i].transientStates[acc.Hex()]
-		if found {
-			val, found = m[key.Hex()]
-		}
 	}
 	return val, found
 }
