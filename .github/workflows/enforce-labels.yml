@@ -16,7 +16,8 @@ jobs:
 
     steps:
       - name: 🚀 Start Enforcement
-        run: echo "🔍 Checking required labels on PR #${{ github.event.pull_request.number }}"
+        run: |
+          echo '🔍 Checking required labels on PR #${{ github.event.pull_request.number }}'
 
       - name: 🏷️ Check Required Labels
         uses: yogevbd/enforce-label-action@2.1.0
@@ -64,4 +65,4 @@ jobs:
 
       - name: ✅ Log Successful Check
         if: success()
-        run: echo "✅ Required label present on PR #${{ github.event.pull_request.number }}"
+        run: echo '✅ Required label present on PR #${{ github.event.pull_request.number }}'
