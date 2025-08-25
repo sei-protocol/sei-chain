@@ -275,6 +275,34 @@ func SetCoinsMinted(amount uint64, denom string) {
 //
 //	sei_tx_gas_counter
 func IncrGasCounter(gasType string, value int64) {
+	const maxSafeFloat32 = 1<<24 - 1 // Maximum safe integer representable in float32 (16,777,215)
+
+	if value < 0 {
+		// Log negative values but don't panic - this shouldn't happen in normal operation
+		telemetry.IncrCounterWithLabels(
+			[]string{"sei", "tx", "gas", "counter", "error"},
+			1,
+			[]metrics.Label{
+				telemetry.NewLabel("type", gasType),
+				telemetry.NewLabel("error", "negative_value"),
+			},
+		)
+		return
+	}
+
+	if value > maxSafeFloat32 {
+		// Cap the value to prevent overflow while logging the incident
+		telemetry.IncrCounterWithLabels(
+			[]string{"sei", "tx", "gas", "counter", "overflow"},
+			1,
+			[]metrics.Label{
+				telemetry.NewLabel("type", gasType),
+				telemetry.NewLabel("original_value", "capped"),
+			},
+		)
+		value = maxSafeFloat32
+	}
+
 	SafeTelemetryIncrCounterWithLabels(
 		[]string{"sei", "tx", "gas", "counter"},
 		float32(value),
