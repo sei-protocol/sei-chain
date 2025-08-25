@@ -1,4 +1,5 @@
 name: Test
+
 on:
   pull_request:
   push:
@@ -22,7 +23,11 @@ jobs:
       - uses: actions/setup-go@v3
         with:
           go-version: "1.21"
+
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Ensure full history for get-diff-action
+
       - uses: technote-space/get-diff-action@v6
         with:
           PATTERNS: |
@@ -31,6 +36,7 @@ jobs:
             go.mod
             go.sum
             Makefile
+
       - name: Get data from Go build cache
         uses: actions/cache@v3
         with:
@@ -39,6 +45,7 @@ jobs:
             ~/.cache/golangci-lint
             ~/.cache/go-build
           key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+
       - name: Run Go Tests
         run: |
           NUM_SPLIT=20
@@ -54,15 +61,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
       - uses: actions/setup-go@v3
         with:
           go-version: 1.21
 
       - name: Download coverage reports
         uses: actions/download-artifact@v4
+
       - name: Add GOPATH/bin to PATH
         # Ensure Go binaries are available in the GitHub Actions PATH
         run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
       - name: Install gocovmerge
         run: go install github.com/wadey/gocovmerge@latest
 
@@ -111,16 +123,15 @@ jobs:
           retry_on: error
           timeout_seconds: 30
           command: |
-              jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-              job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+            jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+            job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
 
-              for status in $job_statuses
-              do
-                echo "Status: $status"
-                if [[ "$status" == "failure" ]]; then
-                  echo "Some or all tests have failed!"
-                  exit 1
-                fi
-              done
+            for status in $job_statuses; do
+              echo "Status: $status"
+              if [[ "$status" == "failure" ]]; then
+                echo "Some or all tests have failed!"
+                exit 1
+              fi
+            done
 
-              echo "All tests have passed!"
+            echo "All tests have passed!"

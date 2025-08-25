@@ -42,16 +42,24 @@ jobs:
     name: Slinky integration tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - name: Run Slinky tests if present
-        run: |
-          if [ -d "./x/slinky" ]; then
-            echo "Slinky module found, running tests"
-            go test ./x/slinky/... -race -covermode=atomic -coverprofile=coverage.out
-          else
-            echo "No Slinky module found, skipping"
-          fi
+      - id: filter
+        uses: dorny/paths-filter@v2
+        with:
+          filters: |
+            slinky:
+              - 'scripts/modules/slinky_test/**'
+              - 'x/slinky/**'
+
+      - uses: actions/setup-go@v5
+        if: steps.filter.outputs.slinky == 'true'
+        with:
+          go-version: 1.21
+
+      - name: Run Slinky Integration Tests
+        if: steps.filter.outputs.slinky == 'true'
+        run: scripts/modules/slinky_test/run_slinky_test.sh
 
   # ---------- x402 settlement check ----------
   x402:
@@ -61,5 +69,4 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: No-op confirmation
-        run: "echo 'x402 settlement check: OK'"
-
+        run: echo "x402 settlement check: OK"

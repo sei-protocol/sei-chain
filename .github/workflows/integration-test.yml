@@ -87,7 +87,7 @@ jobs:
             name: "Distribution Module",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/distribution_module/community_pool.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml"
             ]
           },
           {
@@ -109,13 +109,13 @@ jobs:
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
               "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml"
             ]
           },
           {
             name: "EVM Module",
             scripts: [
-              "./integration_test/evm_module/scripts/evm_tests.sh",
+              "./integration_test/evm_module/scripts/evm_tests.sh"
             ]
           },
           {
@@ -129,7 +129,7 @@ jobs:
             scripts: [
               "./integration_test/dapp_tests/dapp_tests.sh seilocal"
             ]
-          },
+          }
         ]
     steps:
       - uses: actions/checkout@v3
@@ -139,17 +139,17 @@ jobs:
       - uses: actions/setup-node@v2
         with:
           node-version: '20'
-- name: Install pinned dependencies (jq 1.6-2.1ubuntu3, PyYAML 6.0.1)
-  run: |
-    sudo apt-get update -y
-    sudo apt-get install -y --no-install-recommends jq=1.6-2.1ubuntu3
-    python3 -m pip install pyyaml==6.0.1
+      - name: Install pinned dependencies (jq 1.6-2.1ubuntu3, PyYAML 6.0.1)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends jq=1.6-2.1ubuntu3
+          python3 -m pip install pyyaml==6.0.1
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
           go-version: 1.21
       - name: Start 4 node docker cluster
-        run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start &
+        run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{ matrix.test.env }} make docker-cluster-start &
       - name: Wait for docker cluster to start
         run: |
           until [ $(cat build/generated/launch.complete |wc -l) = 4 ]; do sleep 10; done
@@ -165,7 +165,7 @@ jobs:
           for script in $scripts; do bash -c "${script}"; done
           unset IFS
 
-      slinky-tests:
+  slinky-tests:
     needs: slinky-changes
     runs-on: ubuntu-latest
     if: always()
@@ -207,16 +207,15 @@ jobs:
           retry_on: error
           timeout_seconds: 30
           command: |
-              jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-              job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+            jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+            job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
 
-              for status in $job_statuses
-              do
-                echo "Status: $status"
-                if [[ "$status" == "failure" ]]; then
-                  echo "Some or all tests have failed!"
-                  exit 1
-                fi
-              done
+            for status in $job_statuses; do
+              echo "Status: $status"
+              if [[ "$status" == "failure" ]]; then
+                echo "Some or all tests have failed!"
+                exit 1
+              fi
+            done
 
-              echo "All tests have passed!"
+            echo "All tests have passed!"
