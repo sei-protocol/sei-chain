@@ -353,7 +353,7 @@ replace (
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
 	// TODO: To be replaced with a concrete version number. See:
 	// - https://github.com/sei-protocol/sei-cosmos/pull/598
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.67-0.20250820133804-748608a73207
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.67-0.20250825203812-d33e84738113
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.2.0
 	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.6
 	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.15.7-sei-3
@@ -363,7 +363,7 @@ replace (
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	// TODO: To be replaced with a concrete version number. See:
 	// - https://github.com/sei-protocol/sei-tendermint/pull/301
-	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.6.2-0.20250819154648-ae86e6f22465
+	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.6.2-0.20250825202636-492b079861fa
 	github.com/tendermint/tm-db => github.com/sei-protocol/tm-db v0.0.4
 	golang.org/x/crypto => golang.org/x/crypto v0.31.0
 	google.golang.org/grpc => google.golang.org/grpc v1.33.2
