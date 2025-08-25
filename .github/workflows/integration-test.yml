@@ -131,6 +131,7 @@ jobs:
             ]
           }
         ]
+
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
@@ -168,30 +169,15 @@ jobs:
   slinky-tests:
     needs: slinky-changes
     runs-on: ubuntu-latest
-    if: always()
+    if: needs.slinky-changes.outputs.slinky == 'true'
     steps:
       - uses: actions/checkout@v3
-
-      - uses: dorny/paths-filter@v2
-        id: filter
-        with:
-          filters: |
-            slinky:
-              - 'scripts/modules/slinky_test/**'
-              - 'x/slinky/**'
-
-      - uses: actions/setup-go@v3
-        if: steps.filter.outputs.slinky == 'true'
+      - name: Set up Go
+        uses: actions/setup-go@v3
         with:
           go-version: 1.21
-
       - name: Run Slinky Integration Tests
-        if: steps.filter.outputs.slinky == 'true'
         run: scripts/modules/slinky_test/run_slinky_test.sh
-
-      - name: Skip Slinky tests
-        if: steps.filter.outputs.slinky != 'true'
-        run: echo 'No Slinky changes detected; skipping'
 
   integration-test-check:
     name: Integration Test Check
