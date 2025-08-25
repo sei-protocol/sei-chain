@@ -1,0 +1,52 @@
+name: CI – Integration & Contracts
+
+on:
+  push:
+    branches:
+      - main
+      - evm
+      - 'release/**'
+      - '**'
+  pull_request:
+    branches:
+      - main
+      - evm
+      - 'release/**'
+      - '**'
+
+jobs:
+  # ---------- Forge EVM Tests ----------
+  forge:
+    name: Forge EVM Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false   # Do not fetch sei-chain submodule
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Run Forge Tests
+        run: |
+          forge install
+          forge build
+          forge test -vvv
+
+  # ---------- Build & Test Kin Contracts ----------
+  contracts:
+    name: Build & Test Kin Contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false   # Do not fetch sei-chain submodule
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Run Kin Contract Tests
+        run: |
+          forge install
+          forge build --contracts contracts/kin
+          forge test --contracts contracts/kin -vvv

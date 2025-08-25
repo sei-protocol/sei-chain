@@ -1,0 +1,42 @@
+name: "\U0001F525 Deploy Kin Contract – AbandonedLion"
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  deploy:
+    if: contains(github.event.comment.body, '/abandonedlion deploy SeiWordZK')
+    runs-on: ubuntu-latest
+    steps:
+      - name: "\U0001F981 Checkout Repository"
+        uses: actions/checkout@v3
+
+      - name: "\U0001F981 Set Up Foundry"
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: "\U0001F9EA Parse for Dry Run"
+        id: parse
+        run: |
+          echo "DRY_RUN=false" >> $GITHUB_ENV
+          if [[ "${{ github.event.comment.body }}" == *"--dry"* ]]; then
+            echo "DRY_RUN=true" >> $GITHUB_ENV
+          fi
+
+      - name: "\U0001F525 Forge Build"
+        run: forge build
+
+      - name: "\U0001F512 Deploy (or Skip if Dry)"
+        if: env.DRY_RUN == 'false'
+        run: |
+          echo "\U0001F525 Deploying contract to Sei via AbandonedLion..."
+          forge create SeiWordZK \
+            --rpc-url ${{ secrets.SEI_RPC_URL }} \
+            --private-key ${{ secrets.KIN_DEPLOYER_KEY }} \
+            --constructor-args 0xYourVerifierAddress
+
+      - name: "\U0001F9EA Dry Run Acknowledgement"
+        if: env.DRY_RUN == 'true'
+        run: echo "\U0001F9EA Dry run successful: build completed, no contract deployed."
