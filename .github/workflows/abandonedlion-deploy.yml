@@ -49,7 +49,11 @@ jobs:
               RPC="${{ secrets.BASE_RPC_URL }}" ;;
             arbitrum)
               RPC="${{ secrets.ARBITRUM_RPC_URL }}" ;;
+            *)
+              echo "❌ Unsupported network!" && exit 1 ;;
           esac
+
+          echo "🔐 Deploying to ${{ matrix.network }}..."
 
           TX_OUTPUT=$(forge create SeiWordZK \
             --rpc-url "$RPC" \
@@ -58,8 +62,11 @@ jobs:
             --json)
 
           echo "$TX_OUTPUT" > deployment-${{ matrix.network }}.json
-          echo "DEPLOYED_ADDR=$(echo $TX_OUTPUT | jq -r '.deployedTo')" >> $GITHUB_ENV
-          echo "TX_HASH=$(echo $TX_OUTPUT | jq -r '.transactionHash')" >> $GITHUB_ENV
+          DEPLOYED_ADDR=$(echo "$TX_OUTPUT" | jq -r '.deployedTo')
+          TX_HASH=$(echo "$TX_OUTPUT" | jq -r '.transactionHash')
+
+          echo "DEPLOYED_ADDR=$DEPLOYED_ADDR" >> $GITHUB_ENV
+          echo "TX_HASH=$TX_HASH" >> $GITHUB_ENV
 
       - name: "💬 Comment Deployment"
         if: env.DRY_RUN == 'false'

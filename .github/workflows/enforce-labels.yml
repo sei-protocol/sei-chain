@@ -16,7 +16,8 @@ jobs:
 
     steps:
       - name: 🚀 Start Enforcement
-        run: echo "🔍 Checking required labels on PR #${{ github.event.pull_request.number }}"
+        run: |
+          echo '🔍 Checking required labels on PR #${{ github.event.pull_request.number }}'
 
       - name: 🏷️ Check Required Labels
         uses: yogevbd/enforce-label-action@2.1.0
@@ -59,9 +60,9 @@ jobs:
         if: failure()
         run: |
           echo "::error title=Missing Label::❌ PR must include at least one classification label."
-          echo "Available labels: non-app-hash-breaking, app-hash-breaking, security, etc."
+          echo "Available labels: non-app-hash-breaking, app-hash-breaking, etc."
           exit 1
 
       - name: ✅ Log Successful Check
         if: success()
-        run: echo "✅ Required label present on PR #${{ github.event.pull_request.number }}"
+        run: echo '✅ Required label present on PR #${{ github.event.pull_request.number }}'
