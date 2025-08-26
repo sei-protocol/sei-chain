@@ -45,7 +45,7 @@ func (s *SeiTxPrioritizer) GetTxPriorityHint(ctx sdk.Context, tx sdk.Tx) (_prior
 			// vectors where a malicious actor crafts a transaction that panics the
 			// prioritizer. Since the prioritizer is used as a hint only, it's safe to fall
 			// back to zero priority in this case and log the panic for monitoring purposes.
-			s.logger.Error("tx prioritizer panicked", "error", r)
+			s.logger.Error("tx prioritizer panicked. Falling back on no priority", "error", r)
 			_priorityHint = 0
 			_err = nil
 		}
@@ -54,8 +54,17 @@ func (s *SeiTxPrioritizer) GetTxPriorityHint(ctx sdk.Context, tx sdk.Tx) (_prior
 		// The context already has a priority set, return it.
 		return ctx.Priority(), nil
 	}
-	if evmTx := evmtypes.GetEVMTransactionMessage(tx); evmTx != nil {
-		return s.getEvmTxPriority(ctx, evmTx)
+
+	if ok, err := evmante.IsEVMMessage(tx); err != nil {
+		return 0, err
+	} else if ok {
+		evmTx := evmtypes.GetEVMTransactionMessage(tx)
+		if evmTx != nil {
+			return s.getEvmTxPriority(ctx, evmTx)
+		}
+		// This should never happen since IsEVMMessage returned true. But we defensively
+		// return zero priority to be safe.
+		return 0, nil
 	}
 	if feeTx, ok := tx.(sdk.FeeTx); ok {
 		return s.getCosmosTxPriority(ctx, feeTx)
@@ -153,10 +162,10 @@ func (s *SeiTxPrioritizer) getCosmosTxPriority(ctx sdk.Context, feeTx sdk.FeeTx)
 
 	feeParams := s.paramsKeeper.GetFeesParams(ctx)
 	allowedDenoms := feeParams.GetAllowedFeeDenoms()
-	demons := make([]string, 0, len(allowedDenoms)+1)
-	demons = append(demons, sdk.DefaultBondDenom)
-	demons = append(demons, allowedDenoms...)
-	feeCoins := feeTx.GetFee().NonZeroAmountsOf(demons)
+	denoms := make([]string, 0, len(allowedDenoms)+1)
+	denoms = append(denoms, sdk.DefaultBondDenom)
+	denoms = append(denoms, allowedDenoms...)
+	feeCoins := feeTx.GetFee().NonZeroAmountsOf(denoms)
 	priority := cosmosante.GetTxPriority(feeCoins, int64(gas))
 	return min(antedecorators.MaxPriority, priority), nil
 }
