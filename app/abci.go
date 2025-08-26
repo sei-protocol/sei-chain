@@ -59,8 +59,8 @@ func (app *App) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchRequest) (
 	// update context with trace span new context
 	ctx = ctx.WithTraceSpanContext(spanCtx)
 	if ctx.BlockHeight()%100 == 0 {
-		ctx.Logger().Info("DEBUG: sleeping 10s...")
-		time.Sleep(10 * time.Second)
+		ctx.Logger().Info("DEBUG: sleeping 100s...")
+		time.Sleep(100 * time.Second)
 	}
 	return app.BaseApp.DeliverTxBatch(ctx, req)
 }
