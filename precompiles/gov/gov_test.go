@@ -308,7 +308,7 @@ func TestGovPrecompile(t *testing.T) {
 			tt.setup(ctx, k, evmAddr, seiAddr)
 
 			msgServer := keeper.NewMsgServerImpl(k)
-			ante.Preprocess(ctx, req, k.ChainID(ctx))
+			ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 			res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 			if tt.wantErr {
 				require.NotEmpty(t, res.VmError)
@@ -996,7 +996,7 @@ func TestPrecompileExecutor_submitProposal(t *testing.T) {
 			require.Nil(t, err)
 
 			msgServer := keeper.NewMsgServerImpl(k)
-			ante.Preprocess(ctx, req, k.ChainID(ctx))
+			ante.Preprocess(ctx, req, k.ChainID(ctx), false)
 			gotRet, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 
 			if tt.wantErr {
