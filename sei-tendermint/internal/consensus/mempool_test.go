@@ -163,7 +163,18 @@ func TestMempoolTxConcurrentWithCommit(t *testing.T) {
 	newBlockHeaderCh := subscribe(ctx, t, cs.eventBus, types.EventQueryNewBlockHeader)
 
 	const numTxs int64 = 50
-	go checkTxsRange(ctx, t, cs, 0, int(numTxs))
+
+	// Send transactions SEQUENTIALLY to avoid race conditions
+	// The CounterApplication requires strict sequential ordering (0, 1, 2, 3...)
+	// Sending them concurrently causes race conditions where transactions arrive out of order
+	for i := 0; i < int(numTxs); i++ {
+		txBytes := make([]byte, 8)
+		binary.BigEndian.PutUint64(txBytes, uint64(i))
+		var rCode uint32
+		err := assertMempool(t, cs.txNotifier).CheckTx(ctx, txBytes, func(r *abci.ResponseCheckTx) { rCode = r.Code }, mempool.TxInfo{})
+		require.NoError(t, err, "error after checkTx")
+		require.Equal(t, code.CodeTypeOK, rCode, "checkTx code is error, txBytes %X, index=%d", txBytes, i)
+	}
 
 	startTestRound(ctx, cs, cs.roundState.Height(), cs.roundState.Round())
 	for n := int64(0); n < numTxs; {

@@ -50,6 +50,10 @@ type TxMempool struct {
 	// reduces pressure on the proxyApp.
 	cache TxCache
 
+	// A TTL cache which keeps all txs that we have seen before over the TTL window.
+	// Currently, this can be used for tracking whether checkTx is always serving the same tx or not.
+	duplicateTxsCache TxCacheWithTTL
+
 	// txStore defines the main storage of valid transactions. Indexes are built
 	// on top of this store.
 	txStore *TxStore
@@ -97,6 +101,7 @@ type TxMempool struct {
 	postCheck PostCheckFunc
 
 	// NodeID to count of transactions failing CheckTx
+	totalCheckTxCount      atomic.Uint64
 	failedCheckTxCounts    map[types.NodeID]uint64
 	mtxFailedCheckTxCounts sync.RWMutex
 
@@ -112,15 +117,16 @@ func NewTxMempool(
 ) *TxMempool {
 
 	txmp := &TxMempool{
-		logger:        logger,
-		config:        cfg,
-		proxyAppConn:  proxyAppConn,
-		height:        -1,
-		cache:         NopTxCache{},
-		metrics:       NopMetrics(),
-		txStore:       NewTxStore(),
-		gossipIndex:   clist.New(),
-		priorityIndex: NewTxPriorityQueue(),
+		logger:            logger,
+		config:            cfg,
+		proxyAppConn:      proxyAppConn,
+		height:            -1,
+		cache:             NopTxCache{},
+		duplicateTxsCache: NopTxCacheWithTTL{}, // Default to NOP implementation
+		metrics:           NopMetrics(),
+		txStore:           NewTxStore(),
+		gossipIndex:       clist.New(),
+		priorityIndex:     NewTxPriorityQueue(),
 		heightIndex: NewWrappedTxList(func(wtx1, wtx2 *WrappedTx) bool {
 			return wtx1.height >= wtx2.height
 		}),
@@ -128,6 +134,7 @@ func NewTxMempool(
 			return wtx1.timestamp.After(wtx2.timestamp) || wtx1.timestamp.Equal(wtx2.timestamp)
 		}),
 		pendingTxs:          NewPendingTxs(cfg),
+		totalCheckTxCount:   atomic.Uint64{},
 		failedCheckTxCounts: map[types.NodeID]uint64{},
 		peerManager:         peerManager,
 	}
@@ -138,6 +145,11 @@ func NewTxMempool(
 
 	for _, opt := range options {
 		opt(txmp)
+	}
+
+	if cfg.DuplicateTxsCacheSize > 0 {
+		txmp.duplicateTxsCache = NewDuplicateTxCache(cfg.DuplicateTxsCacheSize, 1*time.Minute, 1*time.Minute)
+		go txmp.exposeDuplicateTxMetrics()
 	}
 
 	return txmp
@@ -307,8 +319,24 @@ func (txmp *TxMempool) CheckTx(
 		txmp.txStore.GetOrSetPeerByTxHash(txHash, txInfo.SenderID)
 		return types.ErrTxInCache
 	}
+	txmp.metrics.CacheSize.Set(float64(txmp.cache.Size()))
+
+	// Check TTL cache to see if we've recently processed this transaction
+	// Only execute TTL cache logic if we're using a real TTL cache (not NOP)
+	if txmp.config.DuplicateTxsCacheSize > 0 {
+		txmp.duplicateTxsCache.Increment(txHash)
+	}
 
 	res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTx{Tx: tx})
+	txmp.totalCheckTxCount.Add(1)
+	if err != nil {
+		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
+	} else {
+		txmp.metrics.NumberOfSuccessfulCheckTxs.Add(1)
+	}
+	if len(txInfo.SenderNodeID) == 0 {
+		txmp.metrics.NumberOfLocalCheckTx.Add(1)
+	}
 
 	// when a transaction is removed/expired/rejected, this should be called
 	// The expire tx handler unreserves the pending nonce
@@ -1121,6 +1149,21 @@ func (txmp *TxMempool) handlePendingTransactions() {
 		atomic.AddInt64(&txmp.pendingSizeBytes, int64(-tx.tx.Size()))
 		if !txmp.config.KeepInvalidTxsInCache {
 			tx.tx.removeHandler(true)
+		}
+	}
+}
+
+func (txmp *TxMempool) exposeDuplicateTxMetrics() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			maxOccurrence, totalOccurrence, duplicateCount, nonDuplicateCount := txmp.duplicateTxsCache.GetForMetrics()
+			txmp.metrics.DuplicateTxMaxOccurrences.Set(float64(maxOccurrence))
+			txmp.metrics.DuplicateTxTotalOccurrences.Set(float64(totalOccurrence))
+			txmp.metrics.NumberOfDuplicateTxs.Set(float64(duplicateCount))
+			txmp.metrics.NumberOfNonDuplicateTxs.Set(float64(nonDuplicateCount))
 		}
 	}
 }

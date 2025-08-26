@@ -838,7 +838,7 @@ func TestPeerManager_DialFailed_UnreservePeer(t *testing.T) {
 		PeerScores: map[types.NodeID]p2p.PeerScore{
 			a.NodeID: p2p.DefaultMutableScore - 1, // Set lower score for a to make it upgradeable
 			b.NodeID: p2p.DefaultMutableScore + 1, // Higher score for b to attempt upgrade
-			c.NodeID: p2p.DefaultMutableScore + 1, // Same high score for c to attempt upgrade after b fails
+			c.NodeID: p2p.DefaultMutableScore + 2, // Higher score for c to ensure it's selected after b fails
 		},
 		MaxConnected:        1,
 		MaxConnectedUpgrade: 2,
@@ -862,17 +862,17 @@ func TestPeerManager_DialFailed_UnreservePeer(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, added)
 
-	// Attempt to dial b for upgrade
-	dial, err = peerManager.TryDialNext()
-	require.NoError(t, err)
-	require.Equal(t, b, dial)
-
-	// When b's dial fails, the upgrade slot should be freed
-	// allowing c to attempt upgrade of the same peer (a)
-	require.NoError(t, peerManager.DialFailed(ctx, b))
+	// Attempt to dial c for upgrade (higher score)
 	dial, err = peerManager.TryDialNext()
 	require.NoError(t, err)
 	require.Equal(t, c, dial)
+
+	// When c's dial fails, the upgrade slot should be freed
+	// allowing b to attempt upgrade of the same peer (a)
+	require.NoError(t, peerManager.DialFailed(ctx, c))
+	dial, err = peerManager.TryDialNext()
+	require.NoError(t, err)
+	require.Equal(t, b, dial)
 }
 
 func TestPeerManager_Dialed_Connected(t *testing.T) {

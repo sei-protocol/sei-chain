@@ -21,11 +21,35 @@ type Metrics struct {
 	// Number of pending transactions in mempool
 	PendingSize metrics.Gauge
 
+	// Number of cached transactions in the mempool cache.
+	CacheSize metrics.Gauge
+
 	// Accumulated transaction sizes in bytes.
 	TxSizeBytes metrics.Counter
 
 	// Total current mempool uncommitted txs bytes
 	TotalTxsSizeBytes metrics.Gauge
+
+	// Track max number of occurrences for a duplicate tx
+	DuplicateTxMaxOccurrences metrics.Gauge
+
+	// Track the total number of occurrences for all duplicate txs
+	DuplicateTxTotalOccurrences metrics.Gauge
+
+	// Track the number of unique duplicate transactions
+	NumberOfDuplicateTxs metrics.Gauge
+
+	// Track the number of unique new tx transactions
+	NumberOfNonDuplicateTxs metrics.Gauge
+
+	// Track the number of checkTx calls
+	NumberOfSuccessfulCheckTxs metrics.Counter
+
+	// Track the number of failed checkTx calls
+	NumberOfFailedCheckTxs metrics.Counter
+
+	// Track the number of checkTx from local removed tx
+	NumberOfLocalCheckTx metrics.Counter
 
 	// Number of failed transactions.
 	FailedTxs metrics.Counter

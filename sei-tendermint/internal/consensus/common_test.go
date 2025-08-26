@@ -64,6 +64,7 @@ func configSetup(t *testing.T) *config.Config {
 	t.Cleanup(func() { os.RemoveAll(configStateTest.RootDir) })
 
 	configMempoolTest, err := ResetConfig(t.TempDir(), "consensus_mempool_test")
+	configMempoolTest.Mempool.DuplicateTxsCacheSize = 0
 	require.NoError(t, err)
 	t.Cleanup(func() { os.RemoveAll(configMempoolTest.RootDir) })
 
