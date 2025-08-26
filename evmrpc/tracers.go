@@ -139,9 +139,17 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
 
-	// Validate transaction access
+	// Validate transaction access by getting its block number
+	found, _, _, blockNumber, _, err := api.backend.GetTransaction(ctx, hash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transaction: %w", err)
+	}
+	if !found {
+		return nil, fmt.Errorf("transaction not found")
+	}
+
 	params := api.getBlockValidationParams()
-	if err := ValidateTransactionAccess(ctx, api.tmClient, hash, api.keeper, api.ctxProvider, params); err != nil {
+	if err := ValidateBlockAccess(int64(blockNumber), params); err != nil {
 		return nil, err
 	}
 
@@ -160,7 +168,7 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 
 	// Validate block number access
 	params := api.getBlockValidationParams()
-	if err := ValidateBlockNumberAccess(ctx, api.tmClient, number, params); err != nil {
+	if err := ValidateBlockNumberAccess(number, params); err != nil {
 		return nil, err
 	}
 
@@ -281,7 +289,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 
 	// Validate block number access
 	params := api.getBlockValidationParams()
-	if err := ValidateBlockNumberAccess(ctx, api.tmClient, number, params); err != nil {
+	if err := ValidateBlockNumberAccess(number, params); err != nil {
 		return nil, err
 	}
 
@@ -373,7 +381,7 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 // This is a convenience wrapper around ValidateBlockNumberAccess for backward compatibility.
 func (api *DebugAPI) checkTraceParams(number rpc.BlockNumber) error {
 	params := api.getBlockValidationParams()
-	return ValidateBlockNumberAccess(context.Background(), api.tmClient, number, params)
+	return ValidateBlockNumberAccess(number, params)
 }
 
 // getBlockValidationParams creates the validation parameters needed for block access checks

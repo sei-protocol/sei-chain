@@ -305,7 +305,7 @@ func ValidateBlockAccess(blockNumber int64, params BlockValidationParams) error 
 }
 
 // ValidateBlockNumberAccess validates access to a block by block number.
-func ValidateBlockNumberAccess(ctx context.Context, tmClient rpcclient.Client, number rpc.BlockNumber, params BlockValidationParams) error {
+func ValidateBlockNumberAccess(number rpc.BlockNumber, params BlockValidationParams) error {
 	// Special block numbers are always allowed
 	if number == rpc.LatestBlockNumber || number == rpc.FinalizedBlockNumber {
 		return nil
@@ -324,18 +324,4 @@ func ValidateBlockHashAccess(ctx context.Context, tmClient rpcclient.Client, has
 	}
 
 	return ValidateBlockAccess(block.Block.Height, params)
-}
-
-// ValidateTransactionAccess validates access to a transaction by converting it to its block number first.
-// This function requires additional parameters to look up the transaction.
-func ValidateTransactionAccess(ctx context.Context, tmClient rpcclient.Client, txHash common.Hash, keeper *keeper.Keeper, ctxProvider func(int64) sdk.Context, params BlockValidationParams) error {
-	// Get the transaction receipt to find the block number
-	sdkCtx := ctxProvider(LatestCtxHeight)
-	receipt, err := keeper.GetReceipt(sdkCtx, txHash)
-	if err != nil {
-		return fmt.Errorf("failed to get transaction receipt: %w", err)
-	}
-
-	blockNumber := int64(receipt.BlockNumber)
-	return ValidateBlockAccess(blockNumber, params)
 }
