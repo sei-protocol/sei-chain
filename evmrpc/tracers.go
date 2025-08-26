@@ -157,6 +157,12 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
 
+	// Verify app state contains history.
+	earliestVersion := api.backend.app.CommitMultiStore().GetEarliestVersion()
+	if earliestVersion > number.Int64() {
+		return nil, fmt.Errorf("height not available (requested height: %d, base height: %d)", number.Int64(), earliestVersion)
+	}
+
 	startTime := time.Now()
 	defer recordMetricsWithError("sei_traceBlockByNumberExcludeTraceFail", api.connectionType, startTime, returnErr)
 	// Accessing tracersAPI from the embedded DebugAPI
@@ -269,6 +275,12 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
 	if api.maxBlockLookback >= 0 && number != rpc.LatestBlockNumber && number != rpc.FinalizedBlockNumber && number.Int64() < latest-api.maxBlockLookback {
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
+	}
+
+	// Verify app state contains history.
+	earliestVersion := api.backend.app.CommitMultiStore().GetEarliestVersion()
+	if earliestVersion > number.Int64() {
+		return nil, fmt.Errorf("height not available (requested height: %d, base height: %d)", number.Int64(), earliestVersion)
 	}
 
 	startTime := time.Now()
