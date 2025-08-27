@@ -139,6 +139,20 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
 
+	// Validate transaction access by getting its block number
+	found, _, _, blockNumber, _, err := api.backend.GetTransaction(ctx, hash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transaction: %w", err)
+	}
+	if !found {
+		return nil, fmt.Errorf("transaction not found")
+	}
+
+	params := api.getBlockValidationParams()
+	if err := ValidateBlockAccess(int64(blockNumber), params); err != nil {
+		return nil, err
+	}
+
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceTransaction", api.connectionType, startTime, returnErr)
 	result, returnErr = api.tracersAPI.TraceTransaction(ctx, hash, config)
@@ -152,9 +166,10 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
 
-	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
-	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
-		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
+	// Validate block number access
+	params := api.getBlockValidationParams()
+	if err := ValidateBlockNumberAccess(number, params); err != nil {
+		return nil, err
 	}
 
 	startTime := time.Now()
@@ -184,6 +199,12 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
+
+	// Validate block hash access
+	params := api.getBlockValidationParams()
+	if err := ValidateBlockHashAccess(ctx, api.tmClient, hash, params); err != nil {
+		return nil, err
+	}
 
 	startTime := time.Now()
 	defer recordMetricsWithError("sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr)
@@ -266,9 +287,10 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
 
-	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
-	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
-		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
+	// Validate block number access
+	params := api.getBlockValidationParams()
+	if err := ValidateBlockNumberAccess(number, params); err != nil {
+		return nil, err
 	}
 
 	startTime := time.Now()
@@ -283,6 +305,12 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
+
+	// Validate block hash access
+	params := api.getBlockValidationParams()
+	if err := ValidateBlockHashAccess(ctx, api.tmClient, hash, params); err != nil {
+		return nil, err
+	}
 
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceBlockByHash", api.connectionType, startTime, returnErr)
@@ -347,4 +375,20 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 		Receipt:         receiptTraces.MustMarshalToJson(),
 	}
 	return response, nil
+}
+
+// checkTraceParams checks if the app state is available for the given block number.
+// This is a convenience wrapper around ValidateBlockNumberAccess for backward compatibility.
+func (api *DebugAPI) checkTraceParams(number rpc.BlockNumber) error {
+	params := api.getBlockValidationParams()
+	return ValidateBlockNumberAccess(number, params)
+}
+
+// getBlockValidationParams creates the validation parameters needed for block access checks
+func (api *DebugAPI) getBlockValidationParams() BlockValidationParams {
+	return BlockValidationParams{
+		LatestHeight:     api.ctxProvider(LatestCtxHeight).BlockHeight(),
+		MaxBlockLookback: api.maxBlockLookback,
+		EarliestVersion:  api.backend.app.CommitMultiStore().GetEarliestVersion(),
+	}
 }
