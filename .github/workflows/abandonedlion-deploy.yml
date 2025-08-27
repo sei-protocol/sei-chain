@@ -55,6 +55,7 @@ jobs:
           esac
 
           echo "🔐 Deploying to ${{ matrix.network }}..."
+
           TX_OUTPUT=$(forge create SeiWordZK \
             --rpc-url "$RPC" \
             --private-key "${{ secrets.KIN_DEPLOYER_KEY }}" \
@@ -62,11 +63,6 @@ jobs:
             --json)
 
           echo "$TX_OUTPUT" > deployment-${{ matrix.network }}.json
-          echo "TX_OUTPUT<<EOF" >> $GITHUB_ENV
-          echo "$TX_OUTPUT" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
-
-          echo "$TX_OUTPUT"
 
           DEPLOYED_ADDR=$(echo "$TX_OUTPUT" | jq -r '.deployedTo')
           TX_HASH=$(echo "$TX_OUTPUT" | jq -r '.transactionHash')

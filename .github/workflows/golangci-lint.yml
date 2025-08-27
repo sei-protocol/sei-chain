@@ -1,4 +1,5 @@
 name: golangci-lint
+
 on:
   push:
     tags:
@@ -8,22 +9,25 @@ on:
       - main
       - seiv2
   pull_request:
+
 permissions:
   contents: read
   # Optional: allow read access to pull request. Use with `only-new-issues` option.
   # pull-requests: read
+
 jobs:
   golangci:
     name: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
           go-version: 1.21
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
-          # Optional: version of golangci-lint to use in form of v1.2 or v1.2.3 or `latest` to use the latest version
           version: v1.60.1
-          args: --timeout 10m0s
+          args: --timeout 10m0s --out-format colored-line-number

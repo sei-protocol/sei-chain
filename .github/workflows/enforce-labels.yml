@@ -1,16 +1,68 @@
-name: Enforce PR Labels
+name: 🛡️ Enforce Sovereign PR Labels
 
 on:
   pull_request:
-    types: [labeled, unlabeled, opened, edited, synchronize]
+    types: [opened, edited, labeled, unlabeled, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
-  enforce-label:
-    name: Enforce Required Labels
+  enforce-pr-labels:
+    name: 🧩 PR Label Validator
     runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
+
     steps:
-      - name: Enforce Label Action
+      - name: 🚀 Start Enforcement
+        run: |
+          echo '🔍 Checking required labels on PR #${{ github.event.pull_request.number }}'
+
+      - name: 🏷️ Check Required Labels
         uses: yogevbd/enforce-label-action@2.1.0
         with:
-          REQUIRED_LABELS_ANY: "non-app-hash-breaking"
-          REQUIRED_LABELS_ANY_DESCRIPTION: "At least one of the following labels is required: ['non-app-hash-breaking']"
+          REQUIRED_LABELS_ANY: |
+            non-app-hash-breaking
+            app-hash-breaking
+            evm-only
+            doc-only
+            chore
+            security
+            hotfix
+            experimental
+            breaking
+            allow-override-label
+          REQUIRED_LABELS_ANY_DESCRIPTION: |
+            🚨 At least one of the following labels is required:
+            - non-app-hash-breaking
+            - app-hash-breaking
+            - evm-only
+            - doc-only
+            - chore
+            - security
+            - hotfix
+            - experimental
+            - breaking
+            - allow-override-label
+          IGNORED_AUTHORS: |
+            github-actions
+            renovate[bot]
+            dependabot[bot]
+          ENABLED_BRANCHES: |
+            main
+            evm
+            release/**
+            seiv2
+            kin/**
 
+      - name: 🚫 Fail Gracefully if Label Missing
+        if: failure()
+        run: |
+          echo "::error title=Missing Label::❌ PR must include at least one classification label."
+          echo "Available labels: non-app-hash-breaking, app-hash-breaking, etc."
+          exit 1
+
+      - name: ✅ Log Successful Check
+        if: success()
+        run: echo '✅ Required label present on PR #${{ github.event.pull_request.number }}'
