@@ -1,4 +1,5 @@
 name: Test
+
 on:
   pull_request:
   push:
@@ -18,10 +19,13 @@ jobs:
       matrix:
         part: ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19"]
     steps:
-      - uses: actions/setup-go@v3
+      - uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v3
         with:
           go-version: "1.21"
-      - uses: actions/checkout@v3
+
       - uses: technote-space/get-diff-action@v6
         with:
           PATTERNS: |
@@ -30,20 +34,23 @@ jobs:
             go.mod
             go.sum
             Makefile
-      - name: Get data from Go build cache
+
+      - name: Restore Go cache
         uses: actions/cache@v3
         with:
           path: |
             ~/go/pkg/mod
             ~/.cache/golangci-lint
             ~/.cache/go-build
-          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
-      - name: Run Go Tests
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - name: Run Tests (Split ${{ matrix.part }})
         run: |
           NUM_SPLIT=20
-          make test-group-${{matrix.part}} NUM_SPLIT=20
+          make test-group-${{ matrix.part }} NUM_SPLIT=$NUM_SPLIT
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload Coverage Artifact
+        uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-${{ matrix.part }}-coverage"
           path: ./${{ matrix.part }}.profile.out
@@ -55,34 +62,31 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
         with:
-          go-version: 1.21
+          go-version: "1.21"
 
-      # Download all coverage reports from the 'tests' job
-      - name: Download coverage reports
+      - name: Download Coverage Artifacts
         uses: actions/download-artifact@v4
 
-      - name: Set GOPATH
-        run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
-
-      - name: Add GOPATH/bin to PATH
-        run: echo "GOBIN=$(go env GOPATH)/bin" >> $GITHUB_ENV
+      - name: Set Go Env
+        run: |
+          echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
+          echo "GOBIN=$(go env GOPATH)/bin" >> $GITHUB_ENV
 
       - name: Install gocovmerge
-        run: go get github.com/wadey/gocovmerge && go install github.com/wadey/gocovmerge
+        run: |
+          go install github.com/wadey/gocovmerge@latest
 
-      - name: Merge coverage reports
-        run: gocovmerge $(find . -type f -name '*profile.out') > coverage.txt
+      - name: Merge Coverage Reports
+        run: |
+          gocovmerge $(find . -type f -name '*profile.out') > coverage.txt
 
-      - name: Check coverage report lines
-        run: wc -l coverage.txt
-        continue-on-error: true
+      - name: Debug Line Count
+        run: wc -l coverage.txt || true
 
-      - name: Check coverage report files
-        run: ls **/*profile.out
-        continue-on-error: true
+      - name: Debug Profile Files
+        run: ls **/*profile.out || true
 
-      # Now we upload the merged report to Codecov
-      - name: Upload coverage to Codecov
+      - name: Upload to Codecov
         uses: codecov/codecov-action@v4
         with:
           file: ./coverage.txt
@@ -95,24 +99,18 @@ jobs:
     needs: tests
     if: always()
     steps:
-      - name: Get workflow conclusion
-        id: workflow_conclusion
-        uses: nick-fields/retry@v2
-        with:
-          max_attempts: 2
-          retry_on: error
-          timeout_seconds: 30
-          command: |
-              jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-              job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+      - name: Verify Job Conclusion
+        run: |
+          echo "Checking test job conclusions..."
+          jobs=$(curl -s https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+          job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
 
-              for status in $job_statuses
-              do
-                echo "Status: $status"
-                if [[ "$status" == "failure" ]]; then
-                  echo "Some or all tests have failed!"
-                  exit 1
-                fi
-              done
+          for status in $job_statuses; do
+            echo "Status: $status"
+            if [[ "$status" == "failure" ]]; then
+              echo "❌ Some or all tests failed!"
+              exit 1
+            fi
+          done
 
-              echo "All tests have passed!"
+          echo "✅ All test jobs passed!"
