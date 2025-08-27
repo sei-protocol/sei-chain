@@ -54,7 +54,7 @@ func NewSendAPI(tmClient rpcclient.Client, txConfigProvider func(int64) client.T
 
 func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (hash common.Hash, err error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_sendRawTransaction", s.connectionType, startTime, err == nil)
+	defer recordMetricsWithError("eth_sendRawTransaction", s.connectionType, startTime, err)
 	tx := new(ethtypes.Transaction)
 	if err = tx.UnmarshalBinary(input); err != nil {
 		return
@@ -167,7 +167,7 @@ func (s *SendAPI) simulateTx(ctx context.Context, tx *ethtypes.Transaction) (est
 
 func (s *SendAPI) SignTransaction(_ context.Context, args apitypes.SendTxArgs, _ *string) (result *export.SignTransactionResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_signTransaction", s.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError("eth_signTransaction", s.connectionType, startTime, returnErr)
 	unsignedTx, err := args.ToTransaction()
 	if err != nil {
 		return nil, err
@@ -185,7 +185,7 @@ func (s *SendAPI) SignTransaction(_ context.Context, args apitypes.SendTxArgs, _
 
 func (s *SendAPI) SendTransaction(ctx context.Context, args export.TransactionArgs) (result common.Hash, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_sendTransaction", s.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError("eth_sendTransaction", s.connectionType, startTime, returnErr)
 	if err := args.SetDefaults(ctx, s.backend, false); err != nil {
 		return common.Hash{}, err
 	}
