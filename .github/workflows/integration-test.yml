@@ -19,6 +19,20 @@ defaults:
     shell: bash
 
 jobs:
+  slinky-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      slinky: ${{ steps.filter.outputs.slinky }}
+    steps:
+      - uses: actions/checkout@v3
+      - id: filter
+        uses: dorny/paths-filter@v2
+        with:
+          filters: |
+            slinky:
+              - 'scripts/modules/slinky_test/**'
+              - 'x/slinky/**'
+
   integration-tests:
     name: Integration Test (${{ matrix.test.name }})
     runs-on: ubuntu-large
@@ -28,107 +42,64 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
     strategy:
-      # other jobs should run even if one integration test fails
       fail-fast: false
       matrix:
-        test: [
-          {
-            name: "Wasm Module",
-            scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
-              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml",
-              "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
-              "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml"
-            ]
-          },
-          {
-            name: "Mint & Staking & Bank Module",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml"
-            ]
-          },
-          {
-            name: "Gov & Oracle & Authz Module",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/gov_module/staking_proposal_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/oracle_module/verify_penalty_counts.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/oracle_module/set_feeder_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/send_authorization_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/staking_authorization_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/authz_module/generic_authorization_test.yaml"
-            ]
-          },
-          {
-            name: "Chain Operation Test",
-            scripts: [
-              "until [ $(cat build/generated/rpc-launch.complete |wc -l) = 1 ]; do sleep 10; done",
-              "until [[ $(docker exec sei-rpc-node build/seid status |jq -M -r .SyncInfo.latest_block_height) -gt 10 ]]; do sleep 10; done",
-              "echo rpc node started",
-              "python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml"
-            ]
-          },
-          {
-            name: "Distribution Module",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/distribution_module/community_pool.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml",
-            ]
-          },
-          {
-            name: "Upgrade Module (Major)",
-            env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml"
-            ]
-          },
-          {
-            name: "Upgrade Module (Minor)",
-            env: "UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml"
-            ]
-          },
-          {
-            name: "SeiDB State Store",
-            scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
-              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
-            ],
-          },
-          {
-            name: "SeiDB State Store",
-            scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
-              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
-            ]
-          },
-          {
-            name: "EVM Module",
-            scripts: [
-              "./integration_test/evm_module/scripts/evm_tests.sh",
-            ]
-          },
-          {
-            name: "EVM Interoperability",
-            scripts: [
-              "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
-            ]
-          },
-          {
-            name: "dApp Tests",
-            scripts: [
-              "./integration_test/dapp_tests/dapp_tests.sh seilocal"
-            ]
-          },
-        ]
+        test:
+          - name: "Wasm Module"
+            scripts:
+              - docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
+              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml
+              - docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
+              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml
+          - name: "Mint & Staking & Bank Module"
+            scripts:
+              - python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml
+          - name: "Gov & Oracle & Authz Module"
+            scripts:
+              - python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/gov_module/staking_proposal_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/oracle_module/verify_penalty_counts.yaml
+              - python3 integration_test/scripts/runner.py integration_test/oracle_module/set_feeder_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/authz_module/send_authorization_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/authz_module/staking_authorization_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/authz_module/generic_authorization_test.yaml
+          - name: "Chain Operation Test"
+            scripts:
+              - until [ $(cat build/generated/rpc-launch.complete |wc -l) = 1 ]; do sleep 10; done
+              - until [[ $(docker exec sei-rpc-node build/seid status |jq -M -r .SyncInfo.latest_block_height) -gt 10 ]]; do sleep 10; done
+              - echo rpc node started
+              - python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml
+              - python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml
+          - name: "Distribution Module"
+            scripts:
+              - python3 integration_test/scripts/runner.py integration_test/distribution_module/community_pool.yaml
+              - python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml
+          - name: "Upgrade Module (Major)"
+            env: UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2
+            scripts:
+              - python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml
+          - name: "Upgrade Module (Minor)"
+            env: UPGRADE_VERSION_LIST=v1.0.0,v1.0.1,v1.0.2
+            scripts:
+              - python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml
+          - name: "SeiDB State Store"
+            scripts:
+              - docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh
+              - docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh
+              - python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml
+          - name: "EVM Module"
+            scripts:
+              - ./integration_test/evm_module/scripts/evm_tests.sh
+          - name: "EVM Interoperability"
+            scripts:
+              - ./integration_test/evm_module/scripts/evm_interoperability_tests.sh
+          - name: "dApp Tests"
+            scripts:
+              - ./integration_test/dapp_tests/dapp_tests.sh seilocal
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
@@ -137,51 +108,54 @@ jobs:
       - uses: actions/setup-node@v2
         with:
           node-version: '20'
-
       - name: Pyyaml
         run: |
           pip3 install pyyaml
-
       - name: Install jq
         run: sudo apt-get install -y jq
-
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
           go-version: 1.21
-
       - name: Start 4 node docker cluster
         run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start &
-
       - name: Wait for docker cluster to start
         run: |
-          until [ $(cat build/generated/launch.complete |wc -l) = 4 ]
-          do
+          until [ $(cat build/generated/launch.complete |wc -l) = 4 ]; do
             sleep 10
           done
           sleep 10
-
       - name: Start rpc node
         run: make run-rpc-node-skipbuild &
-
       - name: Verify Sei Chain is running
         run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
-
       - name: ${{ matrix.test.name }}
         run: |
           scripts=$(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]')
-          IFS=$'\n'   # change the internal field separator to newline
-          echo $scripts
-          for script in $scripts
-          do
-            bash -c "${script}"
+          IFS=$'\n'
+          echo "$scripts"
+          for script in $scripts; do
+            bash -c "$script"
           done
-          unset IFS  # revert the internal field separator back to default
+          unset IFS
+
+  slinky-tests:
+    needs: slinky-changes
+    if: needs.slinky-changes.outputs.slinky == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.21
+      - name: Run Slinky Integration Tests
+        run: scripts/modules/slinky_test/run_slinky_test.sh
 
   integration-test-check:
     name: Integration Test Check
     runs-on: ubuntu-latest
-    needs: integration-tests
+    needs: [integration-tests, slinky-tests]
     if: always()
     steps:
       - name: Get workflow conclusion
@@ -192,16 +166,13 @@ jobs:
           retry_on: error
           timeout_seconds: 30
           command: |
-              jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-              job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
-
-              for status in $job_statuses
-              do
-                echo "Status: $status"
-                if [[ "$status" == "failure" ]]; then
-                  echo "Some or all tests have failed!"
-                  exit 1
-                fi
-              done
-
-              echo "All tests have passed!"
+            jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+            job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+            for status in $job_statuses; do
+              echo "Status: $status"
+              if [[ "$status" == "failure" ]]; then
+                echo "Some or all tests have failed!"
+                exit 1
+              fi
+            done
+            echo "All tests have passed!"

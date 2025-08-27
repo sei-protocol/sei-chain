@@ -1,0 +1,94 @@
+name: "\U0001F525 Deploy Kin Contract – AbandonedLion"
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  deploy:
+    if: contains(github.event.comment.body, '/abandonedlion deploy')
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        network: [sei, base, arbitrum]
+    env:
+      DRY_RUN: false
+    steps:
+      - name: "\U0001F981 Checkout Repository"
+        uses: actions/checkout@v3
+
+      - name: "\U0001F981 Set Up Foundry"
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: "\U0001F9EA Parse for Dry Run"
+        id: parse
+        run: |
+          if [[ "${{ github.event.comment.body }}" == *"--dry"* ]]; then
+            echo "DRY_RUN=true" >> $GITHUB_ENV
+          else
+            echo "DRY_RUN=false" >> $GITHUB_ENV
+          fi
+
+      - name: "\U0001F525 Forge Build"
+        run: forge build
+
+      - name: "\U0001F680 Deploy to ${{ matrix.network }}"
+        if: env.DRY_RUN == 'false'
+        id: deploy
+        run: |
+          case "${{ matrix.network }}" in
+            sei)
+              RPC="${{ secrets.SEI_RPC_URL }}" ;;
+            base)
+              RPC="${{ secrets.BASE_RPC_URL }}" ;;
+            arbitrum)
+              RPC="${{ secrets.ARBITRUM_RPC_URL }}" ;;
+            *)
+              echo "❌ Unsupported network!" && exit 1 ;;
+          esac
+
+          echo "🔐 Deploying to ${{ matrix.network }}..."
+          TX_OUTPUT=$(forge create SeiWordZK \
+            --rpc-url "$RPC" \
+            --private-key "${{ secrets.KIN_DEPLOYER_KEY }}" \
+            --constructor-args 0xYourVerifierAddress \
+            --json)
+
+          echo "$TX_OUTPUT" > deployment-${{ matrix.network }}.json
+          DEPLOYED_ADDR=$(echo "$TX_OUTPUT" | jq -r '.deployedTo')
+          TX_HASH=$(echo "$TX_OUTPUT" | jq -r '.transactionHash')
+
+          echo "DEPLOYED_ADDR=$DEPLOYED_ADDR" >> $GITHUB_ENV
+          echo "TX_HASH=$TX_HASH" >> $GITHUB_ENV
+
+      - name: "\U0001F4AC Comment Deployment"
+        if: env.DRY_RUN == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const net = '${{ matrix.network }}';
+            const msg = [
+              `**✅ AbandonedLion Deployed to ${net}**`,
+              '',
+              `**Address**: \`${process.env.DEPLOYED_ADDR}\``,
+              `**TX Hash**: \`${process.env.TX_HASH}\``,
+              '',
+              '_Powered by Kin & AbandonedLion deploy script_'
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue?.number || context.payload.pull_request?.number,
+              body: msg
+            });
+
+      - name: "\U0001F9EA Dry Run Confirmation"
+        if: env.DRY_RUN == 'true'
+        run: echo "\U0001F9EA Dry run successful: build completed, no contract deployed."
+
