@@ -160,6 +160,7 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 		HandlePrecompileError(err, evm, operation)
 		if err != nil {
 			ret = []byte(err.Error())
+			fmt.Printf("precompile %s encountered error: %v\n", d.name, err)
 			err = vm.ErrExecutionReverted
 		}
 	}()

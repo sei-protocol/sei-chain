@@ -150,8 +150,14 @@ func TestSigVerifyPendingTransaction(t *testing.T) {
 	k.SetNonce(ctx, evmAddr, 1)
 	// not enough fund
 	require.Equal(t, abci.Pending, newCtx.PendingTxChecker()())
+
+	// Calculate the exact fee needed: gas * gasPrice + value = 1000 * 10 + 1000 = 11000 wei.
 	fee := sdk.NewIntFromUint64(tx.Gas()).Mul(sdk.NewIntFromBigInt(tx.GasPrice())).Add(sdk.NewIntFromBigInt(tx.Value()))
-	_ = k.BankKeeper().AddCoins(ctx, msg.Derived.SenderSeiAddr, sdk.NewCoins(sdk.NewCoin("usei", fee)), false)
+
+	// Add an amount that exposes the unit mismatch bug (if wei and non-wei are compared).
+	amountInCosmosUnits := fee.Sub(sdk.NewInt(1))
+	_ = k.BankKeeper().AddCoins(ctx, msg.Derived.SenderSeiAddr, sdk.NewCoins(sdk.NewCoin("usei", amountInCosmosUnits)), false)
+
 	require.Equal(t, abci.Accepted, newCtx.PendingTxChecker()())
 	// incorrect nonce
 	k.SetNonce(ctx, evmAddr, 2)

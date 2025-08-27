@@ -100,8 +100,8 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 					return abci.Rejected
 				} else if txNonce < nextPendingNonce {
 					// check if the sender still has enough funds to pay for gas
-					balance := svd.evmKeeper.BankKeeper().GetBalance(latestCtx, types.MustGetEVMTransactionMessage(tx).Derived.SenderSeiAddr, evmkeeper.BaseDenom).Amount
-					if balance.LT(sdk.NewIntFromBigInt(fee)) {
+					balance := svd.evmKeeper.GetBalance(latestCtx, types.MustGetEVMTransactionMessage(tx).Derived.SenderSeiAddr)
+					if balance.Cmp(fee) < 0 {
 						// not enough funds. Go back to pending as it may obtain sufficient funds later.
 						return abci.Pending
 					}
