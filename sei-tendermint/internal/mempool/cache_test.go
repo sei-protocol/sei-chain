@@ -12,7 +12,7 @@ import (
 
 func TestLRUTxCache(t *testing.T) {
 	t.Run("NewLRUTxCache", func(t *testing.T) {
-		cache := NewLRUTxCache(10)
+		cache := NewLRUTxCache(10, 0)
 		assert.NotNil(t, cache)
 		assert.Equal(t, 10, cache.size)
 		assert.NotNil(t, cache.cacheMap)
@@ -20,8 +20,8 @@ func TestLRUTxCache(t *testing.T) {
 	})
 
 	t.Run("Push_NewTransaction", func(t *testing.T) {
-		cache := NewLRUTxCache(3)
-		tx := types.Tx([]byte("test1"))
+		cache := NewLRUTxCache(3, 0)
+		tx := types.Tx("test1").Key()
 
 		// First push should return true (newly added)
 		result := cache.Push(tx)
@@ -30,8 +30,8 @@ func TestLRUTxCache(t *testing.T) {
 	})
 
 	t.Run("Push_DuplicateTransaction", func(t *testing.T) {
-		cache := NewLRUTxCache(3)
-		tx := types.Tx([]byte("test1"))
+		cache := NewLRUTxCache(3, 0)
+		tx := types.Tx("test1").Key()
 
 		// First push
 		result := cache.Push(tx)
@@ -44,18 +44,18 @@ func TestLRUTxCache(t *testing.T) {
 	})
 
 	t.Run("Push_CacheFull", func(t *testing.T) {
-		cache := NewLRUTxCache(2)
+		cache := NewLRUTxCache(2, 0)
 
 		// Add two transactions
-		tx1 := types.Tx([]byte("test1"))
-		tx2 := types.Tx([]byte("test2"))
+		tx1 := types.Tx("test1").Key()
+		tx2 := types.Tx("test2").Key()
 
 		cache.Push(tx1)
 		cache.Push(tx2)
 		assert.Equal(t, 2, cache.Size())
 
 		// Add third transaction, should evict the first one (LRU)
-		tx3 := types.Tx([]byte("test3"))
+		tx3 := types.Tx("test3").Key()
 		cache.Push(tx3)
 		assert.Equal(t, 2, cache.Size())
 
@@ -64,8 +64,8 @@ func TestLRUTxCache(t *testing.T) {
 	})
 
 	t.Run("Remove_ExistingTransaction", func(t *testing.T) {
-		cache := NewLRUTxCache(3)
-		tx := types.Tx([]byte("test1"))
+		cache := NewLRUTxCache(3, 0)
+		tx := types.Tx("test1").Key()
 
 		cache.Push(tx)
 		assert.Equal(t, 1, cache.Size())
@@ -75,8 +75,8 @@ func TestLRUTxCache(t *testing.T) {
 	})
 
 	t.Run("Remove_NonExistentTransaction", func(t *testing.T) {
-		cache := NewLRUTxCache(3)
-		tx := types.Tx([]byte("test1"))
+		cache := NewLRUTxCache(3, 0)
+		tx := types.Tx("test1").Key()
 
 		// Remove non-existent transaction should not panic
 		cache.Remove(tx)
@@ -84,11 +84,11 @@ func TestLRUTxCache(t *testing.T) {
 	})
 
 	t.Run("Reset", func(t *testing.T) {
-		cache := NewLRUTxCache(3)
+		cache := NewLRUTxCache(3, 0)
 
 		// Add some transactions
-		cache.Push(types.Tx([]byte("test1")))
-		cache.Push(types.Tx([]byte("test2")))
+		cache.Push(types.Tx("test1").Key())
+		cache.Push(types.Tx("test2").Key())
 		assert.Equal(t, 2, cache.Size())
 
 		// Reset should clear everything
@@ -97,26 +97,14 @@ func TestLRUTxCache(t *testing.T) {
 	})
 
 	t.Run("Size", func(t *testing.T) {
-		cache := NewLRUTxCache(3)
+		cache := NewLRUTxCache(3, 0)
 		assert.Equal(t, 0, cache.Size())
 
-		cache.Push(types.Tx([]byte("test1")))
+		cache.Push(types.Tx("test1").Key())
 		assert.Equal(t, 1, cache.Size())
 
-		cache.Push(types.Tx([]byte("test2")))
+		cache.Push(types.Tx("test2").Key())
 		assert.Equal(t, 2, cache.Size())
-	})
-
-	t.Run("GetList", func(t *testing.T) {
-		cache := NewLRUTxCache(3)
-		list := cache.GetList()
-
-		assert.NotNil(t, list)
-		assert.Equal(t, 0, list.Len())
-
-		// Add transaction and verify list is updated
-		cache.Push(types.Tx([]byte("test1")))
-		assert.Equal(t, 1, list.Len())
 	})
 }
 
@@ -129,13 +117,13 @@ func TestNopTxCache(t *testing.T) {
 	})
 
 	t.Run("Push", func(t *testing.T) {
-		tx := types.Tx([]byte("test"))
+		tx := types.Tx("test").Key()
 		result := cache.Push(tx)
 		assert.True(t, result)
 	})
 
 	t.Run("Remove", func(t *testing.T) {
-		tx := types.Tx([]byte("test"))
+		tx := types.Tx("test").Key()
 		// Should not panic
 		cache.Remove(tx)
 	})
@@ -148,19 +136,19 @@ func TestNopTxCache(t *testing.T) {
 
 func TestDuplicateTxCache(t *testing.T) {
 	t.Run("NewDuplicateTxCache_WithExpiration", func(t *testing.T) {
-		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 50*time.Millisecond)
+		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 50*time.Millisecond, 0)
 		assert.NotNil(t, cache)
 		assert.NotNil(t, cache.cache)
 	})
 
 	t.Run("NewDuplicateTxCache_NoExpiration", func(t *testing.T) {
-		cache := NewDuplicateTxCache(100, 0, 50*time.Millisecond)
+		cache := NewDuplicateTxCache(100, 0, 50*time.Millisecond, 0)
 		assert.NotNil(t, cache)
 		assert.NotNil(t, cache.cache)
 	})
 
 	t.Run("Set_And_Get", func(t *testing.T) {
-		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
+		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0, 0)
 		txKey := createTestTxKey("test_key")
 
 		// Set value
@@ -173,7 +161,7 @@ func TestDuplicateTxCache(t *testing.T) {
 	})
 
 	t.Run("Get_NonExistent", func(t *testing.T) {
-		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
+		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0, 0)
 		txKey := createTestTxKey("non_existent")
 
 		counter, found := cache.Get(txKey)
@@ -182,7 +170,7 @@ func TestDuplicateTxCache(t *testing.T) {
 	})
 
 	t.Run("Increment_NewKey", func(t *testing.T) {
-		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
+		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0, 0)
 		txKey := createTestTxKey("new_key")
 
 		// Increment non-existent key should start with 1
@@ -195,7 +183,7 @@ func TestDuplicateTxCache(t *testing.T) {
 	})
 
 	t.Run("Increment_ExistingKey", func(t *testing.T) {
-		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
+		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0, 0)
 		txKey := createTestTxKey("existing_key")
 
 		// Set initial value
@@ -211,7 +199,7 @@ func TestDuplicateTxCache(t *testing.T) {
 	})
 
 	t.Run("Reset", func(t *testing.T) {
-		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
+		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0, 0)
 		txKey := createTestTxKey("test_key")
 
 		// Add some data
@@ -229,7 +217,7 @@ func TestDuplicateTxCache(t *testing.T) {
 	})
 
 	t.Run("Stop", func(t *testing.T) {
-		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
+		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0, 0)
 		txKey := createTestTxKey("test_key")
 
 		// Add some data
@@ -244,7 +232,7 @@ func TestDuplicateTxCache(t *testing.T) {
 	})
 
 	t.Run("GetForMetrics", func(t *testing.T) {
-		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
+		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0, 0)
 
 		// Add various transactions with different counts
 		cache.Set(createTestTxKey("key1"), 1) // Non-duplicate
@@ -262,7 +250,7 @@ func TestDuplicateTxCache(t *testing.T) {
 	})
 
 	t.Run("GetForMetrics_EmptyCache", func(t *testing.T) {
-		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
+		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0, 0)
 
 		maxCount, totalCount, duplicateCount, nonDuplicateCount := cache.GetForMetrics()
 
@@ -317,37 +305,8 @@ func TestNopTxCacheWithTTL(t *testing.T) {
 	})
 }
 
-func TestTxKeyToString(t *testing.T) {
-	t.Run("EmptyKey", func(t *testing.T) {
-		var txKey types.TxKey
-		result := txKeyToString(txKey)
-		assert.Equal(t, "0000000000000000000000000000000000000000000000000000000000000000", result)
-	})
-
-	t.Run("SimpleKey", func(t *testing.T) {
-		txKey := createTestTxKey("hello")
-		result := txKeyToString(txKey)
-		// The result will be the hex representation of the key
-		assert.NotEmpty(t, result)
-		assert.Len(t, result, 64) // 32 bytes = 64 hex chars
-	})
-
-	t.Run("BinaryKey", func(t *testing.T) {
-		var txKey types.TxKey
-		// Set some specific bytes
-		txKey[0] = 0x00
-		txKey[1] = 0x01
-		txKey[2] = 0x02
-		txKey[31] = 0xFF
-
-		result := txKeyToString(txKey)
-		assert.NotEmpty(t, result)
-		assert.Len(t, result, 64) // 32 bytes = 64 hex chars
-	})
-}
-
 func TestLRUTxCache_ConcurrentAccess(t *testing.T) {
-	cache := NewLRUTxCache(100)
+	cache := NewLRUTxCache(100, 0)
 
 	// Test concurrent access
 	const numGoroutines = 10
@@ -361,7 +320,7 @@ func TestLRUTxCache_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 
 			for j := 0; j < operationsPerGoroutine; j++ {
-				tx := types.Tx([]byte(fmt.Sprintf("goroutine_%d_tx_%d", id, j)))
+				tx := types.Tx(fmt.Sprintf("goroutine_%d_tx_%d", id, j)).Key()
 				cache.Push(tx)
 
 				if j%10 == 0 {
@@ -380,7 +339,7 @@ func TestLRUTxCache_ConcurrentAccess(t *testing.T) {
 }
 
 func TestDuplicateTxCache_ConcurrentAccess(t *testing.T) {
-	cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
+	cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0, 0)
 
 	// Test concurrent access
 	const numGoroutines = 10
@@ -421,8 +380,8 @@ func TestDuplicateTxCache_ConcurrentAccess(t *testing.T) {
 
 func TestLRUTxCache_EdgeCases(t *testing.T) {
 	t.Run("ZeroSizeCache", func(t *testing.T) {
-		cache := NewLRUTxCache(0)
-		tx := types.Tx([]byte("test"))
+		cache := NewLRUTxCache(0, 0)
+		tx := types.Tx("test").Key()
 
 		// Should handle zero size gracefully
 		result := cache.Push(tx)
@@ -431,8 +390,8 @@ func TestLRUTxCache_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("NegativeSizeCache", func(t *testing.T) {
-		cache := NewLRUTxCache(-1)
-		tx := types.Tx([]byte("test"))
+		cache := NewLRUTxCache(-1, 0)
+		tx := types.Tx("test").Key()
 
 		// Should handle negative size gracefully
 		result := cache.Push(tx)
@@ -441,8 +400,8 @@ func TestLRUTxCache_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("NilTransaction", func(t *testing.T) {
-		cache := NewLRUTxCache(10)
-		var tx types.Tx
+		cache := NewLRUTxCache(10, 0)
+		var tx types.TxKey
 
 		// Should handle nil transaction gracefully
 		result := cache.Push(tx)
@@ -453,7 +412,7 @@ func TestLRUTxCache_EdgeCases(t *testing.T) {
 
 func TestDuplicateTxCache_EdgeCases(t *testing.T) {
 	t.Run("ZeroExpiration", func(t *testing.T) {
-		cache := NewDuplicateTxCache(100, 0, 0)
+		cache := NewDuplicateTxCache(100, 0, 0, 0)
 		txKey := createTestTxKey("test")
 
 		// Should work with zero expiration
@@ -464,7 +423,7 @@ func TestDuplicateTxCache_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("EmptyTxKey", func(t *testing.T) {
-		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0)
+		cache := NewDuplicateTxCache(100, 100*time.Millisecond, 0, 0)
 		var txKey types.TxKey
 
 		// Should handle empty key gracefully
@@ -475,7 +434,7 @@ func TestDuplicateTxCache_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("VeryLargeExpiration", func(t *testing.T) {
-		cache := NewDuplicateTxCache(100, 24*365*time.Hour, 0) // 1 year
+		cache := NewDuplicateTxCache(100, 24*365*time.Hour, 0, 0) // 1 year
 		txKey := createTestTxKey("test")
 
 		// Should work with very large expiration

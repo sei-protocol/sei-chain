@@ -3,6 +3,7 @@ package mempool
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
@@ -17,6 +18,16 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/types"
 )
+
+// Using SHA-256 truncated to 128 bits as the cache key: At 2K tx/sec, the
+// collision probability is effectively zero (≈10^-29 for 120K keys in a minute,
+// still negligible over years). If reduced 3× smaller (~43 bits), collisions
+// become probable within a day and guaranteed over longer periods.
+//
+// For the purposes of the LRU cache key both sizes are sufficiently secure. For
+// now. 128 bits is a safe balance between performance and collision probability
+// and we may revisit later.
+const maxCacheKeySize = sha256.Size / 2
 
 var _ Mempool = (*TxMempool)(nil)
 
@@ -140,7 +151,7 @@ func NewTxMempool(
 	}
 
 	if cfg.CacheSize > 0 {
-		txmp.cache = NewLRUTxCache(cfg.CacheSize)
+		txmp.cache = NewLRUTxCache(cfg.CacheSize, maxCacheKeySize)
 	}
 
 	for _, opt := range options {
@@ -148,7 +159,7 @@ func NewTxMempool(
 	}
 
 	if cfg.DuplicateTxsCacheSize > 0 {
-		txmp.duplicateTxsCache = NewDuplicateTxCache(cfg.DuplicateTxsCacheSize, 1*time.Minute, 1*time.Minute)
+		txmp.duplicateTxsCache = NewDuplicateTxCache(cfg.DuplicateTxsCacheSize, 1*time.Minute, 1*time.Minute, maxCacheKeySize)
 		go txmp.exposeDuplicateTxMetrics()
 	}
 
@@ -315,7 +326,7 @@ func (txmp *TxMempool) CheckTx(
 	// We add the transaction to the mempool's cache and if the
 	// transaction is already present in the cache, i.e. false is returned, then we
 	// check if we've seen this transaction and error if we have.
-	if !txmp.cache.Push(tx) {
+	if !txmp.cache.Push(txHash) {
 		txmp.txStore.GetOrSetPeerByTxHash(txHash, txInfo.SenderID)
 		return types.ErrTxInCache
 	}
@@ -342,7 +353,7 @@ func (txmp *TxMempool) CheckTx(
 	// The expire tx handler unreserves the pending nonce
 	removeHandler := func(removeFromCache bool) {
 		if removeFromCache {
-			txmp.cache.Remove(tx)
+			txmp.cache.Remove(txHash)
 		}
 		if res.ExpireTxHandler != nil {
 			res.ExpireTxHandler()
@@ -587,16 +598,17 @@ func (txmp *TxMempool) Update(
 	}
 
 	for i, tx := range blockTxs {
+		txKey := tx.Key()
 		if execTxResult[i].Code == abci.CodeTypeOK {
 			// add the valid committed transaction to the cache (if missing)
-			_ = txmp.cache.Push(tx)
+			_ = txmp.cache.Push(txKey)
 		} else if !txmp.config.KeepInvalidTxsInCache {
 			// allow invalid transactions to be re-submitted
-			txmp.cache.Remove(tx)
+			txmp.cache.Remove(txKey)
 		}
 
 		// remove the committed transaction from the transaction store and indexes
-		if wtx := txmp.txStore.GetTxByHash(tx.Key()); wtx != nil {
+		if wtx := txmp.txStore.GetTxByHash(txKey); wtx != nil {
 			txmp.removeTx(wtx, false, false, true)
 		}
 		if execTxResult[i].EvmTxInfo != nil {
