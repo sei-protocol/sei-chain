@@ -1133,7 +1133,7 @@ func (app *App) ClearOptimisticProcessingInfo() {
 	app.optimisticProcessingInfo = OptimisticProcessingInfo{}
 }
 
-func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
+func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
 
@@ -1156,7 +1156,7 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 
 		plan, found := app.UpgradeKeeper.GetUpgradePlan(ctx)
 		if found && plan.ShouldExecute(ctx) {
-			app.Logger().Info(fmt.Sprintf("Potential upgrade planned for height=%d skipping optimistic processing", plan.Height))
+			app.Logger().Info("Potential upgrade planned; skipping optimistic processing", "height", plan.Height)
 			app.optimisticProcessingInfoMutex.Lock()
 			app.optimisticProcessingInfo.Aborted = true
 			completion := app.optimisticProcessingInfo.Completion
@@ -1164,6 +1164,30 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			completion <- struct{}{}
 		} else {
 			go func() {
+				defer func() {
+					if err := recover(); err != nil {
+						app.Logger().Error(
+							"panic recovered in application ProcessProposal handler",
+							"height", req.Height,
+							"time", req.Time,
+							"hash", fmt.Sprintf("%X", req.Hash),
+							"panic", err,
+						)
+
+						// Mark as aborted and signal completion to prevent deadlock
+						app.optimisticProcessingInfoMutex.Lock()
+						app.optimisticProcessingInfo.Aborted = true
+						completion := app.optimisticProcessingInfo.Completion
+						app.optimisticProcessingInfoMutex.Unlock()
+						completion <- struct{}{}
+
+						// Reject the proposal when panic occurs
+						resp = &abci.ResponseProcessProposal{
+							Status: abci.ResponseProcessProposal_REJECT,
+						}
+					}
+				}()
+
 				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit, false)
 				app.optimisticProcessingInfoMutex.Lock()
 				app.optimisticProcessingInfo.Events = events
@@ -1179,9 +1203,12 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 		app.optimisticProcessingInfo.Aborted = true
 		app.optimisticProcessingInfoMutex.Unlock()
 	}
-	return &abci.ResponseProcessProposal{
+
+	resp = &abci.ResponseProcessProposal{
 		Status: abci.ResponseProcessProposal_ACCEPT,
-	}, nil
+	}
+
+	return resp, nil
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
