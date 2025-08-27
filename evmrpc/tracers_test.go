@@ -2,6 +2,7 @@ package evmrpc_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -95,4 +96,62 @@ func TestTraceBlockByNumberUnlimitedLookback(t *testing.T) {
 	require.False(t, ok, "expected look-back to be unlimited")
 	_, ok = resObj["result"]
 	require.True(t, ok, "expected result to be present")
+}
+
+func TestTraceTransactionValidation(t *testing.T) {
+	// Test tracing a transaction that exists
+	args := map[string]interface{}{"tracer": "callTracer"}
+	resObj := sendRequestGoodWithNamespace(t, "debug", "traceTransaction", DebugTraceHashHex, args)
+
+	// Should have a result, not an error
+	_, hasResult := resObj["result"]
+	_, hasError := resObj["error"]
+	require.True(t, hasResult, "expected successful trace result")
+	require.False(t, hasError, "expected no error for valid transaction")
+}
+
+func TestTraceTransactionNotFound(t *testing.T) {
+	// Test tracing a non-existent transaction hash
+	nonExistentTxHash := "0x1111111111111111111111111111111111111111111111111111111111111111"
+	args := map[string]interface{}{"tracer": "callTracer"}
+
+	resObj := sendRequestGoodWithNamespace(t, "debug", "traceTransaction", nonExistentTxHash, args)
+
+	// Should have an error
+	errObj, hasError := resObj["error"].(map[string]interface{})
+	require.True(t, hasError, "expected error for non-existent transaction")
+
+	// Check that the error message indicates transaction not found
+	message, hasMessage := errObj["message"].(string)
+	require.True(t, hasMessage, "expected error message")
+	require.Contains(t, message, "failed to get transaction", "expected transaction not found error")
+}
+
+func TestTraceBlockByHashValidation(t *testing.T) {
+	// Test with the existing debug trace block hash
+	args := map[string]interface{}{"tracer": "callTracer"}
+	resObj := sendRequestGoodWithNamespace(t, "debug", "traceBlockByHash", DebugTraceBlockHash, args)
+
+	// Should have a result, not an error
+	_, hasResult := resObj["result"]
+	_, hasError := resObj["error"]
+	require.True(t, hasResult, "expected successful trace result")
+	require.False(t, hasError, "expected no error for valid block hash")
+}
+
+func TestTraceBlockByHashWithStrictLimits(t *testing.T) {
+	// Test with strict server that has limited lookback
+	args := map[string]interface{}{"tracer": "callTracer"}
+
+	// Use a block hash that would be beyond the lookback limit
+	resObj := sendRequestStrictWithNamespace(t, "debug", "traceBlockByHash", DebugTraceBlockHash, args)
+
+	// This might result in an error depending on the block height and lookback settings
+	if errObj, hasError := resObj["error"].(map[string]interface{}); hasError {
+		message := errObj["message"].(string)
+		// Should be a lookback-related error
+		require.True(t,
+			strings.Contains(message, "beyond max lookback") || strings.Contains(message, "height not available"),
+			"expected lookback or availability error, got: %s", message)
+	}
 }
