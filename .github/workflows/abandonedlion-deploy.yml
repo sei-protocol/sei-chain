@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  issues: write  # Needed for issue comment reply
+  issues: write  # Needed for commenting back
 
 jobs:
   deploy:
@@ -18,9 +18,10 @@ jobs:
         network: [sei, base, arbitrum]
     env:
       DRY_RUN: false
+
     steps:
       - name: 🦁 Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: 🦁 Set Up Foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -32,8 +33,6 @@ jobs:
         run: |
           if [[ "${{ github.event.comment.body }}" == *"--dry"* ]]; then
             echo "DRY_RUN=true" >> $GITHUB_ENV
-          else
-            echo "DRY_RUN=false" >> $GITHUB_ENV
           fi
 
       - name: 🔥 Forge Build
@@ -43,15 +42,13 @@ jobs:
         if: env.DRY_RUN == 'false'
         id: deploy
         run: |
+          set -euo pipefail
+
           case "${{ matrix.network }}" in
-            sei)
-              RPC="${{ secrets.SEI_RPC_URL }}" ;;
-            base)
-              RPC="${{ secrets.BASE_RPC_URL }}" ;;
-            arbitrum)
-              RPC="${{ secrets.ARBITRUM_RPC_URL }}" ;;
-            *)
-              echo "❌ Unsupported network: ${{ matrix.network }}" && exit 1 ;;
+            sei) RPC="${{ secrets.SEI_RPC_URL }}" ;;
+            base) RPC="${{ secrets.BASE_RPC_URL }}" ;;
+            arbitrum) RPC="${{ secrets.ARBITRUM_RPC_URL }}" ;;
+            *) echo "❌ Unsupported network: ${{ matrix.network }}" && exit 1 ;;
           esac
 
           echo "🔐 Deploying to ${{ matrix.network }}..."
@@ -64,8 +61,8 @@ jobs:
 
           echo "$TX_OUTPUT" > deployment-${{ matrix.network }}.json
 
-          DEPLOYED_ADDR=$(echo "$TX_OUTPUT" | jq -r '.deployedTo')
-          TX_HASH=$(echo "$TX_OUTPUT" | jq -r '.transactionHash')
+          DEPLOYED_ADDR=$(jq -r '.deployedTo' <<< "$TX_OUTPUT")
+          TX_HASH=$(jq -r '.transactionHash' <<< "$TX_OUTPUT")
 
           echo "DEPLOYED_ADDR=$DEPLOYED_ADDR" >> $GITHUB_ENV
           echo "TX_HASH=$TX_HASH" >> $GITHUB_ENV
