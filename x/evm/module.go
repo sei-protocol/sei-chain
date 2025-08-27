@@ -332,6 +332,15 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 	// TODO: remove after all TxHashes have been removed
 	am.keeper.RemoveFirstNTxHashes(ctx, keeper.DefaultTxHashesToRemove)
 
+	// Migrate legacy EVM receipts to receipt.db in small batches every N blocks
+	if ctx.BlockHeight()%keeper.LegacyReceiptMigrationInterval == 0 {
+		if migrated, err := am.keeper.MigrateLegacyReceiptsBatch(ctx, keeper.LegacyReceiptMigrationBatchSize); err != nil {
+			ctx.Logger().Error(fmt.Sprintf("failed migrating legacy receipts: %s", err))
+		} else if migrated > 0 {
+			ctx.Logger().Info(fmt.Sprintf("migrated %d legacy EVM receipts to receipt.db", migrated))
+		}
+	}
+
 	newBaseFee := am.keeper.AdjustDynamicBaseFeePerGas(ctx, uint64(req.BlockGasUsed))
 	if newBaseFee != nil {
 		metrics.GaugeEvmBlockBaseFee(newBaseFee.TruncateInt().BigInt(), req.Height)
@@ -390,6 +399,31 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 			}
 		}
 	}
-	am.keeper.SetBlockBloom(ctx, utils.Map(evmTxDeferredInfoList, func(i *types.DeferredInfo) ethtypes.Bloom { return ethtypes.BytesToBloom(i.TxBloom) }))
+	allBlooms := utils.Map(evmTxDeferredInfoList, func(i *types.DeferredInfo) ethtypes.Bloom { return ethtypes.BytesToBloom(i.TxBloom) })
+	evmOnlyBlooms := make([]ethtypes.Bloom, 0, len(evmTxDeferredInfoList))
+	for _, di := range evmTxDeferredInfoList {
+		if len(di.TxHash) == 0 {
+			continue
+		}
+		r, err := am.keeper.GetTransientReceipt(ctx, common.BytesToHash(di.TxHash), uint64(di.TxIndex))
+		if err != nil {
+			continue
+		}
+		// Only EVM receipts in this block that are not synthetic
+		if r.TxType == types.ShellEVMTxType || r.BlockNumber != uint64(ctx.BlockHeight()) {
+			continue
+		}
+		if len(r.Logs) == 0 {
+			continue
+		}
+		// Re-create a per-tx bloom from EVM-only logs (exclude synthetic)
+		evmOnlyBloom := ethtypes.CreateBloom(&ethtypes.Receipt{
+			Logs: keeper.GetEvmOnlyLogsForTx(r, 0),
+		})
+		evmOnlyBlooms = append(evmOnlyBlooms, evmOnlyBloom)
+	}
+	am.keeper.SetBlockBloom(ctx, allBlooms)
+	am.keeper.SetEvmOnlyBlockBloom(ctx, evmOnlyBlooms)
+
 	return []abci.ValidatorUpdate{}
 }
