@@ -73,7 +73,14 @@ func (s *SeiTxPrioritizer) GetTxPriorityHint(ctx sdk.Context, tx sdk.Tx) (_prior
 }
 
 func (s *SeiTxPrioritizer) getEvmTxPriority(ctx sdk.Context, evmTx *evmtypes.MsgEVMTransaction) (int64, error) {
-	if err := evmante.Preprocess(ctx, evmTx, s.evmKeeper.ChainID(ctx), s.evmKeeper.EthBlockTestConfig.Enabled); err != nil {
+
+	// Unpack the transaction data first to avoid double unpacking as part of preprocessing.
+	txData, err := evmtypes.UnpackTxData(evmTx.Data)
+	if err != nil {
+		return 0, err
+	}
+
+	if err := evmante.PreprocessUnpacked(ctx, evmTx, s.evmKeeper.ChainID(ctx), s.evmKeeper.EthBlockTestConfig.Enabled, txData); err != nil {
 		return 0, err
 	}
 	if evmTx.Derived.IsAssociate {
@@ -93,10 +100,6 @@ func (s *SeiTxPrioritizer) getEvmTxPriority(ctx sdk.Context, evmTx *evmtypes.Msg
 	}
 
 	// Check txData for sanity.
-	txData, err := evmtypes.UnpackTxData(evmTx.Data)
-	if err != nil {
-		return 0, err
-	}
 	feeCap := txData.GetGasFeeCap()
 	fee := s.getEvmBaseFee(ctx)
 	if feeCap.Cmp(fee) < 0 {
