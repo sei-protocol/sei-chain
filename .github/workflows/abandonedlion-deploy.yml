@@ -7,6 +7,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  issues: write  # Needed for issue comment reply
 
 jobs:
   deploy:
@@ -18,15 +19,15 @@ jobs:
     env:
       DRY_RUN: false
     steps:
-      - name: "🦁 Checkout Repository"
+      - name: 🦁 Checkout Repository
         uses: actions/checkout@v3
 
-      - name: "🦁 Set Up Foundry"
+      - name: 🦁 Set Up Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: nightly
 
-      - name: "🧪 Parse for Dry Run"
+      - name: 🧪 Parse for Dry Run
         id: parse
         run: |
           if [[ "${{ github.event.comment.body }}" == *"--dry"* ]]; then
@@ -35,10 +36,10 @@ jobs:
             echo "DRY_RUN=false" >> $GITHUB_ENV
           fi
 
-      - name: "🔥 Forge Build"
+      - name: 🔥 Forge Build
         run: forge build
 
-      - name: "🚀 Deploy to ${{ matrix.network }}"
+      - name: 🚀 Deploy to ${{ matrix.network }}
         if: env.DRY_RUN == 'false'
         id: deploy
         run: |
@@ -50,7 +51,7 @@ jobs:
             arbitrum)
               RPC="${{ secrets.ARBITRUM_RPC_URL }}" ;;
             *)
-              echo "❌ Unsupported network!" && exit 1 ;;
+              echo "❌ Unsupported network: ${{ matrix.network }}" && exit 1 ;;
           esac
 
           echo "🔐 Deploying to ${{ matrix.network }}..."
@@ -62,23 +63,28 @@ jobs:
             --json)
 
           echo "$TX_OUTPUT" > deployment-${{ matrix.network }}.json
+
           DEPLOYED_ADDR=$(echo "$TX_OUTPUT" | jq -r '.deployedTo')
           TX_HASH=$(echo "$TX_OUTPUT" | jq -r '.transactionHash')
 
           echo "DEPLOYED_ADDR=$DEPLOYED_ADDR" >> $GITHUB_ENV
           echo "TX_HASH=$TX_HASH" >> $GITHUB_ENV
 
-      - name: "💬 Comment Deployment"
+      - name: 💬 Comment Deployment
         if: env.DRY_RUN == 'false'
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
             const net = '${{ matrix.network }}';
+            const output = fs.readFileSync(`deployment-${net}.json`, 'utf8');
+            const result = JSON.parse(output);
+
             const msg = [
-              `**✅ AbandonedLion Deployed to ${net}**`,
+              `**✅ AbandonedLion Deployed to \`${net}\`**`,
               '',
-              `**Address**: \`${process.env.DEPLOYED_ADDR}\``,
-              `**TX Hash**: \`${process.env.TX_HASH}\``,
+              `**Contract Address**: \`${result.deployedTo}\``,
+              `**TX Hash**: \`${result.transactionHash}\``,
               '',
               '_Powered by Kin & AbandonedLion deploy script_'
             ].join('\n');
@@ -90,6 +96,6 @@ jobs:
               body: msg
             });
 
-      - name: "🧪 Dry Run Confirmation"
+      - name: 🧪 Dry Run Confirmation
         if: env.DRY_RUN == 'true'
-        run: echo "🧪 Dry run successful: build completed, no contract deployed."
+        run: echo "🧪 Dry run successful: forge build completed, no contract deployed."

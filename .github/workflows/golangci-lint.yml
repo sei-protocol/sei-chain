@@ -12,7 +12,7 @@ on:
 
 permissions:
   contents: read
-  # Optional: allow read access to pull request. Use with `only-new-issues` option.
+  # Optional: Uncomment to allow inline lint results on PRs
   # pull-requests: read
 
 jobs:
@@ -20,13 +20,25 @@ jobs:
     name: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout source
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
           go-version: 1.21
 
-      - name: golangci-lint
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-golangci-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-golangci-
+
+      - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
           version: v1.60.1

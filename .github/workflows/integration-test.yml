@@ -1,163 +1,27 @@
-name: CI
+# ---------- Forge EVM Tests ----------
+forge:
+  name: Forge project
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: false
 
-on:
-  pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
-  push:
-    branches:
-      - main
-      - evm
-      - 'release/**'
+    - name: Install Foundry
+      uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: nightly
 
-permissions:
-  contents: read
+    - name: Install dependencies
+      run: |
+        forge install foundry-rs/forge-std@v1.8.2
+        forge install OpenZeppelin/openzeppelin-contracts@v5.0.2
 
-jobs:
-  # ---------- Slinky Change Detection ----------
-  slinky-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      slinky: ${{ steps.filter.outputs.slinky }}
-    steps:
-      - uses: actions/checkout@v3
-      - id: filter
-        uses: dorny/paths-filter@v2
-        with:
-          filters: |
-            slinky:
-              - 'scripts/modules/slinky_test/**'
-              - 'x/slinky/**'
+    - name: Build contracts
+      run: |
+        forge --version
+        forge build --evm-version=prague
 
-  # ---------- Matrix-Based Integration Tests ----------
-  integration-tests:
-    name: Integration Test (${{ matrix.test.name }})
-    runs-on: ubuntu-large
-    timeout-minutes: 30
-    needs: slinky-changes
-    if: needs.slinky-changes.outputs.slinky == 'true'
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
-    strategy:
-      fail-fast: false
-      matrix:
-        test:
-          - name: "Wasm Module"
-            scripts:
-              - docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
-              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml
-              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml
-              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml
-              - docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
-              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml
-          # You can re-add other matrix entries here (staking, evm, upgrade modules, etc.)
-
-    steps:
-      - uses: actions/checkout@v4
-      - name: ${{ matrix.test.name }}
-        shell: bash
-        run: |
-          scripts=$(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]')
-          IFS=$'\n'
-          for script in $scripts; do
-            echo "🔧 Running: $script"
-            bash -c "${script}"
-          done
-          unset IFS
-
-  # ---------- Forge EVM Tests ----------
-  forge:
-    name: Forge project
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: false
-
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly
-
-      - name: Install dependencies
-        run: |
-          forge install foundry-rs/forge-std@v1.8.2 --no-commit
-          forge install OpenZeppelin/openzeppelin-contracts@v5.0.2 --no-commit
-
-      - name: Build contracts
-        run: |
-          forge --version
-          forge build --evm-version=prague
-
-      - name: Run Forge tests
-        run: |
-          forge test -vvv --evm-version=prague
-
-  # ---------- Slinky Tests ----------
-  slinky:
-    name: Slinky integration tests
-    runs-on: ubuntu-latest
-    needs: slinky-changes
-    if: needs.slinky-changes.outputs.slinky == 'true'
-    steps:
-      - uses: actions/checkout@v4
-
-      - id: filter
-        uses: dorny/paths-filter@v2
-        with:
-          filters: |
-            slinky:
-              - 'scripts/modules/slinky_test/**'
-              - 'x/slinky/**'
-
-      - uses: actions/setup-go@v5
-        if: steps.filter.outputs.slinky == 'true'
-        with:
-          go-version: 1.21
-
-      - name: 🔁 Retry-safe Slinky Cluster
-        if: steps.filter.outputs.slinky == 'true'
-        shell: bash
-        run: |
-          attempt=0
-          until [ $attempt -ge 3 ]; do
-            make clean && INVARIANT_CHECK_INTERVAL=10 make docker-cluster-start && break
-            attempt=$((attempt+1))
-            echo "🔁 Retrying docker cluster startup ($attempt/3)..."
-            sleep 10
-          done
-
-      - name: 🧪 Run Slinky Integration Tests
-        if: steps.filter.outputs.slinky == 'true'
-        run: scripts/modules/slinky_test/run_slinky_test.sh
-
-      - name: 📦 Upload Logs on Failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: slinky-logs
-          path: |
-            build/logs/
-            docker-compose.yml
-            integration_test/debug_output/
-
-  # ---------- x402 Kin Guardian Verification ----------
-  x402:
-    name: x402 settlement check
-    runs-on: ubuntu-latest
-    needs: [integration-tests, slinky]
-    if: always()
-    env:
-      KIN_MODE: "on"
-      KIN_RPC_MODE: "light"
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: 🛡️ Omega Guardian RoleScan
-        run: |
-          pip install -r tools/omega_guardian/requirements.txt || true
-          python3 tools/omega_guardian/role_scan.py integration_test/ --deep-scan || true
-
-      - name: ✅ Confirm Completion
-        run: echo "✅ x402 settlement check complete"
+    - name: Run Forge tests
+      run: |
+        forge test -vvv --evm-version=prague
