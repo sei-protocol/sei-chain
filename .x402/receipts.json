@@ -1,1 +1,21 @@
 
+#!/usr/bin/env bash
+set -euo pipefail
+
+RECEIPTS_FILE="$1"
+
+if [ ! -f "$RECEIPTS_FILE" ]; then
+  echo "No receipts found at $RECEIPTS_FILE"
+  exit 0
+fi
+
+echo "🔍 Parsing receipts from $RECEIPTS_FILE..."
+
+# Simulate a table
+echo "Contributor          | Amount Owed"
+echo "---------------------|------------"
+jq -r '.[] | "\(.contributor) | \(.amount)"' "$RECEIPTS_FILE"
+
+total=$(jq '[.[] | .amount] | add' "$RECEIPTS_FILE")
+echo ""
+echo "TOTAL OWED: $total"
