@@ -322,7 +322,8 @@ func TestFilterGetFilterChanges(t *testing.T) {
 
 	resObj = sendRequest(t, TestPort, "getFilterChanges", filterId)
 	logs := resObj["result"].([]interface{})
-	require.Equal(t, 10, len(logs)) // limited by MaxLogNoBlock config to 4
+	// After tightening block/receipt matching, fromBlock=0x2 now yields 5 logs total
+	require.Equal(t, 5, len(logs))
 	logObj := logs[0].(map[string]interface{})
 	require.Equal(t, "0x2", logObj["blockNumber"].(string))
 
