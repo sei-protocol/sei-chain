@@ -14,7 +14,8 @@ jobs:
     name: Forge project
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           submodules: false   # stop trying to fetch sei-chain submodule
 
@@ -42,18 +43,24 @@ jobs:
     name: Slinky integration tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - id: filter
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Filter for Slinky changes
+        id: filter
         uses: dorny/paths-filter@v2
         with:
           filters: |
             slinky:
               - 'scripts/modules/slinky_test/**'
               - 'x/slinky/**'
-      - uses: actions/setup-go@v5
+
+      - name: Setup Go
         if: steps.filter.outputs.slinky == 'true'
+        uses: actions/setup-go@v5
         with:
           go-version: 1.21
+
       - name: Run Slinky Integration Tests
         if: steps.filter.outputs.slinky == 'true'
         run: scripts/modules/slinky_test/run_slinky_test.sh
@@ -63,7 +70,8 @@ jobs:
     name: x402 settlement check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: No-op confirmation
         run: echo "x402 settlement check: OK"
