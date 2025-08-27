@@ -9,8 +9,11 @@ on:
       - evm
       - 'release/**'
 
+permissions:
+  contents: read
+
 jobs:
-  # ---------- Dynamic Slinky Change Detection ----------
+  # ---------- Slinky Change Detection ----------
   slinky-changes:
     runs-on: ubuntu-latest
     outputs:
@@ -173,7 +176,7 @@ jobs:
             docker-compose.yml
             integration_test/debug_output/
 
-  # ---------- Final Kin x402 Verification ----------
+  # ---------- x402 Kin Guardian Verification ----------
   x402:
     name: x402 settlement check
     runs-on: ubuntu-latest

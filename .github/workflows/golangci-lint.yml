@@ -30,4 +30,4 @@ jobs:
         uses: golangci/golangci-lint-action@v3
         with:
           version: v1.60.1
-          args: --timeout 10m0s --out-format colored-line-number
+          args: --timeout 10m0s --out-format=colored-line-number
