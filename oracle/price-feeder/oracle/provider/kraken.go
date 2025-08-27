@@ -701,7 +701,7 @@ func newKrakenCandleSubscriptionMsg(pairs ...string) KrakenSubscriptionMsg {
 	}
 }
 
-// krakenPairToCurrencyPairSymbol receives a kraken pair formated
+// krakenPairToCurrencyPairSymbol receives a kraken pair formatted
 // ex.: ATOM/USDT and return currencyPair Symbol ATOMUSDT.
 func krakenPairToCurrencyPairSymbol(krakenPair string) string {
 	return strings.ReplaceAll(krakenPair, "/", "")
