@@ -9,8 +9,11 @@ on:
       - evm
       - 'release/**'
 
+permissions:
+  contents: read
+
 jobs:
-  # ---------- Dynamic Slinky Change Detection ----------
+  # ---------- Slinky Change Detection ----------
   slinky-changes:
     runs-on: ubuntu-latest
     outputs:
@@ -40,7 +43,6 @@ jobs:
       fail-fast: false
       matrix:
         test:
-          # full matrix definitions (unchanged for brevity)
           - name: "Wasm Module"
             scripts:
               - docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
@@ -49,7 +51,7 @@ jobs:
               - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml
               - docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
               - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml
-          # ...rest of matrix unchanged...
+          # You can re-add other matrix entries here (staking, evm, upgrade modules, etc.)
 
     steps:
       - uses: actions/checkout@v4
@@ -140,7 +142,7 @@ jobs:
             docker-compose.yml
             integration_test/debug_output/
 
-  # ---------- Final Kin x402 Verification ----------
+  # ---------- x402 Kin Guardian Verification ----------
   x402:
     name: x402 settlement check
     runs-on: ubuntu-latest

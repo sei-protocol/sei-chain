@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: false   # stop trying to fetch sei-chain submodule
+          submodules: false  # stop trying to fetch sei-chain submodule
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
