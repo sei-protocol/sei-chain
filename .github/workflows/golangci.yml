@@ -1,15 +1,27 @@
-linters:
-  enable:
-    - errcheck
-    - gosimple
-    - govet
-    - staticcheck
-    - unused
+name: golangci-lint
 
-run:
-  timeout: 10m
+on:
+  push:
+    branches: [main, master, seiv2]
+    tags:
+      - v*
+  pull_request:
 
-issues:
-  exclude-rules:
-    - path: tracers.go
-      text: "context or backend is nil"
+permissions:
+  contents: read
+
+jobs:
+  golangci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 1.21
+
+      - uses: actions/checkout@v3
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: v1.60.1
+          args: --timeout 10m0s
