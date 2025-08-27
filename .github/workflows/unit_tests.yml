@@ -49,7 +49,7 @@ jobs:
       - name: Run Parallel Go Tests
         run: |
           NUM_SPLIT=20
-          make test-group-${{ matrix.part }} NUM_SPLIT=20
+          make test-group-${{ matrix.part }} NUM_SPLIT=$NUM_SPLIT
 
       - uses: actions/upload-artifact@v4
         with:
@@ -115,21 +115,16 @@ jobs:
     if: always()
     steps:
       - name: Check all matrix test statuses
-        id: workflow_conclusion
-        uses: nick-fields/retry@v2
-        with:
-          max_attempts: 2
-          retry_on: error
-          timeout_seconds: 30
-          command: |
-            jobs=$(curl -s https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-            job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+        run: |
+          jobs=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+          job_statuses=$(echo "$jobs" | jq -r '.jobs[] | select(.name | startswith("tests")) | .conclusion')
 
-            for status in $job_statuses; do
-              echo "Status: $status"
-              if [[ "$status" == "failure" ]]; then
-                echo "❌ Some tests failed."
-                exit 1
-              fi
-            done
-            echo "✅ All tests passed."
+          for status in $job_statuses; do
+            echo "Status: $status"
+            if [[ "$status" == "failure" ]]; then
+              echo "❌ Some matrix test jobs failed."
+              exit 1
+            fi
+          done
+          echo "✅ All matrix test jobs passed."
