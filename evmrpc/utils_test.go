@@ -143,9 +143,9 @@ func TestValidateBlockNumberAccess(t *testing.T) {
 
 func TestValidateBlockHashAccess(t *testing.T) {
 	params := evmrpc.BlockValidationParams{
-		LatestHeight:     100,
+		LatestHeight:     MockHeight8,
 		MaxBlockLookback: 10,
-		EarliestVersion:  80,
+		EarliestVersion:  1,
 	}
 
 	// Test with a valid hash that maps to a valid block
