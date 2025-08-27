@@ -202,6 +202,10 @@ jobs:
                   echo "Some or all tests have failed!"
                   exit 1
                 fi
+                if [[ "$status" == "cancelled" ]]; then
+                  echo "Some or all tests have been cancelled!"
+                  exit 1
+                fi
               done
 
               echo "All tests have passed!"
