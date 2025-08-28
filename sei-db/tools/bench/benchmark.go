@@ -1,4 +1,4 @@
-package dbbackend
+package bench
 
 import (
 	"fmt"

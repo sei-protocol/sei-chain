@@ -8,7 +8,7 @@ import (
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/ss"
-	"github.com/sei-protocol/sei-db/tools/dbbackend"
+	"github.com/sei-protocol/sei-db/tools/bench"
 	"github.com/spf13/cobra"
 )
 
@@ -72,6 +72,6 @@ func DBRandomRead(inputKVDir string, numVersions int, outputDir string, dbBacken
 	if err != nil {
 		panic(err)
 	}
-	dbbackend.BenchmarkDBRead(backend, inputKVDir, numVersions, concurrency, maxOps)
+	bench.BenchmarkDBRead(backend, inputKVDir, numVersions, concurrency, maxOps)
 	backend.Close()
 }
