@@ -298,6 +298,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 		return nil, nil, err
 	}
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
+	sdkCtxAtHeight := b.ctxProvider(tmBlock.Block.Height)
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
 	for i := range blockRes.TxsResults {
@@ -318,7 +319,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 				}
 				ethtx, _ := m.AsTransaction()
 				receipt, err := b.keeper.GetReceipt(sdkCtx, ethtx.Hash())
-				if err != nil || receipt.BlockNumber != uint64(tmBlock.Block.Height) || isReceiptFromAnteError(receipt) {
+				if err != nil || receipt.BlockNumber != uint64(tmBlock.Block.Height) || isReceiptFromAnteError(sdkCtxAtHeight, receipt) {
 					continue
 				}
 				TraceReceiptIfApplicable(ctx, receipt)

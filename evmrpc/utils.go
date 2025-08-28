@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/big"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
@@ -233,9 +235,17 @@ func getTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig
 	return txHashes
 }
 
-func isReceiptFromAnteError(receipt *types.Receipt) bool {
+func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 	// hacky heuristic
-	return receipt.EffectiveGasPrice == 0
+	// TODO: uncomment after sei-cosmos is updated
+	// if strings.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0 {
+	// 	return receipt.EffectiveGasPrice == 0
+	// }
+	if ctx.ChainID() == "pacific-1" && ctx.BlockHeader().Height < 102491599 {
+		return receipt.EffectiveGasPrice == 0
+	}
+	return receipt.EffectiveGasPrice == 0 && (strings.Contains(receipt.VmError, core.ErrNonceTooHigh.Error()) ||
+		strings.Contains(receipt.VmError, core.ErrNonceTooLow.Error()))
 }
 
 type ParallelRunner struct {
