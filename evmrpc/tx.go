@@ -253,7 +253,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 		}
 		return nil, err
 	}
-	if isReceiptFromAnteError(receipt) {
+	if isReceiptFromAnteError(t.ctxProvider(int64(receipt.BlockNumber)), receipt) {
 		return nil, errors.New("not found")
 	}
 	return t.getTransactionByBlockNumberAndIndex(ctx, rpc.BlockNumber(receipt.BlockNumber), NewTransactionIndexFromCosmosIndex(receipt.TransactionIndex))
@@ -328,7 +328,7 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, t
 	if err != nil {
 		return nil, err
 	}
-	if isReceiptFromAnteError(receipt) {
+	if isReceiptFromAnteError(t.ctxProvider(block.Block.Height), receipt) {
 		return nil, errors.New("not found")
 	}
 	height := int64(receipt.BlockNumber)

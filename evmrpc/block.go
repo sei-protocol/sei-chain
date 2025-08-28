@@ -243,6 +243,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	mtx := sync.Mutex{}
 	allReceipts := make([]map[string]interface{}, len(txHashes))
 	sdkCtx := a.ctxProvider(LatestCtxHeight)
+	sdkCtxAtHeight := a.ctxProvider(height)
 	signer := ethtypes.MakeSigner(
 		types.DefaultChainConfig().EthereumConfig(a.keeper.ChainID(sdkCtx)),
 		big.NewInt(sdkCtx.BlockHeight()),
@@ -262,7 +263,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					mtx.Unlock()
 				}
 			} else {
-				if isReceiptFromAnteError(receipt) {
+				if isReceiptFromAnteError(sdkCtxAtHeight, receipt) {
 					return
 				}
 				// If the receipt has synthetic logs, we actually want to include them in the response.
@@ -361,7 +362,7 @@ func EncodeTmBlock(
 					}
 				}
 				receipt, err := k.GetReceipt(ctx, hash)
-				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(receipt) {
+				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) {
 					continue
 				}
 				if !includeSyntheticTxs && receipt.TxType == types.ShellEVMTxType {
