@@ -95,6 +95,20 @@ type timeoutInfo struct {
 	Step     cstypes.RoundStepType `json:"step"`
 }
 
+func (ti *timeoutInfo) Less(b *timeoutInfo) bool {
+	// sort by height, then round, then step
+	if ti.Height != b.Height {
+		return ti.Height < b.Height
+	}
+	if ti.Round != b.Round {
+		return ti.Round < b.Round
+	}
+	// This is copy-pasted logic, supposedly allowing for updating the timeout with Step 0 without incrementing the step.
+	// Note that because of this Less is NOT a strict order.
+	// TODO(gprusak): Figure out why we special case step 0 and fix it.
+	return ti.Step <= 0 || ti.Step < b.Step
+}
+
 func (timeoutInfo) TypeTag() string { return "tendermint/wal/TimeoutInfo" }
 
 func (ti *timeoutInfo) String() string {
@@ -420,9 +434,7 @@ func (cs *State) OnStart(ctx context.Context) error {
 	// NOTE: we will get a build up of garbage go routines
 	// firing on the tockChan until the receiveRoutine is started
 	// to deal with them (by that point, at most one will be valid)
-	if err := cs.timeoutTicker.Start(ctx); err != nil {
-		return err
-	}
+	cs.Spawn("timeoutTicker", cs.timeoutTicker.Run)
 
 	// We may have lost some votes if the process crashed reload from consensus
 	// log to catchup.
@@ -496,12 +508,11 @@ func (cs *State) OnStart(ctx context.Context) error {
 //
 // this is only used in tests.
 func (cs *State) startRoutines(ctx context.Context, maxSteps int) {
-	err := cs.timeoutTicker.Start(ctx)
-	if err != nil {
-		cs.logger.Error("failed to start timeout ticker", "err", err)
-		return
-	}
-
+	go func() {
+		if err := cs.timeoutTicker.Run(ctx); err != nil {
+			cs.logger.Error("cs.timeoutTicker.Run()", "err", err)
+		}
+	}()
 	go cs.receiveRoutine(ctx, maxSteps)
 }
 
@@ -536,10 +547,6 @@ func (cs *State) OnStop() {
 		case <-time.After(commitTimeout):
 			cs.logger.Error("OnStop: timeout waiting for commit to finish", "time", commitTimeout)
 		}
-	}
-
-	if cs.timeoutTicker.IsRunning() {
-		cs.timeoutTicker.Stop()
 	}
 	// WAL is stopped in receiveRoutine.
 }
