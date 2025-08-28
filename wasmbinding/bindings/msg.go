@@ -3,7 +3,6 @@ package bindings
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-	"github.com/sei-protocol/sei-chain/x/dex/types"
 )
 
 // / CreateDenom creates a new factory denom, of denomination:
@@ -35,14 +34,13 @@ type BurnTokens struct {
 	Amount sdk.Coin `json:"amount"`
 }
 
-// Dex Module msgs
-type PlaceOrders struct {
-	Orders       []*types.Order `json:"orders"`
-	Funds        sdk.Coins      `json:"funds"`
-	ContractAddr string         `json:"contract_address"`
+type CallEVM struct {
+	Value *sdk.Int `json:"value"`
+	To    string   `json:"to"`
+	Data  string   `json:"data"` // base64
 }
 
-type CancelOrders struct {
-	Cancellations []*types.Cancellation `json:"cancellations"`
-	ContractAddr  string                `json:"contract_address"`
+type DelegateCallEVM struct {
+	To   string `json:"to"`
+	Data string `json:"data"` // base64
 }

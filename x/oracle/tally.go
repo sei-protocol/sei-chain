@@ -25,7 +25,7 @@ func Tally(_ sdk.Context, pb types.ExchangeRateBallot, rewardBand sdk.Dec, valid
 		key := vote.Voter.String()
 		claim := validatorClaimMap[key]
 		if vote.ExchangeRate.GTE(weightedMedian.Sub(rewardSpread)) &&
-			vote.ExchangeRate.LTE(weightedMedian.Add(rewardSpread)) {
+			rewardSpread.GTE(vote.ExchangeRate.Sub(weightedMedian)) {
 
 			claim.Weight += vote.Power
 			claim.WinCount++
@@ -35,6 +35,19 @@ func Tally(_ sdk.Context, pb types.ExchangeRateBallot, rewardBand sdk.Dec, valid
 	}
 
 	return
+}
+
+func UpdateDidVote(ctx sdk.Context, ballot types.ExchangeRateBallot, validatorClaimMap map[string]types.Claim) {
+	for _, vote := range ballot {
+		claim := validatorClaimMap[vote.Voter.String()]
+		// because we can't actually effectively calculate a reward band for the below threshold votes,
+		// simply voting here counts as a win++. However, the validator still needs to be within band
+		// for over threshold denoms too so as to not be counted as "miss"
+		claim.Weight += vote.Power
+		claim.WinCount++
+		claim.DidVote = true
+		validatorClaimMap[vote.Voter.String()] = claim
+	}
 }
 
 // ballot for the asset is passing the threshold amount of voting power

@@ -7,7 +7,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/msgservice"
 )
 
-func RegisterLegacyAminoCodec(cdc *codec.LegacyAmino) {
+func RegisterCodec(cdc *codec.LegacyAmino) {
 	cdc.RegisterConcrete(&MsgAggregateExchangeRateVote{}, "oracle/MsgAggregateExchangeRateVote", nil)
 	cdc.RegisterConcrete(&MsgDelegateFeedConsent{}, "oracle/MsgDelegateFeedConsent", nil)
 }
@@ -24,6 +24,12 @@ func RegisterInterfaces(registry codectypes.InterfaceRegistry) {
 }
 
 var (
-	Amino     = codec.NewLegacyAmino()
-	ModuleCdc = codec.NewProtoCodec(codectypes.NewInterfaceRegistry())
+	amino     = codec.NewLegacyAmino()
+	ModuleCdc = codec.NewAminoCodec(amino)
 )
+
+func init() {
+	RegisterCodec(amino)
+	sdk.RegisterLegacyAminoCodec(amino)
+	amino.Seal()
+}

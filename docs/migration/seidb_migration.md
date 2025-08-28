@@ -135,7 +135,33 @@ pruning-interval = "1000"
 ```
 
 `PebbleDB` will be used as the default and recommended backend database for full node.
-If you wan to try out RocksDB, please follow [this guide](https://github.com/facebook/rocksdb/blob/master/INSTALL.md) to set up RocksDB environment.
+
+For RocksDB, follow these instructions to first install:
+```bash
+git clone https://github.com/facebook/rocksdb.git
+cd rocksdb
+
+DEBUG_LEVEL=0 make shared_lib install-shared
+
+export LD_LIBRARY_PATH=/usr/local/lib
+```
+If you run into any issues during installation, please reference [this guide](https://github.com/facebook/rocksdb/blob/master/INSTALL.md).
+
+Once that is complete, you will need to add the following CGO flags:
+```bash
+CGO_CFLAGS="-I/path/to/rocksdb/include" CGO_LDFLAGS="-L/path/to/rocksdb"
+```
+
+and a `rocksdbBackend` tag:
+
+```bash
+-tags "rocksdbBackend"
+```
+
+to the seid go installation command.
+
+Note: Managing these `rocksdb` CGO dependencies and installation issues is one of the reasons why `pebbledb` (written in pure go) is the default.
+
 
 ### Step 3: State Sync
 SeiDB is fully compatible with the existing state snapshot format.

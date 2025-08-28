@@ -2,11 +2,11 @@ package oracle
 
 import (
 	"github.com/armon/go-metrics"
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/rs/zerolog"
 
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/provider"
+	seimetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 // defaultDeviationThreshold defines how many 𝜎 a provider can be away
@@ -60,7 +60,7 @@ func FilterTickerDeviations(
 				}
 				p[base] = tp
 			} else {
-				telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
+				seimetrics.SafeTelemetryIncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
 					{Name: "type", Value: "ticker"},
 					{Name: "reason", Value: "deviation"},
 					{Name: "base", Value: base},
@@ -139,7 +139,7 @@ func FilterCandleDeviations(
 				}
 				p[base] = candles[providerName][base]
 			} else {
-				telemetry.IncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
+				seimetrics.SafeTelemetryIncrCounterWithLabels([]string{"failure", "provider"}, 1, []metrics.Label{
 					{Name: "type", Value: "candle"},
 					{Name: "reason", Value: "deviation"},
 					{Name: "base", Value: base},

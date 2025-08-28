@@ -81,3 +81,9 @@ func (k Keeper) CreateModuleAccount(ctx sdk.Context) {
 	moduleAcc := authtypes.NewEmptyModuleAccount(types.ModuleName, authtypes.Minter, authtypes.Burner)
 	k.accountKeeper.SetModuleAccount(ctx, moduleAcc)
 }
+
+func (k Keeper) GetDenomAllowListMaxSize(ctx sdk.Context) uint32 {
+	var denomAllowListMaxSize uint32
+	k.paramSpace.Get(ctx, types.DenomAllowListMaxSizeKey, &denomAllowListMaxSize)
+	return denomAllowListMaxSize
+}

@@ -10,7 +10,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/cosmos/cosmos-sdk/testutil/network"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -25,6 +24,21 @@ type (
 	Network = network.Network
 	Config  = network.Config
 )
+
+type TestAppOptions struct{}
+
+func (t TestAppOptions) Get(s string) interface{} {
+	if s == "chain-id" {
+		return "test-chain"
+	}
+	if s == "evm.http_enabled" {
+		return false
+	}
+	if s == "evm.ws_enabled" {
+		return false
+	}
+	return nil
+}
 
 // New creates instance with fully configured cosmos network.
 // Accepts optional config, that will be used in place of the DefaultConfig() if provided.
@@ -55,13 +69,14 @@ func DefaultConfig() network.Config {
 		AccountRetriever:  authtypes.AccountRetriever{},
 		AppConstructor: func(val network.Validator) servertypes.Application {
 			return app.New(
-				val.Ctx.Logger, tmdb.NewMemDB(), nil, true, map[int64]bool{}, val.Ctx.Config.RootDir, 0,
+				val.Ctx.Logger, tmdb.NewMemDB(), nil, true, map[int64]bool{}, val.Ctx.Config.RootDir, 0, false,
 				nil,
 				encoding,
 				wasm.EnableAllProposals,
-				&simapp.EmptyAppOptions{},
+				&TestAppOptions{},
 				nil,
 				app.EmptyACLOpts,
+				app.EmptyAppOptions,
 				baseapp.SetPruning(storetypes.NewPruningOptionsFromString(val.AppConfig.Pruning)),
 				baseapp.SetMinGasPrices(val.AppConfig.MinGasPrices),
 			)

@@ -5,9 +5,14 @@ name: Docker Integration Test
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
+      - seiv2
   pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
+      - seiv2
+      - evm
 
 defaults:
   run:
@@ -16,22 +21,20 @@ defaults:
 jobs:
   integration-tests:
     name: Integration Test (${{ matrix.test.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-large
     timeout-minutes: 30
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
     strategy:
       # other jobs should run even if one integration test fails
       fail-fast: false
       matrix:
         test: [
           {
-            name: "Dex & Wasm Module",
+            name: "Wasm Module",
             scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_dex_contract.sh mars",
-              "python3 integration_test/scripts/runner.py integration_test/dex_module/place_order_test.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/dex_module/cancel_order_test.yaml",
               "docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh",
               "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml",
               "python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml",
@@ -69,7 +72,6 @@ jobs:
               "python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml",
               "python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml"
             ]
-
           },
           {
             name: "Distribution Module",
@@ -98,6 +100,32 @@ jobs:
               "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
               "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
               "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
+            ],
+          },
+          {
+            name: "SeiDB State Store",
+            scripts: [
+              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
+              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
+              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
+            ]
+          },
+          {
+            name: "EVM Module",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_tests.sh",
+            ]
+          },
+          {
+            name: "EVM Interoperability",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
+            ]
+          },
+          {
+            name: "dApp Tests",
+            scripts: [
+              "./integration_test/dapp_tests/dapp_tests.sh seilocal"
             ]
           },
         ]
@@ -106,6 +134,9 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+      - uses: actions/setup-node@v2
+        with:
+          node-version: '20'
 
       - name: Pyyaml
         run: |
@@ -117,7 +148,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.19
+          go-version: 1.21
 
       - name: Start 4 node docker cluster
         run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start &
@@ -169,6 +200,10 @@ jobs:
                 echo "Status: $status"
                 if [[ "$status" == "failure" ]]; then
                   echo "Some or all tests have failed!"
+                  exit 1
+                fi
+                if [[ "$status" == "cancelled" ]]; then
+                  echo "Some or all tests have been cancelled!"
                   exit 1
                 fi
               done

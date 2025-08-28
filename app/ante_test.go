@@ -2,6 +2,9 @@ package app_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"math/big"
 	"testing"
 
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
@@ -18,11 +21,17 @@ import (
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	xauthsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	app "github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/app/apptesting"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
+	abci "github.com/tendermint/tendermint/abci/types"
 	"go.opentelemetry.io/otel"
 )
 
@@ -48,7 +57,7 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 
 	// keys and addresses
 	suite.testAccPriv, _, suite.testAcc = testdata.KeyTestPubAddr()
-	initalBalance := sdk.Coins{sdk.NewInt64Coin("atom", 100000000000)}
+	initalBalance := sdk.Coins{sdk.NewInt64Coin("usei", 100000000000)}
 	suite.FundAcc(suite.testAcc, initalBalance)
 
 	suite.Ctx = suite.Ctx.WithBlockHeight(1)
@@ -74,7 +83,7 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 		Tracer: &tr,
 	}
 	tracingInfo.SetContext(context.Background())
-	antehandler, anteDepGenerator, err := app.NewAnteHandlerAndDepGenerator(
+	antehandler, _, anteDepGenerator, err := app.NewAnteHandlerAndDepGenerator(
 		app.HandlerOptions{
 			HandlerOptions: ante.HandlerOptions{
 				AccountKeeper:   suite.App.AccountKeeper,
@@ -89,10 +98,10 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 			WasmConfig:          &wasmConfig,
 			WasmKeeper:          &suite.App.WasmKeeper,
 			OracleKeeper:        &suite.App.OracleKeeper,
-			DexKeeper:           &suite.App.DexKeeper,
 			AccessControlKeeper: &suite.App.AccessControlKeeper,
 			TracingInfo:         tracingInfo,
-			CheckTxMemState:     suite.App.CheckTxMemState,
+			EVMKeeper:           &suite.App.EvmKeeper,
+			LatestCtxGetter:     func() sdk.Context { return suite.Ctx },
 		},
 	)
 
@@ -209,4 +218,48 @@ func (suite *AnteTestSuite) TestValidateDepedencies() {
 	suite.Require().Empty(missing)
 
 	suite.Require().Nil(err, "ValidateBasicDecorator ran on ReCheck")
+}
+
+func TestEvmAnteErrorHandler(t *testing.T) {
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	txData := ethtypes.LegacyTx{
+		GasPrice: big.NewInt(1000000000000),
+		Gas:      200000,
+		To:       nil,
+		Value:    big.NewInt(0),
+		Data:     []byte{},
+		Nonce:    1, // will cause ante error
+	}
+	chainID := testkeeper.EVMTestApp.EvmKeeper.ChainID(ctx)
+	chainCfg := evmtypes.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(ctx.BlockTime().Unix()))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.Nil(t, err)
+	txwrapper, err := ethtx.NewLegacyTx(tx)
+	require.Nil(t, err)
+	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
+	require.Nil(t, err)
+	builder := testkeeper.EVMTestApp.GetTxConfig().NewTxBuilder()
+	builder.SetMsgs(req)
+	txToSend := builder.GetTx()
+	encodedTx, err := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(txToSend)
+	require.Nil(t, err)
+
+	addr, _ := testkeeper.PrivateKeyToAddresses(privKey)
+	testkeeper.EVMTestApp.BankKeeper.AddCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000000000))), true)
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: encodedTx}, txToSend, sha256.Sum256(encodedTx))
+	require.NotEqual(t, 0, res.Code)
+	testkeeper.EVMTestApp.EvmKeeper.SetTxResults([]*abci.ExecTxResult{{
+		Code: res.Code,
+		Log:  "nonce too high",
+	}})
+	testkeeper.EVMTestApp.EvmKeeper.SetMsgs([]*evmtypes.MsgEVMTransaction{req})
+	deferredInfo := testkeeper.EVMTestApp.EvmKeeper.GetAllEVMTxDeferredInfo(ctx)
+	require.Equal(t, 1, len(deferredInfo))
+	require.Contains(t, deferredInfo[0].Error, "nonce too high")
 }

@@ -1,0 +1,52 @@
+name: Run Dapp Tests
+
+# Only runs when manually triggered
+on:
+  workflow_dispatch:
+
+jobs:
+  run-tests-devnet:
+    name: Run Tests on Devnet
+    runs-on: ubuntu-latest
+    environment:
+      name: devnet
+    env:
+      DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install seid
+        run: |
+          # Install seid using go install
+          make install
+          
+          # Add the Go bin directory to the PATH
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
+      - name: Run Dapp Tests Script on Devnet
+        run: |
+          ./integration_test/dapp_tests/dapp_tests.sh devnet
+
+  run-tests-testnet:
+    name: Run Tests on Testnet
+    runs-on: ubuntu-latest
+    environment:
+      name: testnet
+    env:
+      DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install seid
+        run: |
+          # Install seid using go install
+          make install
+          
+          # Add the Go bin directory to the PATH
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
+      - name: Run Dapp Tests Script on Testnet
+        run: |
+          ./integration_test/dapp_tests/dapp_tests.sh testnet

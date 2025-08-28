@@ -7,9 +7,13 @@ import (
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 )
 
-var amino = codec.NewLegacyAmino()
+var (
+	amino     = codec.NewLegacyAmino()
+	ModuleCdc = codec.NewAminoCodec(amino)
+)
 
 func init() {
+	RegisterCodec(amino)
 	cryptocodec.RegisterCrypto(amino)
 	amino.Seal()
 }
@@ -23,5 +27,3 @@ func RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
 		&UpdateMinterProposal{},
 	)
 }
-
-var ModuleCdc = codec.NewProtoCodec(cdctypes.NewInterfaceRegistry())

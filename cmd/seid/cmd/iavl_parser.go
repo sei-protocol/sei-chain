@@ -9,8 +9,6 @@ import (
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/sei-protocol/sei-chain/app/params"
-	dexkeeper "github.com/sei-protocol/sei-chain/x/dex/keeper"
-	dextypes "github.com/sei-protocol/sei-chain/x/dex/types"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
@@ -21,7 +19,6 @@ const UNRECOGNIZED = "Unrecognized Prefix"
 var ModuleParserMap = map[string]ModuleParser{
 	"bank":    BankParser,
 	"mint":    MintParser,
-	"dex":     DexParser,
 	"staking": StakingParser,
 	"acc":     AccountParser,
 }
@@ -82,64 +79,6 @@ func BankParser(key []byte) ([]string, error) {
 	}
 
 	return keyItems, nil
-}
-
-func DexParser(key []byte) ([]string, error) {
-	keyItems := []string{}
-	if matched, items, _, err := MatchAndExtractDexAddressPrefixKeys(key); matched {
-		if err != nil {
-			return keyItems, err
-		}
-		keyItems = append(keyItems, items...)
-		return keyItems, nil
-	}
-	switch {
-	case bytes.HasPrefix(key, []byte(dexkeeper.EpochKey)):
-		// do nothing since the key is a string and no other data to be parsed
-	default:
-		keyItems = append(keyItems, UNRECOGNIZED)
-	}
-	return keyItems, nil
-}
-
-func MatchAndExtractDexAddressPrefixKeys(key []byte) (bool, []string, []byte, error) {
-	keyItems := []string{}
-	keysToMatch := []string{
-		// Source of truth: github.com/sei-protocol/sei-chain/x/dex/types/keys.go - contains key constants represented here
-		dextypes.LongBookKey,
-		dextypes.ShortBookKey,
-		dextypes.PriceKey,
-		dextypes.TwapKey,
-		dextypes.SettlementEntryKey,
-		dextypes.RegisteredPairKey,
-		dextypes.OrderKey,
-		dextypes.CancelKey,
-		dextypes.AccountActiveOrdersKey,
-		dextypes.NextOrderIDKey,
-		dextypes.NextSettlementIDKey,
-		dextypes.MatchResultKey,
-		dextypes.MemOrderKey,
-		dextypes.MemCancelKey,
-		dextypes.MemDepositKey,
-		dexkeeper.ContractPrefixKey,
-	}
-
-	for _, prefix := range keysToMatch {
-		if bytes.HasPrefix(key, dextypes.KeyPrefix(prefix)) {
-			keyItems = append(keyItems, prefix)
-			remaining := bytes.TrimPrefix(key, dextypes.KeyPrefix(prefix))
-			items, remaining, err := parseLengthPrefixedAddress(remaining)
-			if err != nil {
-				return true, keyItems, remaining, err
-			}
-			keyItems = append(keyItems, items...)
-			if len(remaining) > 0 {
-				keyItems = append(keyItems, fmt.Sprintf("RemainingString: %s", string(remaining)))
-			}
-			return true, keyItems, remaining, nil
-		}
-	}
-	return false, keyItems, key, nil
 }
 
 func parseLengthPrefixedAddress(remainingKey []byte) ([]string, []byte, error) {

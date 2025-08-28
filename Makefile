@@ -52,6 +52,12 @@ ldflags = -X github.com/cosmos/cosmos-sdk/version.Name=sei \
 			-X github.com/cosmos/cosmos-sdk/version.Commit=$(COMMIT) \
 			-X "github.com/cosmos/cosmos-sdk/version.BuildTags=$(build_tags_comma_sep)"
 
+# go 1.23+ needs a workaround to link memsize (see https://github.com/fjl/memsize).
+# NOTE: this is a terribly ugly and unstable way of comparing version numbers,
+# but that's what you get when you do anything nontrivial in a Makefile.
+ifeq ($(firstword $(sort go1.23 $(shell go env GOVERSION))), go1.23)
+	ldflags += -checklinkname=0
+endif
 ifeq ($(LINK_STATICALLY),true)
 	ldflags += -linkmode=external -extldflags "-Wl,-z,muldefs -static"
 endif
@@ -60,6 +66,7 @@ ldflags := $(strip $(ldflags))
 
 # BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)' -race
 BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)'
+BUILD_FLAGS_MOCK_BALANCES := -tags "$(build_tags) mock_balances" -ldflags '$(ldflags)'
 
 #### Command List ####
 
@@ -67,6 +74,9 @@ all: lint install
 
 install: go.sum
 		go install $(BUILD_FLAGS) ./cmd/seid
+
+install-mock-balances: go.sum
+		go install $(BUILD_FLAGS_MOCK_BALANCES) ./cmd/seid
 
 install-with-race-detector: go.sum
 		go install -race $(BUILD_FLAGS) ./cmd/seid
@@ -92,12 +102,17 @@ lint:
 build:
 	go build $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
 
+build-verbose:
+	go build -x -v $(BUILD_FLAGS) -o ./build/seid ./cmd/seid
+
 build-price-feeder:
 	go build $(BUILD_FLAGS) -o ./build/price-feeder ./oracle/price-feeder
 
 clean:
 	rm -rf ./build
 
+build-loadtest:
+	go build -o build/loadtest ./loadtest/
 
 
 ###############################################################################
@@ -136,8 +151,10 @@ run-local-node: kill-sei-node build-docker-node
 	docker run --rm \
 	--name sei-node \
 	--network host \
+	--user="$(shell id -u):$(shell id -g)" \
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
+	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	--platform linux/x86_64 \
 	sei-chain/localnode
 .PHONY: run-local-node
@@ -147,11 +164,13 @@ run-rpc-node: build-rpc-node
 	docker run --rm \
 	--name sei-rpc-node \
 	--network docker_localnet \
+	--user="$(shell id -u):$(shell id -g)" \
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(PROJECT_HOME)/../sei-tendermint:/sei-protocol/sei-tendermint:Z \
     -v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
     -v $(PROJECT_HOME)/../sei-db:/sei-protocol/sei-db:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
+	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
 	--platform linux/x86_64 \
 	sei-chain/rpcnode
@@ -161,11 +180,13 @@ run-rpc-node-skipbuild: build-rpc-node
 	docker run --rm \
 	--name sei-rpc-node \
 	--network docker_localnet \
+	--user="$(shell id -u):$(shell id -g)" \
 	-v $(PROJECT_HOME):/sei-protocol/sei-chain:Z \
 	-v $(PROJECT_HOME)/../sei-tendermint:/sei-protocol/sei-tendermint:Z \
     -v $(PROJECT_HOME)/../sei-cosmos:/sei-protocol/sei-cosmos:Z \
     -v $(PROJECT_HOME)/../sei-db:/sei-protocol/sei-db:Z \
 	-v $(GO_PKG_PATH)/mod:/root/go/pkg/mod:Z \
+	-v $(shell go env GOCACHE):/root/.cache/go-build:Z \
 	-p 26668-26670:26656-26658 \
 	--platform linux/x86_64 \
 	--env SKIP_BUILD=true \
@@ -173,27 +194,29 @@ run-rpc-node-skipbuild: build-rpc-node
 .PHONY: run-rpc-node
 
 kill-sei-node:
-	docker ps --filter name=sei-node --filter status=running -aq | xargs docker kill
+	docker ps --filter name=sei-node --filter status=running -aq | xargs docker kill 2> /dev/null || true
 
 kill-rpc-node:
-	docker ps --filter name=sei-rpc-node --filter status=running -aq | xargs docker kill
+	docker ps --filter name=sei-rpc-node --filter status=running -aq | xargs docker kill 2> /dev/null || true
 
 # Run a 4-node docker containers
 docker-cluster-start: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
-	@cd docker && NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} docker-compose up
+	@mkdir -p $(shell go env GOPATH)/pkg/mod
+	@mkdir -p $(shell go env GOCACHE)
+	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 INVARIANT_CHECK_INTERVAL=${INVARIANT_CHECK_INTERVAL} UPGRADE_VERSION_LIST=${UPGRADE_VERSION_LIST} MOCK_BALANCES=${MOCK_BALANCES} docker compose up
 
 .PHONY: localnet-start
 
 # Use this to skip the seid build process
 docker-cluster-start-skipbuild: docker-cluster-stop build-docker-node
 	@rm -rf $(PROJECT_HOME)/build/generated
-	@cd docker && NUM_ACCOUNTS=10 SKIP_BUILD=true docker-compose up
+	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) NUM_ACCOUNTS=10 SKIP_BUILD=true docker compose up
 .PHONY: localnet-start
 
 # Stop 4-node docker containers
 docker-cluster-stop:
-	@cd docker && docker-compose down
+	@cd docker && USERID=$(shell id -u) GROUPID=$(shell id -g) GOCACHE=$(shell go env GOCACHE) docker compose down
 .PHONY: localnet-stop
 
 
@@ -214,7 +237,17 @@ $(BUILDDIR):
 $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
 	go list -f "{{ if (or .TestGoFiles .XTestGoFiles) }}{{ .ImportPath }}{{ end }}" ./... | sort > $@
 
+TARGET_PACKAGE := github.com/sei-protocol/sei-chain/occ_tests
+
 split-test-packages:$(BUILDDIR)/packages.txt
 	split -d -n l/$(NUM_SPLIT) $< $<.
 test-group-%:split-test-packages
-	cat $(BUILDDIR)/packages.txt.$* | xargs go test -parallel 4 -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic
+	@echo "🔍 Checking for special package: $(TARGET_PACKAGE)"
+	@if grep -q "$(TARGET_PACKAGE)" $(BUILDDIR)/packages.txt.$*; then \
+		echo "🔒 Found $(TARGET_PACKAGE), running with -parallel=1"; \
+		PARALLEL="-parallel=1"; \
+	else \
+		echo "⚡ Not found, running with -parallel=4"; \
+		PARALLEL="-parallel=4"; \
+	fi; \
+	cat $(BUILDDIR)/packages.txt.$* | xargs go test $$PARALLEL -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic

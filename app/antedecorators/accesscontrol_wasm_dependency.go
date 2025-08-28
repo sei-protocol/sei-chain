@@ -24,7 +24,6 @@ func NewACLWasmDependencyDecorator(aclKeeper aclkeeper.Keeper, wasmKeeper wasm.K
 }
 
 func (ad ACLWasmDependencyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
-
 	for _, msg := range tx.GetMsgs() {
 		switch m := msg.(type) {
 		case *acltypes.MsgRegisterWasmDependency:

@@ -72,7 +72,7 @@ class TestRunner:
             if env_map:
                 for key in env_map:
                     envs += f'-e {key}=\'{env_map[key]}\' '
-            full_cmd = f'docker exec {envs} {container} /bin/bash -c \'export PATH=$PATH:/root/go/bin && {command}\''
+            full_cmd = f'docker exec {envs} {container} /bin/bash -c \'export PATH=$PATH:/root/go/bin:/root/.foundry/bin && {command}\''
         else:
             full_cmd = command
         if verbose:

@@ -521,7 +521,8 @@ func TestPriceSnapshotAdd(t *testing.T) {
 
 	// test iterate reverse
 	expectedTimestampsReverse := []int64{3660, 100, 50}
-	input.OracleKeeper.IteratePriceSnapshotsReverse(input.Ctx, func(snapshot types.PriceSnapshot) (stop bool) {
+	prefix := types.GetPriceSnapshotKeyForIteration(uint64(input.Ctx.BlockTime().Unix()), 0)
+	input.OracleKeeper.IteratePriceSnapshotsReverse(input.Ctx, prefix, func(snapshot types.PriceSnapshot) (stop bool) {
 		// assert that all the timestamps are correct
 		require.Equal(t, expectedTimestampsReverse[0], snapshot.SnapshotTimestamp)
 		expectedTimestampsReverse = expectedTimestampsReverse[1:]
@@ -812,4 +813,16 @@ func TestCalculateTwapsWithUnsupportedDenom(t *testing.T) {
 	_, err = input.OracleKeeper.CalculateTwaps(input.Ctx, 0)
 	require.Error(t, err)
 	require.Equal(t, types.ErrInvalidTwapLookback, err)
+}
+
+func TestSpamPreventionCounter(t *testing.T) {
+	input := CreateTestInput(t)
+
+	require.NoError(t, input.OracleKeeper.CheckAndSetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[0])))
+	require.Error(t, input.OracleKeeper.CheckAndSetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[0])))
+
+	input.Ctx = input.Ctx.WithBlockHeight(3)
+
+	require.NoError(t, input.OracleKeeper.CheckAndSetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[0])))
+	require.NoError(t, input.OracleKeeper.CheckAndSetSpamPreventionCounter(input.Ctx, sdk.ValAddress(Addrs[1])))
 }

@@ -149,6 +149,7 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 1, func(ctx sdk.Context) error { return nil })
 	_ = cfg.RegisterMigration(types.ModuleName, 2, m.Migrate2to3)
 	_ = cfg.RegisterMigration(types.ModuleName, 3, m.Migrate3to4)
+	_ = cfg.RegisterMigration(types.ModuleName, 4, m.Migrate4to5)
 }
 
 // RegisterInvariants registers the x/tokenfactory module's invariants.
@@ -172,8 +173,29 @@ func (am AppModule) ExportGenesis(ctx sdk.Context, cdc codec.JSONCodec) json.Raw
 	return cdc.MustMarshalJSON(genState)
 }
 
+// ExportGenesisStream returns the tokenfactory module's exported genesis state as raw JSON bytes in a streaming fashion.
+func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-chan json.RawMessage {
+	ch := make(chan json.RawMessage)
+	go func() {
+		ch <- am.ExportGenesis(ctx, cdc)
+		close(ch)
+	}()
+	return ch
+}
+
+// ValidateGenesisStream performs genesis state validation for the x/tokenfactory module in a streaming fashion.
+func (am AppModuleBasic) ValidateGenesisStream(cdc codec.JSONCodec, config client.TxEncodingConfig, genesisCh <-chan json.RawMessage) error {
+	for genesis := range genesisCh {
+		err := am.ValidateGenesis(cdc, config, genesis)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 4 }
+func (AppModule) ConsensusVersion() uint64 { return 5 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the tokenfactory module.
 func (am AppModule) BeginBlock(_ sdk.Context, _ abci.RequestBeginBlock) {}

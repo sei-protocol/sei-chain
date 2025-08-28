@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"sync"
 
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 
 	"github.com/tendermint/tendermint/libs/log"
@@ -22,6 +24,7 @@ import (
 type Keeper struct {
 	cdc        codec.BinaryCodec
 	storeKey   sdk.StoreKey
+	memKey     sdk.StoreKey
 	paramSpace paramstypes.Subspace
 
 	accountKeeper types.AccountKeeper
@@ -29,11 +32,13 @@ type Keeper struct {
 	distrKeeper   types.DistributionKeeper
 	StakingKeeper types.StakingKeeper
 
+	spamPreventionCounterMtxMap *datastructures.TypedSyncMap[string, *sync.Mutex]
+
 	distrName string
 }
 
 // NewKeeper constructs a new keeper for oracle
-func NewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey,
+func NewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey, memKey sdk.StoreKey,
 	paramspace paramstypes.Subspace, accountKeeper types.AccountKeeper,
 	bankKeeper types.BankKeeper, distrKeeper types.DistributionKeeper,
 	stakingKeeper types.StakingKeeper, distrName string,
@@ -49,14 +54,16 @@ func NewKeeper(cdc codec.BinaryCodec, storeKey sdk.StoreKey,
 	}
 
 	return Keeper{
-		cdc:           cdc,
-		storeKey:      storeKey,
-		paramSpace:    paramspace,
-		accountKeeper: accountKeeper,
-		bankKeeper:    bankKeeper,
-		distrKeeper:   distrKeeper,
-		StakingKeeper: stakingKeeper,
-		distrName:     distrName,
+		cdc:                         cdc,
+		storeKey:                    storeKey,
+		memKey:                      memKey,
+		paramSpace:                  paramspace,
+		accountKeeper:               accountKeeper,
+		bankKeeper:                  bankKeeper,
+		distrKeeper:                 distrKeeper,
+		StakingKeeper:               stakingKeeper,
+		distrName:                   distrName,
+		spamPreventionCounterMtxMap: datastructures.NewTypedSyncMap[string, *sync.Mutex](),
 	}
 }
 
@@ -449,9 +456,9 @@ func (k Keeper) IteratePriceSnapshots(ctx sdk.Context, handler func(snapshot typ
 	}
 }
 
-func (k Keeper) IteratePriceSnapshotsReverse(ctx sdk.Context, handler func(snapshot types.PriceSnapshot) (stop bool)) {
+func (k Keeper) IteratePriceSnapshotsReverse(ctx sdk.Context, keyPrefix []byte, handler func(snapshot types.PriceSnapshot) (stop bool)) {
 	store := ctx.KVStore(k.storeKey)
-	iterator := sdk.KVStoreReversePrefixIterator(store, types.PriceSnapshotKey)
+	iterator := sdk.KVStoreReversePrefixIterator(store, keyPrefix)
 	defer iterator.Close()
 
 	for ; iterator.Valid(); iterator.Next() {
@@ -486,7 +493,8 @@ func (k Keeper) CalculateTwaps(ctx sdk.Context, lookbackSeconds uint64) (types.O
 		return false
 	})
 
-	k.IteratePriceSnapshotsReverse(ctx, func(snapshot types.PriceSnapshot) (stop bool) {
+	keyPrefix := types.GetPriceSnapshotKeyForIteration(uint64(currentTime), uint64(currentTime)-lookbackSeconds-1)
+	k.IteratePriceSnapshotsReverse(ctx, keyPrefix, func(snapshot types.PriceSnapshot) (stop bool) {
 		stop = false
 		snapshotTimestamp := snapshot.SnapshotTimestamp
 		if currentTime-int64(lookbackSeconds) > snapshotTimestamp {
@@ -570,4 +578,34 @@ func (k Keeper) ValidateLookbackSeconds(ctx sdk.Context, lookbackSeconds uint64)
 	}
 
 	return nil
+}
+
+func (k Keeper) CheckAndSetSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValAddress) error {
+	mtx, _ := k.spamPreventionCounterMtxMap.LoadOrStore(validatorAddr.String(), &sync.Mutex{})
+	mtx.Lock()
+	defer mtx.Unlock()
+	if k.getSpamPreventionCounter(ctx, validatorAddr) == ctx.BlockHeight() {
+		return sdkerrors.Wrap(sdkerrors.ErrAlreadyExists, fmt.Sprintf("the validator has already submitted a vote at the current height=%d", ctx.BlockHeight()))
+	}
+	k.setSpamPreventionCounter(ctx, validatorAddr)
+	return nil
+}
+
+func (k Keeper) getSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValAddress) int64 {
+	store := ctx.KVStore(k.memKey)
+	bz := store.Get(types.GetSpamPreventionCounterKey(validatorAddr))
+	if bz == nil {
+		return -1
+	}
+
+	return int64(sdk.BigEndianToUint64(bz))
+}
+
+func (k Keeper) setSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValAddress) {
+	store := ctx.KVStore(k.memKey)
+
+	height := ctx.BlockHeight()
+	bz := sdk.Uint64ToBigEndian(uint64(height))
+
+	store.Set(types.GetSpamPreventionCounterKey(validatorAddr), bz)
 }

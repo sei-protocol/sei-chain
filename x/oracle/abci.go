@@ -29,14 +29,8 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 		powerReduction := k.StakingKeeper.PowerReduction(ctx)
 
 		i := 0
-		powerOrderedValAddrs := []sdk.ValAddress{}
 		for ; iterator.Valid() && i < int(maxValidators); iterator.Next() {
-			powerOrderedValAddrs = append(powerOrderedValAddrs, iterator.Value())
-		}
-
-		for _, valAddr := range powerOrderedValAddrs {
-			validator := k.StakingKeeper.Validator(ctx, valAddr)
-
+			validator := k.StakingKeeper.Validator(ctx, iterator.Value())
 			// Exclude not bonded validator
 			if validator.IsBonded() {
 				valAddr := validator.GetOperator()
@@ -85,6 +79,12 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 				// Get weighted median of cross exchange rates
 				exchangeRate := Tally(ctx, ballot, params.RewardBand, validatorClaimMap)
 
+				// if exchange rate is somehow 0, exclude it from ballot?
+				if exchangeRate.IsZero() {
+					// skip this denom
+					continue
+				}
+
 				// Transform into the original form base/quote
 				if denom != referenceDenom {
 					exchangeRate = exchangeRateRD.Quo(exchangeRate)
@@ -104,10 +104,11 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 		}
 		sort.Strings(belowThresholdKeys)
 		// in this case, all assets would be in the belowThresholdVoteMap
+
 		for _, denom := range belowThresholdKeys {
 			ballot := belowThresholdVoteMap[denom]
 			// perform tally for below threshold assets to calculate total win count
-			Tally(ctx, ballot, params.RewardBand, validatorClaimMap)
+			UpdateDidVote(ctx, ballot, validatorClaimMap)
 		}
 
 		//---------------------------

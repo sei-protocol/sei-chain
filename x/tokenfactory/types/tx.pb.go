@@ -6,8 +6,8 @@ package types
 import (
 	context "context"
 	fmt "fmt"
-	types "github.com/cosmos/cosmos-sdk/types"
-	types1 "github.com/cosmos/cosmos-sdk/x/bank/types"
+	types1 "github.com/cosmos/cosmos-sdk/types"
+	types "github.com/cosmos/cosmos-sdk/x/bank/types"
 	_ "github.com/gogo/protobuf/gogoproto"
 	grpc1 "github.com/gogo/protobuf/grpc"
 	proto "github.com/gogo/protobuf/proto"
@@ -42,7 +42,8 @@ const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 type MsgCreateDenom struct {
 	Sender string `protobuf:"bytes,1,opt,name=sender,proto3" json:"sender,omitempty" yaml:"sender"`
 	// subdenom can be up to 44 "alphanumeric" characters long.
-	Subdenom string `protobuf:"bytes,2,opt,name=subdenom,proto3" json:"subdenom,omitempty" yaml:"subdenom"`
+	Subdenom  string           `protobuf:"bytes,2,opt,name=subdenom,proto3" json:"subdenom,omitempty" yaml:"subdenom"`
+	AllowList *types.AllowList `protobuf:"bytes,3,opt,name=allow_list,json=allowList,proto3" json:"allow_list,omitempty" yaml:"allow_list"`
 }
 
 func (m *MsgCreateDenom) Reset()         { *m = MsgCreateDenom{} }
@@ -90,6 +91,13 @@ func (m *MsgCreateDenom) GetSubdenom() string {
 		return m.Subdenom
 	}
 	return ""
+}
+
+func (m *MsgCreateDenom) GetAllowList() *types.AllowList {
+	if m != nil {
+		return m.AllowList
+	}
+	return nil
 }
 
 // MsgCreateDenomResponse is the return value of MsgCreateDenom
@@ -141,8 +149,8 @@ func (m *MsgCreateDenomResponse) GetNewTokenDenom() string {
 // MsgMint is the sdk.Msg type for allowing an admin account to mint
 // more of a token.  For now, we only support minting to the sender account
 type MsgMint struct {
-	Sender string     `protobuf:"bytes,1,opt,name=sender,proto3" json:"sender,omitempty" yaml:"sender"`
-	Amount types.Coin `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount" yaml:"amount"`
+	Sender string      `protobuf:"bytes,1,opt,name=sender,proto3" json:"sender,omitempty" yaml:"sender"`
+	Amount types1.Coin `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount" yaml:"amount"`
 }
 
 func (m *MsgMint) Reset()         { *m = MsgMint{} }
@@ -185,11 +193,11 @@ func (m *MsgMint) GetSender() string {
 	return ""
 }
 
-func (m *MsgMint) GetAmount() types.Coin {
+func (m *MsgMint) GetAmount() types1.Coin {
 	if m != nil {
 		return m.Amount
 	}
-	return types.Coin{}
+	return types1.Coin{}
 }
 
 type MsgMintResponse struct {
@@ -231,8 +239,8 @@ var xxx_messageInfo_MsgMintResponse proto.InternalMessageInfo
 // MsgBurn is the sdk.Msg type for allowing an admin account to burn
 // a token.  For now, we only support burning from the sender account.
 type MsgBurn struct {
-	Sender string     `protobuf:"bytes,1,opt,name=sender,proto3" json:"sender,omitempty" yaml:"sender"`
-	Amount types.Coin `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount" yaml:"amount"`
+	Sender string      `protobuf:"bytes,1,opt,name=sender,proto3" json:"sender,omitempty" yaml:"sender"`
+	Amount types1.Coin `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount" yaml:"amount"`
 }
 
 func (m *MsgBurn) Reset()         { *m = MsgBurn{} }
@@ -275,11 +283,11 @@ func (m *MsgBurn) GetSender() string {
 	return ""
 }
 
-func (m *MsgBurn) GetAmount() types.Coin {
+func (m *MsgBurn) GetAmount() types1.Coin {
 	if m != nil {
 		return m.Amount
 	}
-	return types.Coin{}
+	return types1.Coin{}
 }
 
 type MsgBurnResponse struct {
@@ -421,8 +429,8 @@ var xxx_messageInfo_MsgChangeAdminResponse proto.InternalMessageInfo
 // MsgSetDenomMetadata is the sdk.Msg type for allowing an admin account to set
 // the denom's bank metadata
 type MsgSetDenomMetadata struct {
-	Sender   string          `protobuf:"bytes,1,opt,name=sender,proto3" json:"sender,omitempty" yaml:"sender"`
-	Metadata types1.Metadata `protobuf:"bytes,2,opt,name=metadata,proto3" json:"metadata" yaml:"metadata"`
+	Sender   string         `protobuf:"bytes,1,opt,name=sender,proto3" json:"sender,omitempty" yaml:"sender"`
+	Metadata types.Metadata `protobuf:"bytes,2,opt,name=metadata,proto3" json:"metadata" yaml:"metadata"`
 }
 
 func (m *MsgSetDenomMetadata) Reset()         { *m = MsgSetDenomMetadata{} }
@@ -465,11 +473,11 @@ func (m *MsgSetDenomMetadata) GetSender() string {
 	return ""
 }
 
-func (m *MsgSetDenomMetadata) GetMetadata() types1.Metadata {
+func (m *MsgSetDenomMetadata) GetMetadata() types.Metadata {
 	if m != nil {
 		return m.Metadata
 	}
-	return types1.Metadata{}
+	return types.Metadata{}
 }
 
 // MsgSetDenomMetadataResponse defines the response structure for an executed
@@ -510,6 +518,104 @@ func (m *MsgSetDenomMetadataResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_MsgSetDenomMetadataResponse proto.InternalMessageInfo
 
+// MsgUpdateDenom is the sdk.Msg allowing an admin to update the denom
+type MsgUpdateDenom struct {
+	Sender    string           `protobuf:"bytes,1,opt,name=sender,proto3" json:"sender,omitempty" yaml:"sender"`
+	Denom     string           `protobuf:"bytes,2,opt,name=denom,proto3" json:"denom,omitempty" yaml:"denom"`
+	AllowList *types.AllowList `protobuf:"bytes,3,opt,name=allow_list,json=allowList,proto3" json:"allow_list,omitempty" yaml:"allow_list"`
+}
+
+func (m *MsgUpdateDenom) Reset()         { *m = MsgUpdateDenom{} }
+func (m *MsgUpdateDenom) String() string { return proto.CompactTextString(m) }
+func (*MsgUpdateDenom) ProtoMessage()    {}
+func (*MsgUpdateDenom) Descriptor() ([]byte, []int) {
+	return fileDescriptor_51ab120c97d57038, []int{10}
+}
+func (m *MsgUpdateDenom) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgUpdateDenom) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgUpdateDenom.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgUpdateDenom) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgUpdateDenom.Merge(m, src)
+}
+func (m *MsgUpdateDenom) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgUpdateDenom) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgUpdateDenom.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgUpdateDenom proto.InternalMessageInfo
+
+func (m *MsgUpdateDenom) GetSender() string {
+	if m != nil {
+		return m.Sender
+	}
+	return ""
+}
+
+func (m *MsgUpdateDenom) GetDenom() string {
+	if m != nil {
+		return m.Denom
+	}
+	return ""
+}
+
+func (m *MsgUpdateDenom) GetAllowList() *types.AllowList {
+	if m != nil {
+		return m.AllowList
+	}
+	return nil
+}
+
+// MsgUpdateDenomResponse defines the response structure for an executed MsgUpdateDenom message.
+type MsgUpdateDenomResponse struct {
+}
+
+func (m *MsgUpdateDenomResponse) Reset()         { *m = MsgUpdateDenomResponse{} }
+func (m *MsgUpdateDenomResponse) String() string { return proto.CompactTextString(m) }
+func (*MsgUpdateDenomResponse) ProtoMessage()    {}
+func (*MsgUpdateDenomResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_51ab120c97d57038, []int{11}
+}
+func (m *MsgUpdateDenomResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgUpdateDenomResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgUpdateDenomResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgUpdateDenomResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgUpdateDenomResponse.Merge(m, src)
+}
+func (m *MsgUpdateDenomResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgUpdateDenomResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgUpdateDenomResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgUpdateDenomResponse proto.InternalMessageInfo
+
 func init() {
 	proto.RegisterType((*MsgCreateDenom)(nil), "seiprotocol.seichain.tokenfactory.MsgCreateDenom")
 	proto.RegisterType((*MsgCreateDenomResponse)(nil), "seiprotocol.seichain.tokenfactory.MsgCreateDenomResponse")
@@ -521,50 +627,57 @@ func init() {
 	proto.RegisterType((*MsgChangeAdminResponse)(nil), "seiprotocol.seichain.tokenfactory.MsgChangeAdminResponse")
 	proto.RegisterType((*MsgSetDenomMetadata)(nil), "seiprotocol.seichain.tokenfactory.MsgSetDenomMetadata")
 	proto.RegisterType((*MsgSetDenomMetadataResponse)(nil), "seiprotocol.seichain.tokenfactory.MsgSetDenomMetadataResponse")
+	proto.RegisterType((*MsgUpdateDenom)(nil), "seiprotocol.seichain.tokenfactory.MsgUpdateDenom")
+	proto.RegisterType((*MsgUpdateDenomResponse)(nil), "seiprotocol.seichain.tokenfactory.MsgUpdateDenomResponse")
 }
 
 func init() { proto.RegisterFile("tokenfactory/tx.proto", fileDescriptor_51ab120c97d57038) }
 
 var fileDescriptor_51ab120c97d57038 = []byte{
-	// 597 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xc4, 0x55, 0xcd, 0x6e, 0xd3, 0x40,
-	0x18, 0x8c, 0x69, 0x29, 0xed, 0x96, 0x92, 0xd4, 0xfd, 0x21, 0x18, 0xd5, 0x86, 0x3d, 0x20, 0x40,
-	0xc2, 0x56, 0x82, 0x54, 0x09, 0x0e, 0x48, 0xb8, 0x1c, 0xb8, 0x58, 0x42, 0x86, 0x13, 0x42, 0xaa,
-	0x36, 0xce, 0xd6, 0xb1, 0x12, 0xef, 0x46, 0xd9, 0x0d, 0x69, 0x84, 0xc4, 0x03, 0x70, 0xe2, 0x80,
-	0x78, 0xa6, 0x1e, 0x7b, 0xe4, 0x80, 0x2c, 0x94, 0xbc, 0x41, 0x9e, 0x00, 0x79, 0x77, 0xed, 0x38,
-	0x0d, 0x12, 0x0e, 0x17, 0x6e, 0xb6, 0xbf, 0x99, 0x6f, 0x66, 0xe7, 0xfb, 0x56, 0x06, 0x07, 0x9c,
-	0x76, 0x31, 0x39, 0x43, 0x01, 0xa7, 0x83, 0xb1, 0xc3, 0xcf, 0xed, 0xfe, 0x80, 0x72, 0xaa, 0xdf,
-	0x67, 0x38, 0x12, 0x4f, 0x01, 0xed, 0xd9, 0x0c, 0x47, 0x41, 0x07, 0x45, 0xc4, 0x2e, 0x62, 0x8d,
-	0xfd, 0x90, 0x86, 0x54, 0x60, 0x9c, 0xf4, 0x49, 0x12, 0x0d, 0x33, 0xa0, 0x2c, 0xa6, 0xcc, 0x69,
-	0x21, 0x86, 0x9d, 0x8f, 0x8d, 0x16, 0xe6, 0xa8, 0xe1, 0x04, 0x34, 0x22, 0x4b, 0x75, 0xd2, 0xcd,
-	0xeb, 0xe9, 0x8b, 0xac, 0xc3, 0x1e, 0xb8, 0xe5, 0xb1, 0xf0, 0x64, 0x80, 0x11, 0xc7, 0xaf, 0x30,
-	0xa1, 0xb1, 0xfe, 0x08, 0x6c, 0x30, 0x4c, 0xda, 0x78, 0x50, 0xd7, 0xee, 0x69, 0x0f, 0xb7, 0xdc,
-	0xdd, 0x59, 0x62, 0xed, 0x8c, 0x51, 0xdc, 0x7b, 0x0e, 0xe5, 0x77, 0xe8, 0x2b, 0x80, 0xee, 0x80,
-	0x4d, 0x36, 0x6c, 0xb5, 0x53, 0x5a, 0xfd, 0x9a, 0x00, 0xef, 0xcd, 0x12, 0xab, 0xaa, 0xc0, 0xaa,
-	0x02, 0xfd, 0x1c, 0x04, 0x3f, 0x80, 0xc3, 0x45, 0x35, 0x1f, 0xb3, 0x3e, 0x25, 0x0c, 0xeb, 0x2e,
-	0xa8, 0x12, 0x3c, 0x3a, 0x15, 0x27, 0x3e, 0x95, 0x1d, 0xa5, 0xbc, 0x31, 0x4b, 0xac, 0x43, 0xd9,
-	0xf1, 0x0a, 0x00, 0xfa, 0x3b, 0x04, 0x8f, 0xde, 0xa5, 0x1f, 0x44, 0x2f, 0xf8, 0x19, 0xdc, 0xf0,
-	0x58, 0xe8, 0x45, 0x84, 0xaf, 0x72, 0x88, 0xd7, 0x60, 0x03, 0xc5, 0x74, 0x48, 0xb8, 0x38, 0xc2,
-	0x76, 0xf3, 0x8e, 0x2d, 0x23, 0xb3, 0xd3, 0x48, 0x6d, 0x15, 0x99, 0x7d, 0x42, 0x23, 0xe2, 0x1e,
-	0x5c, 0x24, 0x56, 0x65, 0xde, 0x49, 0xd2, 0xa0, 0xaf, 0xf8, 0x70, 0x17, 0x54, 0x95, 0x7e, 0x76,
-	0x2c, 0x65, 0xc9, 0x1d, 0x0e, 0xc8, 0xff, 0xb4, 0x94, 0xea, 0xe7, 0x96, 0xbe, 0x6b, 0x72, 0xe4,
-	0x1d, 0x44, 0x42, 0xfc, 0xb2, 0x1d, 0x47, 0x2b, 0x59, 0x7b, 0x00, 0xae, 0x17, 0xe7, 0x5d, 0x9b,
-	0x25, 0xd6, 0x4d, 0x89, 0x54, 0x33, 0x91, 0x65, 0xbd, 0x01, 0xb6, 0xd2, 0x71, 0xa1, 0xb4, 0x7f,
-	0x7d, 0x4d, 0x60, 0xf7, 0x67, 0x89, 0x55, 0x9b, 0x4f, 0x52, 0x94, 0xa0, 0xbf, 0x49, 0xf0, 0x48,
-	0xb8, 0x80, 0x75, 0xb9, 0x1c, 0x73, 0x5f, 0xb9, 0xe5, 0x6f, 0x1a, 0xd8, 0xf3, 0x58, 0xf8, 0x16,
-	0x73, 0x31, 0x68, 0x0f, 0x73, 0xd4, 0x46, 0x1c, 0xad, 0xe2, 0xdb, 0x07, 0x9b, 0xb1, 0xa2, 0xa9,
-	0x50, 0x8f, 0xe6, 0xa1, 0x92, 0x6e, 0x1e, 0x6a, 0xd6, 0xdb, 0xbd, 0xad, 0x82, 0x55, 0xdb, 0x9c,
-	0x91, 0xa1, 0x9f, 0xf7, 0x81, 0x47, 0xe0, 0xee, 0x1f, 0x5c, 0x65, 0xae, 0x9b, 0x3f, 0xd7, 0xc1,
-	0x9a, 0xc7, 0x42, 0xfd, 0x13, 0xd8, 0x2e, 0xde, 0xaf, 0x86, 0xfd, 0xd7, 0xbb, 0x6e, 0x2f, 0x5e,
-	0x12, 0xe3, 0xd9, 0xca, 0x94, 0xfc, 0x5e, 0x9d, 0x81, 0x75, 0x71, 0x21, 0x1e, 0x97, 0x6b, 0x91,
-	0x62, 0x8d, 0x66, 0x79, 0x6c, 0x51, 0x47, 0x6c, 0x79, 0x49, 0x9d, 0x14, 0x5b, 0x56, 0xa7, 0xb8,
-	0xbd, 0x22, 0xcc, 0xc2, 0xe6, 0x96, 0x0d, 0x73, 0x4e, 0x29, 0x1d, 0xe6, 0xf2, 0x1e, 0xea, 0x5f,
-	0x34, 0x50, 0x5b, 0x5a, 0xc2, 0xe3, 0x72, 0xfd, 0xae, 0xf2, 0x8c, 0x17, 0xff, 0xc6, 0xcb, 0xcc,
-	0xb8, 0x6f, 0x2e, 0x26, 0xa6, 0x76, 0x39, 0x31, 0xb5, 0x5f, 0x13, 0x53, 0xfb, 0x3a, 0x35, 0x2b,
-	0x97, 0x53, 0xb3, 0xf2, 0x63, 0x6a, 0x56, 0xde, 0x1f, 0x87, 0x11, 0xef, 0x0c, 0x5b, 0x76, 0x40,
-	0x63, 0x87, 0xe1, 0xe8, 0x49, 0x26, 0x22, 0x5e, 0x84, 0x8a, 0x73, 0xee, 0x2c, 0xfe, 0x87, 0xc6,
-	0x7d, 0xcc, 0x5a, 0x1b, 0x02, 0xf8, 0xf4, 0x77, 0x00, 0x00, 0x00, 0xff, 0xff, 0x0b, 0xce, 0xc3,
-	0x72, 0xa4, 0x06, 0x00, 0x00,
+	// 681 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xc4, 0x56, 0x4d, 0x6b, 0xd4, 0x4e,
+	0x18, 0xdf, 0xfc, 0xfb, 0x6f, 0xed, 0xce, 0x5a, 0xdb, 0xa6, 0x2f, 0x6e, 0x57, 0x9a, 0xd4, 0x39,
+	0x48, 0x15, 0x4c, 0xd8, 0x15, 0x0a, 0x7a, 0x10, 0x9a, 0x7a, 0xf0, 0xe0, 0x82, 0x44, 0x05, 0x11,
+	0xa1, 0xcc, 0x66, 0xa7, 0x69, 0xe8, 0x66, 0x66, 0xd9, 0x99, 0x75, 0x5b, 0x0a, 0x7e, 0x00, 0x4f,
+	0x1e, 0xc4, 0x6f, 0xe3, 0x55, 0x7a, 0xec, 0x51, 0x2f, 0x41, 0xda, 0x6f, 0x90, 0x4f, 0x20, 0x99,
+	0x99, 0xbc, 0xb4, 0x5d, 0x30, 0x5b, 0x10, 0x6f, 0x49, 0x9e, 0xdf, 0xef, 0x79, 0x7e, 0xcf, 0x2b,
+	0x01, 0x2b, 0x9c, 0x1e, 0x60, 0xb2, 0x87, 0x3c, 0x4e, 0x07, 0x47, 0x36, 0x3f, 0xb4, 0xfa, 0x03,
+	0xca, 0xa9, 0x7e, 0x97, 0xe1, 0x40, 0x3c, 0x79, 0xb4, 0x67, 0x31, 0x1c, 0x78, 0xfb, 0x28, 0x20,
+	0x56, 0x11, 0xdb, 0x58, 0xf6, 0xa9, 0x4f, 0x05, 0xc6, 0x4e, 0x9e, 0x24, 0xb1, 0x61, 0x78, 0x94,
+	0x85, 0x94, 0xd9, 0x1d, 0xc4, 0xb0, 0xfd, 0xa1, 0xd9, 0xc1, 0x1c, 0x35, 0x6d, 0x8f, 0x06, 0xe4,
+	0x8a, 0x9d, 0x1c, 0x64, 0xf6, 0xe4, 0x45, 0xda, 0xe1, 0x77, 0x0d, 0xdc, 0x6a, 0x33, 0x7f, 0x67,
+	0x80, 0x11, 0xc7, 0xcf, 0x30, 0xa1, 0xa1, 0x7e, 0x1f, 0xcc, 0x30, 0x4c, 0xba, 0x78, 0x50, 0xd7,
+	0x36, 0xb4, 0xcd, 0xaa, 0xb3, 0x18, 0x47, 0xe6, 0xdc, 0x11, 0x0a, 0x7b, 0x4f, 0xa0, 0xfc, 0x0e,
+	0x5d, 0x05, 0xd0, 0x6d, 0x30, 0xcb, 0x86, 0x9d, 0x6e, 0x42, 0xab, 0xff, 0x27, 0xc0, 0x4b, 0x71,
+	0x64, 0xce, 0x2b, 0xb0, 0xb2, 0x40, 0x37, 0x03, 0xe9, 0x6f, 0x01, 0x40, 0xbd, 0x1e, 0x1d, 0xed,
+	0xf6, 0x02, 0xc6, 0xeb, 0x53, 0x1b, 0xda, 0x66, 0xad, 0x65, 0x58, 0x52, 0xa3, 0x25, 0x64, 0x29,
+	0x8d, 0xd6, 0x76, 0x02, 0x7b, 0x11, 0x30, 0xee, 0xac, 0x9d, 0x44, 0xa6, 0x16, 0x47, 0xe6, 0xa2,
+	0x74, 0x9b, 0xf3, 0xa1, 0x5b, 0x45, 0x29, 0x0a, 0xbe, 0x07, 0xab, 0x17, 0xf3, 0x70, 0x31, 0xeb,
+	0x53, 0xc2, 0xb0, 0xee, 0x80, 0x79, 0x82, 0x47, 0xbb, 0xa2, 0x98, 0xbb, 0x52, 0xab, 0x4c, 0xac,
+	0x11, 0x47, 0xe6, 0xaa, 0x74, 0x7a, 0x09, 0x00, 0xdd, 0x39, 0x82, 0x47, 0xaf, 0x93, 0x0f, 0xc2,
+	0x17, 0xfc, 0x08, 0x6e, 0xb4, 0x99, 0xdf, 0x0e, 0x08, 0x9f, 0xa4, 0x3c, 0xcf, 0xc1, 0x0c, 0x0a,
+	0xe9, 0x90, 0x70, 0x51, 0x9c, 0x5a, 0x6b, 0x2d, 0xcf, 0x94, 0xe1, 0x2c, 0xd3, 0x1d, 0x1a, 0x10,
+	0x67, 0xe5, 0x24, 0x32, 0x2b, 0xb9, 0x27, 0x49, 0x83, 0xae, 0xe2, 0xc3, 0x45, 0x30, 0xaf, 0xe2,
+	0xa7, 0x69, 0x29, 0x49, 0xce, 0x70, 0x40, 0xfe, 0xa5, 0xa4, 0x24, 0x7e, 0x26, 0xe9, 0xab, 0x1a,
+	0xa6, 0x7d, 0x44, 0x7c, 0xbc, 0xdd, 0x0d, 0x83, 0x89, 0xa4, 0xdd, 0x03, 0xd3, 0xc5, 0x49, 0x5a,
+	0x88, 0x23, 0xf3, 0xa6, 0x44, 0xaa, 0x9e, 0x48, 0xb3, 0xde, 0x04, 0xd5, 0xa4, 0x5d, 0x28, 0xf1,
+	0x2f, 0x46, 0xa8, 0xea, 0x2c, 0xc7, 0x91, 0xb9, 0x90, 0x77, 0x52, 0x98, 0xa0, 0x3b, 0x4b, 0xf0,
+	0x48, 0xa8, 0x80, 0x75, 0x39, 0x1c, 0xb9, 0xae, 0x4c, 0xf2, 0x17, 0x0d, 0x2c, 0xb5, 0x99, 0xff,
+	0x0a, 0x73, 0xd1, 0xe8, 0x36, 0xe6, 0xa8, 0x8b, 0x38, 0x9a, 0x44, 0xb7, 0x0b, 0x66, 0x43, 0x45,
+	0x53, 0x45, 0x5d, 0x1f, 0x3b, 0xd1, 0xa9, 0x6f, 0xe7, 0xb6, 0x2a, 0xac, 0xda, 0x93, 0x94, 0x0c,
+	0xdd, 0xcc, 0x0f, 0x5c, 0x07, 0x77, 0xc6, 0xa8, 0xca, 0x54, 0x7f, 0x93, 0x85, 0x7e, 0xd3, 0xef,
+	0x5e, 0x67, 0x6b, 0xcb, 0x16, 0xfa, 0xef, 0x2d, 0xab, 0xec, 0x47, 0x41, 0x7e, 0x9a, 0x59, 0xeb,
+	0xe7, 0x34, 0x98, 0x6a, 0x33, 0x5f, 0x3f, 0x06, 0xb5, 0xe2, 0x4d, 0x6a, 0x5a, 0x7f, 0x3c, 0x90,
+	0xd6, 0xc5, 0xf5, 0x6f, 0x3c, 0x9e, 0x98, 0x92, 0x5d, 0x8c, 0x63, 0x50, 0x2b, 0x96, 0xb6, 0x64,
+	0xf0, 0x02, 0xa5, 0x6c, 0xf0, 0x31, 0x15, 0xd0, 0xf7, 0xc0, 0xff, 0xe2, 0xce, 0x3c, 0x28, 0xe7,
+	0x22, 0xc1, 0x36, 0x5a, 0xe5, 0xb1, 0xc5, 0x38, 0xe2, 0x78, 0x94, 0x8c, 0x93, 0x60, 0xcb, 0xc6,
+	0x29, 0x1e, 0x05, 0xd1, 0xc9, 0xc2, 0x41, 0x28, 0xdb, 0xc9, 0x9c, 0x52, 0xba, 0x93, 0x57, 0xd7,
+	0x5b, 0xff, 0xa4, 0x81, 0x85, 0x2b, 0xbb, 0xbd, 0x55, 0xce, 0xdf, 0x65, 0x5e, 0xe3, 0xe9, 0xf5,
+	0x78, 0xa9, 0x18, 0xe7, 0xe5, 0xc9, 0x99, 0xa1, 0x9d, 0x9e, 0x19, 0xda, 0xaf, 0x33, 0x43, 0xfb,
+	0x7c, 0x6e, 0x54, 0x4e, 0xcf, 0x8d, 0xca, 0x8f, 0x73, 0xa3, 0xf2, 0x6e, 0xcb, 0x0f, 0xf8, 0xfe,
+	0xb0, 0x63, 0x79, 0x34, 0xb4, 0x19, 0x0e, 0x1e, 0xa6, 0x41, 0xc4, 0x8b, 0x88, 0x62, 0x1f, 0xda,
+	0x17, 0xff, 0x1c, 0x8e, 0xfa, 0x98, 0x75, 0x66, 0x04, 0xf0, 0xd1, 0xef, 0x00, 0x00, 0x00, 0xff,
+	0xff, 0xeb, 0x43, 0x9e, 0x99, 0x56, 0x08, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -580,6 +693,7 @@ const _ = grpc.SupportPackageIsVersion4
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type MsgClient interface {
 	CreateDenom(ctx context.Context, in *MsgCreateDenom, opts ...grpc.CallOption) (*MsgCreateDenomResponse, error)
+	UpdateDenom(ctx context.Context, in *MsgUpdateDenom, opts ...grpc.CallOption) (*MsgUpdateDenomResponse, error)
 	Mint(ctx context.Context, in *MsgMint, opts ...grpc.CallOption) (*MsgMintResponse, error)
 	Burn(ctx context.Context, in *MsgBurn, opts ...grpc.CallOption) (*MsgBurnResponse, error)
 	ChangeAdmin(ctx context.Context, in *MsgChangeAdmin, opts ...grpc.CallOption) (*MsgChangeAdminResponse, error)
@@ -597,6 +711,15 @@ func NewMsgClient(cc grpc1.ClientConn) MsgClient {
 func (c *msgClient) CreateDenom(ctx context.Context, in *MsgCreateDenom, opts ...grpc.CallOption) (*MsgCreateDenomResponse, error) {
 	out := new(MsgCreateDenomResponse)
 	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.tokenfactory.Msg/CreateDenom", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *msgClient) UpdateDenom(ctx context.Context, in *MsgUpdateDenom, opts ...grpc.CallOption) (*MsgUpdateDenomResponse, error) {
+	out := new(MsgUpdateDenomResponse)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.tokenfactory.Msg/UpdateDenom", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -642,6 +765,7 @@ func (c *msgClient) SetDenomMetadata(ctx context.Context, in *MsgSetDenomMetadat
 // MsgServer is the server API for Msg service.
 type MsgServer interface {
 	CreateDenom(context.Context, *MsgCreateDenom) (*MsgCreateDenomResponse, error)
+	UpdateDenom(context.Context, *MsgUpdateDenom) (*MsgUpdateDenomResponse, error)
 	Mint(context.Context, *MsgMint) (*MsgMintResponse, error)
 	Burn(context.Context, *MsgBurn) (*MsgBurnResponse, error)
 	ChangeAdmin(context.Context, *MsgChangeAdmin) (*MsgChangeAdminResponse, error)
@@ -654,6 +778,9 @@ type UnimplementedMsgServer struct {
 
 func (*UnimplementedMsgServer) CreateDenom(ctx context.Context, req *MsgCreateDenom) (*MsgCreateDenomResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateDenom not implemented")
+}
+func (*UnimplementedMsgServer) UpdateDenom(ctx context.Context, req *MsgUpdateDenom) (*MsgUpdateDenomResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateDenom not implemented")
 }
 func (*UnimplementedMsgServer) Mint(ctx context.Context, req *MsgMint) (*MsgMintResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Mint not implemented")
@@ -686,6 +813,24 @@ func _Msg_CreateDenom_Handler(srv interface{}, ctx context.Context, dec func(int
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MsgServer).CreateDenom(ctx, req.(*MsgCreateDenom))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Msg_UpdateDenom_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MsgUpdateDenom)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MsgServer).UpdateDenom(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/seiprotocol.seichain.tokenfactory.Msg/UpdateDenom",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MsgServer).UpdateDenom(ctx, req.(*MsgUpdateDenom))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -771,6 +916,10 @@ var _Msg_serviceDesc = grpc.ServiceDesc{
 			Handler:    _Msg_CreateDenom_Handler,
 		},
 		{
+			MethodName: "UpdateDenom",
+			Handler:    _Msg_UpdateDenom_Handler,
+		},
+		{
 			MethodName: "Mint",
 			Handler:    _Msg_Mint_Handler,
 		},
@@ -811,6 +960,18 @@ func (m *MsgCreateDenom) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.AllowList != nil {
+		{
+			size, err := m.AllowList.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintTx(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x1a
+	}
 	if len(m.Subdenom) > 0 {
 		i -= len(m.Subdenom)
 		copy(dAtA[i:], m.Subdenom)
@@ -1114,6 +1275,78 @@ func (m *MsgSetDenomMetadataResponse) MarshalToSizedBuffer(dAtA []byte) (int, er
 	return len(dAtA) - i, nil
 }
 
+func (m *MsgUpdateDenom) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgUpdateDenom) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgUpdateDenom) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.AllowList != nil {
+		{
+			size, err := m.AllowList.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintTx(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x1a
+	}
+	if len(m.Denom) > 0 {
+		i -= len(m.Denom)
+		copy(dAtA[i:], m.Denom)
+		i = encodeVarintTx(dAtA, i, uint64(len(m.Denom)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Sender) > 0 {
+		i -= len(m.Sender)
+		copy(dAtA[i:], m.Sender)
+		i = encodeVarintTx(dAtA, i, uint64(len(m.Sender)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgUpdateDenomResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgUpdateDenomResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgUpdateDenomResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintTx(dAtA []byte, offset int, v uint64) int {
 	offset -= sovTx(v)
 	base := offset
@@ -1137,6 +1370,10 @@ func (m *MsgCreateDenom) Size() (n int) {
 	}
 	l = len(m.Subdenom)
 	if l > 0 {
+		n += 1 + l + sovTx(uint64(l))
+	}
+	if m.AllowList != nil {
+		l = m.AllowList.Size()
 		n += 1 + l + sovTx(uint64(l))
 	}
 	return n
@@ -1257,6 +1494,36 @@ func (m *MsgSetDenomMetadataResponse) Size() (n int) {
 	return n
 }
 
+func (m *MsgUpdateDenom) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	l = len(m.Sender)
+	if l > 0 {
+		n += 1 + l + sovTx(uint64(l))
+	}
+	l = len(m.Denom)
+	if l > 0 {
+		n += 1 + l + sovTx(uint64(l))
+	}
+	if m.AllowList != nil {
+		l = m.AllowList.Size()
+		n += 1 + l + sovTx(uint64(l))
+	}
+	return n
+}
+
+func (m *MsgUpdateDenomResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	return n
+}
+
 func sovTx(x uint64) (n int) {
 	return (math_bits.Len64(x|1) + 6) / 7
 }
@@ -1355,6 +1622,42 @@ func (m *MsgCreateDenom) Unmarshal(dAtA []byte) error {
 				return io.ErrUnexpectedEOF
 			}
 			m.Subdenom = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AllowList", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.AllowList == nil {
+				m.AllowList = &types.AllowList{}
+			}
+			if err := m.AllowList.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -2127,6 +2430,206 @@ func (m *MsgSetDenomMetadataResponse) Unmarshal(dAtA []byte) error {
 		}
 		if fieldNum <= 0 {
 			return fmt.Errorf("proto: MsgSetDenomMetadataResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgUpdateDenom) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgUpdateDenom: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgUpdateDenom: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Sender", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Sender = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Denom", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Denom = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AllowList", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthTx
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthTx
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.AllowList == nil {
+				m.AllowList = &types.AllowList{}
+			}
+			if err := m.AllowList.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *MsgUpdateDenomResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgUpdateDenomResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgUpdateDenomResponse: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		default:

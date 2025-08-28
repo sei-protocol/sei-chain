@@ -17,23 +17,24 @@ import (
 const OracleDecPrecision = 8
 
 // GenerateRandomTestCase nolint
+// nolint:staticcheck
 func GenerateRandomTestCase() (rates []float64, valValAddrs []sdk.ValAddress, stakingKeeper DummyStakingKeeper) {
 	valValAddrs = []sdk.ValAddress{}
 	mockValidators := []MockValidator{}
 
 	base := math.Pow10(OracleDecPrecision)
 
-	rand.Seed(int64(time.Now().Nanosecond()))
-	numInputs := 10 + (rand.Int() % 100)
+	r := rand.New(rand.NewSource(int64(time.Now().Nanosecond())))
+	numInputs := 10 + (r.Int() % 100)
 	for i := 0; i < numInputs; i++ {
-		rate := float64(int64(rand.Float64()*base)) / base
+		rate := float64(int64(r.Float64()*base)) / base
 		rates = append(rates, rate)
 
 		pubKey := secp256k1.GenPrivKey().PubKey()
 		valValAddr := sdk.ValAddress(pubKey.Address())
 		valValAddrs = append(valValAddrs, valValAddr)
 
-		power := rand.Int63()%1000 + 1
+		power := r.Int63()%1000 + 1
 		mockValidator := NewMockValidator(valValAddr, power)
 		mockValidators = append(mockValidators, mockValidator)
 	}

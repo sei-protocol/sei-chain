@@ -3,21 +3,21 @@
 NODE_ID=${ID:-0}
 CLUSTER_SIZE=${CLUSTER_SIZE:-1}
 
-
 # Clean up and env set up
 export GOPATH=$HOME/go
 export GOBIN=$GOPATH/bin
 export BUILD_PATH=/sei-protocol/sei-chain/build
 export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH
-echo "export GOPATH=$HOME/go" >> /root/.bashrc
-echo "GOBIN=$GOPATH/bin" >> /root/.bashrc
-echo "export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH" >> /root/.bashrc
-/bin/bash -c "source /root/.bashrc"
+echo "export GOPATH=$HOME/go" >> "$HOME/.bashrc"
+echo "GOBIN=$GOPATH/bin" >> "$HOME/.bashrc"
+echo "export PATH=$GOBIN:$PATH:/usr/local/go/bin:$BUILD_PATH:$HOME/.foundry/bin" >> "$HOME/.bashrc"
+rm -rf build/generated
+/bin/bash -c "source $HOME/.bashrc"
 mkdir -p $GOBIN
 # Step 0: Build on node 0
 if [ "$NODE_ID" = 0 ] && [ -z "$SKIP_BUILD" ]
 then
-  /usr/bin/build.sh
+  /usr/bin/build.sh $MOCK_BALANCES
 fi
 
 if ! [ "$SKIP_BUILD" ]

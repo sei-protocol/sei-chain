@@ -2,8 +2,6 @@ package oracle
 
 import (
 	"encoding/hex"
-	"fmt"
-	"sync"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -17,17 +15,13 @@ import (
 // SpammingPreventionDecorator will check if the transaction's gas is smaller than
 // configured hard cap
 type SpammingPreventionDecorator struct {
-	oracleKeeper  keeper.Keeper
-	oracleVoteMap map[string]int64
-	mu            *sync.Mutex
+	oracleKeeper keeper.Keeper
 }
 
 // NewSpammingPreventionDecorator returns new spamming prevention decorator instance
 func NewSpammingPreventionDecorator(oracleKeeper keeper.Keeper) SpammingPreventionDecorator {
 	return SpammingPreventionDecorator{
-		oracleKeeper:  oracleKeeper,
-		oracleVoteMap: make(map[string]int64),
-		mu:            &sync.Mutex{},
+		oracleKeeper: oracleKeeper,
 	}
 }
 
@@ -87,10 +81,6 @@ func (spd SpammingPreventionDecorator) AnteDeps(txDeps []sdkacltypes.AccessOpera
 
 // CheckOracleSpamming check whether the msgs are spamming purpose or not
 func (spd SpammingPreventionDecorator) CheckOracleSpamming(ctx sdk.Context, msgs []sdk.Msg) error {
-	spd.mu.Lock()
-	defer spd.mu.Unlock()
-
-	curHeight := ctx.BlockHeight()
 	for _, msg := range msgs {
 		switch msg := msg.(type) {
 		case *types.MsgAggregateExchangeRateVote:
@@ -108,11 +98,10 @@ func (spd SpammingPreventionDecorator) CheckOracleSpamming(ctx sdk.Context, msgs
 			if err != nil {
 				return err
 			}
-			if lastSubmittedHeight, ok := spd.oracleVoteMap[msg.Validator]; ok && lastSubmittedHeight == curHeight {
-				return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, fmt.Sprintf("the validator has already submitted a vote at the current height=%d", curHeight))
-			}
 
-			spd.oracleVoteMap[msg.Validator] = curHeight
+			if err := spd.oracleKeeper.CheckAndSetSpamPreventionCounter(ctx, valAddr); err != nil {
+				return err
+			}
 			continue
 		default:
 			return nil
@@ -135,6 +124,8 @@ func (VoteAloneDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, 
 	for _, msg := range tx.GetMsgs() {
 		switch msg.(type) {
 		case *types.MsgAggregateExchangeRateVote:
+			oracleVote = true
+		case *types.MsgDelegateFeedConsent:
 			oracleVote = true
 
 		default:
