@@ -1,20 +1,16 @@
 package evmrpc_test
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"math/big"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/stretchr/testify/require"
 
-	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -222,5 +218,3 @@ func TestConvertBlockNumber(t *testing.T) {
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-3))
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-4))
 }
-
-
