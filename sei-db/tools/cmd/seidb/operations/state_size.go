@@ -218,7 +218,7 @@ func exportResultsToDynamoDB(moduleResults map[string]*ModuleResult, height int6
 
 	for _, result := range moduleResults {
 		// Create analysis object directly from raw data
-		analysis := utils.CreateStateSizeAnalysis(height, result.ModuleName, result)
+		analysis := createStateSizeAnalysis(height, result.ModuleName, result)
 		analyses = append(analyses, analysis)
 	}
 
@@ -274,4 +274,33 @@ func printResultsToConsole(moduleResults map[string]*ModuleResult) error {
 	}
 
 	return nil
+}
+
+// createStateSizeAnalysis creates a new StateSizeAnalysis from ModuleResult
+func createStateSizeAnalysis(blockHeight int64, moduleName string, result *ModuleResult) *utils.StateSizeAnalysis {
+	// Convert raw data to JSON strings for DynamoDB storage
+	prefixBreakdown := map[string]interface{}{
+		"key_sizes":   result.KeySizeByPrefix,
+		"value_sizes": result.ValueSizeByPrefix,
+		"total_sizes": result.TotalSizeByPrefix,
+		"key_counts":  result.NumKeysByPrefix,
+	}
+	prefixJSON, _ := json.Marshal(prefixBreakdown)
+
+	var contractSlice []utils.ContractSizeEntry
+	for _, contract := range result.ContractSizes {
+		contractSlice = append(contractSlice, *contract)
+	}
+	contractJSON, _ := json.Marshal(contractSlice)
+
+	return &utils.StateSizeAnalysis{
+		BlockHeight:       blockHeight,
+		ModuleName:        moduleName,
+		TotalNumKeys:      result.TotalNumKeys,
+		TotalKeySize:      result.TotalKeySize,
+		TotalValueSize:    result.TotalValueSize,
+		TotalSize:         result.TotalSize,
+		PrefixBreakdown:   string(prefixJSON),
+		ContractBreakdown: string(contractJSON),
+	}
 }

@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -81,48 +80,4 @@ func (d *DynamoDBClient) ExportMultipleAnalyses(analyses []*StateSizeAnalysis) e
 		}
 	}
 	return nil
-}
-
-// CreateStateSizeAnalysis creates a new StateSizeAnalysis
-func CreateStateSizeAnalysis(blockHeight int64, moduleName string, result interface{}) *StateSizeAnalysis {
-
-	// Type assertion to access the fields directly
-	moduleResult := result.(struct {
-		ModuleName        string
-		TotalNumKeys      int
-		TotalKeySize      int64
-		TotalValueSize    int64
-		TotalSize         int64
-		KeySizeByPrefix   map[string]int64
-		ValueSizeByPrefix map[string]int64
-		TotalSizeByPrefix map[string]int64
-		NumKeysByPrefix   map[string]int64
-		ContractSizes     map[string]*ContractSizeEntry
-	})
-
-	// Convert raw data to JSON strings for DynamoDB storage
-	prefixBreakdown := map[string]interface{}{
-		"key_sizes":   moduleResult.KeySizeByPrefix,
-		"value_sizes": moduleResult.ValueSizeByPrefix,
-		"total_sizes": moduleResult.TotalSizeByPrefix,
-		"key_counts":  moduleResult.NumKeysByPrefix,
-	}
-	prefixJSON, _ := json.Marshal(prefixBreakdown)
-
-	var contractSlice []ContractSizeEntry
-	for _, contract := range moduleResult.ContractSizes {
-		contractSlice = append(contractSlice, *contract)
-	}
-	contractJSON, _ := json.Marshal(contractSlice)
-
-	return &StateSizeAnalysis{
-		BlockHeight:       blockHeight,
-		ModuleName:        moduleName,
-		TotalNumKeys:      moduleResult.TotalNumKeys,
-		TotalKeySize:      moduleResult.TotalKeySize,
-		TotalValueSize:    moduleResult.TotalValueSize,
-		TotalSize:         moduleResult.TotalSize,
-		PrefixBreakdown:   string(prefixJSON),
-		ContractBreakdown: string(contractJSON),
-	}
 }
