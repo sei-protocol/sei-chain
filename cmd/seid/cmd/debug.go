@@ -176,20 +176,19 @@ func BuildPrefix(moduleName string) string {
 }
 
 func OpenDB(dir string) (dbm.DB, error) {
-	dir = strings.TrimSuffix(dir, string(filepath.Separator))
-	if strings.HasSuffix(dir, ".db") {
-		dir = strings.TrimSuffix(dir, ".db")
-	} else {
+	cleaned := filepath.Clean(dir)
+	if filepath.Ext(cleaned) != ".db" {
 		return nil, fmt.Errorf("database directory must end with .db")
 	}
 
-	dir, err := filepath.Abs(dir)
+	cleaned = strings.TrimSuffix(cleaned, ".db")
+	cleaned, err := filepath.Abs(cleaned)
 	if err != nil {
 		return nil, err
 	}
 
-	name := filepath.Base(dir)
-	parent := filepath.Dir(dir)
+	name := filepath.Base(cleaned)
+	parent := filepath.Dir(cleaned)
 	db, err := dbm.NewGoLevelDB(name, parent)
 	if err != nil {
 		return nil, err

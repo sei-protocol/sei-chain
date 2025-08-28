@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -29,7 +28,7 @@ func TestOpenDBPathVariants(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, db)
 		require.NoError(t, db.Close())
-		_, err = os.Stat(strings.TrimSuffix(dbPath, string(filepath.Separator)))
+		_, err = os.Stat(filepath.Clean(dbPath))
 		require.NoError(t, err)
 	})
 
@@ -43,7 +42,14 @@ func TestOpenDBPathVariants(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, db)
 		require.NoError(t, db.Close())
-		_, err = os.Stat(strings.TrimSuffix(dbPath, `\`))
+		_, err = os.Stat(filepath.Clean(dbPath))
 		require.NoError(t, err)
+	})
+
+	t.Run("missing .db suffix", func(t *testing.T) {
+		dir := t.TempDir()
+		dbPath := filepath.Join(dir, "test")
+		_, err := OpenDB(dbPath)
+		require.Error(t, err)
 	})
 }
