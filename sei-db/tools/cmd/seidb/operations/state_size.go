@@ -70,10 +70,7 @@ func executeStateSize(cmd *cobra.Command, _ []string) {
 		}
 		fmt.Println("Successfully exported to DynamoDB!")
 	} else {
-		err = printResultsToConsole(moduleResults)
-		if err != nil {
-			panic(err)
-		}
+		printResultsToConsole(moduleResults)
 	}
 }
 
