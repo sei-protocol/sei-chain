@@ -88,6 +88,7 @@ func CreateStateSizeAnalysis(blockHeight int64, moduleName string, result interf
 
 	// Type assertion to access the fields directly
 	moduleResult := result.(struct {
+		ModuleName        string
 		TotalNumKeys      int
 		TotalKeySize      int64
 		TotalValueSize    int64
