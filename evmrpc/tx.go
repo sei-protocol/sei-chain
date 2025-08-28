@@ -247,6 +247,9 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 		}
 		return nil, err
 	}
+	if isReceiptFromAnteError(t.ctxProvider(int64(receipt.BlockNumber)), receipt) {
+		return nil, errors.New("not found")
+	}
 	return t.GetTransactionByBlockNumberAndIndex(ctx, rpc.BlockNumber(receipt.BlockNumber), hexutil.Uint(receipt.TransactionIndex))
 }
 
@@ -301,6 +304,12 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 	if err != nil {
 		return nil, err
 	}
+<<<<<<< HEAD
+=======
+	if isReceiptFromAnteError(t.ctxProvider(block.Block.Height), receipt) {
+		return nil, errors.New("not found")
+	}
+>>>>>>> 92242267b (Fix ante failure check in RPC (#2343))
 	height := int64(receipt.BlockNumber)
 	baseFeePerGas := t.keeper.GetBaseFee(t.ctxProvider(height))
 	chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(t.ctxProvider(height)))
