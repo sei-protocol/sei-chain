@@ -1,0 +1,19 @@
+{
+  "name": "sei-chain-tests",
+  "version": "1.0.0",
+  "description": "Hardhat tests for sei-chain",
+  "main": "index.js",
+  "scripts": {
+    "test": "hardhat test",
+    "test:evm": "hardhat test tests/evm/**/*.js tests/evm/*.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^3.0.0",
+    "hardhat": "^2.20.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.4.0"
+  }
+}
