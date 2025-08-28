@@ -836,10 +836,6 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 			setCachedReceipt(block.Block.Height, block, hash, receipt)
 		}
 
-		if receipt.Status == 0 {
-			continue
-		}
-
 		if int64(receipt.BlockNumber) != block.Block.Height {
 			ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height))
 			continue

@@ -277,7 +277,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 				if receipt.BlockNumber != uint64(height) {
 					return
 				}
-				encodedReceipt, err := encodeReceipt(receipt, a.txConfigProvider(height).TxDecoder(), block, func(h common.Hash) *types.Receipt {
+				encodedReceipt, err := encodeReceipt(sdkCtxAtHeight, receipt, a.txConfigProvider(height).TxDecoder(), block, func(h common.Hash) *types.Receipt {
 					r, err := a.keeper.GetReceipt(a.ctxProvider(height), h)
 					if err != nil {
 						return nil

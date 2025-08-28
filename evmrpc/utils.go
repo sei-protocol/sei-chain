@@ -237,11 +237,14 @@ func getTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig
 
 func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 	// hacky heuristic
+	if receipt.Status == 1 {
+		return false
+	}
 	// TODO: uncomment after sei-cosmos is updated
 	// if strings.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0 {
 	// 	return receipt.EffectiveGasPrice == 0
 	// }
-	if ctx.ChainID() == "pacific-1" && ctx.BlockHeader().Height < 102491599 {
+	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < 102491599 {
 		return receipt.EffectiveGasPrice == 0
 	}
 	return receipt.EffectiveGasPrice == 0 && (strings.Contains(receipt.VmError, core.ErrNonceTooHigh.Error()) ||
