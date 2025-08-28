@@ -1,3 +1,21 @@
+// evmrpc/utils.go
+// ValidateBlockAccess checks that a given blockNumber is still accessible
+// based on configured retention parameters. It returns an error if the
+// block is older than the allowed lookback.
+func ValidateBlockAccess(blockNumber int64, params BlockValidationParams) error {
+	// Check Tendermint block retention (min-retain-blocks)
+	if params.MaxBlockLookback >= 0 &&
+		blockNumber < params.LatestHeight-params.MaxBlockLookback {
+		return fmt.Errorf("block %d is older than max lookback (%d)", blockNumber, params.MaxBlockLookback)
+	}
+
+	// Future safety: confirm we’re not asking beyond the latest height
+	if blockNumber > params.LatestHeight {
+		return fmt.Errorf("block %d is newer than latest height %d", blockNumber, params.LatestHeight)
+	}
+
+	return nil
+}
 package evmrpc
 
 import (
