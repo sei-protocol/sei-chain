@@ -1143,16 +1143,20 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			Status: abci.ResponseProcessProposal_REJECT,
 		}, nil
 	}
-	if app.GetOptimisticProcessingInfo().Completion == nil {
+
+	app.optimisticProcessingInfoMutex.Lock()
+	shouldStartOptimisticProcessing := app.optimisticProcessingInfo.Completion == nil
+	if shouldStartOptimisticProcessing {
 		completionSignal := make(chan struct{}, 1)
-		optimisticProcessingInfo := OptimisticProcessingInfo{
+		app.optimisticProcessingInfo = OptimisticProcessingInfo{
 			Height:     req.Height,
 			Hash:       req.Hash,
 			Completion: completionSignal,
 		}
-		app.optimisticProcessingInfoMutex.Lock()
-		app.optimisticProcessingInfo = optimisticProcessingInfo
-		app.optimisticProcessingInfoMutex.Unlock()
+	}
+	app.optimisticProcessingInfoMutex.Unlock()
+
+	if shouldStartOptimisticProcessing {
 
 		plan, found := app.UpgradeKeeper.GetUpgradePlan(ctx)
 		if found && plan.ShouldExecute(ctx) {
@@ -1163,31 +1167,48 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			app.optimisticProcessingInfoMutex.Unlock()
 			completion <- struct{}{}
 		} else {
+			// Create GetSigners validation channel
+			getSignersCheckComplete := make(chan bool, 1)
+
 			go func() {
 				defer func() {
 					if err := recover(); err != nil {
 						app.Logger().Error(
-							"panic recovered in application ProcessProposal handler",
+							"panic recovered in optimistic processing",
 							"height", req.Height,
 							"time", req.Time,
 							"hash", fmt.Sprintf("%X", req.Hash),
 							"panic", err,
 						)
 
-						// Mark as aborted and signal completion to prevent deadlock
+						// Mark as aborted and signal completion
 						app.optimisticProcessingInfoMutex.Lock()
 						app.optimisticProcessingInfo.Aborted = true
 						completion := app.optimisticProcessingInfo.Completion
 						app.optimisticProcessingInfoMutex.Unlock()
-						completion <- struct{}{}
 
-						// Reject the proposal when panic occurs
-						resp = &abci.ResponseProcessProposal{
-							Status: abci.ResponseProcessProposal_REJECT,
-						}
+						completion <- struct{}{}
+						return
 					}
 				}()
 
+				// Validate GetSigners calls before main thread returns
+				getSignersValidationPassed := app.ValidateGetSignersCalls(ctx, req.Txs)
+
+				// Signal main thread about validation result
+				getSignersCheckComplete <- getSignersValidationPassed
+
+				if !getSignersValidationPassed {
+					// Validation failed, abort optimistic processing
+					app.optimisticProcessingInfoMutex.Lock()
+					app.optimisticProcessingInfo.Aborted = true
+					completion := app.optimisticProcessingInfo.Completion
+					app.optimisticProcessingInfoMutex.Unlock()
+					completion <- struct{}{}
+					return
+				}
+
+				// Validation passed, continue with optimistic processing
 				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit, false)
 				app.optimisticProcessingInfoMutex.Lock()
 				app.optimisticProcessingInfo.Events = events
@@ -1197,11 +1218,22 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 				app.optimisticProcessingInfoMutex.Unlock()
 				completion <- struct{}{}
 			}()
+
+			// Wait for GetSigners validation before returning response
+			getSignersValidationPassed := <-getSignersCheckComplete
+			if !getSignersValidationPassed {
+				return &abci.ResponseProcessProposal{
+					Status: abci.ResponseProcessProposal_REJECT,
+				}, nil
+			}
 		}
-	} else if !bytes.Equal(app.GetOptimisticProcessingInfo().Hash, req.Hash) {
-		app.optimisticProcessingInfoMutex.Lock()
-		app.optimisticProcessingInfo.Aborted = true
-		app.optimisticProcessingInfoMutex.Unlock()
+	} else {
+		// Optimistic processing already running, check if hash matches
+		if !bytes.Equal(app.GetOptimisticProcessingInfo().Hash, req.Hash) {
+			app.optimisticProcessingInfoMutex.Lock()
+			app.optimisticProcessingInfo.Aborted = true
+			app.optimisticProcessingInfoMutex.Unlock()
+		}
 	}
 
 	resp = &abci.ResponseProcessProposal{
@@ -1209,6 +1241,56 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	}
 
 	return resp, nil
+}
+
+// ValidateGetSignersCalls validates GetSigners() calls for messages that are known to be problematic.
+// Only checks specific message types that can cause GetSigners() panics with empty addresses.
+// Runs in goroutine but blocks main thread until completion to prevent race conditions.
+func (app *App) ValidateGetSignersCalls(ctx sdk.Context, txs [][]byte) (allValid bool) {
+	allValid = true
+	defer func() {
+		if err := recover(); err != nil {
+			ctx.Logger().Error("GetSigners validation caught panic", "error", err)
+			allValid = false
+		}
+	}()
+
+	for _, txBytes := range txs {
+		// Decode transaction
+		tx, err := app.txDecoder(txBytes)
+		if err != nil {
+			// Invalid transactions will be handled later, continue checking others
+			continue
+		}
+
+		// Only check message types that are known to have GetSigners() issues
+		msgs := tx.GetMsgs()
+		for _, msg := range msgs {
+			switch msg.(type) {
+			case *oracletypes.MsgAggregateExchangeRateVote:
+				_ = msg.GetSigners()
+			case *oracletypes.MsgDelegateFeedConsent:
+				_ = msg.GetSigners()
+			case *evmtypes.MsgClaim:
+				_ = msg.GetSigners()
+			case *evmtypes.MsgClaimSpecific:
+				_ = msg.GetSigners()
+			case *evmtypes.MsgSend:
+				_ = msg.GetSigners()
+			case *evmtypes.MsgAssociate:
+				_ = msg.GetSigners()
+			case *evmtypes.MsgAssociateContractAddress:
+				_ = msg.GetSigners()
+			case *evmtypes.MsgRegisterPointer:
+				_ = msg.GetSigners()
+			default:
+				// Skip validation for other message types
+				continue
+			}
+		}
+	}
+
+	return // Return allValid (true if no panic, false if panic occurred)
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
@@ -1970,7 +2052,15 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 // checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of
 // the total gas by the txs in the block. The gas of a tx is either the gas estimate if it's an EVM tx,
 // or the gas wanted if it's a Cosmos tx.
-func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
+func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) {
+	// Panic recovery to protect against AsEthereumData() and other potential panics
+	defer func() {
+		if r := recover(); r != nil {
+			ctx.Logger().Error("panic recovered in checkTotalBlockGas", "panic", r)
+			result = false // Reject proposal if panic occurs
+		}
+	}()
+
 	totalGas, totalGasWanted := uint64(0), uint64(0)
 	nonzeroTxsCnt := 0
 	for _, tx := range txs {
@@ -2039,6 +2129,7 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 			return false
 		}
 	}
+
 	return true
 }
 
