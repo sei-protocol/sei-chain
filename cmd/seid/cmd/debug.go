@@ -181,14 +181,13 @@ func OpenDB(dir string) (dbm.DB, error) {
 		return nil, fmt.Errorf("database directory must end with .db")
 	}
 
-	cleaned = strings.TrimSuffix(cleaned, ".db")
-	cleaned, err := filepath.Abs(cleaned)
+	absPath, err := filepath.Abs(cleaned)
 	if err != nil {
 		return nil, err
 	}
 
-	name := filepath.Base(cleaned)
-	parent := filepath.Dir(cleaned)
+	name := strings.TrimSuffix(filepath.Base(absPath), filepath.Ext(absPath))
+	parent := filepath.Dir(absPath)
 	db, err := dbm.NewGoLevelDB(name, parent)
 	if err != nil {
 		return nil, err
