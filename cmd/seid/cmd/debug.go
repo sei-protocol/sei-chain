@@ -176,12 +176,10 @@ func BuildPrefix(moduleName string) string {
 }
 
 func OpenDB(dir string) (dbm.DB, error) {
-	switch {
-	case strings.HasSuffix(dir, ".db"):
-		dir = dir[:len(dir)-3]
-	case strings.HasSuffix(dir, ".db/"):
-		dir = dir[:len(dir)-4]
-	default:
+	dir = strings.TrimSuffix(dir, string(filepath.Separator))
+	if strings.HasSuffix(dir, ".db") {
+		dir = strings.TrimSuffix(dir, ".db")
+	} else {
 		return nil, fmt.Errorf("database directory must end with .db")
 	}
 
@@ -190,13 +188,9 @@ func OpenDB(dir string) (dbm.DB, error) {
 		return nil, err
 	}
 
-	// TODO: doesn't work on windows!
-	cut := strings.LastIndex(dir, "/")
-	if cut == -1 {
-		return nil, fmt.Errorf("cannot cut paths on %s", dir)
-	}
-	name := dir[cut+1:]
-	db, err := dbm.NewGoLevelDB(name, dir[:cut])
+	name := filepath.Base(dir)
+	parent := filepath.Dir(dir)
+	db, err := dbm.NewGoLevelDB(name, parent)
 	if err != nil {
 		return nil, err
 	}
