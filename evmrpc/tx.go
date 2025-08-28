@@ -363,6 +363,7 @@ func GetEvmTxIndex(ctx sdk.Context, txs tmtypes.Txs, txIndex uint32, decoder sdk
 		if !isEVMTx && !isSynthetic {
 			continue
 		}
+		fmt.Printf("receipt block: %d ctx block %d\n", receipt.BlockNumber, ctx.BlockHeight())
 		if hasReceipt {
 			if isReceiptFromAnteError(ctx, receipt) {
 				continue
