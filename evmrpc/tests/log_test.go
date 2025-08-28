@@ -50,3 +50,17 @@ func TestGetLogIndex(t *testing.T) {
 		},
 	)
 }
+
+func TestGetLogsAnteError(t *testing.T) {
+	txBz1 := signAndEncodeTx(depositErc20(2), erc20DeployerMnemonics)
+	txBz2 := signAndEncodeTx(send(1), erc20DeployerMnemonics)
+	SetupTestServer([][][]byte{{txBz1}, {txBz2}, {txBz1}}, erc20Initializer()).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("eth", port, "getLogs", map[string]interface{}{
+				"toBlock": "latest",
+				"address": erc20Addr.Hex(),
+			})
+			require.Len(t, res["result"], 1)
+		},
+	)
+}
