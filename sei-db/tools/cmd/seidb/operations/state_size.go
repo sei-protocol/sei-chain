@@ -59,10 +59,7 @@ func executeStateSize(cmd *cobra.Command, _ []string) {
 	fmt.Printf("Finished opening db at height %d (requested: %d), calculating state size for module: %s\n", actualHeight, height, module)
 
 	// First, collect all the data by scanning the trees
-	moduleResults, err := collectAllModuleData(module, db)
-	if err != nil {
-		panic(err)
-	}
+	moduleResults := collectAllModuleData(module, db)
 
 	// Then process the results based on the flag
 	if exportDynamoDB {
@@ -174,7 +171,7 @@ type ModuleResult struct {
 }
 
 // collectAllModuleData scans all modules and collects statistics in memory
-func collectAllModuleData(module string, db *memiavl.DB) (map[string]*ModuleResult, error) {
+func collectAllModuleData(module string, db *memiavl.DB) map[string]*ModuleResult {
 	modules := []string{}
 	if module == "" {
 		modules = AllModules
@@ -203,7 +200,7 @@ func collectAllModuleData(module string, db *memiavl.DB) (map[string]*ModuleResu
 			moduleName, result.TotalNumKeys, result.TotalSize)
 	}
 
-	return moduleResults, nil
+	return moduleResults
 }
 
 // exportResultsToDynamoDB exports the collected results to DynamoDB
@@ -231,7 +228,7 @@ func exportResultsToDynamoDB(moduleResults map[string]*ModuleResult, height int6
 }
 
 // printResultsToConsole prints the collected results to console
-func printResultsToConsole(moduleResults map[string]*ModuleResult) error {
+func printResultsToConsole(moduleResults map[string]*ModuleResult) {
 
 	for _, result := range moduleResults {
 		fmt.Printf("Module %s total numKeys:%d, total keySize:%d, total valueSize:%d, totalSize: %d \n",
@@ -272,8 +269,6 @@ func printResultsToConsole(moduleResults map[string]*ModuleResult) error {
 				contract.KeyCount)
 		}
 	}
-
-	return nil
 }
 
 // createStateSizeAnalysis creates a new StateSizeAnalysis from ModuleResult
