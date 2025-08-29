@@ -77,13 +77,12 @@ func executeStateSize(cmd *cobra.Command, _ []string) {
 // collectModuleStats collects all the statistics for a module
 func collectModuleStats(tree *memiavl.Tree, moduleName string) *ModuleResult {
 	result := &ModuleResult{
-		ModuleName:        moduleName,
-		KeySizeByPrefix:   make(map[string]int64),
-		ValueSizeByPrefix: make(map[string]int64),
-		TotalSizeByPrefix: make(map[string]int64),
-		NumKeysByPrefix:   make(map[string]int64),
-		ContractSizes:     make(map[string]*utils.ContractSizeEntry),
+		ModuleName:    moduleName,
+		PrefixSizes:   make(map[string]*utils.PrefixSize),
+		ContractSizes: make(map[string]*utils.ContractSizeEntry),
 	}
+	result.PrefixSizes[moduleName] = &utils.PrefixSize{}
+	result.ContractSizes[moduleName] = &utils.ContractSizeEntry{}
 
 	// Scan the tree to collect statistics
 	tree.ScanPostOrder(func(node memiavl.Node) bool {
@@ -91,16 +90,16 @@ func collectModuleStats(tree *memiavl.Tree, moduleName string) *ModuleResult {
 			result.TotalNumKeys++
 			keySize := len(node.Key())
 			valueSize := len(node.Value())
-			result.TotalKeySize += int64(keySize)
-			result.TotalValueSize += int64(valueSize)
-			result.TotalSize += int64(keySize + valueSize)
+			result.TotalKeySize += uint64(keySize)
+			result.TotalValueSize += uint64(valueSize)
+			result.TotalSize += uint64(keySize + valueSize)
 
 			prefixKey := fmt.Sprintf("%X", node.Key())
 			prefix := prefixKey[:2]
-			result.KeySizeByPrefix[prefix] += int64(keySize)
-			result.ValueSizeByPrefix[prefix] += int64(valueSize)
-			result.TotalSizeByPrefix[prefix] += int64(keySize + valueSize)
-			result.NumKeysByPrefix[prefix]++
+			result.PrefixSizes[prefix].KeySize += uint64(keySize)
+			result.PrefixSizes[prefix].ValueSize += uint64(valueSize)
+			result.PrefixSizes[prefix].TotalSize += uint64(keySize + valueSize)
+			result.PrefixSizes[prefix].KeyCount++
 
 			// Handle EVM contract analysis
 			if moduleName == "evm" && prefix == "03" {
@@ -109,7 +108,7 @@ func collectModuleStats(tree *memiavl.Tree, moduleName string) *ModuleResult {
 					result.ContractSizes[addr] = &utils.ContractSizeEntry{Address: addr}
 				}
 				entry := result.ContractSizes[addr]
-				entry.TotalSize += int64(len(node.Key()) + len(node.Value()))
+				entry.TotalSize += uint64(len(node.Key()) + len(node.Value()))
 				entry.KeyCount++
 			}
 
@@ -155,16 +154,13 @@ func limitToTopContracts(contracts map[string]*utils.ContractSizeEntry, limit in
 
 // ModuleResult holds the complete analysis results for a single module
 type ModuleResult struct {
-	ModuleName        string
-	TotalNumKeys      int
-	TotalKeySize      int64
-	TotalValueSize    int64
-	TotalSize         int64
-	KeySizeByPrefix   map[string]int64
-	ValueSizeByPrefix map[string]int64
-	TotalSizeByPrefix map[string]int64
-	NumKeysByPrefix   map[string]int64
-	ContractSizes     map[string]*utils.ContractSizeEntry
+	ModuleName     string
+	TotalNumKeys   uint64
+	TotalKeySize   uint64
+	TotalValueSize uint64
+	TotalSize      uint64
+	PrefixSizes    map[string]*utils.PrefixSize
+	ContractSizes  map[string]*utils.ContractSizeEntry
 }
 
 // collectAllModuleData scans all modules and collects statistics in memory
@@ -227,20 +223,20 @@ func exportResultsToDynamoDB(moduleResults map[string]*ModuleResult, height int6
 // printResultsToConsole prints the collected results to console
 func printResultsToConsole(moduleResults map[string]*ModuleResult) {
 
-	for _, result := range moduleResults {
+	for moduleName, result := range moduleResults {
 		fmt.Printf("Module %s total numKeys:%d, total keySize:%d, total valueSize:%d, totalSize: %d \n",
 			result.ModuleName, result.TotalNumKeys, result.TotalKeySize, result.TotalValueSize, result.TotalSize)
 
-		prefixKeyResult, _ := json.MarshalIndent(result.KeySizeByPrefix, "", "  ")
+		prefixKeyResult, _ := json.MarshalIndent(result.PrefixSizes[moduleName].KeySize, "", "  ")
 		fmt.Printf("Module %s prefix key size breakdown (bytes): %s \n", result.ModuleName, prefixKeyResult)
 
-		prefixValueResult, _ := json.MarshalIndent(result.ValueSizeByPrefix, "", "  ")
+		prefixValueResult, _ := json.MarshalIndent(result.PrefixSizes[moduleName].ValueSize, "", "  ")
 		fmt.Printf("Module %s prefix value size breakdown (bytes): %s \n", result.ModuleName, prefixValueResult)
 
-		totalSizeResult, _ := json.MarshalIndent(result.TotalSizeByPrefix, "", "  ")
+		totalSizeResult, _ := json.MarshalIndent(result.PrefixSizes[moduleName].TotalSize, "", "  ")
 		fmt.Printf("Module %s prefix total size breakdown (bytes): %s \n", result.ModuleName, totalSizeResult)
 
-		numKeysResult, _ := json.MarshalIndent(result.NumKeysByPrefix, "", "  ")
+		numKeysResult, _ := json.MarshalIndent(result.PrefixSizes[moduleName].KeyCount, "", "  ")
 		fmt.Printf("Module %s prefix num of keys breakdown: %s \n", result.ModuleName, numKeysResult)
 
 		// Display top contracts (already limited to top 100)
@@ -271,12 +267,7 @@ func printResultsToConsole(moduleResults map[string]*ModuleResult) {
 // createStateSizeAnalysis creates a new StateSizeAnalysis from ModuleResult
 func createStateSizeAnalysis(blockHeight int64, moduleName string, result *ModuleResult) *utils.StateSizeAnalysis {
 	// Convert raw data to JSON strings for DynamoDB storage
-	prefixBreakdown := map[string]interface{}{
-		"key_sizes":   result.KeySizeByPrefix,
-		"value_sizes": result.ValueSizeByPrefix,
-		"total_sizes": result.TotalSizeByPrefix,
-		"key_counts":  result.NumKeysByPrefix,
-	}
+	prefixBreakdown := map[string]map[string]utils.PrefixSize{}
 	prefixJSON, _ := json.Marshal(prefixBreakdown)
 
 	var contractSlice []utils.ContractSizeEntry

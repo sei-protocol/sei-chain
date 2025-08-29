@@ -35,10 +35,10 @@ func NewDynamoDBClient(tableName, awsRegion string) (*DynamoDBClient, error) {
 type StateSizeAnalysis struct {
 	BlockHeight       int64  `json:"block_height" dynamodbav:"block_height"`
 	ModuleName        string `json:"module_name" dynamodbav:"module_name"`
-	TotalNumKeys      int    `json:"total_num_keys" dynamodbav:"total_num_keys"`
-	TotalKeySize      int64  `json:"total_key_size" dynamodbav:"total_key_size"`
-	TotalValueSize    int64  `json:"total_value_size" dynamodbav:"total_value_size"`
-	TotalSize         int64  `json:"total_size" dynamodbav:"total_size"`
+	TotalNumKeys      uint64 `json:"total_num_keys" dynamodbav:"total_num_keys"`
+	TotalKeySize      uint64 `json:"total_key_size" dynamodbav:"total_key_size"`
+	TotalValueSize    uint64 `json:"total_value_size" dynamodbav:"total_value_size"`
+	TotalSize         uint64 `json:"total_size" dynamodbav:"total_size"`
 	PrefixBreakdown   string `json:"prefix_breakdown" dynamodbav:"prefix_breakdown"`
 	ContractBreakdown string `json:"contract_breakdown" dynamodbav:"contract_breakdown"`
 }
@@ -46,8 +46,15 @@ type StateSizeAnalysis struct {
 // ContractSizeEntry represents individual contract size data
 type ContractSizeEntry struct {
 	Address   string `json:"address"`
-	TotalSize int64  `json:"total_size"`
-	KeyCount  int    `json:"key_count"`
+	TotalSize uint64 `json:"total_size"`
+	KeyCount  uint64 `json:"key_count"`
+}
+
+type PrefixSize struct {
+	KeySize   uint64 `json:"key_size"`
+	ValueSize uint64 `json:"value_size"`
+	TotalSize uint64 `json:"total_size"`
+	KeyCount  uint64 `json:"key_count"`
 }
 
 // ExportStateSizeAnalysis exports a single module analysis to DynamoDB
