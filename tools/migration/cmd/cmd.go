@@ -57,6 +57,7 @@ func VerifyMigrationCmd() *cobra.Command {
 
 	cmd.PersistentFlags().Int64("version", -1, "Version to run migration verification on")
 	cmd.PersistentFlags().String("home-dir", "/root/.sei", "Sei home directory")
+	cmd.PersistentFlags().Int("cache-size", ss.DefaultCacheSize, "IAVL cache size to use during verification")
 
 	return cmd
 }
@@ -64,6 +65,7 @@ func VerifyMigrationCmd() *cobra.Command {
 func verify(cmd *cobra.Command, _ []string) {
 	homeDir, _ := cmd.Flags().GetString("home-dir")
 	version, _ := cmd.Flags().GetInt64("version")
+	cacheSize, _ := cmd.Flags().GetInt("cache-size")
 
 	fmt.Printf("version %d\n", version)
 
@@ -77,7 +79,7 @@ func verify(cmd *cobra.Command, _ []string) {
 		panic(err)
 	}
 
-	err = verifySS(version, homeDir, db)
+	err = verifySS(version, cacheSize, homeDir, db)
 	if err != nil {
 		fmt.Printf("Verification Failed with err: %s\n", err.Error())
 		return
@@ -86,7 +88,7 @@ func verify(cmd *cobra.Command, _ []string) {
 	fmt.Println("Verification Succeeded")
 }
 
-func verifySS(version int64, homeDir string, db dbm.DB) error {
+func verifySS(version int64, cacheSize int, homeDir string, db dbm.DB) error {
 	ssConfig := config.DefaultStateStoreConfig()
 	ssConfig.Enable = true
 
@@ -95,7 +97,7 @@ func verifySS(version int64, homeDir string, db dbm.DB) error {
 		return err
 	}
 
-	migrator := ss.NewMigrator(db, stateStore)
+	migrator := ss.NewMigrator(db, stateStore, cacheSize)
 	return migrator.Verify(version)
 }
 
