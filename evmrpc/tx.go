@@ -159,7 +159,7 @@ func getTransactionReceipt(
 	if err != nil {
 		return nil, err
 	}
-	return encodeReceipt(receipt, t.txConfigProvider(height).TxDecoder(), block, func(h common.Hash) *types.Receipt {
+	return encodeReceipt(t.ctxProvider(height), receipt, t.txConfigProvider(height).TxDecoder(), block, func(h common.Hash) *types.Receipt {
 		r, err := t.keeper.GetReceipt(sdkctx, h)
 		if err != nil {
 			return nil
@@ -314,7 +314,8 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, t
 		return nil, nil
 	}
 
-	txIdx, found, ethtx, _ := GetEvmTxIndex(block.Block.Txs, cosmosTxIndex, t.txConfigProvider(block.Block.Height).TxDecoder(), func(h common.Hash) *types.Receipt {
+	ctx := t.ctxProvider(block.Block.Height)
+	txIdx, found, ethtx, _ := GetEvmTxIndex(ctx, block.Block.Txs, cosmosTxIndex, t.txConfigProvider(block.Block.Height).TxDecoder(), func(h common.Hash) *types.Receipt {
 		r, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), h)
 		if err != nil {
 			return nil
@@ -382,7 +383,7 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 
 // Gets the EVM tx index based on the tx index (typically from receipt.TransactionIndex
 // Essentially loops through and calculates the index if we ignore cosmos txs
-func GetEvmTxIndex(txs tmtypes.Txs, txIndex uint32, decoder sdk.TxDecoder, receiptChecker func(common.Hash) *types.Receipt, includeSynthetic bool) (index int, found bool, etx *ethtypes.Transaction, logIndexOffset int) {
+func GetEvmTxIndex(ctx sdk.Context, txs tmtypes.Txs, txIndex uint32, decoder sdk.TxDecoder, receiptChecker func(common.Hash) *types.Receipt, includeSynthetic bool) (index int, found bool, etx *ethtypes.Transaction, logIndexOffset int) {
 	var evmTxIndex, logIndex int
 	for i, tx := range txs {
 		etx = getEthTxForTxBz(tx, decoder)
@@ -400,6 +401,14 @@ func GetEvmTxIndex(txs tmtypes.Txs, txIndex uint32, decoder sdk.TxDecoder, recei
 		if !isEVMTx && !isSynthetic {
 			continue
 		}
+		if hasReceipt {
+			if isReceiptFromAnteError(ctx, receipt) {
+				continue
+			}
+			if receipt.BlockNumber != uint64(ctx.BlockHeight()) {
+				continue
+			}
+		}
 
 		if i == int(txIndex) {
 			return evmTxIndex, true, etx, logIndex
@@ -411,16 +420,20 @@ func GetEvmTxIndex(txs tmtypes.Txs, txIndex uint32, decoder sdk.TxDecoder, recei
 
 		evmTxIndex++
 		if hasReceipt {
-			logIndex += len(receipt.Logs)
+			for _, log := range receipt.Logs {
+				if includeSynthetic || !log.Synthetic {
+					logIndex++
+				}
+			}
 		}
 	}
 	return -1, false, nil, -1
 }
 
-func encodeReceipt(receipt *types.Receipt, decoder sdk.TxDecoder, block *coretypes.ResultBlock, receiptChecker func(common.Hash) *types.Receipt, includeSynthetic bool, signer ethtypes.Signer) (map[string]interface{}, error) {
+func encodeReceipt(ctx sdk.Context, receipt *types.Receipt, decoder sdk.TxDecoder, block *coretypes.ResultBlock, receiptChecker func(common.Hash) *types.Receipt, includeSynthetic bool, signer ethtypes.Signer) (map[string]interface{}, error) {
 	blockHash := block.BlockID.Hash
 	bh := common.HexToHash(blockHash.String())
-	evmTxIndex, foundTx, etx, logIndexOffset := GetEvmTxIndex(block.Block.Txs, receipt.TransactionIndex, decoder, receiptChecker, includeSynthetic)
+	evmTxIndex, foundTx, etx, logIndexOffset := GetEvmTxIndex(ctx, block.Block.Txs, receipt.TransactionIndex, decoder, receiptChecker, includeSynthetic)
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
 	if !foundTx {
 		return nil, errors.New("failed to find transaction in block")
