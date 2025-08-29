@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,6 +30,23 @@ func TestGetTransactionAnteFailed(t *testing.T) {
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getTransactionByHash", signedTx1.Hash().Hex())
 			require.Equal(t, "not found", res["error"].(map[string]interface{})["message"].(string))
+		},
+	)
+}
+
+func TestGetTransactionReceiptFailedTx(t *testing.T) {
+	tx1Data := sendErc20(0)
+	signedTx1 := signTxWithMnemonic(tx1Data, mnemonic1)
+	tx1 := encodeEvmTx(tx1Data, signedTx1)
+	SetupTestServer([][][]byte{{tx1}}, erc20Initializer(), mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("eth", port, "getTransactionReceipt", signedTx1.Hash().Hex())
+			receipt := res["result"].(map[string]interface{})
+			require.Equal(t, "0x0", receipt["status"])
+			require.Equal(t, erc20Addr, common.HexToAddress(receipt["to"].(string)))
+			require.Equal(t, "0x2", receipt["blockNumber"])
+			require.Greater(t, receipt["gasUsed"].(string), "0x0")
+			require.Greater(t, receipt["effectiveGasPrice"].(string), "0x0")
 		},
 	)
 }
