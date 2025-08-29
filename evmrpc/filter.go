@@ -839,6 +839,10 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 			setCachedReceipt(block.Block.Height, block, hash, receipt)
 		}
 
+		if receipt.BlockNumber != uint64(block.Block.Height) {
+			continue
+		}
+
 		if !f.includeSyntheticReceipts && (receipt.TxType == evmtypes.ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
 			continue
 		}
