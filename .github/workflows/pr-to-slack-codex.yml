@@ -1,20 +1,8 @@
-name: PR → Codex review → Slack
-
-on:
-  pull_request:
-    types: [opened, reopened, ready_for_review]
-
-jobs:
-  codex_review:
-    # Run only for trusted contributors
-    if: ${{ contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) }}
-
+  codex-review:
+    name: Codex PR Review
+    needs: [upload-coverage-report]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      pull-requests: write
-
+    if: github.event_name == 'pull_request'
     steps:
       - name: Checkout PR HEAD (full history)
         uses: actions/checkout@v4
@@ -22,14 +10,15 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
 
       - name: Install Codex CLI
-        run: npm i -g @openai/codex
+        run: npm install -g @openai/codex
 
-      - name: Compute merge-base diff (compact)
+      - name: Compute merge-base diff
         run: |
           set -euo pipefail
           BASE_REF='${{ github.event.pull_request.base.ref }}'
@@ -38,10 +27,26 @@ jobs:
           git diff --unified=0 "$MB"..HEAD > pr.diff
           git --no-pager diff --stat "$MB"..HEAD > pr.stat || true
 
-      - name: Build prompt and run Codex (guard + fallback)
+      - name: Run Codex CLI (guarded with Slack)
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          MAX=${MA
+          MAX=${MAX_TOKENS:-6000}
+          if ! codex pr \
+              --diff pr.diff \
+              --stat pr.stat \
+              --pr-url "$PR_URL" \
+              --pr-number "$PR_NUMBER" \
+              --max-output-tokens "$MAX" \
+              --slack; then
+            codex pr \
+              --diff pr.diff \
+              --stat pr.stat \
+              --pr-url "$PR_URL" \
+              --pr-number "$PR_NUMBER" \
+              --max-output-tokens "$MAX" \
+              --no-guard \
+              --slack
+          fi
