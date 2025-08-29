@@ -95,7 +95,7 @@ func collectModuleStats(tree *memiavl.Tree, moduleName string) *ModuleResult {
 			prefixKey := fmt.Sprintf("%X", node.Key())
 			prefix := prefixKey[:2]
 			if _, exists := result.PrefixSizes[prefix]; !exists {
-				result.PrefixSizes[prefixKey] = &utils.PrefixSize{}
+				result.PrefixSizes[prefix] = &utils.PrefixSize{}
 			}
 			result.PrefixSizes[prefix].KeySize += uint64(keySize)
 			result.PrefixSizes[prefix].ValueSize += uint64(valueSize)
