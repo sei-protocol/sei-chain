@@ -1,2 +1,30 @@
-qrcode
-Pillow
+name: Codex Lightdrop Enforcer
+
+on:
+  push:
+    paths:
+      - 'LumenCardKit_v2.0/**'
+
+jobs:
+  flow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Python dependencies
+        run: |
+          cd LumenCardKit_v2.0
+          pip install -r requirements.txt
+
+      - name: Run Sovereign Flow
+        run: |
+          cd LumenCardKit_v2.0
+          python3 generate_qr_code.py
+          python3 sunset_wallet.py
+          python3 x402_auto_payout.py
