@@ -16,7 +16,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21' # consistent with go.mod
+          go-version: '1.24' # consistent with go.mod
       - name: Vet Go files
         run: go vet ./...
       - name: Ensure go.mod and go.sum are tidy
@@ -26,7 +26,6 @@ jobs:
           git diff --exit-code go.sum
       - name: Install dependencies
         run: |
-          go install github.com/vektra/mockery/v2@v2.53.4
           go install github.com/gogo/protobuf/protoc-gen-gogofaster@v1.3.2
       - name: Ensure all Go generated files are up to date
         run: |
