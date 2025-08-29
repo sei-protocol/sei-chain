@@ -388,6 +388,8 @@ type App struct {
 
 	// Freeze mode prevents block processing while keeping RPC functional
 	freezeMode bool
+	// Track the height when the app started to avoid freezing during recovery
+	startupHeight int64
 }
 
 type AppOption func(*App)
@@ -453,6 +455,7 @@ func New(
 		httpServerStartSignal: make(chan struct{}, 1),
 		wsServerStartSignal:   make(chan struct{}, 1),
 		freezeMode:            cast.ToBool(appOpts.Get("freeze")),
+		startupHeight:         -1, // Will be set on first BeginBlock
 	}
 
 	for _, option := range appOptions {
@@ -1082,16 +1085,49 @@ func (app App) GetStateStore() seidb.StateStore { return app.stateStore }
 
 // BeginBlocker application updates every begin block
 func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
-	// Check for freeze mode - freeze block processing while keeping RPC functional
-	if app.freezeMode {
-		app.Logger().Info("Freeze mode enabled - freezing block processing", "height", req.Header.Height)
+	// Set startup height on first BeginBlock call
+	if app.startupHeight == -1 {
+		app.startupHeight = req.Header.Height
+		if app.freezeMode {
+			app.Logger().Info("Freeze mode enabled - will freeze after startup recovery completes", 
+				"startup_height", app.startupHeight)
+		}
+	}
 
+	// Send server start signals to ensure RPC servers start before freezing
+	if !app.httpServerStartSignalSent {
+		app.httpServerStartSignalSent = true
+		app.httpServerStartSignal <- struct{}{}
+	}
+	if !app.wsServerStartSignalSent {
+		app.wsServerStartSignalSent = true
+		app.wsServerStartSignal <- struct{}{}
+	}
+
+	// Check for freeze mode - only freeze on NEW blocks after startup recovery
+	if app.freezeMode && req.Header.Height > app.startupHeight {
+		app.Logger().Info("Freeze mode: freezing new block processing", "height", req.Header.Height)
 		// This prevents any new blocks from being processed while allowing graceful shutdown
 		// RPC endpoints will continue to work normally for queries and simulations
-		select {
-		case <-ctx.Context().Done():
-			app.Logger().Info("Freeze mode: received shutdown signal, exiting gracefully")
-			return abci.ResponseBeginBlock{}
+		
+		// Use a ticker to periodically check for context cancellation
+		// This ensures we respond to shutdown signals even if the context doesn't propagate properly
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		
+		for {
+			select {
+			case <-ctx.Context().Done():
+				app.Logger().Info("Freeze mode: received shutdown signal, exiting gracefully")
+				return abci.ResponseBeginBlock{}
+			case <-ticker.C:
+				// Check if context is cancelled on each tick
+				if ctx.Context().Err() != nil {
+					app.Logger().Info("Freeze mode: context cancelled, exiting gracefully")
+					return abci.ResponseBeginBlock{}
+				}
+				// Continue freezing - just loop back
+			}
 		}
 	}
 
