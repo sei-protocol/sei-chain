@@ -18,7 +18,6 @@ import (
 	"github.com/sei-protocol/sei-chain/precompiles/pointer"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/wsei"
 )
 
 func send(nonce uint64) ethtypes.TxData {
@@ -36,8 +35,8 @@ func send(nonce uint64) ethtypes.TxData {
 
 func sendErc20(nonce uint64) ethtypes.TxData {
 	_, recipient := testkeeper.MockAddressPair()
-	parsedABI, _ := abi.JSON(strings.NewReader(string(wsei.GetABI())))
-	bz, _ := parsedABI.Methods["transfer"].Inputs.Pack(recipient, 1)
+	parsedABI, _ := abi.JSON(strings.NewReader(string(GetABI())))
+	bz, _ := parsedABI.Pack("transfer", recipient, big.NewInt(1))
 	return &ethtypes.DynamicFeeTx{
 		Nonce:     nonce,
 		GasFeeCap: big.NewInt(1000000000),
@@ -49,8 +48,8 @@ func sendErc20(nonce uint64) ethtypes.TxData {
 }
 
 func depositErc20(nonce uint64) ethtypes.TxData {
-	parsedABI, _ := abi.JSON(strings.NewReader(string(wsei.GetABI())))
-	bz, _ := parsedABI.Methods["deposit"].Inputs.Pack()
+	parsedABI, _ := abi.JSON(strings.NewReader(string(GetABI())))
+	bz, _ := parsedABI.Pack("deposit")
 	return &ethtypes.DynamicFeeTx{
 		Nonce:     nonce,
 		GasFeeCap: big.NewInt(1000000000),
