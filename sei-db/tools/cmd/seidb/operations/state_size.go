@@ -267,8 +267,8 @@ func printResultsToConsole(moduleResults map[string]*ModuleResult) {
 // createStateSizeAnalysis creates a new StateSizeAnalysis from ModuleResult
 func createStateSizeAnalysis(blockHeight int64, moduleName string, result *ModuleResult) *utils.StateSizeAnalysis {
 	// Convert raw data to JSON strings for DynamoDB storage
-	prefixBreakdown := map[string]map[string]utils.PrefixSize{}
-	prefixJSON, _ := json.Marshal(prefixBreakdown)
+
+	prefixJSON, _ := json.Marshal(result.PrefixSizes)
 
 	var contractSlice []utils.ContractSizeEntry
 	for _, contract := range result.ContractSizes {
