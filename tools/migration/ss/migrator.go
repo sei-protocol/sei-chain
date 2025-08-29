@@ -16,17 +16,19 @@ import (
 type Migrator struct {
 	iavlDB     dbm.DB
 	stateStore types.StateStore
+	cacheSize  int
 }
 
-// TODO: make this configurable?
-const (
-	DefaultCacheSize int = 10000
-)
+const DefaultCacheSize int = 10000
 
-func NewMigrator(db dbm.DB, stateStore types.StateStore) *Migrator {
+func NewMigrator(db dbm.DB, stateStore types.StateStore, cacheSize int) *Migrator {
+	if cacheSize <= 0 {
+		cacheSize = DefaultCacheSize
+	}
 	return &Migrator{
 		iavlDB:     db,
 		stateStore: stateStore,
+		cacheSize:  cacheSize,
 	}
 }
 
@@ -77,7 +79,7 @@ func (m *Migrator) Migrate(version int64, homeDir string) error {
 func (m *Migrator) Verify(version int64) error {
 	var verifyErr error
 	for _, module := range utils.Modules {
-		tree, err := ReadTree(m.iavlDB, version, []byte(utils.BuildTreePrefix(module)))
+		tree, err := ReadTree(m.iavlDB, m.cacheSize, version, []byte(utils.BuildTreePrefix(module)))
 		if err != nil {
 			fmt.Printf("Error reading tree %s: %s\n", module, err.Error())
 			return err
@@ -202,13 +204,13 @@ func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey
 	return nil
 }
 
-func ReadTree(db dbm.DB, version int64, prefix []byte) (*iavl.MutableTree, error) {
+func ReadTree(db dbm.DB, cacheSize int, version int64, prefix []byte) (*iavl.MutableTree, error) {
 	// TODO: Verify if we need a prefix here (or can just iterate through all modules)
 	if len(prefix) != 0 {
 		db = dbm.NewPrefixDB(db, prefix)
 	}
 
-	tree, err := iavl.NewMutableTree(db, DefaultCacheSize, true)
+	tree, err := iavl.NewMutableTree(db, cacheSize, true)
 	if err != nil {
 		return nil, err
 	}
