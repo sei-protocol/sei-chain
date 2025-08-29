@@ -402,7 +402,7 @@ func GetEvmTxIndex(ctx sdk.Context, txs tmtypes.Txs, txIndex uint32, decoder sdk
 			continue
 		}
 		if hasReceipt {
-			if isReceiptFromAnteError(receipt) {
+			if isReceiptFromAnteError(ctx, receipt) {
 				continue
 			}
 			if receipt.BlockNumber != uint64(ctx.BlockHeight()) {
