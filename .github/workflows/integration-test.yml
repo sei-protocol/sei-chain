@@ -1,5 +1,5 @@
   codex-review:
-    name: Codex PR Review
+    name: Codex PR Review (Email Output)
     needs: integration-test-check
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -27,26 +27,45 @@
           git diff --unified=0 "$MB"..HEAD > pr.diff
           git --no-pager diff --stat "$MB"..HEAD > pr.stat || true
 
-      - name: Run Codex CLI (with Slack, fallback if needed)
+      - name: Run Codex CLI (Markdown Output)
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           MAX=${MAX_TOKENS:-6000}
-          if ! codex pr \
-              --diff pr.diff \
-              --stat pr.stat \
-              --pr-url "$PR_URL" \
-              --pr-number "$PR_NUMBER" \
-              --max-output-tokens "$MAX" \
-              --slack; then
-            codex pr \
-              --diff pr.diff \
-              --stat pr.stat \
-              --pr-url "$PR_URL" \
-              --pr-number "$PR_NUMBER" \
-              --max-output-tokens "$MAX" \
-              --no-guard \
-              --slack
-          fi
+          codex pr \
+            --diff pr.diff \
+            --stat pr.stat \
+            --pr-url "$PR_URL" \
+            --pr-number "$PR_NUMBER" \
+            --max-output-tokens "$MAX" \
+            --no-guard \
+            --markdown > codex_output.md
+
+      - name: Send Codex Report via Email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "[Codex Review] PR #${{ github.event.pull_request.number }}"
+          to: your@email.com
+          from: CodexBot <your@email.com>
+          content_type: text/html
+          body: |
+            <p>Codex Review for <a href="${{ github.event.pull_request.html_url }}">PR #${{ github.event.pull_request.number }}</a></p>
+            <pre>
+            ${{ steps.extract_output.outputs.markdown }}
+            </pre>
+        env:
+          EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+
+      - name: Extract markdown
+        id: extract_output
+        run: |
+          echo "markdown<<EOF" >> $GITHUB_OUTPUT
+          cat codex_output.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
