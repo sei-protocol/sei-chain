@@ -81,8 +81,6 @@ func collectModuleStats(tree *memiavl.Tree, moduleName string) *ModuleResult {
 		PrefixSizes:   make(map[string]*utils.PrefixSize),
 		ContractSizes: make(map[string]*utils.ContractSizeEntry),
 	}
-	result.PrefixSizes[moduleName] = &utils.PrefixSize{}
-	result.ContractSizes[moduleName] = &utils.ContractSizeEntry{}
 
 	// Scan the tree to collect statistics
 	tree.ScanPostOrder(func(node memiavl.Node) bool {
@@ -96,6 +94,9 @@ func collectModuleStats(tree *memiavl.Tree, moduleName string) *ModuleResult {
 
 			prefixKey := fmt.Sprintf("%X", node.Key())
 			prefix := prefixKey[:2]
+			if _, exists := result.PrefixSizes[prefix]; !exists {
+				result.PrefixSizes[prefixKey] = &utils.PrefixSize{}
+			}
 			result.PrefixSizes[prefix].KeySize += uint64(keySize)
 			result.PrefixSizes[prefix].ValueSize += uint64(valueSize)
 			result.PrefixSizes[prefix].TotalSize += uint64(keySize + valueSize)
