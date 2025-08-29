@@ -28,7 +28,7 @@ jobs:
   # ---------- Matrix-Based Integration Tests ----------
   integration-tests:
     name: Integration Test (${{ matrix.test.name }})
-    runs-on: ubuntu-large
+    runs-on: ubuntu-latest # or ubuntu-large if using a self-hosted runner
     timeout-minutes: 30
     needs: slinky-changes
     if: needs.slinky-changes.outputs.slinky == 'true'
@@ -51,6 +51,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+
       - uses: actions/setup-python@v4
         with:
           python-version: "3.10"
