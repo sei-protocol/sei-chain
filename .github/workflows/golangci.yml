@@ -5,32 +5,33 @@ on:
     tags:
       - v*
     branches:
-      - master
       - main
+      - master
       - seiv2
   pull_request:
 
 permissions:
   contents: read
-  # Uncomment below if you want `only-new-issues` or PR inline annotations
-  # pull-requests: read
+  pull-requests: write  # Enables inline annotations
 
 jobs:
   golangci:
     name: lint
     runs-on: ubuntu-latest
+
     steps:
-      - name: Set up Go
+      - name: 📦 Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.21
+          go-version: "1.21"
           cache: true
 
-      - name: Checkout code
+      - name: 🧬 Checkout code
         uses: actions/checkout@v3
 
-      - name: Run golangci-lint
+      - name: 🧪 Install golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
           version: v1.60.1
-          args: --timeout 10m0s
+          args: --timeout=10m --out-format=colored-line-number --issues-exit-code=1
+          only-new-issues: true  # Avoid legacy errors unless introduced by PR
