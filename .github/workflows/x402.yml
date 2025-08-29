@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+  push:
+    branches:
+      - main
+      - evm
+      - release/**
+
+jobs:
+  # ---------- Dynamic Slinky Change Detection ----------
+  slinky-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      slinky: ${{ steps.filter.outputs.slinky }}
+    steps:
+      - uses: actions/checkout@v3
+      - id: filter
+        uses: dorny/paths-filter@v2
+        with:
+          filters: |
+            slinky:
+              - 'scripts/modules/slinky_test/**'
+              - 'x/slinky/**'
+
+  # ---------- Matrix-Based Integration Tests ----------
+  integration-tests:
+    name: Integration Test (${{ matrix.test.name }})
+    runs-on: ubuntu-latest # or ubuntu-large if using a self-hosted runner
+    timeout-minutes: 30
+    needs: slinky-changes
+    if: needs.slinky-changes.outputs.slinky == 'true'
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - name: "Wasm Module"
+            scripts:
+              - docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
+              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml
+              - docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
+              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install Dependencies
+        run: |
+          pip3 install pyyaml
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Start 4-node Docker cluster
+        run: |
+          make clean
+          INVARIANT_CHECK_INTERVAL=10 make docker-cluster-start &
+
+      - name: Wait for Cluster Launch
+        run: |
+          until [ "$(cat build/generated/launch.complete | wc -l)" -eq 4 ]; do sleep 10; done
+          sleep 10
+
+      - name: Start RPC Node
+        run: make run-rpc-node-skipbuild &
+
+      - name: Run Integration Test (${{ matrix.test.name }})
+        run: |
+          IFS=$'\n'
+          for script in $(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]'); do
+            bash -c "$script"
+          done
+          unset IFS
+
+      - name: Upload Test Logs (if present)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ matrix.test.name }}
+          path: |
+            integration_test/output/
