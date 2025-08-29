@@ -133,10 +133,33 @@ jobs:
       - name: Start 4 node docker cluster
         run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{ matrix.test.env }} make docker-cluster-start &
 
-      - name: Wait for docker cluster to start
-        run: |
-          until [ $(cat build/generated/launch.complete | wc -l) = 4 ]; do sleep 10; done
-          sleep 10
+      - name: Wait for docker cluster to start (with timeout + debug)
+  run: |
+    echo "[⏳] Waiting for build/generated/launch.complete to reach 4 lines..."
+
+    max_attempts=60
+    attempts=0
+
+    while true; do
+      line_count=$(wc -l < build/generated/launch.complete 2>/dev/null || echo 0)
+      echo "[INFO] Attempt $attempts — launch.complete has $line_count lines"
+
+      if [ "$line_count" -eq 4 ]; then
+        echo "[✅] launch.complete reached 4 lines!"
+        break
+      fi
+
+      if [ "$attempts" -ge "$max_attempts" ]; then
+        echo "❌ Timeout: launch.complete did not reach 4 lines after $((max_attempts * 10)) seconds."
+        echo "File contents:"
+        cat build/generated/launch.complete || echo "File not found"
+        exit 1
+      fi
+
+      sleep 10
+      attempts=$((attempts + 1))
+    done
+
 
       - name: Start rpc node
         run: make run-rpc-node-skipbuild &
