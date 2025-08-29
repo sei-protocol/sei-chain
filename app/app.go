@@ -1085,9 +1085,14 @@ func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.R
 	// Check for freeze mode - freeze block processing while keeping RPC functional
 	if app.freezeMode {
 		app.Logger().Info("Freeze mode enabled - freezing block processing", "height", req.Header.Height)
-		// Block indefinitely - this prevents any new blocks from being processed
+
+		// This prevents any new blocks from being processed while allowing graceful shutdown
 		// RPC endpoints will continue to work normally for queries and simulations
-		select {}
+		select {
+		case <-ctx.Context().Done():
+			app.Logger().Info("Freeze mode: received shutdown signal, exiting gracefully")
+			return abci.ResponseBeginBlock{}
+		}
 	}
 
 	metrics.GaugeSeidVersionAndCommit(app.versionInfo.Version, app.versionInfo.GitCommit)
