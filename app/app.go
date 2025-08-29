@@ -386,6 +386,9 @@ type App struct {
 	wsServerStartSignal       chan struct{}
 	httpServerStartSignalSent bool
 	wsServerStartSignalSent   bool
+
+	// Freeze mode prevents block processing while keeping RPC functional
+	freezeMode bool
 }
 
 type AppOption func(*App)
@@ -450,6 +453,7 @@ func New(
 		stateStore:            stateStore,
 		httpServerStartSignal: make(chan struct{}, 1),
 		wsServerStartSignal:   make(chan struct{}, 1),
+		freezeMode:            cast.ToBool(appOpts.Get("freeze")),
 	}
 
 	for _, option := range appOptions {
@@ -1079,6 +1083,14 @@ func (app *App) GetStateStore() seidb.StateStore { return app.stateStore }
 
 // BeginBlocker application updates every begin block
 func (app *App) BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
+	// Check for freeze mode - freeze block processing while keeping RPC functional
+	if app.freezeMode {
+		app.Logger().Info("Freeze mode enabled - freezing block processing", "height", req.Header.Height)
+		// Block indefinitely - this prevents any new blocks from being processed
+		// RPC endpoints will continue to work normally for queries and simulations
+		select {}
+	}
+
 	metrics.GaugeSeidVersionAndCommit(app.versionInfo.Version, app.versionInfo.GitCommit)
 	// check if we've reached a target height, if so, execute any applicable handlers
 	if app.forkInitializer != nil {
