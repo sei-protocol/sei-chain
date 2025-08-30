@@ -37,12 +37,14 @@ jobs:
           },
           {
             name: "EVM Interoperability",
+            env: "",
             scripts: [
               "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
             ]
           },
           {
             name: "dApp Tests",
+            env: "",
             scripts: [
               "./integration_test/dapp_tests/dapp_tests.sh seilocal"
             ]
@@ -71,12 +73,15 @@ jobs:
 
       - name: Start docker cluster (mainnet config)
         run: |
-          make clean
-          ${{ matrix.test.env }} make docker-cluster-start &
+          if [[ -n "${{ matrix.test.env }}" ]]; then
+            eval "${{ matrix.test.env }} make docker-cluster-start &"
+          else
+            make docker-cluster-start &
+          fi
 
       - name: Wait for docker cluster to start
         run: |
-          until [ $(cat build/generated/launch.complete |wc -l) = 4 ]; do
+          until [ "$(cat build/generated/launch.complete | wc -l)" = 4 ]; do
             sleep 10
           done
           sleep 10
