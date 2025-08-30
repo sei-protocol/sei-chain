@@ -1,58 +1,122 @@
-- name: Set up Node
-        uses: actions/setup-node@v4
+name: Docker Integration Test
+
+on:
+  push:
+    branches:
+      - main
+      - evm1
+  pull_request:
+    branches:
+      - main
+      - evm1
+      - evm
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  integration-tests:
+    name: Integration Test (${{ matrix.test.name }})
+    runs-on: ubuntu-large
+    timeout-minutes: 30
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [
+          {
+            name: "EVM1 Production Check",
+            env: "MAINNET=true",
+            scripts: [
+              "python3 integration_test/scripts/runner.py integration_test/evm_module/prod_sanity_check.yaml"
+            ]
+          },
+          {
+            name: "EVM Interoperability",
+            scripts: [
+              "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
+            ]
+          },
+          {
+            name: "dApp Tests",
+            scripts: [
+              "./integration_test/dapp_tests/dapp_tests.sh seilocal"
+            ]
+          }
+        ]
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - uses: actions/setup-node@v2
         with:
           node-version: '20'
 
-      - name: Install Codex CLI
-        run: npm install -g @openai/codex
-
-      - name: Compute merge-base diff
+      - name: Install dependencies
         run: |
-          set -euo pipefail
-          BASE_REF='${{ github.event.pull_request.base.ref }}'
-          git fetch --no-tags origin "$BASE_REF":"refs/remotes/origin/$BASE_REF"
-          MB=$(git merge-base "origin/$BASE_REF" HEAD)
-          git diff --unified=0 "$MB"..HEAD > pr.diff
-          git --no-pager diff --stat "$MB"..HEAD > pr.stat || true
+          pip3 install pyyaml
+          sudo apt-get install -y jq
 
-      - name: Run Codex CLI (Markdown Output)
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          MAX=${MAX_TOKENS:-6000}
-          env -i OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" PATH="$PATH" HOME="$HOME" \
-            codex pr \
-              --diff pr.diff \
-              --stat pr.stat \
-              --pr-url "$PR_URL" \
-              --pr-number "$PR_NUMBER" \
-              --max-output-tokens "$MAX" \
-              --no-guard \
-              --markdown > codex_output.md
-
-      - name: Send Codex Report via Email
-        uses: dawidd6/action-send-mail@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
         with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "[Codex Review] PR #${{ github.event.pull_request.number }}"
-          to: your@email.com
-          from: CodexBot <your@email.com>
-          content_type: text/html
-          body: |
-            <p>Codex Review for <a href="${{ github.event.pull_request.html_url }}">PR #${{ github.event.pull_request.number }}</a></p>
-            <pre>
-            ${{ steps.extract_output.outputs.markdown }}
-            </pre>
-        env:
-          EMAIL_USERNAME: ${{ secrets.EMAIL_USERNAME }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          go-version: 1.21
 
-      - name: Extract markdown
-        id: extract_output
+      - name: Start docker cluster (mainnet config)
         run: |
-          echo "markdown<<EOF" >> $GITHUB_OUTPUT
+          make clean
+          ${{ matrix.test.env }} make docker-cluster-start &
+
+      - name: Wait for docker cluster to start
+        run: |
+          until [ $(cat build/generated/launch.complete |wc -l) = 4 ]; do
+            sleep 10
+          done
+          sleep 10
+
+      - name: Start rpc node
+        run: make run-rpc-node-skipbuild &
+
+      - name: Verify chain startup
+        run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
+
+      - name: ${{ matrix.test.name }}
+        run: |
+          scripts=$(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]')
+          IFS=$'\n'
+          for script in $scripts; do
+            bash -c "${script}"
+          done
+          unset IFS
+
+  integration-test-check:
+    name: Integration Test Check
+    runs-on: ubuntu-latest
+    needs: integration-tests
+    if: always()
+    steps:
+      - name: Get workflow conclusion
+        id: workflow_conclusion
+        uses: nick-fields/retry@v2
+        with:
+          max_attempts: 2
+          retry_on: error
+          timeout_seconds: 30
+          command: |
+            jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+            job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+            for status in $job_statuses; do
+              echo "Status: $status"
+              if [[ "$status" == "failure" ]]; then
+                echo "Some or all tests have failed!"
+                exit 1
+              fi
+            done
+            echo "All tests have passed!"
