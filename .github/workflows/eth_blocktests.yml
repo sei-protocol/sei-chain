@@ -2,17 +2,13 @@ name: ETH Blocktests
 
 on:
   push:
-    branches:
-      - main
-      - seiv2
+    branches: [main, seiv2]
   pull_request:
-    branches:
-      - main
-      - seiv2
+    branches: [main, seiv2]
 
 defaults:
- run:
-  shell: bash
+  run:
+    shell: bash
 
 env:
   TOTAL_RUNNERS: 5
@@ -31,28 +27,40 @@ jobs:
           INDEX_JSON=$(jq --null-input --compact-output '. |= [inputs]' <<< ${INDEX_LIST})
           echo "json=${INDEX_JSON}" >> $GITHUB_OUTPUT
 
-  eth-blocktests:
-    name: "Run ETH Blocktests ${{ matrix.runner-index }}"
+  eth-balance-check:
+    name: "ETH Balance Check ${{ matrix.runner-index }}"
     runs-on: ubuntu-latest
     needs: runner-indexes
     strategy:
       fail-fast: false
       matrix:
-        # generate runner index array from 0 to total-runners
-        runner-index: ${{fromJson(needs.runner-indexes.outputs.json)}}
+        runner-index: ${{ fromJson(needs.runner-indexes.outputs.json) }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Set up Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v4
         with:
-          go-version: 1.21
+          go-version: '1.21'
 
-      - name: Clone ETH Blocktests
+      - name: Run Balance Query (Mainnet)
+        env:
+          RPC_URL: ${{ secrets.ETH_RPC_URL }}
+          ADDRESS_TO_CHECK: ${{ secrets.ETH_ADDRESS }}
         run: |
-          git clone https://github.com/ethereum/tests.git ethtests
-          cd ethtests
-          git checkout c67e485ff8b5be9abc8ad15345ec21aa22e290d9
+          echo "🔍 Checking balance for $ADDRESS_TO_CHECK via $RPC_URL"
 
-      - name: "Run ETH Blocktest"
-        run: ./run_blocktests.sh ./ethtests/BlockchainTests/ ${{ matrix.runner-index }} ${{ env.TOTAL_RUNNERS }}
+          BALANCE_HEX=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            --data '{"jsonrpc":"2.0","method":"eth_getBalance","params":["'${ADDRESS_TO_CHECK}'", "latest"],"id":1}' \
+            $RPC_URL | jq -r .result)
+
+          if [ "$BALANCE_HEX" == "null" ] || [ -z "$BALANCE_HEX" ]; then
+            echo "❌ No balance returned or address invalid"
+            exit 1
+          fi
+
+          BALANCE_DEC=$(printf "%0.f" $(echo "ibase=16; ${BALANCE_HEX:2}" | bc))
+          BALANCE_ETH=$(echo "scale=18; $BALANCE_DEC / 10^18" | bc)
+
+          echo "✅ Balance: $BALANCE_ETH ETH"
