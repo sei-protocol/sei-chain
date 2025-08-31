@@ -74,7 +74,9 @@ jobs:
           from: CodexBot <noreply@yourdomain.com>
           content_type: text/html
           body: |
-            <p>Codex Review for <a href="${{ github.event.pull_request.html_url }}">PR #${{ github.event.pull_request.number }}</a></p>
-            <pre>
-            ${{ steps.extract_output.outputs.markdown }}
-            </pre>
+                   body: |
+          <p>Codex Review for <a href="${{ github.event.pull_request.html_url }}">PR #${{ github.event.pull_request.number }}</a></p>
+          <pre>
+          ${{ steps.extract_output.outputs.markdown }}
+          </pre>
+
