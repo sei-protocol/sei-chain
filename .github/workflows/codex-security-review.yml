@@ -1,0 +1,123 @@
+name: PR → Codex review → Slack
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+jobs:
+  codex_review:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR HEAD
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Codex CLI
+        run: npm i -g @openai/codex
+
+      - name: Compute merge-base diff
+        run: |
+          set -euo pipefail
+          BASE_REF='${{ github.event.pull_request.base.ref }}'
+          git fetch --no-tags origin "$BASE_REF":"refs/remotes/origin/$BASE_REF"
+          MB=$(git merge-base "origin/$BASE_REF" HEAD)
+          git diff --unified=0 "$MB"..HEAD > pr.diff
+          git --no-pager diff --stat "$MB"..HEAD > pr.stat || true
+
+      - name: Build Codex prompt and run review
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          MAX=${MAX_DIFF_BYTES:-900000}
+          BYTES=$(wc -c < pr.diff || echo 0)
+
+          {
+            echo "You are a skilled AppSec reviewer. Analyze this PR for:"
+            echo "bugs, vulnerabilities, loss of funds issues, crypto attack vectors, signature vulnerability, replay attacks etc.."
+            echo "Prioritize the *changed hunks* in pr.diff, but open other files for context."
+            echo
+            echo "Return a tight executive summary, then bullets with:"
+            echo "- severity (high/med/low)"
+            echo "- file:line pointers"
+            echo "- concrete fixes & example patches"
+            echo "- if N/A, say 'No significant issues found.'"
+            echo
+            echo "PR URL: $PR_URL"
+            echo
+            echo "Formatting requirements:"
+            echo "- Output MUST be GitHub-flavored Markdown (GFM)."
+            echo "- Start with '## Executive summary'"
+            echo "- Then '## Findings and fixes'"
+            echo "- Use fenced code blocks for patches (diff, yaml, etc.)"
+            echo "- Use inline code for file:line and identifiers."
+          } > prompt.txt
+
+          if [ "$BYTES" -le "$MAX" ] && [ "$BYTES" -gt 0 ]; then
+            {
+              echo "Unified diff (merge-base vs HEAD):"
+              echo '```diff'
+              cat pr.diff
+              echo '```'
+            } >> prompt.txt
+
+            env -i OPENAI_API_KEY="$OPENAI_API_KEY" PATH="$PATH" HOME="$HOME" \
+            codex --model gpt-5 --ask-for-approval never exec \
+              --sandbox read-only \
+              --output-last-message review.md \
+              < prompt.txt > codex.log 2>&1
+          else
+            BASE_REF='${{ github.event.pull_request.base.ref }}'
+            git fetch --no-tags origin "$BASE_REF":"refs/remotes/origin/$BASE_REF"
+            MB=$(git merge-base "origin/$BASE_REF" HEAD)
+            HEAD_SHA=$(git rev-parse HEAD)
+            DIFF_URL="${PR_URL}.diff"
+
+            {
+              echo "The diff is too large. Fetch it here: $DIFF_URL"
+              echo "Commit range: $MB → $HEAD_SHA"
+              echo "Diffstat:"
+              echo '```'
+              cat pr.stat || true
+              echo '```'
+              echo "Follow previous review instructions above."
+            } >> prompt.txt
+
+            env -i OPENAI_API_KEY="$OPENAI_API_KEY" PATH="$PATH" HOME="$HOME" \
+            codex --ask-for-approval never exec \
+              --sandbox danger-full-access \
+              --output-last-message review.md \
+              < prompt.txt > codex.log 2>&1
+          fi
+
+          if [ ! -s review.md ]; then
+            echo "_Codex produced no output._" > review.md
+          fi
+
+      - name: Post Codex review to Slack
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+        run: |
+          MESSAGE="Codex Security Review for PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}"
+          REVIEW=$(cat review.md | jq -Rs .)
+          curl -s -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H 'Content-type: application/json; charset=utf-8' \
+            --data "$(jq -n \
+              --arg ch "$SLACK_CHANNEL_ID" \
+              --arg text "$MESSAGE" \
+              --arg review "$REVIEW" \
+              '{channel: $ch, text: $text, attachments: [{text: $review}]}' \
+            )"
+
