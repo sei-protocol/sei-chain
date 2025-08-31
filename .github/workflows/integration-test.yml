@@ -55,12 +55,14 @@ jobs:
             --no-guard \
             --markdown > codex_output.md
 
-      - name: Extract markdown
+      - name: Extract markdown output
         id: extract_output
         run: |
-          echo "markdown<<EOF" >> $GITHUB_OUTPUT
-          cat codex_output.md >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo 'markdown<<EOF'
+            cat codex_output.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Send Codex Report via Email
         uses: dawidd6/action-send-mail@v3
@@ -71,7 +73,7 @@ jobs:
           password: ${{ secrets.EMAIL_PASSWORD }}
           subject: "[Codex Review] PR #${{ github.event.pull_request.number }}"
           to: your@email.com
-          from: CodexBot <your@email.com>
+          from: CodexBot <noreply@yourdomain.com>
           content_type: text/html
           body: |
             <p>Codex Review for <a href="${{ github.event.pull_request.html_url }}">PR #${{ github.event.pull_request.number }}</a></p>
