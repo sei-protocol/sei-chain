@@ -10,57 +10,54 @@ permissions:
 
 jobs:
   codex-review:
-    name: Codex PR Review (Email Output)
     runs-on: ubuntu-latest
 
     steps:
-      # 1) Checkout the PR HEAD with full history for merge-base diff
+      # 1. Checkout PR with full history for merge-base comparison
       - name: Checkout PR HEAD (full history)
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
-      # 2) Setup Node (Codex CLI is a Node package); Python is not required here
+      # 2. Set up Node (Codex CLI is a Node package)
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # 3) Try to install Codex CLI (best-effort); if unavailable we fall back
+      # 3. Try to install Codex CLI
       - name: Install Codex CLI (best-effort)
         run: |
-          set -euo pipefail
-          npm install -g @openai/codex || echo "::warning::Codex CLI not available; will fall back to diff-only report"
+          npm install -g @openai/codex || echo "::warning::Codex CLI not available; fallback will be used"
 
-      # 4) Compute merge-base and produce diff + stat
+      # 4. Compute merge-base diff and stats
       - name: Compute merge-base diff
         run: |
           set -euo pipefail
           BASE_REF="${{ github.event.pull_request.base.ref }}"
-          git fetch --no-tags origin "$BASE_REF":"refs/remotes/origin/$BASE_REF"
+          git fetch origin "$BASE_REF":"refs/remotes/origin/$BASE_REF"
           MB=$(git merge-base "origin/$BASE_REF" HEAD)
           git diff --unified=0 "$MB"..HEAD > pr.diff
-          git --no-pager diff --stat "$MB"..HEAD > pr.stat || true
+          git --no-pager diff --stat "$MB"..HEAD > pr.stat
 
-      # 5) Detect whether Codex CLI is available
+      # 5. Check if Codex CLI is available
       - name: Check Codex availability
         id: codex_check
         run: |
-          if command -v codex >/dev/null 2>&1; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
+          if command -v codex >/dev/null; then
+            echo "available=true" >> $GITHUB_OUTPUT
           else
-            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "available=false" >> $GITHUB_OUTPUT
           fi
 
-      # 6a) Run Codex review (if available) to produce Markdown
-      - name: Run Codex CLI (Markdown Output)
+      # 6a. Run Codex CLI (Markdown Output)
+      - name: Run Codex CLI
         if: steps.codex_check.outputs.available == 'true'
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          set -euo pipefail
           MAX=${MAX_TOKENS:-6000}
           codex pr \
             --diff pr.diff \
@@ -71,44 +68,43 @@ jobs:
             --no-guard \
             --markdown > codex_output.md
 
-      # 6b) Fallback: build a simple Markdown report with diff & stat
-      - name: Build fallback Markdown (no Codex)
+      # 6b. Fallback: simple Markdown output
+      - name: Fallback Markdown Report
         if: steps.codex_check.outputs.available == 'false'
         run: |
           {
             echo "# Codex Fallback Review"
-            echo
             echo "PR: [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }})"
             echo
             echo "## Diff Stat"
             echo '```'
-            cat pr.stat || true
+            cat pr.stat
             echo '```'
             echo
             echo "## Unified Diff (first 500 lines)"
             echo '```diff'
-            head -n 500 pr.diff || true
+            head -n 500 pr.diff
             echo '```'
           } > codex_output.md
 
-      # 7) Capture the Markdown in an output for the email step
-      - name: Extract markdown output
+      # 7. Extract the markdown as a string output
+      - name: Extract Markdown Output
         id: extract_output
         run: |
-          echo "markdown<<'EOF'" >> $GITHUB_OUTPUT
+          echo "markdown<<EOF" >> $GITHUB_OUTPUT
           cat codex_output.md >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      # 8) Send the review via email using SendGrid token (no password input)
-      - name: Send Codex Report via Email (SendGrid token, no password)
+      # 8. Send the Markdown via SendGrid email
+      - name: Send Codex Report via Email
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.sendgrid.net
           server_port: 465
           username: apikey
-          password: ${{ secrets.SMTP_TOKEN }}           # token, not a password
+          password: ${{ secrets.SMTP_TOKEN }}
           subject: "[Codex Review] PR #${{ github.event.pull_request.number }}"
-          to: ${{ secrets.SMTP_EMAIL_TO }}              # supports comma-separated list
+          to: ${{ secrets.SMTP_EMAIL_TO }}
           from: CodexBot <noreply@kinmesh.org>
           content_type: text/html
           body: |
