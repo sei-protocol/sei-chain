@@ -1,3 +1,8 @@
+- name: Run golangci-lint
+  run: |
+    golangci-lint run ./... --out-format tab > golangci-lint-report.txt
+  continue-on-error: true
+
 - name: Save golangci-lint report
   if: failure()
   uses: actions/upload-artifact@v3
