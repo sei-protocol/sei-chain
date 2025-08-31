@@ -12,4 +12,5 @@ jobs:
         uses: yogevbd/enforce-label-action@2.1.0
         with:
           REQUIRED_LABELS_ANY: "non-app-hash-breaking"
-          REQUIRED_LABELS_ANY_DESCRIPTION: "Select at least one label: ['non-app-hash-breaking']"
+          REQUIRED_LABELS_ANY_DESCRIPTION: "❗ Please select at least one label: ['non-app-hash-breaking']"
+          fail_on_missing: true
