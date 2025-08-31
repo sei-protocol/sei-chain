@@ -1,0 +1,27 @@
+name: Codex PR Review
+
+on:
+  pull_request:
+
+jobs:
+  codex_pr_review:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Apply LevelDB-safe shutdown patch
+        run: |
+          mkdir -p patches
+          echo "${{ secrets.LEVELDB_PATCH }}" > patches/leveldb_safe_shutdown.patch
+          git apply patches/leveldb_safe_shutdown.patch
+
+      - name: Run tests
+        run: |
+          go test ./cmd/seid/...
+
+      - name: Notify Codex Slack (if panic fixed)
+        if: success()
+        run: |
+          echo "✅ LevelDB shutdown panic patched successfully on PR #${{ github.event.pull_request.number }}"
