@@ -11,6 +11,7 @@ permissions:
 jobs:
   codex-review:
     name: Codex PR Review (Email Output)
+    # ✅ Removed the invalid "needs: integration-test-check"
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
