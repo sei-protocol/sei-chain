@@ -1,36 +1,6 @@
-name: golangci-lint
-
-on:
-  push:
-    tags:
-      - v*
-    branches:
-      - master
-      - main
-      - seiv2
-  pull_request:
-
-permissions:
-  contents: read
-  # Uncomment below if you want `only-new-issues` or PR inline annotations
-  # pull-requests: read
-
-jobs:
-  golangci:
-    name: lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set up Go
-        uses: actions/setup-go@v3
-        with:
-          go-version: 1.21
-          cache: true
-
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v3
-        with:
-          version: v1.60.1
-          args: --timeout 10m0s
+- name: Save golangci-lint report
+  if: failure()
+  uses: actions/upload-artifact@v3
+  with:
+    name: golangci-lint-report
+    path: ./golangci-lint-report.txt
