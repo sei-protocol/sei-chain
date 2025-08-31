@@ -1,0 +1,26 @@
+name: SeiBill CI
+
+on:
+  push:
+    paths:
+      - "contracts/**"
+      - "scripts/**"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+      - run: forge build
+
+  lint-ai:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check bill_parser.py
+        run: |
+          pip install black
+          black --check scripts/bill_parser.py
