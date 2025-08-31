@@ -58,11 +58,9 @@ jobs:
       - name: Extract markdown output
         id: extract_output
         run: |
-          {
-            echo 'markdown<<EOF'
-            cat codex_output.md
-            echo 'EOF'
-          } >> "$GITHUB_OUTPUT"
+          echo "markdown<<EOF" >> $GITHUB_OUTPUT
+          cat codex_output.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Send Codex Report via Email
         uses: dawidd6/action-send-mail@v3
