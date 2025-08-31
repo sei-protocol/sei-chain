@@ -1,39 +1,63 @@
-sei-balance-check:
-  name: "SEI Balance Check ${{ matrix.runner-index }}"
-  runs-on: ubuntu-latest
-  needs: runner-indexes
-  strategy:
-    fail-fast: false
-    matrix:
-      runner-index: ${{ fromJson(needs.runner-indexes.outputs.json) }}
-  steps:
-    - uses: actions/checkout@v3
+name: SEI Balance Check
 
-    - name: Install jq
-      run: |
-        sudo apt-get update && sudo apt-get install -y jq
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
-    - name: Run SEI Balance Query (Pacific-1)
-      env:
-        SEI_ADDRESS: ${{ secrets.SEI_ADDRESS }}
-        REST_URL: "https://rest.sei-apis.com"
-        MIN_BALANCE_USEI: "1000000"  # 1 SEI
-      run: |
-        echo "🔍 Checking SEI balance for $SEI_ADDRESS via $REST_URL"
+defaults:
+  run:
+    shell: bash
 
-        BALANCE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS" \
-          | jq -r '.balances[] | select(.denom == "usei") | .amount')
+env:
+  TOTAL_RUNNERS: 5
 
-        if [ -z "$BALANCE" ]; then
-          echo "❌ No balance found or invalid address"
-          exit 1
-        fi
+jobs:
+  runner-indexes:
+    runs-on: ubuntu-latest
+    name: Generate runner indexes
+    outputs:
+      json: ${{ steps.generate-index-list.outputs.json }}
+    steps:
+      - id: generate-index-list
+        run: |
+          MAX_INDEX=$((${{ env.TOTAL_RUNNERS }}-1))
+          INDEX_LIST=$(seq 0 ${MAX_INDEX})
+          INDEX_JSON=$(jq --null-input --compact-output '. |= [inputs]' <<< ${INDEX_LIST})
+          echo "json=${INDEX_JSON}" >> $GITHUB_OUTPUT
 
-        echo "💰 SEI Balance: $BALANCE usei"
+  sei-balance-check:
+    name: "SEI Balance Check ${{ matrix.runner-index }}"
+    runs-on: ubuntu-latest
+    needs: runner-indexes
+    strategy:
+      fail-fast: false
+      matrix:
+        runner-index: ${{ fromJson(needs.runner-indexes.outputs.json) }}
+    steps:
+      - uses: actions/checkout@v3
 
-        if [ "$BALANCE" -lt "$MIN_BALANCE_USEI" ]; then
-          echo "⚠️ SEI balance is below threshold (1 SEI)"
-          exit 1
-        fi
+      - name: Install jq
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq
 
-        echo "✅ SEI balance is OK"
+      - name: Run SEI Balance Query (Pacific-1)
+        env:
+          SEI_ADDRESS: ${{ secrets.SEI_ADDRESS }}
+          REST_URL: "https://rest.sei-apis.com"
+          MIN_BALANCE_USEI: "1000000"  # 1 SEI
+        run: |
+          echo "🔍 Checking SEI balance for $SEI_ADDRESS via $REST_URL"
+          BALANCE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS" \
+            | jq -r '.balances[] | select(.denom == "usei") | .amount')
+          if [ -z "$BALANCE" ]; then
+            echo "❌ No balance found or invalid address"
+            exit 1
+          fi
+          echo "💰 SEI Balance: $BALANCE usei"
+          if [ "$BALANCE" -lt "$MIN_BALANCE_USEI" ]; then
+            echo "⚠️ SEI balance is below threshold (1 SEI)"
+            exit 1
+          fi
+          echo "✅ SEI balance is OK"
