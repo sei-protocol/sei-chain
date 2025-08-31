@@ -1,5 +1,5 @@
-eth-balance-check:
-  name: "ETH Balance Check ${{ matrix.runner-index }}"
+sei-balance-check:
+  name: "SEI Balance Check ${{ matrix.runner-index }}"
   runs-on: ubuntu-latest
   needs: runner-indexes
   strategy:
@@ -9,33 +9,31 @@ eth-balance-check:
   steps:
     - uses: actions/checkout@v3
 
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.21'
-
-    - name: Install jq and bc
+    - name: Install jq
       run: |
-        sudo apt-get update
-        sudo apt-get install -y jq bc
+        sudo apt-get update && sudo apt-get install -y jq
 
-    - name: Run Balance Query (Mainnet)
+    - name: Run SEI Balance Query (Pacific-1)
       env:
-        RPC_URL: ${{ secrets.ETH_RPC_URL }}
-        ADDRESS_TO_CHECK: ${{ secrets.ETH_ADDRESS }}
+        SEI_ADDRESS: ${{ secrets.SEI_ADDRESS }}
+        REST_URL: "https://rest.sei-apis.com"
+        MIN_BALANCE_USEI: "1000000"  # 1 SEI
       run: |
-        echo "🔍 Checking balance for $ADDRESS_TO_CHECK via $RPC_URL"
-        BALANCE_HEX=$(curl -s -X POST \
-          -H "Content-Type: application/json" \
-          --data '{"jsonrpc":"2.0","method":"eth_getBalance","params":["'${ADDRESS_TO_CHECK}'", "latest"],"id":1}' \
-          $RPC_URL | jq -r .result)
+        echo "🔍 Checking SEI balance for $SEI_ADDRESS via $REST_URL"
 
-        if [ "$BALANCE_HEX" == "null" ] || [ -z "$BALANCE_HEX" ]; then
-          echo "❌ No balance returned or address invalid"
+        BALANCE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS" \
+          | jq -r '.balances[] | select(.denom == "usei") | .amount')
+
+        if [ -z "$BALANCE" ]; then
+          echo "❌ No balance found or invalid address"
           exit 1
         fi
 
-        BALANCE_DEC=$(printf "%0.f" $(echo "ibase=16; ${BALANCE_HEX:2}" | bc))
-        BALANCE_ETH=$(echo "scale=18; $BALANCE_DEC / 10^18" | bc)
+        echo "💰 SEI Balance: $BALANCE usei"
 
-        echo "✅ Balance: $BALANCE_ETH ETH"
+        if [ "$BALANCE" -lt "$MIN_BALANCE_USEI" ]; then
+          echo "⚠️ SEI balance is below threshold (1 SEI)"
+          exit 1
+        fi
+
+        echo "✅ SEI balance is OK"
