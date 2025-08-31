@@ -1,6 +1,6 @@
-      - name: Save golangci-lint report
-        if: failure()
-        uses: actions/upload-artifact@v3
-        with:
-          name: golangci-lint-report
-          path: ./golangci-lint-report.txt
+- name: Save golangci-lint report
+  if: failure()
+  uses: actions/upload-artifact@v3
+  with:
+    name: golangci-lint-report
+    path: ./golangci-lint-report.txt
