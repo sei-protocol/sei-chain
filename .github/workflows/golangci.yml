@@ -12,7 +12,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write  # Enables inline PR annotations
+  pull-requests: write  # Enables inline annotations on PRs
 
 jobs:
   golangci:
