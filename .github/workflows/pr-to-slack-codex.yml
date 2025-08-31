@@ -2,7 +2,7 @@ name: PR → Codex review → Slack
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, reopened, synchronize, ready_for_review]
 
 jobs:
   codex_review:
@@ -24,7 +24,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
 
       - name: Install Codex CLI
         run: npm i -g @openai/codex
