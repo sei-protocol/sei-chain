@@ -8,22 +8,24 @@ on:
 jobs:
   flow:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
+      - name: 📦 Checkout repository
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: 🐍 Set up Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install Python dependencies
+      - name: 📥 Install dependencies
         run: |
           cd LumenCardKit_v2.0
           pip install -r requirements.txt
 
-      - name: Run Sovereign Flow
+      - name: ✨ Run Sovereign Flow
         run: |
+          set -euo pipefail
           cd LumenCardKit_v2.0
           python3 generate_qr_code.py
           python3 sunset_wallet.py
