@@ -1,66 +1,41 @@
-name: ETH Blocktests
+eth-balance-check:
+  name: "ETH Balance Check ${{ matrix.runner-index }}"
+  runs-on: ubuntu-latest
+  needs: runner-indexes
+  strategy:
+    fail-fast: false
+    matrix:
+      runner-index: ${{ fromJson(needs.runner-indexes.outputs.json) }}
+  steps:
+    - uses: actions/checkout@v3
 
-on:
-  push:
-    branches: [main, seiv2]
-  pull_request:
-    branches: [main, seiv2]
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
 
-defaults:
-  run:
-    shell: bash
+    - name: Install jq and bc
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq bc
 
-env:
-  TOTAL_RUNNERS: 5
+    - name: Run Balance Query (Mainnet)
+      env:
+        RPC_URL: ${{ secrets.ETH_RPC_URL }}
+        ADDRESS_TO_CHECK: ${{ secrets.ETH_ADDRESS }}
+      run: |
+        echo "🔍 Checking balance for $ADDRESS_TO_CHECK via $RPC_URL"
+        BALANCE_HEX=$(curl -s -X POST \
+          -H "Content-Type: application/json" \
+          --data '{"jsonrpc":"2.0","method":"eth_getBalance","params":["'${ADDRESS_TO_CHECK}'", "latest"],"id":1}' \
+          $RPC_URL | jq -r .result)
 
-jobs:
-  runner-indexes:
-    runs-on: ubuntu-latest
-    name: Generate runner indexes
-    outputs:
-      json: ${{ steps.generate-index-list.outputs.json }}
-    steps:
-      - id: generate-index-list
-        run: |
-          MAX_INDEX=$((${{ env.TOTAL_RUNNERS }}-1))
-          INDEX_LIST=$(seq 0 ${MAX_INDEX})
-          INDEX_JSON=$(jq --null-input --compact-output '. |= [inputs]' <<< ${INDEX_LIST})
-          echo "json=${INDEX_JSON}" >> $GITHUB_OUTPUT
+        if [ "$BALANCE_HEX" == "null" ] || [ -z "$BALANCE_HEX" ]; then
+          echo "❌ No balance returned or address invalid"
+          exit 1
+        fi
 
-  eth-balance-check:
-    name: "ETH Balance Check ${{ matrix.runner-index }}"
-    runs-on: ubuntu-latest
-    needs: runner-indexes
-    strategy:
-      fail-fast: false
-      matrix:
-        runner-index: ${{ fromJson(needs.runner-indexes.outputs.json) }}
-    steps:
-      - uses: actions/checkout@v3
+        BALANCE_DEC=$(printf "%0.f" $(echo "ibase=16; ${BALANCE_HEX:2}" | bc))
+        BALANCE_ETH=$(echo "scale=18; $BALANCE_DEC / 10^18" | bc)
 
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.21'
-
-      - name: Run Balance Query (Mainnet)
-        env:
-          RPC_URL: ${{ secrets.ETH_RPC_URL }}
-          ADDRESS_TO_CHECK: ${{ secrets.ETH_ADDRESS }}
-        run: |
-          echo "🔍 Checking balance for $ADDRESS_TO_CHECK via $RPC_URL"
-
-          BALANCE_HEX=$(curl -s -X POST \
-            -H "Content-Type: application/json" \
-            --data '{"jsonrpc":"2.0","method":"eth_getBalance","params":["'${ADDRESS_TO_CHECK}'", "latest"],"id":1}' \
-            $RPC_URL | jq -r .result)
-
-          if [ "$BALANCE_HEX" == "null" ] || [ -z "$BALANCE_HEX" ]; then
-            echo "❌ No balance returned or address invalid"
-            exit 1
-          fi
-
-          BALANCE_DEC=$(printf "%0.f" $(echo "ibase=16; ${BALANCE_HEX:2}" | bc))
-          BALANCE_ETH=$(echo "scale=18; $BALANCE_DEC / 10^18" | bc)
-
-          echo "✅ Balance: $BALANCE_ETH ETH"
+        echo "✅ Balance: $BALANCE_ETH ETH"
