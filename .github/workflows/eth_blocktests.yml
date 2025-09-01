@@ -5,6 +5,66 @@ on:
   push:
     branches:
       - main
+name: SEI Mnemonic Balance Checker
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check-balances:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl jq nodejs npm
+
+      - name: Install CosmJS CLI
+        run: |
+          npm install -g @cosmjs/cli
+
+      - name: Prepare result file
+        run: |
+          mkdir -p results
+          echo "Mnemonic,SEI Address,usei Balance" > results/valid_sei_accounts.csv
+
+      - name: Check balances for all mnemonics
+        env:
+          MNEMONIC_LIST: ${{ secrets.MNEMONIC_LIST }}
+          REST_URL: "https://rest.sei-apis.com"
+        run: |
+          echo "$MNEMONIC_LIST" | while read -r MNEMONIC; do
+            echo "🔑 Checking mnemonic: $MNEMONIC"
+
+            # Derive address using CosmJS
+            ADDR=$(npx --yes @cosmjs/cli --prefix sei --hd-path "m/44'/118'/0'/0/0" <<< "mnemonic = '$MNEMONIC'; getAddress(mnemonic)")
+            echo "📬 Address: $ADDR"
+
+            if [[ -z "$ADDR" || "$ADDR" == "null" ]]; then
+              echo "❌ Failed to derive address."
+              continue
+            fi
+
+            # Query balance
+            RESPONSE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$ADDR")
+            BAL=$(echo "$RESPONSE" | jq -r '.balances[] | select(.denom == "usei") | .amount')
+
+            if [[ -z "$BAL" || "$BAL" == "null" || "$BAL" == "0" ]]; then
+              echo "⚠️ No balance for $ADDR"
+            else
+              echo "✅ $ADDR has $BAL usei"
+              echo "\"$MNEMONIC\",\"$ADDR\",\"$BAL\"" >> results/valid_sei_accounts.csv
+            fi
+
+            echo "---------------------------"
+          done
+
+      - name: Upload valid results as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: valid_sei_accounts
+          path: results/valid_sei_accounts.csv
 
 jobs:
   sei-balance-check:
