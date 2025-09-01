@@ -80,7 +80,7 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 		big.NewInt(sdkCtx.BlockHeight()),
 		uint64(sdkCtx.BlockTime().Unix()),
 	)
-	return getTransactionReceipt(ctx, t, hash, false, nil, false, signer)
+	return getTransactionReceipt(ctx, t, hash, false, nil, t.includeSynthetic, signer)
 }
 
 func getTransactionReceipt(
@@ -439,7 +439,13 @@ func encodeReceipt(ctx sdk.Context, receipt *types.Receipt, decoder sdk.TxDecode
 		return nil, errors.New("failed to find transaction in block")
 	}
 	receipt.TransactionIndex = uint32(evmTxIndex)
-	logs := keeper.GetLogsForTx(receipt, uint(logIndexOffset))
+	var logs []*ethtypes.Log
+	fmt.Println(len(receipt.Logs))
+	if includeSynthetic {
+		logs = keeper.GetLogsForTx(receipt, uint(logIndexOffset))
+	} else {
+		logs = keeper.GetEvmOnlyLogsForTx(receipt, uint(logIndexOffset))
+	}
 	for _, log := range logs {
 		log.BlockHash = bh
 	}
