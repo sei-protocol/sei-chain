@@ -16,32 +16,92 @@ jobs:
       pull-requests: write
 
     steps:
+      # 1. Checkout PR HEAD with full history
       - name: Checkout PR HEAD (full history)
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
+      # 2. Setup Node.js (required for Codex CLI)
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
+      # 3. Install Codex CLI
       - name: Install Codex CLI
-        run: npm i -g @openai/codex
+        run: npm install -g @openai/codex
 
+      # 4. Compute merge-base diff and stat
       - name: Compute merge-base diff (compact)
         run: |
           set -euo pipefail
-          BASE_REF='${{ github.event.pull_request.base.ref }}'
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
           git fetch --no-tags origin "$BASE_REF":"refs/remotes/origin/$BASE_REF"
           MB=$(git merge-base "origin/$BASE_REF" HEAD)
           git diff --unified=0 "$MB"..HEAD > pr.diff
           git --no-pager diff --stat "$MB"..HEAD > pr.stat || true
 
+      # 5. Run Codex CLI or fallback
       - name: Build prompt and run Codex (guard + fallback)
+        id: codex_output
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          MAX=${MA
+          if command -v codex >/dev/null; then
+            codex pr \
+              --diff pr.diff \
+              --stat pr.stat \
+              --pr-url "$PR_URL" \
+              --pr-number "$PR_NUMBER" \
+              --max-output-tokens 6000 \
+              --no-guard \
+              --markdown > codex.md
+          else
+            {
+              echo "# Codex Fallback Review"
+              echo "PR: [#${PR_NUMBER}](${PR_URL})"
+              echo
+              echo "## Diff Stat"
+              echo '```'
+              cat pr.stat
+              echo '```'
+              echo
+              echo "## Diff (first 500 lines)"
+              echo '```diff'
+              head -n 500 pr.diff
+              echo '```'
+            } > codex.md
+          fi
+          echo "summary<<EOF" >> $GITHUB_OUTPUT
+          head -n 40 codex.md | sed 's/"/\\"/g' >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      # 6. Post summary to Slack
+      - name: Send to Slack
+        uses: slackapi/slack-github-action@v1.25.0
+        with:
+          payload: |
+            {
+              "text": "*Codex Review for PR #${{ github.event.pull_request.number }}*",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*<${{ github.event.pull_request.html_url }}|PR #${{ github.event.pull_request.number }}> Codex Review Summary*"
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "${{ steps.codex_output.outputs.summary }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
