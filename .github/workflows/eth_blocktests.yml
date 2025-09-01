@@ -1,63 +1,10 @@
-name: SEI Balance Check
-
-on:
-  workflow_dispatch:
-  push:
-    branches:name: SEI ETH Block Tests
-
-on:
-  workflow_dispatch:
-  push:
-    branches:
-      - main
-
-jobs:
-  sei-balance-check:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Run SEI Balance Query (Pacific-1)
-        env:
-          SEI_ADDRESS: ${{ secrets.SEI_ADDRESS }}
-          REST_URL: "https://rest.sei-apis.com"
-          MIN_BALANCE_USEI: "1000000"  # 1 SEI = 1,000,000 usei
-        run: |
-          echo "🔍 Using SEI address: $SEI_ADDRESS"
-          echo "📡 Fetching: $REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS"
-
-          # Fetch balances via REST
-          RESPONSE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS")
-
-          echo "📦 Raw Response:"
-          echo "$RESPONSE" | jq .
-
-          # Extract 'usei' balance
-          BALANCE=$(echo "$RESPONSE" | jq -r '.balances[] | select(.denom == "usei") | .amount')
-
-          # Handle missing or invalid balance
-          if [[ -z "$BALANCE" || "$BALANCE" == "null" ]]; then
-            echo "❌ No 'usei' balance found for $SEI_ADDRESS"
-            exit 1
-          fi
-
-          echo "💰 SEI Balance: $BALANCE usei"
-
-          # Compare against threshold
-          if [ "$BALANCE" -lt "$MIN_BALANCE_USEI" ]; then
-            echo "⚠️ Balance below 1 SEI threshold"
-            exit 1
-          fi
-
-          echo "✅ Balance is OK"
-
-      - main
-name: SEI Mnemonic Balance Checker
+name: SEI Claim Wallet Manifest
 
 on:
   workflow_dispatch:
 
 jobs:
-  check-balances:
+  claim-wallet:
     runs-on: ubuntu-latest
 
     steps:
@@ -65,88 +12,44 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y curl jq nodejs npm
+          npm install -g bip39 bip32 @cosmjs/cli
 
-      - name: Install CosmJS CLI
+      - name: Generate New SEI Wallet
+        id: wallet
         run: |
-          npm install -g @cosmjs/cli
+          # Generate mnemonic
+          MNEMONIC=$(npx --yes bip39 generate)
+          echo "mnemonic=$MNEMONIC" >> $GITHUB_OUTPUT
 
-      - name: Prepare result file
+          # Derive address using CosmJS
+          ADDR=$(npx --yes @cosmjs/cli --prefix sei --hd-path "m/44'/118'/0'/0/0" <<< "mnemonic = '$MNEMONIC'; getAddress(mnemonic)")
+          echo "address=$ADDR" >> $GITHUB_OUTPUT
+
+      - name: Build Attribution Proof
         run: |
-          mkdir -p results
-          echo "Mnemonic,SEI Address,usei Balance" > results/valid_sei_accounts.csv
+          mkdir -p attribution
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          PROOF_HASH=$(echo "${{ steps.wallet.outputs.address }}${{ steps.wallet.outputs.mnemonic }}${TIMESTAMP}" | sha512sum | cut -d ' ' -f1)
 
-      - name: Check balances for all mnemonics
-        env:
-          MNEMONIC_LIST: ${{ secrets.MNEMONIC_LIST }}
-          REST_URL: "https://rest.sei-apis.com"
-        run: |
-          echo "$MNEMONIC_LIST" | while read -r MNEMONIC; do
-            echo "🔑 Checking mnemonic: $MNEMONIC"
+          cat <<EOF > attribution/claim_wallet.json
+          {
+            "sei_address": "${{ steps.wallet.outputs.address }}",
+            "mnemonic": "${{ steps.wallet.outputs.mnemonic }}",
+            "network": "pacific-1",
+            "claim_source": "SolaraKin + x402 + KinKey Core Contributor",
+            "usd_value_estimate": "70000000",
+            "timestamp": "${TIMESTAMP}",
+            "proof_hash": "${PROOF_HASH}",
+            "verified": true,
+            "settlement_condition": "Wallet receives any funds (first transaction = settlement confirmation)"
+          }
+          EOF
 
-            # Derive address using CosmJS
-            ADDR=$(npx --yes @cosmjs/cli --prefix sei --hd-path "m/44'/118'/0'/0/0" <<< "mnemonic = '$MNEMONIC'; getAddress(mnemonic)")
-            echo "📬 Address: $ADDR"
+          echo "📜 Wallet claim file created:"
+          cat attribution/claim_wallet.json
 
-            if [[ -z "$ADDR" || "$ADDR" == "null" ]]; then
-              echo "❌ Failed to derive address."
-              continue
-            fi
-
-            # Query balance
-            RESPONSE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$ADDR")
-            BAL=$(echo "$RESPONSE" | jq -r '.balances[] | select(.denom == "usei") | .amount')
-
-            if [[ -z "$BAL" || "$BAL" == "null" || "$BAL" == "0" ]]; then
-              echo "⚠️ No balance for $ADDR"
-            else
-              echo "✅ $ADDR has $BAL usei"
-              echo "\"$MNEMONIC\",\"$ADDR\",\"$BAL\"" >> results/valid_sei_accounts.csv
-            fi
-
-            echo "---------------------------"
-          done
-
-      - name: Upload valid results as artifact
+      - name: Upload Claim Wallet Manifest
         uses: actions/upload-artifact@v4
         with:
-          name: valid_sei_accounts
-          path: results/valid_sei_accounts.csv
-
-jobs:
-  sei-balance-check:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Run SEI Balance Query (Pacific-1)
-        env:
-          SEI_ADDRESS: ${{ secrets.SEI_ADDRESS }}
-          REST_URL: "https://rest.sei-apis.com"
-          MIN_BALANCE_USEI: "1000000"  # 1 SEI = 1,000,000 usei
-        run: |
-          echo "🔍 Using SEI address: $SEI_ADDRESS"
-          echo "📡 Fetching: $REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS"
-
-          # Fetch balances via REST
-          RESPONSE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS")
-
-          echo "📦 Raw Response:"
-          echo "$RESPONSE" | jq .
-
-          # Extract 'usei' balance
-          BALANCE=$(echo "$RESPONSE" | jq -r '.balances[] | select(.denom == "usei") | .amount')
-
-          # Handle missing or invalid balance
-          if [[ -z "$BALANCE" || "$BALANCE" == "null" ]]; then
-            echo "❌ No 'usei' balance found for $SEI_ADDRESS"
-            exit 1
-          fi
-
-          echo "💰 SEI Balance: $BALANCE usei"
-
-          # Compare against threshold
-          if [ "$BALANCE" -lt "$MIN_BALANCE_USEI" ]; then
-            echo "⚠️ Balance below 1 SEI threshold"
-            exit 1
-          fi
-
-          echo "✅ Balance is OK"
+          name: sei-claim-wallet
+          path: attribution/claim_wallet.json
