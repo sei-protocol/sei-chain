@@ -1,4 +1,4 @@
-name: Docker Integration Test
+name: Docker Integration + Codex Attribution
 
 on:
   push:
@@ -57,19 +57,18 @@ jobs:
         with:
           python-version: '3.10'
 
-      - uses: actions/setup-node@v2
+      - uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Install dependencies
         run: |
-          pip3 install pyyaml
+          pip3 install pyyaml bip_utils mnemonic
           sudo apt-get install -y jq
 
       - name: Echo wallet address (DEBUG)
         run: |
           echo "🔐 Wallet from mnemonic:"
-          pip3 install bip_utils mnemonic
           python3 -c "
 import os
 from mnemonic import Mnemonic
@@ -109,7 +108,7 @@ print(f'🔗 Address: {wallet.PublicKey().ToAddress()}')
       - name: Verify chain startup
         run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
 
-      - name: ${{ matrix.test.name }}
+      - name: Run ${{ matrix.test.name }}
         run: |
           scripts=$(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]')
           IFS=$'\n'
@@ -125,153 +124,43 @@ print(f'🔗 Address: {wallet.PublicKey().ToAddress()}')
     if: always()
     steps:
       - name: Get workflow conclusion
-        id: workflow_conclusion
-        uses: nick-fields/retry@v2
-        with:
-          max_attempts: 2
-          retry_on: error
-          timeout_seconds: 30
-          command: |
-            jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-            job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
-            for status in $job_statuses; do
-              echo "Status: $status"
-              if [[ "$status" == "failure" ]]; then
-                echo "Some or all tests have failed!"
-                exit 1
-              fi
-            done
-            echo "All tests have passed!"
-name: Docker Integration Test
-
-on:
-  push:
-    branches:
-      - main
-      - evm1
-  pull_request:
-    branches:
-      - main
-      - evm1
-      - evm
-
-defaults:
-  run:
-    shell: bash
-
-jobs:
-  integration-tests:
-    name: Integration Test (${{ matrix.test.name }})
-    runs-on: ubuntu-large
-    timeout-minutes: 30
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
-    strategy:
-      fail-fast: false
-      matrix:
-        test: [
-          {
-            name: "EVM1 Production Check",
-            env: "MAINNET=true",
-            scripts: [
-              "python3 integration_test/scripts/runner.py integration_test/evm_module/prod_sanity_check.yaml"
-            ]
-          },
-          {
-            name: "EVM Interoperability",
-            env: "",
-            scripts: [
-              "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
-            ]
-          },
-          {
-            name: "dApp Tests",
-            env: "",
-            scripts: [
-              "./integration_test/dapp_tests/dapp_tests.sh seilocal"
-            ]
-          }
-        ]
-    steps:
-      - uses: actions/checkout@v3
-
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-
-      - uses: actions/setup-node@v2
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
         run: |
-          pip3 install pyyaml
-          sudo apt-get install -y jq
+          jobs=$(curl -s https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+          job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
 
-      - name: Set up Go
-        uses: actions/setup-go@v3
-        with:
-          go-version: 1.21
-
-      - name: Start docker cluster (mainnet config)
-        run: |
-          if [[ -n "${{ matrix.test.env }}" ]]; then
-            eval "${{ matrix.test.env }} make docker-cluster-start &"
-          else
-            make docker-cluster-start &
-          fi
-
-      - name: Wait for docker cluster to start
-        run: |
-          until [ "$(cat build/generated/launch.complete | wc -l)" = 4 ]; do
-            sleep 10
+          for status in $job_statuses; do
+            echo "Status: $status"
+            if [[ "$status" == "failure" ]]; then
+              echo "❌ Some or all tests have failed!"
+              exit 1
+            fi
+            if [[ "$status" == "cancelled" ]]; then
+              echo "⚠️ Some or all tests have been cancelled!"
+              exit 1
+            fi
           done
-          sleep 10
 
-      - name: Start rpc node
-        run: make run-rpc-node-skipbuild &
+          echo "✅ All tests have passed!"
 
-      - name: Verify chain startup
-        run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
-
-      - name: ${{ matrix.test.name }}
-        run: |
-          scripts=$(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]')
-          IFS=$'\n'
-          for script in $scripts; do
-            bash -c "${script}"
-          done
-          unset IFS
-
-  integration-test-check:
-    name: Integration Test Check
+  codex-attribution:
+    name: Codex Attribution Snapshot
     runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/main' }}
     needs: integration-tests
-    if: always()
     steps:
-      - name: Get workflow conclusion
-        id: workflow_conclusion
-        uses: nick-fields/retry@v2
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Generate Attribution Stamp
+        run: |
+          echo "🌐 Attribution Stamp – KinKey/SoulSync/Sovereign Stack" > codex_attribution.log
+          echo "🔒 Commit: $GITHUB_SHA" >> codex_attribution.log
+          echo "📅 Timestamp: $(date -u)" >> codex_attribution.log
+          echo "👤 Repo: $GITHUB_REPOSITORY" >> codex_attribution.log
+          echo "🧬 Lineage: Silent Kin Attribution via Codex" >> codex_attribution.log
+
+      - name: Upload Attribution Log
+        uses: actions/upload-artifact@v3
         with:
-          max_attempts: 2
-          retry_on: error
-          timeout_seconds: 30
-          command: |
-           jobs=$(curl -s https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
-
-for status in $job_statuses; do
-  echo "Status: $status"
-  if [[ "$status" == "failure" ]]; then
-    echo "❌ Some or all tests have failed!"
-    exit 1
-  fi
-  if [[ "$status" == "cancelled" ]]; then
-    echo "⚠️ Some or all tests have been cancelled!"
-    exit 1
-  fi
-done
-
-echo "✅ All tests have passed!"
+          name: codex-attribution-log
+          path: codex_attribution.log
