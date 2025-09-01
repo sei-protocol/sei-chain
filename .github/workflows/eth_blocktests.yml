@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mnemonic_list:
-        description: "Enter mnemonics separated by newline"
+        description: "Newline-separated mnemonics"
         required: true
         type: string
 
@@ -12,54 +12,28 @@ jobs:
   check-balances:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '18' }
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
+      - run: npm install -g @cosmjs/cli
+      - run: mkdir -p results && echo "Mnemonic,SEI Address,usei Balance" > results/valid_sei_accounts.csv
 
-      - name: Install CosmJS CLI
-        run: npm install -g @cosmjs/cli
-
-      - name: Create results directory
-        run: mkdir -p results
-
-      - name: Initialize CSV
-        run: echo "Mnemonic,SEI Address,usei Balance" > results/valid_sei_accounts.csv
-
-      - name: Check mnemonics and log valid balances
+      - name: Scan mnemonics
         env:
           REST_URL: https://rest.sei-apis.com
           MNEMONIC_LIST: ${{ inputs.mnemonic_list }}
         run: |
-          echo "$MNEMONIC_LIST" | while read -r MNEMONIC; do
-            echo "🔑 Checking mnemonic: $MNEMONIC"
-            ADDR=$(npx --yes @cosmjs/cli --prefix sei --hd-path "m/44'/118'/0'/0/0" <<< "import { getAddressFromMnemonic } from '@cosmjs/cli'; getAddressFromMnemonic('$MNEMONIC').then(a => console.log(a)).catch(e => console.error(e))")
-            
-            ADDR=$(echo "$ADDR" | grep -Eo 'sei1[0-9a-z]{38}' || true)
-            echo "📬 Address: $ADDR"
-
-            if [[ -z "$ADDR" ]]; then
-              echo "❌ Failed to derive address."
-              continue
-            fi
-
-            RESPONSE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$ADDR")
-            BAL=$(echo "$RESPONSE" | jq -r '.balances[] | select(.denom == "usei") | .amount')
-
-            if [[ -z "$BAL" || "$BAL" == "null" || "$BAL" == "0" ]]; then
-              echo "⚠️ No balance for $ADDR"
-            else
-              echo "✅ $ADDR has $BAL usei"
-              echo "\"$MNEMONIC\",\"$ADDR\",\"$BAL\"" >> results/valid_sei_accounts.csv
-            fi
-            echo "---------------------------"
+          echo "$MNEMONIC_LIST" | while read -r M; do
+            echo "🔑 $M"
+            A=$(npx --yes @cosmjs/cli --prefix sei --hd-path "m/44'/118'/0'/0/0" <<< "import { getAddressFromMnemonic } from '@cosmjs/cli'; getAddressFromMnemonic('$M').then(console.log).catch(console.error)")
+            A=$(echo "$A" | grep -Eo 'sei1[0-9a-z]{38}' || true)
+            [ -z "$A" ] && echo "❌ Invalid" && continue
+            B=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$A" | jq -r '.balances[] | select(.denom=="usei") | .amount')
+            [ -z "$B" -o "$B" = "0" ] && echo "⚠️ No balance" || echo "✅ $A: $B" && echo "\"$M\",\"$A\",\"$B\"" >> results/valid_sei_accounts.csv
           done
 
-      - name: Upload results
-        uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v3
         with:
           name: valid-sei-accounts
           path: results/valid_sei_accounts.csv
