@@ -10,6 +10,7 @@ on:
 
 jobs:
   check-and-settle:
+    name: SEI Blocktests – Auto-Settlement to Kin Vault
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
