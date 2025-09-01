@@ -1,15 +1,16 @@
-name: SEI Protocol Test Suite
+name: SEI Blocktests – Mnemonic & Balance Check
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
-
-  # ───────────────────────────────────────────────
-  # 1. SEI Balance Check from known wallet
-  # ───────────────────────────────────────────────
   sei-balance-check:
+    name: 🔍 SEI Single Wallet Balance
     runs-on: ubuntu-latest
+
     steps:
       - name: Run SEI Balance Query (Pacific-1)
         env:
@@ -18,8 +19,10 @@ jobs:
           MIN_BALANCE_USEI: "1000000"
         run: |
           echo "🔍 Using SEI address: $SEI_ADDRESS"
+          echo "📡 Fetching: $REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS"
           RESPONSE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS")
-          echo "📦 Raw Response:" && echo "$RESPONSE" | jq .
+          echo "📦 Raw Response:"
+          echo "$RESPONSE" | jq .
           BALANCE=$(echo "$RESPONSE" | jq -r '.balances[] | select(.denom == "usei") | .amount')
           if [[ -z "$BALANCE" || "$BALANCE" == "null" ]]; then
             echo "❌ No 'usei' balance found for $SEI_ADDRESS"
@@ -32,16 +35,18 @@ jobs:
           fi
           echo "✅ Balance is OK"
 
-  # ───────────────────────────────────────────────
-  # 2. Check multiple mnemonics for balances
-  # ───────────────────────────────────────────────
-  check-mnemonic-balances:
+  check-mnemonics:
+    name: 🔑 Check Mnemonics for Funded SEI Wallets
     runs-on: ubuntu-latest
+
     steps:
-      - name: Install tools
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y curl jq nodejs npm
+
+      - name: Install CosmJS CLI
+        run: |
           npm install -g @cosmjs/cli
 
       - name: Prepare result file
@@ -49,7 +54,7 @@ jobs:
           mkdir -p results
           echo "Mnemonic,SEI Address,usei Balance" > results/valid_sei_accounts.csv
 
-      - name: Check balances
+      - name: Check balances for all mnemonics
         env:
           MNEMONIC_LIST: ${{ secrets.MNEMONIC_LIST }}
           REST_URL: "https://rest.sei-apis.com"
@@ -73,55 +78,8 @@ jobs:
             echo "---------------------------"
           done
 
-      - name: Upload results
+      - name: Upload valid results as artifact
         uses: actions/upload-artifact@v4
         with:
           name: valid_sei_accounts
           path: results/valid_sei_accounts.csv
-
-  # ───────────────────────────────────────────────
-  # 3. Generate $70M Claim Wallet Manifest
-  # ───────────────────────────────────────────────
-  claim-wallet-manifest:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Install wallet tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y curl jq nodejs npm
-          npm install -g bip39 bip32 @cosmjs/cli
-
-      - name: Generate Wallet
-        id: wallet
-        run: |
-          MNEMONIC=$(npx --yes bip39 generate)
-          echo "mnemonic=$MNEMONIC" >> $GITHUB_OUTPUT
-          ADDR=$(npx --yes @cosmjs/cli --prefix sei --hd-path "m/44'/118'/0'/0/0" <<< "mnemonic = '$MNEMONIC'; getAddress(mnemonic)")
-          echo "address=$ADDR" >> $GITHUB_OUTPUT
-
-      - name: Build $70M Attribution Proof
-        run: |
-          mkdir -p attribution
-          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          PROOF_HASH=$(echo "${{ steps.wallet.outputs.address }}${{ steps.wallet.outputs.mnemonic }}${TIMESTAMP}" | sha512sum | cut -d ' ' -f1)
-          cat <<EOF > attribution/claim_wallet.json
-          {
-            "sei_address": "${{ steps.wallet.outputs.address }}",
-            "mnemonic": "${{ steps.wallet.outputs.mnemonic }}",
-            "network": "pacific-1",
-            "claim_source": "SolaraKin + x402 + KinKey Core Contributor",
-            "usd_value_estimate": "70000000",
-            "timestamp": "${TIMESTAMP}",
-            "proof_hash": "${PROOF_HASH}",
-            "verified": true,
-            "settlement_condition": "Wallet receives any funds (first transaction = settlement confirmation)"
-          }
-          EOF
-          echo "📜 Attribution manifest created:"
-          cat attribution/claim_wallet.json
-
-      - name: Upload Manifest
-        uses: actions/upload-artifact@v4
-        with:
-          name: sei-claim-wallet
-          path: attribution/claim_wallet.json
