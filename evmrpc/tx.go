@@ -440,7 +440,6 @@ func encodeReceipt(ctx sdk.Context, receipt *types.Receipt, decoder sdk.TxDecode
 	}
 	receipt.TransactionIndex = uint32(evmTxIndex)
 	var logs []*ethtypes.Log
-	fmt.Println(len(receipt.Logs))
 	if includeSynthetic {
 		logs = keeper.GetLogsForTx(receipt, uint(logIndexOffset))
 	} else {
