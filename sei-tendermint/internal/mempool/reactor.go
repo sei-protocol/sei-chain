@@ -128,10 +128,10 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, envelope *p2p.Envelo
 
 	switch msg := envelope.Message.(type) {
 	case *protomem.Txs:
-		protoTxs := msg.GetTxs()
-		if len(protoTxs) == 0 {
-			return errors.New("empty txs received from peer")
+		if err := msg.Validate(); err != nil {
+			return err
 		}
+		protoTxs := msg.GetTxs()
 
 		txInfo := TxInfo{SenderID: r.ids.GetForPeer(envelope.From)}
 		if len(envelope.From) != 0 {
