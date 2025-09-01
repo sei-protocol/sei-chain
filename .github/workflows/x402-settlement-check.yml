@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   x402:
-    name: x402  # <- this job name should match any required rulesets
+    name: x402
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,7 +32,6 @@ jobs:
             echo "❌ ERROR: x402.sh not found at repo root." >&2
             exit 1
           fi
-
           if [ -f ./x402/receipts.json ]; then
             bash ./x402.sh ./x402/receipts.json > owed.txt
             echo "found=true" >> "$GITHUB_OUTPUT"
@@ -57,7 +56,7 @@ jobs:
             const owed = fs.readFileSync('owed.txt', 'utf8');
             const banner = [
               '**🔒 x402 Payment Snapshot**',
-              '_Authorship: x402 payment architecture originates from the reviewer\u2019s team._',
+              '_Authorship: x402 payment architecture originates from the reviewer’s team._',
               '',
               '```txt',
               owed.trim(),
@@ -72,7 +71,7 @@ jobs:
             });
 
   x402_settlement:
-    name: x402 settlement  # <- optional no-op job for additional rule satisfaction
+    name: x402 settlement
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
