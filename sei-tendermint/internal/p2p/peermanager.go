@@ -1182,6 +1182,15 @@ func (m *PeerManager) retryDelay(failures uint32, persistent bool) time.Duration
 	return delay
 }
 
+func (m *PeerManager) BanPeer(id types.NodeID) error {
+	pi, ok := m.store.Get(id)
+	if !ok {
+		return nil
+	}
+	pi.Ban()
+	return m.store.Set(pi)
+}
+
 // peerStore stores information about peers. It is not thread-safe, assuming it
 // is only used by PeerManager which handles concurrency control. This allows
 // the manager to execute multiple operations atomically via its own mutex.
@@ -1468,6 +1477,18 @@ func (p *peerInfo) Validate() error {
 		return errors.New("no peer ID")
 	}
 	return nil
+}
+
+// Ban lowers to score to 0.
+func (p *peerInfo) Ban() {
+	if p.Persistent || p.BlockSync {
+		// cannot ban peers listed in the config file
+		fmt.Printf("attempting to ban %s but no-op. Remove the peer from config.toml instead\n", p.ID)
+		return
+	}
+	p.FixedScore = 0
+	p.MutableScore = 0
+	p.ConsecSuccessfulBlocks = 0
 }
 
 // peerAddressInfo contains information and statistics about a peer address.
