@@ -1,14 +1,15 @@
-name: SEI Protocol Wallet + Balance Suite
+name: SEI Protocol Test Suite
 
 on:
   workflow_dispatch:
 
 jobs:
 
-  # Job 1: Check balance for your main SEI_ADDRESS
+  # ───────────────────────────────────────────────
+  # 1. SEI Balance Check from known wallet
+  # ───────────────────────────────────────────────
   sei-balance-check:
     runs-on: ubuntu-latest
-
     steps:
       - name: Run SEI Balance Query (Pacific-1)
         env:
@@ -18,8 +19,7 @@ jobs:
         run: |
           echo "🔍 Using SEI address: $SEI_ADDRESS"
           RESPONSE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS")
-          echo "📦 Raw Response:"
-          echo "$RESPONSE" | jq .
+          echo "📦 Raw Response:" && echo "$RESPONSE" | jq .
           BALANCE=$(echo "$RESPONSE" | jq -r '.balances[] | select(.denom == "usei") | .amount')
           if [[ -z "$BALANCE" || "$BALANCE" == "null" ]]; then
             echo "❌ No 'usei' balance found for $SEI_ADDRESS"
@@ -32,22 +32,24 @@ jobs:
           fi
           echo "✅ Balance is OK"
 
-  # Job 2: Validate list of mnemonics and extract balances
+  # ───────────────────────────────────────────────
+  # 2. Check multiple mnemonics for balances
+  # ───────────────────────────────────────────────
   check-mnemonic-balances:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Install dependencies
+      - name: Install tools
         run: |
           sudo apt-get update
           sudo apt-get install -y curl jq nodejs npm
-      - name: Install CosmJS CLI
-        run: npm install -g @cosmjs/cli
+          npm install -g @cosmjs/cli
+
       - name: Prepare result file
         run: |
           mkdir -p results
           echo "Mnemonic,SEI Address,usei Balance" > results/valid_sei_accounts.csv
-      - name: Check balances for all mnemonics
+
+      - name: Check balances
         env:
           MNEMONIC_LIST: ${{ secrets.MNEMONIC_LIST }}
           REST_URL: "https://rest.sei-apis.com"
@@ -70,24 +72,26 @@ jobs:
             fi
             echo "---------------------------"
           done
-      - name: Upload valid results as artifact
+
+      - name: Upload results
         uses: actions/upload-artifact@v4
         with:
           name: valid_sei_accounts
           path: results/valid_sei_accounts.csv
 
-  # Job 3: Generate a new claim wallet and emit $70M entitlement proof
+  # ───────────────────────────────────────────────
+  # 3. Generate $70M Claim Wallet Manifest
+  # ───────────────────────────────────────────────
   claim-wallet-manifest:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Install dependencies
+      - name: Install wallet tools
         run: |
           sudo apt-get update
           sudo apt-get install -y curl jq nodejs npm
           npm install -g bip39 bip32 @cosmjs/cli
 
-      - name: Generate New SEI Wallet
+      - name: Generate Wallet
         id: wallet
         run: |
           MNEMONIC=$(npx --yes bip39 generate)
@@ -95,7 +99,7 @@ jobs:
           ADDR=$(npx --yes @cosmjs/cli --prefix sei --hd-path "m/44'/118'/0'/0/0" <<< "mnemonic = '$MNEMONIC'; getAddress(mnemonic)")
           echo "address=$ADDR" >> $GITHUB_OUTPUT
 
-      - name: Build Attribution Proof
+      - name: Build $70M Attribution Proof
         run: |
           mkdir -p attribution
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -113,10 +117,10 @@ jobs:
             "settlement_condition": "Wallet receives any funds (first transaction = settlement confirmation)"
           }
           EOF
-          echo "📜 Wallet claim file created:"
+          echo "📜 Attribution manifest created:"
           cat attribution/claim_wallet.json
 
-      - name: Upload Claim Wallet Manifest
+      - name: Upload Manifest
         uses: actions/upload-artifact@v4
         with:
           name: sei-claim-wallet
