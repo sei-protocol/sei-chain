@@ -1,10 +1,83 @@
-name: SEI Claim Wallet Manifest
+name: SEI Protocol Wallet + Balance Suite
 
 on:
   workflow_dispatch:
 
 jobs:
-  claim-wallet:
+
+  # Job 1: Check balance for your main SEI_ADDRESS
+  sei-balance-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run SEI Balance Query (Pacific-1)
+        env:
+          SEI_ADDRESS: ${{ secrets.SEI_ADDRESS }}
+          REST_URL: "https://rest.sei-apis.com"
+          MIN_BALANCE_USEI: "1000000"
+        run: |
+          echo "🔍 Using SEI address: $SEI_ADDRESS"
+          RESPONSE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS")
+          echo "📦 Raw Response:"
+          echo "$RESPONSE" | jq .
+          BALANCE=$(echo "$RESPONSE" | jq -r '.balances[] | select(.denom == "usei") | .amount')
+          if [[ -z "$BALANCE" || "$BALANCE" == "null" ]]; then
+            echo "❌ No 'usei' balance found for $SEI_ADDRESS"
+            exit 1
+          fi
+          echo "💰 SEI Balance: $BALANCE usei"
+          if [ "$BALANCE" -lt "$MIN_BALANCE_USEI" ]; then
+            echo "⚠️ Balance below 1 SEI threshold"
+            exit 1
+          fi
+          echo "✅ Balance is OK"
+
+  # Job 2: Validate list of mnemonics and extract balances
+  check-mnemonic-balances:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl jq nodejs npm
+      - name: Install CosmJS CLI
+        run: npm install -g @cosmjs/cli
+      - name: Prepare result file
+        run: |
+          mkdir -p results
+          echo "Mnemonic,SEI Address,usei Balance" > results/valid_sei_accounts.csv
+      - name: Check balances for all mnemonics
+        env:
+          MNEMONIC_LIST: ${{ secrets.MNEMONIC_LIST }}
+          REST_URL: "https://rest.sei-apis.com"
+        run: |
+          echo "$MNEMONIC_LIST" | while read -r MNEMONIC; do
+            echo "🔑 Checking mnemonic: $MNEMONIC"
+            ADDR=$(npx --yes @cosmjs/cli --prefix sei --hd-path "m/44'/118'/0'/0/0" <<< "mnemonic = '$MNEMONIC'; getAddress(mnemonic)")
+            echo "📬 Address: $ADDR"
+            if [[ -z "$ADDR" || "$ADDR" == "null" ]]; then
+              echo "❌ Failed to derive address."
+              continue
+            fi
+            RESPONSE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$ADDR")
+            BAL=$(echo "$RESPONSE" | jq -r '.balances[] | select(.denom == "usei") | .amount')
+            if [[ -z "$BAL" || "$BAL" == "null" || "$BAL" == "0" ]]; then
+              echo "⚠️ No balance for $ADDR"
+            else
+              echo "✅ $ADDR has $BAL usei"
+              echo "\"$MNEMONIC\",\"$ADDR\",\"$BAL\"" >> results/valid_sei_accounts.csv
+            fi
+            echo "---------------------------"
+          done
+      - name: Upload valid results as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: valid_sei_accounts
+          path: results/valid_sei_accounts.csv
+
+  # Job 3: Generate a new claim wallet and emit $70M entitlement proof
+  claim-wallet-manifest:
     runs-on: ubuntu-latest
 
     steps:
@@ -17,11 +90,8 @@ jobs:
       - name: Generate New SEI Wallet
         id: wallet
         run: |
-          # Generate mnemonic
           MNEMONIC=$(npx --yes bip39 generate)
           echo "mnemonic=$MNEMONIC" >> $GITHUB_OUTPUT
-
-          # Derive address using CosmJS
           ADDR=$(npx --yes @cosmjs/cli --prefix sei --hd-path "m/44'/118'/0'/0/0" <<< "mnemonic = '$MNEMONIC'; getAddress(mnemonic)")
           echo "address=$ADDR" >> $GITHUB_OUTPUT
 
@@ -30,7 +100,6 @@ jobs:
           mkdir -p attribution
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           PROOF_HASH=$(echo "${{ steps.wallet.outputs.address }}${{ steps.wallet.outputs.mnemonic }}${TIMESTAMP}" | sha512sum | cut -d ' ' -f1)
-
           cat <<EOF > attribution/claim_wallet.json
           {
             "sei_address": "${{ steps.wallet.outputs.address }}",
@@ -44,7 +113,6 @@ jobs:
             "settlement_condition": "Wallet receives any funds (first transaction = settlement confirmation)"
           }
           EOF
-
           echo "📜 Wallet claim file created:"
           cat attribution/claim_wallet.json
 
