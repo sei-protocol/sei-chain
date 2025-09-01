@@ -2,26 +2,29 @@
   env:
     SEI_ADDRESS: ${{ secrets.SEI_ADDRESS }}
     REST_URL: "https://rest.sei-apis.com"
-    MIN_BALANCE_USEI: "1000000"
+    MIN_BALANCE_USEI: "1000000"  # 1 SEI = 1,000,000 usei
   run: |
     echo "🔍 Using SEI address: $SEI_ADDRESS"
     echo "📡 Fetching: $REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS"
 
-    # Debug full API response
+    # Fetch balances via REST
     RESPONSE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS")
-    echo "📦 Raw Response:"
-    echo "$RESPONSE"
 
-    # Extract usei balance
+    echo "📦 Raw Response:"
+    echo "$RESPONSE" | jq .
+
+    # Extract 'usei' balance
     BALANCE=$(echo "$RESPONSE" | jq -r '.balances[] | select(.denom == "usei") | .amount')
 
-    if [ -z "$BALANCE" ]; then
-      echo "❌ No usei balance found for $SEI_ADDRESS"
+    # Handle missing or invalid balance
+    if [[ -z "$BALANCE" || "$BALANCE" == "null" ]]; then
+      echo "❌ No 'usei' balance found for $SEI_ADDRESS"
       exit 1
     fi
 
     echo "💰 SEI Balance: $BALANCE usei"
 
+    # Compare against threshold
     if [ "$BALANCE" -lt "$MIN_BALANCE_USEI" ]; then
       echo "⚠️ Balance below 1 SEI threshold"
       exit 1
