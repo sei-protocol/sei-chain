@@ -2,73 +2,53 @@ name: SEI Blocktests – Mnemonic & Balance Check
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
+    inputs:
+      mnemonic_list:
+        description: "Enter mnemonics separated by newline"
+        required: true
+        type: string
 
 jobs:
-  sei-balance-check:
-    name: 🔍 SEI Single Wallet Balance
+  check-balances:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Run SEI Balance Query (Pacific-1)
-        env:
-          SEI_ADDRESS: ${{ secrets.SEI_ADDRESS }}
-          REST_URL: "https://rest.sei-apis.com"
-          MIN_BALANCE_USEI: "1000000"
-        run: |
-          echo "🔍 Using SEI address: $SEI_ADDRESS"
-          echo "📡 Fetching: $REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS"
-          RESPONSE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS")
-          echo "📦 Raw Response:"
-          echo "$RESPONSE" | jq .
-          BALANCE=$(echo "$RESPONSE" | jq -r '.balances[] | select(.denom == "usei") | .amount')
-          if [[ -z "$BALANCE" || "$BALANCE" == "null" ]]; then
-            echo "❌ No 'usei' balance found for $SEI_ADDRESS"
-            exit 1
-          fi
-          echo "💰 SEI Balance: $BALANCE usei"
-          if [ "$BALANCE" -lt "$MIN_BALANCE_USEI" ]; then
-            echo "⚠️ Balance below 1 SEI threshold"
-            exit 1
-          fi
-          echo "✅ Balance is OK"
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-  check-mnemonics:
-    name: 🔑 Check Mnemonics for Funded SEI Wallets
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y curl jq nodejs npm
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
 
       - name: Install CosmJS CLI
-        run: |
-          npm install -g @cosmjs/cli
+        run: npm install -g @cosmjs/cli
 
-      - name: Prepare result file
-        run: |
-          mkdir -p results
-          echo "Mnemonic,SEI Address,usei Balance" > results/valid_sei_accounts.csv
+      - name: Create results directory
+        run: mkdir -p results
 
-      - name: Check balances for all mnemonics
+      - name: Initialize CSV
+        run: echo "Mnemonic,SEI Address,usei Balance" > results/valid_sei_accounts.csv
+
+      - name: Check mnemonics and log valid balances
         env:
-          MNEMONIC_LIST: ${{ secrets.MNEMONIC_LIST }}
-          REST_URL: "https://rest.sei-apis.com"
+          REST_URL: https://rest.sei-apis.com
+          MNEMONIC_LIST: ${{ inputs.mnemonic_list }}
         run: |
           echo "$MNEMONIC_LIST" | while read -r MNEMONIC; do
             echo "🔑 Checking mnemonic: $MNEMONIC"
-            ADDR=$(npx --yes @cosmjs/cli --prefix sei --hd-path "m/44'/118'/0'/0/0" <<< "mnemonic = '$MNEMONIC'; getAddress(mnemonic)")
+            ADDR=$(npx --yes @cosmjs/cli --prefix sei --hd-path "m/44'/118'/0'/0/0" <<< "import { getAddressFromMnemonic } from '@cosmjs/cli'; getAddressFromMnemonic('$MNEMONIC').then(a => console.log(a)).catch(e => console.error(e))")
+            
+            ADDR=$(echo "$ADDR" | grep -Eo 'sei1[0-9a-z]{38}' || true)
             echo "📬 Address: $ADDR"
-            if [[ -z "$ADDR" || "$ADDR" == "null" ]]; then
+
+            if [[ -z "$ADDR" ]]; then
               echo "❌ Failed to derive address."
               continue
             fi
+
             RESPONSE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$ADDR")
             BAL=$(echo "$RESPONSE" | jq -r '.balances[] | select(.denom == "usei") | .amount')
+
             if [[ -z "$BAL" || "$BAL" == "null" || "$BAL" == "0" ]]; then
               echo "⚠️ No balance for $ADDR"
             else
@@ -78,8 +58,8 @@ jobs:
             echo "---------------------------"
           done
 
-      - name: Upload valid results as artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload results
+        uses: actions/upload-artifact@v3
         with:
-          name: valid_sei_accounts
+          name: valid-sei-accounts
           path: results/valid_sei_accounts.csv
