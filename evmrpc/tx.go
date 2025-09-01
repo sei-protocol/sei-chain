@@ -38,6 +38,7 @@ type TransactionAPI struct {
 	txConfigProvider func(int64) client.TxConfig
 	homeDir          string
 	connectionType   ConnectionType
+	includeSynthetic bool
 }
 
 type SeiTransactionAPI struct {
@@ -58,7 +59,9 @@ func NewSeiTransactionAPI(
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 ) *SeiTransactionAPI {
-	return &SeiTransactionAPI{TransactionAPI: NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType), isPanicTx: isPanicTx}
+	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType)
+	baseAPI.includeSynthetic = true
+	return &SeiTransactionAPI{TransactionAPI: baseAPI, isPanicTx: isPanicTx}
 }
 
 func (t *SeiTransactionAPI) GetTransactionReceiptExcludeTraceFail(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
@@ -78,7 +81,7 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 		big.NewInt(sdkCtx.BlockHeight()),
 		uint64(sdkCtx.BlockTime().Unix()),
 	)
-	return getTransactionReceipt(ctx, t, hash, false, nil, false, signer)
+	return getTransactionReceipt(ctx, t, hash, false, nil, t.includeSynthetic, signer)
 }
 
 func getTransactionReceipt(
@@ -401,7 +404,13 @@ func encodeReceipt(ctx sdk.Context, receipt *types.Receipt, decoder sdk.TxDecode
 		return nil, errors.New("failed to find transaction in block")
 	}
 	receipt.TransactionIndex = uint32(evmTxIndex)
-	logs := keeper.GetLogsForTx(receipt, uint(logIndexOffset))
+	var logs []*ethtypes.Log
+	fmt.Println(len(receipt.Logs))
+	if includeSynthetic {
+		logs = keeper.GetLogsForTx(receipt, uint(logIndexOffset))
+	} else {
+		logs = keeper.GetEvmOnlyLogsForTx(receipt, uint(logIndexOffset))
+	}
 	for _, log := range logs {
 		log.BlockHash = bh
 	}
