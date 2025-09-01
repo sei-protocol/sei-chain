@@ -796,16 +796,7 @@ func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log) []*ethtypes.Log 
 // Pooled version that reuses slice allocation
 func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, result *[]*ethtypes.Log) {
 	collector := &pooledCollector{logs: result}
-
-	// Store the initial count to identify newly added logs
-	initialCount := len(*result)
-
 	f.collectLogs(block, crit, filters, collector, true) // Apply exact matching
-
-	// Set block hash for all newly added logs
-	for i := initialCount; i < len(*result); i++ {
-		(*result)[i].BlockHash = common.BytesToHash(block.BlockID.Hash)
-	}
 }
 
 func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCriteria) bool {
@@ -821,7 +812,7 @@ func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCrite
 
 // Unified log collection logic
 func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, collector logCollector, applyExactMatch bool) {
-	ctx := f.ctxProvider(LatestCtxHeight)
+	ctx := f.ctxProvider(block.Block.Height)
 	totalLogs := uint(0)
 	evmTxIndex := 0
 
@@ -836,39 +827,63 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 				}
 				continue
 			}
+			if int64(receipt.BlockNumber) != block.Block.Height {
+				if !f.includeSyntheticReceipts {
+					ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height))
+					continue
+				}
+			}
 			setCachedReceipt(block.Block.Height, block, hash, receipt)
+		}
+
+		if int64(receipt.BlockNumber) != block.Block.Height {
+			if !f.includeSyntheticReceipts {
+				ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height))
+				continue
+			}
 		}
 
 		if !f.includeSyntheticReceipts && (receipt.TxType == evmtypes.ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
 			continue
 		}
 
-		// Apply bloom filter
+		var txLogs []*ethtypes.Log
+		if f.includeSyntheticReceipts {
+			txLogs = keeper.GetLogsForTx(receipt, totalLogs)
+		} else {
+			txLogs = keeper.GetEvmOnlyLogsForTx(receipt, totalLogs)
+		}
+
 		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
-			if len(receipt.LogsBloom) > 0 && MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
-				allLogs := keeper.GetLogsForTx(receipt, totalLogs)
+			if len(receipt.LogsBloom) == 0 || MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
 				if applyExactMatch {
-					for _, log := range allLogs {
+					for _, log := range txLogs {
 						log.TxIndex = uint(evmTxIndex)
+						log.BlockNumber = uint64(block.Block.Height)
+						log.BlockHash = common.BytesToHash(block.BlockID.Hash)
 						if f.IsLogExactMatch(log, crit) {
 							collector.Append(log)
 						}
 					}
 				} else {
-					for _, log := range allLogs {
+					for _, log := range txLogs {
 						log.TxIndex = uint(evmTxIndex)
+						log.BlockNumber = uint64(block.Block.Height)
+						log.BlockHash = common.BytesToHash(block.BlockID.Hash)
 						collector.Append(log)
 					}
 				}
 			}
 		} else {
-			// No filter, return all logs
-			for _, log := range keeper.GetLogsForTx(receipt, totalLogs) {
+			for _, log := range txLogs {
 				log.TxIndex = uint(evmTxIndex)
+				log.BlockNumber = uint64(block.Block.Height)
+				log.BlockHash = common.BytesToHash(block.BlockID.Hash)
 				collector.Append(log)
 			}
 		}
-		totalLogs += uint(len(receipt.Logs))
+
+		totalLogs += uint(len(txLogs))
 		evmTxIndex++
 	}
 }
