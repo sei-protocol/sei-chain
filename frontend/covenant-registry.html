@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SeiNet Covenant Registry</title>
+  <style>
+    body {
+      font-family: monospace;
+      background: #000;
+      color: #0f0;
+      padding: 2rem;
+    }
+    .covenant {
+      margin-bottom: 2rem;
+      border-bottom: 1px solid #0f0;
+      padding-bottom: 1rem;
+    }
+    .title {
+      font-weight: bold;
+      color: #fff;
+    }
+    .status {
+      color: #ff0;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧬 SeiNet Covenant Registry</h1>
+  <div id="output">Loading covenants...</div>
+
+  <script>
+    async function loadCovenants() {
+      try {
+        const response = await fetch("http://localhost:1317/seinet/covenant"); // REST endpoint
+        const data = await response.json();
+        const decoded = JSON.parse(data.covenant);
+        const html = `
+          <div class="covenant">
+            <div class="title">KinLayerHash:</div> ${decoded.kinLayerHash}
+            <div class="title">SoulStateHash:</div> ${decoded.soulStateHash}
+            <div class="title">Entropy Epoch:</div> ${decoded.entropyEpoch}
+            <div class="title">Royalty:</div> ${decoded.royaltyClause}
+            <div class="title">Biometric Root:</div> ${decoded.biometricRoot}
+            <div class="status">Status: ${decoded.covenantSync}</div>
+          </div>
+        `;
+        document.getElementById("output").innerHTML = html;
+      } catch (e) {
+        document.getElementById("output").innerText = "Failed to fetch covenant.";
+        console.error(e);
+      }
+    }
+
+    loadCovenants();
+  </script>
+</body>
+</html>
