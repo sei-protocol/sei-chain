@@ -298,7 +298,7 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 	}
 
 	val, err := db.Get(storeKey, version, key)
-	if err != nil && err != errorutils.ErrRecordNotFound {
+	if err != nil && !errors.Is(err, errorutils.ErrRecordNotFound) {
 		return false, err
 	}
 
