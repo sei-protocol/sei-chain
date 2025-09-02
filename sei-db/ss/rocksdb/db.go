@@ -142,7 +142,7 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 	}
 
 	slice, err := db.getSlice(storeKey, version, key)
-	if err != nil {
+	if err != nil && err != errorutils.ErrRecordNotFound {
 		return false, err
 	}
 
