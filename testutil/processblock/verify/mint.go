@@ -31,10 +31,10 @@ func MintRelease(t *testing.T, app *processblock.App, f BlockRunnable, _ []signi
 		if err != nil {
 			panic(err)
 		}
-		expectedMintedAmount := oldMinter.TotalMintAmount / uint64(endDate.Sub(startDate)/(24*time.Hour))
+		expectedMintedAmount := oldMinter.TotalMintAmount / uint64(endDate.Sub(startDate)/(24*time.Hour)) //nolint:gosec
 		require.Equal(t, expectedMintedAmount, oldMinter.RemainingMintAmount-newMinter.RemainingMintAmount)
 		newSupply := app.BankKeeper.GetSupply(app.Ctx(), "usei")
-		require.Equal(t, expectedMintedAmount, uint64(newSupply.Amount.Int64()-oldSupply.Amount.Int64()))
+		require.Equal(t, expectedMintedAmount, uint64(newSupply.Amount.Int64()-oldSupply.Amount.Int64())) //nolint:gosec
 		return res
 	}
 }
