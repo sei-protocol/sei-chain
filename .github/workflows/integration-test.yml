@@ -1,114 +1,99 @@
-name: Codex PR Review (Email Output)
+name: Docker Integration Test
 
 on:
+  push:
+    branches:
+      - main
+      - seiv2
   pull_request:
-    types: [opened, edited, labeled, synchronize]
+    branches:
+      - main
+      - seiv2
+      - evm
 
-permissions:
-  contents: read
-  pull-requests: write
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  codex-review:
+  wasm-module-test:
+    name: Integration Test (Wasm Module)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
-      # 1. Checkout PR with full history for merge-base comparison
-      - name: Checkout PR HEAD (full history)
-        uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
+          python-version: "3.10"
 
-      # 2. Set up Node (Codex CLI is a Node package)
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - name: Install Python and system deps
+        run: |
+          pip3 install pyyaml
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
         with:
-          node-version: '20'
+          go-version: 1.21
 
-      # 3. Try to install Codex CLI
-      - name: Install Codex CLI (best-effort)
+      - name: Start 4-node Docker cluster
         run: |
-          npm install -g @openai/codex || echo "::warning::Codex CLI not available; fallback will be used"
+          make clean
+          INVARIANT_CHECK_INTERVAL=10 make docker-cluster-start &
 
-      # 4. Compute merge-base diff and stats
-      - name: Compute merge-base diff
+      - name: Wait for cluster to start (launch.complete = 4)
         run: |
-          set -euo pipefail
-          BASE_REF="${{ github.event.pull_request.base.ref }}"
-          git fetch origin "$BASE_REF":"refs/remotes/origin/$BASE_REF"
-          MB=$(git merge-base "origin/$BASE_REF" HEAD)
-          git diff --unified=0 "$MB"..HEAD > pr.diff
-          git --no-pager diff --stat "$MB"..HEAD > pr.stat
+          echo "[⏳] Waiting for launch.complete to have 4 lines..."
+          for i in {1..30}; do
+            COUNT=$(cat build/generated/launch.complete 2>/dev/null | wc -l || echo 0)
+            echo "Attempt $i → launch.complete has $COUNT lines"
+            if [ "$COUNT" -eq 4 ]; then
+              echo "[✅] launch.complete complete"
+              break
+            fi
+            sleep 10
+          done
 
-      # 5. Check if Codex CLI is available
-      - name: Check Codex availability
-        id: codex_check
+      - name: Start RPC node
+        run: make run-rpc-node-skipbuild &
+
+      - name: Wait for chain to produce blocks
         run: |
-          if command -v codex >/dev/null; then
-            echo "available=true" >> $GITHUB_OUTPUT
-          else
-            echo "available=false" >> $GITHUB_OUTPUT
+          echo "[⏳] Waiting for block height > 0..."
+          for i in {1..30}; do
+            HEIGHT=$(seid status | jq -r '.SyncInfo.latest_block_height' || echo 0)
+            echo "Attempt $i → Height: $HEIGHT"
+            if [ "$HEIGHT" -gt 0 ]; then
+              echo "[✅] Chain is producing blocks."
+              break
+            fi
+            sleep 10
+          done
+
+          FINAL_HEIGHT=$(seid status | jq -r '.SyncInfo.latest_block_height' || echo 0)
+          if [ "$FINAL_HEIGHT" -eq 0 ]; then
+            echo "[❌] Timeout: Chain never produced blocks."
+            seid status || true
+            exit 1
           fi
 
-      # 6a. Run Codex CLI (Markdown Output)
-      - name: Run Codex CLI
-        if: steps.codex_check.outputs.available == 'true'
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+      - name: Run Wasm Module Integration Tests
         run: |
-          MAX=${MAX_TOKENS:-6000}
-          codex pr \
-            --diff pr.diff \
-            --stat pr.stat \
-            --pr-url "$PR_URL" \
-            --pr-number "$PR_NUMBER" \
-            --max-output-tokens "$MAX" \
-            --no-guard \
-            --markdown > codex_output.md
+          docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
+          python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml
+          python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml
+          python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml
+          docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
+          python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml
 
-      # 6b. Fallback: simple Markdown output
-      - name: Fallback Markdown Report
-        if: steps.codex_check.outputs.available == 'false'
-        run: |
-          {
-            echo "# Codex Fallback Review"
-            echo "PR: [#${{ github.event.pull_request.number }}](${{ github.event.pull_request.html_url }})"
-            echo
-            echo "## Diff Stat"
-            echo '```'
-            cat pr.stat
-            echo '```'
-            echo
-            echo "## Unified Diff (first 500 lines)"
-            echo '```diff'
-            head -n 500 pr.diff
-            echo '```'
-          } > codex_output.md
-
-      # 7. Extract the markdown as a string output
-      - name: Extract Markdown Output
-        id: extract_output
-        run: |
-          echo "markdown<<EOF" >> $GITHUB_OUTPUT
-          cat codex_output.md >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-      # 8. Send the Markdown via SendGrid email
-      - name: Send Codex Report via Email
-        uses: dawidd6/action-send-mail@v3
+      - name: Upload Wasm Module Logs (if any)
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          server_address: smtp.sendgrid.net
-          server_port: 465
-          username: apikey
-          password: ${{ secrets.SMTP_TOKEN }}
-          subject: "[Codex Review] PR #${{ github.event.pull_request.number }}"
-          to: ${{ secrets.SMTP_EMAIL_TO }}
-          from: CodexBot <noreply@kinmesh.org>
-          content_type: text/html
-          body: |
-            <p>Codex Review for <a href="${{ github.event.pull_request.html_url }}">PR #${{ github.event.pull_request.number }}</a></p>
-            <pre style="white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace">
-            ${{ steps.extract_output.outputs.markdown }}
-            </pre>
+          name: wasm-module-logs
+          path: |
+            integration_test/output/
