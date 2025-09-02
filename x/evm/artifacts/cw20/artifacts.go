@@ -22,7 +22,7 @@ var versionOverride uint16
 // SetVersionWithOffset allows for overriding the version for integration test scenarios
 func SetVersionWithOffset(offset int16) {
 	// this allows for negative offsets to mock lower versions
-	versionOverride = uint16(int16(currentVersion) + offset)
+	versionOverride = uint16(int16(currentVersion) + offset) //nolint:gosec
 }
 
 func CurrentVersion(ctx sdk.Context) uint16 {
