@@ -312,7 +312,6 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byt
 
 	prefixedVal, err := getMVCCSlice(db.storage, storeKey, key, targetVersion)
 	if err != nil {
-
 		return nil, fmt.Errorf("failed to perform PebbleDB read: %w", err)
 	}
 

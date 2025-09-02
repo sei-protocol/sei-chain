@@ -11,6 +11,7 @@ import (
 
 	"github.com/linxGnu/grocksdb"
 	"github.com/sei-protocol/sei-db/common/errors"
+	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/ss/types"
@@ -150,7 +151,7 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 
 func (db *Database) Get(storeKey string, version int64, key []byte) ([]byte, error) {
 	if version < db.tsLow {
-		return nil, nil
+		return nil, errorutils.ErrRecordNotFound
 	}
 
 	slice, err := db.getSlice(storeKey, version, key)
