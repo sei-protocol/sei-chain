@@ -1,6 +1,3 @@
-# This workflow will build a golang project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
-
 name: Docker Integration Test
 
 on:
@@ -28,7 +25,6 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
     strategy:
-      # other jobs should run even if one integration test fails
       fail-fast: false
       matrix:
         test: [
@@ -77,7 +73,7 @@ jobs:
             name: "Distribution Module",
             scripts: [
               "python3 integration_test/scripts/runner.py integration_test/distribution_module/community_pool.yaml",
-              "python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml"
             ]
           },
           {
@@ -99,21 +95,13 @@ jobs:
             scripts: [
               "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
               "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
-            ],
-          },
-          {
-            name: "SeiDB State Store",
-            scripts: [
-              "docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh",
-              "docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh",
-              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml",
+              "python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml"
             ]
           },
           {
             name: "EVM Module",
             scripts: [
-              "./integration_test/evm_module/scripts/evm_tests.sh",
+              "./integration_test/evm_module/scripts/evm_tests.sh"
             ]
           },
           {
@@ -127,20 +115,22 @@ jobs:
             scripts: [
               "./integration_test/dapp_tests/dapp_tests.sh seilocal"
             ]
-          },
+          }
         ]
     steps:
       - uses: actions/checkout@v3
+
       - uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+
       - uses: actions/setup-node@v2
         with:
           node-version: '20'
 
       - name: Pyyaml
-        run: |
-          pip3 install pyyaml
+        run: pip3 install pyyaml
+
       - name: Install jq
         run: sudo apt-get install -y jq
 
@@ -150,15 +140,13 @@ jobs:
           go-version: 1.21
 
       - name: Start 4 node docker cluster
-        run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start &
+        run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{ matrix.test.env }} make docker-cluster-start &
 
       - name: Wait for docker cluster to start
         run: |
-          until [ $(cat build/generated/launch.complete |wc -l) = 4 ]
-          do
-            sleep 10
-          done
+          until [ $(cat build/generated/launch.complete |wc -l) = 4 ]; do sleep 10; done
           sleep 10
+
       - name: Start rpc node
         run: make run-rpc-node-skipbuild &
 
@@ -168,13 +156,13 @@ jobs:
       - name: ${{ matrix.test.name }}
         run: |
           scripts=$(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]')
-          IFS=$'\n'   # change the internal field separator to newline
-          echo $scripts
-          for script in $scripts
-          do
+          IFS=$'\n'
+          echo "$scripts"
+          for script in $scripts; do
             bash -c "${script}"
           done
-          unset IFS  # revert the internal field separator back to default
+          unset IFS
+
   integration-test-check:
     name: Integration Test Check
     runs-on: ubuntu-latest
@@ -189,18 +177,13 @@ jobs:
           retry_on: error
           timeout_seconds: 30
           command: |
-              jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-              job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
-              for status in $job_statuses
-              do
-                echo "Status: $status"
-                if [[ "$status" == "failure" ]]; then
-                  echo "Some or all tests have failed!"
-                  exit 1
-                fi
-                if [[ "$status" == "cancelled" ]]; then
-                  echo "Some or all tests have been cancelled!"
-                  exit 1
-                fi
-              done
-              echo "All tests have passed!"
+            jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+            job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+            for status in $job_statuses; do
+              echo "Status: $status"
+              if [[ "$status" == "failure" ]]; then
+                echo "Some or all tests have failed!"
+                exit 1
+              fi
+            done
+            echo "All tests have passed!"
