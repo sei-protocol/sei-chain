@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"encoding/hex"
 	"fmt"
 	"os"
 
@@ -8,7 +9,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/x/evm/artifacts/wsei"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -59,10 +59,11 @@ func cwIterInitializer(mnemonic string) func(ctx sdk.Context, a *app.App) {
 
 var erc20DeployerMnemonics = "number friend tray advice become blame morning glow final under unlock core employ side mimic local load flag birth hire doctor immense guess net"
 var erc20Addr = common.HexToAddress("0x8bFEF0785c95Cb3D4a64202AB283c45ae6c50436") // deterministic with the mnemonic above as the deployer
+var cachedBin []byte
 
 func erc20Initializer() func(ctx sdk.Context, a *app.App) {
 	return func(ctx sdk.Context, a *app.App) {
-		contractData := wsei.GetBin()
+		contractData := GetBin()
 		evmAddr := getAddrWithMnemonic(erc20DeployerMnemonics)
 		seiAddr := getSeiAddrWithMnemonic(erc20DeployerMnemonics)
 		tx := ethtypes.NewContractCreation(0, common.Big0, 1000000, common.Big0, contractData)
@@ -79,4 +80,28 @@ func erc20Initializer() func(ctx sdk.Context, a *app.App) {
 			panic(err)
 		}
 	}
+}
+
+func GetBin() []byte {
+	if cachedBin != nil {
+		return cachedBin
+	}
+	code, err := os.ReadFile("./ERC20.bin")
+	if err != nil {
+		panic("failed to read ERC20 contract binary")
+	}
+	bz, err := hex.DecodeString(string(code))
+	if err != nil {
+		panic("failed to decode ERC20 contract binary")
+	}
+	cachedBin = bz
+	return bz
+}
+
+func GetABI() []byte {
+	bz, err := os.ReadFile("ERC20.abi")
+	if err != nil {
+		panic("failed to read ERC20 contract ABI")
+	}
+	return bz
 }

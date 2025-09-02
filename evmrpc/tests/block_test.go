@@ -110,3 +110,14 @@ func TestAnteFailureOthers(t *testing.T) {
 		},
 	)
 }
+
+func TestGetBlockReceipts(t *testing.T) {
+	txBz1 := signAndEncodeTx(send(0), mnemonic1)
+	txBz2 := signAndEncodeTx(send(1), mnemonic1)
+	SetupTestServer([][][]byte{{txBz1, txBz2}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("eth", port, "getBlockReceipts", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex())
+			require.Len(t, res["result"], 2)
+		},
+	)
+}
