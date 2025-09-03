@@ -234,6 +234,7 @@ require (
 	github.com/nishanths/predeclared v0.2.2 // indirect
 	github.com/oasisprotocol/curve25519-voi v0.0.0-20210609091139-0a56a4bca00b // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
+	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.7 // indirect
 	github.com/petermattis/goid v0.0.0-20230317030725-371a4b8eda08 // indirect
@@ -353,7 +354,7 @@ replace (
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
 	// TODO: To be replaced with a concrete version number. See:
 	// - https://github.com/sei-protocol/sei-cosmos/pull/598
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.67-0.20250825203812-d33e84738113
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.67-0.20250903101759-a6c998ee2097
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.2.0
 	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.6
 	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.15.7-sei-3
@@ -363,7 +364,7 @@ replace (
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	// TODO: To be replaced with a concrete version number. See:
 	// - https://github.com/sei-protocol/sei-tendermint/pull/301
-	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.6.2-0.20250825202636-492b079861fa
+	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.6.4-0.20250903093204-d7c4560885bb
 	github.com/tendermint/tm-db => github.com/sei-protocol/tm-db v0.0.4
 	golang.org/x/crypto => golang.org/x/crypto v0.31.0
 	google.golang.org/grpc => google.golang.org/grpc v1.33.2
