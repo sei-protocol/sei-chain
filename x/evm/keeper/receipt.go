@@ -9,6 +9,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/iavl"
 	"github.com/ethereum/go-ethereum/common"
+	dberrors "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/proto"
 
 	"github.com/ethereum/go-ethereum/core"
@@ -67,7 +68,11 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 	// try persistent store
 	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
 	if err != nil {
-		return nil, err
+		if errors.Is(err, dberrors.ErrRecordNotFound) {
+			bz = nil
+		} else {
+			return nil, err
+		}
 	}
 
 	if bz == nil {
@@ -97,6 +102,9 @@ func (k *Keeper) GetReceiptFromReceiptStore(ctx sdk.Context, txHash common.Hash)
 	// try persistent store
 	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
 	if err != nil {
+		if errors.Is(err, dberrors.ErrRecordNotFound) {
+			return nil, errors.New("not found")
+		}
 		return nil, err
 	}
 	if bz == nil {
