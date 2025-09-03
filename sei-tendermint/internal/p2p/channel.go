@@ -7,6 +7,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -60,7 +61,7 @@ func (pe PeerError) Unwrap() error { return pe.Err }
 // Each message is wrapped in an Envelope to specify its sender and receiver.
 type Channel struct {
 	ID    ChannelID
-	inCh  <-chan Envelope  // inbound messages (peers to reactors)
+	inCh  *Queue           // inbound messages (peers to reactors)
 	outCh chan<- Envelope  // outbound messages (reactors to peers)
 	errCh chan<- PeerError // peer error reporting
 
@@ -69,7 +70,7 @@ type Channel struct {
 
 // NewChannel creates a new channel. It is primarily for internal and test
 // use, reactors should use Router.OpenChannel().
-func NewChannel(id ChannelID, inCh <-chan Envelope, outCh chan<- Envelope, errCh chan<- PeerError) *Channel {
+func NewChannel(id ChannelID, inCh *Queue, outCh chan<- Envelope, errCh chan<- PeerError) *Channel {
 	return &Channel{
 		ID:    id,
 		inCh:  inCh,
@@ -102,6 +103,8 @@ func (ch *Channel) SendError(ctx context.Context, pe PeerError) error {
 
 func (ch *Channel) String() string { return fmt.Sprintf("p2p.Channel<%d:%s>", ch.ID, ch.name) }
 
+func (ch *Channel) ReceiveLen() int { return ch.inCh.Len() }
+
 // Receive returns a new unbuffered iterator to receive messages from ch.
 // The iterator runs until ctx ends.
 func (ch *Channel) Receive(ctx context.Context) *ChannelIterator {
@@ -128,15 +131,12 @@ type ChannelIterator struct {
 
 func iteratorWorker(ctx context.Context, ch *Channel, pipe chan Envelope) {
 	for {
-		select {
-		case <-ctx.Done():
+		e, err := ch.inCh.Recv(ctx)
+		if err != nil {
 			return
-		case envelope := <-ch.inCh:
-			select {
-			case <-ctx.Done():
-				return
-			case pipe <- envelope:
-			}
+		}
+		if err := utils.Send(ctx, pipe, e); err != nil {
+			return
 		}
 	}
 }

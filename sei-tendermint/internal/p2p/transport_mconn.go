@@ -7,7 +7,7 @@ import (
 	"io"
 	"math"
 	"net"
-	"strconv"
+	"net/netip"
 	"sync"
 
 	"golang.org/x/net/netutil"
@@ -16,6 +16,9 @@ import (
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	p2pproto "github.com/tendermint/tendermint/proto/tendermint/p2p"
 	"github.com/tendermint/tendermint/types"
 )
@@ -41,13 +44,12 @@ type MConnTransportOptions struct {
 // Tendermint protocol ("MConn").
 type MConnTransport struct {
 	logger       log.Logger
+	endpoint     Endpoint
 	options      MConnTransportOptions
 	mConnConfig  conn.MConnConfig
 	channelDescs []*ChannelDescriptor
-
-	closeOnce sync.Once
-	doneCh    chan struct{}
-	listener  net.Listener
+	started      chan struct{}
+	listener     chan *mConnConnection
 }
 
 // NewMConnTransport sets up a new MConnection transport. This uses the
@@ -55,17 +57,72 @@ type MConnTransport struct {
 // conn.MConnection.
 func NewMConnTransport(
 	logger log.Logger,
+	endpoint Endpoint,
 	mConnConfig conn.MConnConfig,
 	channelDescs []*ChannelDescriptor,
 	options MConnTransportOptions,
 ) *MConnTransport {
 	return &MConnTransport{
 		logger:       logger,
+		endpoint:     endpoint,
 		options:      options,
 		mConnConfig:  mConnConfig,
-		doneCh:       make(chan struct{}),
 		channelDescs: channelDescs,
+		// This is rendezvous channel, so that no unclosed connections get stuck inside
+		// when transport is closing.
+		started:  make(chan struct{}),
+		listener: make(chan *mConnConnection),
 	}
+}
+
+// WaitForStart waits until transport starts listening for incoming connections.
+func (m *MConnTransport) WaitForStart(ctx context.Context) error {
+	_, _, err := utils.RecvOrClosed(ctx, m.started)
+	return err
+}
+
+func (m *MConnTransport) Endpoint() Endpoint {
+	return m.endpoint
+}
+
+func (m *MConnTransport) Run(ctx context.Context) error {
+	if err := m.validateEndpoint(m.endpoint); err != nil {
+		return err
+	}
+	listener, err := tcp.Listen(m.endpoint.Addr)
+	if err != nil {
+		return fmt.Errorf("net.Listen(): %w", err)
+	}
+	close(m.started) // signal that we are listening
+	if m.options.MaxAcceptedConnections > 0 {
+		// FIXME: This will establish the inbound connection but simply hang it
+		// until another connection is released. It would probably be better to
+		// return an error to the remote peer or close the connection. This is
+		// also a DoS vector since the connection will take up kernel resources.
+		// This was just carried over from the legacy P2P stack.
+		listener = netutil.LimitListener(listener, int(m.options.MaxAcceptedConnections))
+	}
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error {
+			<-ctx.Done()
+			listener.Close()
+			return nil
+		})
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				if errors.Is(err, net.ErrClosed) {
+					return nil
+				}
+				return err
+			}
+			mconn := newMConnConnection(m.logger, conn, m.mConnConfig, m.channelDescs)
+			if err := utils.Send(ctx, m.listener, mconn); err != nil {
+				mconn.Close()
+				return err
+			}
+		}
+	})
 }
 
 // String implements Transport.
@@ -78,131 +135,25 @@ func (m *MConnTransport) Protocols() []Protocol {
 	return []Protocol{MConnProtocol, TCPProtocol}
 }
 
-// Endpoint implements Transport.
-func (m *MConnTransport) Endpoint() (*Endpoint, error) {
-	if m.listener == nil {
-		return nil, errors.New("listenter not defined")
-	}
-	select {
-	case <-m.doneCh:
-		return nil, errors.New("transport closed")
-	default:
-	}
-
-	endpoint := &Endpoint{
-		Protocol: MConnProtocol,
-	}
-	if addr, ok := m.listener.Addr().(*net.TCPAddr); ok {
-		endpoint.IP = addr.IP
-		endpoint.Port = uint16(addr.Port)
-	}
-	return endpoint, nil
-}
-
-// Listen asynchronously listens for inbound connections on the given endpoint.
-// It must be called exactly once before calling Accept(), and the caller must
-// call Close() to shut down the listener.
-//
-// FIXME: Listen currently only supports listening on a single endpoint, it
-// might be useful to support listening on multiple addresses (e.g. IPv4 and
-// IPv6, or a private and public address) via multiple Listen() calls.
-func (m *MConnTransport) Listen(endpoint *Endpoint) error {
-	if m.listener != nil {
-		return errors.New("transport is already listening")
-	}
-	if err := m.validateEndpoint(endpoint); err != nil {
-		return err
-	}
-
-	listener, err := net.Listen("tcp", net.JoinHostPort(
-		endpoint.IP.String(), strconv.Itoa(int(endpoint.Port))))
-	if err != nil {
-		return err
-	}
-	if m.options.MaxAcceptedConnections > 0 {
-		// FIXME: This will establish the inbound connection but simply hang it
-		// until another connection is released. It would probably be better to
-		// return an error to the remote peer or close the connection. This is
-		// also a DoS vector since the connection will take up kernel resources.
-		// This was just carried over from the legacy P2P stack.
-		listener = netutil.LimitListener(listener, int(m.options.MaxAcceptedConnections))
-	}
-	m.listener = listener
-
-	return nil
-}
-
 // Accept implements Transport.
 func (m *MConnTransport) Accept(ctx context.Context) (Connection, error) {
-	if m.listener == nil {
-		return nil, errors.New("transport is not listening")
-	}
-
-	conCh := make(chan net.Conn)
-	errCh := make(chan error)
-	go func() {
-		tcpConn, err := m.listener.Accept()
-		if err != nil {
-			select {
-			case errCh <- err:
-			case <-ctx.Done():
-			}
-		}
-		select {
-		case conCh <- tcpConn:
-		case <-ctx.Done():
-		}
-	}()
-
-	select {
-	case <-ctx.Done():
-		m.listener.Close()
-		return nil, io.EOF
-	case <-m.doneCh:
-		m.listener.Close()
-		return nil, io.EOF
-	case err := <-errCh:
-		return nil, err
-	case tcpConn := <-conCh:
-		return newMConnConnection(m.logger, tcpConn, m.mConnConfig, m.channelDescs), nil
-	}
-
+	return utils.Recv(ctx, m.listener)
 }
 
 // Dial implements Transport.
-func (m *MConnTransport) Dial(ctx context.Context, endpoint *Endpoint) (Connection, error) {
+func (m *MConnTransport) Dial(ctx context.Context, endpoint Endpoint) (Connection, error) {
 	if err := m.validateEndpoint(endpoint); err != nil {
 		return nil, err
 	}
-	if endpoint.Port == 0 {
-		endpoint.Port = 26657
+	if endpoint.Addr.Port() == 0 {
+		endpoint.Addr = netip.AddrPortFrom(endpoint.Addr.Addr(), 26657)
 	}
-
 	dialer := net.Dialer{}
-	tcpConn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(
-		endpoint.IP.String(), strconv.Itoa(int(endpoint.Port))))
+	tcpConn, err := dialer.DialContext(ctx, "tcp", endpoint.Addr.String())
 	if err != nil {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-			return nil, err
-		}
+		return nil, fmt.Errorf("dialer.DialContext(%v): %w", endpoint.Addr, err)
 	}
-
 	return newMConnConnection(m.logger, tcpConn, m.mConnConfig, m.channelDescs), nil
-}
-
-// Close implements Transport.
-func (m *MConnTransport) Close() error {
-	var err error
-	m.closeOnce.Do(func() {
-		close(m.doneCh)
-		if m.listener != nil {
-			err = m.listener.Close()
-		}
-	})
-	return err
 }
 
 // SetChannels sets the channel descriptors to be used when
@@ -216,19 +167,21 @@ func (m *MConnTransport) AddChannelDescriptors(channelDesc []*ChannelDescriptor)
 	m.channelDescs = append(m.channelDescs, channelDesc...)
 }
 
+type InvalidEndpointErr struct{ error }
+
 // validateEndpoint validates an endpoint.
-func (m *MConnTransport) validateEndpoint(endpoint *Endpoint) error {
+func (m *MConnTransport) validateEndpoint(endpoint Endpoint) error {
 	if err := endpoint.Validate(); err != nil {
-		return err
+		return InvalidEndpointErr{err}
 	}
 	if endpoint.Protocol != MConnProtocol && endpoint.Protocol != TCPProtocol {
-		return fmt.Errorf("unsupported protocol %q", endpoint.Protocol)
+		return InvalidEndpointErr{fmt.Errorf("unsupported protocol %q", endpoint.Protocol)}
 	}
-	if len(endpoint.IP) == 0 {
-		return errors.New("endpoint has no IP address")
+	if !endpoint.Addr.IsValid() {
+		return InvalidEndpointErr{errors.New("endpoint has invalid address")}
 	}
 	if endpoint.Path != "" {
-		return fmt.Errorf("endpoints with path not supported (got %q)", endpoint.Path)
+		return InvalidEndpointErr{fmt.Errorf("endpoints with path not supported (got %q)", endpoint.Path)}
 	}
 	return nil
 }
@@ -400,7 +353,7 @@ func (c *mConnConnection) onReceive(ctx context.Context, chID ChannelID, payload
 
 // onError is a callback for MConnection errors. The error is passed via errorCh
 // to ReceiveMessage (but not SendMessage, for legacy P2P stack behavior).
-func (c *mConnConnection) onError(ctx context.Context, e interface{}) {
+func (c *mConnConnection) onError(ctx context.Context, e any) {
 	err, ok := e.(error)
 	if !ok {
 		err = fmt.Errorf("%v", err)
@@ -428,13 +381,10 @@ func (c *mConnConnection) SendMessage(ctx context.Context, chID ChannelID, msg [
 	select {
 	case err := <-c.errorCh:
 		return err
-	case <-ctx.Done():
-		return io.EOF
 	default:
-		if ok := c.mconn.Send(chID, msg); !ok {
-			return errors.New("sending message timed out")
+		if err := c.mconn.Send(ctx, chID, msg); err != nil {
+			return fmt.Errorf("m.mconn.Send(%v): %w", chID, err)
 		}
-
 		return nil
 	}
 }
@@ -459,8 +409,7 @@ func (c *mConnConnection) LocalEndpoint() Endpoint {
 		Protocol: MConnProtocol,
 	}
 	if addr, ok := c.conn.LocalAddr().(*net.TCPAddr); ok {
-		endpoint.IP = addr.IP
-		endpoint.Port = uint16(addr.Port)
+		endpoint.Addr = addr.AddrPort()
 	}
 	return endpoint
 }
@@ -471,8 +420,7 @@ func (c *mConnConnection) RemoteEndpoint() Endpoint {
 		Protocol: MConnProtocol,
 	}
 	if addr, ok := c.conn.RemoteAddr().(*net.TCPAddr); ok {
-		endpoint.IP = addr.IP
-		endpoint.Port = uint16(addr.Port)
+		endpoint.Addr = addr.AddrPort()
 	}
 	return endpoint
 }

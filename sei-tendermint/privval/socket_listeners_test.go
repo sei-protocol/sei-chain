@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/tendermint/tendermint/crypto/ed25519"
 )
 
@@ -111,8 +109,14 @@ func TestListenerTimeoutReadWrite(t *testing.T) {
 	)
 	for _, tc := range listenerTestCases(t, timeoutAccept, timeoutReadWrite) {
 		go func(dialer SocketDialer) {
-			_, err := dialer()
-			require.NoError(t, err)
+			conn, err := dialer()
+			if err != nil {
+				panic(err) // this is not the main goroutine, so "require.NoError" won't work
+			}
+			// If we don't close this properly, the test gets flaky because connection
+			// closes at random.
+			defer conn.Close()
+			<-t.Context().Done()
 		}(tc.dialer)
 
 		c, err := tc.listener.Accept()

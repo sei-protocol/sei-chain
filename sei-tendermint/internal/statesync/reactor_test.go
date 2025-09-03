@@ -42,22 +42,22 @@ type reactorTestSuite struct {
 	stateProvider *mocks.StateProvider
 
 	snapshotChannel   *p2p.Channel
-	snapshotInCh      chan p2p.Envelope
+	snapshotInCh      *p2p.Queue
 	snapshotOutCh     chan p2p.Envelope
 	snapshotPeerErrCh chan p2p.PeerError
 
 	chunkChannel   *p2p.Channel
-	chunkInCh      chan p2p.Envelope
+	chunkInCh      *p2p.Queue
 	chunkOutCh     chan p2p.Envelope
 	chunkPeerErrCh chan p2p.PeerError
 
 	blockChannel   *p2p.Channel
-	blockInCh      chan p2p.Envelope
+	blockInCh      *p2p.Queue
 	blockOutCh     chan p2p.Envelope
 	blockPeerErrCh chan p2p.PeerError
 
 	paramsChannel   *p2p.Channel
-	paramsInCh      chan p2p.Envelope
+	paramsInCh      *p2p.Queue
 	paramsOutCh     chan p2p.Envelope
 	paramsPeerErrCh chan p2p.PeerError
 
@@ -73,7 +73,7 @@ func setup(
 	t *testing.T,
 	conn *clientmocks.Client,
 	stateProvider *mocks.StateProvider,
-	chBuf uint,
+	chBuf int,
 ) *reactorTestSuite {
 	t.Helper()
 
@@ -82,16 +82,16 @@ func setup(
 	}
 
 	rts := &reactorTestSuite{
-		snapshotInCh:      make(chan p2p.Envelope, chBuf),
+		snapshotInCh:      p2p.NewQueue(chBuf),
 		snapshotOutCh:     make(chan p2p.Envelope, chBuf),
 		snapshotPeerErrCh: make(chan p2p.PeerError, chBuf),
-		chunkInCh:         make(chan p2p.Envelope, chBuf),
+		chunkInCh:         p2p.NewQueue(chBuf),
 		chunkOutCh:        make(chan p2p.Envelope, chBuf),
 		chunkPeerErrCh:    make(chan p2p.PeerError, chBuf),
-		blockInCh:         make(chan p2p.Envelope, chBuf),
+		blockInCh:         p2p.NewQueue(chBuf),
 		blockOutCh:        make(chan p2p.Envelope, chBuf),
 		blockPeerErrCh:    make(chan p2p.PeerError, chBuf),
-		paramsInCh:        make(chan p2p.Envelope, chBuf),
+		paramsInCh:        p2p.NewQueue(chBuf),
 		paramsOutCh:       make(chan p2p.Envelope, chBuf),
 		paramsPeerErrCh:   make(chan p2p.PeerError, chBuf),
 		conn:              conn,
@@ -242,11 +242,11 @@ func TestReactor_ChunkRequest_InvalidRequest(t *testing.T) {
 
 	rts := setup(ctx, t, nil, nil, 2)
 
-	rts.chunkInCh <- p2p.Envelope{
+	rts.chunkInCh.Send(p2p.Envelope{
 		From:      types.NodeID("aa"),
 		ChannelID: ChunkChannel,
 		Message:   &ssproto.SnapshotsRequest{},
-	}
+	}, 0)
 
 	response := <-rts.chunkPeerErrCh
 	require.Error(t, response.Err)
@@ -297,11 +297,11 @@ func TestReactor_ChunkRequest(t *testing.T) {
 
 			rts := setup(ctx, t, conn, nil, 2)
 
-			rts.chunkInCh <- p2p.Envelope{
+			rts.chunkInCh.Send(p2p.Envelope{
 				From:      types.NodeID("aa"),
 				ChannelID: ChunkChannel,
 				Message:   tc.request,
-			}
+			}, 0)
 
 			response := <-rts.chunkOutCh
 			require.Equal(t, tc.expectResponse, response.Message)
@@ -317,11 +317,11 @@ func TestReactor_SnapshotsRequest_InvalidRequest(t *testing.T) {
 
 	rts := setup(ctx, t, nil, nil, 2)
 
-	rts.snapshotInCh <- p2p.Envelope{
+	rts.snapshotInCh.Send(p2p.Envelope{
 		From:      types.NodeID("aa"),
 		ChannelID: SnapshotChannel,
 		Message:   &ssproto.ChunkRequest{},
-	}
+	}, 0)
 
 	response := <-rts.snapshotPeerErrCh
 	require.Error(t, response.Err)
@@ -377,11 +377,11 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 
 			rts := setup(ctx, t, conn, nil, 100)
 
-			rts.snapshotInCh <- p2p.Envelope{
+			rts.snapshotInCh.Send(p2p.Envelope{
 				From:      types.NodeID("aa"),
 				ChannelID: SnapshotChannel,
 				Message:   &ssproto.SnapshotsRequest{},
-			}
+			}, 0)
 
 			if len(tc.expectResponses) > 0 {
 				retryUntil(ctx, t, func() bool { return len(rts.snapshotOutCh) == len(tc.expectResponses) }, time.Second)
@@ -434,13 +434,13 @@ func TestReactor_LightBlockResponse(t *testing.T) {
 
 	rts.stateStore.On("LoadValidators", height).Return(vals, nil)
 
-	rts.blockInCh <- p2p.Envelope{
+	rts.blockInCh.Send(p2p.Envelope{
 		From:      types.NodeID("aa"),
 		ChannelID: LightBlockChannel,
 		Message: &ssproto.LightBlockRequest{
 			Height: 10,
 		},
-	}
+	}, 0)
 	require.Empty(t, rts.blockPeerErrCh)
 
 	select {
@@ -622,7 +622,6 @@ func TestReactor_Backfill(t *testing.T) {
 	// test backfill algorithm with varying failure rates [0, 10]
 	failureRates := []int{0, 2, 9}
 	for _, failureRate := range failureRates {
-		failureRate := failureRate
 		t.Run(fmt.Sprintf("failure rate: %d", failureRate), func(t *testing.T) {
 			ctx := t.Context()
 			t.Cleanup(leaktest.CheckTimeout(t, 1*time.Minute))
@@ -718,7 +717,7 @@ func handleLightBlockRequests(
 	t *testing.T,
 	chain map[int64]*types.LightBlock,
 	receiving chan p2p.Envelope,
-	sending chan p2p.Envelope,
+	sending *p2p.Queue,
 	close chan struct{},
 	failureRate int) {
 	requests := 0
@@ -732,17 +731,13 @@ func handleLightBlockRequests(
 				if requests%10 >= failureRate {
 					lb, err := chain[int64(msg.Height)].ToProto()
 					require.NoError(t, err)
-					select {
-					case sending <- p2p.Envelope{
+					sending.Send(p2p.Envelope{
 						From:      envelope.To,
 						ChannelID: LightBlockChannel,
 						Message: &ssproto.LightBlockResponse{
 							LightBlock: lb,
 						},
-					}:
-					case <-ctx.Done():
-						return
-					}
+					}, 0)
 				} else {
 					switch errorCount % 3 {
 					case 0: // send a different block
@@ -750,29 +745,21 @@ func handleLightBlockRequests(
 						_, _, lb := mockLB(ctx, t, int64(msg.Height), factory.DefaultTestTime, factory.MakeBlockID(), vals, pv)
 						differntLB, err := lb.ToProto()
 						require.NoError(t, err)
-						select {
-						case sending <- p2p.Envelope{
+						sending.Send(p2p.Envelope{
 							From:      envelope.To,
 							ChannelID: LightBlockChannel,
 							Message: &ssproto.LightBlockResponse{
 								LightBlock: differntLB,
 							},
-						}:
-						case <-ctx.Done():
-							return
-						}
+						}, 0)
 					case 1: // send nil block i.e. pretend we don't have it
-						select {
-						case sending <- p2p.Envelope{
+						sending.Send(p2p.Envelope{
 							From:      envelope.To,
 							ChannelID: LightBlockChannel,
 							Message: &ssproto.LightBlockResponse{
 								LightBlock: nil,
 							},
-						}:
-						case <-ctx.Done():
-							return
-						}
+						}, 0)
 					case 2: // don't do anything
 					}
 					errorCount++
@@ -788,7 +775,8 @@ func handleLightBlockRequests(
 func handleConsensusParamsRequest(
 	ctx context.Context,
 	t *testing.T,
-	receiving, sending chan p2p.Envelope,
+	receiving chan p2p.Envelope,
+	sending *p2p.Queue,
 	closeCh chan struct{},
 ) {
 	t.Helper()
@@ -804,21 +792,14 @@ func handleConsensusParamsRequest(
 				t.Errorf("message was %T which is not a params request", envelope.Message)
 				return
 			}
-			select {
-			case sending <- p2p.Envelope{
+			sending.Send(p2p.Envelope{
 				From:      envelope.To,
 				ChannelID: ParamsChannel,
 				Message: &ssproto.ParamsResponse{
 					Height:          msg.Height,
 					ConsensusParams: paramsProto,
 				},
-			}:
-			case <-ctx.Done():
-				return
-			case <-closeCh:
-				return
-			}
-
+			}, 0)
 		case <-closeCh:
 			return
 		}
@@ -902,7 +883,7 @@ func handleSnapshotRequests(
 	ctx context.Context,
 	t *testing.T,
 	receivingCh chan p2p.Envelope,
-	sendingCh chan p2p.Envelope,
+	sendingCh *p2p.Queue,
 	closeCh chan struct{},
 	snapshots []snapshot,
 ) {
@@ -917,7 +898,7 @@ func handleSnapshotRequests(
 			_, ok := envelope.Message.(*ssproto.SnapshotsRequest)
 			require.True(t, ok)
 			for _, snapshot := range snapshots {
-				sendingCh <- p2p.Envelope{
+				sendingCh.Send(p2p.Envelope{
 					From:      envelope.To,
 					ChannelID: SnapshotChannel,
 					Message: &ssproto.SnapshotsResponse{
@@ -927,7 +908,7 @@ func handleSnapshotRequests(
 						Hash:     snapshot.Hash,
 						Metadata: snapshot.Metadata,
 					},
-				}
+				}, 0)
 			}
 		}
 	}
@@ -937,7 +918,7 @@ func handleChunkRequests(
 	ctx context.Context,
 	t *testing.T,
 	receivingCh chan p2p.Envelope,
-	sendingCh chan p2p.Envelope,
+	sendingCh *p2p.Queue,
 	closeCh chan struct{},
 	chunk []byte,
 ) {
@@ -951,7 +932,7 @@ func handleChunkRequests(
 		case envelope := <-receivingCh:
 			msg, ok := envelope.Message.(*ssproto.ChunkRequest)
 			require.True(t, ok)
-			sendingCh <- p2p.Envelope{
+			sendingCh.Send(p2p.Envelope{
 				From:      envelope.To,
 				ChannelID: ChunkChannel,
 				Message: &ssproto.ChunkResponse{
@@ -961,7 +942,7 @@ func handleChunkRequests(
 					Chunk:   chunk,
 					Missing: false,
 				},
-			}
+			}, 0)
 
 		}
 	}

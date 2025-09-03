@@ -3,7 +3,7 @@ package p2p
 import (
 	"context"
 	"errors"
-	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -21,7 +21,7 @@ func TestConnectionFiltering(t *testing.T) {
 		logger:      logger,
 		connTracker: newConnTracker(1, time.Second),
 		options: RouterOptions{
-			FilterPeerByIP: func(ctx context.Context, ip net.IP, port uint16) error {
+			FilterPeerByIP: func(ctx context.Context, addr netip.AddrPort) error {
 				filterByIPCount++
 				return errors.New("mock")
 			},

@@ -2,20 +2,20 @@ package p2p
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 	"sync"
 	"time"
 )
 
 type connectionTracker interface {
-	AddConn(net.IP) error
-	RemoveConn(net.IP)
+	AddConn(netip.AddrPort) error
+	RemoveConn(netip.AddrPort)
 	Len() int
 }
 
 type connTrackerImpl struct {
-	cache       map[string]uint
-	lastConnect map[string]time.Time
+	cache       map[netip.Addr]uint
+	lastConnect map[netip.Addr]time.Time
 	mutex       sync.RWMutex
 	max         uint
 	window      time.Duration
@@ -23,8 +23,8 @@ type connTrackerImpl struct {
 
 func newConnTracker(max uint, window time.Duration) connectionTracker {
 	return &connTrackerImpl{
-		cache:       make(map[string]uint),
-		lastConnect: make(map[string]time.Time),
+		cache:       map[netip.Addr]uint{},
+		lastConnect: map[netip.Addr]time.Time{},
 		max:         max,
 		window:      window,
 	}
@@ -36,8 +36,8 @@ func (rat *connTrackerImpl) Len() int {
 	return len(rat.cache)
 }
 
-func (rat *connTrackerImpl) AddConn(addr net.IP) error {
-	address := addr.String()
+func (rat *connTrackerImpl) AddConn(addrPort netip.AddrPort) error {
+	address := addrPort.Addr()
 	rat.mutex.Lock()
 	defer rat.mutex.Unlock()
 
@@ -58,8 +58,8 @@ func (rat *connTrackerImpl) AddConn(addr net.IP) error {
 	return nil
 }
 
-func (rat *connTrackerImpl) RemoveConn(addr net.IP) {
-	address := addr.String()
+func (rat *connTrackerImpl) RemoveConn(addrPort netip.AddrPort) {
+	address := addrPort.Addr()
 	rat.mutex.Lock()
 	defer rat.mutex.Unlock()
 

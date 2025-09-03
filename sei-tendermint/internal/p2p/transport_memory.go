@@ -5,11 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
+	"net/netip"
 	"sync"
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -61,22 +62,6 @@ func (n *MemoryNetwork) GetTransport(id types.NodeID) *MemoryTransport {
 	return n.transports[id]
 }
 
-// RemoveTransport removes a transport from the network and closes it.
-func (n *MemoryNetwork) RemoveTransport(id types.NodeID) {
-	n.mtx.Lock()
-	t, ok := n.transports[id]
-	delete(n.transports, id)
-	n.mtx.Unlock()
-
-	if ok {
-		// Close may recursively call RemoveTransport() again, but this is safe
-		// because we've already removed the transport from the map above.
-		if err := t.Close(); err != nil {
-			n.logger.Error("failed to close memory transport", "id", id, "err", err)
-		}
-	}
-}
-
 // Size returns the number of transports in the network.
 func (n *MemoryNetwork) Size() int {
 	return len(n.transports)
@@ -101,16 +86,12 @@ type MemoryTransport struct {
 // newMemoryTransport creates a new MemoryTransport. This is for internal use by
 // MemoryNetwork, use MemoryNetwork.CreateTransport() instead.
 func newMemoryTransport(network *MemoryNetwork, nodeID types.NodeID) *MemoryTransport {
-	once := &sync.Once{}
-	closeCh := make(chan struct{})
 	return &MemoryTransport{
 		logger:     network.logger.With("local", nodeID),
 		network:    network,
 		nodeID:     nodeID,
 		bufferSize: network.bufferSize,
 		acceptCh:   make(chan *MemoryConnection),
-		closeCh:    closeCh,
-		closeFn:    func() { once.Do(func() { close(closeCh) }) },
 	}
 }
 
@@ -119,7 +100,13 @@ func (t *MemoryTransport) String() string {
 	return string(MemoryProtocol)
 }
 
-func (*MemoryTransport) Listen(*Endpoint) error { return nil }
+func (t *MemoryTransport) Run(ctx context.Context) error {
+	<-ctx.Done()
+	t.network.mtx.Lock()
+	delete(t.network.transports, t.nodeID)
+	t.network.mtx.Unlock()
+	return nil
+}
 
 func (t *MemoryTransport) AddChannelDescriptors([]*ChannelDescriptor) {}
 
@@ -129,36 +116,23 @@ func (t *MemoryTransport) Protocols() []Protocol {
 }
 
 // Endpoints implements Transport.
-func (t *MemoryTransport) Endpoint() (*Endpoint, error) {
-	if n := t.network.GetTransport(t.nodeID); n == nil {
-		return nil, errors.New("node not defined")
-	}
-
-	return &Endpoint{
+func (t *MemoryTransport) Endpoint() Endpoint {
+	return Endpoint{
 		Protocol: MemoryProtocol,
 		Path:     string(t.nodeID),
 		// An arbitrary IP and port is used in order for the pex
 		// reactor to be able to send addresses to one another.
-		IP:   net.IPv4zero,
-		Port: 0,
-	}, nil
+		Addr: netip.AddrPort{},
+	}
 }
 
 // Accept implements Transport.
 func (t *MemoryTransport) Accept(ctx context.Context) (Connection, error) {
-	select {
-	case <-t.closeCh:
-		return nil, io.EOF
-	case conn := <-t.acceptCh:
-		t.logger.Info("accepted connection", "remote", conn.RemoteEndpoint().Path)
-		return conn, nil
-	case <-ctx.Done():
-		return nil, io.EOF
-	}
+	return utils.Recv(ctx, t.acceptCh)
 }
 
 // Dial implements Transport.
-func (t *MemoryTransport) Dial(ctx context.Context, endpoint *Endpoint) (Connection, error) {
+func (t *MemoryTransport) Dial(ctx context.Context, endpoint Endpoint) (Connection, error) {
 	if endpoint.Protocol != MemoryProtocol {
 		return nil, fmt.Errorf("invalid protocol %q", endpoint.Protocol)
 	}
@@ -194,19 +168,10 @@ func (t *MemoryTransport) Dial(ctx context.Context, endpoint *Endpoint) (Connect
 	inConn.closeCh = closeCh
 	inConn.closeFn = closeFn
 
-	select {
-	case peer.acceptCh <- inConn:
-		return outConn, nil
-	case <-ctx.Done():
-		return nil, io.EOF
+	if err := utils.Send(ctx, peer.acceptCh, inConn); err != nil {
+		return nil, err
 	}
-}
-
-// Close implements Transport.
-func (t *MemoryTransport) Close() error {
-	t.network.RemoveTransport(t.nodeID)
-	t.closeFn()
-	return nil
+	return outConn, nil
 }
 
 // MemoryConnection is an in-memory connection between two transport endpoints.

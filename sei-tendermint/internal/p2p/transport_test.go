@@ -3,7 +3,7 @@ package p2p_test
 import (
 	"context"
 	"io"
-	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -18,71 +18,39 @@ import (
 )
 
 // transportFactory is used to set up transports for tests.
-type transportFactory func(t *testing.T) p2p.Transport
+type transportFactory = func(ctx context.Context) p2p.Transport
 
 // testTransports is a registry of transport factories for withTransports().
-var testTransports = map[string]transportFactory{}
+var testTransports = map[string](func() transportFactory){}
 
 // withTransports is a test helper that runs a test against all transports
 // registered in testTransports.
 func withTransports(t *testing.T, tester func(*testing.T, transportFactory)) {
 	t.Helper()
 	for name, transportFactory := range testTransports {
-		transportFactory := transportFactory
 		t.Run(name, func(t *testing.T) {
 			t.Cleanup(leaktest.Check(t))
-			tester(t, transportFactory)
+			tester(t, transportFactory())
 		})
 	}
 }
 
-func TestTransport_AcceptClose(t *testing.T) {
-	// Just test accept unblock on close, happy path is tested widely elsewhere.
-	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
-		ctx := t.Context()
-		a := makeTransport(t)
-		opctx, opcancel := context.WithTimeout(ctx, 200*time.Millisecond)
-		defer opcancel()
-
-		_, err := a.Accept(opctx)
-		require.Error(t, err)
-		require.Equal(t, io.EOF, err)
-
-		<-opctx.Done()
-		_ = a.Close()
-
-		// Closed transport should return error immediately,
-		// because the transport is closed. We use the base
-		// context (ctx) rather than the operation context
-		// (opctx) because using the later would mean this
-		// could error because the context was canceled.
-		_, err = a.Accept(ctx)
-		require.Error(t, err)
-		require.Equal(t, io.EOF, err)
-	})
-}
-
 func TestTransport_DialEndpoints(t *testing.T) {
 	ipTestCases := []struct {
-		ip net.IP
+		ip netip.Addr
 		ok bool
 	}{
-		{net.IPv4zero, true},
-		{net.IPv6zero, true},
+		{netip.IPv4Unspecified(), true},
+		{netip.IPv6Unspecified(), true},
 
-		{nil, false},
-		{net.IPv4bcast, false},
-		{net.IPv4allsys, false},
-		{[]byte{1, 2, 3}, false},
-		{[]byte{1, 2, 3, 4, 5}, false},
+		{netip.AddrFrom4([4]byte{255, 255, 255, 255}), false},
+		{netip.AddrFrom4([4]byte{224, 0, 0, 1}), false},
 	}
 
 	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
 		ctx := t.Context()
-		a := makeTransport(t)
-		endpoint, err := a.Endpoint()
-		require.NoError(t, err)
-		require.NotNil(t, endpoint)
+		a := makeTransport(ctx)
+		endpoint := a.Endpoint()
 
 		// Spawn a goroutine to simply accept any connections until closed.
 		go func() {
@@ -101,28 +69,27 @@ func TestTransport_DialEndpoints(t *testing.T) {
 		require.NoError(t, conn.Close())
 
 		// Dialing empty endpoint should error.
-		_, err = a.Dial(ctx, &p2p.Endpoint{})
+		_, err = a.Dial(ctx, p2p.Endpoint{})
 		require.Error(t, err)
 
 		// Dialing without protocol should error.
-		noProtocol := *endpoint
+		noProtocol := endpoint
 		noProtocol.Protocol = ""
-		_, err = a.Dial(ctx, &noProtocol)
+		_, err = a.Dial(ctx, noProtocol)
 		require.Error(t, err)
 
 		// Dialing with invalid protocol should error.
-		fooProtocol := *endpoint
+		fooProtocol := endpoint
 		fooProtocol.Protocol = "foo"
-		_, err = a.Dial(ctx, &fooProtocol)
+		_, err = a.Dial(ctx, fooProtocol)
 		require.Error(t, err)
 
 		// Tests for networked endpoints (with IP).
-		if len(endpoint.IP) > 0 && endpoint.Protocol != p2p.MemoryProtocol {
+		if endpoint.Addr != (netip.AddrPort{}) && endpoint.Protocol != p2p.MemoryProtocol {
 			for _, tc := range ipTestCases {
 				t.Run(tc.ip.String(), func(t *testing.T) {
 					e := endpoint
-					require.NotNil(t, e)
-					e.IP = tc.ip
+					e.Addr = netip.AddrPortFrom(tc.ip, endpoint.Addr.Port())
 					conn, err := a.Dial(ctx, e)
 					if tc.ok {
 						require.NoError(t, err)
@@ -135,8 +102,7 @@ func TestTransport_DialEndpoints(t *testing.T) {
 
 			// Non-networked endpoints should error.
 			noIP := endpoint
-			noIP.IP = nil
-			noIP.Port = 0
+			noIP.Addr = netip.AddrPort{}
 			noIP.Path = "foo"
 			_, err := a.Dial(ctx, noIP)
 			require.Error(t, err)
@@ -151,95 +117,37 @@ func TestTransport_DialEndpoints(t *testing.T) {
 	})
 }
 
-func TestTransport_Dial(t *testing.T) {
-	// Most just tests dial failures, happy path is tested widely elsewhere.
+func TestTransport_Endpoints(t *testing.T) {
 	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
 		ctx := t.Context()
-		a := makeTransport(t)
-		b := makeTransport(t)
-
-		aEndpoint, err := a.Endpoint()
-		require.NoError(t, err)
-		require.NotNil(t, aEndpoint)
-		bEndpoint, err := b.Endpoint()
-		require.NoError(t, err)
-		require.NotNil(t, bEndpoint)
-
-		// Context cancellation should error. We can't test timeouts since we'd
-		// need a non-responsive endpoint.
-		cancelCtx, cancel := context.WithCancel(ctx)
-		cancel()
-		_, err = a.Dial(cancelCtx, bEndpoint)
-		require.Error(t, err)
-
-		// Unavailable endpoint should error.
-		err = b.Close()
-		require.NoError(t, err)
-		_, err = a.Dial(ctx, bEndpoint)
-		require.Error(t, err)
-
-		// Dialing from a closed transport should still work.
-		errCh := make(chan error, 1)
-		go func() {
-			conn, err := a.Accept(ctx)
-			if err == nil {
-				_ = conn.Close()
-			}
-			errCh <- err
-		}()
-		conn, err := b.Dial(ctx, aEndpoint)
-		require.NoError(t, err)
-		require.NoError(t, conn.Close())
-		require.NoError(t, <-errCh)
-	})
-}
-
-func TestTransport_Endpoints(t *testing.T) {
-
-	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
-		a := makeTransport(t)
-		b := makeTransport(t)
+		a := makeTransport(ctx)
+		b := makeTransport(ctx)
 
 		// Both transports return valid and different endpoints.
-		aEndpoint, err := a.Endpoint()
-		require.NoError(t, err)
-		require.NotNil(t, aEndpoint)
-		bEndpoint, err := b.Endpoint()
-		require.NoError(t, err)
-		require.NotNil(t, bEndpoint)
+		aEndpoint := a.Endpoint()
+		bEndpoint := b.Endpoint()
 		require.NotEqual(t, aEndpoint, bEndpoint)
-		for _, endpoint := range []*p2p.Endpoint{aEndpoint, bEndpoint} {
+		for _, endpoint := range []p2p.Endpoint{aEndpoint, bEndpoint} {
 			err := endpoint.Validate()
 			require.NoError(t, err, "invalid endpoint %q", endpoint)
 		}
-
-		// When closed, the transport should no longer return any endpoints.
-		require.NoError(t, a.Close())
-		aEndpoint, err = a.Endpoint()
-		require.Error(t, err)
-		require.Nil(t, aEndpoint)
-		bEndpoint, err = b.Endpoint()
-		require.NoError(t, err)
-		require.NotNil(t, bEndpoint)
 	})
 }
 
 func TestTransport_Protocols(t *testing.T) {
 	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
-		a := makeTransport(t)
+		ctx := t.Context()
+		a := makeTransport(ctx)
 		protocols := a.Protocols()
-		endpoint, err := a.Endpoint()
-		require.NoError(t, err)
+		endpoint := a.Endpoint()
 		require.NotEmpty(t, protocols)
-		require.NotNil(t, endpoint)
-
 		require.Contains(t, protocols, endpoint.Protocol)
 	})
 }
 
 func TestTransport_String(t *testing.T) {
 	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
-		a := makeTransport(t)
+		a := makeTransport(t.Context())
 		require.NotEmpty(t, a.String())
 	})
 }
@@ -247,8 +155,8 @@ func TestTransport_String(t *testing.T) {
 func TestConnection_Handshake(t *testing.T) {
 	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
 		ctx := t.Context()
-		a := makeTransport(t)
-		b := makeTransport(t)
+		a := makeTransport(ctx)
+		b := makeTransport(ctx)
 		ab, ba := dialAccept(ctx, t, a, b)
 
 		// A handshake should pass the given keys and NodeInfo.
@@ -299,8 +207,8 @@ func TestConnection_Handshake(t *testing.T) {
 func TestConnection_HandshakeCancel(t *testing.T) {
 	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
 		ctx := t.Context()
-		a := makeTransport(t)
-		b := makeTransport(t)
+		a := makeTransport(ctx)
+		b := makeTransport(ctx)
 
 		// Handshake should error on context cancellation.
 		ab, ba := dialAccept(ctx, t, a, b)
@@ -327,8 +235,8 @@ func TestConnection_HandshakeCancel(t *testing.T) {
 func TestConnection_FlushClose(t *testing.T) {
 	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
 		ctx := t.Context()
-		a := makeTransport(t)
-		b := makeTransport(t)
+		a := makeTransport(ctx)
+		b := makeTransport(ctx)
 		ab, _ := dialAcceptHandshake(ctx, t, a, b)
 
 		err := ab.Close()
@@ -346,8 +254,8 @@ func TestConnection_FlushClose(t *testing.T) {
 func TestConnection_LocalRemoteEndpoint(t *testing.T) {
 	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
 		ctx := t.Context()
-		a := makeTransport(t)
-		b := makeTransport(t)
+		a := makeTransport(ctx)
+		b := makeTransport(ctx)
 		ab, ba := dialAcceptHandshake(ctx, t, a, b)
 
 		// Local and remote connection endpoints correspond to each other.
@@ -362,8 +270,8 @@ func TestConnection_SendReceive(t *testing.T) {
 
 	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
 		ctx := t.Context()
-		a := makeTransport(t)
-		b := makeTransport(t)
+		a := makeTransport(ctx)
+		b := makeTransport(ctx)
 		ab, ba := dialAcceptHandshake(ctx, t, a, b)
 
 		// Can send and receive a to b.
@@ -382,19 +290,6 @@ func TestConnection_SendReceive(t *testing.T) {
 		_, msg, err = ab.ReceiveMessage(ctx)
 		require.NoError(t, err)
 		require.Equal(t, []byte("bar"), msg)
-
-		// Connections should still be active after closing the transports.
-		err = a.Close()
-		require.NoError(t, err)
-		err = b.Close()
-		require.NoError(t, err)
-
-		err = ab.SendMessage(ctx, chID, []byte("still here"))
-		require.NoError(t, err)
-		ch, msg, err = ba.ReceiveMessage(ctx)
-		require.NoError(t, err)
-		require.Equal(t, chID, ch)
-		require.Equal(t, []byte("still here"), msg)
 
 		// Close one side of the connection. Both sides should then error
 		// with io.EOF when trying to send or receive.
@@ -421,8 +316,8 @@ func TestConnection_SendReceive(t *testing.T) {
 func TestConnection_String(t *testing.T) {
 	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
 		ctx := t.Context()
-		a := makeTransport(t)
-		b := makeTransport(t)
+		a := makeTransport(ctx)
+		b := makeTransport(ctx)
 		ab, _ := dialAccept(ctx, t, a, b)
 		require.NotEmpty(t, ab.String())
 	})
@@ -430,10 +325,9 @@ func TestConnection_String(t *testing.T) {
 
 func TestEndpoint_NodeAddress(t *testing.T) {
 	var (
-		ip4    = []byte{1, 2, 3, 4}
-		ip4in6 = net.IPv4(1, 2, 3, 4)
-		ip6    = []byte{0xb1, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01}
-		id     = types.NodeID("00112233445566778899aabbccddeeff00112233")
+		ip4 = netip.AddrFrom4([4]byte{1, 2, 3, 4})
+		ip6 = netip.AddrFrom16([16]byte{0xb1, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})
+		id  = types.NodeID("00112233445566778899aabbccddeeff00112233")
 	)
 
 	testcases := []struct {
@@ -442,15 +336,11 @@ func TestEndpoint_NodeAddress(t *testing.T) {
 	}{
 		// Valid endpoints.
 		{
-			p2p.Endpoint{Protocol: "tcp", IP: ip4, Port: 8080, Path: "path"},
+			p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip4, 8080), Path: "path"},
 			p2p.NodeAddress{Protocol: "tcp", Hostname: "1.2.3.4", Port: 8080, Path: "path"},
 		},
 		{
-			p2p.Endpoint{Protocol: "tcp", IP: ip4in6, Port: 8080, Path: "path"},
-			p2p.NodeAddress{Protocol: "tcp", Hostname: "1.2.3.4", Port: 8080, Path: "path"},
-		},
-		{
-			p2p.Endpoint{Protocol: "tcp", IP: ip6, Port: 8080, Path: "path"},
+			p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip6, 8080), Path: "path"},
 			p2p.NodeAddress{Protocol: "tcp", Hostname: "b10c::1", Port: 8080, Path: "path"},
 		},
 		{
@@ -465,8 +355,7 @@ func TestEndpoint_NodeAddress(t *testing.T) {
 		// Partial (invalid) endpoints.
 		{p2p.Endpoint{}, p2p.NodeAddress{}},
 		{p2p.Endpoint{Protocol: "tcp"}, p2p.NodeAddress{Protocol: "tcp"}},
-		{p2p.Endpoint{IP: net.IPv4(1, 2, 3, 4)}, p2p.NodeAddress{Hostname: "1.2.3.4"}},
-		{p2p.Endpoint{Port: 8080}, p2p.NodeAddress{}},
+		{p2p.Endpoint{Addr: netip.AddrPortFrom(ip4, 0)}, p2p.NodeAddress{Hostname: "1.2.3.4"}},
 		{p2p.Endpoint{Path: "path"}, p2p.NodeAddress{Path: "path"}},
 	}
 	for _, tc := range testcases {
@@ -484,9 +373,8 @@ func TestEndpoint_NodeAddress(t *testing.T) {
 
 func TestEndpoint_String(t *testing.T) {
 	var (
-		ip4    = []byte{1, 2, 3, 4}
-		ip4in6 = net.IPv4(1, 2, 3, 4)
-		ip6    = []byte{0xb1, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01}
+		ip4    = netip.AddrFrom4([4]byte{1, 2, 3, 4})
+		ip6    = netip.AddrFrom16([16]byte{0xb1, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})
 		nodeID = types.NodeID("00112233445566778899aabbccddeeff00112233")
 	)
 
@@ -500,24 +388,23 @@ func TestEndpoint_String(t *testing.T) {
 		{p2p.Endpoint{Protocol: "file", Path: "👋"}, "file:///%F0%9F%91%8B"},
 
 		// IPv4 endpoints.
-		{p2p.Endpoint{Protocol: "tcp", IP: ip4}, "tcp://1.2.3.4"},
-		{p2p.Endpoint{Protocol: "tcp", IP: ip4in6}, "tcp://1.2.3.4"},
-		{p2p.Endpoint{Protocol: "tcp", IP: ip4, Port: 8080}, "tcp://1.2.3.4:8080"},
-		{p2p.Endpoint{Protocol: "tcp", IP: ip4, Port: 8080, Path: "/path"}, "tcp://1.2.3.4:8080/path"},
-		{p2p.Endpoint{Protocol: "tcp", IP: ip4, Path: "path/👋"}, "tcp://1.2.3.4/path/%F0%9F%91%8B"},
+		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip4, 0)}, "tcp://1.2.3.4"},
+		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip4, 8080)}, "tcp://1.2.3.4:8080"},
+		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip4, 8080), Path: "/path"}, "tcp://1.2.3.4:8080/path"},
+		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip4, 0), Path: "path/👋"}, "tcp://1.2.3.4/path/%F0%9F%91%8B"},
 
 		// IPv6 endpoints.
-		{p2p.Endpoint{Protocol: "tcp", IP: ip6}, "tcp://b10c::1"},
-		{p2p.Endpoint{Protocol: "tcp", IP: ip6, Port: 8080}, "tcp://[b10c::1]:8080"},
-		{p2p.Endpoint{Protocol: "tcp", IP: ip6, Port: 8080, Path: "/path"}, "tcp://[b10c::1]:8080/path"},
-		{p2p.Endpoint{Protocol: "tcp", IP: ip6, Path: "path/👋"}, "tcp://b10c::1/path/%F0%9F%91%8B"},
+		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip6, 0)}, "tcp://b10c::1"},
+		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip6, 8080)}, "tcp://[b10c::1]:8080"},
+		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip6, 8080), Path: "/path"}, "tcp://[b10c::1]:8080/path"},
+		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip6, 0), Path: "path/👋"}, "tcp://b10c::1/path/%F0%9F%91%8B"},
 
 		// Partial (invalid) endpoints.
 		{p2p.Endpoint{}, ""},
 		{p2p.Endpoint{Protocol: "tcp"}, "tcp:"},
-		{p2p.Endpoint{IP: []byte{1, 2, 3, 4}}, "1.2.3.4"},
-		{p2p.Endpoint{IP: []byte{0xb1, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01}}, "b10c::1"},
-		{p2p.Endpoint{Port: 8080}, ""},
+		{p2p.Endpoint{Addr: netip.AddrPortFrom(ip4, 0)}, "1.2.3.4"},
+		{p2p.Endpoint{Addr: netip.AddrPortFrom(ip6, 0)}, "b10c::1"},
+		{p2p.Endpoint{Addr: netip.AddrPortFrom(netip.IPv4Unspecified(), 8080)}, "0.0.0.0:8080"},
 		{p2p.Endpoint{Path: "foo"}, "/foo"},
 	}
 	for _, tc := range testcases {
@@ -528,30 +415,24 @@ func TestEndpoint_String(t *testing.T) {
 }
 
 func TestEndpoint_Validate(t *testing.T) {
-	var (
-		ip4    = []byte{1, 2, 3, 4}
-		ip4in6 = net.IPv4(1, 2, 3, 4)
-		ip6    = []byte{0xb1, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01}
-	)
+	ip4 := netip.AddrFrom4([4]byte{1, 2, 3, 4})
+	ip6 := netip.AddrFrom16([16]byte{0xb1, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})
 
 	testcases := []struct {
 		endpoint    p2p.Endpoint
 		expectValid bool
 	}{
 		// Valid endpoints.
-		{p2p.Endpoint{Protocol: "tcp", IP: ip4}, true},
-		{p2p.Endpoint{Protocol: "tcp", IP: ip4in6}, true},
-		{p2p.Endpoint{Protocol: "tcp", IP: ip6}, true},
-		{p2p.Endpoint{Protocol: "tcp", IP: ip4, Port: 8008}, true},
-		{p2p.Endpoint{Protocol: "tcp", IP: ip4, Port: 8080, Path: "path"}, true},
+		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip4, 0)}, true},
+		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip6, 0)}, true},
+		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip4, 8008)}, true},
+		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip4, 8080), Path: "path"}, true},
 		{p2p.Endpoint{Protocol: "memory", Path: "path"}, true},
 
 		// Invalid endpoints.
 		{p2p.Endpoint{}, false},
-		{p2p.Endpoint{IP: ip4}, false},
+		{p2p.Endpoint{Addr: netip.AddrPortFrom(ip4, 0)}, false},
 		{p2p.Endpoint{Protocol: "tcp"}, false},
-		{p2p.Endpoint{Protocol: "tcp", IP: []byte{1, 2, 3}}, false},
-		{p2p.Endpoint{Protocol: "tcp", Port: 8080, Path: "path"}, false},
 	}
 	for _, tc := range testcases {
 		t.Run(tc.endpoint.String(), func(t *testing.T) {
@@ -570,9 +451,7 @@ func TestEndpoint_Validate(t *testing.T) {
 func dialAccept(ctx context.Context, t *testing.T, a, b p2p.Transport) (p2p.Connection, p2p.Connection) {
 	t.Helper()
 
-	endpoint, err := b.Endpoint()
-	require.NoError(t, err)
-	require.NotNil(t, endpoint, "peer not listening on any endpoints")
+	endpoint := b.Endpoint()
 
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()

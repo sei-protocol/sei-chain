@@ -52,26 +52,8 @@ func (_m *Transport) AddChannelDescriptors(_a0 []*conn.ChannelDescriptor) {
 	_m.Called(_a0)
 }
 
-// Close provides a mock function with no fields
-func (_m *Transport) Close() error {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for Close")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func() error); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
 // Dial provides a mock function with given fields: _a0, _a1
-func (_m *Transport) Dial(_a0 context.Context, _a1 *p2p.Endpoint) (p2p.Connection, error) {
+func (_m *Transport) Dial(_a0 context.Context, _a1 p2p.Endpoint) (p2p.Connection, error) {
 	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
@@ -80,10 +62,10 @@ func (_m *Transport) Dial(_a0 context.Context, _a1 *p2p.Endpoint) (p2p.Connectio
 
 	var r0 p2p.Connection
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *p2p.Endpoint) (p2p.Connection, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, p2p.Endpoint) (p2p.Connection, error)); ok {
 		return rf(_a0, _a1)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *p2p.Endpoint) p2p.Connection); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, p2p.Endpoint) p2p.Connection); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
@@ -91,7 +73,7 @@ func (_m *Transport) Dial(_a0 context.Context, _a1 *p2p.Endpoint) (p2p.Connectio
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *p2p.Endpoint) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, p2p.Endpoint) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
 		r1 = ret.Error(1)
@@ -101,48 +83,18 @@ func (_m *Transport) Dial(_a0 context.Context, _a1 *p2p.Endpoint) (p2p.Connectio
 }
 
 // Endpoint provides a mock function with no fields
-func (_m *Transport) Endpoint() (*p2p.Endpoint, error) {
+func (_m *Transport) Endpoint() p2p.Endpoint {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for Endpoint")
 	}
 
-	var r0 *p2p.Endpoint
-	var r1 error
-	if rf, ok := ret.Get(0).(func() (*p2p.Endpoint, error)); ok {
-		return rf()
-	}
-	if rf, ok := ret.Get(0).(func() *p2p.Endpoint); ok {
+	var r0 p2p.Endpoint
+	if rf, ok := ret.Get(0).(func() p2p.Endpoint); ok {
 		r0 = rf()
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*p2p.Endpoint)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// Listen provides a mock function with given fields: _a0
-func (_m *Transport) Listen(_a0 *p2p.Endpoint) error {
-	ret := _m.Called(_a0)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Listen")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(*p2p.Endpoint) error); ok {
-		r0 = rf(_a0)
-	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(p2p.Endpoint)
 	}
 
 	return r0
@@ -163,6 +115,24 @@ func (_m *Transport) Protocols() []p2p.Protocol {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]p2p.Protocol)
 		}
+	}
+
+	return r0
+}
+
+// Run provides a mock function with given fields: ctx
+func (_m *Transport) Run(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Run")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
 	}
 
 	return r0

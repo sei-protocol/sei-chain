@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -97,7 +98,7 @@ func ParseNodeAddress(urlString string) (NodeAddress, error) {
 
 // Resolve resolves a NodeAddress into a set of Endpoints, by expanding
 // out a DNS hostname to IP addresses.
-func (a NodeAddress) Resolve(ctx context.Context) ([]*Endpoint, error) {
+func (a NodeAddress) Resolve(ctx context.Context) ([]Endpoint, error) {
 	if a.Protocol == "" {
 		return nil, errors.New("address has no protocol")
 	}
@@ -109,7 +110,7 @@ func (a NodeAddress) Resolve(ctx context.Context) ([]*Endpoint, error) {
 		if a.NodeID == "" {
 			return nil, errors.New("local address has no node ID")
 		}
-		return []*Endpoint{{
+		return []Endpoint{{
 			Protocol: a.Protocol,
 			Path:     string(a.NodeID),
 		}}, nil
@@ -119,12 +120,15 @@ func (a NodeAddress) Resolve(ctx context.Context) ([]*Endpoint, error) {
 	if err != nil {
 		return nil, err
 	}
-	endpoints := make([]*Endpoint, len(ips))
+	endpoints := make([]Endpoint, len(ips))
 	for i, ip := range ips {
-		endpoints[i] = &Endpoint{
+		ip, ok := netip.AddrFromSlice(ip)
+		if !ok {
+			return nil, fmt.Errorf("LookupIP returned invalid IP %q", ip)
+		}
+		endpoints[i] = Endpoint{
 			Protocol: a.Protocol,
-			IP:       ip,
-			Port:     a.Port,
+			Addr:     netip.AddrPortFrom(ip, a.Port),
 			Path:     a.Path,
 		}
 	}

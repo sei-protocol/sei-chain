@@ -1,13 +1,19 @@
 package p2p_test
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"io"
-	"net"
+	"net/netip"
 	"testing"
 	"time"
 
 	"github.com/fortytw2/leaktest"
 	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
@@ -17,207 +23,211 @@ import (
 // Transports are mainly tested by common tests in transport_test.go, we
 // register a transport factory here to get included in those tests.
 func init() {
-	testTransports["mconn"] = func(t *testing.T) p2p.Transport {
-		transport := p2p.NewMConnTransport(
-			log.NewNopLogger(),
-			conn.DefaultMConnConfig(),
-			[]*p2p.ChannelDescriptor{{ID: chID, Priority: 1}},
-			p2p.MConnTransportOptions{},
-		)
-		err := transport.Listen(&p2p.Endpoint{
-			Protocol: p2p.MConnProtocol,
-			IP:       net.IPv4(127, 0, 0, 1),
-			Port:     0, // assign a random port
-		})
-		require.NoError(t, err)
-
-		t.Cleanup(func() { _ = transport.Close() })
-
-		return transport
-	}
-}
-
-func TestMConnTransport_AcceptBeforeListen(t *testing.T) {
-	transport := p2p.NewMConnTransport(
-		log.NewNopLogger(),
-		conn.DefaultMConnConfig(),
-		[]*p2p.ChannelDescriptor{{ID: chID, Priority: 1}},
-		p2p.MConnTransportOptions{
-			MaxAcceptedConnections: 2,
-		},
-	)
-	t.Cleanup(func() {
-		_ = transport.Close()
-	})
-	ctx := t.Context()
-
-	_, err := transport.Accept(ctx)
-	require.Error(t, err)
-	require.NotEqual(t, io.EOF, err) // io.EOF should be returned after Close()
-}
-
-func TestMConnTransport_AcceptMaxAcceptedConnections(t *testing.T) {
-	ctx := t.Context()
-
-	transport := p2p.NewMConnTransport(
-		log.NewNopLogger(),
-		conn.DefaultMConnConfig(),
-		[]*p2p.ChannelDescriptor{{ID: chID, Priority: 1}},
-		p2p.MConnTransportOptions{
-			MaxAcceptedConnections: 2,
-		},
-	)
-	t.Cleanup(func() {
-		_ = transport.Close()
-	})
-	err := transport.Listen(&p2p.Endpoint{
-		Protocol: p2p.MConnProtocol,
-		IP:       net.IPv4(127, 0, 0, 1),
-	})
-	require.NoError(t, err)
-	endpoint, err := transport.Endpoint()
-	require.NoError(t, err)
-	require.NotNil(t, endpoint)
-
-	// Start a goroutine to just accept any connections.
-	acceptCh := make(chan p2p.Connection, 10)
-	go func() {
-		for {
-			conn, err := transport.Accept(ctx)
-			if err != nil {
-				return
-			}
-			acceptCh <- conn
-		}
-	}()
-
-	// The first two connections should be accepted just fine.
-	dial1, err := transport.Dial(ctx, endpoint)
-	require.NoError(t, err)
-	defer dial1.Close()
-	accept1 := <-acceptCh
-	defer accept1.Close()
-	require.Equal(t, dial1.LocalEndpoint(), accept1.RemoteEndpoint())
-
-	dial2, err := transport.Dial(ctx, endpoint)
-	require.NoError(t, err)
-	defer dial2.Close()
-	accept2 := <-acceptCh
-	defer accept2.Close()
-	require.Equal(t, dial2.LocalEndpoint(), accept2.RemoteEndpoint())
-
-	// The third connection will be dialed successfully, but the accept should
-	// not go through.
-	dial3, err := transport.Dial(ctx, endpoint)
-	require.NoError(t, err)
-	defer dial3.Close()
-	select {
-	case <-acceptCh:
-		require.Fail(t, "unexpected accept")
-	case <-time.After(time.Second):
-	}
-
-	// However, once either of the other connections are closed, the accept
-	// goes through.
-	require.NoError(t, accept1.Close())
-	accept3 := <-acceptCh
-	defer accept3.Close()
-	require.Equal(t, dial3.LocalEndpoint(), accept3.RemoteEndpoint())
-}
-
-func TestMConnTransport_Listen(t *testing.T) {
-	ctx := t.Context()
-
-	testcases := []struct {
-		endpoint *p2p.Endpoint
-		ok       bool
-	}{
-		// Valid v4 and v6 addresses, with mconn and tcp protocols.
-		{&p2p.Endpoint{Protocol: p2p.MConnProtocol, IP: net.IPv4zero}, true},
-		{&p2p.Endpoint{Protocol: p2p.MConnProtocol, IP: net.IPv4(127, 0, 0, 1)}, true},
-		{&p2p.Endpoint{Protocol: p2p.MConnProtocol, IP: net.IPv6zero}, true},
-		{&p2p.Endpoint{Protocol: p2p.MConnProtocol, IP: net.IPv6loopback}, true},
-		{&p2p.Endpoint{Protocol: p2p.TCPProtocol, IP: net.IPv4zero}, true},
-
-		// Invalid endpoints.
-		{&p2p.Endpoint{}, false},
-		{&p2p.Endpoint{Protocol: p2p.MConnProtocol, Path: "foo"}, false},
-		{&p2p.Endpoint{Protocol: p2p.MConnProtocol, IP: net.IPv4zero, Path: "foo"}, false},
-	}
-	for _, tc := range testcases {
-		t.Run(tc.endpoint.String(), func(t *testing.T) {
-			t.Cleanup(leaktest.Check(t))
-
+	testTransports["mconn"] = func() func(context.Context) p2p.Transport {
+		return func(ctx context.Context) p2p.Transport {
 			transport := p2p.NewMConnTransport(
 				log.NewNopLogger(),
+				p2p.Endpoint{
+					Protocol: p2p.MConnProtocol,
+					Addr:     tcp.TestReserveAddr(),
+				},
 				conn.DefaultMConnConfig(),
 				[]*p2p.ChannelDescriptor{{ID: chID, Priority: 1}},
 				p2p.MConnTransportOptions{},
 			)
-
-			// Transport should not listen on any endpoints yet.
-			endpoint, err := transport.Endpoint()
-			require.Error(t, err)
-			require.Nil(t, endpoint)
-
-			// Start listening, and check any expected errors.
-			err = transport.Listen(tc.endpoint)
-			if !tc.ok {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-
-			// Check the endpoint.
-			endpoint, err = transport.Endpoint()
-			require.NoError(t, err)
-			require.NotNil(t, endpoint)
-
-			require.Equal(t, p2p.MConnProtocol, endpoint.Protocol)
-			if tc.endpoint.IP.IsUnspecified() {
-				require.True(t, endpoint.IP.IsUnspecified(),
-					"expected unspecified IP, got %v", endpoint.IP)
-			} else {
-				require.True(t, tc.endpoint.IP.Equal(endpoint.IP),
-					"expected %v, got %v", tc.endpoint.IP, endpoint.IP)
-			}
-			require.NotZero(t, endpoint.Port)
-			require.Empty(t, endpoint.Path)
-
-			dialedChan := make(chan struct{})
-
-			var peerConn p2p.Connection
 			go func() {
-				// Dialing the endpoint should work.
-				var err error
-				ctx := t.Context()
-
-				peerConn, err = transport.Dial(ctx, endpoint)
-				require.NoError(t, err)
-				close(dialedChan)
+				if err := transport.Run(ctx); err != nil {
+					panic(err)
+				}
 			}()
+			if err := transport.WaitForStart(ctx); err != nil {
+				panic(err)
+			}
+			return transport
+		}
+	}
+}
 
-			conn, err := transport.Accept(ctx)
-			require.NoError(t, err)
-			_ = conn.Close()
-			<-dialedChan
+// Establishes a connection to the transport.
+// Returns both ends of the connection.
+func connect(ctx context.Context, tr *p2p.MConnTransport) (c1 p2p.Connection, c2 p2p.Connection, err error) {
+	defer func() {
+		if err != nil {
+			if c1 != nil {
+				c1.Close()
+			}
+			if c2 != nil {
+				c2.Close()
+			}
+		}
+	}()
+	// Here we are utilizing the fact that MConnTransport accepts connection proactively
+	// before Accept is called.
+	c1, err = tr.Dial(ctx, tr.Endpoint())
+	if err != nil {
+		return nil, nil, fmt.Errorf("Dial(): %w", err)
+	}
+	c2, err = tr.Accept(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("Accept(): %w", err)
+	}
+	if got, want := c1.LocalEndpoint(), c2.RemoteEndpoint(); got != want {
+		return nil, nil, fmt.Errorf("c1.LocalEndpoint() = %v, want %v", got, want)
+	}
+	if got, want := c1.RemoteEndpoint(), c2.LocalEndpoint(); got != want {
+		return nil, nil, fmt.Errorf("c1.RemoteEndpoint() = %v, want %v", got, want)
+	}
+	return c1, c2, nil
+}
 
-			// closing the connection should not error
-			require.NoError(t, peerConn.Close())
+func TestMConnTransport_AcceptMaxAcceptedConnections(t *testing.T) {
+	ctx := t.Context()
+	transport := p2p.NewMConnTransport(
+		log.NewNopLogger(),
+		p2p.Endpoint{
+			Protocol: p2p.MConnProtocol,
+			Addr:     tcp.TestReserveAddr(),
+		},
+		conn.DefaultMConnConfig(),
+		[]*p2p.ChannelDescriptor{{ID: chID, Priority: 1}},
+		p2p.MConnTransportOptions{
+			MaxAcceptedConnections: 2,
+		},
+	)
 
-			// try to read from the connection should error
-			_, _, err = peerConn.ReceiveMessage(ctx)
-			require.Error(t, err)
+	err := utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("transport", func() error { return transport.Run(ctx) })
+		if err := transport.WaitForStart(ctx); err != nil {
+			return err
+		}
+		t.Logf("The first two connections should be accepted just fine.")
 
-			// Trying to listen again should error.
-			err = transport.Listen(tc.endpoint)
-			require.Error(t, err)
+		a1, a2, err := connect(ctx, transport)
+		if err != nil {
+			return fmt.Errorf("1st connect(): %w", err)
+		}
+		defer a1.Close()
+		defer a2.Close()
 
-			// close the transport
-			_ = transport.Close()
+		b1, b2, err := connect(ctx, transport)
+		if err != nil {
+			return fmt.Errorf("2nd connect(): %w", err)
+		}
+		defer b1.Close()
+		defer b2.Close()
 
+		t.Logf("The third connection will be dialed successfully, but the accept should not go through.")
+		c1, err := transport.Dial(ctx, transport.Endpoint())
+		if err != nil {
+			return fmt.Errorf("3rd Dial(): %w", err)
+		}
+		defer c1.Close()
+		if err := utils.WithTimeout(ctx, time.Second, func(ctx context.Context) error {
+			c2, err := transport.Accept(ctx)
+			if err == nil {
+				c2.Close()
+			}
+			return err
+		}); !errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("Accept() over cap: %v, want %v", err, context.DeadlineExceeded)
+		}
+
+		t.Logf("once either of the other connections are closed, the accept goes through.")
+		a1.Close()
+		a2.Close() // we close both a1 and a2 to make sure the connection count drops below the limit.
+		c2, err := transport.Accept(ctx)
+		if err != nil {
+			return fmt.Errorf("3rd Accept(): %w", err)
+		}
+		defer c2.Close()
+		return nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMConnTransport_Listen(t *testing.T) {
+	reservePort := func(ip netip.Addr) netip.AddrPort {
+		addr := tcp.TestReserveAddr()
+		return netip.AddrPortFrom(ip, addr.Port())
+	}
+
+	testcases := []struct {
+		endpoint p2p.Endpoint
+		ok       bool
+	}{
+		// Valid v4 and v6 addresses, with mconn and tcp protocols.
+		{p2p.Endpoint{Protocol: p2p.MConnProtocol, Addr: reservePort(netip.IPv4Unspecified())}, true},
+		{p2p.Endpoint{Protocol: p2p.MConnProtocol, Addr: reservePort(tcp.IPv4Loopback())}, true},
+		{p2p.Endpoint{Protocol: p2p.MConnProtocol, Addr: reservePort(netip.IPv6Unspecified())}, true},
+		{p2p.Endpoint{Protocol: p2p.MConnProtocol, Addr: reservePort(netip.IPv6Loopback())}, true},
+		{p2p.Endpoint{Protocol: p2p.TCPProtocol, Addr: reservePort(netip.IPv4Unspecified())}, true},
+
+		// Invalid endpoints.
+		{p2p.Endpoint{}, false},
+		{p2p.Endpoint{Protocol: p2p.MConnProtocol, Path: "foo"}, false},
+		{p2p.Endpoint{Protocol: p2p.MConnProtocol, Addr: reservePort(netip.IPv4Unspecified()), Path: "foo"}, false},
+	}
+	for _, tc := range testcases {
+		t.Run(tc.endpoint.String(), func(t *testing.T) {
+			ctx := t.Context()
+			t.Cleanup(leaktest.Check(t))
+
+			transport := p2p.NewMConnTransport(
+				log.NewNopLogger(),
+				tc.endpoint,
+				conn.DefaultMConnConfig(),
+				[]*p2p.ChannelDescriptor{{ID: chID, Priority: 1}},
+				p2p.MConnTransportOptions{},
+			)
+			if got, want := transport.Endpoint(), tc.endpoint; got != want {
+				t.Fatalf("transport.Endpoint() = %v, want %v", got, want)
+			}
+
+			err := utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+				s.SpawnBgNamed("transport", func() error { return transport.Run(ctx) })
+				if err := transport.WaitForStart(ctx); err != nil {
+					return err
+				}
+				s.SpawnNamed("dial", func() error {
+					conn, err := transport.Dial(ctx, tc.endpoint)
+					if err != nil {
+						return fmt.Errorf("transport.Dial(): %w", err)
+					}
+					if err := conn.Close(); err != nil {
+						return fmt.Errorf("conn.Close(): %w", err)
+					}
+					if _, _, err := conn.ReceiveMessage(ctx); !errors.Is(err, io.EOF) {
+						return fmt.Errorf("conn.ReceiveMessage() =  %v, want %v", err, io.EOF)
+					}
+					return nil
+				})
+				s.SpawnNamed("accept", func() error {
+					conn, err := transport.Accept(ctx)
+					if err != nil {
+						return fmt.Errorf("transport.Accept(): %w", err)
+					}
+					if err := conn.Close(); err != nil {
+						return fmt.Errorf("conn.Close(): %w", err)
+					}
+					if _, _, err := conn.ReceiveMessage(ctx); !errors.Is(err, io.EOF) {
+						return fmt.Errorf("conn.ReceiveMessage() =  %v, want %v", err, io.EOF)
+					}
+					return nil
+				})
+				return nil
+			}))
+			if !tc.ok {
+				var want p2p.InvalidEndpointErr
+				if !errors.As(err, &want) {
+					t.Fatalf("error = %v, want %T", err, want)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
 			// Dialing the closed endpoint should error
-			_, err = transport.Dial(ctx, endpoint)
+			_, err = transport.Dial(ctx, tc.endpoint)
 			require.Error(t, err)
 		})
 	}

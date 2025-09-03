@@ -12,10 +12,10 @@ import (
 
 	"github.com/fortytw2/leaktest"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/tendermint/tendermint/internal/p2p"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -432,7 +432,10 @@ func TestPeerManagerDeleteOnMaxRetries(t *testing.T) {
 			require.GreaterOrEqual(t, elapsed, time.Duration(math.Pow(2, float64(i)))*options.MinRetryTime)
 		}
 		if i == 3 {
-			require.ErrorContains(t, peerManager.DialFailed(ctx, a), "dialing failed 4 times")
+			if got, err := (p2p.DialFailuresError{}), peerManager.DialFailed(ctx, a); !errors.As(err, &got) || got.Failures != 4 {
+				t.Errorf("expected 4 failures, got error %v", err)
+			}
+
 			continue
 		}
 		require.NoError(t, peerManager.DialFailed(ctx, a))
@@ -834,7 +837,8 @@ func TestPeerManager_DialFailed_UnreservePeer(t *testing.T) {
 	b := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("b", 40))}
 	c := p2p.NodeAddress{Protocol: "memory", NodeID: types.NodeID(strings.Repeat("c", 40))}
 
-	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	logger, _ := log.NewDefaultLogger("plain", "debug")
+	peerManager, err := p2p.NewPeerManager(logger, selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{
 		PeerScores: map[types.NodeID]p2p.PeerScore{
 			a.NodeID: p2p.DefaultMutableScore - 1, // Set lower score for a to make it upgradeable
 			b.NodeID: p2p.DefaultMutableScore + 1, // Higher score for b to attempt upgrade
@@ -845,7 +849,7 @@ func TestPeerManager_DialFailed_UnreservePeer(t *testing.T) {
 	}, p2p.NopMetrics())
 	require.NoError(t, err)
 
-	// Add and connect to peer a (lower scored)
+	t.Logf("Add and connect to peer a (lower scored)")
 	added, err := peerManager.Add(a)
 	require.NoError(t, err)
 	require.True(t, added)
@@ -854,7 +858,7 @@ func TestPeerManager_DialFailed_UnreservePeer(t *testing.T) {
 	require.Equal(t, a, dial)
 	require.NoError(t, peerManager.Dialed(a))
 
-	// Add both higher scored peers b and c
+	t.Logf("Add both higher scored peers b and c")
 	added, err = peerManager.Add(b)
 	require.NoError(t, err)
 	require.True(t, added)
@@ -1044,7 +1048,9 @@ func TestPeerManager_Dialed_Upgrade(t *testing.T) {
 	// a should now be evicted.
 	evict, err := peerManager.TryEvictNext()
 	require.NoError(t, err)
-	require.Equal(t, a.NodeID, evict)
+	if ev, ok := evict.Get(); !ok || ev.ID != a.NodeID {
+		t.Fatalf("evict = %v, expected %s", evict, a.NodeID)
+	}
 }
 
 func TestPeerManager_Dialed_UpgradeEvenLower(t *testing.T) {
@@ -1100,7 +1106,9 @@ func TestPeerManager_Dialed_UpgradeEvenLower(t *testing.T) {
 	require.NoError(t, peerManager.Dialed(c))
 	evict, err := peerManager.TryEvictNext()
 	require.NoError(t, err)
-	require.Equal(t, d.NodeID, evict)
+	if ev, ok := evict.Get(); !ok || ev.ID != d.NodeID {
+		t.Fatalf("evict = %v, expected %s", evict, d.NodeID)
+	}
 }
 
 func TestPeerManager_Dialed_UpgradeNoEvict(t *testing.T) {
@@ -1311,7 +1319,9 @@ func TestPeerManager_Accepted_Upgrade(t *testing.T) {
 	// This should cause a to get evicted.
 	evict, err := peerManager.TryEvictNext()
 	require.NoError(t, err)
-	require.Equal(t, a.NodeID, evict)
+	if ev, ok := evict.Get(); !ok || ev.ID != a.NodeID {
+		t.Fatalf("evict = %v, expected %s", evict, a.NodeID)
+	}
 	peerManager.Disconnected(ctx, a.NodeID)
 
 	// c still cannot get accepted, since it's not scored above b.
@@ -1361,7 +1371,9 @@ func TestPeerManager_Accepted_UpgradeDialing(t *testing.T) {
 	// This should cause a to get evicted, and the dial upgrade to fail.
 	evict, err := peerManager.TryEvictNext()
 	require.NoError(t, err)
-	require.Equal(t, a.NodeID, evict)
+	if ev, ok := evict.Get(); !ok || ev.ID != a.NodeID {
+		t.Fatalf("evict = %v, expected %s", evict, a.NodeID)
+	}
 	require.Error(t, peerManager.Dialed(b))
 }
 
@@ -1449,7 +1461,7 @@ func TestPeerManager_EvictNext(t *testing.T) {
 	peerManager.Errored(a.NodeID, errors.New("foo"))
 	evict, err := peerManager.EvictNext(timeoutCtx)
 	require.NoError(t, err)
-	require.Equal(t, a.NodeID, evict)
+	require.Equal(t, a.NodeID, evict.ID)
 
 	// Since there are no more peers to evict, the next call should block.
 	timeoutCtx, cancel = context.WithTimeout(ctx, 100*time.Millisecond)
@@ -1484,7 +1496,7 @@ func TestPeerManager_EvictNext_WakeOnError(t *testing.T) {
 	defer cancel()
 	evict, err := peerManager.EvictNext(ctx)
 	require.NoError(t, err)
-	require.Equal(t, a.NodeID, evict)
+	require.Equal(t, a.NodeID, evict.ID)
 }
 
 func TestPeerManager_EvictNext_WakeOnUpgradeDialed(t *testing.T) {
@@ -1524,7 +1536,7 @@ func TestPeerManager_EvictNext_WakeOnUpgradeDialed(t *testing.T) {
 	defer cancel()
 	evict, err := peerManager.EvictNext(ctx)
 	require.NoError(t, err)
-	require.Equal(t, a.NodeID, evict)
+	require.Equal(t, a.NodeID, evict.ID)
 }
 
 func TestPeerManager_EvictNext_WakeOnUpgradeAccepted(t *testing.T) {
@@ -1558,7 +1570,7 @@ func TestPeerManager_EvictNext_WakeOnUpgradeAccepted(t *testing.T) {
 	defer cancel()
 	evict, err := peerManager.EvictNext(ctx)
 	require.NoError(t, err)
-	require.Equal(t, a.NodeID, evict)
+	require.Equal(t, a.NodeID, evict.ID)
 }
 func TestPeerManager_TryEvictNext(t *testing.T) {
 	ctx := t.Context()
@@ -1585,7 +1597,9 @@ func TestPeerManager_TryEvictNext(t *testing.T) {
 	peerManager.Errored(a.NodeID, errors.New("foo"))
 	evict, err = peerManager.TryEvictNext()
 	require.NoError(t, err)
-	require.Equal(t, a.NodeID, evict)
+	if ev, ok := evict.Get(); !ok || ev.ID != a.NodeID {
+		t.Fatalf("evict = %v, expected %s", evict, a.NodeID)
+	}
 
 	// While a is being evicted (before disconnect), it shouldn't get evicted again.
 	evict, err = peerManager.TryEvictNext()
@@ -1688,7 +1702,9 @@ func TestPeerManager_Errored(t *testing.T) {
 	peerManager.Errored(a.NodeID, errors.New("foo"))
 	evict, err = peerManager.TryEvictNext()
 	require.NoError(t, err)
-	require.Equal(t, a.NodeID, evict)
+	if ev, ok := evict.Get(); !ok || ev.ID != a.NodeID {
+		t.Fatalf("evict = %v, expected %s", evict, a.NodeID)
+	}
 }
 
 func TestPeerManager_Subscribe(t *testing.T) {
@@ -1737,7 +1753,9 @@ func TestPeerManager_Subscribe(t *testing.T) {
 
 	evict, err := peerManager.TryEvictNext()
 	require.NoError(t, err)
-	require.Equal(t, a.NodeID, evict)
+	if ev, ok := evict.Get(); !ok || ev.ID != a.NodeID {
+		t.Fatalf("evict = %v, expected %s", evict, a.NodeID)
+	}
 
 	peerManager.Disconnected(ctx, a.NodeID)
 	require.NotEmpty(t, sub.Updates())

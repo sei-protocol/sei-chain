@@ -29,7 +29,7 @@ func createTestMConnection(logger log.Logger, conn net.Conn) *MConnection {
 		func(ctx context.Context, chID ChannelID, msgBytes []byte) {
 		},
 		// onError
-		func(ctx context.Context, r interface{}) {
+		func(ctx context.Context, r any) {
 		})
 }
 
@@ -37,7 +37,7 @@ func createMConnectionWithCallbacks(
 	logger log.Logger,
 	conn net.Conn,
 	onReceive func(ctx context.Context, chID ChannelID, msgBytes []byte),
-	onError func(ctx context.Context, r interface{}),
+	onError func(ctx context.Context, r any),
 ) *MConnection {
 	cfg := DefaultMConnConfig()
 	cfg.PingInterval = 250 * time.Millisecond
@@ -59,7 +59,7 @@ func TestMConnectionSendFlushStop(t *testing.T) {
 	t.Cleanup(waitAll(clientConn))
 
 	msg := []byte("abc")
-	assert.True(t, clientConn.Send(0x01, msg))
+	assert.NoError(t, clientConn.Send(ctx, 0x01, msg))
 
 	msgLength := 14
 
@@ -95,7 +95,7 @@ func TestMConnectionSend(t *testing.T) {
 	t.Cleanup(waitAll(mconn))
 
 	msg := []byte("Ant-Man")
-	assert.True(t, mconn.Send(0x01, msg))
+	assert.NoError(t, mconn.Send(ctx, 0x01, msg))
 	// Note: subsequent Send/TrySend calls could pass because we are reading from
 	// the send queue in a separate goroutine.
 	_, err = server.Read(make([]byte, len(msg)))
@@ -104,13 +104,13 @@ func TestMConnectionSend(t *testing.T) {
 	}
 
 	msg = []byte("Spider-Man")
-	assert.True(t, mconn.Send(0x01, msg))
+	assert.NoError(t, mconn.Send(ctx, 0x01, msg))
 	_, err = server.Read(make([]byte, len(msg)))
 	if err != nil {
 		t.Error(err)
 	}
 
-	assert.False(t, mconn.Send(0x05, []byte("Absorbing Man")), "Send should return false because channel is unknown")
+	assert.Error(t, mconn.Send(ctx, 0x05, []byte("Absorbing Man")), "Send should fail because channel is unknown")
 }
 
 func TestMConnectionReceive(t *testing.T) {
@@ -118,14 +118,14 @@ func TestMConnectionReceive(t *testing.T) {
 	t.Cleanup(closeAll(t, client, server))
 
 	receivedCh := make(chan []byte)
-	errorsCh := make(chan interface{})
+	errorsCh := make(chan any)
 	onReceive := func(ctx context.Context, chID ChannelID, msgBytes []byte) {
 		select {
 		case receivedCh <- msgBytes:
 		case <-ctx.Done():
 		}
 	}
-	onError := func(ctx context.Context, r interface{}) {
+	onError := func(ctx context.Context, r any) {
 		select {
 		case errorsCh <- r:
 		case <-ctx.Done():
@@ -146,7 +146,7 @@ func TestMConnectionReceive(t *testing.T) {
 	t.Cleanup(waitAll(mconn2))
 
 	msg := []byte("Cyclops")
-	assert.True(t, mconn2.Send(0x01, msg))
+	assert.NoError(t, mconn2.Send(ctx, 0x01, msg))
 
 	select {
 	case receivedBytes := <-receivedCh:
@@ -203,14 +203,14 @@ func TestMConnectionMultiplePongsInTheBeginning(t *testing.T) {
 	t.Cleanup(closeAll(t, client, server))
 
 	receivedCh := make(chan []byte)
-	errorsCh := make(chan interface{})
+	errorsCh := make(chan any)
 	onReceive := func(ctx context.Context, chID ChannelID, msgBytes []byte) {
 		select {
 		case receivedCh <- msgBytes:
 		case <-ctx.Done():
 		}
 	}
-	onError := func(ctx context.Context, r interface{}) {
+	onError := func(ctx context.Context, r any) {
 		select {
 		case errorsCh <- r:
 		case <-ctx.Done():
@@ -261,14 +261,14 @@ func TestMConnectionMultiplePings(t *testing.T) {
 	t.Cleanup(closeAll(t, client, server))
 
 	receivedCh := make(chan []byte)
-	errorsCh := make(chan interface{})
+	errorsCh := make(chan any)
 	onReceive := func(ctx context.Context, chID ChannelID, msgBytes []byte) {
 		select {
 		case receivedCh <- msgBytes:
 		case <-ctx.Done():
 		}
 	}
-	onError := func(ctx context.Context, r interface{}) {
+	onError := func(ctx context.Context, r any) {
 		select {
 		case errorsCh <- r:
 		case <-ctx.Done():
@@ -316,14 +316,14 @@ func TestMConnectionPingPongs(t *testing.T) {
 	t.Cleanup(closeAll(t, client, server))
 
 	receivedCh := make(chan []byte)
-	errorsCh := make(chan interface{})
+	errorsCh := make(chan any)
 	onReceive := func(ctx context.Context, chID ChannelID, msgBytes []byte) {
 		select {
 		case receivedCh <- msgBytes:
 		case <-ctx.Done():
 		}
 	}
-	onError := func(ctx context.Context, r interface{}) {
+	onError := func(ctx context.Context, r any) {
 		select {
 		case errorsCh <- r:
 		case <-ctx.Done():
@@ -375,14 +375,14 @@ func TestMConnectionStopsAndReturnsError(t *testing.T) {
 	t.Cleanup(closeAll(t, client, server))
 
 	receivedCh := make(chan []byte)
-	errorsCh := make(chan interface{})
+	errorsCh := make(chan any)
 	onReceive := func(ctx context.Context, chID ChannelID, msgBytes []byte) {
 		select {
 		case receivedCh <- msgBytes:
 		case <-ctx.Done():
 		}
 	}
-	onError := func(ctx context.Context, r interface{}) {
+	onError := func(ctx context.Context, r any) {
 		select {
 		case errorsCh <- r:
 		case <-ctx.Done():
@@ -418,7 +418,7 @@ func newClientAndServerConnsForReadErrors(
 	server, client := net.Pipe()
 
 	onReceive := func(context.Context, ChannelID, []byte) {}
-	onError := func(context.Context, interface{}) {}
+	onError := func(context.Context, any) {}
 
 	// create client conn with two channels
 	chDescs := []*ChannelDescriptor{
@@ -434,7 +434,7 @@ func newClientAndServerConnsForReadErrors(
 	// create server conn with 1 channel
 	// it fires on chOnErr when there's an error
 	serverLogger := logger.With("module", "server")
-	onError = func(ctx context.Context, r interface{}) {
+	onError = func(ctx context.Context, r any) {
 		select {
 		case <-ctx.Done():
 		case chOnErr <- struct{}{}:
@@ -481,11 +481,11 @@ func TestMConnectionReadErrorUnknownChannel(t *testing.T) {
 	msg := []byte("Ant-Man")
 
 	// fail to send msg on channel unknown by client
-	assert.False(t, mconnClient.Send(0x03, msg))
+	assert.Error(t, mconnClient.Send(ctx, 0x03, msg))
 
 	// send msg on channel unknown by the server.
 	// should cause an error
-	assert.True(t, mconnClient.Send(0x02, msg))
+	assert.NoError(t, mconnClient.Send(ctx, 0x02, msg))
 	assert.True(t, expectSend(chOnErr), "unknown channel")
 	t.Cleanup(waitAll(mconnClient, mconnServer))
 }
@@ -557,15 +557,15 @@ func TestMConnectionTrySend(t *testing.T) {
 
 	msg := []byte("Semicolon-Woman")
 	resultCh := make(chan string, 2)
-	assert.True(t, mconn.Send(0x01, msg))
+	assert.NoError(t, mconn.Send(ctx, 0x01, msg))
 	_, err = server.Read(make([]byte, len(msg)))
 	require.NoError(t, err)
-	assert.True(t, mconn.Send(0x01, msg))
+	assert.NoError(t, mconn.Send(ctx, 0x01, msg))
 	go func() {
-		mconn.Send(0x01, msg)
+		mconn.Send(ctx, 0x01, msg)
 		resultCh <- "TrySend"
 	}()
-	assert.False(t, mconn.Send(0x01, msg))
+	assert.Error(t, mconn.Send(ctx, 0x01, msg))
 	assert.Equal(t, "TrySend", <-resultCh)
 }
 

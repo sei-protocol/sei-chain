@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"google.golang.org/protobuf/proto"
+	"github.com/gogo/protobuf/proto"
 )
 
 // Hash is a SHA-256 hash.

@@ -36,6 +36,8 @@ type Metrics struct {
 	PeerSendBytesTotal metrics.Counter `metrics_labels:"peer_id, chID, message_type"`
 	// Number of bytes pending being sent to a given peer.
 	PeerPendingSendBytes metrics.Gauge `metrics_labels:"peer_id"`
+	// Number of newly established connections.
+	NewConnections metrics.Counter `metrics_labels:"direction"`
 
 	// RouterPeerQueueRecv defines the time taken to read off of a peer's queue
 	// before sending on the connection.
@@ -52,15 +54,9 @@ type Metrics struct {
 	//metrics:The time taken to send on a p2p channel's queue which will later be consued by the corresponding reactor/service.
 	RouterChannelQueueSend metrics.Histogram
 
-	// PeerQueueDroppedMsgs defines the number of messages dropped from a peer's
-	// queue for a specific flow (i.e. Channel).
-	//metrics:The number of messages dropped from a peer's queue for a specific p2p Channel.
-	PeerQueueDroppedMsgs metrics.Counter `metrics_labels:"ch_id" metrics_name:"router_channel_queue_dropped_msgs"`
-
-	// PeerQueueMsgSize defines the average size of messages sent over a peer's
-	// queue for a specific flow (i.e. Channel).
-	//metrics:The size of messages sent over a peer's queue for a specific p2p Channel.
-	PeerQueueMsgSize metrics.Gauge `metrics_labels:"ch_id" metric_name:"router_channel_queue_msg_size"`
+	// QueueDroppedMsgs counts the messages dropped from the router's queues.
+	//metrics:The number of messages dropped from router's queues.
+	QueueDroppedMsgs metrics.Counter `metrics_labels:"ch_id, direction"`
 }
 
 type metricsLabelCache struct {

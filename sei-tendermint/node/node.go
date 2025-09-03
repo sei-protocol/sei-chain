@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strconv"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -809,9 +809,7 @@ func LoadStateFromDBOrGenesisDocProvider(stateStore sm.Store, genDoc *types.Gene
 }
 
 func getRouterConfig(conf *config.Config, appClient abciclient.Client) p2p.RouterOptions {
-	opts := p2p.RouterOptions{
-		QueueType: conf.P2P.QueueType,
-	}
+	opts := p2p.RouterOptions{}
 
 	if conf.FilterPeers && appClient != nil {
 		opts.FilterPeerByID = func(ctx context.Context, id types.NodeID) error {
@@ -828,9 +826,9 @@ func getRouterConfig(conf *config.Config, appClient abciclient.Client) p2p.Route
 			return nil
 		}
 
-		opts.FilterPeerByIP = func(ctx context.Context, ip net.IP, port uint16) error {
+		opts.FilterPeerByIP = func(ctx context.Context, addrPort netip.AddrPort) error {
 			res, err := appClient.Query(ctx, &abci.RequestQuery{
-				Path: fmt.Sprintf("/p2p/filter/addr/%s", net.JoinHostPort(ip.String(), strconv.Itoa(int(port)))),
+				Path: fmt.Sprintf("/p2p/filter/addr/%v", addrPort),
 			})
 			if err != nil {
 				return err

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"sync"
@@ -160,6 +161,21 @@ func (bs *BaseService) Spawn(name string, task func(ctx context.Context) error) 
 		defer inner.wg.Done()
 		if err := utils.IgnoreCancel(task(inner.ctx)); err != nil {
 			bs.logger.Error("task failed", "name", name, "service", bs.name, "error", err)
+		}
+	}()
+}
+
+func (bs *BaseService) SpawnCritical(name string, task func(ctx context.Context) error) {
+	inner := bs.inner.Load()
+	if inner == nil {
+		panic("service is not started yet")
+	}
+
+	inner.wg.Add(1)
+	go func() {
+		defer inner.wg.Done()
+		if err := utils.IgnoreCancel(task(inner.ctx)); err != nil {
+			panic(fmt.Sprintf("critical task failed: name=%v, service=%v: %v", name, bs.name, err))
 		}
 	}()
 }

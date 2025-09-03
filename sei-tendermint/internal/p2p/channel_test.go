@@ -11,14 +11,14 @@ import (
 )
 
 type channelInternal struct {
-	In    chan Envelope
+	In    *Queue
 	Out   chan Envelope
 	Error chan PeerError
 }
 
 func testChannel(size int) (*channelInternal, *Channel) {
 	in := &channelInternal{
-		In:    make(chan Envelope, size),
+		In:    NewQueue(size),
 		Out:   make(chan Envelope, size),
 		Error: make(chan PeerError, size),
 	}
@@ -112,7 +112,7 @@ func TestChannel(t *testing.T) {
 			Case: func(t *testing.T) {
 				ctx := t.Context()
 				ins, ch := testChannel(1)
-				ins.In <- Envelope{From: "kip", To: "merlin"}
+				ins.In.Send(Envelope{From: "kip", To: "merlin"}, 0)
 				iter := ch.Receive(ctx)
 				require.NotNil(t, iter)
 				require.True(t, iter.Next(ctx))
@@ -157,7 +157,7 @@ func TestChannel(t *testing.T) {
 				ctx := t.Context()
 				ins, ch := testChannel(1)
 
-				ins.In <- Envelope{From: "kip", To: "merlin"}
+				ins.In.Send(Envelope{From: "kip", To: "merlin"}, 0)
 				iter := ch.Receive(ctx)
 				require.NotNil(t, iter)
 
@@ -180,7 +180,7 @@ func TestChannel(t *testing.T) {
 				ctx := t.Context()
 				ins, ch := testChannel(1)
 
-				ins.In <- Envelope{From: "kip", To: "merlin"}
+				ins.In.Send(Envelope{From: "kip", To: "merlin"}, 0)
 				iter := ch.Receive(ctx)
 				require.NotNil(t, iter)
 
@@ -204,7 +204,7 @@ func TestChannel(t *testing.T) {
 				require.NotNil(t, iter)
 				require.Nil(t, iter.Envelope())
 
-				ins.In <- Envelope{From: "kip", To: "merlin"}
+				ins.In.Send(Envelope{From: "kip", To: "merlin"}, 0)
 				require.NotNil(t, iter)
 				require.True(t, iter.Next(ctx))
 

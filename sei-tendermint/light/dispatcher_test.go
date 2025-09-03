@@ -21,14 +21,14 @@ import (
 )
 
 type channelInternal struct {
-	In    chan p2p.Envelope
+	In    *p2p.Queue
 	Out   chan p2p.Envelope
 	Error chan p2p.PeerError
 }
 
 func testChannel(size int) (*channelInternal, *p2p.Channel) {
 	in := &channelInternal{
-		In:    make(chan p2p.Envelope, size),
+		In:    p2p.NewQueue(size),
 		Out:   make(chan p2p.Envelope, size),
 		Error: make(chan p2p.PeerError, size),
 	}
@@ -55,7 +55,7 @@ func TestDispatcherBasic(t *testing.T) {
 
 	// make a bunch of async requests and require that the correct responses are
 	// given
-	for i := 0; i < numPeers; i++ {
+	for i := range numPeers {
 		wg.Add(1)
 		go func(height int64) {
 			defer wg.Done()
@@ -175,7 +175,7 @@ func TestPeerListBasic(t *testing.T) {
 	assert.Equal(t, numPeers, peerList.Len())
 
 	half := numPeers / 2
-	for i := 0; i < half; i++ {
+	for i := range half {
 		assert.Equal(t, peerSet[i], peerList.Pop(ctx))
 	}
 	assert.Equal(t, half, peerList.Len())
@@ -330,7 +330,7 @@ func handleRequests(ctx context.Context, t *testing.T, d *Dispatcher, ch chan p2
 
 func createPeerSet(num int) []types.NodeID {
 	peers := make([]types.NodeID, num)
-	for i := 0; i < num; i++ {
+	for i := range num {
 		peers[i], _ = types.NewNodeID(strings.Repeat(fmt.Sprintf("%d", i), 2*types.NodeIDByteLength))
 	}
 	return peers

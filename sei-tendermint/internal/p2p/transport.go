@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
+	"net/netip"
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/types"
@@ -23,18 +23,14 @@ type Protocol string
 
 // Transport is a connection-oriented mechanism for exchanging data with a peer.
 type Transport interface {
-	// Listen starts the transport on the specified endpoint.
-	Listen(*Endpoint) error
-
+	// Run executes the background tasks of transport.
+	Run(ctx context.Context) error
 	// Protocols returns the protocols supported by the transport. The Router
 	// uses this to pick a transport for an Endpoint.
 	Protocols() []Protocol
 
-	// Endpoints returns the local endpoints the transport is listening on, if any.
-	//
-	// How to listen is transport-dependent, e.g. MConnTransport uses Listen() while
-	// MemoryTransport starts listening via MemoryNetwork.CreateTransport().
-	Endpoint() (*Endpoint, error)
+	// Endpoints returns the local endpoints the transport is listening on.
+	Endpoint() Endpoint
 
 	// Accept waits for the next inbound connection on a listening endpoint, blocking
 	// until either a connection is available or the transport is closed. On closure,
@@ -42,10 +38,7 @@ type Transport interface {
 	Accept(context.Context) (Connection, error)
 
 	// Dial creates an outbound connection to an endpoint.
-	Dial(context.Context, *Endpoint) (Connection, error)
-
-	// Close stops accepting new connections, but does not close active connections.
-	Close() error
+	Dial(context.Context, Endpoint) (Connection, error)
 
 	// AddChannelDescriptors is only part of this interface
 	// temporarily
@@ -115,30 +108,23 @@ type Connection interface {
 type Endpoint struct {
 	// Protocol specifies the transport protocol.
 	Protocol Protocol
-
-	// IP is an IP address (v4 or v6) to connect to. If set, this defines the
-	// endpoint as a networked endpoint.
-	IP net.IP
-
-	// Port is a network port (either TCP or UDP). If 0, a default port may be
-	// used depending on the protocol.
-	Port uint16
+	// TCP endpoint address.
+	Addr netip.AddrPort
 
 	// Path is an optional transport-specific path or identifier.
 	Path string
 }
 
 // NewEndpoint constructs an Endpoint from a types.NetAddress structure.
-func NewEndpoint(addr string) (*Endpoint, error) {
-	ip, port, err := types.ParseAddressString(addr)
+func NewEndpoint(addr string) (Endpoint, error) {
+	addrPort, err := types.ParseAddressString(addr)
 	if err != nil {
-		return nil, err
+		return Endpoint{}, err
 	}
 
-	return &Endpoint{
+	return Endpoint{
 		Protocol: MConnProtocol,
-		IP:       ip,
-		Port:     port,
+		Addr:     addrPort,
 	}, nil
 }
 
@@ -149,9 +135,9 @@ func (e Endpoint) NodeAddress(nodeID types.NodeID) NodeAddress {
 		Protocol: e.Protocol,
 		Path:     e.Path,
 	}
-	if len(e.IP) > 0 {
-		address.Hostname = e.IP.String()
-		address.Port = e.Port
+	if e.Addr != (netip.AddrPort{}) {
+		address.Hostname = e.Addr.Addr().String()
+		address.Port = e.Addr.Port()
 	}
 	return address
 }
@@ -161,7 +147,7 @@ func (e Endpoint) String() string {
 	// If this is a non-networked endpoint with a valid node ID as a path,
 	// assume that path is a node ID (to handle opaque URLs of the form
 	// scheme:id).
-	if e.IP == nil {
+	if e.Addr == (netip.AddrPort{}) {
 		if nodeID, err := types.NewNodeID(e.Path); err == nil {
 			return e.NodeAddress(nodeID).String()
 		}
@@ -171,20 +157,16 @@ func (e Endpoint) String() string {
 
 // Validate validates the endpoint.
 func (e Endpoint) Validate() error {
-	switch {
-	case e.Protocol == "":
+	if e.Protocol == "" {
 		return errors.New("endpoint has no protocol")
-
-	case len(e.IP) > 0 && e.IP.To16() == nil:
-		return fmt.Errorf("invalid IP address %v", e.IP)
-
-	case e.Port > 0 && len(e.IP) == 0:
-		return fmt.Errorf("endpoint has port %v but no IP", e.Port)
-
-	case len(e.IP) == 0 && e.Path == "":
-		return errors.New("endpoint has neither path nor IP")
-
-	default:
-		return nil
 	}
+	if (e.Addr == netip.AddrPort{}) && (e.Path == "") {
+		return errors.New("endpoint has neither path nor IP")
+	}
+	if e.Addr != (netip.AddrPort{}) {
+		if !e.Addr.IsValid() {
+			return fmt.Errorf("endpoint has invalid address %q", e.Addr.String())
+		}
+	}
+	return nil
 }

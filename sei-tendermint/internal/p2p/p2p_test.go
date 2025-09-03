@@ -17,6 +17,7 @@ var (
 		MessageType:         &p2ptest.Message{},
 		Priority:            5,
 		SendQueueCapacity:   10,
+		RecvBufferCapacity:  10,
 		RecvMessageCapacity: 10,
 	}
 

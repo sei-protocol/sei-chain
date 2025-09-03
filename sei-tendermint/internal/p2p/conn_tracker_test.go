@@ -3,7 +3,7 @@ package p2p
 import (
 	"math"
 	"math/rand"
-	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -14,8 +14,15 @@ func randByte() byte {
 	return byte(rand.Intn(math.MaxUint8))
 }
 
-func randLocalIPv4() net.IP {
-	return net.IPv4(127, randByte(), randByte(), randByte())
+func randPort() uint16 {
+	return uint16(rand.Intn(math.MaxUint16))
+}
+
+func randLocalAddr() netip.AddrPort {
+	return netip.AddrPortFrom(
+		netip.AddrFrom4([4]byte{127, randByte(), randByte(), randByte()}),
+		randPort(),
+	)
 }
 
 func TestConnTracker(t *testing.T) {
@@ -35,7 +42,7 @@ func TestConnTracker(t *testing.T) {
 			})
 			t.Run("RepeatedAdding", func(t *testing.T) {
 				ct := factory()
-				ip := randLocalIPv4()
+				ip := randLocalAddr()
 				require.NoError(t, ct.AddConn(ip))
 				for i := 0; i < 100; i++ {
 					_ = ct.AddConn(ip)
@@ -45,14 +52,14 @@ func TestConnTracker(t *testing.T) {
 			t.Run("AddingMany", func(t *testing.T) {
 				ct := factory()
 				for i := 0; i < 100; i++ {
-					_ = ct.AddConn(randLocalIPv4())
+					_ = ct.AddConn(randLocalAddr())
 				}
 				require.Equal(t, 100, ct.Len())
 			})
 			t.Run("Cycle", func(t *testing.T) {
 				ct := factory()
 				for i := 0; i < 100; i++ {
-					ip := randLocalIPv4()
+					ip := randLocalAddr()
 					require.NoError(t, ct.AddConn(ip))
 					ct.RemoveConn(ip)
 				}
@@ -63,7 +70,7 @@ func TestConnTracker(t *testing.T) {
 	t.Run("VeryShort", func(t *testing.T) {
 		ct := newConnTracker(10, time.Microsecond)
 		for i := 0; i < 10; i++ {
-			ip := randLocalIPv4()
+			ip := randLocalAddr()
 			require.NoError(t, ct.AddConn(ip))
 			time.Sleep(2 * time.Microsecond)
 			require.NoError(t, ct.AddConn(ip))
@@ -73,7 +80,7 @@ func TestConnTracker(t *testing.T) {
 	t.Run("Window", func(t *testing.T) {
 		const window = 100 * time.Millisecond
 		ct := newConnTracker(10, window)
-		ip := randLocalIPv4()
+		ip := randLocalAddr()
 		require.NoError(t, ct.AddConn(ip))
 		ct.RemoveConn(ip)
 		require.Error(t, ct.AddConn(ip))

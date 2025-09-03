@@ -60,10 +60,10 @@ func TestReactorConnectFullNetwork(t *testing.T) {
 
 	// make every node be only connected with one other node (it actually ends up
 	// being two because of two way connections but oh well)
-	testNet.connectN(ctx, t, 1)
+	testNet.seedAddrs(t)
 	testNet.start(ctx, t)
 
-	// assert that all nodes add each other in the network
+	t.Logf("assert that all nodes add each other in the network")
 	for idx := 0; idx < len(testNet.nodes); idx++ {
 		testNet.requireNumberOfPeers(t, idx, len(testNet.nodes)-1, longWait)
 	}
@@ -76,20 +76,20 @@ func TestReactorSendsRequestsTooOften(t *testing.T) {
 
 	badNode := newNodeID(t, "b")
 
-	r.pexInCh <- p2p.Envelope{
+	r.pexInCh.Send(p2p.Envelope{
 		From:    badNode,
 		Message: &p2pproto.PexRequest{},
-	}
+	}, 0)
 
 	resp := <-r.pexOutCh
 	msg, ok := resp.Message.(*p2pproto.PexResponse)
 	require.True(t, ok)
 	require.Empty(t, msg.Addresses)
 
-	r.pexInCh <- p2p.Envelope{
+	r.pexInCh.Send(p2p.Envelope{
 		From:    badNode,
 		Message: &p2pproto.PexRequest{},
-	}
+	}, 0)
 
 	peerErr := <-r.pexErrCh
 	require.Error(t, peerErr.Err)
@@ -132,7 +132,7 @@ func TestReactorNeverSendsTooManyPeers(t *testing.T) {
 
 	testNet.addNodes(ctx, t, 110)
 	nodes := make([]int, 110)
-	for i := 0; i < len(nodes); i++ {
+	for i := range nodes {
 		nodes[i] = i + 2
 	}
 	testNet.addAddresses(t, secondNode, nodes)
@@ -152,7 +152,7 @@ func TestReactorErrorsOnReceivingTooManyPeers(t *testing.T) {
 	require.True(t, added)
 
 	addresses := make([]p2pproto.PexAddress, 101)
-	for i := 0; i < len(addresses); i++ {
+	for i := range addresses {
 		nodeAddress := p2p.NodeAddress{Protocol: p2p.MemoryProtocol, NodeID: randomNodeID()}
 		addresses[i] = p2pproto.PexAddress{
 			URL: nodeAddress.String(),
@@ -170,12 +170,12 @@ func TestReactorErrorsOnReceivingTooManyPeers(t *testing.T) {
 		if _, ok := req.Message.(*p2pproto.PexRequest); !ok {
 			t.Fatal("expected v2 pex request")
 		}
-		r.pexInCh <- p2p.Envelope{
+		r.pexInCh.Send(p2p.Envelope{
 			From: peer.NodeID,
 			Message: &p2pproto.PexResponse{
 				Addresses: addresses,
 			},
-		}
+		}, 0)
 
 	case <-time.After(10 * time.Second):
 		t.Fatal("pex failed to send a request within 10 seconds")
@@ -193,20 +193,20 @@ func TestReactorSmallPeerStoreInALargeNetwork(t *testing.T) {
 
 	testNet := setupNetwork(ctx, t, testOptions{
 		TotalNodes:   8,
-		MaxPeers:     4,
-		MaxConnected: 3,
-		BufferSize:   8,
+		MaxPeers:     7, // total-1, because PeerManager doesn't count self
+		MaxConnected: 2, // enough capacity to establish a connected graph
+		BufferSize:   8, // reactor deadlocks if peer updates' subscribers are full (which is stupid)
 		MaxRetryTime: 5 * time.Minute,
 	})
-	testNet.connectN(ctx, t, 1)
+	testNet.connectCycle(ctx, t) // Saturate capacity by connecting nodes in a cycle.
 	testNet.start(ctx, t)
 
-	// test that all nodes reach full capacity
+	t.Logf("test that peers are gossiped even if connection cap is reached")
 	for _, nodeID := range testNet.nodes {
 		require.Eventually(t, func() bool {
 			// nolint:scopelint
 			return testNet.network.Nodes[nodeID].PeerManager.PeerRatio() >= 0.9
-		}, longWait, checkFrequency,
+		}, time.Minute, checkFrequency,
 			"peer ratio is: %f", testNet.network.Nodes[nodeID].PeerManager.PeerRatio())
 	}
 }
@@ -221,7 +221,7 @@ func TestReactorLargePeerStoreInASmallNetwork(t *testing.T) {
 		BufferSize:   5,
 		MaxRetryTime: 5 * time.Minute,
 	})
-	testNet.connectN(ctx, t, 1)
+	testNet.seedAddrs(t)
 	testNet.start(ctx, t)
 
 	// assert that all nodes add each other in the network
@@ -266,7 +266,7 @@ func TestReactorWithNetworkGrowth(t *testing.T) {
 
 type singleTestReactor struct {
 	reactor  *pex.Reactor
-	pexInCh  chan p2p.Envelope
+	pexInCh  *p2p.Queue
 	pexOutCh chan p2p.Envelope
 	pexErrCh chan p2p.PeerError
 	pexCh    *p2p.Channel
@@ -278,7 +278,7 @@ func setupSingle(ctx context.Context, t *testing.T) *singleTestReactor {
 	t.Helper()
 	nodeID := newNodeID(t, "a")
 	chBuf := 2
-	pexInCh := make(chan p2p.Envelope, chBuf)
+	pexInCh := p2p.NewQueue(chBuf)
 	pexOutCh := make(chan p2p.Envelope, chBuf)
 	pexErrCh := make(chan p2p.PeerError, chBuf)
 	pexCh := p2p.NewChannel(
@@ -318,13 +318,11 @@ func setupSingle(ctx context.Context, t *testing.T) *singleTestReactor {
 
 type reactorTestSuite struct {
 	network *p2ptest.Network
-	logger  log.Logger
 
 	reactors    map[types.NodeID]*pex.Reactor
 	pexChannels map[types.NodeID]*p2p.Channel
 
-	peerChans   map[types.NodeID]chan p2p.PeerUpdate
-	peerUpdates map[types.NodeID]*p2p.PeerUpdates
+	peerChans map[types.NodeID]chan p2p.PeerUpdate
 
 	nodes []types.NodeID
 	mocks []types.NodeID
@@ -363,38 +361,32 @@ func setupNetwork(ctx context.Context, t *testing.T, opts testOptions) *reactorT
 	realNodes := opts.TotalNodes - opts.MockNodes
 
 	rts := &reactorTestSuite{
-		logger:      log.NewNopLogger().With("testCase", t.Name()),
 		network:     p2ptest.MakeNetwork(ctx, t, networkOpts),
 		reactors:    make(map[types.NodeID]*pex.Reactor, realNodes),
 		pexChannels: make(map[types.NodeID]*p2p.Channel, opts.TotalNodes),
 		peerChans:   make(map[types.NodeID]chan p2p.PeerUpdate, opts.TotalNodes),
-		peerUpdates: make(map[types.NodeID]*p2p.PeerUpdates, opts.TotalNodes),
 		total:       opts.TotalNodes,
 		opts:        opts,
 	}
 
 	// NOTE: we don't assert that the channels get drained after stopping the
 	// reactor
-	rts.pexChannels = rts.network.MakeChannelsNoCleanup(ctx, t, pex.ChannelDescriptor())
+	rts.pexChannels = rts.network.MakeChannelsNoCleanup(t, pex.ChannelDescriptor())
 
 	idx := 0
 	for nodeID := range rts.network.Nodes {
-		// make a copy to avoid getting hit by the range ref
-		// confusion:
-		nodeID := nodeID
-
 		rts.peerChans[nodeID] = make(chan p2p.PeerUpdate, chBuf)
-		rts.peerUpdates[nodeID] = p2p.NewPeerUpdates(rts.peerChans[nodeID], chBuf)
-		rts.network.Nodes[nodeID].PeerManager.Register(ctx, rts.peerUpdates[nodeID])
+		peerUpdates := p2p.NewPeerUpdates(rts.peerChans[nodeID], chBuf)
+		rts.network.Nodes[nodeID].PeerManager.Register(ctx, peerUpdates)
 
 		// the first nodes in the array are always mock nodes
 		if idx < opts.MockNodes {
 			rts.mocks = append(rts.mocks, nodeID)
 		} else {
 			rts.reactors[nodeID] = pex.NewReactor(
-				rts.logger.With("nodeID", nodeID),
+				rts.network.Nodes[nodeID].Logger,
 				rts.network.Nodes[nodeID].PeerManager,
-				func(_ context.Context) *p2p.PeerUpdates { return rts.peerUpdates[nodeID] },
+				func(_ context.Context) *p2p.PeerUpdates { return peerUpdates },
 				make(chan struct{}),
 				config.DefaultSelfRemediationConfig(),
 			)
@@ -433,7 +425,7 @@ func (r *reactorTestSuite) start(ctx context.Context, t *testing.T) {
 func (r *reactorTestSuite) addNodes(ctx context.Context, t *testing.T, nodes int) {
 	t.Helper()
 
-	for i := 0; i < nodes; i++ {
+	for range nodes {
 		node := r.network.MakeNode(ctx, t, p2ptest.NodeOptions{
 			MaxPeers:     r.opts.MaxPeers,
 			MaxConnected: r.opts.MaxConnected,
@@ -441,15 +433,15 @@ func (r *reactorTestSuite) addNodes(ctx context.Context, t *testing.T, nodes int
 		})
 		r.network.Nodes[node.NodeID] = node
 		nodeID := node.NodeID
-		r.pexChannels[nodeID] = node.MakeChannelNoCleanup(ctx, t, pex.ChannelDescriptor())
+		r.pexChannels[nodeID] = node.MakeChannelNoCleanup(t, pex.ChannelDescriptor())
 		r.peerChans[nodeID] = make(chan p2p.PeerUpdate, r.opts.BufferSize)
-		r.peerUpdates[nodeID] = p2p.NewPeerUpdates(r.peerChans[nodeID], r.opts.BufferSize)
-		r.network.Nodes[nodeID].PeerManager.Register(ctx, r.peerUpdates[nodeID])
+		peerUpdates := p2p.NewPeerUpdates(r.peerChans[nodeID], r.opts.BufferSize)
+		r.network.Nodes[nodeID].PeerManager.Register(ctx, peerUpdates)
 
 		r.reactors[nodeID] = pex.NewReactor(
-			r.logger.With("nodeID", nodeID),
+			r.network.Nodes[nodeID].Logger,
 			r.network.Nodes[nodeID].PeerManager,
-			func(_ context.Context) *p2p.PeerUpdates { return r.peerUpdates[nodeID] },
+			func(_ context.Context) *p2p.PeerUpdates { return peerUpdates },
 			make(chan struct{}),
 			config.DefaultSelfRemediationConfig(),
 		)
@@ -631,20 +623,31 @@ func (r *reactorTestSuite) requireNumberOfPeers(
 	)
 }
 
-func (r *reactorTestSuite) connectAll(ctx context.Context, t *testing.T) {
-	r.connectN(ctx, t, r.total-1)
+func (r *reactorTestSuite) connectCycle(ctx context.Context, t *testing.T) {
+	if r.total == 0 {
+		return
+	}
+	for i := range r.total {
+		r.connectPeers(ctx, t, i, (i+1)%r.total)
+	}
 }
 
-// connects all nodes with n other nodes
-func (r *reactorTestSuite) connectN(ctx context.Context, t *testing.T, n int) {
-	if n >= r.total {
-		require.Fail(t, "connectN: n must be less than the size of the network - 1")
-	}
-
-	for i := 0; i < r.total; i++ {
-		for j := 0; j < n; j++ {
+func (r *reactorTestSuite) connectAll(ctx context.Context, t *testing.T) {
+	for i := range r.total {
+		for j := range r.total - 1 {
 			r.connectPeers(ctx, t, i, (i+j+1)%r.total)
 		}
+	}
+}
+
+// Adds enough addresses to peerManagers, so that all nodes are discoverable.
+func (r *reactorTestSuite) seedAddrs(t *testing.T) {
+	t.Helper()
+	for i := range r.total - 1 {
+		n1 := r.network.Nodes[r.nodes[i]]
+		n2 := r.network.Nodes[r.nodes[i+1]]
+		_, err := n1.PeerManager.Add(n2.NodeAddress)
+		require.NoError(t, err)
 	}
 }
 
@@ -665,6 +668,9 @@ func (r *reactorTestSuite) connectPeers(ctx context.Context, t *testing.T, sourc
 		return
 	}
 
+	// Subscription is for the ctx lifetime.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	sourceSub := n1.PeerManager.Subscribe(ctx)
 	targetSub := n2.PeerManager.Subscribe(ctx)
 
@@ -678,22 +684,12 @@ func (r *reactorTestSuite) connectPeers(ctx context.Context, t *testing.T, sourc
 		return
 	}
 
-	select {
-	case peerUpdate := <-targetSub.Updates():
-		require.Equal(t, peerUpdate.NodeID, node1)
-		require.Equal(t, peerUpdate.Status, p2p.PeerStatusUp)
-	case <-time.After(2 * time.Second):
-		require.Fail(t, "timed out waiting for peer", "%v accepting %v",
-			targetNode, sourceNode)
-	}
-	select {
-	case peerUpdate := <-sourceSub.Updates():
-		require.Equal(t, peerUpdate.NodeID, node2)
-		require.Equal(t, peerUpdate.Status, p2p.PeerStatusUp)
-	case <-time.After(2 * time.Second):
-		require.Fail(t, "timed out waiting for peer", "%v dialing %v",
-			sourceNode, targetNode)
-	}
+	peerUpdate := <-targetSub.Updates()
+	require.Equal(t, peerUpdate.NodeID, node1)
+	require.Equal(t, peerUpdate.Status, p2p.PeerStatusUp)
+	peerUpdate = <-sourceSub.Updates()
+	require.Equal(t, peerUpdate.NodeID, node2)
+	require.Equal(t, peerUpdate.Status, p2p.PeerStatusUp)
 
 	added, err = n2.PeerManager.Add(sourceAddress)
 	require.NoError(t, err)

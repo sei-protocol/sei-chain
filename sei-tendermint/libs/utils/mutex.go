@@ -33,6 +33,41 @@ func (m *Mutex[T]) Lock() iter.Seq[T] {
 	}
 }
 
+// Mutex guards access to object of type T.
+type RWMutex[T any] struct {
+	mu    sync.RWMutex
+	value T
+}
+
+// NewMutex creates a new Mutex with given object.
+func NewRWMutex[T any](value T) (m RWMutex[T]) {
+	m.value = value
+	// nolint:nakedret
+	return
+}
+
+// Lock returns an iterator which locks the mutex and yields the guarded object.
+// The mutex is unlocked when the iterator is done.
+// If the mutex is nil, the iterator is a no-op.
+func (m *RWMutex[T]) Lock() iter.Seq[T] {
+	return func(yield func(val T) bool) {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		_ = yield(m.value)
+	}
+}
+
+// RLock returns an iterator which locks the mutex FOR READ and yields the guarded object.
+// The mutex is unlocked when the iterator is done.
+// If the mutex is nil, the iterator is a no-op.
+func (m *RWMutex[T]) RLock() iter.Seq[T] {
+	return func(yield func(val T) bool) {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+		_ = yield(m.value)
+	}
+}
+
 // version of the value stored in an atomic watch.
 type version[T any] struct {
 	updated chan struct{}
