@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/cosmos/iavl"
+	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/ss/types"
 	"github.com/stretchr/testify/suite"
@@ -141,7 +142,7 @@ func (s *StorageTestSuite) TestDatabaseGetVersionedKey() {
 	// all queries after version 15 should return nil
 	for i := int64(15); i <= 17; i++ {
 		bz, err = db.Get(storeKey1, i, key)
-		s.Require().Error(err)
+		s.Require().ErrorIs(err, errorutils.ErrRecordNotFound)
 		s.Require().Nil(bz)
 
 		ok, err = db.Has(storeKey1, i, key)
@@ -619,7 +620,7 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 
 			bz, err := db.Get(storeKey1, v, []byte(key))
 			if v <= 25 {
-				s.Require().Error(err)
+				s.Require().ErrorIs(err, errorutils.ErrRecordNotFound)
 				s.Require().Nil(bz)
 			} else {
 				s.Require().NoError(err)
@@ -645,7 +646,7 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 			key := fmt.Sprintf("key%03d", i)
 
 			bz, err := db.Get(storeKey1, v, []byte(key))
-			s.Require().Error(err)
+			s.Require().ErrorIs(err, errorutils.ErrRecordNotFound)
 			s.Require().Nil(bz)
 		}
 	}
@@ -689,7 +690,7 @@ func (s *StorageTestSuite) TestDatabasePruneKeepRecent() {
 
 	// ensure queries for versions 50 and older return nil
 	bz, err := db.Get(storeKey1, 49, key)
-	s.Require().Error(err)
+	s.Require().ErrorIs(err, errorutils.ErrRecordNotFound)
 	s.Require().Nil(bz)
 
 	itr, err := db.Iterator(storeKey1, 49, nil, nil)
@@ -734,11 +735,11 @@ func (s *StorageTestSuite) TestDatabasePruneKeepLastVersion() {
 
 	// Verify that all keys before prune height are deleted
 	bz, err := db.Get(storeKey1, 100, []byte("key000"))
-	s.Require().Error(err)
+	s.Require().ErrorIs(err, errorutils.ErrRecordNotFound)
 	s.Require().Nil(bz)
 
 	bz, err = db.Get(storeKey1, 160, []byte("key001"))
-	s.Require().Error(err)
+	s.Require().ErrorIs(err, errorutils.ErrRecordNotFound)
 	s.Require().Nil(bz)
 
 	// Verify keys after prune height can be retrieved
@@ -927,7 +928,7 @@ func (s *StorageTestSuite) TestParallelWriteAndPruning() {
 	// check if the data is pruned
 	version := int64(latestVersion - prunePeriod)
 	val, err := db.Get(storeKey1, version, []byte(fmt.Sprintf("key-%d-%03d", version-1, 0)))
-	s.Require().Error(err)
+	s.Require().ErrorIs(err, errorutils.ErrRecordNotFound)
 	s.Require().Nil(val)
 
 	version = int64(latestVersion)
@@ -1138,7 +1139,7 @@ func (s *StorageTestSuite) TestParallelIterationAndPruning() {
 
 			bz, err := db.Get(storeKey1, v, []byte(key))
 			if v <= int64(latestVersion-numHeightsPruned) {
-				s.Require().Error(err)
+				s.Require().ErrorIs(err, errorutils.ErrRecordNotFound)
 				s.Require().Nil(bz)
 			} else {
 				s.Require().NoError(err)
