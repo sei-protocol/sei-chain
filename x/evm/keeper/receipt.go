@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"strings"
 
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -67,7 +68,12 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 	// try persistent store
 	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
 	if err != nil {
-		return nil, err
+		// treat sei-db missing record as not found and fall back to legacy
+		if strings.Contains(err.Error(), "record not found") {
+			bz = nil
+		} else {
+			return nil, err
+		}
 	}
 
 	if bz == nil {
@@ -97,7 +103,11 @@ func (k *Keeper) GetReceiptFromReceiptStore(ctx sdk.Context, txHash common.Hash)
 	// try persistent store
 	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
 	if err != nil {
-		return nil, err
+		if strings.Contains(err.Error(), "record not found") {
+			bz = nil
+		} else {
+			return nil, err
+		}
 	}
 	if bz == nil {
 		return nil, errors.New("not found")
@@ -240,41 +250,44 @@ func (k *Keeper) MigrateLegacyReceiptsBatch(ctx sdk.Context, batchSize int) (int
 	receipts = make([]*types.Receipt, 0, batchSize)
 	keysToDelete = make([][]byte, 0, batchSize)
 
-	for ; migrated < batchSize && iter.Valid(); iter.Next() {
-		keySuffix := iter.Key() // tx hash bytes (without prefix)
-		value := iter.Value()   // serialized receipt bytes
-
+	for ; iter.Valid() && migrated < batchSize; iter.Next() {
+		// Extract the tx hash from the key and unmarshal the receipt
+		key := iter.Key()
+		txHash := common.BytesToHash(key)
 		receipt := &types.Receipt{}
-		if err := receipt.Unmarshal(value); err != nil {
+		if err := receipt.Unmarshal(iter.Value()); err != nil {
 			return 0, err
 		}
 
-		// Derive tx hash directly from key suffix
-		txHash := common.BytesToHash(keySuffix)
-
-		receipts = append(receipts, receipt)
+		// Append to batch
 		txHashes = append(txHashes, txHash)
-		// Save the suffix for deletion from legacy store after successful write
-		keysToDelete = append(keysToDelete, append([]byte{}, keySuffix...))
+		receipts = append(receipts, receipt)
+		keysToDelete = append(keysToDelete, key)
 		migrated++
 	}
 
-	if migrated == 0 {
-		return 0, nil
-	}
-
-	// Write to transient receipt store first; they'll be flushed to receipt.db at pre-commit
-	for i := range receipts {
-		if err := k.SetTransientReceipt(ctx, txHashes[i], receipts[i]); err != nil {
+	// Create changeset for the new sei-db receipt store
+	pairs := make([]*iavl.KVPair, 0, migrated)
+	for i := 0; i < migrated; i++ {
+		bz, err := receipts[i].Marshal()
+		if err != nil {
 			return 0, err
 		}
+		pairs = append(pairs, &iavl.KVPair{Key: types.ReceiptKey(txHashes[i]), Value: bz})
 	}
 
-	// After a successful write, delete from legacy store
-	for _, kdel := range keysToDelete {
-		legacyStore.Delete(kdel)
+	ncs := &proto.NamedChangeSet{
+		Name:      types.ReceiptStoreKey,
+		Changeset: iavl.ChangeSet{Pairs: pairs},
+	}
+	if err := k.receiptStore.ApplyChangeset(ctx.BlockHeight(), ncs); err != nil {
+		return 0, err
 	}
 
+	// Delete migrated records from legacy store
+	for _, key := range keysToDelete {
+		legacyStore.Delete(key)
+	}
 	return migrated, nil
 }
 

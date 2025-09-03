@@ -19,6 +19,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -80,7 +81,11 @@ func getTestKeyring(homeDir string) (keyring.Keyring, error) {
 	if err != nil {
 		return nil, err
 	}
-	return client.NewKeyringFromBackend(clientCtx, keyring.BackendTest)
+	kb, err := keyring.New("sei", keyring.BackendTest, clientCtx.HomeDir, strings.NewReader(""))
+	if err != nil {
+		return nil, err
+	}
+	return kb, nil
 }
 
 func getAddressPrivKeyMap(kb keyring.Keyring) map[string]*ecdsa.PrivateKey {
@@ -210,11 +215,28 @@ func CheckVersion(ctx sdk.Context, k *keeper.Keeper) error {
 }
 
 func bankExists(ctx sdk.Context, k *keeper.Keeper) bool {
-	return ctx.KVStore(k.BankKeeper().GetStoreKey()).VersionExists(ctx.BlockHeight())
+	return safeVersionExists(ctx, k.BankKeeper().GetStoreKey(), ctx.BlockHeight())
 }
 
 func evmExists(ctx sdk.Context, k *keeper.Keeper) bool {
-	return ctx.KVStore(k.GetStoreKey()).VersionExists(ctx.BlockHeight())
+	return safeVersionExists(ctx, k.GetStoreKey(), ctx.BlockHeight())
+}
+
+// safeVersionExists checks if a version exists for a store key at a given height.
+// If the underlying store panics due to missing records in the StateStore backend,
+// treat it as non-fatal and assume existence to avoid breaking queries on pruned/missing keys.
+func safeVersionExists(ctx sdk.Context, storeKey storetypes.StoreKey, height int64) (exists bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			msg := fmt.Sprint(r)
+			if strings.Contains(strings.ToLower(msg), "record not found") {
+				exists = true
+				return
+			}
+			exists = false
+		}
+	}()
+	return ctx.KVStore(storeKey).VersionExists(height)
 }
 
 func shouldIncludeSynthetic(namespace string) bool {
