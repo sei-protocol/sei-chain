@@ -6,11 +6,12 @@ package rocksdb
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/linxGnu/grocksdb"
-	"github.com/sei-protocol/sei-db/common/errors"
+	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/ss/types"
@@ -141,7 +142,7 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 	}
 
 	slice, err := db.getSlice(storeKey, version, key)
-	if err != nil {
+	if err != nil && !errors.Is(err, errorutils.ErrRecordNotFound) {
 		return false, err
 	}
 
@@ -150,7 +151,7 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 
 func (db *Database) Get(storeKey string, version int64, key []byte) ([]byte, error) {
 	if version < db.tsLow {
-		return nil, nil
+		return nil, errorutils.ErrRecordNotFound
 	}
 
 	slice, err := db.getSlice(storeKey, version, key)
@@ -207,11 +208,11 @@ func (db *Database) Prune(version int64) error {
 
 func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, errors.ErrKeyEmpty
+		return nil, errorutils.ErrKeyEmpty
 	}
 
 	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
-		return nil, errors.ErrStartAfterEnd
+		return nil, errorutils.ErrStartAfterEnd
 	}
 
 	prefix := storePrefix(storeKey)
@@ -223,11 +224,11 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 
 func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, errors.ErrKeyEmpty
+		return nil, errorutils.ErrKeyEmpty
 	}
 
 	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
-		return nil, errors.ErrStartAfterEnd
+		return nil, errorutils.ErrStartAfterEnd
 	}
 
 	prefix := storePrefix(storeKey)
