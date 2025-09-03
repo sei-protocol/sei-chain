@@ -97,17 +97,15 @@ describe("ERC721 to CW721 Pointer", function () {
                 address: await pointerAcc1.getAddress(),
                 topics: [ethers.id("Approval(address,address,uint256)")]
             };
-            // send via eth_ endpoint - synthetic event should show up because we are using the
-            // synthetic event in place of a real EVM event
+            // eth_ excludes synthetic logs now -> expect 0
             const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
-            expect(ethlogs.length).to.equal(1);
+            expect(ethlogs.length).to.equal(0);
 
             // send via sei_ endpoint - synthetic event shows up
             const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
             expect(seilogs.length).to.equal(1);
 
-            const logs = [...ethlogs, ...seilogs];
-            logs.forEach(async (log) => {
+            seilogs.forEach(async (log) => {
                 expect(log["address"].toLowerCase()).to.equal((await pointer.getAddress()).toLowerCase());
                 expect(log["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
                 expect(log["topics"][1].substring(26)).to.equal(accounts[0].evmAddress.substring(2).toLowerCase());
@@ -133,11 +131,10 @@ describe("ERC721 to CW721 Pointer", function () {
             };
             // send via eth_ endpoint - synthetic event doesn't show up
             const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
-            expect(ethlogs.length).to.equal(1);
+            expect(ethlogs.length).to.equal(0);
             const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
             expect(seilogs.length).to.equal(1);
-            const logs = [...ethlogs, ...seilogs];
-            logs.forEach(async (log) => {
+            seilogs.forEach(async (log) => {
                 expect(log["address"].toLowerCase()).to.equal((await pointerAcc1.getAddress()).toLowerCase());
                 expect(log["topics"][0]).to.equal(ethers.id("Transfer(address,address,uint256)"));
                 expect(log["topics"][1].substring(26)).to.equal(accounts[1].evmAddress.substring(2).toLowerCase());
