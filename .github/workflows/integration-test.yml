@@ -28,7 +28,7 @@ jobs:
   integration-tests:
     name: Integration Test (${{ matrix.test.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -149,6 +149,26 @@ jobs:
               exit 1
             fi
             sleep 10
+            attempts=$((attempts + 1))
+          done
+
+      - name: Verify sei-node-0 exists (with retry)
+        run: |
+          echo "[⏳] Checking for sei-node-0 container..."
+          max_attempts=30
+          attempts=0
+          while true; do
+            if docker ps --format '{{.Names}}' | grep -q '^sei-node-0$'; then
+              echo "[✅] Container sei-node-0 is running!"
+              break
+            fi
+            if [ "$attempts" -ge "$max_attempts" ]; then
+              echo "❌ Container sei-node-0 not found after $((max_attempts * 5)) seconds."
+              docker ps -a
+              exit 1
+            fi
+            echo "[INFO] Attempt $attempts — container not ready yet."
+            sleep 5
             attempts=$((attempts + 1))
           done
 
