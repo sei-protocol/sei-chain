@@ -1167,65 +1167,26 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			app.optimisticProcessingInfoMutex.Unlock()
 			completion <- struct{}{}
 		} else {
-			// Create GetSigners validation channel
-			getSignersCheckComplete := make(chan bool, 1)
-
 			go func() {
-				defer func() {
-					if err := recover(); err != nil {
-						app.Logger().Error(
-							"panic recovered in optimistic processing",
-							"height", req.Height,
-							"time", req.Time,
-							"hash", fmt.Sprintf("%X", req.Hash),
-							"panic", err,
-						)
+				// ProcessBlock has panic recovery and returns error for any processing failures
+				// All panics (including GetSigners) are handled in ProcessBlock, not affecting proposal acceptance
+				events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit, false)
 
-						// Mark as aborted and signal completion
-						app.optimisticProcessingInfoMutex.Lock()
-						app.optimisticProcessingInfo.Aborted = true
-						completion := app.optimisticProcessingInfo.Completion
-						app.optimisticProcessingInfoMutex.Unlock()
-
-						completion <- struct{}{}
-						return
-					}
-				}()
-
-				// Validate GetSigners calls before main thread returns
-				getSignersValidationPassed := app.ValidateGetSignersCalls(ctx, req.Txs)
-
-				// Signal main thread about validation result
-				getSignersCheckComplete <- getSignersValidationPassed
-
-				if !getSignersValidationPassed {
-					// Validation failed, abort optimistic processing
-					app.optimisticProcessingInfoMutex.Lock()
-					app.optimisticProcessingInfo.Aborted = true
-					completion := app.optimisticProcessingInfo.Completion
-					app.optimisticProcessingInfoMutex.Unlock()
-					completion <- struct{}{}
-					return
-				}
-
-				// Validation passed, continue with optimistic processing
-				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit, false)
 				app.optimisticProcessingInfoMutex.Lock()
-				app.optimisticProcessingInfo.Events = events
-				app.optimisticProcessingInfo.TxRes = txResults
-				app.optimisticProcessingInfo.EndBlockResp = endBlockResp
+				if processErr != nil {
+					// ProcessBlock failed (including GetSigners panics), mark as aborted
+					app.Logger().Info("ProcessBlock failed in optimistic processing", "error", processErr)
+					app.optimisticProcessingInfo.Aborted = true
+				} else {
+					// ProcessBlock succeeded, store results
+					app.optimisticProcessingInfo.Events = events
+					app.optimisticProcessingInfo.TxRes = txResults
+					app.optimisticProcessingInfo.EndBlockResp = endBlockResp
+				}
 				completion := app.optimisticProcessingInfo.Completion
 				app.optimisticProcessingInfoMutex.Unlock()
 				completion <- struct{}{}
 			}()
-
-			// Wait for GetSigners validation before returning response
-			getSignersValidationPassed := <-getSignersCheckComplete
-			if !getSignersValidationPassed {
-				return &abci.ResponseProcessProposal{
-					Status: abci.ResponseProcessProposal_REJECT,
-				}, nil
-			}
 		}
 	} else {
 		// Optimistic processing already running, check if hash matches
@@ -1241,56 +1202,6 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	}
 
 	return resp, nil
-}
-
-// ValidateGetSignersCalls validates GetSigners() calls for messages that are known to be problematic.
-// Only checks specific message types that can cause GetSigners() panics with empty addresses.
-// Runs in goroutine but blocks main thread until completion to prevent race conditions.
-func (app *App) ValidateGetSignersCalls(ctx sdk.Context, txs [][]byte) (allValid bool) {
-	allValid = true
-	defer func() {
-		if err := recover(); err != nil {
-			ctx.Logger().Error("GetSigners validation caught panic", "error", err)
-			allValid = false
-		}
-	}()
-
-	for _, txBytes := range txs {
-		// Decode transaction
-		tx, err := app.txDecoder(txBytes)
-		if err != nil {
-			// Invalid transactions will be handled later, continue checking others
-			continue
-		}
-
-		// Only check message types that are known to have GetSigners() issues
-		msgs := tx.GetMsgs()
-		for _, msg := range msgs {
-			switch msg.(type) {
-			case *oracletypes.MsgAggregateExchangeRateVote:
-				_ = msg.GetSigners()
-			case *oracletypes.MsgDelegateFeedConsent:
-				_ = msg.GetSigners()
-			case *evmtypes.MsgClaim:
-				_ = msg.GetSigners()
-			case *evmtypes.MsgClaimSpecific:
-				_ = msg.GetSigners()
-			case *evmtypes.MsgSend:
-				_ = msg.GetSigners()
-			case *evmtypes.MsgAssociate:
-				_ = msg.GetSigners()
-			case *evmtypes.MsgAssociateContractAddress:
-				_ = msg.GetSigners()
-			case *evmtypes.MsgRegisterPointer:
-				_ = msg.GetSigners()
-			default:
-				// Skip validation for other message types
-				continue
-			}
-		}
-	}
-
-	return // Return allValid (true if no panic, false if panic occurred)
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
@@ -1333,7 +1244,11 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}
 	metrics.IncrementOptimisticProcessingCounter(false)
 	ctx.Logger().Info("optimistic processing ineligible")
-	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit, false)
+	events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit, false)
+	if processErr != nil {
+		ctx.Logger().Error("ProcessBlock failed in FinalizeBlocker", "error", processErr)
+		return nil, processErr
+	}
 
 	app.SetDeliverStateToCommit()
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
@@ -1694,7 +1609,17 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedT
 	return app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices), ctx
 }
 
-func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			ctx.Logger().Error("panic recovered in ProcessBlock", "panic", r)
+			err = fmt.Errorf("ProcessBlock panic: %v", r)
+			events = nil
+			txResults = nil
+			endBlockResp = abci.ResponseEndBlock{}
+		}
+	}()
+
 	defer func() {
 		if !app.httpServerStartSignalSent {
 			app.httpServerStartSignalSent = true
@@ -1707,7 +1632,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	}()
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
-	events := []abci.Event{}
+	events = []abci.Event{}
 	beginBlockReq := abci.RequestBeginBlock{
 		Hash: req.GetHash(),
 		ByzantineValidators: utils.Map(req.GetByzantineValidators(), func(mis abci.Misbehavior) abci.Evidence {
@@ -1734,7 +1659,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	events = append(events, beginBlockResp.Events...)
 
 	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs)) // nil for non-EVM txs
-	txResults := make([]*abci.ExecTxResult, len(txs))
+	txResults = make([]*abci.ExecTxResult, len(txs))
 	typedTxs := app.DecodeTransactionsConcurrently(ctx, txs)
 
 	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs, typedTxs)
@@ -1773,7 +1698,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		}
 	}
 
-	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
+	endBlockResp = app.EndBlock(ctx, abci.RequestEndBlock{
 		Height:       req.GetHeight(),
 		BlockGasUsed: evmTotalGasUsed,
 	})
