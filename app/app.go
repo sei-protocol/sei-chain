@@ -1612,6 +1612,12 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedT
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
 	defer func() {
 		if r := recover(); r != nil {
+			panicMsg := fmt.Sprintf("%v", r)
+			// Re-panic for upgrade-related panics to allow proper upgrade mechanism
+			if strings.Contains(panicMsg, "UPGRADE") && strings.Contains(panicMsg, "NEEDED at height") {
+				ctx.Logger().Error("upgrade panic detected, panicking to trigger upgrade", "panic", r)
+				panic(r)
+			}
 			ctx.Logger().Error("panic recovered in ProcessBlock", "panic", r)
 			err = fmt.Errorf("ProcessBlock panic: %v", r)
 			events = nil
