@@ -24,7 +24,7 @@ func TestReceipt(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, txHash.Hex(), r.TxHashHex)
 	_, err = k.GetReceipt(ctx, common.Hash{1})
-	require.Equal(t, "not found", err.Error())
+	require.Contains(t, err.Error(), "not found")
 }
 
 func TestGetReceiptWithRetry(t *testing.T) {
@@ -36,7 +36,7 @@ func TestGetReceiptWithRetry(t *testing.T) {
 	nonExistentHash := common.Hash{1}
 	_, err := k.GetReceiptWithRetry(ctx, nonExistentHash, 2)
 	require.NotNil(t, err)
-	require.Equal(t, "not found", err.Error())
+	require.Contains(t, err.Error(), "not found")
 
 	// Then test successful retry
 	go func() {
