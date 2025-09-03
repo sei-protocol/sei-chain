@@ -817,40 +817,37 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	evmTxIndex := 0
 
 	for _, hash := range getTxHashesFromBlock(block, f.txConfigProvider(block.Block.Height), f.includeSyntheticReceipts) {
-		receipt, found := getCachedReceipt(block.Block.Height, hash)
+		receipt, found := getCachedReceipt(block.Block.Height, hash.hash)
 		if !found {
 			var err error
-			receipt, err = f.k.GetReceipt(ctx, hash)
+			receipt, err = f.k.GetReceipt(ctx, hash.hash)
 			if err != nil {
-				if !f.includeSyntheticReceipts {
-					ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", hash.Hex()))
-				}
+				ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", hash.hash.Hex()))
 				continue
 			}
-			if int64(receipt.BlockNumber) != block.Block.Height {
-				if !f.includeSyntheticReceipts {
-					ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height))
-					continue
-				}
+			setCachedReceipt(block.Block.Height, block, hash.hash, receipt)
+		}
+
+		if receipt.Status == 0 {
+			if !isReceiptFromAnteError(ctx, receipt) {
+				// do not bump evmTxIndex for ante failure
+				// because the tx is not considered "included" in the block.
+				evmTxIndex++
 			}
-			setCachedReceipt(block.Block.Height, block, hash, receipt)
-		}
-
-		if int64(receipt.BlockNumber) != block.Block.Height {
-			ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height))
 			continue
 		}
 
-		if !f.includeSyntheticReceipts && (receipt.TxType == evmtypes.ShellEVMTxType || receipt.EffectiveGasPrice == 0) {
+		if receipt.BlockNumber != uint64(block.Block.Height) {
+			// this shouldn't be possible given isReceiptFromAnteError check above
+			ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d, VM error: %s; skipping", hash.hash.Hex(), receipt.BlockNumber, block.Block.Height, receipt.VmError))
 			continue
 		}
 
-		var txLogs []*ethtypes.Log
-		if f.includeSyntheticReceipts {
-			txLogs = keeper.GetLogsForTx(receipt, totalLogs)
-		} else {
-			txLogs = keeper.GetEvmOnlyLogsForTx(receipt, totalLogs)
+		if !f.includeSyntheticReceipts && !hash.isEvm {
+			continue
 		}
+
+		txLogs := keeper.GetLogsForTx(receipt, totalLogs)
 
 		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
 			if len(receipt.LogsBloom) == 0 || MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
