@@ -25,7 +25,7 @@ func StateSizeCmd() *cobra.Command {
 
 	// DynamoDB export flags
 	cmd.PersistentFlags().Bool("export-dynamodb", false, "Export results to DynamoDB instead of printing")
-	cmd.PersistentFlags().String("dynamodb-table", "state-size-analysis", "DynamoDB table name")
+	cmd.PersistentFlags().String("dynamodb-table", "state_size_analysis", "DynamoDB table name")
 	cmd.PersistentFlags().String("aws-region", "us-east-2", "AWS region for DynamoDB")
 
 	return cmd
@@ -218,7 +218,9 @@ func exportResultsToDynamoDB(moduleResults map[string]*ModuleResult, height int6
 		return fmt.Errorf("failed to export analyses to DynamoDB: %w", err)
 	}
 
-	return nil
+	metadataTableName := tableName + "_metadata"
+	_, err = dynamoClient.UpdateLatestHeightIfGreater(metadataTableName, height)
+	return err
 }
 
 // printResultsToConsole prints the collected results to console

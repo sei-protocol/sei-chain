@@ -1,9 +1,11 @@
 package utils
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
@@ -50,6 +52,7 @@ type ContractSizeEntry struct {
 	KeyCount  uint64 `json:"key_count"`
 }
 
+// PrefixSize is a helper structure kept for completeness (unused here)
 type PrefixSize struct {
 	KeySize   uint64 `json:"key_size"`
 	ValueSize uint64 `json:"value_size"`
@@ -87,4 +90,33 @@ func (d *DynamoDBClient) ExportMultipleAnalyses(analyses []*StateSizeAnalysis) e
 		}
 	}
 	return nil
+}
+
+// UpdateLatestHeightIfGreater keeps exactly one item in the metadata table using the schema:
+// Partition key: keyname (S). Numeric attribute: height (N) stores the latest height.
+// Upserts the row keyname = "latest_height" and sets height = :h only if missing or lower.
+func (d *DynamoDBClient) UpdateLatestHeightIfGreater(metadataTable string, height int64) (bool, error) {
+	input := &dynamodb.UpdateItemInput{
+		TableName: aws.String(metadataTable),
+		Key: map[string]*dynamodb.AttributeValue{
+			"keyname": {S: aws.String("latest_height")},
+		},
+		UpdateExpression:    aws.String("SET height = :h"),
+		ConditionExpression: aws.String("attribute_not_exists(height) OR height < :h"),
+		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+			":h": {N: aws.String(fmt.Sprintf("%d", height))},
+		},
+		ReturnValues: aws.String("NONE"),
+	}
+
+	_, err := d.client.UpdateItem(input)
+	if err != nil {
+		var aerr awserr.Error
+		if errors.As(err, &aerr) && aerr.Code() == dynamodb.ErrCodeConditionalCheckFailedException {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to update latest height: %w", err)
+	}
+	fmt.Printf("Updated Dynamodb with latest height %d\n", height)
+	return true, nil
 }
