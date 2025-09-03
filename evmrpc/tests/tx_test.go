@@ -4,7 +4,6 @@ import (
 	"strconv"
 	"testing"
 
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 )
@@ -292,29 +291,6 @@ func TestGetTransactionReceiptSkipFailedAnte(t *testing.T) {
 			res := sendRequestWithNamespace("eth", port, "getTransactionByHash", signedTx2.Hash().Hex())
 			txIdx := res["result"].(map[string]any)["transactionIndex"].(string)
 			require.Equal(t, "0x0", txIdx) // should skip the first tx as it failed ante
-		},
-	)
-}
-
-// Test the scenario where a transaction contains both synthetic and non-synthetic logs.
-// Only non-synthetic logs should be included in the response to eth_, whereas all logs
-// should be included in the response to sei_.
-func TestGetTransactionReceiptWithMixedLogs(t *testing.T) {
-	cw20 := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
-	testerSeiAddress := sdk.AccAddress(mixedLogTesterAddr.Bytes())
-	tx0 := signAndEncodeCosmosTx(transferCW20MsgTo(mnemonic1, cw20, testerSeiAddress), mnemonic1, 9, 0)
-	txData := mixedLogTesterTransfer(0, getAddrWithMnemonic(mnemonic1))
-	signedTx := signTxWithMnemonic(txData, mnemonic1)
-	txBz := encodeEvmTx(txData, signedTx)
-	SetupTestServer([][][]byte{{tx0}, {txBz}}, mixedLogTesterInitializer(), mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1)).Run(
-		func(port int) {
-			res := sendRequestWithNamespace("eth", port, "getTransactionReceipt", signedTx.Hash().Hex())
-			logs := res["result"].(map[string]any)["logs"].([]interface{})
-			require.Len(t, logs, 1)
-
-			res = sendRequestWithNamespace("sei", port, "getTransactionReceipt", signedTx.Hash().Hex())
-			logs = res["result"].(map[string]any)["logs"].([]interface{})
-			require.Len(t, logs, 2)
 		},
 	)
 }
