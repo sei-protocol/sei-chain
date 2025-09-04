@@ -287,6 +287,131 @@ describe("ERC20 to CW20 Pointer", function () {
                     // put it back
                     await (await pointer.approve(spender.evmAddress, 0, { gasPrice: ethers.parseUnits('100', 'gwei') })).wait()
                 });
+
+                it("CW20 transfer performed through ERC20 pointer contract, multiple trx bridged per block", async function () {
+                    const owner = accounts[0];      // Token owner
+                    const spender = accounts[1];    // Who will do the transferFrom
+                    const recipient = accounts[1];  // Where tokens go (same as spender for simplicity)
+                    const txCount = 15;
+
+                    // Read current balances (don't assume initial balances due to test isolation)
+                    const ownerBalanceBefore = await pointer.balanceOf(owner.evmAddress);
+                    const recipientBalanceBefore = await pointer.balanceOf(recipient.evmAddress);
+                    
+                    // Ensure owner has enough tokens for the test
+                    expect(Number(ownerBalanceBefore)).to.be.greaterThanOrEqual(txCount);
+
+                    // Owner approves spender to transfer the total amount
+                    const approveTx = await pointer.approve(spender.evmAddress, txCount);
+                    await approveTx.wait();
+
+                    // Get current nonce for the spender (who will execute transferFrom)
+                    const nonce = await ethers.provider.getTransactionCount(spender.evmAddress);
+                    const startBlockNumber = await ethers.provider.getBlockNumber();
+
+                    // Create transfer function that uses manual nonce management
+                    const transfer = async (index) => {
+                        let tx;
+                        try {
+                            tx = await pointer.connect(spender.signer).transferFrom(
+                                owner.evmAddress, 
+                                recipient.evmAddress, 
+                                1, 
+                                {
+                                    nonce: nonce + (index - 1),
+                                    gasPrice: ethers.parseUnits('100', 'gwei')
+                                }
+                            );
+                        } catch (error) {
+                            console.log(`Transfer ${index} send transaction failed`, error);
+                            throw error;
+                        }
+
+                        let receipt;
+                        try {
+                            receipt = await tx.wait();
+                        } catch (error) {
+                            console.log(`Transfer ${index} receipt failed`, error);
+                            throw error;
+                        }
+                        return receipt;
+                    };
+
+                    // Execute all transfers in parallel
+                    let promises = [];
+                    for (let i = 1; i <= txCount; i++) {
+                        promises.push(transfer(i));
+                    }
+
+                    await Promise.all(promises);
+
+                    // Verify final balances
+                    const ownerBalanceAfter = await pointer.balanceOf(owner.evmAddress);
+                    const recipientBalanceAfter = await pointer.balanceOf(recipient.evmAddress);
+                    
+                    expect(ownerBalanceAfter).to.equal(ownerBalanceBefore - BigInt(txCount));
+                    expect(recipientBalanceAfter).to.equal(recipientBalanceBefore + BigInt(txCount));
+
+                    // Check logs using sei_getLogs (since eth_getLogs excludes synthetic logs)
+                    const filter = {
+                        fromBlock: '0x' + startBlockNumber.toString(16),
+                        toBlock: "latest",
+                        address: await pointer.getAddress(),
+                        topics: [ethers.id("Transfer(address,address,uint256)")]
+                    };
+
+                    const logs = await ethers.provider.send('sei_getLogs', [filter]);
+                    expect(logs.length).to.equal(txCount);
+
+                    // Group logs by block and transaction to analyze distribution
+                    const byBlockThenTx = {};
+                    logs.forEach((log) => {
+                        if (!byBlockThenTx[log.blockNumber]) {
+                            byBlockThenTx[log.blockNumber] = {};
+                        }
+
+                        if (!byBlockThenTx[log.blockNumber][log.transactionHash]) {
+                            byBlockThenTx[log.blockNumber][log.transactionHash] = [];
+                        }
+
+                        byBlockThenTx[log.blockNumber][log.transactionHash].push(log);
+                    });
+
+                    // Sanity check to ensure we were able to generate a block with multiple logs
+                    expect(
+                        Object.entries(byBlockThenTx).some(
+                            ([blockNumber, byTx]) => {
+                                const logCountInBlock = Object.values(byTx).reduce(
+                                    (logCount, logsInTx) => logCount + logsInTx.length, 
+                                    0
+                                );
+                                return logCountInBlock > 1;
+                            }
+                        )
+                    ).to.be.true;
+
+                    // Verify log indexes are unique within each transaction
+                    Object.entries(byBlockThenTx).forEach(
+                        ([blockNumber, byTx]) => {
+                            Object.entries(byTx).forEach(
+                                ([txHash, logs]) => {
+                                    const logIndexes = {};
+                                    logs.forEach((log, index) => {
+                                        expect(
+                                            logIndexes[log.logIndex], 
+                                            `all log indexes in block tx ${txHash} (at block #${blockNumber}) should be unique but log's Index value ${log.logIndex} for log at position ${index} has already been seen`
+                                        ).to.be.undefined;
+                                        logIndexes[log.logIndex] = index;
+                                    });
+                                }
+                            );
+                        }
+                    );
+
+                    // Cleanup: transfer tokens back to owner
+                    const cleanupTx = await pointer.connect(recipient.signer).transfer(owner.evmAddress, txCount);
+                    await cleanupTx.wait();
+                });
             });
         });
     }
