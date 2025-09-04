@@ -1,18 +1,20 @@
 package types
 
+// Module-level constants for x/seinet
 const (
 	// ModuleName defines the module name
 	ModuleName = "seinet"
 
-	// StoreKey defines the primary module store key
+	// StoreKey is the primary module store key
 	StoreKey = ModuleName
 
-	// RouterKey is the message route for slashing
+	// RouterKey is the message route for the module
 	RouterKey = ModuleName
 
-	// QuerierRoute defines the module's query routing key
+	// QuerierRoute defines the query routing key
 	QuerierRoute = ModuleName
 
-	// Module account name for royalty
-	SeinetRoyaltyAccount = "seinet_module_account"
+	// SeinetRoyaltyAccount is the name of the module account
+	// used to hold and distribute royalties.
+	SeinetRoyaltyAccount = "seinet_royalty"
 )
