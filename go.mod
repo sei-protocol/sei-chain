@@ -364,7 +364,7 @@ replace (
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	// TODO: To be replaced with a concrete version number. See:
 	// - https://github.com/sei-protocol/sei-tendermint/pull/301
-	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.6.4-0.20250904114950-f04bd1612abe
+	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.6.4-0.20250904192118-1e50d023118e
 	github.com/tendermint/tm-db => github.com/sei-protocol/tm-db v0.0.4
 	golang.org/x/crypto => golang.org/x/crypto v0.31.0
 	google.golang.org/grpc => google.golang.org/grpc v1.33.2
