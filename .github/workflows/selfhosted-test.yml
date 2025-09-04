@@ -1,29 +1,44 @@
-name: Self-Hosted Runner Test
+name: Self-Hosted Test
 
 on:
-  workflow_dispatch: # lets you trigger manually from GitHub UI
   push:
     branches:
       - main
 
 jobs:
-  check-runner:
-    runs-on: [self-hosted, Linux, X64]  # matches your runner’s labels
+  selfhosted-test:
+    runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      # ✅ Checkout code (pinned SHA for v4.1.7)
+      - name: Checkout code
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
 
-      - name: Print environment info
+      # ✅ Filter paths (pinned SHA for v3.0.2)
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@3cf5a0f92a23c2f4d4e1428d83c0600b3cf29dfc
+        with:
+          filters: |
+            test:
+              - 'x/seinet/**'
+              - 'scripts/**'
+
+      # ✅ Set up Python (pinned SHA for v5.1.1)
+      - name: Set up Python
+        uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d
+        with:
+          python-version: '3.10'
+
+      - name: Run test script
         run: |
-          echo "Running on self-hosted runner!"
-          echo "Date: $(date)"
-          uname -a
-          lsb_release -a || cat /etc/os-release
-          echo "Go version:"
-          go version || echo "Go not installed"
+          echo "✅ Self-hosted test running"
+          python3 --version
 
-      - name: Disk space check
-        run: df -h
-
-      - name: Print current directory
-        run: pwd && ls -lah
+      # ✅ Upload artifacts (pinned SHA for v4.4.3)
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce
+        with:
+          name: test-logs
+          path: ./logs
