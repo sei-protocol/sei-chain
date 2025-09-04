@@ -61,6 +61,7 @@ var (
 	BaseFeePerGasPrefix             = []byte{0x1b}
 	NextBaseFeePerGasPrefix         = []byte{0x1c}
 	EvmOnlyBlockBloomPrefix         = []byte{0x1d}
+	ContractMetaKeyPrefix           = []byte{0x1e}
 )
 
 var (
@@ -87,6 +88,10 @@ func StateKey(evmAddress common.Address) []byte {
 
 func ReceiptKey(txHash common.Hash) []byte {
 	return append(ReceiptKeyPrefix, txHash[:]...)
+}
+
+func ContractMetadataKey(addr common.Address) []byte {
+	return append(ContractMetaKeyPrefix, addr[:]...)
 }
 
 type TransientReceiptKey []byte
