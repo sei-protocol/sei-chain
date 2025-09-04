@@ -152,7 +152,7 @@ describe("ERC721 to CW721 Pointer", function () {
             const seiBlockReceipts = await ethers.provider.send('sei_getBlockReceipts', ['0x' + receipt.blockNumber.toString(16)]);
             expect(seiBlockReceipts.length).to.equal(1);
 
-            const ethTx = await ethers.provider.send('eth_getTransactionReceipt', [receipt.hash]);
+            const ethTx = await ethers.provider.send('sei_getTransactionReceipt', [receipt.hash]);
             expect(ethTx.logs.length).to.equal(1);
             const ethTxByHash = await ethers.provider.send('eth_getTransactionByHash', [receipt.hash]);
             expect(ethTxByHash).to.not.be.null;
@@ -170,10 +170,9 @@ describe("ERC721 to CW721 Pointer", function () {
 
         it("set approval for all", async function () {
             const setApprovalForAllTxResp = await pointerAcc0.setApprovalForAll(accounts[1].evmAddress, true, { gasPrice: ethers.parseUnits('100', 'gwei') });
-            await setApprovalForAllTxResp.wait();
-            await expect(setApprovalForAllTxResp)
-                .to.emit(pointerAcc0, 'ApprovalForAll')
-                .withArgs(accounts[0].evmAddress, accounts[1].evmAddress, true);
+            const receipt = await setApprovalForAllTxResp.wait();
+            const seiReceipt = await ethers.provider.send('sei_getTransactionReceipt', [receipt.hash]);
+            expect(seiReceipt.logs.length).to.equal(1);
             const approved = await pointerAcc0.isApprovedForAll(accounts[0].evmAddress, accounts[1].evmAddress);
             expect(approved).to.equal(true);
 

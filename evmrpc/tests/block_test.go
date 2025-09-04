@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -13,7 +12,6 @@ func TestGetBlockByHash(t *testing.T) {
 	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
-			fmt.Println(res)
 			blockHash := res["result"].(map[string]interface{})["hash"]
 			require.Equal(t, "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", blockHash.(string))
 		},
@@ -70,6 +68,56 @@ func TestGetBlockSkipTxIndex(t *testing.T) {
 			txs := res["result"].(map[string]any)["transactions"].([]any)
 			require.Len(t, txs, 1)
 			require.Equal(t, "0x0", txs[0].(map[string]any)["transactionIndex"].(string))
+		},
+	)
+}
+
+func TestAnteFailureNonce(t *testing.T) {
+	txBz := signAndEncodeTx(send(1), mnemonic1) // wrong nonce
+	// incorrect nonce should always be excluded
+	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1), mockUpgrade("v5.8.0", 0)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
+			txs := res["result"].(map[string]interface{})["transactions"].([]interface{})
+			require.Len(t, txs, 0)
+		},
+	)
+	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1), mockUpgrade("v5.5.5", 0)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
+			txs := res["result"].(map[string]interface{})["transactions"].([]interface{})
+			require.Len(t, txs, 0)
+		},
+	)
+}
+
+func TestAnteFailureOthers(t *testing.T) {
+	txBz := signAndEncodeTx(send(0), mnemonic1)
+	// insufficient fund should be included post v5.8.0
+	SetupTestServer([][][]byte{{txBz}}, mockUpgrade("v5.8.0", 0)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
+			txs := res["result"].(map[string]interface{})["transactions"].([]interface{})
+			require.Len(t, txs, 1)
+		},
+	)
+	// insufficient fund should not be included pre v5.8.0
+	SetupTestServer([][][]byte{{txBz}}, mockUpgrade("v5.5.5", 0)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
+			txs := res["result"].(map[string]interface{})["transactions"].([]interface{})
+			require.Len(t, txs, 0)
+		},
+	)
+}
+
+func TestGetBlockReceipts(t *testing.T) {
+	txBz1 := signAndEncodeTx(send(0), mnemonic1)
+	txBz2 := signAndEncodeTx(send(1), mnemonic1)
+	SetupTestServer([][][]byte{{txBz1, txBz2}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("eth", port, "getBlockReceipts", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex())
+			require.Len(t, res["result"], 2)
 		},
 	)
 }
