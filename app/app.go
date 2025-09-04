@@ -229,6 +229,7 @@ var (
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
+		    seinettypes.SeinetRoyaltyAccount: {authtypes.Minter, authtypes.Burner},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
