@@ -274,3 +274,35 @@ func TestFlushTransientReceiptsLegacyReceipts(t *testing.T) {
 	require.Equal(t, uint64(9000), r9.GasUsed)
 	require.Equal(t, uint64(9000), r9.CumulativeGasUsed)
 }
+
+func TestReceiptStore(t *testing.T) {
+	a := testkeeper.EVMTestApp
+	ctx := a.GetContextForDeliverTx([]byte{})
+	txHash := common.HexToHash("0x1")
+	a.EvmKeeper.SetTransientReceipt(
+		ctx,
+		txHash,
+		&types.Receipt{TxHashHex: txHash.Hex()},
+	)
+	a.EvmKeeper.FlushTransientReceiptsSync(ctx)
+	// clear out transient store to prepare for the next "block"
+	ctx.TransientStore(a.EvmKeeper.GetTransientStoreKey(ctx)).Delete(types.ReceiptKey(txHash))
+	// verify persistence
+	r, _ := a.EvmKeeper.GetReceipt(ctx, txHash)
+	require.Equal(t, txHash.Hex(), r.TxHashHex)
+	// next block
+	ctx = ctx.WithBlockHeight(1)
+	txHash = common.HexToHash("0x2")
+	a.EvmKeeper.SetTransientReceipt(
+		ctx,
+		txHash,
+		&types.Receipt{TxHashHex: txHash.Hex()},
+	)
+	a.EvmKeeper.FlushTransientReceiptsSync(ctx)
+	// verify persistence
+	r, _ = a.EvmKeeper.GetReceipt(ctx, txHash)
+	require.Equal(t, txHash.Hex(), r.TxHashHex)
+	// check persistence of previous tx (FAILURE)
+	_, err := a.EvmKeeper.GetReceipt(ctx, common.HexToHash("0x1"))
+	require.Nil(t, err)
+}

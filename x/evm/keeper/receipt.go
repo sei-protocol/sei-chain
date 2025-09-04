@@ -147,6 +147,10 @@ func (k *Keeper) FlushTransientReceiptsSync(ctx sdk.Context) error {
 	return k.flushTransientReceipts(ctx, true)
 }
 
+func (k *Keeper) GetTransientStoreKey(ctx sdk.Context) sdk.StoreKey {
+	return k.transientStoreKey
+}
+
 func (k *Keeper) FlushTransientReceiptsAsync(ctx sdk.Context) error {
 	return k.flushTransientReceipts(ctx, false)
 }
