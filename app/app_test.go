@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/big"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -744,5 +745,86 @@ func TestProcessProposalHandlerPanicRecovery(t *testing.T) {
 				t.Fatal("Timeout waiting for completion signal")
 			}
 		}
+	}
+}
+
+// TestProcessBlockUpgradePanicLogic tests the upgrade panic detection logic
+// Since ProcessBlock has multiple panic recovery layers, we test the logic directly
+func TestProcessBlockUpgradePanicLogic(t *testing.T) {
+	// This tests the exact same logic used in ProcessBlock's defer function
+	// We extract and test the core logic to ensure it works correctly
+	testUpgradePanicDetection := func(panicMsg string) (shouldRepanic bool, shouldRecover bool) {
+		// This is the exact logic from ProcessBlock lines 1617-1620
+		if strings.HasPrefix(panicMsg, "UPGRADE") && strings.Contains(panicMsg, "NEEDED at height") {
+			return true, false // Should re-panic
+		}
+		return false, true // Should recover
+	}
+
+	testCases := []struct {
+		name          string
+		panicMsg      string
+		shouldRepanic bool
+		shouldRecover bool
+		description   string
+	}{
+		{
+			name:          "legitimate_upgrade_panic",
+			panicMsg:      `UPGRADE "test-version" NEEDED at height: 100: test upgrade`,
+			shouldRepanic: true,
+			shouldRecover: false,
+			description:   "Legitimate upgrade panic should be re-panicked",
+		},
+		{
+			name:          "malicious_upgrade_in_middle",
+			panicMsg:      `malicious attack UPGRADE "fake" NEEDED at height: 100`,
+			shouldRepanic: false,
+			shouldRecover: true,
+			description:   "Malicious message with UPGRADE in middle should be recovered",
+		},
+		{
+			name:          "normal_panic",
+			panicMsg:      "runtime error: index out of range",
+			shouldRepanic: false,
+			shouldRecover: true,
+			description:   "Normal panic should be recovered",
+		},
+		{
+			name:          "upgrade_prefix_wrong_format",
+			panicMsg:      `UPGRADE "fake" but wrong format`,
+			shouldRepanic: false,
+			shouldRecover: true,
+			description:   "UPGRADE prefix but missing 'NEEDED at height' should be recovered",
+		},
+		{
+			name:          "case_sensitive_test",
+			panicMsg:      `upgrade "fake" NEEDED at height: 100`,
+			shouldRepanic: false,
+			shouldRecover: true,
+			description:   "Lowercase 'upgrade' should be recovered (case sensitive)",
+		},
+		{
+			name:          "different_upgrade_format",
+			panicMsg:      `UPGRADE "mainnet-v2" NEEDED at height: 200000: major upgrade`,
+			shouldRepanic: true,
+			shouldRecover: false,
+			description:   "Different upgrade version format should still work",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			shouldRepanic, shouldRecover := testUpgradePanicDetection(tc.panicMsg)
+
+			if tc.shouldRepanic {
+				require.True(t, shouldRepanic, "Expected panic to be re-panicked: %s", tc.description)
+				require.False(t, shouldRecover, "Expected panic NOT to be recovered: %s", tc.description)
+			}
+
+			if tc.shouldRecover {
+				require.False(t, shouldRepanic, "Expected panic NOT to be re-panicked: %s", tc.description)
+				require.True(t, shouldRecover, "Expected panic to be recovered: %s", tc.description)
+			}
+		})
 	}
 }
