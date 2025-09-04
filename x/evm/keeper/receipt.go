@@ -62,6 +62,9 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 	// receipts are immutable, use latest version
 	lv, err := k.receiptStore.GetLatestVersion()
 	if err != nil {
+		if errors.Is(err, dberrors.ErrRecordNotFound) {
+			return nil, errors.New("not found")
+		}
 		return nil, err
 	}
 
@@ -96,6 +99,9 @@ func (k *Keeper) GetReceiptFromReceiptStore(ctx sdk.Context, txHash common.Hash)
 	// receipts are immutable, use latest version
 	lv, err := k.receiptStore.GetLatestVersion()
 	if err != nil {
+		if errors.Is(err, dberrors.ErrRecordNotFound) {
+			return nil, errors.New("not found")
+		}
 		return nil, err
 	}
 
