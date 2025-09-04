@@ -19,7 +19,7 @@ var (
 	nodeURL       = flag.String("node", "http://localhost:26657", "Tendermint RPC address")
 	socketPath    = flag.String("socket", "/var/run/qacis.sock", "QACIS Unix socket path")
 	pollInterval  = flag.Duration("interval", 5*time.Second, "Polling interval")
-	riskThreshold = flag.Float64("risk", 0.8, "Risk threshold for reporting")
+	riskThreshold = flag.Int("risk", 204, "Risk threshold for reporting (0-255)")
 	sentinelID    = flag.String("sentinel", "guardian-0", "Sentinel identifier")
 	rotateEvery   = flag.Duration("pq-rotate", 10*time.Minute, "PQ key rotation interval")
 )
@@ -27,34 +27,33 @@ var (
 var pqKey []byte
 
 type ThreatReport struct {
-	AttackerAddr string  `json:"attackerAddr"`
-	ThreatType   string  `json:"threatType"`
-	BlockHeight  int64   `json:"blockHeight"`
-	Fingerprint  []byte  `json:"fingerprint"`
-	PQSignature  []byte  `json:"pqSignature"`
-	GuardianNode string  `json:"guardianNode"`
-	RiskScore    float64 `json:"riskScore"`
-	Timestamp    int64   `json:"timestamp"`
+	AttackerAddr string `json:"attackerAddr"`
+	ThreatType   string `json:"threatType"`
+	BlockHeight  int64  `json:"blockHeight"`
+	Fingerprint  []byte `json:"fingerprint"`
+	PQSignature  []byte `json:"pqSignature"`
+	GuardianNode string `json:"guardianNode"`
+	RiskScore    uint8  `json:"riskScore"`
+	Timestamp    int64  `json:"timestamp"`
 }
 
 func main() {
 	flag.Parse()
 	pqKey = generatePQKey()
-	go func() {
-		t := time.NewTicker(*rotateEvery)
-		defer t.Stop()
-		for range t.C {
+	pollTicker := time.NewTicker(*pollInterval)
+	rotateTicker := time.NewTicker(*rotateEvery)
+	defer pollTicker.Stop()
+	defer rotateTicker.Stop()
+
+	for {
+		select {
+		case <-rotateTicker.C:
 			pqKey = generatePQKey()
 			log.Printf("rotated PQ key")
+		case <-pollTicker.C:
+			height := queryBlockHeight()
+			inspectMempool(height)
 		}
-	}()
-
-	ticker := time.NewTicker(*pollInterval)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		height := queryBlockHeight()
-		inspectMempool(height)
 	}
 }
 
@@ -103,7 +102,7 @@ func inspectMempool(height int64) {
 	}
 	for _, tx := range r.Result.Txs {
 		score := scoreTx(tx)
-		if score >= *riskThreshold {
+		if score >= uint8(*riskThreshold) {
 			fp := []byte(tx)
 			sig := pqSign(fp)
 			report := ThreatReport{
@@ -119,16 +118,16 @@ func inspectMempool(height int64) {
 			if err := sendThreat(report); err != nil {
 				log.Printf("send threat: %v", err)
 			} else {
-				log.Printf("threat reported at height %d with score %.2f", height, score)
+				log.Printf("threat reported at height %d with score %d", height, score)
 			}
 		}
 	}
 }
 
-func scoreTx(tx string) float64 {
+func scoreTx(tx string) uint8 {
 	h := sha256.Sum256([]byte(tx))
 	// use first byte as pseudo score
-	return float64(h[0]) / 255.0
+	return h[0]
 }
 
 func pqSign(data []byte) []byte {

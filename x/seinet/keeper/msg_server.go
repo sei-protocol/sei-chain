@@ -19,7 +19,9 @@ func NewMsgServerImpl(k Keeper) types.MsgServer {
 // CommitCovenant handles MsgCommitCovenant.
 func (m msgServer) CommitCovenant(goCtx context.Context, msg *types.MsgCommitCovenant) (*types.MsgCommitCovenantResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	m.SeiNetCommitCovenantSync(ctx, msg.Creator, msg.Covenant)
+	if err := m.SeiNetCommitCovenantSync(ctx, msg.Creator, msg.Covenant); err != nil {
+		return nil, err
+	}
 	return &types.MsgCommitCovenantResponse{}, nil
 }
 
