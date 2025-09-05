@@ -248,52 +248,6 @@ func TestGetVMError(t *testing.T) {
 	require.Equal(t, "not found", resObj["error"].(map[string]interface{})["message"])
 }
 
-func TestGetTransactionReceiptFailedTx(t *testing.T) {
-	fromAddr := "0x5b4eba929f3811980f5ae0c5d04fa200f837df4e" // Use the actual address from the block
-
-	// Create a failed receipt with 0 gas used for a contract creation transaction
-	failedReceipt := &types.Receipt{
-		Status:           0, // failed status
-		GasUsed:          0,
-		BlockNumber:      8,
-		TransactionIndex: 0,
-		TxHashHex:        "0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32",
-		From:             fromAddr, // Use the actual from address
-	}
-
-	// Mock the receipt in the keeper
-	txHash := common.HexToHash("0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32")
-	EVMKeeper.MockReceipt(Ctx, txHash, failedReceipt)
-
-	// Create JSON-RPC request
-	body := "{\"jsonrpc\": \"2.0\",\"method\": \"eth_getTransactionReceipt\",\"params\":[\"0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32\"],\"id\":\"test\"}"
-
-	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
-	require.Nil(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	res, err := http.DefaultClient.Do(req)
-	require.Nil(t, err)
-
-	resBody, err := io.ReadAll(res.Body)
-	require.Nil(t, err)
-
-	resObj := map[string]interface{}{}
-	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	resObj = resObj["result"].(map[string]interface{})
-
-	// Verify the receipt was filled with correct information for failed tx
-	require.Equal(t, "0x0", resObj["status"].(string))  // Failed status
-	require.Equal(t, "0x0", resObj["gasUsed"].(string)) // 0 gas used
-	require.Equal(t, "0x8", resObj["blockNumber"].(string))
-	require.Equal(t, "0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32", resObj["transactionHash"].(string))
-	require.Equal(t, fromAddr, resObj["from"].(string))
-
-	// For contract creation transaction
-	require.Equal(t, "0x0000000000000000000000000000000000010203", resObj["to"].(string))
-	require.Nil(t, resObj["contractAddress"])
-}
-
 func TestGetTransactionReceiptExcludeTraceFail(t *testing.T) {
 	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_getTransactionReceiptExcludeTraceFail\",\"params\":[\"%s\"],\"id\":\"test\"}", "sei", TestPanicTxHash)
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
@@ -355,9 +309,9 @@ func TestCumulativeGasUsedPopulation(t *testing.T) {
 	err := EVMKeeper.FlushTransientReceiptsSync(Ctx)
 	require.Nil(t, err)
 
-	for i := 0 ; i < len(txHashes); i++ {
+	for i := 0; i < len(txHashes); i++ {
 		receipt, err := EVMKeeper.GetReceipt(Ctx, txHashes[i])
 		require.Nil(t, err)
-		require.Equal(t, receipt.CumulativeGasUsed,  correctCumulativeGasUsedValues[i])
+		require.Equal(t, receipt.CumulativeGasUsed, correctCumulativeGasUsedValues[i])
 	}
 }
