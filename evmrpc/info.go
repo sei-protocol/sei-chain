@@ -95,8 +95,7 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 	} else {
 		medianRewardPrevBlock = feeHist.Reward[0][0].ToInt()
 	}
-	res, err := i.GasPriceHelper(ctx, baseFee, totalGasUsed, medianRewardPrevBlock)
-	return res, err
+	return i.GasPriceHelper(ctx, baseFee, totalGasUsed, medianRewardPrevBlock)
 }
 
 // Helper function useful for testing
@@ -413,9 +412,6 @@ func (i *InfoAPI) isChainCongested(totalGasUsed uint64) bool {
 		gasLimit = sdkCtx.ConsensusParams().Block.MaxGas
 	} else {
 		gasLimit = DefaultBlockGasLimit
-	}
-	if gasLimit == 0 {
-		return false
 	}
 	threshold := uint64(gasLimit*defaultThresholdPercentage) / 100
 	return totalGasUsed > threshold
