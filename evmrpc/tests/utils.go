@@ -144,7 +144,7 @@ func sendRequestWithNamespace(namespace string, port int, method string, params 
 	if err != nil {
 		panic(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	resBody, _ := io.ReadAll(res.Body)
 	resObj := map[string]interface{}{}
 	_ = json.Unmarshal(resBody, &resObj)

@@ -827,7 +827,7 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 				}
 				continue
 			}
-			if int64(receipt.BlockNumber) != block.Block.Height {
+			if int64(receipt.BlockNumber) != block.Block.Height { //nolint:gosec
 				if !f.includeSyntheticReceipts {
 					ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height))
 					continue
@@ -836,7 +836,7 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 			setCachedReceipt(block.Block.Height, block, hash, receipt)
 		}
 
-		if int64(receipt.BlockNumber) != block.Block.Height {
+		if int64(receipt.BlockNumber) != block.Block.Height { //nolint:gosec
 			if !f.includeSyntheticReceipts {
 				ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d; skipping", hash.Hex(), receipt.BlockNumber, block.Block.Height))
 				continue
@@ -858,8 +858,8 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 			if len(receipt.LogsBloom) == 0 || MatchFilters(ethtypes.Bloom(receipt.LogsBloom), filters) {
 				if applyExactMatch {
 					for _, log := range txLogs {
-						log.TxIndex = uint(evmTxIndex)
-						log.BlockNumber = uint64(block.Block.Height)
+						log.TxIndex = uint(evmTxIndex)               //nolint:gosec
+						log.BlockNumber = uint64(block.Block.Height) //nolint:gosec
 						log.BlockHash = common.BytesToHash(block.BlockID.Hash)
 						if f.IsLogExactMatch(log, crit) {
 							collector.Append(log)
@@ -867,8 +867,8 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 					}
 				} else {
 					for _, log := range txLogs {
-						log.TxIndex = uint(evmTxIndex)
-						log.BlockNumber = uint64(block.Block.Height)
+						log.TxIndex = uint(evmTxIndex)               //nolint:gosec
+						log.BlockNumber = uint64(block.Block.Height) //nolint:gosec
 						log.BlockHash = common.BytesToHash(block.BlockID.Hash)
 						collector.Append(log)
 					}
@@ -876,8 +876,8 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 			}
 		} else {
 			for _, log := range txLogs {
-				log.TxIndex = uint(evmTxIndex)
-				log.BlockNumber = uint64(block.Block.Height)
+				log.TxIndex = uint(evmTxIndex)               //nolint:gosec
+				log.BlockNumber = uint64(block.Block.Height) //nolint:gosec
 				log.BlockHash = common.BytesToHash(block.BlockID.Hash)
 				collector.Append(log)
 			}
