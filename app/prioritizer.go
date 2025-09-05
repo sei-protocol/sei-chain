@@ -1,6 +1,7 @@
 package app
 
 import (
+	"math"
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -119,7 +120,7 @@ func (s *SeiTxPrioritizer) getEvmTxPriority(ctx sdk.Context, evmTx *evmtypes.Msg
 		// For now we are simply assuming excessive blob gas is 0. In the future we might change it to be
 		// dynamic based on prior block usage.
 		chainConfig := evmtypes.DefaultChainConfig().EthereumConfig(s.evmKeeper.ChainID(ctx))
-		if txData.GetBlobFeeCap().Cmp(eip4844.CalcBlobFee(chainConfig, &ethtypes.Header{Time: uint64(ctx.BlockTime().Unix())})) < 0 {
+		if txData.GetBlobFeeCap().Cmp(eip4844.CalcBlobFee(chainConfig, &ethtypes.Header{Time: uint64(ctx.BlockTime().Unix())})) < 0 { //nolint:gosec
 			return 0, sdkerrors.ErrInsufficientFee
 		}
 	}
@@ -162,6 +163,12 @@ func (s *SeiTxPrioritizer) getCosmosTxPriority(ctx sdk.Context, feeTx sdk.FeeTx)
 	if gas <= 0 {
 		return 0, nil
 	}
+	var igas int64
+	if gas > math.MaxInt64 {
+		igas = math.MaxInt64
+	} else {
+		igas = int64(gas) //nolint:gosec
+	}
 
 	feeParams := s.paramsKeeper.GetFeesParams(ctx)
 	allowedDenoms := feeParams.GetAllowedFeeDenoms()
@@ -169,7 +176,7 @@ func (s *SeiTxPrioritizer) getCosmosTxPriority(ctx sdk.Context, feeTx sdk.FeeTx)
 	denoms = append(denoms, sdk.DefaultBondDenom)
 	denoms = append(denoms, allowedDenoms...)
 	feeCoins := feeTx.GetFee().NonZeroAmountsOf(denoms)
-	priority := cosmosante.GetTxPriority(feeCoins, int64(gas))
+	priority := cosmosante.GetTxPriority(feeCoins, igas)
 	return min(antedecorators.MaxPriority, priority), nil
 }
 
