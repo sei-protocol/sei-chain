@@ -20,7 +20,7 @@ import (
 )
 
 const defaultPriorityFeePerGas = 1000000000 // 1gwei
-const defaultThresholdPercentage = 80 // 80%
+const defaultThresholdPercentage = 80       // 80%
 
 type InfoAPI struct {
 	tmClient         rpcclient.Client
@@ -410,6 +410,6 @@ func (i *InfoAPI) isChainCongested(totalGasUsed uint64) bool {
 	if gasLimit == 0 {
 		return false
 	}
-	threshold := uint64(gasLimit * defaultThresholdPercentage) / 100
+	threshold := uint64(gasLimit*defaultThresholdPercentage) / 100
 	return totalGasUsed > threshold
 }
