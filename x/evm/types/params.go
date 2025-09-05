@@ -17,6 +17,7 @@ var (
 	KeyMaxDynamicBaseFeeUpwardAdjustment   = []byte("KeyMaxDynamicBaseFeeUpwardAdjustment")
 	KeyMaxDynamicBaseFeeDownwardAdjustment = []byte("KeyMaxDynamicBaseFeeDownwardAdjustment")
 	KeyTargetGasUsedPerBlock               = []byte("KeyTargetGasUsedPerBlock")
+	KeySeiSstoreSetGasEIP2200              = []byte("KeySeiSstoreSetGasEIP2200")
 	// deprecated
 	KeyBaseFeePerGas                          = []byte("KeyBaseFeePerGas")
 	KeyWhitelistedCwCodeHashesForDelegateCall = []byte("KeyWhitelistedCwCodeHashesForDelegateCall")
@@ -32,6 +33,7 @@ var DefaultBaseFeePerGas = sdk.NewDec(0)         // used for static base fee, de
 var DefaultMinFeePerGas = sdk.NewDec(1000000000) // 1gwei
 var DefaultDeliverTxHookWasmGasLimit = uint64(300000)
 
+var DefaultSeiSstoreSetGasEIP2200 = uint64(72000) // 72k
 var DefaultWhitelistedCwCodeHashesForDelegateCall = generateDefaultWhitelistedCwCodeHashesForDelegateCall()
 
 var DefaultMaxDynamicBaseFeeUpwardAdjustment = sdk.NewDecWithPrec(189, 4)  // 1.89%
@@ -71,6 +73,7 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 		paramtypes.NewParamSetPair(KeyWhitelistedCwCodeHashesForDelegateCall, &p.WhitelistedCwCodeHashesForDelegateCall, validateWhitelistedCwHashesForDelegateCall),
 		paramtypes.NewParamSetPair(KeyDeliverTxHookWasmGasLimit, &p.DeliverTxHookWasmGasLimit, validateDeliverTxHookWasmGasLimit),
 		paramtypes.NewParamSetPair(KeyTargetGasUsedPerBlock, &p.TargetGasUsedPerBlock, func(i interface{}) error { return nil }),
+		paramtypes.NewParamSetPair(KeySeiSstoreSetGasEIP2200, &p.SeiSstoreSetGasEIP2200, validateSeiSstoreSetGasEIP2200),
 		paramtypes.NewParamSetPair(KeyMaxFeePerGas, &p.MaximumFeePerGas, validateMaxFeePerGas),
 		paramtypes.NewParamSetPair(KeyRegisterPointerDisabled, &p.RegisterPointerDisabled, validateRegisterPointerDisabled),
 	}

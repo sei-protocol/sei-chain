@@ -332,11 +332,11 @@ describe("EVM Test", function () {
         expect(await evmTester.boolVar()).to.equal(true);
       });
 
-      it("Should set the uint256 correctly and emit an event", async function () {
+      it.only("Should set the uint256 correctly and emit an event", async function () {
         // Call setBoolVar
         await delay()
         const txResponse = await evmTester.setUint256Var(12345, { gasPrice: ethers.parseUnits('100', 'gwei') });
-        await txResponse.wait();  // Wait for the transaction to be mined
+        const receipt = await txResponse.wait();  // Wait for the transaction to be mined
 
         debug(JSON.stringify(txResponse))
 
@@ -346,6 +346,12 @@ describe("EVM Test", function () {
 
         // Verify that addr is set correctly
         expect(await evmTester.uint256Var()).to.equal(12345);
+
+        // Calculate total gas cost
+        const totalGasCost = receipt.gasUsed * receipt.gasPrice;
+        console.log("totalGasCost", totalGasCost);
+        console.log("receipt", receipt);
+        debug(`Total gas cost: ${ethers.formatEther(totalGasCost)} ETH`);
       });
 
       // this uses a newer version of ethers to attempt a blob transaction (different signer wallet)
