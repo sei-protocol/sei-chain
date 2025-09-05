@@ -19,6 +19,7 @@ import (
 	"github.com/tendermint/tendermint/rpc/coretypes"
 )
 
+const DefaultBlockGasLimit = 10000000
 const defaultPriorityFeePerGas = 1000000000 // 1gwei
 const defaultThresholdPercentage = 80       // 80%
 
@@ -94,7 +95,8 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 	} else {
 		medianRewardPrevBlock = feeHist.Reward[0][0].ToInt()
 	}
-	return i.GasPriceHelper(ctx, baseFee, totalGasUsed, medianRewardPrevBlock)
+	res, err := i.GasPriceHelper(ctx, baseFee, totalGasUsed, medianRewardPrevBlock)
+	return res, err
 }
 
 // Helper function useful for testing
@@ -406,7 +408,12 @@ func CalculatePercentiles(rewardPercentiles []float64, GasAndRewards []GasAndRew
 
 func (i *InfoAPI) isChainCongested(totalGasUsed uint64) bool {
 	sdkCtx := i.ctxProvider(LatestCtxHeight)
-	gasLimit := sdkCtx.ConsensusParams().Block.MaxGas
+	var gasLimit int64
+	if sdkCtx.ConsensusParams() != nil && sdkCtx.ConsensusParams().Block != nil {
+		gasLimit = sdkCtx.ConsensusParams().Block.MaxGas
+	} else {
+		gasLimit = DefaultBlockGasLimit
+	}
 	if gasLimit == 0 {
 		return false
 	}
