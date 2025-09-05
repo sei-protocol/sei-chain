@@ -20,6 +20,7 @@ import (
 )
 
 const defaultPriorityFeePerGas = 1000000000 // 1gwei
+const defaultThresholdPercentage = 80 // 80%
 
 type InfoAPI struct {
 	tmClient         rpcclient.Client
@@ -403,28 +404,12 @@ func CalculatePercentiles(rewardPercentiles []float64, GasAndRewards []GasAndRew
 	return res
 }
 
-// getConsensusGasLimitForHeight returns the block gas limit for the given height,
-// falling back to the latest height or a sane default if unavailable.
-func (i *InfoAPI) getConsensusGasLimitForHeight(blockHeight int64) uint64 {
-	sdkCtx := i.ctxProvider(blockHeight)
-	if sdkCtx.ConsensusParams() != nil && sdkCtx.ConsensusParams().Block != nil {
-		return uint64(sdkCtx.ConsensusParams().Block.MaxGas)
-	}
-	// Fallback: try current context
-	currentCtx := i.ctxProvider(LatestCtxHeight)
-	if currentCtx.ConsensusParams() != nil && currentCtx.ConsensusParams().Block != nil {
-		return uint64(currentCtx.ConsensusParams().Block.MaxGas)
-	}
-	// Default fallback
-	return 10000000 // Default block gas limit for Sei
-}
-
 func (i *InfoAPI) isChainCongested(totalGasUsed uint64) bool {
-	currentHeight := i.ctxProvider(LatestCtxHeight).BlockHeight()
-	gasLimit := i.getConsensusGasLimitForHeight(currentHeight)
+	sdkCtx := i.ctxProvider(LatestCtxHeight)
+	gasLimit := sdkCtx.ConsensusParams().Block.MaxGas
 	if gasLimit == 0 {
 		return false
 	}
-	threshold := (gasLimit * 80) / 100
+	threshold := uint64(gasLimit * defaultThresholdPercentage) / 100
 	return totalGasUsed > threshold
 }
