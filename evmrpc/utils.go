@@ -211,8 +211,13 @@ func shouldIncludeSynthetic(namespace string) bool {
 	return namespace == "sei"
 }
 
-func getTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig, shouldIncludeSynthetic bool) []common.Hash {
-	txHashes := []common.Hash{}
+type typedTxHash struct {
+	hash  common.Hash
+	isEvm bool
+}
+
+func getTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig, shouldIncludeSynthetic bool) []typedTxHash {
+	txHashes := []typedTxHash{}
 	for i, tx := range block.Block.Data.Txs {
 		sdkTx, err := txConfig.TxDecoder()(tx)
 		if err != nil {
@@ -225,11 +230,11 @@ func getTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig
 					continue
 				}
 				ethtx, _ := evmTx.AsTransaction()
-				txHashes = append(txHashes, ethtx.Hash())
+				txHashes = append(txHashes, typedTxHash{hash: ethtx.Hash(), isEvm: true})
 			}
 		}
 		if shouldIncludeSynthetic {
-			txHashes = append(txHashes, sha256.Sum256(tx))
+			txHashes = append(txHashes, typedTxHash{hash: common.Hash(sha256.Sum256(tx)), isEvm: false})
 		}
 	}
 	return txHashes
