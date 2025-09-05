@@ -65,7 +65,7 @@ func (k *Keeper) GetSeiAddressOrDefault(ctx sdk.Context, evmAddress common.Addre
 
 func (k *Keeper) IterateSeiAddressMapping(ctx sdk.Context, cb func(evmAddr common.Address, seiAddr sdk.AccAddress) bool) {
 	iter := prefix.NewStore(ctx.KVStore(k.storeKey), types.EVMAddressToSeiAddressKeyPrefix).Iterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		evmAddr := common.BytesToAddress(iter.Key())
 		seiAddr := sdk.AccAddress(iter.Value())
