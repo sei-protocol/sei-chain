@@ -1,4 +1,3 @@
-
 name: Docker Integration Test
 
 on:
@@ -18,13 +17,15 @@ jobs:
       slinky: ${{ steps.filter.outputs.slinky }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - id: filter
         uses: dorny/paths-filter@v2
         with:
           filters: |
             slinky:
-              - "scripts/modules/slinky_test/**"
-              - "x/slinky/**"
+              - 'scripts/modules/slinky_test/**'
+              - 'x/slinky/**'
 
   integration-tests:
     name: Integration Test (${{ matrix.test.name }})
@@ -65,9 +66,8 @@ jobs:
 
           - name: Chain Operation Test
             scripts:
-              - until [ $(cat build/generated/rpc-launch.complete | wc -l) = 1 ]; do sleep 10; done
-              - until [[ $(docker exec sei-node-0 seid status | jq -M -r .SyncInfo.latest_block_height) -gt 10 ]]; do sleep 10; done
-              - echo "rpc node started"
+              - until [ "$(wc -l < build/generated/rpc-launch.complete 2>/dev/null || echo 0)" -eq 1 ]; do sleep 10; done
+              - until [[ "$(docker exec sei-node-0 seid status | jq -r .SyncInfo.latest_block_height)" -gt 10 ]]; do sleep 10; done
               - python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml
               - python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml
 
@@ -108,13 +108,15 @@ jobs:
 
           - name: Trace & RPC Validation
             scripts:
-              - until [[ $(docker exec sei-node-0 seid status | jq -r '.SyncInfo.latest_block_height') -gt 1000 ]]; do echo "waiting for height 1000+"; sleep 5; done
+              - until [[ $(docker exec sei-node-0 seid status | jq -r '.SyncInfo.latest_block_height') -gt 1000 ]]; do echo "⏳ waiting for height 1000+"; sleep 5; done
               - python3 integration_test/scripts/runner.py integration_test/rpc_module/trace_block_by_hash.yaml
               - python3 integration_test/scripts/runner.py integration_test/rpc_module/trace_tx_by_hash.yaml
 
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v4
         with:
           python-version: "3.10"
       - uses: actions/setup-node@v4
@@ -125,7 +127,7 @@ jobs:
           pip3 install pyyaml
           sudo apt-get install -y jq
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v4
         with:
           go-version: "1.21"
 
@@ -134,43 +136,26 @@ jobs:
 
       - name: Wait for docker cluster to start
         run: |
-          echo "[Waiting] Waiting for build/generated/launch.complete to reach 4 lines..."
+          set -e
+          echo "[⏳] Waiting for build/generated/launch.complete to reach 4 lines..."
           max_attempts=60
           attempts=0
           while true; do
-            line_count=$(wc -l < build/generated/launch.complete 2>/dev/null || echo 0)
-            echo "[INFO] Attempt $attempts — launch.complete has $line_count lines"
-            if [ "$line_count" -eq 4 ]; then
-              echo "[Done] launch.complete reached 4 lines!"
-              break
-            fi
-            if [ "$attempts" -ge "$max_attempts" ]; then
-              echo "Timeout: launch.complete did not reach 4 lines after $((max_attempts * 10)) seconds."
-              cat build/generated/launch.complete || echo "File not found"
-              exit 1
-            fi
+            lines=$(wc -l < build/generated/launch.complete 2>/dev/null || echo 0)
+            echo "[INFO] Attempt $attempts — $lines lines"
+            if [ "$lines" -eq 4 ]; then break; fi
+            if [ "$attempts" -ge "$max_attempts" ]; then exit 1; fi
             sleep 10
             attempts=$((attempts + 1))
           done
 
       - name: Verify sei-node-0 exists (with retry)
         run: |
-          echo "[Checking] Checking for sei-node-0 container..."
-          max_attempts=30
-          attempts=0
-          while true; do
-            if docker ps --format '{{.Names}}' | grep -q '^sei-node-0$'; then
-              echo "[Found] Container sei-node-0 is running!"
-              break
-            fi
-            if [ "$attempts" -ge "$max_attempts" ]; then
-              echo "Container sei-node-0 not found after $((max_attempts * 5)) seconds."
-              docker ps -a
-              exit 1
-            fi
-            echo "[INFO] Attempt $attempts — container not ready yet."
-            sleep 5
-            attempts=$((attempts + 1))
+          set -e
+          echo "[⏳] Checking for sei-node-0..."
+          for i in {1..30}; do
+            if docker ps --format '{{.Names}}' | grep -q '^sei-node-0$'; then break; fi
+            echo "Waiting... ($i)"; sleep 5
           done
 
       - name: Start rpc node
@@ -181,6 +166,7 @@ jobs:
 
       - name: Run ${{ matrix.test.name }}
         run: |
+          set -e
           IFS=$'\n'
           for script in $(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]'); do
             bash -c "$script"
@@ -200,8 +186,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v4
         with:
           go-version: "1.21"
       - name: Run Slinky Integration Tests
@@ -215,13 +203,11 @@ jobs:
     steps:
       - name: Check job results
         run: |
+          set -e
           jobs=$(curl -s https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-          job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
-          for status in $job_statuses; do
-            echo "Status: $status"
-            if [[ "$status" == "failure" ]]; then
-              echo "Some or all tests failed!"
-              exit 1
-            fi
+          statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+          for status in $statuses; do
+            echo "Job status: $status"
+            if [[ "$status" == "failure" ]]; then exit 1; fi
           done
-          echo "All tests passed!"
+          echo "✅ All tests passed."
