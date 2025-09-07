@@ -4,7 +4,7 @@
     "@cosmjs/proto-signing": "^0.28.0",
     "@cosmjs/stargate": "^0.28.0",
     "@cosmjs/cosmwasm-stargate": "^0.28.0",
-    "axios": "^0.27.2",
+    "axios": "^1.11.0",
     "coingecko-api": "^1.0.10",
     "dotenv": "^8.2.0",
     "log-timestamp": "^0.3.0",
