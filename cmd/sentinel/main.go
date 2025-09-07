@@ -19,7 +19,7 @@ var (
 	nodeURL       = flag.String("node", "http://localhost:26657", "Tendermint RPC address")
 	socketPath    = flag.String("socket", "/var/run/qacis.sock", "QACIS Unix socket path")
 	pollInterval  = flag.Duration("interval", 5*time.Second, "Polling interval")
-	riskThreshold = flag.Int("risk", 204, "Risk threshold for reporting (0-255)")
+	riskThreshold = flag.Float64("risk", 0.8, "Risk threshold for reporting (0.0–1.0)")
 	sentinelID    = flag.String("sentinel", "guardian-0", "Sentinel identifier")
 	rotateEvery   = flag.Duration("pq-rotate", 10*time.Minute, "PQ key rotation interval")
 )
@@ -27,43 +27,49 @@ var (
 var pqKey []byte
 
 type ThreatReport struct {
-	AttackerAddr string `json:"attackerAddr"`
-	ThreatType   string `json:"threatType"`
-	BlockHeight  int64  `json:"blockHeight"`
-	Fingerprint  []byte `json:"fingerprint"`
-	PQSignature  []byte `json:"pqSignature"`
-	GuardianNode string `json:"guardianNode"`
-	RiskScore    uint8  `json:"riskScore"`
-	Timestamp    int64  `json:"timestamp"`
+	AttackerAddr        string  `json:"attackerAddr"`
+	ThreatType          string  `json:"threatType"`
+	BlockHeight         int64   `json:"blockHeight"`
+	BehaviorFingerprint []byte  `json:"behaviorFingerprint"`
+	PQSignature         []byte  `json:"pqSignature"`
+	GuardianNode        string  `json:"guardianNode"`
+	RiskScore           float64 `json:"riskScore"`
+	DeceptionStrategy   string  `json:"deceptionStrategy"`
+	Timestamp           int64   `json:"timestamp"`
 }
 
 func main() {
 	flag.Parse()
 	pqKey = generatePQKey()
-	pollTicker := time.NewTicker(*pollInterval)
-	rotateTicker := time.NewTicker(*rotateEvery)
-	defer pollTicker.Stop()
-	defer rotateTicker.Stop()
 
-	for {
-		select {
-		case <-rotateTicker.C:
+	// Rotate PQ key periodically
+	go func() {
+		t := time.NewTicker(*rotateEvery)
+		defer t.Stop()
+		for range t.C {
 			pqKey = generatePQKey()
-			log.Printf("rotated PQ key")
-		case <-pollTicker.C:
-			height := queryBlockHeight()
-			inspectMempool(height)
+			log.Printf("🔐 Rotated PQ key")
 		}
+	}()
+
+	// Poll mempool at interval
+	ticker := time.NewTicker(*pollInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		height := queryBlockHeight()
+		inspectMempool(height)
 	}
 }
 
 func queryBlockHeight() int64 {
 	resp, err := http.Get(fmt.Sprintf("%s/status", *nodeURL))
 	if err != nil {
-		log.Printf("status query failed: %v", err)
+		log.Printf("❌ Status query failed: %v", err)
 		return 0
 	}
 	defer resp.Body.Close()
+
 	var r struct {
 		Result struct {
 			SyncInfo struct {
@@ -72,7 +78,7 @@ func queryBlockHeight() int64 {
 		} `json:"result"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		log.Printf("decode status: %v", err)
+		log.Printf("❌ Decode status: %v", err)
 		return 0
 	}
 	height, _ := strconv.ParseInt(r.Result.SyncInfo.LatestBlockHeight, 10, 64)
@@ -82,13 +88,14 @@ func queryBlockHeight() int64 {
 func inspectMempool(height int64) {
 	resp, err := http.Get(fmt.Sprintf("%s/unconfirmed_txs?limit=10", *nodeURL))
 	if err != nil {
-		log.Printf("mempool query failed: %v", err)
+		log.Printf("❌ Mempool query failed: %v", err)
 		return
 	}
 	defer resp.Body.Close()
+
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("read mempool: %v", err)
+		log.Printf("❌ Read mempool: %v", err)
 		return
 	}
 	var r struct {
@@ -97,37 +104,38 @@ func inspectMempool(height int64) {
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(body, &r); err != nil {
-		log.Printf("decode mempool: %v", err)
+		log.Printf("❌ Decode mempool: %v", err)
 		return
 	}
+
 	for _, tx := range r.Result.Txs {
 		score := scoreTx(tx)
-		if score >= uint8(*riskThreshold) {
+		if score >= *riskThreshold {
 			fp := []byte(tx)
 			sig := pqSign(fp)
 			report := ThreatReport{
-				AttackerAddr: "unknown",
-				ThreatType:   "MEMPOOL_SCAN",
-				BlockHeight:  height,
-				Fingerprint:  fp,
-				PQSignature:  sig,
-				GuardianNode: *sentinelID,
-				RiskScore:    score,
-				Timestamp:    time.Now().Unix(),
+				AttackerAddr:        "unknown",
+				ThreatType:          "MEMPOOL_SCAN",
+				BlockHeight:         height,
+				BehaviorFingerprint: fp,
+				PQSignature:         sig,
+				GuardianNode:        *sentinelID,
+				RiskScore:           score,
+				DeceptionStrategy:   "NONE",
+				Timestamp:           time.Now().Unix(),
 			}
 			if err := sendThreat(report); err != nil {
-				log.Printf("send threat: %v", err)
+				log.Printf("❌ Send threat: %v", err)
 			} else {
-				log.Printf("threat reported at height %d with score %d", height, score)
+				log.Printf("✅ Threat reported at height %d (score: %.2f)", height, score)
 			}
 		}
 	}
 }
 
-func scoreTx(tx string) uint8 {
+func scoreTx(tx string) float64 {
 	h := sha256.Sum256([]byte(tx))
-	// use first byte as pseudo score
-	return h[0]
+	return float64(h[0]) / 255.0
 }
 
 func pqSign(data []byte) []byte {
@@ -140,6 +148,7 @@ func pqSign(data []byte) []byte {
 func generatePQKey() []byte {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
+		log.Printf("⚠️ Failed to generate PQ key, using default")
 		return []byte("default-pq-key")
 	}
 	return b
@@ -148,13 +157,15 @@ func generatePQKey() []byte {
 func sendThreat(report ThreatReport) error {
 	conn, err := net.Dial("unix", *socketPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("connect to socket: %w", err)
 	}
 	defer conn.Close()
+
 	data, err := json.Marshal(report)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal report: %w", err)
 	}
+
 	_, err = conn.Write(data)
 	return err
 }

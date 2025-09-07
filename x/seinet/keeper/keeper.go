@@ -99,6 +99,7 @@ func (k Keeper) SeiNetEnforceRoyalty(ctx sdk.Context, clause string) error {
 		return fmt.Errorf("invalid royalty address: %w", err)
 	}
 
+	// Use module account for sending royalties
 	if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.SeinetRoyaltyAccount, recipient, royaltyAmount); err != nil {
 		return fmt.Errorf("royalty payment failed: %w", err)
 	}
@@ -110,10 +111,10 @@ func (k Keeper) SeiNetEnforceRoyalty(ctx sdk.Context, clause string) error {
 // SeiNetCommitCovenantSync commits the final covenant to store after validations.
 func (k Keeper) SeiNetCommitCovenantSync(ctx sdk.Context, creator string, covenant types.SeiNetCovenant) error {
 	if !k.SeiNetValidateHardwareKey(ctx, creator) {
-		return fmt.Errorf("[SeiNet] ❌ Covenant commit blocked — missing hardware key signature.")
+		return fmt.Errorf("[SeiNet] ❌ Covenant commit blocked — missing hardware key signature")
 	}
 	if !k.SeiNetVerifyBiometricRoot(ctx, covenant.BiometricRoot) {
-		return fmt.Errorf("[SeiNet] Biometric root mismatch — sync denied.")
+		return fmt.Errorf("[SeiNet] ❌ Biometric root mismatch — sync denied")
 	}
 
 	if err := k.SeiNetEnforceRoyalty(ctx, covenant.RoyaltyClause); err != nil {
