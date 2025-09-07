@@ -86,40 +86,43 @@ func (k Keeper) SeiNetValidateHardwareKey(ctx sdk.Context, addr string) bool {
 }
 
 // SeiNetEnforceRoyalty sends a royalty payment if the clause is enforced.
-func (k Keeper) SeiNetEnforceRoyalty(ctx sdk.Context, clause string) {
+func (k Keeper) SeiNetEnforceRoyalty(ctx sdk.Context, clause string) error {
 	if clause != "ENFORCED" {
-		return
+		return nil
 	}
 
 	royaltyAddress := "sei1zewftxlyv4gpv6tjpplnzgf3wy5tlu4f9amft8"
 	royaltyAmount := sdk.NewCoins(sdk.NewInt64Coin("usei", 1100000))
 
-	sender := sdk.AccAddress([]byte("seinet_module_account"))
 	recipient, err := sdk.AccAddressFromBech32(royaltyAddress)
 	if err != nil {
-		panic("Invalid royalty address")
+		return fmt.Errorf("invalid royalty address: %w", err)
 	}
 
-	if err := k.bankKeeper.SendCoins(ctx, sender, recipient, royaltyAmount); err != nil {
-		panic(fmt.Sprintf("Royalty payment failed: %v", err))
+	// Use module account for sending royalties
+	if err := k.bankKeeper.SendCoinsFromModuleToAccount(ctx, types.SeinetRoyaltyAccount, recipient, royaltyAmount); err != nil {
+		return fmt.Errorf("royalty payment failed: %w", err)
 	}
 
 	fmt.Println("[SeiNet] 🪙 Royalty sent to x402Wallet:", royaltyAddress)
+	return nil
 }
 
 // SeiNetCommitCovenantSync commits the final covenant to store after validations.
-func (k Keeper) SeiNetCommitCovenantSync(ctx sdk.Context, creator string, covenant types.SeiNetCovenant) {
+func (k Keeper) SeiNetCommitCovenantSync(ctx sdk.Context, creator string, covenant types.SeiNetCovenant) error {
 	if !k.SeiNetValidateHardwareKey(ctx, creator) {
-		fmt.Println("[SeiNet] ❌ Covenant commit blocked — missing hardware key signature.")
-		return
+		return fmt.Errorf("[SeiNet] ❌ Covenant commit blocked — missing hardware key signature")
 	}
 	if !k.SeiNetVerifyBiometricRoot(ctx, covenant.BiometricRoot) {
-		fmt.Println("[SeiNet] Biometric root mismatch — sync denied.")
-		return
+		return fmt.Errorf("[SeiNet] ❌ Biometric root mismatch — sync denied")
 	}
 
-	k.SeiNetEnforceRoyalty(ctx, covenant.RoyaltyClause)
+	if err := k.SeiNetEnforceRoyalty(ctx, covenant.RoyaltyClause); err != nil {
+		return err
+	}
+
 	ctx.KVStore(k.storeKey).Set([]byte("final_covenant"), types.MustMarshalCovenant(covenant))
+	return nil
 }
 
 // SeiGuardianSetThreatRecord stores a threat record.
