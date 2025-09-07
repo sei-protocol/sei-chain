@@ -509,7 +509,7 @@ func (o *Oracle) GetParams(ctx context.Context) (oracletypes.Params, error) {
 		return oracletypes.Params{}, fmt.Errorf("failed to dial Cosmos gRPC service: %w", err)
 	}
 
-	defer grpcConn.Close()
+	defer func() { _ = grpcConn.Close() }()
 	queryClient := oracletypes.NewQueryClient(grpcConn)
 
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -654,7 +654,10 @@ func (o *Oracle) tick(
 
 	// Get oracle vote period, next block height, current vote period, and index
 	// in the vote period.
-	oracleVotePeriod := int64(oracleParams.VotePeriod)
+	if oracleParams.VotePeriod > math.MaxInt64 {
+		return fmt.Errorf("oracle vote period is too large: %d", oracleParams.VotePeriod)
+	}
+	oracleVotePeriod := int64(oracleParams.VotePeriod) //nolint:gosec
 	nextBlockHeight := blockHeight + 1
 	currentVotePeriod := math.Floor(float64(nextBlockHeight) / float64(oracleVotePeriod))
 
@@ -745,7 +748,7 @@ func (o *Oracle) healthchecksPing() {
 		if err != nil {
 			o.logger.Warn().Msg("healthcheck ping failed")
 		}
-		response.Body.Close()
+		_ = response.Body.Close()
 	}
 }
 

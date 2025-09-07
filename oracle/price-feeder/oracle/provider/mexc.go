@@ -125,7 +125,7 @@ func NewMexcProvider(
 	wsConn, response, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
 	defer func() {
 		if response != nil {
-			response.Body.Close()
+			_ = response.Body.Close()
 		}
 	}()
 	if err != nil {
@@ -398,13 +398,13 @@ func (p *MexcProvider) handleWebSocketMsgs(ctx context.Context) {
 // within 1 minute, the connection will be disconnected. It is recommended to
 // send a ping for 10-20 seconds
 func (p *MexcProvider) reconnect() error {
-	p.wsClient.Close()
+	_ = p.wsClient.Close()
 
 	p.logger.Debug().Msg("mexc: reconnecting websocket")
 	wsConn, response, err := websocket.DefaultDialer.Dial(p.wsURL.String(), nil)
 	defer func() {
 		if response != nil {
-			response.Body.Close()
+			_ = response.Body.Close()
 		}
 	}()
 	if err != nil {
@@ -474,7 +474,7 @@ func (p *MexcProvider) GetAvailablePairs() (map[string]struct{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var pairsSummary []MexcPairSummary
 	if err := json.NewDecoder(resp.Body).Decode(&pairsSummary); err != nil {

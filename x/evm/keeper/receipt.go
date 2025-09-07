@@ -167,7 +167,7 @@ func isLegacyReceipt(ctx sdk.Context, receipt *types.Receipt) bool {
 func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 	transientReceiptStore := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.ReceiptKeyPrefix)
 	iter := transientReceiptStore.Iterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	var pairs []*iavl.KVPair
 
 	// TransientReceiptStore is recreated on commit meaning it will only contain receipts for a single block at a time
@@ -218,7 +218,7 @@ func (k *Keeper) MigrateLegacyReceiptsBatch(ctx sdk.Context, batchSize int) (int
 	// Iterate over legacy receipt keys under prefix types.ReceiptKeyPrefix
 	legacyStore := prefix.NewStore(ctx.KVStore(k.storeKey), types.ReceiptKeyPrefix)
 	iter := legacyStore.Iterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 
 	// Early exit if nothing to migrate
 	if !iter.Valid() {
@@ -294,8 +294,8 @@ func (k *Keeper) WriteReceipt(
 		CumulativeGasUsed: uint64(0),
 		TxHashHex:         txHash.Hex(),
 		GasUsed:           gasUsed,
-		BlockNumber:       uint64(ctx.BlockHeight()),
-		TransactionIndex:  uint32(ctx.TxIndex()),
+		BlockNumber:       uint64(ctx.BlockHeight()), // nolint:gosec
+		TransactionIndex:  uint32(ctx.TxIndex()),     //nolint:gosec
 		EffectiveGasPrice: msg.GasPrice.Uint64(),
 		VmError:           vmError,
 		Logs:              utils.Map(ethLogs, ConvertEthLog),

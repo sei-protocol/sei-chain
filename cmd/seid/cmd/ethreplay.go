@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"net/http"
+	//nolint:gosec
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 
@@ -19,10 +22,6 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/tendermint/tendermint/libs/log"
 	dbm "github.com/tendermint/tm-db"
-
-	"net/http"
-	//nolint:gosec,G108
-	_ "net/http/pprof"
 )
 
 //nolint:gosec

@@ -24,7 +24,7 @@ func MidBlocker(ctx sdk.Context, k keeper.Keeper) {
 
 		maxValidators := k.StakingKeeper.MaxValidators(ctx)
 		iterator := k.StakingKeeper.ValidatorsPowerStoreIterator(ctx)
-		defer iterator.Close()
+		defer func() { _ = iterator.Close() }()
 
 		powerReduction := k.StakingKeeper.PowerReduction(ctx)
 

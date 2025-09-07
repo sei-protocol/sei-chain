@@ -267,7 +267,7 @@ func AdjustV(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
 
 func GetVersion(ctx sdk.Context, ethCfg *params.ChainConfig) derived.SignerVersion {
 	blockNum := big.NewInt(ctx.BlockHeight())
-	ts := uint64(ctx.BlockTime().Unix())
+	ts := uint64(ctx.BlockTime().Unix()) // nolint:gosec
 	switch {
 	case ethCfg.IsPrague(blockNum, ts):
 		return derived.Prague

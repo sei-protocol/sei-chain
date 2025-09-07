@@ -242,6 +242,8 @@ $(BUILDDIR)/packages.txt:$(GO_TEST_FILES) $(BUILDDIR)
 
 TARGET_PACKAGE := github.com/sei-protocol/sei-chain/occ_tests
 
+TARGET_PACKAGE := github.com/sei-protocol/sei-chain/occ_tests
+
 split-test-packages:$(BUILDDIR)/packages.txt
 	split -d -n l/$(NUM_SPLIT) $< $<.
 test-group-%: split-test-packages
@@ -253,7 +255,7 @@ test-group-%: split-test-packages
 		echo "⚡ Not found, running with -parallel=4"; \
 		PARALLEL="-parallel=4"; \
 	fi; \
-	cat $(BUILDDIR)/packages.txt.$* | xargs go test $$PARALLEL -mod=readonly -timeout=15m -v
+	cat $(BUILDDIR)/packages.txt.$* | xargs go test $$PARALLEL -mod=readonly -timeout=15m -race -coverprofile=$*.profile.out -covermode=atomic
 
 test-occ:
 	@echo "Running occ_tests serially (no -race) to avoid cgo SIGBUS)"

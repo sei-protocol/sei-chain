@@ -1279,7 +1279,7 @@ func TestWithdrawValidatorCommission_UnitTest(t *testing.T) {
 		&evm,
 		evmAddr, // caller
 		evmAddr, // callingContract
-		append(p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawValidatorCommissionID), // input
+		p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawValidatorCommissionID, // input
 		1000000,       // suppliedGas
 		big.NewInt(0), // value
 		nil,           // hooks
@@ -1366,7 +1366,7 @@ func TestWithdrawValidatorCommission_InputValidation(t *testing.T) {
 				&baseEvm,
 				evmAddr, // caller
 				evmAddr, // callingContract
-				append(p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawValidatorCommissionID), // input
+				p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawValidatorCommissionID, // input
 				1000000,               // suppliedGas
 				tc.value,              // value
 				nil,                   // hooks

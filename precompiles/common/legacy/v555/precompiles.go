@@ -43,7 +43,7 @@ func (p Precompile) Prepare(evm *vm.EVM, input []byte) (sdk.Context, *abi.Method
 	if err != nil {
 		return sdk.Context{}, nil, nil, err
 	}
-	method, err := p.ABI.MethodById(methodID)
+	method, err := p.MethodById(methodID)
 	if err != nil {
 		return sdk.Context{}, nil, nil, err
 	}

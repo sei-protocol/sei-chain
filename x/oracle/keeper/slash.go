@@ -27,8 +27,8 @@ func (k Keeper) SlashAndResetCounters(ctx sdk.Context) {
 			return false
 		}
 		validVoteRate := sdk.NewDecFromInt(
-			sdk.NewInt(int64(votePenaltyCounter.SuccessCount))).
-			QuoInt64(int64(totalVotes))
+			sdk.NewInt(int64(votePenaltyCounter.SuccessCount))). //nolint:gosec
+			QuoInt64(int64(totalVotes))                          //nolint:gosec
 
 		// Penalize the validator whose the valid vote rate is smaller than min threshold
 		if validVoteRate.LT(minValidPerWindow) {

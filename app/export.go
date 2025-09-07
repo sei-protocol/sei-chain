@@ -47,7 +47,7 @@ func (app *App) ExportAppStateAndValidators(
 		AppState:        appState,
 		Validators:      validators,
 		Height:          height,
-		ConsensusParams: app.BaseApp.GetConsensusParams(ctx),
+		ConsensusParams: app.GetConsensusParams(ctx),
 	}, nil
 }
 
@@ -65,7 +65,7 @@ func (app *App) ExportAppToFileStateAndValidators(
 		app.prepForZeroHeightGenesis(ctx, jailAllowedAddrs)
 	}
 	err := app.mm.ProcessGenesisPerModule(ctx, app.appCodec, func(moduleName string, moduleJson json.RawMessage) error {
-		_, err := file.Write([]byte(fmt.Sprintf("{\"app_state\": {\"module\":\"%s\",\"data\":%s}}\n", moduleName, string(moduleJson))))
+		_, err := fmt.Fprintf(file, "{\"app_state\": {\"module\":\"%s\",\"data\":%s}}\n", moduleName, string(moduleJson))
 		if err != nil {
 			return err
 		}
@@ -82,7 +82,7 @@ func (app *App) ExportAppToFileStateAndValidators(
 	return servertypes.ExportedApp{
 		Validators:      validators,
 		Height:          height,
-		ConsensusParams: app.BaseApp.GetConsensusParams(ctx),
+		ConsensusParams: app.GetConsensusParams(ctx),
 	}, nil
 }
 
@@ -97,12 +97,8 @@ func AddressFromValidatorsKey(key []byte) []byte {
 //
 //	in favour of export at a block height
 func (app *App) prepForZeroHeightGenesis(ctx sdk.Context, jailAllowedAddrs []string) {
-	applyAllowedAddrs := false
-
 	// check if there is a allowed address list
-	if len(jailAllowedAddrs) > 0 {
-		applyAllowedAddrs = true
-	}
+	applyAllowedAddrs := len(jailAllowedAddrs) > 0
 
 	allowedAddrsMap := make(map[string]bool)
 
@@ -207,7 +203,7 @@ func (app *App) prepForZeroHeightGenesis(ctx sdk.Context, jailAllowedAddrs []str
 		counter++
 	}
 
-	iter.Close()
+	_ = iter.Close()
 
 	if _, err := app.StakingKeeper.ApplyAndReturnValidatorSetUpdates(ctx); err != nil {
 		panic(err)

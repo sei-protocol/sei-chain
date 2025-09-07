@@ -20,6 +20,6 @@ func newLogFromEth(log *ethtypes.Log) *Log {
 		Address: log.Address.String(),
 		Topics:  topics,
 		Data:    log.Data,
-		Index:   uint32(log.Index),
+		Index:   uint32(log.Index), //nolint:gosec
 	}
 }

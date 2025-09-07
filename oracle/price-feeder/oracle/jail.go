@@ -57,7 +57,7 @@ func (o *Oracle) GetJailedState(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("failed to dial Cosmos gRPC service: %w", err)
 	}
 
-	defer grpcConn.Close()
+	defer func() { _ = grpcConn.Close() }()
 	queryClient := stakingtypes.NewQueryClient(grpcConn)
 
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)

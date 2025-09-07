@@ -86,17 +86,17 @@ func (m *Minter) GetEndDateTime() time.Time {
 }
 
 func (m Minter) GetLastMintAmountCoin() sdk.Coin {
-	return sdk.NewCoin(m.GetDenom(), sdk.NewInt(int64(m.GetLastMintAmount())))
+	return sdk.NewCoin(m.GetDenom(), sdk.NewInt(int64(m.GetLastMintAmount()))) //nolint:gosec
 }
 
 func (m *Minter) GetReleaseAmountToday(currentTime time.Time) sdk.Coins {
-	return sdk.NewCoins(sdk.NewCoin(m.GetDenom(), sdk.NewInt(int64(m.getReleaseAmountToday(currentTime.UTC())))))
+	return sdk.NewCoins(sdk.NewCoin(m.GetDenom(), sdk.NewInt(int64(m.getReleaseAmountToday(currentTime.UTC()))))) //nolint:gosec
 }
 
 func (m *Minter) RecordSuccessfulMint(ctx sdk.Context, epoch epochTypes.Epoch, mintedAmount uint64) {
 	m.RemainingMintAmount -= mintedAmount
 	m.LastMintDate = epoch.CurrentEpochStartTime.Format(TokenReleaseDateFormat)
-	m.LastMintHeight = uint64(epoch.CurrentEpochHeight)
+	m.LastMintHeight = uint64(epoch.CurrentEpochHeight) //nolint:gosec
 	m.LastMintAmount = mintedAmount
 	metrics.SetCoinsMinted(mintedAmount, m.GetDenom())
 	ctx.EventManager().EmitEvent(

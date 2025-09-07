@@ -102,7 +102,7 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 		return pcommon.UnknownMethodCallGas
 	}
 
-	method, err := p.ABI.MethodById(methodID)
+	method, err := p.MethodById(methodID)
 	if err != nil {
 		// This should never happen since this method is going to fail during Run
 		return pcommon.UnknownMethodCallGas

@@ -14,18 +14,19 @@ type State struct {
 
 // WriteState write the state to a JSON file.
 func WriteState(dir string, s State) error {
+	dir = filepath.Clean(dir)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		err = os.MkdirAll(dir, 0755)
+		err = os.MkdirAll(dir, 0750)
 		if err != nil {
 			return err
 		}
 	}
-	filename := filepath.Join(dir, "tx-scanner-state.json")
+	filename := filepath.Clean(filepath.Join(dir, "tx-scanner-state.json"))
 	file, err := os.Create(filename)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
@@ -37,12 +38,12 @@ func WriteState(dir string, s State) error {
 // ReadState reads the state from a JSON file.
 func ReadState(dir string) (State, error) {
 	state := State{}
-	filename := filepath.Join(dir, "tx-scanner-state.json")
+	filename := filepath.Clean(filepath.Join(dir, "tx-scanner-state.json"))
 	file, err := os.Open(filename)
 	if err != nil {
 		return State{}, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	data, err := io.ReadAll(file)
 	if err != nil {
 		return state, err

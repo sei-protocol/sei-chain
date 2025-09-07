@@ -22,7 +22,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	store := ctx.KVStore(m.keeper.storeKey)
 
 	iter := sdk.KVStorePrefixIterator(store, types.ExchangeRateKey)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		dp := sdk.DecProto{}
 		m.keeper.cdc.MustUnmarshal(iter.Value(), &dp)
@@ -43,7 +43,7 @@ func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 
 	// previously the data was stored as uint64, now it is VotePenaltyCounter proto
 	iter := sdk.KVStorePrefixIterator(store, types.VotePenaltyCounterKey)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		var missCounter gogotypes.UInt64Value
 		m.keeper.cdc.MustUnmarshal(iter.Value(), &missCounter)
@@ -64,7 +64,7 @@ func (m Migrator) Migrate4to5(ctx sdk.Context) error {
 
 	oldPrevoteKey := []byte{0x04}
 	iter := sdk.KVStorePrefixIterator(store, oldPrevoteKey)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		store.Delete(iter.Key())
 	}
@@ -77,13 +77,13 @@ func (m Migrator) Migrate5To6(ctx sdk.Context) error {
 
 	// previously the data was stored as uint64, now it is VotePenaltyCounter proto
 	iter := sdk.KVStorePrefixIterator(store, types.VotePenaltyCounterKey)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		var votePenaltyCounter types.VotePenaltyCounter
 		m.keeper.cdc.MustUnmarshal(iter.Value(), &votePenaltyCounter)
 		slashWindow := m.keeper.GetParams(ctx).SlashWindow
 		totalPenaltyCount := votePenaltyCounter.MissCount + votePenaltyCounter.AbstainCount
-		successCount := ((uint64)(ctx.BlockHeight()) % slashWindow) - totalPenaltyCount
+		successCount := ((uint64)(ctx.BlockHeight()) % slashWindow) - totalPenaltyCount // nolint:gosec
 		newVotePenaltyCounter := types.VotePenaltyCounter{
 			MissCount:    votePenaltyCounter.MissCount,
 			AbstainCount: votePenaltyCounter.AbstainCount,

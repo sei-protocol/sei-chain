@@ -117,7 +117,7 @@ func (ctx *ReplayChainContext) Engine() consensus.Engine {
 }
 
 func (ctx *ReplayChainContext) GetHeader(hash common.Hash, number uint64) *ethtypes.Header {
-	res, err := ctx.ethClient.BlockByNumber(context.Background(), big.NewInt(int64(number)))
+	res, err := ctx.ethClient.BlockByNumber(context.Background(), big.NewInt(int64(number))) //nolint:gosec
 	if err != nil || res.Header_.Hash() != hash {
 		return nil
 	}
@@ -226,7 +226,7 @@ func (k *Keeper) GetStoreKey() sdk.StoreKey {
 
 func (k *Keeper) IterateAll(ctx sdk.Context, pref []byte, cb func(key, val []byte) bool) {
 	iter := k.PrefixStore(ctx, pref).Iterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		if cb(iter.Key(), iter.Value()) {
 			break
@@ -286,13 +286,13 @@ func (k *Keeper) GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockC
 		Coinbase:    coinbase,
 		GasLimit: func() uint64 {
 			if ctx.ConsensusParams() != nil && ctx.ConsensusParams().Block != nil {
-				return uint64(ctx.ConsensusParams().Block.MaxGas)
+				return uint64(ctx.ConsensusParams().Block.MaxGas) //nolint:gosec
 			}
 			return DefaultBlockGasLimit
 		}(),
 		BlockNumber: big.NewInt(ctx.BlockHeight()),
-		Time:        uint64(ctx.BlockHeader().Time.Unix()),
-		Difficulty:  utils.Big0, // only needed for PoW
+		Time:        uint64(ctx.BlockHeader().Time.Unix()), //nolint:gosec
+		Difficulty:  utils.Big0,                            // only needed for PoW
 		BaseFee:     baseFee,
 		BlobBaseFee: utils.Big1, // Cancun not enabled
 		Random:      &rh,
@@ -530,7 +530,7 @@ func (k *Keeper) SetReplayInitialHeight(ctx sdk.Context, h int64) {
 func (k *Keeper) setInt64State(ctx sdk.Context, key []byte, val int64) {
 	store := ctx.KVStore(k.storeKey)
 	bz := make([]byte, 8)
-	binary.BigEndian.PutUint64(bz, uint64(val))
+	binary.BigEndian.PutUint64(bz, uint64(val)) //nolint:gosec
 	store.Set(key, bz)
 }
 
@@ -540,7 +540,7 @@ func (k *Keeper) getInt64State(ctx sdk.Context, key []byte) int64 {
 	if bz == nil {
 		return 0
 	}
-	return int64(binary.BigEndian.Uint64(bz))
+	return int64(binary.BigEndian.Uint64(bz)) //nolint:gosec
 }
 
 func (k *Keeper) getBlockTestBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
