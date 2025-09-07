@@ -1,8 +1,6 @@
 module github.com/sei-protocol/sei-chain
 
-go 1.23.0
-
-toolchain go1.23.7
+go 1.24.5
 
 require (
 	github.com/BurntSushi/toml v1.4.0
@@ -349,19 +347,20 @@ require (
 )
 
 replace (
-	github.com/CosmWasm/wasmd => github.com/sei-protocol/wasmd v0.30.0
-	github.com/CosmWasm/wasmvm => github.com/sei-protocol/wasmvm v1.1.2
-	github.com/btcsuite/btcd => github.com/btcsuite/btcd v0.22.0-beta
-	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk v0.47.5
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/cosmos-sdk v0.47.5-sei
-	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.20.0-sei
-	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/ibc-go/v3 v3.3.0-sei
-	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v0.1.0-sei
-	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.2
-	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.1.6
-	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.0
-	github.com/tendermint/tendermint => github.com/sei-protocol/tendermint v0.34.0-sei
-	github.com/tendermint/tm-db => github.com/sei-protocol/tm-db v0.6.4
-	golang.org/x/crypto => golang.org/x/crypto v0.15.0
+	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.3.9
+	github.com/CosmWasm/wasmvm => github.com/sei-protocol/sei-wasmvm v1.5.4-sei.0.0.3
+	github.com/btcsuite/btcd => github.com/btcsuite/btcd v0.23.2
+	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
+	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.66
+	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.2.0
+	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.6
+	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.15.7-sei-3
+	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
+	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.51
+	// Latest goleveldb is broken, we have to stick to this version
+	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
+	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.6.1
+	github.com/tendermint/tm-db => github.com/sei-protocol/tm-db v0.0.4
+	golang.org/x/crypto => golang.org/x/crypto v0.31.0
 	google.golang.org/grpc => google.golang.org/grpc v1.33.2
 )

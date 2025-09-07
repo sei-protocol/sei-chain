@@ -111,7 +111,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 			return
 		}
 		if ctx.EVMEntryViaWasmdPrecompile() {
-			syntheticReceipt, err := server.GetTransientReceipt(ctx, ctx.TxSum(), uint64(ctx.TxIndex()))
+			syntheticReceipt, err := server.GetTransientReceipt(ctx, ctx.TxSum(), uint64(ctx.TxIndex())) //nolint:gosec
 			if err == nil {
 				for _, l := range syntheticReceipt.Logs {
 					stateDB.AddLog(&ethtypes.Log{
@@ -123,7 +123,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 				if syntheticReceipt.VmError != "" {
 					serverRes.VmError = fmt.Sprintf("%s\n%s\n", serverRes.VmError, syntheticReceipt.VmError)
 				}
-				server.DeleteTransientReceipt(ctx, ctx.TxSum(), uint64(ctx.TxIndex()))
+				server.DeleteTransientReceipt(ctx, ctx.TxSum(), uint64(ctx.TxIndex())) //nolint:gosec
 			}
 			syntheticDeferredInfo, found := server.GetEVMTxDeferredInfo(ctx)
 			if found {
@@ -162,7 +162,7 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		// transactions' priority, which is based on gas limit in EVM unit,
 		// to Sei transactions' priority, which is based on gas limit in
 		// Sei unit, so we use the same coefficient to convert gas unit here.
-		adjustedGasUsed := server.GetPriorityNormalizer(ctx).MulInt64(int64(serverRes.GasUsed))
+		adjustedGasUsed := server.GetPriorityNormalizer(ctx).MulInt64(int64(serverRes.GasUsed)) //nolint:gosec
 		originalGasMeter.ConsumeGas(adjustedGasUsed.TruncateInt().Uint64(), "evm transaction")
 	}()
 
@@ -266,7 +266,7 @@ func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.
 
 func (server msgServer) RegisterPointer(goCtx context.Context, msg *types.MsgRegisterPointer) (*types.MsgRegisterPointerResponse, error) {
 	ctx := sdk.UnwrapSDKContext(goCtx)
-	if server.GetParams(ctx).RegisterPointerDisabled {
+	if server.GetRegisterPointerDisabled(ctx) {
 		return nil, fmt.Errorf("registering CW->ERC pointers has been disabled")
 	}
 	var existingPointer sdk.AccAddress

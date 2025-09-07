@@ -53,7 +53,7 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 		return UnknownMethodCallGas
 	}
 
-	method, err := p.ABI.MethodById(methodID)
+	method, err := p.MethodById(methodID)
 	if err != nil {
 		// This should never happen since this method is going to fail during Run
 		return UnknownMethodCallGas
@@ -108,7 +108,7 @@ func (p Precompile) Prepare(evm *vm.EVM, input []byte) (sdk.Context, *abi.Method
 	if err != nil {
 		return sdk.Context{}, nil, nil, err
 	}
-	method, err := p.ABI.MethodById(methodID)
+	method, err := p.MethodById(methodID)
 	if err != nil {
 		return sdk.Context{}, nil, nil, err
 	}
@@ -160,6 +160,7 @@ func (d DynamicGasPrecompile) RunAndCalculateGas(evm *vm.EVM, caller common.Addr
 		HandlePrecompileError(err, evm, operation)
 		if err != nil {
 			ret = []byte(err.Error())
+			fmt.Printf("precompile %s encountered error: %v\n", d.name, err)
 			err = vm.ErrExecutionReverted
 		}
 	}()

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 	"strings"
 	"sync"
@@ -29,7 +28,11 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 )
 
-const ShellEVMTxType = math.MaxUint32
+const (
+	EthNamespace  = "eth"
+	SeiNamespace  = "sei"
+	Sei2Namespace = "sei2"
+)
 
 type BlockAPI struct {
 	tmClient             rpcclient.Client
@@ -56,7 +59,7 @@ func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 		connectionType:       connectionType,
 		includeShellReceipts: false,
 		includeBankTransfers: false,
-		namespace:            "eth",
+		namespace:            EthNamespace,
 	}
 }
 
@@ -76,7 +79,7 @@ func NewSeiBlockAPI(
 		connectionType:       connectionType,
 		includeShellReceipts: true,
 		includeBankTransfers: false,
-		namespace:            "sei",
+		namespace:            SeiNamespace,
 	}
 	return &SeiBlockAPI{
 		BlockAPI:  blockAPI,
@@ -93,7 +96,7 @@ func NewSei2BlockAPI(
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 ) *SeiBlockAPI {
 	blockAPI := NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, connectionType, isPanicTx)
-	blockAPI.namespace = "sei2"
+	blockAPI.namespace = Sei2Namespace
 	blockAPI.includeBankTransfers = true
 	return blockAPI
 }
@@ -110,7 +113,7 @@ func (a *SeiBlockAPI) GetBlockByHashExcludeTraceFail(ctx context.Context, blockH
 
 func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics(fmt.Sprintf("%s_getBlockTransactionCountByNumber", a.namespace), a.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockTransactionCountByNumber", a.namespace), a.connectionType, startTime, returnErr)
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
@@ -124,7 +127,7 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 
 func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics(fmt.Sprintf("%s_getBlockTransactionCountByHash", a.namespace), a.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockTransactionCountByHash", a.namespace), a.connectionType, startTime, returnErr)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
 	if err != nil {
 		return nil, err
@@ -139,7 +142,7 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 
 func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool, isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics(fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
 	if err != nil {
 		return nil, err
@@ -148,13 +151,19 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	if err != nil {
 		return nil, err
 	}
-	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
+	var blockBloom ethtypes.Bloom
+	// Only include synthetic logs in sei_ namespace
+	if a.namespace == EthNamespace {
+		blockBloom = a.keeper.GetEvmOnlyBlockBloom(a.ctxProvider(block.Block.Height))
+	} else {
+		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
+	}
 	return EncodeTmBlock(a.ctxProvider(block.Block.Height), a.ctxProvider(block.Block.Height-1), block, blockRes, blockBloom, a.keeper, a.txConfigProvider(block.Block.Height).TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics(fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr)
 	if number == 0 {
 		// for compatibility with the graph, always return genesis block
 		return map[string]interface{}{
@@ -190,8 +199,6 @@ func (a *BlockAPI) getBlockByNumber(
 	includeSyntheticTxs bool,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 ) (result map[string]interface{}, returnErr error) {
-	startTime := time.Now()
-	defer recordMetrics(fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr == nil)
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
@@ -204,13 +211,19 @@ func (a *BlockAPI) getBlockByNumber(
 	if err != nil {
 		return nil, err
 	}
-	blockBloom := a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
+	var blockBloom ethtypes.Bloom
+	// Only include synthetic logs in sei_ namespace
+	if a.namespace == EthNamespace {
+		blockBloom = a.keeper.GetEvmOnlyBlockBloom(a.ctxProvider(block.Block.Height))
+	} else {
+		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
+	}
 	return EncodeTmBlock(a.ctxProvider(block.Block.Height), a.ctxProvider(block.Block.Height-1), block, blockRes, blockBloom, a.keeper, a.txConfigProvider(blockRes.Height).TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics(fmt.Sprintf("%s_getBlockReceipts", a.namespace), a.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockReceipts", a.namespace), a.connectionType, startTime, returnErr)
 	// Get height from params
 	heightPtr, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
 	if err != nil {
@@ -223,17 +236,18 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	}
 
 	// Get all tx hashes for the block
-	height := block.Block.Header.Height
+	height := block.Block.Height
 	txHashes := getTxHashesFromBlock(block, a.txConfigProvider(height), shouldIncludeSynthetic(a.namespace))
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}
 	allReceipts := make([]map[string]interface{}, len(txHashes))
 	sdkCtx := a.ctxProvider(LatestCtxHeight)
+	sdkCtxAtHeight := a.ctxProvider(height)
 	signer := ethtypes.MakeSigner(
 		types.DefaultChainConfig().EthereumConfig(a.keeper.ChainID(sdkCtx)),
 		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Unix()),
+		uint64(sdkCtx.BlockTime().Unix()), //nolint:gosec
 	)
 	for i, hash := range txHashes {
 		wg.Add(1)
@@ -249,19 +263,19 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					mtx.Unlock()
 				}
 			} else {
-				if isReceiptFromAnteError(receipt) {
+				if isReceiptFromAnteError(sdkCtxAtHeight, receipt) {
 					return
 				}
 				// If the receipt has synthetic logs, we actually want to include them in the response.
-				if !a.includeShellReceipts && receipt.TxType == ShellEVMTxType {
+				if !a.includeShellReceipts && receipt.TxType == types.ShellEVMTxType {
 					return
 				}
 				// tx hash is included in a future block (because it failed in the current block due to
 				// checks before the account's nonce is updated)
-				if receipt.BlockNumber != uint64(height) {
+				if receipt.BlockNumber != uint64(height) { // nolint:gosec
 					return
 				}
-				encodedReceipt, err := encodeReceipt(receipt, a.txConfigProvider(height).TxDecoder(), block, func(h common.Hash) *types.Receipt {
+				encodedReceipt, err := encodeReceipt(sdkCtxAtHeight, receipt, a.txConfigProvider(height).TxDecoder(), block, func(h common.Hash) *types.Receipt {
 					r, err := a.keeper.GetReceipt(a.ctxProvider(height), h)
 					if err != nil {
 						return nil
@@ -285,7 +299,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		}
 	}
 	for i, cr := range compactReceipts {
-		cr["transactionIndex"] = hexutil.Uint64(i)
+		cr["transactionIndex"] = hexutil.Uint64(i) //nolint:gosec
 	}
 	if returnErr != nil {
 		return nil, returnErr
@@ -348,16 +362,16 @@ func EncodeTmBlock(
 					}
 				}
 				receipt, err := k.GetReceipt(ctx, hash)
-				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(receipt) {
+				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { // nolint:gosec
 					continue
 				}
-				if !includeSyntheticTxs && receipt.TxType == ShellEVMTxType {
+				if !includeSyntheticTxs && receipt.TxType == types.ShellEVMTxType {
 					continue
 				}
 				if !fullTx {
 					transactions = append(transactions, hash)
 				} else {
-					newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(len(transactions)), baseFeePerGas, chainConfig)
+					newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(len(transactions)), baseFeePerGas, chainConfig) //nolint:gosec
 					transactions = append(transactions, newTx)
 				}
 			case *wasmtypes.MsgExecuteContract:
@@ -438,15 +452,15 @@ func EncodeTmBlock(
 		"logsBloom":        blockBloom,
 		"stateRoot":        appHash,
 		"miner":            miner,
-		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
-		"extraData":        hexutil.Bytes{},               // inapplicable to Sei
-		"gasLimit":         hexutil.Uint64(gasLimit),
-		"gasUsed":          hexutil.Uint64(blockGasUsed),
-		"timestamp":        hexutil.Uint64(block.Block.Time.Unix()),
+		"difficulty":       (*hexutil.Big)(big.NewInt(0)),           // inapplicable to Sei
+		"extraData":        hexutil.Bytes{},                         // inapplicable to Sei
+		"gasLimit":         hexutil.Uint64(gasLimit),                //nolint:gosec
+		"gasUsed":          hexutil.Uint64(blockGasUsed),            //nolint:gosec
+		"timestamp":        hexutil.Uint64(block.Block.Time.Unix()), //nolint:gosec
 		"transactionsRoot": txHash,
 		"receiptsRoot":     resultHash,
-		"size":             hexutil.Uint64(block.Block.Size()),
-		"uncles":           []common.Hash{}, // inapplicable to Sei
+		"size":             hexutil.Uint64(block.Block.Size()), //nolint:gosec
+		"uncles":           []common.Hash{},                    // inapplicable to Sei
 		"transactions":     transactions,
 		"baseFeePerGas":    (*hexutil.Big)(baseFeePerGas),
 	}
@@ -475,6 +489,6 @@ func (a *BlockAPI) getEvmTxCount(txs tmtypes.Txs, height int64) *hexutil.Uint {
 		}
 
 	}
-	cntHex := hexutil.Uint(cnt)
+	cntHex := hexutil.Uint(cnt) //nolint:gosec
 	return &cntHex
 }

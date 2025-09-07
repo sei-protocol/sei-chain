@@ -22,7 +22,7 @@ func NewQuerier(k Keeper) Querier {
 // Params returns params of the mint module.
 func (q Querier) Params(c context.Context, _ *types.QueryParamsRequest) (*types.QueryParamsResponse, error) {
 	ctx := sdk.UnwrapSDKContext(c)
-	params := q.Keeper.GetParams(ctx)
+	params := q.GetParams(ctx)
 
 	return &types.QueryParamsResponse{Params: params}, nil
 }
@@ -30,7 +30,7 @@ func (q Querier) Params(c context.Context, _ *types.QueryParamsRequest) (*types.
 // Returns the most last mint state
 func (q Querier) Minter(c context.Context, _ *types.QueryMinterRequest) (*types.QueryMinterResponse, error) {
 	ctx := sdk.UnwrapSDKContext(c)
-	minter := q.Keeper.GetMinter(ctx)
+	minter := q.GetMinter(ctx)
 	response := types.QueryMinterResponse(minter)
 	return &response, nil
 }

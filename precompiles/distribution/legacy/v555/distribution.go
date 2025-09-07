@@ -91,7 +91,7 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 		return pcommon.UnknownMethodCallGas
 	}
 
-	method, err := p.ABI.MethodById(methodID)
+	method, err := p.MethodById(methodID)
 	if err != nil {
 		// This should never happen since this method is going to fail during Run
 		return pcommon.UnknownMethodCallGas
@@ -124,7 +124,7 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, _ com
 		return nil, 0, err
 	}
 
-	gasMultiplier := p.evmKeeper.GetPriorityNormalizerPre580(ctx)
+	gasMultiplier := p.evmKeeper.GetPriorityNormalizer(ctx)
 	gasLimitBigInt := sdk.NewDecFromInt(sdk.NewIntFromUint64(suppliedGas)).Mul(gasMultiplier).TruncateInt().BigInt()
 	if gasLimitBigInt.Cmp(utils.BigMaxU64) > 0 {
 		gasLimitBigInt = utils.BigMaxU64

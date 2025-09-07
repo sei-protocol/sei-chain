@@ -35,7 +35,7 @@ func NewTxPoolAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(
 // For now, we put all unconfirmed txs in pending and none in queued
 func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]map[string]*export.RPCTransaction, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("sei_content", t.connectionType, startTime, returnErr == nil)
+	defer recordMetricsWithError("sei_content", t.connectionType, startTime, returnErr)
 	content := map[string]map[string]map[string]*export.RPCTransaction{
 		"pending": make(map[string]map[string]*export.RPCTransaction),
 		"queued":  make(map[string]map[string]*export.RPCTransaction),
@@ -51,7 +51,7 @@ func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]m
 	signer := ethtypes.MakeSigner(
 		types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
 		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Unix()),
+		uint64(sdkCtx.BlockTime().Unix()), //nolint:gosec
 	)
 
 	for _, tx := range resUnconfirmedTxs.Txs {

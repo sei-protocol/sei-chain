@@ -101,7 +101,7 @@ func handleListener(c chan map[string]interface{}, ethHeader map[string]interfac
 }
 
 func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, err error) {
-	defer recordMetrics("eth_newHeads", a.connectionType, time.Now(), err == nil)
+	defer recordMetricsWithError("eth_newHeads", a.connectionType, time.Now(), err)
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
@@ -143,7 +143,7 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 }
 
 func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriteria) (s *rpc.Subscription, err error) {
-	defer recordMetrics("eth_logs", a.connectionType, time.Now(), err == nil)
+	defer recordMetricsWithError("eth_logs", a.connectionType, time.Now(), err)
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
@@ -280,13 +280,13 @@ func encodeTmHeader(
 	for _, txRes := range header.ResultFinalizeBlock.TxResults {
 		gasWanted += txRes.GasUsed
 	}
-	gasLimit := uint64(header.ResultFinalizeBlock.ConsensusParamUpdates.Block.MaxGas)
+	gasLimit := uint64(header.ResultFinalizeBlock.ConsensusParamUpdates.Block.MaxGas) //nolint:gosec
 	result := map[string]interface{}{
 		"difficulty":            (*hexutil.Big)(utils.Big0), // inapplicable to Sei
 		"extraData":             hexutil.Bytes{},            // inapplicable to Sei
 		"gasLimit":              hexutil.Uint64(gasLimit),
-		"gasUsed":               hexutil.Uint64(gasWanted),
-		"logsBloom":             ethtypes.Bloom{}, // inapplicable to Sei
+		"gasUsed":               hexutil.Uint64(gasWanted), //nolint:gosec
+		"logsBloom":             ethtypes.Bloom{},          // inapplicable to Sei
 		"miner":                 miner,
 		"nonce":                 ethtypes.BlockNonce{}, // inapplicable to Sei
 		"number":                (*hexutil.Big)(number),
@@ -294,7 +294,7 @@ func encodeTmHeader(
 		"receiptsRoot":          resultHash,
 		"sha3Uncles":            common.Hash{}, // inapplicable to Sei
 		"stateRoot":             appHash,
-		"timestamp":             hexutil.Uint64(header.Header.Time.Unix()),
+		"timestamp":             hexutil.Uint64(header.Header.Time.Unix()), //nolint:gosec
 		"transactionsRoot":      txHash,
 		"mixHash":               common.Hash{},     // inapplicable to Sei
 		"excessBlobGas":         hexutil.Uint64(0), // inapplicable to Sei

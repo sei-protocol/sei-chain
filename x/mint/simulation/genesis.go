@@ -16,7 +16,7 @@ import (
 // RandomizedGenState generates a random GenesisState for mint.
 func RandomizedGenState(simState *module.SimulationState) {
 	mintDenom := sdk.DefaultBondDenom
-	randomProvision := uint64(rand.Int63n(1000000))
+	randomProvision := uint64(rand.Int63n(1000000)) //nolint:gosec
 	currentDate := time.Now()
 	// Epochs are every minute, set reduction period to be 1 year
 	tokenReleaseSchedule := []types.ScheduledTokenRelease{}
@@ -25,7 +25,7 @@ func RandomizedGenState(simState *module.SimulationState) {
 		scheduledTokenRelease := types.ScheduledTokenRelease{
 			StartDate:          currentDate.AddDate(1, 0, 0).Format(types.TokenReleaseDateFormat),
 			EndDate:            currentDate.AddDate(3, 0, 0).Format(types.TokenReleaseDateFormat),
-			TokenReleaseAmount: randomProvision / uint64(i),
+			TokenReleaseAmount: randomProvision / uint64(i), //nolint:gosec
 		}
 		tokenReleaseSchedule = append(tokenReleaseSchedule, scheduledTokenRelease)
 	}

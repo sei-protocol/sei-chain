@@ -203,7 +203,7 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 		require.NoError(t, err)
 
 		addr := common.HexToAddress(staking.StakingAddress)
-		delegateAmount := big.NewInt(100_000_000_000_000) // 100 usei in wei
+		delegateAmount := big.NewInt(1_000_000_000_000_000_000) // 1 SEI in wei (1,000,000 usei)
 
 		tx := createEVMTx(t, k, ctx, validatorPrivKey, &addr, args, delegateAmount)
 		res := executeEVMTx(t, testApp, ctx, tx, validatorPrivKey)
@@ -253,14 +253,14 @@ func TestStakingPrecompileEventsEmission(t *testing.T) {
 		require.NoError(t, err)
 
 		addr := common.HexToAddress(staking.StakingAddress)
-		createTx := createEVMTx(t, k, ctx, validatorPrivKey, &addr, createArgs, big.NewInt(100_000_000_000_000))
+		createTx := createEVMTx(t, k, ctx, validatorPrivKey, &addr, createArgs, big.NewInt(1_000_000_000_000_000_000))
 		createRes := executeEVMTx(t, testApp, ctx, createTx, validatorPrivKey)
 		require.Empty(t, createRes.VmError)
 
 		// Now edit the validator
 		newMoniker := "Edited Validator"
-		newCommissionRate := ""  // Empty string to not change commission rate
-		newMinSelfDelegation := big.NewInt(0)  // 0 to not change minimum self-delegation
+		newCommissionRate := ""               // Empty string to not change commission rate
+		newMinSelfDelegation := big.NewInt(0) // 0 to not change minimum self-delegation
 
 		editArgs, err := abi.Pack("editValidator", newMoniker, newCommissionRate, newMinSelfDelegation)
 		require.NoError(t, err)
@@ -323,7 +323,7 @@ func executeEVMTx(t *testing.T, testApp *app.App, ctx sdk.Context, tx *ethtypes.
 	require.NoError(t, err)
 
 	msgServer := evmkeeper.NewMsgServerImpl(&testApp.EvmKeeper)
-	ante.Preprocess(ctx, req, testApp.EvmKeeper.ChainID(ctx))
+	ante.Preprocess(ctx, req, testApp.EvmKeeper.ChainID(ctx), false)
 
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.NoError(t, err)
