@@ -266,8 +266,8 @@ sei-cosmos
 * [#528](https://github.com/sei-protocol/sei-cosmos/pull/528) Add logs for snapshot export and impor
 
 sei-wasmd
-* [63](https://github.com/sei-protocol/sei-wasmd/pull/63) Add CW dispatch call depth
-* [62](https://github.com/sei-protocol/sei-wasmd/pull/62) Patch Gas mispricing in CW VM
+* [#63](https://github.com/sei-protocol/sei-wasmd/pull/63) Add CW dispatch call depth
+* [#62](https://github.com/sei-protocol/sei-wasmd/pull/62) Patch Gas mispricing in CW VM
 
 sei-tendermint
 * [#242](https://github.com/sei-protocol/sei-tendermint/pull/242) Allow hyphen in event query
@@ -285,7 +285,7 @@ sei-cosmos
 * [#528](https://github.com/sei-protocol/sei-cosmos/pull/528) Add logs for snapshot export and import
 
 sei-wasmd
-* [58](https://github.com/sei-protocol/sei-wasmd/pull/58) Genesis Export OOM
+* [#58](https://github.com/sei-protocol/sei-wasmd/pull/58) Genesis Export OOM
 
 sei-tendermint
 * [#239](https://github.com/sei-protocol/sei-tendermint/pull/239) Use Marshal and UnmarshalJSON For HexBytes
@@ -298,7 +298,7 @@ sei-chain
 * [#1775](https://github.com/sei-protocol/sei-chain/pull/1775) Disallow sending to direct cast addr after association
 
 sei-wasmd
-* [60](https://github.com/sei-protocol/sei-wasmd/pull/60) Query penalty fixes
+* [#60](https://github.com/sei-protocol/sei-wasmd/pull/60) Query penalty fixes
 
 sei-tendermint
 * [#237](https://github.com/sei-protocol/sei-tendermint/pull/237) Add metrics for total txs bytes in mempool
@@ -337,8 +337,8 @@ sei-wasmd
 
 
 sei-tendermint
-* [238](https://github.com/sei-protocol/sei-tendermint/pull/238) Make RPC timeout configurable
-* [219](https://github.com/sei-protocol/sei-tendermint/pull/219) Add metrics for mempool change
+* [#238](https://github.com/sei-protocol/sei-tendermint/pull/238) Make RPC timeout configurable
+* [#219](https://github.com/sei-protocol/sei-tendermint/pull/219) Add metrics for mempool change
 
 
 ## v5.5.5
@@ -367,11 +367,11 @@ sei-chain
 * [#1661](https://github.com/sei-protocol/sei-chain/pull/1661) Do not modify original value passed in executeBatch call
 
 sei-cosmos
-*[#505](https://github.com/sei-protocol/sei-cosmos/pull/505) Fix export genesis for historical height
-*[#506](https://github.com/sei-protocol/sei-cosmos/pull/506) Allow reading pairs in changeset before flush
+* [#505](https://github.com/sei-protocol/sei-cosmos/pull/505) Fix export genesis for historical height
+* [#506](https://github.com/sei-protocol/sei-cosmos/pull/506) Allow reading pairs in changeset before flush
 
 sei-wasmd
-*[#50](https://github.com/sei-protocol/sei-wasmd/pull/50) Changes to fix runtime gas and add paramsKeeper to wasmKeeper for query gas multiplier
+* [#50](https://github.com/sei-protocol/sei-wasmd/pull/50) Changes to fix runtime gas and add paramsKeeper to wasmKeeper for query gas multiplier
 
 ## v5.2.0
 sei-chain
@@ -418,24 +418,24 @@ sei-cosmos:
 * [#477](https://github.com/sei-protocol/sei-cosmos/pull/477) [OCC] if synchronous, reset non-pending
 
 sei-tendermint:
-* [211](https://github.com/sei-protocol/sei-tendermint/pull/211) Replay events during restart to avoid tx missing
+* [#211](https://github.com/sei-protocol/sei-tendermint/pull/211) Replay events during restart to avoid tx missing
 
 sei-db:
 * [#62](https://github.com/sei-protocol/sei-db/pull/62) Set CreateIfMissing to false when copyExisting
 
 sei-wasmd:
-* [45](https://github.com/sei-protocol/sei-wasmd/pull/45) Update LimitSimulationGasDecorator with custom Gas Meter Setter
-* [44](https://github.com/sei-protocol/sei-wasmd/pull/44) Bump wasmvm to v1.5.2
+* [#45](https://github.com/sei-protocol/sei-wasmd/pull/45) Update LimitSimulationGasDecorator with custom Gas Meter Setter
+* [#44](https://github.com/sei-protocol/sei-wasmd/pull/44) Bump wasmvm to v1.5.2
 
 ## v3.8.0
 sei-tendermint:
-* [209](https://github.com/sei-protocol/sei-tendermint/pull/209) Use write-lock in (*TxPriorityQueue).ReapMax funcs
+* [#209](https://github.com/sei-protocol/sei-tendermint/pull/209) Use write-lock in (*TxPriorityQueue).ReapMax funcs
 
 sei-db:
 * [#61](https://github.com/sei-protocol/sei-db/pull/61) LoadVersion should open DB with read only
 
 sei-wasmd:
-* [41](https://github.com/sei-protocol/sei-wasmd/pull/42) Bump wasmd version
+* [#41](https://github.com/sei-protocol/sei-wasmd/pull/42) Bump wasmd version
 
 ## v3.7.0
 sei-chain:
@@ -504,11 +504,13 @@ sei-ibc-go:
 * [#34](https://github.com/sei-protocol/sei-ibc-go/pull/34) Upgrade to Ibc v3.2.0
 
 ## v3.0.9
+sei-tendermint:
 * [#154](https://github.com/sei-protocol/sei-tendermint/pull/154) Fix empty prevote latency metrics
 
 ## 3.0.8
 sei-chain:
 * [#1018](https://github.com/sei-protocol/sei-chain/pull/1018) Reorder tx results into absolute order
+
 ## 3.0.7
 sei-chain:
 * [#1002](https://github.com/sei-protocol/sei-chain/pull/1002) Tokenfactory Query Wasmbindings
@@ -550,7 +552,7 @@ sei-cosmos:
 
 sei-tendermint:
 * [#148](https://github.com/sei-protocol/sei-tendermint/pull/148) Add sleep to avoid consensus reactor retrying too quickly
-*
+
 ## 3.0.3
 sei-chain:
 * [#816](https://github.com/sei-protocol/sei-chain/pull/816) Reenable tx concurrency for non oracle/priority txs
@@ -612,6 +614,7 @@ sei-cosmos
 
 sei-tendermint
 * [#134](https://github.com/sei-protocol/sei-tendermint/pull/134) Fix nil peer address map
+
 ## 2.0.47beta
 sei-chain:
 * [#726](https://github.com/sei-protocol/sei-chain/pull/726) Fix of dex rent transfer issue
@@ -652,14 +655,17 @@ sei-tendermint:
 
 ## 2.0.45beta
 
-sei-chain: https://github.com/sei-protocol/sei-chain/compare/2.0.44beta...2.0.45beta-release
+sei-chain: 
+https://github.com/sei-protocol/sei-chain/compare/2.0.44beta...2.0.45beta-release
 * [#666](https://github.com/sei-protocol/sei-chain/pull/666) [DEX] remove BeginBlock/FinalizeBlock sudo hooks
 * [#674](https://github.com/sei-protocol/sei-chain/pull/674) Longterm fix for max gas enforcement
 
-sei-cosmos: https://github.com/sei-protocol/sei-cosmos/releases/tag/v0.2.14
+sei-cosmos: 
+https://github.com/sei-protocol/sei-cosmos/releases/tag/v0.2.14
 * [#210](https://github.com/sei-protocol/sei-cosmos/pull/210) Add levelDB compaction goroutine
 
-sei-tendermint: https://github.com/sei-protocol/sei-tendermint/releases/tag/v0.2.4
+sei-tendermint: 
+https://github.com/sei-protocol/sei-tendermint/releases/tag/v0.2.4
 * [#110](https://github.com/sei-protocol/sei-tendermint/pull/110) Add more granular buckets for block interval
 * [#111](https://github.com/sei-protocol/sei-tendermint/pull/111) Add unused prival pubKey back to node info - fix for IBC on full nodes
 * [#113](https://github.com/sei-protocol/sei-tendermint/pull/113) Add metrics label for missing val power
@@ -669,13 +675,13 @@ sei-tendermint: https://github.com/sei-protocol/sei-tendermint/releases/tag/v0.2
 sei-chain:
 * [#658](https://github.com/sei-protocol/sei-chain/pull/658) Revert EventAttribute fields to byte array
 
-sei-cosmos: https://github.com/sei-protocol/sei-cosmos/compare/sei-cosmos-2.0.42beta...v2.0.43beta-release
+sei-cosmos: 
+https://github.com/sei-protocol/sei-cosmos/compare/sei-cosmos-2.0.42beta...v2.0.43beta-release
 * [#204](https://github.com/sei-protocol/sei-cosmos/pull/204) IBC Compatibility Fix
 
-sei-tendermint: https://github.com/sei-protocol/sei-tendermint/compare/2.0.42beta-release...2.0.43beta-release
-* IBC Compatibility Fix
-* Bump default max gas limit
-- Add metrics & visibility for high block time
+sei-tendermint: 
+https://github.com/sei-protocol/sei-tendermint/compare/2.0.42beta-release...2.0.43beta-release
+* IBC Compatibility Fix, Bump default max gas limit, Add metrics & visibility for high block time
 
 ## 2.0.42beta
 
@@ -683,18 +689,17 @@ sei-chain:
 * [#670](https://github.com/sei-protocol/sei-chain/pull/670) Add add-wasm-genesis-message to seid
 * [#654](https://github.com/sei-protocol/sei-chain/pull/654) Improve endblock performance and fix trace
 
-sei-cosmos: https://github.com/sei-protocol/sei-cosmos/compare/v0.2.8...v0.2.12
-* improvements around monitoring for sei-cosmos
-* dont enforce gas limit on deliverTx
-* refactor slashing module
+sei-cosmos: 
+https://github.com/sei-protocol/sei-cosmos/compare/v0.2.8...v0.2.12
+* improvements around monitoring for sei-cosmos, dont enforce gas limit on deliverTx, refactor slashing module
 
 
 sei-tendermint:
-* [#95](https://github.com/sei-protocol/sei-tendermint/pull/95) Patch forging empty merkle tree attack vector
-* set default max gas param to 6mil
-* log tunning for p2p
+* [#95](https://github.com/sei-protocol/sei-tendermint/pull/95) Patch forging empty merkle tree attack vector, set default max gas param to 6mil, log tunning for p2p
 
 ## 2.0.40beta - 2023-03-10
+
+sei-chain:
 * [#646](https://github.com/sei-protocol/sei-chain/pull/646) Optimizations for FinalizeBlock
 * [#644](https://github.com/sei-protocol/sei-chain/pull/644) [Oak Audit] Add check for non-existent transaction
 * [#647](https://github.com/sei-protocol/sei-chain/pull/647) Fixes to race conditions
@@ -703,30 +708,37 @@ sei-tendermint:
 * [#635](https://github.com/sei-protocol/sei-chain/pull/635) Add event to dex messages
 
 ## 2.0.39beta - 2023-03-06
+
+sei-chain:
 * [#632](https://github.com/sei-protocol/sei-chain/pull/632) Bump Sei-tendermint to reduce log volume
 * [#631](https://github.com/sei-protocol/sei-chain/pull/631) Nondeterminism deadlock fixes
 * [#630](https://github.com/sei-protocol/sei-chain/pull/630) Mempool configs to avoid node slow down
 
 ## 2.0.38beta - 2023-03-04
-* [#623](https://github.com/sei-protocol/sei-chain/pull/623) [epoch] Add new epoch events by @udpatil in #623
-* [#624](https://github.com/sei-protocol/sei-chain/pull/624) [dex][mint] Add long messages for dex and mint by @udpatil in #624
-* [#588](https://github.com/sei-protocol/sei-chain/pull/588) Send deposit funds in message server instead of EndBlock by @codchen in #588
-* [#627](https://github.com/sei-protocol/sei-chain/pull/627) [oracle] Add slash window progress query by @udpatil in #627
-[label](x/oracle/README.md)* [#625](https://github.com/sei-protocol/sei-chain/pull/625) Update contract rent deposit logic + add query endpoint by @LCyson in #625
+
+sei-chain:
+* [#623](https://github.com/sei-protocol/sei-chain/pull/623) [epoch] Add new epoch events by @udpatil
+* [#624](https://github.com/sei-protocol/sei-chain/pull/624) [dex][mint] Add long messages for dex and mint by @udpatil 
+* [#588](https://github.com/sei-protocol/sei-chain/pull/588) Send deposit funds in message server instead of EndBlock by @codchen 
+* [#627](https://github.com/sei-protocol/sei-chain/pull/627) [oracle] Add slash window progress query by @udpatil
+[label](x/oracle/README.md)
+* [#625](https://github.com/sei-protocol/sei-chain/pull/625) Update contract rent deposit logic + add query endpoint by @LCyson
 
 ## 2.0.37beta - 2023-02-27
-### Features
+
+sei-chain:
 * [#621](https://github.com/sei-protocol/sei-chain/pull/621) Add success count to the oracle query
 * [#600](https://github.com/sei-protocol/sei-chain/pull/600) Add params to guard Nitro fraud challenge
-* [sei-tendermint #73](https://github.com/sei-protocol/sei-tendermint/pull/73) reduce checktx log noise
-### Bug Fixes
 * [#617](https://github.com/sei-protocol/sei-chain/pull/617) gracefully handle nil response for new provider
 * [#619](https://github.com/sei-protocol/sei-chain/pull/619) Move store operations outside of iterator
 
+sei-tendermint:
+* [#73](https://github.com/sei-protocol/sei-tendermint/pull/73) reduce checktx log noise
+
 ## 2.0.36beta - 2023-02-27
-### Features
+
+sei-chain:
 * [#603](https://github.com/sei-protocol/sei-chain/pull/603) Set mempool ttl
-### Bug Fixes
 * [#612](https://github.com/sei-protocol/sei-chain/pull/612) Optimistic Processing should finish before main goroutine
 * [#613](https://github.com/sei-protocol/sei-chain/pull/613) Incorporate IAVL change that removes mutex locking
 * Various audit fixes

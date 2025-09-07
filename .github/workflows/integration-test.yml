@@ -148,7 +148,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.21
+          go-version: 1.24
 
       - name: Start 4 node docker cluster
         run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{matrix.test.env}} make docker-cluster-start &
@@ -200,6 +200,10 @@ jobs:
                 echo "Status: $status"
                 if [[ "$status" == "failure" ]]; then
                   echo "Some or all tests have failed!"
+                  exit 1
+                fi
+                if [[ "$status" == "cancelled" ]]; then
+                  echo "Some or all tests have been cancelled!"
                   exit 1
                 fi
               done
