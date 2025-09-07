@@ -1,7 +1,233 @@
 name: Docker Integration Test
 
 on:
+  push:name: Docker Integration Test
+
+on:
   push:
+    branches: [main, seiv2]
+  pull_request:
+    branches: [main, seiv2, evm]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  slinky-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      slinky: ${{ steps.filter.outputs.slinky }}
+    steps:
+      - uses: actions/checkout@v3
+      - id: filter
+        uses: dorny/paths-filter@v2
+        with:
+          filters: |
+            slinky:
+              - 'scripts/modules/slinky_test/**'
+              - 'x/slinky/**'
+
+  integration-tests:
+    name: Integration Test (${{ matrix.test.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - name: Wasm Module
+            scripts:
+              - docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
+              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml
+              - docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
+              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml
+
+          - name: Mint & Staking & Bank Module
+            scripts:
+              - python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml
+
+          - name: Gov & Oracle & Authz Module
+            scripts:
+              - python3 integration_test/scripts/runner.py integration_test/gov_module/gov_proposal_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/gov_module/staking_proposal_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/oracle_module/verify_penalty_counts.yaml
+              - python3 integration_test/scripts/runner.py integration_test/oracle_module/set_feeder_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/authz_module/send_authorization_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/authz_module/staking_authorization_test.yaml
+              - python3 integration_test/scripts/runner.py integration_test/authz_module/generic_authorization_test.yaml
+
+          - name: Chain Operation Test
+            scripts:
+              - until [ $(cat build/generated/rpc-launch.complete | wc -l) = 1 ]; do sleep 10; done
+              - until [[ $(docker exec sei-node-0 seid status | jq -M -r .SyncInfo.latest_block_height) -gt 10 ]]; do sleep 10; done
+              - echo "rpc node started"
+              - python3 integration_test/scripts/runner.py integration_test/chain_operation/snapshot_operation.yaml
+              - python3 integration_test/scripts/runner.py integration_test/chain_operation/statesync_operation.yaml
+
+          - name: Distribution Module
+            scripts:
+              - python3 integration_test/scripts/runner.py integration_test/distribution_module/community_pool.yaml
+              - python3 integration_test/scripts/runner.py integration_test/distribution_module/rewards.yaml
+
+          - name: Upgrade Module (Major)
+            env:
+              UPGRADE_VERSION_LIST: v1.0.0,v1.0.1,v1.0.2
+            scripts:
+              - python3 integration_test/scripts/runner.py integration_test/upgrade_module/major_upgrade_test.yaml
+
+          - name: Upgrade Module (Minor)
+            env:
+              UPGRADE_VERSION_LIST: v1.0.0,v1.0.1,v1.0.2
+            scripts:
+              - python3 integration_test/scripts/runner.py integration_test/upgrade_module/minor_upgrade_test.yaml
+
+          - name: SeiDB State Store
+            scripts:
+              - docker exec sei-node-0 integration_test/contracts/deploy_wasm_contracts.sh
+              - docker exec sei-node-0 integration_test/contracts/create_tokenfactory_denoms.sh
+              - python3 integration_test/scripts/runner.py integration_test/seidb/state_store_test.yaml
+
+          - name: EVM Module
+            scripts:
+              - ./integration_test/evm_module/scripts/evm_tests.sh
+
+          - name: EVM Interoperability
+            scripts:
+              - ./integration_test/evm_module/scripts/evm_interoperability_tests.sh
+
+          - name: dApp Tests
+            scripts:
+              - ./integration_test/dapp_tests/dapp_tests.sh seilocal
+
+          - name: Trace & RPC Validation
+            scripts:
+              - until [[ $(docker exec sei-node-0 seid status | jq -r '.SyncInfo.latest_block_height') -gt 1000 ]]; do echo "⏳ waiting for height 1000+"; sleep 5; done
+              - python3 integration_test/scripts/runner.py integration_test/rpc_module/trace_block_by_hash.yaml
+              - python3 integration_test/scripts/runner.py integration_test/rpc_module/trace_tx_by_hash.yaml
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: |
+          pip3 install pyyaml
+          sudo apt-get install -y jq
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: "1.21"
+
+      - name: Start 4 node docker cluster
+        run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{ matrix.test.env }} make docker-cluster-start &
+
+      - name: Wait for docker cluster to start
+        run: |
+          echo "[⏳] Waiting for build/generated/launch.complete to reach 4 lines..."
+          max_attempts=60
+          attempts=0
+          while true; do
+            line_count=$(wc -l < build/generated/launch.complete 2>/dev/null || echo 0)
+            echo "[INFO] Attempt $attempts — launch.complete has $line_count lines"
+            if [ "$line_count" -eq 4 ]; then
+              echo "[✅] launch.complete reached 4 lines!"
+              break
+            fi
+            if [ "$attempts" -ge "$max_attempts" ]; then
+              echo "❌ Timeout: launch.complete did not reach 4 lines after $((max_attempts * 10)) seconds."
+              cat build/generated/launch.complete || echo "File not found"
+              exit 1
+            fi
+            sleep 10
+            attempts=$((attempts + 1))
+          done
+
+      - name: Verify sei-node-0 exists (with retry)
+        run: |
+          echo "[⏳] Checking for sei-node-0 container..."
+          max_attempts=30
+          attempts=0
+          while true; do
+            if docker ps --format '{{.Names}}' | grep -q '^sei-node-0$'; then
+              echo "[✅] Container sei-node-0 is running!"
+              break
+            fi
+            if [ "$attempts" -ge "$max_attempts" ]; then
+              echo "❌ Container sei-node-0 not found after $((max_attempts * 5)) seconds."
+              docker ps -a
+              exit 1
+            fi
+            echo "[INFO] Attempt $attempts — container not ready yet."
+            sleep 5
+            attempts=$((attempts + 1))
+          done
+
+      - name: Start rpc node
+        run: make run-rpc-node-skipbuild &
+
+      - name: Verify Sei Chain is running
+        run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
+
+      - name: Run ${{ matrix.test.name }}
+        run: |
+          IFS=$'\n'
+          for script in $(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]'); do
+            bash -c "$script"
+          done
+          unset IFS
+
+      - name: Upload Trace Logs (if present)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trace-logs-${{ matrix.test.name }}
+          path: integration_test/output/
+
+  slinky-tests:
+    needs: slinky-changes
+    if: needs.slinky-changes.outputs.slinky == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: "1.21"
+      - name: Run Slinky Integration Tests
+        run: scripts/modules/slinky_test/run_slinky_test.sh
+
+  integration-test-check:
+    name: Integration Test Check
+    runs-on: ubuntu-latest
+    needs: [integration-tests, slinky-tests]
+    if: always()
+    steps:
+      - name: Check job results
+        run: |
+          jobs=$(curl -s https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+          job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+          for status in $job_statuses; do
+            echo "Status: $status"
+            if [[ "$status" == "failure" ]]; then
+              echo "❌ Some or all tests failed!"
+              exit 1
+            fi
+          done
+          echo "✅ All tests passed!"
+
     branches: [main, seiv2]
   pull_request:
     branches: [main, seiv2, evm]
