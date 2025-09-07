@@ -17,14 +17,22 @@ SEID_PID=$!
 
 # Wait until RPC is alive
 echo "[INFO] Waiting for seid RPC to respond..."
+ready=false
 for i in {1..30}; do
   if curl -s http://localhost:26657/status > /dev/null; then
     echo "[INFO] seid node is up!"
+    ready=true
     break
   fi
   echo "[INFO] Attempt $i — seid not ready yet..."
   sleep 2
 done
+
+if [ "$ready" = false ]; then
+  echo "[ERROR] seid failed to start" >&2
+  kill "$SEID_PID" >/dev/null 2>&1 || true
+  exit 1
+fi
 
 # Write the launch.complete marker
 echo "node started at $(date)" > build/generated/launch.complete
