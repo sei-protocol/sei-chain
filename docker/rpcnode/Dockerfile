@@ -2,7 +2,7 @@ FROM ubuntu:latest
 ENV HOME="/root" PATH="/root/go/bin:$PATH"
 RUN apt-get update && \
     apt-get install -y make git build-essential jq python3 curl vim uuid-runtime
-RUN curl -L https://go.dev/dl/go1.21.4.linux-amd64.tar.gz | tar xvzf - -C /usr/local/
+RUN curl -L https://go.dev/dl/go1.24.5.linux-amd64.tar.gz | tar xvzf - -C /usr/local/
 RUN mkdir -p /root/go/pkg/mod && \
     mkdir -p /root/.cache && \
     chmod -R a+rwX /root

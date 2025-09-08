@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 	"time"
@@ -257,16 +258,23 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found
 	if err != nil {
 		return false, nil, common.Hash{}, 0, 0, err
 	}
+	if receipt.BlockNumber > uint64(math.MaxInt64) {
+		return false, nil, common.Hash{}, 0, 0, errors.New("block number exceeds int64 max value")
+	}
+
 	txHeight := int64(receipt.BlockNumber)
 	block, err := blockByNumber(ctx, b.tmClient, &txHeight)
 	if err != nil {
 		return false, nil, common.Hash{}, 0, 0, err
 	}
+	if int(receipt.TransactionIndex) >= len(block.Block.Txs) {
+		return false, nil, common.Hash{}, 0, 0, errors.New("transaction index out of range")
+	}
 	txIndex := hexutil.Uint(receipt.TransactionIndex)
-	tmTx := block.Block.Txs[int(txIndex)]
+	tmTx := block.Block.Txs[txIndex]
 	tx = getEthTxForTxBz(tmTx, b.txConfigProvider(block.Block.Height).TxDecoder())
 	blockHash = common.BytesToHash(block.Block.Header.Hash().Bytes())
-	return true, tx, blockHash, uint64(txHeight), uint64(txIndex), nil
+	return true, tx, blockHash, uint64(txHeight), uint64(txIndex), nil //nolint:gosec
 }
 
 func (b *Backend) ChainDb() ethdb.Database {
@@ -322,8 +330,12 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 					continue
 				}
 				ethtx, _ := m.AsTransaction()
+				if ethtx == nil {
+					// AsTransaction may return nil if it fails to unpack the tx data.
+					continue
+				}
 				receipt, err := b.keeper.GetReceipt(sdkCtx, ethtx.Hash())
-				if err != nil || receipt.BlockNumber != uint64(tmBlock.Block.Height) || isReceiptFromAnteError(sdkCtxAtHeight, receipt) {
+				if err != nil || receipt.BlockNumber != uint64(tmBlock.Block.Height) || isReceiptFromAnteError(sdkCtxAtHeight, receipt) { //nolint:gosec
 					continue
 				}
 				TraceReceiptIfApplicable(ctx, receipt)
@@ -551,7 +563,7 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 		// Try to get consensus parameters from block results
 		blockRes, blockResErr := blockResultsWithRetry(context.Background(), b.tmClient, &number)
 		if blockResErr == nil && blockRes.ConsensusParamUpdates != nil && blockRes.ConsensusParamUpdates.Block != nil {
-			gasLimit = uint64(blockRes.ConsensusParamUpdates.Block.MaxGas)
+			gasLimit = uint64(blockRes.ConsensusParamUpdates.Block.MaxGas) //nolint:gosec
 		} else {
 			// Fallback to default if block results unavailable
 			gasLimit = keeper.DefaultBlockGasLimit
@@ -566,14 +578,14 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 		Number:        blockNumber,
 		BaseFee:       baseFee,
 		GasLimit:      gasLimit,
-		Time:          uint64(time.Now().Unix()),
+		Time:          uint64(time.Now().Unix()), //nolint:gosec
 		ExcessBlobGas: &zeroExcessBlobGas,
 	}
 
 	//TODO: what should happen if an err occurs here?
 	if blockErr == nil {
 		header.ParentHash = common.BytesToHash(block.BlockID.Hash)
-		header.Time = uint64(block.Block.Header.Time.Unix())
+		header.Time = uint64(block.Block.Time.Unix()) //nolint:gosec
 	}
 	return header
 }

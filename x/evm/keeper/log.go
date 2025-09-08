@@ -73,7 +73,7 @@ func (k *Keeper) SetBlockBloom(ctx sdk.Context, blooms []ethtypes.Bloom) {
 func (k *Keeper) SetLegacyBlockBloomCutoffHeight(ctx sdk.Context) {
 	store := ctx.KVStore(k.storeKey)
 	bz := make([]byte, 8)
-	binary.BigEndian.PutUint64(bz, uint64(ctx.BlockHeight()))
+	binary.BigEndian.PutUint64(bz, uint64(ctx.BlockHeight())) //nolint:gosec
 	store.Set(types.LegacyBlockBloomCutoffHeightKey, bz)
 }
 
@@ -83,7 +83,7 @@ func (k *Keeper) GetLegacyBlockBloomCutoffHeight(ctx sdk.Context) int64 {
 	if len(bz) == 0 {
 		return 0
 	}
-	return int64(binary.BigEndian.Uint64(bz))
+	return int64(binary.BigEndian.Uint64(bz)) //nolint:gosec
 }
 
 func GetLogsForTx(receipt *types.Receipt, logStartIndex uint) []*ethtypes.Log {
@@ -117,7 +117,7 @@ func ConvertEthLog(l *ethtypes.Log) *types.Log {
 		Address: l.Address.Hex(),
 		Topics:  utils.Map(l.Topics, func(h common.Hash) string { return h.Hex() }),
 		Data:    l.Data,
-		Index:   uint32(l.Index),
+		Index:   uint32(l.Index), //nolint:gosec
 	}
 }
 

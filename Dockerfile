@@ -1,5 +1,5 @@
 # ---------- Builder ----------
-FROM golang:1.23.7 AS go-builder
+FROM golang:1.24.5 AS go-builder
 WORKDIR /app/sei-chain
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && \
