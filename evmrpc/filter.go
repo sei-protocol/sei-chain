@@ -834,10 +834,9 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 			var err error
 			receipt, err = f.k.GetReceipt(ctx, hash.hash)
 			if err != nil {
-				ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", hash.hash.Hex()))
 				continue
 			}
-			setCachedReceipt(block.Block.Height, block, hash.hash, receipt)
+			setCachedReceipt(&f.cacheCreationMutex, f.globalBlockCache, block.Block.Height, block, hash.hash, receipt)
 		}
 
 		if receipt.Status == 0 {
