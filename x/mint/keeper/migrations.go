@@ -42,7 +42,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 		TotalMintAmount:     v2Minter.LastMintAmount.RoundInt().Uint64(),
 		RemainingMintAmount: 0,
 		LastMintDate:        v2Minter.GetLastMintDate(),
-		LastMintHeight:      uint64(v2Minter.GetLastMintHeight()),
+		LastMintHeight:      uint64(v2Minter.GetLastMintHeight()), //nolint:gosec
 		LastMintAmount:      v2Minter.LastMintAmount.RoundInt().Uint64(),
 	}
 	ctx.Logger().Info("Migrating minter from v2 to v3", "v2Minter", v2Minter.String(), "v3Minter", v3Minter.String())
@@ -68,7 +68,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 	v3TokenReleaseSchedule := []types.ScheduledTokenRelease{}
 	for _, v2TokenReleaseSchedule := range v2TokenReleaseSchedules {
 		v3Schedule := types.ScheduledTokenRelease{
-			TokenReleaseAmount: uint64(v2TokenReleaseSchedule.GetTokenReleaseAmount()),
+			TokenReleaseAmount: uint64(v2TokenReleaseSchedule.GetTokenReleaseAmount()), //nolint:gosec
 			StartDate:          v2TokenReleaseSchedule.GetDate(),
 			EndDate:            v2TokenReleaseSchedule.GetDate(),
 		}

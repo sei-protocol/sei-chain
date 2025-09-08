@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -128,7 +129,10 @@ func (t *AssociationAPI) GetCosmosTx(ctx context.Context, ethHash common.Hash) (
 	if err != nil {
 		return "", err
 	}
-	height := int64(receipt.BlockNumber)
+	if receipt.BlockNumber > math.MaxInt64 {
+		return "", fmt.Errorf("invalid block number: %d", receipt.BlockNumber)
+	}
+	height := int64(receipt.BlockNumber) //nolint:gosec
 	number := rpc.BlockNumber(height)
 	numberPtr, err := getBlockNumber(ctx, t.tmClient, number)
 	if err != nil {

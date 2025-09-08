@@ -34,7 +34,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 
 	oldCreateDenomFeeWhitelistPrefix := []byte(strings.Join([]string{oldCreateDenomFeeWhitelistKey, ""}, KeySeparator))
 	iter := sdk.KVStorePrefixIterator(store, oldCreateDenomFeeWhitelistPrefix)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		store.Delete(iter.Key())
 	}
@@ -44,7 +44,7 @@ func (m Migrator) Migrate2to3(ctx sdk.Context) error {
 func (m Migrator) Migrate3to4(ctx sdk.Context) error {
 	// Set denom metadata for all denoms
 	iter := m.keeper.GetAllDenomsIterator(ctx)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		denom := string(iter.Value())
 		denomMetadata, found := m.keeper.bankKeeper.GetDenomMetaData(ctx, denom)
