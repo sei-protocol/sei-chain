@@ -100,7 +100,7 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 
 // Helper function useful for testing
 func (i *InfoAPI) GasPriceHelper(ctx context.Context, baseFee *big.Int, totalGasUsedPrevBlock uint64, medianRewardPrevBlock *big.Int) (*hexutil.Big, error) {
-	isChainCongested := i.isChainCongested(totalGasUsedPrevBlock)
+	isChainCongested := i.isChainCongested(int64(totalGasUsedPrevBlock))
 	if !isChainCongested {
 		// chain is not congested, increase base fee by 10% to get the gas price to get a tx included in a timely manner
 		gasPrice := new(big.Int).Mul(baseFee, big.NewInt(110))
@@ -231,7 +231,7 @@ func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (fee *hexutil.Big, r
 	if err != nil {
 		return nil, err
 	}
-	isChainCongested := i.isChainCongested(totalGasUsed)
+	isChainCongested := i.isChainCongested(int64(totalGasUsed))
 	if !isChainCongested {
 		// chain is not congested, return 1gwei as the default priority fee per gas
 		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
@@ -406,7 +406,7 @@ func CalculatePercentiles(rewardPercentiles []float64, GasAndRewards []GasAndRew
 	return res
 }
 
-func (i *InfoAPI) isChainCongested(totalGasUsed uint64) bool {
+func (i *InfoAPI) isChainCongested(totalGasUsed int64) bool {
 	sdkCtx := i.ctxProvider(LatestCtxHeight)
 	var gasLimit int64
 	if sdkCtx.ConsensusParams() != nil && sdkCtx.ConsensusParams().Block != nil {
@@ -414,6 +414,6 @@ func (i *InfoAPI) isChainCongested(totalGasUsed uint64) bool {
 	} else {
 		gasLimit = DefaultBlockGasLimit
 	}
-	threshold := uint64(gasLimit*defaultThresholdPercentage) / 100
+	threshold := gasLimit * defaultThresholdPercentage / 100
 	return totalGasUsed > threshold
 }
