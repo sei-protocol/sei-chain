@@ -35,7 +35,7 @@ func send(nonce uint64) ethtypes.TxData {
 
 func sendErc20(nonce uint64) ethtypes.TxData {
 	_, recipient := testkeeper.MockAddressPair()
-	parsedABI, _ := abi.JSON(strings.NewReader(string(GetABI())))
+	parsedABI, _ := abi.JSON(strings.NewReader(string(GetABI("ERC20"))))
 	bz, _ := parsedABI.Pack("transfer", recipient, big.NewInt(1))
 	return &ethtypes.DynamicFeeTx{
 		Nonce:     nonce,
@@ -48,7 +48,7 @@ func sendErc20(nonce uint64) ethtypes.TxData {
 }
 
 func depositErc20(nonce uint64) ethtypes.TxData {
-	parsedABI, _ := abi.JSON(strings.NewReader(string(GetABI())))
+	parsedABI, _ := abi.JSON(strings.NewReader(string(GetABI("ERC20"))))
 	bz, _ := parsedABI.Pack("deposit")
 	return &ethtypes.DynamicFeeTx{
 		Nonce:     nonce,
@@ -56,6 +56,19 @@ func depositErc20(nonce uint64) ethtypes.TxData {
 		Gas:       100000,
 		To:        &erc20Addr,
 		Value:     big.NewInt(1),
+		Data:      bz,
+		ChainID:   chainId,
+	}
+}
+
+func mixedLogTesterTransfer(nonce uint64, recipient common.Address) ethtypes.TxData {
+	parsedABI, _ := abi.JSON(strings.NewReader(string(GetABI("MixedLogTester"))))
+	bz, _ := parsedABI.Pack("transfer", recipient, big.NewInt(1))
+	return &ethtypes.DynamicFeeTx{
+		Nonce:     nonce,
+		GasFeeCap: big.NewInt(1000000000),
+		Gas:       500000,
+		To:        &mixedLogTesterAddr,
 		Data:      bz,
 		ChainID:   chainId,
 	}
@@ -78,6 +91,14 @@ func registerCW20Pointer(nonce uint64, cw20Addr string) ethtypes.TxData {
 
 func transferCW20Msg(mnemonic string, cw20Addr string) sdk.Msg {
 	recipient, _ := testkeeper.MockAddressPair()
+	return &wasmtypes.MsgExecuteContract{
+		Sender:   getSeiAddrWithMnemonic(mnemonic).String(),
+		Contract: cw20Addr,
+		Msg:      []byte(fmt.Sprintf("{\"transfer\":{\"recipient\":\"%s\",\"amount\":\"100\"}}", recipient.String())),
+	}
+}
+
+func transferCW20MsgTo(mnemonic string, cw20Addr string, recipient sdk.AccAddress) sdk.Msg {
 	return &wasmtypes.MsgExecuteContract{
 		Sender:   getSeiAddrWithMnemonic(mnemonic).String(),
 		Contract: cw20Addr,

@@ -16,12 +16,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure jq
+            - name: Install Python and YAML tools
+        run: |
+          pip3 install pyyaml
+
+      - name: Ensure jq is installed
         run: |
           if ! command -v jq >/dev/null 2>&1; then
             sudo apt-get update -y
             sudo apt-get install -y jq
           fi
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.24
+
+      - name: Start 4-node Docker cluster
+        run: |
+          make clean
+          INVARIANT_CHECK_INTERVAL=10 ${{ matrix.test.env }} make docker-cluster-start &
 
       - name: Run x402 (owed table)
         id: owed
