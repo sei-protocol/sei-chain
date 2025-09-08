@@ -96,7 +96,7 @@ func SnapshotCmd() *cobra.Command {
 			fmt.Printf("Creating snapshot at height %d...\n", height)
 
 			// Create snapshot directory if it doesn't exist
-			if err := os.MkdirAll(snapshotDir, 0755); err != nil {
+			if err := os.MkdirAll(snapshotDir, 0750); err != nil {
 				return fmt.Errorf("failed to create snapshot directory: %w", err)
 			}
 

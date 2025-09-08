@@ -341,7 +341,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 		}
 	}
 
-	newBaseFee := am.keeper.AdjustDynamicBaseFeePerGas(ctx, uint64(req.BlockGasUsed))
+	newBaseFee := am.keeper.AdjustDynamicBaseFeePerGas(ctx, uint64(req.BlockGasUsed)) // nolint:gosec
 	if newBaseFee != nil {
 		metrics.GaugeEvmBlockBaseFee(newBaseFee.TruncateInt().BigInt(), req.Height)
 	}
@@ -369,7 +369,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 				TxHashHex:        txHash.Hex(),
 				TransactionIndex: deferredInfo.TxIndex,
 				VmError:          deferredInfo.Error,
-				BlockNumber:      uint64(ctx.BlockHeight()),
+				BlockNumber:      uint64(ctx.BlockHeight()), // nolint:gosec
 			})
 			continue
 		}
@@ -410,7 +410,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 			continue
 		}
 		// Only EVM receipts in this block that are not synthetic
-		if r.TxType == types.ShellEVMTxType || r.BlockNumber != uint64(ctx.BlockHeight()) {
+		if r.TxType == types.ShellEVMTxType || r.BlockNumber != uint64(ctx.BlockHeight()) { //nolint:gosec
 			continue
 		}
 		if len(r.Logs) == 0 {
