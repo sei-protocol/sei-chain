@@ -93,8 +93,10 @@ func SetupTestServer(
 }
 
 func SetupMockPacificTestServer(initializer func(*app.App, *MockClient) sdk.Context) TestServer {
-	a, _ := initializeApp("pacific-1")
-	mockClient := &MockClient{}
+	a, res := initializeApp("pacific-1")
+	mockClient := &MockClient{blocks: [][][]byte{{}}}
+	// seed mock client with genesis block results so latest height queries work
+	mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	ctx := initializer(a, mockClient)
 	return setupTestServer(a, func(int64) sdk.Context { return ctx }, mockClient, [][][]byte{})
 }
