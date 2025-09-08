@@ -231,7 +231,7 @@ type typedTxHash struct {
 
 func getTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig, shouldIncludeSynthetic bool) []typedTxHash {
 	txHashes := []typedTxHash{}
-	for i, tx := range block.Block.Data.Txs {
+	for i, tx := range block.Block.Txs {
 		sdkTx, err := txConfig.TxDecoder()(tx)
 		if err != nil {
 			fmt.Printf("error decoding tx %d in block %d, skipping\n", i, block.Block.Height)
