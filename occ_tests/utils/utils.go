@@ -342,10 +342,10 @@ func CompareStores(t *testing.T, storeKey sdk.StoreKey, expected store.KVStore, 
 	}
 
 	iexpected := expected.Iterator(nil, nil)
-	defer iexpected.Close()
+	defer func() { _ = iexpected.Close() }()
 
 	iactual := actual.Iterator(nil, nil)
-	defer iactual.Close()
+	defer func() { _ = iactual.Close() }()
 
 	// Iterate over the expected store
 	for ; iexpected.Valid(); iexpected.Next() {

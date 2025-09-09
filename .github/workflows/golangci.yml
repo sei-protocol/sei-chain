@@ -21,12 +21,15 @@ on:
 jobs:
   lint:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
 
-      - uses: actions/setup-go@v3
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
         with:
-          go-version: "1.21"
+          go-version: "1.24"
 
       - name: Check for go.sum
         id: check_go_sum
@@ -46,10 +49,11 @@ jobs:
       - name: Run golangci-lint
         if: steps.check_go_sum.outputs.skip_lint != 'true'
         id: golangci
-        run: golangci-lint run ./... --out-format tab > golangci-lint-report.txt
+        run: |
+          golangci-lint run ./... --out-format tab > golangci-lint-report.txt
         continue-on-error: true
 
-      - name: Save golangci-lint report
+      - name: Upload golangci-lint report (only on failure)
         if: steps.golangci.outcome == 'failure'
         uses: actions/upload-artifact@v3
         with:

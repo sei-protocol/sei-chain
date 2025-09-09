@@ -51,7 +51,7 @@ type LoadTestClient struct {
 
 func NewLoadTestClient(config Config) *LoadTestClient {
 	signerClient := NewSignerClient(config.NodeURI)
-	keys := signerClient.GetTestAccountsKeys(int(config.MaxAccounts))
+	keys := signerClient.GetTestAccountsKeys(int(config.MaxAccounts)) //nolint:gosec
 	txClients, grpcConns := BuildGrpcClients(&config)
 	var evmTxClients []*EvmTxClient
 	if config.EvmRpcEndpoints != "" {
@@ -123,10 +123,7 @@ func BuildGrpcClients(config *Config) ([]typestx.ServiceClient, []*grpc.ClientCo
 				state := grpcConn.GetState()
 				if state == connectivity.TransientFailure || state == connectivity.Shutdown {
 					fmt.Println("GRPC Connection lost, attempting to reconnect...")
-					for {
-						if grpcConn.WaitForStateChange(context.Background(), state) {
-							break
-						}
+					for !grpcConn.WaitForStateChange(context.Background(), state) {
 						time.Sleep(10 * time.Second)
 					}
 				}
@@ -232,7 +229,7 @@ func (c *LoadTestClient) generateSignedCosmosTxs(keyIndex int, msgType string, m
 		types.NewCoin("usei", types.NewInt(fee)),
 	})
 	// Use random seqno to get around txs that might already be seen in mempool
-	c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(msgTypeCount))
+	c.SignerClient.SignTx(c.ChainID, &txBuilder, key, uint64(msgTypeCount)) //nolint:gosec
 	txBytes, _ := TestConfig.TxConfig.TxEncoder()(txBuilder.GetTx())
 	return txBytes
 }

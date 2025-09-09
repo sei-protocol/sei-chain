@@ -109,7 +109,7 @@ func setLegacyReceipt(ctx sdk.Context, k *keeper.Keeper, txHash common.Hash, rec
 func getLegacyReceiptCount(ctx sdk.Context, k *keeper.Keeper) (cnt int) {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), types.ReceiptKeyPrefix)
 	iter := store.Iterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		cnt++
 	}
