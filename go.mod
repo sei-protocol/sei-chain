@@ -360,8 +360,7 @@ replace (
 	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.51
 	// Latest goleveldb is broken, we have to stick to this version
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
-	// github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.6.1
-	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.6.4-0.20250909191320-68a446a6ce06
+	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.6.4-0.20250910192425-60447cc318a0
 	github.com/tendermint/tm-db => github.com/sei-protocol/tm-db v0.0.4
 	golang.org/x/crypto => golang.org/x/crypto v0.31.0
 	google.golang.org/grpc => google.golang.org/grpc v1.33.2
