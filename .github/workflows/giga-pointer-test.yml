@@ -1,0 +1,23 @@
+name: Giga CW20 Pointer Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  giga-send-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Install Dependencies
+        run: |
+          npm install
+          npm install --save-dev jest
+
+      - name: Run CW20 Pointer Send Test
+        run: |
+          node integration-tests/giga_send_pointer.test.js
