@@ -142,6 +142,11 @@ Returns all transactions (both EVM and Cosmos) with sequential indices:
 - Cosmos Transaction 1 (tx index: 1)
 - EVM Transaction 2 (tx index: 2)
 
+### Receipts and Logs
+- For EVM‑originating transactions, synthetic events are included in both `eth_getLogs` and `eth_getTransactionReceipt`. The set of logs is identical across these endpoints for a given block/tx, and `logIndex` values are strictly increasing and consistent between them.
+- For Cosmos‑originating transactions, synthetic events are not included in `eth_` methods. Use `sei_getLogs` and `sei_getBlockReceipts` to access Cosmos‑sourced synthetic logs.
+- When comparing indices, note that `eth_` transaction indices and log indices reflect only EVM transactions/logs, while `sei_` indices reflect the combined EVM+Cosmos view. For full accounting of interoperable assets, combine both data sources or use the `sei_` endpoints.
+
 ### Important Note
 When working with transaction indices, be aware that:
 1. The same transaction will have different indices depending on which endpoint you use
