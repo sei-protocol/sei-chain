@@ -176,27 +176,19 @@ func BuildPrefix(moduleName string) string {
 }
 
 func OpenDB(dir string) (dbm.DB, error) {
-	switch {
-	case strings.HasSuffix(dir, ".db"):
-		dir = dir[:len(dir)-3]
-	case strings.HasSuffix(dir, ".db/"):
-		dir = dir[:len(dir)-4]
-	default:
+	cleaned := filepath.Clean(dir)
+	if filepath.Ext(cleaned) != ".db" {
 		return nil, fmt.Errorf("database directory must end with .db")
 	}
 
-	dir, err := filepath.Abs(dir)
+	absPath, err := filepath.Abs(cleaned)
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO: doesn't work on windows!
-	cut := strings.LastIndex(dir, "/")
-	if cut == -1 {
-		return nil, fmt.Errorf("cannot cut paths on %s", dir)
-	}
-	name := dir[cut+1:]
-	db, err := dbm.NewGoLevelDB(name, dir[:cut])
+	name := strings.TrimSuffix(filepath.Base(absPath), filepath.Ext(absPath))
+	parent := filepath.Dir(absPath)
+	db, err := dbm.NewGoLevelDB(name, parent)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +218,7 @@ func PrintKeys(tree *iavl.MutableTree, moduleParser ModuleParser) []byte {
 		fmt.Println("Parsing module with human readable keys")
 	}
 	lines := []byte{}
-	tree.Iterate(func(key []byte, value []byte) bool { //nolint:errcheck
+	_, _ = tree.Iterate(func(key []byte, value []byte) bool {
 		printKey := parseWeaveKey(key)
 		// parse key if we have a parser
 		if moduleParser != nil {

@@ -28,7 +28,8 @@ jobs:
   # ---------- Matrix-Based Integration Tests ----------
   integration-tests:
     name: Integration Test (${{ matrix.test.name }})
-    runs-on: ubuntu-latest # or ubuntu-large if using a self-hosted runner
+    # Change this to [self-hosted, Linux, X64] if you want to force your new runner
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: slinky-changes
     if: needs.slinky-changes.outputs.slinky == 'true'
@@ -87,5 +88,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-logs-${{ matrix.test.name }}
-          path: |
-            integration_test/output/
+          path: integration_test/output/**

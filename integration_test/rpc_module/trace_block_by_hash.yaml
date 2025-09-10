@@ -1,0 +1,31 @@
+description: "Integration test for debug_traceBlockByHash RPC method"
+
+steps:
+  # Step 1: Fetch block 1 (always exists on fresh chains)
+  - name: getBlock1
+    request:
+      method: eth_getBlockByNumber
+      params:
+        - "0x1"
+        - false
+    save:
+      blockHash: result.hash
+
+  # Step 2: Trace that block by its hash
+  - name: traceBlockByHash_valid
+    request:
+      method: debug_traceBlockByHash
+      params:
+        - "${blockHash}"
+    expect:
+      type: object
+      notEmpty: true
+
+  # Step 3: Trace an invalid hash (should error)
+  - name: traceBlockByHash_invalid
+    request:
+      method: debug_traceBlockByHash
+      params:
+        - "0x0000000000000000000000000000000000000000000000000000000000000000"
+    expect:
+      error: true

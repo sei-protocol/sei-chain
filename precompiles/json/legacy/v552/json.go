@@ -80,7 +80,7 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 	if len(input) < 4 {
 		return pcommon.UnknownMethodCallGas
 	}
-	return uint64(GasCostPerByte * (len(input) - 4))
+	return uint64(GasCostPerByte * (len(input) - 4)) //nolint:gosec
 }
 
 func (Precompile) IsTransaction(string) bool {
