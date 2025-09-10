@@ -103,6 +103,7 @@ import (
 	ibcporttypes "github.com/cosmos/ibc-go/v3/modules/core/05-port/types"
 	ibchost "github.com/cosmos/ibc-go/v3/modules/core/24-host"
 	ibckeeper "github.com/cosmos/ibc-go/v3/modules/core/keeper"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	ethrpc "github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/mux"
@@ -129,6 +130,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/sei-protocol/sei-chain/x/mint"
 	mintclient "github.com/sei-protocol/sei-chain/x/mint/client/cli"
 	mintkeeper "github.com/sei-protocol/sei-chain/x/mint/keeper"
@@ -1129,9 +1131,80 @@ func (app *App) InitChainer(ctx sdk.Context, req abci.RequestInitChain) abci.Res
 	return app.mm.InitGenesis(ctx, app.appCodec, genesisState, app.genesisImportConfig)
 }
 
-func (app *App) PrepareProposalHandler(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
+func (app *App) PrepareProposalHandler(ctx sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
+	response, err := app.UpdateProposalWithLoadTxs(ctx, req)
+	if err != nil {
+		app.Logger().Error("PrepareProposalHandler load txs error", "err", err)
+		response = &abci.ResponsePrepareProposal{
+			TxRecords: utils.Map(req.Txs, func(tx []byte) *abci.TxRecord {
+				return &abci.TxRecord{Action: abci.TxRecord_UNMODIFIED, Tx: tx}
+			}),
+		}
+		err = nil
+	}
+	return response, nil
+
+}
+
+func (app *App) UpdateProposalWithLoadTxs(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
+	// read some txs from dir
+	LoadTxDir := filepath.Join(os.Getenv("HOME"), "load_txs")
+	// check that dir exists
+	_, err := os.Stat(LoadTxDir)
+	if err != nil {
+		return nil, err
+	}
+	targetFilename := fmt.Sprintf("%d_txs.json", req.Height)
+	targetFile, err := os.ReadFile(filepath.Join(LoadTxDir, targetFilename))
+	if err != nil {
+
+	}
+
+	type TxWriteData struct {
+		TxPayloads [][]byte `json:"tx_payloads"`
+	}
+	txs := TxWriteData{}
+	if err := json.Unmarshal(targetFile, &txs); err != nil {
+		return nil, err
+	}
+
+	// parse ethtransactions
+	convertedTxs := make([][]byte, 0, len(txs.TxPayloads))
+	for _, tx := range txs.TxPayloads {
+		etx := new(ethtypes.Transaction)
+		err = etx.UnmarshalBinary(tx)
+		if err != nil {
+			return nil, err
+		}
+
+		txData, err := ethtx.NewTxDataFromTx(etx)
+		if err != nil {
+			return nil, err
+		}
+
+		msg, err := evmtypes.NewMsgEVMTransaction(txData)
+		if err != nil {
+			return nil, err
+		}
+
+		gasUsedEstimate := etx.Gas() // if issue simulating, fallback to gas limit
+
+		txBuilder := app.GetTxConfig().NewTxBuilder()
+		if err = txBuilder.SetMsgs(msg); err != nil {
+			return nil, err
+		}
+		txBuilder.SetGasEstimate(gasUsedEstimate)
+		txbz, encodeErr := app.GetTxConfig().TxEncoder()(txBuilder.GetTx())
+		if encodeErr != nil {
+			return nil, encodeErr
+		}
+		convertedTxs = append(convertedTxs, txbz)
+	}
+
+	// use loaded txs to create TxRecords
+	app.Logger().Info("Loaded txs for proposal", "num_txs", len(txs.TxPayloads))
 	return &abci.ResponsePrepareProposal{
-		TxRecords: utils.Map(req.Txs, func(tx []byte) *abci.TxRecord {
+		TxRecords: utils.Map(convertedTxs, func(tx []byte) *abci.TxRecord {
 			return &abci.TxRecord{Action: abci.TxRecord_UNMODIFIED, Tx: tx}
 		}),
 	}, nil
