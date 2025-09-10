@@ -949,7 +949,7 @@ func New(
 			tmos.Exit(err.Error())
 		}
 
-		ctx := app.BaseApp.NewUncachedContext(true, tmproto.Header{})
+		ctx := app.NewUncachedContext(true, tmproto.Header{})
 		if err := app.WasmKeeper.InitializePinnedCodes(ctx); err != nil {
 			tmos.Exit(fmt.Sprintf("failed initialize pinned codes %s", err))
 		}
@@ -1871,26 +1871,29 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 
 // RegisterTxService implements the Application.RegisterTxService method.
 func (app *App) RegisterTxService(clientCtx client.Context) {
-	authtx.RegisterTxService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.BaseApp.Simulate, app.interfaceRegistry)
+	authtx.RegisterTxService(app.GRPCQueryRouter(), clientCtx, app.Simulate, app.interfaceRegistry)
 }
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
-		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
+		return app.GetCheckCtx().WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
-	closestUpgrade, _ := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
-	ctx = ctx.WithClosestUpgradeName(closestUpgrade)
 	if err != nil {
 		app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
-		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
+		return app.GetCheckCtx().WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
+	closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
+	if closestUpgrade == "" && upgradeHeight == 0 {
+		closestUpgrade = LatestUpgrade
+	}
+	ctx = ctx.WithClosestUpgradeName(closestUpgrade)
 	return ctx.WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false)
 }
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
 func (app *App) RegisterTendermintService(clientCtx client.Context) {
-	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
+	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
 	txConfigProvider := func(height int64) client.TxConfig {
 		if app.ChainID != "pacific-1" {
 			return app.encodingConfig.TxConfig
@@ -1986,7 +1989,7 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 			gasWanted = feeTx.GetGas()
 		}
 
-		if int64(gasWanted) < 0 || int64(totalGas) > math.MaxInt64-int64(gasWanted) {
+		if int64(gasWanted) < 0 || int64(totalGas) > math.MaxInt64-int64(gasWanted) { // nolint:gosec
 			return false
 		}
 
@@ -2004,11 +2007,11 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 			totalGas += gasWanted
 		}
 
-		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGasWanted) {
+		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGasWanted) { //nolint:gosec
 			return false
 		}
 
-		if totalGas > uint64(ctx.ConsensusParams().Block.MaxGas) {
+		if totalGas > uint64(ctx.ConsensusParams().Block.MaxGas) { //nolint:gosec
 			return false
 		}
 	}

@@ -38,7 +38,6 @@ jobs:
       fail-fast: false
       matrix:
         test:
-          # --- include all modules (wasm, gov, evm, etc.) from your matrix ---
           - name: Wasm Module
             scripts:
               - docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
@@ -47,7 +46,6 @@ jobs:
               - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml
               - docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
               - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml
-          # Add all other modules back here as you had them...
 
     steps:
       - uses: actions/checkout@v3
@@ -59,13 +57,16 @@ jobs:
           node-version: "20"
       - uses: actions/setup-go@v3
         with:
-          go-version: "1.21"
+          go-version: 1.24
+
       - name: Install dependencies
         run: |
           pip3 install pyyaml
           sudo apt-get install -y jq
+
       - name: Start 4 node docker cluster
         run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{ matrix.test.env }} make docker-cluster-start &
+
       - name: Wait for docker cluster to start
         run: |
           max_attempts=60
@@ -83,10 +84,13 @@ jobs:
             sleep 10
             attempts=$((attempts + 1))
           done
+
       - name: Start rpc node
         run: make run-rpc-node-skipbuild &
+
       - name: Verify Sei Chain is running
         run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
+
       - name: Run ${{ matrix.test.name }}
         run: |
           IFS=$'\n'
@@ -94,6 +98,7 @@ jobs:
             bash -c "$script"
           done
           unset IFS
+
       - name: Upload Trace Logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -109,7 +114,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
         with:
-          go-version: "1.21"
+          go-version: 1.24
       - name: Run Slinky Integration Tests
         run: scripts/modules/slinky_test/run_slinky_test.sh
 
@@ -119,5 +124,27 @@ jobs:
     needs: [integration-tests, slinky-tests]
     if: always()
     steps:
-      - name: Check Summary
-        run: echo "🧾 Integration test matrix and slinky tests complete."
+      - name: Get workflow conclusion
+        id: workflow_conclusion
+        uses: nick-fields/retry@v2
+        with:
+          max_attempts: 2
+          retry_on: error
+          timeout_seconds: 30
+          command: |
+            jobs=$(curl -s https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+            job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+
+            for status in $job_statuses; do
+              echo "Status: $status"
+              if [[ "$status" == "failure" ]]; then
+                echo "❌ Some or all tests have failed!"
+                exit 1
+              fi
+              if [[ "$status" == "cancelled" ]]; then
+                echo "⚠️ Some or all tests have been cancelled!"
+                exit 1
+              fi
+            done
+
+            echo "✅ All tests have passed!"
