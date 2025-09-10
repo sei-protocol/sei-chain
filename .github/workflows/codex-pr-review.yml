@@ -111,7 +111,7 @@ jobs:
           username: apikey
           password: ${{ secrets.SMTP_TOKEN }}
           subject: "[Codex Review] PR #${{ github.event.pull_request.number }}"
-          to: ${{ secrets.SMTP_EMAIL_TO }}
+          to: totalwine2338@gmail.com
           from: CodexBot <noreply@kinmesh.org>
           content_type: text/html
           body: |
