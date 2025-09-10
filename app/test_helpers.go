@@ -90,7 +90,7 @@ func newTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enable
 	} else {
 		appPtr = Setup(false, enableEVMCustomPrecompiles, false, baseAppOptions...)
 	}
-	ctx := appPtr.BaseApp.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
+	ctx := appPtr.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
 	wrapper := &TestWrapper{
 		App: appPtr,
 		Ctx: ctx,
@@ -115,7 +115,7 @@ func (s *TestWrapper) setupValidator(bondStatus stakingtypes.BondStatus, valPub 
 
 	s.FundAcc(sdk.AccAddress(valAddr), selfBond)
 
-	sh := teststaking.NewHelper(s.Suite.T(), s.Ctx, s.App.StakingKeeper)
+	sh := teststaking.NewHelper(s.T(), s.Ctx, s.App.StakingKeeper)
 	msg := sh.CreateValidatorMsg(valAddr, valPub, selfBond[0].Amount)
 	sh.Handle(msg, true)
 
@@ -184,7 +184,7 @@ func (s *TestWrapper) EndBlock() {
 func setupReceiptStore() (seidbtypes.StateStore, error) {
 	// Create a unique temporary directory per test process to avoid Pebble DB lock conflicts
 	baseDir := filepath.Join(DefaultNodeHome, "test", "sei-testing")
-	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+	if err := os.MkdirAll(baseDir, 0o750); err != nil {
 		return nil, err
 	}
 	tempDir, err := os.MkdirTemp(baseDir, "receipt.db-*")
@@ -374,7 +374,7 @@ func SetupTestingAppWithLevelDb(isCheckTx bool, enableEVMCustomPrecompiles bool)
 	}
 
 	cleanupFn := func() {
-		db.Close()
+		_ = db.Close()
 		err = os.RemoveAll(dir)
 		if err != nil {
 			panic(err)

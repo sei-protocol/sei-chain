@@ -98,6 +98,6 @@ func Serialize(node types.RawSnapshotNode) []byte {
 	offset := keySize
 	copy(buf[offset:offset+valueSize], node.Value)
 	offset += valueSize
-	binary.LittleEndian.PutUint64(buf[offset:offset+versionSize], uint64(node.Version))
+	binary.LittleEndian.PutUint64(buf[offset:offset+versionSize], uint64(node.Version)) //nolint:gosec
 	return buf
 }

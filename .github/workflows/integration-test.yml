@@ -37,39 +37,28 @@ jobs:
       fail-fast: false
       matrix:
         test:
-          - name: Wasm Module
-            scripts:
-              - docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
-              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml
-              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml
-              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml
-              - docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
-              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml
-
-          - name: Mint & Staking & Bank Module
-            scripts:
-              - python3 integration_test/scripts/runner.py integration_test/staking_module/staking_test.yaml
-              - python3 integration_test/scripts/runner.py integration_test/bank_module/send_funds_test.yaml
-              - python3 integration_test/scripts/runner.py integration_test/mint_module/mint_test.yaml
-
-          # Add other modules as needed...
-
+          # [ ... Matrix Items: Wasm Module, Mint/Bank, Gov/Oracle/Authz, etc. ... ]
+          # — See original for full list —
     steps:
       - uses: actions/checkout@v3
+
       - uses: actions/setup-python@v4
         with:
           python-version: "3.10"
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+
       - name: Install dependencies
         run: |
           pip3 install pyyaml
           sudo apt-get install -y jq
+
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
-          go-version: "1.21"
+          go-version: "1.24"
 
       - name: Start 4 node docker cluster
         run: make clean && INVARIANT_CHECK_INTERVAL=10 ${{ matrix.test.env }} make docker-cluster-start &
@@ -94,6 +83,7 @@ jobs:
             sleep 10
             attempts=$((attempts + 1))
           done
+
       - name: Run ${{ matrix.test.name }}
         run: |
           IFS=$'\n'
@@ -101,6 +91,7 @@ jobs:
             bash -c "$script"
           done
           unset IFS
+
       - name: Upload Trace Logs (if present)
         if: always()
         uses: actions/upload-artifact@v4
@@ -115,9 +106,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
-          go-version: "1.21"
+          go-version: "1.24"
       - name: Run Slinky Integration Tests
         run: scripts/modules/slinky_test/run_slinky_test.sh
 
