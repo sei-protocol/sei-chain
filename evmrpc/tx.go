@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 	"time"
@@ -68,7 +69,7 @@ func (t *SeiTransactionAPI) GetTransactionReceiptExcludeTraceFail(ctx context.Co
 	signer := ethtypes.MakeSigner(
 		types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
 		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Unix()),
+		uint64(sdkCtx.BlockTime().Unix()), //nolint:gosec
 	)
 	return getTransactionReceipt(ctx, t.TransactionAPI, hash, true, t.isPanicTx, true, signer)
 }
@@ -78,7 +79,7 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 	signer := ethtypes.MakeSigner(
 		types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
 		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Unix()),
+		uint64(sdkCtx.BlockTime().Unix()), //nolint:gosec
 	)
 	return getTransactionReceipt(ctx, t, hash, false, nil, t.includeSynthetic, signer)
 }
@@ -119,7 +120,7 @@ func getTransactionReceipt(
 	// This case is for when a tx fails before it makes it to the VM
 	if receipt.Status == 0 && receipt.GasUsed == 0 {
 		// Get the block
-		height := int64(receipt.BlockNumber)
+		height := int64(receipt.BlockNumber) //nolint:gosec
 		block, err := blockByNumberWithRetry(ctx, t.tmClient, &height, 1)
 		if err != nil {
 			return nil, err
@@ -133,7 +134,7 @@ func getTransactionReceipt(
 				signer := ethtypes.MakeSigner(
 					types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkctx)),
 					big.NewInt(height),
-					uint64(block.Block.Time.Unix()),
+					uint64(block.Block.Time.Unix()), //nolint:gosec
 				)
 				from, _ := ethtypes.Sender(signer, etx)
 
@@ -154,7 +155,7 @@ func getTransactionReceipt(
 			}
 		}
 	}
-	height := int64(receipt.BlockNumber)
+	height := int64(receipt.BlockNumber) //nolint:gosec
 	block, err := blockByNumberWithRetry(ctx, t.tmClient, &height, 1)
 	if err != nil {
 		return nil, err
@@ -181,7 +182,13 @@ func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr 
 func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, txIndex hexutil.Uint) (result *export.RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_getTransactionByBlockNumberAndIndex", t.connectionType, startTime, returnErr)
-	return t.getTransactionByBlockNumberAndIndex(ctx, blockNr, NewTransactionIndexFromEVMIndex(uint32(txIndex)))
+
+	var idx uint32
+	idx, returnErr = txIndexToUint32(txIndex)
+	if returnErr != nil {
+		return nil, returnErr
+	}
+	return t.getTransactionByBlockNumberAndIndex(ctx, blockNr, NewTransactionIndexFromEVMIndex(idx))
 }
 
 func (t *TransactionAPI) getTransactionByBlockNumberAndIndex(ctx context.Context, blockNr rpc.BlockNumber, txIndex *TransactionIndex) (result *export.RPCTransaction, returnErr error) {
@@ -203,7 +210,12 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 	if err != nil {
 		return nil, err
 	}
-	return t.getTransactionWithBlock(block, NewTransactionIndexFromEVMIndex(uint32(txIndex)), t.includeSynthetic)
+	var idx uint32
+	idx, returnErr = txIndexToUint32(txIndex)
+	if returnErr != nil {
+		return nil, returnErr
+	}
+	return t.getTransactionWithBlock(block, NewTransactionIndexFromEVMIndex(idx), t.includeSynthetic)
 }
 
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *export.RPCTransaction, returnErr error) {
@@ -222,7 +234,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 				signer := ethtypes.MakeSigner(
 					types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
 					big.NewInt(sdkCtx.BlockHeight()),
-					uint64(sdkCtx.BlockTime().Unix()),
+					uint64(sdkCtx.BlockTime().Unix()), //nolint:gosec
 				)
 				from, _ := ethtypes.Sender(signer, etx)
 				v, r, s := etx.RawSignatureValues()
@@ -253,10 +265,11 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 		}
 		return nil, err
 	}
-	if isReceiptFromAnteError(t.ctxProvider(int64(receipt.BlockNumber)), receipt) {
+	blockNumber := int64(receipt.BlockNumber) //nolint:gosec
+	if isReceiptFromAnteError(t.ctxProvider(blockNumber), receipt) {
 		return nil, errors.New("not found")
 	}
-	return t.getTransactionByBlockNumberAndIndex(ctx, rpc.BlockNumber(receipt.BlockNumber), NewTransactionIndexFromCosmosIndex(receipt.TransactionIndex))
+	return t.getTransactionByBlockNumberAndIndex(ctx, rpc.BlockNumber(blockNumber), NewTransactionIndexFromCosmosIndex(receipt.TransactionIndex)) //nolint:gosec
 }
 
 func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash common.Hash) (result string, returnErr error) {
@@ -332,7 +345,7 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, t
 	if isReceiptFromAnteError(t.ctxProvider(block.Block.Height), receipt) {
 		return nil, errors.New("not found")
 	}
-	height := int64(receipt.BlockNumber)
+	height := int64(receipt.BlockNumber) // nolint:gosec
 	var baseFeePerGas *big.Int
 	if block.Block.Height > 1 {
 		baseFeePerGas = t.keeper.GetNextBaseFeePerGas(t.ctxProvider(height - 1)).TruncateInt().BigInt()
@@ -341,9 +354,9 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, t
 	}
 	chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(t.ctxProvider(height)))
 	blockHash := common.HexToHash(block.BlockID.Hash.String())
-	blockNumber := uint64(block.Block.Height)
+	blockNumber := uint64(block.Block.Height) //nolint:gosec
 	blockTime := block.Block.Time
-	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(txIdx), baseFeePerGas, chainConfig)
+	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(txIdx), baseFeePerGas, chainConfig) //nolint:gosec
 	return res, nil
 }
 
@@ -405,7 +418,7 @@ func GetEvmTxIndex(ctx sdk.Context, txs tmtypes.Txs, txIndex uint32, decoder sdk
 			if isReceiptFromAnteError(ctx, receipt) {
 				continue
 			}
-			if receipt.BlockNumber != uint64(ctx.BlockHeight()) {
+			if receipt.BlockNumber != uint64(ctx.BlockHeight()) { //nolint:gosec
 				continue
 			}
 		}
@@ -438,13 +451,18 @@ func encodeReceipt(ctx sdk.Context, receipt *types.Receipt, decoder sdk.TxDecode
 	if !foundTx {
 		return nil, errors.New("failed to find transaction in block")
 	}
-	receipt.TransactionIndex = uint32(evmTxIndex)
-	var logs []*ethtypes.Log
-	fmt.Println(len(receipt.Logs))
-	if includeSynthetic {
-		logs = keeper.GetLogsForTx(receipt, uint(logIndexOffset))
-	} else {
-		logs = keeper.GetEvmOnlyLogsForTx(receipt, uint(logIndexOffset))
+receipt.TransactionIndex = uint32(evmTxIndex) //nolint:gosec
+
+var logs []*ethtypes.Log
+
+// Debug logging can be optionally restored via feature flag
+// fmt.Println(len(receipt.Logs))
+
+if includeSynthetic {
+	logs = keeper.GetLogsForTx(receipt, uint(logIndexOffset)) //nolint:gosec
+} else {
+	logs = keeper.GetEvmOnlyLogsForTx(receipt, uint(logIndexOffset)) //nolint:gosec
+}
 	}
 	for _, log := range logs {
 		log.BlockHash = bh
@@ -455,14 +473,14 @@ func encodeReceipt(ctx sdk.Context, receipt *types.Receipt, decoder sdk.TxDecode
 		"blockHash":         bh,
 		"blockNumber":       hexutil.Uint64(receipt.BlockNumber),
 		"transactionHash":   common.HexToHash(receipt.TxHashHex),
-		"transactionIndex":  hexutil.Uint64(evmTxIndex),
+		"transactionIndex":  hexutil.Uint64(evmTxIndex), //nolint:gosec
 		"from":              common.HexToAddress(receipt.From),
 		"gasUsed":           hexutil.Uint64(receipt.GasUsed),
 		"cumulativeGasUsed": hexutil.Uint64(receipt.CumulativeGasUsed),
 		"logs":              logs,
 		"logsBloom":         bloom,
 		"type":              hexutil.Uint(receipt.TxType),
-		"effectiveGasPrice": (*hexutil.Big)(big.NewInt(int64(receipt.EffectiveGasPrice))),
+		"effectiveGasPrice": (*hexutil.Big)(big.NewInt(int64(receipt.EffectiveGasPrice))), // nolint:gosec
 		"status":            hexutil.Uint(receipt.Status),
 	}
 	if etx != nil && receipt.From == "" {
@@ -535,7 +553,7 @@ func (ti *TransactionIndex) CalculateCosmosTxIndex(block *coretypes.ResultBlock,
 		}
 
 		if evmTxIndex == int(ti.evmTxIndex) {
-			ti.cosmosTxIndex = uint32(i)
+			ti.cosmosTxIndex = uint32(i) //nolint:gosec
 			ti.hasCosmosTxIndex = true
 			break
 		}
@@ -548,4 +566,11 @@ func (ti *TransactionIndex) CalculateCosmosTxIndex(block *coretypes.ResultBlock,
 	}
 
 	return ti.cosmosTxIndex, ti.hasCosmosTxIndex
+}
+
+func txIndexToUint32(txIndex hexutil.Uint) (uint32, error) {
+	if txIndex > math.MaxUint32 {
+		return 0, errors.New("invalid tx index")
+	}
+	return uint32(txIndex), nil //nolint:gosec
 }

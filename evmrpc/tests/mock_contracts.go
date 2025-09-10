@@ -107,7 +107,7 @@ func mixedLogTesterInitializer() func(ctx sdk.Context, a *app.App) {
 		}
 		r, _ := a.EvmKeeper.GetTransientReceipt(ctx, tx.Hash(), 0)
 
-		a.EvmKeeper.SetERC20CW20Pointer(ctx,
+_ = a.EvmKeeper.SetERC20CW20Pointer(ctx, ...)
 			"sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau",
 			common.HexToAddress(r.ContractAddress))
 	}

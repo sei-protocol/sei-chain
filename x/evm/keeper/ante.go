@@ -19,7 +19,7 @@ func (k *Keeper) AddAnteSurplus(ctx sdk.Context, txHash common.Hash, surplus sdk
 
 func (k *Keeper) GetAnteSurplusSum(ctx sdk.Context) sdk.Int {
 	iter := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.AnteSurplusPrefix).Iterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	res := sdk.ZeroInt()
 	for ; iter.Valid(); iter.Next() {
 		surplus := sdk.Int{}
