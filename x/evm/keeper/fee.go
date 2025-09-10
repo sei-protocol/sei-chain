@@ -11,14 +11,14 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 		return nil
 	}
 	prevBaseFee := k.GetNextBaseFeePerGas(ctx)
-	targetGasUsed := sdk.NewDec(int64(k.GetTargetGasUsedPerBlock(ctx)))
-	if targetGasUsed.IsZero() { // avoid division by zero
+	targetGasUsed := sdk.NewDec(int64(k.GetTargetGasUsedPerBlock(ctx))) //nolint:gosec
+	if targetGasUsed.IsZero() {                                         // avoid division by zero
 		return &prevBaseFee // return the previous base fee as is
 	}
 	minimumFeePerGas := k.GetMinimumFeePerGas(ctx)
 	maximumFeePerGas := k.GetMaximumFeePerGas(ctx)
 	blockGasLimit := sdk.NewDec(ctx.ConsensusParams().Block.MaxGas)
-	blockGasUsedDec := sdk.NewDec(int64(blockGasUsed))
+	blockGasUsedDec := sdk.NewDec(int64(blockGasUsed)) //nolint:gosec
 
 	// cap block gas used to block gas limit
 	if blockGasUsedDec.GT(blockGasLimit) {

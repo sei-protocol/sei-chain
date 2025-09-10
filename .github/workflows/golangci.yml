@@ -1,11 +1,61 @@
-- name: Run golangci-lint
-  run: |
-    golangci-lint run ./... --out-format tab > golangci-lint-report.txt
-  continue-on-error: true
+name: GolangCI-Lint
 
-- name: Save golangci-lint report
-  if: failure()
-  uses: actions/upload-artifact@v3
-  with:
-    name: golangci-lint-report
-    path: ./golangci-lint-report.txt
+on:
+  pull_request:
+    paths:
+      - "**.go"
+    branches:
+      - main
+      - seiv2
+      - evm
+      - release/**
+  push:
+    paths:
+      - "**.go"
+    branches:
+      - main
+      - seiv2
+      - evm
+      - release/**
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.24"
+
+      - name: Check for go.sum
+        id: check_go_sum
+        run: |
+          if [ ! -f go.sum ]; then
+            echo "🟡 No go.sum found — skipping golangci-lint."
+            echo "skip_lint=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+      - name: Install golangci-lint
+        if: steps.check_go_sum.outputs.skip_lint != 'true'
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+            | sh -s -- -b $(go env GOPATH)/bin v1.55.2
+
+      - name: Run golangci-lint
+        if: steps.check_go_sum.outputs.skip_lint != 'true'
+        id: golangci
+        run: |
+          golangci-lint run ./... --out-format tab > golangci-lint-report.txt
+        continue-on-error: true
+
+      - name: Upload golangci-lint report (only on failure)
+        if: steps.golangci.outcome == 'failure'
+        uses: actions/upload-artifact@v3
+        with:
+          name: golangci-lint-report
+          path: golangci-lint-report.txt

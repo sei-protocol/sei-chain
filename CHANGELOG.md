@@ -27,6 +27,11 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## Unreleased
+
+sei-chain
+* Add workflow to create and push Docker image
+
 ## v6.1.4
 sei-chain
 * [#2234](https://github.com/sei-protocol/sei-chain/pull/2234) Use legacy transaction decoder for historical height

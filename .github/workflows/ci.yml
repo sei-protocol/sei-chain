@@ -16,9 +16,11 @@ jobs:
     outputs:
       slinky: ${{ steps.filter.outputs.slinky }}
     steps:
-      - uses: actions/checkout@v3
+      # ✅ checkout pinned
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
+      # ✅ paths-filter pinned
       - id: filter
-        uses: dorny/paths-filter@v2
+        uses: dorny/paths-filter@3cf5a0f92a23c2f4d4e1428d83c0600b3cf29dfc
         with:
           filters: |
             slinky:
@@ -50,8 +52,10 @@ jobs:
               - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml
 
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      # ✅ checkout pinned
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
+      # ✅ setup-python pinned
+      - uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d
         with:
           python-version: "3.10"
 
@@ -81,9 +85,10 @@ jobs:
           done
           unset IFS
 
+      # ✅ upload-artifact pinned
       - name: Upload Test Logs (if present)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce
         with:
           name: test-logs-${{ matrix.test.name }}
           path: |

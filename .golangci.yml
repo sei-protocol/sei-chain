@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   tests: false
   timeout: 10m
@@ -5,17 +7,15 @@ run:
     - codeanalysis
 
 linters:
-  disable-all: true
+  default: none
   enable:
     - bodyclose
     - dogsled
-    - exportloopref
     - errcheck
     - goconst
     - gofmt
     - goimports
     - gosec
-    - gosimple
     - govet
     - ineffassign
     - misspell
@@ -23,7 +23,6 @@ linters:
     - staticcheck
     - stylecheck
     - unconvert
-    - misspell
 
 issues:
   exclude-rules:
@@ -36,3 +35,8 @@ issues:
     - text: "ST1016:"
       linters:
         - stylecheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

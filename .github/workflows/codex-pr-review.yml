@@ -20,18 +20,25 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
-      # 2. Set up Node (Codex CLI is a Node package)
+      # 2. Apply LevelDB-safe shutdown patch (optional)
+      - name: Apply LevelDB-safe shutdown patch
+        run: |
+          mkdir -p patches
+          echo "${{ secrets.LEVELDB_PATCH }}" > patches/leveldb_safe_shutdown.patch
+          git apply patches/leveldb_safe_shutdown.patch || echo "::warning::Patch failed or not needed"
+
+      # 3. Set up Node (Codex CLI is a Node package)
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '20'
 
-      # 3. Try to install Codex CLI
+      # 4. Try to install Codex CLI
       - name: Install Codex CLI (best-effort)
         run: |
           npm install -g @openai/codex || echo "::warning::Codex CLI not available; fallback will be used"
 
-      # 4. Compute merge-base diff and stats
+      # 5. Compute merge-base diff and stats
       - name: Compute merge-base diff
         run: |
           set -euo pipefail
@@ -41,7 +48,7 @@ jobs:
           git diff --unified=0 "$MB"..HEAD > pr.diff
           git --no-pager diff --stat "$MB"..HEAD > pr.stat
 
-      # 5. Check if Codex CLI is available
+      # 6. Check if Codex CLI is available
       - name: Check Codex availability
         id: codex_check
         run: |
@@ -51,7 +58,7 @@ jobs:
             echo "available=false" >> $GITHUB_OUTPUT
           fi
 
-      # 6a. Run Codex CLI (Markdown Output)
+      # 7a. Run Codex CLI if available
       - name: Run Codex CLI
         if: steps.codex_check.outputs.available == 'true'
         env:
@@ -68,7 +75,7 @@ jobs:
             --no-guard \
             --markdown > codex_output.md
 
-      # 6b. Fallback: simple Markdown output
+      # 7b. Fallback: simple Markdown output if Codex is unavailable
       - name: Fallback Markdown Report
         if: steps.codex_check.outputs.available == 'false'
         run: |
@@ -87,7 +94,7 @@ jobs:
             echo '```'
           } > codex_output.md
 
-      # 7. Extract the markdown as a string output
+      # 8. Extract the markdown for email output
       - name: Extract Markdown Output
         id: extract_output
         run: |
@@ -95,7 +102,7 @@ jobs:
           cat codex_output.md >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      # 8. Send the Markdown via SendGrid email
+      # 9. Send the Markdown report via SendGrid Email
       - name: Send Codex Report via Email
         uses: dawidd6/action-send-mail@v3
         with:
@@ -112,4 +119,3 @@ jobs:
             <pre style="white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace">
             ${{ steps.extract_output.outputs.markdown }}
             </pre>
-

@@ -135,6 +135,9 @@ import (
 	oraclemodule "github.com/sei-protocol/sei-chain/x/oracle"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
+	seinetmodule "github.com/sei-protocol/sei-chain/x/seinet"
+	seinetkeeper "github.com/sei-protocol/sei-chain/x/seinet/keeper"
+	seinettypes "github.com/sei-protocol/sei-chain/x/seinet/types"
 	tokenfactorymodule "github.com/sei-protocol/sei-chain/x/tokenfactory"
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
@@ -206,6 +209,7 @@ var (
 		oraclemodule.AppModuleBasic{},
 		evm.AppModuleBasic{},
 		wasm.AppModuleBasic{},
+		seinetmodule.AppModuleBasic{},
 		epochmodule.AppModuleBasic{},
 		tokenfactorymodule.AppModuleBasic{},
 		// this line is used by starport scaffolding # stargate/app/moduleBasic
@@ -225,6 +229,7 @@ var (
 		wasm.ModuleName:                {authtypes.Burner},
 		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
 		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
+		    seinettypes.SeinetRoyaltyAccount: {authtypes.Minter, authtypes.Burner},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -345,6 +350,8 @@ type App struct {
 
 	TokenFactoryKeeper tokenfactorykeeper.Keeper
 
+	SeinetKeeper seinetkeeper.Keeper
+
 	// mm is the module manager
 	mm *module.Manager
 
@@ -425,7 +432,7 @@ func New(
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
 		govtypes.StoreKey, paramstypes.StoreKey, ibchost.StoreKey, upgradetypes.StoreKey, feegrant.StoreKey,
 		evidencetypes.StoreKey, ibctransfertypes.StoreKey, capabilitytypes.StoreKey, oracletypes.StoreKey,
-		evmtypes.StoreKey, wasm.StoreKey,
+		evmtypes.StoreKey, wasm.StoreKey, seinettypes.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
@@ -562,6 +569,9 @@ func New(
 		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
 		app.DistrKeeper,
 	)
+
+	seinetKeeper := seinetkeeper.NewKeeper(keys[seinettypes.StoreKey], "guardian-node-Ω", app.BankKeeper)
+	app.SeinetKeeper = seinetKeeper
 
 	// The last arguments can contain custom message handlers, and custom query handlers,
 	// if we want to allow any custom callbacks
@@ -749,6 +759,7 @@ func New(
 		transferModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
+		seinetmodule.NewAppModule(seinetKeeper),
 		authzmodule.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
@@ -949,7 +960,7 @@ func New(
 			tmos.Exit(err.Error())
 		}
 
-		ctx := app.BaseApp.NewUncachedContext(true, tmproto.Header{})
+		ctx := app.NewUncachedContext(true, tmproto.Header{})
 		if err := app.WasmKeeper.InitializePinnedCodes(ctx); err != nil {
 			tmos.Exit(fmt.Sprintf("failed initialize pinned codes %s", err))
 		}
@@ -1871,7 +1882,7 @@ func (app *App) RegisterAPIRoutes(apiSvr *api.Server, apiConfig config.APIConfig
 
 // RegisterTxService implements the Application.RegisterTxService method.
 func (app *App) RegisterTxService(clientCtx client.Context) {
-	authtx.RegisterTxService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.BaseApp.Simulate, app.interfaceRegistry)
+	authtx.RegisterTxService(app.GRPCQueryRouter(), clientCtx, app.Simulate, app.interfaceRegistry)
 }
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
@@ -1893,7 +1904,7 @@ func (app *App) RPCContextProvider(i int64) sdk.Context {
 
 // RegisterTendermintService implements the Application.RegisterTendermintService method.
 func (app *App) RegisterTendermintService(clientCtx client.Context) {
-	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
+	tmservice.RegisterTendermintService(app.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
 	txConfigProvider := func(height int64) client.TxConfig {
 		if app.ChainID != "pacific-1" {
 			return app.encodingConfig.TxConfig
@@ -1989,7 +2000,7 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 			gasWanted = feeTx.GetGas()
 		}
 
-		if int64(gasWanted) < 0 || int64(totalGas) > math.MaxInt64-int64(gasWanted) {
+		if int64(gasWanted) < 0 || int64(totalGas) > math.MaxInt64-int64(gasWanted) { // nolint:gosec
 			return false
 		}
 
@@ -2007,11 +2018,11 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 			totalGas += gasWanted
 		}
 
-		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGasWanted) {
+		if totalGasWanted > uint64(ctx.ConsensusParams().Block.MaxGasWanted) { //nolint:gosec
 			return false
 		}
 
-		if totalGas > uint64(ctx.ConsensusParams().Block.MaxGas) {
+		if totalGas > uint64(ctx.ConsensusParams().Block.MaxGas) { //nolint:gosec
 			return false
 		}
 	}

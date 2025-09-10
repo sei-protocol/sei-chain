@@ -156,7 +156,7 @@ func CmdAssociateAddress() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer res.Body.Close()
+			defer func() { _ = res.Body.Close() }()
 			resBody, err := io.ReadAll(res.Body)
 			if err != nil {
 				return err
@@ -629,7 +629,7 @@ func getNonce(rpc string, key ecdsa.PublicKey) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	resBody, err := io.ReadAll(res.Body)
 	if err != nil {
 		return 0, err
@@ -656,7 +656,7 @@ func getChainId(rpc string) (*big.Int, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	resBody, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, err
