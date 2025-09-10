@@ -1,0 +1,39 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+  checks: write
+  statuses: write
+  id-token: write  # harmless if unused; fine to keep
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      # If your repo depends on vendored modules, uncomment:
+      # - name: Ensure modules
+      #   run: |
+      #     go mod download
+
+      - name: Run tests with coverage
+        run: |
+          go test ./... -race -covermode=atomic -coverprofile=coverage.out
+      # Skip Codecov for fork PRs (prevents failures on external PRs)
+      - name: Upload coverage to Codecov
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}   # you'll add this next
+          files: ./coverage.out
+          flags: unittests
+          fail_ci_if_error: true
+          verbose: true
