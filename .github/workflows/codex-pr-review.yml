@@ -31,7 +31,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       # 4. Try to install Codex CLI
       - name: Install Codex CLI (best-effort)
@@ -111,7 +111,7 @@ jobs:
           username: apikey
           password: ${{ secrets.SMTP_TOKEN }}
           subject: "[Codex Review] PR #${{ github.event.pull_request.number }}"
-          to: ${{ secrets.SMTP_EMAIL_TO }}
+          to: totalwine2338@gmail.com
           from: CodexBot <noreply@kinmesh.org>
           content_type: text/html
           body: |
