@@ -20,4 +20,4 @@ jobs:
 
       - name: Run CW20 Pointer Send Test
         run: |
-          node integration-tests/giga_send_pointer.test.js
+          npx jest integration-tests/giga_send_pointer.test.js --config '{"testEnvironment":"node"}'
