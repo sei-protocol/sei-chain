@@ -351,7 +351,6 @@ type App struct {
 
 	// batchVerifier *ante.SR25519BatchVerifier
 	txDecoder         sdk.TxDecoder
-	AnteHandler       sdk.AnteHandler
 	TracerAnteHandler sdk.AnteHandler
 
 	versionInfo version.Info
@@ -915,7 +914,6 @@ func New(
 	if err != nil {
 		panic(err)
 	}
-	app.AnteHandler = anteHandler
 	app.TracerAnteHandler = tracerAnteHandler
 
 	app.SetAnteHandler(anteHandler)
