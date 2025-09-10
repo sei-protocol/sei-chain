@@ -55,12 +55,12 @@ func (k *Keeper) GetCodeSize(ctx sdk.Context, addr common.Address) int {
 	if bz == nil {
 		return 0
 	}
-	return int(binary.BigEndian.Uint64(bz))
+	return int(binary.BigEndian.Uint64(bz)) //nolint:gosec
 }
 
 func (k *Keeper) IterateAllCode(ctx sdk.Context, cb func(addr common.Address, code []byte) bool) {
 	iter := prefix.NewStore(ctx.KVStore(k.storeKey), types.CodeKeyPrefix).Iterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		evmAddr := common.BytesToAddress(iter.Key())
 		if cb(evmAddr, iter.Value()) {
