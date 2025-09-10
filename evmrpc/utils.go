@@ -226,7 +226,7 @@ func shouldIncludeSynthetic(namespace string) bool {
 
 func getTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig, shouldIncludeSynthetic bool) []common.Hash {
 	txHashes := []common.Hash{}
-	for i, tx := range block.Block.Data.Txs {
+	for i, tx := range block.Block.Txs {
 		sdkTx, err := txConfig.TxDecoder()(tx)
 		if err != nil {
 			fmt.Printf("error decoding tx %d in block %d, skipping\n", i, block.Block.Height)

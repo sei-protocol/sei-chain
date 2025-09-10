@@ -3,7 +3,9 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	_ "net/http/pprof" //nolint:gosec
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/CosmWasm/wasmd/x/wasm"
@@ -21,12 +23,8 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/tendermint/tendermint/libs/log"
-
-	//nolint:gosec,G108
-	_ "net/http/pprof"
 )
 
-//nolint:gosec
 func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "blocktest",
@@ -103,7 +101,7 @@ func BlocktestCmd(defaultNodeHome string) *cobra.Command {
 }
 
 func testIngester(testFilePath string, testName string) *ethtests.BlockTest {
-	file, err := os.Open(testFilePath)
+	file, err := os.Open(filepath.Clean(testFilePath))
 	if err != nil {
 		panic(err)
 	}

@@ -23,7 +23,7 @@ jobs:
 
       - uses: actions/setup-go@v3
         with:
-          go-version: 1.21
+          go-version: 1.24  # ✅ Latest version wins
 
       - name: Cache Go modules
         uses: actions/cache@v3
@@ -42,9 +42,9 @@ jobs:
           key: ${{ runner.os }}-golangci-${{ hashFiles('.golangci.yml') }}
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: v1.60.1
+          version: v2.4.0  # ✅ Latest version wins
           args: --timeout 10m0s
 
       - name: Post failure message

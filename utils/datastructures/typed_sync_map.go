@@ -102,7 +102,7 @@ func NewTypedNestedSyncMap[K1 constraints.Ordered, K2 constraints.Ordered, V any
 }
 
 func (m *TypedNestedSyncMap[K1, K2, V]) LoadNested(key1 K1, key2 K2) (value V, ok bool) {
-	nestedMap, ok := m.TypedSyncMap.Load(key1)
+	nestedMap, ok := m.Load(key1)
 	if !ok {
 		return
 	}
@@ -113,14 +113,14 @@ func (m *TypedNestedSyncMap[K1, K2, V]) LoadNested(key1 K1, key2 K2) (value V, o
 func (m *TypedNestedSyncMap[K1, K2, V]) StoreNested(key1 K1, key2 K2, value V) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	nestedMap, _ := m.TypedSyncMap.LoadOrStore(key1, NewTypedSyncMap[K2, V]())
+	nestedMap, _ := m.LoadOrStore(key1, NewTypedSyncMap[K2, V]())
 	nestedMap.Store(key2, value)
 }
 
 func (m *TypedNestedSyncMap[K1, K2, V]) LoadOrStoreNested(key1 K1, key2 K2, value V) (actual V, loaded bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	nestedMap, _ := m.TypedSyncMap.LoadOrStore(key1, NewTypedSyncMap[K2, V]())
+	nestedMap, _ := m.LoadOrStore(key1, NewTypedSyncMap[K2, V]())
 	actual, loaded = nestedMap.LoadOrStore(key2, value)
 	return
 }
@@ -128,13 +128,13 @@ func (m *TypedNestedSyncMap[K1, K2, V]) LoadOrStoreNested(key1 K1, key2 K2, valu
 func (m *TypedNestedSyncMap[K1, K2, V]) DeleteNested(key1 K1, key2 K2) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	nestedMap, ok := m.TypedSyncMap.Load(key1)
+	nestedMap, ok := m.Load(key1)
 	if !ok {
 		return
 	}
 	nestedMap.Delete(key2)
 	if nestedMap.Len() == 0 {
-		m.TypedSyncMap.Delete(key1)
+		m.Delete(key1)
 	}
 }
 
