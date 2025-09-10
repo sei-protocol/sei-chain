@@ -828,18 +828,18 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 			setCachedReceipt(block.Block.Height, block, hash.hash, receipt)
 		}
 
+		if receipt.BlockNumber != uint64(block.Block.Height) {
+			// this shouldn't be possible given isReceiptFromAnteError check above
+			ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d, VM error: %s; skipping", hash.hash.Hex(), receipt.BlockNumber, block.Block.Height, receipt.VmError))
+			continue
+		}
+
 		if receipt.Status == 0 {
 			if !isReceiptFromAnteError(ctx, receipt) {
 				// do not bump evmTxIndex for ante failure
 				// because the tx is not considered "included" in the block.
 				evmTxIndex++
 			}
-			continue
-		}
-
-		if receipt.BlockNumber != uint64(block.Block.Height) {
-			// this shouldn't be possible given isReceiptFromAnteError check above
-			ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d, VM error: %s; skipping", hash.hash.Hex(), receipt.BlockNumber, block.Block.Height, receipt.VmError))
 			continue
 		}
 
