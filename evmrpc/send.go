@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -53,6 +54,12 @@ func NewSendAPI(tmClient rpcclient.Client, txConfigProvider func(int64) client.T
 }
 
 func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (hash common.Hash, err error) {
+	defer func() {
+		if err!=nil {
+			log.Printf("SendRawTransaction(): %v",err)	
+		}
+	}()
+
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_sendRawTransaction", s.connectionType, startTime, err)
 	tx := new(ethtypes.Transaction)
