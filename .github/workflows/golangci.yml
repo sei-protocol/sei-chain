@@ -1,25 +1,23 @@
-name: GolangCI-Lint
+name: golangci-lint
 
 on:
-  pull_request:
-    paths:
-      - "**.go"
-    branches:
-      - main
-      - seiv2
-      - evm
-      - release/**
   push:
-    paths:
-      - "**.go"
+    tags:
+      - v*
     branches:
+      - master
       - main
       - seiv2
-      - evm
-      - release/**
+  pull_request:
+
+permissions:
+  contents: read
+  # Optional: allow read access to pull request. Use with `only-new-issues` option.
+  # pull-requests: read
 
 jobs:
-  lint:
+  golangci:
+    name: lint
     runs-on: ubuntu-latest
 
     steps:
