@@ -373,30 +373,30 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 		}
 	}
 	allBlooms := utils.Map(evmTxDeferredInfoList, func(i *types.DeferredInfo) ethtypes.Bloom { return ethtypes.BytesToBloom(i.TxBloom) })
-	evmOnlyBlooms := make([]ethtypes.Bloom, 0, len(evmTxDeferredInfoList))
-	for _, di := range evmTxDeferredInfoList {
-		if len(di.TxHash) == 0 {
-			continue
-		}
-		r, err := am.keeper.GetTransientReceipt(ctx, common.BytesToHash(di.TxHash))
-		if err != nil {
-			continue
-		}
-		// Only EVM receipts in this block that are not synthetic
-		if r.TxType == types.ShellEVMTxType || r.BlockNumber != uint64(ctx.BlockHeight()) {
-			continue
-		}
-		if len(r.Logs) == 0 {
-			continue
-		}
-		// Re-create a per-tx bloom from EVM-only logs (exclude synthetic)
-		evmOnlyBloom := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{
-			Logs: keeper.GetEvmOnlyLogsForTx(r, 0),
-		}})
-		evmOnlyBlooms = append(evmOnlyBlooms, evmOnlyBloom)
-	}
-	am.keeper.SetBlockBloom(ctx, allBlooms)
+	//evmOnlyBlooms := make([]ethtypes.Bloom, 0, len(evmTxDeferredInfoList))
+	//for _, di := range evmTxDeferredInfoList {
+	//	if len(di.TxHash) == 0 {
+	//		continue
+	//	}
+	//	r, err := am.keeper.GetTransientReceipt(ctx, common.BytesToHash(di.TxHash))
+	//	if err != nil {
+	//		continue
+	//	}
+	//	// Only EVM receipts in this block that are not synthetic
+	//	if r.TxType == types.ShellEVMTxType || r.BlockNumber != uint64(ctx.BlockHeight()) {
+	//		continue
+	//	}
+	//	if len(r.Logs) == 0 {
+	//		continue
+	//	}
+	//	// Re-create a per-tx bloom from EVM-only logs (exclude synthetic)
+	//	evmOnlyBloom := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{
+	//		Logs: keeper.GetEvmOnlyLogsForTx(r, 0),
+	//	}})
+	//	evmOnlyBlooms = append(evmOnlyBlooms, evmOnlyBloom)
+	//}
 	// am.keeper.SetEvmOnlyBlockBloom(ctx, evmOnlyBlooms)
+	am.keeper.SetBlockBloom(ctx, allBlooms)
 
 	return []abci.ValidatorUpdate{}
 }
