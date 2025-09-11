@@ -71,6 +71,8 @@ func SetupTestServer(
 	blocks [][][]byte,
 	initializer ...func(sdk.Context, *app.App),
 ) TestServer {
+	// Clear the global block cache to ensure test isolation.
+	evmrpc.ClearGlobalBlockCache()
 	a, res := initializeApp("sei-test", initializer...)
 	mockClient := &MockClient{blocks: append([][][]byte{{}}, blocks...)}
 	mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
