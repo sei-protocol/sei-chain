@@ -322,8 +322,8 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	startTime := time.Now()
 	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
-	if returnErr == nil && result != nil {
-		if traceResults, ok := result.([]*tracers.TxTraceResult); ok {
+	if returnErr == nil {
+		if traceResults, ok := result.([]*tracers.TxTraceResult); ok && traceResults != nil {
 			api.decorateAllWithErrors(sctx, traceResults)
 		}
 	}
@@ -341,8 +341,8 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	startTime := time.Now()
 	defer recordMetrics("debug_traceBlockByHash", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
-	if returnErr == nil && result != nil {
-		if traceResults, ok := result.([]*tracers.TxTraceResult); ok {
+	if returnErr == nil {
+		if traceResults, ok := result.([]*tracers.TxTraceResult); ok && traceResults != nil {
 			api.decorateAllWithErrors(sctx, traceResults)
 		}
 	}
