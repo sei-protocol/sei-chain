@@ -1,4 +1,5 @@
 name: Compatibility Check
+
 on:
   pull_request:
     branches:
@@ -12,20 +13,44 @@ jobs:
     name: forward-compatibility
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
         with:
           go-version: 1.24
 
-      - name: Check Latest Dependencies
+      - name: Clone Sei Forked Dependencies
         run: |
           git clone https://github.com/sei-protocol/sei-cosmos.git
           git clone https://github.com/sei-protocol/sei-tendermint.git
           git clone https://github.com/sei-protocol/sei-iavl.git
           git clone https://github.com/sei-protocol/go-ethereum.git
+
+      - name: Patch go-ethereum to fix eip7823 error
+        run: |
+          echo "🩹 Removing reference to .eip7823 field in contracts.go"
+          sed -i '/c\.eip7823/d' go-ethereum/core/vm/contracts.go
+
+      - name: Replace modules with local clones
+        run: |
           go mod edit -replace github.com/cosmos/iavl=./sei-iavl
           go mod edit -replace github.com/tendermint/tendermint=./sei-tendermint
           go mod edit -replace github.com/cosmos/cosmos-sdk=./sei-cosmos
           go mod edit -replace github.com/ethereum/go-ethereum=./go-ethereum
           go mod tidy
+
+      - name: Build + Install
+        run: |
           make install
+
+      # OPTIONAL: Upload coverage report to Codecov
+      - name: Upload Codecov Report
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/coverage.out
+          flags: compat-check
+          name: sei-chain-compat
