@@ -2003,7 +2003,7 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 		// and less than or equal to the tx gas limit, use the gas estimate. Otherwise, use gasWanted.
 		useEstimate := false
 		if decodedTx.GetGasEstimate() >= MinGasEVMTx {
-			if decodedTx.GetGasEstimate() > 0 && decodedTx.GetGasEstimate() > 0 && decodedTx.GetGasEstimate() <= gasWanted {
+			if decodedTx.GetGasEstimate() > 0 && decodedTx.GetGasEstimate() <= gasWanted {
 				useEstimate = true
 			}
 		}
