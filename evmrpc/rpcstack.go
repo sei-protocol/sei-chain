@@ -273,10 +273,10 @@ func (h *HTTPServer) doStop() {
 	err := h.server.Shutdown(ctx)
 	if err != nil && err == ctx.Err() {
 		h.log.Error("HTTP server graceful shutdown timed out")
-		h.server.Close()
+		_ = h.server.Close()
 	}
 
-	h.listener.Close()
+	_ = h.listener.Close()
 	h.log.Info("HTTP server stopped", "endpoint", h.listener.Addr())
 
 	// Clear out everything to allow re-configuring it later.
@@ -528,7 +528,7 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 	}
 
 	n, err := w.gz.Write(b)
-	w.written += uint64(n)
+	w.written += uint64(n) //nolint:gosec
 	if w.hasLength && w.written >= w.contentLength {
 		// The HTTP handler has finished writing the entire uncompressed response. Close
 		// the gzip stream to ensure the footer will be seen by the client in case the
@@ -540,7 +540,7 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 
 func (w *gzipResponseWriter) Flush() {
 	if w.gz != nil {
-		w.gz.Flush()
+		_ = w.gz.Flush()
 	}
 	if f, ok := w.resp.(http.Flusher); ok {
 		f.Flush()
@@ -551,7 +551,7 @@ func (w *gzipResponseWriter) close() {
 	if w.gz == nil {
 		return
 	}
-	w.gz.Close()
+	_ = w.gz.Close()
 	gzPool.Put(w.gz)
 	w.gz = nil
 }

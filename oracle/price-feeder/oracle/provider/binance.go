@@ -106,7 +106,7 @@ func NewBinanceProvider(
 	wsConn, response, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
 	defer func() {
 		if response != nil {
-			response.Body.Close()
+			_ = response.Body.Close()
 		}
 	}()
 	if err != nil {
@@ -368,13 +368,13 @@ func (p *BinanceProvider) handleWebSocketMsgs(ctx context.Context) {
 // the websocket server does not receive a pong frame back from the connection
 // within a 10 minute period, the connection will be disconnected.
 func (p *BinanceProvider) reconnect() error {
-	p.wsClient.Close()
+	_ = p.wsClient.Close()
 
 	p.logger.Debug().Msg("reconnecting websocket")
 	wsConn, response, err := websocket.DefaultDialer.Dial(p.wsURL.String(), nil)
 	defer func() {
 		if response != nil {
-			response.Body.Close()
+			_ = response.Body.Close()
 		}
 	}()
 	if err != nil {
@@ -437,7 +437,7 @@ func (p *BinanceProvider) GetAvailablePairs() (map[string]struct{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var pairsSummary []BinancePairSummary
 	if err := json.NewDecoder(resp.Body).Decode(&pairsSummary); err != nil {

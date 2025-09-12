@@ -38,17 +38,17 @@ func getMethodPayload(newAbi abi.ABI, args []string) ([]byte, error) {
 					if val > math.MaxInt8 {
 						return nil, errors.New("int8 overflow")
 					}
-					arg = int8(val)
+					arg = int8(val) //nolint:gosec
 				case 16:
 					if val > math.MaxInt16 {
 						return nil, errors.New("int16 overflow")
 					}
-					arg = int16(val)
+					arg = int16(val) //nolint:gosec
 				case 32:
 					if val > math.MaxInt32 {
 						return nil, errors.New("int32 overflow")
 					}
-					arg = int32(val)
+					arg = int32(val) //nolint:gosec
 				case 64:
 					arg = val
 				}

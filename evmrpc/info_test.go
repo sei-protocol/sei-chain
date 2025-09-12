@@ -16,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	types2 "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestBlockNumber(t *testing.T) {
@@ -197,7 +198,7 @@ func TestGasPriceLogic(t *testing.T) {
 		{
 			name:                  "chain is congested",
 			baseFee:               oneGwei,
-			totalGasUsedPrevBlock: 9000000, // 9mil
+			totalGasUsedPrevBlock: 180000000, // ensure > 80% of typical 200M limit
 			medianRewardPrevBlock: big.NewInt(2000000000),
 			expectedGasPrice:      big.NewInt(3000000000),
 		},
@@ -210,7 +211,22 @@ func TestGasPriceLogic(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		i := evmrpc.NewInfoAPI(nil, nil, nil, nil, t.TempDir(), 1024, evmrpc.ConnectionTypeHTTP, nil)
+		// Ensure InfoAPI has a context with consensus params for congestion threshold
+		baseCtx := Ctx
+		cp := baseCtx.ConsensusParams()
+		if cp == nil {
+			cp = &types2.ConsensusParams{Block: &types2.BlockParams{MaxGas: 10000000}}
+		} else if cp.Block == nil {
+			cp.Block = &types2.BlockParams{MaxGas: 10000000}
+		}
+		baseCtx = baseCtx.WithConsensusParams(cp)
+		ctxProvider := func(height int64) sdk.Context {
+			if height == evmrpc.LatestCtxHeight {
+				return baseCtx
+			}
+			return baseCtx.WithBlockHeight(height)
+		}
+		i := evmrpc.NewInfoAPI(nil, nil, ctxProvider, nil, t.TempDir(), 1024, evmrpc.ConnectionTypeHTTP, nil)
 		gasPrice, err := i.GasPriceHelper(
 			context.Background(),
 			test.baseFee,
