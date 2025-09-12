@@ -297,8 +297,21 @@ func (api *DebugAPI) decorateWithErrors(ctx sdk.Context, r *tracers.TxTraceResul
 
 	// Check if the result contains trace entries and look for existing errors
 	if !hasError && r.Result != nil {
-		// Try to parse the result directly as an array of trace entries
-		if resultsArray, ok := r.Result.([]interface{}); ok && len(resultsArray) > 0 {
+		var resultsArray []interface{}
+
+		// Handle json.RawMessage by unmarshaling it first
+		if rawMsg, ok := r.Result.(json.RawMessage); ok {
+			if err := json.Unmarshal(rawMsg, &resultsArray); err != nil {
+				return
+			}
+		} else if directArray, ok := r.Result.([]interface{}); ok {
+			// Handle case where it's already unmarshaled
+			resultsArray = directArray
+		} else {
+			return
+		}
+
+		if len(resultsArray) > 0 {
 			// Check if any entry has an error field set
 			for _, entry := range resultsArray {
 				if entryMap, ok := entry.(map[string]interface{}); ok {
@@ -309,17 +322,27 @@ func (api *DebugAPI) decorateWithErrors(ctx sdk.Context, r *tracers.TxTraceResul
 				}
 			}
 
-			// If no errors found, set error on the last entry
-			if !hasError {
-				lastEntry := resultsArray[len(resultsArray)-1]
-				if lastEntryMap, ok := lastEntry.(map[string]interface{}); ok {
-					lastEntryMap["error"] = "Failed"
+			// if already has an error, no need to inject one
+			if hasError {
+				return
+			}
+
+			// set an error on the last entry
+			lastEntry := resultsArray[len(resultsArray)-1]
+			if lastEntryMap, ok := lastEntry.(map[string]interface{}); ok {
+				ctx.Logger().With("tx", r.TxHash.Hex()).Info("decorateWithErrors: injecting error in call")
+				lastEntryMap["error"] = "Failed"
+
+				// Marshal the modified array back to json.RawMessage
+				if modifiedJSON, err := json.Marshal(resultsArray); err == nil {
+					r.Result = json.RawMessage(modifiedJSON)
 				}
 			}
 		}
 
 		// Fallback: if we couldn't process the result structure, set error on the TxTraceResult itself
-		if !hasError && r.Result == nil {
+		if r.Result == nil {
+			ctx.Logger().Info("decorateWithErrors: r.Result is nil, setting r.Error")
 			r.Error = "transaction failed"
 		}
 	}
