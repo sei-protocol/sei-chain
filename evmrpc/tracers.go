@@ -143,25 +143,18 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	defer recordMetrics("debug_traceTransaction", api.connectionType, startTime, returnErr == nil)
 
 	sctx := api.ctxProvider(LatestCtxHeight)
-	r, err := api.keeper.GetReceipt(api.ctxProvider(LatestCtxHeight), hash)
-	if err != nil {
-		sctx.Logger().Error(fmt.Sprintf("debug_traceTransaction: unable to find receipt for hash %s", hash.Hex()))
-		return nil, err
-	}
 	result, returnErr = api.tracersAPI.TraceTransaction(ctx, hash, config)
-	if uint64(r.Status) == types.ReceiptStatusFailed {
-		// check to see if the trace result has an error field
-		// if it does not, add a "transaction failed" error to the trace result
-		if result != nil {
-			if traceResult, ok := result.(*tracers.TxTraceResult); ok {
-				if traceResult.Error == "" {
-					traceResult.Error = "transaction failed"
-				}
-			}
-			// return that result
-			return result, nil
+
+	if !isErrorableTrace(config) {
+		return result, returnErr
+	}
+
+	if returnErr == nil {
+		if traceResults, ok := result.(*tracers.TxTraceResult); ok && traceResults != nil {
+			api.decorateWithErrors(sctx, traceResults)
 		}
 	}
+
 	return
 }
 
@@ -279,14 +272,54 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 	return result, nil
 }
 
+// represents whether this trace config can have an error in the reusult
+func isErrorableTrace(config *tracers.TraceConfig) bool {
+	if config.Tracer == nil {
+		return false
+	}
+	return *config.Tracer == "callTracer" || *config.Tracer == "flatCallTracer"
+}
+
+// this is a temporary patch to force errors to appear in the error output for failed receipts.
 func (api *DebugAPI) decorateWithErrors(ctx sdk.Context, r *tracers.TxTraceResult) {
 	rct, err := api.keeper.GetReceipt(ctx, r.TxHash)
 	if err != nil {
 		ctx.Logger().Error(fmt.Sprintf("debug_traceTransaction: unable to find receipt for hash %s", r.TxHash.Hex()))
 		return
 	}
-	if uint64(rct.Status) == types.ReceiptStatusFailed {
-		if r.Error == "" {
+
+	if uint64(rct.Status) == types.ReceiptStatusSuccessful {
+		return
+	}
+
+	// Check if we need to set an error - only if no error fields are currently set
+	hasError := r.Error != ""
+
+	// Check if the result contains trace entries and look for existing errors
+	if !hasError && r.Result != nil {
+		// Try to parse the result directly as an array of trace entries
+		if resultsArray, ok := r.Result.([]interface{}); ok && len(resultsArray) > 0 {
+			// Check if any entry has an error field set
+			for _, entry := range resultsArray {
+				if entryMap, ok := entry.(map[string]interface{}); ok {
+					if errorField, exists := entryMap["error"]; exists && errorField != nil && errorField != "" {
+						hasError = true
+						break
+					}
+				}
+			}
+
+			// If no errors found, set error on the last entry
+			if !hasError {
+				lastEntry := resultsArray[len(resultsArray)-1]
+				if lastEntryMap, ok := lastEntry.(map[string]interface{}); ok {
+					lastEntryMap["error"] = "Failed"
+				}
+			}
+		}
+
+		// Fallback: if we couldn't process the result structure, set error on the TxTraceResult itself
+		if !hasError && r.Result == nil {
 			r.Error = "transaction failed"
 		}
 	}
@@ -322,6 +355,11 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	startTime := time.Now()
 	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
+
+	if !isErrorableTrace(config) {
+		return result, returnErr
+	}
+
 	if returnErr == nil {
 		if traceResults, ok := result.([]*tracers.TxTraceResult); ok && traceResults != nil {
 			api.decorateAllWithErrors(sctx, traceResults)
@@ -341,6 +379,11 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	startTime := time.Now()
 	defer recordMetrics("debug_traceBlockByHash", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
+
+	if !isErrorableTrace(config) {
+		return result, returnErr
+	}
+
 	if returnErr == nil {
 		if traceResults, ok := result.([]*tracers.TxTraceResult); ok && traceResults != nil {
 			api.decorateAllWithErrors(sctx, traceResults)
