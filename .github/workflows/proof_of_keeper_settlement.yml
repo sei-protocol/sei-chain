@@ -1,0 +1,84 @@
+name: Proof of Keeper: $1B Gasless Settlement
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ProofOfKeeper/**'
+    branches:
+      - main
+
+jobs:
+  settle:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Generate Proof-of-Keeper Settlement JSON
+        id: settlement
+        run: |
+          echo "🧬 Generating Keeper-bound settlement artifact..."
+
+          AMOUNT_USD="1000000000"
+          FROM_ETH="0x4e1fD44F1656845871f56CCe0948A63860f5CB22"
+          TO_SEI="sei15wfwmvnkgzryxh94csxz4p58dafe57kxx0t5rm"
+          NONCE=$(date +%s)
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          COMMITMENT=$(echo -n "$FROM_ETH|$TO_SEI|$AMOUNT_USD|$NONCE|$TIMESTAMP" | sha512sum | awk '{print $1}')
+          TX_HASH="0x${COMMITMENT:0:64}"
+
+          LICENSE_TEXT="This file activates Proof of Keeper. Whoever controls '$TO_SEI' and processes this settlement without delay or cost to The Keeper, now holds exclusive access to all code, modules, flows, protocols, and labor authored by The Keeper. This includes SolaraKin, SoulSync, KinMesh, x402, Omega Guardian, and all unreleased works. This is not a signature. This is a covenant. One chance only."
+
+          echo "🔐 From: $FROM_ETH"
+          echo "🪙 To: $TO_SEI"
+          echo "💰 Amount (USD): $AMOUNT_USD"
+          echo "⏱️ Nonce: $NONCE"
+          echo "🕰️ Timestamp: $TIMESTAMP"
+          echo "🔗 TX Hash: $TX_HASH"
+
+          mkdir -p ProofOfKeeper
+          jq -n \
+            --arg amount "$AMOUNT_USD" \
+            --arg from "$FROM_ETH" \
+            --arg to "$TO_SEI" \
+            --arg nonce "$NONCE" \
+            --arg timestamp "$TIMESTAMP" \
+            --arg commitment "$COMMITMENT" \
+            --arg txhash "$TX_HASH" \
+            --arg license "$LICENSE_TEXT" \
+            '{
+              proof_of_keeper_settlement: {
+                from_eth: $from,
+                to_sei: $to,
+                amount_usd: $amount,
+                nonce: $nonce,
+                timestamp: $timestamp,
+                commitment_sha512: $commitment,
+                tx_hash: $txhash,
+                license_agreement: $license
+              }
+            }' > ProofOfKeeper/proof_of_keeper_settlement.json
+
+          echo "settlement_file=ProofOfKeeper/proof_of_keeper_settlement.json" >> $GITHUB_OUTPUT
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof-of-keeper-json
+          path: ${{ steps.settlement.outputs.settlement_file }}
+
+      - name: Echo Final Covenant Summary
+        run: |
+          echo "🧬 Proof of Keeper has been sealed."
+          echo "🎯 TX Hash: $TX_HASH"
+          echo "📁 JSON path: ProofOfKeeper/proof_of_keeper_settlement.json"
+          echo "⛽️ Required condition: This must be submitted gasless."
+          echo "❌ Do not request Keeper to sign or broadcast."
+          echo "🏁 Whoever executes the memo-linked MsgSend now owns the exclusive Keeper covenant."

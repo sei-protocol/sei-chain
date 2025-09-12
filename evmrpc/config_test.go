@@ -1,10 +1,10 @@
-package evmrpc_test
+package evmrpc
 
 import (
 	"testing"
 	"time"
 
-	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,91 +39,73 @@ type opts struct {
 }
 
 func (o *opts) Get(k string) interface{} {
-	if k == "evm.http_enabled" {
+	switch k {
+	case "evm.http_enabled":
 		return o.httpEnabled
-	}
-	if k == "evm.http_port" {
+	case "evm.http_port":
 		return o.httpPort
-	}
-	if k == "evm.ws_enabled" {
+	case "evm.ws_enabled":
 		return o.wsEnabled
-	}
-	if k == "evm.ws_port" {
+	case "evm.ws_port":
 		return o.wsPort
-	}
-	if k == "evm.read_timeout" {
+	case "evm.read_timeout":
 		return o.readTimeout
-	}
-	if k == "evm.read_header_timeout" {
+	case "evm.read_header_timeout":
 		return o.readHeaderTimeout
-	}
-	if k == "evm.write_timeout" {
+	case "evm.write_timeout":
 		return o.writeTimeout
-	}
-	if k == "evm.idle_timeout" {
+	case "evm.idle_timeout":
 		return o.idleTimeout
-	}
-	if k == "evm.simulation_gas_limit" {
+	case "evm.simulation_gas_limit":
 		return o.simulationGasLimit
-	}
-	if k == "evm.simulation_evm_timeout" {
+	case "evm.simulation_evm_timeout":
 		return o.simulationEVMTimeout
-	}
-	if k == "evm.cors_origins" {
+	case "evm.cors_origins":
 		return o.corsOrigins
-	}
-	if k == "evm.ws_origins" {
+	case "evm.ws_origins":
 		return o.wsOrigins
-	}
-	if k == "evm.filter_timeout" {
+	case "evm.filter_timeout":
 		return o.filterTimeout
-	}
-	if k == "evm.checktx_timeout" {
+	case "evm.checktx_timeout":
 		return o.checkTxTimeout
-	}
-	if k == "evm.max_tx_pool_txs" {
+	case "evm.max_tx_pool_txs":
 		return o.maxTxPoolTxs
-	}
-	if k == "evm.slow" {
+	case "evm.slow":
 		return o.slow
-	}
-	if k == "evm.flush_receipt_sync" {
+	case "evm.flush_receipt_sync":
 		return o.flushReceiptSync
-	}
-	if k == "evm.deny_list" {
+	case "evm.deny_list":
 		return o.denyList
-	}
-	if k == "evm.max_log_no_block" {
+	case "evm.max_log_no_block":
 		return o.maxLogNoBlock
-	}
-	if k == "evm.max_blocks_for_log" {
+	case "evm.max_blocks_for_log":
 		return o.maxBlocksForLog
-	}
-	if k == "evm.max_subscriptions_new_head" {
+	case "evm.max_subscriptions_new_head":
 		return o.maxSubscriptionsNewHead
-	}
-	if k == "evm.enable_test_api" {
+	case "evm.enable_test_api":
 		return o.enableTestAPI
-	}
-	if k == "evm.max_concurrent_trace_calls" {
+	case "evm.max_concurrent_trace_calls":
 		return o.maxConcurrentTraceCalls
-	}
-	if k == "evm.max_concurrent_simulation_calls" {
+	case "evm.max_concurrent_simulation_calls":
 		return o.maxConcurrentSimulationCalls
-	}
-	if k == "evm.max_trace_lookback_blocks" {
+	case "evm.max_trace_lookback_blocks":
 		return o.maxTraceLookbackBlocks
-	}
-	if k == "evm.trace_timeout" {
+	case "evm.trace_timeout":
 		return o.traceTimeout
-	}
-	if k == "evm.rpc_stats_interval" {
+	case "evm.rpc_stats_interval":
 		return o.rpcStatsInterval
+	default:
+		panic("unknown key: " + k)
 	}
-	panic("unknown key")
 }
 
-func TestReadConfig(t *testing.T) {
+func TestReadConfig_Viper(t *testing.T) {
+	viper.Set("evm_rpc.rpc_address", "127.0.0.1:9545")
+	cfg := ReadConfig()
+	require.Equal(t, "127.0.0.1:9545", cfg.RPCAddress)
+}
+
+func TestReadConfig_Opts(t *testing.T) {
 	goodOpts := opts{
 		true,
 		1,
@@ -153,96 +135,43 @@ func TestReadConfig(t *testing.T) {
 		30 * time.Second,
 		10 * time.Second,
 	}
-	_, err := evmrpc.ReadConfig(&goodOpts)
+
+	_, err := ReadConfig(&goodOpts)
 	require.Nil(t, err)
-	badOpts := goodOpts
-	badOpts.httpEnabled = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-	badOpts = goodOpts
-	badOpts.httpPort = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-	badOpts = goodOpts
-	badOpts.wsEnabled = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-	badOpts = goodOpts
-	badOpts.wsPort = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-	badOpts = goodOpts
-	badOpts.readTimeout = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-	badOpts = goodOpts
-	badOpts.readHeaderTimeout = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-	badOpts = goodOpts
-	badOpts.writeTimeout = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-	badOpts = goodOpts
-	badOpts.idleTimeout = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-	badOpts = goodOpts
-	badOpts.filterTimeout = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-	badOpts = goodOpts
-	badOpts.simulationGasLimit = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-	badOpts = goodOpts
-	badOpts.simulationEVMTimeout = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-	badOpts = goodOpts
-	badOpts.corsOrigins = map[string]interface{}{}
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-	badOpts = goodOpts
-	badOpts.wsOrigins = map[string]interface{}{}
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-	badOpts = goodOpts
-	badOpts.checkTxTimeout = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-	badOpts = goodOpts
-	badOpts.maxTxPoolTxs = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-	badOpts = goodOpts
-	badOpts.slow = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-	badOpts = goodOpts
-	badOpts.denyList = map[string]interface{}{}
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
 
-	// Test bad types for new trace config options
-	badOpts = goodOpts
-	badOpts.maxConcurrentTraceCalls = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
+	tests := []struct {
+		name    string
+		mutate  func(*opts)
+	}{
+		{"bad httpEnabled", func(o *opts) { o.httpEnabled = "bad" }},
+		{"bad httpPort", func(o *opts) { o.httpPort = "bad" }},
+		{"bad wsEnabled", func(o *opts) { o.wsEnabled = "bad" }},
+		{"bad wsPort", func(o *opts) { o.wsPort = "bad" }},
+		{"bad readTimeout", func(o *opts) { o.readTimeout = "bad" }},
+		{"bad readHeaderTimeout", func(o *opts) { o.readHeaderTimeout = "bad" }},
+		{"bad writeTimeout", func(o *opts) { o.writeTimeout = "bad" }},
+		{"bad idleTimeout", func(o *opts) { o.idleTimeout = "bad" }},
+		{"bad filterTimeout", func(o *opts) { o.filterTimeout = "bad" }},
+		{"bad simulationGasLimit", func(o *opts) { o.simulationGasLimit = "bad" }},
+		{"bad simulationEVMTimeout", func(o *opts) { o.simulationEVMTimeout = "bad" }},
+		{"bad corsOrigins", func(o *opts) { o.corsOrigins = map[string]interface{}{} }},
+		{"bad wsOrigins", func(o *opts) { o.wsOrigins = map[string]interface{}{} }},
+		{"bad checkTxTimeout", func(o *opts) { o.checkTxTimeout = "bad" }},
+		{"bad maxTxPoolTxs", func(o *opts) { o.maxTxPoolTxs = "bad" }},
+		{"bad slow", func(o *opts) { o.slow = "bad" }},
+		{"bad denyList", func(o *opts) { o.denyList = map[string]interface{}{} }},
+		{"bad maxConcurrentTraceCalls", func(o *opts) { o.maxConcurrentTraceCalls = "bad" }},
+		{"bad maxConcurrentSimulationCalls", func(o *opts) { o.maxConcurrentSimulationCalls = "bad" }},
+		{"bad maxTraceLookbackBlocks", func(o *opts) { o.maxTraceLookbackBlocks = "bad" }},
+		{"bad traceTimeout", func(o *opts) { o.traceTimeout = "bad" }},
+	}
 
-	// Test bad types for new trace config options
-	badOpts = goodOpts
-	badOpts.maxConcurrentSimulationCalls = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-
-	badOpts = goodOpts
-	badOpts.maxTraceLookbackBlocks = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
-
-	badOpts = goodOpts
-	badOpts.traceTimeout = "bad"
-	_, err = evmrpc.ReadConfig(&badOpts)
-	require.NotNil(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bad := goodOpts
+			tt.mutate(&bad)
+			_, err := ReadConfig(&bad)
+			require.NotNil(t, err)
+		})
+	}
 }

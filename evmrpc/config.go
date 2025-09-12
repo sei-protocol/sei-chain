@@ -107,7 +107,6 @@ type Config struct {
 	// RPCStatsInterval for how often to report stats
 	RPCStatsInterval time.Duration `mapstructure:"rpc_stats_interval"`
 }
-
 var DefaultConfig = Config{
 	HTTPEnabled:                  true,
 	HTTPPort:                     8545,
@@ -165,6 +164,8 @@ const (
 	flagMaxConcurrentSimulationCalls = "evm.max_concurrent_simulation_calls"
 	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
 	flagTraceTimeout                 = "evm.trace_timeout"
+	flagRPCStatsInterval             = "evm.rpc_stats_interval"
+)
 	flagRPCStatsInterval             = "evm.rpc_stats_interval"
 )
 
