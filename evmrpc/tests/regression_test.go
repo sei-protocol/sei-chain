@@ -118,6 +118,15 @@ func Test0x362af85584493ed225bf592606c989796ba5f0484f5c80b989b8573f85517ec1(t *t
 	)
 }
 
+func Test0x5bc4f251122bb01d6313916634dc9a20dcf4407aabda394ed5fc442d7224fb52(t *testing.T) {
+	testTx(t,
+		"0x5bc4f251122bb01d6313916634dc9a20dcf4407aabda394ed5fc442d7224fb52",
+		"0x1de79",
+		"",
+		true,
+	)
+}
+
 func testTx(t *testing.T, txHash string, expectedGasUsed string, expectedOutput string, hasErr bool) {
 	s := SetupMockPacificTestServer(func(a *app.App, mc *MockClient) sdk.Context {
 		ctx := a.RPCContextProvider(evmrpc.LatestCtxHeight)
