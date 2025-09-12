@@ -159,7 +159,8 @@ func (s *SendAPI) simulateTx(ctx context.Context, tx *ethtypes.Transaction) (est
 	}
 	estimate_, err := export.DoEstimateGas(ctx, s.backend, txArgs, bNrOrHash, nil, nil, s.backend.RPCGasCap())
 	if err != nil {
-		err = fmt.Errorf("failed to estimate gas: %w", err)
+		s.ctxProvider(LatestCtxHeight).Logger().Error("failed to estimate gas", "err", err)
+		err = errors.New("failed to estimate gas")
 		return
 	}
 	return uint64(estimate_), nil
