@@ -183,7 +183,6 @@ func testBlock(
     s := SetupMockPacificTestServer(
         func(a *app.App, mc *MockClient) sdk.Context {
             ctx := a.RPCContextProvider(evmrpc.LatestCtxHeight).WithClosestUpgradeName(version)
-            // hardcode tx hash
             blockHeight := mockStatesFromBlockJson(
                 ctx, blockNumber, a, mc,
             )
