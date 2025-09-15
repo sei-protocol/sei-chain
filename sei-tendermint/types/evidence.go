@@ -37,10 +37,50 @@ type Evidence interface {
 
 //--------------------------------------------------------------------------------------
 
+type encodedVote struct {
+	*Vote
+	proto *tmproto.Vote
+}
+
+func (ev *encodedVote) ToProto() *tmproto.Vote {
+	if ev == nil {
+		return nil
+	}
+	if ev.proto != nil {
+		return ev.proto
+	}
+	return ev.Vote.ToProto()
+}
+
+func encodedVoteFromProto(pb *tmproto.Vote) (*encodedVote, error) {
+	v, err := VoteFromProto(pb)
+	if err != nil {
+		return nil, err
+	}
+	return &encodedVote{Vote: v, proto: pb}, nil
+}
+
+func NewEncodedVote(v *Vote) *encodedVote {
+	if v == nil {
+		return nil
+	}
+	return &encodedVote{Vote: v, proto: v.ToProto()}
+}
+
+func (ev *encodedVote) Copy() *encodedVote {
+	if ev == nil {
+		return nil
+	}
+	return &encodedVote{
+		Vote:  ev.Vote.Copy(),
+		proto: ev.proto,
+	}
+}
+
 // DuplicateVoteEvidence contains evidence of a single validator signing two conflicting votes.
 type DuplicateVoteEvidence struct {
-	VoteA *Vote `json:"vote_a"`
-	VoteB *Vote `json:"vote_b"`
+	VoteA *encodedVote `json:"vote_a"`
+	VoteB *encodedVote `json:"vote_b"`
 
 	// abci specific information
 	TotalVotingPower int64 `json:",string"`
@@ -78,8 +118,8 @@ func NewDuplicateVoteEvidence(vote1, vote2 *Vote, blockTime time.Time, valSet *V
 		voteB = vote1
 	}
 	return &DuplicateVoteEvidence{
-		VoteA:            voteA,
-		VoteB:            voteB,
+		VoteA:            NewEncodedVote(voteA),
+		VoteB:            NewEncodedVote(voteB),
 		TotalVotingPower: valSet.TotalVotingPower(),
 		ValidatorPower:   val.VotingPower,
 		Timestamp:        blockTime,
@@ -211,10 +251,10 @@ func DuplicateVoteEvidenceFromProto(pb *tmproto.DuplicateVoteEvidence) (*Duplica
 		return nil, errors.New("nil duplicate vote evidence")
 	}
 
-	var vA *Vote
+	var vA *encodedVote
 	if pb.VoteA != nil {
 		var err error
-		vA, err = VoteFromProto(pb.VoteA)
+		vA, err = encodedVoteFromProto(pb.VoteA)
 		if err != nil {
 			return nil, err
 		}
@@ -223,10 +263,10 @@ func DuplicateVoteEvidenceFromProto(pb *tmproto.DuplicateVoteEvidence) (*Duplica
 		}
 	}
 
-	var vB *Vote
+	var vB *encodedVote
 	if pb.VoteB != nil {
 		var err error
-		vB, err = VoteFromProto(pb.VoteB)
+		vB, err = encodedVoteFromProto(pb.VoteB)
 		if err != nil {
 			return nil, err
 		}

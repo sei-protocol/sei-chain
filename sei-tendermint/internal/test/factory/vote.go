@@ -40,6 +40,5 @@ func MakeVote(
 	}
 
 	v.Signature = vpb.Signature
-	v.ExtensionSignature = vpb.ExtensionSignature
 	return v, nil
 }

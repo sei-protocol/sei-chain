@@ -26,7 +26,7 @@ func TestPeerCatchupRounds(t *testing.T) {
 	valSet, privVals := factory.ValidatorSet(ctx, t, 10, 1)
 
 	chainID := cfg.ChainID()
-	hvs := NewExtendedHeightVoteSet(chainID, 1, valSet)
+	hvs := NewHeightVoteSet(chainID, 1, valSet)
 
 	vote999_0 := makeVoteHR(ctx, t, 1, 0, 999, privVals, chainID)
 	added, err := hvs.AddVote(vote999_0, "peer1")
@@ -87,7 +87,6 @@ func makeVoteHR(
 	require.NoError(t, err, "Error signing vote")
 
 	vote.Signature = v.Signature
-	vote.ExtensionSignature = v.ExtensionSignature
 
 	return vote
 }

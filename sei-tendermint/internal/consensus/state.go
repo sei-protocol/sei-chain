@@ -721,33 +721,12 @@ func (cs *State) sendInternalMessage(ctx context.Context, mi msgInfo) {
 // the method will panic on an absent ExtendedCommit or an ExtendedCommit without
 // extension data.
 func (cs *State) reconstructLastCommit(state sm.State) {
-	extensionsEnabled := cs.state.ConsensusParams.ABCI.VoteExtensionsEnabled(state.LastBlockHeight)
-	if !extensionsEnabled {
-		votes, err := cs.votesFromSeenCommit(state)
-		if err != nil {
-			panic(fmt.Sprintf("failed to reconstruct last commit; %s", err))
-		}
-		cs.roundState.SetLastCommit(votes)
-		return
-	}
-
-	votes, err := cs.votesFromExtendedCommit(state)
+	votes, err := cs.votesFromSeenCommit(state)
 	if err != nil {
-		panic(fmt.Sprintf("failed to reconstruct last extended commit; %s", err))
+		panic(fmt.Sprintf("failed to reconstruct last commit; %s", err))
 	}
 	cs.roundState.SetLastCommit(votes)
-}
-
-func (cs *State) votesFromExtendedCommit(state sm.State) (*types.VoteSet, error) {
-	ec := cs.blockStore.LoadBlockExtendedCommit(state.LastBlockHeight)
-	if ec == nil {
-		return nil, fmt.Errorf("extended commit for height %v not found", state.LastBlockHeight)
-	}
-	vs := ec.ToExtendedVoteSet(state.ChainID, state.LastValidators)
-	if !vs.HasTwoThirdsMajority() {
-		return nil, errors.New("extended commit does not have +2/3 majority")
-	}
-	return vs, nil
+	return
 }
 
 func (cs *State) votesFromSeenCommit(state sm.State) (*types.VoteSet, error) {
@@ -865,11 +844,7 @@ func (cs *State) updateToState(state sm.State) {
 	cs.roundState.SetValidRound(-1)
 	cs.roundState.SetValidBlock(nil)
 	cs.roundState.SetValidBlockParts(nil)
-	if state.ConsensusParams.ABCI.VoteExtensionsEnabled(height) {
-		cs.roundState.SetVotes(cstypes.NewExtendedHeightVoteSet(state.ChainID, height, validators))
-	} else {
-		cs.roundState.SetVotes(cstypes.NewHeightVoteSet(state.ChainID, height, validators))
-	}
+	cs.roundState.SetVotes(cstypes.NewHeightVoteSet(state.ChainID, height, validators))
 	cs.roundState.SetCommitRound(-1)
 	cs.roundState.SetLastValidators(state.LastValidators)
 	cs.roundState.SetTriggeredTimeoutPrecommit(false)
@@ -1563,16 +1538,16 @@ func (cs *State) createProposalBlock(ctx context.Context) (*types.Block, error) 
 	}
 
 	// TODO(sergio): wouldn't it be easier if CreateProposalBlock accepted cs.LastCommit directly?
-	var lastExtCommit *types.ExtendedCommit
+	var lastCommit *types.Commit
 	switch {
 	case cs.roundState.Height() == cs.state.InitialHeight:
 		// We're creating a proposal for the first block.
 		// The commit is empty, but not nil.
-		lastExtCommit = &types.ExtendedCommit{}
+		lastCommit = &types.Commit{}
 
 	case cs.roundState.LastCommit().HasTwoThirdsMajority():
 		// Make the commit from LastCommit
-		lastExtCommit = cs.roundState.LastCommit().MakeExtendedCommit()
+		lastCommit = cs.roundState.LastCommit().MakeCommit()
 
 	default: // This shouldn't happen.
 		cs.logger.Error("propose step; cannot propose anything without commit for the previous block")
@@ -1588,7 +1563,7 @@ func (cs *State) createProposalBlock(ctx context.Context) (*types.Block, error) 
 
 	proposerAddr := cs.privValidatorPubKey.Address()
 
-	ret, err := cs.blockExec.CreateProposalBlock(ctx, cs.roundState.Height(), cs.state, lastExtCommit, proposerAddr)
+	ret, err := cs.blockExec.CreateProposalBlock(ctx, cs.roundState.Height(), cs.state, lastCommit, proposerAddr)
 	if err != nil {
 		panic(err)
 	}
@@ -2168,12 +2143,8 @@ func (cs *State) finalizeCommit(ctx context.Context, height int64) {
 		// but may differ from the LastCommit included in the next block
 		_, storeBlockSpan := cs.tracer.Start(spanCtx, "cs.state.finalizeCommit.saveblockstore")
 		defer storeBlockSpan.End()
-		seenExtendedCommit := cs.roundState.Votes().Precommits(cs.roundState.CommitRound()).MakeExtendedCommit()
-		if cs.state.ConsensusParams.ABCI.VoteExtensionsEnabled(block.Height) {
-			cs.blockStore.SaveBlockWithExtendedCommit(block, blockParts, seenExtendedCommit)
-		} else {
-			cs.blockStore.SaveBlock(block, blockParts, seenExtendedCommit.ToCommit())
-		}
+		seenCommit := cs.roundState.Votes().Precommits(cs.roundState.CommitRound()).MakeCommit()
+		cs.blockStore.SaveBlock(block, blockParts, seenCommit)
 		// Calculate consensus time
 		cs.metrics.MarkConsensusTime(time.Since(cs.roundState.StartTime()))
 	} else {
@@ -2691,48 +2662,6 @@ func (cs *State) addVote(
 		return
 	}
 
-	// Check to see if the chain is configured to extend votes.
-	if cs.state.ConsensusParams.ABCI.VoteExtensionsEnabled(cs.roundState.Height()) {
-		// The chain is configured to extend votes, check that the vote is
-		// not for a nil block and verify the extensions signature against the
-		// corresponding public key.
-
-		var myAddr []byte
-		if cs.privValidatorPubKey != nil {
-			myAddr = cs.privValidatorPubKey.Address()
-		}
-		// Verify VoteExtension if precommit and not nil
-		// https://github.com/tendermint/tendermint/issues/8487
-		if vote.Type == tmproto.PrecommitType && !vote.BlockID.IsNil() &&
-			!bytes.Equal(vote.ValidatorAddress, myAddr) { // Skip the VerifyVoteExtension call if the vote was issued by this validator.
-
-			// The core fields of the vote message were already validated in the
-			// consensus reactor when the vote was received.
-			// Here, we verify the signature of the vote extension included in the vote
-			// message.
-			_, val := cs.state.Validators.GetByIndex(vote.ValidatorIndex)
-			if err := vote.VerifyExtension(cs.state.ChainID, val.PubKey); err != nil {
-				return false, err
-			}
-
-			err := cs.blockExec.VerifyVoteExtension(ctx, vote)
-			cs.metrics.MarkVoteExtensionReceived(err == nil)
-			if err != nil {
-				return false, err
-			}
-		}
-	} else {
-		// Vote extensions are not enabled on the network.
-		// strip the extension data from the vote in case any is present.
-		//
-		// TODO punish a peer if it sent a vote with an extension when the feature
-		// is disabled on the network.
-		// https://github.com/tendermint/tendermint/issues/8565
-		if stripped := vote.StripExtension(); stripped {
-			cs.logger.Error("vote included extension data but vote extensions are not enabled", "peer", peerID)
-		}
-	}
-
 	height := cs.roundState.Height()
 	added, err = cs.roundState.Votes().AddVote(vote, peerID)
 	if !added {
@@ -2884,15 +2813,6 @@ func (cs *State) signVote(
 	timeout := time.Second
 	if msgType == tmproto.PrecommitType && !vote.BlockID.IsNil() {
 		timeout = cs.voteTimeout(cs.roundState.Round())
-		// if the signedMessage type is for a non-nil precommit, add
-		// VoteExtension
-		if cs.state.ConsensusParams.ABCI.VoteExtensionsEnabled(cs.roundState.Height()) {
-			ext, err := cs.blockExec.ExtendVote(ctx, vote)
-			if err != nil {
-				return nil, err
-			}
-			vote.Extension = ext
-		}
 	}
 
 	v := vote.ToProto()
@@ -2902,7 +2822,6 @@ func (cs *State) signVote(
 
 	err := cs.privValidator.SignVote(ctxto, cs.state.ChainID, v)
 	vote.Signature = v.Signature
-	vote.ExtensionSignature = v.ExtensionSignature
 	vote.Timestamp = v.Timestamp
 
 	return vote, err
@@ -2935,10 +2854,6 @@ func (cs *State) signAddVote(
 	if err != nil {
 		cs.logger.Error("failed signing vote", "height", cs.roundState.Height(), "round", cs.roundState.Round(), "vote", vote, "err", err)
 		return nil
-	}
-	if !cs.state.ConsensusParams.ABCI.VoteExtensionsEnabled(vote.Height) {
-		// The signer will sign the extension, make sure to remove the data on the way out
-		vote.StripExtension()
 	}
 	cs.sendInternalMessage(ctx, msgInfo{&VoteMessage{vote}, "", tmtime.Now()})
 	cs.logger.Info("signed and pushed vote", "height", cs.roundState.Height(), "round", cs.roundState.Round(), "vote", vote)

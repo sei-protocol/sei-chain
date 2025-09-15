@@ -38,10 +38,9 @@ We let each peer provide us with up to 2 unexpected "catchup" rounds.
 One for their LastCommit round, and another for the official commit round.
 */
 type HeightVoteSet struct {
-	chainID           string
-	height            int64
-	valSet            *types.ValidatorSet
-	extensionsEnabled bool
+	chainID string
+	height  int64
+	valSet  *types.ValidatorSet
 
 	mtx               sync.Mutex
 	round             int32                    // max tracked round
@@ -51,17 +50,7 @@ type HeightVoteSet struct {
 
 func NewHeightVoteSet(chainID string, height int64, valSet *types.ValidatorSet) *HeightVoteSet {
 	hvs := &HeightVoteSet{
-		chainID:           chainID,
-		extensionsEnabled: false,
-	}
-	hvs.Reset(height, valSet)
-	return hvs
-}
-
-func NewExtendedHeightVoteSet(chainID string, height int64, valSet *types.ValidatorSet) *HeightVoteSet {
-	hvs := &HeightVoteSet{
-		chainID:           chainID,
-		extensionsEnabled: true,
+		chainID: chainID,
 	}
 	hvs.Reset(height, valSet)
 	return hvs
@@ -117,14 +106,8 @@ func (hvs *HeightVoteSet) addRound(round int32) {
 	if _, ok := hvs.roundVoteSets[round]; ok {
 		panic("addRound() for an existing round")
 	}
-	// log.Debug("addRound(round)", "round", round)
 	prevotes := types.NewVoteSet(hvs.chainID, hvs.height, round, tmproto.PrevoteType, hvs.valSet)
-	var precommits *types.VoteSet
-	if hvs.extensionsEnabled {
-		precommits = types.NewExtendedVoteSet(hvs.chainID, hvs.height, round, tmproto.PrecommitType, hvs.valSet)
-	} else {
-		precommits = types.NewVoteSet(hvs.chainID, hvs.height, round, tmproto.PrecommitType, hvs.valSet)
-	}
+	precommits := types.NewVoteSet(hvs.chainID, hvs.height, round, tmproto.PrecommitType, hvs.valSet)
 	hvs.roundVoteSets[round] = RoundVoteSet{
 		Prevotes:   prevotes,
 		Precommits: precommits,

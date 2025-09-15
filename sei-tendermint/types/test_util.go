@@ -8,8 +8,8 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
-func makeExtCommit(ctx context.Context, blockID BlockID, height int64, round int32,
-	voteSet *VoteSet, validators []PrivValidator, now time.Time) (*ExtendedCommit, error) {
+func makeCommit(ctx context.Context, blockID BlockID, height int64, round int32,
+	voteSet *VoteSet, validators []PrivValidator, now time.Time) (*Commit, error) {
 
 	// all sign
 	for i := 0; i < len(validators); i++ {
@@ -33,7 +33,7 @@ func makeExtCommit(ctx context.Context, blockID BlockID, height int64, round int
 		}
 	}
 
-	return voteSet.MakeExtendedCommit(), nil
+	return voteSet.MakeCommit(), nil
 }
 
 func signAddVote(ctx context.Context, privVal PrivValidator, vote *Vote, voteSet *VoteSet) (signed bool, err error) {
@@ -43,6 +43,5 @@ func signAddVote(ctx context.Context, privVal PrivValidator, vote *Vote, voteSet
 		return false, err
 	}
 	vote.Signature = v.Signature
-	vote.ExtensionSignature = v.ExtensionSignature
 	return voteSet.AddVote(vote)
 }

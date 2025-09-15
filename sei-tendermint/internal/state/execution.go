@@ -89,7 +89,7 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 	ctx context.Context,
 	height int64,
 	state State,
-	lastExtCommit *types.ExtendedCommit,
+	lastCommit *types.Commit,
 	proposerAddr []byte,
 ) (*types.Block, error) {
 
@@ -103,14 +103,13 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 	maxDataBytes := types.MaxDataBytes(maxBytes, evSize, state.Validators.Size())
 
 	txs := blockExec.mempool.ReapMaxBytesMaxGas(maxDataBytes, maxGasWanted, maxGas)
-	commit := lastExtCommit.ToCommit()
-	block := state.MakeBlock(height, txs, commit, evidence, proposerAddr)
+	block := state.MakeBlock(height, txs, lastCommit, evidence, proposerAddr)
 	rpp, err := blockExec.appClient.PrepareProposal(
 		ctx,
 		&abci.RequestPrepareProposal{
 			MaxTxBytes:            maxDataBytes,
 			Txs:                   block.Txs.ToSliceOfBytes(),
-			LocalLastCommit:       buildExtendedCommitInfo(lastExtCommit, blockExec.store, state.InitialHeight, state.ConsensusParams.ABCI),
+			LocalLastCommit:       buildExtendedCommitInfo(lastCommit, blockExec.store, state.InitialHeight),
 			ByzantineValidators:   block.Evidence.ToABCI(),
 			Height:                block.Height,
 			Time:                  block.Time,
@@ -151,7 +150,7 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 		}
 	}
 	itxs := txrSet.IncludedTxs()
-	return state.MakeBlock(height, itxs, commit, evidence, proposerAddr), nil
+	return state.MakeBlock(height, itxs, lastCommit, evidence, proposerAddr), nil
 }
 
 func (blockExec *BlockExecutor) GetTxsForKeys(txKeys []types.TxKey) types.Txs {
@@ -379,35 +378,6 @@ func (blockExec *BlockExecutor) ApplyBlock(
 	return state, nil
 }
 
-func (blockExec *BlockExecutor) ExtendVote(ctx context.Context, vote *types.Vote) ([]byte, error) {
-	resp, err := blockExec.appClient.ExtendVote(ctx, &abci.RequestExtendVote{
-		Hash:   vote.BlockID.Hash,
-		Height: vote.Height,
-	})
-	if err != nil {
-		panic(fmt.Errorf("ExtendVote call failed: %w", err))
-	}
-	return resp.VoteExtension, nil
-}
-
-func (blockExec *BlockExecutor) VerifyVoteExtension(ctx context.Context, vote *types.Vote) error {
-	resp, err := blockExec.appClient.VerifyVoteExtension(ctx, &abci.RequestVerifyVoteExtension{
-		Hash:             vote.BlockID.Hash,
-		ValidatorAddress: vote.ValidatorAddress,
-		Height:           vote.Height,
-		VoteExtension:    vote.Extension,
-	})
-	if err != nil {
-		panic(fmt.Errorf("VerifyVoteExtension call failed: %w", err))
-	}
-
-	if !resp.IsOK() {
-		return errors.New("invalid vote extension")
-	}
-
-	return nil
-}
-
 // Commit locks the mempool, runs the ABCI Commit message, and updates the
 // mempool.
 // It returns the result of calling abci.Commit (the AppHash) and the height to retain (if any).
@@ -543,7 +513,7 @@ func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) a
 // data, it returns an empty record.
 //
 // Assumes that the commit signatures are sorted according to validator index.
-func buildExtendedCommitInfo(ec *types.ExtendedCommit, store Store, initialHeight int64, ap types.ABCIParams) abci.ExtendedCommitInfo {
+func buildExtendedCommitInfo(ec *types.Commit, store Store, initialHeight int64) abci.ExtendedCommitInfo {
 	if ec.Height < initialHeight {
 		// There are no extended commits for heights below the initial height.
 		return abci.ExtendedCommitInfo{}
@@ -564,13 +534,13 @@ func buildExtendedCommitInfo(ec *types.ExtendedCommit, store Store, initialHeigh
 	if ecSize != valSetLen {
 		panic(fmt.Errorf(
 			"extended commit size (%d) does not match validator set length (%d) at height %d\n\n%v\n\n%v",
-			ecSize, valSetLen, ec.Height, ec.ExtendedSignatures, valSet.Validators,
+			ecSize, valSetLen, ec.Height, ec.Signatures, valSet.Validators,
 		))
 	}
 
 	votes := make([]abci.ExtendedVoteInfo, ecSize)
 	for i, val := range valSet.Validators {
-		ecs := ec.ExtendedSignatures[i]
+		ecs := ec.Signatures[i]
 
 		// Absent signatures have empty validator addresses, but otherwise we
 		// expect the validator addresses to be the same.
@@ -580,23 +550,9 @@ func buildExtendedCommitInfo(ec *types.ExtendedCommit, store Store, initialHeigh
 			))
 		}
 
-		var ext []byte
-		// Check if vote extensions were enabled during the commit's height: ec.Height.
-		// ec is the commit from the previous height, so if extensions were enabled
-		// during that height, we ensure they are present and deliver the data to
-		// the proposer. If they were not enabled during this previous height, we
-		// will not deliver extension data.
-		if ap.VoteExtensionsEnabled(ec.Height) && ecs.BlockIDFlag == types.BlockIDFlagCommit {
-			if err := ecs.EnsureExtension(); err != nil {
-				panic(fmt.Errorf("commit at height %d received with missing vote extensions data", ec.Height))
-			}
-			ext = ecs.Extension
-		}
-
 		votes[i] = abci.ExtendedVoteInfo{
 			Validator:       types.TM2PB.Validator(val),
 			SignedLastBlock: ecs.BlockIDFlag != types.BlockIDFlagAbsent,
-			VoteExtension:   ext,
 		}
 	}
 

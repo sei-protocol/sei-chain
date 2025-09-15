@@ -116,8 +116,7 @@ func (vs *validatorStub) signVote(
 	voteType tmproto.SignedMsgType,
 	chainID string,
 	blockID types.BlockID,
-	voteExtension []byte) (*types.Vote, error) {
-
+) (*types.Vote, error) {
 	pubKey, err := vs.PrivValidator.GetPubKey(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("can't get pubkey: %w", err)
@@ -131,7 +130,6 @@ func (vs *validatorStub) signVote(
 		Timestamp:        vs.clock.Now(),
 		ValidatorAddress: pubKey.Address(),
 		ValidatorIndex:   vs.Index,
-		Extension:        voteExtension,
 	}
 	v := vote.ToProto()
 	if err = vs.PrivValidator.SignVote(ctx, chainID, v); err != nil {
@@ -142,12 +140,10 @@ func (vs *validatorStub) signVote(
 	if signDataIsEqual(vs.lastVote, v) {
 		v.Signature = vs.lastVote.Signature
 		v.Timestamp = vs.lastVote.Timestamp
-		v.ExtensionSignature = vs.lastVote.ExtensionSignature
 	}
 
 	vote.Signature = v.Signature
 	vote.Timestamp = v.Timestamp
-	vote.ExtensionSignature = v.ExtensionSignature
 
 	return vote, err
 }
@@ -159,18 +155,11 @@ func signVote(
 	vs *validatorStub,
 	voteType tmproto.SignedMsgType,
 	chainID string,
-	blockID types.BlockID) *types.Vote {
-
-	var ext []byte
-	// Only non-nil precommits are allowed to carry vote extensions.
-	if voteType == tmproto.PrecommitType && !blockID.IsNil() {
-		ext = []byte("extension")
-	}
-	v, err := vs.signVote(ctx, voteType, chainID, blockID, ext)
+	blockID types.BlockID,
+) *types.Vote {
+	v, err := vs.signVote(ctx, voteType, chainID, blockID)
 	require.NoError(t, err, "failed to sign vote")
-
 	vs.lastVote = v
-
 	return v
 }
 
@@ -864,7 +853,6 @@ func randConsensusNetWithPeers(
 	cfg *config.Config,
 	nValidators int,
 	nPeers int,
-	testName string,
 	tickerFunc func() TimeoutTicker,
 	appFunc func(log.Logger, string) abci.Application,
 ) ([]*State, *types.GenesisDoc, *config.Config, cleanupFunc) {
@@ -880,7 +868,7 @@ func randConsensusNetWithPeers(
 	configRootDirs := make([]string, 0, nPeers)
 	for i := 0; i < nPeers; i++ {
 		state, _ := sm.MakeGenesisState(genDoc)
-		thisConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%d", testName, i))
+		thisConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%d", t.Name(), i))
 		require.NoError(t, err)
 
 		configRootDirs = append(configRootDirs, thisConfig.RootDir)
@@ -902,7 +890,7 @@ func randConsensusNetWithPeers(
 			require.NoError(t, err)
 		}
 
-		app := appFunc(logger, filepath.Join(cfg.DBDir(), fmt.Sprintf("%s_%d", testName, i)))
+		app := appFunc(logger, filepath.Join(cfg.DBDir(), fmt.Sprintf("%s_%d", t.Name(), i)))
 		vals := types.TM2PB.ValidatorUpdates(state.Validators)
 		switch app.(type) {
 		// simulate handshake, receive app version. If don't do this, replay test will fail
@@ -1004,6 +992,5 @@ func signDataIsEqual(v1 *types.Vote, v2 *tmproto.Vote) bool {
 		v1.Height == v2.GetHeight() &&
 		v1.Round == v2.Round &&
 		bytes.Equal(v1.ValidatorAddress.Bytes(), v2.GetValidatorAddress()) &&
-		v1.ValidatorIndex == v2.GetValidatorIndex() &&
-		bytes.Equal(v1.Extension, v2.Extension)
+		v1.ValidatorIndex == v2.GetValidatorIndex()
 }

@@ -107,15 +107,6 @@ type ABCIParams struct {
 	RecheckTx                  bool  `json:"recheck_tx"`
 }
 
-// VoteExtensionsEnabled returns true if vote extensions are enabled at height h
-// and false otherwise.
-func (a ABCIParams) VoteExtensionsEnabled(h int64) bool {
-	if a.VoteExtensionsEnableHeight == 0 {
-		return false
-	}
-	return a.VoteExtensionsEnableHeight <= h
-}
-
 // DefaultConsensusParams returns a default ConsensusParams.
 func DefaultConsensusParams() *ConsensusParams {
 	return &ConsensusParams{

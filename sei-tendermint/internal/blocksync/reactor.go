@@ -207,18 +207,6 @@ func (r *Reactor) respondToPeer(ctx context.Context, msg *bcproto.BlockRequest, 
 		})
 	}
 
-	state, err := r.stateStore.Load()
-	if err != nil {
-		return fmt.Errorf("loading state: %w", err)
-	}
-	var extCommit *types.ExtendedCommit
-	if state.ConsensusParams.ABCI.VoteExtensionsEnabled(msg.Height) {
-		extCommit = r.store.LoadBlockExtendedCommit(msg.Height)
-		if extCommit == nil {
-			return fmt.Errorf("found block in store with no extended commit: %v", block)
-		}
-	}
-
 	blockProto, err := block.ToProto()
 	if err != nil {
 		return fmt.Errorf("failed to convert block to protobuf: %w", err)
@@ -227,11 +215,9 @@ func (r *Reactor) respondToPeer(ctx context.Context, msg *bcproto.BlockRequest, 
 	return blockSyncCh.Send(ctx, p2p.Envelope{
 		To: peerID,
 		Message: &bcproto.BlockResponse{
-			Block:     blockProto,
-			ExtCommit: extCommit.ToProto(),
+			Block: blockProto,
 		},
 	})
-
 }
 
 // handleMessage handles an Envelope sent from a peer on a specific p2p Channel.
@@ -268,19 +254,7 @@ func (r *Reactor) handleMessage(ctx context.Context, envelope *p2p.Envelope, blo
 					"err", err)
 				return err
 			}
-			var extCommit *types.ExtendedCommit
-			if msg.ExtCommit != nil {
-				var err error
-				extCommit, err = types.ExtendedCommitFromProto(msg.ExtCommit)
-				if err != nil {
-					r.logger.Error("failed to convert extended commit from proto",
-						"peer", envelope.From,
-						"err", err)
-					return err
-				}
-			}
-
-			if err := r.pool.AddBlock(envelope.From, block, extCommit, block.Size()); err != nil {
+			if err := r.pool.AddBlock(envelope.From, block, block.Size()); err != nil {
 				r.logger.Error("failed to add block", "err", err)
 			}
 
@@ -510,8 +484,6 @@ func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool, blockSyncCh
 		lastRate    = 0.0
 
 		didProcessCh = make(chan struct{}, 1)
-
-		initialCommitHasExtensions = (r.initialState.LastBlockHeight > 0 && r.store.LoadBlockExtendedCommit(r.initialState.LastBlockHeight) != nil)
 	)
 
 	defer trySyncTicker.Stop()
@@ -535,35 +507,6 @@ func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool, blockSyncCh
 			)
 
 			switch {
-
-			// The case statement below is a bit confusing, so here is a breakdown
-			// of its logic and purpose:
-			//
-			// If VoteExtensions are enabled we cannot switch to consensus without
-			// the vote extension data for the previous height, i.e. state.LastBlockHeight.
-			//
-			// If extensions were required during state.LastBlockHeight and we have
-			// sync'd at least one block, then we are guaranteed to have extensions.
-			// BlockSync requires that the blocks it fetches have extensions if
-			// extensions were enabled during the height.
-			//
-			// If extensions were required during state.LastBlockHeight and we have
-			// not sync'd any blocks, then we can only transition to Consensus
-			// if we already had extensions for the initial height.
-			// If any of these conditions is not met, we continue the loop, looking
-			// for extensions.
-			case state.ConsensusParams.ABCI.VoteExtensionsEnabled(state.LastBlockHeight) &&
-				(blocksSynced == 0 && !initialCommitHasExtensions):
-				r.logger.Info(
-					"no extended commit yet",
-					"height", height,
-					"last_block_height", state.LastBlockHeight,
-					"initial_height", state.InitialHeight,
-					"max_peer_height", r.pool.MaxPeerHeight(),
-					"timeout_in", syncTimeout-time.Since(lastAdvance),
-				)
-				continue
-
 			case r.pool.IsCaughtUp() && r.previousMaxPeerHeight <= r.pool.MaxPeerHeight():
 				r.logger.Info("switching to consensus reactor after caught up", "height", height)
 
@@ -611,12 +554,8 @@ func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool, blockSyncCh
 			// TODO: Uncouple from request routine.
 
 			// see if there are any blocks to sync
-			first, second, extCommit := r.pool.PeekTwoBlocks()
-			if first != nil && extCommit == nil &&
-				state.ConsensusParams.ABCI.VoteExtensionsEnabled(first.Height) {
-				// See https://github.com/tendermint/tendermint/pull/8433#discussion_r866790631
-				panic(fmt.Errorf("peeked first block without extended commit at height %d - possible node store corruption", first.Height))
-			} else if first == nil || second == nil {
+			first, second := r.pool.PeekTwoBlocks()
+			if first == nil || second == nil {
 				// we need to have fetched two consecutive blocks in order to perform blocksync verification
 				continue
 			}
@@ -648,10 +587,6 @@ func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool, blockSyncCh
 			if err == nil {
 				// validate the block before we persist it
 				err = r.blockExec.ValidateBlock(ctx, state, first)
-			}
-			if err == nil && state.ConsensusParams.ABCI.VoteExtensionsEnabled(first.Height) {
-				// if vote extensions were required at this height, ensure they exist.
-				err = extCommit.EnsureExtensions()
 			}
 			// If either of the checks failed we log the error and request for a new block
 			// at that height
@@ -687,16 +622,11 @@ func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool, blockSyncCh
 
 			r.pool.PopRequest()
 
-			// TODO: batch saves so we do not persist to disk every block
-			if state.ConsensusParams.ABCI.VoteExtensionsEnabled(first.Height) {
-				r.store.SaveBlockWithExtendedCommit(first, firstParts, extCommit)
-			} else {
-				// We use LastCommit here instead of extCommit. extCommit is not
-				// guaranteed to be populated by the peer if extensions are not enabled.
-				// Currently, the peer should provide an extCommit even if the vote extension data are absent
-				// but this may change so using second.LastCommit is safer.
-				r.store.SaveBlock(first, firstParts, second.LastCommit)
-			}
+			// We use LastCommit here instead of extCommit. extCommit is not
+			// guaranteed to be populated by the peer if extensions are not enabled.
+			// Currently, the peer should provide an extCommit even if the vote extension data are absent
+			// but this may change so using second.LastCommit is safer.
+			r.store.SaveBlock(first, firstParts, second.LastCommit)
 
 			// TODO: Same thing for app - but we would need a way to get the hash
 			// without persisting the state.

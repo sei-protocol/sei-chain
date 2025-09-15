@@ -203,14 +203,6 @@ func (m *Metrics) MarkProposalProcessed(accepted bool) {
 	m.ProposalReceiveCount.With("status", status).Add(1)
 }
 
-func (m *Metrics) MarkVoteExtensionReceived(accepted bool) {
-	status := "accepted"
-	if !accepted {
-		status = "rejected"
-	}
-	m.VoteExtensionReceiveCount.With("status", status).Add(1)
-}
-
 func (m *Metrics) MarkVoteReceived(vt tmproto.SignedMsgType, power, totalPower int64) {
 	p := float64(power) / float64(totalPower)
 	n := strings.ToLower(strings.TrimPrefix(vt.String(), "SIGNED_MSG_TYPE_"))

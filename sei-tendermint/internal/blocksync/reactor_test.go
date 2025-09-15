@@ -201,18 +201,18 @@ func (rts *reactorTestSuite) addNode(
 	)
 
 	reactor.SetChannel(rts.blockSyncChannels[nodeID])
-	lastExtCommit := &types.ExtendedCommit{}
+	lastCommit := &types.Commit{}
 
 	state, err := reactor.stateStore.Load()
 	require.NoError(t, err)
 	for blockHeight := int64(1); blockHeight <= maxBlockHeight; blockHeight++ {
-		block, blockID, partSet, seenExtCommit := makeNextBlock(ctx, t, state, privVal, blockHeight, lastExtCommit)
+		block, blockID, partSet, seenCommit := makeNextBlock(ctx, t, state, privVal, blockHeight, lastCommit)
 
 		state, err = reactor.blockExec.ApplyBlock(ctx, state, blockID, block, nil)
 		require.NoError(t, err)
 
-		reactor.store.SaveBlockWithExtendedCommit(block, partSet, seenExtCommit)
-		lastExtCommit = seenExtCommit
+		reactor.store.SaveBlock(block, partSet, seenCommit)
+		lastCommit = seenCommit
 	}
 
 	rts.reactors[nodeID] = reactor
@@ -225,11 +225,8 @@ func makeNextBlock(ctx context.Context,
 	state sm.State,
 	signer types.PrivValidator,
 	height int64,
-	lc *types.ExtendedCommit) (*types.Block, types.BlockID, *types.PartSet, *types.ExtendedCommit) {
-
-	lastExtCommit := lc.Clone()
-
-	block := sf.MakeBlock(state, height, lastExtCommit.ToCommit())
+	lc *types.Commit) (*types.Block, types.BlockID, *types.PartSet, *types.Commit) {
+	block := sf.MakeBlock(state, height, lc)
 	partSet, err := block.MakePartSet(types.BlockPartSizeBytes)
 	require.NoError(t, err)
 	blockID := types.BlockID{Hash: block.Hash(), PartSetHeader: partSet.Header()}
@@ -247,14 +244,13 @@ func makeNextBlock(ctx context.Context,
 		time.Now(),
 	)
 	require.NoError(t, err)
-	seenExtCommit := &types.ExtendedCommit{
-		Height:             vote.Height,
-		Round:              vote.Round,
-		BlockID:            blockID,
-		ExtendedSignatures: []types.ExtendedCommitSig{vote.ExtendedCommitSig()},
+	seenCommit := &types.Commit{
+		Height:     vote.Height,
+		Round:      vote.Round,
+		BlockID:    blockID,
+		Signatures: []types.CommitSig{vote.CommitSig()},
 	}
-	return block, blockID, partSet, seenExtCommit
-
+	return block, blockID, partSet, seenCommit
 }
 
 func (rts *reactorTestSuite) start(ctx context.Context, t *testing.T) {

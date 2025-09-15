@@ -75,8 +75,8 @@ func randomDuplicateVoteEvidence(ctx context.Context, t *testing.T) *DuplicateVo
 	blockID2 := makeBlockID([]byte("blockhash2"), 1000, []byte("partshash"))
 	const chainID = "mychain"
 	return &DuplicateVoteEvidence{
-		VoteA:            makeVote(ctx, t, val, chainID, 0, 10, 2, 1, blockID, defaultVoteTime),
-		VoteB:            makeVote(ctx, t, val, chainID, 0, 10, 2, 1, blockID2, defaultVoteTime.Add(1*time.Minute)),
+		VoteA:            NewEncodedVote(makeVote(ctx, t, val, chainID, 0, 10, 2, 1, blockID, defaultVoteTime)),
+		VoteB:            NewEncodedVote(makeVote(ctx, t, val, chainID, 0, 10, 2, 1, blockID2, defaultVoteTime.Add(1*time.Minute))),
 		TotalVotingPower: 30,
 		ValidatorPower:   10,
 		Timestamp:        defaultVoteTime,
@@ -115,7 +115,7 @@ func TestDuplicateVoteEvidenceValidation(t *testing.T) {
 			ev.VoteB = nil
 		}, true},
 		{"Invalid vote type", func(ev *DuplicateVoteEvidence) {
-			ev.VoteA = makeVote(ctx, t, val, chainID, math.MaxInt32, math.MaxInt64, math.MaxInt32, 0, blockID2, defaultVoteTime)
+			ev.VoteA = NewEncodedVote(makeVote(ctx, t, val, chainID, math.MaxInt32, math.MaxInt64, math.MaxInt32, 0, blockID2, defaultVoteTime))
 		}, true},
 		{"Invalid vote order", func(ev *DuplicateVoteEvidence) {
 			swap := ev.VoteA.Copy()
@@ -147,9 +147,8 @@ func TestLightClientAttackEvidenceBasic(t *testing.T) {
 	header := makeHeaderRandom()
 	header.Height = height
 	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
-	extCommit, err := makeExtCommit(ctx, blockID, height, 1, voteSet, privVals, defaultVoteTime)
+	commit, err := makeCommit(ctx, blockID, height, 1, voteSet, privVals, defaultVoteTime)
 	require.NoError(t, err)
-	commit := extCommit.ToCommit()
 
 	lcae := &LightClientAttackEvidence{
 		ConflictingBlock: &LightBlock{
@@ -212,9 +211,8 @@ func TestLightClientAttackEvidenceValidation(t *testing.T) {
 	header.Height = height
 	header.ValidatorsHash = valSet.Hash()
 	blockID := makeBlockID(header.Hash(), math.MaxInt32, crypto.Checksum([]byte("partshash")))
-	extCommit, err := makeExtCommit(ctx, blockID, height, 1, voteSet, privVals, time.Now())
+	commit, err := makeCommit(ctx, blockID, height, 1, voteSet, privVals, time.Now())
 	require.NoError(t, err)
-	commit := extCommit.ToCommit()
 
 	lcae := &LightClientAttackEvidence{
 		ConflictingBlock: &LightBlock{
@@ -346,8 +344,8 @@ func TestEvidenceProto(t *testing.T) {
 	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
 	blockID2 := makeBlockID(crypto.Checksum([]byte("blockhash2")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
 	const chainID = "mychain"
-	v := makeVote(ctx, t, val, chainID, math.MaxInt32, math.MaxInt64, 1, 0x01, blockID, defaultVoteTime)
-	v2 := makeVote(ctx, t, val, chainID, math.MaxInt32, math.MaxInt64, 2, 0x01, blockID2, defaultVoteTime)
+	v := NewEncodedVote(makeVote(ctx, t, val, chainID, math.MaxInt32, math.MaxInt64, 1, 0x01, blockID, defaultVoteTime))
+	v2 := NewEncodedVote(makeVote(ctx, t, val, chainID, math.MaxInt32, math.MaxInt64, 2, 0x01, blockID2, defaultVoteTime))
 
 	tests := []struct {
 		testName     string
@@ -362,7 +360,6 @@ func TestEvidenceProto(t *testing.T) {
 		{"DuplicateVoteEvidence success", &DuplicateVoteEvidence{VoteA: v2, VoteB: v}, false, false},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.testName, func(t *testing.T) {
 			pb, err := EvidenceToProto(tt.evidence)
 			if tt.toProtoErr {
@@ -390,14 +387,14 @@ func TestEvidenceVectors(t *testing.T) {
 	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
 	blockID2 := makeBlockID(crypto.Checksum([]byte("blockhash2")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
 	const chainID = "mychain"
-	v := makeVote(ctx, t, val, chainID, math.MaxInt32, math.MaxInt64, 1, 0x01, blockID, defaultVoteTime)
-	v2 := makeVote(ctx, t, val, chainID, math.MaxInt32, math.MaxInt64, 2, 0x01, blockID2, defaultVoteTime)
+	v := NewEncodedVote(makeVote(ctx, t, val, chainID, math.MaxInt32, math.MaxInt64, 1, 0x01, blockID, defaultVoteTime))
+	v2 := NewEncodedVote(makeVote(ctx, t, val, chainID, math.MaxInt32, math.MaxInt64, 2, 0x01, blockID2, defaultVoteTime))
 
 	// Data for LightClientAttackEvidence
 	height := int64(5)
 	commonHeight := height - 1
 	nValidators := 10
-	voteSet, valSet, privVals := deterministicVoteSet(ctx, t, height, 1, tmproto.PrecommitType, 1)
+	voteSet, valSet, privVals := deterministicVoteSet(ctx, t, height, 1, tmproto.PrecommitType)
 	header := &Header{
 		Version:            version.Consensus{Block: 1, App: 1},
 		ChainID:            chainID,
@@ -417,13 +414,13 @@ func TestEvidenceVectors(t *testing.T) {
 		ProposerAddress: []byte("2915b7b15f979e48ebc61774bb1d86ba3136b7eb"),
 	}
 	blockID3 := makeBlockID(header.Hash(), math.MaxInt32, crypto.Checksum([]byte("partshash")))
-	extCommit, err := makeExtCommit(ctx, blockID3, height, 1, voteSet, privVals, defaultVoteTime)
+	commit, err := makeCommit(ctx, blockID3, height, 1, voteSet, privVals, defaultVoteTime)
 	require.NoError(t, err)
 	lcae := &LightClientAttackEvidence{
 		ConflictingBlock: &LightBlock{
 			SignedHeader: &SignedHeader{
 				Header: header,
-				Commit: extCommit.ToCommit(),
+				Commit: commit,
 			},
 			ValidatorSet: valSet,
 		},

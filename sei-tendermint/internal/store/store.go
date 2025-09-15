@@ -279,29 +279,6 @@ func (bs *BlockStore) LoadBlockCommit(height int64) *types.Commit {
 	return commit
 }
 
-// LoadExtendedCommit returns the ExtendedCommit for the given height.
-// The extended commit is not guaranteed to contain the same +2/3 precommits data
-// as the commit in the block.
-func (bs *BlockStore) LoadBlockExtendedCommit(height int64) *types.ExtendedCommit {
-	pbec := new(tmproto.ExtendedCommit)
-	bz, err := bs.db.Get(extCommitKey(height))
-	if err != nil {
-		panic(fmt.Errorf("fetching extended commit: %w", err))
-	}
-	if len(bz) == 0 {
-		return nil
-	}
-	err = proto.Unmarshal(bz, pbec)
-	if err != nil {
-		panic(fmt.Errorf("decoding extended commit: %w", err))
-	}
-	extCommit, err := types.ExtendedCommitFromProto(pbec)
-	if err != nil {
-		panic(fmt.Errorf("converting extended commit: %w", err))
-	}
-	return extCommit
-}
-
 // LoadSeenCommit returns the last locally seen Commit before being
 // cannonicalized. This is useful when we've seen a commit, but there
 // has not yet been a new block at `height + 1` that includes this
@@ -477,39 +454,6 @@ func (bs *BlockStore) SaveBlock(block *types.Block, blockParts *types.PartSet, s
 	}
 	batch := bs.db.NewBatch()
 	if err := bs.saveBlockToBatch(batch, block, blockParts, seenCommit); err != nil {
-		panic(err)
-	}
-
-	if err := batch.WriteSync(); err != nil {
-		panic(err)
-	}
-
-	if err := batch.Close(); err != nil {
-		panic(err)
-	}
-}
-
-// SaveBlockWithExtendedCommit persists the given block, blockParts, and
-// seenExtendedCommit to the underlying db. seenExtendedCommit is stored under
-// two keys in the database: as the seenCommit and as the ExtendedCommit data for the
-// height. This allows the vote extension data to be persisted for all blocks
-// that are saved.
-func (bs *BlockStore) SaveBlockWithExtendedCommit(block *types.Block, blockParts *types.PartSet, seenExtendedCommit *types.ExtendedCommit) {
-	if block == nil {
-		panic("BlockStore can only save a non-nil block")
-	}
-	if err := seenExtendedCommit.EnsureExtensions(); err != nil {
-		panic(fmt.Errorf("saving block with extensions: %w", err))
-	}
-	batch := bs.db.NewBatch()
-	if err := bs.saveBlockToBatch(batch, block, blockParts, seenExtendedCommit.ToCommit()); err != nil {
-		panic(err)
-	}
-	height := block.Height
-
-	pbec := seenExtendedCommit.ToProto()
-	extCommitBytes := mustEncode(pbec)
-	if err := batch.Set(extCommitKey(height), extCommitBytes); err != nil {
 		panic(err)
 	}
 

@@ -66,7 +66,6 @@ func TestValidateBlockHeader(t *testing.T) {
 		sm.NopMetrics(),
 	)
 	lastCommit := &types.Commit{}
-	var lastExtCommit *types.ExtendedCommit
 
 	// some bad values
 	wrongHash := crypto.Checksum([]byte("this hash is wrong"))
@@ -122,9 +121,8 @@ func TestValidateBlockHeader(t *testing.T) {
 		/*
 			A good block passes
 		*/
-		state, _, lastExtCommit = makeAndCommitGoodBlock(ctx, t,
+		state, _, lastCommit = makeAndCommitGoodBlock(ctx, t,
 			state, height, lastCommit, state.Validators.GetProposer().Address, blockExec, privVals, nil)
-		lastCommit = lastExtCommit.ToCommit()
 	}
 
 	nextHeight := validationTestsStopHeight
@@ -173,7 +171,6 @@ func TestValidateBlockCommit(t *testing.T) {
 		sm.NopMetrics(),
 	)
 	lastCommit := &types.Commit{}
-	var lastExtCommit *types.ExtendedCommit
 	wrongSigsCommit := &types.Commit{Height: 1}
 	badPrivVal := types.NewMockPV()
 
@@ -224,7 +221,7 @@ func TestValidateBlockCommit(t *testing.T) {
 			A good block passes
 		*/
 		var blockID types.BlockID
-		state, blockID, lastExtCommit = makeAndCommitGoodBlock(
+		state, blockID, lastCommit = makeAndCommitGoodBlock(
 			ctx,
 			t,
 			state,
@@ -235,7 +232,6 @@ func TestValidateBlockCommit(t *testing.T) {
 			privVals,
 			nil,
 		)
-		lastCommit = lastExtCommit.ToCommit()
 
 		/*
 			wrongSigsCommit is fine except for the extra bad precommit
@@ -330,7 +326,6 @@ func TestValidateBlockEvidence(t *testing.T) {
 		sm.NopMetrics(),
 	)
 	lastCommit := &types.Commit{}
-	var lastExtCommit *types.ExtendedCommit
 
 	for height := int64(1); height < validationTestsStopHeight; height++ {
 		proposerAddr := state.Validators.GetProposer().Address
@@ -375,7 +370,7 @@ func TestValidateBlockEvidence(t *testing.T) {
 			evidence = append(evidence, newEv)
 		}
 
-		state, _, lastExtCommit = makeAndCommitGoodBlock(
+		state, _, lastCommit = makeAndCommitGoodBlock(
 			ctx,
 			t,
 			state,
@@ -386,7 +381,6 @@ func TestValidateBlockEvidence(t *testing.T) {
 			privVals,
 			evidence,
 		)
-		lastCommit = lastExtCommit.ToCommit()
 
 	}
 }

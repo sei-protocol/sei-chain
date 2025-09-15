@@ -179,10 +179,10 @@ func TestReportConflictingVotes(t *testing.T) {
 	ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, height+1, defaultEvidenceTime, pv, evidenceChainID)
 	require.NoError(t, err)
 
-	pool.ReportConflictingVotes(ev.VoteA, ev.VoteB)
+	pool.ReportConflictingVotes(ev.VoteA.Vote, ev.VoteB.Vote)
 
 	// shouldn't be able to submit the same evidence twice
-	pool.ReportConflictingVotes(ev.VoteA, ev.VoteB)
+	pool.ReportConflictingVotes(ev.VoteA.Vote, ev.VoteB.Vote)
 
 	// evidence from consensus should not be added immediately but reside in the consensus buffer
 	evList, evSize := pool.PendingEvidence(defaultEvidenceMaxBytes)
@@ -243,8 +243,8 @@ func TestEvidencePoolUpdate(t *testing.T) {
 		evidenceChainID,
 	)
 	require.NoError(t, err)
-	lastExtCommit := makeExtCommit(height, val.PrivKey.PubKey().Address())
-	block := types.MakeBlock(height+1, []types.Tx{}, lastExtCommit.ToCommit(), []types.Evidence{ev})
+	lastCommit := makeCommit(height, val.PrivKey.PubKey().Address())
+	block := types.MakeBlock(height+1, []types.Tx{}, lastCommit, []types.Evidence{ev})
 
 	// update state (partially)
 	state.LastBlockHeight = height + 1
@@ -557,8 +557,8 @@ func initializeBlockStore(db dbm.DB, state sm.State, valAddr []byte) (*store.Blo
 	blockStore := store.NewBlockStore(db)
 
 	for i := int64(1); i <= state.LastBlockHeight; i++ {
-		lastCommit := makeExtCommit(i-1, valAddr)
-		block := sf.MakeBlock(state, i, lastCommit.ToCommit())
+		lastCommit := makeCommit(i-1, valAddr)
+		block := sf.MakeBlock(state, i, lastCommit)
 
 		block.Header.Time = defaultEvidenceTime.Add(time.Duration(i) * time.Minute)
 		block.Header.Version = version.Consensus{Block: version.BlockProtocol, App: 1}
@@ -568,24 +568,21 @@ func initializeBlockStore(db dbm.DB, state sm.State, valAddr []byte) (*store.Blo
 			return nil, err
 		}
 
-		seenCommit := makeExtCommit(i, valAddr)
-		blockStore.SaveBlockWithExtendedCommit(block, partSet, seenCommit)
+		seenCommit := makeCommit(i, valAddr)
+		blockStore.SaveBlock(block, partSet, seenCommit)
 	}
 
 	return blockStore, nil
 }
 
-func makeExtCommit(height int64, valAddr []byte) *types.ExtendedCommit {
-	return &types.ExtendedCommit{
+func makeCommit(height int64, valAddr []byte) *types.Commit {
+	return &types.Commit{
 		Height: height,
-		ExtendedSignatures: []types.ExtendedCommitSig{{
-			CommitSig: types.CommitSig{
-				BlockIDFlag:      types.BlockIDFlagCommit,
-				ValidatorAddress: valAddr,
-				Timestamp:        defaultEvidenceTime,
-				Signature:        []byte("Signature"),
-			},
-			ExtensionSignature: []byte("Extended Signature"),
+		Signatures: []types.CommitSig{{
+			BlockIDFlag:      types.BlockIDFlagCommit,
+			ValidatorAddress: valAddr,
+			Timestamp:        defaultEvidenceTime,
+			Signature:        []byte("Signature"),
 		}},
 	}
 }

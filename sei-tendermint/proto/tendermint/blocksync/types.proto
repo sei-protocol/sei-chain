@@ -19,8 +19,9 @@ message NoBlockResponse {
 
 // BlockResponse returns block to the requested
 message BlockResponse {
-  tendermint.types.Block          block      = 1;
-  tendermint.types.ExtendedCommit ext_commit = 2;
+  reserved 2;
+  reserved "ext_commit";
+  tendermint.types.Block block = 1;
 }
 
 // StatusRequest requests the status of a peer.

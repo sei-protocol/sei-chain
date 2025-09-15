@@ -1566,9 +1566,8 @@ func BenchmarkValidatorSet_VerifyCommit_Ed25519(b *testing.B) { // nolint
 			// generate n validators
 			voteSet, valSet, vals := randVoteSet(ctx, b, h, 0, tmproto.PrecommitType, n, int64(n*5))
 			// create a commit with n validators
-			extCommit, err := makeExtCommit(ctx, blockID, h, 0, voteSet, vals, time.Now())
+			commit, err := makeCommit(ctx, blockID, h, 0, voteSet, vals, time.Now())
 			require.NoError(b, err)
-			commit := extCommit.ToCommit()
 
 			for i := 0; i < b.N/n; i++ {
 				err = valSet.VerifyCommit(chainID, blockID, h, commit)
@@ -1594,9 +1593,8 @@ func BenchmarkValidatorSet_VerifyCommitLight_Ed25519(b *testing.B) { // nolint
 			voteSet, valSet, vals := randVoteSet(ctx, b, h, 0, tmproto.PrecommitType, n, int64(n*5))
 
 			// create a commit with n validators
-			extCommit, err := makeExtCommit(ctx, blockID, h, 0, voteSet, vals, time.Now())
+			commit, err := makeCommit(ctx, blockID, h, 0, voteSet, vals, time.Now())
 			require.NoError(b, err)
-			commit := extCommit.ToCommit()
 
 			for i := 0; i < b.N/n; i++ {
 				err = valSet.VerifyCommitLight(chainID, blockID, h, commit)
@@ -1621,9 +1619,8 @@ func BenchmarkValidatorSet_VerifyCommitLightTrusting_Ed25519(b *testing.B) {
 			// generate n validators
 			voteSet, valSet, vals := randVoteSet(ctx, b, h, 0, tmproto.PrecommitType, n, int64(n*5))
 			// create a commit with n validators
-			extCommit, err := makeExtCommit(ctx, blockID, h, 0, voteSet, vals, time.Now())
+			commit, err := makeCommit(ctx, blockID, h, 0, voteSet, vals, time.Now())
 			require.NoError(b, err)
-			commit := extCommit.ToCommit()
 
 			for i := 0; i < b.N/n; i++ {
 				err = valSet.VerifyCommitLightTrusting(chainID, commit, tmmath.Fraction{Numerator: 1, Denominator: 3})

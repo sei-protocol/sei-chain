@@ -38,7 +38,7 @@ func makeAndCommitGoodBlock(
 	blockExec *sm.BlockExecutor,
 	privVals map[string]types.PrivValidator,
 	evidence []types.Evidence,
-) (sm.State, types.BlockID, *types.ExtendedCommit) {
+) (sm.State, types.BlockID, *types.Commit) {
 	t.Helper()
 
 	// A good block passes
@@ -81,22 +81,22 @@ func makeValidCommit(
 	blockID types.BlockID,
 	vals *types.ValidatorSet,
 	privVals map[string]types.PrivValidator,
-) (*types.ExtendedCommit, []*types.Vote) {
+) (*types.Commit, []*types.Vote) {
 	t.Helper()
-	sigs := make([]types.ExtendedCommitSig, vals.Size())
+	sigs := make([]types.CommitSig, vals.Size())
 	votes := make([]*types.Vote, vals.Size())
 	for i := 0; i < vals.Size(); i++ {
 		_, val := vals.GetByIndex(int32(i))
 		vote, err := factory.MakeVote(ctx, privVals[val.Address.String()], chainID, int32(i), height, 0, 2, blockID, time.Now())
 		require.NoError(t, err)
-		sigs[i] = vote.ExtendedCommitSig()
+		sigs[i] = vote.CommitSig()
 		votes[i] = vote
 	}
 
-	return &types.ExtendedCommit{
-		Height:             height,
-		BlockID:            blockID,
-		ExtendedSignatures: sigs,
+	return &types.Commit{
+		Height:     height,
+		BlockID:    blockID,
+		Signatures: sigs,
 	}, votes
 }
 

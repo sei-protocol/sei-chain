@@ -33,6 +33,8 @@ import (
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/internal/test/factory"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	tmcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
@@ -83,9 +85,6 @@ func setup(
 	rts.dataChannels = rts.network.MakeChannelsNoCleanup(t, chDesc(DataChannel, size))
 	rts.voteChannels = rts.network.MakeChannelsNoCleanup(t, chDesc(VoteChannel, size))
 	rts.voteSetBitsChannels = rts.network.MakeChannelsNoCleanup(t, chDesc(VoteSetBitsChannel, size))
-
-	ctx, cancel := context.WithCancel(ctx)
-	t.Cleanup(cancel)
 
 	i := 0
 	for nodeID, node := range rts.network.Nodes {
@@ -165,7 +164,7 @@ func validateBlock(block *types.Block, activeVals map[string]struct{}) error {
 }
 
 func waitForAndValidateBlock(
-	bctx context.Context,
+	ctx context.Context,
 	t *testing.T,
 	n int,
 	activeVals map[string]struct{},
@@ -174,115 +173,77 @@ func waitForAndValidateBlock(
 	txs ...[]byte,
 ) {
 	t.Helper()
-
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
-	defer cancel()
-
-	fn := func(j int) {
-		msg, err := blocksSubs[j].Next(ctx)
-		switch {
-		case errors.Is(err, context.DeadlineExceeded):
-			t.Error("timed out waiting for block")
-			return
-		case errors.Is(err, context.Canceled):
-			t.Error("context canceled")
-			return
-		case err != nil:
-			t.Error(err)
-			cancel() // terminate other workers
-			require.NoError(t, err)
-			return
+	t.Log("waitForAndValidateBlock()")
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for i := range n {
+			s.Spawn(func() error {
+				msg, err := blocksSubs[i].Next(ctx)
+				if err != nil {
+					return fmt.Errorf("blockSubs[%d].Next(): %w", i, err)
+				}
+				newBlock := msg.Data().(types.EventDataNewBlock).Block
+				if err := validateBlock(newBlock, activeVals); err != nil {
+					return fmt.Errorf("validateBlock: %w", err)
+				}
+				for _, tx := range txs {
+					if err := assertMempool(t, states[i].txNotifier).CheckTx(ctx, tx, nil, mempool.TxInfo{}); err != nil {
+						if errors.Is(err, types.ErrTxInCache) {
+							continue
+						}
+						return err
+					}
+				}
+				return nil
+			})
 		}
-
-		newBlock := msg.Data().(types.EventDataNewBlock).Block
-		require.NoError(t, validateBlock(newBlock, activeVals))
-
-		for _, tx := range txs {
-			err := assertMempool(t, states[j].txNotifier).CheckTx(ctx, tx, nil, mempool.TxInfo{})
-			if errors.Is(err, types.ErrTxInCache) {
-				continue
-			}
-			require.NoError(t, err)
-		}
-	}
-
-	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func(j int) {
-			defer wg.Done()
-			fn(j)
-		}(i)
-	}
-
-	wg.Wait()
-
-	if err := ctx.Err(); errors.Is(err, context.DeadlineExceeded) {
-		t.Fatal("encountered timeout")
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
 func waitForAndValidateBlockWithTx(
-	bctx context.Context,
+	ctx context.Context,
 	t *testing.T,
 	n int,
 	activeVals map[string]struct{},
 	blocksSubs []eventbus.Subscription,
-	states []*State,
 	txs ...[]byte,
 ) {
 	t.Helper()
+	t.Log("waitForAndValidateBlockWithTx")
 
-	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
-	defer cancel()
-
-	fn := func(j int) {
-		ntxs := 0
-		for {
-			msg, err := blocksSubs[j].Next(ctx)
-			switch {
-			case errors.Is(err, context.DeadlineExceeded):
-				t.Error("timed out waiting for block with tx", j)
-				return
-			case errors.Is(err, context.Canceled):
-				t.Error("context canceled waiting for block with tx", j)
-				return
-			case err != nil:
-				println(err)
-				cancel() // terminate other workers
-				t.Fatalf("problem waiting for %d subscription: %v", j, err)
-				return
-			}
-
-			newBlock := msg.Data().(types.EventDataNewBlock).Block
-			require.NoError(t, validateBlock(newBlock, activeVals))
-
-			// check that txs match the txs we're waiting for.
-			// note they could be spread over multiple blocks,
-			// but they should be in order.
-			for _, tx := range newBlock.Data.Txs {
-				require.EqualValues(t, txs[ntxs], tx)
-				ntxs++
-			}
-
-			if ntxs == len(txs) {
-				break
-			}
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for i := range n {
+			s.Spawn(func() error {
+				ntxs := 0
+				for ntxs < len(txs) {
+					msg, err := blocksSubs[i].Next(ctx)
+					if err != nil {
+						return fmt.Errorf("blockSubs[%d].Next(): %w", i, err)
+					}
+					newBlock := msg.Data().(types.EventDataNewBlock).Block
+					if err := validateBlock(newBlock, activeVals); err != nil {
+						return fmt.Errorf("validateBlock: %w", err)
+					}
+					// check that txs match the txs we're waiting for.
+					// note they could be spread over multiple blocks,
+					// but they should be in order.
+					for _, got := range newBlock.Data.Txs {
+						if err := utils.TestDiff(txs[ntxs], got); err != nil {
+							return fmt.Errorf("txs[%d]: %w", ntxs, err)
+						}
+						ntxs++
+					}
+				}
+				return nil
+			})
 		}
-	}
-
-	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func(j int) {
-			defer wg.Done()
-			fn(j)
-		}(i)
-	}
-
-	wg.Wait()
-	if err := ctx.Err(); errors.Is(err, context.DeadlineExceeded) {
-		t.Fatal("encountered timeout")
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -292,7 +253,6 @@ func waitForBlockWithUpdatedValsAndValidateIt(
 	n int,
 	updatedVals map[string]struct{},
 	blocksSubs []eventbus.Subscription,
-	css []*State,
 ) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(bctx)
@@ -324,7 +284,7 @@ func waitForBlockWithUpdatedValsAndValidateIt(
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(j int) {
 			defer wg.Done()
@@ -336,15 +296,6 @@ func waitForBlockWithUpdatedValsAndValidateIt(
 	if err := ctx.Err(); errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal("encountered timeout")
 	}
-}
-
-func ensureBlockSyncStatus(t *testing.T, msg tmpubsub.Message, complete bool, height int64) {
-	t.Helper()
-	status, ok := msg.Data().(types.EventDataBlockSyncStatus)
-
-	require.True(t, ok)
-	require.Equal(t, complete, status.Complete)
-	require.Equal(t, height, status.Height)
 }
 
 func TestReactorBasic(t *testing.T) {
@@ -367,74 +318,38 @@ func TestReactorBasic(t *testing.T) {
 		reactor.SwitchToConsensus(ctx, state, false)
 	}
 
-	var wg sync.WaitGroup
-	errCh := make(chan error, len(rts.subs))
-
-	for _, sub := range rts.subs {
-		wg.Add(1)
-
-		// wait till everyone makes the first new block
-		go func(s eventbus.Subscription) {
-			defer wg.Done()
-			_, err := s.Next(ctx)
-			switch {
-			case errors.Is(err, context.DeadlineExceeded):
-				return
-			case errors.Is(err, context.Canceled):
-				return
-			case err != nil:
-				errCh <- err
-				cancel() // terminate other workers
-				return
-			}
-		}(sub)
-	}
-
-	wg.Wait()
-	if err := ctx.Err(); errors.Is(err, context.DeadlineExceeded) {
-		t.Fatal("encountered timeout")
-	}
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatal(err)
+	t.Logf("wait till everyone makes the first new block")
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for _, sub := range rts.subs {
+			s.Spawn(func() error {
+				if _, err := sub.Next(ctx); err != nil {
+					return fmt.Errorf("s.Next(): %w", err)
+				}
+				return nil
+			})
 		}
-	default:
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	errCh = make(chan error, len(rts.blocksyncSubs))
-	for _, sub := range rts.blocksyncSubs {
-		wg.Add(1)
-
-		// wait till everyone makes the consensus switch
-		go func(s eventbus.Subscription) {
-			defer wg.Done()
-			msg, err := s.Next(ctx)
-			switch {
-			case errors.Is(err, context.DeadlineExceeded):
-				return
-			case errors.Is(err, context.Canceled):
-				return
-			case err != nil:
-				errCh <- err
-				cancel() // terminate other workers
-				return
-			}
-			ensureBlockSyncStatus(t, msg, true, 0)
-		}(sub)
-	}
-
-	wg.Wait()
-	if err := ctx.Err(); errors.Is(err, context.DeadlineExceeded) {
-		t.Fatal("encountered timeout")
-	}
-
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatal(err)
+	t.Logf("wait till everyone makes the consensus switch")
+	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for _, sub := range rts.blocksyncSubs {
+			s.Spawn(func() error {
+				msg, err := sub.Next(ctx)
+				if err != nil {
+					return fmt.Errorf("sub.Next(): %w", err)
+				}
+				want := types.EventDataBlockSyncStatus{Complete: true, Height: 0}
+				return utils.TestDiff[types.EventData](want, msg.Data())
+			})
 		}
-	default:
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -453,7 +368,7 @@ func TestReactorWithEvidence(t *testing.T) {
 	states := make([]*State, n)
 	logger := consensusLogger()
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		stateDB := dbm.NewMemDB() // each state needs its own db
 		stateStore := sm.NewStore(stateDB)
 		state, err := sm.MakeGenesisState(genDoc)
@@ -599,120 +514,6 @@ func TestReactorCreatesBlockWhenEmptyBlocksFalse(t *testing.T) {
 	}
 
 	wg.Wait()
-}
-
-// TestSwitchToConsensusVoteExtensions tests that the SwitchToConsensus correctly
-// checks for vote extension data when required.
-func TestSwitchToConsensusVoteExtensions(t *testing.T) {
-	for _, testCase := range []struct {
-		name                  string
-		storedHeight          int64
-		initialRequiredHeight int64
-		includeExtensions     bool
-		shouldPanic           bool
-	}{
-		{
-			name:                  "no vote extensions but not required",
-			initialRequiredHeight: 0,
-			storedHeight:          2,
-			includeExtensions:     false,
-			shouldPanic:           false,
-		},
-		{
-			name:                  "no vote extensions but required this height",
-			initialRequiredHeight: 2,
-			storedHeight:          2,
-			includeExtensions:     false,
-			shouldPanic:           true,
-		},
-		{
-			name:                  "no vote extensions and required in future",
-			initialRequiredHeight: 3,
-			storedHeight:          2,
-			includeExtensions:     false,
-			shouldPanic:           false,
-		},
-		{
-			name:                  "no vote extensions and required previous height",
-			initialRequiredHeight: 1,
-			storedHeight:          2,
-			includeExtensions:     false,
-			shouldPanic:           true,
-		},
-		{
-			name:                  "vote extensions and required previous height",
-			initialRequiredHeight: 1,
-			storedHeight:          2,
-			includeExtensions:     true,
-			shouldPanic:           false,
-		},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*15)
-			defer cancel()
-			cs, vs := makeState(ctx, t, makeStateArgs{validators: 1})
-			validator := vs[0]
-			validator.Height = testCase.storedHeight
-
-			cs.state.LastBlockHeight = testCase.storedHeight
-			cs.state.LastValidators = cs.state.Validators.Copy()
-			cs.state.ConsensusParams.ABCI.VoteExtensionsEnableHeight = testCase.initialRequiredHeight
-
-			propBlock, err := cs.createProposalBlock(ctx)
-			require.NoError(t, err)
-
-			// Consensus is preparing to do the next height after the stored height.
-			cs.roundState.SetHeight(testCase.storedHeight + 1)
-			propBlock.Height = testCase.storedHeight
-			blockParts, err := propBlock.MakePartSet(types.BlockPartSizeBytes)
-			require.NoError(t, err)
-
-			var voteSet *types.VoteSet
-			if testCase.includeExtensions {
-				voteSet = types.NewExtendedVoteSet(cs.state.ChainID, testCase.storedHeight, 0, tmproto.PrecommitType, cs.state.Validators)
-			} else {
-				voteSet = types.NewVoteSet(cs.state.ChainID, testCase.storedHeight, 0, tmproto.PrecommitType, cs.state.Validators)
-			}
-			signedVote := signVote(ctx, t, validator, tmproto.PrecommitType, cs.state.ChainID, types.BlockID{
-				Hash:          propBlock.Hash(),
-				PartSetHeader: blockParts.Header(),
-			})
-
-			if !testCase.includeExtensions {
-				signedVote.Extension = nil
-				signedVote.ExtensionSignature = nil
-			}
-
-			added, err := voteSet.AddVote(signedVote)
-			require.NoError(t, err)
-			require.True(t, added)
-
-			if testCase.includeExtensions {
-				cs.blockStore.SaveBlockWithExtendedCommit(propBlock, blockParts, voteSet.MakeExtendedCommit())
-			} else {
-				cs.blockStore.SaveBlock(propBlock, blockParts, voteSet.MakeExtendedCommit().ToCommit())
-			}
-			reactor := NewReactor(
-				log.NewNopLogger(),
-				cs,
-				nil,
-				cs.eventBus,
-				true,
-				NopMetrics(),
-				config.DefaultConfig(),
-			)
-
-			if testCase.shouldPanic {
-				assert.Panics(t, func() {
-					reactor.StopWaitSync()
-					reactor.SwitchToConsensus(ctx, cs.state, false)
-				})
-			} else {
-				reactor.StopWaitSync()
-				reactor.SwitchToConsensus(ctx, cs.state, false)
-			}
-		})
-	}
 }
 
 func TestReactorRecordsVotesAndBlockParts(t *testing.T) {
@@ -908,9 +709,7 @@ func TestReactorRecordsVotesAndBlockParts(t *testing.T) {
 //}
 
 func TestReactorValidatorSetChanges(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Minute)
-	defer cancel()
-
+	ctx := t.Context()
 	cfg := configSetup(t)
 
 	nPeers := 4
@@ -921,7 +720,6 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 		cfg,
 		nVals,
 		nPeers,
-		"consensus_val_set_changes_test",
 		newMockTickerFunc(true),
 		newEpehemeralKVStore,
 	)
@@ -937,42 +735,25 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 
 	// map of active validators
 	activeVals := make(map[string]struct{})
-	for i := 0; i < nVals; i++ {
+	for i := range nVals {
 		pubKey, err := states[i].privValidator.GetPubKey(ctx)
 		require.NoError(t, err)
 
 		activeVals[string(pubKey.Address())] = struct{}{}
 	}
 
-	var wg sync.WaitGroup
-	for _, sub := range rts.subs {
-		wg.Add(1)
-
-		// wait till everyone makes the first new block
-		go func(s eventbus.Subscription) {
-			defer wg.Done()
-			_, err := s.Next(ctx)
-			switch {
-			case err == nil:
-			case errors.Is(err, context.DeadlineExceeded):
-			default:
-				t.Log(err)
-				cancel()
-			}
-		}(sub)
-	}
-
-	wg.Wait()
-
-	// after the wait returns, either there was an error with a
-	// subscription (very unlikely, and causes the context to be
-	// canceled manually), there was a timeout and the test's root context
-	// was canceled (somewhat likely,) or the test can proceed
-	// (common.)
-	if err := ctx.Err(); errors.Is(err, context.DeadlineExceeded) {
-		t.Fatal("encountered timeout")
-	} else if errors.Is(err, context.Canceled) {
-		t.Fatal("subscription encountered unexpected error")
+	t.Logf("wait till everyone makes the first new block")
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		for _, sub := range rts.subs {
+			s.Spawn(func() error {
+				_, err := sub.Next(ctx)
+				return err
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	newValidatorPubKey1, err := states[nVals].privValidator.GetPubKey(ctx)
@@ -988,29 +769,29 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 		blocksSubs = append(blocksSubs, sub)
 	}
 
-	// wait till everyone makes block 2
+	t.Logf("wait till everyone makes block 2")
 	// ensure the commit includes all validators
 	// send newValTx to change vals in block 3
 	waitForAndValidateBlock(ctx, t, nPeers, activeVals, blocksSubs, states, newValidatorTx1)
 
-	// wait till everyone makes block 3.
+	t.Logf("wait till everyone makes block 3.")
 	// it includes the commit for block 2, which is by the original validator set
-	waitForAndValidateBlockWithTx(ctx, t, nPeers, activeVals, blocksSubs, states, newValidatorTx1)
+	waitForAndValidateBlockWithTx(ctx, t, nPeers, activeVals, blocksSubs, newValidatorTx1)
 
-	// wait till everyone makes block 4.
+	t.Logf("wait till everyone makes block 4.")
 	// it includes the commit for block 3, which is by the original validator set
 	waitForAndValidateBlock(ctx, t, nPeers, activeVals, blocksSubs, states)
 
 	// the commits for block 4 should be with the updated validator set
 	activeVals[string(newValidatorPubKey1.Address())] = struct{}{}
 
-	// wait till everyone makes block 5
+	t.Logf("wait till everyone makes block 5")
 	// it includes the commit for block 4, which should have the updated validator set
-	waitForBlockWithUpdatedValsAndValidateIt(ctx, t, nPeers, activeVals, blocksSubs, states)
+	waitForBlockWithUpdatedValsAndValidateIt(ctx, t, nPeers, activeVals, blocksSubs)
 
 	for i := 2; i <= 32; i *= 2 {
 		useState := rand.Intn(nVals)
-		t.Log(useState)
+		t.Logf("useState = %v", useState)
 		updateValidatorPubKey1, err := states[useState].privValidator.GetPubKey(ctx)
 		require.NoError(t, err)
 
@@ -1021,9 +802,9 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 		updateValidatorTx1 := kvstore.MakeValSetChangeTx(updatePubKey1ABCI, int64(i))
 
 		waitForAndValidateBlock(ctx, t, nPeers, activeVals, blocksSubs, states, updateValidatorTx1)
-		waitForAndValidateBlockWithTx(ctx, t, nPeers, activeVals, blocksSubs, states, updateValidatorTx1)
+		waitForAndValidateBlockWithTx(ctx, t, nPeers, activeVals, blocksSubs, updateValidatorTx1)
 		waitForAndValidateBlock(ctx, t, nPeers, activeVals, blocksSubs, states)
-		waitForBlockWithUpdatedValsAndValidateIt(ctx, t, nPeers, activeVals, blocksSubs, states)
+		waitForBlockWithUpdatedValsAndValidateIt(ctx, t, nPeers, activeVals, blocksSubs)
 
 		time.Sleep(time.Second)
 		require.NotEqualf(

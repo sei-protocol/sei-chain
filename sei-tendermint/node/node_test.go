@@ -298,7 +298,7 @@ func TestCreateProposalBlock(t *testing.T) {
 		ev, err := types.NewMockDuplicateVoteEvidenceWithValidator(ctx, height, time.Now(), privVals[0], "test-chain")
 		require.NoError(t, err)
 		currentBytes += int64(len(ev.Bytes()))
-		evidencePool.ReportConflictingVotes(ev.VoteA, ev.VoteB)
+		evidencePool.ReportConflictingVotes(ev.VoteA.Vote, ev.VoteB.Vote)
 	}
 
 	evList, size := evidencePool.PendingEvidence(state.ConsensusParams.Evidence.MaxBytes)
@@ -328,12 +328,12 @@ func TestCreateProposalBlock(t *testing.T) {
 		sm.NopMetrics(),
 	)
 
-	extCommit := &types.ExtendedCommit{Height: height - 1}
+	commit := &types.Commit{Height: height - 1}
 	block, err := blockExec.CreateProposalBlock(
 		ctx,
 		height,
 		state,
-		extCommit,
+		commit,
 		proposerAddr,
 	)
 	require.NoError(t, err)
@@ -408,12 +408,12 @@ func TestMaxTxsProposalBlockSize(t *testing.T) {
 		sm.NopMetrics(),
 	)
 
-	extCommit := &types.ExtendedCommit{Height: height - 1}
+	commit := &types.Commit{Height: height - 1}
 	block, err := blockExec.CreateProposalBlock(
 		ctx,
 		height,
 		state,
-		extCommit,
+		commit,
 		proposerAddr,
 	)
 	require.NoError(t, err)
@@ -514,7 +514,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 	}
 	state.ChainID = maxChainID
 
-	voteSet := types.NewExtendedVoteSet(state.ChainID, math.MaxInt64-1, math.MaxInt32, tmproto.PrecommitType, state.Validators)
+	voteSet := types.NewVoteSet(state.ChainID, math.MaxInt64-1, math.MaxInt32, tmproto.PrecommitType, state.Validators)
 
 	// add maximum amount of signatures to a single commit
 	for i := 0; i < types.MaxVotesCount; i++ {
@@ -531,12 +531,10 @@ func TestMaxProposalBlockSize(t *testing.T) {
 			Timestamp:        timestamp,
 			ValidatorAddress: val.Address,
 			ValidatorIndex:   valIdx,
-			Extension:        []byte("extension"),
 		}
 		vpb := vote.ToProto()
 		require.NoError(t, privVals[i].SignVote(ctx, state.ChainID, vpb))
 		vote.Signature = vpb.Signature
-		vote.ExtensionSignature = vpb.ExtensionSignature
 
 		added, err := voteSet.AddVote(vote)
 		require.NoError(t, err)
@@ -547,7 +545,7 @@ func TestMaxProposalBlockSize(t *testing.T) {
 		ctx,
 		math.MaxInt64,
 		state,
-		voteSet.MakeExtendedCommit(),
+		voteSet.MakeCommit(),
 		proposerAddr,
 	)
 	require.NoError(t, err)
