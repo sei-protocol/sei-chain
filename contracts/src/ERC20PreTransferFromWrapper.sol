@@ -27,4 +27,9 @@ contract ERC20PreTransferFromWrapper {
         require(wrapped.transferFrom(from, to, amount), "Transfer from failed");
         return true;
     }
+<<<<<<< HEAD
 }
+||||||| 813c350f2
+=======
+}
+>>>>>>> v6.1.10

@@ -38,6 +38,7 @@ type TransactionAPI struct {
 	txConfigProvider func(int64) client.TxConfig
 	homeDir          string
 	connectionType   ConnectionType
+	includeSynthetic bool
 }
 
 type SeiTransactionAPI struct {
@@ -58,7 +59,9 @@ func NewSeiTransactionAPI(
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 ) *SeiTransactionAPI {
-	return &SeiTransactionAPI{TransactionAPI: NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType), isPanicTx: isPanicTx}
+	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType)
+	baseAPI.includeSynthetic = true
+	return &SeiTransactionAPI{TransactionAPI: baseAPI, isPanicTx: isPanicTx}
 }
 
 func (t *SeiTransactionAPI) GetTransactionReceiptExcludeTraceFail(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
@@ -78,7 +81,7 @@ func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.
 		big.NewInt(sdkCtx.BlockHeight()),
 		uint64(sdkCtx.BlockTime().Unix()),
 	)
-	return getTransactionReceipt(ctx, t, hash, false, nil, false, signer)
+	return getTransactionReceipt(ctx, t, hash, false, nil, t.includeSynthetic, signer)
 }
 
 func getTransactionReceipt(
@@ -345,8 +348,12 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 	return ethtx
 }
 
-// Gets the EVM tx index based on the tx index (typically from receipt.TransactionIndex
-// Essentially loops through and calculates the index if we ignore cosmos txs
+// receipt.TransactionIndex represents the index of the transaction among ALL transactions in the block.
+// This function returns the index if irrelevant transactions are excluded.
+// Specifically, if includeSynthetic is false, all Cosmos transactions are excluded. If includeSynthetic is true,
+// Cosmos transactions without a receipt (i.e. Cosmos transactions that don't touch CW20/721/1155) are excluded.
+// It also returns the log index offset, which always includes all logs of relevant transactions, regardless of
+// whether logs themselves are synthetic or not.
 func GetEvmTxIndex(ctx sdk.Context, txs tmtypes.Txs, txIndex uint32, decoder sdk.TxDecoder, receiptChecker func(common.Hash) *types.Receipt, includeSynthetic bool) (index int, found bool, etx *ethtypes.Transaction, logIndexOffset int) {
 	var evmTxIndex, logIndex int
 	for i, tx := range txs {
@@ -359,34 +366,28 @@ func GetEvmTxIndex(ctx sdk.Context, txs tmtypes.Txs, txIndex uint32, decoder sdk
 			receipt = receiptChecker(sha256.Sum256(tx))
 		}
 		hasReceipt := receipt != nil
-		isSynthetic := hasReceipt && !isEVMTx
-		if !isEVMTx && !isSynthetic {
+		if !hasReceipt {
 			continue
 		}
-		if hasReceipt {
-			if isReceiptFromAnteError(ctx, receipt) {
-				continue
-			}
-			if receipt.BlockNumber != uint64(ctx.BlockHeight()) {
-				continue
-			}
+		isSynthetic := !isEVMTx
+		if !includeSynthetic && isSynthetic {
+			continue
+		}
+		if isReceiptFromAnteError(ctx, receipt) {
+			continue
+		}
+		if receipt.BlockNumber != uint64(ctx.BlockHeight()) {
+			// this shouldn't be possible given isReceiptFromAnteError check above
+			ctx.Logger().Error(fmt.Sprintf("GetEvmTxIndex: receipt %s blockNumber=%d != iterHeight=%d VM error: %s; skipping", etx.Hash().Hex(), receipt.BlockNumber, ctx.BlockHeight(), receipt.VmError))
+			continue
 		}
 
 		if i == int(txIndex) {
 			return evmTxIndex, true, etx, logIndex
 		}
-		if isSynthetic && !includeSynthetic {
-			continue
-		}
 
 		evmTxIndex++
-		if hasReceipt {
-			for _, log := range receipt.Logs {
-				if includeSynthetic || !log.Synthetic {
-					logIndex++
-				}
-			}
-		}
+		logIndex += len(receipt.Logs)
 	}
 	return -1, false, nil, -1
 }
