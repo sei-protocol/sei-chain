@@ -2,7 +2,6 @@ package tests
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
 	"testing"
 
@@ -38,7 +37,6 @@ func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
 			res := sendRequestWithNamespace("sei", port, "traceBlockByNumberExcludeTraceFail", "0x2", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",
 			})
-			fmt.Println(res)
 			txs := res["result"].([]interface{})
 			require.Len(t, txs, 1)
 			blockHash := txs[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]

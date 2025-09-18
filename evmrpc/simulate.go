@@ -298,9 +298,18 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 		return nil, nil, err
 	}
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
-	sdkCtxAtHeight := b.ctxProvider(tmBlock.Block.Height)
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
+	signer := ethtypes.MakeSigner(
+		types.DefaultChainConfig().EthereumConfig(b.keeper.ChainID(sdkCtx)),
+		big.NewInt(sdkCtx.BlockHeight()),
+		uint64(sdkCtx.BlockTime().Unix()),
+	)
+	msgs := filterTransactions(b.keeper, b.ctxProvider, b.txConfigProvider, tmBlock, signer, false, false)
+	idxToMsgs := make(map[int]sdk.Msg, len(msgs))
+	for _, msg := range msgs {
+		idxToMsgs[msg.index] = msg.msg
+	}
 	for i := range blockRes.TxsResults {
 		decoded, err := b.txConfigProvider(blockRes.Height).TxDecoder()(tmBlock.Block.Txs[i])
 		if err != nil {
@@ -311,15 +320,12 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 			continue
 		}
 		shouldTrace := false
-		for _, msg := range decoded.GetMsgs() {
+		if msg, ok := idxToMsgs[i]; ok {
 			switch m := msg.(type) {
 			case *types.MsgEVMTransaction:
-				if m.IsAssociateTx() {
-					continue
-				}
 				ethtx, _ := m.AsTransaction()
 				receipt, err := b.keeper.GetReceipt(sdkCtx, ethtx.Hash())
-				if err != nil || receipt.BlockNumber != uint64(tmBlock.Block.Height) || isReceiptFromAnteError(sdkCtxAtHeight, receipt) {
+				if err != nil {
 					continue
 				}
 				TraceReceiptIfApplicable(ctx, receipt)

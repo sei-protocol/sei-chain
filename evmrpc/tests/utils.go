@@ -36,12 +36,35 @@ func init() {
 type TestServer struct {
 	evmrpc.EVMServer
 	port int
+
+	mockClient *MockClient
+	app        *app.App
 }
 
 func (ts TestServer) Run(r func(port int)) {
 	_ = ts.Start()
 	defer ts.Stop()
 	r(ts.port)
+}
+
+func (ts TestServer) SetupBlocks(blocks [][][]byte, initializer ...func(sdk.Context, *app.App)) {
+	ts.mockClient.blocks = append(ts.mockClient.blocks, blocks...)
+	blockHeight := int64(len(ts.mockClient.txResults) + 1)
+	for i, block := range blocks {
+		height := blockHeight + int64(i)
+		blockTime := time.Now()
+		res, err := ts.app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+			Txs:    block,
+			Hash:   mockHash(height, 0),
+			Height: height,
+			Time:   blockTime,
+		})
+		if err != nil {
+			panic(err)
+		}
+		_, _ = ts.app.Commit(context.Background())
+		ts.mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
+	}
 }
 
 func initializeApp(
@@ -89,22 +112,20 @@ func SetupTestServer(
 		_, _ = a.Commit(context.Background())
 		mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	}
-	return setupTestServer(a, a.RPCContextProvider, mockClient, blocks, initializer...)
+	return setupTestServer(a, a.RPCContextProvider, mockClient)
 }
 
 func SetupMockPacificTestServer(initializer func(*app.App, *MockClient) sdk.Context) TestServer {
 	a, _ := initializeApp("pacific-1")
 	mockClient := &MockClient{}
 	ctx := initializer(a, mockClient)
-	return setupTestServer(a, func(int64) sdk.Context { return ctx }, mockClient, [][][]byte{})
+	return setupTestServer(a, func(int64) sdk.Context { return ctx }, mockClient)
 }
 
 func setupTestServer(
 	a *app.App,
 	ctxProvider func(int64) sdk.Context,
 	mockClient *MockClient,
-	blocks [][][]byte,
-	initializer ...func(sdk.Context, *app.App),
 ) TestServer {
 	port := int(portProvider.Add(1))
 	cfg := evmrpc.DefaultConfig
@@ -127,7 +148,7 @@ func setupTestServer(
 	if err != nil {
 		panic(err)
 	}
-	return TestServer{EVMServer: s, port: port}
+	return TestServer{EVMServer: s, port: port, mockClient: mockClient, app: a}
 }
 
 func sendRequestWithNamespace(namespace string, port int, method string, params ...interface{}) map[string]interface{} {

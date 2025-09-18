@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"sort"
 	"sync"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -815,8 +817,13 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	ctx := f.ctxProvider(block.Block.Height)
 	totalLogs := uint(0)
 	evmTxIndex := 0
+	signer := ethtypes.MakeSigner(
+		types.DefaultChainConfig().EthereumConfig(f.k.ChainID(ctx)),
+		big.NewInt(ctx.BlockHeight()),
+		uint64(ctx.BlockTime().Unix()),
+	)
 
-	for _, hash := range getTxHashesFromBlock(block, f.txConfigProvider(block.Block.Height), f.includeSyntheticReceipts) {
+	for _, hash := range getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, signer, f.includeSyntheticReceipts) {
 		receipt, found := getCachedReceipt(block.Block.Height, hash.hash)
 		if !found {
 			var err error
@@ -826,25 +833,6 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 				continue
 			}
 			setCachedReceipt(block.Block.Height, block, hash.hash, receipt)
-		}
-
-		if receipt.BlockNumber != uint64(block.Block.Height) {
-			// this shouldn't be possible given isReceiptFromAnteError check above
-			ctx.Logger().Error(fmt.Sprintf("collectLogs: receipt %s blockNumber=%d != iterHeight=%d, VM error: %s; skipping", hash.hash.Hex(), receipt.BlockNumber, block.Block.Height, receipt.VmError))
-			continue
-		}
-
-		if receipt.Status == 0 {
-			if !isReceiptFromAnteError(ctx, receipt) {
-				// do not bump evmTxIndex for ante failure
-				// because the tx is not considered "included" in the block.
-				evmTxIndex++
-			}
-			continue
-		}
-
-		if !f.includeSyntheticReceipts && !hash.isEvm {
-			continue
 		}
 
 		txLogs := keeper.GetLogsForTx(receipt, totalLogs)
