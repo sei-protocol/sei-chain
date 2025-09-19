@@ -1,8 +1,6 @@
 package app
 
 import (
-	"bytes"
-	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -31,13 +29,11 @@ import (
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/version"
 	aclmodule "github.com/cosmos/cosmos-sdk/x/accesscontrol"
 	aclclient "github.com/cosmos/cosmos-sdk/x/accesscontrol/client"
-	aclconstants "github.com/cosmos/cosmos-sdk/x/accesscontrol/constants"
 	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	"github.com/cosmos/cosmos-sdk/x/auth"
@@ -352,9 +348,6 @@ type App struct {
 	sm *module.SimulationManager
 
 	configurator module.Configurator
-
-	optimisticProcessingInfo      OptimisticProcessingInfo
-	optimisticProcessingInfoMutex sync.RWMutex
 
 	// batchVerifier *ante.SR25519BatchVerifier
 	txDecoder         sdk.TxDecoder
@@ -1121,63 +1114,14 @@ func (app *App) PrepareProposalHandler(_ sdk.Context, req *abci.RequestPreparePr
 	}, nil
 }
 
-func (app *App) GetOptimisticProcessingInfo() OptimisticProcessingInfo {
-	app.optimisticProcessingInfoMutex.RLock()
-	defer app.optimisticProcessingInfoMutex.RUnlock()
-	return app.optimisticProcessingInfo
-}
-
-func (app *App) ClearOptimisticProcessingInfo() {
-	app.optimisticProcessingInfoMutex.Lock()
-	defer app.optimisticProcessingInfoMutex.Unlock()
-	app.optimisticProcessingInfo = OptimisticProcessingInfo{}
-}
-
 func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
-
 	if !app.checkTotalBlockGas(ctx, req.Txs) {
 		metrics.IncrFailedTotalGasWantedCheck(string(req.GetProposerAddress()))
 		return &abci.ResponseProcessProposal{
 			Status: abci.ResponseProcessProposal_REJECT,
 		}, nil
-	}
-	if app.GetOptimisticProcessingInfo().Completion == nil {
-		completionSignal := make(chan struct{}, 1)
-		optimisticProcessingInfo := OptimisticProcessingInfo{
-			Height:     req.Height,
-			Hash:       req.Hash,
-			Completion: completionSignal,
-		}
-		app.optimisticProcessingInfoMutex.Lock()
-		app.optimisticProcessingInfo = optimisticProcessingInfo
-		app.optimisticProcessingInfoMutex.Unlock()
-
-		plan, found := app.UpgradeKeeper.GetUpgradePlan(ctx)
-		if found && plan.ShouldExecute(ctx) {
-			app.Logger().Info(fmt.Sprintf("Potential upgrade planned for height=%d skipping optimistic processing", plan.Height))
-			app.optimisticProcessingInfoMutex.Lock()
-			app.optimisticProcessingInfo.Aborted = true
-			completion := app.optimisticProcessingInfo.Completion
-			app.optimisticProcessingInfoMutex.Unlock()
-			completion <- struct{}{}
-		} else {
-			go func() {
-				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit, false)
-				app.optimisticProcessingInfoMutex.Lock()
-				app.optimisticProcessingInfo.Events = events
-				app.optimisticProcessingInfo.TxRes = txResults
-				app.optimisticProcessingInfo.EndBlockResp = endBlockResp
-				completion := app.optimisticProcessingInfo.Completion
-				app.optimisticProcessingInfoMutex.Unlock()
-				completion <- struct{}{}
-			}()
-		}
-	} else if !bytes.Equal(app.GetOptimisticProcessingInfo().Hash, req.Hash) {
-		app.optimisticProcessingInfoMutex.Lock()
-		app.optimisticProcessingInfo.Aborted = true
-		app.optimisticProcessingInfoMutex.Unlock()
 	}
 	return &abci.ResponseProcessProposal{
 		Status: abci.ResponseProcessProposal_ACCEPT,
@@ -1187,43 +1131,9 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
 	startTime := time.Now()
 	defer func() {
-		app.ClearOptimisticProcessingInfo()
 		duration := time.Since(startTime)
 		ctx.Logger().Info(fmt.Sprintf("FinalizeBlock took %dms", duration/time.Millisecond))
 	}()
-
-	// Get all optimistic processing info atomically
-	app.optimisticProcessingInfoMutex.RLock()
-	completion := app.optimisticProcessingInfo.Completion
-	app.optimisticProcessingInfoMutex.RUnlock()
-
-	if completion != nil {
-		<-completion
-
-		// Get the final state atomically after completion
-		app.optimisticProcessingInfoMutex.RLock()
-		aborted := app.optimisticProcessingInfo.Aborted
-		finalHash := app.optimisticProcessingInfo.Hash
-		events := app.optimisticProcessingInfo.Events
-		txRes := app.optimisticProcessingInfo.TxRes
-		endBlockResp := app.optimisticProcessingInfo.EndBlockResp
-		app.optimisticProcessingInfoMutex.RUnlock()
-
-		if !aborted && bytes.Equal(finalHash, req.Hash) {
-			metrics.IncrementOptimisticProcessingCounter(true)
-			app.SetProcessProposalStateToCommit()
-			if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
-				return &abci.ResponseFinalizeBlock{}, nil
-			}
-			cms := app.WriteState()
-			app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
-			appHash := app.GetWorkingHash()
-			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
-			return &resp, nil
-		}
-	}
-	metrics.IncrementOptimisticProcessingCounter(false)
-	ctx.Logger().Info("optimistic processing ineligible")
 	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit, false)
 
 	app.SetDeliverStateToCommit()
@@ -1317,153 +1227,6 @@ func (app *App) CacheContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore)
 	ms := ctx.MultiStore()
 	msCache := ms.CacheMultiStore()
 	return ctx.WithMultiStore(msCache), msCache
-}
-
-// TODO: (occ) this is the roughly analogous to the execution + validation tasks for OCC, but this one performs validation in isolation
-// rather than comparing against a multi-version store
-// The validation happens immediately after execution all part of DeliverTx (which is a path that goes through sei-cosmos to runTx eventually)
-func (app *App) ProcessTxConcurrent(
-	ctx sdk.Context,
-	txIndex int,
-	absoluateTxIndex int,
-	txBytes []byte,
-	typedTx sdk.Tx,
-	wg *sync.WaitGroup,
-	resultChan chan<- ChannelResult,
-	txCompletionSignalingMap acltypes.MessageCompletionSignalMapping,
-	txBlockingSignalsMap acltypes.MessageCompletionSignalMapping,
-	txMsgAccessOpMapping acltypes.MsgIndexToAccessOpMapping,
-) {
-	defer wg.Done()
-	// Store the Channels in the Context Object for each transaction
-	ctx = ctx.WithTxCompletionChannels(GetChannelsFromSignalMapping(txCompletionSignalingMap))
-	ctx = ctx.WithTxBlockingChannels(GetChannelsFromSignalMapping(txBlockingSignalsMap))
-	ctx = ctx.WithTxMsgAccessOps(txMsgAccessOpMapping)
-	ctx = ctx.WithMsgValidator(
-		sdkacltypes.NewMsgValidator(aclutils.StoreKeyToResourceTypePrefixMap),
-	)
-	ctx = ctx.WithTxIndex(absoluateTxIndex)
-
-	// Deliver the transaction and store the result in the channel
-	resultChan <- ChannelResult{txIndex, app.DeliverTxWithResult(ctx, txBytes, typedTx)}
-	metrics.IncrTxProcessTypeCounter(metrics.CONCURRENT)
-}
-
-type ProcessBlockConcurrentFunction func(
-	ctx sdk.Context,
-	txs [][]byte,
-	typedTxs []sdk.Tx,
-	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
-	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
-	txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
-	absoluteTxIndices []int,
-) ([]*abci.ExecTxResult, bool)
-
-func (app *App) ProcessBlockConcurrent(
-	ctx sdk.Context,
-	txs [][]byte,
-	typedTxs []sdk.Tx,
-	completionSignalingMap map[int]acltypes.MessageCompletionSignalMapping,
-	blockingSignalsMap map[int]acltypes.MessageCompletionSignalMapping,
-	txMsgAccessOpMapping map[int]acltypes.MsgIndexToAccessOpMapping,
-	absoluteTxIndices []int,
-) ([]*abci.ExecTxResult, bool) {
-	defer metrics.BlockProcessLatency(time.Now(), metrics.CONCURRENT)
-
-	txResults := []*abci.ExecTxResult{}
-	// If there's no transactions then return empty results
-	if len(txs) == 0 {
-		return txResults, true
-	}
-
-	var waitGroup sync.WaitGroup
-	resultChan := make(chan ChannelResult, len(txs))
-	// For each transaction, start goroutine and deliver TX
-	for txIndex, txBytes := range txs {
-		waitGroup.Add(1)
-		go app.ProcessTxConcurrent(
-			ctx,
-			txIndex,
-			absoluteTxIndices[txIndex],
-			txBytes,
-			typedTxs[txIndex],
-			&waitGroup,
-			resultChan,
-			completionSignalingMap[txIndex],
-			blockingSignalsMap[txIndex],
-			txMsgAccessOpMapping[txIndex],
-		)
-	}
-
-	// Do not call waitGroup.Wait() synchronously as it blocks on channel reads
-	// until all the messages are read. This closes the channel once
-	// results are all read and prevent any further writes.
-	go func() {
-		waitGroup.Wait()
-		close(resultChan)
-	}()
-
-	// Gather Results and store it based on txIndex and read results from channel
-	// Concurrent results may be in different order than the original txIndex
-	txResultsMap := map[int]*abci.ExecTxResult{}
-	for result := range resultChan {
-		txResultsMap[result.txIndex] = result.result
-	}
-
-	// Gather Results and store in array based on txIndex to preserve ordering
-	for txIndex := range txs {
-		txResults = append(txResults, txResultsMap[txIndex])
-	}
-
-	ok := true
-	for i, result := range txResults {
-		if result.GetCode() == sdkerrors.ErrInvalidConcurrencyExecution.ABCICode() {
-			ctx.Logger().Error(fmt.Sprintf("Invalid concurrent execution of deliverTx index=%d", i))
-			metrics.IncrFailedConcurrentDeliverTxCounter()
-			ok = false
-		}
-	}
-
-	return txResults, ok
-}
-
-func (app *App) ProcessTxs(
-	ctx sdk.Context,
-	txs [][]byte,
-	typedTxs []sdk.Tx,
-	dependencyDag *acltypes.Dag,
-	processBlockConcurrentFunction ProcessBlockConcurrentFunction,
-	absoluteTxIndices []int,
-) ([]*abci.ExecTxResult, sdk.Context) {
-	// Only run concurrently if no error
-	// Branch off the current context and pass a cached context to the concurrent delivered TXs that are shared.
-	// runTx will write to this ephermeral CacheMultiStore, after the process block is done, Write() is called on this
-	// CacheMultiStore where it writes the data to the parent store (DeliverState) in sorted Key order to maintain
-	// deterministic ordering between validators in the case of concurrent deliverTXs
-	processBlockCtx, processBlockCache := app.CacheContext(ctx)
-	// TODO: (occ) replaced with scheduler sending tasks to workers such as execution and validation
-	concurrentResults, ok := processBlockConcurrentFunction(
-		processBlockCtx,
-		txs,
-		typedTxs,
-		dependencyDag.CompletionSignalingMap,
-		dependencyDag.BlockingSignalsMap,
-		dependencyDag.TxMsgAccessOpMapping,
-		absoluteTxIndices,
-	)
-	if ok {
-		// Write the results back to the concurrent contexts - if concurrent execution fails,
-		// this should not be called and the state is rolled back and retried with synchronous execution
-		processBlockCache.Write()
-		return concurrentResults, ctx
-	}
-	// we need to add the wasm dependencies before we process synchronous otherwise it never gets included
-	ctx = app.addBadWasmDependenciesToContext(ctx, concurrentResults)
-	ctx.Logger().Error("Concurrent Execution failed, retrying with Synchronous")
-
-	txResults := app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
-	processBlockCache.Write()
-	return txResults, ctx
 }
 
 func (app *App) PartitionPrioritizedTxs(_ sdk.Context, txs [][]byte, typedTxs []sdk.Tx) (
@@ -1562,27 +1325,6 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 	}
 
 	return execResults, ctx
-}
-
-// BuildDependenciesAndRunTxs deprecated, use ProcessTXsWithOCC instead
-// Deprecated: this will be removed after OCC releases
-func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
-	// dependencyDag, err := app.AccessControlKeeper.BuildDependencyDag(ctx, app.GetAnteDepGenerator(), typedTxs)
-
-	// switch err {
-	// case nil:
-	// 	txResults, ctx = app.ProcessTxs(ctx, txs, typedTxs, dependencyDag, app.ProcessBlockConcurrent, absoluteTxIndices)
-	// case acltypes.ErrGovMsgInBlock:
-	// 	ctx.Logger().Info(fmt.Sprintf("Gov msg found while building DAG, processing synchronously: %s", err))
-	// 	txResults = app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
-	// 	metrics.IncrDagBuildErrorCounter(metrics.GovMsgInBlock)
-	// default:
-	// 	ctx.Logger().Error(fmt.Sprintf("Error while building DAG, processing synchronously: %s", err))
-	// 	txResults = app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices)
-	// 	metrics.IncrDagBuildErrorCounter(metrics.FailedToBuild)
-	// }
-
-	return app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices), ctx
 }
 
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
@@ -1721,28 +1463,6 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 	}
 	wg.Wait()
 	return typedTxs
-}
-
-func (app *App) addBadWasmDependenciesToContext(ctx sdk.Context, txResults []*abci.ExecTxResult) sdk.Context {
-	wasmContractsWithIncorrectDependencies := []sdk.AccAddress{}
-	for _, txResult := range txResults {
-		// we need to iterate in reverse and pick the first one
-		if txResult.Codespace == sdkerrors.RootCodespace && txResult.Code == sdkerrors.ErrInvalidConcurrencyExecution.ABCICode() {
-			for _, event := range txResult.Events {
-				if event.Type == wasmtypes.EventTypeExecute {
-					for _, attr := range event.Attributes {
-						if string(attr.Key) == wasmtypes.AttributeKeyContractAddr {
-							addr, err := sdk.AccAddressFromBech32(string(attr.Value))
-							if err == nil {
-								wasmContractsWithIncorrectDependencies = append(wasmContractsWithIncorrectDependencies, addr)
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-	return ctx.WithContext(context.WithValue(ctx.Context(), aclconstants.BadWasmDependencyAddressesKey, wasmContractsWithIncorrectDependencies))
 }
 
 func (app *App) getFinalizeBlockResponse(appHash []byte, events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock) abci.ResponseFinalizeBlock {
@@ -2000,14 +1720,8 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 		totalGasWanted += gasWanted
 
 		// If the gas estimate is set and at least 21k (the minimum gas needed for an EVM tx)
-		// and less than or equal to the tx gas limit, use the gas estimate. Otherwise, use gasWanted.
-		useEstimate := false
+		// Otherwise, use the gas wanted. Typically the gas estimate is set for EVM txs and not set for Cosmos txs.
 		if decodedTx.GetGasEstimate() >= MinGasEVMTx {
-			if decodedTx.GetGasEstimate() <= gasWanted {
-				useEstimate = true
-			}
-		}
-		if useEstimate {
 			totalGas += decodedTx.GetGasEstimate()
 		} else {
 			totalGas += gasWanted

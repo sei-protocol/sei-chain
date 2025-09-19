@@ -3,7 +3,6 @@ package evmrpc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -14,9 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
-	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/signer/core/apitypes"
-	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -68,11 +65,8 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 	if err != nil {
 		return
 	}
-	gasUsedEstimate, err := s.simulateTx(ctx, tx)
-	if err != nil {
-		tx, _ = msg.AsTransaction()
-		gasUsedEstimate = tx.Gas() // if issue simulating, fallback to gas limit
-	}
+	evmTx,_ := msg.AsTransaction()
+	gasUsedEstimate := evmTx.Gas() // skip simulation, fallback to gas limit
 	txBuilder := s.txConfigProvider(LatestCtxHeight).NewTxBuilder()
 	if err = txBuilder.SetMsgs(msg); err != nil {
 		return
@@ -103,66 +97,6 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 		}
 	}
 	return
-}
-
-func (s *SendAPI) simulateTx(ctx context.Context, tx *ethtypes.Transaction) (estimate uint64, err error) {
-	var from common.Address
-	if tx.Type() == ethtypes.DynamicFeeTxType {
-		signer := ethtypes.NewLondonSigner(s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
-		from, err = signer.Sender(tx)
-		if err != nil {
-			err = fmt.Errorf("failed to get sender for dynamic fee tx: %w", err)
-			return
-		}
-	} else if tx.Protected() {
-		signer := ethtypes.NewEIP155Signer(s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
-		from, err = signer.Sender(tx)
-		if err != nil {
-			err = fmt.Errorf("failed to get sender for protected tx: %w", err)
-			return
-		}
-	} else {
-		signer := ethtypes.HomesteadSigner{}
-		from, err = signer.Sender(tx)
-		if err != nil {
-			err = fmt.Errorf("failed to get sender for homestead tx: %w", err)
-			return
-		}
-	}
-	input_ := (hexutil.Bytes)(tx.Data())
-	gas_ := hexutil.Uint64(tx.Gas())
-	nonce_ := hexutil.Uint64(tx.Nonce())
-	al := tx.AccessList()
-	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.LatestBlockNumber)
-	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(tx.To()))
-	gp := tx.GasPrice()
-	maxFeePerGas := tx.GasFeeCap()
-	maxPriorityFeePerGas := tx.GasTipCap()
-	if gp != nil {
-		maxFeePerGas = nil
-		maxPriorityFeePerGas = nil
-	} else {
-		gp = nil
-	}
-	txArgs := export.TransactionArgs{
-		From:                 &from,
-		To:                   tx.To(),
-		Gas:                  &gas_,
-		GasPrice:             (*hexutil.Big)(gp),
-		MaxFeePerGas:         (*hexutil.Big)(maxFeePerGas),
-		MaxPriorityFeePerGas: (*hexutil.Big)(maxPriorityFeePerGas),
-		Value:                (*hexutil.Big)(tx.Value()),
-		Nonce:                &nonce_,
-		Input:                &input_,
-		AccessList:           &al,
-		ChainID:              (*hexutil.Big)(tx.ChainId()),
-	}
-	estimate_, err := export.DoEstimateGas(ctx, s.backend, txArgs, bNrOrHash, nil, nil, s.backend.RPCGasCap())
-	if err != nil {
-		err = fmt.Errorf("failed to estimate gas: %w", err)
-		return
-	}
-	return uint64(estimate_), nil
 }
 
 func (s *SendAPI) SignTransaction(_ context.Context, args apitypes.SendTxArgs, _ *string) (result *export.SignTransactionResult, returnErr error) {
