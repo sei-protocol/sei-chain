@@ -1969,9 +1969,15 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 
 		totalGasWanted += gasWanted
 
-		// If the gas estimate is set and at least 21k (the minimum gas needed for an EVM tx), use the gas estimate.
-		// Otherwise, use the gas wanted. Typically the gas estimate is set for EVM txs and not set for Cosmos txs.
+		// If the gas estimate is set and at least 21k (the minimum gas needed for an EVM tx)
+		// and less than or equal to the tx gas limit, use the gas estimate. Otherwise, use gasWanted.
+		useEstimate := false
 		if decodedTx.GetGasEstimate() >= MinGasEVMTx {
+			if decodedTx.GetGasEstimate() <= gasWanted {
+				useEstimate = true
+			}
+		}
+		if useEstimate {
 			totalGas += decodedTx.GetGasEstimate()
 		} else {
 			totalGas += gasWanted

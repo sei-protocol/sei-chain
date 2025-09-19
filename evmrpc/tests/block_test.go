@@ -3,7 +3,9 @@ package tests
 import (
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/require"
 )
 
@@ -121,4 +123,34 @@ func TestGetBlockReceipts(t *testing.T) {
 			require.Len(t, res["result"], 2)
 		},
 	)
+}
+
+func TestGetBlockAfterBaseFeeChange(t *testing.T) {
+	mockBaseFee := func(baseFee int64) func(ctx sdk.Context, a *app.App) {
+		return func(ctx sdk.Context, a *app.App) {
+			a.EvmKeeper.SetCurrBaseFeePerGas(ctx, sdk.NewDec(baseFee))
+		}
+	}
+	unsigned := send(1)
+	tx := signTxWithMnemonic(unsigned, mnemonic1)
+	txBz := encodeEvmTx(unsigned, tx)
+	ts := SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1), mockBaseFee(1000000001))
+	ts.Run(func(port int) {
+		res := sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x2", true)
+		txs := res["result"].(map[string]interface{})["transactions"].([]interface{})
+		require.Len(t, txs, 0)
+		// require.Len(t, txs, 1)
+
+		// res = sendRequestWithNamespace("eth", port, "getVMError", tx.Hash().Hex())
+		// require.Equal(t, "insufficient fee", res["result"].(string))
+
+		ts.SetupBlocks([][][]byte{{signAndEncodeTx(send(0), mnemonic1)}, {txBz}}, mnemonicInitializer(mnemonic1), mockBaseFee(1000000000))
+
+		res = sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x4", true)
+		txs = res["result"].(map[string]interface{})["transactions"].([]interface{})
+		require.Len(t, txs, 1)
+
+		res = sendRequestWithNamespace("eth", port, "getVMError", tx.Hash().Hex())
+		require.Equal(t, "", res["result"].(string))
+	})
 }
