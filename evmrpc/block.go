@@ -15,6 +15,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/bitutil"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/lib/ethapi"
@@ -150,14 +151,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	if err != nil {
 		return nil, err
 	}
-	var blockBloom ethtypes.Bloom
-	// Only include synthetic logs in sei_ namespace
-	if a.namespace == EthNamespace {
-		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	} else {
-		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	}
-	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, blockRes, blockBloom, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
+	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, blockRes, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
@@ -212,14 +206,7 @@ func (a *BlockAPI) getBlockByNumber(
 	if err != nil {
 		return nil, err
 	}
-	var blockBloom ethtypes.Bloom
-	// Only include synthetic logs in sei_ namespace
-	if a.namespace == EthNamespace {
-		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	} else {
-		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
-	}
-	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, blockRes, blockBloom, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
+	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, blockRes, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
@@ -294,7 +281,6 @@ func EncodeTmBlock(
 	txConfigProvider func(int64) client.TxConfig,
 	block *coretypes.ResultBlock,
 	blockRes *coretypes.ResultBlockResults,
-	blockBloom ethtypes.Bloom,
 	k *keeper.Keeper,
 	fullTx bool,
 	includeBankTransfers bool,
@@ -322,6 +308,7 @@ func EncodeTmBlock(
 	)
 	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, signer, includeSyntheticTxs, includeBankTransfers)
 
+	blockBloom := make([]byte, ethtypes.BloomByteLength)
 	for _, msg := range msgs {
 		blockGasUsed += blockRes.TxsResults[msg.index].GasUsed
 		switch m := msg.msg.(type) {
@@ -334,6 +321,10 @@ func EncodeTmBlock(
 				newTx := ethapi.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(len(transactions)), baseFeePerGas, chainConfig)
 				transactions = append(transactions, newTx)
 			}
+			receipt, _ := k.GetReceipt(latestCtx, hash)
+			or := make([]byte, ethtypes.BloomByteLength)
+			bitutil.ORBytes(or, blockBloom, receipt.LogsBloom[:])
+			blockBloom = or
 		case *wasmtypes.MsgExecuteContract:
 			th := sha256.Sum256(block.Block.Txs[msg.index])
 			receipt, _ := k.GetReceipt(latestCtx, th)
@@ -358,6 +349,9 @@ func EncodeTmBlock(
 					TransactionIndex: (*hexutil.Uint64)(&ti),
 				})
 			}
+			or := make([]byte, ethtypes.BloomByteLength)
+			bitutil.ORBytes(or, blockBloom, receipt.LogsBloom[:])
+			blockBloom = or
 		case *banktypes.MsgSend:
 			th := sha256.Sum256(block.Block.Txs[msg.index])
 			if !fullTx {
@@ -393,7 +387,7 @@ func EncodeTmBlock(
 		"nonce":            ethtypes.BlockNonce{},   // inapplicable to Sei
 		"mixHash":          common.Hash{},           // inapplicable to Sei
 		"sha3Uncles":       ethtypes.EmptyUncleHash, // inapplicable to Sei
-		"logsBloom":        blockBloom,
+		"logsBloom":        ethtypes.BytesToBloom(blockBloom),
 		"stateRoot":        appHash,
 		"miner":            miner,
 		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
