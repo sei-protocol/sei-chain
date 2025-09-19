@@ -306,6 +306,6 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
-	cfg.Slow = true
+	cfg.Slow = false
 	return cfg, nil
 }
