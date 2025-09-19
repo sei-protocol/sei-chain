@@ -36,7 +36,7 @@ type Reactor struct {
 
 	// observePanic is a function for observing panics that were recovered in methods on
 	// Reactor. observePanic is called with the recovered value.
-	observePanic func(interface{})
+	observePanic func(any)
 
 	mtx          sync.Mutex
 	peerRoutines map[types.NodeID]context.CancelFunc
@@ -75,7 +75,7 @@ func (r *Reactor) SetChannel(ch *p2p.Channel) {
 	r.channel = ch
 }
 
-func defaultObservePanic(r interface{}) {}
+func defaultObservePanic(r any) {}
 
 // getChannelDescriptor produces an instance of a descriptor for this
 // package's required channels.
@@ -111,7 +111,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	}
 	go r.processMempoolCh(ctx, r.channel)
 	go r.processPeerUpdates(ctx, r.peerEvents(ctx), r.channel)
-
+	r.SpawnCritical("mempool", r.mempool.Run)
 	return nil
 }
 

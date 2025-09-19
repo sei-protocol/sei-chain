@@ -2,13 +2,13 @@ package mempool
 
 import (
 	"errors"
-	"sort"
 	"sync"
 	"time"
 
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/internal/libs/clist"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -238,85 +238,71 @@ func (txs *TxStore) GetOrSetPeerByTxHash(hash types.TxKey, peerID uint16) (*Wrap
 	return wtx, false
 }
 
-// WrappedTxList implements a thread-safe list of *WrappedTx objects that can be
-// used to build generic transaction indexes in the mempool. It accepts a
-// comparator function, less(a, b *WrappedTx) bool, that compares two WrappedTx
-// references which is used during Insert in order to determine sorted order. If
-// less returns true, a <= b.
+// WrappedTxList orders transactions in the order that they arrived.
+// They are ordered by timestamp.
 type WrappedTxList struct {
-	mtx  sync.RWMutex
-	txs  []*WrappedTx
-	less func(*WrappedTx, *WrappedTx) bool
+	inner utils.RWMutex[map[types.TxKey]*WrappedTx]
 }
 
-func NewWrappedTxList(less func(*WrappedTx, *WrappedTx) bool) *WrappedTxList {
+func NewWrappedTxList() *WrappedTxList {
 	return &WrappedTxList{
-		txs:  make([]*WrappedTx, 0),
-		less: less,
+		inner: utils.NewRWMutex(map[types.TxKey]*WrappedTx{}),
 	}
 }
 
 // Size returns the number of WrappedTx objects in the list.
 func (wtl *WrappedTxList) Size() int {
-	wtl.mtx.RLock()
-	defer wtl.mtx.RUnlock()
-
-	return len(wtl.txs)
+	for inner := range wtl.inner.RLock() {
+		return len(inner)
+	}
+	panic("unreachable")
 }
 
 // Reset resets the list of transactions to an empty list.
 func (wtl *WrappedTxList) Reset() {
-	wtl.mtx.Lock()
-	defer wtl.mtx.Unlock()
-
-	wtl.txs = make([]*WrappedTx, 0)
+	for inner := range wtl.inner.Lock() {
+		clear(inner)
+	}
 }
 
 // Insert inserts a WrappedTx reference into the sorted list based on the list's
 // comparator function.
 func (wtl *WrappedTxList) Insert(wtx *WrappedTx) {
-	wtl.mtx.Lock()
-	defer wtl.mtx.Unlock()
-
-	i := sort.Search(len(wtl.txs), func(i int) bool {
-		return wtl.less(wtl.txs[i], wtx)
-	})
-
-	if i == len(wtl.txs) {
-		// insert at the end
-		wtl.txs = append(wtl.txs, wtx)
-		return
+	for inner := range wtl.inner.Lock() {
+		inner[wtx.hash] = wtx
 	}
-
-	// Make space for the inserted element by shifting values at the insertion
-	// index up one index.
-	//
-	// NOTE: The call to append does not allocate memory when cap(wtl.txs) > len(wtl.txs).
-	wtl.txs = append(wtl.txs[:i+1], wtl.txs[i:]...)
-	wtl.txs[i] = wtx
 }
 
 // Remove attempts to remove a WrappedTx from the sorted list.
 func (wtl *WrappedTxList) Remove(wtx *WrappedTx) {
-	wtl.mtx.Lock()
-	defer wtl.mtx.Unlock()
-
-	i := sort.Search(len(wtl.txs), func(i int) bool {
-		return wtl.less(wtl.txs[i], wtx)
-	})
-
-	// Since the list is sorted, we evaluate all elements starting at i. Note, if
-	// the element does not exist, we may potentially evaluate the entire remainder
-	// of the list. However, a caller should not be expected to call Remove with a
-	// non-existing element.
-	for i < len(wtl.txs) {
-		if wtl.txs[i] == wtx {
-			wtl.txs = append(wtl.txs[:i], wtl.txs[i+1:]...)
-			return
-		}
-
-		i++
+	for inner := range wtl.inner.Lock() {
+		delete(inner, wtx.hash)
 	}
+}
+
+// Purge pops transactions which have older timestamp than minTime OR lower height than minHeight.
+func (wtl *WrappedTxList) Purge(minTime utils.Option[time.Time], minHeight utils.Option[int64]) []*WrappedTx {
+	var purged []*WrappedTx
+	for inner := range wtl.inner.Lock() {
+		for _, wtx := range inner {
+			shouldPurge := func() bool {
+				if t, ok := minTime.Get(); ok && wtx.timestamp.Before(t) {
+					return true
+				}
+				if h, ok := minHeight.Get(); ok && wtx.height < h {
+					return true
+				}
+				return false
+			}()
+			if shouldPurge {
+				purged = append(purged, wtx)
+			}
+		}
+		for _, wtx := range purged {
+			delete(inner, wtx.hash)
+		}
+	}
+	return purged
 }
 
 type PendingTxs struct {

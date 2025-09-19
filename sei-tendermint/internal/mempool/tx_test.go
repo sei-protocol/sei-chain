@@ -2,15 +2,14 @@ package mempool
 
 import (
 	"fmt"
-	"math/rand"
 	"sort"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -212,98 +211,63 @@ func TestTxStore_Size(t *testing.T) {
 	require.Equal(t, numTxs, txStore.Size())
 }
 
-func TestWrappedTxList_Reset(t *testing.T) {
-	list := NewWrappedTxList(func(wtx1, wtx2 *WrappedTx) bool {
-		return wtx1.height >= wtx2.height
-	})
+func TestWrappedTxList(t *testing.T) {
+	list := NewWrappedTxList()
+	rng := utils.TestRng()
+	now := time.Now()
 
-	require.Zero(t, list.Size())
-
-	for i := 0; i < 100; i++ {
-		list.Insert(&WrappedTx{height: int64(i)})
-	}
-
-	require.Equal(t, 100, list.Size())
-
-	list.Reset()
-	require.Zero(t, list.Size())
-}
-
-func TestWrappedTxList_Insert(t *testing.T) {
-	list := NewWrappedTxList(func(wtx1, wtx2 *WrappedTx) bool {
-		return wtx1.height >= wtx2.height
-	})
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	var expected []int
-	for i := 0; i < 100; i++ {
-		height := rng.Int63n(10000)
-		expected = append(expected, int(height))
-		list.Insert(&WrappedTx{height: height})
-
-		if i%10 == 0 {
-			list.Insert(&WrappedTx{height: height})
-			expected = append(expected, int(height))
-		}
-	}
-
-	got := make([]int, list.Size())
-	for i, wtx := range list.txs {
-		got[i] = int(wtx.height)
-	}
-
-	sort.Ints(expected)
-	require.Equal(t, expected, got)
-}
-
-func TestWrappedTxList_Remove(t *testing.T) {
-	list := NewWrappedTxList(func(wtx1, wtx2 *WrappedTx) bool {
-		return wtx1.height >= wtx2.height
-	})
-
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-
+	t.Log("insert a bunch of random transactions")
 	var txs []*WrappedTx
-	for i := 0; i < 100; i++ {
-		height := rng.Int63n(10000)
-		tx := &WrappedTx{height: height}
-
-		txs = append(txs, tx)
-		list.Insert(tx)
-
-		if i%10 == 0 {
-			tx = &WrappedTx{height: height}
-			list.Insert(tx)
-			txs = append(txs, tx)
+	for range 100 {
+		wtx := &WrappedTx{
+			height:    rng.Int63(),
+			timestamp: now.Add(time.Duration(rng.Int63n(1000000000000)) * time.Nanosecond),
 		}
+		_, err := rng.Read(wtx.hash[:])
+		require.NoError(t, err)
+		txs = append(txs, wtx)
+		list.Insert(wtx)
 	}
 
-	// remove a tx that does not exist
-	list.Remove(&WrappedTx{height: 20000})
-
-	// remove a tx that exists (by height) but not referenced
-	list.Remove(&WrappedTx{height: txs[0].height})
-
-	// remove a few existing txs
-	for i := 0; i < 25; i++ {
-		j := rng.Intn(len(txs))
-		list.Remove(txs[j])
-		txs = append(txs[:j], txs[j+1:]...)
+	t.Log("remove some of them")
+	n := 50
+	rng.Shuffle(len(txs), func(i, j int) { txs[i], txs[j] = txs[j], txs[i] })
+	for _, wtx := range txs[:n] {
+		list.Remove(wtx)
 	}
+	txs = txs[n:]
 
-	expected := make([]int, len(txs))
-	for i, tx := range txs {
-		expected[i] = int(tx.height)
+	t.Log("purge by timestamp")
+	sort.Slice(txs, func(i, j int) bool { return txs[i].timestamp.Before(txs[j].timestamp) })
+	n = 10
+	want := map[types.TxKey]struct{}{}
+	for _, wtx := range txs[:n] {
+		want[wtx.hash] = struct{}{}
 	}
-
-	got := make([]int, list.Size())
-	for i, wtx := range list.txs {
-		got[i] = int(wtx.height)
+	got := map[types.TxKey]struct{}{}
+	for _, wtx := range list.Purge(utils.Some(txs[n].timestamp), utils.None[int64]()) {
+		got[wtx.hash] = struct{}{}
 	}
+	require.Equal(t, want, got)
+	txs = txs[n:]
 
-	sort.Ints(expected)
-	require.Equal(t, expected, got)
+	t.Log("purge by height")
+	sort.Slice(txs, func(i, j int) bool { return txs[i].height < txs[j].height })
+	n = 15
+	want = map[types.TxKey]struct{}{}
+	for _, wtx := range txs[:n] {
+		want[wtx.hash] = struct{}{}
+	}
+	got = map[types.TxKey]struct{}{}
+	for _, wtx := range list.Purge(utils.None[time.Time](), utils.Some(txs[n].height)) {
+		got[wtx.hash] = struct{}{}
+	}
+	require.Equal(t, want, got)
+	txs = txs[n:]
+
+	t.Log("reset the list")
+	list.Reset()
+	require.Equal(t, 0, list.Size())
 }
 
 func TestPendingTxsPopTxsGood(t *testing.T) {
