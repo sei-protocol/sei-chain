@@ -259,6 +259,96 @@ func TestDuplicateTxCache(t *testing.T) {
 		assert.Equal(t, 0, duplicateCount)
 		assert.Equal(t, 0, nonDuplicateCount)
 	})
+
+	t.Run("Increment_CacheFull_NoEffect", func(t *testing.T) {
+		// Create a cache with maxSize=2
+		cache := NewDuplicateTxCache(2, 10*time.Second, 0, 0)
+
+		// Add items up to the maxSize using Set (which doesn't check maxSize)
+		txKey1 := createTestTxKey("key1")
+		txKey2 := createTestTxKey("key2")
+		txKey3 := createTestTxKey("key3") // This will be the key we try to increment when cache is at max size
+
+		// Add two items to reach maxSize
+		cache.Set(txKey1, 1)
+		cache.Set(txKey2, 1)
+
+		// Verify cache is at max size
+		assert.Equal(t, 2, cache.cache.ItemCount())
+		assert.Equal(t, cache.cache.ItemCount(), cache.maxSize)
+
+		// Try to increment a new key when cache is at max size
+		// The go-cache.Increment() will fail because the key doesn't exist,
+		// and then our code will check if cache.ItemCount() < maxSize
+		// Since cache.ItemCount() (2) is NOT < maxSize (2), it should NOT add the key
+		cache.Increment(txKey3)
+
+		// Verify the new key was not added
+		counter, found := cache.Get(txKey3)
+		assert.False(t, found)
+		assert.Equal(t, 0, counter)
+
+		// Verify cache size is still the same (the Increment should not have added a new item)
+		assert.Equal(t, 2, cache.cache.ItemCount())
+
+		// Verify existing keys are still there
+		counter1, found1 := cache.Get(txKey1)
+		assert.True(t, found1)
+		assert.Equal(t, 1, counter1)
+
+		counter2, found2 := cache.Get(txKey2)
+		assert.True(t, found2)
+		assert.Equal(t, 1, counter2)
+	})
+
+	t.Run("Increment_CacheNotFull_ShouldWork", func(t *testing.T) {
+		// Create a cache with size 3, but only add 1 item
+		cache := NewDuplicateTxCache(3, 10*time.Second, 0, 0)
+
+		txKey1 := createTestTxKey("key1")
+		txKey2 := createTestTxKey("key2")
+
+		// Add one item
+		cache.Set(txKey1, 1)
+		assert.Equal(t, 1, cache.cache.ItemCount())
+
+		// Increment a new key when cache is not full
+		// This should work because cache.ItemCount() <= maxSize
+		cache.Increment(txKey2)
+
+		// Verify the new key was added
+		counter, found := cache.Get(txKey2)
+		assert.True(t, found)
+		assert.Equal(t, 1, counter)
+
+		// Verify cache size increased
+		assert.Equal(t, 2, cache.cache.ItemCount())
+	})
+
+	t.Run("Increment_ExistingKey_CacheFull_ShouldWork", func(t *testing.T) {
+		// Create a cache with size 2
+		cache := NewDuplicateTxCache(2, 100*time.Millisecond, 0, 0)
+
+		txKey1 := createTestTxKey("key1")
+		txKey2 := createTestTxKey("key2")
+
+		// Fill the cache
+		cache.Set(txKey1, 1)
+		cache.Set(txKey2, 1)
+		assert.Equal(t, 2, cache.cache.ItemCount())
+
+		// Increment an existing key when cache is full
+		// This should work because Increment() on existing keys doesn't add new items
+		cache.Increment(txKey1)
+
+		// Verify the existing key was incremented
+		counter, found := cache.Get(txKey1)
+		assert.True(t, found)
+		assert.Equal(t, 2, counter)
+
+		// Verify cache size is still the same
+		assert.Equal(t, 2, cache.cache.ItemCount())
+	})
 }
 
 func TestNopTxCacheWithTTL(t *testing.T) {

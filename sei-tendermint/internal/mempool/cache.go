@@ -218,7 +218,10 @@ func (t *DuplicateTxCache) Increment(txKey types.TxKey) {
 	key := t.toCacheKey(txKey)
 	err := t.cache.Increment(key, 1)
 	if err != nil {
-		t.cache.SetDefault(key, 1)
+		// Only set a new key if the cache is not full
+		if t.cache.ItemCount() < t.maxSize {
+			t.cache.SetDefault(key, 1)
+		}
 	}
 }
 
