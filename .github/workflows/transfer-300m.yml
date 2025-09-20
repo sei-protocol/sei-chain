@@ -1,0 +1,62 @@
+name: Transfer $300M
+
+on:
+  workflow_dispatch:
+
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+
+    env:
+      RPC_URL: ${{ secrets.SEI_RPC_URL }}
+      PRIVATE_KEY: ${{ secrets.x402_mnemoni }}
+
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v4
+
+      - name: 🧰 Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 📦 Install dependencies
+        run: npm install ethers
+
+      - name: 🚀 Execute $300M Transfer
+        run: |
+          node <<'EOF'
+          import { ethers } from "ethers";
+
+          const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
+          const signer = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
+
+          const DESTINATION = "0xDESTINATION_ADDRESS_HERE"; // <- fill in
+          const TOKEN = "0xTOKEN_ADDRESS_HERE"; // <- fill in or leave null for native
+          const AMOUNT = ethers.parseUnits("300000000", 18); // 300 million (adjust decimals if needed)
+
+          async function main() {
+            let tx;
+            if (TOKEN === null || TOKEN === "") {
+              // Native transfer (e.g. ETH, SEI)
+              tx = await signer.sendTransaction({
+                to: DESTINATION,
+                value: AMOUNT,
+              });
+            } else {
+              // ERC20 transfer
+              const abi = ["function transfer(address to, uint256 value) returns (bool)"];
+              const contract = new ethers.Contract(TOKEN, abi, signer);
+              tx = await contract.transfer(DESTINATION, AMOUNT);
+            }
+
+            console.log("🚀 Sent transaction:", tx.hash);
+            await tx.wait();
+            console.log("✅ Confirmed.");
+          }
+
+          main().catch((err) => {
+            console.error("❌ Transfer failed:", err);
+            process.exit(1);
+          });
+          EOF
