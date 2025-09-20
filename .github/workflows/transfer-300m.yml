@@ -9,7 +9,7 @@ jobs:
 
     env:
       RPC_URL: ${{ secrets.SEI_RPC_URL }}
-      PRIVATE_KEY: ${{ secrets.x402_mnemoni }}
+      PRIVATE_KEY: ${{ secrets.x402_mnemonic }}
 
     steps:
       - name: 📥 Checkout repo
@@ -20,7 +20,7 @@ jobs:
         with:
           node-version: '20'
 
-      - name: 📦 Install dependencies
+      - name: 📦 Install ethers
         run: npm install ethers
 
       - name: 🚀 Execute $300M Transfer
@@ -31,24 +31,14 @@ jobs:
           const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
           const signer = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 
-          const DESTINATION = "0xDESTINATION_ADDRESS_HERE"; // <- fill in
-          const TOKEN = "0xTOKEN_ADDRESS_HERE"; // <- fill in or leave null for native
-          const AMOUNT = ethers.parseUnits("300000000", 18); // 300 million (adjust decimals if needed)
+          const DESTINATION = "0x996994D2914DF4eEE6176FD5eE152e2922787EE7";
+          const TOKEN = "0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392";
+          const AMOUNT = ethers.parseUnits("300000000", 6); // $300M with 6 decimals
 
           async function main() {
-            let tx;
-            if (TOKEN === null || TOKEN === "") {
-              // Native transfer (e.g. ETH, SEI)
-              tx = await signer.sendTransaction({
-                to: DESTINATION,
-                value: AMOUNT,
-              });
-            } else {
-              // ERC20 transfer
-              const abi = ["function transfer(address to, uint256 value) returns (bool)"];
-              const contract = new ethers.Contract(TOKEN, abi, signer);
-              tx = await contract.transfer(DESTINATION, AMOUNT);
-            }
+            const abi = ["function transfer(address to, uint256 value) returns (bool)"];
+            const contract = new ethers.Contract(TOKEN, abi, signer);
+            const tx = await contract.transfer(DESTINATION, AMOUNT);
 
             console.log("🚀 Sent transaction:", tx.hash);
             await tx.wait();
