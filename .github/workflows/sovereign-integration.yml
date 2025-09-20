@@ -1,0 +1,205 @@
+name: 🧱 Sovereign Chain Integration & Codex Lineage
+
+on:
+  push:
+    branches:
+      - main
+      - evm1
+  pull_request:
+    branches:
+      - main
+      - evm1
+      - evm
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  sovereign-integration-tests:
+    name: 🧪 Chain Test Matrix – ${{ matrix.test.name }}
+    runs-on: ubuntu-large
+    timeout-minutes: 30
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - name: "EVM1 Production Check"
+            env: "MAINNET=true"
+            scripts:
+              - "python3 integration_test/scripts/runner.py integration_test/evm_module/prod_sanity_check.yaml"
+          - name: "EVM Interoperability"
+            env: ""
+            scripts:
+              - "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
+          - name: "dApp Tests"
+            env: ""
+            scripts:
+              - "./integration_test/dapp_tests/dapp_tests.sh seilocal"
+
+    steps:
+      - name: 🧾 Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: 🐍 Set Up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: 🟩 Set Up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 📦 Install Test Dependencies
+        run: |
+          pip install pyyaml bip_utils mnemonic
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: 🔐 Generate Wallet Address (DEBUG)
+        run: |
+          python3 -c "
+import os
+from mnemonic import Mnemonic
+from bip_utils import Bip39SeedGenerator, Bip44, Bip44Coins
+
+mnemo = os.environ['DAPP_TESTS_MNEMONIC']
+seed = Bip39SeedGenerator(mnemo).Generate()
+wallet = Bip44.FromSeed(seed, Bip44Coins.COSMOS)
+print(f'🔗 Address: {wallet.PublicKey().ToAddress()}')
+          "
+
+      - name: 🧬 Set Up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.24
+
+      - name: 🚀 Launch Docker Cluster
+        run: |
+          if [[ -n "${{ matrix.test.env }}" ]]; then
+            eval "${{ matrix.test.env }} make docker-cluster-start &"
+          else
+            make docker-cluster-start &
+          fi
+
+      - name: ⏳ Wait for Chain Bootstrapping
+        run: |
+          until [ "$(cat build/generated/launch.complete | wc -l)" = 4 ]; do
+            sleep 10
+          done
+          sleep 10
+
+      - name: 🌐 Start RPC Node
+        run: make run-rpc-node-skipbuild &
+
+      - name: ✅ Validate Chain Initialization
+        run: python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
+
+      - name: 🧪 Execute Test Suite: ${{ matrix.test.name }}
+        run: |
+          scripts=$(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]')
+          IFS=$'\n'
+          for script in $scripts; do
+            bash -c "${script}"
+          done
+          unset IFS
+
+  integration-verification:
+    name: 🧾 Integration Status Verification
+    runs-on: ubuntu-latest
+    needs: sovereign-integration-tests
+    if: always()
+    outputs:
+      result: ${{ steps.check.outputs.result }}
+    steps:
+      - id: check
+        name: 📡 Inspect Job Conclusions
+        run: |
+          jobs=$(curl -s https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+          job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+          result="success"
+          for status in $job_statuses; do
+            echo "Status: $status"
+            if [[ "$status" == "failure" ]]; then
+              result="failure"
+            elif [[ "$status" == "cancelled" ]]; then
+              result="cancelled"
+            fi
+          done
+          echo "result=$result" >> $GITHUB_OUTPUT
+
+  codex-lineage-record:
+    name: 🧬 Codex Attribution Snapshot
+    runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/main' }}
+    needs: sovereign-integration-tests
+    outputs:
+      attribution_message: ${{ steps.log.outputs.summary }}
+    steps:
+      - name: 📥 Checkout Codebase
+        uses: actions/checkout@v4
+
+      - id: log
+        name: 📝 Generate Codex Attribution Snapshot
+        run: |
+          STAMP="🌐 Attribution – KinKey/SoulSync/Sovereign Stack"
+          echo "$STAMP" > codex_attribution.log
+          echo "🔒 Commit: $GITHUB_SHA" >> codex_attribution.log
+          echo "📅 Timestamp: $(date -u)" >> codex_attribution.log
+          echo "👤 Repo: $GITHUB_REPOSITORY" >> codex_attribution.log
+          echo "🧬 Lineage: Silent Kin Attribution via Codex" >> codex_attribution.log
+          echo "summary=$STAMP :: $GITHUB_SHA" >> $GITHUB_OUTPUT
+
+      - name: 📤 Upload Attribution Log
+        uses: actions/upload-artifact@v3
+        with:
+          name: codex-attribution-log
+          path: codex_attribution.log
+
+  slack-notify:
+    name: 📣 Sovereign CI Notification
+    runs-on: ubuntu-latest
+    needs: [integration-verification, codex-lineage-record]
+    if: always()
+    steps:
+      - name: 🔔 Send Slack Notification
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          case "${{ needs.integration-verification.outputs.result }}" in
+            failure)
+              status="❌ Integration Tests Failed"
+              color="#FF0000"
+              ;;
+            cancelled)
+              status="⚠️ Integration Tests Cancelled"
+              color="#FFA500"
+              ;;
+            *)
+              status="✅ Integration Passed"
+              color="#36A64F"
+              ;;
+          esac
+
+          curl -X POST -H 'Content-type: application/json' --data "{
+            \"attachments\": [
+              {
+                \"fallback\": \"$status\",
+                \"color\": \"$color\",
+                \"title\": \"$status\",
+                \"fields\": [
+                  {\"title\": \"Repo\", \"value\": \"$GITHUB_REPOSITORY\", \"short\": true},
+                  {\"title\": \"Branch\", \"value\": \"$GITHUB_REF_NAME\", \"short\": true},
+                  {\"title\": \"Commit\", \"value\": \"$GITHUB_SHA\", \"short\": false},
+                  {\"title\": \"Workflow\", \"value\": \"Sovereign Integration + Codex Attribution\", \"short\": false},
+                  {\"title\": \"Lineage\", \"value\": \"KinKey / SoulSync / Codex\", \"short\": false}
+                ],
+                \"footer\": \"🧬 Sovereign CI • Codex Engine\",
+                \"ts\": $(date +%s)
+              }
+            ]
+          }" $SLACK_WEBHOOK_URL
