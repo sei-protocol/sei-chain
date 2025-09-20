@@ -160,13 +160,7 @@ print(f'🔗 Address: {wallet.PublicKey().ToAddress()}')
           name: codex-attribution-log
           path: codex_attribution.log
 
-  slack-notify:
-    name: "📣 Sovereign CI Notification"
-    runs-on: ubuntu-latest
-    needs: [integration-verification, codex-lineage-record]
-    if: always()
-    steps:
-      - name: "🔔 Send Slack Notification"
+       - name: "🔔 Send Slack Notification"
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
@@ -198,7 +192,7 @@ print(f'🔗 Address: {wallet.PublicKey().ToAddress()}')
                   {\"title\": \"Workflow\", \"value\": \"Sovereign Integration + Codex Attribution\", \"short\": false},
                   {\"title\": \"Lineage\", \"value\": \"KinKey / SoulSync / Codex\", \"short\": false}
                 ],
-                \"footer\": "🧬 Sovereign CI • Codex Engine",
+                \"footer\": \"🧬 Sovereign CI • Codex Engine\",
                 \"ts\": $(date +%s)
               }
             ]
