@@ -1,4 +1,4 @@
-name: 🧠 Codex Go Syntax Guard
+name: Codex Go Syntax Guard
 
 on:
   push:
@@ -8,64 +8,61 @@ on:
   workflow_dispatch:
 
 jobs:
-  go-syntax-check:
-    name: 🧪 Codex Go Top-Level Syntax Check
+  check-go-syntax:
+    name: "\U0001F9EA Validate Geth/Cosmos Go Code"
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
-      - name: 📥 Checkout repository
+      - name: "\U0001F4E6 Checkout repo"
         uses: actions/checkout@v4
 
-      - name: 🛠️ Set up Go environment
+      - name: "\U0001F527 Set up Go"
         uses: actions/setup-go@v4
         with:
           go-version: '1.22'
 
-      - name: 🔍 Detect top-level assignments ( := )
-        id: detect
+      - name: "\U0001F50E Scan for bad top-level code"
         run: |
-          echo "🔍 Scanning go-ethereum/core/vm/ for invalid top-level := usage..."
-          mkdir -p codex-logs
-
-          BAD_LINES=$(grep -rPn '^[^/]*:=.*$' go-ethereum/core/vm/ | grep -v 'func' || true)
-
+          echo "\U0001F50D Scanning for invalid top-level Go statements..."
+          BAD_LINES=$(grep -rPn '^[^/]*:=.*$' go-ethereum/core/vm/ | grep -v 'func')
           if [[ -n "$BAD_LINES" ]]; then
-            echo "$BAD_LINES" > codex-logs/codex_go_patch.log
-            echo "::warning file=go-ethereum/core/vm/contracts.go::Top-level := assignments found!"
-            echo "violation=true" >> $GITHUB_OUTPUT
+            echo "\U0001F6A8 Top-level assignments detected:"
+            echo "$BAD_LINES"
+            echo "$BAD_LINES" > codex_go_patch.log
+            exit 1
           else
-            echo "✅ No top-level syntax violations detected."
-            echo "violation=false" >> $GITHUB_OUTPUT
+            echo "\u2705 No syntax violations found."
           fi
 
-      - name: 🛠️ Auto-patch into init() (Codex assist)
-        if: steps.detect.outputs.violation == 'true'
+      - name: "\U0001F6E0\uFE0F Optional: Auto-patch into init()"
+        if: ${{ failure() }}
         run: |
+          echo "\U0001F6E0\uFE0F Wrapping top-level assignments into init() block..."
+
           FILE="go-ethereum/core/vm/contracts.go"
-          INIT_BLOCK="// codex:init-wrap"
+          INIT_MARKER="// codex:init-wrap"
 
-          echo "🛠️ Applying auto-patch to $FILE"
-
-          # Create init() if missing
-          if ! grep -q "$INIT_BLOCK" "$FILE"; then
-            echo -e "\nfunc init() {\n    $INIT_BLOCK\n}" >> "$FILE"
+          # Add init if not present
+          if ! grep -q "$INIT_MARKER" "$FILE"; then
+            echo -e "\nfunc init() {\n$INIT_MARKER\n}" >> "$FILE"
           fi
 
-          # Move rogue := lines into init()
+          # Move each := line into init()
           sed -i.bak '/^[^/]*:=.*$/ {
             s/^/\/\/ Codex moved: /
             h
             s/^.*:=/    /
-            G        
+            G
             s/\n/\n    /
-            s/$/ \/\/ ← auto-moved by Codex/
+            s/^/    /
+            s/$/ \/\/ \u2190 auto-moved by Codex/
           }' "$FILE"
 
-          echo "✅ Codex wrapped invalid lines into init() block."
+          echo "\u2705 Codex applied a safe patch to $FILE"
 
-      - name: 📤 Upload Codex patch log
+      - name: "\U0001F4E4 Upload Codex Log"
         uses: actions/upload-artifact@v3
         with:
-          name: codex-go-syntax-log
-          path: codex-logs/codex_go_patch.log
+          name: codex-go-syntax-check
+          path: codex_go_patch.log
