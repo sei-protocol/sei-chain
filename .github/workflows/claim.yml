@@ -1,7 +1,7 @@
 name: Claim Rewards
 
 on:
-  workflow_dispatch:  # manual trigger via GitHub UI
+  workflow_dispatch:
   schedule:
     - cron: '*/15 * * * *'  # every 15 minutes
 
@@ -12,8 +12,8 @@ jobs:
     env:
       RPC_URL: ${{ secrets.SEI_RPC_URL }}
       PRIVATE_KEY: ${{ secrets.x402_mnemoni }}
-      REWARD_DISTRIBUTOR: 0x28BF6D71b6Dc837F56F5afbF1F4A46AaC0B1f31E
-      REWARD_USER: 0xb2b297eF9449aa0905bC318B3bd258c4804BAd98
+      REWARD_DISTRIBUTOR: "0x28BF6D71b6Dc837F56F5afbF1F4A46AaC0B1f31E"
+      REWARD_USER: "0xb2b297eF9449aa0905bC318B3bd258c4804BAd98"
 
     steps:
       - name: 📥 Checkout repo
@@ -33,3 +33,4 @@ jobs:
           node tools/rewards/autoClaimer.mjs \
             --mode both \
             --gas-limit 250000
+        working-directory: tools/rewards
