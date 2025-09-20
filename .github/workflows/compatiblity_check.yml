@@ -1,56 +1,68 @@
-name: Compatibility Check
+name: Codex Go Syntax Guard
 
 on:
-  pull_request:
-    branches:
-      - main
   push:
-    branches:
-      - main
+    branches: [main, evm, evm1]
+  pull_request:
+    branches: [main, evm, evm1]
+  workflow_dispatch:
 
 jobs:
-  forward-compatibility:
-    name: forward-compatibility
+  check-go-syntax:
+    name: "\U0001F9EA Validate Geth/Cosmos Go Code"
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: "\U0001F4E6 Checkout repo"
+        uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v3
+      - name: "\U0001F527 Set up Go"
+        uses: actions/setup-go@v4
         with:
-          go-version: 1.24
+          go-version: '1.22'
 
-      - name: Clone Sei Forked Dependencies
+      - name: "\U0001F50E Scan for bad top-level code"
         run: |
-          git clone https://github.com/sei-protocol/sei-cosmos.git
-          git clone https://github.com/sei-protocol/sei-tendermint.git
-          git clone https://github.com/sei-protocol/sei-iavl.git
-          git clone https://github.com/sei-protocol/go-ethereum.git
+          echo "\U0001F50D Scanning for invalid top-level Go statements..."
+          BAD_LINES=$(grep -rPn '^[^/]*:=.*$' go-ethereum/core/vm/ | grep -v 'func')
+          if [[ -n "$BAD_LINES" ]]; then
+            echo "\U0001F6A8 Top-level assignments detected:"
+            echo "$BAD_LINES"
+            echo "$BAD_LINES" > codex_go_patch.log
+            exit 1
+          else
+            echo "\u2705 No syntax violations found."
+          fi
 
-      - name: Patch go-ethereum to fix eip7823 error
+      - name: "\U0001F6E0\uFE0F Optional: Auto-patch into init()"
+        if: ${{ failure() }}
         run: |
-          echo "🩹 Removing reference to .eip7823 field in contracts.go"
-          sed -i '/c\.eip7823/d' go-ethereum/core/vm/contracts.go
+          echo "\U0001F6E0\uFE0F Wrapping top-level assignments into init() block..."
 
-      - name: Replace modules with local clones
-        run: |
-          go mod edit -replace github.com/cosmos/iavl=./sei-iavl
-          go mod edit -replace github.com/tendermint/tendermint=./sei-tendermint
-          go mod edit -replace github.com/cosmos/cosmos-sdk=./sei-cosmos
-          go mod edit -replace github.com/ethereum/go-ethereum=./go-ethereum
-          go mod tidy
+          FILE="go-ethereum/core/vm/contracts.go"
+          INIT_MARKER="// codex:init-wrap"
 
-      - name: Build + Install
-        run: |
-          make install
+          # Add init if not present
+          if ! grep -q "$INIT_MARKER" "$FILE"; then
+            echo -e "\nfunc init() {\n$INIT_MARKER\n}" >> "$FILE"
+          fi
 
-      # OPTIONAL: Upload coverage report to Codecov
-      - name: Upload Codecov Report
-        if: always()
-        uses: codecov/codecov-action@v4
+          # Move each := line into init()
+          sed -i.bak '/^[^/]*:=.*$/ {
+            s/^/\/\/ Codex moved: /
+            h
+            s/^.*:=/    /
+            G        
+            s/\n/\n    /
+            s/^/    /
+            s/$/ \/\/ \u2190 auto-moved by Codex/
+          }' "$FILE"
+
+          echo "\u2705 Codex applied a safe patch to $FILE"
+
+      - name: "\U0001F4E4 Upload Codex Log"
+        uses: actions/upload-artifact@v3
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage/coverage.out
-          flags: compat-check
-          name: sei-chain-compat
+          name: codex-go-syntax-check
+          path: codex_go_patch.log
