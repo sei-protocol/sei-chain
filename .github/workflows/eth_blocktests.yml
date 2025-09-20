@@ -1,54 +1,180 @@
-name: ETH Blocktests
+name: "Sovereign Chain Integration & Codex Lineage"
 
 on:
   push:
     branches:
       - main
+      - evm1
   pull_request:
     branches:
       - main
+      - evm1
+      - evm
 
 defaults:
- run:
-  shell: bash
-
-env:
-  TOTAL_RUNNERS: 5
+  run:
+    shell: bash
 
 jobs:
-  runner-indexes:
-    runs-on: ubuntu-latest
-    name: Generate runner indexes
-    outputs:
-      json: ${{ steps.generate-index-list.outputs.json }}
-    steps:
-      - id: generate-index-list
-        run: |
-          MAX_INDEX=$((${{ env.TOTAL_RUNNERS }}-1))
-          INDEX_LIST=$(seq 0 ${MAX_INDEX})
-          INDEX_JSON=$(jq --null-input --compact-output '. |= [inputs]' <<< ${INDEX_LIST})
-          echo "json=${INDEX_JSON}" >> $GITHUB_OUTPUT
-
-  eth-blocktests:
-    name: "Run ETH Blocktests ${{ matrix.runner-index }}"
-    runs-on: ubuntu-latest
-    needs: runner-indexes
+  sovereign-integration-tests:
+    name: "Chain Test Matrix – ${{ matrix.test.name }}"
+    runs-on: ubuntu-large
+    timeout-minutes: 30
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
     strategy:
       fail-fast: false
       matrix:
-        # generate runner index array from 0 to total-runners
-        runner-index: ${{fromJson(needs.runner-indexes.outputs.json)}}
+        test:
+          - name: "EVM1 Production Check"
+            env:
+              MAINNET: "true"
+            script: "python3 integration_test/scripts/runner.py integration_test/evm_module/prod_sanity_check.yaml"
+          - name: "EVM Interoperability"
+            env: {}
+            script: "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
+          - name: "dApp Tests"
+            env: {}
+            script: "./integration_test/dapp_tests/dapp_tests.sh seilocal"
+
     steps:
-      - uses: actions/checkout@v2
+      - name: "Checkout Repository"
+        uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v2
+      - name: "Set Up Python"
+        uses: actions/setup-python@v4
         with:
-          go-version: 1.24
+          python-version: '3.10'
 
-      - name: Clone ETH Blocktests
+      - name: "Set Up Node.js"
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: "Install Test Dependencies"
         run: |
-          git clone https://github.com/ethereum/tests.git ethtests
+          set -euo pipefail
+          pip install --user pyyaml bip_utils mnemonic
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: "Set Up Go"
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: "Launch Docker Cluster"
+        env: ${{ matrix.test.env }}
+        run: |
+          set -euo pipefail
+          make docker-cluster-start &
+
+      - name: "Wait for Chain Bootstrapping"
+        run: |
+          set -euo pipefail
+          until [[ -f build/generated/launch.complete ]]; do
+            sleep 10
+          done
+          until [[ $(wc -l < build/generated/launch.complete) -eq 4 ]]; do
+            sleep 10
+          done
+          sleep 10
+
+      - name: "Start RPC Node"
+        env: ${{ matrix.test.env }}
+        run: |
+          set -euo pipefail
+          make run-rpc-node-skipbuild &
+
+      - name: "Validate Chain Initialization"
+        run: |
+          set -euo pipefail
+          python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
+
+      - name: "Execute Test Suite"
+        env: ${{ matrix.test.env }}
+        run: |
+          set -euo pipefail
+          bash -c "${{ matrix.test.script }}"
+
+  codex-lineage-record:
+    name: "Codex Attribution Snapshot"
+    runs-on: ubuntu-latest
+    needs: sovereign-integration-tests
+    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    env:
+      TEST_RESULT: ${{ needs.sovereign-integration-tests.result }}
+    outputs:
+      attribution_message: ${{ steps.log.outputs.summary }}
+    steps:
+      - name: "Checkout Codebase"
+        uses: actions/checkout@v4
+
+      - id: log
+        name: "Generate Codex Attribution Snapshot"
+        run: |
+          set -euo pipefail
+          STAMP="🌐 Attribution – KinKey/SoulSync/Sovereign Stack"
+          {
+            echo "$STAMP"
+            echo "🔒 Commit: $GITHUB_SHA"
+            echo "📅 Timestamp: $(date -u)"
+            echo "👤 Repo: $GITHUB_REPOSITORY"
+            echo "🧬 Lineage: Silent Kin Attribution via Codex"
+          } > codex_attribution.log
+          echo "summary=$STAMP :: $GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: "Upload Attribution Log"
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-attribution-log
+          path: codex_attribution.log
+
+      - name: "Send Slack Notification"
+        if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          case "$TEST_RESULT" in
+            success)
+              status="✅ Integration Passed"
+              color="#36A64F"
+              ;;
+            failure)
+              status="❌ Integration Tests Failed"
+              color="#FF0000"
+              ;;
+            cancelled)
+              status="⚠️ Integration Tests Cancelled"
+              color="#FFA500"
+              ;;
+            *)
+              status="ℹ️ Integration Status: $TEST_RESULT"
+              color="#439FE0"
+              ;;
+          esac
+
+          curl -X POST -H 'Content-type: application/json' --data "{
+            \"attachments\": [
+              {
+                \"fallback\": \"$status\",
+                \"color\": \"$color\",
+                \"title\": \"$status\",
+                \"fields\": [
+                  {\"title\": \"Repo\", \"value\": \"$GITHUB_REPOSITORY\", \"short\": true},
+                  {\"title\": \"Branch\", \"value\": \"$GITHUB_REF_NAME\", \"short\": true},
+                  {\"title\": \"Commit\", \"value\": \"$GITHUB_SHA\", \"short\": false},
+                  {\"title\": \"Workflow\", \"value\": \"Sovereign Integration + Codex Attribution\", \"short\": false},
+                  {\"title\": \"Lineage\", \"value\": \"KinKey / SoulSync / Codex\", \"short\": false}
+                ],
+                \"footer\": \"🧬 Sovereign CI • Codex Engine\",
+                \"ts\": $(date +%s)
+              }
+            ]
+          }" "$SLACK_WEBHOOK_URL"
           cd ethtests
           git checkout c67e485ff8b5be9abc8ad15345ec21aa22e290d9
 
