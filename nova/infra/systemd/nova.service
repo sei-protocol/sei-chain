@@ -1,0 +1,14 @@
+[Unit]
+Description=Nova SEI Compounding Agent
+After=network.target
+
+[Service]
+Type=simple
+User=nova
+WorkingDirectory=/opt/nova
+ExecStart=/opt/nova/.venv/bin/nova auto --profile /opt/nova/config/profile.yaml
+Restart=on-failure
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

@@ -1,10 +1,10 @@
 name: Mock Balances Build Check
 
 on:
-  pull_request:
+  push:
     branches:
       - main
-  push:
+  pull_request:
     branches:
       - main
 
@@ -12,11 +12,15 @@ jobs:
   mock-balances-build:
     name: Compile with Mock Balances
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v3
+
+      - name: 🧰 Set up Go
+        uses: actions/setup-go@v3
         with:
           go-version: 1.24
 
-      - name: Build with Mock Balances
+      - name: 🏗️ Build with Mock Balances
         run: make install-mock-balances

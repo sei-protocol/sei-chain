@@ -1,0 +1,18 @@
+name: EVM Mainnet USDC Paymaster
+
+on:
+  workflow_dispatch:
+    inputs:
+      usdc_amount:
+        description: >-
+          Amount of USDC (six decimals) to fund the paymaster.
+          Example: 300000000000000 (300,000,000 USDC).
+        required: true
+        default: "300000000000000" # 300,000,000 USDC (6 decimals)
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Placeholder step
+        run: echo "This workflow definition is unavailable in the provided repository snapshot."

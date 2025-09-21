@@ -10,6 +10,18 @@ Sei is the fastest general purpose L1 blockchain and the first parallelized EVM.
 # Documentation
 For the most up to date documentation please visit https://www.docs.sei.io/
 
+# Security Modules
+Optional security helpers can be toggled when running the node installer script.
+
+- **Guardian Lock** (`--guardian-lock`): basic guard to prevent unauthorized operations.
+- **Seiword Trigger** (`--seiword-trigger`): monitors for preset keywords.
+- **Offline Switch** (`--offline-switch`): enables an offline mode for sensitive actions.
+
+Enable them via:
+```bash
+python scripts/run-node.py --guardian-lock --seiword-trigger --offline-switch
+```
+
 # Sei Optimizations
 Sei introduces four major innovations:
 

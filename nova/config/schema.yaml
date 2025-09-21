@@ -1,0 +1,100 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+title: NovaConfig
+ type: object
+required:
+  - wallet
+  - chain
+  - strategy
+properties:
+  wallet:
+    type: object
+    required: [address]
+    properties:
+      address:
+        type: string
+        description: Bech32 Sei account address
+      name:
+        type: string
+      signer:
+        type: string
+        enum: [local, vault, ledger, multisig]
+  chain:
+    type: object
+    required: [id, rpc]
+    properties:
+      id:
+        type: string
+      rpc:
+        type: string
+      rest:
+        type: string
+        description: Optional LCD endpoint
+      gas_price:
+        type: string
+      timeout_seconds:
+        type: integer
+        minimum: 1
+        default: 30
+  strategy:
+    type: object
+    required: [buffer, validators]
+    properties:
+      buffer:
+        type: integer
+        minimum: 0
+      max_delegate:
+        type: integer
+        minimum: 0
+      validators:
+        type: array
+        items:
+          type: string
+      schedule:
+        type: object
+        properties:
+          interval_minutes:
+            type: integer
+            minimum: 1
+            default: 60
+          jitter_seconds:
+            type: integer
+            minimum: 0
+            default: 120
+  security:
+    type: object
+    properties:
+      vault:
+        type: object
+        properties:
+          address:
+            type: string
+          role_id:
+            type: string
+          secret_path:
+            type: string
+      failover_wallet:
+        type: string
+      max_slash_alert:
+        type: number
+  alerts:
+    type: object
+    properties:
+      telegram:
+        type: object
+        properties:
+          token:
+            type: string
+          chat_id:
+            type: string
+      slack:
+        type: object
+        properties:
+          webhook_url:
+            type: string
+  telemetry:
+    type: object
+    properties:
+      sentry_dsn:
+        type: string
+      prometheus_enabled:
+        type: boolean

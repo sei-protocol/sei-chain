@@ -114,7 +114,11 @@ func (s *SimulationAPI) EstimateGas(ctx context.Context, args export.Transaction
 	}
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
 	estimate, err := export.DoEstimateGas(ctx, s.backend, args, bNrOrHash, overrides, nil, s.backend.RPCGasCap())
-	return estimate, err
+	if err != nil {
+		s.backend.ctxProvider(LatestCtxHeight).Logger().Error("failed to estimate gas", "err", err)
+		return 0, errors.New("failed to estimate gas")
+	}
+	return estimate, nil
 }
 
 func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.TransactionArgs, calls []export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride) (result hexutil.Uint64, returnErr error) {
@@ -134,7 +138,11 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 	}
 	ctx = context.WithValue(ctx, CtxIsWasmdPrecompileCallKey, wasmd.IsWasmdCall(args.To))
 	estimate, err := export.DoEstimateGasAfterCalls(ctx, s.backend, args, calls, bNrOrHash, overrides, s.backend.RPCEVMTimeout(), s.backend.RPCGasCap())
-	return estimate, err
+	if err != nil {
+		s.backend.ctxProvider(LatestCtxHeight).Logger().Error("failed to estimate gas after calls", "err", err)
+		return 0, errors.New("failed to estimate gas")
+	}
+	return estimate, nil
 }
 
 func (s *SimulationAPI) Call(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride, blockOverrides *export.BlockOverrides) (result hexutil.Bytes, returnErr error) {

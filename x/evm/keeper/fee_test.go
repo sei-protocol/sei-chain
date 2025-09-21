@@ -179,6 +179,37 @@ func TestAdjustBaseFeePerGas(t *testing.T) {
 	}
 }
 
+func TestAdjustBaseFeePerGasWithUnlimitedMaxGas(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	ctx = ctx.WithConsensusParams(&tmproto.ConsensusParams{
+		Block: &tmproto.BlockParams{MaxGas: 0},
+	})
+
+	params := k.GetParams(ctx)
+	params.MinimumFeePerGas = sdk.OneDec()
+	params.MaximumFeePerGas = sdk.NewDec(1_000_000_000)
+	params.MaxDynamicBaseFeeUpwardAdjustment = sdk.NewDecWithPrec(5, 1)
+	params.MaxDynamicBaseFeeDownwardAdjustment = sdk.NewDecWithPrec(5, 1)
+	params.TargetGasUsedPerBlock = 100
+	k.SetParams(ctx, params)
+
+	baseFee := sdk.NewDec(100)
+	k.SetNextBaseFeePerGas(ctx, baseFee)
+
+	blockGasUsed := uint64(105)
+	newBaseFee := k.AdjustDynamicBaseFeePerGas(ctx, blockGasUsed)
+	require.NotNil(t, newBaseFee)
+
+	expectedUpward := sdk.MustNewDecFromStr("102.380952380952380952")
+	require.Equal(t, expectedUpward, *newBaseFee)
+
+	k.SetNextBaseFeePerGas(ctx, baseFee)
+	lowerGasUsed := uint64(60)
+	k.AdjustDynamicBaseFeePerGas(ctx, lowerGasUsed)
+	expectedDownward := sdk.NewDec(80)
+	require.Equal(t, expectedDownward, k.GetNextBaseFeePerGas(ctx))
+}
+
 func TestGetDynamicBaseFeePerGasWithNilMinFee(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 

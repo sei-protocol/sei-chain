@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>SEI Compounder Status</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #0f172a;
+        color: #e2e8f0;
+        margin: 0;
+        padding: 2rem;
+      }
+      h1 {
+        margin-bottom: 1rem;
+      }
+      pre {
+        background: #1e293b;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        max-height: 70vh;
+        overflow-y: auto;
+      }
+      a {
+        color: #38bdf8;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🧠 SEI Compounder Status</h1>
+    <p>
+      <a href="/logs">View JSON logs</a> •
+      <a href="/config">Download config</a> •
+      <a href="/healthz">Health check</a>
+    </p>
+    <pre>
+{% for line in logs %}{{ line }}{% endfor %}
+    </pre>
+  </body>
+</html>

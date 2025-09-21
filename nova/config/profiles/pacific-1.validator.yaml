@@ -1,0 +1,31 @@
+wallet:
+  name: "validator_vault"
+  address: "sei1examplexxxxxxxxxxxxxxxxxxxxxxx"
+  signer: "vault"
+chain:
+  id: "pacific-1"
+  rpc: "https://rpc.pacific-1.sei.io:443"
+  rest: "https://rest.pacific-1.sei.io"
+  gas_price: "0.1usei"
+strategy:
+  buffer: 8000
+  max_delegate: 5000000
+  validators:
+    - "seivaloper1primaryxxxxxxxxxxxxxxxxxxxx"
+    - "seivaloper1backupxxxxxxxxxxxxxxxxxxxxx"
+  schedule:
+    interval_minutes: 120
+    jitter_seconds: 90
+security:
+  vault:
+    address: "http://vault.service.local:8200"
+    role_id: "nova-role"
+    secret_path: "sei/validator"
+  failover_wallet: "sei1failoverxxxxxxxxxxxxxxxxxxx"
+alerts:
+  telegram:
+    token: "${TELEGRAM_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+telemetry:
+  sentry_dsn: "${SENTRY_DSN}"
+  prometheus_enabled: true

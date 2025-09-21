@@ -1,0 +1,26 @@
+wallet_name: "your_key_name"
+chain_id: "pacific-1"
+fee: "5000usei"
+gas: "200000"
+min_balance_buffer: 6000
+sleep_interval: 3600
+# Optional list of RPC endpoints that will be cycled through on failure.
+rpc_nodes:
+  - "https://rpc.pacific-1.sei.io:443"
+  - "https://sei-rpc.polkachu.com:443"
+
+validators:
+  - seivaloper1yourval1
+  - seivaloper1yourval2
+
+validator_strategy: "weighted"
+
+telegram:
+  enabled: true
+  token: "YOUR_BOT_TOKEN"
+  chat_id: "YOUR_CHAT_ID"
+
+logging:
+  level: "INFO"
+  max_bytes: 1048576
+  backup_count: 5
