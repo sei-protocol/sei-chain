@@ -332,7 +332,7 @@ describe("EVM Test", function () {
         expect(await evmTester.boolVar()).to.equal(true);
       });
 
-      it.only("Should set the uint256 correctly and emit an event", async function () {
+      it("Should set the uint256 correctly and emit an event", async function () {
         // Call setBoolVar
         await delay()
         const txResponse = await evmTester.setUint256Var(12345, { gasPrice: ethers.parseUnits('100', 'gwei') });
