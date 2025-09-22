@@ -172,6 +172,7 @@ func getTransactionReceipt(
 func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_getVMError", t.connectionType, startTime, returnErr)
+
 	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		return "", err
@@ -188,6 +189,7 @@ func (t *TransactionAPI) GetTransactionByBlockNumberAndIndex(ctx context.Context
 	if returnErr != nil {
 		return nil, returnErr
 	}
+
 	return t.getTransactionByBlockNumberAndIndex(ctx, blockNr, NewTransactionIndexFromEVMIndex(idx))
 }
 
