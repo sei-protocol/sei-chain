@@ -12,6 +12,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/js"     // run init()s to register JS tracers
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // run init()s to register native tracers
@@ -21,6 +22,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -139,7 +141,20 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 
 	startTime := time.Now()
 	defer recordMetrics("debug_traceTransaction", api.connectionType, startTime, returnErr == nil)
+
+	sctx := api.ctxProvider(LatestCtxHeight)
 	result, returnErr = api.tracersAPI.TraceTransaction(ctx, hash, config)
+
+	if !isErrorableTrace(config) {
+		return result, returnErr
+	}
+
+	if returnErr == nil {
+		if traceResults, ok := result.(*tracers.TxTraceResult); ok && traceResults != nil {
+			api.decorateWithErrors(sctx, traceResults)
+		}
+	}
+
 	return
 }
 
@@ -257,6 +272,96 @@ func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash)
 	return result, nil
 }
 
+// represents whether this trace config can have an error in the reusult
+func isErrorableTrace(config *tracers.TraceConfig) bool {
+	if config.Tracer == nil {
+		return false
+	}
+	return *config.Tracer == "callTracer" || *config.Tracer == "flatCallTracer"
+}
+
+// this is a temporary patch to force errors to appear in the error output for failed receipts.
+func (api *DebugAPI) decorateWithErrors(ctx sdk.Context, r *tracers.TxTraceResult) {
+	rct, err := api.keeper.GetReceipt(ctx, r.TxHash)
+	if err != nil {
+		ctx.Logger().Error(fmt.Sprintf("debug_traceTransaction: unable to find receipt for hash %s", r.TxHash.Hex()))
+		return
+	}
+
+	if uint64(rct.Status) == types.ReceiptStatusSuccessful {
+		return
+	}
+
+	// Check if we need to set an error - only if no error fields are currently set
+	hasError := r.Error != ""
+
+	// Check if the result contains trace entries and look for existing errors
+	if !hasError && r.Result != nil {
+		var resultsArray []interface{}
+
+		// Handle json.RawMessage by unmarshaling it first
+		if rawMsg, ok := r.Result.(json.RawMessage); ok {
+			if err := json.Unmarshal(rawMsg, &resultsArray); err != nil {
+				return
+			}
+		} else if directArray, ok := r.Result.([]interface{}); ok {
+			// Handle case where it's already unmarshaled
+			resultsArray = directArray
+		} else {
+			return
+		}
+
+		if len(resultsArray) > 0 {
+			// Check if any entry has an error field set
+			for _, entry := range resultsArray {
+				if entryMap, ok := entry.(map[string]interface{}); ok {
+					if errorField, exists := entryMap["error"]; exists && errorField != nil && errorField != "" {
+						hasError = true
+						break
+					}
+				}
+			}
+
+			// if already has an error, no need to inject one
+			if hasError {
+				return
+			}
+
+			// set an error on the last entry
+			lastEntry := resultsArray[len(resultsArray)-1]
+			if lastEntryMap, ok := lastEntry.(map[string]interface{}); ok {
+				ctx.Logger().With("tx", r.TxHash.Hex()).Info("decorateWithErrors: injecting error in call")
+				lastEntryMap["error"] = "Failed"
+
+				// Marshal the modified array back to json.RawMessage
+				if modifiedJSON, err := json.Marshal(resultsArray); err == nil {
+					r.Result = json.RawMessage(modifiedJSON)
+				}
+			}
+		}
+
+		// Fallback: if we couldn't process the result structure, set error on the TxTraceResult itself
+		if r.Result == nil {
+			ctx.Logger().Info("decorateWithErrors: r.Result is nil, setting r.Error")
+			r.Error = "transaction failed"
+		}
+	}
+}
+
+func (api *DebugAPI) decorateAllWithErrors(sctx sdk.Context, results []*tracers.TxTraceResult) {
+	errgrp, _ := errgroup.WithContext(sctx.Context())
+	for _, r := range results {
+		r := r // Capture loop variable
+		errgrp.Go(func() error {
+			api.decorateWithErrors(sctx, r)
+			return nil
+		})
+	}
+	if err := errgrp.Wait(); err != nil {
+		sctx.Logger().Error("should be impossible to reach this")
+	}
+}
+
 func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {
 	release := api.acquireTraceSemaphore()
 	defer release()
@@ -264,7 +369,8 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
 
-	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
+	sctx := api.ctxProvider(LatestCtxHeight)
+	latest := sctx.BlockHeight()
 	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
@@ -272,7 +378,17 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	startTime := time.Now()
 	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
-	return
+
+	if !isErrorableTrace(config) {
+		return result, returnErr
+	}
+
+	if returnErr == nil {
+		if traceResults, ok := result.([]*tracers.TxTraceResult); ok && traceResults != nil {
+			api.decorateAllWithErrors(sctx, traceResults)
+		}
+	}
+	return result, returnErr
 }
 
 func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, config *tracers.TraceConfig) (result interface{}, returnErr error) {
@@ -282,10 +398,21 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
 
+	sctx := api.ctxProvider(LatestCtxHeight)
 	startTime := time.Now()
 	defer recordMetrics("debug_traceBlockByHash", api.connectionType, startTime, returnErr == nil)
 	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
-	return
+
+	if !isErrorableTrace(config) {
+		return result, returnErr
+	}
+
+	if returnErr == nil {
+		if traceResults, ok := result.([]*tracers.TxTraceResult); ok && traceResults != nil {
+			api.decorateAllWithErrors(sctx, traceResults)
+		}
+	}
+	return result, returnErr
 }
 
 func (api *DebugAPI) TraceCall(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (result interface{}, returnErr error) {
