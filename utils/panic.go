@@ -23,13 +23,20 @@ func PanicHandler(recoverCallback func(any)) func() {
 	}
 }
 
-// LogPanicCallback returns a callback function, given a context and a recovered
-// error value, that logs the error and a stack trace.
-func LogPanicCallback(ctx sdk.Context, r any) func(any) {
-	return func(a any) {
-		stackTrace := string(debug.Stack())
-		ctx.Logger().Error("recovered panic", "recover_err", r, "recover_type", fmt.Sprintf("%T", r), "stack_trace", stackTrace)
-	}
+// LogPanicCallback returns a callback function that logs the recovered error
+// and its stack trace using the provided context.
+func LogPanicCallback(ctx sdk.Context) func(any) {
+        return func(r any) {
+                stackTrace := string(debug.Stack())
+                if logger := ctx.Logger(); logger != nil {
+                        logger.Error(
+                                "recovered panic",
+                                "recover_err", r,
+                                "recover_type", fmt.Sprintf("%T", r),
+                                "stack_trace", stackTrace,
+                        )
+                }
+        }
 }
 
 func MetricsPanicCallback(err any, ctx sdk.Context, key string) {
