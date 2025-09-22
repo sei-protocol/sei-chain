@@ -451,12 +451,18 @@ func encodeReceipt(ctx sdk.Context, receipt *types.Receipt, decoder sdk.TxDecode
 	if !foundTx {
 		return nil, errors.New("failed to find transaction in block")
 	}
-	receipt.TransactionIndex = uint32(evmTxIndex) //nolint:gosec
-	var logs []*ethtypes.Log
-	if includeSynthetic {
-		logs = keeper.GetLogsForTx(receipt, uint(logIndexOffset)) //nolint:gosec
-	} else {
-		logs = keeper.GetEvmOnlyLogsForTx(receipt, uint(logIndexOffset)) //nolint:gosec
+receipt.TransactionIndex = uint32(evmTxIndex) //nolint:gosec
+
+var logs []*ethtypes.Log
+
+// Debug logging can be optionally restored via feature flag
+// fmt.Println(len(receipt.Logs))
+
+if includeSynthetic {
+	logs = keeper.GetLogsForTx(receipt, uint(logIndexOffset)) //nolint:gosec
+} else {
+	logs = keeper.GetEvmOnlyLogsForTx(receipt, uint(logIndexOffset)) //nolint:gosec
+}
 	}
 	for _, log := range logs {
 		log.BlockHash = bh
