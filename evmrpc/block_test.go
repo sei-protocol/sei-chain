@@ -11,6 +11,7 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	types2 "github.com/tendermint/tendermint/proto/tendermint/types"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -184,7 +185,7 @@ func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
 	}
 
 	// Call EncodeTmBlock with empty transactions
-	result, err := evmrpc.EncodeTmBlock(ctx, ctx, block, blockRes, ethtypes.Bloom{}, k, Decoder, true, false, false, nil)
+	result, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, block, blockRes, k, true, false, false, nil)
 	require.Nil(t, err)
 
 	// Assert txHash is equal to ethtypes.EmptyTxsHash
@@ -230,7 +231,7 @@ func TestEncodeBankMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(ctx, ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, false, false, nil)
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, false, false, nil)
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 0, len(txs))
@@ -278,7 +279,7 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(ctx, ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, false, true, nil)
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, false, true, nil)
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 1, len(txs))
@@ -339,7 +340,7 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(ctx, ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, true, false, nil)
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, true, false, nil)
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 1, len(txs))
