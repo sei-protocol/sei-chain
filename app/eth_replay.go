@@ -51,7 +51,7 @@ func Replay(a *App) {
 		if err != nil {
 			panic(err)
 		}
-		if latestBlock < uint64(h+initHeight) {
+		if latestBlock < uint64(h+initHeight) { //nolint:gosec
 			a.Logger().Info(fmt.Sprintf("Latest block is %d. Sleeping for a minute", latestBlock))
 			time.Sleep(1 * time.Minute)
 			continue
@@ -70,7 +70,7 @@ func Replay(a *App) {
 		}
 		a.EvmKeeper.ReplayBlock = b
 		hash := make([]byte, 8)
-		binary.BigEndian.PutUint64(hash, uint64(h))
+		binary.BigEndian.PutUint64(hash, uint64(h)) //nolint:gosec
 		_, err = a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 			Txs:               utils.Map(b.Txs, func(tx *ethtypes.Transaction) []byte { return encodeTx(tx, a.GetTxConfig()) }),
 			DecidedLastCommit: abci.CommitInfo{Votes: []abci.VoteInfo{}},

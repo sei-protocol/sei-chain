@@ -1,6 +1,9 @@
 package ante
 
 import (
+	"errors"
+	"math"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
@@ -26,7 +29,11 @@ func (gl GasDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, nex
 		return ctx, err
 	}
 
-	adjustedGasLimit := gl.evmKeeper.GetPriorityNormalizer(ctx).MulInt64(int64(txData.GetGas()))
+	txGas := txData.GetGas()
+	if txGas > math.MaxInt64 {
+		return ctx, errors.New("tx gas exceeds max")
+	}
+	adjustedGasLimit := gl.evmKeeper.GetPriorityNormalizer(ctx).MulInt64(int64(txGas)) //nolint:gosec
 	gasMeter := sdk.NewGasMeterWithMultiplier(ctx, adjustedGasLimit.TruncateInt().Uint64())
 	ctx = ctx.WithGasMeter(gasMeter)
 	if tx.GetGasEstimate() >= MinGasEVMTx {

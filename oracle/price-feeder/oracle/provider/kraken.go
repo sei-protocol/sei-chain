@@ -124,7 +124,7 @@ func NewKrakenProvider(
 	wsConn, response, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
 	defer func() {
 		if response != nil {
-			response.Body.Close()
+			_ = response.Body.Close()
 		}
 	}()
 	if err != nil {
@@ -495,13 +495,13 @@ func (p *KrakenProvider) messageReceivedCandle(bz []byte) error {
 
 // reconnect closes the last WS connection and create a new one.
 func (p *KrakenProvider) reconnect() error {
-	p.wsClient.Close()
+	_ = p.wsClient.Close()
 	p.logger.Debug().Msg("trying to reconnect")
 
 	wsConn, response, err := websocket.DefaultDialer.Dial(p.wsURL.String(), nil)
 	defer func() {
 		if response != nil {
-			response.Body.Close()
+			_ = response.Body.Close()
 		}
 	}()
 	if err != nil {
@@ -645,7 +645,7 @@ func (p *KrakenProvider) GetAvailablePairs() (map[string]struct{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var pairsSummary KrakenPairsSummary
 	if err := json.NewDecoder(resp.Body).Decode(&pairsSummary); err != nil {

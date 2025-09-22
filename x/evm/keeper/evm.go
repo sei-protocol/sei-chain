@@ -123,7 +123,7 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	if res.Err != nil {
 		vmErr = res.Err.Error()
 	}
-	existingReceipt, err := k.GetTransientReceipt(ctx, ctx.TxSum(), uint64(ctx.TxIndex()))
+	existingReceipt, err := k.GetTransientReceipt(ctx, ctx.TxSum(), uint64(ctx.TxIndex())) //nolint:gosec
 	if err == nil {
 		for _, l := range existingReceipt.Logs {
 			stateDB.AddLog(&ethtypes.Log{

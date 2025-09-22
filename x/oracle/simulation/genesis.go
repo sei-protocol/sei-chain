@@ -19,7 +19,7 @@ const (
 	votePeriodKey               = "vote_period"
 	voteThresholdKey            = "vote_threshold"
 	rewardBandKey               = "reward_band"
-	rewardDistributionWindowKey = "reward_distribution_window" //nolint:deadcode // we will use this later
+	rewardDistributionWindowKey = "reward_distribution_window" //nolint:unused // we will use this later
 	slashFractionKey            = "slash_fraction"
 	slashWindowKey              = "slash_window"
 	minValidPerWindowKey        = "min_valid_per_window"
@@ -27,7 +27,7 @@ const (
 
 // GenVotePeriod randomized VotePeriod
 func GenVotePeriod(r *rand.Rand) uint64 {
-	return uint64(1 + r.Intn(100))
+	return uint64(1 + r.Intn(100)) //nolint:gosec
 }
 
 // GenVoteThreshold randomized VoteThreshold
@@ -47,7 +47,7 @@ func GenSlashFraction(r *rand.Rand) sdk.Dec {
 
 // GenSlashWindow randomized SlashWindow
 func GenSlashWindow(r *rand.Rand) uint64 {
-	return uint64(100 + r.Intn(100000))
+	return uint64(100 + r.Intn(100000)) //nolint:gosec
 }
 
 // GenMinValidPerWindow randomized MinValidPerWindow
