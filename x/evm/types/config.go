@@ -22,9 +22,8 @@ config for backward compatibility with the official EVM lib.
 */
 func (cc ChainConfig) EthereumConfig(chainID *big.Int) *params.ChainConfig {
 	return &params.ChainConfig{
-		ChainID: chainID,
-		// TODO: change to chain param but let's try to inject it like this for now
-		SeiSstoreSetGasEIP2200: func() *uint64 { u := uint64(100000); return &u }(),
+		ChainID:                chainID,
+		SeiSstoreSetGasEIP2200: func() *uint64 { u := uint64(cc.SeiSstoreSetGasEip2200); return &u }(),
 		HomesteadBlock:         utils.Big0,
 		DAOForkBlock:           utils.Big0,
 		DAOForkSupport:         false, // fork of Sei is supported outside EVM
@@ -49,11 +48,18 @@ func (cc ChainConfig) EthereumConfig(chainID *big.Int) *params.ChainConfig {
 	}
 }
 
+func (cc ChainConfig) EthereumConfigWithSstore(chainID *big.Int, sstoreSetGasEIP2200 *uint64) *params.ChainConfig {
+	cfg := cc.EthereumConfig(chainID)
+	cfg.SeiSstoreSetGasEIP2200 = sstoreSetGasEIP2200
+	return cfg
+}
+
 func DefaultChainConfig() ChainConfig {
 	return ChainConfig{
-		CancunTime: CancunTime,
-		PragueTime: PragueTime,
-		VerkleTime: -1,
+		CancunTime:             CancunTime,
+		PragueTime:             PragueTime,
+		VerkleTime:             -1,
+		SeiSstoreSetGasEip2200: DefaultSeiSstoreSetGasEIP2200,
 	}
 }
 

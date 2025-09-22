@@ -72,8 +72,7 @@ string minimum_fee_per_gas = 4 [
     (gogoproto.moretags)   = "yaml:\"register_pointer_disabled\"",
     (gogoproto.jsontag) = "register_pointer_disabled"
   ];
-  SeiSstoreSetGasEIP2200
-  uint64 sei_sstore_set_gas_eip2200 
+  uint64 sei_sstore_set_gas_eip2200 = 15;
 }
 
 message ParamsPreV580 {

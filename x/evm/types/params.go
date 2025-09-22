@@ -33,7 +33,6 @@ var DefaultBaseFeePerGas = sdk.NewDec(0)         // used for static base fee, de
 var DefaultMinFeePerGas = sdk.NewDec(1000000000) // 1gwei
 var DefaultDeliverTxHookWasmGasLimit = uint64(300000)
 
-var DefaultSeiSstoreSetGasEIP2200 = uint64(72000) // 72k
 var DefaultWhitelistedCwCodeHashesForDelegateCall = generateDefaultWhitelistedCwCodeHashesForDelegateCall()
 
 var DefaultMaxDynamicBaseFeeUpwardAdjustment = sdk.NewDecWithPrec(189, 4)  // 1.89%
@@ -41,6 +40,7 @@ var DefaultMaxDynamicBaseFeeDownwardAdjustment = sdk.NewDecWithPrec(39, 4) // .3
 var DefaultTargetGasUsedPerBlock = uint64(250000)                          // 250k
 var DefaultMaxFeePerGas = sdk.NewDec(1000000000000)                        // 1,000gwei
 var DefaultRegisterPointerDisabled = false
+var DefaultSeiSstoreSetGasEIP2200 = uint64(20000) // 20k
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
@@ -60,6 +60,7 @@ func DefaultParams() Params {
 		TargetGasUsedPerBlock:                  DefaultTargetGasUsedPerBlock,
 		MaximumFeePerGas:                       DefaultMaxFeePerGas,
 		RegisterPointerDisabled:                DefaultRegisterPointerDisabled,
+		SeiSstoreSetGasEip2200:                 DefaultSeiSstoreSetGasEIP2200,
 	}
 }
 
@@ -73,7 +74,7 @@ func (p *Params) ParamSetPairs() paramtypes.ParamSetPairs {
 		paramtypes.NewParamSetPair(KeyWhitelistedCwCodeHashesForDelegateCall, &p.WhitelistedCwCodeHashesForDelegateCall, validateWhitelistedCwHashesForDelegateCall),
 		paramtypes.NewParamSetPair(KeyDeliverTxHookWasmGasLimit, &p.DeliverTxHookWasmGasLimit, validateDeliverTxHookWasmGasLimit),
 		paramtypes.NewParamSetPair(KeyTargetGasUsedPerBlock, &p.TargetGasUsedPerBlock, func(i interface{}) error { return nil }),
-		paramtypes.NewParamSetPair(KeySeiSstoreSetGasEIP2200, &p.SeiSstoreSetGasEIP2200, validateSeiSstoreSetGasEIP2200),
+		paramtypes.NewParamSetPair(KeySeiSstoreSetGasEIP2200, &p.SeiSstoreSetGasEip2200, validateSeiSstoreSetGasEIP2200),
 		paramtypes.NewParamSetPair(KeyMaxFeePerGas, &p.MaximumFeePerGas, validateMaxFeePerGas),
 		paramtypes.NewParamSetPair(KeyRegisterPointerDisabled, &p.RegisterPointerDisabled, validateRegisterPointerDisabled),
 	}
@@ -150,7 +151,13 @@ func (p Params) Validate() error {
 	if err := validateBaseFeeAdjustment(p.MaxDynamicBaseFeeDownwardAdjustment); err != nil {
 		return fmt.Errorf("invalid max dynamic base fee downward adjustment: %s, err: %s", p.MaxDynamicBaseFeeDownwardAdjustment, err)
 	}
-	return validateWhitelistedCwHashesForDelegateCall(p.WhitelistedCwCodeHashesForDelegateCall)
+	if err := validateWhitelistedCwHashesForDelegateCall(p.WhitelistedCwCodeHashesForDelegateCall); err != nil {
+		return fmt.Errorf("invalid whitelisted cw hashes for delegate call: %s", err)
+	}
+	if err := validateSeiSstoreSetGasEIP2200(p.SeiSstoreSetGasEip2200); err != nil {
+		return fmt.Errorf("invalid sei sstore set gas eip2200: %s", err)
+	}
+	return nil
 }
 
 func validateBaseFeeAdjustment(i interface{}) error {
@@ -266,6 +273,17 @@ func validateRegisterPointerDisabled(i interface{}) error {
 	_, ok := i.(bool)
 	if !ok {
 		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+	return nil
+}
+
+func validateSeiSstoreSetGasEIP2200(i interface{}) error {
+	v, ok := i.(uint64)
+	if !ok {
+		return fmt.Errorf("invalid parameter type: %T", i)
+	}
+	if v == 0 {
+		return fmt.Errorf("invalid sei sstore set gas eip2200: must be greater than 0, got %d", v)
 	}
 	return nil
 }
