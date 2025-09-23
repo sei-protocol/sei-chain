@@ -343,6 +343,13 @@ func TestInvalidProposalWithExcessiveGasEstimates(t *testing.T) {
 			expectedStatus:    abci.ResponseProcessProposal_REJECT,
 		},
 		{
+			name:              "single tx: ignore evm gas estimate above maxBlockGas and use gasWanted (accept)",
+			maxBlockGas:       20000,
+			maxBlockGasWanted: math.MaxInt64,
+			txs:               []TxType{{isEVM: true, gasEstimate: 30000, gasWanted: 15000}},
+			expectedStatus:    abci.ResponseProcessProposal_ACCEPT,
+		},
+		{
 			name:              "accept when total cosmos tx gas limit is below block gas limit",
 			maxBlockGas:       20000,
 			maxBlockGasWanted: math.MaxInt64,
