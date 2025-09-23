@@ -7,7 +7,7 @@ import (
 	"math"
 	"math/big"
 	"reflect"
-	"strings"
+	"regexp"
 	"testing"
 	"time"
 
@@ -754,8 +754,10 @@ func TestProcessBlockUpgradePanicLogic(t *testing.T) {
 	// This tests the exact same logic used in ProcessBlock's defer function
 	// We extract and test the core logic to ensure it works correctly
 	testUpgradePanicDetection := func(panicMsg string) (shouldRepanic bool, shouldRecover bool) {
-		// This is the exact logic from ProcessBlock lines 1617-1620
-		if strings.HasPrefix(panicMsg, "UPGRADE") && strings.Contains(panicMsg, "NEEDED at height") {
+		// This uses the same regex pattern as ProcessBlock for consistency with Cosmovisor
+		// Matches multiple upgrade-related panic patterns from sei-cosmos
+		upgradeRe := regexp.MustCompile(`^(UPGRADE "[^"]+" NEEDED at height:?\s*\d+|Wrong app version \d+, upgrade handler is missing for .+ upgrade plan|BINARY UPDATED BEFORE TRIGGER! UPGRADE "[^"]+")`)
+		if upgradeRe.MatchString(panicMsg) {
 			return true, false // Should re-panic
 		}
 		return false, true // Should recover
@@ -809,6 +811,34 @@ func TestProcessBlockUpgradePanicLogic(t *testing.T) {
 			shouldRepanic: true,
 			shouldRecover: false,
 			description:   "Different upgrade version format should still work",
+		},
+		{
+			name:          "wrong_app_version_panic",
+			panicMsg:      `Wrong app version 5, upgrade handler is missing for v5.9.0 upgrade plan`,
+			shouldRepanic: true,
+			shouldRecover: false,
+			description:   "Wrong app version panic should be re-panicked",
+		},
+		{
+			name:          "binary_updated_early_panic",
+			panicMsg:      `BINARY UPDATED BEFORE TRIGGER! UPGRADE "v6.0.0" - in binary but not executed on chain`,
+			shouldRepanic: true,
+			shouldRecover: false,
+			description:   "Binary updated too early panic should be re-panicked",
+		},
+		{
+			name:          "malicious_wrong_version_format",
+			panicMsg:      `malicious Wrong app version attack`,
+			shouldRepanic: false,
+			shouldRecover: true,
+			description:   "Malicious message mimicking wrong version should be recovered",
+		},
+		{
+			name:          "malicious_binary_updated_format",
+			panicMsg:      `attack BINARY UPDATED BEFORE TRIGGER! fake message`,
+			shouldRepanic: false,
+			shouldRecover: true,
+			description:   "Malicious message mimicking binary update should be recovered",
 		},
 	}
 

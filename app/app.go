@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -179,6 +180,13 @@ func getGovProposalHandlers() []govclient.ProposalHandler {
 var (
 	// DefaultNodeHome default home directories for the application daemon
 	DefaultNodeHome string
+
+	// upgradePanicRe matches upgrade panic messages using Cosmovisor-compatible regex
+	// Matches multiple upgrade-related panic patterns:
+	// 1. UPGRADE "name" NEEDED at height: 123 (or height123)
+	// 2. Wrong app version X, upgrade handler is missing for name upgrade plan
+	// 3. BINARY UPDATED BEFORE TRIGGER! UPGRADE "name"
+	upgradePanicRe = regexp.MustCompile(`^(UPGRADE "[^"]+" NEEDED at height:?\s*\d+|Wrong app version \d+, upgrade handler is missing for .+ upgrade plan|BINARY UPDATED BEFORE TRIGGER! UPGRADE "[^"]+")`)
 
 	// ModuleBasics defines the module BasicManager is in charge of setting up basic,
 	// non-dependant module elements, such as codec registration
@@ -1157,7 +1165,6 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 	app.optimisticProcessingInfoMutex.Unlock()
 
 	if shouldStartOptimisticProcessing {
-
 		plan, found := app.UpgradeKeeper.GetUpgradePlan(ctx)
 		if found && plan.ShouldExecute(ctx) {
 			app.Logger().Info("Potential upgrade planned; skipping optimistic processing", "height", plan.Height)
@@ -1614,7 +1621,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		if r := recover(); r != nil {
 			panicMsg := fmt.Sprintf("%v", r)
 			// Re-panic for upgrade-related panics to allow proper upgrade mechanism
-			if strings.HasPrefix(panicMsg, "UPGRADE") && strings.Contains(panicMsg, "NEEDED at height") {
+			if upgradePanicRe.MatchString(panicMsg) {
 				ctx.Logger().Error("upgrade panic detected, panicking to trigger upgrade", "panic", r)
 				panic(r) // Re-panic to trigger upgrade mechanism
 			}
@@ -1984,7 +1991,6 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 // the total gas by the txs in the block. The gas of a tx is either the gas estimate if it's an EVM tx,
 // or the gas wanted if it's a Cosmos tx.
 func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) {
-	// Panic recovery to protect against AsEthereumData() and other potential panics
 	defer func() {
 		if r := recover(); r != nil {
 			ctx.Logger().Error("panic recovered in checkTotalBlockGas", "panic", r)
@@ -2004,7 +2010,7 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) 
 		isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
 		if err != nil {
 			ctx.Logger().Error("error checking if tx is gasless", "error", err)
-			continue
+			return false // Reject proposal if any tx fails gasless check
 		}
 		if isGasless {
 			continue
