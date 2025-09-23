@@ -197,8 +197,9 @@ func filterTransactions(
 	nonceMap := make(map[string]uint64)
 	txConfig := txConfigProvider(block.Block.Height)
 	latestCtx := ctxProvider(LatestCtxHeight)
+	ctx := ctxProvider(block.Block.Height)
 	prevCtx := ctxProvider(block.Block.Height - 1)
-	for i, tx := range block.Block.Data.Txs {
+	for i, tx := range block.Block.Txs {
 		sdkTx, err := txConfig.TxDecoder()(tx)
 		if err != nil {
 			continue
@@ -213,7 +214,7 @@ func filterTransactions(
 				hash := ethtx.Hash()
 				sender, _ := signer.Sender(ethtx)
 				receipt, err := k.GetReceipt(latestCtx, hash)
-				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(latestCtx, receipt) {
+				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
 					continue
 				}
 				if _, ok := nonceMap[sender.Hex()]; !ok {

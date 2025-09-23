@@ -227,7 +227,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	signer := ethtypes.MakeSigner(
 		types.DefaultChainConfig().EthereumConfig(a.keeper.ChainID(sdkCtx)),
 		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Unix()),
+		uint64(sdkCtx.BlockTime().Unix()), //nolint:gosec
 	)
 	txHashes := getTxHashesFromBlock(a.ctxProvider, a.txConfigProvider, a.keeper, block, signer, shouldIncludeSynthetic(a.namespace))
 	// Get tx receipts for all hashes in parallel
@@ -307,13 +307,12 @@ func EncodeTmBlock(
 	signer := ethtypes.MakeSigner(
 		types.DefaultChainConfig().EthereumConfig(k.ChainID(latestCtx)),
 		big.NewInt(latestCtx.BlockHeight()),
-		uint64(latestCtx.BlockTime().Unix()),
+		uint64(latestCtx.BlockTime().Unix()), //nolint:gosec
 	)
 	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, signer, includeSyntheticTxs, includeBankTransfers)
 
 	blockBloom := make([]byte, ethtypes.BloomByteLength)
 	for _, msg := range msgs {
-		blockGasUsed += blockRes.TxsResults[msg.index].GasUsed
 		switch m := msg.msg.(type) {
 		case *types.MsgEVMTransaction:
 			ethtx, _ := m.AsTransaction()
@@ -321,13 +320,18 @@ func EncodeTmBlock(
 			if !fullTx {
 				transactions = append(transactions, hash.Hex())
 			} else {
-				newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(len(transactions)), baseFeePerGas, chainConfig)
+				newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(len(transactions)), baseFeePerGas, chainConfig) //nolint:gosec
 				transactions = append(transactions, newTx)
 			}
 			receipt, _ := k.GetReceipt(latestCtx, hash)
 			or := make([]byte, ethtypes.BloomByteLength)
-			bitutil.ORBytes(or, blockBloom, receipt.LogsBloom[:])
+			bloom := ethtypes.Bloom{}
+			bloom.SetBytes(receipt.LogsBloom)
+			bitutil.ORBytes(or, blockBloom, bloom[:])
 			blockBloom = or
+			// derive gas used from receipt as TxResult.GasUsed may not be accurate
+			// for ante-failing EVM txs.
+			blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 		case *wasmtypes.MsgExecuteContract:
 			th := sha256.Sum256(block.Block.Txs[msg.index])
 			receipt, _ := k.GetReceipt(latestCtx, th)
@@ -353,8 +357,11 @@ func EncodeTmBlock(
 				})
 			}
 			or := make([]byte, ethtypes.BloomByteLength)
-			bitutil.ORBytes(or, blockBloom, receipt.LogsBloom[:])
+			bloom := ethtypes.Bloom{}
+			bloom.SetBytes(receipt.LogsBloom)
+			bitutil.ORBytes(or, blockBloom, bloom[:])
 			blockBloom = or
+			blockGasUsed += blockRes.TxsResults[msg.index].GasUsed
 		case *banktypes.MsgSend:
 			th := sha256.Sum256(block.Block.Txs[msg.index])
 			if !fullTx {
@@ -376,6 +383,7 @@ func EncodeTmBlock(
 				rpcTx.TransactionIndex = (*hexutil.Uint64)(&ti)
 				transactions = append(transactions, rpcTx)
 			}
+			blockGasUsed += blockRes.TxsResults[msg.index].GasUsed
 		}
 	}
 	if len(transactions) == 0 {

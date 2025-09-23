@@ -315,7 +315,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	signer := ethtypes.MakeSigner(
 		types.DefaultChainConfig().EthereumConfig(b.keeper.ChainID(sdkCtx)),
 		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Unix()),
+		uint64(sdkCtx.BlockTime().Unix()), //nolint:gosec
 	)
 	msgs := filterTransactions(b.keeper, b.ctxProvider, b.txConfigProvider, tmBlock, signer, false, false)
 	idxToMsgs := make(map[int]sdk.Msg, len(msgs))
