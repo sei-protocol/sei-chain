@@ -1,10 +1,14 @@
 package tests
 
 import (
+	"encoding/hex"
+	"strings"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/bitutil"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/require"
 )
@@ -153,4 +157,38 @@ func TestGetBlockAfterBaseFeeChange(t *testing.T) {
 		res = sendRequestWithNamespace("eth", port, "getVMError", tx.Hash().Hex())
 		require.Equal(t, "", res["result"].(string))
 	})
+}
+
+func TestBlockBloom(t *testing.T) {
+	txdata1 := depositErc20(1)
+	txdata2 := sendErc20(2)
+	signedTx1 := signTxWithMnemonic(txdata1, erc20DeployerMnemonics)
+	signedTx2 := signTxWithMnemonic(txdata2, erc20DeployerMnemonics)
+	tx1 := encodeEvmTx(txdata1, signedTx1)
+	tx2 := encodeEvmTx(txdata2, signedTx2)
+	SetupTestServer([][][]byte{{tx1, tx2}}, erc20Initializer()).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x2", false)
+			blockBloomString := res["result"].(map[string]interface{})["logsBloom"]
+			blockBloomBz, _ := hex.DecodeString(strings.TrimPrefix(blockBloomString.(string), "0x"))
+			blockBloom := ethtypes.Bloom{}
+			blockBloom.SetBytes(blockBloomBz)
+
+			receipt1 := sendRequestWithNamespace("eth", port, "getTransactionReceipt", signedTx1.Hash().Hex())
+			tx1BloomString := receipt1["result"].(map[string]interface{})["logsBloom"]
+			tx1BloomBz, _ := hex.DecodeString(strings.TrimPrefix(tx1BloomString.(string), "0x"))
+			tx1Bloom := ethtypes.Bloom{}
+			tx1Bloom.SetBytes(tx1BloomBz)
+
+			receipt2 := sendRequestWithNamespace("eth", port, "getTransactionReceipt", signedTx2.Hash().Hex())
+			tx2BloomString := receipt2["result"].(map[string]interface{})["logsBloom"]
+			tx2BloomBz, _ := hex.DecodeString(strings.TrimPrefix(tx2BloomString.(string), "0x"))
+			tx2Bloom := ethtypes.Bloom{}
+			tx2Bloom.SetBytes(tx2BloomBz)
+
+			expected := make([]byte, ethtypes.BloomByteLength)
+			bitutil.ORBytes(expected, tx1Bloom[:], tx2Bloom[:])
+			require.Equal(t, expected, blockBloom[:])
+		},
+	)
 }
