@@ -95,6 +95,33 @@ func TestEstimateGas(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(8)
 }
 
+func TestChainConfigReflectsSstoreParam(t *testing.T) {
+	testApp := app.Setup(false, false, false)
+	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
+	originalParams := testApp.EvmKeeper.GetParams(baseCtx)
+	updatedParams := originalParams
+	updatedParams.SeiSstoreSetGasEip2200 = 72000
+	testApp.EvmKeeper.SetParams(baseCtx, updatedParams)
+	require.Equal(t, uint64(72000), testApp.EvmKeeper.GetParams(baseCtx).SeiSstoreSetGasEip2200)
+	require.Equal(t, uint64(72000), testApp.EvmKeeper.GetParams(baseCtx.WithIsTracing(true)).SeiSstoreSetGasEip2200)
+
+	ctxProvider := func(height int64) sdk.Context {
+		return baseCtx.WithBlockHeight(height).WithIsTracing(true)
+	}
+	backend := evmrpc.NewBackend(
+		ctxProvider,
+		&testApp.EvmKeeper,
+		func(int64) client.TxConfig { return TxConfig },
+		&MockClient{},
+		&SConfig,
+		testApp.BaseApp,
+		testApp.TracerAnteHandler,
+	)
+	cfg := backend.ChainConfig()
+	require.NotNil(t, cfg.SeiSstoreSetGasEIP2200)
+	require.Equal(t, uint64(72000), *cfg.SeiSstoreSetGasEIP2200)
+}
+
 func TestEstimateGasAfterCalls(t *testing.T) {
 	Ctx = Ctx.WithBlockHeight(1)
 	// estimate get after set
