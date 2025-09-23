@@ -160,7 +160,7 @@ func (p *HuobiProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string
 	return tickerPrices, nil
 }
 
-// GetTickerPrices returns the tickerPrices based on the saved map.
+// GetCandlePrices returns the tickerPrices based on the saved map.
 func (p *HuobiProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[string][]CandlePrice, error) {
 	candlePrices := make(map[string][]CandlePrice, len(pairs))
 
@@ -535,7 +535,7 @@ func currencyPairToHuobiTickerPair(cp types.CurrencyPair) string {
 	return strings.ToLower("market." + cp.String() + ".ticker")
 }
 
-// newHuobiSubscriptionMsg returns a new candle subscription Msg.
+// newHuobiCandleSubscriptionMsg returns a new candle subscription Msg.
 func newHuobiCandleSubscriptionMsg(cp types.CurrencyPair) HuobiSubscriptionMsg {
 	return HuobiSubscriptionMsg{
 		Sub: currencyPairToHuobiCandlePair(cp),
