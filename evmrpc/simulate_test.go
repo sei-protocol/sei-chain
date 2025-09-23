@@ -21,6 +21,7 @@ import (
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/rpc/client/mock"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 )
 
@@ -97,29 +98,49 @@ func TestEstimateGas(t *testing.T) {
 
 func TestChainConfigReflectsSstoreParam(t *testing.T) {
 	testApp := app.Setup(false, false, false)
-	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
-	originalParams := testApp.EvmKeeper.GetParams(baseCtx)
-	updatedParams := originalParams
-	updatedParams.SeiSstoreSetGasEip2200 = 72000
-	testApp.EvmKeeper.SetParams(baseCtx, updatedParams)
-	require.Equal(t, uint64(72000), testApp.EvmKeeper.GetParams(baseCtx).SeiSstoreSetGasEip2200)
-	require.Equal(t, uint64(72000), testApp.EvmKeeper.GetParams(baseCtx.WithIsTracing(true)).SeiSstoreSetGasEip2200)
+	baseCtx := testApp.GetContextForDeliverTx([]byte{})
 
+	oldCtx, _ := baseCtx.CacheContext()
+	oldCtx = oldCtx.WithBlockHeight(100).WithIsTracing(true)
+
+	newCtx, _ := baseCtx.CacheContext()
+	newCtx = newCtx.WithBlockHeight(200).WithIsTracing(true)
+	params := testApp.EvmKeeper.GetParams(newCtx)
+	params.SeiSstoreSetGasEip2200 = 72000
+	testApp.EvmKeeper.SetParams(newCtx, params)
+
+	oldHeight := oldCtx.BlockHeight()
 	ctxProvider := func(height int64) sdk.Context {
-		return baseCtx.WithBlockHeight(height).WithIsTracing(true)
+		switch {
+		case height == evmrpc.LatestCtxHeight:
+			return newCtx
+		case height >= newCtx.BlockHeight():
+			return newCtx
+		case height == oldHeight:
+			return oldCtx
+		default:
+			return newCtx
+		}
 	}
+
+	encodingCfg := app.MakeEncodingConfig()
 	backend := evmrpc.NewBackend(
 		ctxProvider,
 		&testApp.EvmKeeper,
-		func(int64) client.TxConfig { return TxConfig },
-		&MockClient{},
+		func(int64) client.TxConfig { return encodingCfg.TxConfig },
+		&mock.Client{},
 		&SConfig,
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 	)
-	cfg := backend.ChainConfig()
-	require.NotNil(t, cfg.SeiSstoreSetGasEIP2200)
-	require.Equal(t, uint64(72000), *cfg.SeiSstoreSetGasEIP2200)
+
+	oldCfg := backend.ChainConfigAtHeight(oldHeight)
+	require.NotNil(t, oldCfg.SeiSstoreSetGasEIP2200)
+	require.Equal(t, types.DefaultSeiSstoreSetGasEIP2200, *oldCfg.SeiSstoreSetGasEIP2200)
+
+	latestCfg := backend.ChainConfig()
+	require.NotNil(t, latestCfg.SeiSstoreSetGasEIP2200)
+	require.Equal(t, uint64(72000), *latestCfg.SeiSstoreSetGasEIP2200)
 }
 
 func TestEstimateGasAfterCalls(t *testing.T) {

@@ -380,11 +380,20 @@ func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
 
 func (b *Backend) RPCEVMTimeout() time.Duration { return b.config.EVMTimeout }
 
-func (b *Backend) ChainConfig() *params.ChainConfig {
-	ctx := b.ctxProvider(LatestCtxHeight)
+func (b *Backend) chainConfigForHeight(height int64) *params.ChainConfig {
+	ctx := b.ctxProvider(height)
+	ctx = ctx.WithIsTracing(true)
 	evParams := b.keeper.GetParams(ctx)
 	sstore := evParams.SeiSstoreSetGasEip2200
 	return types.DefaultChainConfig().EthereumConfigWithSstore(b.keeper.ChainID(ctx), &sstore)
+}
+
+func (b *Backend) ChainConfig() *params.ChainConfig {
+	return b.chainConfigForHeight(LatestCtxHeight)
+}
+
+func (b *Backend) ChainConfigAtHeight(height int64) *params.ChainConfig {
+	return b.chainConfigForHeight(height)
 }
 
 func (b *Backend) GetPoolNonce(_ context.Context, addr common.Address) (uint64, error) {
@@ -508,7 +517,9 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 	if blockCtx == nil {
 		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(wasmd.IsWasmdCall(msg.To)), core.GasPool(b.RPCGasCap()))
 	}
-	evm := vm.NewEVM(*blockCtx, stateDB, b.ChainConfig(), *vmConfig, b.keeper.CustomPrecompiles(b.ctxProvider(h.Number.Int64())))
+	height := h.Number.Int64()
+	chainCfg := b.chainConfigForHeight(height)
+	evm := vm.NewEVM(*blockCtx, stateDB, chainCfg, *vmConfig, b.keeper.CustomPrecompiles(b.ctxProvider(height)))
 	evm.SetTxContext(txContext)
 	return evm
 }
