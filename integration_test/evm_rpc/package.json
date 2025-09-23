@@ -1,0 +1,27 @@
+{
+  "name": "evm_rpc",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "test": "mocha -r tsx rpcCalls.ts"
+  },
+  "dependencies": {
+    "@cosmjs/cosmwasm-stargate": "^0.32.4",
+    "@cosmjs/crypto": "^0.32.4",
+    "@cosmjs/proto-signing": "^0.32.4",
+    "@cosmjs/stargate": "^0.32.4",
+    "@noble/curves": "^1.4.2",
+    "@sei-js/core": "^3.2.1",
+    "@sei-js/proto": "^4.0.9",
+    "@types/chai": "^4.3.16",
+    "@types/mocha": "^10.0.7",
+    "chai": "^5.1.1",
+    "ethers": "^6.13.1",
+    "mocha": "^10.6.0",
+    "ts-mocha": "^10.0.0",
+    "tsx": "^4.16.2",
+    "viem": "^2.17.3"
+  },
+  "devDependencies": {}
+}
