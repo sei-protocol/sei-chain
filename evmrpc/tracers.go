@@ -86,6 +86,7 @@ func NewDebugAPI(
 		txConfigProvider:   txConfigProvider,
 		connectionType:     connectionType,
 		isPanicCache:       isPanicCache,
+        backend: backend,
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
 		traceTimeout:       debugCfg.TraceTimeout,
