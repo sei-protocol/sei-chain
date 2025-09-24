@@ -34,7 +34,7 @@ func mockStatesFromTxJson(ctx sdk.Context, hash string, a *app.App, client *Mock
 }
 
 func mockStatesFromJsonFile(ctx sdk.Context, filepath string, a *app.App, client *MockClient) int64 {
-	file, err := os.Open(filepath)
+	file, err := os.Open(filepath) //nolint:gosec
 	check(err)
 	defer func() { _ = file.Close() }()
 	data, err := io.ReadAll(file)
