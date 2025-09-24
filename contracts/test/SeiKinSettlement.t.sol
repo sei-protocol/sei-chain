@@ -28,7 +28,7 @@ contract SeiKinSettlementTest is Test {
         token.transfer(address(settlement), amount);
 
         vm.prank(CCTP_CALLER);
-        settlement.onCCTPReceived(address(token), user, amount, "0x1234");
+        settlement.onCCTPReceived(address(token), user, amount, bytes("cctp"));
 
         (uint256 royaltyAmount, uint256 netAmount) = settlement.royaltyInfo(amount);
         assertEq(token.balanceOf(ROYALTY_VAULT), royaltyAmount, "royalty vault should receive 8.5%");
@@ -36,31 +36,30 @@ contract SeiKinSettlementTest is Test {
         assertEq(token.balanceOf(address(settlement)), 0, "settlement contract should be emptied");
     }
 
-    function testCcipReceiveSettlesToBeneficiary() external {
-        address beneficiary = address(0xBEEF);
+    function testCcipReceiveTransfersToOrigin() external {
+        address origin = address(0xBEEF);
         uint256 amount = 500_000;
         token.setBalance(address(this), amount);
         token.transfer(address(settlement), amount);
 
         Client.Any2EVMMessage memory message;
         message.sender = abi.encode(CCIP_SENDER);
-        message.data = abi.encode(SeiKinSettlement.SettlementInstruction({beneficiary: beneficiary, metadata: bytes("ccip") }));
-        message.destTokenAmounts = new Client.EVMTokenAmount[](1);
-        message.destTokenAmounts[0] = Client.EVMTokenAmount({token: address(token), amount: amount});
+        message.data = abi.encode(address(token));
 
-        vm.prank(CCIP_ROUTER);
+        vm.prank(CCIP_ROUTER, origin);
         settlement.ccipReceive(message);
 
         (uint256 royaltyAmount, uint256 netAmount) = settlement.royaltyInfo(amount);
         assertEq(token.balanceOf(ROYALTY_VAULT), royaltyAmount, "royalty vault should receive 8.5%");
-        assertEq(token.balanceOf(beneficiary), netAmount, "beneficiary should receive net amount");
+        assertEq(token.balanceOf(origin), netAmount, "origin should receive net amount");
+        assertEq(token.balanceOf(address(settlement)), 0, "settlement contract should be emptied");
     }
 
     function testRevertsForUntrustedCctpCaller() external {
         token.setBalance(address(this), 100);
         token.transfer(address(settlement), 100);
 
-        vm.expectRevert(SeiKinSettlement.UntrustedCctpCaller.selector);
+        vm.expectRevert(bytes("Untrusted sender"));
         settlement.onCCTPReceived(address(token), address(1), 100, "");
     }
 
@@ -70,12 +69,10 @@ contract SeiKinSettlementTest is Test {
 
         Client.Any2EVMMessage memory message;
         message.sender = abi.encode(address(0xDEAD));
-        message.data = abi.encode(SeiKinSettlement.SettlementInstruction({beneficiary: address(1), metadata: bytes("") }));
-        message.destTokenAmounts = new Client.EVMTokenAmount[](1);
-        message.destTokenAmounts[0] = Client.EVMTokenAmount({token: address(token), amount: 1000});
+        message.data = abi.encode(address(token));
 
         vm.prank(CCIP_ROUTER);
-        vm.expectRevert(abi.encodeWithSelector(SeiKinSettlement.UntrustedCcipSender.selector, address(0xDEAD)));
+        vm.expectRevert(bytes("Untrusted sender"));
         settlement.ccipReceive(message);
     }
 }
