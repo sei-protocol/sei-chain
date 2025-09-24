@@ -236,7 +236,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	}
 
 	// Get all tx hashes for the block
-	height := block.Block.Header.Height
+	height := block.Block.Height
 	txHashes := getTxHashesFromBlock(block, a.txConfigProvider(height), shouldIncludeSynthetic(a.namespace))
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}
@@ -247,7 +247,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	signer := ethtypes.MakeSigner(
 		types.DefaultChainConfig().EthereumConfig(a.keeper.ChainID(sdkCtx)),
 		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Unix()),
+		uint64(sdkCtx.BlockTime().Unix()), //nolint:gosec
 	)
 	for i, hash := range txHashes {
 		wg.Add(1)
@@ -272,7 +272,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 				}
 				// tx hash is included in a future block (because it failed in the current block due to
 				// checks before the account's nonce is updated)
-				if receipt.BlockNumber != uint64(height) {
+				if receipt.BlockNumber != uint64(height) { // nolint:gosec
 					return
 				}
 				encodedReceipt, err := encodeReceipt(sdkCtxAtHeight, receipt, a.txConfigProvider(height).TxDecoder(), block, func(h common.Hash) *types.Receipt {
@@ -299,7 +299,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		}
 	}
 	for i, cr := range compactReceipts {
-		cr["transactionIndex"] = hexutil.Uint64(i)
+		cr["transactionIndex"] = hexutil.Uint64(i) //nolint:gosec
 	}
 	if returnErr != nil {
 		return nil, returnErr
@@ -339,7 +339,6 @@ func EncodeTmBlock(
 	transactions := []interface{}{}
 
 	for i, txRes := range blockRes.TxsResults {
-		blockGasUsed += txRes.GasUsed
 		decoded, err := txDecoder(block.Block.Txs[i])
 		if err != nil {
 			return nil, errors.New("failed to decode transaction")
@@ -362,16 +361,18 @@ func EncodeTmBlock(
 					}
 				}
 				receipt, err := k.GetReceipt(ctx, hash)
-				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) {
+				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { // nolint:gosec
 					continue
 				}
 				if !includeSyntheticTxs && receipt.TxType == types.ShellEVMTxType {
 					continue
 				}
 				if !fullTx {
+					blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 					transactions = append(transactions, hash)
 				} else {
-					newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(len(transactions)), baseFeePerGas, chainConfig)
+					newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(len(transactions)), baseFeePerGas, chainConfig) //nolint:gosec
+					blockGasUsed += int64(receipt.GasUsed)                                                                                                                  //nolint:gosec
 					transactions = append(transactions, newTx)
 				}
 			case *wasmtypes.MsgExecuteContract:
@@ -384,6 +385,7 @@ func EncodeTmBlock(
 					continue
 				}
 				if !fullTx {
+					blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 					transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 				} else {
 					ti := uint64(len(transactions))
@@ -394,6 +396,7 @@ func EncodeTmBlock(
 					} else {
 						to = k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
 					}
+					blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 					transactions = append(transactions, &export.RPCTransaction{
 						BlockHash:        &blockhash,
 						BlockNumber:      (*hexutil.Big)(number),
@@ -410,6 +413,7 @@ func EncodeTmBlock(
 				}
 				th := sha256.Sum256(block.Block.Txs[i])
 				if !fullTx {
+					blockGasUsed += txRes.GasUsed
 					transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 				} else {
 					rpcTx := &export.RPCTransaction{
@@ -432,6 +436,7 @@ func EncodeTmBlock(
 					rpcTx.Value = (*hexutil.Big)(amt.BigInt())
 					ti := uint64(len(transactions))
 					rpcTx.TransactionIndex = (*hexutil.Uint64)(&ti)
+					blockGasUsed += txRes.GasUsed
 					transactions = append(transactions, rpcTx)
 				}
 			}
@@ -452,15 +457,15 @@ func EncodeTmBlock(
 		"logsBloom":        blockBloom,
 		"stateRoot":        appHash,
 		"miner":            miner,
-		"difficulty":       (*hexutil.Big)(big.NewInt(0)), // inapplicable to Sei
-		"extraData":        hexutil.Bytes{},               // inapplicable to Sei
-		"gasLimit":         hexutil.Uint64(gasLimit),
-		"gasUsed":          hexutil.Uint64(blockGasUsed),
-		"timestamp":        hexutil.Uint64(block.Block.Time.Unix()),
+		"difficulty":       (*hexutil.Big)(big.NewInt(0)),           // inapplicable to Sei
+		"extraData":        hexutil.Bytes{},                         // inapplicable to Sei
+		"gasLimit":         hexutil.Uint64(gasLimit),                //nolint:gosec
+		"gasUsed":          hexutil.Uint64(blockGasUsed),            //nolint:gosec
+		"timestamp":        hexutil.Uint64(block.Block.Time.Unix()), //nolint:gosec
 		"transactionsRoot": txHash,
 		"receiptsRoot":     resultHash,
-		"size":             hexutil.Uint64(block.Block.Size()),
-		"uncles":           []common.Hash{}, // inapplicable to Sei
+		"size":             hexutil.Uint64(block.Block.Size()), //nolint:gosec
+		"uncles":           []common.Hash{},                    // inapplicable to Sei
 		"transactions":     transactions,
 		"baseFeePerGas":    (*hexutil.Big)(baseFeePerGas),
 	}
@@ -489,6 +494,6 @@ func (a *BlockAPI) getEvmTxCount(txs tmtypes.Txs, height int64) *hexutil.Uint {
 		}
 
 	}
-	cntHex := hexutil.Uint(cnt)
+	cntHex := hexutil.Uint(cnt) //nolint:gosec
 	return &cntHex
 }
