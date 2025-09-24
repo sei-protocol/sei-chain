@@ -341,7 +341,6 @@ func EncodeTmBlock(
 	transactions := []interface{}{}
 
 	for i, txRes := range blockRes.TxsResults {
-		blockGasUsed += txRes.GasUsed
 		decoded, err := txDecoder(block.Block.Txs[i])
 		if err != nil {
 			return nil, errors.New("failed to decode transaction")
@@ -371,9 +370,11 @@ func EncodeTmBlock(
 					continue
 				}
 				if !fullTx {
+					blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 					transactions = append(transactions, hash)
 				} else {
-					newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(len(transactions)), baseFeePerGas, chainConfig)
+					newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(len(transactions)), baseFeePerGas, chainConfig) //nolint:gosec
+					blockGasUsed += int64(receipt.GasUsed)                                                                                                                  //nolint:gosec
 					transactions = append(transactions, newTx)
 				}
 			case *wasmtypes.MsgExecuteContract:
@@ -386,6 +387,7 @@ func EncodeTmBlock(
 					continue
 				}
 				if !fullTx {
+					blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 					transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 				} else {
 					ti := uint64(len(transactions))
@@ -396,6 +398,7 @@ func EncodeTmBlock(
 					} else {
 						to = k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
 					}
+					blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 					transactions = append(transactions, &export.RPCTransaction{
 						BlockHash:        &blockhash,
 						BlockNumber:      (*hexutil.Big)(number),
@@ -412,6 +415,7 @@ func EncodeTmBlock(
 				}
 				th := sha256.Sum256(block.Block.Txs[i])
 				if !fullTx {
+					blockGasUsed += txRes.GasUsed
 					transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 				} else {
 					rpcTx := &export.RPCTransaction{
@@ -434,6 +438,7 @@ func EncodeTmBlock(
 					rpcTx.Value = (*hexutil.Big)(amt.BigInt())
 					ti := uint64(len(transactions))
 					rpcTx.TransactionIndex = (*hexutil.Uint64)(&ti)
+					blockGasUsed += txRes.GasUsed
 					transactions = append(transactions, rpcTx)
 				}
 			}
