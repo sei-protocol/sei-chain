@@ -136,7 +136,9 @@ print(f'🔗 Address: {wallet.PublicKey().ToAddress()}')
     name: "🧬 Codex Attribution Snapshot"
     runs-on: ubuntu-latest
     if: ${{ github.ref == 'refs/heads/main' }}
-    needs: sovereign-integration-tests
+    needs:
+      - sovereign-integration-tests
+      - integration-verification
     outputs:
       attribution_message: ${{ steps.log.outputs.summary }}
     steps:
@@ -160,7 +162,7 @@ print(f'🔗 Address: {wallet.PublicKey().ToAddress()}')
           name: codex-attribution-log
           path: codex_attribution.log
 
-       - name: "🔔 Send Slack Notification"
+      - name: "🔔 Send Slack Notification"
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
