@@ -38,7 +38,7 @@ func TestGetLogIndex(t *testing.T) {
 	tx0 := signAndEncodeCosmosTx(transferCW20Msg(mnemonic1, cw20), mnemonic1, 7, 0)
 	tx1Bz := signAndEncodeTx(depositErc20(1), erc20DeployerMnemonics)
 	tx2Bz := signAndEncodeTx(sendErc20(2), erc20DeployerMnemonics)
-	SetupTestServer([][][]byte{{tx0, tx1Bz, tx2Bz}}, mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1), erc20Initializer()).Run(
+	SetupTestServer([][][]byte{{tx0, tx1Bz, tx2Bz}}, mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, true), erc20Initializer()).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getLogs", map[string]interface{}{
 				"toBlock": "latest",

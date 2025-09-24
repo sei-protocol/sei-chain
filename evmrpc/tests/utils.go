@@ -109,6 +109,9 @@ func SetupTestServer(
 		if err != nil {
 			panic(err)
 		}
+		// for i, txRes := range res.TxResults {
+		// 	fmt.Printf("tx %d: %s\n", i, txRes.Log)
+		// }
 		_, _ = a.Commit(context.Background())
 		mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	}
