@@ -368,11 +368,11 @@ func EncodeTmBlock(
 					continue
 				}
 				if !fullTx {
-                    blockGasUsed += int64(receipt.GasUsed)
+                    blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 					transactions = append(transactions, hash)
 				} else {
 					newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(len(transactions)), baseFeePerGas, chainConfig) //nolint:gosec
-                    blockGasUsed += int64(receipt.GasUsed)
+                    blockGasUsed += int64(receipt.GasUsed)                                                                                                                  //nolint:gosec
                     transactions = append(transactions, newTx)
 				}
 			case *wasmtypes.MsgExecuteContract:
@@ -385,7 +385,7 @@ func EncodeTmBlock(
 					continue
 				}
 				if !fullTx {
-                    blockGasUsed += int64(receipt.GasUsed)
+                    blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 					transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 				} else {
 					ti := uint64(len(transactions))
@@ -396,7 +396,7 @@ func EncodeTmBlock(
 					} else {
 						to = k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
 					}
-                    blockGasUsed += int64(receipt.GasUsed)
+                    blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 					transactions = append(transactions, &export.RPCTransaction{
 						BlockHash:        &blockhash,
 						BlockNumber:      (*hexutil.Big)(number),
