@@ -1,0 +1,89 @@
+name: KinVault Integration Tests
+
+on:
+  push:
+    branches:
+      - main
+      - evm
+      - release/**
+  pull_request:
+
+jobs:
+  integration-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - { name: Chain Operation Test, script: chain_operations_test.sh }
+          - { name: EVM Module, script: evm_tests.sh }
+          - { name: Distribution Module, script: distribution_tests.sh }
+          - { name: EVM Interoperability, script: interoperability_tests.sh }
+          - { name: SeiDB State Store, script: seidb_tests.sh }
+          - { name: Mint & Staking & Bank Module, script: bank_tests.sh }
+          - { name: dApp Tests, script: dapp_tests.sh }
+          - { name: Wasm Module, script: wasm_tests.sh }
+          - { name: Upgrade Module (Minor), script: upgrade_minor_test.sh }
+          - { name: Upgrade Module (Major), script: upgrade_major_test.sh }
+
+    name: ${{ matrix.test.name }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq docker.io
+          pip install toml
+
+      - name: Set up environment
+        run: |
+          echo "DOCKER_COMPOSE_TEST_FILE=integration_test/docker-compose.yml" >> $GITHUB_ENV
+          echo "CHAIN_ID=sei-chain" >> $GITHUB_ENV
+          echo "INVARIANT_CHECK_INTERVAL=5" >> $GITHUB_ENV
+
+      - name: Start docker cluster
+        run: |
+          docker-compose -f $DOCKER_COMPOSE_TEST_FILE up -d --build
+
+      - name: Run ${{ matrix.test.name }}
+        run: |
+          chmod +x integration_test/${{ matrix.test.script }}
+          bash integration_test/${{ matrix.test.script }}
+
+      - name: Upload Logs (if present)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.test.name }}
+          path: integration_test/output/
+
+      - name: Notarize Result with SoulSigil
+        if: always()
+        run: |
+          mkdir -p guardian
+          SHA=$(sha512sum integration_test/output/* | head -n1 | cut -d' ' -f1)
+          DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          jq -n --arg sha "$SHA" --arg date "$DATE" --arg module "${{ matrix.test.name }}" --arg commit "${{ github.sha }}" ' {
+            module: $module,
+            sha512: $sha,
+            timestamp: $date,
+            commit: $commit,
+            type: "integration-test-soul"
+          }' > guardian/soulsigil-${{ matrix.test.name }}.json
+
+      - name: Upload SoulSigil JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soulsigil-${{ matrix.test.name }}
+          path: guardian/soulsigil-${{ matrix.test.name }}.json
+
+      - name: (Optional) Post SoulSigil to VaultObserver
+        if: always()
+        run: |
+          curl -X POST https://vault.keepernet.xyz/api/submit \
+            -H 'Content-Type: application/json' \
+            -d @guardian/soulsigil-${{ matrix.test.name }}.json || echo "Vault Observer optional post skipped."
