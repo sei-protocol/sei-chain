@@ -457,3 +457,32 @@ func TestGetLogs_SyntheticTopic_EthVsSei(t *testing.T) {
 	topics := first["topics"].([]interface{})
 	require.Equal(t, synthTopic.Hex(), topics[0].(string))
 }
+
+func TestEVMLaunchHeightValidation(t *testing.T) {
+	// Test the helper functions directly
+	
+	// Test getEVMLaunchHeight function
+	require.Equal(t, int64(79123881), evmrpc.GetEVMLaunchHeight("pacific-1"))
+	require.Equal(t, int64(0), evmrpc.GetEVMLaunchHeight("atlantic-2"))
+	require.Equal(t, int64(0), evmrpc.GetEVMLaunchHeight("test-chain"))
+	
+	// Test validateEVMBlockHeight function
+	// Should pass for pacific-1 with valid height
+	err := evmrpc.ValidateEVMBlockHeight("pacific-1", 79123881)
+	require.NoError(t, err)
+	
+	err = evmrpc.ValidateEVMBlockHeight("pacific-1", 79123882)
+	require.NoError(t, err)
+	
+	// Should fail for pacific-1 with invalid height
+	err = evmrpc.ValidateEVMBlockHeight("pacific-1", 79123880)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "EVM is only supported from block 79123881 onwards")
+	
+	// Should pass for other chains with any height
+	err = evmrpc.ValidateEVMBlockHeight("atlantic-2", 1)
+	require.NoError(t, err)
+	
+	err = evmrpc.ValidateEVMBlockHeight("test-chain", 1)
+	require.NoError(t, err)
+}

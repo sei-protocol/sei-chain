@@ -34,6 +34,9 @@ import (
 
 const LatestCtxHeight int64 = -1
 
+// EVM launch block heights for different chains
+const Pacific1EVMLaunchHeight int64 = 79123881
+
 // GetBlockNumberByNrOrHash returns the height of the block with the given number or hash.
 func GetBlockNumberByNrOrHash(ctx context.Context, tmClient rpcclient.Client, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
 	if blockNrOrHash.BlockHash != nil {
@@ -174,6 +177,18 @@ func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash byt
 	}
 	TraceTendermintIfApplicable(ctx, "BlockByHash", []string{hash.String()}, blockRes)
 	return blockRes, err
+}
+
+// ValidateEVMBlockHeight checks if the requested block height is valid for EVM queries
+func ValidateEVMBlockHeight(chainID string, blockHeight int64) error {
+	// Only validate for pacific-1 chain
+	if chainID != "pacific-1" {
+		return nil
+	}
+	if blockHeight < Pacific1EVMLaunchHeight {
+		return fmt.Errorf("EVM is only supported from block %d onwards", Pacific1EVMLaunchHeight)
+	}
+	return nil
 }
 
 func recordMetrics(apiMethod string, connectionType ConnectionType, startTime time.Time) {
