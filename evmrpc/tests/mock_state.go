@@ -24,13 +24,13 @@ type RpcResponse struct {
 }
 
 func mockStatesFromBlockJson(ctx sdk.Context, blockNum uint64, a *app.App, client *MockClient) int64 {
-    filepath := fmt.Sprintf("mock_data/blocks/%d.json", blockNum)
-    return mockStatesFromJsonFile(ctx, filepath, a, client)
+	filepath := fmt.Sprintf("mock_data/blocks/%d.json", blockNum)
+	return mockStatesFromJsonFile(ctx, filepath, a, client)
 }
 
 func mockStatesFromTxJson(ctx sdk.Context, hash string, a *app.App, client *MockClient) int64 {
-    filepath := fmt.Sprintf("mock_data/transactions/%s.json", hash)
-    return mockStatesFromJsonFile(ctx, filepath, a, client)
+	filepath := fmt.Sprintf("mock_data/transactions/%s.json", hash)
+	return mockStatesFromJsonFile(ctx, filepath, a, client)
 }
 
 func mockStatesFromJsonFile(ctx sdk.Context, filepath string, a *app.App, client *MockClient) int64 {
