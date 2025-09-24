@@ -110,6 +110,7 @@ type PendingTx struct {
 type ReplayChainContext struct {
 	ethClient *ethclient.Client
 	chainID   *big.Int
+	params    types.Params
 }
 
 func (ctx *ReplayChainContext) Engine() consensus.Engine {
@@ -589,7 +590,7 @@ func (k *Keeper) getBlockTestBlockCtx(ctx sdk.Context) (*vm.BlockContext, error)
 
 func (k *Keeper) getReplayBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
 	header := k.ReplayBlock.Header_
-	replayCtx := &ReplayChainContext{ethClient: k.EthClient, chainID: k.ChainID(ctx)}
+	replayCtx := &ReplayChainContext{ethClient: k.EthClient, chainID: k.ChainID(ctx), params: k.GetParams(ctx)}
 	getHash := core.GetHashFn(header, replayCtx)
 	var (
 		baseFee     *big.Int
