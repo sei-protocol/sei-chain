@@ -141,12 +141,21 @@ func Test0xd09db4e79993c42eda67b45ca2fd5ac1e4cc60284a03335a08bb91d5b3800d84(t *t
 	)
 }
 
-func Test103134381(t *testing.T) {
+func Test169638844(t *testing.T) {
     testBlock(
         t,
-        103134381,
+        169638844,
         "v6.0.0",
-        "0x2e8a9d",
+        "0xfb2fd",
+    )
+}
+
+func Test169750823(t *testing.T) {
+    testBlock(
+        t,
+        169750823,
+        "v6.0.0",
+        "0x29e240",
     )
 }
 
