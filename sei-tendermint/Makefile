@@ -78,17 +78,11 @@ $(BUILDDIR)/:
 ###                                Protobuf                                 ###
 ###############################################################################
 
+# Installs the gogofaster plugin for protoc, required for generating protobuf files.
+# Otherwise, if already installed, this is a no-op.
 check-proto-deps:
-ifeq (,$(shell which protoc-gen-gogofaster))
-	$(error "gogofaster plugin for protoc is required. Run 'go install github.com/gogo/protobuf/protoc-gen-gogofaster@latest' to install")
-endif
+	@go install github.com/gogo/protobuf/protoc-gen-gogofaster@v1.3.2
 .PHONY: check-proto-deps
-
-check-proto-format-deps:
-ifeq (,$(shell which clang-format))
-	$(error "clang-format is required for Protobuf formatting. See instructions for your platform on how to install it.")
-endif
-.PHONY: check-proto-format-deps
 
 proto-gen: check-proto-deps
 	@echo "Generating Protobuf files"
@@ -103,9 +97,9 @@ proto-lint: check-proto-deps
 	@$(BUF) lint
 .PHONY: proto-lint
 
-proto-format: check-proto-format-deps
+proto-format: check-proto-deps
 	@echo "Formatting Protobuf files"
-	@find . -name '*.proto' -path "./proto/*" -exec clang-format -i {} \;
+	@$(BUF) format -w
 .PHONY: proto-format
 
 proto-check-breaking: check-proto-deps
@@ -116,7 +110,7 @@ proto-check-breaking: check-proto-deps
 	@$(BUF) breaking --against ".git"
 .PHONY: proto-check-breaking
 
-proto-all: proto-gen proto-format proto-check-breaking
+proto-all: proto-gen proto-format proto-lint proto-check-breaking
 .PHONY: proto-all
 
 ###############################################################################

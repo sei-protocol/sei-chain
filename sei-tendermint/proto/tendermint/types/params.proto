@@ -1,23 +1,23 @@
 syntax = "proto3";
-package tendermint.types;
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/types";
+package tendermint.types;
 
 import "gogoproto/gogo.proto";
 import "google/protobuf/duration.proto";
 
+option go_package = "github.com/tendermint/tendermint/proto/tendermint/types";
 option (gogoproto.equal_all) = true;
 
 // ConsensusParams contains consensus critical parameters that determine the
 // validity of blocks.
 message ConsensusParams {
-  BlockParams     block     = 1;
-  EvidenceParams  evidence  = 2;
+  BlockParams block = 1;
+  EvidenceParams evidence = 2;
   ValidatorParams validator = 3;
-  VersionParams   version   = 4;
+  VersionParams version = 4;
   SynchronyParams synchrony = 5;
-  TimeoutParams   timeout   = 6;
-  ABCIParams      abci      = 7;
+  TimeoutParams timeout = 6;
+  ABCIParams abci = 7;
 }
 
 // BlockParams contains limits on the block size.
@@ -48,8 +48,10 @@ message EvidenceParams {
   // It should correspond with an app's "unbonding period" or other similar
   // mechanism for handling [Nothing-At-Stake
   // attacks](https://github.com/ethereum/wiki/wiki/Proof-of-Stake-FAQ#what-is-the-nothing-at-stake-problem-and-how-can-it-be-fixed).
-  google.protobuf.Duration max_age_duration = 2
-      [(gogoproto.nullable) = false, (gogoproto.stdduration) = true];
+  google.protobuf.Duration max_age_duration = 2 [
+    (gogoproto.nullable) = false,
+    (gogoproto.stdduration) = true
+  ];
 
   // This sets the maximum size of total evidence in bytes that can be committed
   // in a single block. and should fall comfortably under the max block bytes.
@@ -73,7 +75,7 @@ message VersionParams {
 // It is hashed into the Header.ConsensusHash.
 message HashedParams {
   int64 block_max_bytes = 1;
-  int64 block_max_gas   = 2;
+  int64 block_max_gas = 2;
 }
 
 // SynchronyParams configure the bounds under which a proposed block's timestamp is considered valid.
@@ -104,7 +106,7 @@ message TimeoutParams {
   // If a node waiting for a proposal message does not receive one matching its
   // current height and round before this timeout, the node will issue a
   // nil prevote for the round and advance to the next step.
-  google.protobuf.Duration propose       = 1 [(gogoproto.stdduration) = true];
+  google.protobuf.Duration propose = 1 [(gogoproto.stdduration) = true];
   google.protobuf.Duration propose_delta = 2 [(gogoproto.stdduration) = true];
 
   // vote along with vote_delta configure the timeout for both of the prevote and
@@ -118,7 +120,7 @@ message TimeoutParams {
   // procced to the next step of the consensus algorithm. If Tendermint receives
   // all of the remaining votes before the end of the timeout, it will proceed
   // to the next step immediately.
-  google.protobuf.Duration vote       = 3 [(gogoproto.stdduration) = true];
+  google.protobuf.Duration vote = 3 [(gogoproto.stdduration) = true];
   google.protobuf.Duration vote_delta = 4 [(gogoproto.stdduration) = true];
 
   // commit configures how long Tendermint will wait after receiving a quorum of

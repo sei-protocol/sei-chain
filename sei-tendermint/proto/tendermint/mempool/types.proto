@@ -1,4 +1,5 @@
 syntax = "proto3";
+
 package tendermint.mempool;
 
 option go_package = "github.com/tendermint/tendermint/proto/tendermint/mempool";

@@ -1,10 +1,10 @@
 syntax = "proto3";
+
 package tendermint.blocksync;
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/blocksync";
-
 import "tendermint/types/block.proto";
-import "tendermint/types/types.proto";
+
+option go_package = "github.com/tendermint/tendermint/proto/tendermint/blocksync";
 
 // BlockRequest requests a block for a specific height
 message BlockRequest {
@@ -30,15 +30,15 @@ message StatusRequest {}
 // StatusResponse is a peer response to inform their status.
 message StatusResponse {
   int64 height = 1;
-  int64 base   = 2;
+  int64 base = 2;
 }
 
 message Message {
   oneof sum {
-    BlockRequest    block_request     = 1;
+    BlockRequest block_request = 1;
     NoBlockResponse no_block_response = 2;
-    BlockResponse   block_response    = 3;
-    StatusRequest   status_request    = 4;
-    StatusResponse  status_response   = 5;
+    BlockResponse block_response = 3;
+    StatusRequest status_request = 4;
+    StatusResponse status_response = 5;
   }
 }

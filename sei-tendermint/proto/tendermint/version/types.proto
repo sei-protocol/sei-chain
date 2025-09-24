@@ -1,9 +1,10 @@
 syntax = "proto3";
+
 package tendermint.version;
 
-option go_package = "github.com/tendermint/tendermint/proto/tendermint/version";
-
 import "gogoproto/gogo.proto";
+
+option go_package = "github.com/tendermint/tendermint/proto/tendermint/version";
 
 // Consensus captures the consensus rules for processing a block in the
 // blockchain, including all blockchain data structures and the rules of the
@@ -12,5 +13,5 @@ message Consensus {
   option (gogoproto.equal) = true;
 
   uint64 block = 1;
-  uint64 app   = 2;
+  uint64 app = 2;
 }
