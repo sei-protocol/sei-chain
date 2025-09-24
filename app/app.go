@@ -2012,8 +2012,14 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) 
 		// check gasless first (this has to happen before other checks to avoid panics)
 		isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
 		if err != nil {
-			ctx.Logger().Error("error checking if tx is gasless", "error", err)
-			return false // Reject proposal if any tx fails gasless check
+			if strings.Contains(err.Error(), "panic in IsTxGasless") {
+				// This is a unexpected panic, reject the entire proposal
+				ctx.Logger().Error("malicious transaction detected in gasless check", "error", err)
+				return false
+			}
+			// Other business logic errors (like duplicate votes) - continue processing but tx is not gasless
+			ctx.Logger().Info("transaction failed gasless check but not malicious", "error", err)
+			continue
 		}
 		if isGasless {
 			continue
