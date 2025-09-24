@@ -36,9 +36,9 @@ contract SeiKinSettlement {
     }
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-    event RouterUpdated(address indexed newRouter);
+    event RouterUpdated(address indexed previousRouter, address indexed newRouter);
     event RoyaltyRecipientUpdated(address indexed previousRecipient, address indexed newRecipient);
-    event CctpVerifierUpdated(address indexed newVerifier);
+    event CctpVerifierUpdated(address indexed previousVerifier, address indexed newVerifier);
     event SettlementFinalized(
         bytes32 indexed depositId,
         address indexed token,
@@ -56,6 +56,7 @@ contract SeiKinSettlement {
     error VerificationModuleMissing();
     error TransferFailed();
     error InsufficientFunds();
+    error NoChange();
 
     constructor(address royaltyRecipient_, address cctpVerifier_) {
         if (royaltyRecipient_ == address(0) || cctpVerifier_ == address(0)) {
@@ -66,7 +67,7 @@ contract SeiKinSettlement {
         cctpVerifier = ICctpVerifier(cctpVerifier_);
         emit OwnershipTransferred(address(0), msg.sender);
         emit RoyaltyRecipientUpdated(address(0), royaltyRecipient_);
-        emit CctpVerifierUpdated(cctpVerifier_);
+        emit CctpVerifierUpdated(address(0), cctpVerifier_);
     }
 
     modifier onlyOwner() {
@@ -83,8 +84,10 @@ contract SeiKinSettlement {
     /// @param newRouter Address of the Circle CCIP router implementation.
     function setRouter(address newRouter) external onlyOwner {
         if (newRouter == address(0)) revert InvalidAddress();
+        address previous = router;
+        if (previous == newRouter) revert NoChange();
         router = newRouter;
-        emit RouterUpdated(newRouter);
+        emit RouterUpdated(previous, newRouter);
     }
 
     /// @notice Updates the address receiving royalty payouts.
@@ -92,6 +95,7 @@ contract SeiKinSettlement {
     function updateRoyaltyRecipient(address newRecipient) external onlyOwner {
         if (newRecipient == address(0)) revert InvalidAddress();
         address previous = royaltyRecipient;
+        if (previous == newRecipient) revert NoChange();
         royaltyRecipient = newRecipient;
         emit RoyaltyRecipientUpdated(previous, newRecipient);
     }
@@ -100,8 +104,10 @@ contract SeiKinSettlement {
     /// @param newVerifier Address of the verifier contract.
     function updateCctpVerifier(address newVerifier) external onlyOwner {
         if (newVerifier == address(0)) revert InvalidAddress();
+        address previous = address(cctpVerifier);
+        if (previous == newVerifier) revert NoChange();
         cctpVerifier = ICctpVerifier(newVerifier);
-        emit CctpVerifierUpdated(newVerifier);
+        emit CctpVerifierUpdated(previous, newVerifier);
     }
 
     /// @notice Transfers ownership to a new administrator.
@@ -109,6 +115,7 @@ contract SeiKinSettlement {
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert InvalidAddress();
         address previous = owner;
+        if (previous == newOwner) revert NoChange();
         owner = newOwner;
         emit OwnershipTransferred(previous, newOwner);
     }

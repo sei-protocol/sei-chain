@@ -31,6 +31,8 @@ contract CircleCCIPRouter {
     error InvalidAddress();
     error InvalidMessage();
     error VerificationFailed();
+    error MisconfiguredSettlement();
+    error NoChange();
 
     struct RoutedTransfer {
         bytes32 depositId;
@@ -59,6 +61,7 @@ contract CircleCCIPRouter {
     /// @notice Updates the CCIP verifier contract.
     function setCcipVerifier(address newVerifier) external onlyOwner {
         if (newVerifier == address(0)) revert InvalidAddress();
+        if (address(ccipVerifier) == newVerifier) revert NoChange();
         ccipVerifier = ICCIPMessageVerifier(newVerifier);
         emit CcipVerifierUpdated(newVerifier);
     }
@@ -66,6 +69,7 @@ contract CircleCCIPRouter {
     /// @notice Points the router at a new settlement contract.
     function setSettlement(address newSettlement) external onlyOwner {
         if (newSettlement == address(0)) revert InvalidAddress();
+        if (address(settlement) == newSettlement) revert NoChange();
         settlement = SeiKinSettlement(newSettlement);
         emit SettlementUpdated(newSettlement);
     }
@@ -74,6 +78,7 @@ contract CircleCCIPRouter {
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert InvalidAddress();
         address previous = owner;
+        if (previous == newOwner) revert NoChange();
         owner = newOwner;
         emit OwnershipTransferred(previous, newOwner);
     }
@@ -105,11 +110,14 @@ contract CircleCCIPRouter {
     {
         if (!ccipVerifier.verify(message, proof)) revert VerificationFailed();
 
+        if (settlement.router() != address(this)) revert MisconfiguredSettlement();
+
         RoutedTransfer memory decoded = decodeMessage(message);
         if (decoded.destination == address(0) || decoded.token == address(0)) revert InvalidMessage();
         if (decoded.amount == 0) revert InvalidMessage();
 
         royaltyAmount = settlement.previewRoyalty(decoded.amount);
+        uint256 expectedNetAmount = settlement.previewNetAmount(decoded.amount);
 
         SeiKinSettlement.SettlementInstruction memory instruction = SeiKinSettlement.SettlementInstruction({
             depositId: decoded.depositId,
@@ -120,6 +128,7 @@ contract CircleCCIPRouter {
         });
 
         netAmount = settlement.settle(instruction, cctpProof);
+        if (netAmount != expectedNetAmount) revert MisconfiguredSettlement();
 
         emit TransferRouted(decoded.depositId, decoded.token, decoded.destination, decoded.amount, royaltyAmount);
     }
