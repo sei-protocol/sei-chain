@@ -50,7 +50,10 @@ type SeiBlockAPI struct {
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
 }
 
-func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType) *BlockAPI {
+func NewBlockAPI(
+	tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context,
+	txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType,
+) *BlockAPI {
 	return &BlockAPI{
 		tmClient:             tmClient,
 		keeper:               k,
@@ -101,19 +104,26 @@ func NewSei2BlockAPI(
 	return blockAPI
 }
 
-func (a *SeiBlockAPI) GetBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
+func (a *SeiBlockAPI) GetBlockByNumberExcludeTraceFail(
+	ctx context.Context, number rpc.BlockNumber, fullTx bool,
+) (result map[string]interface{}, returnErr error) {
 	// exclude synthetic txs
 	return a.getBlockByNumber(ctx, number, fullTx, false, a.isPanicTx)
 }
 
-func (a *SeiBlockAPI) GetBlockByHashExcludeTraceFail(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
+func (a *SeiBlockAPI) GetBlockByHashExcludeTraceFail(
+	ctx context.Context, blockHash common.Hash, fullTx bool,
+) (result map[string]interface{}, returnErr error) {
 	// exclude synthetic txs
 	return a.getBlockByHash(ctx, blockHash, fullTx, false, a.isPanicTx)
 }
 
-func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint, returnErr error) {
+func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number rpc.BlockNumber) (result *hexutil.Uint,
+	returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockTransactionCountByNumber", a.namespace), a.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(
+		fmt.Sprintf("%s_getBlockTransactionCountByNumber", a.namespace), a.connectionType, startTime, returnErr,
+	)
 	numberPtr, err := getBlockNumber(ctx, a.tmClient, number)
 	if err != nil {
 		return nil, err
@@ -125,9 +135,12 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	return a.getEvmTxCount(block.Block.Txs, block.Block.Height), nil
 }
 
-func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
+func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint,
+	returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockTransactionCountByHash", a.namespace), a.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(
+		fmt.Sprintf("%s_getBlockTransactionCountByHash", a.namespace), a.connectionType, startTime, returnErr,
+	)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
 	if err != nil {
 		return nil, err
@@ -135,12 +148,17 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 	return a.getEvmTxCount(block.Block.Txs, block.Block.Height), nil
 }
 
-func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool) (result map[string]interface{}, returnErr error) {
+func (a *BlockAPI) GetBlockByHash(
+	ctx context.Context, blockHash common.Hash, fullTx bool,
+) (result map[string]interface{}, returnErr error) {
 	// used for both: eth_ and sei_ namespaces
 	return a.getBlockByHash(ctx, blockHash, fullTx, a.includeShellReceipts, nil)
 }
 
-func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool, isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)) (result map[string]interface{}, returnErr error) {
+func (a *BlockAPI) getBlockByHash(
+	ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool,
+	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
+) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
@@ -158,12 +176,20 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	} else {
 		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
 	}
-	return EncodeTmBlock(a.ctxProvider(block.Block.Height), a.ctxProvider(block.Block.Height-1), block, blockRes, blockBloom, a.keeper, a.txConfigProvider(block.Block.Height).TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
+	return EncodeTmBlock(
+		a.ctxProvider(block.Block.Height), a.ctxProvider(block.Block.Height-1), block, blockRes, blockBloom, a.keeper,
+		a.txConfigProvider(block.Block.Height).TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs,
+		isPanicTx,
+	)
 }
 
-func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
+func (a *BlockAPI) GetBlockByNumber(
+	ctx context.Context, number rpc.BlockNumber, fullTx bool,
+) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(
+		fmt.Sprintf("%s_getBlockByNumber", a.namespace), a.connectionType, startTime, returnErr,
+	)
 	if number == 0 {
 		// for compatibility with the graph, always return genesis block
 		return map[string]interface{}{
@@ -218,12 +244,19 @@ func (a *BlockAPI) getBlockByNumber(
 	} else {
 		blockBloom = a.keeper.GetBlockBloom(a.ctxProvider(block.Block.Height))
 	}
-	return EncodeTmBlock(a.ctxProvider(block.Block.Height), a.ctxProvider(block.Block.Height-1), block, blockRes, blockBloom, a.keeper, a.txConfigProvider(blockRes.Height).TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
+	return EncodeTmBlock(
+		a.ctxProvider(block.Block.Height), a.ctxProvider(block.Block.Height-1), block, blockRes, blockBloom, a.keeper,
+		a.txConfigProvider(blockRes.Height).TxDecoder(), fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx,
+	)
 }
 
-func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
+func (a *BlockAPI) GetBlockReceipts(
+	ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash,
+) (result []map[string]interface{}, returnErr error) {
 	startTime := time.Now()
-	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockReceipts", a.namespace), a.connectionType, startTime, returnErr)
+	defer recordMetricsWithError(
+		fmt.Sprintf("%s_getBlockReceipts", a.namespace), a.connectionType, startTime, returnErr,
+	)
 	// Get height from params
 	heightPtr, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
 	if err != nil {
@@ -275,13 +308,16 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 				if receipt.BlockNumber != uint64(height) { // nolint:gosec
 					return
 				}
-				encodedReceipt, err := encodeReceipt(sdkCtxAtHeight, receipt, a.txConfigProvider(height).TxDecoder(), block, func(h common.Hash) *types.Receipt {
-					r, err := a.keeper.GetReceipt(a.ctxProvider(height), h)
-					if err != nil {
-						return nil
-					}
-					return r
-				}, a.includeShellReceipts, signer)
+				encodedReceipt, err := encodeReceipt(
+					sdkCtxAtHeight, receipt, a.txConfigProvider(height).TxDecoder(), block,
+					func(h common.Hash) *types.Receipt {
+						r, err := a.keeper.GetReceipt(a.ctxProvider(height), h)
+						if err != nil {
+							return nil
+						}
+						return r
+					}, a.includeShellReceipts, signer,
+				)
 				if err != nil {
 					mtx.Lock()
 					returnErr = err
@@ -361,19 +397,24 @@ func EncodeTmBlock(
 					}
 				}
 				receipt, err := k.GetReceipt(ctx, hash)
-				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { // nolint:gosec
+				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(
+					ctx, receipt,
+				) { // nolint:gosec
 					continue
 				}
 				if !includeSyntheticTxs && receipt.TxType == types.ShellEVMTxType {
 					continue
 				}
 				if !fullTx {
-                    blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
+					blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 					transactions = append(transactions, hash)
 				} else {
-					newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(len(transactions)), baseFeePerGas, chainConfig) //nolint:gosec
-                    blockGasUsed += int64(receipt.GasUsed)                                                                                                                  //nolint:gosec
-                    transactions = append(transactions, newTx)
+					newTx := export.NewRPCTransaction(
+						ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(len(transactions)),
+						baseFeePerGas, chainConfig,
+					) //nolint:gosec
+					blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
+					transactions = append(transactions, newTx)
 				}
 			case *wasmtypes.MsgExecuteContract:
 				if !includeSyntheticTxs {
@@ -385,7 +426,7 @@ func EncodeTmBlock(
 					continue
 				}
 				if !fullTx {
-                    blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
+					blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
 					transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 				} else {
 					ti := uint64(len(transactions))
@@ -396,16 +437,18 @@ func EncodeTmBlock(
 					} else {
 						to = k.GetEVMAddressOrDefault(ctx, sdk.MustAccAddressFromBech32(m.Contract))
 					}
-                    blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
-					transactions = append(transactions, &export.RPCTransaction{
-						BlockHash:        &blockhash,
-						BlockNumber:      (*hexutil.Big)(number),
-						From:             common.HexToAddress(receipt.From),
-						To:               &to,
-						Input:            m.Msg.Bytes(),
-						Hash:             th,
-						TransactionIndex: (*hexutil.Uint64)(&ti),
-					})
+					blockGasUsed += int64(receipt.GasUsed) //nolint:gosec
+					transactions = append(
+						transactions, &export.RPCTransaction{
+							BlockHash:        &blockhash,
+							BlockNumber:      (*hexutil.Big)(number),
+							From:             common.HexToAddress(receipt.From),
+							To:               &to,
+							Input:            m.Msg.Bytes(),
+							Hash:             th,
+							TransactionIndex: (*hexutil.Uint64)(&ti),
+						},
+					)
 				}
 			case *banktypes.MsgSend:
 				if !includeBankTransfers {
@@ -413,7 +456,7 @@ func EncodeTmBlock(
 				}
 				th := sha256.Sum256(block.Block.Txs[i])
 				if !fullTx {
-                    blockGasUsed += txRes.GasUsed
+					blockGasUsed += txRes.GasUsed
 					transactions = append(transactions, "0x"+hex.EncodeToString(th[:]))
 				} else {
 					rpcTx := &export.RPCTransaction{
@@ -436,7 +479,7 @@ func EncodeTmBlock(
 					rpcTx.Value = (*hexutil.Big)(amt.BigInt())
 					ti := uint64(len(transactions))
 					rpcTx.TransactionIndex = (*hexutil.Uint64)(&ti)
-                    blockGasUsed += txRes.GasUsed
+					blockGasUsed += txRes.GasUsed
 					transactions = append(transactions, rpcTx)
 				}
 			}
