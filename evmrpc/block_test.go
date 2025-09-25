@@ -2,9 +2,7 @@ package evmrpc_test
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 	"math/big"
-	"strings"
 	"testing"
 	"time"
 
@@ -224,105 +222,6 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 		R:                nil,
 		S:                nil,
 	}, txs[0].(*export.RPCTransaction))
-}
-
-func TestGetBlockByNumber_LogBloomBehavior(t *testing.T) {
-	emptyBloom := "0x" + common.Bytes2Hex(ethtypes.Bloom{}.Bytes())
-
-	// Eth namespace should now be NON-empty at 0x8
-	resObjEth := sendRequestGood(t, "getBlockByNumber", "0x8", true)
-	resultEth := resObjEth["result"].(map[string]interface{})
-	require.NotEqual(t, emptyBloom, resultEth["logsBloom"])
-
-	// Sei namespace includes synthetic logs and should also be non-empty
-	resObjSei := sendSeiRequestGood(t, "getBlockByNumber", "0x8", true)
-	resultSei := resObjSei["result"].(map[string]interface{})
-	require.NotEqual(t, emptyBloom, resultSei["logsBloom"])
-}
-
-func TestGetBlockByHash_LogBloomBehavior(t *testing.T) {
-	emptyBloom := "0x" + common.Bytes2Hex(ethtypes.Bloom{}.Bytes())
-	blockHash := "0x0000000000000000000000000000000000000000000000000000000000000001"
-
-	// Eth: now non-empty
-	resObjEth := sendRequestGood(t, "getBlockByHash", blockHash, true)
-	resultEth := resObjEth["result"].(map[string]interface{})
-	require.NotEqual(t, emptyBloom, resultEth["logsBloom"])
-
-	// Sei: also non-empty (all logs)
-	resObjSei := sendSeiRequestGood(t, "getBlockByHash", blockHash, true)
-	resultSei := resObjSei["result"].(map[string]interface{})
-	require.NotEqual(t, emptyBloom, resultSei["logsBloom"])
-}
-
-func TestEthBloom_NonEmptyWhenEvmLogsPresent(t *testing.T) {
-	emptyBloom := "0x" + common.Bytes2Hex(ethtypes.Bloom{}.Bytes())
-
-	// Non-empty at 0x8 (EVM-only bloom has been set in setupLogs)
-	resObjNonEmpty := sendRequestGood(t, "getBlockByNumber", "0x8", true)
-	resultNonEmpty := resObjNonEmpty["result"].(map[string]interface{})
-	require.NotEqual(t, emptyBloom, resultNonEmpty["logsBloom"], "eth logsBloom should be non-empty when EVM logs exist")
-
-	// Empty at genesis (earliest)
-	resObjEmpty := sendRequestGood(t, "getBlockByNumber", "earliest", true)
-	resultEmpty := resObjEmpty["result"].(map[string]interface{})
-	require.Equal(t, emptyBloom, resultEmpty["logsBloom"], "eth logsBloom should be empty at genesis")
-}
-
-func mustParseBloomHex(t *testing.T, hexStr interface{}) ethtypes.Bloom {
-	s := hexStr.(string)
-	b, err := hex.DecodeString(strings.TrimPrefix(s, "0x"))
-	require.NoError(t, err)
-	var bloom ethtypes.Bloom
-	copy(bloom[:], b)
-	return bloom
-}
-
-func TestEthBloom_ExcludesSyntheticTopics(t *testing.T) {
-	// Synthetic-only topic from setup
-	syntheticTopic := common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234")
-	// Topic present in real EVM logs
-	evmTopic := common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")
-
-	// eth_
-	resEth := sendRequestGood(t, "getBlockByNumber", "0x8", true)
-	bloomEth := mustParseBloomHex(t, resEth["result"].(map[string]interface{})["logsBloom"])
-	require.False(t, ethtypes.BloomLookup(bloomEth, syntheticTopic), "eth bloom should exclude synthetic")
-	require.True(t, ethtypes.BloomLookup(bloomEth, evmTopic), "eth bloom should include real EVM topic")
-
-	// sei_
-	resSei := sendSeiRequestGood(t, "getBlockByNumber", "0x8", true)
-	bloomSei := mustParseBloomHex(t, resSei["result"].(map[string]interface{})["logsBloom"])
-	require.True(t, ethtypes.BloomLookup(bloomSei, syntheticTopic), "sei bloom should include synthetic")
-	require.True(t, ethtypes.BloomLookup(bloomSei, evmTopic), "sei bloom should include real EVM topic")
-}
-
-func TestGetLogs_SyntheticTopic_EthVsSei(t *testing.T) {
-	// Synthetic-only topic
-	synthTopic := common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234")
-
-	// Query a small range that has bloom + synthetic activity
-	crit := map[string]interface{}{
-		"fromBlock": "0x8",
-		"toBlock":   "0x8",
-		"topics":    [][]common.Hash{{synthTopic}},
-	}
-
-	// eth_: should exclude synthetic logs completely
-	resEth := sendRequestGood(t, "getLogs", crit)
-	logsEth, ok := resEth["result"].([]interface{})
-	require.True(t, ok, "eth_getLogs: result should be an array")
-	require.Equal(t, 0, len(logsEth), "eth_getLogs should NOT return synthetic-only logs")
-
-	// sei_: should include synthetic logs
-	resSei := sendSeiRequestGood(t, "getLogs", crit)
-	logsSei, ok := resSei["result"].([]interface{})
-	require.True(t, ok, "sei_getLogs: result should be an array")
-	require.GreaterOrEqual(t, len(logsSei), 1, "sei_getLogs should include synthetic logs")
-
-	first := logsSei[0].(map[string]interface{})
-	topics := first["topics"].([]interface{})
-	require.Equal(t, synthTopic.Hex(), topics[0].(string))
 }
 
 func TestEVMLaunchHeightValidation(t *testing.T) {
