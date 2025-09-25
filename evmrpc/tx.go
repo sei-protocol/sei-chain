@@ -434,18 +434,8 @@ func encodeReceipt(ctx sdk.Context, receipt *types.Receipt, decoder sdk.TxDecode
 	if !foundTx {
 		return nil, errors.New("failed to find transaction in block")
 	}
-<<<<<<< HEAD
-	receipt.TransactionIndex = uint32(evmTxIndex)
-	var logs []*ethtypes.Log
-	if includeSynthetic {
-		logs = keeper.GetLogsForTx(receipt, uint(logIndexOffset))
-	} else {
-		logs = keeper.GetEvmOnlyLogsForTx(receipt, uint(logIndexOffset))
-	}
-=======
 	receipt.TransactionIndex = uint32(evmTxIndex)              //nolint:gosec
 	logs := keeper.GetLogsForTx(receipt, uint(logIndexOffset)) //nolint:gosec
->>>>>>> 33bcd65fa (always include synthetic logs in eth_ endpoints (#2371))
 	for _, log := range logs {
 		log.BlockHash = bh
 	}
