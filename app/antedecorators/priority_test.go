@@ -182,7 +182,7 @@ func TestPrioritySetterWithAnteHandlers(t *testing.T) {
 
 	decorators := []sdk.AnteFullDecorator{
 		sdk.DefaultWrappedAnteDecorator(authante.NewSetUpContextDecorator(antedecorators.GetGasMeterSetter(testApp.ParamsKeeper))),
-		sdk.DefaultWrappedAnteDecorator(PrioritySetterDecorator{priority: expectedPriority}),
+		antedecorators.NewGaslessDecorator([]sdk.AnteFullDecorator{PrioritySetterDecorator{priority: expectedPriority}}, testApp.OracleKeeper, &testApp.EvmKeeper),
 		sdk.DefaultWrappedAnteDecorator(PriorityCaptureDecorator{captured: &seenAfterSetter}),
 		func() sdk.AnteFullDecorator {
 			var simLimit sdk.Gas = 1_000_000
