@@ -5,6 +5,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/stretchr/testify/require"
@@ -140,10 +141,38 @@ func Test0xd09db4e79993c42eda67b45ca2fd5ac1e4cc60284a03335a08bb91d5b3800d84(t *t
 	)
 }
 
+func Test169638844(t *testing.T) {
+	testBlock(
+		t,
+		169638844,
+		"v6.1.4",
+		"0xfb2fd",
+	)
+}
+
+func Test169750823(t *testing.T) {
+	testBlock(
+		t,
+		169750823,
+		"v6.1.4",
+		"0x29e240",
+	)
+}
+
+func Test0x5bc4f251122bb01d6313916634dc9a20dcf4407aabda394ed5fc442d7224fb52(t *testing.T) {
+	testTx(t,
+		"0x5bc4f251122bb01d6313916634dc9a20dcf4407aabda394ed5fc442d7224fb52",
+		"v6.1.0",
+		"0x1da69",
+		"",
+		true,
+	)
+}
+
 func testTx(t *testing.T, txHash string, version string, expectedGasUsed string, expectedOutput string, hasErr bool) {
 	s := SetupMockPacificTestServer(func(a *app.App, mc *MockClient) sdk.Context {
 		ctx := a.RPCContextProvider(evmrpc.LatestCtxHeight).WithClosestUpgradeName(version)
-		blockHeight := mockStatesFromJsonFile(ctx, txHash, a, mc)
+		blockHeight := mockStatesFromTxJson(ctx, txHash, a, mc)
 		return ctx.WithBlockHeight(blockHeight)
 	})
 	s.Run(
@@ -163,6 +192,31 @@ func testTx(t *testing.T, txHash string, version string, expectedGasUsed string,
 			if expectedOutput != "" {
 				require.Equal(t, expectedOutput, res["output"])
 			}
+		},
+	)
+}
+
+func testBlock(
+	t *testing.T, blockNumber uint64, version string, expectedGasUsed string,
+) {
+	s := SetupMockPacificTestServer(
+		func(a *app.App, mc *MockClient) sdk.Context {
+			ctx := a.RPCContextProvider(evmrpc.LatestCtxHeight).WithClosestUpgradeName(version)
+			blockHeight := mockStatesFromBlockJson(
+				ctx, blockNumber, a, mc,
+			)
+			return ctx.WithBlockHeight(blockHeight)
+		},
+	)
+	s.Run(
+		func(port int) {
+			raw := sendRequestWithNamespace(
+				"eth", port, "getBlockByNumber",
+				hexutil.EncodeUint64(blockNumber),
+				false,
+			)
+			res := raw["result"].(map[string]interface{})
+			require.Equal(t, expectedGasUsed, res["gasUsed"])
 		},
 	)
 }
