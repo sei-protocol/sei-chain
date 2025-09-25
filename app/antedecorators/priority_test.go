@@ -1,7 +1,6 @@
 package antedecorators_test
 
 import (
-	"fmt"
 	"math"
 	"testing"
 
@@ -87,7 +86,6 @@ func (d PriorityCaptureDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 	if d.captured != nil {
 		*d.captured = ctx.Priority()
 	}
-	fmt.Printf("[Debug] Got priority with %d\n", ctx.Priority())
 	return next(ctx, tx, simulate)
 }
 
@@ -97,7 +95,7 @@ func (d PriorityCaptureDecorator) AnteDeps(txDeps []accesscontrol.AccessOperatio
 
 func TestPriorityWithExactAnteChain_BankSend(t *testing.T) {
 	testApp := app.Setup(false, false, false)
-	ctx := testApp.NewContext(false, tmproto.Header{}).WithBlockHeight(2).WithIsCheckTx(true)
+	ctx := testApp.NewContext(false, tmproto.Header{ChainID: "sei-test"}).WithBlockHeight(2).WithIsCheckTx(true)
 	testApp.ParamsKeeper.SetCosmosGasParams(ctx, *paramtypes.DefaultCosmosGasParams())
 	testApp.ParamsKeeper.SetFeesParams(ctx, paramtypes.DefaultGenesis().GetFeesParams())
 
@@ -159,7 +157,6 @@ type PrioritySetterDecorator struct{ priority int64 }
 
 func (d PrioritySetterDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
 	newCtx := ctx.WithPriority(d.priority)
-	fmt.Printf("[Debug] Setting priority to %d\n", newCtx.Priority())
 	return next(newCtx, tx, simulate)
 }
 
