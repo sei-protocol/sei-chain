@@ -40,7 +40,7 @@ func (_m *Connection) Close() error {
 }
 
 // Handshake provides a mock function with given fields: _a0, _a1, _a2
-func (_m *Connection) Handshake(_a0 context.Context, _a1 types.NodeInfo, _a2 crypto.PrivKey) (types.NodeInfo, crypto.PubKey, error) {
+func (_m *Connection) Handshake(_a0 context.Context, _a1 types.NodeInfo, _a2 crypto.PrivKey) (types.NodeInfo, error) {
 	ret := _m.Called(_a0, _a1, _a2)
 
 	if len(ret) == 0 {
@@ -48,9 +48,8 @@ func (_m *Connection) Handshake(_a0 context.Context, _a1 types.NodeInfo, _a2 cry
 	}
 
 	var r0 types.NodeInfo
-	var r1 crypto.PubKey
-	var r2 error
-	if rf, ok := ret.Get(0).(func(context.Context, types.NodeInfo, crypto.PrivKey) (types.NodeInfo, crypto.PubKey, error)); ok {
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, types.NodeInfo, crypto.PrivKey) (types.NodeInfo, error)); ok {
 		return rf(_a0, _a1, _a2)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, types.NodeInfo, crypto.PrivKey) types.NodeInfo); ok {
@@ -59,21 +58,13 @@ func (_m *Connection) Handshake(_a0 context.Context, _a1 types.NodeInfo, _a2 cry
 		r0 = ret.Get(0).(types.NodeInfo)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, types.NodeInfo, crypto.PrivKey) crypto.PubKey); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, types.NodeInfo, crypto.PrivKey) error); ok {
 		r1 = rf(_a0, _a1, _a2)
 	} else {
-		if ret.Get(1) != nil {
-			r1 = ret.Get(1).(crypto.PubKey)
-		}
+		r1 = ret.Error(1)
 	}
 
-	if rf, ok := ret.Get(2).(func(context.Context, types.NodeInfo, crypto.PrivKey) error); ok {
-		r2 = rf(_a0, _a1, _a2)
-	} else {
-		r2 = ret.Error(2)
-	}
-
-	return r0, r1, r2
+	return r0, r1
 }
 
 // LocalEndpoint provides a mock function with no fields

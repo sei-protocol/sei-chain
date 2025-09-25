@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/net/netutil"
 
@@ -192,18 +192,11 @@ type mConnConnection struct {
 	conn         net.Conn
 	mConnConfig  conn.MConnConfig
 	channelDescs []*ChannelDescriptor
-	receiveCh    chan mConnMessage
 	errorCh      chan error
 	doneCh       chan struct{}
 	closeOnce    sync.Once
 
 	mconn *conn.MConnection // set during Handshake()
-}
-
-// mConnMessage passes MConnection messages through internal channels.
-type mConnMessage struct {
-	channelID ChannelID
-	payload   []byte
 }
 
 // newMConnConnection creates a new mConnConnection.
@@ -218,7 +211,6 @@ func newMConnConnection(
 		conn:         conn,
 		mConnConfig:  mConnConfig,
 		channelDescs: channelDescs,
-		receiveCh:    make(chan mConnMessage),
 		errorCh:      make(chan error, 1), // buffered to avoid onError leak
 		doneCh:       make(chan struct{}),
 	}
@@ -229,143 +221,62 @@ func (c *mConnConnection) Handshake(
 	ctx context.Context,
 	nodeInfo types.NodeInfo,
 	privKey crypto.PrivKey,
-) (types.NodeInfo, crypto.PubKey, error) {
-	var (
-		mconn    *conn.MConnection
-		peerInfo types.NodeInfo
-		peerKey  crypto.PubKey
-		errCh    = make(chan error, 1)
-	)
-	// To handle context cancellation, we need to do the handshake in a
-	// goroutine and abort the blocking network calls by closing the connection
-	// when the context is canceled.
-	go func() {
-		// FIXME: Since the MConnection code panics, we need to recover it and turn it
-		// into an error. We should remove panics instead.
-		defer func() {
-			if r := recover(); r != nil {
-				errCh <- fmt.Errorf("recovered from panic: %v", r)
-			}
-		}()
-		var err error
-		mconn, peerInfo, peerKey, err = c.handshake(ctx, nodeInfo, privKey)
-
-		select {
-		case errCh <- err:
-		case <-ctx.Done():
-		}
-
-	}()
-
-	select {
-	case <-ctx.Done():
-		_ = c.Close()
-		return types.NodeInfo{}, nil, ctx.Err()
-
-	case err := <-errCh:
-		if err != nil {
-			return types.NodeInfo{}, nil, err
-		}
-		c.mconn = mconn
-		if err = c.mconn.Start(ctx); err != nil {
-			return types.NodeInfo{}, nil, err
-		}
-		return peerInfo, peerKey, nil
-	}
-}
-
-// handshake is a helper for Handshake, simplifying error handling so we can
-// keep context handling and panic recovery in Handshake. It returns an
-// unstarted but handshaked MConnection, to avoid concurrent field writes.
-func (c *mConnConnection) handshake(
-	ctx context.Context,
-	nodeInfo types.NodeInfo,
-	privKey crypto.PrivKey,
-) (*conn.MConnection, types.NodeInfo, crypto.PubKey, error) {
+) (types.NodeInfo, error) {
 	if c.mconn != nil {
-		return nil, types.NodeInfo{}, nil, errors.New("connection is already handshaked")
+		return types.NodeInfo{}, errors.New("connection is already handshaked")
 	}
-
-	secretConn, err := conn.MakeSecretConnection(c.conn, privKey)
-	if err != nil {
-		return nil, types.NodeInfo{}, nil, err
-	}
-
-	wg := &sync.WaitGroup{}
-	var pbPeerInfo p2pproto.NodeInfo
-	errCh := make(chan error, 2)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		_, err := protoio.NewDelimitedWriter(secretConn).WriteMsg(nodeInfo.ToProto())
-		select {
-		case errCh <- err:
-		case <-ctx.Done():
+	var peerInfo types.NodeInfo
+	var secretConn *conn.SecretConnection
+	var ok atomic.Bool
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error {
+			<-ctx.Done()
+			// Close the connection if handshake did not complete.
+			if !ok.Load() {
+				c.conn.Close()
+			}
+			return nil
+		})
+		var err error
+		secretConn, err = conn.MakeSecretConnection(c.conn, privKey)
+		if err != nil {
+			return err
 		}
-
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		_, err := protoio.NewDelimitedReader(secretConn, types.MaxNodeInfoSize()).ReadMsg(&pbPeerInfo)
-		select {
-		case errCh <- err:
-		case <-ctx.Done():
+		s.Spawn(func() error {
+			_, err := protoio.NewDelimitedWriter(secretConn).WriteMsg(nodeInfo.ToProto())
+			return err
+		})
+		var pbPeerInfo p2pproto.NodeInfo
+		if _, err := protoio.NewDelimitedReader(secretConn, types.MaxNodeInfoSize()).ReadMsg(&pbPeerInfo); err != nil {
+			return err
 		}
-	}()
-
-	wg.Wait()
-
-	if err, ok := <-errCh; ok && err != nil {
-		return nil, types.NodeInfo{}, nil, err
-	}
-
-	if err := ctx.Err(); err != nil {
-		return nil, types.NodeInfo{}, nil, err
-	}
-
-	peerInfo, err := types.NodeInfoFromProto(&pbPeerInfo)
+		peerInfo, err = types.NodeInfoFromProto(&pbPeerInfo)
+		if err != nil {
+			return fmt.Errorf("error reading NodeInfo: %w", err)
+		}
+		// Authenticate the peer first.
+		peerID := types.NodeIDFromPubKey(secretConn.RemotePubKey())
+		if peerID != peerInfo.NodeID {
+			return fmt.Errorf("peer's public key did not match its node ID %q (expected %q)",
+				peerInfo.NodeID, peerID)
+		}
+		if err := peerInfo.Validate(); err != nil {
+			return fmt.Errorf("invalid handshake NodeInfo: %w", err)
+		}
+		ok.Store(true)
+		return nil
+	})
 	if err != nil {
-		return nil, types.NodeInfo{}, nil, err
+		return types.NodeInfo{}, err
 	}
-
-	c.logger.Debug(fmt.Sprintf("Creating a new MConnection with peerId %s, moniker %s, listenAddr %s", peerInfo.NodeID, peerInfo.Moniker, peerInfo.ListenAddr))
-
-	mconn := conn.NewMConnection(
+	// mconn takes ownership of conn.
+	c.mconn = conn.SpawnMConnection(
 		c.logger.With("peer", c.RemoteEndpoint().NodeAddress(peerInfo.NodeID)),
 		secretConn,
 		c.channelDescs,
-		c.onReceive,
-		c.onError,
 		c.mConnConfig,
 	)
-
-	return mconn, peerInfo, secretConn.RemotePubKey(), nil
-}
-
-// onReceive is a callback for MConnection received messages.
-func (c *mConnConnection) onReceive(ctx context.Context, chID ChannelID, payload []byte) {
-	select {
-	case c.receiveCh <- mConnMessage{channelID: chID, payload: payload}:
-	case <-ctx.Done():
-	}
-}
-
-// onError is a callback for MConnection errors. The error is passed via errorCh
-// to ReceiveMessage (but not SendMessage, for legacy P2P stack behavior).
-func (c *mConnConnection) onError(ctx context.Context, e any) {
-	err, ok := e.(error)
-	if !ok {
-		err = fmt.Errorf("%v", err)
-	}
-	// We have to close the connection here, since MConnection will have stopped
-	// the service on any errors.
-	_ = c.Close()
-	select {
-	case c.errorCh <- err:
-		c.logger.Debug(fmt.Sprintf("mConnection Error %s, local %s, remote %s", err, c.conn.LocalAddr(), c.conn.RemoteAddr()))
-	case <-ctx.Done():
-	}
+	return peerInfo, nil
 }
 
 // String displays connection information.
@@ -378,29 +289,12 @@ func (c *mConnConnection) SendMessage(ctx context.Context, chID ChannelID, msg [
 	if chID > math.MaxUint8 {
 		return fmt.Errorf("MConnection only supports 1-byte channel IDs (got %v)", chID)
 	}
-	select {
-	case err := <-c.errorCh:
-		return err
-	default:
-		if err := c.mconn.Send(ctx, chID, msg); err != nil {
-			return fmt.Errorf("m.mconn.Send(%v): %w", chID, err)
-		}
-		return nil
-	}
+	return c.mconn.Send(ctx, chID, msg)
 }
 
 // ReceiveMessage implements Connection.
 func (c *mConnConnection) ReceiveMessage(ctx context.Context) (ChannelID, []byte, error) {
-	select {
-	case err := <-c.errorCh:
-		return 0, nil, err
-	case <-c.doneCh:
-		return 0, nil, io.EOF
-	case <-ctx.Done():
-		return 0, nil, io.EOF
-	case msg := <-c.receiveCh:
-		return msg.channelID, msg.payload, nil
-	}
+	return c.mconn.Recv(ctx)
 }
 
 // LocalEndpoint implements Connection.
@@ -427,15 +321,8 @@ func (c *mConnConnection) RemoteEndpoint() Endpoint {
 
 // Close implements Connection.
 func (c *mConnConnection) Close() error {
-	var err error
-	c.closeOnce.Do(func() {
-		defer close(c.doneCh)
-
-		if c.mconn != nil && c.mconn.IsRunning() {
-			c.mconn.Stop()
-		} else {
-			err = c.conn.Close()
-		}
-	})
-	return err
+	if c.mconn == nil {
+		return c.conn.Close()
+	}
+	return c.mconn.Close()
 }

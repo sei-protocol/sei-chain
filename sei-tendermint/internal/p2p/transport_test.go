@@ -2,7 +2,6 @@ package p2p_test
 
 import (
 	"context"
-	"io"
 	"net/netip"
 	"testing"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/bytes"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -168,26 +168,32 @@ func TestConnection_Handshake(t *testing.T) {
 				Block: 2,
 				App:   3,
 			},
-			ListenAddr: "listenaddr",
+			ListenAddr: "127.0.0.1:1239",
 			Network:    "network",
 			Version:    "1.2.3",
 			Channels:   bytes.HexBytes([]byte{0xf0, 0x0f}),
 			Moniker:    "moniker",
 			Other: types.NodeInfoOther{
-				TxIndex:    "txindex",
+				TxIndex:    "on",
 				RPCAddress: "rpc.domain.com",
 			},
 		}
 		bKey := ed25519.GenPrivKey()
-		bInfo := types.NodeInfo{NodeID: types.NodeIDFromPubKey(bKey.PubKey())}
+		bInfo := types.NodeInfo{
+			NodeID:     types.NodeIDFromPubKey(bKey.PubKey()),
+			ListenAddr: "127.0.0.1:1234",
+			Moniker:    "othermoniker",
+			Other: types.NodeInfoOther{
+				TxIndex: "off",
+			},
+		}
 
 		errCh := make(chan error, 1)
 		go func() {
 			// Must use assert due to goroutine.
-			peerInfo, peerKey, err := ba.Handshake(ctx, bInfo, bKey)
+			peerInfo, err := ba.Handshake(ctx, bInfo, bKey)
 			if err == nil {
 				assert.Equal(t, aInfo, peerInfo)
-				assert.Equal(t, aKey.PubKey(), peerKey)
 			}
 			select {
 			case errCh <- err:
@@ -195,10 +201,9 @@ func TestConnection_Handshake(t *testing.T) {
 			}
 		}()
 
-		peerInfo, peerKey, err := ab.Handshake(ctx, aInfo, aKey)
+		peerInfo, err := ab.Handshake(ctx, aInfo, aKey)
 		require.NoError(t, err)
 		require.Equal(t, bInfo, peerInfo)
-		require.Equal(t, bKey.PubKey(), peerKey)
 
 		require.NoError(t, <-errCh)
 	})
@@ -214,9 +219,8 @@ func TestConnection_HandshakeCancel(t *testing.T) {
 		ab, ba := dialAccept(ctx, t, a, b)
 		timeoutCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 		cancel()
-		_, _, err := ab.Handshake(timeoutCtx, types.NodeInfo{}, ed25519.GenPrivKey())
+		_, err := ab.Handshake(timeoutCtx, types.NodeInfo{}, ed25519.GenPrivKey())
 		require.Error(t, err)
-		require.Equal(t, context.Canceled, err)
 		_ = ab.Close()
 		_ = ba.Close()
 
@@ -224,9 +228,8 @@ func TestConnection_HandshakeCancel(t *testing.T) {
 		ab, ba = dialAccept(ctx, t, a, b)
 		timeoutCtx, cancel = context.WithTimeout(ctx, 200*time.Millisecond)
 		defer cancel()
-		_, _, err = ab.Handshake(timeoutCtx, types.NodeInfo{}, ed25519.GenPrivKey())
+		_, err = ab.Handshake(timeoutCtx, types.NodeInfo{}, ed25519.GenPrivKey())
 		require.Error(t, err)
-		require.Equal(t, context.DeadlineExceeded, err)
 		_ = ab.Close()
 		_ = ba.Close()
 	})
@@ -239,12 +242,10 @@ func TestConnection_FlushClose(t *testing.T) {
 		b := makeTransport(ctx)
 		ab, _ := dialAcceptHandshake(ctx, t, a, b)
 
-		err := ab.Close()
-		require.NoError(t, err)
+		ab.Close()
 
-		_, _, err = ab.ReceiveMessage(ctx)
+		_, _, err := ab.ReceiveMessage(ctx)
 		require.Error(t, err)
-		require.Equal(t, io.EOF, err)
 
 		err = ab.SendMessage(ctx, chID, []byte("closed"))
 		require.Error(t, err)
@@ -267,7 +268,6 @@ func TestConnection_LocalRemoteEndpoint(t *testing.T) {
 }
 
 func TestConnection_SendReceive(t *testing.T) {
-
 	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
 		ctx := t.Context()
 		a := makeTransport(ctx)
@@ -278,7 +278,9 @@ func TestConnection_SendReceive(t *testing.T) {
 		err := ab.SendMessage(ctx, chID, []byte("foo"))
 		require.NoError(t, err)
 
+		t.Logf("ba.ReceiveMessage")
 		ch, msg, err := ba.ReceiveMessage(ctx)
+		t.Logf("ba.ReceiveMessage returned")
 		require.NoError(t, err)
 		require.Equal(t, []byte("foo"), msg)
 		require.Equal(t, chID, ch)
@@ -293,20 +295,17 @@ func TestConnection_SendReceive(t *testing.T) {
 
 		// Close one side of the connection. Both sides should then error
 		// with io.EOF when trying to send or receive.
-		err = ba.Close()
-		require.NoError(t, err)
+		ba.Close()
 
 		_, _, err = ab.ReceiveMessage(ctx)
+		t.Logf("errrr = %v", err)
 		require.Error(t, err)
-		require.Equal(t, io.EOF, err)
 
 		err = ab.SendMessage(ctx, chID, []byte("closed"))
 		require.Error(t, err)
-		require.Equal(t, io.EOF, err)
 
 		_, _, err = ba.ReceiveMessage(ctx)
 		require.Error(t, err)
-		require.Equal(t, io.EOF, err)
 
 		err = ba.SendMessage(ctx, chID, []byte("closed"))
 		require.Error(t, err)
@@ -449,63 +448,65 @@ func TestEndpoint_Validate(t *testing.T) {
 // dialAccept is a helper that dials b from a and returns both sides of the
 // connection.
 func dialAccept(ctx context.Context, t *testing.T, a, b p2p.Transport) (p2p.Connection, p2p.Connection) {
+	defer t.Logf("dialAccept DONE")
 	t.Helper()
 
 	endpoint := b.Endpoint()
 
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-
-	acceptCh := make(chan p2p.Connection, 1)
-	errCh := make(chan error, 1)
-	go func() {
-		conn, err := b.Accept(ctx)
-		errCh <- err
-		acceptCh <- conn
-	}()
-
-	dialConn, err := a.Dial(ctx, endpoint)
-	require.NoError(t, err)
-
-	acceptConn := <-acceptCh
-	require.NoError(t, <-errCh)
-
-	t.Cleanup(func() {
-		_ = dialConn.Close()
-		_ = acceptConn.Close()
-	})
-
+	var acceptConn p2p.Connection
+	var dialConn p2p.Connection
+	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error {
+			var err error
+			if dialConn, err = a.Dial(ctx, endpoint); err != nil {
+				return err
+			}
+			t.Cleanup(func() { _ = dialConn.Close() })
+			return nil
+		})
+		var err error
+		if acceptConn, err = b.Accept(ctx); err != nil {
+			return err
+		}
+		t.Cleanup(func() { _ = acceptConn.Close() })
+		return nil
+	}); err != nil {
+		t.Fatalf("dial/accept failed: %v", err)
+	}
 	return dialConn, acceptConn
 }
 
 // dialAcceptHandshake is a helper that dials and handshakes b from a and
 // returns both sides of the connection.
 func dialAcceptHandshake(ctx context.Context, t *testing.T, a, b p2p.Transport) (p2p.Connection, p2p.Connection) {
+	defer t.Logf("dialAcceptHandshake DONE")
 	t.Helper()
 
 	ab, ba := dialAccept(ctx, t, a, b)
 
-	errCh := make(chan error, 1)
-	go func() {
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error {
+			privKey := ed25519.GenPrivKey()
+			nodeInfo := types.NodeInfo{
+				NodeID:     types.NodeIDFromPubKey(privKey.PubKey()),
+				ListenAddr: "127.0.0.1:1235",
+				Moniker:    "a",
+			}
+			_, err := ba.Handshake(ctx, nodeInfo, privKey)
+			return err
+		})
 		privKey := ed25519.GenPrivKey()
-		nodeInfo := types.NodeInfo{NodeID: types.NodeIDFromPubKey(privKey.PubKey())}
-		_, _, err := ba.Handshake(ctx, nodeInfo, privKey)
-		errCh <- err
-	}()
+		nodeInfo := types.NodeInfo{
+			NodeID:     types.NodeIDFromPubKey(privKey.PubKey()),
+			ListenAddr: "127.0.0.1:1234",
+			Moniker:    "b",
+		}
+		_, err := ab.Handshake(ctx, nodeInfo, privKey)
+		return err
+	})
 
-	privKey := ed25519.GenPrivKey()
-	nodeInfo := types.NodeInfo{NodeID: types.NodeIDFromPubKey(privKey.PubKey())}
-	_, _, err := ab.Handshake(ctx, nodeInfo, privKey)
-	require.NoError(t, err)
-
-	timer := time.NewTimer(2 * time.Second)
-	defer timer.Stop()
-	select {
-	case err := <-errCh:
-		require.NoError(t, err)
-	case <-timer.C:
-		require.Fail(t, "handshake timed out")
+	if err != nil {
+		t.Fatalf("handshake failed: %v", err)
 	}
-
 	return ab, ba
 }

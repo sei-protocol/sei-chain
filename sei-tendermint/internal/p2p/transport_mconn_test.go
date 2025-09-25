@@ -15,18 +15,35 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
 
+	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/types"
 )
+
+func makeKeyAndInfo() (crypto.PrivKey, types.NodeInfo) {
+	peerKey := ed25519.GenPrivKey()
+	nodeID := types.NodeIDFromPubKey(peerKey.PubKey())
+	peerInfo := types.NodeInfo{
+		NodeID:     nodeID,
+		ListenAddr: "0.0.0.0:0",
+		Network:    "test",
+		Moniker:    string(nodeID),
+		Channels:   []byte{0x01, 0x02},
+	}
+	return peerKey, peerInfo
+}
 
 // Transports are mainly tested by common tests in transport_test.go, we
 // register a transport factory here to get included in those tests.
 func init() {
 	testTransports["mconn"] = func() func(context.Context) p2p.Transport {
 		return func(ctx context.Context) p2p.Transport {
+			logger, _ := log.NewDefaultLogger("plain", "info")
 			transport := p2p.NewMConnTransport(
-				log.NewNopLogger(),
+				logger,
 				p2p.Endpoint{
 					Protocol: p2p.MConnProtocol,
 					Addr:     tcp.TestReserveAddr(),
@@ -169,6 +186,9 @@ func TestMConnTransport_Listen(t *testing.T) {
 		{p2p.Endpoint{Protocol: p2p.MConnProtocol, Path: "foo"}, false},
 		{p2p.Endpoint{Protocol: p2p.MConnProtocol, Addr: reservePort(netip.IPv4Unspecified()), Path: "foo"}, false},
 	}
+
+	aKey, aInfo := makeKeyAndInfo()
+	bKey, bInfo := makeKeyAndInfo()
 	for _, tc := range testcases {
 		t.Run(tc.endpoint.String(), func(t *testing.T) {
 			ctx := t.Context()
@@ -195,6 +215,10 @@ func TestMConnTransport_Listen(t *testing.T) {
 					if err != nil {
 						return fmt.Errorf("transport.Dial(): %w", err)
 					}
+					defer conn.Close()
+					if _, err := conn.Handshake(ctx, aInfo, aKey); err != nil {
+						return fmt.Errorf("conn.Handshake(): %w", err)
+					}
 					if err := conn.Close(); err != nil {
 						return fmt.Errorf("conn.Close(): %w", err)
 					}
@@ -207,6 +231,10 @@ func TestMConnTransport_Listen(t *testing.T) {
 					conn, err := transport.Accept(ctx)
 					if err != nil {
 						return fmt.Errorf("transport.Accept(): %w", err)
+					}
+					defer conn.Close()
+					if _, err := conn.Handshake(ctx, bInfo, bKey); err != nil {
+						return fmt.Errorf("conn.Handshake(): %w", err)
 					}
 					if err := conn.Close(); err != nil {
 						return fmt.Errorf("conn.Close(): %w", err)

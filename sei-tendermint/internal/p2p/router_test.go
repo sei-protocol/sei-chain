@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/internal/p2p/mocks"
 	"github.com/tendermint/tendermint/internal/p2p/p2ptest"
@@ -341,13 +340,11 @@ func TestRouter_Channel_Error(t *testing.T) {
 func TestRouter_AcceptPeers(t *testing.T) {
 	testcases := map[string]struct {
 		peerInfo types.NodeInfo
-		peerKey  crypto.PubKey
 		ok       bool
 	}{
-		"valid handshake": {peerInfo, peerKey.PubKey(), true},
-		"empty handshake": {types.NodeInfo{}, peerKey.PubKey(), false},
-		"invalid key":     {peerInfo, selfKey.PubKey(), false},
-		"self handshake":  {selfInfo, selfKey.PubKey(), false},
+		"valid handshake": {peerInfo, true},
+		"empty handshake": {types.NodeInfo{}, false},
+		"self handshake":  {selfInfo, false},
 		"incompatible peer": {
 			types.NodeInfo{
 				NodeID:     peerID,
@@ -355,7 +352,6 @@ func TestRouter_AcceptPeers(t *testing.T) {
 				Network:    "other-network",
 				Moniker:    string(peerID),
 			},
-			peerKey.PubKey(),
 			false,
 		},
 	}
@@ -371,7 +367,7 @@ func TestRouter_AcceptPeers(t *testing.T) {
 			mockConnection := &mocks.Connection{}
 			mockConnection.On("String").Maybe().Return("mock")
 			mockConnection.On("Handshake", mock.Anything, selfInfo, selfKey).
-				Return(tc.peerInfo, tc.peerKey, nil)
+				Return(tc.peerInfo, nil)
 			mockConnection.On("Close").Run(func(_ mock.Arguments) { connCancel() }).Return(nil).Maybe()
 			mockConnection.On("RemoteEndpoint").Return(p2p.Endpoint{})
 			if tc.ok {
@@ -480,7 +476,7 @@ func TestRouter_AcceptPeers_HeadOfLineBlocking(t *testing.T) {
 	mockConnection := &mocks.Connection{}
 	mockConnection.On("String").Maybe().Return("mock")
 	mockConnection.On("Handshake", mock.Anything, selfInfo, selfKey).
-		WaitUntil(closeCh).Return(types.NodeInfo{}, nil, io.EOF)
+		WaitUntil(closeCh).Return(types.NodeInfo{}, io.EOF)
 	mockConnection.On("Close").Return(nil)
 	mockConnection.On("RemoteEndpoint").Return(p2p.Endpoint{})
 
@@ -523,15 +519,13 @@ func TestRouter_DialPeers(t *testing.T) {
 	testcases := map[string]struct {
 		dialID   types.NodeID
 		peerInfo types.NodeInfo
-		peerKey  crypto.PubKey
 		dialErr  error
 		ok       bool
 	}{
-		"valid dial":         {peerInfo.NodeID, peerInfo, peerKey.PubKey(), nil, true},
-		"empty handshake":    {peerInfo.NodeID, types.NodeInfo{}, peerKey.PubKey(), nil, false},
-		"invalid key":        {peerInfo.NodeID, peerInfo, selfKey.PubKey(), nil, false},
-		"unexpected node ID": {peerInfo.NodeID, selfInfo, selfKey.PubKey(), nil, false},
-		"dial error":         {peerInfo.NodeID, peerInfo, peerKey.PubKey(), errors.New("boom"), false},
+		"valid dial":         {peerInfo.NodeID, peerInfo, nil, true},
+		"empty handshake":    {peerInfo.NodeID, types.NodeInfo{}, nil, false},
+		"unexpected node ID": {peerInfo.NodeID, selfInfo, nil, false},
+		"dial error":         {peerInfo.NodeID, peerInfo, errors.New("boom"), false},
 		"incompatible peer": {
 			peerInfo.NodeID,
 			types.NodeInfo{
@@ -540,7 +534,6 @@ func TestRouter_DialPeers(t *testing.T) {
 				Network:    "other-network",
 				Moniker:    string(peerID),
 			},
-			peerKey.PubKey(),
 			nil,
 			false,
 		},
@@ -561,7 +554,7 @@ func TestRouter_DialPeers(t *testing.T) {
 			mockConnection.On("String").Maybe().Return("mock")
 			if tc.dialErr == nil {
 				mockConnection.On("Handshake", mock.Anything, selfInfo, selfKey).
-					Return(tc.peerInfo, tc.peerKey, nil)
+					Return(tc.peerInfo, nil)
 				mockConnection.On("Close").Run(func(_ mock.Arguments) { connCancel() }).Return(nil).Maybe()
 			}
 			if tc.ok {
@@ -725,7 +718,7 @@ func TestRouter_EvictPeers(t *testing.T) {
 	mockConnection := &mocks.Connection{}
 	mockConnection.On("String").Maybe().Return("mock")
 	mockConnection.On("Handshake", mock.Anything, selfInfo, selfKey).
-		Return(peerInfo, peerKey.PubKey(), nil)
+		Return(peerInfo, nil)
 	mockConnection.On("ReceiveMessage", mock.Anything).WaitUntil(closeCh).Return(chID, nil, io.EOF)
 	mockConnection.On("RemoteEndpoint").Return(p2p.Endpoint{})
 	mockConnection.On("Close").Run(func(_ mock.Arguments) {
@@ -791,7 +784,7 @@ func TestRouter_ChannelCompatability(t *testing.T) {
 	mockConnection := &mocks.Connection{}
 	mockConnection.On("String").Maybe().Return("mock")
 	mockConnection.On("Handshake", mock.Anything, selfInfo, selfKey).
-		Return(incompatiblePeer, peerKey.PubKey(), nil)
+		Return(incompatiblePeer, nil)
 	mockConnection.On("RemoteEndpoint").Return(p2p.Endpoint{})
 	mockConnection.On("Close").Return(nil)
 
@@ -839,7 +832,7 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 	mockConnection := &mocks.Connection{}
 	mockConnection.On("String").Maybe().Return("mock")
 	mockConnection.On("Handshake", mock.Anything, selfInfo, selfKey).
-		Return(peer, peerKey.PubKey(), nil)
+		Return(peer, nil)
 	mockConnection.On("RemoteEndpoint").Return(p2p.Endpoint{})
 	mockConnection.On("Close").Return(nil)
 	mockConnection.On("ReceiveMessage", mock.Anything).Return(chID, nil, io.EOF)
@@ -903,7 +896,7 @@ func TestRouter_Channel_FilterByID(t *testing.T) {
 	mockConnection := &mocks.Connection{}
 	mockConnection.On("String").Maybe().Return("mock")
 	mockConnection.On("Handshake", mock.Anything, selfInfo, selfKey).
-		Return(peer, peerKey.PubKey(), nil)
+		Return(peer, nil)
 	mockConnection.On("RemoteEndpoint").Return(p2p.Endpoint{})
 	mockConnection.On("Close").Return(nil)
 	mockConnection.On("ReceiveMessage", mock.Anything).Return(chID, nil, io.EOF)

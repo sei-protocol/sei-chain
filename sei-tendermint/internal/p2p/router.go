@@ -419,7 +419,10 @@ func (r *Router) acceptPeers(ctx context.Context, transport Transport) error {
 		}
 
 		// Spawn a goroutine for the handshake, to avoid head-of-line blocking.
-		r.Spawn("openConnection", func(ctx context.Context) error { return r.openConnection(ctx, conn) })
+		r.Spawn("openConnection", func(ctx context.Context) error {
+			defer conn.Close()
+			return r.openConnection(ctx, conn)
+		})
 	}
 }
 
@@ -517,14 +520,12 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) {
 	}
 
 	peerInfo, err := r.handshakePeer(ctx, conn, address.NodeID)
-	switch {
-	case errors.Is(err, context.Canceled):
-		conn.Close()
-		return
-	case err != nil:
-		r.logger.Debug("failed to handshake with peer", "peer", address, "err", err)
-		if err := r.peerManager.DialFailed(ctx, address); err != nil {
-			r.logger.Error("failed to report dial failure", "peer", address, "err", err)
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			r.logger.Debug("failed to handshake with peer", "peer", address, "err", err)
+			if err := r.peerManager.DialFailed(ctx, address); err != nil {
+				r.logger.Error("failed to report dial failure", "peer", address, "err", err)
+			}
 		}
 		conn.Close()
 		return
@@ -612,24 +613,14 @@ func (r *Router) handshakePeer(
 	}
 
 	nodeInfo := r.nodeInfoProducer()
-	peerInfo, peerKey, err := conn.Handshake(ctx, *nodeInfo, r.privKey)
+	peerInfo, err := conn.Handshake(ctx, *nodeInfo, r.privKey)
 	if err != nil {
 		return types.NodeInfo{}, err
-	}
-	// Authenticate the peer first.
-	if types.NodeIDFromPubKey(peerKey) != peerInfo.NodeID {
-		return types.NodeInfo{}, fmt.Errorf("peer's public key did not match its node ID %q (expected %q)",
-			peerInfo.NodeID, types.NodeIDFromPubKey(peerKey))
-	}
-
-	if err = peerInfo.Validate(); err != nil {
-		return types.NodeInfo{}, fmt.Errorf("invalid handshake NodeInfo: %w", err)
 	}
 	if peerInfo.Network != nodeInfo.Network {
 		if err := r.peerManager.Delete(peerInfo.NodeID); err != nil {
 			return types.NodeInfo{}, fmt.Errorf("problem removing peer from store from incorrect network [%s]: %w", peerInfo.Network, err)
 		}
-
 		return types.NodeInfo{}, fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)
 	}
 
