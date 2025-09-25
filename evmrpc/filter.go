@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"sort"
 	"sync"
 	"time"
@@ -827,8 +828,13 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	ctx := f.ctxProvider(block.Block.Height)
 	totalLogs := uint(0)
 	evmTxIndex := 0
+	signer := ethtypes.MakeSigner(
+		evmtypes.DefaultChainConfig().EthereumConfig(f.k.ChainID(ctx)),
+		big.NewInt(ctx.BlockHeight()),
+		uint64(ctx.BlockTime().Unix()), //nolint:gosec
+	)
 
-	for _, hash := range getTxHashesFromBlock(block, f.txConfigProvider(block.Block.Height), f.includeSyntheticReceipts) {
+	for _, hash := range getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, signer, f.includeSyntheticReceipts) {
 		receipt, found := getCachedReceipt(f.globalBlockCache, block.Block.Height, hash.hash)
 		if !found {
 			var err error
@@ -837,26 +843,6 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 				continue
 			}
 			setCachedReceipt(&f.cacheCreationMutex, f.globalBlockCache, block.Block.Height, block, hash.hash, receipt)
-		}
-
-		if receipt.Status == 0 {
-			if !isReceiptFromAnteError(ctx, receipt) {
-				// do not bump evmTxIndex for ante failure
-				// because the tx is not considered "included" in the block.
-				evmTxIndex++
-			}
-			continue
-		}
-
-		if receipt.BlockNumber != uint64(block.Block.Height) { //nolint:gosec
-			// this is the receipt of a future incarnation of the transaction
-			// that succeeded, but the incarnation in block.Block.Height failed
-			// because of nonce mismatch, so we should exclude it here.
-			continue
-		}
-
-		if !f.includeSyntheticReceipts && !hash.isEvm {
-			continue
 		}
 
 		txLogs := keeper.GetLogsForTx(receipt, totalLogs)

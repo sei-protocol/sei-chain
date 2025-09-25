@@ -17,7 +17,7 @@ func TestGetTransactionReceiptWithMixedLogs(t *testing.T) {
 	txData := mixedLogTesterTransfer(0, getAddrWithMnemonic(mnemonic1))
 	signedTx := signTxWithMnemonic(txData, mnemonic1)
 	txBz := encodeEvmTx(txData, signedTx)
-	SetupTestServer([][][]byte{{tx0}, {txBz}}, mixedLogTesterInitializer(), mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1)).Run(
+	SetupTestServer([][][]byte{{tx0}, {txBz}}, mixedLogTesterInitializer(), mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, false)).Run(
 		func(port int) {
 			cwTxHash := common.Hash(sha256.Sum256(tx0))
 
