@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	seidbtypes "github.com/sei-protocol/sei-db/ss/types"
 	"github.com/stretchr/testify/suite"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
@@ -23,7 +26,10 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
+	ssconfig "github.com/sei-protocol/sei-db/config"
+	"github.com/sei-protocol/sei-db/ss"
 )
 
 const TestContract = "TEST"
@@ -59,6 +65,9 @@ func (t TestAppOpts) Get(s string) interface{} {
 	}
 	if s == FlagSCEnable {
 		return t.useSc
+	}
+	if s == evmrpc.FlagFlushReceiptSync {
+		return true
 	}
 	return nil
 }
@@ -176,6 +185,29 @@ func (s *TestWrapper) EndBlock() {
 	s.App.EndBlocker(s.Ctx, reqEndBlock)
 }
 
+func setupReceiptStore() (seidbtypes.StateStore, error) {
+	// Create a unique temporary directory per test process to avoid Pebble DB lock conflicts
+	baseDir := filepath.Join(DefaultNodeHome, "test", "sei-testing")
+	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+		return nil, err
+	}
+	tempDir, err := os.MkdirTemp(baseDir, "receipt.db-*")
+	if err != nil {
+		return nil, err
+	}
+
+	ssConfig := ssconfig.DefaultStateStoreConfig()
+	ssConfig.DedicatedChangelog = true
+	ssConfig.KeepRecent = 0 // No min retain blocks in test
+	ssConfig.DBDirectory = tempDir
+	ssConfig.KeepLastVersion = false
+	receiptStore, err := ss.NewStateStore(log.NewNopLogger(), tempDir, ssConfig)
+	if err != nil {
+		return nil, err
+	}
+	return receiptStore, nil
+}
+
 func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*baseapp.BaseApp)) (res *App) {
 	db := dbm.NewMemDB()
 	encodingConfig := MakeEncodingConfig()
@@ -183,7 +215,11 @@ func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMulti
 
 	options := []AppOption{
 		func(app *App) {
-			app.receiptStore = NewInMemoryStateStore()
+			receiptStore, err := setupReceiptStore()
+			if err != nil {
+				panic(fmt.Sprintf("error while creating receipt store: %s", err))
+			}
+			app.receiptStore = receiptStore
 		},
 	}
 	wasmOpts := EmptyWasmOpts
@@ -246,7 +282,11 @@ func SetupWithSc(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions
 
 	options := []AppOption{
 		func(app *App) {
-			app.receiptStore = NewInMemoryStateStore()
+			receiptStore, err := setupReceiptStore()
+			if err != nil {
+				panic(fmt.Sprintf("error while creating receipt store: %s", err))
+			}
+			app.receiptStore = receiptStore
 		},
 	}
 

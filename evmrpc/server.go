@@ -68,6 +68,9 @@ func NewEVMHTTPServer(
 	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc)
 	seiDebugAPI := NewSeiDebugAPI(tmClient, k, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config)
 
+	dbReadSemaphore := make(chan struct{}, MaxDBReadConcurrency)
+	globalBlockCache := NewBlockCache(3000)
+	globalLogSlicePool := NewLogSlicePool()
 	apis := []rpc.API{
 		{
 			Namespace: "echo",
@@ -115,11 +118,33 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewFilterAPI(tmClient, k, ctxProvider, txConfigProvider, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeHTTP, "eth"),
+			Service: NewFilterAPI(
+				tmClient,
+				k,
+				ctxProvider,
+				txConfigProvider,
+				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog},
+				ConnectionTypeHTTP,
+				"eth",
+				dbReadSemaphore,
+				globalBlockCache,
+				globalLogSlicePool,
+			),
 		},
 		{
 			Namespace: "sei",
-			Service:   NewFilterAPI(tmClient, k, ctxProvider, txConfigProvider, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeHTTP, "sei"),
+			Service: NewFilterAPI(
+				tmClient,
+				k,
+				ctxProvider,
+				txConfigProvider,
+				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog},
+				ConnectionTypeHTTP,
+				"sei",
+				dbReadSemaphore,
+				globalBlockCache,
+				globalLogSlicePool,
+			),
 		},
 		{
 			Namespace: "sei",
@@ -188,6 +213,9 @@ func NewEVMWebSocketServer(
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
 	}
+	dbReadSemaphore := make(chan struct{}, MaxDBReadConcurrency)
+	globalBlockCache := NewBlockCache(3000)
+	globalLogSlicePool := NewLogSlicePool()
 	apis := []rpc.API{
 		{
 			Namespace: "echo",
@@ -223,7 +251,15 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSubscriptionAPI(tmClient, k, ctxProvider, &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS),
+			Service: NewSubscriptionAPI(tmClient, k, ctxProvider, &LogFetcher{
+				tmClient:           tmClient,
+				k:                  k,
+				ctxProvider:        ctxProvider,
+				txConfigProvider:   txConfigProvider,
+				dbReadSemaphore:    dbReadSemaphore,
+				globalBlockCache:   globalBlockCache,
+				globalLogSlicePool: globalLogSlicePool,
+			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS),
 		},
 		{
 			Namespace: "web3",

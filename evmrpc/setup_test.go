@@ -86,6 +86,10 @@ var multiTxBlockTx3 *ethtypes.Transaction
 var multiTxBlockTx4 *ethtypes.Transaction
 var multiTxBlockSynthTx *ethtypes.Transaction
 
+// Additional normal EVM tx used specifically for block 100 tests
+var Block100NormalTx sdk.Tx
+var block100NormalTx *ethtypes.Transaction
+
 var DebugTraceTx sdk.Tx
 var DebugTracePanicTx sdk.Tx
 var DebugTraceNonPanicTx sdk.Tx
@@ -193,7 +197,7 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 							return bz
 						}(),
 						func() []byte {
-							bz, _ := Encoder(MultiTxBlockTx1)
+							bz, _ := Encoder(Block100NormalTx)
 							return bz
 						}(),
 					},
@@ -648,7 +652,7 @@ func init() {
 func generateTxData() {
 	chainId := big.NewInt(config.DefaultChainID)
 	to := common.HexToAddress("010203")
-	var txBuilder1, txBuilder1_5, txBuilder2, txBuilder3, txBuilder4, synthTxBuilder client.TxBuilder
+	var txBuilder1, txBuilder1_5, txBuilder2, txBuilder3, txBuilder4, synthTxBuilder, block100TxBuilder client.TxBuilder
 	txBuilder1, tx1 = buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     1,
 		GasFeeCap: big.NewInt(10),
@@ -703,6 +707,16 @@ func generateTxData() {
 		Data:      []byte("synthetic"),
 		ChainID:   chainId,
 	})
+	// Build a dedicated normal EVM tx for block 100
+	block100TxBuilder, block100NormalTx = buildTx(ethtypes.DynamicFeeTx{
+		Nonce:     7,
+		GasFeeCap: big.NewInt(10),
+		Gas:       1000,
+		To:        &to,
+		Value:     big.NewInt(1000),
+		Data:      []byte("abc"),
+		ChainID:   chainId,
+	})
 	debugTraceTxBuilder, debugTraceEthTx := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     0,
 		GasFeeCap: big.NewInt(1000000000),
@@ -745,6 +759,7 @@ func generateTxData() {
 	MultiTxBlockTx3 = txBuilder3.GetTx()
 	MultiTxBlockTx4 = txBuilder4.GetTx()
 	MultiTxBlockSynthTx = synthTxBuilder.GetTx()
+	Block100NormalTx = block100TxBuilder.GetTx()
 	DebugTraceTx = debugTraceTxBuilder.GetTx()
 	DebugTracePanicTx = debugTracePanicTxBuilder.GetTx()
 	panicEthTx, _ := DebugTracePanicTx.GetMsgs()[0].(*types.MsgEVMTransaction).AsTransaction()
@@ -957,7 +972,7 @@ func setupLogs() {
 		},
 	}}})
 	EVMKeeper.MockReceipt(CtxMock, multiTxBlockSynthTx.Hash(), &types.Receipt{
-		TxType:           evmrpc.ShellEVMTxType,
+		TxType:           types.ShellEVMTxType,
 		BlockNumber:      MockHeight100,
 		TransactionIndex: 0,
 		TxHashHex:        multiTxBlockSynthTx.Hash().Hex(),
@@ -969,9 +984,26 @@ func setupLogs() {
 		}},
 		EffectiveGasPrice: 0,
 	})
+	// Also create a normal (non-synthetic) receipt in block 100 with two logs
+	CtxBlock100 := Ctx.WithBlockHeight(MockHeight100)
+	EVMKeeper.MockReceipt(CtxBlock100, block100NormalTx.Hash(), &types.Receipt{
+		BlockNumber:      MockHeight100,
+		TransactionIndex: 1,
+		TxHashHex:        block100NormalTx.Hash().Hex(),
+		LogsBloom:        bloom1[:],
+		Logs: []*types.Log{{
+			Address: "0x1111111111111111111111111111111111111112",
+			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
+		}, {
+			Address: "0x1111111111111111111111111111111111111112",
+			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123"},
+		}},
+		GasUsed:           21000,
+		EffectiveGasPrice: 100,
+	})
 	CtxMock = Ctx.WithBlockHeight(MockHeight103)
 	EVMKeeper.MockReceipt(CtxMock, common.HexToHash(TestSyntheticTxHash), &types.Receipt{
-		TxType:           evmrpc.ShellEVMTxType,
+		TxType:           types.ShellEVMTxType,
 		BlockNumber:      MockHeight103,
 		TransactionIndex: 2,
 		TxHashHex:        TestSyntheticTxHash,
@@ -1012,6 +1044,7 @@ func setupLogs() {
 
 	// block 2
 	EVMKeeper.SetBlockBloom(MultiTxCtx, []ethtypes.Bloom{bloom1, bloom2, bloom3})
+	EVMKeeper.SetEvmOnlyBlockBloom(MultiTxCtx, []ethtypes.Bloom{bloom1, bloom2, bloom3})
 
 	// block 8
 	bloomTx1 := ethtypes.CreateBloom(&ethtypes.Receipt{Logs: []*ethtypes.Log{{
@@ -1020,6 +1053,8 @@ func setupLogs() {
 			common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111112")},
 	}}})
 	EVMKeeper.SetBlockBloom(Ctx, []ethtypes.Bloom{bloomSynth, bloom4, bloomTx1})
+	EVMKeeper.SetEvmOnlyBlockBloom(Ctx, []ethtypes.Bloom{bloom4, bloomTx1})
+
 }
 
 //nolint:deadcode

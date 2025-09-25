@@ -19,8 +19,9 @@ import (
 	"github.com/tendermint/tendermint/rpc/coretypes"
 )
 
-const highTotalGasUsedThreshold = 8500000
+const DefaultBlockGasLimit = 10000000
 const defaultPriorityFeePerGas = 1000000000 // 1gwei
+const defaultThresholdPercentage = 80       // 80%
 
 type InfoAPI struct {
 	tmClient         rpcclient.Client
@@ -46,26 +47,26 @@ type FeeHistoryResult struct {
 
 func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
 	startTime := time.Now()
-	defer recordMetrics("eth_BlockNumber", i.connectionType, startTime, true)
+	defer recordMetrics("eth_BlockNumber", i.connectionType, startTime)
 	return hexutil.Uint64(i.ctxProvider(LatestCtxHeight).BlockHeight())
 }
 
 //nolint:revive
 func (i *InfoAPI) ChainId() *hexutil.Big {
 	startTime := time.Now()
-	defer recordMetrics("eth_ChainId", i.connectionType, startTime, true)
+	defer recordMetrics("eth_ChainId", i.connectionType, startTime)
 	return (*hexutil.Big)(i.keeper.ChainID(i.ctxProvider(LatestCtxHeight)))
 }
 
 func (i *InfoAPI) Coinbase() (common.Address, error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_Coinbase", i.connectionType, startTime, true)
+	defer recordMetrics("eth_Coinbase", i.connectionType, startTime)
 	return i.keeper.GetFeeCollectorAddress(i.ctxProvider(LatestCtxHeight))
 }
 
 func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_Accounts", i.connectionType, startTime, returnErr == nil)
+	defer recordMetrics("eth_Accounts", i.connectionType, startTime)
 	kb, err := getTestKeyring(i.homeDir)
 	if err != nil {
 		return []common.Address{}, err
@@ -78,13 +79,13 @@ func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
 
 func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_GasPrice", i.connectionType, startTime, returnErr == nil)
+	defer recordMetrics("eth_GasPrice", i.connectionType, startTime)
 	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	totalGasUsed, err := i.getCongestionData(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
-	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{0.5})
+	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{50})
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +100,7 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 
 // Helper function useful for testing
 func (i *InfoAPI) GasPriceHelper(ctx context.Context, baseFee *big.Int, totalGasUsedPrevBlock uint64, medianRewardPrevBlock *big.Int) (*hexutil.Big, error) {
-	isChainCongested := totalGasUsedPrevBlock > highTotalGasUsedThreshold
+	isChainCongested := i.isChainCongested(totalGasUsedPrevBlock)
 	if !isChainCongested {
 		// chain is not congested, increase base fee by 10% to get the gas price to get a tx included in a timely manner
 		gasPrice := new(big.Int).Mul(baseFee, big.NewInt(110))
@@ -115,7 +116,7 @@ func (i *InfoAPI) GasPriceHelper(ctx context.Context, baseFee *big.Int, totalGas
 // lastBlock is inclusive
 func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal64, lastBlock rpc.BlockNumber, rewardPercentiles []float64) (result *FeeHistoryResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_feeHistory", i.connectionType, startTime, returnErr == nil)
+	defer recordMetrics("eth_feeHistory", i.connectionType, startTime)
 	result = &FeeHistoryResult{}
 
 	// logic consistent with go-ethereum's validation (block < 1 means no block)
@@ -224,18 +225,18 @@ func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (*hexutil.Big, error
 	// Otherwise, since the previous block has low gas used, a user shouldn't need to tip a high amount to get included,
 	// so a default value is returned.
 	startTime := time.Now()
-	defer recordMetrics("eth_maxPriorityFeePerGas", i.connectionType, startTime, true)
+	defer recordMetrics("eth_maxPriorityFeePerGas", i.connectionType, startTime)
 	totalGasUsed, err := i.getCongestionData(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
-	isChainCongested := totalGasUsed > highTotalGasUsedThreshold
+	isChainCongested := i.isChainCongested(totalGasUsed)
 	if !isChainCongested {
 		// chain is not congested, return 1gwei as the default priority fee per gas
 		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
 	}
 	// chain is congested, return the 50%-tile reward as the priority fee per gas
-	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{0.5})
+	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{50})
 	if err != nil {
 		return nil, err
 	}
@@ -402,4 +403,21 @@ func CalculatePercentiles(rewardPercentiles []float64, GasAndRewards []GasAndRew
 		res = append(res, (*hexutil.Big)(GasAndRewards[txIndex].Reward))
 	}
 	return res
+}
+
+func (i *InfoAPI) isChainCongested(totalGasUsed uint64) bool {
+	sdkCtx := i.ctxProvider(LatestCtxHeight)
+	var gasLimit uint64
+	if sdkCtx.ConsensusParams() != nil && sdkCtx.ConsensusParams().Block != nil {
+		maxGas := sdkCtx.ConsensusParams().Block.MaxGas
+		if maxGas <= 0 {
+			gasLimit = uint64(DefaultBlockGasLimit)
+		} else {
+			gasLimit = uint64(maxGas)
+		}
+	} else {
+		gasLimit = uint64(DefaultBlockGasLimit)
+	}
+	threshold := gasLimit * uint64(defaultThresholdPercentage) / 100
+	return totalGasUsed > threshold
 }

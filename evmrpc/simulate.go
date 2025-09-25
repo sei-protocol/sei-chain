@@ -79,7 +79,7 @@ type AccessListResult struct {
 
 func (s *SimulationAPI) CreateAccessList(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (result *AccessListResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_createAccessList", s.connectionType, startTime, returnErr == nil)
+	defer recordMetrics("eth_createAccessList", s.connectionType, startTime)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -138,7 +138,7 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 
 func (s *SimulationAPI) Call(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride, blockOverrides *export.BlockOverrides) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
+	defer recordMetrics("eth_call", s.connectionType, startTime)
 	/* ---------- fail‑fast limiter ---------- */
 	if s.requestLimiter != nil {
 		if !s.requestLimiter.TryAcquire(1) {
@@ -234,14 +234,17 @@ func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txCo
 }
 
 func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (vm.StateDB, *ethtypes.Header, error) {
-	height, err := b.getBlockHeight(ctx, blockNrOrHash)
+	height, isLatestBlock, err := b.getBlockHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, nil, err
 	}
 	isWasmdCall, ok := ctx.Value(CtxIsWasmdPrecompileCallKey).(bool)
 	sdkCtx := b.ctxProvider(height).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(ok && isWasmdCall)
-	if err := CheckVersion(sdkCtx, b.keeper); err != nil {
-		return nil, nil, err
+	if !isLatestBlock {
+		// no need to check version for latest block
+		if err := CheckVersion(sdkCtx, b.keeper); err != nil {
+			return nil, nil, err
+		}
 	}
 	header := b.getHeader(big.NewInt(height))
 	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
@@ -301,6 +304,16 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
+	signer := ethtypes.MakeSigner(
+		types.DefaultChainConfig().EthereumConfig(b.keeper.ChainID(sdkCtx)),
+		big.NewInt(sdkCtx.BlockHeight()),
+		uint64(sdkCtx.BlockTime().Unix()), //nolint:gosec
+	)
+	msgs := filterTransactions(b.keeper, b.ctxProvider, b.txConfigProvider, tmBlock, signer, false, false)
+	idxToMsgs := make(map[int]sdk.Msg, len(msgs))
+	for _, msg := range msgs {
+		idxToMsgs[msg.index] = msg.msg
+	}
 	for i := range blockRes.TxsResults {
 		decoded, err := b.txConfigProvider(blockRes.Height).TxDecoder()(tmBlock.Block.Txs[i])
 		if err != nil {
@@ -311,7 +324,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 			continue
 		}
 		shouldTrace := false
-		for _, msg := range decoded.GetMsgs() {
+		if msg, ok := idxToMsgs[i]; ok {
 			switch m := msg.(type) {
 			case *types.MsgEVMTransaction:
 				if m.IsAssociateTx() {
@@ -319,7 +332,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 				}
 				ethtx, _ := m.AsTransaction()
 				receipt, err := b.keeper.GetReceipt(sdkCtx, ethtx.Hash())
-				if err != nil || receipt.BlockNumber != uint64(tmBlock.Block.Height) || isReceiptFromAnteError(receipt) {
+				if err != nil { //nolint:gosec
 					continue
 				}
 				TraceReceiptIfApplicable(ctx, receipt)
@@ -378,7 +391,7 @@ func (b *Backend) Engine() consensus.Engine {
 }
 
 func (b *Backend) HeaderByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtypes.Header, error) {
-	height, err := b.getBlockHeight(ctx, rpc.BlockNumberOrHashWithNumber(bn))
+	height, _, err := b.getBlockHeight(ctx, rpc.BlockNumberOrHashWithNumber(bn))
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +404,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, emptyRelease, err
 	}
-	blockContext, err := b.keeper.GetVMBlockContext(state.GetDBImpl(stateDB).Ctx(), core.GasPool(b.RPCGasCap()))
+	blockContext, err := b.keeper.GetVMBlockContext(stateDB.(*state.DBImpl).Ctx(), b.keeper.GetGasPool())
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, emptyRelease, err
 	}
@@ -488,7 +501,7 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block) (s
 func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, h *ethtypes.Header, vmConfig *vm.Config, blockCtx *vm.BlockContext) *vm.EVM {
 	txContext := core.NewEVMTxContext(msg)
 	if blockCtx == nil {
-		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(wasmd.IsWasmdCall(msg.To)), core.GasPool(b.RPCGasCap()))
+		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(wasmd.IsWasmdCall(msg.To)), b.keeper.GetGasPool())
 	}
 	evm := vm.NewEVM(*blockCtx, stateDB, b.ChainConfig(), *vmConfig, b.keeper.CustomPrecompiles(b.ctxProvider(h.Number.Int64())))
 	evm.SetTxContext(txContext)
@@ -505,13 +518,14 @@ func (b *Backend) SuggestGasTipCap(context.Context) (*big.Int, error) {
 	return utils.Big0, nil
 }
 
-func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, error) {
+func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, bool, error) {
 	var block *coretypes.ResultBlock
 	var err error
+	var isLatestBlock bool
 	if blockNr, ok := blockNrOrHash.Number(); ok {
 		blockNumber, blockNumErr := getBlockNumber(ctx, b.tmClient, blockNr)
 		if blockNumErr != nil {
-			return 0, blockNumErr
+			return 0, false, blockNumErr
 		}
 		if blockNumber == nil {
 			// we don't want to get the latest block from Tendermint's perspective, because
@@ -519,15 +533,16 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 			// latest block in Tendermint may not have its application state committed yet.
 			currentHeight := b.ctxProvider(LatestCtxHeight).BlockHeight()
 			blockNumber = &currentHeight
+			isLatestBlock = true
 		}
 		block, err = blockByNumber(ctx, b.tmClient, blockNumber)
 	} else {
 		block, err = blockByHash(ctx, b.tmClient, blockNrOrHash.BlockHash[:])
 	}
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	return block.Block.Height, nil
+	return block.Block.Height, isLatestBlock, nil
 }
 
 func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
@@ -604,7 +619,7 @@ func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error 
 }
 
 func (b *Backend) GetBlockContext(ctx context.Context, block *ethtypes.Block, statedb vm.StateDB, backend export.ChainContextBackend) (vm.BlockContext, error) {
-	blockCtx, err := b.keeper.GetVMBlockContext(state.GetDBImpl(statedb).Ctx(), core.GasPool(b.RPCGasCap()))
+	blockCtx, err := b.keeper.GetVMBlockContext(statedb.(*state.DBImpl).Ctx(), b.keeper.GetGasPool())
 	if err != nil {
 		return vm.BlockContext{}, nil
 	}
