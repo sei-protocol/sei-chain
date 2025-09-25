@@ -252,8 +252,21 @@ func recordMetrics(apiMethod string, connectionType ConnectionType, startTime ti
 }
 
 func recordMetricsWithError(apiMethod string, connectionType ConnectionType, startTime time.Time, err error) {
-	metrics.IncrementErrorMetrics(apiMethod, err)
-	recordMetrics(apiMethod, connectionType, startTime, err == nil)
+	// Automatically detect success/failure based on panic state
+	panicValue := recover()
+	success := panicValue == nil || err != nil
+
+	// these are only metrics that are specifically typed errors for tracking.
+	if err != nil {
+		metrics.IncrementErrorMetrics(apiMethod, err)
+	}
+
+	metrics.IncrementRpcRequestCounter(apiMethod, string(connectionType), success)
+	metrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
+
+	if panicValue != nil {
+		panic(panicValue)
+	}
 }
 
 func CheckVersion(ctx sdk.Context, k *keeper.Keeper) error {

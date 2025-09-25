@@ -79,7 +79,7 @@ type AccessListResult struct {
 
 func (s *SimulationAPI) CreateAccessList(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash) (result *AccessListResult, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_createAccessList", s.connectionType, startTime, returnErr == nil)
+	defer recordMetrics("eth_createAccessList", s.connectionType, startTime)
 	bNrOrHash := rpc.BlockNumberOrHashWithNumber(rpc.PendingBlockNumber)
 	if blockNrOrHash != nil {
 		bNrOrHash = *blockNrOrHash
@@ -138,7 +138,7 @@ func (s *SimulationAPI) EstimateGasAfterCalls(ctx context.Context, args export.T
 
 func (s *SimulationAPI) Call(ctx context.Context, args export.TransactionArgs, blockNrOrHash *rpc.BlockNumberOrHash, overrides *export.StateOverride, blockOverrides *export.BlockOverrides) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
-	defer recordMetrics("eth_call", s.connectionType, startTime, returnErr == nil)
+	defer recordMetrics("eth_call", s.connectionType, startTime)
 	/* ---------- fail‑fast limiter ---------- */
 	if s.requestLimiter != nil {
 		if !s.requestLimiter.TryAcquire(1) {
