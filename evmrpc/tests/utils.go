@@ -89,7 +89,7 @@ func SetupTestServer(
 		_, _ = a.Commit(context.Background())
 		mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	}
-	return setupTestServer(a, a.RPCContextProvider, mockClient, blocks, initializer...)
+	return setupTestServer(a, a.RPCContextProvider, mockClient)
 }
 
 func SetupMockPacificTestServer(initializer func(*app.App, *MockClient) sdk.Context) TestServer {
@@ -98,15 +98,13 @@ func SetupMockPacificTestServer(initializer func(*app.App, *MockClient) sdk.Cont
 	// seed mock client with genesis block results so latest height queries work
 	mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	ctx := initializer(a, mockClient)
-	return setupTestServer(a, func(int64) sdk.Context { return ctx }, mockClient, [][][]byte{})
+	return setupTestServer(a, func(int64) sdk.Context { return ctx }, mockClient)
 }
 
 func setupTestServer(
 	a *app.App,
 	ctxProvider func(int64) sdk.Context,
 	mockClient *MockClient,
-	blocks [][][]byte,
-	initializer ...func(sdk.Context, *app.App),
 ) TestServer {
 	port := int(portProvider.Add(1))
 	cfg := evmrpc.DefaultConfig

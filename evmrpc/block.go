@@ -251,10 +251,10 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	)
 	for i, hash := range txHashes {
 		wg.Add(1)
-		go func(i int, hash common.Hash) {
+		go func(i int, hash typedTxHash) {
 			defer wg.Done()
 			defer recoverAndLog()
-			receipt, err := a.keeper.GetReceipt(a.ctxProvider(height), hash)
+			receipt, err := a.keeper.GetReceipt(a.ctxProvider(height), hash.hash)
 			if err != nil {
 				// When the transaction doesn't exist, skip it
 				if !strings.Contains(err.Error(), "not found") {
@@ -263,11 +263,11 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					mtx.Unlock()
 				}
 			} else {
-				if isReceiptFromAnteError(sdkCtxAtHeight, receipt) {
+				if receipt.Status == 0 && isReceiptFromAnteError(sdkCtxAtHeight, receipt) {
 					return
 				}
-				// If the receipt has synthetic logs, we actually want to include them in the response.
-				if !a.includeShellReceipts && receipt.TxType == types.ShellEVMTxType {
+
+				if !a.includeShellReceipts && !hash.isEvm {
 					return
 				}
 				// tx hash is included in a future block (because it failed in the current block due to

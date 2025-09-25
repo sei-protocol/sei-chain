@@ -79,7 +79,7 @@ func registerCW20Pointer(nonce uint64, cw20Addr string) ethtypes.TxData {
 	input, _ := pInfo.ABI.Pack("addCW20Pointer", cw20Addr)
 	pointer := common.HexToAddress(pointer.PointerAddress)
 	return &ethtypes.DynamicFeeTx{
-		Nonce:     0,
+		Nonce:     nonce,
 		GasFeeCap: big.NewInt(1000000000),
 		Gas:       4000000,
 		To:        &pointer,
