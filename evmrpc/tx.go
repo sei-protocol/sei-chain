@@ -381,8 +381,12 @@ func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction
 	return ethtx
 }
 
-// Gets the EVM tx index based on the tx index (typically from receipt.TransactionIndex
-// Essentially loops through and calculates the index if we ignore cosmos txs
+// receipt.TransactionIndex represents the index of the transaction among ALL transactions in the block.
+// This function returns the index if irrelevant transactions are excluded.
+// Specifically, if includeSynthetic is false, all Cosmos transactions are excluded. If includeSynthetic is true,
+// Cosmos transactions without a receipt (i.e. Cosmos transactions that don't touch CW20/721/1155) are excluded.
+// It also returns the log index offset, which always includes all logs of relevant transactions, regardless of
+// whether logs themselves are synthetic or not.
 func GetEvmTxIndex(ctx sdk.Context, txs tmtypes.Txs, txIndex uint32, decoder sdk.TxDecoder, receiptChecker func(common.Hash) *types.Receipt, includeSynthetic bool) (index int, found bool, etx *ethtypes.Transaction, logIndexOffset int) {
 	var evmTxIndex, logIndex int
 	for i, tx := range txs {
@@ -395,37 +399,29 @@ func GetEvmTxIndex(ctx sdk.Context, txs tmtypes.Txs, txIndex uint32, decoder sdk
 			receipt = receiptChecker(sha256.Sum256(tx))
 		}
 		hasReceipt := receipt != nil
-
-		isSynthetic := hasReceipt && !isEVMTx
-
-		if !isEVMTx && !isSynthetic {
+		if !hasReceipt {
 			continue
 		}
-		if hasReceipt {
-			if isReceiptFromAnteError(ctx, receipt) {
-				continue
-			}
-			if receipt.BlockNumber != uint64(ctx.BlockHeight()) {
-				continue
-			}
+		isSynthetic := !isEVMTx
+		if !includeSynthetic && isSynthetic {
+			continue
+		}
+		if isReceiptFromAnteError(ctx, receipt) {
+			continue
+		}
+		if receipt.BlockNumber != uint64(ctx.BlockHeight()) { //nolint:gosec
+			// this is the receipt of a future incarnation of the transaction
+			// that succeeded, but the incarnation in ctx.BlockHeight() failed
+			// because of nonce mismatch, so we should exclude it here.
+			continue
 		}
 
 		if i == int(txIndex) {
 			return evmTxIndex, true, etx, logIndex
 		}
 
-		if isSynthetic && !includeSynthetic {
-			continue
-		}
-
 		evmTxIndex++
-		if hasReceipt {
-			for _, log := range receipt.Logs {
-				if includeSynthetic || !log.Synthetic {
-					logIndex++
-				}
-			}
-		}
+		logIndex += len(receipt.Logs)
 	}
 	return -1, false, nil, -1
 }
@@ -438,6 +434,7 @@ func encodeReceipt(ctx sdk.Context, receipt *types.Receipt, decoder sdk.TxDecode
 	if !foundTx {
 		return nil, errors.New("failed to find transaction in block")
 	}
+<<<<<<< HEAD
 	receipt.TransactionIndex = uint32(evmTxIndex)
 	var logs []*ethtypes.Log
 	if includeSynthetic {
@@ -445,6 +442,10 @@ func encodeReceipt(ctx sdk.Context, receipt *types.Receipt, decoder sdk.TxDecode
 	} else {
 		logs = keeper.GetEvmOnlyLogsForTx(receipt, uint(logIndexOffset))
 	}
+=======
+	receipt.TransactionIndex = uint32(evmTxIndex)              //nolint:gosec
+	logs := keeper.GetLogsForTx(receipt, uint(logIndexOffset)) //nolint:gosec
+>>>>>>> 33bcd65fa (always include synthetic logs in eth_ endpoints (#2371))
 	for _, log := range logs {
 		log.BlockHash = bh
 	}
