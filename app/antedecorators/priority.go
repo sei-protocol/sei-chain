@@ -1,6 +1,7 @@
 package antedecorators
 
 import (
+	"fmt"
 	"math"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -32,11 +33,10 @@ func (pd PriorityDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool
 	// Cap priority
 	// Use higher priorities for tiers including oracle tx's
 	priority := intMin(ctx.Priority(), MaxPriority)
-
 	if isOracleTx(tx) {
 		priority = OraclePriority
 	}
-
+	fmt.Printf("[Debug] PriorityDecorator has old priority of %d and new priority of %d\n", ctx.Priority(), priority)
 	newCtx := ctx.WithPriority(priority)
 
 	return next(newCtx, tx, simulate)
