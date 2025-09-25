@@ -145,7 +145,7 @@ func Test169638844(t *testing.T) {
 	testBlock(
 		t,
 		169638844,
-		"v6.0.0",
+		"v6.1.4",
 		"0xfb2fd",
 	)
 }
@@ -154,7 +154,7 @@ func Test169750823(t *testing.T) {
 	testBlock(
 		t,
 		169750823,
-		"v6.0.0",
+		"v6.1.4",
 		"0x29e240",
 	)
 }
