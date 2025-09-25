@@ -146,10 +146,10 @@ func TestPriorityWithExactAnteChain_BankSend(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if seenAfterLimit == 0 || seenAfterReject == 0 || seenAfterSpamming == 0 {
+	if seenAfterLimit <= 0 || seenAfterReject <= 0 || seenAfterSpamming <= 0 {
 		t.Fatalf("expected non zero priority after limit/reject/spamming, got %d/%d/%d", seenAfterLimit, seenAfterReject, seenAfterSpamming)
 	}
-	if seenAfterPriority == 0 {
+	if seenAfterPriority <= 0 {
 		t.Fatalf("expected PriorityDecorator to set correct priority for BankSend, got %d", seenAfterPriority)
 	}
 }
@@ -221,7 +221,7 @@ func TestPrioritySetterWithAnteHandlers(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if seenAfterLimit == 0 || seenAfterReject == 0 || seenAfterSpamming == 0 {
+	if seenAfterLimit <= 0 || seenAfterReject <= 0 || seenAfterSpamming <= 0 {
 		t.Fatalf("expected non zero priority after limit/reject/spamming, got %d/%d/%d", seenAfterLimit, seenAfterReject, seenAfterSpamming)
 	}
 	require.Equal(t, expectedPriority, seenAfterPriority)
