@@ -2,6 +2,7 @@ package oracle
 
 import (
 	"encoding/hex"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 
@@ -38,6 +39,7 @@ func (spd SpammingPreventionDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, si
 			}
 		}
 	}
+
 	return next(ctx, tx, simulate)
 }
 
