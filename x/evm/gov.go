@@ -16,7 +16,7 @@ func HandleAddERCNativePointerProposalV2(ctx sdk.Context, k *keeper.Keeper, p *t
 	decimals := uint8(math.MaxUint8)
 	if p.Decimals <= uint32(decimals) {
 		// should always be the case given validation
-		decimals = uint8(p.Decimals)
+		decimals = uint8(p.Decimals) //nolint:gosec
 	}
 	return k.RunWithOneOffEVMInstance(
 		ctx, func(e *vm.EVM) error {

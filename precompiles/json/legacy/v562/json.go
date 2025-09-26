@@ -76,7 +76,7 @@ func NewPrecompile(keepers putils.Keepers) (*pcommon.Precompile, error) {
 
 // RequiredGas returns the required bare minimum gas to execute the precompile.
 func (p PrecompileExecutor) RequiredGas(input []byte, method *abi.Method) uint64 {
-	return uint64(GasCostPerByte * len(input))
+	return uint64(GasCostPerByte * len(input)) //nolint:gosec
 }
 
 func (p PrecompileExecutor) Execute(ctx sdk.Context, method *abi.Method, caller common.Address, callingContract common.Address, args []interface{}, value *big.Int, readOnly bool, evm *vm.EVM, hooks *tracing.Hooks) (bz []byte, err error) {

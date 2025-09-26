@@ -1,5 +1,5 @@
 # ---------- Builder ----------
-FROM golang:1.23.7 AS go-builder
+FROM docker.io/golang:1.24.5 AS go-builder
 WORKDIR /app/sei-chain
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && \
@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 
 # Cache Go modules
 COPY go.mod go.sum ./
+COPY sei-wasmvm/go.mod sei-wasmvm/go.sum ./sei-wasmvm/
 RUN go mod download
 
 # Copy source and build (CGO enabled for libwasmvm)
