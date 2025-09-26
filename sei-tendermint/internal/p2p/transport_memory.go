@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/netip"
 	"sync"
 
 	"github.com/tendermint/tendermint/crypto"
@@ -120,9 +119,6 @@ func (t *MemoryTransport) Endpoint() Endpoint {
 	return Endpoint{
 		Protocol: MemoryProtocol,
 		Path:     string(t.nodeID),
-		// An arbitrary IP and port is used in order for the pex
-		// reactor to be able to send addresses to one another.
-		Addr: netip.AddrPort{},
 	}
 }
 
