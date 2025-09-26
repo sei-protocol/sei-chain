@@ -156,7 +156,7 @@ jobs:
                 blocks: [
                   { "type":"section", "text":{"type":"mrkdwn","text":("*PR #"+$n+":* "+$t)} },
                   { "type":"section", "text":{"type":"mrkdwn","text":("• Author: "+$a)} },
-                  { "type":"section", "text":{"type":"mrkdwn","text":("• Link: <"+$u+">")} }
+                  { "type":"section", "text":{"type":"mrkdwn","text":("• Link: <"+$u+">") } }
                 ],
                 unfurl_links:false, unfurl_media:false
               }')" )
@@ -197,4 +197,4 @@ jobs:
             -H "Content-type: application/json; charset=utf-8" \
             --data "$payload")
           echo "$resp"
-          test "$(echo "$resp" | jq -r '.ok')" = "true" || { echo "files.completeUploadExternal failed: $resp" >&2; exit 1; }
+          test "$(echo "$resp" | jq -r '.ok')" = "true" || { echo "files.completeUploadExternal failed: $resp" >&2; exit 1; 

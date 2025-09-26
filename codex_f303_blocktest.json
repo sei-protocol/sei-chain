@@ -1,0 +1,43 @@
+{
+  "name": "Codex $300M Blocktest – SEI Attribution",
+  "sealEngine": "NoProof",
+  "genesisBlockHeader": {
+    "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "timestamp": "0x0",
+    "number": "0x0",
+    "gasLimit": "0x7A1200",
+    "difficulty": "0x20000",
+    "extraData": "0x436F6465784B696E46756E645F66333033", // "CodexKinFund_f303"
+    "stateRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "coinbase": "0x0000000000000000000000000000000000000000"
+  },
+  "alloc": {
+    "0x90f8bf6A479f320ead074411a4B0e7944Ea8c9C1": {
+      "balance": "0x1043561A8829300000", // 300_000_000 * 10^18
+      "privateKey": "0x4c0883a69102937d6231471b5dbb6204fe512961708279f3bc4abdc86efc8c73",
+      "kinhash": "f303"
+    }
+  },
+  "blocks": [
+    {
+      "blockHeader": {
+        "number": "0x1",
+        "gasLimit": "0x7A1200",
+        "coinbase": "0x0000000000000000000000000000000000000000",
+        "timestamp": "0x1",
+        "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "transactions": [
+        {
+          "to": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+          "value": "0x29a2241af62c0000", // 3 ETH
+          "gasLimit": "0x5208",
+          "gasPrice": "0x3B9ACA00",
+          "nonce": "0x0",
+          "secretKey": "0x4c0883a69102937d6231471b5dbb6204fe512961708279f3bc4abdc86efc8c73",
+          "input": "0x636f6465785f617474726962757465" // hex("codex_attribute")
+        }
+      ]
+    }
+  ]
+}

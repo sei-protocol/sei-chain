@@ -1,0 +1,126 @@
+name: 🏦 First-Class $300M USDC Transfer (Secure)
+
+on:
+  workflow_dispatch:
+    inputs:
+      destination:
+        description: "Recipient address"
+        required: true
+      amount:
+        description: "Amount to transfer in USDC (e.g., 300000000)"
+        required: true
+      dry_run:
+        description: "Preview only? (true/false)"
+        default: "true"
+        required: false
+      emit_ipfs_receipt:
+        description: "Upload transfer receipt to IPFS? (true/false)"
+        default: "false"
+        required: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  usdc-transfer:
+    name: 💸 Transfer Funds
+    runs-on: ubuntu-latest
+    environment: production
+
+    env:
+      RPC_URL: ${{ secrets.SEI_RPC_URL }}
+      PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+      IPFS_KEY: ${{ secrets.IPFS_PIN_KEY }}
+
+    steps:
+      - name: 📦 Checkout repo
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 📥 Install Dependencies
+        run: npm install ethers axios
+
+      - name: 🚀 Execute USDC Transfer
+        id: transfer
+        run: |
+          node <<'EOF'
+          import { ethers } from "ethers";
+          import fs from "fs";
+          import axios from "axios";
+
+          const RPC_URL = process.env.RPC_URL;
+          const PRIVATE_KEY = process.env.PRIVATE_KEY;
+          const DEST = "${{ github.event.inputs.destination }}";
+          const AMOUNT = "${{ github.event.inputs.amount }}";
+          const DRY_RUN = "${{ github.event.inputs.dry_run }}" === "true";
+          const EMIT_IPFS = "${{ github.event.inputs.emit_ipfs_receipt }}" === "true";
+          const USDC_DECIMALS = 6;
+          const USDC_ADDRESS = "0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392";
+
+          const abi = ["function transfer(address to, uint256 value) returns (bool)"];
+
+          async function main() {
+            if (!ethers.isAddress(DEST)) throw new Error("❌ Invalid destination address");
+
+            const provider = new ethers.JsonRpcProvider(RPC_URL);
+            const signer = new ethers.Wallet(PRIVATE_KEY, provider);
+            const usdc = new ethers.Contract(USDC_ADDRESS, abi, signer);
+            const amountInUnits = ethers.parseUnits(AMOUNT, USDC_DECIMALS);
+
+            if (DRY_RUN) {
+              console.log("🚫 Dry Run Enabled. No transfer will occur.");
+              console.log("📤 Preview: Will send", ethers.formatUnits(amountInUnits, USDC_DECIMALS), "USDC to", DEST);
+              return;
+            }
+
+            // Failsafe guard
+            const maxAllowed = ethers.parseUnits("300000000", USDC_DECIMALS);
+            if (amountInUnits > maxAllowed) throw new Error("❌ Transfer exceeds $300M cap!");
+
+            console.log("🔐 Sending", ethers.formatUnits(amountInUnits, USDC_DECIMALS), "USDC to", DEST);
+            const tx = await usdc.transfer(DEST, amountInUnits);
+            console.log("📝 TX Hash:", tx.hash);
+            await tx.wait();
+            console.log("✅ Transfer confirmed");
+
+            const receipt = {
+              destination: DEST,
+              amount: AMOUNT,
+              token: USDC_ADDRESS,
+              txHash: tx.hash,
+              timestamp: new Date().toISOString()
+            };
+
+            fs.writeFileSync("receipt.json", JSON.stringify(receipt, null, 2));
+
+            if (EMIT_IPFS) {
+              const response = await axios.post("https://api.web3.storage/upload", fs.readFileSync("receipt.json"), {
+                headers: {
+                  Authorization: `Bearer ${process.env.IPFS_KEY}`,
+                  "Content-Type": "application/json"
+                }
+              });
+              console.log("🧾 IPFS CID:", response.data.cid);
+              fs.writeFileSync("ipfs-cid.txt", response.data.cid);
+            }
+          }
+
+          main().catch(err => {
+            console.error("❌ Error:", err.message);
+            process.exit(1);
+          });
+          EOF
+
+      - name: 🧾 Upload Transfer Receipt
+        if: success()
+        uses: actions/upload-artifact@v3
+        with:
+          name: usdc-transfer-receipt
+          path: |
+            receipt.json
+            ipfs-cid.txt
