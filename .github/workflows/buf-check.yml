@@ -12,3 +12,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: bufbuild/buf-action@v1
+        working-directory: ./sei-wasmd
