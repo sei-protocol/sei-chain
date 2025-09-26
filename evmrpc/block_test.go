@@ -223,3 +223,65 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 		S:                nil,
 	}, txs[0].(*export.RPCTransaction))
 }
+
+func TestEVMLaunchHeightValidation(t *testing.T) {
+	// Test ValidateEVMBlockHeight function
+	// Should pass for pacific-1 with valid height
+	err := evmrpc.ValidateEVMBlockHeight("pacific-1", 79123881)
+	require.NoError(t, err)
+
+	err = evmrpc.ValidateEVMBlockHeight("pacific-1", 79123882)
+	require.NoError(t, err)
+
+	// Should fail for pacific-1 with invalid height
+	err = evmrpc.ValidateEVMBlockHeight("pacific-1", 79123880)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "EVM is only supported from block 79123881 onwards")
+
+	// Should pass for other chains with any height
+	err = evmrpc.ValidateEVMBlockHeight("atlantic-2", 1)
+	require.NoError(t, err)
+
+	err = evmrpc.ValidateEVMBlockHeight("test-chain", 1)
+	require.NoError(t, err)
+}
+
+func TestEVMBlockValidationEdgeCases(t *testing.T) {
+	// Test edge cases for EVM block validation
+
+	// Test exactly at launch height
+	err := evmrpc.ValidateEVMBlockHeight("pacific-1", 79123881)
+	require.NoError(t, err)
+
+	// Test one block before launch height
+	err = evmrpc.ValidateEVMBlockHeight("pacific-1", 79123880)
+	require.Error(t, err)
+	require.Equal(t, "EVM is only supported from block 79123881 onwards", err.Error())
+
+	// Test way before launch height
+	err = evmrpc.ValidateEVMBlockHeight("pacific-1", 1000000)
+	require.Error(t, err)
+	require.Equal(t, "EVM is only supported from block 79123881 onwards", err.Error())
+
+	// Test block 0
+	err = evmrpc.ValidateEVMBlockHeight("pacific-1", 0)
+	require.Error(t, err)
+	require.Equal(t, "EVM is only supported from block 79123881 onwards", err.Error())
+}
+
+func TestEVMBlockValidationDifferentChains(t *testing.T) {
+	// Test that validation only applies to pacific-1
+	chains := []string{"atlantic-2", "arctic-1", "test-chain", "unknown-chain", ""}
+
+	for _, chainID := range chains {
+		// All non-pacific-1 chains should pass validation for any block height
+		err := evmrpc.ValidateEVMBlockHeight(chainID, 1)
+		require.NoError(t, err, "Chain %s should not validate block heights", chainID)
+
+		err = evmrpc.ValidateEVMBlockHeight(chainID, 0)
+		require.NoError(t, err, "Chain %s should not validate block heights", chainID)
+
+		err = evmrpc.ValidateEVMBlockHeight(chainID, 79123880)
+		require.NoError(t, err, "Chain %s should not validate block heights", chainID)
+	}
+}
