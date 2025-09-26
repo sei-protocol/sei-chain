@@ -1,0 +1,9 @@
+{
+  "amount": 2150.75,
+  "denom": "usei",
+  "sender": "sei1aliceexample",
+  "recipient": "sei1merchant",
+  "location": "singapore",
+  "memo": "Invoice #402-2025",
+  "risk_tags": ["new_recipient"]
+}
