@@ -1,5 +1,5 @@
 # ---------- Builder ----------
-FROM golang:1.24.5 AS go-builder
+FROM docker.io/golang:1.24.5 AS go-builder
 WORKDIR /app/sei-chain
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && \
@@ -7,6 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 
 # Cache Go modules
 COPY go.mod go.sum ./
+COPY sei-wasmvm/go.mod sei-wasmvm/go.sum ./sei-wasmvm/
+COPY sei-wasmd/go.mod sei-wasmd/go.sum ./sei-wasmd/
 RUN go mod download
 
 # Copy source and build (CGO enabled for libwasmvm)
@@ -14,14 +16,14 @@ COPY . .
 ENV CGO_ENABLED=1
 RUN make build
 
-# Collect libwasmvm*.so: try module cache; else auto-derive version and download glibc .so
+# Collect libwasmvm*.so: try ./seiwasmd; else auto-derive version and download glibc .so
 ARG WASMVM_VERSION=""
 RUN set -eux; \
     mkdir -p /build/deps; \
-    GOMODCACHE="$(go env GOMODCACHE)"; \
+    LIBWASM_DIR="./sei-wasmd"; \
     found=0; \
     # Copy from module cache if present
-    FILES="$(find "$GOMODCACHE" -type f -name 'libwasmvm*.so' -print || true)"; \
+    FILES="$(find "$LIBWASM_DIR" -type f -name 'libwasmvm*.so' -print || true)"; \
     if [ -n "$FILES" ]; then \
         echo "$FILES" | xargs -r -n1 -I{} cp -v "{}" /build/deps/; \
         found=1; \
