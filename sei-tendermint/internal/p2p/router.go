@@ -420,11 +420,7 @@ func (r *Router) acceptPeers(ctx context.Context, transport Transport) error {
 
 		// Spawn a goroutine for the handshake, to avoid head-of-line blocking.
 		r.Spawn("openConnection", func(ctx context.Context) error {
-			defer func() {
-				if err := conn.Close(); err != nil {
-					r.logger.Error("closed connection", "addr", incomingAddr.String(), "err", err)
-				}
-			}()
+			defer conn.Close()
 			return r.openConnection(ctx, conn)
 		})
 	}
@@ -547,11 +543,7 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) {
 	}
 
 	r.Spawn("routePeer", func(ctx context.Context) error {
-		defer func() {
-			if err := conn.Close(); err != nil {
-				r.logger.Error("closed connection", "peer", address.NodeID, "err", err)
-			}
-		}()
+		defer conn.Close()
 		return r.routePeer(ctx, address.NodeID, conn, toChannelIDs(peerInfo.Channels))
 	})
 }

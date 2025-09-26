@@ -2,78 +2,51 @@ package scope
 
 import (
 	"context"
-	"github.com/tendermint/tendermint/libs/utils"
 )
 
 // GlobalHandle is a handle to a task spawned via SpawnGlobal.
-type GlobalHandle[T any] struct {
+type GlobalHandle struct {
 	cancel context.CancelFunc
 	done   chan struct{}
-	res    T
+	err    error
 }
 
 // SpawnGlobal spawns a task in a global context.
-// Use with care, as it is not tied to any scope and must be terminated manually by calling Terminate().
-// The task does not return an error, because there is no canonical way to handle it.
+// Use with care, as it is not tied to any scope and must be closed manually by calling Close().
 // Can be used as an intermediate step when migrating code to use scopes.
-func SpawnGlobal[T any](task func(ctx context.Context) T) *GlobalHandle[T] {
+func SpawnGlobal(task func(ctx context.Context) error) *GlobalHandle {
 	ctx, cancel := context.WithCancel(context.Background())
-	h := &GlobalHandle[T]{
+	h := &GlobalHandle{
 		cancel: cancel,
 		done:   make(chan struct{}),
 	}
 	go func() {
-		h.res = task(ctx)
+		h.err = task(ctx)
 		close(h.done)
 	}()
 	return h
 }
 
-// WhileRunning restricts ctx to the lifetime of the task.
-// WARNING: If the task is already finished, it SKIPs running f and returns context.Canceled.
-func (h *GlobalHandle[T]) WhileRunning(ctx context.Context, f func(ctx context.Context) error) error {
+// Done returns a channel that is closed when the task is finished.
+func (h *GlobalHandle) Done() <-chan struct{} {
+	return h.done
+}
+
+// Err returns the task's result if it finished, or nil if it is still running.
+// Note that if task succeeded, nil is returned.
+func (h *GlobalHandle) Err() error {
 	select {
 	case <-h.done:
-		return context.Canceled
+		return h.err
 	default:
-	}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go func() {
-		select {
-		case <-ctx.Done():
-		case <-h.done:
-			cancel()
-		}
-	}()
-	return f(ctx)
-}
-
-// WhileRunning1 is like WhileRunning but for functions returning a value.
-func WhileRunning1[R any, T any](ctx context.Context, h *GlobalHandle[T], f func(ctx context.Context) (R, error)) (res R, err error) {
-	// We need to set the error outside the closure, because
-	// h.WhileRunning() may return context.Canceled if the task is already finished.
-	err = h.WhileRunning(ctx, func(ctx context.Context) error {
-		res, err = f(ctx)
-		return err
-	})
-	return
-}
-
-// Join awaits tasks completion.
-func (h *GlobalHandle[T]) Join(ctx context.Context) (T, error) {
-	select {
-	case <-ctx.Done():
-		return utils.Zero[T](), ctx.Err()
-	case <-h.done:
-		return h.res, nil
+		return nil
 	}
 }
 
-// Terminate cancels the task and waits for it to finish.
+// Close cancels the task and waits for it to finish.
 // Returns the task's result.
-func (h *GlobalHandle[T]) Terminate() T {
+func (h *GlobalHandle) Close() error {
 	h.cancel()
 	<-h.done
-	return h.res
+	return h.err
 }
