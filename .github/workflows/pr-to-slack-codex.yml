@@ -126,7 +126,7 @@ jobs:
             # Capture both stdout/stderr to codex.log and mirror to console
             set +e
             env -i OPENAI_API_KEY="${OPENAI_API_KEY}" PATH="$PATH" HOME="$HOME" \
-              codex --model gpt-5-codex --ask-for-approval never exec \
+              codex --model gpt-4o-mini --ask-for-approval never exec \
                 --sandbox read-only \
                 --output-last-message review.md \
                 < prompt.txt \
@@ -162,7 +162,7 @@ jobs:
 
             set +e
             env -i OPENAI_API_KEY="${OPENAI_API_KEY}" PATH="$PATH" HOME="$HOME" \
-              codex --ask-for-approval never exec \
+              codex --model gpt-4o-mini --ask-for-approval never exec \
                 --sandbox danger-full-access \
                 --output-last-message review.md \
                 < prompt.txt \
