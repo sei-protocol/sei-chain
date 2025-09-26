@@ -16,14 +16,14 @@ COPY . .
 ENV CGO_ENABLED=1
 RUN make build
 
-# Collect libwasmvm*.so: try module cache; else auto-derive version and download glibc .so
+# Collect libwasmvm*.so: try ./seiwasmd; else auto-derive version and download glibc .so
 ARG WASMVM_VERSION=""
 RUN set -eux; \
     mkdir -p /build/deps; \
-    GOMODCACHE="$(go env GOMODCACHE)"; \
+    LIBWASM_DIR="./sei-wasmd"; \
     found=0; \
     # Copy from module cache if present
-    FILES="$(find "$GOMODCACHE" -type f -name 'libwasmvm*.so' -print || true)"; \
+    FILES="$(find "$LIBWASM_DIR" -type f -name 'libwasmvm*.so' -print || true)"; \
     if [ -n "$FILES" ]; then \
         echo "$FILES" | xargs -r -n1 -I{} cp -v "{}" /build/deps/; \
         found=1; \
