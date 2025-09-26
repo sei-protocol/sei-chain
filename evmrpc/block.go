@@ -147,6 +147,13 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	if err != nil {
 		return nil, err
 	}
+
+	// Validate EVM block height for pacific-1 chain
+	sdkCtx := a.ctxProvider(LatestCtxHeight)
+	if err := ValidateEVMBlockHeight(sdkCtx.ChainID(), block.Block.Height); err != nil {
+		return nil, err
+	}
+
 	blockRes, err := blockResultsWithRetry(ctx, a.tmClient, &block.Block.Height)
 	if err != nil {
 		return nil, err
@@ -196,6 +203,15 @@ func (a *BlockAPI) getBlockByNumber(
 	if err != nil {
 		return nil, err
 	}
+
+	// Validate EVM block height for pacific-1 chain
+	if numberPtr != nil {
+		sdkCtx := a.ctxProvider(LatestCtxHeight)
+		if err := ValidateEVMBlockHeight(sdkCtx.ChainID(), *numberPtr); err != nil {
+			return nil, err
+		}
+	}
+
 	block, err := blockByNumberWithRetry(ctx, a.tmClient, numberPtr, 1)
 	if err != nil {
 		return nil, err
