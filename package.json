@@ -1,0 +1,15 @@
+{
+  "name": "sei-chain-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "deploy:msg-claim": "tsx deploy/msg_claim.ts"
+  },
+  "devDependencies": {
+    "jest": "^30.1.3",
+    "tsx": "^4.15.5"
+  },
+  "dependencies": {
+    "ethers": "^6.13.1"
+  }
+}
