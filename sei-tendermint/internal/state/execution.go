@@ -91,7 +91,15 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 	state State,
 	lastCommit *types.Commit,
 	proposerAddr []byte,
-) (*types.Block, error) {
+) (block *types.Block, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			blockExec.logger.Error("panic recovered in CreateProposalBlock", "panic", r, "height", height)
+			// Convert panic to error
+			block = nil
+			err = fmt.Errorf("CreateProposalBlock panic recovered: %v", r)
+		}
+	}()
 
 	maxBytes := state.ConsensusParams.Block.MaxBytes
 	maxGas := state.ConsensusParams.Block.MaxGas
@@ -103,7 +111,7 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 	maxDataBytes := types.MaxDataBytes(maxBytes, evSize, state.Validators.Size())
 
 	txs := blockExec.mempool.ReapMaxBytesMaxGas(maxDataBytes, maxGasWanted, maxGas)
-	block := state.MakeBlock(height, txs, lastCommit, evidence, proposerAddr)
+	block = state.MakeBlock(height, txs, lastCommit, evidence, proposerAddr)
 	rpp, err := blockExec.appClient.PrepareProposal(
 		ctx,
 		&abci.RequestPrepareProposal{
@@ -150,7 +158,8 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 		}
 	}
 	itxs := txrSet.IncludedTxs()
-	return state.MakeBlock(height, itxs, lastCommit, evidence, proposerAddr), nil
+	block = state.MakeBlock(height, itxs, lastCommit, evidence, proposerAddr)
+	return block, nil
 }
 
 func (blockExec *BlockExecutor) GetTxsForKeys(txKeys []types.TxKey) types.Txs {

@@ -926,3 +926,75 @@ func txsToTxRecords(txs []types.Tx) []*abci.TxRecord {
 	}
 	return trs
 }
+
+// panicApp is a test app that panics during PrepareProposal to test panic recovery
+type panicApp struct {
+	abci.BaseApplication
+}
+
+func (app *panicApp) PrepareProposal(_ context.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
+	// This will trigger the panic recovery mechanism in CreateProposalBlock
+	panic("test panic for coverage")
+}
+
+func (app *panicApp) Info(_ context.Context, req *abci.RequestInfo) (*abci.ResponseInfo, error) {
+	return &abci.ResponseInfo{}, nil
+}
+
+func (app *panicApp) FinalizeBlock(_ context.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	return &abci.ResponseFinalizeBlock{}, nil
+}
+
+// TestCreateProposalBlockPanicRecovery tests that panics are recovered and converted to errors
+func TestCreateProposalBlockPanicRecovery(t *testing.T) {
+	ctx := context.Background()
+	logger := log.NewNopLogger()
+
+	// Create the panicking app
+	app := &panicApp{}
+	cc := abciclient.NewLocalClient(logger, app)
+	proxyApp := proxy.New(cc, logger, proxy.NopMetrics())
+	require.NoError(t, proxyApp.Start(ctx))
+	defer proxyApp.Stop()
+
+	// Create test state and executor
+	state, stateDB, _ := makeState(t, 1, 1)
+	stateStore := sm.NewStore(stateDB)
+	blockStore := store.NewBlockStore(dbm.NewMemDB())
+	eventBus := eventbus.NewDefault(logger)
+	require.NoError(t, eventBus.Start(ctx))
+	defer eventBus.Stop()
+
+	// Create mock mempool
+	mp := &mpmocks.Mempool{}
+	mp.On("ReapMaxBytesMaxGas", mock.Anything, mock.Anything, mock.Anything).Return(types.Txs{})
+
+	blockExec := sm.NewBlockExecutor(
+		stateStore,
+		logger,
+		proxyApp,
+		mp,
+		sm.EmptyEvidencePool{},
+		blockStore,
+		eventBus,
+		sm.NopMetrics(),
+	)
+
+	// Get proposer address
+	pa, _ := state.Validators.GetByIndex(0)
+
+	// Create commit
+	lastCommit := &types.Commit{}
+
+	// This should trigger the panic recovery mechanism
+	block, err := blockExec.CreateProposalBlock(ctx, 1, state, lastCommit, pa)
+
+	// Verify that panic was caught and converted to error
+	assert.Nil(t, block, "Block should be nil when panic is recovered")
+	assert.Error(t, err, "Should return error when panic is recovered")
+	assert.Contains(t, err.Error(), "CreateProposalBlock panic recovered", "Error should indicate panic recovery")
+	assert.Contains(t, err.Error(), "test panic for coverage", "Error should contain original panic message")
+
+	// Verify mock expectations
+	mp.AssertExpectations(t)
+}

@@ -1532,7 +1532,16 @@ func (cs *State) isProposalComplete() bool {
 //
 // NOTE: keep it side-effect free for clarity.
 // CONTRACT: cs.privValidator is not nil.
-func (cs *State) createProposalBlock(ctx context.Context) (*types.Block, error) {
+func (cs *State) createProposalBlock(ctx context.Context) (block *types.Block, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			cs.logger.Error("panic recovered in createProposalBlock", "panic", r)
+			// Convert panic to error
+			block = nil
+			err = fmt.Errorf("createProposalBlock panic recovered: %v", r)
+		}
+	}()
+
 	if cs.privValidator == nil {
 		return nil, errors.New("entered createProposalBlock with privValidator being nil")
 	}
@@ -1563,11 +1572,12 @@ func (cs *State) createProposalBlock(ctx context.Context) (*types.Block, error) 
 
 	proposerAddr := cs.privValidatorPubKey.Address()
 
-	ret, err := cs.blockExec.CreateProposalBlock(ctx, cs.roundState.Height(), cs.state, lastCommit, proposerAddr)
+	block, err = cs.blockExec.CreateProposalBlock(ctx, cs.roundState.Height(), cs.state, lastCommit, proposerAddr)
 	if err != nil {
-		panic(err)
+		// Instead of panicking, return the error which will be caught by our defer recovery
+		return nil, err
 	}
-	return ret, nil
+	return block, nil
 }
 
 // Enter: `timeoutPropose` after entering Propose.
