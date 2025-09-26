@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,7 +18,6 @@ import (
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
-	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/stream/changelog"
 	"github.com/sei-protocol/sei-db/stream/types"
@@ -209,8 +209,10 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (*DB, error
 			return nil, errorutils.Join(err, db.Close())
 		}
 	}
-	if db.streamHandler == nil {
-		fmt.Println("[Debug] DB steam handler is nil??")
+
+	// We need to prune snapshots during start up to avoid snapshot leaks
+	if !db.readOnly {
+		db.pruneSnapshots()
 	}
 	return db, nil
 }
@@ -617,7 +619,8 @@ func (db *DB) Close() error {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 	errs := []error{}
-
+	db.pruneSnapshotLock.Lock()
+	defer db.pruneSnapshotLock.Unlock()
 	// Close stream handler
 	if db.streamHandler != nil {
 		err := db.streamHandler.Close()
@@ -801,7 +804,8 @@ func initEmptyDB(dir string, initialVersion uint32) error {
 	tmp := NewEmptyMultiTree(initialVersion, 0)
 	snapshotDir := snapshotName(0)
 	// create tmp worker pool
-	pool := pond.New(config.DefaultSnapshotWriterLimit, config.DefaultSnapshotWriterLimit*10)
+	concurrency := runtime.NumCPU()
+	pool := pond.New(concurrency, concurrency*10)
 	defer pool.Stop()
 
 	if err := tmp.WriteSnapshot(context.Background(), filepath.Join(dir, snapshotDir), pool); err != nil {

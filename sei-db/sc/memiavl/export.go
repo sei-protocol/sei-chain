@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"runtime"
 
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/sc/types"
 )
 
@@ -36,7 +36,7 @@ func NewMultiTreeExporter(dir string, version uint32, onlyAllowExportOnSnapshotV
 			Dir:                 dir,
 			ZeroCopy:            true,
 			ReadOnly:            true,
-			SnapshotWriterLimit: config.DefaultSnapshotWriterLimit,
+			SnapshotWriterLimit: runtime.NumCPU(),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("invalid height: %d, %w", version, err)
