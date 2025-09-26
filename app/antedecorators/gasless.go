@@ -61,7 +61,7 @@ func (gd GaslessDecorator) handleWrapped(ctx sdk.Context, tx sdk.Tx, simulate bo
 	for _, handler := range gd.wrapped {
 		newCtx, err := handler.AnteHandle(ctx, tx, simulate, terminatorHandler)
 		if err != nil {
-			return ctx, err
+			return newCtx, err
 		}
 		// We need to replace with the new context returned by the handler otherwise we could be losing data
 		ctx = newCtx
