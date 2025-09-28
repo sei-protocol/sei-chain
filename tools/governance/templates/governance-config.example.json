@@ -1,0 +1,76 @@
+{
+  "network": {
+    "name": "Sei Devnet"
+  },
+  "distributor": "0x0000000000000000000000000000000000000000",
+  "rewardToken": {
+    "symbol": "WSEI",
+    "decimals": 18
+  },
+  "accounts": [
+    "0x1111111111111111111111111111111111111111",
+    "0x2222222222222222222222222222222222222222"
+  ],
+  "global": {
+    "bufferDays": 3,
+    "maxSystemBacklogDays": 7
+  },
+  "emissionSchedule": [
+    {
+      "label": "Epoch 12",
+      "days": 14,
+      "emissionPerDay": "25000"
+    },
+    {
+      "label": "Epoch 13",
+      "days": 30,
+      "emissionPerDay": "21000"
+    }
+  ],
+  "markets": [
+    {
+      "address": "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "label": "Sei / USDC Lending",
+      "tags": ["core", "priority"],
+      "policy": {
+        "currentUtilization": 0.52,
+        "targetUtilization": 0.70,
+        "notes": "Usage dipped after rate hike."
+      },
+      "borrow": {
+        "baselineEmissionPerDay": "1800",
+        "maxBacklogDays": 2,
+        "seedOutstanding": "5200",
+        "boostOnUnderUtilization": true
+      },
+      "supply": {
+        "baselineEmissionPerDay": "950",
+        "maxBacklogDays": 3,
+        "seedOutstanding": "1200",
+        "notes": "Supplier backlog minimal."
+      }
+    },
+    {
+      "address": "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "label": "Sei / WETH Vault",
+      "tags": ["expansion"],
+      "policy": {
+        "currentUtilization": 0.31,
+        "targetUtilization": 0.55,
+        "notes": "Vault still bootstrapping."
+      },
+      "borrow": {
+        "baselineEmissionPerDay": "900",
+        "maxBacklogDays": 4,
+        "seedOutstanding": "4600",
+        "boostOnUnderUtilization": true,
+        "notes": "Consider temporary boost via governance."
+      },
+      "supply": {
+        "baselineEmissionPerDay": "400",
+        "maxBacklogDays": 5,
+        "seedOutstanding": "800"
+      }
+    }
+  ]
+}

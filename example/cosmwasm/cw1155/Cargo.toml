@@ -15,7 +15,7 @@ library = []
 
 [dependencies]
 cosmwasm-schema = "1.5.0"
-cosmwasm-std = { version = "1.5.4", features = ["staking", "stargate"] }
+cosmwasm-std = { version = "1.5.11", features = ["staking", "stargate"] }
 cw-storage-plus = "1.2.0"
 cw1155-royalties = { git = "https://github.com/palletexchange/cw-nfts.git", rev = "b00b04f", features = ["library"] }
 cw1155 = { git = "https://github.com/palletexchange/cw-nfts.git", rev = "b00b04f" }

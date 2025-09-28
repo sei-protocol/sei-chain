@@ -1,0 +1,37 @@
+{
+  "name": "@web3plus/reward-utils",
+  "version": "0.1.0",
+  "description": "Typed SDK helpers for interacting with Sei reward distributors",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./types": "./dist/types.d.ts"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "sei",
+    "rewards",
+    "sdk",
+    "defi"
+  ],
+  "author": "Sei Labs",
+  "license": "MIT",
+  "dependencies": {
+    "ethers": "^6.11.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "typescript": "^5.4.2"
+  }
+}

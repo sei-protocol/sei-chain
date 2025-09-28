@@ -1,6 +1,8 @@
 package types
 
 import (
+	"strings"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/ethereum/go-ethereum/common"
@@ -42,10 +44,24 @@ func (msg *MsgClaimSpecific) ValidateBasic() error {
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
 	}
+	if !common.IsHexAddress(msg.Claimer) {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid claimer address (%s)", msg.Claimer)
+	}
 	for _, asset := range msg.Assets {
-		_, err = sdk.AccAddressFromBech32(asset.ContractAddress)
-		if err != nil {
-			return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid contract address (%s)", err)
+		switch asset.AssetType {
+		case AssetType_TYPECW20, AssetType_TYPECW721:
+			if _, err = sdk.AccAddressFromBech32(asset.ContractAddress); err != nil {
+				return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid contract address (%s)", err)
+			}
+		case AssetType_TYPENATIVE:
+			if strings.TrimSpace(asset.Denom) == "" {
+				return sdkerrors.Wrapf(sdkerrors.ErrInvalidCoins, "Invalid denom %s", asset.Denom)
+			}
+			if err := sdk.ValidateDenom(asset.Denom); err != nil {
+				return sdkerrors.Wrapf(sdkerrors.ErrInvalidCoins, "Invalid denom %s", asset.Denom)
+			}
+		default:
+			return sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "Unsupported asset type %s", asset.AssetType)
 		}
 	}
 

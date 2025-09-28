@@ -12,7 +12,7 @@ The overall process will work as follows:
 1. Update config to enable SeiDB (state committment + state store)
 2. Stop the node and Run SC Migration
 3. Note down MIGRATION_HEIGHT
-4. Re start seid with `--migrate-iavl` enabled (migrating state store in background)
+4. Re start seid with `--migrate-iavl` enabled (migrating state store in background, optional `--migrate-cache-size` to adjust IAVL cache)
 5. Verify migration at various sampled heights once state store is complete
 6. Restart seid normally and verify node runs properly
 7. Clear out iavl and restart seid normally, now only using SeiDB fully
@@ -131,7 +131,7 @@ MIGRATION_HEIGHT=<>
 If you are using systemd, make sure to update your service configuration to use this command.
 Always be sure to run with these flags until migration is complete.
 ```bash
-seid start --migrate-iavl --migrate-height $MIGRATION_HEIGHT --chain-id pacific-1
+seid start --migrate-iavl --migrate-height $MIGRATION_HEIGHT --migrate-cache-size 10000 --chain-id pacific-1
 ```
 
 Seid will run normally and the migration will run in the background. Data from iavl
@@ -156,7 +156,7 @@ all keys in iavl at a specific height and verify they exist in State Store.
 
 You should run the following command for a selection of different heights
 ```bash
-seid tools verify-migration --version $VERIFICATION_HEIGHT
+seid tools verify-migration --version $VERIFICATION_HEIGHT --cache-size 10000
 ```
 
 This will output `Verification Succeeded` if the verification was successful.

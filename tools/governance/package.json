@@ -1,0 +1,13 @@
+{
+  "name": "sei-governance-scribe",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "AI-assisted governance planning toolkit for Sei rewards",
+  "scripts": {
+    "plan": "node aiScribe.mjs"
+  },
+  "dependencies": {
+    "ethers": "^6.11.1"
+  }
+}

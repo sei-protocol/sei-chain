@@ -20,6 +20,9 @@ func TestMsgClaim(t *testing.T) {
 	require.Error(t, msg.ValidateBasic())
 	require.Panics(t, func() { msg.GetSigners() })
 	msg.Sender = sender.String()
+	msg.Claimer = "bad"
+	require.Error(t, msg.ValidateBasic())
+	msg.Claimer = claimer.Hex()
 	require.NotEmpty(t, msg.GetSignBytes())
 	require.NoError(t, msg.ValidateBasic())
 }

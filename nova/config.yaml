@@ -1,0 +1,16 @@
+wallet_name: "your_wallet_key"
+chain_id: "pacific-1"
+rpc_node: "https://rpc.pacific-1.sei.io:443"
+fee: "5000usei"
+gas: "200000"
+min_balance_buffer: 6000
+sleep_interval: 3600
+
+validators:
+  - seivaloper1yourval1
+  - seivaloper1yourval2
+
+telegram:
+  enabled: true
+  token: "YOUR_TELEGRAM_BOT_TOKEN"
+  chat_id: "YOUR_CHAT_ID"

@@ -1,0 +1,13 @@
+wallet_name: "nova_wallet"
+chain_id: "pacific-1"
+rpc_node: "https://rpc.pacific-1.sei.io:443"
+fee: "5000usei"
+gas: "200000"
+buffer: 6000
+validators:
+  - "seivaloper1example000"
+  - "seivaloper1example111"
+alerts:
+  telegram_token: "YOUR_TELEGRAM_BOT_TOKEN"
+  chat_id: "YOUR_TELEGRAM_CHAT_ID"
+  enabled: true

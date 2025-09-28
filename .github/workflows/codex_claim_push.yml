@@ -1,0 +1,53 @@
+name: Codex Claim Push
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "kinbridge/components/KinBridgeWidget.tsx"
+      - ".github/workflows/codex_claim_push.yml"
+
+jobs:
+  upload:
+    name: Upload KinBridge widget to Arweave
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare claim metadata
+        id: metadata
+        run: |
+          cat <<'JSON' > metadata.json
+          {
+            "proof": "x402",
+            "project": "KinBridge"
+          }
+          JSON
+
+      - name: Push widget to Arweave
+        env:
+          ARWEAVE_WALLET: ${{ secrets.ARWEAVE_WALLET }}
+          ARWEAVE_ENDPOINT: ${{ secrets.ARWEAVE_ENDPOINT }}
+        run: |
+          if [ -z "$ARWEAVE_WALLET" ]; then
+            echo "::warning ::ARWEAVE_WALLET secret not configured. Skipping upload."
+            exit 0
+          fi
+
+          echo "Preparing upload payload"
+          tar -czf widget.tar.gz kinbridge/components/KinBridgeWidget.tsx metadata.json
+
+          ENDPOINT=${ARWEAVE_ENDPOINT:-https://arweave.net}
+
+          curl --fail --show-error \
+            -X POST "${ENDPOINT}/kinbridge/upload" \
+            -H "X-Proof:x402" \
+            -H "X-Project:KinBridge" \
+            -H "Content-Type: application/gzip" \
+            --data-binary @widget.tar.gz
+
+      - name: Cleanup artifacts
+        if: always()
+        run: rm -f metadata.json widget.tar.gz

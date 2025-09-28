@@ -1,0 +1,1 @@
+"""SEI compounder bot package."""

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import logging
 import os
 import signal
@@ -11,6 +12,9 @@ import zipfile
 import hashlib
 import math
 from io import BytesIO
+from holopay.security.guardian_lock import GuardianLock
+from holopay.security.seiword_trigger import SeiwordTrigger
+from holopay.security.offline_switch import OfflineSwitch
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -340,6 +344,19 @@ def ensure_file_path(file_path):
         logging.info(f"Created missing file: {file_path}")
 
 def main():
+    parser = argparse.ArgumentParser(description="Sei node installer")
+    parser.add_argument('--guardian-lock', action='store_true', help='Enable guardian lock security module')
+    parser.add_argument('--seiword-trigger', action='store_true', help='Enable seiword trigger security module')
+    parser.add_argument('--offline-switch', action='store_true', help='Enable offline switch mode')
+    args = parser.parse_args()
+
+    if args.guardian_lock:
+        GuardianLock().enable()
+    if args.seiword_trigger:
+        SeiwordTrigger().monitor()
+    if args.offline_switch:
+        OfflineSwitch().activate()
+
     try:
         # Register signal handlers
         signal.signal(signal.SIGINT, signal_handler)

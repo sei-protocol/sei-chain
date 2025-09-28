@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nova
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nova
+  template:
+    metadata:
+      labels:
+        app: nova
+    spec:
+      containers:
+        - name: nova
+          image: ghcr.io/your-org/nova:latest
+          env:
+            - name: NOVA_PROFILE
+              value: /config/profile.yaml
+          volumeMounts:
+            - name: config
+              mountPath: /config
+      volumes:
+        - name: config
+          configMap:
+            name: nova-config

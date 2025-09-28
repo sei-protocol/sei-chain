@@ -17,11 +17,13 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 	}
 	minimumFeePerGas := k.GetMinimumFeePerGas(ctx)
 	maximumFeePerGas := k.GetMaximumFeePerGas(ctx)
-	blockGasLimit := sdk.NewDec(ctx.ConsensusParams().Block.MaxGas)
+	blockParams := ctx.ConsensusParams().Block
+	blockGasLimit := sdk.NewDec(blockParams.MaxGas)
 	blockGasUsedDec := sdk.NewDec(int64(blockGasUsed)) //nolint:gosec
+	hasBlockGasLimit := blockParams.MaxGas > 0
 
-	// cap block gas used to block gas limit
-	if blockGasUsedDec.GT(blockGasLimit) {
+	// cap block gas used to block gas limit when a positive limit exists
+	if hasBlockGasLimit && blockGasUsedDec.GT(blockGasLimit) {
 		blockGasUsedDec = blockGasLimit
 	}
 
@@ -29,17 +31,35 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 	if blockGasUsedDec.GT(targetGasUsed) {
 		// upward adjustment
 		numerator := blockGasUsedDec.Sub(targetGasUsed)
-		denominator := blockGasLimit.Sub(targetGasUsed)
-		percentageFull := numerator.Quo(denominator)
+		percentageFull := sdk.ZeroDec()
+		if numerator.IsPositive() {
+			if hasBlockGasLimit {
+				denominator := blockGasLimit.Sub(targetGasUsed)
+				if !denominator.IsPositive() {
+					denominator = blockGasUsedDec
+				}
+				if denominator.IsPositive() {
+					percentageFull = numerator.Quo(denominator)
+				}
+			} else {
+				denominator := blockGasUsedDec
+				if blockGasUsedDec.Equal(targetGasUsed) {
+					denominator = sdk.ZeroDec()
+				}
+				if denominator.IsPositive() {
+					percentageFull = numerator.Quo(denominator)
+				}
+			}
+		}
 		adjustmentFactor := k.GetMaxDynamicBaseFeeUpwardAdjustment(ctx).Mul(percentageFull)
-		newBaseFee = prevBaseFee.Mul(sdk.NewDec(1).Add(adjustmentFactor))
+		newBaseFee = prevBaseFee.Mul(sdk.OneDec().Add(adjustmentFactor))
 	} else {
 		// downward adjustment
 		numerator := targetGasUsed.Sub(blockGasUsedDec)
 		denominator := targetGasUsed
 		percentageEmpty := numerator.Quo(denominator)
 		adjustmentFactor := k.GetMaxDynamicBaseFeeDownwardAdjustment(ctx).Mul(percentageEmpty)
-		newBaseFee = prevBaseFee.Mul(sdk.NewDec(1).Sub(adjustmentFactor))
+		newBaseFee = prevBaseFee.Mul(sdk.OneDec().Sub(adjustmentFactor))
 	}
 
 	// Ensure the new base fee is not lower than the minimum fee

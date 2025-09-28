@@ -1,0 +1,14 @@
+{
+  "name": "sei-reward-toolkit",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Automation scripts and SDK helpers for the Sei MultiRewardDistributor",
+  "scripts": {
+    "auto-claim": "node autoClaimer.mjs",
+    "monitor": "node monitor.mjs"
+  },
+  "dependencies": {
+    "ethers": "^6.11.1"
+  }
+}

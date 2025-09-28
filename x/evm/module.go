@@ -302,8 +302,15 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 				panic(err)
 			}
 			statedb := state.NewDBImpl(ctx, am.keeper, false)
-			vmenv := vm.NewEVM(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{}, am.keeper.CustomPrecompiles(ctx))
-			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv)
+			vmenv := vm.NewEVM(
+				*blockCtx,
+				vm.TxContext{},
+				statedb,
+				types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)),
+				vm.Config{},
+				am.keeper.CustomPrecompiles(ctx),
+			)
+			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv, statedb)
 			_, err = statedb.Finalize()
 			if err != nil {
 				panic(err)
@@ -317,8 +324,15 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 			panic(err)
 		}
 		statedb := state.NewDBImpl(ctx, am.keeper, false)
-		vmenv := vm.NewEVM(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{}, am.keeper.CustomPrecompiles(ctx))
-		core.ProcessParentBlockHash(parentHash, vmenv)
+		vmenv := vm.NewEVM(
+			*blockCtx,
+			vm.TxContext{},
+			statedb,
+			types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)),
+			vm.Config{},
+			am.keeper.CustomPrecompiles(ctx),
+		)
+		core.ProcessParentBlockHash(parentHash, vmenv, statedb)
 		_, err = statedb.Finalize()
 		if err != nil {
 			panic(err)
@@ -390,12 +404,12 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 		surplusUsei, surplusWei := state.SplitUseiWeiAmount(surplus.BigInt())
 		if surplusUsei.GT(sdk.ZeroInt()) {
 			if err := am.keeper.BankKeeper().AddCoins(ctx, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(am.keeper.GetBaseDenom(ctx), surplusUsei)), true); err != nil {
-				ctx.Logger().Error("failed to send usei surplus of %s to EVM module account", surplusUsei)
+				ctx.Logger().Error(fmt.Sprintf("failed to send usei surplus of %s to EVM module account", surplusUsei))
 			}
 		}
 		if surplusWei.GT(sdk.ZeroInt()) {
 			if err := am.keeper.BankKeeper().AddWei(ctx, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), surplusWei); err != nil {
-				ctx.Logger().Error("failed to send wei surplus of %s to EVM module account", surplusWei)
+				ctx.Logger().Error(fmt.Sprintf("failed to send wei surplus of %s to EVM module account", surplusWei))
 			}
 		}
 	}
@@ -416,10 +430,11 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 		if len(r.Logs) == 0 {
 			continue
 		}
-		// Re-create a per-tx bloom from EVM-only logs (exclude synthetic receipts but not synthetic logs)
-		evmOnlyBloom := ethtypes.CreateBloom(&ethtypes.Receipt{
-			Logs: keeper.GetLogsForTx(r, 0),
-		})
+// Re-create a per-tx bloom from EVM-only logs (exclude synthetic receipts but not synthetic logs)
+evmOnlyBloom := ethtypes.CreateBloom(&ethtypes.Receipt{
+    Logs: keeper.GetLogsForTx(r, 0),
+})
+
 		evmOnlyBlooms = append(evmOnlyBlooms, evmOnlyBloom)
 	}
 	am.keeper.SetBlockBloom(ctx, allBlooms)

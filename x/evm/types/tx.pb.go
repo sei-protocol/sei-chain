@@ -790,6 +790,50 @@ func (m *MsgClaim) GetClaimer() string {
 	return ""
 }
 
+type MsgClaimResponse struct {
+	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+}
+
+func (m *MsgClaimResponse) Reset()         { *m = MsgClaimResponse{} }
+func (m *MsgClaimResponse) String() string { return proto.CompactTextString(m) }
+func (*MsgClaimResponse) ProtoMessage()    {}
+func (*MsgClaimResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_d72e73a3d1d93781, []int{15}
+}
+func (m *MsgClaimResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgClaimResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgClaimResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgClaimResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgClaimResponse.Merge(m, src)
+}
+func (m *MsgClaimResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgClaimResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgClaimResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgClaimResponse proto.InternalMessageInfo
+
+func (m *MsgClaimResponse) GetSuccess() bool {
+	if m != nil {
+		return m.Success
+	}
+	return false
+}
+
 type Asset struct {
 	AssetType       AssetType `protobuf:"varint,1,opt,name=asset_type,json=assetType,proto3,enum=seiprotocol.seichain.evm.AssetType" json:"asset_type,omitempty"`
 	ContractAddress string    `protobuf:"bytes,2,opt,name=contract_address,json=contractAddress,proto3" json:"contract_address,omitempty"`
@@ -800,7 +844,7 @@ func (m *Asset) Reset()         { *m = Asset{} }
 func (m *Asset) String() string { return proto.CompactTextString(m) }
 func (*Asset) ProtoMessage()    {}
 func (*Asset) Descriptor() ([]byte, []int) {
-	return fileDescriptor_d72e73a3d1d93781, []int{15}
+	return fileDescriptor_d72e73a3d1d93781, []int{16}
 }
 func (m *Asset) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -860,7 +904,7 @@ func (m *MsgClaimSpecific) Reset()         { *m = MsgClaimSpecific{} }
 func (m *MsgClaimSpecific) String() string { return proto.CompactTextString(m) }
 func (*MsgClaimSpecific) ProtoMessage()    {}
 func (*MsgClaimSpecific) Descriptor() ([]byte, []int) {
-	return fileDescriptor_d72e73a3d1d93781, []int{16}
+	return fileDescriptor_d72e73a3d1d93781, []int{17}
 }
 func (m *MsgClaimSpecific) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -910,6 +954,50 @@ func (m *MsgClaimSpecific) GetAssets() []*Asset {
 	return nil
 }
 
+type MsgClaimSpecificResponse struct {
+	Success bool `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+}
+
+func (m *MsgClaimSpecificResponse) Reset()         { *m = MsgClaimSpecificResponse{} }
+func (m *MsgClaimSpecificResponse) String() string { return proto.CompactTextString(m) }
+func (*MsgClaimSpecificResponse) ProtoMessage()    {}
+func (*MsgClaimSpecificResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_d72e73a3d1d93781, []int{18}
+}
+func (m *MsgClaimSpecificResponse) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *MsgClaimSpecificResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_MsgClaimSpecificResponse.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *MsgClaimSpecificResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_MsgClaimSpecificResponse.Merge(m, src)
+}
+func (m *MsgClaimSpecificResponse) XXX_Size() int {
+	return m.Size()
+}
+func (m *MsgClaimSpecificResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_MsgClaimSpecificResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_MsgClaimSpecificResponse proto.InternalMessageInfo
+
+func (m *MsgClaimSpecificResponse) GetSuccess() bool {
+	if m != nil {
+		return m.Success
+	}
+	return false
+}
+
 func init() {
 	proto.RegisterType((*MsgEVMTransaction)(nil), "seiprotocol.seichain.evm.MsgEVMTransaction")
 	proto.RegisterType((*MsgEVMTransactionResponse)(nil), "seiprotocol.seichain.evm.MsgEVMTransactionResponse")
@@ -926,8 +1014,10 @@ func init() {
 	proto.RegisterType((*MsgAssociate)(nil), "seiprotocol.seichain.evm.MsgAssociate")
 	proto.RegisterType((*MsgAssociateResponse)(nil), "seiprotocol.seichain.evm.MsgAssociateResponse")
 	proto.RegisterType((*MsgClaim)(nil), "seiprotocol.seichain.evm.MsgClaim")
+	proto.RegisterType((*MsgClaimResponse)(nil), "seiprotocol.seichain.evm.MsgClaimResponse")
 	proto.RegisterType((*Asset)(nil), "seiprotocol.seichain.evm.Asset")
 	proto.RegisterType((*MsgClaimSpecific)(nil), "seiprotocol.seichain.evm.MsgClaimSpecific")
+	proto.RegisterType((*MsgClaimSpecificResponse)(nil), "seiprotocol.seichain.evm.MsgClaimSpecificResponse")
 }
 
 func init() { proto.RegisterFile("evm/tx.proto", fileDescriptor_d72e73a3d1d93781) }
@@ -1015,6 +1105,8 @@ type MsgClient interface {
 	RegisterPointer(ctx context.Context, in *MsgRegisterPointer, opts ...grpc.CallOption) (*MsgRegisterPointerResponse, error)
 	AssociateContractAddress(ctx context.Context, in *MsgAssociateContractAddress, opts ...grpc.CallOption) (*MsgAssociateContractAddressResponse, error)
 	Associate(ctx context.Context, in *MsgAssociate, opts ...grpc.CallOption) (*MsgAssociateResponse, error)
+	Claim(ctx context.Context, in *MsgClaim, opts ...grpc.CallOption) (*MsgClaimResponse, error)
+	ClaimSpecific(ctx context.Context, in *MsgClaimSpecific, opts ...grpc.CallOption) (*MsgClaimSpecificResponse, error)
 }
 
 type msgClient struct {
@@ -1070,6 +1162,24 @@ func (c *msgClient) Associate(ctx context.Context, in *MsgAssociate, opts ...grp
 	return out, nil
 }
 
+func (c *msgClient) Claim(ctx context.Context, in *MsgClaim, opts ...grpc.CallOption) (*MsgClaimResponse, error) {
+	out := new(MsgClaimResponse)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.evm.Msg/Claim", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *msgClient) ClaimSpecific(ctx context.Context, in *MsgClaimSpecific, opts ...grpc.CallOption) (*MsgClaimSpecificResponse, error) {
+	out := new(MsgClaimSpecificResponse)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.evm.Msg/ClaimSpecific", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MsgServer is the server API for Msg service.
 type MsgServer interface {
 	EVMTransaction(context.Context, *MsgEVMTransaction) (*MsgEVMTransactionResponse, error)
@@ -1077,6 +1187,8 @@ type MsgServer interface {
 	RegisterPointer(context.Context, *MsgRegisterPointer) (*MsgRegisterPointerResponse, error)
 	AssociateContractAddress(context.Context, *MsgAssociateContractAddress) (*MsgAssociateContractAddressResponse, error)
 	Associate(context.Context, *MsgAssociate) (*MsgAssociateResponse, error)
+	Claim(context.Context, *MsgClaim) (*MsgClaimResponse, error)
+	ClaimSpecific(context.Context, *MsgClaimSpecific) (*MsgClaimSpecificResponse, error)
 }
 
 // UnimplementedMsgServer can be embedded to have forward compatible implementations.
@@ -1097,6 +1209,14 @@ func (*UnimplementedMsgServer) AssociateContractAddress(ctx context.Context, req
 }
 func (*UnimplementedMsgServer) Associate(ctx context.Context, req *MsgAssociate) (*MsgAssociateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Associate not implemented")
+}
+
+func (*UnimplementedMsgServer) Claim(ctx context.Context, req *MsgClaim) (*MsgClaimResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Claim not implemented")
+}
+
+func (*UnimplementedMsgServer) ClaimSpecific(ctx context.Context, req *MsgClaimSpecific) (*MsgClaimSpecificResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClaimSpecific not implemented")
 }
 
 func RegisterMsgServer(s grpc1.Server, srv MsgServer) {
@@ -1193,6 +1313,42 @@ func _Msg_Associate_Handler(srv interface{}, ctx context.Context, dec func(inter
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Msg_Claim_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MsgClaim)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MsgServer).Claim(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/seiprotocol.seichain.evm.Msg/Claim",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MsgServer).Claim(ctx, req.(*MsgClaim))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Msg_ClaimSpecific_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MsgClaimSpecific)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MsgServer).ClaimSpecific(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/seiprotocol.seichain.evm.Msg/ClaimSpecific",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MsgServer).ClaimSpecific(ctx, req.(*MsgClaimSpecific))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _Msg_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "seiprotocol.seichain.evm.Msg",
 	HandlerType: (*MsgServer)(nil),
@@ -1216,6 +1372,14 @@ var _Msg_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Associate",
 			Handler:    _Msg_Associate_Handler,
+		},
+		{
+			MethodName: "Claim",
+			Handler:    _Msg_Claim_Handler,
+		},
+		{
+			MethodName: "ClaimSpecific",
+			Handler:    _Msg_ClaimSpecific_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -1795,6 +1959,37 @@ func (m *MsgClaim) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *MsgClaimResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgClaimResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgClaimResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	if m.Success {
+		i--
+		if m.Success {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
 func (m *Asset) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
@@ -1884,6 +2079,37 @@ func (m *MsgClaimSpecific) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintTx(dAtA, i, uint64(len(m.Sender)))
 		i--
 		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *MsgClaimSpecificResponse) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *MsgClaimSpecificResponse) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *MsgClaimSpecificResponse) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	if m.Success {
+		i--
+		if m.Success {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x8
 	}
 	return len(dAtA) - i, nil
 }
@@ -2152,6 +2378,16 @@ func (m *MsgClaim) Size() (n int) {
 	return n
 }
 
+func (m *MsgClaimResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	if m.Success {
+		n += 1 + 1
+	}
+	return n
+}
+
 func (m *Asset) Size() (n int) {
 	if m == nil {
 		return 0
@@ -2191,6 +2427,16 @@ func (m *MsgClaimSpecific) Size() (n int) {
 			l = e.Size()
 			n += 1 + l + sovTx(uint64(l))
 		}
+	}
+	return n
+}
+
+func (m *MsgClaimSpecificResponse) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	if m.Success {
+		n += 1 + 1
 	}
 	return n
 }
@@ -3876,6 +4122,76 @@ func (m *MsgClaim) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
+func (m *MsgClaimResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgClaimResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgClaimResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Success", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.Success = bool(v != 0)
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
 func (m *Asset) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -4152,6 +4468,76 @@ func (m *MsgClaimSpecific) Unmarshal(dAtA []byte) error {
 		}
 	}
 
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+
+func (m *MsgClaimSpecificResponse) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowTx
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: MsgClaimSpecificResponse: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: MsgClaimSpecificResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Success", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowTx
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.Success = bool(v != 0)
+		default:
+			iNdEx = preIndex
+			skippy, err := skipTx(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthTx
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
 	if iNdEx > l {
 		return io.ErrUnexpectedEOF
 	}

@@ -533,6 +533,37 @@ func TestSend(t *testing.T) {
 	require.Equal(t, sdk.NewInt(500000), k.BankKeeper().GetBalance(ctx, seiTo, "usei").Amount)
 }
 
+func TestClaim(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	msgServer := keeper.NewMsgServerImpl(k)
+	claimeeKey := testkeeper.MockPrivateKey()
+	claimee, _ := testkeeper.PrivateKeyToAddresses(claimeeKey)
+	_, claimer := testkeeper.MockAddressPair()
+	require.NoError(t, k.BankKeeper().AddCoins(ctx, claimee, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(42))), false))
+
+	res, err := msgServer.Claim(sdk.WrapSDKContext(ctx), types.NewMsgClaim(claimee, claimer))
+	require.NoError(t, err)
+	require.True(t, res.Success)
+	require.True(t, k.BankKeeper().GetBalance(ctx, claimee, "usei").IsZero())
+	require.Equal(t, sdk.NewInt(42), k.BankKeeper().GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, claimer), "usei").Amount)
+}
+
+func TestClaimSpecificNative(t *testing.T) {
+	k, ctx := testkeeper.MockEVMKeeper()
+	msgServer := keeper.NewMsgServerImpl(k)
+	claimeeKey := testkeeper.MockPrivateKey()
+	claimee, _ := testkeeper.PrivateKeyToAddresses(claimeeKey)
+	_, claimer := testkeeper.MockAddressPair()
+	require.NoError(t, k.BankKeeper().AddCoins(ctx, claimee, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(7))), false))
+
+	msg := types.NewMsgClaimSpecific(claimee, claimer, &types.Asset{AssetType: types.AssetType_TYPENATIVE, Denom: "usei"})
+	res, err := msgServer.ClaimSpecific(sdk.WrapSDKContext(ctx), msg)
+	require.NoError(t, err)
+	require.True(t, res.Success)
+	require.True(t, k.BankKeeper().GetBalance(ctx, claimee, "usei").IsZero())
+	require.Equal(t, sdk.NewInt(7), k.BankKeeper().GetBalance(ctx, k.GetSeiAddressOrDefault(ctx, claimer), "usei").Amount)
+}
+
 func TestRegisterPointer(t *testing.T) {
 	k, ctx := testkeeper.MockEVMKeeper()
 	sender, _ := testkeeper.MockAddressPair()

@@ -27,7 +27,7 @@ func (k *Keeper) RunWithOneOffEVMInstance(
 	}
 	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(&core.Message{From: evmModuleAddress, GasPrice: utils.Big0})
-	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
+	evmInstance := vm.NewEVM(*blockCtx, vm.TxContext{}, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
 	evmInstance.SetTxContext(txCtx)
 	err = runner(evmInstance)
 	if err != nil {

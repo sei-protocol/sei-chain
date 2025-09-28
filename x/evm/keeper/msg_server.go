@@ -21,6 +21,7 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 
+	"github.com/sei-protocol/sei-chain/precompiles/solo"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/utils"
 	seimetrics "github.com/sei-protocol/sei-chain/utils/metrics"
@@ -244,7 +245,7 @@ func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *sta
 	}
 	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	txCtx := core.NewEVMTxContext(msg)
-	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
+	evmInstance := vm.NewEVM(*blockCtx, vm.TxContext{}, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
 	evmInstance.SetTxContext(txCtx)
 	st := core.NewStateTransition(evmInstance, msg, &gp, true, shouldIncrementNonce) // fee already charged in ante handler
 	return st.Execute()
@@ -364,4 +365,87 @@ func (server msgServer) AssociateContractAddress(goCtx context.Context, msg *typ
 
 func (server msgServer) Associate(context.Context, *types.MsgAssociate) (*types.MsgAssociateResponse, error) {
 	return &types.MsgAssociateResponse{}, nil
+}
+
+func (server msgServer) Claim(goCtx context.Context, msg *types.MsgClaim) (*types.MsgClaimResponse, error) {
+	if err := msg.ValidateBasic(); err != nil {
+		return nil, err
+	}
+	ctx := sdk.UnwrapSDKContext(goCtx)
+	sender := sdk.MustAccAddressFromBech32(msg.Sender)
+	claimer := server.GetSeiAddressOrDefault(ctx, common.HexToAddress(msg.Claimer))
+	if err := server.bankKeeper.SendCoins(ctx, sender, claimer, server.bankKeeper.GetAllBalances(ctx, sender)); err != nil {
+		return nil, err
+	}
+	return &types.MsgClaimResponse{Success: true}, nil
+}
+
+func (server msgServer) ClaimSpecific(goCtx context.Context, msg *types.MsgClaimSpecific) (*types.MsgClaimSpecificResponse, error) {
+	if err := msg.ValidateBasic(); err != nil {
+		return nil, err
+	}
+	ctx := sdk.UnwrapSDKContext(goCtx)
+	sender := sdk.MustAccAddressFromBech32(msg.Sender)
+	claimer := server.GetSeiAddressOrDefault(ctx, common.HexToAddress(msg.Claimer))
+	for _, asset := range msg.GetIAssets() {
+		switch {
+		case asset.IsNative():
+			balance := server.bankKeeper.GetBalance(ctx, sender, asset.GetDenom())
+			if balance.IsZero() {
+				continue
+			}
+			if err := server.bankKeeper.SendCoins(ctx, sender, claimer, sdk.NewCoins(balance)); err != nil {
+				return nil, fmt.Errorf("failed to transfer coins: %w", err)
+			}
+		case asset.IsCW20():
+			contractAddr, err := sdk.AccAddressFromBech32(asset.GetContractAddress())
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse contract address %s: %w", asset.GetContractAddress(), err)
+			}
+			res, err := server.wasmViewKeeper.QuerySmartSafe(ctx, contractAddr, solo.CW20BalanceQueryPayload(sender))
+			if err != nil {
+				return nil, fmt.Errorf("failed to query CW20 contract %s for balance: %w", contractAddr.String(), err)
+			}
+			balance, err := solo.ParseCW20BalanceQueryResponse(res)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse CW20 contract %s balance response: %w", contractAddr.String(), err)
+			}
+			if balance.IsZero() {
+				continue
+			}
+			if _, err = server.wasmKeeper.Execute(ctx, contractAddr, sender, solo.CW20TransferPayload(claimer, balance), sdk.NewCoins()); err != nil {
+				return nil, fmt.Errorf("failed to transfer on CW20 contract %s: %w", contractAddr.String(), err)
+			}
+		case asset.IsCW721():
+			contractAddr, err := sdk.AccAddressFromBech32(asset.GetContractAddress())
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse contract address %s: %w", asset.GetContractAddress(), err)
+			}
+			allTokens := []string{}
+			startAfter := ""
+			for {
+				res, err := server.wasmViewKeeper.QuerySmartSafe(ctx, contractAddr, solo.CW721TokensQueryPayload(sender, startAfter))
+				if err != nil {
+					return nil, fmt.Errorf("failed to query CW721 contract %s for all tokens: %w", contractAddr.String(), err)
+				}
+				tokens, err := solo.ParseCW721TokensQueryResponse(res)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse CW20 contract %s balance response: %w", contractAddr.String(), err)
+				}
+				if len(tokens) == 0 {
+					break
+				}
+				allTokens = append(allTokens, tokens...)
+				startAfter = tokens[len(tokens)-1]
+			}
+			for _, token := range allTokens {
+				if _, err := server.wasmKeeper.Execute(ctx, contractAddr, sender, solo.CW721TransferPayload(claimer, token), sdk.NewCoins()); err != nil {
+					return nil, fmt.Errorf("failed to transfer token %s on CW721 contract %s: %w", token, contractAddr.String(), err)
+				}
+			}
+		default:
+			return nil, fmt.Errorf("unsupported asset type %s", asset)
+		}
+	}
+	return &types.MsgClaimSpecificResponse{Success: true}, nil
 }

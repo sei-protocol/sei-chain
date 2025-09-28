@@ -1,0 +1,16 @@
+{
+  "distributor": "0x28BF6D71b6Dc837F56F5afbF1F4A46AaC0B1f31E",
+  "rpcUrl": "https://evm-rpc.arctic-1.seinetwork.io",
+  "accounts": [
+    {
+      "label": "compounder-bot",
+      "address": "0xb2b297eF9449aa0905bC318B3bd258c4804BAd98",
+      "privateKeyEnv": "PRIVATE_KEY"
+    }
+  ],
+  "cron": {
+    "intervalSeconds": 300,
+    "webhook": "https://hooks.slack.com/services/...",
+    "metricsFile": "./outstanding.log"
+  }
+}

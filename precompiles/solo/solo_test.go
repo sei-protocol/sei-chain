@@ -30,7 +30,7 @@ func TestExecute(t *testing.T) {
 	txConfig := testkeeper.EVMTestApp.GetTxConfig()
 	a := pcommon.MustGetABI(solo.F, "abi.json")
 	p := solo.NewExecutor(a, k, k.BankKeeper(), k.AccountKeeper(), wasmkeeper.NewDefaultPermissionKeeper(testkeeper.EVMTestApp.WasmKeeper), testkeeper.EVMTestApp.WasmKeeper, txConfig)
-	evm := vm.NewEVM(vm.BlockContext{}, nil, &params.ChainConfig{}, vm.Config{}, nil)
+	evm := vm.NewEVM(vm.BlockContext{}, vm.TxContext{}, nil, &params.ChainConfig{}, vm.Config{}, nil)
 	_, _, err := p.Execute(ctx.WithEVMPrecompileCalledFromDelegateCall(true), &abi.Method{}, common.Address{}, common.Address{}, []interface{}{}, nil, false, evm, 0, nil)
 	require.Error(t, err, "cannot delegatecall claim")
 	_, _, err = p.Execute(ctx, &abi.Method{}, common.Address{}, common.Address{}, []interface{}{}, nil, false, evm, 0, nil)

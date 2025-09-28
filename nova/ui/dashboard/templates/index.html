@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Nova Dashboard</title>
+    <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/modern-normalize/2.0.0/modern-normalize.min.css"
+    />
+    <style>
+      body {
+        font-family: "Inter", sans-serif;
+        background: #050816;
+        color: #f3f4f6;
+        margin: 0;
+        padding: 2rem;
+      }
+      .card {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 1rem;
+        padding: 2rem;
+        max-width: 640px;
+        box-shadow: 0 30px 60px rgba(15, 23, 42, 0.35);
+      }
+      h1 {
+        margin-top: 0;
+        font-size: 2rem;
+      }
+      .metrics {
+        display: grid;
+        gap: 1rem;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      }
+      .metric {
+        background: rgba(15, 118, 110, 0.25);
+        padding: 1rem;
+        border-radius: 0.75rem;
+      }
+      .logs {
+        margin-top: 2rem;
+        background: rgba(255, 255, 255, 0.05);
+        padding: 1rem;
+        border-radius: 0.75rem;
+        min-height: 200px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Nova Operator</h1>
+      <div class="metrics">
+        <div class="metric">
+          <div>Wallet</div>
+          <strong>{{ address }}</strong>
+        </div>
+        <div class="metric">
+          <div>Spendable Balance</div>
+          <strong>{{ balance }} usei</strong>
+        </div>
+      </div>
+      <div
+        class="logs"
+        hx-get="/logs"
+        hx-trigger="load, every 10s"
+        hx-target="this"
+        hx-swap="outerHTML"
+      >
+        Loading logs...
+      </div>
+    </div>
+  </body>
+</html>

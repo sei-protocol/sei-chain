@@ -15,6 +15,8 @@ service Msg {
   rpc RegisterPointer(MsgRegisterPointer) returns (MsgRegisterPointerResponse);
   rpc AssociateContractAddress(MsgAssociateContractAddress) returns (MsgAssociateContractAddressResponse);
   rpc Associate(MsgAssociate) returns (MsgAssociateResponse);
+  rpc Claim(MsgClaim) returns (MsgClaimResponse);
+  rpc ClaimSpecific(MsgClaimSpecific) returns (MsgClaimSpecificResponse);
 }
 
 message MsgEVMTransaction {
@@ -89,6 +91,10 @@ message MsgClaim {
   string claimer = 2;
 }
 
+message MsgClaimResponse {
+  bool success = 1;
+}
+
 message Asset {
   AssetType asset_type = 1;
   string contract_address = 2;
@@ -99,4 +105,8 @@ message MsgClaimSpecific {
   string sender = 1;
   string claimer = 2;
   repeated Asset assets = 3;
+}
+
+message MsgClaimSpecificResponse {
+  bool success = 1;
 }

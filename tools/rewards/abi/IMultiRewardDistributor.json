@@ -1,0 +1,67 @@
+[
+  {
+    "inputs": [
+      { "internalType": "address", "name": "user", "type": "address" }
+    ],
+    "name": "getOutstandingRewardsForUser",
+    "outputs": [
+      {
+        "components": [
+          { "internalType": "address", "name": "tToken", "type": "address" },
+          { "internalType": "address", "name": "rewardToken", "type": "address" },
+          { "internalType": "uint256", "name": "amount", "type": "uint256" },
+          { "internalType": "bool", "name": "isBorrowReward", "type": "bool" }
+        ],
+        "internalType": "struct OutstandingReward[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "address", "name": "tToken", "type": "address" },
+      { "internalType": "address", "name": "user", "type": "address" },
+      { "internalType": "bool", "name": "autoClaim", "type": "bool" }
+    ],
+    "name": "disburseBorrowerRewards",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "address", "name": "tToken", "type": "address" },
+      { "internalType": "address", "name": "user", "type": "address" },
+      { "internalType": "bool", "name": "autoClaim", "type": "bool" }
+    ],
+    "name": "disburseSupplierRewards",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "address", "name": "tToken", "type": "address" },
+      { "internalType": "address", "name": "user", "type": "address" },
+      { "internalType": "bool", "name": "autoClaim", "type": "bool" }
+    ],
+    "name": "updateMarketBorrowIndexAndDisburseBorrowerRewards",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "address", "name": "tToken", "type": "address" },
+      { "internalType": "address", "name": "user", "type": "address" },
+      { "internalType": "bool", "name": "autoClaim", "type": "bool" }
+    ],
+    "name": "updateMarketSupplyIndexAndDisburseSupplierRewards",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]

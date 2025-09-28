@@ -41,6 +41,9 @@ func (msg *MsgClaim) ValidateBasic() error {
 	if err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid sender address (%s)", err)
 	}
+	if !common.IsHexAddress(msg.Claimer) {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "Invalid claimer address (%s)", msg.Claimer)
+	}
 
 	return nil
 }
