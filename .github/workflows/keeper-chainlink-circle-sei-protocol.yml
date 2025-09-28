@@ -15,7 +15,7 @@ on:
 
 jobs:
   tests:
-    name: "\U0001F9EA Sharded Go Test (${{ matrix.part }})"
+    name: 🧪 Sharded Go Test (${{ matrix.part }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -28,7 +28,7 @@ jobs:
 
       - uses: actions/setup-go@v4
         with:
-          go-version: '1.22'
+          go-version: "1.22"
 
       - name: Cache Go Modules & Build
         uses: actions/cache@v3
@@ -50,7 +50,7 @@ jobs:
           path: ./${{ matrix.part }}.profile.out
 
   merge-coverage:
-    name: "\U0001F4CA Merge Coverage Report"
+    name: 📊 Merge Coverage Report
     needs: tests
     runs-on: ubuntu-latest
     steps:
@@ -58,7 +58,7 @@ jobs:
 
       - uses: actions/setup-go@v4
         with:
-          go-version: '1.22'
+          go-version: "1.22"
 
       - uses: actions/download-artifact@v4
 
@@ -85,14 +85,14 @@ jobs:
           path: coverage.txt
 
   gosec:
-    name: "\U0001F510 Gosec AI-Fingerprint Scan"
+    name: 🔐 Gosec AI-Fingerprint Scan
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
 
       - uses: actions/setup-go@v4
         with:
-          go-version: '1.22'
+          go-version: "1.22"
 
       - name: Install gosec
         run: |
@@ -120,7 +120,7 @@ jobs:
             security/g115-risks.json
 
   notarize:
-    name: "\U0001F50F Proof of Test + SoulSigil"
+    name: 🔏 Proof of Test + SoulSigil
     needs: [merge-coverage, gosec]
     runs-on: ubuntu-latest
     steps:
@@ -163,7 +163,7 @@ jobs:
             guardian/guardian_vault.b64
 
   final-check:
-    name: "✅ Keeper CI Verdict"
+    name: ✅ Keeper CI Verdict
     needs: [tests]
     if: always()
     runs-on: ubuntu-latest
@@ -179,4 +179,3 @@ jobs:
           else
             echo "✅ All test shards passed."
           fi
-
