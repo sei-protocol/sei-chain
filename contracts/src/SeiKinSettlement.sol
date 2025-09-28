@@ -26,6 +26,11 @@ contract SeiKinSettlement {
     /// @notice Tracks processed deposits to prevent double settlement.
     mapping(bytes32 => bool) public settledDeposits;
 
+    /// @notice Reentrancy status flags.
+    uint256 private constant _STATUS_NOT_ENTERED = 1;
+    uint256 private constant _STATUS_ENTERED = 2;
+    uint256 private _status;
+
     /// @notice Settlement payload produced by the CCIP router.
     struct SettlementInstruction {
         bytes32 depositId;
@@ -35,6 +40,7 @@ contract SeiKinSettlement {
         uint256 royaltyAmount;
     }
 
+    // === Events ===
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event RouterUpdated(address indexed previousRouter, address indexed newRouter);
     event RoyaltyRecipientUpdated(address indexed previousRecipient, address indexed newRecipient);
@@ -47,6 +53,7 @@ contract SeiKinSettlement {
         uint256 royaltyAmount
     );
 
+    // === Errors ===
     error NotOwner();
     error NotRouter();
     error InvalidAddress();
@@ -59,23 +66,22 @@ contract SeiKinSettlement {
     error NoChange();
     error ReentrancyBlocked();
 
-    uint256 private constant _STATUS_NOT_ENTERED = 1;
-    uint256 private constant _STATUS_ENTERED = 2;
-    uint256 private _status;
-
     constructor(address royaltyRecipient_, address cctpVerifier_) {
         if (royaltyRecipient_ == address(0) || cctpVerifier_ == address(0)) {
             revert InvalidAddress();
         }
+
         owner = msg.sender;
         royaltyRecipient = royaltyRecipient_;
         cctpVerifier = ICctpVerifier(cctpVerifier_);
         _status = _STATUS_NOT_ENTERED;
+
         emit OwnershipTransferred(address(0), msg.sender);
         emit RoyaltyRecipientUpdated(address(0), royaltyRecipient_);
         emit CctpVerifierUpdated(address(0), cctpVerifier_);
     }
 
+    // === Modifiers ===
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
         _;
@@ -86,62 +92,6 @@ contract SeiKinSettlement {
         _;
     }
 
-    /// @notice Assigns a router allowed to finalize settlements.
-    /// @param newRouter Address of the Circle CCIP router implementation.
-    function setRouter(address newRouter) external onlyOwner {
-        if (newRouter == address(0)) revert InvalidAddress();
-        address previous = router;
-        if (previous == newRouter) revert NoChange();
-        router = newRouter;
-        emit RouterUpdated(previous, newRouter);
-    }
-
-    /// @notice Updates the address receiving royalty payouts.
-    /// @param newRecipient Address collecting the enforced royalties.
-    function updateRoyaltyRecipient(address newRecipient) external onlyOwner {
-        if (newRecipient == address(0)) revert InvalidAddress();
-        address previous = royaltyRecipient;
-        if (previous == newRecipient) revert NoChange();
-        royaltyRecipient = newRecipient;
-        emit RoyaltyRecipientUpdated(previous, newRecipient);
-    }
-
-    /// @notice Updates the verifier used to validate CCTP mint proofs.
-    /// @param newVerifier Address of the verifier contract.
-    function updateCctpVerifier(address newVerifier) external onlyOwner {
-        if (newVerifier == address(0)) revert InvalidAddress();
-        address previous = address(cctpVerifier);
-        if (previous == newVerifier) revert NoChange();
-        cctpVerifier = ICctpVerifier(newVerifier);
-        emit CctpVerifierUpdated(previous, newVerifier);
-    }
-
-    /// @notice Transfers ownership to a new administrator.
-    /// @param newOwner Address receiving control permissions.
-    function transferOwnership(address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert InvalidAddress();
-        address previous = owner;
-        if (previous == newOwner) revert NoChange();
-        owner = newOwner;
-        emit OwnershipTransferred(previous, newOwner);
-    }
-
-    /// @notice Computes the royalty that must be withheld for the provided amount.
-    /// @param amount Gross settlement amount.
-    /// @return royaltyAmount Portion of `amount` earmarked for royalties.
-    function previewRoyalty(uint256 amount) public pure returns (uint256 royaltyAmount) {
-        royaltyAmount = (amount * ROYALTY_BPS) / BPS_DENOMINATOR;
-    }
-
-    /// @notice Computes the beneficiary share after royalties are deducted.
-    /// @param amount Gross settlement amount.
-    /// @return netAmount Payout sent to the CCIP destination.
-    function previewNetAmount(uint256 amount) public pure returns (uint256 netAmount) {
-        uint256 royaltyAmount = previewRoyalty(amount);
-        if (amount < royaltyAmount) revert InvalidAmount();
-        netAmount = amount - royaltyAmount;
-    }
-
     modifier nonReentrant() {
         if (_status == _STATUS_ENTERED) revert ReentrancyBlocked();
         _status = _STATUS_ENTERED;
@@ -149,26 +99,79 @@ contract SeiKinSettlement {
         _status = _STATUS_NOT_ENTERED;
     }
 
-    /// @notice Finalizes a settlement after both CCTP and CCIP proofs are validated.
-    /// @param instruction Settlement breakdown generated by the CCIP router.
-    /// @param cctpProof Attestation proving the Circle CCTP mint.
-    /// @return netAmount Amount distributed to the CCIP destination.
+    // === Admin Functions ===
+
+    function setRouter(address newRouter) external onlyOwner {
+        if (newRouter == address(0)) revert InvalidAddress();
+        if (router == newRouter) revert NoChange();
+
+        address previous = router;
+        router = newRouter;
+        emit RouterUpdated(previous, newRouter);
+    }
+
+    function updateRoyaltyRecipient(address newRecipient) external onlyOwner {
+        if (newRecipient == address(0)) revert InvalidAddress();
+        if (royaltyRecipient == newRecipient) revert NoChange();
+
+        address previous = royaltyRecipient;
+        royaltyRecipient = newRecipient;
+        emit RoyaltyRecipientUpdated(previous, newRecipient);
+    }
+
+    function updateCctpVerifier(address newVerifier) external onlyOwner {
+        if (newVerifier == address(0)) revert InvalidAddress();
+        if (address(cctpVerifier) == newVerifier) revert NoChange();
+
+        address previous = address(cctpVerifier);
+        cctpVerifier = ICctpVerifier(newVerifier);
+        emit CctpVerifierUpdated(previous, newVerifier);
+    }
+
+    function transferOwnership(address newOwner) external onlyOwner {
+        if (newOwner == address(0)) revert InvalidAddress();
+        if (owner == newOwner) revert NoChange();
+
+        address previous = owner;
+        owner = newOwner;
+        emit OwnershipTransferred(previous, newOwner);
+    }
+
+    // === Royalty Math ===
+
+    function previewRoyalty(uint256 amount) public pure returns (uint256 royaltyAmount) {
+        royaltyAmount = (amount * ROYALTY_BPS) / BPS_DENOMINATOR;
+    }
+
+    function previewNetAmount(uint256 amount) public pure returns (uint256 netAmount) {
+        uint256 royaltyAmount = previewRoyalty(amount);
+        if (amount < royaltyAmount) revert InvalidAmount();
+        netAmount = amount - royaltyAmount;
+    }
+
+    // === Settlement ===
+
     function settle(SettlementInstruction calldata instruction, bytes calldata cctpProof)
         external
         onlyRouter
         nonReentrant
         returns (uint256 netAmount)
     {
-        if (instruction.destination == address(0) || instruction.token == address(0)) {
-            revert InvalidInstruction();
-        }
-        if (instruction.amount == 0) revert InvalidAmount();
+        // Basic validations
+        if (
+            instruction.destination == address(0) ||
+            instruction.token == address(0) ||
+            instruction.amount == 0
+        ) revert InvalidInstruction();
+
         if (settledDeposits[instruction.depositId]) revert SettlementReplay();
         if (address(cctpVerifier) == address(0)) revert VerificationModuleMissing();
 
+        // Royalty enforcement
         uint256 expectedRoyalty = previewRoyalty(instruction.amount);
         if (instruction.royaltyAmount != expectedRoyalty) revert InvalidInstruction();
 
+        // Mint proof validation
         (
             bytes32 depositId,
             address proofToken,
@@ -176,12 +179,12 @@ contract SeiKinSettlement {
             address mintRecipient
         ) = cctpVerifier.validateMint(cctpProof);
 
-        if (depositId != instruction.depositId || proofToken != instruction.token) {
-            revert InvalidInstruction();
-        }
-        if (proofAmount != instruction.amount || mintRecipient != address(this)) {
-            revert InvalidInstruction();
-        }
+        if (
+            depositId != instruction.depositId ||
+            proofToken != instruction.token ||
+            proofAmount != instruction.amount ||
+            mintRecipient != address(this)
+        ) revert InvalidInstruction();
 
         uint256 balance = IERC20(instruction.token).balanceOf(address(this));
         if (balance < instruction.amount) revert InsufficientFunds();
@@ -191,12 +194,8 @@ contract SeiKinSettlement {
         uint256 royaltyAmount = instruction.royaltyAmount;
         netAmount = instruction.amount - royaltyAmount;
 
-        if (!_transferToken(instruction.token, royaltyRecipient, royaltyAmount)) {
-            revert TransferFailed();
-        }
-        if (!_transferToken(instruction.token, instruction.destination, netAmount)) {
-            revert TransferFailed();
-        }
+        if (!_transferToken(instruction.token, royaltyRecipient, royaltyAmount)) revert TransferFailed();
+        if (!_transferToken(instruction.token, instruction.destination, netAmount)) revert TransferFailed();
 
         emit SettlementFinalized(
             instruction.depositId,
@@ -207,19 +206,26 @@ contract SeiKinSettlement {
         );
     }
 
-    /// @notice Returns the current ERC20 balance held by this contract.
+    // === Read ===
+
     function balanceOf(address token) external view returns (uint256) {
         return IERC20(token).balanceOf(address(this));
     }
 
+    // === Internals ===
+
     function _transferToken(address token, address to, uint256 value) private returns (bool success) {
         if (value == 0) return true;
-        (success, bytes memory data) = token.call(abi.encodeWithSelector(IERC20.transfer.selector, to, value));
+        (success, bytes memory data) = token.call(
+            abi.encodeWithSelector(IERC20.transfer.selector, to, value)
+        );
         if (!success) return false;
         if (data.length == 0) return true;
         return abi.decode(data, (bool));
     }
 }
+
+// === Interfaces ===
 
 interface IERC20 {
     function transfer(address to, uint256 value) external returns (bool);
@@ -230,5 +236,10 @@ interface ICctpVerifier {
     function validateMint(bytes calldata proof)
         external
         view
-        returns (bytes32 depositId, address token, uint256 amount, address mintRecipient);
+        returns (
+            bytes32 depositId,
+            address token,
+            uint256 amount,
+            address mintRecipient
+        );
 }

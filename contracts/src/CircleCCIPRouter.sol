@@ -16,6 +16,11 @@ contract CircleCCIPRouter {
     /// @notice External verifier validating CCIP message authenticity.
     ICCIPMessageVerifier public ccipVerifier;
 
+    /// @dev Status used for reentrancy guard.
+    uint256 private constant _STATUS_NOT_ENTERED = 1;
+    uint256 private constant _STATUS_ENTERED = 2;
+    uint256 private _status;
+
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event SettlementUpdated(address indexed newSettlement);
     event CcipVerifierUpdated(address indexed newVerifier);
@@ -35,10 +40,6 @@ contract CircleCCIPRouter {
     error NoChange();
     error ReentrancyBlocked();
 
-    uint256 private constant _STATUS_NOT_ENTERED = 1;
-    uint256 private constant _STATUS_ENTERED = 2;
-    uint256 private _status;
-
     struct RoutedTransfer {
         bytes32 depositId;
         address token;
@@ -54,6 +55,7 @@ contract CircleCCIPRouter {
         settlement = SeiKinSettlement(settlement_);
         ccipVerifier = ICCIPMessageVerifier(ccipVerifier_);
         _status = _STATUS_NOT_ENTERED;
+
         emit OwnershipTransferred(address(0), msg.sender);
         emit SettlementUpdated(settlement_);
         emit CcipVerifierUpdated(ccipVerifier_);
@@ -62,6 +64,13 @@ contract CircleCCIPRouter {
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
         _;
+    }
+
+    modifier nonReentrant() {
+        if (_status == _STATUS_ENTERED) revert ReentrancyBlocked();
+        _status = _STATUS_ENTERED;
+        _;
+        _status = _STATUS_NOT_ENTERED;
     }
 
     /// @notice Updates the CCIP verifier contract.
@@ -97,20 +106,18 @@ contract CircleCCIPRouter {
             address destination,
             uint256 amount
         ) = abi.decode(message, (bytes32, address, address, uint256));
-        decoded = RoutedTransfer({depositId: depositId, token: token, destination: destination, amount: amount});
+        decoded = RoutedTransfer({
+            depositId: depositId,
+            token: token,
+            destination: destination,
+            amount: amount
+        });
     }
 
     /// @notice Computes the split applied to a gross amount.
     function previewSplit(uint256 amount) external view returns (uint256 netAmount, uint256 royaltyAmount) {
         royaltyAmount = settlement.previewRoyalty(amount);
         netAmount = settlement.previewNetAmount(amount);
-    }
-
-    modifier nonReentrant() {
-        if (_status == _STATUS_ENTERED) revert ReentrancyBlocked();
-        _status = _STATUS_ENTERED;
-        _;
-        _status = _STATUS_NOT_ENTERED;
     }
 
     /// @notice Verifies proofs, decodes the CCIP payload and forwards settlement instructions.
@@ -123,7 +130,6 @@ contract CircleCCIPRouter {
         returns (uint256 netAmount, uint256 royaltyAmount)
     {
         if (!ccipVerifier.verify(message, proof)) revert VerificationFailed();
-
         if (settlement.router() != address(this)) revert MisconfiguredSettlement();
 
         RoutedTransfer memory decoded = decodeMessage(message);

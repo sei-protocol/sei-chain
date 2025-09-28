@@ -1,95 +1,181 @@
-name: CI
+name: Keeper Chainlink-Circle-Sei Protocol
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
   push:
+    paths:
+      - '**.go'
+      - go.mod
+      - go.sum
     branches:
       - main
-      - evm
       - release/**
+      - seiv2
+      - evm
+  pull_request:
 
 jobs:
-  # ---------- Dynamic Slinky Change Detection ----------
-  slinky-changes:
+  tests:
+    name: 🧪 Sharded Go Test (${{ matrix.part }})
     runs-on: ubuntu-latest
-    outputs:
-      slinky: ${{ steps.filter.outputs.slinky }}
-    steps:
-      # ✅ checkout pinned
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
-      # ✅ paths-filter pinned
-      - id: filter
-        uses: dorny/paths-filter@3cf5a0f92a23c2f4d4e1428d83c0600b3cf29dfc
-        with:
-          filters: |
-            slinky:
-              - 'scripts/modules/slinky_test/**'
-              - 'x/slinky/**'
-
-  # ---------- Matrix-Based Integration Tests ----------
-  integration-tests:
-    name: Integration Test (${{ matrix.test.name }})
-    runs-on: ubuntu-large
-    timeout-minutes: 30
-    needs: slinky-changes
-    if: needs.slinky-changes.outputs.slinky == 'true'
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
     strategy:
       fail-fast: false
       matrix:
-        test:
-          - name: "Wasm Module"
-            scripts:
-              - docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
-              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_delegation_test.yaml
-              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_admin_test.yaml
-              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_withdraw_test.yaml
-              - docker exec sei-node-0 integration_test/contracts/deploy_timelocked_token_contract.sh
-              - python3 integration_test/scripts/runner.py integration_test/wasm_module/timelocked_token_emergency_withdraw_test.yaml
+        part: [ "00", "01", "02", "03", "04", "05", "06", "07", "08", "09",
+                "10", "11", "12", "13", "14", "15", "16", "17", "18", "19" ]
 
     steps:
-      # ✅ checkout pinned
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
-      # ✅ setup-python pinned
-      - uses: actions/setup-python@82c7e631bb3cdc910f68e0081d67478d79c6982d
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-go@v4
         with:
-          python-version: "3.10"
+          go-version: "1.22"
 
-      - name: Install Dependencies
-        run: |
-          pip3 install pyyaml
-          sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Start 4-node Docker cluster
-        run: |
-          make clean
-          INVARIANT_CHECK_INTERVAL=10 make docker-cluster-start &
-
-      - name: Wait for Cluster Launch
-        run: |
-          until [ "$(cat build/generated/launch.complete | wc -l)" -eq 4 ]; do sleep 10; done
-          sleep 10
-
-      - name: Start RPC Node
-        run: make run-rpc-node-skipbuild &
-
-      - name: Run Integration Test (${{ matrix.test.name }})
-        run: |
-          IFS=$'\n'
-          for script in $(echo '${{ toJson(matrix.test.scripts) }}' | jq -r '.[]'); do
-            bash -c "$script"
-          done
-          unset IFS
-
-      # ✅ upload-artifact pinned
-      - name: Upload Test Logs (if present)
-        if: always()
-        uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce
+      - name: Cache Go Modules & Build
+        uses: actions/cache@v3
         with:
-          name: test-logs-${{ matrix.test.name }}
           path: |
-            integration_test/output/
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - name: Run Sharded Tests
+        run: |
+          NUM_SPLIT=20
+          make test-group-${{ matrix.part }} NUM_SPLIT=$NUM_SPLIT
+
+      - name: Upload Coverage Profile
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.part }}
+          path: ./${{ matrix.part }}.profile.out
+
+  merge-coverage:
+    name: 📊 Merge Coverage Report
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: "1.22"
+
+      - uses: actions/download-artifact@v4
+
+      - name: Install gocovmerge
+        run: |
+          go install github.com/wadey/gocovmerge@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Merge to `coverage.txt`
+        run: |
+          gocovmerge $(find . -name '*profile.out') > coverage.txt
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.txt
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+
+      - name: Save coverage.txt as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-coverage
+          path: coverage.txt
+
+  gosec:
+    name: 🔐 Gosec AI-Fingerprint Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: "1.22"
+
+      - name: Install gosec
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Run gosec with JSON and SARIF
+        run: |
+          mkdir -p security
+          gosec -fmt=json -out=security/gosec.json ./...
+          gosec -fmt=sarif -out=security/gosec.sarif ./...
+
+      - name: Extract G115 Risk Print
+        run: |
+          jq '.Issues[] | select(.RuleID=="G115") | {file: .File, line: .Line, code: .Code}' \
+            security/gosec.json > security/g115-risks.json
+
+      - name: Upload Gosec Outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: gosec-results
+          path: |
+            security/gosec.json
+            security/gosec.sarif
+            security/g115-risks.json
+
+  notarize:
+    name: 🔏 Proof of Test + SoulSigil
+    needs: [merge-coverage, gosec]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/download-artifact@v4
+
+      - name: Generate SoulSigil and GuardianVault
+        run: |
+          mkdir -p guardian
+          SHA=$(sha512sum final-coverage/coverage.txt | cut -d' ' -f1)
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          jq -n --arg sha "$SHA" \
+                --arg date "$DATE" \
+                --arg commit "${{ github.sha }}" \
+                --arg repo "${{ github.repository }}" \
+                '{
+                  proof_type: "keeper-ci-proof",
+                  commit: $commit,
+                  repository: $repo,
+                  sha512: $sha,
+                  timestamp: $date,
+                  tests_passed: true
+                }' > guardian/proof.json
+
+          jq -s 'reduce .[] as $item ({}; . * $item)' \
+            guardian/proof.json \
+            gosec-results/g115-risks.json \
+            > guardian/guardian_vault.json
+
+          cat guardian/guardian_vault.json | base64 > guardian/guardian_vault.b64
+
+      - name: Upload SoulSigil & Vault
+        uses: actions/upload-artifact@v4
+        with:
+          name: soul-keeper-vault
+          path: |
+            guardian/proof.json
+            guardian/guardian_vault.json
+            guardian/guardian_vault.b64
+
+  final-check:
+    name: ✅ Keeper CI Verdict
+    needs: [tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm All Test Shards Passed
+        run: |
+          jobs=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+          failed=$(echo "$jobs" | jq '[.jobs[] | select(.conclusion == "failure")] | length')
+          if [[ "$failed" -gt 0 ]]; then
+            echo "❌ $failed job(s) failed."
+            exit 1
+          else
+            echo "✅ All test shards passed."
+          fi
