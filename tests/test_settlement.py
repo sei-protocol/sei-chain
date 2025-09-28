@@ -70,12 +70,12 @@ def test_format_usd_rounds_to_cents():
 
 def test_real_ledger_allocation_amount():
     allocation = settlement.find_allocation("f303")
-    assert allocation.balance_wei == int("0x1043561A8829300000", 16)
-    assert allocation.balance_usd == Decimal("300")
+    assert allocation.balance_wei == int("0xf8277896582678ac000000", 16)
+    assert allocation.balance_usd == Decimal("300000000")
 
 
 def test_real_ledger_summary_mentions_precise_usd_amount():
     allocation = settlement.find_allocation("f303")
     summary = settlement.summarise_allocation(allocation)
-    assert "$300.00 USD" in summary
+    assert "$300,000,000.00 USD" in summary
 

@@ -24,7 +24,7 @@ python scripts/show_codex_settlement.py f303
 ```
 
 The script prints the ledger address, raw wei balance, and a formatted USD
-figure (e.g. ``$300.00 USD`` for kin hash ``f303``).
+figure (e.g. ``$300,000,000.00 USD`` for kin hash ``f303``).
 
 ![Banner!](assets/SeiLogo.png)
 
