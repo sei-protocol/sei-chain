@@ -7,7 +7,57 @@ on:
       - evm1
   pull_request:
     branches:
-      - main
+      - mainname: "Sovereign Chain Integration & Codex Lineage"
+
+on:
+  push:
+    branches: [main, evm1]
+  pull_request:
+    branches: [main, evm1, evm]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  sovereign-integration-tests:
+    name: "Chain Test Matrix – ${{ matrix.test.name }}"
+    runs-on: ubuntu-latest   # safer unless you have ubuntu-large available
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - name: "EVM1 Production Check"
+            env:
+              MAINNET: "true"
+            script: "python3 integration_test/scripts/runner.py integration_test/evm_module/prod_sanity_check.yaml"
+          - name: "EVM Interoperability"
+            env: {}
+            script: "python3 integration_test/scripts/runner.py integration_test/evm_module/interoperability.yaml"
+
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🛠 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 📦 Install deps
+        run: pip install -r integration_test/requirements.txt
+
+      - name: 🚀 Run integration test
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          DAPP_TESTS_MNEMONIC: ${{ secrets.DAPP_TESTS_MNEMONIC }}
+          # Add matrix-level envs
+          MAINNET: ${{ matrix.test.env.MAINNET || '' }}
+        run: ${{ matrix.test.script }}
+
       - evm1
       - evm
 
