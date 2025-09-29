@@ -24,6 +24,8 @@ coverage:
       client:
         flags:
           - client
+    patch:
+      target: 70%
     changes: false
 
 comment:
