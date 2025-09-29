@@ -25,14 +25,15 @@ jobs:
 
     steps:
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
-          go-version: "1.24"
+          go-version: "1.21"
 
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Detect Changed Files
+        id: diff
         uses: technote-space/get-diff-action@v6
         with:
           PATTERNS: |
@@ -42,7 +43,18 @@ jobs:
             go.sum
             Makefile
 
+      - name: Skip Unchanged Groups
+        id: skip
+        run: |
+          if [[ -z "${{ steps.diff.outputs.diff }}" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "🟡 Skipping tests for part ${{ matrix.part }} (no relevant changes)"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Cache Go Build & Lint
+        if: steps.skip.outputs.skip == 'false'
         uses: actions/cache@v3
         with:
           path: |
@@ -51,12 +63,23 @@ jobs:
             ~/.cache/go-build
           key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
 
-      - name: Run Go Tests for Group ${{ matrix.part }}
+      - name: Vet and Build
+        if: steps.skip.outputs.skip == 'false'
         run: |
+          go vet ./...
+          go build ./...
+
+      - name: Run Go Tests for Group ${{ matrix.part }}
+        if: steps.skip.outputs.skip == 'false'
+        run: |
+          echo "🧪 Running test-group-${{ matrix.part }} (of 20 total)"
           NUM_SPLIT=20
-          make test-group-${{ matrix.part }} NUM_SPLIT=20
+          make test-group-${{ matrix.part }} NUM_SPLIT=$NUM_SPLIT || {
+            echo "❌ Makefile test-group-${{ matrix.part }} failed"; exit 1;
+          }
 
       - name: Upload Coverage Profile
+        if: steps.skip.outputs.skip == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-${{ matrix.part }}-coverage"
@@ -69,21 +92,15 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v4
         with:
-          go-version: "1.24"
+          go-version: "1.21"
 
       - name: Download all coverage profiles
         uses: actions/download-artifact@v4
-
-      - name: Set GOPATH
-        run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
-
-      - name: Add GOPATH/bin to PATH
-        run: echo "GOBIN=$(go env GOPATH)/bin" >> $GITHUB_ENV
 
       - name: Install gocovmerge
         run: |
@@ -93,20 +110,21 @@ jobs:
         run: |
           gocovmerge $(find . -type f -name '*profile.out') > coverage.txt
 
-      - name: Check merged coverage report lines
-        run: wc -l coverage.txt
-        continue-on-error: true
+      - name: Print merged report size
+        run: wc -l coverage.txt || true
 
-      - name: List all profile.out files
-        run: ls **/*profile.out
-        continue-on-error: true
+      - name: List all coverage profiles
+        run: find . -name '*profile.out' || true
 
       - name: Upload Merged Report to Codecov
         uses: codecov/codecov-action@v4
         with:
-          file: ./coverage.txt
           token: ${{ secrets.CODECOV_TOKEN }}
+          file: ./coverage.txt
+          flags: unittests
+          name: combined-report
           fail_ci_if_error: true
+          verbose: true
 
   unit-test-check:
     name: Unit Test Final Status
@@ -115,22 +133,19 @@ jobs:
     if: always()
     steps:
       - name: Check for Failed Jobs
-        id: workflow_conclusion
-        uses: nick-fields/retry@v2
-        with:
-          max_attempts: 2
-          retry_on: error
-          timeout_seconds: 30
-          command: |
-            jobs=$(curl -s https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-            job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
-
-            for status in $job_statuses; do
-              echo "Status: $status"
-              if [[ "$status" == "failure" ]]; then
-                echo "❌ Some or all tests have failed!"
-                exit 1
-              fi
-            done
-
-            echo "✅ All tests passed successfully!"
+        run: |
+          jobs=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+          statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+          failed=0
+          for s in $statuses; do
+            echo "Job status: $s"
+            if [[ "$s" == "failure" ]]; then
+              failed=1
+            fi
+          done
+          if [[ "$failed" -eq 1 ]]; then
+            echo "❌ Some tests failed."
+            exit 1
+          else
+            echo "✅ All test jobs passed."
+          fi

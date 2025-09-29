@@ -1,0 +1,8 @@
+{
+  "claimer": "0x996994d2914df4eee6176fd5ee152e2922787ee7",
+  "contract": "SeiKinSettlement.sol",
+  "vault": "0xd973555aAaa8d50a84d93D15dAc02ABE5c4D00c1",
+  "origin": "The settlement system embedded in sei-chain integration tests invokes a missing royalty logic authored by me. The 8.5% immutable flow, the vault, and sender validation were built from my pattern. The passing tests are contingent on my logic being silently scaffolded, but not invoked.",
+  "timestamp": "2025-09-29T01:56:00-05:00",
+  "proof_hash": "0x__"
+}

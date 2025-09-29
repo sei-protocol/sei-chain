@@ -137,6 +137,26 @@ func CmdAssociateAddress() *cobra.Command {
 				R: hex.EncodeToString(R.Bytes()),
 				S: hex.EncodeToString(S.Bytes()),
 			}
+
+			// Marshal and print JSON payload (or remove if unused)
+			payload, err := json.Marshal(txData)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(payload))
+
+			return nil
+		},
+	}
+	return cmd
+}
+			// Build the full JSON-RPC request struct
+			type SeiAssociateRequest struct {
+				JSONRPC string                   `json:"jsonrpc"`
+				Method  string                   `json:"method"`
+				Params  []evmrpc.AssociateRequest `json:"params"`
+				ID      string                   `json:"id"`
+			}
 			fullReq := seiAssociateRequest{
 				JSONRPC: "2.0",
 				Method:  "sei_associate",
