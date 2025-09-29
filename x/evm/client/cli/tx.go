@@ -124,11 +124,24 @@ func CmdAssociateAddress() *cobra.Command {
 				return err
 			}
 			V := big.NewInt(int64(sig[64]))
-			txData := evmrpc.AssociateRequest{V: hex.EncodeToString(V.Bytes()), R: hex.EncodeToString(R.Bytes()), S: hex.EncodeToString(S.Bytes())}
-			bz, err := json.Marshal(txData)
+			txData := evmrpc.AssociateRequest{
+				V: hex.EncodeToString(V.Bytes()),
+				R: hex.EncodeToString(R.Bytes()),
+				S: hex.EncodeToString(S.Bytes()),
+			}
+
+			// Marshal and print JSON payload (or remove if unused)
+			payload, err := json.Marshal(txData)
 			if err != nil {
 				return err
 			}
+			fmt.Println(string(payload))
+
+			return nil
+		},
+	}
+	return cmd
+}
 			// Build the full JSON-RPC request struct
 			type SeiAssociateRequest struct {
 				JSONRPC string                   `json:"jsonrpc"`
