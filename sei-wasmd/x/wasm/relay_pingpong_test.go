@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	ibctransfertypes "github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
-	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 
 	wasmvm "github.com/CosmWasm/wasmvm"
 	wasmvmtypes "github.com/CosmWasm/wasmvm/types"
@@ -72,12 +71,12 @@ func TestPinPong(t *testing.T) {
 	)
 
 	path := wasmibctesting.NewPath(chainA, chainB)
-	path.EndpointA.ChannelConfig = &ibctesting.ChannelConfig{
+	path.EndpointA.ChannelConfig = &wasmibctesting.ChannelConfig{
 		PortID:  sourcePortID,
 		Version: ibctransfertypes.Version,
 		Order:   channeltypes.ORDERED,
 	}
-	path.EndpointB.ChannelConfig = &ibctesting.ChannelConfig{
+	path.EndpointB.ChannelConfig = &wasmibctesting.ChannelConfig{
 		PortID:  counterpartyPortID,
 		Version: ibctransfertypes.Version,
 		Order:   channeltypes.ORDERED,
