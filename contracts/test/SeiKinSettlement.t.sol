@@ -63,6 +63,24 @@ contract SeiKinSettlementTest is Test {
         settlement.onCCTPReceived(address(token), address(1), 100, "");
     }
 
+    function testRevertsForZeroCctpAmount() external {
+        vm.expectRevert(bytes("Zero amount"));
+        vm.prank(CCTP_CALLER);
+        settlement.onCCTPReceived(address(token), address(0x1234), 0, "");
+    }
+
+    function testRevertsForZeroCctpBeneficiary() external {
+        vm.expectRevert(bytes("Zero address"));
+        vm.prank(CCTP_CALLER);
+        settlement.onCCTPReceived(address(token), address(0), 1, "");
+    }
+
+    function testRevertsForZeroCctpToken() external {
+        vm.expectRevert(bytes("Zero address"));
+        vm.prank(CCTP_CALLER);
+        settlement.onCCTPReceived(address(0), address(0x1234), 1, "");
+    }
+
     function testRevertsForUntrustedCcipSender() external {
         token.setBalance(address(this), 1000);
         token.transfer(address(settlement), 1000);

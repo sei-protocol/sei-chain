@@ -17,4 +17,7 @@ const (
 	// SeinetRoyaltyAccount is the name of the module account
 	// used to hold and distribute royalties.
 	SeinetRoyaltyAccount = "seinet_royalty"
+
+	// SeinetVaultAccount is the module account backing vault balances.
+	SeinetVaultAccount = "seinet_vault"
 )

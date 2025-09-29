@@ -1,28 +1,71 @@
-name: golangci-lint
+name: 🧹 Golang Linter (golangci-lint)
 
 on:
-  push:
-    branches: [main, master, seiv2]
-    tags:
-      - v*
   pull_request:
+    branches: [main, evm, seiv2, release/**]
+    paths:
+      - "**.go"
+      - ".golangci.yml"
+      - "go.mod"
+      - "go.sum"
+
+  push:
+    branches: [main, evm, seiv2, release/**]
+    paths:
+      - "**.go"
+      - ".golangci.yml"
+      - "go.mod"
+      - "go.sum"
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
-  golangci:
+  lint:
+    name: Golang Lint Check
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/setup-go@v3
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v4
+
+      - name: 🧰 Set up Go
+        uses: actions/setup-go@v4
         with:
-          go-version: 1.21
+          go-version: "1.21"
 
-      - uses: actions/checkout@v3
+      - name: 📦 Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-gomod-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-gomod-
 
-      - name: Run golangci-lint
+      - name: 📦 Cache golangci-lint binary
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/golangci-lint
+          key: golangci-lint-${{ runner.os }}-${{ hashFiles('.golangci.yml') }}
+          restore-keys: |
+            golangci-lint-${{ runner.os }}-
+
+      - name: 🔧 Prepare vendor deps (if used)
+        run: |
+          go mod tidy
+          go mod vendor
+
+      - name: 🔍 Install golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
           version: v1.60.1
-          args: --timeout 10m0s
+          install-mode: binary
+          skip-cache: true  # we're caching manually
+          args: --timeout=5m --verbose
 
+      - name: 🚨 Run golangci-lint
+        run: |
+          golangci-lint run ./... --timeout=5m --verbose

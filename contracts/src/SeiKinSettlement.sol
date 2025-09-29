@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+```solidity
+// SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -12,17 +13,24 @@ import {Client} from "./ccip/Client.sol";
 contract SeiKinSettlement is CCIPReceiver, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    uint256 private constant ROYALTY_BPS = 850;
-    uint256 private constant BPS_DENOMINATOR = 10_000;
+    uint256 public constant ROYALTY_BPS = 850;
+    uint256 public constant BPS_DENOMINATOR = 10_000;
 
     address public immutable KIN_ROYALTY_VAULT;
     address public immutable TRUSTED_CCIP_SENDER;
     address public immutable TRUSTED_CCTP_SENDER;
 
+    mapping(bytes32 => bool) public settledDeposits;
+
     event RoyaltyPaid(address indexed payer, uint256 royaltyAmount);
     event SettlementTransferred(address indexed to, uint256 amountAfterRoyalty);
     event CCIPReceived(address indexed sender, string message);
     event CCTPReceived(address indexed sender, string message);
+    event DepositSettled(bytes32 indexed depositId, address indexed token, uint256 grossAmount);
+
+    error UntrustedSender();
+    error AlreadySettled();
+    error InvalidInstruction();
 
     constructor(
         address router,
@@ -40,50 +48,49 @@ contract SeiKinSettlement is CCIPReceiver, ReentrancyGuard {
     }
 
     modifier onlyTrusted(address sender) {
-        require(
-            sender == TRUSTED_CCIP_SENDER || sender == TRUSTED_CCTP_SENDER,
-            "Untrusted sender"
-        );
+        if (sender != TRUSTED_CCIP_SENDER && sender != TRUSTED_CCTP_SENDER) {
+            revert UntrustedSender();
+        }
         _;
     }
 
-    /// @notice Returns the royalty amount and net amount for a provided gross amount.
     function royaltyInfo(uint256 amount) public pure returns (uint256 royaltyAmount, uint256 netAmount) {
-        if (amount == 0) {
-            return (0, 0);
-        }
+        if (amount == 0) return (0, 0);
         royaltyAmount = (amount * ROYALTY_BPS) / BPS_DENOMINATOR;
         netAmount = amount - royaltyAmount;
     }
 
-    /// @notice Circle CCTP callback entrypoint. Tokens must already be transferred to this contract.
-    function onCCTPReceived(
+    function settleFromCCTP(
+        bytes32 depositId,
         address token,
-        address from,
+        address destination,
         uint256 amount,
         bytes calldata message
     ) external nonReentrant onlyTrusted(msg.sender) {
-        require(token != address(0), "Zero address");
-        require(from != address(0), "Zero address");
-        require(amount > 0, "Zero amount");
+        if (settledDeposits[depositId]) revert AlreadySettled();
+        if (token == address(0) || destination == address(0) || amount == 0) revert InvalidInstruction();
+
+        settledDeposits[depositId] = true;
 
         IERC20 settlementToken = IERC20(token);
-        uint256 royaltyAmount = _collectRoyalty(settlementToken, amount, from);
-        uint256 netAmount = amount - royaltyAmount;
+        (uint256 royaltyAmount, uint256 netAmount) = royaltyInfo(amount);
 
-        settlementToken.safeTransfer(from, netAmount);
-        emit SettlementTransferred(from, netAmount);
-        emit CCTPReceived(from, _bytesToString(message));
+        settlementToken.safeTransfer(KIN_ROYALTY_VAULT, royaltyAmount);
+        emit RoyaltyPaid(destination, royaltyAmount);
+
+        settlementToken.safeTransfer(destination, netAmount);
+        emit SettlementTransferred(destination, netAmount);
+        emit CCTPReceived(destination, _bytesToString(message));
+        emit DepositSettled(depositId, token, amount);
     }
 
-    /// @inheritdoc CCIPReceiver
     function _ccipReceive(Client.Any2EVMMessage memory message)
         internal
         override
         nonReentrant
     {
         address decodedSender = abi.decode(message.sender, (address));
-        _requireTrusted(decodedSender);
+        if (decodedSender != TRUSTED_CCIP_SENDER) revert UntrustedSender();
 
         address token = abi.decode(message.data, (address));
         require(token != address(0), "Zero address");
@@ -93,33 +100,22 @@ contract SeiKinSettlement is CCIPReceiver, ReentrancyGuard {
         require(amount > 0, "Zero amount");
 
         address payer = tx.origin;
-        uint256 royaltyAmount = _collectRoyalty(settlementToken, amount, payer);
-        uint256 netAmount = amount - royaltyAmount;
+        (uint256 royaltyAmount, uint256 netAmount) = royaltyInfo(amount);
+
+        settlementToken.safeTransfer(KIN_ROYALTY_VAULT, royaltyAmount);
+        emit RoyaltyPaid(payer, royaltyAmount);
 
         settlementToken.safeTransfer(payer, netAmount);
         emit SettlementTransferred(payer, netAmount);
         emit CCIPReceived(decodedSender, "Settlement via CCIP");
     }
 
-    function _collectRoyalty(IERC20 token, uint256 amount, address payer) private returns (uint256 royaltyAmount) {
-        (royaltyAmount, ) = royaltyInfo(amount);
-        if (royaltyAmount > 0) {
-            token.safeTransfer(KIN_ROYALTY_VAULT, royaltyAmount);
-            emit RoyaltyPaid(payer, royaltyAmount);
-        }
+    function balanceOf(address token) external view returns (uint256) {
+        return IERC20(token).balanceOf(address(this));
     }
 
     function _bytesToString(bytes memory data) private pure returns (string memory) {
-        if (data.length == 0) {
-            return "";
-        }
-        return string(data);
-    }
-
-    function _requireTrusted(address sender) private view {
-        require(
-            sender == TRUSTED_CCIP_SENDER || sender == TRUSTED_CCTP_SENDER,
-            "Untrusted sender"
-        );
+        return data.length == 0 ? "" : string(data);
     }
 }
+```
