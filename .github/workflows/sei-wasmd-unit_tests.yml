@@ -40,6 +40,7 @@ jobs:
         run: echo "VERSION=$(git describe --tags --long | sed 's/v\(.*\)/\1/')" >> $GITHUB_ENV
 
       - name: Run tests with coverage
+        working-directory: ./sei-wasmd
         env:
           GORACE: halt_on_error=1
           GO111MODULE: on
