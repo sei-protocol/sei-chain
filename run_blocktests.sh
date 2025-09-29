@@ -39,6 +39,7 @@ declare -a test_name_skip_list=(
     "tips" # failing after turning on eip-1559 and not burning base fee
     "burnVerify" # failing after turning on eip-1559 and not burning base fee
     "emptyPostTransfer" # failing after turning on eip-1559 and not burning base fee
+    "highDemand" # failing after increasing SSTORE gas limit to 72k
 
     # invalid block tests - state tests
     "gasLimitTooHigh" # block header gas limit doesn't apply to us
@@ -47,6 +48,9 @@ declare -a test_name_skip_list=(
     # InvaldBlockTests/bcEIP1559
     "badUncles" # reorgs don't apply to us
     "checkGasLimit" # not sure what issue is
+    "baseFee" # failing after increasing SSTORE gas limit to 72k
+    "feeCap" # failing after increasing SSTORE gas limit to 72k
+    "valCausesOOF" # failing after increasing SSTORE gas limit to 72k
 )
 
 # list out all paths to json files starting from the block_tests_dir
