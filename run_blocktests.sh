@@ -40,6 +40,14 @@ declare -a test_name_skip_list=(
     "burnVerify" # failing after turning on eip-1559 and not burning base fee
     "emptyPostTransfer" # failing after turning on eip-1559 and not burning base fee
     "highDemand" # failing after increasing SSTORE gas limit to 72k
+    "randomStatetest319BC" # failing after increasing SSTORE gas limit to 72k
+    "refundReset" # failing after increasing SSTORE gas limit to 72k
+    "wallet2outOf3txs" # failing after increasing SSTORE gas limit to 72k
+    "wallet2outOf3txs2" # failing after increasing SSTORE gas limit to 72k
+    "wallet2outOf3txsRevoke" # failing after increasing SSTORE gas limit to 72k
+    "wallet2outOf3txsRevokeAndConfirmAgain" # failing after increasing SSTORE gas limit to 72k
+    "walletReorganizeOwners" # failing after increasing SSTORE gas limit to 72k
+    "eip2930" # failing after increasing SSTORE gas limit to 72k
 
     # invalid block tests - state tests
     "gasLimitTooHigh" # block header gas limit doesn't apply to us
@@ -49,6 +57,8 @@ declare -a test_name_skip_list=(
     "createNameRegistratorPerTxsNotEnoughGasAt" # failing after increasing SSTORE gas limit to 72k
     "createNameRegistratorPerTxsNotEnoughGasBefore" # failing after increasing SSTORE gas limit to 72k
     "createRevert" # failing after increasing SSTORE gas limit to 72k
+    "CreateTransactionReverted" # failing after increasing SSTORE gas limit to 72k
+    "dataTx" # failing after increasing SSTORE gas limit to 72k
 
     # InvaldBlockTests/bcEIP1559
     "badBlocks" # failing after increasing SSTORE gas limit to 72k
@@ -58,6 +68,12 @@ declare -a test_name_skip_list=(
     "feeCap" # failing after increasing SSTORE gas limit to 72k
     "transFail" # failing after increasing SSTORE gas limit to 72k
     "valCausesOOF" # failing after increasing SSTORE gas limit to 72k
+    "gasLimit40m" # failing after increasing SSTORE gas limit to 72k
+)
+
+# Skip based on explicit relative paths when name filtering is insufficient
+declare -a test_path_skip_list=(
+    "./ethtests/BlockchainTests/ValidBlocks/bcStateTests/refundReset.json"
 )
 
 # list out all paths to json files starting from the block_tests_dir
@@ -92,6 +108,11 @@ for test_path in $block_tests; do
         continue
     fi
 
+    if printf '%s\n' "${test_path_skip_list[@]}" | grep -qx "$test_path"; then
+        echo "Skipping test in skip list: $test_path"
+        continue
+    fi
+
     # Check if "${test_name}_Prague" is not in the test file
     if ! grep -q "${test_name}_Prague" "$test_path"; then
         echo "Skipping test due to missing Prague tag: $test_path"
@@ -111,7 +132,7 @@ for test_path in $block_tests; do
     echo "Running block test: $test_path"
     echo "test name: ${test_name}_Prague"
     echo -e "\n*********************************************************\n"
-    rm -r ~/.sei || true
+    rm -rf ~/.sei || true
     NO_RUN=1 ./scripts/initialize_local_chain.sh
     seid blocktest --block-test $test_path --test-name "${test_name}_Prague"
 done
