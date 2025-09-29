@@ -1,0 +1,137 @@
+name: 🔑 Rotate Wallet & Transfer USDC (No Codespace)
+
+on:
+  workflow_dispatch:
+    inputs:
+      destination:
+        description: "Recipient address"
+        required: true
+      amount:
+        description: "Amount in USDC (e.g., 1000.00)"
+        required: true
+      send_tx:
+        description: "Actually broadcast the transfer? (true/false)"
+        default: "false"
+        required: false
+
+jobs:
+  rotate-transfer:
+    runs-on: ubuntu-latest
+    environment: production
+
+    env:
+      RPC_URL: ${{ secrets.SEI_RPC_URL }}
+      USDC_ADDRESS: "0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392"
+      SLACK_TRANSFER_TOKEN: ${{ secrets.SLACK_TRANSFER_TOKEN }}
+      SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+
+    steps:
+      - name: 📦 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔧 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 🚀 Rotate Key & Transfer USDC
+        id: rotate
+        run: |
+          echo "Installing dependencies..."
+          npm install ethers axios
+
+          node <<'EOF'
+          import { ethers } from "ethers";
+          import fs from "fs";
+
+          const RPC_URL = process.env.RPC_URL;
+          const provider = new ethers.JsonRpcProvider(RPC_URL);
+          const USDC = process.env.USDC_ADDRESS;
+          const DEST = "${{ github.event.inputs.destination }}";
+          const AMOUNT = "${{ github.event.inputs.amount }}";
+          const SEND = "${{ github.event.inputs.send_tx }}" === "true";
+          const DECIMALS = 6;
+
+          // 🧠 Step 1: Generate new ephemeral wallet
+          const wallet = ethers.Wallet.createRandom();
+          console.log("🔐 Ephemeral wallet created:", wallet.address);
+
+          const signer = wallet.connect(provider);
+          const contract = new ethers.Contract(USDC, ["function transfer(address,uint256) returns (bool)"], signer);
+          const amountInUnits = ethers.parseUnits(AMOUNT, DECIMALS);
+
+          // 🧱 Safety check
+          const cap = ethers.parseUnits("300000000", DECIMALS);
+          if (amountInUnits > cap) throw new Error("Amount exceeds cap");
+
+          // 💬 Preview
+          console.log(SEND ? "🚨 Broadcasting transfer" : "🧪 Dry-run mode enabled (not sending)");
+          console.log("Sending", ethers.formatUnits(amountInUnits, DECIMALS), "USDC to", DEST);
+
+          // 💵 CallStatic check
+          try {
+            await contract.callStatic.transfer(DEST, amountInUnits);
+            console.log("✅ callStatic passed (would succeed)");
+          } catch (e) {
+            console.warn("⚠️ callStatic failed (likely unfunded wallet)");
+          }
+
+          // 📝 Prepare and optionally send
+          let txHash = "DRY-RUN";
+          if (SEND) {
+            const tx = await contract.transfer(DEST, amountInUnits);
+            console.log("📝 TX Hash:", tx.hash);
+            await tx.wait();
+            txHash = tx.hash;
+            console.log("✅ Transfer confirmed");
+          }
+
+          // 🧾 Generate receipt
+          const receipt = {
+            ephemeral_address: wallet.address,
+            private_key: wallet.privateKey,
+            destination: DEST,
+            amount: AMOUNT,
+            token: USDC,
+            txHash,
+            sent: SEND,
+            timestamp: new Date().toISOString()
+          };
+
+          fs.writeFileSync("usdc-transfer-receipt.json", JSON.stringify(receipt, null, 2));
+          console.log("📄 Receipt saved");
+
+          EOF
+
+      - name: 🧾 Upload Receipt
+        uses: actions/upload-artifact@v3
+        with:
+          name: usdc-transfer-receipt
+          path: usdc-transfer-receipt.json
+
+      - name: 📣 Post to Slack
+        if: success()
+        run: |
+          ADDRESS=$(jq -r '.ephemeral_address' usdc-transfer-receipt.json)
+          AMOUNT=$(jq -r '.amount' usdc-transfer-receipt.json)
+          DEST=$(jq -r '.destination' usdc-transfer-receipt.json)
+          TX=$(jq -r '.txHash' usdc-transfer-receipt.json)
+          POST=$(jq -n --arg a "$ADDRESS" --arg d "$DEST" --arg amt "$AMOUNT" --arg tx "$TX" \
+            '{
+              channel: env.SLACK_CHANNEL_ID,
+              text: "*USDC Transfer*",
+              blocks: [
+                { "type": "section", "text": { "type": "mrkdwn", "text": "*🔐 Ephemeral USDC Transfer*" }},
+                { "type": "section", "fields": [
+                  { "type": "mrkdwn", "text": "*Ephemeral Address:*\n\($a)" },
+                  { "type": "mrkdwn", "text": "*Destination:*\n\($d)" },
+                  { "type": "mrkdwn", "text": "*Amount:*\n\($amt) USDC" },
+                  { "type": "mrkdwn", "text": "*TX Hash:*\n\($tx)" }
+                ]}
+              ]
+            }')
+          echo "$POST" > payload.json
+          curl -sS -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_TRANSFER_TOKEN" \
+            -H "Content-type: application/json" \
+            --data @payload.json
