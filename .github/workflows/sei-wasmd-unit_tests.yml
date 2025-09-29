@@ -1,4 +1,4 @@
-name: Unit Tests
+name: sei-wasmd 
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
 
 jobs:
   test:
-    name: Test
+    name: Unit Tests
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
