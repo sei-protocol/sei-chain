@@ -422,6 +422,41 @@ pending-ttl-duration = "{{ .Mempool.PendingTTLDuration }}"
 
 pending-ttl-num-blocks = {{ .Mempool.PendingTTLNumBlocks }}
 
+# Defines the percentage of transactions with the lowest priority hint
+# (expressed as a percentage in the range [0.0, 1.0]) that will be
+# dropped from the mempool once the configured utilisation threshold
+# is reached.
+drop-priority-threshold = {{ .Mempool.DropPriorityThreshold }}
+
+# Defines the mempool utilisation level (expressed as a percentage in
+# the range [0.0, 1.0]) above which transactions will be selectively
+# dropped based on their priority hint.
+#
+# For example, if this parameter is set to 0.8, then once the mempool reaches
+# 80% capacity, transactions with priority hints below drop-priority-threshold
+# percentile will be dropped to make room for new transactions.
+drop-utilisation-threshold = {{ .Mempool.DropUtilisationThreshold }}
+
+# Defines the size of the reservoir for keeping track
+# of the distribution of transaction priorities in the mempool.
+#
+# This is used to determine the priority threshold below which transactions will
+# be dropped when the mempool utilisation exceeds drop-priority-threshold.
+#
+# The reservoir is a statistically representative sample of transaction
+# priorities in the mempool, and is used to estimate the priority distribution
+# without needing to store all transaction priorities.
+#
+# A larger reservoir size will yield a more accurate estimate of the priority
+# distribution, but will consume more memory.
+#
+# The default value of 10,240 is a reasonable compromise between accuracy and
+# memory usage for most use cases. It takes approximately 80KB of memory storing
+# int64 transaction priorities.
+#
+# See DropUtilisationThreshold and DropPriorityThreshold.
+drop-priority-reservoir-size = {{ .Mempool.DropPriorityReservoirSize }}
+
 #######################################################
 ###         State Sync Configuration Options        ###
 #######################################################

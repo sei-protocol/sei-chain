@@ -164,6 +164,36 @@ func (_m *Application) FinalizeBlock(_a0 context.Context, _a1 *types.RequestFina
 	return r0, r1
 }
 
+// GetTxPriorityHint provides a mock function with given fields: _a0, _a1
+func (_m *Application) GetTxPriorityHint(_a0 context.Context, _a1 *types.RequestGetTxPriorityHint) (*types.ResponseGetTxPriorityHint, error) {
+	ret := _m.Called(_a0, _a1)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetTxPriorityHint")
+	}
+
+	var r0 *types.ResponseGetTxPriorityHint
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestGetTxPriorityHint) (*types.ResponseGetTxPriorityHint, error)); ok {
+		return rf(_a0, _a1)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestGetTxPriorityHint) *types.ResponseGetTxPriorityHint); ok {
+		r0 = rf(_a0, _a1)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*types.ResponseGetTxPriorityHint)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *types.RequestGetTxPriorityHint) error); ok {
+		r1 = rf(_a0, _a1)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // Info provides a mock function with given fields: _a0, _a1
 func (_m *Application) Info(_a0 context.Context, _a1 *types.RequestInfo) (*types.ResponseInfo, error) {
 	ret := _m.Called(_a0, _a1)

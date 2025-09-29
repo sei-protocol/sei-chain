@@ -822,6 +822,46 @@ type MempoolConfig struct {
 	PendingTTLNumBlocks int64 `mapstructure:"pending-ttl-num-blocks"`
 
 	RemoveExpiredTxsFromQueue bool `mapstructure:"remove-expired-txs-from-queue"`
+
+	// DropPriorityThreshold defines the percentage of transactions with the lowest
+	// priority hint (expressed as a float in the range [0.0, 1.0]) that will be
+	// dropped from the mempool once the configured utilisation threshold is reached.
+	//
+	// The default value of 0.1 means that the lowest 10% of transactions by
+	// priority will be dropped when the mempool utilisation exceeds the
+	// DropUtilisationThreshold.
+	//
+	// See DropUtilisationThreshold.
+	DropPriorityThreshold float64 `mapstructure:"drop-priority-threshold"`
+
+	// DropUtilisationThreshold defines the mempool utilisation level (expressed as
+	// a percentage in the range [0.0, 1.0]) above which transactions will be
+	// selectively dropped based on their priority hint.
+	//
+	// For example, if this parameter is set to 0.8, then once the mempool reaches
+	// 80% capacity, transactions with priority hints below DropPriorityThreshold
+	// percentile will be dropped to make room for new transactions.
+	DropUtilisationThreshold float64 `mapstructure:"drop-utilisation-threshold"`
+
+	// DropPriorityReservoirSize defines the size of the reservoir for keeping track
+	// of the distribution of transaction priorities in the mempool.
+	//
+	// This is used to determine the priority threshold below which transactions will
+	// be dropped when the mempool utilisation exceeds DropUtilisationThreshold.
+	//
+	// The reservoir is a statistically representative sample of transaction
+	// priorities in the mempool, and is used to estimate the priority distribution
+	// without needing to store all transaction priorities.
+	//
+	// A larger reservoir size will yield a more accurate estimate of the priority
+	// distribution, but will consume more memory.
+	//
+	// The default value of 10,240 is a reasonable compromise between accuracy and
+	// memory usage for most use cases. It takes approximately 80KB of memory storing
+	// int64 transaction priorities.
+	//
+	// See DropUtilisationThreshold and DropPriorityThreshold.
+	DropPriorityReservoirSize int `mapstructure:"drop-priority-reservoir-size"`
 }
 
 // DefaultMempoolConfig returns a default configuration for the Tendermint mempool.
@@ -845,6 +885,9 @@ func DefaultMempoolConfig() *MempoolConfig {
 		PendingTTLDuration:           0 * time.Second,
 		PendingTTLNumBlocks:          0,
 		RemoveExpiredTxsFromQueue:    true,
+		DropPriorityThreshold:        0.1,
+		DropUtilisationThreshold:     1.0,
+		DropPriorityReservoirSize:    10_240,
 	}
 }
 
@@ -881,6 +924,12 @@ func (cfg *MempoolConfig) ValidateBasic() error {
 	}
 	if cfg.CheckTxErrorThreshold < 0 {
 		return errors.New("check-tx-error-threshold can't be negative")
+	}
+	if cfg.DropPriorityThreshold < 0 {
+		return errors.New("drop-priority-threshold can't be negative")
+	}
+	if cfg.DropUtilisationThreshold < 0.0 || cfg.DropUtilisationThreshold > 1.0 {
+		return errors.New("drop-utilisation-threshold must be between 0.0 and 1.0")
 	}
 
 	return nil
