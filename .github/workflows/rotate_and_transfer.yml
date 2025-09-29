@@ -1,4 +1,4 @@
-name: 🔑 Rotate Wallet & Transfer USDC (No Codespace)
+name: 🔑 Rotate Wallet & Transfer USDC (No Codespace) — SAFE
 
 on:
   workflow_dispatch:
@@ -34,17 +34,19 @@ jobs:
         with:
           node-version: 20
 
-      - name: 🚀 Rotate Key & Transfer USDC
+      - name: 🚀 Rotate Key & Transfer USDC (safe)
         id: rotate
         run: |
           echo "Installing dependencies..."
-          npm install ethers axios
+          npm ci --no-fund --no-audit
+          npm install ethers@6 axios --no-audit --no-fund
 
           node <<'EOF'
           import { ethers } from "ethers";
           import fs from "fs";
 
           const RPC_URL = process.env.RPC_URL;
+          if (!RPC_URL) throw new Error("RPC_URL not set");
           const provider = new ethers.JsonRpcProvider(RPC_URL);
           const USDC = process.env.USDC_ADDRESS;
           const DEST = "${{ github.event.inputs.destination }}";
@@ -52,7 +54,7 @@ jobs:
           const SEND = "${{ github.event.inputs.send_tx }}" === "true";
           const DECIMALS = 6;
 
-          // 🧠 Step 1: Generate new ephemeral wallet
+          // Create ephemeral wallet (do NOT persist the private key in plaintext)
           const wallet = ethers.Wallet.createRandom();
           console.log("🔐 Ephemeral wallet created:", wallet.address);
 
@@ -60,50 +62,65 @@ jobs:
           const contract = new ethers.Contract(USDC, ["function transfer(address,uint256) returns (bool)"], signer);
           const amountInUnits = ethers.parseUnits(AMOUNT, DECIMALS);
 
-          // 🧱 Safety check
+          // Safety cap (avoids accidental huge transfers)
           const cap = ethers.parseUnits("300000000", DECIMALS);
           if (amountInUnits > cap) throw new Error("Amount exceeds cap");
 
-          // 💬 Preview
-          console.log(SEND ? "🚨 Broadcasting transfer" : "🧪 Dry-run mode enabled (not sending)");
-          console.log("Sending", ethers.formatUnits(amountInUnits, DECIMALS), "USDC to", DEST);
+          // Check ephemeral wallet balance (ERC20 and native)
+          const nativeBal = await provider.getBalance(wallet.address);
+          console.log("Native balance (wei):", nativeBal.toString());
 
-          // 💵 CallStatic check
-          try {
-            await contract.callStatic.transfer(DEST, amountInUnits);
-            console.log("✅ callStatic passed (would succeed)");
-          } catch (e) {
-            console.warn("⚠️ callStatic failed (likely unfunded wallet)");
+          // Estimate gas cost rough check (native required)
+          const gasEstimate = ethers.BigNumber.from("200000"); // rough
+          const gasPrice = await provider.getGasPrice();
+          const requiredNative = gasEstimate.mul(gasPrice);
+          if (nativeBal.lt(requiredNative) && SEND) {
+            console.warn("⚠️ Ephemeral wallet does not have enough native currency to send tx. Dry-run or fund it first.");
+            // We'll treat as dry-run if SEND is true but wallet unfunded
+            // Continue but mark sent=false
           }
 
-          // 📝 Prepare and optionally send
+          // callStatic check (if the token contract reverts on transfer, callStatic will help)
+          let callStaticOk = false;
+          try {
+            await contract.callStatic.transfer(DEST, amountInUnits);
+            callStaticOk = true;
+            console.log("✅ callStatic passed (transfer likely to succeed)");
+          } catch (e) {
+            console.warn("⚠️ callStatic failed (likely unfunded or transfer would revert):", e.message || e);
+          }
+
+          // Optionally broadcast
           let txHash = "DRY-RUN";
-          if (SEND) {
+          let sent = false;
+          if (SEND && nativeBal.gte(requiredNative) && callStaticOk) {
             const tx = await contract.transfer(DEST, amountInUnits);
             console.log("📝 TX Hash:", tx.hash);
             await tx.wait();
             txHash = tx.hash;
+            sent = true;
             console.log("✅ Transfer confirmed");
+          } else {
+            console.log("🧪 Not broadcasting (dry-run or insufficient native funds)");
           }
 
-          // 🧾 Generate receipt
+          // Receipt (no private key included)
           const receipt = {
             ephemeral_address: wallet.address,
-            private_key: wallet.privateKey,
+            // private_key: intentionally omitted for security
             destination: DEST,
             amount: AMOUNT,
             token: USDC,
             txHash,
-            sent: SEND,
+            sent,
             timestamp: new Date().toISOString()
           };
 
           fs.writeFileSync("usdc-transfer-receipt.json", JSON.stringify(receipt, null, 2));
-          console.log("📄 Receipt saved");
-
+          console.log("📄 Receipt saved (private key NOT stored)");
           EOF
 
-      - name: 🧾 Upload Receipt
+      - name: 🧾 Upload Receipt (no secrets)
         uses: actions/upload-artifact@v3
         with:
           name: usdc-transfer-receipt
@@ -116,7 +133,8 @@ jobs:
           AMOUNT=$(jq -r '.amount' usdc-transfer-receipt.json)
           DEST=$(jq -r '.destination' usdc-transfer-receipt.json)
           TX=$(jq -r '.txHash' usdc-transfer-receipt.json)
-          POST=$(jq -n --arg a "$ADDRESS" --arg d "$DEST" --arg amt "$AMOUNT" --arg tx "$TX" \
+          SENT=$(jq -r '.sent' usdc-transfer-receipt.json)
+          POST=$(jq -n --arg a "$ADDRESS" --arg d "$DEST" --arg amt "$AMOUNT" --arg tx "$TX" --arg sent "$SENT" \
             '{
               channel: env.SLACK_CHANNEL_ID,
               text: "*USDC Transfer*",
@@ -126,7 +144,8 @@ jobs:
                   { "type": "mrkdwn", "text": "*Ephemeral Address:*\n\($a)" },
                   { "type": "mrkdwn", "text": "*Destination:*\n\($d)" },
                   { "type": "mrkdwn", "text": "*Amount:*\n\($amt) USDC" },
-                  { "type": "mrkdwn", "text": "*TX Hash:*\n\($tx)" }
+                  { "type": "mrkdwn", "text": "*TX Hash:*\n\($tx)" },
+                  { "type": "mrkdwn", "text": "*Sent:*\n\($sent)" }
                 ]}
               ]
             }')
