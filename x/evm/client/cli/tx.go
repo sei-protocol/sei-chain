@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
@@ -146,7 +147,7 @@ func CmdAssociateAddress() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(string(bodyBytes)))
+			req, err := http.NewRequest(http.MethodPost, rpc, bytes.NewReader(bodyBytes))
 			if err != nil {
 				return err
 			}
