@@ -186,7 +186,7 @@ jobs:
           test "$upload_url" != "null" -a "$file_id" != "null" || { echo "getUploadURLExternal failed: $ticket" >&2; exit 1; }
 
           curl -sS -X POST "$upload_url" \
-            -F "filename=@review.md;type=text/markdown" \
+            -F "filename=@review.md;type=text/markdown" 
             > /dev/null
 
           payload=$(jq -n --arg fid "$file_id" --arg ch "$SLACK_CHANNEL_ID" --arg ts "$TS" \
@@ -197,4 +197,4 @@ jobs:
             -H "Content-type: application/json; charset=utf-8" \
             --data "$payload")
           echo "$resp"
-          test "$(echo "$resp" | jq -r '.ok')" = "true" || { echo "files.completeUploadExternal failed: $resp" >&2; exit 1; 
+          test "$(echo "$resp" | jq -r '.ok')" = "true" || { echo "files.completeUploadExternal failed: $resp" >&2; exit 1; }
