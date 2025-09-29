@@ -13,7 +13,6 @@ import (
 	ibctransfertypes "github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
 	clienttypes "github.com/cosmos/ibc-go/v3/modules/core/02-client/types"
 	channeltypes "github.com/cosmos/ibc-go/v3/modules/core/04-channel/types"
-	ibctesting "github.com/cosmos/ibc-go/v3/testing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -82,12 +81,12 @@ func TestFromIBCTransferToContract(t *testing.T) {
 			spec.setupContract(t, spec.contract, chainB)
 
 			path := wasmibctesting.NewPath(chainA, chainB)
-			path.EndpointA.ChannelConfig = &ibctesting.ChannelConfig{
+			path.EndpointA.ChannelConfig = &wasmibctesting.ChannelConfig{
 				PortID:  "transfer",
 				Version: ibctransfertypes.Version,
 				Order:   channeltypes.UNORDERED,
 			}
-			path.EndpointB.ChannelConfig = &ibctesting.ChannelConfig{
+			path.EndpointB.ChannelConfig = &wasmibctesting.ChannelConfig{
 				PortID:  contractBPortID,
 				Version: ibctransfertypes.Version,
 				Order:   channeltypes.UNORDERED,
@@ -150,12 +149,12 @@ func TestContractCanInitiateIBCTransferMsg(t *testing.T) {
 	coordinator.CommitBlock(chainA, chainB)
 
 	path := wasmibctesting.NewPath(chainA, chainB)
-	path.EndpointA.ChannelConfig = &ibctesting.ChannelConfig{
+	path.EndpointA.ChannelConfig = &wasmibctesting.ChannelConfig{
 		PortID:  ibctransfertypes.PortID,
 		Version: ibctransfertypes.Version,
 		Order:   channeltypes.UNORDERED,
 	}
-	path.EndpointB.ChannelConfig = &ibctesting.ChannelConfig{
+	path.EndpointB.ChannelConfig = &wasmibctesting.ChannelConfig{
 		PortID:  ibctransfertypes.PortID,
 		Version: ibctransfertypes.Version,
 		Order:   channeltypes.UNORDERED,
@@ -221,12 +220,12 @@ func TestContractCanEmulateIBCTransferMessage(t *testing.T) {
 	myContract.contractAddr = myContractAddr.String()
 
 	path := wasmibctesting.NewPath(chainA, chainB)
-	path.EndpointA.ChannelConfig = &ibctesting.ChannelConfig{
+	path.EndpointA.ChannelConfig = &wasmibctesting.ChannelConfig{
 		PortID:  chainA.ContractInfo(myContractAddr).IBCPortID,
 		Version: ibctransfertypes.Version,
 		Order:   channeltypes.UNORDERED,
 	}
-	path.EndpointB.ChannelConfig = &ibctesting.ChannelConfig{
+	path.EndpointB.ChannelConfig = &wasmibctesting.ChannelConfig{
 		PortID:  ibctransfertypes.PortID,
 		Version: ibctransfertypes.Version,
 		Order:   channeltypes.UNORDERED,
@@ -297,12 +296,12 @@ func TestContractCanEmulateIBCTransferMessageWithTimeout(t *testing.T) {
 	myContract.contractAddr = myContractAddr.String()
 
 	path := wasmibctesting.NewPath(chainA, chainB)
-	path.EndpointA.ChannelConfig = &ibctesting.ChannelConfig{
+	path.EndpointA.ChannelConfig = &wasmibctesting.ChannelConfig{
 		PortID:  chainA.ContractInfo(myContractAddr).IBCPortID,
 		Version: ibctransfertypes.Version,
 		Order:   channeltypes.UNORDERED,
 	}
-	path.EndpointB.ChannelConfig = &ibctesting.ChannelConfig{
+	path.EndpointB.ChannelConfig = &wasmibctesting.ChannelConfig{
 		PortID:  ibctransfertypes.PortID,
 		Version: ibctransfertypes.Version,
 		Order:   channeltypes.UNORDERED,
@@ -383,12 +382,12 @@ func TestContractHandlesChannelClose(t *testing.T) {
 	myContractAddrB := chainB.SeedNewContractInstance()
 
 	path := wasmibctesting.NewPath(chainA, chainB)
-	path.EndpointA.ChannelConfig = &ibctesting.ChannelConfig{
+	path.EndpointA.ChannelConfig = &wasmibctesting.ChannelConfig{
 		PortID:  chainA.ContractInfo(myContractAddrA).IBCPortID,
 		Version: ibctransfertypes.Version,
 		Order:   channeltypes.UNORDERED,
 	}
-	path.EndpointB.ChannelConfig = &ibctesting.ChannelConfig{
+	path.EndpointB.ChannelConfig = &wasmibctesting.ChannelConfig{
 		PortID:  chainB.ContractInfo(myContractAddrB).IBCPortID,
 		Version: ibctransfertypes.Version,
 		Order:   channeltypes.UNORDERED,
