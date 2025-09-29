@@ -46,6 +46,13 @@ const (
 	FlagNonce     = "nonce"
 )
 
+type seiAssociateRequest struct {
+	JSONRPC string                    `json:"jsonrpc"`
+	Method  string                    `json:"method"`
+	Params  []evmrpc.AssociateRequest `json:"params"`
+	ID      string                    `json:"id"`
+}
+
 // GetTxCmd returns the transaction commands for this module
 func GetTxCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -125,15 +132,12 @@ func CmdAssociateAddress() *cobra.Command {
 				return err
 			}
 			V := big.NewInt(int64(sig[64]))
-			txData := evmrpc.AssociateRequest{V: hex.EncodeToString(V.Bytes()), R: hex.EncodeToString(R.Bytes()), S: hex.EncodeToString(S.Bytes())}
-			// Build the full JSON-RPC request struct
-			type SeiAssociateRequest struct {
-				JSONRPC string                    `json:"jsonrpc"`
-				Method  string                    `json:"method"`
-				Params  []evmrpc.AssociateRequest `json:"params"`
-				ID      string                    `json:"id"`
+			txData := evmrpc.AssociateRequest{
+				V: hex.EncodeToString(V.Bytes()),
+				R: hex.EncodeToString(R.Bytes()),
+				S: hex.EncodeToString(S.Bytes()),
 			}
-			fullReq := SeiAssociateRequest{
+			fullReq := seiAssociateRequest{
 				JSONRPC: "2.0",
 				Method:  "sei_associate",
 				Params:  []evmrpc.AssociateRequest{txData},
