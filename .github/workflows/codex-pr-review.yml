@@ -98,9 +98,11 @@ jobs:
       - name: Extract Markdown Output
         id: extract_output
         run: |
-          echo "markdown<<EOF" >> $GITHUB_OUTPUT
-          cat codex_output.md >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            printf 'markdown<<EOF\n'
+            cat codex_output.md
+            printf 'EOF\n'
+          } >> "$GITHUB_OUTPUT"
 
       # 9. Send the Markdown report via SendGrid Email
       - name: Send Codex Report via Email
