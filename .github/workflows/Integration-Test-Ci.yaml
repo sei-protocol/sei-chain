@@ -35,7 +35,9 @@ jobs:
 
       - name: Set up dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y jq docker.io
+          sudo apt-get update
+          # Install only what’s missing; Docker is preinstalled on runners
+          sudo apt-get install -y jq python3-pip docker-compose
           pip install toml
 
       - name: Set up environment
@@ -66,7 +68,7 @@ jobs:
           mkdir -p guardian
           SHA=$(sha512sum integration_test/output/* | head -n1 | cut -d' ' -f1)
           DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-          jq -n --arg sha "$SHA" --arg date "$DATE" --arg module "${{ matrix.test.name }}" --arg commit "${{ github.sha }}" ' {
+          jq -n --arg sha "$SHA" --arg date "$DATE" --arg module "${{ matrix.test.name }}" --arg commit "${{ github.sha }}" '{
             module: $module,
             sha512: $sha,
             timestamp: $date,
