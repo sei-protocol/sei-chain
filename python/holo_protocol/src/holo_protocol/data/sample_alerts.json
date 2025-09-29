@@ -1,0 +1,29 @@
+[
+  {
+    "tx_hash": "CFF9AB12",
+    "sender": "sei1aliceexample",
+    "recipient": "sei1treasuryexample",
+    "amount": 125.50,
+    "denom": "usei",
+    "memo": "Royalty sweep",
+    "timestamp": "2025-01-01T12:00:00+00:00"
+  },
+  {
+    "tx_hash": "A1B2C3D4",
+    "sender": "sei1bobexample",
+    "recipient": "sei1aliceexample",
+    "amount": 42.00,
+    "denom": "usei",
+    "memo": "SoulKey settlement",
+    "timestamp": "2025-01-01T12:00:10+00:00"
+  },
+  {
+    "tx_hash": "E5F6G7H8",
+    "sender": "sei1aliceexample",
+    "recipient": "sei1merchant",
+    "amount": 7.99,
+    "denom": "usei",
+    "memo": "Subscription renewal",
+    "timestamp": "2025-01-01T12:00:20+00:00"
+  }
+]

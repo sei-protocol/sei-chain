@@ -1,0 +1,24 @@
+[project]
+name = "holo-protocol"
+version = "0.1.0"
+description = "Standalone Holo Protocol demo for the sei-x402 monorepo"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "x402 contributors" }
+]
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+holo-cli = "holo_protocol.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/holo_protocol"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
