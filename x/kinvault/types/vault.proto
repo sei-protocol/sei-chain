@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package kinvault;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/kinvault/types";
+
+message Vault {
+  string id = 1;
+  string owner = 2;
+  repeated string kinkeys = 3;
+  string sigil_hash = 4;
+  string mood_state = 5;
+  string entropy_seed = 6;
+  uint64 created_at = 7;
+}

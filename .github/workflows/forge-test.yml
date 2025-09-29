@@ -1,40 +1,41 @@
 name: Forge test
 
 on:
-  pull_request:
   push:
     branches:
       - main
       - evm
-      - release/**
+      - release/**  # Match any release branches
+  pull_request:
 
 env:
-  FOUNDRY_PROFILE: ci
+  FOUNDRY_PROFILE: ci  # Ensures your config uses the 'ci' profile
 
 jobs:
   check:
+    name: Foundry project
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: true
 
-    name: Foundry project
-    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: nightly
+          version: nightly  # You can pin a specific nightly version here if desired
 
       - name: Run Forge build
+        id: build
         run: |
           forge --version
           forge build --evm-version=prague
-        id: build
 
       - name: Run Forge tests
+        id: test
         run: |
           forge test -vvv --evm-version=prague
-        id: test
