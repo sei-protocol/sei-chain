@@ -32,7 +32,7 @@ jobs:
       - name: Set up Go (if needed for CLI context)
         uses: actions/setup-go@v2
         with:
-          go-version: 1.24
+          go-version: 1.22.x
 
       - name: Check balances and settle if funded
         env:
