@@ -33,6 +33,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Detect Changed Files
+        id: diff
         uses: technote-space/get-diff-action@v6
         with:
           PATTERNS: |
@@ -42,7 +43,18 @@ jobs:
             go.sum
             Makefile
 
+      - name: Skip Unchanged Groups
+        id: skip
+        run: |
+          if [[ -z "${{ steps.diff.outputs.diff }}" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "🟡 Skipping tests for part ${{ matrix.part }} (no relevant changes)"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Cache Go Build & Lint
+        if: steps.skip.outputs.skip == 'false'
         uses: actions/cache@v3
         with:
           path: |
@@ -51,12 +63,23 @@ jobs:
             ~/.cache/go-build
           key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
 
-      - name: Run Go Tests for Group ${{ matrix.part }}
+      - name: Vet and Build
+        if: steps.skip.outputs.skip == 'false'
         run: |
+          go vet ./...
+          go build ./...
+
+      - name: Run Go Tests for Group ${{ matrix.part }}
+        if: steps.skip.outputs.skip == 'false'
+        run: |
+          echo "🧪 Running test-group-${{ matrix.part }} (of 20 total)"
           NUM_SPLIT=20
-          make test-group-${{ matrix.part }} NUM_SPLIT=$NUM_SPLIT
+          make test-group-${{ matrix.part }} NUM_SPLIT=$NUM_SPLIT || {
+            echo "❌ Makefile test-group-${{ matrix.part }} failed"; exit 1;
+          }
 
       - name: Upload Coverage Profile
+        if: steps.skip.outputs.skip == 'false'
         uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-${{ matrix.part }}-coverage"
