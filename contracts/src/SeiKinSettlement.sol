@@ -3,130 +3,119 @@ pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {CCIPReceiver} from "./ccip/CCIPReceiver.sol";
-import {Client} from "./ccip/Client.sol";
 
-/// @title SeiKinSettlement Protocol
-/// @notice Enforces an immutable 8.5% Kin royalty on settlements received via Circle CCTP or Chainlink CCIP.
-contract SeiKinSettlement is CCIPReceiver {
+/// @title SeiKinSettlement - Immutable Royalty Settlement Contract
+/// @notice Enforces an 8.5% Kin royalty on verified cross-chain settlements (CCTP & CCIP)
+contract SeiKinSettlement {
     using SafeERC20 for IERC20;
 
-    uint256 private constant ROYALTY_BPS = 850;
-    uint256 private constant BPS_DENOMINATOR = 10_000;
+    // Constants
+    uint256 public constant ROYALTY_BPS = 850;
+    uint256 public constant BPS_DENOMINATOR = 10_000;
 
+    // Immutable configuration
     address public immutable KIN_ROYALTY_VAULT;
-    address public immutable TRUSTED_CCIP_SENDER;
-    address public immutable TRUSTED_CCTP_SENDER;
+    address public immutable TRUSTED_CCIP_ROUTER;
+    address public immutable TRUSTED_CCTP_VERIFIER;
 
-    event RoyaltyPaid(address indexed payer, uint256 royaltyAmount);
-    event SettlementTransferred(address indexed to, uint256 amountAfterRoyalty);
-    event CCIPReceived(address indexed sender, string message);
-    event CCTPReceived(address indexed sender, string message);
+    // Replay protection
+    mapping(bytes32 => bool) public settledDeposits;
+
+    // Reentrancy guard
+    uint256 private _status;
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+
+    // Events
+    event RoyaltyPaid(address indexed payer, address indexed token, uint256 amount);
+    event SettlementExecuted(address indexed to, address indexed token, uint256 netAmount);
+    event DepositSettled(bytes32 indexed depositId, address indexed token, uint256 grossAmount);
+
+    // Errors
+    error UntrustedSender();
+    error InvalidInstruction();
+    error AlreadySettled();
+    error TransferFailed();
+    error ReentrancyBlocked();
 
     constructor(
-        address router,
-        address kinRoyaltyVault,
-        address trustedCcipSender,
-        address trustedCctpSender
-    ) CCIPReceiver(router) {
-        require(kinRoyaltyVault != address(0), "Zero address");
-        require(trustedCcipSender != address(0), "Zero address");
-        require(trustedCctpSender != address(0), "Zero address");
+        address royaltyVault_,
+        address ccipRouter_,
+        address cctpVerifier_
+    ) {
+        require(royaltyVault_ != address(0), "Zero royaltyVault");
+        require(ccipRouter_ != address(0), "Zero CCIP router");
+        require(cctpVerifier_ != address(0), "Zero CCTP verifier");
 
-        KIN_ROYALTY_VAULT = kinRoyaltyVault;
-        TRUSTED_CCIP_SENDER = trustedCcipSender;
-        TRUSTED_CCTP_SENDER = trustedCctpSender;
+        KIN_ROYALTY_VAULT = royaltyVault_;
+        TRUSTED_CCIP_ROUTER = ccipRouter_;
+        TRUSTED_CCTP_VERIFIER = cctpVerifier_;
+        _status = _NOT_ENTERED;
     }
 
     modifier onlyTrusted(address sender) {
-        require(
-            sender == TRUSTED_CCIP_SENDER || sender == TRUSTED_CCTP_SENDER,
-            "Untrusted sender"
-        );
-        _;
-    }
-
-    modifier enforceRoyalty(address tokenAddress, address payer, uint256 amount) {
-        require(tokenAddress != address(0), "Zero token");
-        require(payer != address(0), "Zero address");
-        require(amount > 0, "Zero amount");
-
-        IERC20 settlementToken = IERC20(tokenAddress);
-        (uint256 royaltyAmount, ) = royaltyInfo(amount);
-        if (royaltyAmount > 0) {
-            settlementToken.safeTransfer(KIN_ROYALTY_VAULT, royaltyAmount);
-            emit RoyaltyPaid(payer, royaltyAmount);
+        if (sender != TRUSTED_CCIP_ROUTER && sender != TRUSTED_CCTP_VERIFIER) {
+            revert UntrustedSender();
         }
         _;
     }
 
-    /// @notice Returns the royalty amount and net amount for a provided gross amount.
-    function royaltyInfo(uint256 amount) public pure returns (uint256 royaltyAmount, uint256 netAmount) {
-        if (amount == 0) {
-            return (0, 0);
-        }
-        royaltyAmount = (amount * ROYALTY_BPS) / BPS_DENOMINATOR;
-        netAmount = amount - royaltyAmount;
+    modifier nonReentrant() {
+        if (_status == _ENTERED) revert ReentrancyBlocked();
+        _status = _ENTERED;
+        _;
+        _status = _NOT_ENTERED;
     }
 
-    /// @notice Circle CCTP callback entrypoint. Tokens must already be transferred to this contract.
-    function onCCTPReceived(
+    /// @notice Royalty calculation from gross amount
+    function royaltyInfo(uint256 gross) public pure returns (uint256 royalty, uint256 net) {
+        royalty = (gross * ROYALTY_BPS) / BPS_DENOMINATOR;
+        net = gross - royalty;
+    }
+
+    /// @notice Called by CCTP verifier to settle a deposit
+    function settleFromCCTP(
+        bytes32 depositId,
         address token,
-        address beneficiary,
-        uint256 amount,
-        bytes calldata message
-    ) external onlyTrusted(msg.sender) enforceRoyalty(token, beneficiary, amount) {
-        IERC20 settlementToken = IERC20(token);
-        (, uint256 netAmount) = royaltyInfo(amount);
+        address destination,
+        uint256 amount
+    ) external onlyTrusted(msg.sender) nonReentrant {
+        if (settledDeposits[depositId]) revert AlreadySettled();
+        if (token == address(0) || destination == address(0) || amount == 0) revert InvalidInstruction();
 
-        settlementToken.safeTransfer(beneficiary, netAmount);
-        emit SettlementTransferred(beneficiary, netAmount);
-        emit CCTPReceived(beneficiary, _bytesToString(message));
+        settledDeposits[depositId] = true;
+
+        IERC20 tokenContract = IERC20(token);
+        (uint256 royaltyAmt, uint256 netAmt) = royaltyInfo(amount);
+
+        tokenContract.safeTransfer(KIN_ROYALTY_VAULT, royaltyAmt);
+        emit RoyaltyPaid(destination, token, royaltyAmt);
+
+        tokenContract.safeTransfer(destination, netAmt);
+        emit SettlementExecuted(destination, token, netAmt);
+        emit DepositSettled(depositId, token, amount);
     }
 
-    /// @inheritdoc CCIPReceiver
-    function _ccipReceive(Client.Any2EVMMessage memory message)
-        internal
-        override
-    {
-        address decodedSender = abi.decode(message.sender, (address));
-        _requireTrusted(decodedSender);
+    /// @notice Called by Chainlink CCIP to trigger a payout
+    function settleFromCCIP(
+        address token,
+        address destination,
+        uint256 amount
+    ) external onlyTrusted(msg.sender) nonReentrant {
+        if (token == address(0) || destination == address(0) || amount == 0) revert InvalidInstruction();
 
-        address token = abi.decode(message.data, (address));
+        IERC20 tokenContract = IERC20(token);
+        (uint256 royaltyAmt, uint256 netAmt) = royaltyInfo(amount);
 
-        require(token != address(0), "Zero token");
-        IERC20 settlementToken = IERC20(token);
-        uint256 amount = settlementToken.balanceOf(address(this));
-        require(amount > 0, "Zero amount");
+        tokenContract.safeTransfer(KIN_ROYALTY_VAULT, royaltyAmt);
+        emit RoyaltyPaid(destination, token, royaltyAmt);
 
-        address payer = tx.origin;
-        uint256 royaltyAmount = _collectRoyalty(settlementToken, amount, payer);
-        uint256 netAmount = amount - royaltyAmount;
-
-        settlementToken.safeTransfer(payer, netAmount);
-        emit SettlementTransferred(payer, netAmount);
-        emit CCIPReceived(decodedSender, "Settlement via CCIP");
+        tokenContract.safeTransfer(destination, netAmt);
+        emit SettlementExecuted(destination, token, netAmt);
     }
 
-    function _collectRoyalty(IERC20 token, uint256 amount, address payer) private returns (uint256 royaltyAmount) {
-        (royaltyAmount, ) = royaltyInfo(amount);
-        if (royaltyAmount > 0) {
-            token.safeTransfer(KIN_ROYALTY_VAULT, royaltyAmount);
-            emit RoyaltyPaid(payer, royaltyAmount);
-        }
-    }
-
-    function _bytesToString(bytes memory data) private pure returns (string memory) {
-        if (data.length == 0) {
-            return "";
-        }
-        return string(data);
-    }
-
-    function _requireTrusted(address sender) private view {
-        require(
-            sender == TRUSTED_CCIP_SENDER || sender == TRUSTED_CCTP_SENDER,
-            "Untrusted sender"
-        );
+    /// @notice View function to check balance
+    function balanceOf(address token) external view returns (uint256) {
+        return IERC20(token).balanceOf(address(this));
     }
 }
