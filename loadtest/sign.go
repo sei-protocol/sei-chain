@@ -101,7 +101,7 @@ func (sc *SignerClient) GetKey(accountID, backend, accountKeyFilePath string) cr
 		return privKey
 	}
 	userHomeDir, _ := os.UserHomeDir()
-	jsonFile, err := os.Open(accountKeyFilePath)
+	jsonFile, err := os.Open(filepath.Clean(accountKeyFilePath))
 	if err != nil {
 		panic(err)
 	}
@@ -110,7 +110,9 @@ func (sc *SignerClient) GetKey(accountID, backend, accountKeyFilePath string) cr
 	if err != nil {
 		panic(err)
 	}
-	jsonFile.Close()
+	if err := jsonFile.Close(); err != nil {
+		panic(err)
+	}
 	if err := json.Unmarshal(byteVal, &accountInfo); err != nil {
 		panic(err)
 	}
@@ -135,7 +137,7 @@ func (sc *SignerClient) GetValKeys() []cryptotypes.PrivKey {
 	for _, fn := range files {
 		// we dont expect subdirectories, so we can just handle files
 		valKeyFile := filepath.Join(valKeysFilePath, fn.Name())
-		privKeyBz, err := os.ReadFile(valKeyFile)
+		privKeyBz, err := os.ReadFile(filepath.Clean(valKeyFile))
 		if err != nil {
 			panic(err)
 		}

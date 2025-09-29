@@ -39,10 +39,7 @@ func InitializeGRPCClient(targetEndpoint string, port int) {
 			state := GrpcConn.GetState()
 			if state == connectivity.TransientFailure || state == connectivity.Shutdown {
 				fmt.Println("GRPC Connection lost, attempting to reconnect...")
-				for {
-					if GrpcConn.WaitForStateChange(context.Background(), state) {
-						break
-					}
+				for !GrpcConn.WaitForStateChange(context.Background(), state) {
 					time.Sleep(10 * time.Second)
 				}
 			}

@@ -1,30 +1,99 @@
-- name: Run SEI Balance Query (Pacific-1)
-  env:
-    SEI_ADDRESS: ${{ secrets.SEI_ADDRESS }}
-    REST_URL: "https://rest.sei-apis.com"
-    MIN_BALANCE_USEI: "1000000"
-  run: |
-    echo "🔍 Using SEI address: $SEI_ADDRESS"
-    echo "📡 Fetching: $REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS"
+name: Chain Checks & ETH Blocktests
 
-    # Debug full API response
-    RESPONSE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS")
-    echo "📦 Raw Response:"
-    echo "$RESPONSE"
+on:
+  push:
+    branches:
+      - main
+      - seiv2
+  pull_request:
+    branches:
+      - main
+      - seiv2
 
-    # Extract usei balance
-    BALANCE=$(echo "$RESPONSE" | jq -r '.balances[] | select(.denom == "usei") | .amount')
+defaults:
+  run:
+    shell: bash
 
-    if [ -z "$BALANCE" ]; then
-      echo "❌ No usei balance found for $SEI_ADDRESS"
-      exit 1
-    fi
+env:
+  TOTAL_RUNNERS: 5
+  REST_URL: "https://rest.sei-apis.com"
+  MIN_BALANCE_USEI: "1000000" # 1 SEI
 
-    echo "💰 SEI Balance: $BALANCE usei"
+jobs:
+  # -------------------------
+  # SEI Balance Query
+  # -------------------------
+  sei-balance:
+    runs-on: ubuntu-latest
+    name: Run SEI Balance Query (Pacific-1)
+    steps:
+      - name: Query SEI balance
+        env:
+          SEI_ADDRESS: ${{ secrets.SEI_ADDRESS }}
+        run: |
+          echo "🔍 Using SEI address: $SEI_ADDRESS"
+          echo "📡 Fetching: $REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS"
 
-    if [ "$BALANCE" -lt "$MIN_BALANCE_USEI" ]; then
-      echo "⚠️ Balance below 1 SEI threshold"
-      exit 1
-    fi
+          RESPONSE=$(curl -s "$REST_URL/cosmos/bank/v1beta1/balances/$SEI_ADDRESS")
+          echo "📦 Raw Response:"
+          echo "$RESPONSE"
 
-    echo "✅ Balance is OK"
+          BALANCE=$(echo "$RESPONSE" | jq -r '.balances[] | select(.denom == "usei") | .amount')
+
+          if [ -z "$BALANCE" ]; then
+            echo "❌ No usei balance found for $SEI_ADDRESS"
+            exit 1
+          fi
+
+          echo "💰 SEI Balance: $BALANCE usei"
+
+          if [ "$BALANCE" -lt "$MIN_BALANCE_USEI" ]; then
+            echo "⚠️ Balance below 1 SEI threshold"
+            exit 1
+          fi
+
+          echo "✅ Balance is OK"
+
+  # -------------------------
+  # Generate ETH Blocktest runner indexes
+  # -------------------------
+  runner-indexes:
+    runs-on: ubuntu-latest
+    name: Generate runner indexes
+    outputs:
+      json: ${{ steps.generate-index-list.outputs.json }}
+    steps:
+      - id: generate-index-list
+        run: |
+          MAX_INDEX=$((${{ env.TOTAL_RUNNERS }}-1))
+          INDEX_LIST=$(seq 0 ${MAX_INDEX})
+          INDEX_JSON=$(jq --null-input --compact-output '. |= [inputs]' <<< ${INDEX_LIST})
+          echo "json=${INDEX_JSON}" >> $GITHUB_OUTPUT
+
+  # -------------------------
+  # Run ETH Blocktests
+  # -------------------------
+  eth-blocktests:
+    name: "Run ETH Blocktests ${{ matrix.runner-index }}"
+    runs-on: ubuntu-latest
+    needs: runner-indexes
+    strategy:
+      fail-fast: false
+      matrix:
+        runner-index: ${{ fromJson(needs.runner-indexes.outputs.json) }}
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.24
+
+      - name: Clone ETH Blocktests
+        run: |
+          git clone https://github.com/ethereum/tests.git ethtests
+          cd ethtests
+          git checkout c67e485ff8b5be9abc8ad15345ec21aa22e290d9
+
+      - name: Run ETH Blocktest
+        run: ./run_blocktests.sh ./ethtests/BlockchainTests/ ${{ matrix.runner-index }} ${{ env.TOTAL_RUNNERS }}

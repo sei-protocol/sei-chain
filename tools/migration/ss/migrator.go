@@ -151,7 +151,7 @@ func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey
 			fmt.Printf("SeiDB Archive Migration: Error creating iterator: %+v\n", err)
 			return fmt.Errorf("failed to create iterator: %w", err)
 		}
-		defer itr.Close()
+		defer func() { _ = itr.Close() }()
 
 		startTimeBatch := time.Now() // Measure time for every 10,000 iterations
 
