@@ -11,8 +11,6 @@ import (
 
 	wasmd "github.com/CosmWasm/wasmd/app"
 
-	ibctesting "github.com/cosmos/ibc-go/v3/testing"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/golang/protobuf/proto" //nolint
 	"github.com/stretchr/testify/require"
@@ -75,7 +73,7 @@ func (chain *TestChain) InstantiateContract(codeID uint64, initMsg []byte) sdk.A
 		CodeID: codeID,
 		Label:  "ibc-test",
 		Msg:    initMsg,
-		Funds:  sdk.Coins{ibctesting.TestCoin},
+		Funds:  sdk.Coins{TestCoin},
 	}
 
 	r, err := chain.SendMsgs(instantiateMsg)

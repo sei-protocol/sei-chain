@@ -121,7 +121,7 @@ func newWasmExampleApp(t *testing.T) (*app.WasmApp, sdk.AccAddress) {
 	}
 	validator := tmtypes.NewValidator(pubKey, 1)
 	valSet := tmtypes.NewValidatorSet([]*tmtypes.Validator{validator})
-	wasmApp := app.SetupWithGenesisValSet(t, valSet, []authtypes.GenesisAccount{acc}, nil, balance)
+	wasmApp := app.SetupWithGenesisValSet(t, "testing", valSet, []authtypes.GenesisAccount{acc}, nil, balance)
 
 	return wasmApp, senderAddr
 }
