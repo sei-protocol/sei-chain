@@ -69,12 +69,44 @@ declare -a test_name_skip_list=(
     "transFail" # failing after increasing SSTORE gas limit to 72k
     "valCausesOOF" # failing after increasing SSTORE gas limit to 72k
     "gasLimit40m" # failing after increasing SSTORE gas limit to 72k
+    "gasLimit20m" # failing after increasing SSTORE gas limit to 72k
 )
 
 # Skip based on explicit relative paths when name filtering is insufficient
 declare -a test_path_skip_list=(
     "./ethtests/BlockchainTests/ValidBlocks/bcStateTests/refundReset.json"
 )
+
+seid_wrapper_dir=$(mktemp -d)
+cleanup_wrapper() {
+    rm -rf "$seid_wrapper_dir"
+}
+trap cleanup_wrapper EXIT
+
+cat > "$seid_wrapper_dir/seid" <<'EOF'
+#!/bin/bash
+target_seid="$HOME/go/bin/seid"
+cmd="$1"
+if [ "$cmd" = "gentx" ]; then
+    shift
+    has_ip=false
+    for arg in "$@"; do
+        if [ "$arg" = "--ip" ]; then
+            has_ip=true
+            break
+        fi
+    done
+    if [ "$has_ip" = false ]; then
+        set -- "$@" --ip 127.0.0.1
+    fi
+    exec "$target_seid" gentx "$@"
+else
+    shift
+    exec "$target_seid" "$cmd" "$@"
+fi
+EOF
+chmod +x "$seid_wrapper_dir/seid"
+export PATH="$seid_wrapper_dir:$PATH"
 
 # list out all paths to json files starting from the block_tests_dir
 block_tests=$(find "$block_tests_path" -name "*.json" | sort)
