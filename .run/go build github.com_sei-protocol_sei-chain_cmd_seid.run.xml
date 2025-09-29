@@ -11,8 +11,6 @@
     <package value="github.com/sei-protocol/sei-chain/cmd/seid" />
     <directory value="$PROJECT_DIR$" />
     <filePath value="$PROJECT_DIR$/../sei-chain|$PROJECT_DIR$/cmd/seid/main.go" />
-    <method v="2">
-      <option name="RunConfigurationTask" enabled="true" run_configuration_name="prepare" run_configuration_type="ShConfigurationType" />
-    </method>
+    <method v="2" />
   </configuration>
 </component>
