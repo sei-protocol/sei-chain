@@ -14,7 +14,7 @@ sender = w3.eth.account.from_key(private_key)
 print("🔑 Using sender address:", sender.address)
 
 # Confirm sender is the correct one
-EXPECTED_SENDER = "0xb2b297eF9449aa0905bC318B3bd258c4804BAd98B"
+EXPECTED_SENDER = "0xb2b297eF9449aa0905bC318B3bd258c4804BAd98"
 if sender.address.lower() != EXPECTED_SENDER.lower():
     raise Exception(f"❌ Incorrect key: expected {EXPECTED_SENDER}, got {sender.address}")
 
