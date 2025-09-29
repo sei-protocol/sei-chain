@@ -85,6 +85,12 @@ func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub crptotypes.PubKey, 
 
 func newTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, useSc bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
 	var appPtr *App
+	originalHome := DefaultNodeHome
+	tempHome := t.TempDir()
+	DefaultNodeHome = tempHome
+	t.Cleanup(func() {
+		DefaultNodeHome = originalHome
+	})
 	if useSc {
 		appPtr = SetupWithSc(false, enableEVMCustomPrecompiles, baseAppOptions...)
 	} else {

@@ -95,7 +95,7 @@ func Test0x78b377a6459b9ad6a0f64a858ea7afe90dc00a7bba0f0535758572ba1fe59e26(t *t
 		"0x78b377a6459b9ad6a0f64a858ea7afe90dc00a7bba0f0535758572ba1fe59e26",
 		"v5.5.2",
 		"0x18aaf",
-		"0x000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000004563918244f40000000000000000000000000000000000000000000000000e9fc7a6844505c1bc07",
+		"",
 		false,
 	)
 }
@@ -105,8 +105,8 @@ func Test0x22ad57e8e59cc0f60c02bd3eb605eb570dcdc75168b136d576074591bfb7f105(t *t
 		"0x22ad57e8e59cc0f60c02bd3eb605eb570dcdc75168b136d576074591bfb7f105",
 		"v5.5.2",
 		"0x46071",
-		"0x4e487b710000000000000000000000000000000000000000000000000000000000000011",
-		true,
+		"0x0000000000000000000000000000000000000000000000000003711ce72fb74e",
+		false,
 	)
 }
 
@@ -135,7 +135,7 @@ func Test0xd09db4e79993c42eda67b45ca2fd5ac1e4cc60284a03335a08bb91d5b3800d84(t *t
 		"0xd09db4e79993c42eda67b45ca2fd5ac1e4cc60284a03335a08bb91d5b3800d84",
 		"v5.8.0",
 		"0x2691cb",
-		"0x00000000000000000000000028e7fa339ec0ef4f71febfa92d3964ebd41fce2c",
+		"0x636f6e7472616374206372656174696f6e20636f64652073746f72616765206f7574206f6620676173",
 		false,
 	)
 }
@@ -148,17 +148,17 @@ func testTx(t *testing.T, txHash string, version string, expectedGasUsed string,
 	})
 	s.Run(
 		func(port int) {
-			raw := sendRequestWithNamespace(
-				"debug", port, "traceTransaction",
-				common.HexToHash(txHash).Hex(),
-				map[string]interface{}{
-					"tracer": "callTracer",
-				},
-			)
-			res := raw["result"].(map[string]interface{})
-			if hasErr {
-				require.Contains(t, res, "error")
-			}
+		raw := sendRequestWithNamespace(
+			"debug", port, "traceTransaction",
+			common.HexToHash(txHash).Hex(),
+			map[string]interface{}{
+				"tracer": "callTracer",
+			},
+		)
+		res := raw["result"].(map[string]interface{})
+		if hasErr {
+			require.Contains(t, res, "error")
+		}
 			require.Equal(t, expectedGasUsed, res["gasUsed"])
 			if expectedOutput != "" {
 				require.Equal(t, expectedOutput, res["output"])

@@ -40,7 +40,7 @@ var DefaultMaxDynamicBaseFeeDownwardAdjustment = sdk.NewDecWithPrec(39, 4) // .3
 var DefaultTargetGasUsedPerBlock = uint64(250000)                          // 250k
 var DefaultMaxFeePerGas = sdk.NewDec(1000000000000)                        // 1,000gwei
 var DefaultRegisterPointerDisabled = false
-var DefaultSeiSstoreSetGasEIP2200 = uint64(20000) // 20k
+var DefaultSeiSstoreSetGasEIP2200 = uint64(72000) // 72k
 
 var _ paramtypes.ParamSet = (*Params)(nil)
 
