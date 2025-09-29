@@ -1989,8 +1989,8 @@ github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529/go.mod h1:DxrIzT+xaE7yg
 github.com/securego/gosec/v2 v2.11.0 h1:+PDkpzR41OI2jrw1q6AdXZCbsNGNGT7pQjal0H0cArI=
 github.com/securego/gosec/v2 v2.11.0/go.mod h1:SX8bptShuG8reGC0XS09+a4H2BoWSJi+fscA+Pulbpo=
 github.com/segmentio/fasthash v1.0.3/go.mod h1:waKX8l2N8yckOgmSsXJi7x1ZfdKZ4x7KRMzBtS3oedY=
-github.com/sei-protocol/go-ethereum v1.15.7-sei-5 h1:97N2txLaaOlzMiWc5FAhW+sinOcY1hChBniZOA8KUUU=
-github.com/sei-protocol/go-ethereum v1.15.7-sei-5/go.mod h1:+S9k+jFzlyVTNcYGvqFhzN/SFhI6vA+aOY4T5tLSPL0=
+github.com/sei-protocol/go-ethereum v1.15.7-sei-7 h1:5Um1DHbcv9Nn0ksDHaaj49Ub/NlIQM6K3iLpJmdWodk=
+github.com/sei-protocol/go-ethereum v1.15.7-sei-7/go.mod h1:+S9k+jFzlyVTNcYGvqFhzN/SFhI6vA+aOY4T5tLSPL0=
 github.com/sei-protocol/goutils v0.0.2 h1:Bfa7Sv+4CVLNM20QcpvGb81B8C5HkQC/kW1CQpIbXDA=
 github.com/sei-protocol/goutils v0.0.2/go.mod h1:iYE2DuJfEnM+APPehr2gOUXfuLuPsVxorcDO+Tzq9q8=
 github.com/sei-protocol/sei-cosmos v0.3.66 h1:DZL0OWpv+3/tleudTXUeMJtjb2C92O9PiNJBQoYDhBE=
@@ -2005,10 +2005,6 @@ github.com/sei-protocol/sei-tendermint v0.6.4 h1:lMgzloTLo3ixNBHV+ETkUeh13fwOPqq
 github.com/sei-protocol/sei-tendermint v0.6.4/go.mod h1:SSZv0P1NBP/4uB3gZr5XJIan3ks3Ui8FJJzIap4r6uc=
 github.com/sei-protocol/sei-tm-db v0.0.5 h1:3WONKdSXEqdZZeLuWYfK5hP37TJpfaUa13vAyAlvaQY=
 github.com/sei-protocol/sei-tm-db v0.0.5/go.mod h1:Cpa6rGyczgthq7/0pI31jys2Fw0Nfrc+/jKdP1prVqY=
-github.com/sei-protocol/sei-wasmd v0.3.9 h1:gHbJcczxZYon4cYfdQz04sKmPdfDUtqA5mDDKW4dp2E=
-github.com/sei-protocol/sei-wasmd v0.3.9/go.mod h1:/++yXN121FLs9hmArfX97ukm4q4wMC0REcUYZKrIw5Q=
-github.com/sei-protocol/sei-wasmvm v1.5.4-sei.0.0.3 h1:hhZdZLR8g+6bxWBZiMflSnIuHgLcK/QEpzyjx0/yXYU=
-github.com/sei-protocol/sei-wasmvm v1.5.4-sei.0.0.3/go.mod h1:Q0bSEtlktzh7W2hhEaifrFp1Erx11ckQZmjq8FLCyys=
 github.com/sei-protocol/tm-db v0.0.4 h1:7Y4EU62Xzzg6wKAHEotm7SXQR0aPLcGhKHkh3qd0tnk=
 github.com/sei-protocol/tm-db v0.0.4/go.mod h1:PWsIWOTwdwC7Ow/GUvx8HgUJTO691pBuorIQD8JvwAs=
 github.com/sergi/go-diff v1.0.0/go.mod h1:0CfEIISq7TuYL3j771MWULgwwjU+GofnZX9QAmXWZgo=

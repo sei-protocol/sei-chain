@@ -361,4 +361,3 @@ func TestEventDataEncodingManual(t *testing.T) {
 		})
 	}
 }
-

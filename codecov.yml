@@ -26,3 +26,6 @@ ignore:
   - "contrib"
   - "integration_test/**/*"
   - "docker/**/*"
+  - "testutil/**"
+  - "precompiles/*/legacy/**"
+  - "**/cli/**"
