@@ -129,12 +129,28 @@ func CmdAssociateAddress() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"sei_associate\",\"params\":[%s],\"id\":\"associate_addr\"}", string(bz))
+			// Build the full JSON-RPC request struct
+			type SeiAssociateRequest struct {
+				JSONRPC string                   `json:"jsonrpc"`
+				Method  string                   `json:"method"`
+				Params  []evmrpc.AssociateRequest `json:"params"`
+				ID      string                   `json:"id"`
+			}
+			fullReq := SeiAssociateRequest{
+				JSONRPC: "2.0",
+				Method:  "sei_associate",
+				Params:  []evmrpc.AssociateRequest{txData},
+				ID:      "associate_addr",
+			}
+			bodyBytes, err := json.Marshal(fullReq)
+			if err != nil {
+				return err
+			}
 			rpc, err := cmd.Flags().GetString(FlagRPC)
 			if err != nil {
 				return err
 			}
-			req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(body))
+			req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(string(bodyBytes)))
 			if err != nil {
 				return err
 			}
