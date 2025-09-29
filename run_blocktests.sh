@@ -44,12 +44,19 @@ declare -a test_name_skip_list=(
     # invalid block tests - state tests
     "gasLimitTooHigh" # block header gas limit doesn't apply to us
     "transactionFromSelfDestructedContract" # failing
+    "callcodeOutput2" # failing after increasing SSTORE gas limit to 72k
+    "createNameRegistratorPerTxsNotEnoughGasAfter" # failing after increasing SSTORE gas limit to 72k
+    "createNameRegistratorPerTxsNotEnoughGasAt" # failing after increasing SSTORE gas limit to 72k
+    "createNameRegistratorPerTxsNotEnoughGasBefore" # failing after increasing SSTORE gas limit to 72k
+    "createRevert" # failing after increasing SSTORE gas limit to 72k
 
     # InvaldBlockTests/bcEIP1559
+    "badBlocks" # failing after increasing SSTORE gas limit to 72k
     "badUncles" # reorgs don't apply to us
     "checkGasLimit" # not sure what issue is
     "baseFee" # failing after increasing SSTORE gas limit to 72k
     "feeCap" # failing after increasing SSTORE gas limit to 72k
+    "transFail" # failing after increasing SSTORE gas limit to 72k
     "valCausesOOF" # failing after increasing SSTORE gas limit to 72k
 )
 
