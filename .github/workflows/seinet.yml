@@ -1,75 +1,42 @@
-name: "\U0001F6A1\uFE0F SeiNet Sovereign Sync CI"
+run:
+  tests: false
+  timeout: 10m
+  build-tags:
+    - codeanalysis
 
-on:
-  push:
-    paths:
-      - "x/seinet/**"
-      - ".github/workflows/seinet.yml"
-  pull_request:
-    paths:
-      - "x/seinet/**"
+linters:
+  enable:
+    - govet           # Go's standard vet tool
+    - errcheck        # Check for unchecked errors
+    - staticcheck     # Advanced static analysis
+    - ineffassign     # Detect unused assignments
+    - gosec           # Security scanner
+    - gofmt           # Format check
+    - goimports       # Import order and formatting
+    - misspell        # Detect commonly misspelled words
+    - unconvert       # Detect redundant type conversions
+    - stylecheck      # Style rules from go vet
+    - goconst         # Find repeated string constants
+    - bodyclose       # Detect unclosed response bodies
+    - dogsled         # Detect unused assignments with blank identifiers
+    - prealloc        # Suggest slice preallocation
 
-jobs:
-  build-test-lint:
-    runs-on: ubuntu-latest
-    name: "\u2699\uFE0F Build & Lint"
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+issues:
+  exclude-rules:
+    - text: "Use of weak random number generator"
+      linters:
+        - gosec
+    - text: "ST1003:"  # Don't enforce all-caps constants for now
+      linters:
+        - stylecheck
+    - text: "ST1016:"  # Don't enforce naming of receiver types
+      linters:
+        - stylecheck
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: 'go.mod'
-          cache: true
+formatters:
+  enable:
+    - gofmt
+    - goimports
 
-      - name: Lint (golangci-lint)
-        uses: golangci/golangci-lint-action@v3
-        with:
-          version: v1.54.2
-          working-directory: x/seinet
-
-      - name: Build
-        run: |
-          go build ./...
-
-  test:
-    runs-on: ubuntu-latest
-    name: "\U0001F9EA Tests"
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: 'go.mod'
-          cache: true
-
-      - name: Run Go unit tests
-        run: |
-          go test -v ./x/seinet/... -coverprofile=coverage.out
-          go tool cover -func=coverage.out
-
-      - name: Run integration tests
-        run: |
-          go test ./x/seinet/integration_test/... -v -cover
-
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          files: coverage.out
-          flags: seinet
-          fail_ci_if_error: false
-
-  notify:
-    name: "\U0001F514 Slack Notification"
-    runs-on: ubuntu-latest
-    if: failure()
-    steps:
-      - name: Send Slack alert on failure
-        uses: rtCamp/action-slack-notify@v2
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-          SLACK_COLOR: "#ff4c4c"
-          SLACK_TITLE: "\u274C SeiNet Sovereign Sync CI Failed"
-          SLACK_MESSAGE: "Check logs \u2192 Workflow: ${{ github.workflow }} | Commit: ${{ github.sha }}"
+output:
+  format: github-actions  # so annotations show up in PRs

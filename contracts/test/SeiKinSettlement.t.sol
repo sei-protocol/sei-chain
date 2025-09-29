@@ -76,7 +76,7 @@ contract SeiKinSettlementTest is Test {
     }
 
     function testRevertsForZeroCctpToken() external {
-        vm.expectRevert(bytes("Zero token"));
+        vm.expectRevert(bytes("Zero address"));
         vm.prank(CCTP_CALLER);
         settlement.onCCTPReceived(address(0), address(0x1234), 1, "");
     }
