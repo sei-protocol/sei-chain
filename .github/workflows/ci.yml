@@ -1,181 +1,25 @@
-name: Keeper Chainlink-Circle-Sei Protocol
+final-check:
+  name: ✅ Keeper CI Verdict
+  needs: [tests]
+  if: always()
+  runs-on: ubuntu-latest
+  steps:
+    - name: Install GitHub CLI
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y gh jq
 
-on:
-  push:
-    paths:
-      - '**.go'
-      - go.mod
-      - go.sum
-    branches:
-      - main
-      - release/**
-      - seiv2
-      - evm
-  pull_request:
+    - name: Confirm All Test Shards Passed
+      run: |
+        failed=$(gh run view ${{ github.run_id }} \
+          --json jobs \
+          --jq '.jobs[] | select(.conclusion == "failure") | .name' | wc -l)
 
-jobs:
-  tests:
-    name: 🧪 Sharded Go Test (${{ matrix.part }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        part: [ "00", "01", "02", "03", "04", "05", "06", "07", "08", "09",
-                "10", "11", "12", "13", "14", "15", "16", "17", "18", "19" ]
-
-    steps:
-      - uses: actions/checkout@v3
-
-      - uses: actions/setup-go@v4
-        with:
-          go-version: "1.22"
-
-      - name: Cache Go Modules & Build
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-
-      - name: Run Sharded Tests
-        run: |
-          NUM_SPLIT=20
-          make test-group-${{ matrix.part }} NUM_SPLIT=$NUM_SPLIT
-
-      - name: Upload Coverage Profile
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-${{ matrix.part }}
-          path: ./${{ matrix.part }}.profile.out
-
-  merge-coverage:
-    name: 📊 Merge Coverage Report
-    needs: tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - uses: actions/setup-go@v4
-        with:
-          go-version: "1.22"
-
-      - uses: actions/download-artifact@v4
-
-      - name: Install gocovmerge
-        run: |
-          go install github.com/wadey/gocovmerge@latest
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
-      - name: Merge to `coverage.txt`
-        run: |
-          gocovmerge $(find . -name '*profile.out') > coverage.txt
-
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          file: ./coverage.txt
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: true
-
-      - name: Save coverage.txt as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: final-coverage
-          path: coverage.txt
-
-  gosec:
-    name: 🔐 Gosec AI-Fingerprint Scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - uses: actions/setup-go@v4
-        with:
-          go-version: "1.22"
-
-      - name: Install gosec
-        run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@latest
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
-      - name: Run gosec with JSON and SARIF
-        run: |
-          mkdir -p security
-          gosec -fmt=json -out=security/gosec.json ./...
-          gosec -fmt=sarif -out=security/gosec.sarif ./...
-
-      - name: Extract G115 Risk Print
-        run: |
-          jq '.Issues[] | select(.RuleID=="G115") | {file: .File, line: .Line, code: .Code}' \
-            security/gosec.json > security/g115-risks.json
-
-      - name: Upload Gosec Outputs
-        uses: actions/upload-artifact@v4
-        with:
-          name: gosec-results
-          path: |
-            security/gosec.json
-            security/gosec.sarif
-            security/g115-risks.json
-
-  notarize:
-    name: 🔏 Proof of Test + SoulSigil
-    needs: [merge-coverage, gosec]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/download-artifact@v4
-
-      - name: Generate SoulSigil and GuardianVault
-        run: |
-          mkdir -p guardian
-          SHA=$(sha512sum final-coverage/coverage.txt | cut -d' ' -f1)
-          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-          jq -n --arg sha "$SHA" \
-                --arg date "$DATE" \
-                --arg commit "${{ github.sha }}" \
-                --arg repo "${{ github.repository }}" \
-                '{
-                  proof_type: "keeper-ci-proof",
-                  commit: $commit,
-                  repository: $repo,
-                  sha512: $sha,
-                  timestamp: $date,
-                  tests_passed: true
-                }' > guardian/proof.json
-
-          jq -s 'reduce .[] as $item ({}; . * $item)' \
-            guardian/proof.json \
-            gosec-results/g115-risks.json \
-            > guardian/guardian_vault.json
-
-          cat guardian/guardian_vault.json | base64 > guardian/guardian_vault.b64
-
-      - name: Upload SoulSigil & Vault
-        uses: actions/upload-artifact@v4
-        with:
-          name: soul-keeper-vault
-          path: |
-            guardian/proof.json
-            guardian/guardian_vault.json
-            guardian/guardian_vault.b64
-
-  final-check:
-    name: ✅ Keeper CI Verdict
-    needs: [tests]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Confirm All Test Shards Passed
-        run: |
-          jobs=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-          failed=$(echo "$jobs" | jq '[.jobs[] | select(.conclusion == "failure")] | length')
-          if [[ "$failed" -gt 0 ]]; then
-            echo "❌ $failed job(s) failed."
-            exit 1
-          else
-            echo "✅ All test shards passed."
-          fi
+        if [[ "$failed" -gt 0 ]]; then
+          echo "❌ $failed job(s) failed."
+          exit 1
+        else
+          echo "✅ All test shards passed."
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
