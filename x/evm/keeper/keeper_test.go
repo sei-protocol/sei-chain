@@ -3,8 +3,12 @@ package keeper_test
 import (
 	"context"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"math/big"
+	"os"
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 
@@ -14,20 +18,12 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/sei-protocol/sei-chain/app"
-	"github.com/sei-protocol/sei-chain/precompiles/addr"
-	"github.com/sei-protocol/sei-chain/precompiles/bank"
-	"github.com/sei-protocol/sei-chain/precompiles/distribution"
-	"github.com/sei-protocol/sei-chain/precompiles/gov"
-	"github.com/sei-protocol/sei-chain/precompiles/ibc"
-	"github.com/sei-protocol/sei-chain/precompiles/json"
-	"github.com/sei-protocol/sei-chain/precompiles/oracle"
-	"github.com/sei-protocol/sei-chain/precompiles/pointer"
-	"github.com/sei-protocol/sei-chain/precompiles/pointerview"
-	"github.com/sei-protocol/sei-chain/precompiles/staking"
-	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/testutil/keeper"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/helpers"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
+	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -272,148 +268,68 @@ func TestAddPendingNonce(t *testing.T) {
 }
 
 func TestGetCustomPrecompiles(t *testing.T) {
+	// Read all version files from precompiles subfolders
+	tagSet := make(map[string]bool)
+
+	// Define the precompiles directories to scan
+	precompileDirs := []string{
+		"addr", "bank", "distribution", "gov", "ibc", "json",
+		"oracle", "p256", "pointer", "pointerview", "solo", "staking", "wasmd",
+	}
+	precompileTags := map[string][]string{}
+
+	// Read versions from each precompile directory
+	for _, dir := range precompileDirs {
+		versionFile := fmt.Sprintf("../../../precompiles/%s/versions", dir)
+		content, err := os.ReadFile(versionFile)
+		if err != nil {
+			t.Logf("Warning: Could not read %s: %v", versionFile, err)
+			continue
+		}
+
+		// Parse each line as a tag
+		precompileTags[dir] = utils.Map(strings.Split(string(content), "\n"), strings.TrimSpace)
+		for _, line := range precompileTags[dir] {
+			if line != "" {
+				tagSet[line] = true
+			}
+		}
+	}
+
+	// Convert to slice and sort
+	var tags []string
+	for tag := range tagSet {
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+
+	// Verify we have tags
+	require.Greater(t, len(tags), 0, "Should have found at least one tag")
+
+	// Setup keeper and context
 	k, ctx := keeper.MockEVMKeeperPrecompiles()
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(160000000), "v6.1.4")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(150000000), "v6.1.0")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(140000000), "v6.0.6")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(139936278), "v6.0.5")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(129965597), "v6.0.3")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(126326956), "v6.0.2")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(119821526), "v6.0.1")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(114945913), "v6.0.0")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(107000672), "v5.9.0")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(102491599), "v5.8.0")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(94496767), "v5.7.5")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(89475838), "v5.6.2")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(84006014), "v5.5.5")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(79123881), "v5.5.2")
-	k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(73290488), "v3.9.0")
-	ps := k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(160000001))
-	for _, v := range ps {
-		require.Equal(t, "v6.1.4", v)
+
+	// Set up upgrade heights with increment of 10
+	baseHeight := 1000000
+	tagToHeight := map[string]int64{}
+	for i, tag := range tags {
+		height := baseHeight + (i * 10)
+		k.UpgradeKeeper().SetDone(ctx.WithBlockHeight(int64(height)), tag)
+		t.Logf("Set upgrade height %d for tag %s", height, tag)
+		tagToHeight[tag] = int64(height)
 	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(150000001))
-	for _, v := range ps {
-		require.Equal(t, "v6.1.0", v)
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(140000001))
-	for _, v := range ps {
-		require.Equal(t, "v6.0.6", v)
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(139936279))
-	for _, v := range ps {
-		require.Equal(t, "v6.0.5", v)
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(129965598))
-	for addr, v := range ps {
-		switch addr.Hex() {
-		case pointerview.PointerViewAddress:
-			require.Equal(t, "v5.6.2", v)
-		case distribution.DistrAddress:
-		case gov.GovAddress:
-		case staking.StakingAddress:
-			require.Equal(t, "v5.8.0", v)
-		case pointer.PointerAddress:
-		default:
-			require.Equal(t, "v6.0.3", v)
+
+	for precompile, tags := range precompileTags {
+		for _, tag := range tags {
+			ps := k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(tagToHeight[tag] + 1))
+			for p, rtag := range ps {
+				if p.Hex() != precompile {
+					continue
+				}
+				require.Equal(t, tag, rtag)
+			}
 		}
 	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(126326957))
-	for addr, v := range ps {
-		switch addr.Hex() {
-		case pointerview.PointerViewAddress:
-		case json.JSONAddress:
-			require.Equal(t, "v5.6.2", v)
-		case distribution.DistrAddress:
-		case gov.GovAddress:
-		case staking.StakingAddress:
-			require.Equal(t, "v5.8.0", v)
-		case pointer.PointerAddress:
-		default:
-			require.Equal(t, "v6.0.1", v)
-		}
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(119821527))
-	for a, v := range ps {
-		switch a.Hex() {
-		case json.JSONAddress:
-		case pointerview.PointerViewAddress:
-			require.Equal(t, "v5.6.2", v)
-		case distribution.DistrAddress:
-		case gov.GovAddress:
-		case staking.StakingAddress:
-		case ibc.IBCAddress, bank.BankAddress, oracle.OracleAddress, addr.AddrAddress, wasmd.WasmdAddress:
-			require.Equal(t, "v6.0.1", v)
-		default:
-			require.Equal(t, "v6.0.0", v)
-		}
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(114945914))
-	for addr, v := range ps {
-		switch addr.Hex() {
-		case json.JSONAddress:
-		case pointerview.PointerViewAddress:
-			require.Equal(t, "v5.6.2", v)
-		case distribution.DistrAddress:
-		case ibc.IBCAddress:
-		case gov.GovAddress:
-		case staking.StakingAddress:
-			require.Equal(t, "v5.8.0", v)
-		default:
-			require.Equal(t, "v6.0.0", v)
-		}
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(107000673))
-	for a, v := range ps {
-		switch a.Hex() {
-		case addr.AddrAddress:
-			require.Equal(t, "v5.7.5", v)
-		case json.JSONAddress:
-		case oracle.OracleAddress:
-		case pointerview.PointerViewAddress:
-			require.Equal(t, "v5.6.2", v)
-		default:
-			require.Equal(t, "v5.8.0", v)
-		}
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(102491600))
-	for a, v := range ps {
-		switch a.Hex() {
-		case addr.AddrAddress:
-			require.Equal(t, "v5.7.5", v)
-		case json.JSONAddress:
-		case oracle.OracleAddress:
-		case pointerview.PointerViewAddress:
-			require.Equal(t, "v5.6.2", v)
-		default:
-			require.Equal(t, "v5.8.0", v)
-		}
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(94496768))
-	for a, v := range ps {
-		switch a.Hex() {
-		case addr.AddrAddress:
-		case pointer.PointerAddress:
-		case wasmd.WasmdAddress:
-			require.Equal(t, "v5.7.5", v)
-		default:
-			require.Equal(t, "v5.6.2", v)
-		}
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(89475839))
-	for _, v := range ps {
-		require.Equal(t, "v5.6.2", v)
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(84006015))
-	for _, v := range ps {
-		require.Equal(t, "v5.5.5", v)
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(79123882))
-	for _, v := range ps {
-		require.Equal(t, "v5.5.2", v)
-	}
-	ps = k.GetCustomPrecompilesVersions(ctx.WithBlockHeight(73290489))
-	require.Len(t, ps, 0)
 }
 
 func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {
@@ -442,4 +358,325 @@ func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {
 	msg, err := types.NewMsgEVMTransaction(typedTx)
 	require.Nil(t, err)
 	return msg
+}
+
+func TestGetBaseFeeBeforeV620(t *testing.T) {
+	// Set up a test app and context
+	testApp := app.Setup(false, false, false)
+	testHeight := int64(1000)
+	testCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(testHeight)
+
+	// Set chain ID to pacific-1
+	testCtx = testCtx.WithChainID("pacific-1")
+
+	// Set the v6.2.0 upgrade height to a value higher than our test height
+	v620UpgradeHeight := int64(2000)
+	testApp.UpgradeKeeper.SetDone(testCtx.WithBlockHeight(v620UpgradeHeight), "6.2.0")
+
+	keeper := &testApp.EvmKeeper
+
+	// Before upgrade: should be nil
+	baseFee := keeper.GetBaseFee(testCtx)
+	require.Nil(t, baseFee, "Base fee should be nil for pacific-1 before v6.2.0 upgrade")
+
+	// After upgrade: should not be nil
+	ctxAfterUpgrade := testCtx.WithBlockHeight(2500)
+	baseFeeAfter := keeper.GetBaseFee(ctxAfterUpgrade)
+	require.NotNil(t, baseFeeAfter, "Base fee should not be nil for pacific-1 after v6.2.0 upgrade")
+
+	// Non-pacific-1 chain: should not be nil
+	ctxOtherChain := testCtx.WithChainID("test-chain")
+	baseFeeOther := keeper.GetBaseFee(ctxOtherChain)
+	require.NotNil(t, baseFeeOther, "Base fee should not be nil for non-pacific-1 chains")
+}
+
+var SignerMap = map[derived.SignerVersion]func(*big.Int) ethtypes.Signer{
+	derived.London: ethtypes.NewLondonSigner,
+	derived.Cancun: ethtypes.NewCancunSigner,
+}
+
+var SignerMapAllVersions = map[string]func(*big.Int) ethtypes.Signer{
+	"London": ethtypes.NewLondonSigner,
+	"Cancun": ethtypes.NewCancunSigner,
+}
+
+func TestRecovery(t *testing.T) {
+	// Transaction data from block 170818561 on Pacific-1 (chain ID 1329)
+	// This is a legacy transaction with V=35, which encodes chain ID 0
+	// Expected sender: 0x07fF2517E630c1CEa9cC1eC594957cC293aa80B2
+	// Expected tx hash: 0x882c9df49bb1e77800f0f1d91e07cecde91c4178a9894a0f679e8daf4bc0c4df
+
+	to := common.HexToAddress("0xa26b9bfe606d29f16b5aecf30f9233934452c4e2")
+	gasPrice := big.NewInt(3987777747)
+	value := big.NewInt(0)
+	data := common.Hex2Bytes("a0712d68000000000000000000000000000000000000000000000000000000003b9aca00")
+	v := big.NewInt(35)
+	r, _ := new(big.Int).SetString("8774931ee5b3fed1eafb67cc3e38202265381f5aaebb2ca7fa8ff679068f0337", 16)
+	s, _ := new(big.Int).SetString("2a07e49c9f0bbaea59534553003e33fb476169072f6f18872983872b3e447370", 16)
+
+	ethTx := ethtypes.NewTx(&ethtypes.LegacyTx{
+		Nonce:    7,
+		GasPrice: gasPrice,
+		Gas:      500000,
+		To:       &to,
+		Value:    value,
+		Data:     data,
+		V:        v,
+		R:        r,
+		S:        s,
+	})
+
+	expectedSender := "0x07fF2517E630c1CEa9cC1eC594957cC293aa80B2"
+	expectedTxHash := "0x882c9df49bb1e77800f0f1d91e07cecde91c4178a9894a0f679e8daf4bc0c4df"
+
+	fmt.Printf("\n=== Transaction Info ===\n")
+	fmt.Printf("Transaction chain ID (from V): %v\n", ethTx.ChainId())
+	fmt.Printf("Transaction Protected: %v\n", ethTx.Protected())
+	fmt.Printf("Transaction Hash: %v\n", ethTx.Hash().Hex())
+	fmt.Printf("Expected Hash: %v\n", expectedTxHash)
+	fmt.Printf("Hash Match: %v\n", ethTx.Hash().Hex() == expectedTxHash)
+
+	V, R, S := ethTx.RawSignatureValues()
+	fmt.Printf("\n=== Raw Signature ===\n")
+	fmt.Printf("V: %v (0x%x)\n", V, V)
+	fmt.Printf("R: %v\n", R)
+	fmt.Printf("S: %v\n", S)
+
+	// Test different recovery scenarios
+	type scenario struct {
+		name          string
+		chainIDForCfg *big.Int // Chain ID to use for creating config/signer
+		chainIDForV   *big.Int // Chain ID to use for V adjustment
+		useEthTxHash  bool     // Use ethTx.Hash() vs signer.Hash()
+		vAdjustments  []int64  // V adjustments to try (e.g., -8, 0, etc.)
+		signerVersion string   // "London", "Cancun", or "" for default
+	}
+
+	scenarios := []scenario{
+		{
+			name:          "Scenario 1: Network chain ID (1329) for everything",
+			chainIDForCfg: big.NewInt(1329),
+			chainIDForV:   big.NewInt(1329),
+			useEthTxHash:  false,
+			vAdjustments:  []int64{0}, // Use AdjustV result directly
+		},
+		{
+			name:          "Scenario 2: TX chain ID (0) for everything",
+			chainIDForCfg: big.NewInt(0),
+			chainIDForV:   big.NewInt(0),
+			useEthTxHash:  false,
+			vAdjustments:  []int64{0},
+		},
+		{
+			name:          "Scenario 3: Network chain ID (1329) for config, TX chain ID (0) for V",
+			chainIDForCfg: big.NewInt(1329),
+			chainIDForV:   big.NewInt(0),
+			useEthTxHash:  false,
+			vAdjustments:  []int64{0},
+		},
+		{
+			name:          "Scenario 3: Network chain ID (0) for config, TX chain ID (1329) for V",
+			chainIDForCfg: big.NewInt(0),
+			chainIDForV:   big.NewInt(1329),
+			useEthTxHash:  false,
+			vAdjustments:  []int64{0},
+		},
+		{
+			name:          "Scenario 4: Use ethTx.Hash() with TX chain ID (0) for V",
+			chainIDForCfg: big.NewInt(0), // Doesn't matter since we use ethTx.Hash()
+			chainIDForV:   big.NewInt(0),
+			useEthTxHash:  true,
+			vAdjustments:  []int64{0},
+		},
+		{
+			name:          "Scenario 5: Use ethTx.Hash() with raw V values (27, 28)",
+			chainIDForCfg: big.NewInt(0),
+			chainIDForV:   nil, // Skip AdjustV
+			useEthTxHash:  true,
+			vAdjustments:  []int64{-8, -7}, // V-8=27, V-7=28
+		},
+		{
+			name:          "Scenario 6: v6.1.4 logic - London signer with TX chain ID (0)",
+			chainIDForCfg: big.NewInt(0),
+			chainIDForV:   big.NewInt(0),
+			useEthTxHash:  false, // Use signer.Hash() with London signer
+			vAdjustments:  []int64{0},
+			signerVersion: "London",
+		},
+		{
+			name:          "Scenario 7: FrontierSigner - raw V values (27, 28)",
+			chainIDForCfg: nil, // Not used for Frontier
+			chainIDForV:   nil, // No adjustment
+			useEthTxHash:  false,
+			vAdjustments:  []int64{-8, -7}, // Try V-8=27, V-7=28
+			signerVersion: "Frontier",
+		},
+		{
+			name:          "Scenario 8: FrontierSigner - with AdjustV(chain ID 0)",
+			chainIDForCfg: nil,           // Not used for Frontier
+			chainIDForV:   big.NewInt(0), // Adjust with chain ID 0
+			useEthTxHash:  false,
+			vAdjustments:  []int64{0, 1}, // Try adjusted V and adjusted V+1
+			signerVersion: "Frontier",
+		},
+		{
+			name:          "Scenario 9: FrontierSigner - with AdjustV(chain ID 1329)",
+			chainIDForCfg: nil,              // Not used for Frontier
+			chainIDForV:   big.NewInt(1329), // Adjust with chain ID 1329
+			useEthTxHash:  false,
+			vAdjustments:  []int64{0}, // Try adjusted V
+			signerVersion: "Frontier",
+		},
+		{
+			name:          "Scenario 10: Unadjust V=35 (assume it's pre-adjusted with chain ID 0)",
+			chainIDForCfg: nil,
+			chainIDForV:   nil,
+			useEthTxHash:  true,
+			vAdjustments:  []int64{8}, // V + 8 = 35 + 8 = 43 (reverse of V - 8)
+			signerVersion: "",
+		},
+		{
+			name:          "Scenario 11: Unadjust V=35 (assume it's pre-adjusted with chain ID 1329)",
+			chainIDForCfg: nil,
+			chainIDForV:   nil,
+			useEthTxHash:  true,
+			vAdjustments:  []int64{2666}, // V + (1329*2) + 8 = 35 + 2658 + 8 = 2701
+			signerVersion: "",
+		},
+		{
+			name:          "Scenario 12: PRODUCTION - London signer with chain ID 0, V=27",
+			chainIDForCfg: big.NewInt(0),
+			chainIDForV:   big.NewInt(0),
+			useEthTxHash:  false, // Use signer.Hash() with chain ID 0
+			vAdjustments:  []int64{0},
+			signerVersion: "London",
+		},
+	}
+
+	fmt.Printf("\n=== Testing Recovery Scenarios ===\n")
+
+	successFound := false
+	var successScenario string
+
+	for _, sc := range scenarios {
+		fmt.Printf("\n--- %s ---\n", sc.name)
+
+		// Wrap in a function to recover from panics
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("  ❌ Panic: %v\n", r)
+				}
+			}()
+
+			var txHash common.Hash
+			if sc.useEthTxHash {
+				txHash = ethTx.Hash()
+				fmt.Printf("Using ethTx.Hash(): %v\n", txHash.Hex())
+			} else {
+				if sc.signerVersion == "Frontier" {
+					// FrontierSigner doesn't take a chain ID
+					frontierSigner := ethtypes.FrontierSigner{}
+					txHash = frontierSigner.Hash(ethTx)
+					fmt.Printf("Using FrontierSigner (unprotected)\n")
+					fmt.Printf("Hash: %v\n", txHash.Hex())
+				} else {
+					var signer ethtypes.Signer
+					if sc.signerVersion != "" {
+						signer = SignerMapAllVersions[sc.signerVersion](sc.chainIDForCfg)
+						fmt.Printf("Using %s signer with chain ID %v\n", sc.signerVersion, sc.chainIDForCfg)
+					} else {
+						version := derived.Cancun
+						signer = SignerMap[version](sc.chainIDForCfg)
+						fmt.Printf("Using Cancun signer with chain ID %v\n", sc.chainIDForCfg)
+					}
+					txHash = signer.Hash(ethTx)
+					fmt.Printf("Hash: %v\n", txHash.Hex())
+				}
+			}
+
+			// First try the configured V adjustments
+			for _, vAdj := range sc.vAdjustments {
+				var vToUse *big.Int
+				if sc.chainIDForV == nil {
+					// Use raw V + adjustment
+					vToUse = new(big.Int).Add(V, big.NewInt(vAdj))
+					fmt.Printf("  Trying V=%v (raw V + %d)\n", vToUse, vAdj)
+				} else {
+					// Use AdjustV
+					vToUse = AdjustV(V, ethTx.Type(), sc.chainIDForV)
+					if vAdj != 0 {
+						vToUse = new(big.Int).Add(vToUse, big.NewInt(vAdj))
+					}
+					fmt.Printf("  Trying V=%v (AdjustV with chain ID %v, then +%d)\n", vToUse, sc.chainIDForV, vAdj)
+				}
+
+				evmAddr, _, _, err := helpers.GetAddresses(vToUse, R, S, txHash)
+				if err != nil {
+					fmt.Printf("    ❌ Error: %v\n", err)
+				} else {
+					match := evmAddr.Hex() == expectedSender
+					if match {
+						fmt.Printf("    ✅ SUCCESS: %v\n", evmAddr.Hex())
+						successFound = true
+						successScenario = fmt.Sprintf("%s with V=%v", sc.name, vToUse)
+						return // Exit early on success
+					} else {
+						fmt.Printf("    ❌ Wrong address: %v\n", evmAddr.Hex())
+					}
+				}
+			}
+
+			// If configured V adjustments didn't work, brute force V values
+			fmt.Printf("  Brute forcing V values from -3000 to 3000...\n")
+			foundV35 := false
+			for v := int64(-3000); v <= 3000; v++ {
+				vToUse := big.NewInt(v)
+				evmAddr, _, _, err := helpers.GetAddresses(vToUse, R, S, txHash)
+
+				// Track when we test V=35 specifically
+				if v == 35 {
+					foundV35 = true
+					if err != nil {
+						fmt.Printf("    V=35 (original): Error: %v\n", err)
+					} else {
+						fmt.Printf("    V=35 (original): Recovered address: %v\n", evmAddr.Hex())
+					}
+				}
+
+				if err == nil && evmAddr.Hex() == expectedSender {
+					fmt.Printf("    ✅ BRUTE FORCE SUCCESS! V=%v recovers the correct sender\n", v)
+					successFound = true
+					successScenario = fmt.Sprintf("%s with brute-forced V=%v", sc.name, v)
+					return // Exit early on success
+				}
+			}
+			if !foundV35 {
+				fmt.Printf("    ⚠️  WARNING: V=35 was not tested in the range!\n")
+			}
+			fmt.Printf("  ❌ Brute force failed for this scenario\n")
+		}()
+	}
+
+	fmt.Printf("\n=== Summary ===\n")
+	fmt.Printf("Expected sender: %s\n", expectedSender)
+
+	if successFound {
+		fmt.Printf("✅ SUCCESS! Winning scenario: %s\n", successScenario)
+	} else {
+		fmt.Printf("❌ FAILURE: No scenario successfully recovered the expected sender\n")
+		fmt.Printf("Brute forced V values from -3000 to 3000 for each scenario's hash - none worked\n")
+		t.Fatal("Failed to recover the correct sender with any tested scenario or brute force")
+	}
+}
+
+func AdjustV(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
+	// Non-legacy TX always needs to be bumped by 27
+	if txType != ethtypes.LegacyTxType {
+		return new(big.Int).Add(V, utils.Big27)
+	}
+
+	// legacy TX needs to be adjusted based on chainID
+	V = new(big.Int).Sub(V, new(big.Int).Mul(chainID, utils.Big2))
+	return V.Sub(V, utils.Big8)
 }

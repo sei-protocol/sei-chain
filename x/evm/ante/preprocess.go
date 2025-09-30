@@ -150,10 +150,21 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 	}
 
 	ethTx := ethtypes.NewTx(txData.AsEthereumData())
+	debugTx := ethTx.Hash().Hex() == "0x882c9df49bb1e77800f0f1d91e07cecde91c4178a9894a0f679e8daf4bc0c4df"
+	
 	chainID := ethTx.ChainId()
+	if debugTx {
+		ctx.Logger().Info("DEBUG Preprocess", "txHash", ethTx.Hash().Hex(), "chainID", chainID, "txType", ethTx.Type())
+	}
+	
 	chainCfg := evmtypes.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	version := GetVersion(ctx, ethCfg)
+	
+	if debugTx {
+		ctx.Logger().Info("DEBUG Preprocess", "version", version, "ethCfg.ChainID", ethCfg.ChainID)
+	}
+	
 	signer := SignerMap[version](chainID)
 	if !isTxTypeAllowed(version, ethTx.Type()) {
 		return ethtypes.ErrInvalidChainId
@@ -161,13 +172,32 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction) 
 
 	var txHash common.Hash
 	V, R, S := ethTx.RawSignatureValues()
+	
+	if debugTx {
+		ctx.Logger().Info("DEBUG Preprocess", "rawV", V, "rawR", R, "rawS", S, "protected", ethTx.Protected())
+	}
+	
 	if ethTx.Protected() {
 		V = AdjustV(V, ethTx.Type(), ethCfg.ChainID)
 		txHash = signer.Hash(ethTx)
+		
+		if debugTx {
+			ctx.Logger().Info("DEBUG Preprocess Protected", "adjustedV", V, "signerHash", txHash.Hex(), "signerChainID", chainID)
+		}
 	} else {
 		txHash = ethtypes.FrontierSigner{}.Hash(ethTx)
+		
+		if debugTx {
+			ctx.Logger().Info("DEBUG Preprocess Unprotected", "frontierHash", txHash.Hex())
+		}
 	}
+	
 	evmAddr, seiAddr, seiPubkey, err := helpers.GetAddresses(V, R, S, txHash)
+	
+	if debugTx {
+		ctx.Logger().Info("DEBUG Preprocess Recovery", "finalV", V, "txHash", txHash.Hex(), "evmAddr", evmAddr.Hex(), "err", err)
+	}
+	
 	if err != nil {
 		return err
 	}
