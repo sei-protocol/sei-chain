@@ -31,22 +31,7 @@ func (m *QueryVaultBalanceRequest) Reset()         { *m = QueryVaultBalanceReque
 func (m *QueryVaultBalanceRequest) String() string { return proto.CompactTextString(m) }
 func (*QueryVaultBalanceRequest) ProtoMessage()    {}
 func (*QueryVaultBalanceRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_d41ee93a4668a185, []int{0}
-}
-func (m *QueryVaultBalanceRequest) XXX_Unmarshal(b []byte) error {
-	return proto.Unmarshal(b, m)
-}
-func (m *QueryVaultBalanceRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return proto.Marshal(m)
-}
-func (m *QueryVaultBalanceRequest) XXX_Merge(src proto.Message) {
-	proto.Merge(m, src)
-}
-func (m *QueryVaultBalanceRequest) XXX_Size() int {
-	return proto.Size(m)
-}
-func (m *QueryVaultBalanceRequest) XXX_DiscardUnknown() {
-	proto.DiscardUnknown(m)
+	return fileDescriptor_498691af4bba20dd, []int{0}
 }
 
 // QueryVaultBalanceResponse represents the response payload for querying the vault balance.
@@ -58,22 +43,7 @@ func (m *QueryVaultBalanceResponse) Reset()         { *m = QueryVaultBalanceResp
 func (m *QueryVaultBalanceResponse) String() string { return proto.CompactTextString(m) }
 func (*QueryVaultBalanceResponse) ProtoMessage()    {}
 func (*QueryVaultBalanceResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_d41ee93a4668a185, []int{1}
-}
-func (m *QueryVaultBalanceResponse) XXX_Unmarshal(b []byte) error {
-	return proto.Unmarshal(b, m)
-}
-func (m *QueryVaultBalanceResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return proto.Marshal(m)
-}
-func (m *QueryVaultBalanceResponse) XXX_Merge(src proto.Message) {
-	proto.Merge(m, src)
-}
-func (m *QueryVaultBalanceResponse) XXX_Size() int {
-	return proto.Size(m)
-}
-func (m *QueryVaultBalanceResponse) XXX_DiscardUnknown() {
-	proto.DiscardUnknown(m)
+	return fileDescriptor_498691af4bba20dd, []int{1}
 }
 
 // QueryCovenantBalanceRequest represents the request payload for querying the covenant balance.
@@ -85,22 +55,7 @@ func (m *QueryCovenantBalanceRequest) Reset()         { *m = QueryCovenantBalanc
 func (m *QueryCovenantBalanceRequest) String() string { return proto.CompactTextString(m) }
 func (*QueryCovenantBalanceRequest) ProtoMessage()    {}
 func (*QueryCovenantBalanceRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_d41ee93a4668a185, []int{2}
-}
-func (m *QueryCovenantBalanceRequest) XXX_Unmarshal(b []byte) error {
-	return proto.Unmarshal(b, m)
-}
-func (m *QueryCovenantBalanceRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return proto.Marshal(m)
-}
-func (m *QueryCovenantBalanceRequest) XXX_Merge(src proto.Message) {
-	proto.Merge(m, src)
-}
-func (m *QueryCovenantBalanceRequest) XXX_Size() int {
-	return proto.Size(m)
-}
-func (m *QueryCovenantBalanceRequest) XXX_DiscardUnknown() {
-	proto.DiscardUnknown(m)
+	return fileDescriptor_498691af4bba20dd, []int{2}
 }
 
 // QueryCovenantBalanceResponse represents the response payload for querying the covenant balance.
@@ -112,22 +67,7 @@ func (m *QueryCovenantBalanceResponse) Reset()         { *m = QueryCovenantBalan
 func (m *QueryCovenantBalanceResponse) String() string { return proto.CompactTextString(m) }
 func (*QueryCovenantBalanceResponse) ProtoMessage()    {}
 func (*QueryCovenantBalanceResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_d41ee93a4668a185, []int{3}
-}
-func (m *QueryCovenantBalanceResponse) XXX_Unmarshal(b []byte) error {
-	return proto.Unmarshal(b, m)
-}
-func (m *QueryCovenantBalanceResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return proto.Marshal(m)
-}
-func (m *QueryCovenantBalanceResponse) XXX_Merge(src proto.Message) {
-	proto.Merge(m, src)
-}
-func (m *QueryCovenantBalanceResponse) XXX_Size() int {
-	return proto.Size(m)
-}
-func (m *QueryCovenantBalanceResponse) XXX_DiscardUnknown() {
-	proto.DiscardUnknown(m)
+	return fileDescriptor_498691af4bba20dd, []int{3}
 }
 
 // QueryBalance represents an individual balance returned from balance queries.
@@ -140,22 +80,40 @@ func (m *QueryBalance) Reset()         { *m = QueryBalance{} }
 func (m *QueryBalance) String() string { return proto.CompactTextString(m) }
 func (*QueryBalance) ProtoMessage()    {}
 func (*QueryBalance) Descriptor() ([]byte, []int) {
-	return fileDescriptor_d41ee93a4668a185, []int{4}
+	return fileDescriptor_498691af4bba20dd, []int{4}
 }
-func (m *QueryBalance) XXX_Unmarshal(b []byte) error {
-	return proto.Unmarshal(b, m)
+
+// QueryClient is the client API for Query service.
+type QueryClient interface {
+	VaultBalance(ctx context.Context, in *QueryVaultBalanceRequest, opts ...grpc.CallOption) (*QueryVaultBalanceResponse, error)
+	CovenantBalance(ctx context.Context, in *QueryCovenantBalanceRequest, opts ...grpc.CallOption) (*QueryCovenantBalanceResponse, error)
 }
-func (m *QueryBalance) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	return proto.Marshal(m)
+
+type queryClient struct {
+	cc grpc1.ClientConn
 }
-func (m *QueryBalance) XXX_Merge(src proto.Message) {
-	proto.Merge(m, src)
+
+// NewQueryClient creates a new Query service client.
+func NewQueryClient(cc grpc1.ClientConn) QueryClient {
+	return &queryClient{cc}
 }
-func (m *QueryBalance) XXX_Size() int {
-	return proto.Size(m)
+
+func (c *queryClient) VaultBalance(ctx context.Context, in *QueryVaultBalanceRequest, opts ...grpc.CallOption) (*QueryVaultBalanceResponse, error) {
+	out := new(QueryVaultBalanceResponse)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.seinet.Query/VaultBalance", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
-func (m *QueryBalance) XXX_DiscardUnknown() {
-	proto.DiscardUnknown(m)
+
+func (c *queryClient) CovenantBalance(ctx context.Context, in *QueryCovenantBalanceRequest, opts ...grpc.CallOption) (*QueryCovenantBalanceResponse, error) {
+	out := new(QueryCovenantBalanceResponse)
+	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.seinet.Query/CovenantBalance", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // QueryServer is the server API for Query service.
@@ -164,13 +122,73 @@ type QueryServer interface {
 	CovenantBalance(context.Context, *QueryCovenantBalanceRequest) (*QueryCovenantBalanceResponse, error)
 }
 
+// UnimplementedQueryServer can be embedded to have forward compatible implementations.
 type UnimplementedQueryServer struct{}
 
 func (*UnimplementedQueryServer) VaultBalance(context.Context, *QueryVaultBalanceRequest) (*QueryVaultBalanceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method VaultBalance not implemented")
 }
+
 func (*UnimplementedQueryServer) CovenantBalance(context.Context, *QueryCovenantBalanceRequest) (*QueryCovenantBalanceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CovenantBalance not implemented")
 }
 
-var fileDescriptor_d41ee93a4668a185 = []byte{}
+// RegisterQueryServer registers the Query service implementation with the gRPC server registrar.
+func RegisterQueryServer(s grpc.ServiceRegistrar, srv QueryServer) {
+	s.RegisterService(&_Query_serviceDesc, srv)
+}
+
+func _Query_VaultBalance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryVaultBalanceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QueryServer).VaultBalance(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/seiprotocol.seichain.seinet.Query/VaultBalance",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QueryServer).VaultBalance(ctx, req.(*QueryVaultBalanceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Query_CovenantBalance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryCovenantBalanceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QueryServer).CovenantBalance(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/seiprotocol.seichain.seinet.Query/CovenantBalance",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QueryServer).CovenantBalance(ctx, req.(*QueryCovenantBalanceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+var _Query_serviceDesc = grpc.ServiceDesc{
+	ServiceName: "seiprotocol.seichain.seinet.Query",
+	HandlerType: (*QueryServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "VaultBalance",
+			Handler:    _Query_VaultBalance_Handler,
+		},
+		{
+			MethodName: "CovenantBalance",
+			Handler:    _Query_CovenantBalance_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "seiprotocol/seichain/seinet/query.proto",
+}
+
+var fileDescriptor_498691af4bba20dd = []byte{}

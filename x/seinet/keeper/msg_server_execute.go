@@ -36,6 +36,10 @@ func (k msgServer) ExecutePaywordSettlement(
 		return nil, err
 	}
 
+	if !amount.IsAllPositive() {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, "amount must be positive")
+	}
+
 	normalizedHash, err := types.NormalizeHexHash(msg.CovenantHash)
 	if err != nil {
 		return nil, sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid covenant hash: %s", err)
