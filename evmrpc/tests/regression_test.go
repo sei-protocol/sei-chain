@@ -1,6 +1,8 @@
 package tests
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -8,7 +10,6 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -136,7 +137,7 @@ func Test0xd09db4e79993c42eda67b45ca2fd5ac1e4cc60284a03335a08bb91d5b3800d84(t *t
 	testTx(t,
 		"0xd09db4e79993c42eda67b45ca2fd5ac1e4cc60284a03335a08bb91d5b3800d84",
 		"v5.8.0",
-		"0x2691cb",
+		"0x269154",
 		"0x00000000000000000000000028e7fa339ec0ef4f71febfa92d3964ebd41fce2c",
 		false,
 	)
@@ -164,7 +165,7 @@ func Test0x5bc4f251122bb01d6313916634dc9a20dcf4407aabda394ed5fc442d7224fb52(t *t
 	testTx(t,
 		"0x5bc4f251122bb01d6313916634dc9a20dcf4407aabda394ed5fc442d7224fb52",
 		"v6.1.0",
-		"0x1da69",
+		"0x1de79",
 		"",
 		true,
 	)
@@ -174,7 +175,7 @@ func Test0x8802ea697fd2ba69c429b54890f89d85f37a05995c4900aeb4da7f84a74e8d9e(t *t
 	testTx(t,
 		"0x8802ea697fd2ba69c429b54890f89d85f37a05995c4900aeb4da7f84a74e8d9e",
 		"v5.5.2",
-		"0x6d14b",
+		"0x6b801",
 		"0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
 		false,
 	)
@@ -194,7 +195,7 @@ func Test0x13790ab0421b6c6a56d15e67762941010f1a91e04b5e9736d1611b8ebb52974c(t *t
 	testTx(t,
 		"0x13790ab0421b6c6a56d15e67762941010f1a91e04b5e9736d1611b8ebb52974c",
 		"v5.5.5",
-		"0x2138b",
+		"0x20f64",
 		"0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
 		false,
 	)
@@ -214,7 +215,7 @@ func Test0xf3aac6d7df54ffc869e3e754b76135b032509e6d7ae4990adb51a21b611ef281(t *t
 	testTx(t,
 		"0xf3aac6d7df54ffc869e3e754b76135b032509e6d7ae4990adb51a21b611ef281",
 		"v5.6.2",
-		"0x4b453",
+		"0x49f30",
 		"0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
 		false,
 	)
@@ -234,7 +235,7 @@ func Test0xc2da776841226a9837bc3bb506fcf487e75a7e7787ab1084896251114d6bd7f9(t *t
 	testTx(t,
 		"0xc2da776841226a9837bc3bb506fcf487e75a7e7787ab1084896251114d6bd7f9",
 		"v5.7.5",
-		"0x9226e",
+		"0x91cc1",
 		"0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
 		false,
 	)
@@ -254,7 +255,7 @@ func Test0x29372ab96fa5530c164e62b6c51f46ad660eb28cf84c1d77d233819f9deb5187(t *t
 	testTx(t,
 		"0x29372ab96fa5530c164e62b6c51f46ad660eb28cf84c1d77d233819f9deb5187",
 		"v5.8.0",
-		"0x90dde",
+		"0x8fac5",
 		"0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
 		false,
 	)
@@ -314,7 +315,7 @@ func Test0x29b9a9764a27ba65139ccf06ef51e18358a63dfe143bfa6a16a891127cfc8ab6(t *t
 	testTx(t,
 		"0x29b9a9764a27ba65139ccf06ef51e18358a63dfe143bfa6a16a891127cfc8ab6",
 		"v6.0.2",
-		"0x91fcd",
+		"0x9159b",
 		"0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
 		false,
 	)
@@ -334,7 +335,7 @@ func Test0x534a7d8dac27858aff75623792fee542dd7cec2539c2ddac92749e85bdc08e84(t *t
 	testTx(t,
 		"0x534a7d8dac27858aff75623792fee542dd7cec2539c2ddac92749e85bdc08e84",
 		"v6.0.3",
-		"0x9180a",
+		"0x90ddc",
 		"0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
 		false,
 	)
@@ -351,10 +352,6 @@ func Test0x2cbbf34f930076000024953b87da7dc119a04f71fc4734a4bfabbe60558a49c6(t *t
 }
 
 func testTx(t *testing.T, txHash string, version string, expectedGasUsed string, expectedOutput string, hasErr bool) {
-	cleanup := maybeOverrideLegacyDefaults(t, version)
-	if cleanup != nil {
-		defer cleanup()
-	}
 	s := SetupMockPacificTestServer(func(a *app.App, mc *MockClient) sdk.Context {
 		ctx := a.RPCContextProvider(evmrpc.LatestCtxHeight).WithClosestUpgradeName(version)
 		ctx = setLegacySstoreIfNeeded(ctx, a, version)
@@ -386,10 +383,6 @@ func testTx(t *testing.T, txHash string, version string, expectedGasUsed string,
 func testBlock(
 	t *testing.T, blockNumber uint64, version string, expectedGasUsed string,
 ) {
-	cleanup := maybeOverrideLegacyDefaults(t, version)
-	if cleanup != nil {
-		defer cleanup()
-	}
 	s := SetupMockPacificTestServer(
 		func(a *app.App, mc *MockClient) sdk.Context {
 			ctx := a.RPCContextProvider(evmrpc.LatestCtxHeight).WithClosestUpgradeName(version)
@@ -414,20 +407,10 @@ func testBlock(
 	)
 }
 
-var legacySstoreVersions = map[string]struct{}{
-	"v5.5.2": {},
-	"v5.8.0": {},
-	"v6.0.0": {},
-	"v6.0.3": {},
-	"v6.0.5": {},
-	"v6.1.0": {},
-	"v6.1.4": {},
-}
-
 const legacySstoreGas = uint64(20000)
 
 func setLegacySstoreIfNeeded(ctx sdk.Context, a *app.App, version string) sdk.Context {
-	if _, ok := legacySstoreVersions[version]; !ok {
+	if !isVersionLessOrEqual(version, "v6.2.0") {
 		return ctx
 	}
 	params := a.EvmKeeper.GetParams(ctx)
@@ -440,13 +423,53 @@ func setLegacySstoreIfNeeded(ctx sdk.Context, a *app.App, version string) sdk.Co
 	return ctx
 }
 
-func maybeOverrideLegacyDefaults(t *testing.T, version string) func() {
-	if _, ok := legacySstoreVersions[version]; !ok {
-		return nil
+func isVersionLessOrEqual(version, target string) bool {
+	// Remove 'v' prefix if present
+	if len(version) > 0 && version[0] == 'v' {
+		version = version[1:]
 	}
-	prevDefault := types.DefaultSeiSstoreSetGasEIP2200
-	types.DefaultSeiSstoreSetGasEIP2200 = legacySstoreGas
-	return func() {
-		types.DefaultSeiSstoreSetGasEIP2200 = prevDefault
+	if len(target) > 0 && target[0] == 'v' {
+		target = target[1:]
 	}
+
+	// Split version strings into parts
+	versionParts := strings.Split(version, ".")
+	targetParts := strings.Split(target, ".")
+
+	// Pad shorter version with zeros
+	maxLen := len(versionParts)
+	if len(targetParts) > maxLen {
+		maxLen = len(targetParts)
+	}
+
+	for len(versionParts) < maxLen {
+		versionParts = append(versionParts, "0")
+	}
+	for len(targetParts) < maxLen {
+		targetParts = append(targetParts, "0")
+	}
+
+	// Compare each part
+	for i := 0; i < maxLen; i++ {
+		vPart, err1 := strconv.Atoi(versionParts[i])
+		tPart, err2 := strconv.Atoi(targetParts[i])
+
+		if err1 != nil || err2 != nil {
+			// If parsing fails, fall back to string comparison
+			if versionParts[i] < targetParts[i] {
+				return true
+			} else if versionParts[i] > targetParts[i] {
+				return false
+			}
+			continue
+		}
+
+		if vPart < tPart {
+			return true
+		} else if vPart > tPart {
+			return false
+		}
+	}
+
+	return true // versions are equal
 }
