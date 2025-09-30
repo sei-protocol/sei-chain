@@ -16,7 +16,7 @@ import (
 func GetTxCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                        types.ModuleName,
-		Short:                      fmt.Sprintf("%s transactions subcommands", types.ModuleName),
+		Short:                      fmt.Sprintf("%s transaction subcommands", types.ModuleName),
 		DisableFlagParsing:         true,
 		SuggestionsMinimumDistance: 2,
 		RunE:                       client.ValidateCmd,
@@ -40,11 +40,13 @@ func NewDepositToVaultCmd() *cobra.Command {
 				return err
 			}
 
-			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags()).WithTxConfig(clientCtx.TxConfig).WithAccountRetriever(clientCtx.AccountRetriever)
+			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags()).
+				WithTxConfig(clientCtx.TxConfig).
+				WithAccountRetriever(clientCtx.AccountRetriever)
 
 			msg := types.NewMsgDepositToVault(
 				clientCtx.GetFromAddress().String(),
-				args[0],
+				args[0], // amount string, e.g., "100usei"
 			)
 
 			if err := msg.ValidateBasic(); err != nil {
@@ -56,29 +58,31 @@ func NewDepositToVaultCmd() *cobra.Command {
 	}
 
 	flags.AddTxFlagsToCmd(cmd)
-
 	return cmd
 }
 
 // NewExecutePaywordSettlementCmd creates a command to broadcast a MsgExecutePaywordSettlement.
 func NewExecutePaywordSettlementCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "execute-payword-settlement [covenant-id] [payee] [amount]",
-		Short: "Execute a payword settlement for a covenant",
-		Args:  cobra.ExactArgs(3),
+		Use:   "execute-payword-settlement [recipient] [payword] [covenant-hash] [amount]",
+		Short: "Settle a payword covenant against the Seinet vault",
+		Args:  cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx, err := client.GetClientTxContext(cmd)
 			if err != nil {
 				return err
 			}
 
-			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags()).WithTxConfig(clientCtx.TxConfig).WithAccountRetriever(clientCtx.AccountRetriever)
+			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags()).
+				WithTxConfig(clientCtx.TxConfig).
+				WithAccountRetriever(clientCtx.AccountRetriever)
 
 			msg := types.NewMsgExecutePaywordSettlement(
-				clientCtx.GetFromAddress().String(),
-				args[0],
-				args[1],
-				args[2],
+				clientCtx.GetFromAddress().String(), // payer (sender)
+				args[0], // recipient
+				args[1], // payword
+				args[2], // covenant hash
+				args[3], // amount (e.g., "500usei")
 			)
 
 			if err := msg.ValidateBasic(); err != nil {
@@ -90,6 +94,5 @@ func NewExecutePaywordSettlementCmd() *cobra.Command {
 	}
 
 	flags.AddTxFlagsToCmd(cmd)
-
 	return cmd
 }

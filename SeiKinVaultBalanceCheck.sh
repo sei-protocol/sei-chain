@@ -1,7 +1,18 @@
 #!/bin/bash
 
-VAULT="0xd973555aAaa8d50a84d93D15dAc02ABE5c4D00c1"
-RPC="https://ethereum.publicnode.com"
+set -euo pipefail
 
-echo "Checking Vault Balance..."
-cast balance $VAULT --rpc-url $RPC
+CHAIN_ID=${CHAIN_ID:-"pacific-1"}
+NODE=${NODE:-"http://localhost:26657"}
+
+if ! command -v seid >/dev/null 2>&1; then
+  echo "error: seid CLI not found in PATH" >&2
+  exit 1
+fi
+
+echo "Querying Seinet vault balance..."
+
+seid q seinet vault-balance \
+  --chain-id "$CHAIN_ID" \
+  --node "$NODE"
+

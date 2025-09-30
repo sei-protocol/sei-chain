@@ -1,6 +1,9 @@
 package types
 
 import (
+	"encoding/hex"
+	"strings"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
@@ -10,8 +13,10 @@ const (
 	TypeMsgExecutePaywordSettlement = "execute_payword_settlement"
 )
 
-var _ sdk.Msg = &MsgDepositToVault{}
-var _ sdk.Msg = &MsgExecutePaywordSettlement{}
+var (
+	_ sdk.Msg = &MsgDepositToVault{}
+	_ sdk.Msg = &MsgExecutePaywordSettlement{}
+)
 
 func NewMsgDepositToVault(depositor, amount string) *MsgDepositToVault {
 	return &MsgDepositToVault{
@@ -49,12 +54,13 @@ func (msg MsgDepositToVault) GetSigners() []sdk.AccAddress {
 	return []sdk.AccAddress{addr}
 }
 
-func NewMsgExecutePaywordSettlement(executor, covenantID, payee, amount string) *MsgExecutePaywordSettlement {
+func NewMsgExecutePaywordSettlement(executor, recipient, payword, covenantHash, amount string) *MsgExecutePaywordSettlement {
 	return &MsgExecutePaywordSettlement{
-		Executor:   executor,
-		CovenantId: covenantID,
-		Payee:      payee,
-		Amount:     amount,
+		Executor:     executor,
+		Recipient:    recipient,
+		Payword:      payword,
+		CovenantHash: covenantHash,
+		Amount:       amount,
 	}
 }
 
@@ -67,25 +73,28 @@ func (msg MsgExecutePaywordSettlement) ValidateBasic() error {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid executor address: %s", err)
 	}
 
-	if msg.CovenantId == "" {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "covenant id cannot be empty")
+	if _, err := sdk.AccAddressFromBech32(msg.Recipient); err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid recipient address: %s", err)
 	}
 
-	if _, err := sdk.AccAddressFromBech32(msg.Payee); err != nil {
-		return sdkerrors.Wrapf(sdkerrors.ErrInvalidAddress, "invalid payee address: %s", err)
+	if strings.TrimSpace(msg.Payword) == "" {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "payword cannot be empty")
+	}
+
+	if strings.TrimSpace(msg.CovenantHash) == "" {
+		return sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "covenant hash cannot be empty")
+	}
+
+	if _, err := NormalizeHexHash(msg.CovenantHash); err != nil {
+		return sdkerrors.Wrapf(sdkerrors.ErrInvalidRequest, "invalid covenant hash: %s", err)
 	}
 
 	if msg.Amount == "" {
 		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, "amount cannot be empty")
 	}
 
-	coins, err := sdk.ParseCoinsNormalized(msg.Amount)
-	if err != nil {
+	if _, err := sdk.ParseCoinsNormalized(msg.Amount); err != nil {
 		return sdkerrors.Wrapf(sdkerrors.ErrInvalidCoins, "invalid amount: %s", err)
-	}
-
-	if !coins.IsAllPositive() {
-		return sdkerrors.Wrap(sdkerrors.ErrInvalidCoins, "amount must be positive")
 	}
 
 	return nil
@@ -98,4 +107,12 @@ func (msg MsgExecutePaywordSettlement) GetSignBytes() []byte {
 func (msg MsgExecutePaywordSettlement) GetSigners() []sdk.AccAddress {
 	addr, _ := sdk.AccAddressFromBech32(msg.Executor)
 	return []sdk.AccAddress{addr}
+}
+
+func NormalizeHexHash(hash string) (string, error) {
+	normalized := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(hash), "0x"))
+	if _, err := hex.DecodeString(normalized); err != nil {
+		return "", err
+	}
+	return normalized, nil
 }

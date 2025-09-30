@@ -14,22 +14,12 @@ import (
 	status "google.golang.org/grpc/status"
 )
 
-// Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal
 var _ = fmt.Errorf
-
-// This is a compile-time assertion to ensure that this generated file
-// is compatible with the proto package it is being compiled against.
-// A compilation error at this line likely means your copy of the
-// proto package needs to be updated.
-const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
-
-// Reference imports to suppress errors if they are not otherwise used.
 var _ context.Context
 var _ grpc.ClientConn
 
-// This is a compile-time assertion to ensure that this generated file
-// is compatible with the grpc package it is being compiled against.
+const _ = proto.GoGoProtoPackageIsVersion3
 const _ = grpc.SupportPackageIsVersion4
 
 // QueryVaultBalanceRequest represents the request payload for querying the vault balance.
@@ -168,59 +158,12 @@ func (m *QueryBalance) XXX_DiscardUnknown() {
 	proto.DiscardUnknown(m)
 }
 
-func init() {
-	proto.RegisterType((*QueryVaultBalanceRequest)(nil), "seiprotocol.seichain.seinet.QueryVaultBalanceRequest")
-	proto.RegisterType((*QueryVaultBalanceResponse)(nil), "seiprotocol.seichain.seinet.QueryVaultBalanceResponse")
-	proto.RegisterType((*QueryCovenantBalanceRequest)(nil), "seiprotocol.seichain.seinet.QueryCovenantBalanceRequest")
-	proto.RegisterType((*QueryCovenantBalanceResponse)(nil), "seiprotocol.seichain.seinet.QueryCovenantBalanceResponse")
-	proto.RegisterType((*QueryBalance)(nil), "seiprotocol.seichain.seinet.QueryBalance")
-}
-
-var fileDescriptor_d41ee93a4668a185 = []byte{}
-
-// QueryClient is the client API for Query service.
-type QueryClient interface {
-	// VaultBalance returns the balances held by the seinet vault module account.
-	VaultBalance(ctx context.Context, in *QueryVaultBalanceRequest, opts ...grpc.CallOption) (*QueryVaultBalanceResponse, error)
-	// CovenantBalance returns the balances held by the seinet covenant module account.
-	CovenantBalance(ctx context.Context, in *QueryCovenantBalanceRequest, opts ...grpc.CallOption) (*QueryCovenantBalanceResponse, error)
-}
-
-type queryClient struct {
-	cc grpc1.ClientConn
-}
-
-func NewQueryClient(cc grpc1.ClientConn) QueryClient {
-	return &queryClient{cc}
-}
-
-func (c *queryClient) VaultBalance(ctx context.Context, in *QueryVaultBalanceRequest, opts ...grpc.CallOption) (*QueryVaultBalanceResponse, error) {
-	out := new(QueryVaultBalanceResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.seinet.Query/VaultBalance", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *queryClient) CovenantBalance(ctx context.Context, in *QueryCovenantBalanceRequest, opts ...grpc.CallOption) (*QueryCovenantBalanceResponse, error) {
-	out := new(QueryCovenantBalanceResponse)
-	err := c.cc.Invoke(ctx, "/seiprotocol.seichain.seinet.Query/CovenantBalance", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // QueryServer is the server API for Query service.
 type QueryServer interface {
-	// VaultBalance returns the balances held by the seinet vault module account.
 	VaultBalance(context.Context, *QueryVaultBalanceRequest) (*QueryVaultBalanceResponse, error)
-	// CovenantBalance returns the balances held by the seinet covenant module account.
 	CovenantBalance(context.Context, *QueryCovenantBalanceRequest) (*QueryCovenantBalanceResponse, error)
 }
 
-// UnimplementedQueryServer can be embedded to have forward compatible implementations.
 type UnimplementedQueryServer struct{}
 
 func (*UnimplementedQueryServer) VaultBalance(context.Context, *QueryVaultBalanceRequest) (*QueryVaultBalanceResponse, error) {
@@ -230,59 +173,4 @@ func (*UnimplementedQueryServer) CovenantBalance(context.Context, *QueryCovenant
 	return nil, status.Errorf(codes.Unimplemented, "method CovenantBalance not implemented")
 }
 
-func RegisterQueryServer(s grpc1.Server, srv QueryServer) {
-	s.RegisterService(&_Query_serviceDesc, srv)
-}
-
-var _Query_serviceDesc = grpc.ServiceDesc{
-	ServiceName: "seiprotocol.seichain.seinet.Query",
-	HandlerType: (*QueryServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "VaultBalance",
-			Handler:    _Query_VaultBalance_Handler,
-		},
-		{
-			MethodName: "CovenantBalance",
-			Handler:    _Query_CovenantBalance_Handler,
-		},
-	},
-	Streams:  []grpc.StreamDesc{},
-	Metadata: "seiprotocol/seichain/seinet/query.proto",
-}
-
-func _Query_VaultBalance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(QueryVaultBalanceRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(QueryServer).VaultBalance(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.seinet.Query/VaultBalance",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(QueryServer).VaultBalance(ctx, req.(*QueryVaultBalanceRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Query_CovenantBalance_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(QueryCovenantBalanceRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(QueryServer).CovenantBalance(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/seiprotocol.seichain.seinet.Query/CovenantBalance",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(QueryServer).CovenantBalance(ctx, req.(*QueryCovenantBalanceRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
+var fileDescriptor_d41ee93a4668a185 = []byte{}

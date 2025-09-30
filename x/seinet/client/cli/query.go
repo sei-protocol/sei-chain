@@ -14,7 +14,7 @@ import (
 
 const flagAddress = "address"
 
-// GetQueryCmd returns the cli query commands for this module.
+// GetQueryCmd returns the CLI query commands for the seinet module.
 func GetQueryCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                        types.ModuleName,

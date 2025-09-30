@@ -12,9 +12,10 @@ message MsgDepositToVaultResponse {}
 
 message MsgExecutePaywordSettlement {
   string executor = 1;
-  string covenant_id = 2;
-  string payee = 3;
-  string amount = 4;
+  string recipient = 2;
+  string payword = 3;
+  string covenant_hash = 4;
+  string amount = 5;
 }
 
 message MsgExecutePaywordSettlementResponse {}
