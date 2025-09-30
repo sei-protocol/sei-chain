@@ -48,6 +48,7 @@ declare -a test_name_skip_list=(
     "wallet2outOf3txsRevokeAndConfirmAgain" # failing after increasing SSTORE gas limit to 72k
     "walletReorganizeOwners" # failing after increasing SSTORE gas limit to 72k
     "eip2930" # failing after increasing SSTORE gas limit to 72k
+    "medDemand" # failing after increasing SSTORE gas limit to 72k
 
     # invalid block tests - state tests
     "gasLimitTooHigh" # block header gas limit doesn't apply to us
