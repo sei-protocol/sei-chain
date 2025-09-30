@@ -329,7 +329,9 @@ func (t *TransactionAPI) encodeRPCTransaction(ethtx *ethtypes.Transaction, block
 	blockHash := common.HexToHash(block.BlockID.Hash.String())
 	blockNumber := uint64(block.Block.Height) //nolint:gosec
 	blockTime := block.Block.Time
-	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(txIndex), baseFeePerGas, chainConfig) //nolint:gosec
+	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
+	// there are edges that go-ethereum doesn't handle including legacy protected txs.
+	res.From = common.HexToAddress(receipt.From)
 	return res, nil
 }
 
