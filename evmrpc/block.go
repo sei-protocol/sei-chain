@@ -225,13 +225,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 
 	// Get all tx hashes for the block
 	height := block.Block.Header.Height
-	sdkCtx := a.ctxProvider(LatestCtxHeight)
-	signer := ethtypes.MakeSigner(
-		types.DefaultChainConfig().EthereumConfig(a.keeper.ChainID(sdkCtx)),
-		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Unix()),
-	)
-	txHashes := getTxHashesFromBlock(a.ctxProvider, a.txConfigProvider, a.keeper, block, signer, shouldIncludeSynthetic(a.namespace))
+	txHashes := getTxHashesFromBlock(a.ctxProvider, a.txConfigProvider, a.keeper, block, shouldIncludeSynthetic(a.namespace))
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}

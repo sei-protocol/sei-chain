@@ -40,7 +40,6 @@ func testGetTxReceipt(t *testing.T, namespace string) {
 	require.Nil(t, err)
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	fmt.Println(resObj)
 	resObj = resObj["result"].(map[string]interface{})
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", resObj["blockHash"].(string))
 	require.Equal(t, "0x8", resObj["blockNumber"].(string))
