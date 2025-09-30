@@ -36,7 +36,6 @@ jobs:
       - name: Set up dependencies
         run: |
           sudo apt-get update
-          # Install only what’s missing; Docker is preinstalled on runners
           sudo apt-get install -y jq python3-pip docker-compose
           pip install toml
 
@@ -66,6 +65,7 @@ jobs:
         if: always()
         run: |
           mkdir -p guardian
+          SAFE_NAME=$(echo "${{ matrix.test.name }}" | tr ' ' '_' | tr -d '()')
           SHA=$(sha512sum integration_test/output/* | head -n1 | cut -d' ' -f1)
           DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           jq -n --arg sha "$SHA" --arg date "$DATE" --arg module "${{ matrix.test.name }}" --arg commit "${{ github.sha }}" '{
@@ -74,18 +74,19 @@ jobs:
             timestamp: $date,
             commit: $commit,
             type: "integration-test-soul"
-          }' > guardian/soulsigil-${{ matrix.test.name }}.json
+          }' > guardian/soulsigil-$SAFE_NAME.json
+          echo "SAFE_NAME=$SAFE_NAME" >> $GITHUB_ENV
 
       - name: Upload SoulSigil JSON
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: soulsigil-${{ matrix.test.name }}
-          path: guardian/soulsigil-${{ matrix.test.name }}.json
+          path: guardian/soulsigil-${{ env.SAFE_NAME }}.json
 
       - name: (Optional) Post SoulSigil to VaultObserver
         if: always()
         run: |
           curl -X POST https://vault.keepernet.xyz/api/submit \
             -H 'Content-Type: application/json' \
-            -d @guardian/soulsigil-${{ matrix.test.name }}.json || echo "Vault Observer optional post skipped."
+            -d @guardian/soulsigil-${SAFE_NAME}.json || echo "Vault Observer optional post skipped."
