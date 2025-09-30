@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -170,9 +171,15 @@ func Test0x5bc4f251122bb01d6313916634dc9a20dcf4407aabda394ed5fc442d7224fb52(t *t
 }
 
 func testTx(t *testing.T, txHash string, version string, expectedGasUsed string, expectedOutput string, hasErr bool) {
+	cleanup := maybeOverrideLegacyDefaults(t, version)
+	if cleanup != nil {
+		defer cleanup()
+	}
 	s := SetupMockPacificTestServer(func(a *app.App, mc *MockClient) sdk.Context {
 		ctx := a.RPCContextProvider(evmrpc.LatestCtxHeight).WithClosestUpgradeName(version)
+		ctx = setLegacySstoreIfNeeded(ctx, a, version)
 		blockHeight := mockStatesFromTxJson(ctx, txHash, a, mc)
+		ctx = setLegacySstoreIfNeeded(ctx, a, version)
 		return ctx.WithBlockHeight(blockHeight)
 	})
 	s.Run(
@@ -199,12 +206,18 @@ func testTx(t *testing.T, txHash string, version string, expectedGasUsed string,
 func testBlock(
 	t *testing.T, blockNumber uint64, version string, expectedGasUsed string,
 ) {
+	cleanup := maybeOverrideLegacyDefaults(t, version)
+	if cleanup != nil {
+		defer cleanup()
+	}
 	s := SetupMockPacificTestServer(
 		func(a *app.App, mc *MockClient) sdk.Context {
 			ctx := a.RPCContextProvider(evmrpc.LatestCtxHeight).WithClosestUpgradeName(version)
+			ctx = setLegacySstoreIfNeeded(ctx, a, version)
 			blockHeight := mockStatesFromBlockJson(
 				ctx, blockNumber, a, mc,
 			)
+			ctx = setLegacySstoreIfNeeded(ctx, a, version)
 			return ctx.WithBlockHeight(blockHeight)
 		},
 	)
@@ -219,4 +232,43 @@ func testBlock(
 			require.Equal(t, expectedGasUsed, res["gasUsed"])
 		},
 	)
+}
+
+var legacySstoreVersions = map[string]struct{}{
+	"v5.5.2": {},
+	"v5.8.0": {},
+	"v6.0.0": {},
+	"v6.0.3": {},
+	"v6.0.5": {},
+	"v6.1.0": {},
+	"v6.1.4": {},
+}
+
+const legacySstoreGas = uint64(20000)
+
+func setLegacySstoreIfNeeded(ctx sdk.Context, a *app.App, version string) sdk.Context {
+	if _, ok := legacySstoreVersions[version]; !ok {
+		return ctx
+	}
+	params := a.EvmKeeper.GetParams(ctx)
+	if params.SeiSstoreSetGasEip2200 == legacySstoreGas {
+		if params.RegisterPointerDisabled {
+			return ctx
+		}
+	}
+	params.SeiSstoreSetGasEip2200 = legacySstoreGas
+	params.RegisterPointerDisabled = true
+	a.EvmKeeper.SetParams(ctx, params)
+	return ctx
+}
+
+func maybeOverrideLegacyDefaults(t *testing.T, version string) func() {
+	if _, ok := legacySstoreVersions[version]; !ok {
+		return nil
+	}
+	prevDefault := types.DefaultSeiSstoreSetGasEIP2200
+	types.DefaultSeiSstoreSetGasEIP2200 = legacySstoreGas
+	return func() {
+		types.DefaultSeiSstoreSetGasEIP2200 = prevDefault
+	}
 }
