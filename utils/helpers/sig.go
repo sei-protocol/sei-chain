@@ -23,18 +23,18 @@ var SignerMap = map[derived.SignerVersion]func(*big.Int) ethtypes.Signer{
 func RecoverEVMSender(ethTx *ethtypes.Transaction, blockHeight int64, blockTime uint64) (common.Address, error) {
 	// Get the chain ID from the transaction
 	chainID := ethTx.ChainId()
-	
+
 	// Get the chain config and determine the signer version
 	chainCfg := evmtypes.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	version := getSignerVersion(blockHeight, blockTime, ethCfg)
-	
+
 	// Create the signer with the transaction's chain ID
 	signer := SignerMap[version](chainID)
-	
+
 	// Get raw signature values
 	V, R, S := ethTx.RawSignatureValues()
-	
+
 	// Compute the transaction hash based on whether it's protected
 	var txHash common.Hash
 	if ethTx.Protected() {
@@ -45,13 +45,13 @@ func RecoverEVMSender(ethTx *ethtypes.Transaction, blockHeight int64, blockTime 
 		// For unprotected transactions, use Frontier signer
 		txHash = ethtypes.FrontierSigner{}.Hash(ethTx)
 	}
-	
+
 	// Recover the sender address
 	evmAddr, _, _, err := GetAddresses(V, R, S, txHash)
 	if err != nil {
 		return common.Address{}, err
 	}
-	
+
 	return evmAddr, nil
 }
 
@@ -71,12 +71,12 @@ func adjustV(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
 // getSignerVersion determines which signer version to use based on block height and time
 func getSignerVersion(blockHeight int64, blockTime uint64, ethCfg *params.ChainConfig) derived.SignerVersion {
 	blockNum := big.NewInt(blockHeight)
-	
+
 	// Check for Cancun upgrade
 	if ethCfg.IsCancun(blockNum, blockTime) {
 		return derived.Cancun
 	}
-	
+
 	// Default to London
 	return derived.London
 }
