@@ -1,0 +1,14 @@
+syntax = "proto3";
+package seiprotocol.seichain.seinet;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/seinet/types";
+
+service Query {
+  rpc VaultBalance(QueryVaultBalanceRequest) returns (QueryVaultBalanceResponse);
+}
+
+message QueryVaultBalanceRequest {}
+
+message QueryVaultBalanceResponse {
+  string balance = 1;
+}
