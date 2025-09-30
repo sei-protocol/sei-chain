@@ -58,7 +58,7 @@ func (AppModuleBasic) GetTxCmd() *cobra.Command {
 }
 
 func (AppModuleBasic) GetQueryCmd() *cobra.Command {
-	return nil
+	return cli.GetQueryCmd()
 }
 
 type AppModule struct {
@@ -88,6 +88,7 @@ func (AppModule) LegacyQuerierHandler(_ *codec.LegacyAmino) sdk.Querier { return
 
 func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(am.keeper))
+	types.RegisterQueryServer(cfg.QueryServer(), keeper.NewQueryServer(am.keeper))
 }
 
 func (AppModule) RegisterInvariants(_ sdk.InvariantRegistry) {}
