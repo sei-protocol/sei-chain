@@ -82,7 +82,7 @@ func (a *AllowedMsgAllowance) Accept(ctx sdk.Context, fee sdk.Coins, msgs []sdk.
 		return false, err
 	}
 
-    return remove, nil
+	return remove, nil
 }
 
 func (a *AllowedMsgAllowance) allowedMsgsToMap(ctx sdk.Context) map[string]bool {

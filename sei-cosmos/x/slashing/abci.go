@@ -33,7 +33,7 @@ func BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock, k keeper.Keeper) 
 	slashingWriteInfo := make([]*SlashingWriteInfo, len(req.LastCommitInfo.GetVotes()))
 
 	allVotes := req.LastCommitInfo.GetVotes()
-	for i, _ := range allVotes {
+	for i := range allVotes {
 		wg.Add(1)
 		go func(valIndex int) {
 			defer wg.Done()

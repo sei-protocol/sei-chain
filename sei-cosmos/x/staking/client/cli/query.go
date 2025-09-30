@@ -137,12 +137,13 @@ $ %s query staking validators
 
 	return cmd
 }
+
 // GetCmdQueryHexAddress returns the validator that matches the hex address
 func GetCmdQueryHexAddress() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "hex-address",
 		Short: "Query validator that matches the Tendermint hex address representation of a validator",
-		Args: cobra.ExactArgs(1),
+		Args:  cobra.ExactArgs(1),
 		Long: strings.TrimSpace(
 			fmt.Sprintf(`Query details about matches a hex byte representation of a validator
 

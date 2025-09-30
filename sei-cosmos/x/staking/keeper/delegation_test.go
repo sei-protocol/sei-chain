@@ -136,7 +136,6 @@ func TestSetDelegation(t *testing.T) {
 	require.Equal(t, 0, len(resBonds))
 }
 
-
 func TestDelegationGentx(t *testing.T) {
 	_, app, ctx := createTestInput()
 
@@ -166,7 +165,6 @@ func TestDelegationGentx(t *testing.T) {
 	allBonds := app.StakingKeeper.GetAllDelegations(ctx)
 	require.Equal(t, 1, len(allBonds))
 }
-
 
 func TestDelegation(t *testing.T) {
 	_, app, ctx := createTestInput()
@@ -397,8 +395,8 @@ func TestUnbondingDelegationsMaxEntries(t *testing.T) {
 	require.True(sdk.IntEq(t, newNotBonded, oldNotBonded.AddRaw(1)))
 }
 
-//// test undelegating self delegation from a validator pushing it below MinSelfDelegation
-//// shift it from the bonded to unbonding state and jailed
+// // test undelegating self delegation from a validator pushing it below MinSelfDelegation
+// // shift it from the bonded to unbonding state and jailed
 func TestUndelegateSelfDelegationBelowMinSelfDelegation(t *testing.T) {
 	_, app, ctx := createTestInput()
 

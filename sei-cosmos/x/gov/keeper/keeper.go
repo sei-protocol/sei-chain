@@ -61,13 +61,13 @@ func NewKeeper(
 	rtr.Seal()
 
 	return Keeper{
-		storeKey:   key,
-		paramSpace: paramSpace,
-		authKeeper: authKeeper,
-		bankKeeper: bankKeeper,
-		sk:         sk,
-		cdc:        cdc,
-		router:     rtr,
+		storeKey:     key,
+		paramSpace:   paramSpace,
+		authKeeper:   authKeeper,
+		bankKeeper:   bankKeeper,
+		sk:           sk,
+		cdc:          cdc,
+		router:       rtr,
 		paramsKeeper: paramsKeeper,
 	}
 }

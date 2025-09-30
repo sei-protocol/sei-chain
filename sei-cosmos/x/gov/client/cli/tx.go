@@ -30,11 +30,11 @@ const (
 )
 
 type proposal struct {
-	Title       string  `json:"title"`
-	Description string  `json:"description"`
-	Type        string  `json:"type"`
-	IsExpedited bool    `json:"is_expedited,omitempty"`
-	Deposit     string  `json:"deposit,omitempty"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Type        string `json:"type"`
+	IsExpedited bool   `json:"is_expedited,omitempty"`
+	Deposit     string `json:"deposit,omitempty"`
 }
 
 // ProposalFlags defines the core required fields of a proposal. It is used to

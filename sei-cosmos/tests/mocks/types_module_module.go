@@ -8,7 +8,6 @@ import (
 	json "encoding/json"
 	reflect "reflect"
 
-	abci "github.com/tendermint/tendermint/abci/types"
 	client "github.com/cosmos/cosmos-sdk/client"
 	codec "github.com/cosmos/cosmos-sdk/codec"
 	types "github.com/cosmos/cosmos-sdk/codec/types"
@@ -18,6 +17,7 @@ import (
 	mux "github.com/gorilla/mux"
 	runtime "github.com/grpc-ecosystem/grpc-gateway/runtime"
 	cobra "github.com/spf13/cobra"
+	abci "github.com/tendermint/tendermint/abci/types"
 	types1 "github.com/tendermint/tendermint/abci/types"
 )
 
@@ -447,7 +447,6 @@ func (mr *MockAppModuleMockRecorder) MidBlock(arg0, arg1 interface{}) *gomock.Ca
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MidBlock", reflect.TypeOf((*MockAppModule)(nil).MidBlock), arg0, arg1)
 }
-
 
 // EndBlock mocks base method.
 func (m *MockAppModule) EndBlock(arg0 types0.Context, arg1 abci.RequestEndBlock) []abci.ValidatorUpdate {

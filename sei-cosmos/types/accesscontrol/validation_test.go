@@ -81,134 +81,134 @@ func TestValidateAccessOperations(t *testing.T) {
 		want map[Comparator]bool
 	}{
 		{
-			name:   "empty",
-			args:   args{
-						accessOps: []AccessOperation{},
-						events: []abci.Event{},
-					},
-			want:   map[Comparator]bool{},
+			name: "empty",
+			args: args{
+				accessOps: []AccessOperation{},
+				events:    []abci.Event{},
+			},
+			want: map[Comparator]bool{},
 		},
 		{
-			name:   "missing",
-			args:   args{
-						accessOps: []AccessOperation{},
-						events: []abci.Event{
-							{
-								Type: "resource_access",
-								Attributes: []abci.EventAttribute{
-									{Key: []byte("key"), Value: []byte("a/b/c/d/e")},
-									{Key: []byte("access_type"), Value: []byte("write")},
-								},
-							},
+			name: "missing",
+			args: args{
+				accessOps: []AccessOperation{},
+				events: []abci.Event{
+					{
+						Type: "resource_access",
+						Attributes: []abci.EventAttribute{
+							{Key: []byte("key"), Value: []byte("a/b/c/d/e")},
+							{Key: []byte("access_type"), Value: []byte("write")},
 						},
 					},
-			want:   map[Comparator]bool{
+				},
+			},
+			want: map[Comparator]bool{
 				{AccessType: AccessType_WRITE, Identifier: "a/b/c/d/e"}: true,
 			},
 		},
 		{
-			name:   "missing with store key",
-			args:   args{
-						accessOps: []AccessOperation{},
-						events: []abci.Event{
-							{
-								Type: "resource_access",
-								Attributes: []abci.EventAttribute{
-									{Key: []byte("key"), Value: []byte("a/b/c/d/e")},
-									{Key: []byte("access_type"), Value: []byte("write")},
-									{Key: []byte("store_key"), Value: []byte("storex")},
-								},
-							},
+			name: "missing with store key",
+			args: args{
+				accessOps: []AccessOperation{},
+				events: []abci.Event{
+					{
+						Type: "resource_access",
+						Attributes: []abci.EventAttribute{
+							{Key: []byte("key"), Value: []byte("a/b/c/d/e")},
+							{Key: []byte("access_type"), Value: []byte("write")},
+							{Key: []byte("store_key"), Value: []byte("storex")},
 						},
 					},
-			want:   map[Comparator]bool{
+				},
+			},
+			want: map[Comparator]bool{
 				{AccessType: AccessType_WRITE, Identifier: "a/b/c/d/e", StoreKey: "storex"}: true,
 			},
 		},
 		{
-			name:   "extra access ops",
-			args:   args{
-						accessOps: []AccessOperation{
-							{AccessType: AccessType_READ, IdentifierTemplate: "abc/defg", ResourceType: ResourceType_KV},
-						},
-						events: []abci.Event{},
-					},
-			want:   map[Comparator]bool{},
+			name: "extra access ops",
+			args: args{
+				accessOps: []AccessOperation{
+					{AccessType: AccessType_READ, IdentifierTemplate: "abc/defg", ResourceType: ResourceType_KV},
+				},
+				events: []abci.Event{},
+			},
+			want: map[Comparator]bool{},
 		},
 		{
-			name:   "matched",
-			args:   args{
-						accessOps: []AccessOperation{
-							{AccessType: AccessType_WRITE, IdentifierTemplate: "abc/defg", ResourceType: ResourceType_KV},
-						},
-						events: []abci.Event{
-							{
-								Type: "resource_access",
-								Attributes: []abci.EventAttribute{
-									{Key: []byte("key"), Value: []byte("abc/defg/e")},
-									{Key: []byte("access_type"), Value: []byte("write")},
-								},
-							},
+			name: "matched",
+			args: args{
+				accessOps: []AccessOperation{
+					{AccessType: AccessType_WRITE, IdentifierTemplate: "abc/defg", ResourceType: ResourceType_KV},
+				},
+				events: []abci.Event{
+					{
+						Type: "resource_access",
+						Attributes: []abci.EventAttribute{
+							{Key: []byte("key"), Value: []byte("abc/defg/e")},
+							{Key: []byte("access_type"), Value: []byte("write")},
 						},
 					},
-			want:   map[Comparator]bool{},
+				},
+			},
+			want: map[Comparator]bool{},
 		},
 		{
-			name:   "matched parent",
-			args:   args{
-						accessOps: []AccessOperation{
-							{AccessType: AccessType_WRITE, IdentifierTemplate: "abc/defg", ResourceType: ResourceType_KV},
-						},
-						events: []abci.Event{
-							{
-								Type: "resource_access",
-								Attributes: []abci.EventAttribute{
-									{Key: []byte("key"), Value: []byte("abc/defg/e")},
-									{Key: []byte("access_type"), Value: []byte("write")},
-									{Key: []byte("store_key"), Value: []byte("ParentNode")},
-								},
-							},
+			name: "matched parent",
+			args: args{
+				accessOps: []AccessOperation{
+					{AccessType: AccessType_WRITE, IdentifierTemplate: "abc/defg", ResourceType: ResourceType_KV},
+				},
+				events: []abci.Event{
+					{
+						Type: "resource_access",
+						Attributes: []abci.EventAttribute{
+							{Key: []byte("key"), Value: []byte("abc/defg/e")},
+							{Key: []byte("access_type"), Value: []byte("write")},
+							{Key: []byte("store_key"), Value: []byte("ParentNode")},
 						},
 					},
-			want:   map[Comparator]bool{},
+				},
+			},
+			want: map[Comparator]bool{},
 		},
 		{
-			name:   "matched *",
-			args:   args{
-						accessOps: []AccessOperation{
-							{AccessType: AccessType_WRITE, IdentifierTemplate: "*", ResourceType: ResourceType_KV},
-						},
-						events: []abci.Event{
-							{
-								Type: "resource_access",
-								Attributes: []abci.EventAttribute{
-									{Key: []byte("key"), Value: []byte("abc/defg/e")},
-									{Key: []byte("access_type"), Value: []byte("write")},
-									{Key: []byte("store_key"), Value: []byte("ParentNode")},
-								},
-							},
+			name: "matched *",
+			args: args{
+				accessOps: []AccessOperation{
+					{AccessType: AccessType_WRITE, IdentifierTemplate: "*", ResourceType: ResourceType_KV},
+				},
+				events: []abci.Event{
+					{
+						Type: "resource_access",
+						Attributes: []abci.EventAttribute{
+							{Key: []byte("key"), Value: []byte("abc/defg/e")},
+							{Key: []byte("access_type"), Value: []byte("write")},
+							{Key: []byte("store_key"), Value: []byte("ParentNode")},
 						},
 					},
-			want:   map[Comparator]bool{},
+				},
+			},
+			want: map[Comparator]bool{},
 		},
 		{
-			name:   "matched UNKNOWN",
-			args:   args{
-						accessOps: []AccessOperation{
-							{AccessType: AccessType_UNKNOWN, IdentifierTemplate: "abc/defg/e", ResourceType: ResourceType_KV},
-						},
-						events: []abci.Event{
-							{
-								Type: "resource_access",
-								Attributes: []abci.EventAttribute{
-									{Key: []byte("key"), Value: []byte("abc/defg/e")},
-									{Key: []byte("access_type"), Value: []byte("write")},
-									{Key: []byte("store_key"), Value: []byte("ParentNode")},
-								},
-							},
+			name: "matched UNKNOWN",
+			args: args{
+				accessOps: []AccessOperation{
+					{AccessType: AccessType_UNKNOWN, IdentifierTemplate: "abc/defg/e", ResourceType: ResourceType_KV},
+				},
+				events: []abci.Event{
+					{
+						Type: "resource_access",
+						Attributes: []abci.EventAttribute{
+							{Key: []byte("key"), Value: []byte("abc/defg/e")},
+							{Key: []byte("access_type"), Value: []byte("write")},
+							{Key: []byte("store_key"), Value: []byte("ParentNode")},
 						},
 					},
-			want:   map[Comparator]bool{},
+				},
+			},
+			want: map[Comparator]bool{},
 		},
 	}
 	for _, tt := range tests {
