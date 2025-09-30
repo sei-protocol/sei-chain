@@ -1,0 +1,87 @@
+package helpers
+
+import (
+	"math/big"
+
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/common"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/x/evm/derived"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+)
+
+var SignerMap = map[derived.SignerVersion]func(*big.Int) ethtypes.Signer{
+	derived.London: ethtypes.NewLondonSigner,
+	derived.Cancun: ethtypes.NewCancunSigner,
+}
+
+// RecoverEVMSender recovers the sender address from an Ethereum transaction
+// using the same logic as the preprocess ante handler.
+// This ensures consistency between transaction preprocessing and RPC queries.
+func RecoverEVMSender(ethTx *ethtypes.Transaction, blockHeight int64, blockTime uint64) (common.Address, error) {
+	// Get the chain ID from the transaction
+	chainID := ethTx.ChainId()
+	
+	// Get the chain config and determine the signer version
+	chainCfg := evmtypes.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	version := getSignerVersion(blockHeight, blockTime, ethCfg)
+	
+	// Create the signer with the transaction's chain ID
+	signer := SignerMap[version](chainID)
+	
+	// Get raw signature values
+	V, R, S := ethTx.RawSignatureValues()
+	
+	// Compute the transaction hash based on whether it's protected
+	var txHash common.Hash
+	if ethTx.Protected() {
+		// For protected transactions, adjust V and use signer hash
+		V = adjustV(V, ethTx.Type(), ethCfg.ChainID)
+		txHash = signer.Hash(ethTx)
+	} else {
+		// For unprotected transactions, use Frontier signer
+		txHash = ethtypes.FrontierSigner{}.Hash(ethTx)
+	}
+	
+	// Recover the sender address
+	evmAddr, _, _, err := GetAddresses(V, R, S, txHash)
+	if err != nil {
+		return common.Address{}, err
+	}
+	
+	return evmAddr, nil
+}
+
+// adjustV adjusts the V value for signature recovery based on transaction type and chain ID
+func adjustV(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
+	// Non-legacy TX always needs to be bumped by 27
+	if txType != ethtypes.LegacyTxType {
+		return new(big.Int).Add(V, utils.Big27)
+	}
+
+	// Legacy TX needs to be adjusted based on chainID
+	// Formula: V = V - (chainID * 2) - 8
+	V = new(big.Int).Sub(V, new(big.Int).Mul(chainID, utils.Big2))
+	return V.Sub(V, utils.Big8)
+}
+
+// getSignerVersion determines which signer version to use based on block height and time
+func getSignerVersion(blockHeight int64, blockTime uint64, ethCfg *params.ChainConfig) derived.SignerVersion {
+	blockNum := big.NewInt(blockHeight)
+	
+	// Check for Cancun upgrade
+	if ethCfg.IsCancun(blockNum, blockTime) {
+		return derived.Cancun
+	}
+	
+	// Default to London
+	return derived.London
+}
+
+// RecoverEVMSenderWithContext is a convenience wrapper that extracts block info from context
+func RecoverEVMSenderWithContext(ctx sdk.Context, ethTx *ethtypes.Transaction) (common.Address, error) {
+	return RecoverEVMSender(ethTx, ctx.BlockHeight(), uint64(ctx.BlockTime().Unix()))
+}
