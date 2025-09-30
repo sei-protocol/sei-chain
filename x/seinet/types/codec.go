@@ -9,11 +9,13 @@ import (
 
 func RegisterCodec(cdc *codec.LegacyAmino) {
 	cdc.RegisterConcrete(&MsgDepositToVault{}, "seinet/MsgDepositToVault", nil)
+	cdc.RegisterConcrete(&MsgExecutePaywordSettlement{}, "seinet/MsgExecutePaywordSettlement", nil)
 }
 
 func RegisterInterfaces(registry cdctypes.InterfaceRegistry) {
 	registry.RegisterImplementations((*sdk.Msg)(nil),
 		&MsgDepositToVault{},
+		&MsgExecutePaywordSettlement{},
 	)
 
 	msgservice.RegisterMsgServiceDesc(registry, &_Msg_serviceDesc)

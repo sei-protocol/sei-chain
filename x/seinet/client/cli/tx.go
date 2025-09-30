@@ -23,6 +23,7 @@ func GetTxCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(NewDepositToVaultCmd())
+	cmd.AddCommand(NewExecutePaywordSettlementCmd())
 
 	return cmd
 }
@@ -44,6 +45,40 @@ func NewDepositToVaultCmd() *cobra.Command {
 			msg := types.NewMsgDepositToVault(
 				clientCtx.GetFromAddress().String(),
 				args[0],
+			)
+
+			if err := msg.ValidateBasic(); err != nil {
+				return err
+			}
+
+			return tx.GenerateOrBroadcastTxWithFactory(clientCtx, txf, msg)
+		},
+	}
+
+	flags.AddTxFlagsToCmd(cmd)
+
+	return cmd
+}
+
+// NewExecutePaywordSettlementCmd creates a command to broadcast a MsgExecutePaywordSettlement.
+func NewExecutePaywordSettlementCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "execute-payword-settlement [covenant-id] [payee] [amount]",
+		Short: "Execute a payword settlement for a covenant",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			clientCtx, err := client.GetClientTxContext(cmd)
+			if err != nil {
+				return err
+			}
+
+			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags()).WithTxConfig(clientCtx.TxConfig).WithAccountRetriever(clientCtx.AccountRetriever)
+
+			msg := types.NewMsgExecutePaywordSettlement(
+				clientCtx.GetFromAddress().String(),
+				args[0],
+				args[1],
+				args[2],
 			)
 
 			if err := msg.ValidateBasic(); err != nil {
