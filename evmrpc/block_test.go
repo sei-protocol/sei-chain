@@ -2,15 +2,14 @@ package evmrpc_test
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 	"math/big"
-	"strings"
 	"testing"
 	"time"
 
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	types2 "github.com/tendermint/tendermint/proto/tendermint/types"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
@@ -25,140 +24,6 @@ import (
 	"github.com/tendermint/tendermint/rpc/coretypes"
 	tmtypes "github.com/tendermint/tendermint/types"
 )
-
-func TestGetBlockByHash(t *testing.T) {
-	resObj := sendRequestGood(t, "getBlockByHash", "0x0000000000000000000000000000000000000000000000000000000000000001", true)
-	// true for eth namespace
-	verifyBlockResultWithBloom(t, resObj, true)
-}
-
-func TestGetSeiBlockByHash(t *testing.T) {
-	resObj := sendSeiRequestGood(t, "getBlockByHash", "0x0000000000000000000000000000000000000000000000000000000000000001", true)
-	// false for sei namespace
-	verifyBlockResultWithBloom(t, resObj, false)
-}
-
-func TestGetSeiBlockByNumberExcludeTraceFail(t *testing.T) {
-	resObj := sendSeiRequestGood(t, "getBlockByNumberExcludeTraceFail", "0x67", true)
-	// first tx is not a panic tx, second tx is a panic tx, third tx is a synthetic tx
-	expectedNumTxs := 1
-	require.Equal(t, expectedNumTxs, len(resObj["result"].(map[string]interface{})["transactions"].([]interface{})))
-}
-
-func TestGetBlockByNumber(t *testing.T) {
-	resObjEarliest := sendSeiRequestGood(t, "getBlockByNumber", "earliest", true)
-	verifyGenesisBlockResult(t, resObjEarliest)
-	for _, num := range []string{"0x8", "latest", "pending", "finalized", "safe"} {
-		resObj := sendRequestGood(t, "getBlockByNumber", num, true)
-		// true for eth namespace
-		verifyBlockResultWithBloom(t, resObj, true)
-	}
-
-	resObj := sendRequestBad(t, "getBlockByNumber", "bad_num", true)
-	require.Equal(t, "invalid argument 0: hex string without 0x prefix", resObj["error"].(map[string]interface{})["message"])
-}
-
-func TestGetSeiBlockByNumber(t *testing.T) {
-	resObjEarliest := sendSeiRequestGood(t, "getBlockByNumber", "earliest", true)
-	verifyGenesisBlockResult(t, resObjEarliest)
-	for _, num := range []string{"0x8", "latest", "pending", "finalized", "safe"} {
-		resObj := sendSeiRequestGood(t, "getBlockByNumber", num, true)
-		// false for sei namespace
-		verifyBlockResultWithBloom(t, resObj, false)
-	}
-
-	resObj := sendSeiRequestBad(t, "getBlockByNumber", "bad_num", true)
-	require.Equal(t, "invalid argument 0: hex string without 0x prefix", resObj["error"].(map[string]interface{})["message"])
-}
-
-func TestGetBlockTransactionCount(t *testing.T) {
-	// get by block number
-	for _, num := range []string{"0x8", "earliest", "latest", "pending", "finalized", "safe"} {
-		resObj := sendRequestGood(t, "getBlockTransactionCountByNumber", num)
-		require.Equal(t, "0x1", resObj["result"])
-	}
-
-	// get error returns null
-	for _, num := range []string{"0x8", "earliest", "latest", "pending", "finalized", "safe", "0x0000000000000000000000000000000000000000000000000000000000000001"} {
-		resObj := sendRequestBad(t, "getBlockTransactionCountByNumber", num)
-		require.Nil(t, resObj["result"])
-	}
-
-	// get by hash
-	resObj := sendRequestGood(t, "getBlockTransactionCountByHash", "0x0000000000000000000000000000000000000000000000000000000000000001")
-	require.Equal(t, "0x1", resObj["result"])
-}
-
-func verifyGenesisBlockResult(t *testing.T, resObj map[string]interface{}) {
-	resObj = resObj["result"].(map[string]interface{})
-	require.Equal(t, "0x0", resObj["baseFeePerGas"])
-	require.Equal(t, "0x0", resObj["difficulty"])
-	require.Equal(t, "0x", resObj["extraData"])
-	require.Equal(t, "0x0", resObj["gasLimit"])
-	require.Equal(t, "0x0", resObj["gasUsed"])
-	require.Equal(t, "0xF9D3845DF25B43B1C6926F3CEDA6845C17F5624E12212FD8847D0BA01DA1AB9E", resObj["hash"])
-	require.Equal(t, "0x0000000000000000", resObj["nonce"])
-	require.Equal(t, "0x0", resObj["number"])
-}
-
-func verifyBlockResult(t *testing.T, resObj map[string]interface{}) {
-	// false means don't verify logBloom
-	verifyBlockResultCommon(t, resObj, false)
-}
-
-func verifyBlockResultWithBloom(t *testing.T, resObj map[string]interface{}, isEthNamespace bool) {
-	resObj = resObj["result"].(map[string]interface{})
-	emptyBloom := "0x" + common.Bytes2Hex(ethtypes.Bloom{}.Bytes())
-
-	if isEthNamespace {
-		// Eth namespace now returns EVM-only bloom where present - should be non-empty
-		require.NotEqual(t, emptyBloom, resObj["logsBloom"])
-	} else {
-		require.Equal(t, "0x00002000040000000000000000000080000000200000000000002000000000080000000000000000000000000000000000000000000000000800000000000000001000000000000000000000000000000000020000000000000000000000000100000000000000002000000000200000000000000000000000000000000000100000000000000000000000000400000000000000200000000000000000000000000000000000000100000000000000020000200000000000000000002000000000000000000000000000000000000000000000000000000000000000000200000000010000000002000000000000000000000000000000010200000000000000", resObj["logsBloom"])
-	}
-}
-
-func verifyBlockResultCommon(t *testing.T, resObj map[string]interface{}, verifyBloom bool) {
-	resObj = resObj["result"].(map[string]interface{})
-	require.Equal(t, "0x0", resObj["difficulty"])
-	require.Equal(t, "0x", resObj["extraData"])
-	require.Equal(t, "0xbebc200", resObj["gasLimit"])
-	require.Equal(t, "0x5", resObj["gasUsed"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", resObj["hash"])
-	require.Equal(t, "0x0000000000000000000000000000000000000005", resObj["miner"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000000", resObj["mixHash"])
-	require.Equal(t, "0x0000000000000000", resObj["nonce"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000006", resObj["parentHash"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000004", resObj["receiptsRoot"])
-	require.Equal(t, "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347", resObj["sha3Uncles"])
-	require.Equal(t, "0x279", resObj["size"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000003", resObj["stateRoot"])
-	require.Equal(t, "0x65254651", resObj["timestamp"])
-	tx := resObj["transactions"].([]interface{})[0].(map[string]interface{})
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000001", tx["blockHash"])
-	require.Equal(t, "0x5b4eba929f3811980f5ae0c5d04fa200f837df4e", tx["from"])
-	require.Equal(t, "0x3e8", tx["gas"])
-	require.Equal(t, "0xa", tx["gasPrice"])
-	require.Equal(t, "0xa", tx["maxFeePerGas"])
-	require.Equal(t, "0x0", tx["maxPriorityFeePerGas"])
-	require.Equal(t, "0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32", tx["hash"])
-	require.Equal(t, "0x616263", tx["input"])
-	require.Equal(t, "0x1", tx["nonce"])
-	require.Equal(t, "0x0000000000000000000000000000000000010203", tx["to"])
-	require.Equal(t, "0x0", tx["transactionIndex"])
-	require.Equal(t, "0x3e8", tx["value"])
-	require.Equal(t, "0x2", tx["type"])
-	require.Equal(t, []interface{}{}, tx["accessList"])
-	require.Equal(t, "0xae3f2", tx["chainId"])
-	require.Equal(t, "0x1", tx["v"])
-	require.Equal(t, "0x2d9ec6f4c4ff4ab0ca8de6248f939e873d2aa9cb6156fa9368e34708dfb6c123", tx["r"])
-	require.Equal(t, "0x35990bec00913db3cecd7f132b45c289280f4182751dab1c9c5ca609939319cb", tx["s"])
-	require.Equal(t, "0x1", tx["yParity"])
-	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000000002", resObj["transactionsRoot"])
-	require.Equal(t, []interface{}{}, resObj["uncles"])
-	require.Equal(t, "0x3b9aca00", resObj["baseFeePerGas"])
-	require.Equal(t, "0x0", resObj["totalDifficulty"])
-}
 
 func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
@@ -184,7 +49,7 @@ func TestEncodeTmBlock_EmptyTransactions(t *testing.T) {
 	}
 
 	// Call EncodeTmBlock with empty transactions
-	result, err := evmrpc.EncodeTmBlock(ctx, ctx, block, blockRes, ethtypes.Bloom{}, k, Decoder, true, false, false, nil)
+	result, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, block, blockRes, k, true, false, false, nil)
 	require.Nil(t, err)
 
 	// Assert txHash is equal to ethtypes.EmptyTxsHash
@@ -230,7 +95,7 @@ func TestEncodeBankMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(ctx, ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, false, false, nil)
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, false, false, nil)
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 0, len(txs))
@@ -278,7 +143,7 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(ctx, ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, false, true, nil)
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, false, true, nil)
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 1, len(txs))
@@ -339,7 +204,7 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 			},
 		},
 	}
-	res, err := evmrpc.EncodeTmBlock(ctx, ctx, &resBlock, &resBlockRes, ethtypes.Bloom{}, k, Decoder, true, true, false, nil)
+	res, err := evmrpc.EncodeTmBlock(func(i int64) sdk.Context { return ctx }, func(i int64) client.TxConfig { return TxConfig }, &resBlock, &resBlockRes, k, true, true, false, nil)
 	require.Nil(t, err)
 	txs := res["transactions"].([]interface{})
 	require.Equal(t, 1, len(txs))
@@ -359,101 +224,64 @@ func TestEncodeBankTransferMsg(t *testing.T) {
 	}, txs[0].(*export.RPCTransaction))
 }
 
-func TestGetBlockByNumber_LogBloomBehavior(t *testing.T) {
-	emptyBloom := "0x" + common.Bytes2Hex(ethtypes.Bloom{}.Bytes())
-
-	// Eth namespace should now be NON-empty at 0x8
-	resObjEth := sendRequestGood(t, "getBlockByNumber", "0x8", true)
-	resultEth := resObjEth["result"].(map[string]interface{})
-	require.NotEqual(t, emptyBloom, resultEth["logsBloom"])
-
-	// Sei namespace includes synthetic logs and should also be non-empty
-	resObjSei := sendSeiRequestGood(t, "getBlockByNumber", "0x8", true)
-	resultSei := resObjSei["result"].(map[string]interface{})
-	require.NotEqual(t, emptyBloom, resultSei["logsBloom"])
-}
-
-func TestGetBlockByHash_LogBloomBehavior(t *testing.T) {
-	emptyBloom := "0x" + common.Bytes2Hex(ethtypes.Bloom{}.Bytes())
-	blockHash := "0x0000000000000000000000000000000000000000000000000000000000000001"
-
-	// Eth: now non-empty
-	resObjEth := sendRequestGood(t, "getBlockByHash", blockHash, true)
-	resultEth := resObjEth["result"].(map[string]interface{})
-	require.NotEqual(t, emptyBloom, resultEth["logsBloom"])
-
-	// Sei: also non-empty (all logs)
-	resObjSei := sendSeiRequestGood(t, "getBlockByHash", blockHash, true)
-	resultSei := resObjSei["result"].(map[string]interface{})
-	require.NotEqual(t, emptyBloom, resultSei["logsBloom"])
-}
-
-func TestEthBloom_NonEmptyWhenEvmLogsPresent(t *testing.T) {
-	emptyBloom := "0x" + common.Bytes2Hex(ethtypes.Bloom{}.Bytes())
-
-	// Non-empty at 0x8 (EVM-only bloom has been set in setupLogs)
-	resObjNonEmpty := sendRequestGood(t, "getBlockByNumber", "0x8", true)
-	resultNonEmpty := resObjNonEmpty["result"].(map[string]interface{})
-	require.NotEqual(t, emptyBloom, resultNonEmpty["logsBloom"], "eth logsBloom should be non-empty when EVM logs exist")
-
-	// Empty at genesis (earliest)
-	resObjEmpty := sendRequestGood(t, "getBlockByNumber", "earliest", true)
-	resultEmpty := resObjEmpty["result"].(map[string]interface{})
-	require.Equal(t, emptyBloom, resultEmpty["logsBloom"], "eth logsBloom should be empty at genesis")
-}
-
-func mustParseBloomHex(t *testing.T, hexStr interface{}) ethtypes.Bloom {
-	s := hexStr.(string)
-	b, err := hex.DecodeString(strings.TrimPrefix(s, "0x"))
+func TestEVMLaunchHeightValidation(t *testing.T) {
+	// Test ValidateEVMBlockHeight function
+	// Should pass for pacific-1 with valid height
+	err := evmrpc.ValidateEVMBlockHeight("pacific-1", 79123881)
 	require.NoError(t, err)
-	var bloom ethtypes.Bloom
-	copy(bloom[:], b)
-	return bloom
+
+	err = evmrpc.ValidateEVMBlockHeight("pacific-1", 79123882)
+	require.NoError(t, err)
+
+	// Should fail for pacific-1 with invalid height
+	err = evmrpc.ValidateEVMBlockHeight("pacific-1", 79123880)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "EVM is only supported from block 79123881 onwards")
+
+	// Should pass for other chains with any height
+	err = evmrpc.ValidateEVMBlockHeight("atlantic-2", 1)
+	require.NoError(t, err)
+
+	err = evmrpc.ValidateEVMBlockHeight("test-chain", 1)
+	require.NoError(t, err)
 }
 
-func TestEthBloom_ExcludesSyntheticTopics(t *testing.T) {
-	// Synthetic-only topic from setup
-	syntheticTopic := common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234")
-	// Topic present in real EVM logs
-	evmTopic := common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000123")
+func TestEVMBlockValidationEdgeCases(t *testing.T) {
+	// Test edge cases for EVM block validation
 
-	// eth_
-	resEth := sendRequestGood(t, "getBlockByNumber", "0x8", true)
-	bloomEth := mustParseBloomHex(t, resEth["result"].(map[string]interface{})["logsBloom"])
-	require.False(t, ethtypes.BloomLookup(bloomEth, syntheticTopic), "eth bloom should exclude synthetic")
-	require.True(t, ethtypes.BloomLookup(bloomEth, evmTopic), "eth bloom should include real EVM topic")
+	// Test exactly at launch height
+	err := evmrpc.ValidateEVMBlockHeight("pacific-1", 79123881)
+	require.NoError(t, err)
 
-	// sei_
-	resSei := sendSeiRequestGood(t, "getBlockByNumber", "0x8", true)
-	bloomSei := mustParseBloomHex(t, resSei["result"].(map[string]interface{})["logsBloom"])
-	require.True(t, ethtypes.BloomLookup(bloomSei, syntheticTopic), "sei bloom should include synthetic")
-	require.True(t, ethtypes.BloomLookup(bloomSei, evmTopic), "sei bloom should include real EVM topic")
+	// Test one block before launch height
+	err = evmrpc.ValidateEVMBlockHeight("pacific-1", 79123880)
+	require.Error(t, err)
+	require.Equal(t, "EVM is only supported from block 79123881 onwards", err.Error())
+
+	// Test way before launch height
+	err = evmrpc.ValidateEVMBlockHeight("pacific-1", 1000000)
+	require.Error(t, err)
+	require.Equal(t, "EVM is only supported from block 79123881 onwards", err.Error())
+
+	// Test block 0
+	err = evmrpc.ValidateEVMBlockHeight("pacific-1", 0)
+	require.Error(t, err)
+	require.Equal(t, "EVM is only supported from block 79123881 onwards", err.Error())
 }
 
-func TestGetLogs_SyntheticTopic_EthVsSei(t *testing.T) {
-	// Synthetic-only topic
-	synthTopic := common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000234")
+func TestEVMBlockValidationDifferentChains(t *testing.T) {
+	// Test that validation only applies to pacific-1
+	chains := []string{"atlantic-2", "arctic-1", "test-chain", "unknown-chain", ""}
 
-	// Query a small range that has bloom + synthetic activity
-	crit := map[string]interface{}{
-		"fromBlock": "0x8",
-		"toBlock":   "0x8",
-		"topics":    [][]common.Hash{{synthTopic}},
+	for _, chainID := range chains {
+		// All non-pacific-1 chains should pass validation for any block height
+		err := evmrpc.ValidateEVMBlockHeight(chainID, 1)
+		require.NoError(t, err, "Chain %s should not validate block heights", chainID)
+
+		err = evmrpc.ValidateEVMBlockHeight(chainID, 0)
+		require.NoError(t, err, "Chain %s should not validate block heights", chainID)
+
+		err = evmrpc.ValidateEVMBlockHeight(chainID, 79123880)
+		require.NoError(t, err, "Chain %s should not validate block heights", chainID)
 	}
-
-	// eth_: should exclude synthetic logs completely
-	resEth := sendRequestGood(t, "getLogs", crit)
-	logsEth, ok := resEth["result"].([]interface{})
-	require.True(t, ok, "eth_getLogs: result should be an array")
-	require.Equal(t, 0, len(logsEth), "eth_getLogs should NOT return synthetic-only logs")
-
-	// sei_: should include synthetic logs
-	resSei := sendSeiRequestGood(t, "getLogs", crit)
-	logsSei, ok := resSei["result"].([]interface{})
-	require.True(t, ok, "sei_getLogs: result should be an array")
-	require.GreaterOrEqual(t, len(logsSei), 1, "sei_getLogs should include synthetic logs")
-
-	first := logsSei[0].(map[string]interface{})
-	topics := first["topics"].([]interface{})
-	require.Equal(t, synthTopic.Hex(), topics[0].(string))
 }

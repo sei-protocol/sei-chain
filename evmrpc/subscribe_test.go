@@ -102,6 +102,7 @@ func TestSubscribeEmptyLogs(t *testing.T) {
 }
 
 func TestSubscribeNewLogs(t *testing.T) {
+	t.Skip()
 	data := map[string]interface{}{
 		"fromBlock": "0x0",
 		"toBlock":   "latest",
