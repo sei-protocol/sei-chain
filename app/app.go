@@ -1880,8 +1880,7 @@ func (app *App) RPCContextProvider(i int64) sdk.Context {
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
-		app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
-		return app.GetCheckCtx().WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
+		panic(err)
 	}
 	closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
 	if closestUpgrade == "" && upgradeHeight == 0 {
