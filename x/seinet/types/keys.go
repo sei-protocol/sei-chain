@@ -21,3 +21,11 @@ const (
 	SeinetVaultAccount   = "seinet_vault"
 	SeinetRoyaltyAccount = "seinet_royalty"
 )
+
+const (
+	CovenantKeyPrefix = "covenant:"
+)
+
+func CovenantKey(id string) []byte {
+	return []byte(CovenantKeyPrefix + id)
+}

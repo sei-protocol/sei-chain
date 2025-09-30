@@ -574,8 +574,9 @@ func New(
 	app.SeinetKeeper = seinetkeeper.NewKeeper(
 		appCodec,
 		app.keys[seinettypes.StoreKey],
-		app.BankKeeper,
+		app.
 		app.AccountKeeper,
+
 	)
 
 	// The last arguments can contain custom message handlers, and custom query handlers,

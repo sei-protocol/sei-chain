@@ -66,9 +66,7 @@ func NewMsgExecutePaywordSettlement(executor, recipient, payword, covenantHash, 
 
 func (msg MsgExecutePaywordSettlement) Route() string { return RouterKey }
 
-func (msg MsgExecutePaywordSettlement) Type() string {
-	return TypeMsgExecutePaywordSettlement
-}
+func (msg MsgExecutePaywordSettlement) Type() string { return TypeMsgExecutePaywordSettlement }
 
 func (msg MsgExecutePaywordSettlement) ValidateBasic() error {
 	if _, err := sdk.AccAddressFromBech32(msg.Executor); err != nil {
