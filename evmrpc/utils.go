@@ -15,6 +15,7 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/utils/helpers"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
@@ -204,7 +205,6 @@ func filterTransactions(
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	block *coretypes.ResultBlock,
-	signer ethtypes.Signer,
 	includeSyntheticTxs bool,
 	includeBankTransfers bool,
 ) []indexedMsg {
@@ -227,7 +227,7 @@ func filterTransactions(
 				}
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
-				sender, _ := signer.Sender(ethtx)
+				sender, _ := helpers.RecoverEVMSender(ethtx, int64(block.Block.Height), uint64(block.Block.Time.Second()))
 				receipt, err := k.GetReceipt(latestCtx, hash)
 				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
 					continue
@@ -326,7 +326,7 @@ func getTxHashesFromBlock(
 	shouldIncludeSynthetic bool,
 ) []typedTxHash {
 	txHashes := []typedTxHash{}
-	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, signer, shouldIncludeSynthetic, false) {
+	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, false) {
 		switch tx.msg.(type) {
 		case *types.MsgEVMTransaction:
 			ethtx, _ := tx.msg.(*types.MsgEVMTransaction).AsTransaction()

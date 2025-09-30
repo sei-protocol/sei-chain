@@ -271,6 +271,109 @@ func TestRecoverEVMSender_RealWorldTransaction(t *testing.T) {
 	require.Equal(t, expectedSender, recoveredAddr, "Should recover the correct sender for real-world tx")
 }
 
+// TestRecoverEVMSender_GeneratedTransactions generates 1000 fresh transactions and validates recovery
+func TestRecoverEVMSender_GeneratedTransactions(t *testing.T) {
+	chainID := big.NewInt(1329)
+	blockHeight := int64(1000000)
+	blockTime := uint64(1234567890)
+
+	successCount := 0
+	failCount := 0
+
+	// Test 500 AccessList (Type 1) transactions
+	for i := 0; i < 500; i++ {
+		// Generate a new private key
+		privateKey, err := crypto.GenerateKey()
+		require.NoError(t, err)
+
+		expectedAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
+
+		// Create AccessList transaction
+		to := common.HexToAddress("0x1234567890123456789012345678901234567890")
+		tx := types.NewTx(&types.AccessListTx{
+			ChainID:  chainID,
+			Nonce:    uint64(i),
+			GasPrice: big.NewInt(1000000000),
+			Gas:      21000,
+			To:       &to,
+			Value:    big.NewInt(1000000000000000000),
+			Data:     []byte{},
+		})
+
+		// Sign the transaction
+		signer := types.LatestSignerForChainID(chainID)
+		signedTx, err := types.SignTx(tx, signer, privateKey)
+		require.NoError(t, err)
+
+		// Recover sender
+		recoveredAddr, err := RecoverEVMSender(signedTx, blockHeight, blockTime)
+		if err != nil {
+			t.Errorf("Type 1 tx %d: Recovery failed: %v", i, err)
+			failCount++
+			continue
+		}
+
+		if recoveredAddr != expectedAddr {
+			t.Errorf("Type 1 tx %d: Address mismatch! Expected %s, got %s",
+				i, expectedAddr.Hex(), recoveredAddr.Hex())
+			failCount++
+		} else {
+			successCount++
+		}
+	}
+
+	// Test 500 DynamicFee (Type 2) transactions
+	for i := 0; i < 500; i++ {
+		// Generate a new private key
+		privateKey, err := crypto.GenerateKey()
+		require.NoError(t, err)
+
+		expectedAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
+
+		// Create DynamicFee transaction
+		to := common.HexToAddress("0x1234567890123456789012345678901234567890")
+		tx := types.NewTx(&types.DynamicFeeTx{
+			ChainID:   chainID,
+			Nonce:     uint64(i),
+			GasTipCap: big.NewInt(1000000000),
+			GasFeeCap: big.NewInt(2000000000),
+			Gas:       21000,
+			To:        &to,
+			Value:     big.NewInt(1000000000000000000),
+			Data:      []byte{},
+		})
+
+		// Sign the transaction
+		signer := types.LatestSignerForChainID(chainID)
+		signedTx, err := types.SignTx(tx, signer, privateKey)
+		require.NoError(t, err)
+
+		// Recover sender
+		recoveredAddr, err := RecoverEVMSender(signedTx, blockHeight, blockTime)
+		if err != nil {
+			t.Errorf("Type 2 tx %d: Recovery failed: %v", i, err)
+			failCount++
+			continue
+		}
+
+		if recoveredAddr != expectedAddr {
+			t.Errorf("Type 2 tx %d: Address mismatch! Expected %s, got %s",
+				i, expectedAddr.Hex(), recoveredAddr.Hex())
+			failCount++
+		} else {
+			successCount++
+		}
+	}
+
+	t.Logf("\n=== Generated Transaction Test Summary ===")
+	t.Logf("Total transactions: 1000 (500 Type 1 + 500 Type 2)")
+	t.Logf("✅ Successful: %d", successCount)
+	t.Logf("❌ Failed: %d", failCount)
+
+	require.Equal(t, 1000, successCount, "All 1000 generated transactions should recover correctly")
+	require.Equal(t, 0, failCount, "No transactions should fail recovery")
+}
+
 // TestRecoverEVMSender_FromTestData validates recovery against real transactions from testdata
 func TestRecoverEVMSender_FromTestData(t *testing.T) {
 	// Load test data from JSON file
