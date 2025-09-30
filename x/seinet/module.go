@@ -88,7 +88,7 @@ func (AppModule) LegacyQuerierHandler(_ *codec.LegacyAmino) sdk.Querier { return
 
 func (am AppModule) RegisterServices(cfg module.Configurator) {
 	types.RegisterMsgServer(cfg.MsgServer(), keeper.NewMsgServerImpl(am.keeper))
-	types.RegisterQueryServer(cfg.QueryServer(), am.keeper)
+	types.RegisterQueryServer(cfg.QueryServer(), keeper.NewQueryServer(am.keeper))
 }
 
 func (AppModule) RegisterInvariants(_ sdk.InvariantRegistry) {}

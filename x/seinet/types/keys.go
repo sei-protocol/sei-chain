@@ -21,3 +21,13 @@ const (
 	SeinetVaultAccount   = "seinet_vault"
 	SeinetRoyaltyAccount = "seinet_royalty"
 )
+
+const (
+	// CovenantKeyPrefix is the key prefix for covenant-related storage.
+	CovenantKeyPrefix = "covenant:"
+)
+
+// CovenantKey returns the full store key for a given covenant ID.
+func CovenantKey(id string) []byte {
+	return []byte(CovenantKeyPrefix + id)
+}

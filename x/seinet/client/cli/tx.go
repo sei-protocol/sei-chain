@@ -16,7 +16,7 @@ import (
 func GetTxCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:                        types.ModuleName,
-		Short:                      fmt.Sprintf("%s transactions subcommands", types.ModuleName),
+		Short:                      fmt.Sprintf("%s transaction subcommands", types.ModuleName),
 		DisableFlagParsing:         true,
 		SuggestionsMinimumDistance: 2,
 		RunE:                       client.ValidateCmd,
@@ -40,11 +40,13 @@ func NewDepositToVaultCmd() *cobra.Command {
 				return err
 			}
 
-			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags()).WithTxConfig(clientCtx.TxConfig).WithAccountRetriever(clientCtx.AccountRetriever)
+			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags()).
+				WithTxConfig(clientCtx.TxConfig).
+				WithAccountRetriever(clientCtx.AccountRetriever)
 
 			msg := types.NewMsgDepositToVault(
-				clientCtx.GetFromAddress().String(),
-				args[0],
+				clientCtx.GetFromAddress().String(), // depositor
+				args[0],                             // amount string, e.g. "100usei"
 			)
 
 			if err := msg.ValidateBasic(); err != nil {
@@ -56,7 +58,6 @@ func NewDepositToVaultCmd() *cobra.Command {
 	}
 
 	flags.AddTxFlagsToCmd(cmd)
-
 	return cmd
 }
 
@@ -72,14 +73,16 @@ func NewExecutePaywordSettlementCmd() *cobra.Command {
 				return err
 			}
 
-			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags()).WithTxConfig(clientCtx.TxConfig).WithAccountRetriever(clientCtx.AccountRetriever)
+			txf := tx.NewFactoryCLI(clientCtx, cmd.Flags()).
+				WithTxConfig(clientCtx.TxConfig).
+				WithAccountRetriever(clientCtx.AccountRetriever)
 
 			msg := types.NewMsgExecutePaywordSettlement(
-				clientCtx.GetFromAddress().String(),
-				args[0],
-				args[1],
-				args[2],
-				args[3],
+				clientCtx.GetFromAddress().String(), // executor
+				args[0],                             // recipient
+				args[1],                             // payword
+				args[2],                             // covenant hash
+				args[3],                             // amount, e.g. "500usei"
 			)
 
 			if err := msg.ValidateBasic(); err != nil {
@@ -91,6 +94,5 @@ func NewExecutePaywordSettlementCmd() *cobra.Command {
 	}
 
 	flags.AddTxFlagsToCmd(cmd)
-
 	return cmd
 }

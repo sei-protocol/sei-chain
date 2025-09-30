@@ -66,9 +66,7 @@ func NewMsgExecutePaywordSettlement(executor, recipient, payword, covenantHash, 
 
 func (msg MsgExecutePaywordSettlement) Route() string { return RouterKey }
 
-func (msg MsgExecutePaywordSettlement) Type() string {
-	return TypeMsgExecutePaywordSettlement
-}
+func (msg MsgExecutePaywordSettlement) Type() string { return TypeMsgExecutePaywordSettlement }
 
 func (msg MsgExecutePaywordSettlement) ValidateBasic() error {
 	if _, err := sdk.AccAddressFromBech32(msg.Executor); err != nil {
@@ -111,10 +109,10 @@ func (msg MsgExecutePaywordSettlement) GetSigners() []sdk.AccAddress {
 	return []sdk.AccAddress{addr}
 }
 
+// NormalizeHexHash trims 0x prefix, lowercases, and validates that the hash is hex.
 func NormalizeHexHash(hash string) (string, error) {
 	normalized := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(hash), "0x"))
 	if _, err := hex.DecodeString(normalized); err != nil {
 		return "", err
 	}
-	return normalized, nil
-}
+	retur
