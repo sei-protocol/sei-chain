@@ -250,7 +250,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					mtx.Unlock()
 				}
 			} else {
-				encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, a.includeShellReceipts, signer)
+				encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, a.includeShellReceipts)
 				if err != nil {
 					mtx.Lock()
 					returnErr = err
@@ -301,12 +301,7 @@ func EncodeTmBlock(
 	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	transactions := []interface{}{}
 	latestCtx := ctxProvider(LatestCtxHeight)
-	signer := ethtypes.MakeSigner(
-		types.DefaultChainConfig().EthereumConfig(k.ChainID(latestCtx)),
-		big.NewInt(latestCtx.BlockHeight()),
-		uint64(latestCtx.BlockTime().Unix()),
-	)
-	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, signer, includeSyntheticTxs, includeBankTransfers)
+	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSyntheticTxs, includeBankTransfers)
 
 	blockBloom := make([]byte, ethtypes.BloomByteLength)
 	for _, msg := range msgs {
