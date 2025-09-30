@@ -24,7 +24,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/evmrpc/stats"
@@ -227,7 +226,7 @@ func filterTransactions(
 				}
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
-				sender, _ := helpers.RecoverEVMSender(ethtx, int64(block.Block.Height), uint64(block.Block.Time.Second()))
+				sender, _ := helpers.RecoverEVMSender(ethtx, block.Block.Height, uint64(block.Block.Time.Second()))
 				receipt, err := k.GetReceipt(latestCtx, hash)
 				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
 					continue
@@ -322,7 +321,6 @@ func getTxHashesFromBlock(
 	txConfigProvider func(int64) client.TxConfig,
 	k *keeper.Keeper,
 	block *coretypes.ResultBlock,
-	signer ethtypes.Signer,
 	shouldIncludeSynthetic bool,
 ) []typedTxHash {
 	txHashes := []typedTxHash{}
