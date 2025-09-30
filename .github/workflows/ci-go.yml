@@ -4,7 +4,51 @@ on:
   pull_request:
 permissions:
   contents: read
+  checks: writename: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
   checks: write
+  statuses: write
+  id-token: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Ensure dependencies
+        run: |
+          go mod tidy
+          # Fix missing cometbft dep if not present
+          grep -q "github.com/cometbft/cometbft" go.mod || \
+            go get github.com/cometbft/cometbft@v0.37.2
+          go mod vendor || true
+
+      - name: Run tests with coverage
+        run: go test ./... -race -covermode=atomic -coverprofile=coverage.out
+
+      - name: Upload coverage to Codecov
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.out
+          flags: unittests
+          fail_ci_if_error: true
+          verbose: true
+
   statuses: write
   id-token: write  # harmless if unused; fine to keep
 jobs:
