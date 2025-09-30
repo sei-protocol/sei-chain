@@ -118,7 +118,7 @@ require (
 	github.com/rs/zerolog v1.30.0 // indirect
 	github.com/sasha-s/go-deadlock v0.3.1 // indirect
 	github.com/savaki/jq v0.0.0-20161209013833-0e6baecebbf8 // indirect
-	github.com/sei-protocol/sei-db v0.0.27-0.20240123064153-d6dfa112e760 // indirect
+	github.com/sei-protocol/sei-db v0.0.51 // indirect
 	github.com/sei-protocol/sei-tm-db v0.0.5 // indirect
 	github.com/spf13/afero v1.8.2 // indirect
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
