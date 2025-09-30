@@ -1,0 +1,11 @@
+syntax = "proto3";
+package seiprotocol.seichain.seinet;
+
+option go_package = "github.com/sei-protocol/sei-chain/x/seinet/types";
+
+message MsgDepositToVault {
+  string depositor = 1;
+  string amount = 2;
+}
+
+message MsgDepositToVaultResponse {}
