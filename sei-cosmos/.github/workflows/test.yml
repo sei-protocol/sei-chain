@@ -1,0 +1,181 @@
+name: Tests / Code Coverage
+#  Tests / Code Coverage workflow runs unit tests and uploads a code coverage report
+#  This workflow is run on pushes to main & every Pull Requests where a .go, .mod, .sum have been changed
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - occ-main # TODO: remove after occ work is done
+      - seiv2
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ci-${{ github.ref }}-tests
+  cancel-in-progress: true
+
+jobs:
+  split-test-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 1.21
+      - name: Create a file with all core Cosmos SDK pkgs
+        run: go list ./... > pkgs.txt
+      - name: Split pkgs into 10 files
+        run: split -d -n l/10 pkgs.txt pkgs.txt.part.
+      # cache multiple
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "${{ github.sha }}-00"
+          path: ./pkgs.txt.part.00
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "${{ github.sha }}-01"
+          path: ./pkgs.txt.part.01
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "${{ github.sha }}-02"
+          path: ./pkgs.txt.part.02
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "${{ github.sha }}-03"
+          path: ./pkgs.txt.part.03
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "${{ github.sha }}-04"
+          path: ./pkgs.txt.part.04
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "${{ github.sha }}-05"
+          path: ./pkgs.txt.part.05
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "${{ github.sha }}-06"
+          path: ./pkgs.txt.part.06
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "${{ github.sha }}-07"
+          path: ./pkgs.txt.part.07
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "${{ github.sha }}-08"
+          path: ./pkgs.txt.part.08
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "${{ github.sha }}-09"
+          path: ./pkgs.txt.part.09
+
+  tests:
+    runs-on: ubuntu-latest
+    needs: split-test-files
+    strategy:
+      fail-fast: false
+      matrix:
+        part: ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09"]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 1.21
+      - uses: technote-space/get-diff-action@v6.1.0
+        with:
+          PATTERNS: |
+            **/**.go
+            go.mod
+            go.sum
+      - uses: actions/download-artifact@v4
+        with:
+          name: "${{ github.sha }}-${{ matrix.part }}"
+      - name: Get data from Go build cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/golangci-lint
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+
+      - name: test & coverage report creation
+        run: |
+          cat pkgs.txt.part.${{ matrix.part }} | xargs go test -mod=readonly -race -timeout 5m -coverprofile=${{ matrix.part }}profile.out -covermode=atomic -tags='ledger test_ledger_mock'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "${{ github.sha }}-${{ matrix.part }}-coverage"
+          path: ./${{ matrix.part }}profile.out
+
+  upload-coverage-report:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+        with:
+          go-version: 1.21
+
+      # Download all coverage reports from the 'tests' job
+      - name: Download coverage reports
+        uses: actions/download-artifact@v4
+
+      - name: Set GOPATH
+        run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
+
+      - name: Add GOPATH/bin to PATH
+        run: echo "GOBIN=$(go env GOPATH)/bin" >> $GITHUB_ENV
+
+      - name: Install gocovmerge
+        run: go get github.com/wadey/gocovmerge && go install github.com/wadey/gocovmerge
+
+      - name: Merge coverage reports
+        run: gocovmerge $(find . -type f -name '*profile.out') > coverage.txt
+
+      - name: Check coverage report lines
+        run: wc -l coverage.txt
+        continue-on-error: true
+
+      - name: Check coverage report files
+        run: ls **/*profile.out
+        continue-on-error: true
+
+      # Now we upload the merged report to Codecov
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.txt
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+
+  unit-test-check:
+    name: Unit Test Check
+    runs-on: ubuntu-latest
+    needs: tests
+    if: always()
+    steps:
+      - name: Get workflow conclusion
+        id: workflow_conclusion
+        uses: nick-fields/retry@v2
+        with:
+          max_attempts: 2
+          retry_on: error
+          timeout_seconds: 30
+          command: |
+              jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+              job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+
+              for status in $job_statuses
+              do
+                echo "Status: $status"
+                if [[ "$status" == "failure" ]]; then
+                  echo "Some or all tests have failed!"
+                  exit 1
+                fi
+              done
+
+              echo "All tests have passed!"
