@@ -548,12 +548,19 @@ func (db *DB) reloadMultiTree(mtree *MultiTree) error {
 
 // rewriteIfApplicable execute the snapshot rewrite strategy according to current height
 func (db *DB) rewriteIfApplicable(height int64) {
-	if height%int64(db.snapshotInterval) != 0 {
+	if db.snapshotRewriteChan != nil {
 		return
 	}
 
-	if err := db.rewriteSnapshotBackground(); err != nil {
-		db.logger.Error("failed to rewrite snapshot in background", "err", err)
+	if db.snapshotInterval <= 0 || height <= 0 || height < db.MultiTree.SnapshotVersion() {
+		return
+	}
+
+	// create snapshot when current height - last snapshot height > interval
+	if height-db.MultiTree.SnapshotVersion() >= int64(db.snapshotInterval) {
+		if err := db.rewriteSnapshotBackground(); err != nil {
+			db.logger.Error("failed to rewrite snapshot in background", "err", err)
+		}
 	}
 }
 
@@ -616,12 +623,14 @@ func (db *DB) rewriteSnapshotBackground() error {
 }
 
 func (db *DB) Close() error {
+	db.logger.Info("Closing memiavl db...")
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 	errs := []error{}
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
 	// Close stream handler
+	db.logger.Info("Closing stream handler...")
 	if db.streamHandler != nil {
 		err := db.streamHandler.Close()
 		errs = append(errs, err)
@@ -629,6 +638,7 @@ func (db *DB) Close() error {
 	}
 
 	// Close rewrite channel
+	db.logger.Info("Closing rewrite channel...")
 	if db.snapshotRewriteChan != nil {
 		db.snapshotRewriteCancelFunc()
 		<-db.snapshotRewriteChan
@@ -639,12 +649,13 @@ func (db *DB) Close() error {
 	errs = append(errs, db.MultiTree.Close())
 
 	// Close file lock
+	db.logger.Info("Closing file lock...")
 	if db.fileLock != nil {
 		errs = append(errs, db.fileLock.Unlock())
 		errs = append(errs, db.fileLock.Destroy())
 		db.fileLock = nil
 	}
-
+	db.logger.Info("Closed memiavl db.")
 	return errorutils.Join(errs...)
 }
 
