@@ -23,7 +23,7 @@ config for backward compatibility with the official EVM lib.
 func (cc ChainConfig) EthereumConfig(chainID *big.Int) *params.ChainConfig {
 	return &params.ChainConfig{
 		ChainID:                chainID,
-		SeiSstoreSetGasEIP2200: func() *uint64 { u := uint64(cc.SeiSstoreSetGasEip2200); return &u }(),
+		SeiSstoreSetGasEIP2200: func() *uint64 { u := cc.SeiSstoreSetGasEip2200; return &u }(),
 		HomesteadBlock:         utils.Big0,
 		DAOForkBlock:           utils.Big0,
 		DAOForkSupport:         false, // fork of Sei is supported outside EVM
