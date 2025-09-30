@@ -107,7 +107,7 @@ func Test0x22ad57e8e59cc0f60c02bd3eb605eb570dcdc75168b136d576074591bfb7f105(t *t
 		"0x22ad57e8e59cc0f60c02bd3eb605eb570dcdc75168b136d576074591bfb7f105",
 		"v5.5.2",
 		"0x46071",
-		"0x0000000000000000000000000000000000000000000000000003711ce72fb74e",
+		"0x4e487b710000000000000000000000000000000000000000000000000000000000000011",
 		false,
 	)
 }
@@ -137,7 +137,7 @@ func Test0xd09db4e79993c42eda67b45ca2fd5ac1e4cc60284a03335a08bb91d5b3800d84(t *t
 		"0xd09db4e79993c42eda67b45ca2fd5ac1e4cc60284a03335a08bb91d5b3800d84",
 		"v5.8.0",
 		"0x2691cb",
-		"0x636f6e7472616374206372656174696f6e20636f64652073746f72616765206f7574206f6620676173",
+		"0x00000000000000000000000028e7fa339ec0ef4f71febfa92d3964ebd41fce2c",
 		false,
 	)
 }
@@ -252,12 +252,10 @@ func setLegacySstoreIfNeeded(ctx sdk.Context, a *app.App, version string) sdk.Co
 	}
 	params := a.EvmKeeper.GetParams(ctx)
 	if params.SeiSstoreSetGasEip2200 == legacySstoreGas {
-		if params.RegisterPointerDisabled {
-			return ctx
-		}
+		return ctx
 	}
 	params.SeiSstoreSetGasEip2200 = legacySstoreGas
-	params.RegisterPointerDisabled = true
+	params.RegisterPointerDisabled = false
 	a.EvmKeeper.SetParams(ctx, params)
 	return ctx
 }
