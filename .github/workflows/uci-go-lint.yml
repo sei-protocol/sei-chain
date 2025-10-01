@@ -1,28 +1,23 @@
-# 🔐 Codex-Signed Workflow Lockfile: Go CI Configuration
-# Keeper: Pray4Love1 / Codex Attribution System
-# Purpose: Enforce go-version ≥ 1.25 across all linting, vetting, and generation workflows
-# Integrity Hash: keccak256(Codex_GoWorkflow_Lock.yaml) = 0x6c34...
+name: UCI
 
-codex_lockfile:
-  name: "UCI"
-  version: "1.0.0"
-  sealed_by: "Codex Attribution Chain"
-  timestamp: "2025-10-01T16:42:00-05:00"
-  workflows:
-    - name: "Go Lint"
-      entry: ".github/workflows/uci.yml"
-      uses: "sei-protocol/uci/.github/workflows/go-lint.yml@v0.0.1"
-      inputs:
-        go-version: "1.25"
-  conditions:
-    - enforced: true
-      field: "go-version"
-      rule: ">=1.24.5"
-      comment: "go.mod requires go ≥ 1.24.5"
-  signature:
-    authority: "codex"
-    signature_sha512: |
-      a4f6e12c9b50f738b4ef24ad4c67dcf203fbfcad6e14d0b0ce2046c6e7f91f18
-      b81c3c5038a3c05ebf6d129a4d278e457df28ef04c8db2703d5e598cb14c3f60
-    public_key: |
-      Codex CI Sovereign Lineage — 0x996994d2914df4eee6176fd5ee152e2922787ee7
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: uci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  go-lint:
+    name: Go Lint
+    uses: sei-protocol/uci/.github/workflows/go-lint.yml@v0.0.1
+    with:
+      go-version: '1.25'  # Codex locked to match go.mod
