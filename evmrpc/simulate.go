@@ -391,7 +391,6 @@ func (b *Backend) RPCEVMTimeout() time.Duration { return b.config.EVMTimeout }
 
 func (b *Backend) chainConfigForHeight(height int64) *params.ChainConfig {
 	ctx := b.ctxProvider(height)
-	ctx = ctx.WithIsTracing(true)
 	evParams := b.keeper.GetParams(ctx)
 	sstore := evParams.SeiSstoreSetGasEip2200
 	return types.DefaultChainConfig().EthereumConfigWithSstore(b.keeper.ChainID(ctx), &sstore)
