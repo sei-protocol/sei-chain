@@ -142,7 +142,6 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceTransaction", api.connectionType, startTime, returnErr)
 	return api.tracersAPI.TraceTransaction(ctx, hash, config)
-	return result, returnErr
 }
 
 func (api *DebugAPI) AsRawJSON(result interface{}) ([]byte, bool) {
