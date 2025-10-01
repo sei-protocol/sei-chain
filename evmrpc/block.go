@@ -308,9 +308,7 @@ func EncodeTmBlock(
 				transactions = append(transactions, hash.Hex())
 			} else {
 				newTx := ethapi.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Unix()), uint64(len(transactions)), baseFeePerGas, chainConfig)
-				if receipt != nil {
-					newTx.From = common.HexToAddress(receipt.From)
-				}
+				replaceFrom(newTx, receipt)
 				transactions = append(transactions, newTx)
 			}
 			or := make([]byte, ethtypes.BloomByteLength)

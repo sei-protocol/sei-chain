@@ -276,18 +276,18 @@ func TestRecoverEVMSender_GeneratedTransactions(t *testing.T) {
 	chainID := big.NewInt(1329)
 	blockHeight := int64(1000000)
 	blockTime := uint64(1234567890)
-	
+
 	successCount := 0
 	failCount := 0
-	
+
 	// Test 500 AccessList (Type 1) transactions
 	for i := 0; i < 500; i++ {
 		// Generate a new private key
 		privateKey, err := crypto.GenerateKey()
 		require.NoError(t, err)
-		
+
 		expectedAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
-		
+
 		// Create AccessList transaction
 		to := common.HexToAddress("0x1234567890123456789012345678901234567890")
 		tx := types.NewTx(&types.AccessListTx{
@@ -299,12 +299,12 @@ func TestRecoverEVMSender_GeneratedTransactions(t *testing.T) {
 			Value:    big.NewInt(1000000000000000000),
 			Data:     []byte{},
 		})
-		
+
 		// Sign the transaction
 		signer := types.LatestSignerForChainID(chainID)
 		signedTx, err := types.SignTx(tx, signer, privateKey)
 		require.NoError(t, err)
-		
+
 		// Recover sender
 		recoveredAddr, err := RecoverEVMSender(signedTx, blockHeight, blockTime)
 		if err != nil {
@@ -312,24 +312,24 @@ func TestRecoverEVMSender_GeneratedTransactions(t *testing.T) {
 			failCount++
 			continue
 		}
-		
+
 		if recoveredAddr != expectedAddr {
-			t.Errorf("Type 1 tx %d: Address mismatch! Expected %s, got %s", 
+			t.Errorf("Type 1 tx %d: Address mismatch! Expected %s, got %s",
 				i, expectedAddr.Hex(), recoveredAddr.Hex())
 			failCount++
 		} else {
 			successCount++
 		}
 	}
-	
+
 	// Test 500 DynamicFee (Type 2) transactions
 	for i := 0; i < 500; i++ {
 		// Generate a new private key
 		privateKey, err := crypto.GenerateKey()
 		require.NoError(t, err)
-		
+
 		expectedAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
-		
+
 		// Create DynamicFee transaction
 		to := common.HexToAddress("0x1234567890123456789012345678901234567890")
 		tx := types.NewTx(&types.DynamicFeeTx{
@@ -342,12 +342,12 @@ func TestRecoverEVMSender_GeneratedTransactions(t *testing.T) {
 			Value:     big.NewInt(1000000000000000000),
 			Data:      []byte{},
 		})
-		
+
 		// Sign the transaction
 		signer := types.LatestSignerForChainID(chainID)
 		signedTx, err := types.SignTx(tx, signer, privateKey)
 		require.NoError(t, err)
-		
+
 		// Recover sender
 		recoveredAddr, err := RecoverEVMSender(signedTx, blockHeight, blockTime)
 		if err != nil {
@@ -355,23 +355,64 @@ func TestRecoverEVMSender_GeneratedTransactions(t *testing.T) {
 			failCount++
 			continue
 		}
-		
+
 		if recoveredAddr != expectedAddr {
-			t.Errorf("Type 2 tx %d: Address mismatch! Expected %s, got %s", 
+			t.Errorf("Type 2 tx %d: Address mismatch! Expected %s, got %s",
 				i, expectedAddr.Hex(), recoveredAddr.Hex())
 			failCount++
 		} else {
 			successCount++
 		}
 	}
-	
+
 	t.Logf("\n=== Generated Transaction Test Summary ===")
 	t.Logf("Total transactions: 1000 (500 Type 1 + 500 Type 2)")
 	t.Logf("✅ Successful: %d", successCount)
 	t.Logf("❌ Failed: %d", failCount)
-	
+
 	require.Equal(t, 1000, successCount, "All 1000 generated transactions should recover correctly")
 	require.Equal(t, 0, failCount, "No transactions should fail recovery")
+}
+
+// TestRecoverEVMSender_RealWorldType2Transaction tests a specific Type 2 (EIP-1559) transaction
+// from block 170818493 where the sender should be correctly recovered
+func TestRecoverEVMSender_RealWorldType2Transaction(t *testing.T) {
+	// Transaction details from block 170818493
+	// Hash: 0x01e3fe64d0f6eb746d2e78560884a0a5ae01c97b5c6c946d4f30113324afceba
+	to := common.HexToAddress("0x5969B71E40cBF3b939b835654ABE14A2eeBF1330")
+	maxFeePerGas := big.NewInt(8444798378)
+	maxPriorityFeePerGas := big.NewInt(1000000000)
+	value := big.NewInt(0)
+	data := common.Hex2Bytes("a6f2ae3a")
+
+	// Signature components
+	r, _ := new(big.Int).SetString("4a4447692849916bf0e9f1550d0b90ed54d1c5e14cfe4e80be64c9b0e032a484", 16)
+	s, _ := new(big.Int).SetString("3280b3674dbdcd6e100ea9ee43103a33f902e92342208e5e567b90d8c9ec3614", 16)
+	v := big.NewInt(1) // yParity = 1
+
+	// Create Type 2 (DynamicFeeTx) transaction
+	ethTx := types.NewTx(&types.DynamicFeeTx{
+		ChainID:   big.NewInt(1329),
+		Nonce:     9,
+		GasTipCap: maxPriorityFeePerGas,
+		GasFeeCap: maxFeePerGas,
+		Gas:       22800,
+		To:        &to,
+		Value:     value,
+		Data:      data,
+		V:         v,
+		R:         r,
+		S:         s,
+	})
+
+	// Expected sender address (NOT 0x0000000000000000000000000000000000000000)
+	expectedSender := common.HexToAddress("0x86274179022CBebf4950520cbEA193308221fC34")
+
+	// Recover the sender
+	recoveredAddr, err := RecoverEVMSender(ethTx, 170818493, 0) // Using actual block number
+	require.NoError(t, err)
+	require.Equal(t, expectedSender, recoveredAddr,
+		"Should recover the correct sender 0x86274179022CBebf4950520cbEA193308221fC34, not 0x0000000000000000000000000000000000000000")
 }
 
 // TestRecoverEVMSender_FromTestData validates recovery against real transactions from testdata
