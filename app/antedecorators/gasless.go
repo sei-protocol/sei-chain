@@ -2,6 +2,7 @@ package antedecorators
 
 import (
 	"encoding/hex"
+	"fmt"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -111,7 +112,15 @@ func (gd GaslessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk
 	return next(append(txDeps, deps...), tx, txIndex)
 }
 
-func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) (bool, error) {
+func IsTxGasless(tx sdk.Tx, ctx sdk.Context, oracleKeeper oraclekeeper.Keeper, evmKeeper *evmkeeper.Keeper) (isGasless bool, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			ctx.Logger().Error("panic recovered in IsTxGasless", "panic", r)
+			err = fmt.Errorf("panic in IsTxGasless: %v", r)
+			isGasless = false
+		}
+	}()
+
 	if len(tx.GetMsgs()) == 0 {
 		// empty TX shouldn't be gasless
 		return false, nil

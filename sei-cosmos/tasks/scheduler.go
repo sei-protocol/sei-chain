@@ -256,18 +256,6 @@ func allValidated(tasks []*deliverTxTask) bool {
 	return true
 }
 
-func (s *scheduler) PrefillEstimates(reqs []*sdk.DeliverTxEntry) {
-	// iterate over TXs, update estimated writesets where applicable
-	for _, req := range reqs {
-		mappedWritesets := req.EstimatedWritesets
-		// order shouldnt matter for storeKeys because each storeKey partitioned MVS is independent
-		for storeKey, writeset := range mappedWritesets {
-			// we use `-1` to indicate a prefill incarnation
-			s.multiVersionStores[storeKey].SetEstimatedWriteset(req.AbsoluteIndex, -1, writeset)
-		}
-	}
-}
-
 // schedulerMetrics contains metrics for the scheduler
 type schedulerMetrics struct {
 	// maxIncarnation is the highest incarnation seen in this set
@@ -286,9 +274,6 @@ func (s *scheduler) ProcessAll(ctx sdk.Context, reqs []*sdk.DeliverTxEntry) ([]t
 	var iterations int
 	// initialize mutli-version stores if they haven't been initialized yet
 	s.tryInitMultiVersionStore(ctx)
-	// prefill estimates
-	// This "optimization" path is being disabled because we don't have a strong reason to have it given that it
-	// s.PrefillEstimates(reqs)
 	tasks, tasksMap := toTasks(reqs)
 	s.allTasks = tasks
 	s.allTasksMap = tasksMap

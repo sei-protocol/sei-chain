@@ -1117,20 +1117,6 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 		}
 	}()
 
-	defer func() {
-		if err := recover(); err != nil {
-			app.logger.Error(
-				"panic recovered in ProcessProposal",
-				"height", req.Height,
-				"time", req.Time,
-				"hash", fmt.Sprintf("%X", req.Hash),
-				"panic", err,
-			)
-
-			resp = &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_REJECT}
-		}
-	}()
-
 	if app.processProposalHandler != nil {
 		resp, err = app.processProposalHandler(app.processProposalState.ctx, req)
 		if err != nil {
