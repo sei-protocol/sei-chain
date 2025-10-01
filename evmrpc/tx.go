@@ -230,6 +230,9 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 					R:        (*hexutil.Big)(r),
 					S:        (*hexutil.Big)(s),
 				}
+				if hash.Hex() == "0x01e3fe64d0f6eb746d2e78560884a0a5ae01c97b5c6c946d4f30113324afceba" {
+					sdkCtx.Logger().Info("DEBUG [GetTransactionByHash], returning from UnconfirmedTxs", "from", from.Hex())
+				}
 				return &res, nil
 			}
 		}
@@ -330,9 +333,15 @@ func (t *TransactionAPI) encodeRPCTransaction(ethtx *ethtypes.Transaction, block
 	blockNumber := uint64(block.Block.Height) //nolint:gosec
 	blockTime := block.Block.Time
 	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
-	// there are edges that go-ethereum doesn't handle including legacy protected txs.
-	res.From = common.HexToAddress(receipt.From)
+	replaceFrom(res, receipt)
 	return res, nil
+}
+
+// replaceFrom updates the From field of the transaction if it is not already set, for edge cases for Legacy Txs.
+func replaceFrom(tx *export.RPCTransaction, receipt *types.Receipt) {
+	if tx.From == (common.Address{}) && receipt != nil {
+		tx.From = common.HexToAddress(receipt.From)
+	}
 }
 
 func (t *TransactionAPI) Sign(addr common.Address, data hexutil.Bytes) (result hexutil.Bytes, returnErr error) {
