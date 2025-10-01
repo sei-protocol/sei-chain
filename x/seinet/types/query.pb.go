@@ -22,7 +22,10 @@ var _ grpc.ClientConn
 const _ = proto.GoGoProtoPackageIsVersion3
 const _ = grpc.SupportPackageIsVersion4
 
-// QueryVaultBalanceRequest represents the request payload for querying the vault balance.
+// -------------------------------
+// 🔐 Request / Response Types
+// -------------------------------
+
 type QueryVaultBalanceRequest struct {
 	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
 }
@@ -34,7 +37,6 @@ func (*QueryVaultBalanceRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_498691af4bba20dd, []int{0}
 }
 
-// QueryVaultBalanceResponse represents the response payload for querying the vault balance.
 type QueryVaultBalanceResponse struct {
 	Balances []*QueryBalance `protobuf:"bytes,1,rep,name=balances,proto3" json:"balances,omitempty"`
 }
@@ -46,7 +48,6 @@ func (*QueryVaultBalanceResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_498691af4bba20dd, []int{1}
 }
 
-// QueryCovenantBalanceRequest represents the request payload for querying the covenant balance.
 type QueryCovenantBalanceRequest struct {
 	Address string `protobuf:"bytes,1,opt,name=address,proto3" json:"address,omitempty"`
 }
@@ -58,7 +59,6 @@ func (*QueryCovenantBalanceRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_498691af4bba20dd, []int{2}
 }
 
-// QueryCovenantBalanceResponse represents the response payload for querying the covenant balance.
 type QueryCovenantBalanceResponse struct {
 	Balances []*QueryBalance `protobuf:"bytes,1,rep,name=balances,proto3" json:"balances,omitempty"`
 }
@@ -70,7 +70,6 @@ func (*QueryCovenantBalanceResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_498691af4bba20dd, []int{3}
 }
 
-// QueryBalance represents an individual balance returned from balance queries.
 type QueryBalance struct {
 	Denom  string `protobuf:"bytes,1,opt,name=denom,proto3" json:"denom,omitempty"`
 	Amount string `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
@@ -83,7 +82,10 @@ func (*QueryBalance) Descriptor() ([]byte, []int) {
 	return fileDescriptor_498691af4bba20dd, []int{4}
 }
 
-// QueryClient is the client API for Query service.
+// -------------------------------
+// 🔐 Query Client + Server Logic
+// -------------------------------
+
 type QueryClient interface {
 	VaultBalance(ctx context.Context, in *QueryVaultBalanceRequest, opts ...grpc.CallOption) (*QueryVaultBalanceResponse, error)
 	CovenantBalance(ctx context.Context, in *QueryCovenantBalanceRequest, opts ...grpc.CallOption) (*QueryCovenantBalanceResponse, error)
@@ -93,7 +95,6 @@ type queryClient struct {
 	cc grpc1.ClientConn
 }
 
-// NewQueryClient creates a new Query service client.
 func NewQueryClient(cc grpc1.ClientConn) QueryClient {
 	return &queryClient{cc}
 }
@@ -116,13 +117,11 @@ func (c *queryClient) CovenantBalance(ctx context.Context, in *QueryCovenantBala
 	return out, nil
 }
 
-// QueryServer is the server API for Query service.
 type QueryServer interface {
 	VaultBalance(context.Context, *QueryVaultBalanceRequest) (*QueryVaultBalanceResponse, error)
 	CovenantBalance(context.Context, *QueryCovenantBalanceRequest) (*QueryCovenantBalanceResponse, error)
 }
 
-// UnimplementedQueryServer can be embedded to have forward compatible implementations.
 type UnimplementedQueryServer struct{}
 
 func (*UnimplementedQueryServer) VaultBalance(context.Context, *QueryVaultBalanceRequest) (*QueryVaultBalanceResponse, error) {
@@ -133,7 +132,10 @@ func (*UnimplementedQueryServer) CovenantBalance(context.Context, *QueryCovenant
 	return nil, status.Errorf(codes.Unimplemented, "method CovenantBalance not implemented")
 }
 
-// RegisterQueryServer registers the Query service implementation with the gRPC server registrar.
+// -------------------------------
+// 🔐 gRPC Handler Functions
+// -------------------------------
+
 func RegisterQueryServer(s grpc.ServiceRegistrar, srv QueryServer) {
 	s.RegisterService(&_Query_serviceDesc, srv)
 }

@@ -59,14 +59,16 @@ func (s queryServer) CovenantBalance(goCtx context.Context, req *types.QueryCove
 	return &types.QueryCovenantBalanceResponse{Balances: coinsToQueryBalances(balances)}, nil
 }
 
+// resolveBalanceAddress resolves to the requested bech32 address if provided,
+// otherwise returns the default module account address.
 func resolveBalanceAddress(requestedAddress string, moduleAccount string) (sdk.AccAddress, error) {
 	if requestedAddress != "" {
 		return sdk.AccAddressFromBech32(requestedAddress)
 	}
-
 	return authtypes.NewModuleAddress(moduleAccount), nil
 }
 
+// coinsToQueryBalances converts sdk.Coins into []*types.QueryBalance.
 func coinsToQueryBalances(coins sdk.Coins) []*types.QueryBalance {
 	balances := make([]*types.QueryBalance, 0, len(coins))
 	for _, coin := range coins {
