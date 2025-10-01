@@ -2,6 +2,9 @@
 
 [![Attribution Test](https://github.com/sei-protocol/sei-chain/actions/workflows/attribution-test.yml/badge.svg)](https://github.com/sei-protocol/sei-chain/actions/workflows/attribution-test.yml)
 
+> 🔒 Sovereign Attribution: RFC 002–005 and all royalty enforcement logic sealed by Keeper (totalwine2337@gmail.com).
+> Authorship locked under Sovereign Attribution License v1.0. See `/docs/rfc/` and `LICENSE_Sovereign_Attribution_v1.0.md` for scope.
+
 ## Settlement utilities
 
 Use the bundled CLI to locate the Codex allocation for a given kin hash and
