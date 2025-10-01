@@ -31,7 +31,7 @@ require (
 	github.com/rs/cors v1.8.2
 	github.com/rs/zerolog v1.30.0
 	github.com/sei-protocol/goutils v0.0.2
-	github.com/sei-protocol/sei-db v0.0.27-0.20240123064153-d6dfa112e760
+	github.com/sei-protocol/sei-db v0.0.51
 	github.com/sirkon/goproxy v1.4.8
 	github.com/spf13/cast v1.5.0
 	github.com/spf13/cobra v1.8.1
@@ -348,16 +348,14 @@ require (
 )
 
 replace (
-	github.com/CosmWasm/wasmd => github.com/sei-protocol/sei-wasmd v0.3.9
-	github.com/CosmWasm/wasmvm => github.com/sei-protocol/sei-wasmvm v1.5.4-sei.0.0.3
+	github.com/CosmWasm/wasmd => ./sei-wasmd
+	github.com/CosmWasm/wasmvm => ./sei-wasmvm
 	github.com/btcsuite/btcd => github.com/btcsuite/btcd v0.23.2
 	github.com/confio/ics23/go => github.com/cosmos/cosmos-sdk/ics23/go v0.8.0
-	// TODO: To be replaced with a concrete version number. See:
-	// - https://github.com/sei-protocol/sei-cosmos/pull/598
-	github.com/cosmos/cosmos-sdk => github.com/sei-protocol/sei-cosmos v0.3.67-0.20250905203746-88d839829c30
+	github.com/cosmos/cosmos-sdk => ./sei-cosmos
 	github.com/cosmos/iavl => github.com/sei-protocol/sei-iavl v0.2.0
 	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.6
-	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.15.7-sei-3
+	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.15.7-sei-7
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.51
 	// Latest goleveldb is broken, we have to stick to this version
