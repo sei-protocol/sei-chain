@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	//nolint:gosec,G108
+	_ "net/http/pprof"
 	"os"
 	"path"
 	"runtime/pprof"
@@ -24,9 +26,6 @@ import (
 	tmtypes "github.com/tendermint/tendermint/types"
 	"go.opentelemetry.io/otel/sdk/trace"
 	"google.golang.org/grpc"
-
-	//nolint:gosec,G108
-	_ "net/http/pprof"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
@@ -310,7 +309,7 @@ func startStandAlone(ctx *Context, appCreator types.AppCreator) error {
 	goCtx, cancel := context.WithCancel(context.Background())
 	err = svr.Start(goCtx)
 	if err != nil {
-		fmt.Printf(err.Error() + "\n")
+		fmt.Println(err.Error())
 		os.Exit(1)
 	}
 
