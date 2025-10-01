@@ -1,0 +1,13 @@
+SOVEREIGN ATTRIBUTION LICENSE v1.0
+
+Copyright (c) 2025 Keeper Family
+
+Permission is granted to reproduce, use, and modify the accompanying SeiKin RFC bundle, provided that all derivative works:
+
+1. Preserve the complete authorship attribution strings contained within each RFC and manifest.
+2. Maintain royalty routing hooks that direct the configured share to the SeiKin Royalty Vault or a successor address designated by the Keeper Family.
+3. Disclose any modifications, including changes to royalty percentages or enforcement parameters, in a publicly accessible changelog.
+
+Any party deploying derivative contracts must escrow royalties in accordance with `RFC-005_Fork_Escrow_Terms.md` prior to mainnet launch. Failure to comply constitutes a breach of license, and rights revert to the Keeper Family until remediation is recorded on-chain.
+
+THIS LICENSE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM THE USE OF THIS MATERIAL.
