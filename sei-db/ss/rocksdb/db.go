@@ -9,21 +9,26 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/linxGnu/grocksdb"
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
+	"github.com/sei-protocol/sei-db/common/logger"
+	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/ss/types"
 	"github.com/sei-protocol/sei-db/ss/util"
+	"github.com/sei-protocol/sei-db/stream/changelog"
 	"golang.org/x/exp/slices"
 )
 
 const (
 	TimestampSize = 8
 
-	StorePrefixTpl   = "s/k:%s/"
-	latestVersionKey = "s/latest"
+	StorePrefixTpl     = "s/k:%s/"
+	latestVersionKey   = "s/latest"
+	earliestVersionKey = "s/earliest"
 
 	// TODO: Make configurable
 	ImportCommitBatchSize = 10000
@@ -36,6 +41,11 @@ var (
 	defaultReadOpts  = grocksdb.NewDefaultReadOptions()
 )
 
+type VersionedChangesets struct {
+	Version    int64
+	Changesets []*proto.NamedChangeSet
+}
+
 type Database struct {
 	storage  *grocksdb.DB
 	config   config.StateStoreConfig
@@ -45,6 +55,17 @@ type Database struct {
 	// a lazy manner, we use this value to prevent reads for versions that will
 	// be purged in the next compaction.
 	tsLow int64
+
+	// Earliest version for db after pruning
+	earliestVersion int64
+
+	asyncWriteWG sync.WaitGroup
+
+	// Changelog used to support async write
+	streamHandler *changelog.Stream
+
+	// Pending changes to be written to the DB
+	pendingChanges chan VersionedChangesets
 }
 
 func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
@@ -64,12 +85,36 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		tsLow = int64(binary.LittleEndian.Uint64(tsLowBz))
 	}
 
-	return &Database{
-		storage:  storage,
-		config:   config,
-		cfHandle: cfHandle,
-		tsLow:    tsLow,
-	}, nil
+	earliestVersion, err := retrieveEarliestVersion(storage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve earliest version: %w", err)
+	}
+
+	database := &Database{
+		storage:         storage,
+		config:          config,
+		cfHandle:        cfHandle,
+		tsLow:           tsLow,
+		earliestVersion: earliestVersion,
+		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
+	}
+
+	if config.DedicatedChangelog {
+		streamHandler, _ := changelog.NewStream(
+			logger.NewNopLogger(),
+			utils.GetChangelogPath(dataDir),
+			changelog.Config{
+				DisableFsync:  true,
+				ZeroCopy:      true,
+				KeepRecent:    uint64(config.KeepRecent),
+				PruneInterval: 300 * time.Second,
+			},
+		)
+		database.streamHandler = streamHandler
+		go database.writeAsyncInBackground()
+	}
+
+	return database, nil
 }
 
 func NewWithDB(storage *grocksdb.DB, cfHandle *grocksdb.ColumnFamilyHandle) (*Database, error) {
@@ -83,14 +128,32 @@ func NewWithDB(storage *grocksdb.DB, cfHandle *grocksdb.ColumnFamilyHandle) (*Da
 	if len(tsLowBz) > 0 {
 		tsLow = int64(binary.LittleEndian.Uint64(tsLowBz))
 	}
+
+	earliestVersion, err := retrieveEarliestVersion(storage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve earliest version: %w", err)
+	}
+
 	return &Database{
-		storage:  storage,
-		cfHandle: cfHandle,
-		tsLow:    tsLow,
+		storage:         storage,
+		cfHandle:        cfHandle,
+		tsLow:           tsLow,
+		earliestVersion: earliestVersion,
 	}, nil
 }
 
 func (db *Database) Close() error {
+	if db.streamHandler != nil {
+		// Close the changelog stream first
+		db.streamHandler.Close()
+		// Close the pending changes channel to signal the background goroutine to stop
+		close(db.pendingChanges)
+		// Wait for the async writes to finish processing all buffered items
+		db.asyncWriteWG.Wait()
+		// Only set to nil after background goroutine has finished
+		db.streamHandler = nil
+	}
+
 	db.storage.Close()
 
 	db.storage = nil
@@ -129,15 +192,22 @@ func (db *Database) GetLatestVersion() (int64, error) {
 }
 
 func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error {
-	panic("not implemented")
+	if version > db.earliestVersion || ignoreVersion {
+		db.earliestVersion = version
+
+		var ts [TimestampSize]byte
+		binary.LittleEndian.PutUint64(ts[:], uint64(version))
+		return db.storage.Put(defaultWriteOpts, []byte(earliestVersionKey), ts[:])
+	}
+	return nil
 }
 
 func (db *Database) GetEarliestVersion() (int64, error) {
-	panic("not implemented")
+	return db.earliestVersion, nil
 }
 
 func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error) {
-	if version < db.tsLow {
+	if version < db.earliestVersion {
 		return false, nil
 	}
 
@@ -150,7 +220,7 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 }
 
 func (db *Database) Get(storeKey string, version int64, key []byte) ([]byte, error) {
-	if version < db.tsLow {
+	if version < db.earliestVersion {
 		return nil, errorutils.ErrRecordNotFound
 	}
 
@@ -159,10 +229,23 @@ func (db *Database) Get(storeKey string, version int64, key []byte) ([]byte, err
 		return nil, fmt.Errorf("failed to get RocksDB slice: %w", err)
 	}
 
+	if !slice.Exists() {
+		slice.Free()
+		return nil, errorutils.ErrRecordNotFound
+	}
+
 	return copyAndFreeSlice(slice), nil
 }
 
 func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) error {
+	// Check if version is 0 and change it to 1
+	// We do this specifically since keys written as part of genesis state come in as version 0
+	// But pebbledb treats version 0 as special, so apply the changeset at version 1 instead
+	// Port this over to rocksdb for consistency
+	if version == 0 {
+		version = 1
+	}
+
 	b := NewBatch(db, version)
 
 	for _, kvPair := range cs.Changeset.Pairs {
@@ -181,7 +264,45 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 }
 
 func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
-	return fmt.Errorf("not implemented")
+	// Write to WAL first
+	if db.streamHandler != nil {
+		entry := proto.ChangelogEntry{
+			Version: version,
+		}
+		entry.Changesets = changesets
+		entry.Upgrades = nil
+		err := db.streamHandler.WriteNextEntry(entry)
+		if err != nil {
+			return err
+		}
+	}
+	// Then write to pending changes
+	db.pendingChanges <- VersionedChangesets{
+		Version:    version,
+		Changesets: changesets,
+	}
+
+	return nil
+}
+
+func (db *Database) writeAsyncInBackground() {
+	db.asyncWriteWG.Add(1)
+	defer db.asyncWriteWG.Done()
+	for nextChange := range db.pendingChanges {
+		if db.streamHandler != nil {
+			version := nextChange.Version
+			for _, cs := range nextChange.Changesets {
+				err := db.ApplyChangeset(version, cs)
+				if err != nil {
+					panic(err)
+				}
+			}
+			err := db.SetLatestVersion(version)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
 }
 
 // Prune attempts to prune all versions up to and including the provided version.
@@ -203,7 +324,8 @@ func (db *Database) Prune(version int64) error {
 	}
 
 	db.tsLow = tsLow
-	return nil
+
+	return db.SetEarliestVersion(tsLow, false)
 }
 
 func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
@@ -219,7 +341,7 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 	start, end = util.IterateWithPrefix(prefix, start, end)
 
 	itr := db.storage.NewIteratorCF(newTSReadOptions(version), db.cfHandle)
-	return NewRocksDBIterator(itr, prefix, start, end, false), nil
+	return NewRocksDBIterator(itr, prefix, start, end, version, db.earliestVersion, false), nil
 }
 
 func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
@@ -235,7 +357,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 	start, end = util.IterateWithPrefix(prefix, start, end)
 
 	itr := db.storage.NewIteratorCF(newTSReadOptions(version), db.cfHandle)
-	return NewRocksDBIterator(itr, prefix, start, end, true), nil
+	return NewRocksDBIterator(itr, prefix, start, end, version, db.earliestVersion, true), nil
 }
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
@@ -309,7 +431,7 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 	defer readOpts.Destroy()
 
 	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
-	rocksItr := NewRocksDBIterator(itr, prefix, start, end, false)
+	rocksItr := NewRocksDBIterator(itr, prefix, start, end, latestVersion, 1, false)
 	defer rocksItr.Close()
 
 	for rocksItr.Valid() {
@@ -326,6 +448,14 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 	}
 
 	return false, nil
+}
+
+func (db *Database) GetLatestMigratedKey() ([]byte, error) {
+	panic("not implemented")
+}
+
+func (db *Database) GetLatestMigratedModule() (string, error) {
+	panic("not implemented")
 }
 
 // newTSReadOptions returns ReadOptions used in the RocksDB column family read.
@@ -382,4 +512,20 @@ func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
 // WriteBlockRangeHash writes a hash for a range of blocks to the database
 func (db *Database) WriteBlockRangeHash(storeKey string, beginBlockRange, endBlockRange int64, hash []byte) error {
 	panic("implement me")
+}
+
+// retrieveEarliestVersion retrieves the earliest version from the database
+func retrieveEarliestVersion(storage *grocksdb.DB) (int64, error) {
+	bz, err := storage.GetBytes(defaultReadOpts, []byte(earliestVersionKey))
+	if err != nil {
+		fmt.Printf("warning: rocksdb get for earliestVersionKey failed: %v", err)
+		return 0, nil
+	}
+
+	if len(bz) == 0 {
+		// in case of a fresh database
+		return 0, nil
+	}
+
+	return int64(binary.LittleEndian.Uint64(bz)), nil
 }

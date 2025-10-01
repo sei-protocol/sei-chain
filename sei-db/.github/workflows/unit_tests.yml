@@ -25,8 +25,57 @@ jobs:
           name: "${{ github.sha }}-coverage"
           path: ./profile.out
 
+  tests-rocksdb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v3
+        with:
+          go-version: '1.19'
+      - uses: actions/checkout@v3
+      
+      - name: Install RocksDB dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config cmake git zlib1g-dev libbz2-dev libsnappy-dev liblz4-dev libzstd-dev libjemalloc-dev libgflags-dev liburing-dev
+
+      - name: Cache RocksDB
+        id: cache-rocksdb
+        uses: actions/cache@v3
+        with:
+          path: |
+            /usr/local/lib/librocksdb.*
+            /usr/local/include/rocksdb
+          key: rocksdb-v8.9.1-${{ runner.os }}
+
+      - name: Build and Install RocksDB from source
+        if: steps.cache-rocksdb.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/facebook/rocksdb.git
+          cd rocksdb
+          git checkout v8.9.1
+          make clean
+          CXXFLAGS='-march=native -DNDEBUG' make -j"$(nproc)" shared_lib
+          sudo make install-shared
+          cd ..
+
+      - name: Configure RocksDB library path
+        run: |
+          echo '/usr/local/lib' | sudo tee /etc/ld.so.conf.d/rocksdb.conf
+          sudo ldconfig
+
+      - name: Run RocksDB Tests
+        run: |
+          export CGO_CFLAGS="-I/usr/local/include"
+          export CGO_LDFLAGS="-L/usr/local/lib -lrocksdb -lz -lbz2 -lsnappy -llz4 -lzstd -ljemalloc"
+          make test-rocksdb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "${{ github.sha }}-coverage-rocksdb"
+          path: ./profile.out
+
   upload-coverage-report:
-    needs: tests
+    needs: [tests, tests-rocksdb]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3

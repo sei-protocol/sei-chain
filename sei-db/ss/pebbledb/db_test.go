@@ -10,11 +10,13 @@ import (
 )
 
 func TestStorageTestSuite(t *testing.T) {
+	pebbleConfig := config.DefaultStateStoreConfig()
+	pebbleConfig.Backend = "pebbledb"
 	s := &sstest.StorageTestSuite{
 		NewDB: func(dir string, config config.StateStoreConfig) (types.StateStore, error) {
 			return New(dir, config)
 		},
-		Config:         config.DefaultStateStoreConfig(),
+		Config:         pebbleConfig,
 		EmptyBatchSize: 12,
 	}
 

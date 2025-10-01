@@ -59,5 +59,8 @@ BUILD_FLAGS := -tags "$(build_tags)" -ldflags '$(ldflags)'
 test-all:
 	go test -v -mod=readonly ./... -covermode=atomic -coverprofile=./profile.out
 
+test-rocksdb:
+	CGO_CFLAGS="-I/usr/local/include" CGO_LDFLAGS="-L/usr/local/lib -lrocksdb -lz -lbz2 -lsnappy -llz4 -lzstd -ljemalloc" go test -v -mod=readonly -tags=rocksdbBackend ./ss/rocksdb/... -covermode=atomic -coverprofile=./profile.out
+
 lint-all:
 	golangci-lint run --config=.golangci.yml

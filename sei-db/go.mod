@@ -11,7 +11,7 @@ require (
 	github.com/cosmos/iavl v0.21.0-alpha.1.0.20230904092046-df3db2d96583
 	github.com/gogo/protobuf v1.3.3
 	github.com/ledgerwatch/erigon-lib v0.0.0-20230210071639-db0e7ed11263
-	github.com/linxGnu/grocksdb v1.8.4
+	github.com/linxGnu/grocksdb v1.8.11
 	github.com/spf13/cobra v1.6.1
 	github.com/stretchr/testify v1.8.4
 	github.com/tendermint/tm-db v0.6.8-0.20220519162814-e24b96538a12

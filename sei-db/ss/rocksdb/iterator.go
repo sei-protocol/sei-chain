@@ -15,11 +15,25 @@ var _ types.DBIterator = (*iterator)(nil)
 type iterator struct {
 	source             *grocksdb.Iterator
 	prefix, start, end []byte
+	version            int64
 	reverse            bool
 	invalid            bool
 }
 
-func NewRocksDBIterator(source *grocksdb.Iterator, prefix, start, end []byte, reverse bool) *iterator {
+func NewRocksDBIterator(source *grocksdb.Iterator, prefix, start, end []byte, version int64, earliestVersion int64, reverse bool) *iterator {
+	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
+	if version < earliestVersion {
+		return &iterator{
+			source:  source,
+			prefix:  prefix,
+			start:   start,
+			end:     end,
+			version: version,
+			reverse: reverse,
+			invalid: true,
+		}
+	}
+
 	if reverse {
 		if end == nil {
 			source.SeekToLast()
@@ -48,6 +62,7 @@ func NewRocksDBIterator(source *grocksdb.Iterator, prefix, start, end []byte, re
 		prefix:  prefix,
 		start:   start,
 		end:     end,
+		version: version,
 		reverse: reverse,
 		invalid: !source.Valid(),
 	}

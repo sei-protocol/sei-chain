@@ -718,38 +718,42 @@ func (s *StorageTestSuite) TestDatabasePruneKeepRecent() {
 }
 
 func (s *StorageTestSuite) TestDatabasePruneKeepLastVersion() {
-	// Update config to set KeepLastVersion to false
-	stateStoreConfig := s.Config
-	stateStoreConfig.KeepLastVersion = false
-	db, err := s.NewDB(s.T().TempDir(), stateStoreConfig)
-	s.Require().NoError(err)
-	defer db.Close()
+	// Only test KeepLastVersion = false for pebbledb backend
+	// NOTE: KeepLastVersion is always true and will be removed in future
+	if s.Config.Backend == "pebbledb" {
+		// Update config to set KeepLastVersion to false
+		stateStoreConfig := s.Config
+		stateStoreConfig.KeepLastVersion = false
+		db, err := s.NewDB(s.T().TempDir(), stateStoreConfig)
+		s.Require().NoError(err)
+		defer db.Close()
 
-	s.Require().NoError(DBApplyChangeset(db, 100, storeKey1, [][]byte{[]byte("key000")}, [][]byte{[]byte("value001")}))
-	s.Require().NoError(DBApplyChangeset(db, 100, storeKey1, [][]byte{[]byte("key001")}, [][]byte{[]byte("value002")}))
-	s.Require().NoError(DBApplyChangeset(db, 200, storeKey1, [][]byte{[]byte("key002")}, [][]byte{[]byte("value003")}))
-	s.Require().NoError(DBApplyChangeset(db, 200, storeKey1, [][]byte{[]byte("key003")}, [][]byte{[]byte("value004")}))
+		s.Require().NoError(DBApplyChangeset(db, 100, storeKey1, [][]byte{[]byte("key000")}, [][]byte{[]byte("value001")}))
+		s.Require().NoError(DBApplyChangeset(db, 100, storeKey1, [][]byte{[]byte("key001")}, [][]byte{[]byte("value002")}))
+		s.Require().NoError(DBApplyChangeset(db, 200, storeKey1, [][]byte{[]byte("key002")}, [][]byte{[]byte("value003")}))
+		s.Require().NoError(DBApplyChangeset(db, 200, storeKey1, [][]byte{[]byte("key003")}, [][]byte{[]byte("value004")}))
 
-	// prune version 150
-	s.Require().NoError(db.Prune(150))
+		// prune version 150
+		s.Require().NoError(db.Prune(150))
 
-	// Verify that all keys before prune height are deleted
-	bz, err := db.Get(storeKey1, 100, []byte("key000"))
-	s.Require().ErrorIs(err, errorutils.ErrRecordNotFound)
-	s.Require().Nil(bz)
+		// Verify that all keys before prune height are deleted
+		bz, err := db.Get(storeKey1, 100, []byte("key000"))
+		s.Require().ErrorIs(err, errorutils.ErrRecordNotFound)
+		s.Require().Nil(bz)
 
-	bz, err = db.Get(storeKey1, 160, []byte("key001"))
-	s.Require().ErrorIs(err, errorutils.ErrRecordNotFound)
-	s.Require().Nil(bz)
+		bz, err = db.Get(storeKey1, 160, []byte("key001"))
+		s.Require().ErrorIs(err, errorutils.ErrRecordNotFound)
+		s.Require().Nil(bz)
 
-	// Verify keys after prune height can be retrieved
-	bz, err = db.Get(storeKey1, 200, []byte("key002"))
-	s.Require().NoError(err)
-	s.Require().Equal([]byte("value003"), bz)
+		// Verify keys after prune height can be retrieved
+		bz, err = db.Get(storeKey1, 200, []byte("key002"))
+		s.Require().NoError(err)
+		s.Require().Equal([]byte("value003"), bz)
 
-	bz, err = db.Get(storeKey1, 220, []byte("key003"))
-	s.Require().NoError(err)
-	s.Require().Equal([]byte("value004"), bz)
+		bz, err = db.Get(storeKey1, 220, []byte("key003"))
+		s.Require().NoError(err)
+		s.Require().Equal([]byte("value004"), bz)
+	}
 
 	// Now reset KeepLastVersion to true and verify latest version of key exists
 	newDB, err := s.NewDB(s.T().TempDir(), s.Config)
@@ -765,7 +769,7 @@ func (s *StorageTestSuite) TestDatabasePruneKeepLastVersion() {
 	s.Require().NoError(newDB.Prune(150))
 
 	// Can still retrieve those keys because KeepLastVersion is true
-	bz, err = newDB.Get(storeKey1, 160, []byte("key000"))
+	bz, err := newDB.Get(storeKey1, 160, []byte("key000"))
 	s.Require().NoError(err)
 	s.Require().Equal([]byte("value001"), bz)
 
@@ -1224,6 +1228,12 @@ func (s *StorageTestSuite) TestDatabaseImport() {
 }
 
 func (s *StorageTestSuite) TestDatabaseRawImport() {
+	// RawImport is only useful for PebbleDB backend
+	// NOTE: Will be removed from interface soon
+	if s.Config.Backend != "pebbledb" {
+		s.T().Skip("RawImport test only runs for pebbledb backend")
+	}
+
 	db, err := s.NewDB(s.T().TempDir(), s.Config)
 	s.Require().NoError(err)
 	defer db.Close()
