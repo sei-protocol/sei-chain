@@ -15,6 +15,7 @@ import (
 var SignerMap = map[derived.SignerVersion]func(*big.Int) ethtypes.Signer{
 	derived.London: ethtypes.NewLondonSigner,
 	derived.Cancun: ethtypes.NewCancunSigner,
+	derived.Prague: ethtypes.NewPragueSigner,
 }
 
 // RecoverEVMSender recovers the sender address from an Ethereum transaction
@@ -71,14 +72,14 @@ func adjustV(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
 // getSignerVersion determines which signer version to use based on block height and time
 func getSignerVersion(blockHeight int64, blockTime uint64, ethCfg *params.ChainConfig) derived.SignerVersion {
 	blockNum := big.NewInt(blockHeight)
-
-	// Check for Cancun upgrade
-	if ethCfg.IsCancun(blockNum, blockTime) {
+	switch {
+	case ethCfg.IsPrague(blockNum, blockTime):
+		return derived.Prague
+	case ethCfg.IsCancun(blockNum, blockTime):
 		return derived.Cancun
+	default:
+		return derived.London
 	}
-
-	// Default to London
-	return derived.London
 }
 
 // RecoverEVMSenderWithContext is a convenience wrapper that extracts block info from context
