@@ -42,7 +42,7 @@ func (k Keeper) Evidence(c context.Context, req *types.QueryEvidenceRequest) (*t
 
 	evidenceAny, err := codectypes.NewAnyWithValue(msg)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
+		return nil, status.Errorf(codes.Internal, "%s", err.Error())
 	}
 
 	return &types.QueryEvidenceResponse{Evidence: evidenceAny}, nil
