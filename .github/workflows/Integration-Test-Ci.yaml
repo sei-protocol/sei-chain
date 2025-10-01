@@ -45,9 +45,14 @@ jobs:
           echo "CHAIN_ID=sei-chain" >> $GITHUB_ENV
           echo "INVARIANT_CHECK_INTERVAL=5" >> $GITHUB_ENV
 
-      - name: Start docker cluster
+      - name: Start docker cluster (skip if no docker-compose file)
         run: |
-          docker-compose -f $DOCKER_COMPOSE_TEST_FILE up -d --build
+          if [ -f "$DOCKER_COMPOSE_TEST_FILE" ]; then
+            echo "✅ Found $DOCKER_COMPOSE_TEST_FILE, starting cluster..."
+            docker-compose -f $DOCKER_COMPOSE_TEST_FILE up -d --build
+          else
+            echo "⚠️ No docker-compose file at $DOCKER_COMPOSE_TEST_FILE, skipping docker cluster startup."
+          fi
 
       - name: Run ${{ matrix.test.name }}
         run: |

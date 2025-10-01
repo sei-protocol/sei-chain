@@ -164,6 +164,7 @@ type QueryServer interface {
 	CovenantBalance(context.Context, *QueryCovenantBalanceRequest) (*QueryCovenantBalanceResponse, error)
 }
 
+// UnimplementedQueryServer can be embedded to have forward compatible implementations.
 type UnimplementedQueryServer struct{}
 
 func (*UnimplementedQueryServer) VaultBalance(context.Context, *QueryVaultBalanceRequest) (*QueryVaultBalanceResponse, error) {
