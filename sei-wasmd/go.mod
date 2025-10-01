@@ -166,9 +166,7 @@ replace (
 	// latest grpc doesn't work with with our modified proto compiler, so we need to enforce
 	// the following version across all dependencies.
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
-	// TODO: To be replaced with a concrete version number. See:
-	// - https://github.com/sei-protocol/sei-tendermint/pull/301
-	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.6.5-0.20250929143910-b0665bf8bd34
+	github.com/tendermint/tendermint => github.com/sei-protocol/sei-tendermint v0.6.5
 	github.com/tendermint/tm-db => github.com/sei-protocol/tm-db v0.0.4
 	google.golang.org/grpc => google.golang.org/grpc v1.33.2
 )
