@@ -379,3 +379,9 @@ func (app *BaseApp) SetQueryMultiStore(ms sdk.CommitMultiStore) {
 func (app *BaseApp) SetMigrationHeight(height int64) {
 	app.migrationHeight = height
 }
+
+// SetTxPrioritizer sets the transaction prioritizer for the BaseApp. If unset,
+// calls to GetTxPriorityHint for all valid transactions will return 0.
+func (app *BaseApp) SetTxPrioritizer(prioritizer sdk.TxPrioritizer) {
+	app.txPrioritizer = prioritizer
+}

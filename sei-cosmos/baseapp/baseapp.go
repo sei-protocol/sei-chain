@@ -97,6 +97,7 @@ type BaseApp struct { //nolint: maligned
 	preCommitHandler          sdk.PreCommitHandler
 	closeHandler              sdk.CloseHandler
 	inplaceTestnetInitializer sdk.InplaceTestnetInitializer
+	txPrioritizer             sdk.TxPrioritizer
 
 	appStore
 	baseappVersions
