@@ -217,9 +217,6 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 					R:        (*hexutil.Big)(r),
 					S:        (*hexutil.Big)(s),
 				}
-				if hash.Hex() == "0x01e3fe64d0f6eb746d2e78560884a0a5ae01c97b5c6c946d4f30113324afceba" {
-					sdkCtx.Logger().Info("DEBUG [GetTransactionByHash], returning from UnconfirmedTxs", "from", from.Hex())
-				}
 				return &res, nil
 			}
 		}
