@@ -55,7 +55,6 @@ git add "${FILES[@]}" "$CHECKSUM_FILE" "$CHECKSUM_FILE.asc" "$MANIFEST_FILE" 2>/
 git commit -m "🔏 Sovereign Authorship Lock: RFCs + Manifest + License"
 git tag v1.0-authorship-lock
 
-
 echo "🚀 Sovereign authorship lock complete and tagged."
 echo "🔐 To publish:"
 echo "  git push origin main && git push origin v1.0-authorship-lock"
