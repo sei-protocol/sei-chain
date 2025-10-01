@@ -1,0 +1,76 @@
+name: Test
+
+on:
+  push:
+    branches: [main, evm, seiv2, release/**]
+    paths:
+      - "**.go"
+      - go.mod
+      - go.sum
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [ "00", "01", "02", "03", "04", "05", "06", "07", "08", "09",
+                "10", "11", "12", "13", "14", "15", "16", "17", "18", "19" ]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+
+      - name: Cache Go module deps
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - name: Ensure go.sum & vendor are up to date
+        run: |
+          go mod tidy
+          go mod vendor
+
+      - name: Run Test Group ${{ matrix.part }}
+        run: |
+          GOFLAGS="-mod=vendor" make test-group-${{ matrix.part }} NUM_SPLIT=20
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "${{ github.sha }}-${{ matrix.part }}-coverage"
+          path: ./${{ matrix.part }}.profile.out
+
+  upload-coverage-report:
+    needs: tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+
+      - name: Download coverage profiles
+        uses: actions/download-artifact@v4
+
+      - name: Install gocovmerge
+        run: go install github.com/wadey/gocovmerge@latest
+
+      - name: Merge coverage reports
+        run: |
+          gocovmerge $(find . -type f -name '*profile.out') > coverage.txt
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.txt
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
