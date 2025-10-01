@@ -1,14 +1,38 @@
 syntax = "proto3";
+
 package seiprotocol.seichain.seinet;
+
+import "google/api/annotations.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/seinet/types";
 
 service Query {
-  rpc VaultBalance(QueryVaultBalanceRequest) returns (QueryVaultBalanceResponse);
+  rpc VaultBalance(QueryVaultBalanceRequest) returns (QueryVaultBalanceResponse) {
+    option (google.api.http).get = "/sei-protocol/seichain/seinet/vault_balance";
+  }
+
+  rpc CovenantBalance(QueryCovenantBalanceRequest) returns (QueryCovenantBalanceResponse) {
+    option (google.api.http).get = "/sei-protocol/seichain/seinet/covenant_balance";
+  }
 }
 
-message QueryVaultBalanceRequest {}
+message QueryVaultBalanceRequest {
+  string address = 1;
+}
 
 message QueryVaultBalanceResponse {
-  string balance = 1;
+  repeated QueryBalance balances = 1;
+}
+
+message QueryCovenantBalanceRequest {
+  string address = 1;
+}
+
+message QueryCovenantBalanceResponse {
+  repeated QueryBalance balances = 1;
+}
+
+message QueryBalance {
+  string denom = 1;
+  string amount = 2;
 }

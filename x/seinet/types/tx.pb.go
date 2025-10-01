@@ -1,11 +1,12 @@
 // Code generated manually to support Seinet message proto definitions.
-// source: seinet/msgs.proto
+// source: seiprotocol/seichain/seinet/tx.proto
 
 package types
 
 import (
 	context "context"
-	"fmt"
+	fmt "fmt"
+
 	grpc1 "github.com/gogo/protobuf/grpc"
 	proto "github.com/gogo/protobuf/proto"
 	grpc "google.golang.org/grpc"
@@ -19,8 +20,6 @@ var _ = fmt.Errorf
 var _ context.Context
 var _ grpc.ClientConn
 
-// This is a compile-time assertion to ensure that this generated file
-// is compatible with the proto package it is being compiled against.
 const _ = proto.GoGoProtoPackageIsVersion3
 const _ = grpc.SupportPackageIsVersion4
 
@@ -37,7 +36,7 @@ func (m *MsgDepositToVault) Reset()         { *m = MsgDepositToVault{} }
 func (m *MsgDepositToVault) String() string { return proto.CompactTextString(m) }
 func (*MsgDepositToVault) ProtoMessage()    {}
 func (*MsgDepositToVault) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e121d7b49b2de3c, []int{0}
+	return fileDescriptor_f7edcb8f207f13f7, []int{0}
 }
 
 type MsgDepositToVaultResponse struct{}
@@ -46,7 +45,7 @@ func (m *MsgDepositToVaultResponse) Reset()         { *m = MsgDepositToVaultResp
 func (m *MsgDepositToVaultResponse) String() string { return proto.CompactTextString(m) }
 func (*MsgDepositToVaultResponse) ProtoMessage()    {}
 func (*MsgDepositToVaultResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e121d7b49b2de3c, []int{1}
+	return fileDescriptor_f7edcb8f207f13f7, []int{1}
 }
 
 type MsgExecutePaywordSettlement struct {
@@ -61,7 +60,7 @@ func (m *MsgExecutePaywordSettlement) Reset()         { *m = MsgExecutePaywordSe
 func (m *MsgExecutePaywordSettlement) String() string { return proto.CompactTextString(m) }
 func (*MsgExecutePaywordSettlement) ProtoMessage()    {}
 func (*MsgExecutePaywordSettlement) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e121d7b49b2de3c, []int{2}
+	return fileDescriptor_f7edcb8f207f13f7, []int{2}
 }
 
 type MsgExecutePaywordSettlementResponse struct{}
@@ -70,10 +69,15 @@ func (m *MsgExecutePaywordSettlementResponse) Reset()         { *m = MsgExecuteP
 func (m *MsgExecutePaywordSettlementResponse) String() string { return proto.CompactTextString(m) }
 func (*MsgExecutePaywordSettlementResponse) ProtoMessage()    {}
 func (*MsgExecutePaywordSettlementResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_6e121d7b49b2de3c, []int{3}
+	return fileDescriptor_f7edcb8f207f13f7, []int{3}
 }
 
-var fileDescriptor_6e121d7b49b2de3c = []byte{}
+func init() {
+	proto.RegisterType((*MsgDepositToVault)(nil), "seiprotocol.seichain.seinet.MsgDepositToVault")
+	proto.RegisterType((*MsgDepositToVaultResponse)(nil), "seiprotocol.seichain.seinet.MsgDepositToVaultResponse")
+	proto.RegisterType((*MsgExecutePaywordSettlement)(nil), "seiprotocol.seichain.seinet.MsgExecutePaywordSettlement")
+	proto.RegisterType((*MsgExecutePaywordSettlementResponse)(nil), "seiprotocol.seichain.seinet.MsgExecutePaywordSettlementResponse")
+}
 
 // ----------------------
 // 🔐 Client & Server API
@@ -110,26 +114,22 @@ func (c *msgClient) ExecutePaywordSettlement(ctx context.Context, in *MsgExecute
 	return out, nil
 }
 
-// MsgServer is the server API for Msg service.
 type MsgServer interface {
 	DepositToVault(context.Context, *MsgDepositToVault) (*MsgDepositToVaultResponse, error)
 	ExecutePaywordSettlement(context.Context, *MsgExecutePaywordSettlement) (*MsgExecutePaywordSettlementResponse, error)
 }
-
-// ----------------------
-// ❌ UnimplementedMsgServer (for forward compatibility)
-// ----------------------
 
 type UnimplementedMsgServer struct{}
 
 func (*UnimplementedMsgServer) DepositToVault(context.Context, *MsgDepositToVault) (*MsgDepositToVaultResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DepositToVault not implemented")
 }
+
 func (*UnimplementedMsgServer) ExecutePaywordSettlement(context.Context, *MsgExecutePaywordSettlement) (*MsgExecutePaywordSettlementResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExecutePaywordSettlement not implemented")
 }
 
-func RegisterMsgServer(s grpc1.Server, srv MsgServer) {
+func RegisterMsgServer(s grpc.ServiceRegistrar, srv MsgServer) {
 	s.RegisterService(&_Msg_serviceDesc, srv)
 }
 
@@ -183,5 +183,7 @@ var _Msg_serviceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "seinet/msgs.proto",
+	Metadata: "seiprotocol/seichain/seinet/tx.proto",
 }
+
+var fileDescriptor_f7edcb8f207f13f7 = []byte{}
