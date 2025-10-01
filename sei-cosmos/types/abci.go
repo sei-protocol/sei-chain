@@ -37,3 +37,5 @@ type LoadVersionHandler func() error
 type PreCommitHandler func(ctx Context) error
 type CloseHandler func() error
 type InplaceTestnetInitializer func(cryptotypes.PubKey) error
+
+type TxPrioritizer func(Context, Tx) (int64, error)
