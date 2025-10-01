@@ -28,6 +28,13 @@ jobs:
 
       - name: Install Codex CLI
         run: npm i -g @openai/codex
+      
+      - name: Codex login
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          codex login --api-key "$OPENAI_API_KEY"
 
       - name: Compute merge-base diff (compact)
         run: |
@@ -86,7 +93,7 @@ jobs:
 
             # Run Codex with a scrubbed env: only OPENAI_API_KEY, PATH, HOME
             env -i OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" PATH="$PATH" HOME="$HOME" \
-            codex --model gpt-5 --ask-for-approval never exec \
+            codex --model gpt-5-codex --ask-for-approval never exec \
               --sandbox read-only \
               --output-last-message review.md \
               < prompt.txt \
@@ -123,7 +130,7 @@ jobs:
 
             # Network-enabled only for this large-diff case; still scrub env
             env -i OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}" PATH="$PATH" HOME="$HOME" \
-            codex --ask-for-approval never exec \
+            codex --model gpt-5-codex --ask-for-approval never exec \
               --sandbox danger-full-access \
               --output-last-message review.md \
               < prompt.txt \

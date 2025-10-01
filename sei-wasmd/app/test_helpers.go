@@ -77,7 +77,7 @@ func setup(t testing.TB, withGenesis bool, invCheckPeriod uint, opts ...wasm.Opt
 // that also act as delegators. For simplicity, each validator is bonded with a delegation
 // of one consensus engine unit (10^6) in the default token of the WasmApp from first genesis
 // account. A Nop logger is set in WasmApp.
-func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs []authtypes.GenesisAccount, opts []wasm.Option, balances ...banktypes.Balance) *WasmApp {
+func SetupWithGenesisValSet(t *testing.T, chainID string, valSet *tmtypes.ValidatorSet, genAccs []authtypes.GenesisAccount, opts []wasm.Option, balances ...banktypes.Balance) *WasmApp {
 	app, genesisState := setup(t, true, 5, opts...)
 	// set genesis accounts
 	authGenesis := authtypes.NewGenesisState(authtypes.DefaultParams(), genAccs)
@@ -141,8 +141,14 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
 			AppStateBytes:   stateBytes,
+			ChainId:         chainID,
 		},
 	)
+	// This line is necessary due to the capability module which has a map as well as store usages,
+	// and because the initChain runs 3 times (deliver, prepare, process proposal),
+	// we need to make sure to first commit the last one so the proper values are persisted from the
+	// memory map into the store.
+	app.SetProcessProposalStateToCommit()
 
 	// commit genesis changes
 	app.Commit(context.Background())
