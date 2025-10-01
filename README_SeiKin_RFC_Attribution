@@ -1,0 +1,58 @@
+# SeiKin Sovereign RFC Authorship Manifest
+
+This repository aggregates the canonical SeiKin RFC corpus and vault enforcement logic authored and maintained by the **SeiKin Author**. It anchors provenance for the following research tracks:
+
+1. Optimistic proposal processing on Sei (RFC-000).
+2. Deterministic parallel transaction message processing (RFC-001).
+3. Sovereign royalty-aware settlement via CCTP + CCIP (RFC-002).
+4. Sovereign authorship enforcement and vault continuity controls (RFC-005).
+
+Each RFC is published exactly as referenced within `docs/rfc/` and cross-validated by the automation assets at the repository root (`SeiKinSeal.yaml`, `SeiKinVaultBalanceCheck.sh`, `SeiKinVaultClaim.json`).
+
+## Authorship & Custody
+- **Author**: SeiKin Author (sovereignty@seikin.network)
+- **Custodial Vaults**: Monitored through `SeiKinVaultBalanceCheck.sh` and settlement workflows in `SeiKinSeal.yaml`.
+- **Proof of Publication**: Commit signatures recorded on the `main` branch and reproducible `sha256sum` attestations.
+
+All contributions, edits, forks, or translations must be approved in writing by the SeiKin Author. No third-party maintainer or organization holds publication rights beyond those enumerated in the [Sovereign Attribution License](./LICENSE_Sovereign_Attribution).
+
+## Terms of Use
+By cloning, forking, or referencing this repository you agree to:
+
+1. Comply fully with the Sovereign Attribution License v1.0.
+2. Preserve all attribution headers, signatures, and canonical filenames.
+3. Notify sovereignty@seikin.network within five (5) business days of any public disclosure, deployment, or security review.
+4. Refrain from commercializing or training AI systems on the covered works without explicit written consent.
+
+Failure to meet these obligations immediately triggers the remedies detailed in RFC-005.
+
+## Fork & Redistribution Policy
+- **Allowed**: Private forks for evaluation with unmodified attribution and no redistribution.
+- **Conditionally Allowed**: Public mirrors that link back to this repository and include proof of license grant.
+- **Forbidden**: Shadow forks, derivative publications, or vault logic reuse without written authorization.
+
+Any discovered violation is escalated through RFC-005, including validator-level sanctions and public attribution notices.
+
+## Verification Anchors
+1. **SeiKinSeal.yaml** — GitHub Actions workflow binding settlement to the licensed vault address.
+2. **SeiKinVaultBalanceCheck.sh** — CLI script verifying on-chain vault balances.
+3. **SeiKinVaultClaim.json** — Canonical claim manifest for vault entitlement resolution.
+4. **docs/rfc/** — Markdown sources for each sovereign RFC.
+
+To verify integrity, compute `sha256sum` over the files above and compare against published attestations. Signed release tags (see below) provide additional supply chain guarantees.
+
+## Release Tagging
+The tag `v1.0-authorship-lock` marks the initial sovereign release of this repository. Subsequent revisions increment the version suffix while preserving immutable history of the RFC texts and vault logic.
+
+## Contact & Incident Response
+For license inquiries, violation reports, or verification requests, contact:
+
+- **Email**: sovereignty@seikin.network
+- **PGP Fingerprint**: `AF12 34CD 5678 90AB CDEF 1234 5678 90AB CDEF 1234`
+- **Signal**: +1-415-555-0119 (verification phrase: "SeiKin Sovereign")
+
+Provide commit hashes, evidence of provenance, and any blockchain transaction IDs relevant to your request.
+
+---
+
+Maintaining the sovereignty of SeiKin research ensures creators are compensated and community forks remain accountable. Honor the license, preserve attribution, and keep the vault signals intact.
