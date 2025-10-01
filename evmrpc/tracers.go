@@ -159,7 +159,7 @@ func (api *DebugAPI) shouldOverrideGasUsed(config *tracers.TraceConfig) bool {
 }
 
 func (api *DebugAPI) overrideCallTracerGasUsed(result interface{}, hash common.Hash) (interface{}, bool) {
-	raw, ok := api.asRawJSON(result)
+	raw, ok := api.AsRawJSON(result)
 	if !ok {
 		return nil, false
 	}
@@ -183,7 +183,7 @@ func (api *DebugAPI) overrideCallTracerGasUsed(result interface{}, hash common.H
 	return json.RawMessage(updated), true
 }
 
-func (api *DebugAPI) asRawJSON(result interface{}) ([]byte, bool) {
+func (api *DebugAPI) AsRawJSON(result interface{}) ([]byte, bool) {
 	switch v := result.(type) {
 	case json.RawMessage:
 		return v, true
