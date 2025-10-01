@@ -5,22 +5,29 @@ package types
 
 import (
 	context "context"
-	fmt "fmt"
+	"fmt"
 	grpc1 "github.com/gogo/protobuf/grpc"
 	proto "github.com/gogo/protobuf/proto"
 	grpc "google.golang.org/grpc"
+	codes "google.golang.org/grpc/codes"
+	status "google.golang.org/grpc/status"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal
 var _ = fmt.Errorf
+var _ context.Context
+var _ grpc.ClientConn
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the proto package it is being compiled against.
 const _ = proto.GoGoProtoPackageIsVersion3
 const _ = grpc.SupportPackageIsVersion4
 
-// MsgDepositToVault defines a message for depositing funds into the Seinet vault.
+// ----------------------
+// 🔐 Message Definitions
+// ----------------------
+
 type MsgDepositToVault struct {
 	Depositor string `protobuf:"bytes,1,opt,name=depositor,proto3" json:"depositor,omitempty"`
 	Amount    string `protobuf:"bytes,2,opt,name=amount,proto3" json:"amount,omitempty"`
@@ -33,7 +40,6 @@ func (*MsgDepositToVault) Descriptor() ([]byte, []int) {
 	return fileDescriptor_6e121d7b49b2de3c, []int{0}
 }
 
-// MsgDepositToVaultResponse defines the gRPC response for a deposit request.
 type MsgDepositToVaultResponse struct{}
 
 func (m *MsgDepositToVaultResponse) Reset()         { *m = MsgDepositToVaultResponse{} }
@@ -43,7 +49,6 @@ func (*MsgDepositToVaultResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_6e121d7b49b2de3c, []int{1}
 }
 
-// MsgExecutePaywordSettlement defines a message for settling a revealed payword.
 type MsgExecutePaywordSettlement struct {
 	Executor     string `protobuf:"bytes,1,opt,name=executor,proto3" json:"executor,omitempty"`
 	Recipient    string `protobuf:"bytes,2,opt,name=recipient,proto3" json:"recipient,omitempty"`
@@ -59,7 +64,6 @@ func (*MsgExecutePaywordSettlement) Descriptor() ([]byte, []int) {
 	return fileDescriptor_6e121d7b49b2de3c, []int{2}
 }
 
-// MsgExecutePaywordSettlementResponse defines the gRPC response for a settlement request.
 type MsgExecutePaywordSettlementResponse struct{}
 
 func (m *MsgExecutePaywordSettlementResponse) Reset()         { *m = MsgExecutePaywordSettlementResponse{} }
@@ -69,16 +73,12 @@ func (*MsgExecutePaywordSettlementResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_6e121d7b49b2de3c, []int{3}
 }
 
-func init() {
-	proto.RegisterType((*MsgDepositToVault)(nil), "seiprotocol.seichain.seinet.MsgDepositToVault")
-	proto.RegisterType((*MsgDepositToVaultResponse)(nil), "seiprotocol.seichain.seinet.MsgDepositToVaultResponse")
-	proto.RegisterType((*MsgExecutePaywordSettlement)(nil), "seiprotocol.seichain.seinet.MsgExecutePaywordSettlement")
-	proto.RegisterType((*MsgExecutePaywordSettlementResponse)(nil), "seiprotocol.seichain.seinet.MsgExecutePaywordSettlementResponse")
-}
-
 var fileDescriptor_6e121d7b49b2de3c = []byte{}
 
-// MsgClient is the client API for Msg service.
+// ----------------------
+// 🔐 Client & Server API
+// ----------------------
+
 type MsgClient interface {
 	DepositToVault(ctx context.Context, in *MsgDepositToVault, opts ...grpc.CallOption) (*MsgDepositToVaultResponse, error)
 	ExecutePaywordSettlement(ctx context.Context, in *MsgExecutePaywordSettlement, opts ...grpc.CallOption) (*MsgExecutePaywordSettlementResponse, error)
@@ -116,14 +116,17 @@ type MsgServer interface {
 	ExecutePaywordSettlement(context.Context, *MsgExecutePaywordSettlement) (*MsgExecutePaywordSettlementResponse, error)
 }
 
-// UnimplementedMsgServer can be embedded to have forward compatible implementations.
+// ----------------------
+// ❌ UnimplementedMsgServer (for forward compatibility)
+// ----------------------
+
 type UnimplementedMsgServer struct{}
 
 func (*UnimplementedMsgServer) DepositToVault(context.Context, *MsgDepositToVault) (*MsgDepositToVaultResponse, error) {
-	return nil, fmt.Errorf("method DepositToVault not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method DepositToVault not implemented")
 }
 func (*UnimplementedMsgServer) ExecutePaywordSettlement(context.Context, *MsgExecutePaywordSettlement) (*MsgExecutePaywordSettlementResponse, error) {
-	return nil, fmt.Errorf("method ExecutePaywordSettlement not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method ExecutePaywordSettlement not implemented")
 }
 
 func RegisterMsgServer(s grpc1.Server, srv MsgServer) {

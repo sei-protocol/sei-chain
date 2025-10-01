@@ -63,6 +63,12 @@ jobs:
             ~/.cache/go-build
           key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
 
+      - name: Run CodexFixer (auto-heal Go files)
+        if: steps.skip.outputs.skip == 'false'
+        run: |
+          python3 .github/scripts/codex_fix_errors.py
+          git diff --exit-code || echo "[!] CodexFixer applied changes"
+
       - name: Vet and Build
         if: steps.skip.outputs.skip == 'false'
         run: |

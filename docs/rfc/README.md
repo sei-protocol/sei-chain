@@ -27,3 +27,6 @@ The [rfc-template.md](./rfc-template.md) file includes placeholders for these se
 - [RFC-000: Optimistic Proposal Processing](./rfc-000-optimistic-proposal-processing.md)
 - [RFC-001: Parallel Transaction Message Processing](./rfc-001-parallel-tx-processing.md)
 - [RFC-002: SeiKinSettlement — Sovereign Royalty Enforcement via CCTP + CCIP](./rfc-002-royalty-aware-optimistic-processing.md)
+- [RFC-003: SeiKinSettlement Authorship Transfer & Licensing Terms](./rfc-003-seikinsettlement-authorship.md)
+- [RFC-004: SeiKin Authorship & Vault Enforcement Package](./rfc-004-seikin-authorship-vault-enforcement-package.md)
+- [RFC-005: Fork Conditions & Escrow Enforcement Plan](./rfc-005-fork-conditions-and-escrow-plan.md)
