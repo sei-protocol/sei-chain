@@ -18,13 +18,14 @@ FILES=(
 )
 
 CHECKSUM_FILE="integrity-checksums.txt"
+MANIFEST_FILE="sovereign-seal.json"
 
 # Step 1: Generate checksums
 echo "📦 Generating SHA-256 checksums..."
 sha256sum "${FILES[@]}" > "$CHECKSUM_FILE"
 echo "✅ Checksums written to $CHECKSUM_FILE"
 
-# Step 2 (optional): Sign with GPG if available
+# Step 2: Sign with GPG (optional)
 if command -v gpg > /dev/null; then
   echo "✍️  Signing checksums with GPG..."
   gpg --clearsign "$CHECKSUM_FILE"
@@ -33,15 +34,28 @@ else
   echo "⚠️  GPG not found — skipping signature"
 fi
 
-# Step 3: Git commit and tag
-echo "📁 Committing sealed files to Git..."
-git add "${FILES[@]}" "$CHECKSUM_FILE" "$CHECKSUM_FILE.asc" 2>/dev/null || true
-git commit -m "🔏 Sovereign Authorship Lock: RFCs 002–005 + License + Attribution Notarized"
+# Step 3: Create manifest JSON
+echo "🧾 Building manifest $MANIFEST_FILE..."
+echo "{" > "$MANIFEST_FILE"
+for file in "${FILES[@]}"; do
+  HASH=$(sha256sum "$file" | awk '{print $1}')
+  MODIFIED=$(stat -c %y "$file" | cut -d'.' -f1)
+  echo "  \"$file\": {" >> "$MANIFEST_FILE"
+  echo "    \"sha256\": \"$HASH\"," >> "$MANIFEST_FILE"
+  echo "    \"timestamp\": \"$MODIFIED\"" >> "$MANIFEST_FILE"
+  echo "  }," >> "$MANIFEST_FILE"
+done
+sed -i '$ s/,$//' "$MANIFEST_FILE"
+echo "}" >> "$MANIFEST_FILE"
+echo "✅ Manifest created."
+
+# Step 4: Git commit and tag
+echo "📁 Committing to Git..."
+git add "${FILES[@]}" "$CHECKSUM_FILE" "$CHECKSUM_FILE.asc" "$MANIFEST_FILE" 2>/dev/null || true
+git commit -m "🔏 Sovereign Authorship Lock: RFCs + Manifest + License"
 git tag v1.0-authorship-lock
 
-echo "🚀 Tag 'v1.0-authorship-lock' created."
-echo "✅ Sovereign authorship lock complete."
 
-# Optional: push instructions
-echo -e "\nTo publish:"
+echo "🚀 Sovereign authorship lock complete and tagged."
+echo "🔐 To publish:"
 echo "  git push origin main && git push origin v1.0-authorship-lock"
