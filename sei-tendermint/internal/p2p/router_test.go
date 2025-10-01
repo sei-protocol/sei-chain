@@ -48,12 +48,12 @@ func TestRouter_Network(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 
 	t.Logf("Create a test network and open a channel where all peers run echoReactor.")
-	network := p2ptest.MakeNetwork(ctx, t, p2ptest.NetworkOptions{NumNodes: 8})
+	network := p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: 8})
 	local := network.RandomNode()
 	peers := network.Peers(local.NodeID)
 	channels := network.MakeChannels(t, chDesc)
 
-	network.Start(ctx, t)
+	network.Start(t)
 
 	channel := channels[local.NodeID]
 	for _, peer := range peers {
@@ -105,15 +105,14 @@ func TestRouter_Channel_Basic(t *testing.T) {
 	peerManager, err := p2p.NewPeerManager(logger, selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
 	require.NoError(t, err)
 
-	testnet := p2ptest.MakeNetwork(ctx, t, p2ptest.NetworkOptions{NumNodes: 1})
-
+	transport := p2p.TestTransport(logger, selfID)
 	router, err := p2p.NewRouter(
 		logger,
 		p2p.NopMetrics(),
 		selfKey,
 		peerManager,
 		func() *types.NodeInfo { return &selfInfo },
-		testnet.RandomNode().Transport,
+		transport,
 		nil,
 		p2p.RouterOptions{},
 	)
@@ -157,7 +156,7 @@ func TestRouter_Channel_SendReceive(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 
 	t.Logf("Create a test network and open a channel on all nodes.")
-	network := p2ptest.MakeNetwork(ctx, t, p2ptest.NetworkOptions{NumNodes: 3})
+	network := p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: 3})
 
 	ids := network.NodeIDs()
 	aID, bID, cID := ids[0], ids[1], ids[2]
@@ -165,7 +164,7 @@ func TestRouter_Channel_SendReceive(t *testing.T) {
 	a, b, c := channels[aID], channels[bID], channels[cID]
 	otherChannels := network.MakeChannels(t, p2ptest.MakeChannelDesc(9))
 
-	network.Start(ctx, t)
+	network.Start(t)
 
 	t.Logf("Sending a message a->b should work, and not send anything further to a, b, or c.")
 	p2ptest.RequireSend(t, a, p2p.Envelope{To: bID, Message: &p2ptest.Message{Value: "foo"}, ChannelID: chDesc.ID})
@@ -218,14 +217,14 @@ func TestRouter_Channel_Broadcast(t *testing.T) {
 	ctx := t.Context()
 
 	t.Logf("Create a test network and open a channel on all nodes.")
-	network := p2ptest.MakeNetwork(ctx, t, p2ptest.NetworkOptions{NumNodes: 4})
+	network := p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: 4})
 
 	ids := network.NodeIDs()
 	aID, bID, cID, dID := ids[0], ids[1], ids[2], ids[3]
 	channels := network.MakeChannels(t, chDesc)
 	a, b, c, d := channels[aID], channels[bID], channels[cID], channels[dID]
 
-	network.Start(ctx, t)
+	network.Start(t)
 
 	t.Logf("Sending a broadcast from b should work.")
 	p2ptest.RequireSend(t, b, p2p.Envelope{Broadcast: true, Message: &p2ptest.Message{Value: "foo"}, ChannelID: chDesc.ID})
@@ -244,11 +243,8 @@ func TestRouter_Channel_Broadcast(t *testing.T) {
 
 func TestRouter_Channel_Wrapper(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
-
-	ctx := t.Context()
-
 	t.Logf("Create a test network and open a channel on all nodes.")
-	network := p2ptest.MakeNetwork(ctx, t, p2ptest.NetworkOptions{NumNodes: 2})
+	network := p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: 2})
 
 	ids := network.NodeIDs()
 	aID, bID := ids[0], ids[1]
@@ -264,7 +260,7 @@ func TestRouter_Channel_Wrapper(t *testing.T) {
 	channels := network.MakeChannels(t, chDesc)
 	a, b := channels[aID], channels[bID]
 
-	network.Start(ctx, t)
+	network.Start(t)
 
 	// Since wrapperMessage implements p2p.Wrapper and handles Message, it
 	// should automatically wrap and unwrap sent messages -- we prepend the
@@ -320,8 +316,8 @@ func TestRouter_Channel_Error(t *testing.T) {
 	ctx := t.Context()
 
 	t.Logf("Create a test network and open a channel on all nodes.")
-	network := p2ptest.MakeNetwork(ctx, t, p2ptest.NetworkOptions{NumNodes: 3})
-	network.Start(ctx, t)
+	network := p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: 3})
+	network.Start(t)
 
 	ids := network.NodeIDs()
 	aID, bID := ids[0], ids[1]
@@ -329,7 +325,7 @@ func TestRouter_Channel_Error(t *testing.T) {
 	a := channels[aID]
 
 	t.Logf("Erroring b should cause it to be disconnected. It will reconnect shortly after.")
-	sub := network.Nodes[aID].MakePeerUpdates(ctx, t)
+	sub := network.Node(aID).MakePeerUpdates(ctx, t)
 	p2ptest.RequireSendError(t, a, p2p.PeerError{NodeID: bID, Err: errors.New("boom")})
 	p2ptest.RequireUpdates(t, sub, []p2p.PeerUpdate{
 		{NodeID: bID, Status: p2p.PeerStatusDown},

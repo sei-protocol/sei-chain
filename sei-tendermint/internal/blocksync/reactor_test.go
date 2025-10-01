@@ -61,9 +61,10 @@ func setup(
 	require.True(t, numNodes >= 1,
 		"must specify at least one block height (nodes)")
 
+	logger, _ := log.NewDefaultLogger("plain", "info")
 	rts := &reactorTestSuite{
-		logger:            log.NewNopLogger().With("module", "block_sync", "testCase", t.Name()),
-		network:           p2ptest.MakeNetwork(ctx, t, p2ptest.NetworkOptions{NumNodes: numNodes}),
+		logger:            logger.With("module", "block_sync", "testCase", t.Name()),
+		network:           p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: numNodes}),
 		nodes:             make([]types.NodeID, 0, numNodes),
 		reactors:          make(map[types.NodeID]*Reactor, numNodes),
 		app:               make(map[types.NodeID]abciclient.Client, numNodes),
@@ -72,11 +73,15 @@ func setup(
 		peerUpdates:       make(map[types.NodeID]*p2p.PeerUpdates, numNodes),
 	}
 
-	chDesc := &p2p.ChannelDescriptor{ID: BlockSyncChannel, MessageType: new(bcproto.Message)}
+	chDesc := &p2p.ChannelDescriptor{
+		ID:                 BlockSyncChannel,
+		MessageType:        new(bcproto.Message),
+		RecvBufferCapacity: 32,
+	}
 	rts.blockSyncChannels = rts.network.MakeChannelsNoCleanup(t, chDesc)
 
 	i := 0
-	for nodeID := range rts.network.Nodes {
+	for _, nodeID := range rts.network.NodeIDs() {
 		rts.addNode(ctx, t, nodeID, genDoc, privVal, maxBlockHeights[i])
 		rts.reactors[nodeID].SetChannel(rts.blockSyncChannels[nodeID])
 		i++
@@ -183,7 +188,7 @@ func (rts *reactorTestSuite) addNode(
 
 	rts.peerChans[nodeID] = make(chan p2p.PeerUpdate)
 	rts.peerUpdates[nodeID] = p2p.NewPeerUpdates(rts.peerChans[nodeID], 1)
-	rts.network.Nodes[nodeID].PeerManager.Register(ctx, rts.peerUpdates[nodeID])
+	rts.network.Node(nodeID).PeerManager.Register(ctx, rts.peerUpdates[nodeID])
 
 	peerEvents := func(ctx context.Context) *p2p.PeerUpdates { return rts.peerUpdates[nodeID] }
 	restartChan := make(chan struct{})
@@ -195,7 +200,7 @@ func (rts *reactorTestSuite) addNode(
 		t,
 		genDoc,
 		peerEvents,
-		rts.network.Nodes[nodeID].PeerManager,
+		rts.network.Node(nodeID).PeerManager,
 		restartChan,
 		config.DefaultSelfRemediationConfig(),
 	)
@@ -253,9 +258,9 @@ func makeNextBlock(ctx context.Context,
 	return block, blockID, partSet, seenCommit
 }
 
-func (rts *reactorTestSuite) start(ctx context.Context, t *testing.T) {
+func (rts *reactorTestSuite) start(t *testing.T) {
 	t.Helper()
-	rts.network.Start(ctx, t)
+	rts.network.Start(t)
 	require.Len(t,
 		rts.network.RandomNode().PeerManager.Peers(),
 		len(rts.nodes)-1,
@@ -277,7 +282,7 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 
 	require.Equal(t, maxBlockHeight, rts.reactors[rts.nodes[0]].store.Height())
 
-	rts.start(ctx, t)
+	rts.start(t)
 
 	secondaryPool := rts.reactors[rts.nodes[1]].pool
 
@@ -298,7 +303,7 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 		Status: p2p.PeerStatusDown,
 		NodeID: rts.nodes[0],
 	}
-	rts.network.Nodes[rts.nodes[1]].PeerManager.Disconnected(ctx, rts.nodes[0])
+	rts.network.Node(rts.nodes[1]).PeerManager.Disconnected(ctx, rts.nodes[0])
 }
 
 func TestReactor_SyncTime(t *testing.T) {
@@ -314,7 +319,7 @@ func TestReactor_SyncTime(t *testing.T) {
 
 	rts := setup(ctx, t, genDoc, privVals[0], []int64{maxBlockHeight, 0})
 	require.Equal(t, maxBlockHeight, rts.reactors[rts.nodes[0]].store.Height())
-	rts.start(ctx, t)
+	rts.start(t)
 
 	require.Eventually(
 		t,

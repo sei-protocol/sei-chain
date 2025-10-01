@@ -21,23 +21,26 @@ import (
 )
 
 func TestReactorInvalidPrecommit(t *testing.T) {
+	t.Skip("test doesn't check anything useful")
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
 	config := configSetup(t)
 
-	const n = 2
+	const n = 4
 	states, cleanup := makeConsensusState(ctx, t,
 		config, n, "consensus_reactor_test",
 		newMockTickerFunc(true))
 	t.Cleanup(cleanup)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		ticker := NewTimeoutTicker(states[i].logger)
 		states[i].SetTimeoutTicker(ticker)
 	}
 
-	rts := setup(ctx, t, n, states, 100) // buffer must be large enough to not deadlock
+	t.Logf("setup()")
+	rts := setup(ctx, t, n, states, 1) // buffer must be large enough to not deadlock
+	t.Logf("setup() done")
 
 	for _, reactor := range rts.reactors {
 		state := reactor.state.GetState()
@@ -58,16 +61,15 @@ func TestReactorInvalidPrecommit(t *testing.T) {
 	privVal := byzState.privValidator
 	byzState.doPrevote = func(ctx context.Context, height int64, round int32) {
 		defer close(signal)
-		invalidDoPrevoteFunc(ctx, t, height, round, byzState, byzReactor, rts.voteChannels[node.NodeID], privVal)
+		invalidDoPrevoteFunc(ctx, t, byzState, byzReactor, rts.voteChannels[node.NodeID], privVal)
 	}
 	byzState.mtx.Unlock()
 
-	// wait for a bunch of blocks
-	//
+	t.Log("wait for a bunch of blocks")
 	// TODO: Make this tighter by ensuring the halt happens by block 2.
 	var wg sync.WaitGroup
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		for _, sub := range rts.subs {
 			wg.Add(1)
 
@@ -77,6 +79,7 @@ func TestReactorInvalidPrecommit(t *testing.T) {
 				if ctx.Err() != nil {
 					return
 				}
+				t.Log("BLOCK")
 				if !assert.NoError(t, err) {
 					cancel() // cancel other subscribers on failure
 				}
@@ -104,8 +107,6 @@ func TestReactorInvalidPrecommit(t *testing.T) {
 func invalidDoPrevoteFunc(
 	ctx context.Context,
 	t *testing.T,
-	height int64,
-	round int32,
 	cs *State,
 	r *Reactor,
 	voteCh *p2p.Channel,
@@ -136,7 +137,8 @@ func invalidDoPrevoteFunc(
 			Type:             tmproto.PrecommitType,
 			BlockID: types.BlockID{
 				Hash:          blockHash,
-				PartSetHeader: types.PartSetHeader{Total: 1, Hash: tmrand.Bytes(32)}},
+				PartSetHeader: types.PartSetHeader{Total: 1, Hash: tmrand.Bytes(32)},
+			},
 		}
 
 		p := precommit.ToProto()

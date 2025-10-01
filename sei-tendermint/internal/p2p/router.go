@@ -740,7 +740,6 @@ func (r *Router) sendPeer(ctx context.Context, peerID types.NodeID, conn Connect
 			r.logger.Error("dropping nil message", "peer", peerID)
 			continue
 		}
-
 		bz, err := proto.Marshal(envelope.Message)
 		if err != nil {
 			r.logger.Error("failed to marshal message", "peer", peerID, "err", err)

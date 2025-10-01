@@ -74,7 +74,7 @@ func setup(
 	t.Helper()
 
 	rts := &reactorTestSuite{
-		network:       p2ptest.MakeNetwork(ctx, t, p2ptest.NetworkOptions{NumNodes: numNodes}),
+		network:       p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: numNodes}),
 		states:        make(map[types.NodeID]*State),
 		reactors:      make(map[types.NodeID]*Reactor, numNodes),
 		subs:          make(map[types.NodeID]eventbus.Subscription, numNodes),
@@ -87,7 +87,8 @@ func setup(
 	rts.voteSetBitsChannels = rts.network.MakeChannelsNoCleanup(t, chDesc(VoteSetBitsChannel, size))
 
 	i := 0
-	for nodeID, node := range rts.network.Nodes {
+	for _, node := range rts.network.Nodes() {
+		nodeID := node.NodeID
 		state := states[i]
 
 		reactor := NewReactor(
@@ -139,7 +140,7 @@ func setup(
 	require.Len(t, rts.reactors, numNodes)
 
 	// start the in-memory network and connect all peers with each other
-	rts.network.Start(ctx, t)
+	rts.network.Start(t)
 
 	t.Cleanup(leaktest.Check(t))
 

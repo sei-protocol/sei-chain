@@ -241,7 +241,6 @@ func (pool *BlockPool) PeekTwoBlocks() (first, second *types.Block) {
 
 // PopRequest pops the first block at pool.height.
 // It must have been validated by the second Commit from PeekTwoBlocks.
-// TODO(thane): (?) and its corresponding ExtendedCommit.
 func (pool *BlockPool) PopRequest() {
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()

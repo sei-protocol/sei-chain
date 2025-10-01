@@ -49,7 +49,7 @@ func setupReactors(ctx context.Context, t *testing.T, logger log.Logger, numNode
 
 	rts := &reactorTestSuite{
 		logger:          log.NewNopLogger().With("testCase", t.Name()),
-		network:         p2ptest.MakeNetwork(ctx, t, p2ptest.NetworkOptions{NumNodes: numNodes}),
+		network:         p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: numNodes}),
 		reactors:        make(map[types.NodeID]*Reactor, numNodes),
 		mempoolChannels: make(map[types.NodeID]*p2p.Channel, numNodes),
 		mempools:        make(map[types.NodeID]*TxMempool, numNodes),
@@ -61,7 +61,8 @@ func setupReactors(ctx context.Context, t *testing.T, logger log.Logger, numNode
 	chDesc := GetChannelDescriptor(cfg.Mempool)
 	rts.mempoolChannels = rts.network.MakeChannelsNoCleanup(t, chDesc)
 
-	for nodeID := range rts.network.Nodes {
+	for _, node := range rts.network.Nodes() {
+		nodeID := node.NodeID
 		rts.kvstores[nodeID] = kvstore.NewApplication()
 
 		client := abciclient.NewLocalClient(logger, rts.kvstores[nodeID])
@@ -73,7 +74,7 @@ func setupReactors(ctx context.Context, t *testing.T, logger log.Logger, numNode
 
 		rts.peerChans[nodeID] = make(chan p2p.PeerUpdate, chBuf)
 		rts.peerUpdates[nodeID] = p2p.NewPeerUpdates(rts.peerChans[nodeID], 1)
-		rts.network.Nodes[nodeID].PeerManager.Register(ctx, rts.peerUpdates[nodeID])
+		node.PeerManager.Register(ctx, rts.peerUpdates[nodeID])
 
 		rts.reactors[nodeID] = NewReactor(
 			rts.logger.With("nodeID", nodeID),
@@ -107,9 +108,9 @@ func setupReactors(ctx context.Context, t *testing.T, logger log.Logger, numNode
 	return rts
 }
 
-func (rts *reactorTestSuite) start(ctx context.Context, t *testing.T) {
+func (rts *reactorTestSuite) start(t *testing.T) {
 	t.Helper()
-	rts.network.Start(ctx, t)
+	rts.network.Start(t)
 
 	require.Len(t,
 		rts.network.RandomNode().PeerManager.Peers(),
@@ -169,7 +170,7 @@ func TestReactorBroadcastDoesNotPanic(t *testing.T) {
 	primaryMempool.insertTx(firstTx)
 
 	// run the router
-	rts.start(ctx, t)
+	rts.start(t)
 
 	go primaryReactor.broadcastTxRoutine(ctx, secondary, rts.mempoolChannels[primary])
 
@@ -203,7 +204,7 @@ func TestReactorBroadcastTxs(t *testing.T) {
 
 	require.Equal(t, numTxs, rts.reactors[primary].mempool.Size())
 
-	rts.start(ctx, t)
+	rts.start(t)
 
 	// Wait till all secondary suites (reactor) received all mempool txs from the
 	// primary suite (node).
@@ -223,7 +224,7 @@ func TestReactorConcurrency(t *testing.T) {
 	primary := rts.nodes[0]
 	secondary := rts.nodes[1]
 
-	rts.start(ctx, t)
+	rts.start(t)
 
 	var wg sync.WaitGroup
 
@@ -284,7 +285,7 @@ func TestReactorNoBroadcastToSender(t *testing.T) {
 	peerID := uint16(1)
 	_ = checkTxs(ctx, t, rts.mempools[primary], numTxs, peerID)
 
-	rts.start(ctx, t)
+	rts.start(t)
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -319,7 +320,7 @@ func TestReactor_MaxTxBytes(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	rts.start(ctx, t)
+	rts.start(t)
 
 	rts.reactors[primary].mempool.Flush()
 	rts.reactors[secondary].mempool.Flush()
@@ -395,7 +396,7 @@ func TestBroadcastTxForPeerStopsWhenPeerStops(t *testing.T) {
 	primary := rts.nodes[0]
 	secondary := rts.nodes[1]
 
-	rts.start(ctx, t)
+	rts.start(t)
 
 	// disconnect peer
 	rts.peerChans[primary] <- p2p.PeerUpdate{

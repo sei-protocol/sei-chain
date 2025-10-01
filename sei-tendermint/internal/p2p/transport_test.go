@@ -85,35 +85,26 @@ func TestTransport_DialEndpoints(t *testing.T) {
 		require.Error(t, err)
 
 		// Tests for networked endpoints (with IP).
-		if endpoint.Addr != (netip.AddrPort{}) && endpoint.Protocol != p2p.MemoryProtocol {
-			for _, tc := range ipTestCases {
-				t.Run(tc.ip.String(), func(t *testing.T) {
-					e := endpoint
-					e.Addr = netip.AddrPortFrom(tc.ip, endpoint.Addr.Port())
-					conn, err := a.Dial(ctx, e)
-					if tc.ok {
-						require.NoError(t, err)
-						require.NoError(t, conn.Close())
-					} else {
-						require.Error(t, err, "endpoint=%s", e)
-					}
-				})
-			}
-
-			// Non-networked endpoints should error.
-			noIP := endpoint
-			noIP.Addr = netip.AddrPort{}
-			noIP.Path = "foo"
-			_, err := a.Dial(ctx, noIP)
-			require.Error(t, err)
-
-		} else {
-			// Tests for non-networked endpoints (no IP).
-			noPath := endpoint
-			noPath.Path = ""
-			_, err = a.Dial(ctx, noPath)
-			require.Error(t, err)
+		for _, tc := range ipTestCases {
+			t.Run(tc.ip.String(), func(t *testing.T) {
+				e := endpoint
+				e.Addr = netip.AddrPortFrom(tc.ip, endpoint.Addr.Port())
+				conn, err := a.Dial(ctx, e)
+				if tc.ok {
+					require.NoError(t, err)
+					require.NoError(t, conn.Close())
+				} else {
+					require.Error(t, err, "endpoint=%s", e)
+				}
+			})
 		}
+
+		// Non-networked endpoints should error.
+		noIP := endpoint
+		noIP.Addr = netip.AddrPort{}
+		noIP.Path = "foo"
+		_, err = a.Dial(ctx, noIP)
+		require.Error(t, err)
 	})
 }
 

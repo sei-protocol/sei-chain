@@ -491,6 +491,9 @@ type ChannelDescriptor struct {
 }
 
 func (chDesc ChannelDescriptor) FillDefaults() (filled ChannelDescriptor) {
+	if chDesc.Priority <= 0 {
+		chDesc.Priority = 1
+	}
 	if chDesc.SendQueueCapacity == 0 {
 		chDesc.SendQueueCapacity = defaultSendQueueCapacity
 	}
@@ -525,9 +528,6 @@ type channel struct {
 
 func newChannel(conn *MConnection, desc ChannelDescriptor) *channel {
 	desc = desc.FillDefaults()
-	if desc.Priority <= 0 {
-		panic("Channel default priority must be a positive integer")
-	}
 	return &channel{
 		conn:                    conn,
 		desc:                    desc,

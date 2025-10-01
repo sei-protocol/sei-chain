@@ -40,6 +40,20 @@ type MConnTransportOptions struct {
 	MaxAcceptedConnections uint32
 }
 
+// TestTransport creates a new Transport for tests.
+func TestTransport(logger log.Logger, nodeID types.NodeID) *MConnTransport {
+	return NewMConnTransport(
+		logger.With("local", nodeID),
+		Endpoint{
+			Protocol: MConnProtocol,
+			Addr:     tcp.TestReserveAddr(),
+		},
+		conn.DefaultMConnConfig(),
+		[]*ChannelDescriptor{},
+		MConnTransportOptions{},
+	)
+}
+
 // MConnTransport is a Transport implementation using the current multiplexed
 // Tendermint protocol ("MConn").
 type MConnTransport struct {
@@ -47,7 +61,7 @@ type MConnTransport struct {
 	endpoint     Endpoint
 	options      MConnTransportOptions
 	mConnConfig  conn.MConnConfig
-	channelDescs []*ChannelDescriptor
+	channelDescs utils.Mutex[*[]*ChannelDescriptor]
 	started      chan struct{}
 	listener     chan *mConnConnection
 }
@@ -67,12 +81,19 @@ func NewMConnTransport(
 		endpoint:     endpoint,
 		options:      options,
 		mConnConfig:  mConnConfig,
-		channelDescs: channelDescs,
+		channelDescs: utils.NewMutex(&channelDescs),
 		// This is rendezvous channel, so that no unclosed connections get stuck inside
 		// when transport is closing.
 		started:  make(chan struct{}),
 		listener: make(chan *mConnConnection),
 	}
+}
+
+func (m *MConnTransport) descs() []*ChannelDescriptor {
+	for ds := range m.channelDescs.Lock() {
+		return *ds
+	}
+	panic("unreachable")
 }
 
 // WaitForStart waits until transport starts listening for incoming connections.
@@ -116,7 +137,7 @@ func (m *MConnTransport) Run(ctx context.Context) error {
 				}
 				return err
 			}
-			mconn := newMConnConnection(m.logger, conn, m.mConnConfig, m.channelDescs)
+			mconn := newMConnConnection(m.logger, conn, m.mConnConfig, m.descs())
 			if err := utils.Send(ctx, m.listener, mconn); err != nil {
 				mconn.Close()
 				return err
@@ -153,7 +174,7 @@ func (m *MConnTransport) Dial(ctx context.Context, endpoint Endpoint) (Connectio
 	if err != nil {
 		return nil, fmt.Errorf("dialer.DialContext(%v): %w", endpoint.Addr, err)
 	}
-	return newMConnConnection(m.logger, tcpConn, m.mConnConfig, m.channelDescs), nil
+	return newMConnConnection(m.logger, tcpConn, m.mConnConfig, m.descs()), nil
 }
 
 // SetChannels sets the channel descriptors to be used when
@@ -164,7 +185,9 @@ func (m *MConnTransport) Dial(ctx context.Context, endpoint Endpoint) (Connectio
 // connections should be agnostic to everything but the channel ID's which are
 // initialized in the handshake.
 func (m *MConnTransport) AddChannelDescriptors(channelDesc []*ChannelDescriptor) {
-	m.channelDescs = append(m.channelDescs, channelDesc...)
+	for ds := range m.channelDescs.Lock() {
+		*ds = append(*ds, channelDesc...)
+	}
 }
 
 type InvalidEndpointErr struct{ error }
