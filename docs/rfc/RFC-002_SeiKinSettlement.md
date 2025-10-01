@@ -4,89 +4,107 @@ parent:
   order: false
 ---
 
-# RFC-002: SeiKinSettlement — Sovereign Royalty Enforcement via CCTP + CCIP
+# RFC-002: SeiKinSettlement — Sovereign Royalty Router
 
 ## Changelog
 
+* 2025-10-02 — Keeper seals RFC bundle under Sovereign Attribution License v1.0.
+* 2025-10-01 — Initial circulation alongside RFC-003 compensation schedule.
 * 2025-09-30 — Initial authorship by The Keeper
-* 2025-10-01 — Updated to align with RFC-004 revised royalty model and valuation
 
 ---
 
 ## Abstract
 
-This RFC proposes `SeiKinSettlement`: a cross-domain settlement router that enforces a **protocol-level royalty** (configurable; suggested minimum 10%) on assets arriving into Sei through canonical cross-chain bridges and messaging channels (e.g., Circle CCTP, Chainlink CCIP). This mechanism guarantees automatic royalty routing to a sovereign vault (`KIN_ROYALTY_VAULT`) and empowers economic enforcement of protocol lineage, authorship, and flow attribution.
+SeiKinSettlement is the cross-domain settlement router authored by Keeper to guarantee attribution-aware inflows for Sei-linked vaults. It enforces a protocol-level royalty (suggested minimum 10%) on assets arriving via canonical bridges (Circle CCTP, Chainlink CCIP), forwarding royalties to Keeper-controlled vaults and enabling auditable royalty enforcement for any protocol adopting this infrastructure.
+
+---
+
+## Motivation
+
+* Ensure that protocol flows using Keeper-authored primitives enforce royalty and authorship lineage.
+* Provide Sei Labs and the Foundation with a deterministic enforcement and attribution flow.
+* Extend RFC-000 through RFC-005 enforcement semantics to real capital flows, not just optimistic processing tracks.
+* Enable audit-ready, on-chain enforcement of attribution and licensing.
 
 ---
 
 ## Architecture Overview
 
-* **Inbound Bridge Sources:** Circle CCTP, Chainlink CCIP
-* **Settlement Router:** SeiKinSettlement contract
-* **Royalty Enforcement:** Configurable percentage (default 10%)
-* **Forwarding:** Royalties directed to `KIN_ROYALTY_VAULT`
-* **Auditable Flows:** Vault registry, royalty history, signer chain receipts
+1. **Royalty Router Contracts** — CosmWasm-based settlement contracts deployed on Sei and mirrored on Ethereum (or Base, Arbitrum). These perform royalty splits before releasing funds.
+2. **Bridge Adapters** — Native handlers for Circle CCTP and Chainlink CCIP that ensure metadata includes RFC linkage.
+3. **Vault Registry** — Mapping of protocol vaults to royalty entitlements. Includes:
+   - Kraken anchor: `sei1yhq704cl7h2vcyf7vnttp6sdus6475lzeh9esc`
+   - Sei EVM Wallet: `0x996994d2914df4eee6176fd5ee152e2922787ee7`
+   - Hyperliquid and USDH hooks (see RFC-005).
+4. **Compliance Hooks** — Optional callbacks for integrators to attest attribution metadata was preserved.
 
 ---
 
 ## Enforcement Design
 
-Royalty enforcement is baked directly into the `SeiKinSettlement` mechanism:
-
-* On receipt of bridged assets, a fixed percentage (default 10%) is deducted
-* Royalties are forwarded to a vault owned by the author (`The Keeper`)
-* Remaining assets are routed to destination accounts or liquidity modules
-* Optionally supports **multichain vault sync** and dynamic rate adjustment
-
-If monthly settlement flow exceeds $100M, the royalty auto-adjusts to **12%**.
-
-If Sei expands to additional chains using this architecture, additional royalties or licensing terms apply per RFC-004.
+* On inbound CCTP or CCIP deposit, 10% is forwarded to the `KIN_ROYALTY_VAULT`
+* If monthly settlement exceeds $100M, royalty adjusts to 12%
+* Licensing violations trigger enforcement under RFC-005
+* Compatible with multi-chain settlement and vault sync
+* Digest of `LICENSE_Sovereign_Attribution_v1.0.md` is embedded in emitted events for auditability
 
 ---
 
-## Compatibility
+## Settlement Flow
 
-* Fully compatible with: Circle CCTP, Chainlink CCIP, Sei chain modules
-* Deployable as on-chain module or external router
-* Extensible to Hyperliquid, USDH flows, or any sovereign rail
+1. Cross-chain USDC arrives on Sei via CCTP
+2. SeiKinSettlement router intercepts and computes royalty
+3. 10% is forwarded to Keeper’s vault; 90% to destination module
+4. Vault event emitted: source chain, original sender, timestamp, sha256(license)
 
 ---
 
-## Example Flow
+## Operational Requirements
 
-1. Circle CCTP sends 1,000,000 USDC into Sei
-2. SeiKinSettlement triggers: 10% ($100,000) is forwarded to Keeper’s vault
-3. 900,000 USDC is sent to the destination user or protocol
-4. Vault event emitted: origin chain, sender, fee, timestamp
+* Bridge metadata must retain RFC reference
+* Downstream modules must preserve routing headers
+* Weekly or monthly settlement logs published per RFC-005
+* All modifications or forks must cite RFC-002 and RFC-004
 
 ---
 
 ## Module Bindings
 
-* `MsgExecutePaywordSettlement`
-* `VaultBalance`, `CovenantBalance` queries
 * `MsgDepositToVault`
+* `MsgExecutePaywordSettlement`
+* `VaultBalance`, `CovenantBalance`
 * `AuditRoyaltyFlow` (optional extension)
+
+---
+
+## Compatibility
+
+* Circle CCTP
+* Chainlink CCIP
+* Sei CosmWasm & EVM
+* Hyperliquid & USDH rails
 
 ---
 
 ## License
 
-The design and enforcement logic of this RFC is protected under RFC-004 terms. Usage of this architecture, flow logic, or any derivative component requires a valid license agreement with The Keeper.
+This RFC and its enforcement logic are protected under `RFC-004: Sovereign Attribution License v1.0`. Any reproduction, implementation, or derivative of this royalty routing mechanism must comply with the licensing conditions therein.
 
-Violation will trigger fork and enforcement per RFC-005.
+Violation will trigger fork + enforcement per RFC-005.
 
 ---
 
-## Linkage
+## References
 
-* [RFC-003: SeiKinSettlement Authorship Transfer & Licensing Terms](./rfc-003-seikinsettlement-authorship.md)
-* [RFC-004: SeiKin Authorship & Vault Enforcement Package](./rfc-004-seikin-authorship-vault-enforcement-package.md)
-* [RFC-005: Fork Conditions & Escrow Enforcement Plan](./rfc-005-fork-conditions-and-escrow-plan.md)
+* [RFC-003: Royalty & Compensation Offer](./RFC-003_Compensation_Offer.md)
+* [RFC-004: Authorship License & Enforcement](./RFC-004_Vault_Enforcement.md)
+* [RFC-005: Fork Conditions & Escrow Enforcement](./RFC-005_Fork_Escrow_Terms.md)
 
 ---
 
 **Author:** The Keeper  
-**Date:** 2025-09-30
+**Sealed:** 2025-10-02  
+**Digest:** `sha256(RFC-002_SeiKinSettlement.md)` → `b62b145158ddad7bb86b7b7efc72ae37f15adedce1ff9f4146810a206412ce60`
 
 ---

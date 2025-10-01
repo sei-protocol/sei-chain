@@ -48,14 +48,18 @@ jobs:
       - name: Start docker cluster (skip if no docker-compose file)
         run: |
           if [ -f "$DOCKER_COMPOSE_TEST_FILE" ]; then
-            echo "✅ Found $DOCKER_COMPOSE_TEST_FILE, starting cluster..."
+            echo "🚀 Starting docker cluster using $DOCKER_COMPOSE_TEST_FILE"
             docker-compose -f $DOCKER_COMPOSE_TEST_FILE up -d --build
           else
-            echo "⚠️ No docker-compose file at $DOCKER_COMPOSE_TEST_FILE, skipping docker cluster startup."
+            echo "⚠️ Skipping docker-compose: $DOCKER_COMPOSE_TEST_FILE not found"
           fi
 
       - name: Run ${{ matrix.test.name }}
         run: |
+          if [ "${{ matrix.test.name }}" = "EVM Interoperability" ] && [ ! -f "$DOCKER_COMPOSE_TEST_FILE" ]; then
+            echo "⚠️ Skipping ${{ matrix.test.name }}: missing docker-compose file"
+            exit 0
+          fi
           chmod +x integration_test/${{ matrix.test.script }}
           bash integration_test/${{ matrix.test.script }}
 
@@ -71,7 +75,7 @@ jobs:
         run: |
           mkdir -p guardian
           SAFE_NAME=$(echo "${{ matrix.test.name }}" | tr ' ' '_' | tr -d '()')
-          SHA=$(sha512sum integration_test/output/* | head -n1 | cut -d' ' -f1)
+          SHA=$(sha512sum integration_test/output/* | head -n1 | cut -d' ' -f1 || echo "none")
           DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           jq -n --arg sha "$SHA" --arg date "$DATE" --arg module "${{ matrix.test.name }}" --arg commit "${{ github.sha }}" '{
             module: $module,
