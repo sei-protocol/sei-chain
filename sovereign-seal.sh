@@ -7,6 +7,7 @@ set -e
 
 echo "🔐 Starting Sovereign Authorship Lock..."
 
+# Define files to hash
 FILES=(
   "RFC-002_SeiKinSettlement.md"
   "RFC-003_Authorship_Licensing.md"
@@ -24,7 +25,7 @@ echo "📦 Generating SHA-256 checksums..."
 sha256sum "${FILES[@]}" > "$CHECKSUM_FILE"
 echo "✅ Checksums written to $CHECKSUM_FILE"
 
-# Step 2: Sign checksums (optional)
+# Step 2: Sign with GPG (optional)
 if command -v gpg > /dev/null; then
   echo "✍️  Signing checksums with GPG..."
   gpg --clearsign "$CHECKSUM_FILE"
