@@ -6,11 +6,16 @@ import "gogoproto/gogo.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/seinet/types";
 
+// Msg defines the gRPC Msg service for the seinet module.
 service Msg {
+  // DepositToVault deposits funds into the seinet vault module account.
   rpc DepositToVault(MsgDepositToVault) returns (MsgDepositToVaultResponse);
+
+  // ExecutePaywordSettlement settles a revealed payword against the seinet vault.
   rpc ExecutePaywordSettlement(MsgExecutePaywordSettlement) returns (MsgExecutePaywordSettlementResponse);
 }
 
+// MsgDepositToVault defines a message for depositing funds into the seinet vault.
 message MsgDepositToVault {
   option (gogoproto.equal) = false;
   option (gogoproto.goproto_getters) = false;
@@ -19,8 +24,10 @@ message MsgDepositToVault {
   string amount = 2;
 }
 
+// MsgDepositToVaultResponse defines the response after depositing to the vault.
 message MsgDepositToVaultResponse {}
 
+// MsgExecutePaywordSettlement defines a message for executing a payword settlement.
 message MsgExecutePaywordSettlement {
   option (gogoproto.equal) = false;
   option (gogoproto.goproto_getters) = false;
@@ -32,4 +39,5 @@ message MsgExecutePaywordSettlement {
   string amount = 5;
 }
 
+// MsgExecutePaywordSettlementResponse defines the response after executing a payword settlement.
 message MsgExecutePaywordSettlementResponse {}

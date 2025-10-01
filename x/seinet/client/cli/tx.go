@@ -45,8 +45,8 @@ func NewDepositToVaultCmd() *cobra.Command {
 				WithAccountRetriever(clientCtx.AccountRetriever)
 
 			msg := types.NewMsgDepositToVault(
-				clientCtx.GetFromAddress().String(),
-				args[0], // amount string, e.g., "100usei"
+				clientCtx.GetFromAddress().String(), // depositor
+				args[0],                             // amount string, e.g. "100usei"
 			)
 
 			if err := msg.ValidateBasic(); err != nil {
@@ -78,11 +78,11 @@ func NewExecutePaywordSettlementCmd() *cobra.Command {
 				WithAccountRetriever(clientCtx.AccountRetriever)
 
 			msg := types.NewMsgExecutePaywordSettlement(
-				clientCtx.GetFromAddress().String(), // payer (sender)
-				args[0], // recipient
-				args[1], // payword
-				args[2], // covenant hash
-				args[3], // amount (e.g., "500usei")
+				clientCtx.GetFromAddress().String(), // executor
+				args[0],                             // recipient
+				args[1],                             // payword
+				args[2],                             // covenant hash
+				args[3],                             // amount, e.g. "500usei"
 			)
 
 			if err := msg.ValidateBasic(); err != nil {
