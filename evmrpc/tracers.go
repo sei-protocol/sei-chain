@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
-	"strings"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -142,45 +141,8 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceTransaction", api.connectionType, startTime, returnErr)
-	result, returnErr = api.tracersAPI.TraceTransaction(ctx, hash, config)
-	if returnErr == nil && api.shouldOverrideGasUsed(config) {
-		if updated, ok := api.overrideCallTracerGasUsed(result, hash); ok {
-			result = updated
-		}
-	}
-	return
-}
-
-func (api *DebugAPI) shouldOverrideGasUsed(config *tracers.TraceConfig) bool {
-	if config == nil || config.Tracer == nil {
-		return false
-	}
-	return strings.EqualFold(strings.TrimSpace(*config.Tracer), "calltracer")
-}
-
-func (api *DebugAPI) overrideCallTracerGasUsed(result interface{}, hash common.Hash) (interface{}, bool) {
-	raw, ok := api.AsRawJSON(result)
-	if !ok {
-		return nil, false
-	}
-	receipt, err := api.keeper.GetReceipt(api.ctxProvider(LatestCtxHeight), hash)
-	if err != nil {
-		return nil, false
-	}
-	var frame map[string]interface{}
-	if err := json.Unmarshal(raw, &frame); err != nil {
-		return nil, false
-	}
-	expected := fmt.Sprintf("0x%x", receipt.GasUsed)
-	if existing, ok := frame["gasUsed"].(string); ok && strings.EqualFold(existing, expected) {
-		return result, false
-	}
-	frame["gasUsed"] = expected
-	updated, err := json.Marshal(frame)
-	if err != nil {
-		return nil, false
-	}
-	return json.RawMessage(updated), true
+	return api.tracersAPI.TraceTransaction(ctx, hash, config)
+	return result, returnErr
 }
 
 func (api *DebugAPI) AsRawJSON(result interface{}) ([]byte, bool) {
