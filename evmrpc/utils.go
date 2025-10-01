@@ -210,7 +210,7 @@ func filterTransactions(
 				}
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
-				sender, _ := helpers.RecoverEVMSender(ethtx, block.Block.Height, uint64(block.Block.Time.Second()))
+				sender, _ := helpers.RecoverEVMSender(ethtx, block.Block.Height, uint64(block.Block.Time.Unix()))
 				receipt, err := k.GetReceipt(latestCtx, hash)
 				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(latestCtx, receipt) {
 					continue
