@@ -323,13 +323,16 @@ func EncodeTmBlock(
 		case *types.MsgEVMTransaction:
 			ethtx, _ := m.AsTransaction()
 			hash := ethtx.Hash()
+			receipt, _ := k.GetReceipt(latestCtx, hash)
 			if !fullTx {
 				transactions = append(transactions, hash.Hex())
 			} else {
-				newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(len(transactions)), baseFeePerGas, chainConfig) //nolint:gosec
+				newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Unix()), uint64(len(transactions)), baseFeePerGas, chainConfig)
+				if receipt != nil {
+					newTx.From = common.HexToAddress(receipt.From)
+				}
 				transactions = append(transactions, newTx)
 			}
-			receipt, _ := k.GetReceipt(latestCtx, hash)
 			or := make([]byte, ethtypes.BloomByteLength)
 			bloom := ethtypes.Bloom{}
 			bloom.SetBytes(receipt.LogsBloom)
