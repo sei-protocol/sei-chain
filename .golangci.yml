@@ -1,4 +1,5 @@
 version: "2"
+
 run:
   tests: false
   timeout: 10m
@@ -12,19 +13,28 @@ linters:
     - dogsled
     - errcheck
     - goconst
+    - gofmt
+    - goimports
     - gosec
     - govet
     - ineffassign
     - misspell
     - prealloc
     - staticcheck
+    - stylecheck
     - unconvert
-    - misspell
-  exclusions:
-    rules:
-      - linters:
-          - gosec
-        text: "Use of weak random number generator"
+
+issues:
+  exclude-rules:
+    - text: "Use of weak random number generator"
+      linters:
+        - gosec
+    - text: "ST1003:"
+      linters:
+        - stylecheck
+    - text: "ST1016:"
+      linters:
+        - stylecheck
 
 formatters:
   enable:
