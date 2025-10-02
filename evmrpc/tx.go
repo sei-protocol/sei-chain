@@ -332,7 +332,7 @@ func (t *TransactionAPI) encodeRPCTransaction(ethtx *ethtypes.Transaction, block
 	blockHash := common.HexToHash(block.BlockID.Hash.String())
 	blockNumber := uint64(block.Block.Height) //nolint:gosec
 	blockTime := block.Block.Time
-	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
+	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(txIndex), baseFeePerGas, chainConfig)
 	replaceFrom(res, receipt)
 	return res, nil
 }

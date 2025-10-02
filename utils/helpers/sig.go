@@ -28,9 +28,13 @@ func RecoverEVMSender(ethTx *ethtypes.Transaction, blockHeight int64, blockTime 
 	chainCfg := evmtypes.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
 	version := getSignerVersion(blockHeight, blockTime, ethCfg)
-
-	// Create the signer with the transaction's chain ID
-	signer := SignerMap[version](chainID)
+	var signer ethtypes.Signer
+	if chainID == nil || chainID.Sign() <= 0 {
+		signer = ethtypes.NewEIP155Signer(chainID)
+	} else {
+		// Create the signer with the transaction's chain ID
+		signer = SignerMap[version](chainID)
+	}
 
 	// Get raw signature values
 	V, R, S := ethTx.RawSignatureValues()
