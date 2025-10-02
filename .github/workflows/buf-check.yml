@@ -12,5 +12,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: bufbuild/buf-action@v1
-        with: 
-          paths: "./sei-tendermint"
+        with:
+          input: : "./sei-tendermint"
