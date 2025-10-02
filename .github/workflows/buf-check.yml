@@ -13,4 +13,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: bufbuild/buf-action@v1
         with:
-          input: : "./sei-tendermint"
+          input: "./sei-tendermint"
