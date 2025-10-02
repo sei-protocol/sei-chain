@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,9 +17,11 @@ import (
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/p2p"
+	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/internal/p2p/p2ptest"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/types"
@@ -100,16 +104,17 @@ func TestRouter_Channel_Basic(t *testing.T) {
 	peerManager, err := p2p.NewPeerManager(logger, selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
 	require.NoError(t, err)
 
-	transport := p2p.TestTransport(logger, selfID)
 	router, err := p2p.NewRouter(
 		logger,
 		p2p.NopMetrics(),
 		selfKey,
 		peerManager,
 		func() *types.NodeInfo { return &selfInfo },
-		transport,
 		nil,
-		p2p.RouterOptions{},
+		p2p.RouterOptions{
+			Endpoint: p2p.Endpoint{tcp.TestReserveAddr()},
+			Connection: conn.DefaultMConnConfig(),
+		},
 	)
 	require.NoError(t, err)
 
@@ -329,14 +334,14 @@ func TestRouter_Channel_Error(t *testing.T) {
 }
 
 type RouterHandle struct {
+	filterByIP  atomic.Pointer[func(ctx context.Context, addr netip.AddrPort) error]
 	router      *p2p.Router
 	peerManager *p2p.PeerManager
-	transport   *p2p.Transport
 }
 
 var keyFiltered, infoFiltered = makeKeyAndInfo()
 
-func spawnRouter(t *testing.T, logger log.Logger) RouterHandle {
+func spawnRouter(t *testing.T, logger log.Logger) *RouterHandle {
 	t.Helper()
 	ctx := t.Context()
 	// Set up and start the router.
@@ -345,15 +350,15 @@ func spawnRouter(t *testing.T, logger log.Logger) RouterHandle {
 	}
 	peerManager, err := p2p.NewPeerManager(logger, selfID, dbm.NewMemDB(), opts, p2p.NopMetrics())
 	require.NoError(t, err)
-	// Router is responsible for running transport.
-	transport := p2p.TestTransport(logger.With("node", "self"), selfID)
+	r := RouterHandle{
+		peerManager: peerManager,
+	}
 	router, err := p2p.NewRouter(
 		logger,
 		p2p.NopMetrics(),
 		selfKey,
 		peerManager,
 		func() *types.NodeInfo { return &selfInfo },
-		transport,
 		func(_ context.Context, id types.NodeID) error {
 			if id == infoFiltered.NodeID {
 				return errors.New("should filter")
@@ -363,16 +368,70 @@ func spawnRouter(t *testing.T, logger log.Logger) RouterHandle {
 		p2p.RouterOptions{
 			DialSleep:          func(context.Context) error { return nil },
 			NumConcurrentDials: func() int { return 100 },
+			FilterPeerByIP: func(ctx context.Context, addr netip.AddrPort) error {
+				if f := r.filterByIP.Load(); f != nil {
+					return (*f)(ctx, addr)
+				}
+				return nil
+			},
+			Endpoint: p2p.Endpoint{tcp.TestReserveAddr()},
+			Connection: conn.DefaultMConnConfig(),
 		},
 	)
 	require.NoError(t, err)
 	require.NoError(t, router.Start(ctx))
 	t.Cleanup(router.Stop)
-	require.NoError(t, transport.WaitForStart(ctx))
-	return RouterHandle{
-		router:      router,
-		peerManager: peerManager,
-		transport:   transport,
+	require.NoError(t, router.WaitForStart(ctx))
+	r.router = router
+	return &r
+}
+
+func TestRouter_FilterByIP(t *testing.T) {
+	logger, _ := log.NewDefaultLogger("plain", "debug")
+	ctx := t.Context()
+	t.Cleanup(leaktest.Check(t))
+
+	h := spawnRouter(t, logger)
+	sub := h.peerManager.Subscribe(ctx)
+
+	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		t.Logf("Connection should succeed.")
+		key, info := makeKeyAndInfo()
+		transport := p2p.TestTransport(logger.With("node",info.NodeID))
+		s.SpawnBgNamed("transport.Run()", func() error { return transport.Run(ctx) })
+		conn, err := transport.Dial(ctx, h.router.Endpoint())
+		if err != nil {
+			return fmt.Errorf("peerTransport.Dial(): %w", err)
+		}
+		defer conn.Close()
+		if _, err := conn.Handshake(ctx, info, key); err != nil {
+			return fmt.Errorf("conn.Handshake(): %w", err)
+		}
+		p2ptest.RequireUpdate(t, sub, p2p.PeerUpdate{
+			NodeID: info.NodeID,
+			Status: p2p.PeerStatusUp,
+		})
+
+		t.Logf("Enable filtering.")
+		h.filterByIP.Store(utils.Alloc(func(ctx context.Context, addr netip.AddrPort) error {
+			return errors.New("fail all")
+		}))
+
+		t.Logf("Connection should fail during handshake.")
+		key, info = makeKeyAndInfo()
+		transport = p2p.TestTransport(logger.With("node",info.NodeID))
+		s.SpawnBgNamed("transport.Run()", func() error { return transport.Run(ctx) })
+		conn, err = transport.Dial(ctx, h.router.Endpoint())
+		if err != nil {
+			return fmt.Errorf("peerTransport.Dial(): %w", err)
+		}
+		defer conn.Close()
+		if _, err := conn.Handshake(ctx, info, key); err == nil {
+			return fmt.Errorf("conn.Handshake(): expected error")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -404,9 +463,9 @@ func TestRouter_AcceptPeers(t *testing.T) {
 			sub := h.peerManager.Subscribe(ctx)
 
 			if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-				peerTransport := p2p.TestTransport(logger.With("node", "peer"), peerID)
+				peerTransport := p2p.TestTransport(logger.With("node",peerID))
 				s.SpawnBgNamed("peerTransport.Run()", func() error { return peerTransport.Run(ctx) })
-				conn, err := peerTransport.Dial(ctx, h.transport.Endpoint())
+				conn, err := peerTransport.Dial(ctx, h.router.Endpoint())
 				if err != nil {
 					return fmt.Errorf("peerTransport.Dial(): %w", err)
 				}
@@ -449,11 +508,11 @@ func TestRouter_AcceptPeers_Parallel(t *testing.T) {
 
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		t.Logf("Dial raw connections.")
-		var conns []p2p.Connection
+		var conns []*p2p.Connection
 		for range 10 {
-			peerTransport := p2p.TestTransport(logger.With("node", "peer"), peerID)
+			peerTransport := p2p.TestTransport(logger.With("node","peer"))
 			s.SpawnBgNamed("peerTransport.Run()", func() error { return peerTransport.Run(ctx) })
-			conn, err := peerTransport.Dial(ctx, h.transport.Endpoint())
+			conn, err := peerTransport.Dial(ctx, h.router.Endpoint())
 			if err != nil {
 				return fmt.Errorf("peerTransport.Dial(): %w", err)
 			}
@@ -488,7 +547,7 @@ func TestRouter_DialPeer_Retry(t *testing.T) {
 	sub := h.peerManager.Subscribe(ctx)
 
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		peerTransport := p2p.TestTransport(logger.With("node", "peer"), peerID)
+		peerTransport := p2p.TestTransport(logger.With("node",peerID))
 		s.SpawnBgNamed("peerTransport.Run()", func() error { return peerTransport.Run(ctx) })
 		if err := peerTransport.WaitForStart(ctx); err != nil {
 			return err
@@ -549,7 +608,7 @@ func TestRouter_DialPeer_Reject(t *testing.T) {
 			ctx := t.Context()
 			h := spawnRouter(t, logger)
 			if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-				peerTransport := p2p.TestTransport(logger.With("node", "peer"), tc.dialID)
+				peerTransport := p2p.TestTransport(logger.With("node",tc.dialID))
 				s.SpawnBgNamed("peerTransport.Run()", func() error { return peerTransport.Run(ctx) })
 				if err := peerTransport.WaitForStart(ctx); err != nil {
 					return fmt.Errorf("peerTransport.WaitForStart(): %w", err)
@@ -596,10 +655,10 @@ func TestRouter_DialPeers_Parallel(t *testing.T) {
 
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		t.Logf("Accept raw connections.")
-		var conns []p2p.Connection
+		var conns []*p2p.Connection
 		for i, info := range infos {
 			t.Logf("ACCEPT %v %v", i, info.NodeID)
-			peerTransport := p2p.TestTransport(logger.With("node", "peer"), peerID)
+			peerTransport := p2p.TestTransport(logger.With("local", info.NodeID))
 			s.SpawnBgNamed("peerTransport.Run()", func() error { return peerTransport.Run(ctx) })
 			if err := peerTransport.WaitForStart(ctx); err != nil {
 				return fmt.Errorf("peerTransport.WaitForStart(): %w", err)
@@ -641,9 +700,9 @@ func TestRouter_EvictPeers(t *testing.T) {
 
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		key, info := makeKeyAndInfo()
-		peerTransport := p2p.TestTransport(logger.With("node", "peer"), info.NodeID)
+		peerTransport := p2p.TestTransport(logger.With("node",info.NodeID))
 		s.SpawnBgNamed("peerTransport.Run()", func() error { return peerTransport.Run(ctx) })
-		conn, err := peerTransport.Dial(ctx, h.transport.Endpoint())
+		conn, err := peerTransport.Dial(ctx, h.router.Endpoint())
 		if err != nil {
 			return fmt.Errorf("peerTransport.Dial(): %w", err)
 		}
@@ -701,9 +760,9 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		key, info := makeKeyAndInfo()
 		info.Channels = []byte{byte(desc1.ID)}
-		peerTransport := p2p.TestTransport(logger.With("node", "peer"), info.NodeID, desc1)
+		peerTransport := p2p.TestTransport(logger.With("node",info.NodeID), desc1)
 		s.SpawnBgNamed("peerTransport.Run()", func() error { return peerTransport.Run(ctx) })
-		conn, err := peerTransport.Dial(ctx, h.transport.Endpoint())
+		conn, err := peerTransport.Dial(ctx, h.router.Endpoint())
 		if err != nil {
 			return fmt.Errorf("peerTransport.Dial(): %w", err)
 		}

@@ -11,8 +11,10 @@ import (
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/p2p"
+	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/types"
 )
@@ -217,7 +219,6 @@ type Node struct {
 	PrivKey     crypto.PrivKey
 	Router      *p2p.Router
 	PeerManager *p2p.PeerManager
-	Transport   *p2p.Transport
 
 	cancel context.CancelFunc
 }
@@ -229,16 +230,20 @@ func (n *Network) MakeNode(t *testing.T, opts NodeOptions) *Node {
 	privKey := ed25519.GenPrivKey()
 	nodeID := types.NodeIDFromPubKey(privKey.PubKey())
 	logger := n.logger.With("node", nodeID[:5])
-	transport := p2p.TestTransport(logger, nodeID)
 
 	maxRetryTime := 1000 * time.Millisecond
 	if opts.MaxRetryTime > 0 {
 		maxRetryTime = opts.MaxRetryTime
 	}
 
+	routerOpts := p2p.RouterOptions {
+		DialSleep: func(_ context.Context) error { return nil },
+		Endpoint: p2p.Endpoint{AddrPort:tcp.TestReserveAddr()},
+		Connection: conn.DefaultMConnConfig(),
+	}
 	nodeInfo := types.NodeInfo{
 		NodeID:     nodeID,
-		ListenAddr: transport.Endpoint().String(),
+		ListenAddr: routerOpts.Endpoint.String(),
 		Moniker:    string(nodeID),
 		Network:    "test",
 	}
@@ -258,9 +263,8 @@ func (n *Network) MakeNode(t *testing.T, opts NodeOptions) *Node {
 		privKey,
 		peerManager,
 		func() *types.NodeInfo { return &nodeInfo },
-		transport,
 		nil,
-		p2p.RouterOptions{DialSleep: func(_ context.Context) error { return nil }},
+		routerOpts,
 	)
 
 	require.NoError(t, err)
@@ -279,11 +283,10 @@ func (n *Network) MakeNode(t *testing.T, opts NodeOptions) *Node {
 		Logger:      logger,
 		NodeID:      nodeID,
 		NodeInfo:    nodeInfo,
-		NodeAddress: transport.Endpoint().NodeAddress(nodeID),
+		NodeAddress: routerOpts.Endpoint.NodeAddress(nodeID),
 		PrivKey:     privKey,
 		Router:      router,
 		PeerManager: peerManager,
-		Transport:   transport,
 		cancel:      cancel,
 	}
 

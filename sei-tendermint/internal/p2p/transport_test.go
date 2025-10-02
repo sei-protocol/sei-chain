@@ -41,7 +41,7 @@ func makeKeyAndInfo() (crypto.PrivKey, types.NodeInfo) {
 
 // Establishes a connection to the transport.
 // Returns both ends of the connection.
-func connect(ctx context.Context, tr *p2p.Transport) (c1 p2p.Connection, c2 p2p.Connection, err error) {
+func connect(ctx context.Context, tr *p2p.Transport) (c1 *p2p.Connection, c2 *p2p.Connection, err error) {
 	defer func() {
 		if err != nil {
 			if c1 != nil {
@@ -570,13 +570,13 @@ func TestEndpoint_Validate(t *testing.T) {
 
 // dialAccept is a helper that dials b from a and returns both sides of the
 // connection.
-func dialAccept(ctx context.Context, t *testing.T, a, b *p2p.Transport) (p2p.Connection, p2p.Connection) {
+func dialAccept(ctx context.Context, t *testing.T, a, b *p2p.Transport) (*p2p.Connection, *p2p.Connection) {
 	t.Helper()
 
 	endpoint := b.Endpoint()
 
-	var acceptConn p2p.Connection
-	var dialConn p2p.Connection
+	var acceptConn *p2p.Connection
+	var dialConn *p2p.Connection
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error {
 			var err error
@@ -600,7 +600,7 @@ func dialAccept(ctx context.Context, t *testing.T, a, b *p2p.Transport) (p2p.Con
 
 // dialAcceptHandshake is a helper that dials and handshakes b from a and
 // returns both sides of the connection.
-func dialAcceptHandshake(ctx context.Context, t *testing.T, a, b *p2p.Transport) (p2p.Connection, p2p.Connection) {
+func dialAcceptHandshake(ctx context.Context, t *testing.T, a, b *p2p.Transport) (*p2p.Connection, *p2p.Connection) {
 	t.Helper()
 
 	ab, ba := dialAccept(ctx, t, a, b)

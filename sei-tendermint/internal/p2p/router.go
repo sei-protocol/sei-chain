@@ -10,13 +10,17 @@ import (
 	"runtime"
 	"sync"
 	"time"
+	"net"
+	"golang.org/x/net/netutil"
 
 	"github.com/gogo/protobuf/proto"
 
+	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/types"
 )
@@ -70,6 +74,15 @@ type RouterOptions struct {
 	// are used to dial peers. This defaults to the value of
 	// runtime.NumCPU.
 	NumConcurrentDials func() int
+
+	// MaxAcceptedConnections is the maximum number of simultaneous accepted
+	// (incoming) connections. Beyond this, new connections will block until
+	// a slot is free. 0 means unlimited.
+	MaxAcceptedConnections uint32
+
+	Endpoint Endpoint
+
+	Connection conn.MConnConfig
 }
 
 // Validate validates router options.
@@ -144,9 +157,7 @@ type Router struct {
 	options     RouterOptions
 	privKey     crypto.PrivKey
 	peerManager *PeerManager
-	chDescs     []*ChannelDescriptor
-	transport   *Transport
-	connTracker connectionTracker
+	connTracker *connTracker
 
 	peerStates       utils.RWMutex[map[types.NodeID]*peerState]
 	nodeInfoProducer func() *types.NodeInfo
@@ -155,12 +166,24 @@ type Router struct {
 	// channels on router start. This depends on whether we want to allow
 	// dynamic channels in the future.
 	channelMtx      sync.RWMutex
+	chDescs         []*ChannelDescriptor
 	channelQueues   map[ChannelID]*Queue // inbound messages from all peers to a single channel
 	channelMessages map[ChannelID]proto.Message
 
 	chDescsToBeAdded []chDescAdderWithCallback
 
 	dynamicIDFilterer func(context.Context, types.NodeID) error
+
+	started      chan struct{}
+	listener     chan *Connection
+}
+
+func (r *Router) getChannelDescs() []*ChannelDescriptor {
+	r.channelMtx.RLock()
+	defer r.channelMtx.RUnlock()
+	descs := make([]*ChannelDescriptor, len(r.chDescs))
+	copy(descs, r.chDescs)
+	return descs
 }
 
 type chDescAdderWithCallback struct {
@@ -177,15 +200,12 @@ func NewRouter(
 	privKey crypto.PrivKey,
 	peerManager *PeerManager,
 	nodeInfoProducer func() *types.NodeInfo,
-	transport *Transport,
 	dynamicIDFilterer func(context.Context, types.NodeID) error,
 	options RouterOptions,
 ) (*Router, error) {
-
 	if err := options.Validate(); err != nil {
 		return nil, err
 	}
-
 	router := &Router{
 		logger:           logger,
 		metrics:          metrics,
@@ -196,14 +216,18 @@ func NewRouter(
 			options.MaxIncomingConnectionAttempts,
 			options.IncomingConnectionWindow,
 		),
-		chDescs:           make([]*ChannelDescriptor, 0),
-		transport:         transport,
+		chDescs:           nil,
 		peerManager:       peerManager,
 		options:           options,
 		channelQueues:     map[ChannelID]*Queue{},
 		channelMessages:   map[ChannelID]proto.Message{},
 		peerStates:        utils.NewRWMutex(map[types.NodeID]*peerState{}),
 		dynamicIDFilterer: dynamicIDFilterer,
+
+		// This is rendezvous channel, so that no unclosed connections get stuck inside
+		// when transport is closing.
+		started:  make(chan struct{}),
+		listener: make(chan *Connection),
 	}
 
 	router.BaseService = service.NewBaseService(logger, "router", router)
@@ -211,6 +235,55 @@ func NewRouter(
 	return router, nil
 }
 
+func (r *Router) Endpoint() Endpoint {
+	return r.options.Endpoint
+}
+
+func (r *Router) WaitForStart(ctx context.Context) error {
+	_, _, err := utils.RecvOrClosed(ctx, r.started)
+	return err
+}
+
+func (r *Router) listenRoutine(ctx context.Context) error {
+	if err := r.Endpoint().Validate(); err != nil {
+		return err
+	}
+	listener, err := tcp.Listen(r.Endpoint().AddrPort)
+	if err != nil {
+		return fmt.Errorf("net.Listen(): %w", err)
+	}
+	close(r.started) // signal that we are listening
+	if r.options.MaxAcceptedConnections > 0 {
+		// FIXME: This will establish the inbound connection but simply hang it
+		// until another connection is released. It would probably be better to
+		// return an error to the remote peer or close the connection. This is
+		// also a DoS vector since the connection will take up kernel resources.
+		// This was just carried over from the legacy P2P stack.
+		listener = netutil.LimitListener(listener, int(r.options.MaxAcceptedConnections))
+	}
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error {
+			<-ctx.Done()
+			listener.Close()
+			return nil
+		})
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				if errors.Is(err, net.ErrClosed) {
+					return nil
+				}
+				return err
+			}
+			descs := r.getChannelDescs()
+			mconn := newConnection(r.logger, conn, r.options.Connection, descs)
+			if err := utils.Send(ctx, r.listener, mconn); err != nil {
+				mconn.Close()
+				return err
+			}
+		}
+	})
+}
 // ChannelCreator allows routers to construct their own channels,
 // either by receiving a reference to Router.OpenChannel or using some
 // kind shim for testing purposes.
@@ -247,9 +320,6 @@ func (r *Router) OpenChannel(chDesc *ChannelDescriptor) (*Channel, error) {
 
 	// add the channel to the nodeInfo if it's not already there.
 	r.nodeInfoProducer().AddChannel(uint16(chDesc.ID))
-
-	r.transport.AddChannelDescriptors([]*ChannelDescriptor{chDesc})
-
 	r.Spawn("channel", func(ctx context.Context) error {
 		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 			s.Spawn(func() error { return r.routeChannel(ctx, chDesc, outCh, wrapper) })
@@ -399,11 +469,11 @@ func (r *Router) dialSleep(ctx context.Context) error {
 
 // acceptPeers accepts inbound connections from peers on the given transport,
 // and spawns goroutines that route messages to/from them.
-func (r *Router) acceptPeers(ctx context.Context, transport *Transport) error {
+func (r *Router) acceptPeers(ctx context.Context) error {
 	for {
-		conn, err := transport.Accept(ctx)
+		conn,err :=  utils.Recv(ctx, r.listener)
 		if err != nil {
-			return fmt.Errorf("failed to accept connection: %w", err)
+			return err
 		}
 		r.metrics.NewConnections.With("direction", "in").Add(1)
 		incomingAddr := conn.RemoteEndpoint().AddrPort
@@ -430,7 +500,7 @@ func (r *Router) acceptPeers(ctx context.Context, transport *Transport) error {
 	}
 }
 
-func (r *Router) openConnection(ctx context.Context, conn Connection) error {
+func (r *Router) openConnection(ctx context.Context, conn *Connection) error {
 	defer conn.Close()
 	incomingAddr := conn.RemoteEndpoint().AddrPort
 	defer r.connTracker.RemoveConn(incomingAddr)
@@ -557,7 +627,7 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) {
 }
 
 // dialPeer connects to a peer by dialing it.
-func (r *Router) dialPeer(ctx context.Context, address NodeAddress) (Connection, error) {
+func (r *Router) dialPeer(ctx context.Context, address NodeAddress) (*Connection, error) {
 	resolveCtx := ctx
 	if r.options.ResolveTimeout > 0 {
 		var cancel context.CancelFunc
@@ -594,14 +664,23 @@ func (r *Router) dialPeer(ctx context.Context, address NodeAddress) (Connection,
 		// by the peer's endpoint, since e.g. a peer on 192.168.0.0 can reach us
 		// on a private address on this endpoint, but a peer on the public
 		// Internet can't and needs a different public address.
-		conn, err := r.transport.Dial(dialCtx, endpoint)
+		if err := endpoint.Validate(); err != nil {
+			return nil, err
+		}
+		if endpoint.Port() == 0 {
+			endpoint.AddrPort = netip.AddrPortFrom(endpoint.Addr(), 26657)
+		}
+		dialer := net.Dialer{}
+		tcpConn, err := dialer.DialContext(dialCtx, "tcp", endpoint.String())
 		if err != nil {
 			r.logger.Debug("failed to dial endpoint", "peer", address.NodeID, "endpoint", endpoint, "err", err)
-		} else {
-			r.metrics.NewConnections.With("direction", "out").Add(1)
-			r.logger.Debug("dialed peer", "peer", address.NodeID, "endpoint", endpoint)
-			return conn, nil
+			continue
 		}
+		descs := r.getChannelDescs()
+		conn := newConnection(r.logger, tcpConn, r.options.Connection, descs)
+		r.metrics.NewConnections.With("direction", "out").Add(1)
+		r.logger.Debug("dialed peer", "peer", address.NodeID, "endpoint", endpoint)
+		return conn, nil
 	}
 	return nil, errors.New("all endpoints failed")
 }
@@ -610,7 +689,7 @@ func (r *Router) dialPeer(ctx context.Context, address NodeAddress) (Connection,
 // expectID is given, we check that the peer's info matches it.
 func (r *Router) handshakePeer(
 	ctx context.Context,
-	conn Connection,
+	conn *Connection,
 	expectID types.NodeID,
 ) (types.NodeInfo, error) {
 
@@ -650,7 +729,7 @@ func (r *Router) handshakePeer(
 // routePeer routes inbound and outbound messages between a peer and the reactor
 // channels. It will close the given connection and send queue when done, or if
 // they are closed elsewhere it will cause this method to shut down and return.
-func (r *Router) routePeer(ctx context.Context, peerID types.NodeID, conn Connection, channels ChannelIDSet) error {
+func (r *Router) routePeer(ctx context.Context, peerID types.NodeID, conn *Connection, channels ChannelIDSet) error {
 	r.metrics.Peers.Add(1)
 	peerCtx, cancel := context.WithCancel(ctx)
 	state := &peerState{
@@ -693,7 +772,7 @@ func (r *Router) routePeer(ctx context.Context, peerID types.NodeID, conn Connec
 
 // receivePeer receives inbound messages from a peer, deserializes them and
 // passes them on to the appropriate channel.
-func (r *Router) receivePeer(ctx context.Context, peerID types.NodeID, conn Connection) error {
+func (r *Router) receivePeer(ctx context.Context, peerID types.NodeID, conn *Connection) error {
 	for {
 		chID, bz, err := conn.ReceiveMessage(ctx)
 		if err != nil {
@@ -736,7 +815,7 @@ func (r *Router) receivePeer(ctx context.Context, peerID types.NodeID, conn Conn
 }
 
 // sendPeer sends queued messages to a peer.
-func (r *Router) sendPeer(ctx context.Context, peerID types.NodeID, conn Connection, peerQueue *Queue) error {
+func (r *Router) sendPeer(ctx context.Context, peerID types.NodeID, conn *Connection, peerQueue *Queue) error {
 	for {
 		start := time.Now().UTC()
 		envelope, err := peerQueue.Recv(ctx)
@@ -796,12 +875,10 @@ func (r *Router) OnStart(ctx context.Context) error {
 		}
 	}
 
-	r.SpawnCritical("transport.Run", func(ctx context.Context) error {
-		return r.transport.Run(ctx)
-	})
+	r.SpawnCritical("listenRoutine", func(ctx context.Context) error { return r.listenRoutine(ctx) })
 	r.SpawnCritical("dialPeers", func(ctx context.Context) error { return r.dialPeers(ctx) })
 	r.SpawnCritical("evictPeers", func(ctx context.Context) error { return r.evictPeers(ctx) })
-	r.SpawnCritical("acceptPeers", func(ctx context.Context) error { return r.acceptPeers(ctx, r.transport) })
+	r.SpawnCritical("acceptPeers", func(ctx context.Context) error { return r.acceptPeers(ctx) })
 	return nil
 }
 

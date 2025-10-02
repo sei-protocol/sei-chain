@@ -304,26 +304,23 @@ func createRouter(
 	if err != nil {
 		return nil, err
 	}
-	transportConf := conn.DefaultMConnConfig()
-	transportConf.FlushThrottle = cfg.P2P.FlushThrottleTimeout
-	transportConf.SendRate = cfg.P2P.SendRate
-	transportConf.RecvRate = cfg.P2P.RecvRate
-	transportConf.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
-	transport := p2p.NewTransport(
-		p2pLogger, ep, transportConf, []*p2p.ChannelDescriptor{},
-		p2p.TransportOptions{
-			MaxAcceptedConnections: uint32(cfg.P2P.MaxConnections),
-		},
-	)
+	config := getRouterConfig(cfg, appClient)
+	config.Endpoint = ep
+	config.MaxAcceptedConnections = uint32(cfg.P2P.MaxConnections)
+	config.Connection = conn.DefaultMConnConfig()
+	config.Connection.FlushThrottle = cfg.P2P.FlushThrottleTimeout
+	config.Connection.SendRate = cfg.P2P.SendRate
+	config.Connection.RecvRate = cfg.P2P.RecvRate
+	config.Connection.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
+
 	return p2p.NewRouter(
 		p2pLogger,
 		p2pMetrics,
 		nodeKey.PrivKey,
 		peerManager,
 		nodeInfoProducer,
-		transport,
 		nil, // TODO: replace with mempool CheckTx failure based filterer
-		getRouterConfig(cfg, appClient),
+		config,
 	)
 }
 
