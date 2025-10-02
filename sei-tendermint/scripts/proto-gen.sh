@@ -6,6 +6,6 @@
 set -euo pipefail
 
 # Work from the root of the repository.
-cd "$(git rev-parse --show-toplevel)"
+cd "$(git rev-parse --show-toplevel)/sei-tendermint"
 
 make proto-gen
