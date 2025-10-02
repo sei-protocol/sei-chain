@@ -68,6 +68,20 @@ func getCachedReceipt(globalBlockCache BlockCache, blockHeight int64, txHash com
 	return nil, false
 }
 
+func getOrSetCachedReceipt(ctx sdk.Context, k *keeper.Keeper, block *coretypes.ResultBlock, txHash common.Hash) (*evmtypes.Receipt, bool) {
+	blockHeight := block.Block.Height
+	receipt, found := getCachedReceipt(blockHeight, txHash)
+	if found {
+		return receipt, true
+	}
+	receipt, err := k.GetReceipt(ctx, txHash)
+	if err != nil {
+		return nil, false
+	}
+	setCachedReceipt(blockHeight, block, txHash, receipt)
+	return receipt, true
+}
+
 // LoadOrStore ensures atomic cache entry creation (like sync.Map.LoadOrStore)
 func loadOrStoreCacheEntry(cacheCreationMutex *sync.Mutex, globalBlockCache BlockCache, blockHeight int64, block *coretypes.ResultBlock) *BlockCacheEntry {
 	// Fast path: try to get existing entry
@@ -829,16 +843,10 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	evmTxIndex := 0
 
 	for _, hash := range getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts) {
-		receipt, found := getCachedReceipt(f.globalBlockCache, block.Block.Height, hash.hash)
+		receipt, found := getOrSetCachedReceipt(ctx, f.k, block, hash.hash)
 		if !found {
-			var err error
-			receipt, err = f.k.GetReceipt(ctx, hash.hash)
-			if err != nil {
-
-				continue
-			}
-			setCachedReceipt(&f.cacheCreationMutex, f.globalBlockCache, block.Block.Height, block, hash.hash, receipt)
-
+			ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", hash.hash.Hex()))
+			continue
 		}
 
 		txLogs := keeper.GetLogsForTx(receipt, totalLogs)
