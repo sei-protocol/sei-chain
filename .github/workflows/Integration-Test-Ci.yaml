@@ -27,6 +27,7 @@ jobs:
           - { name: Upgrade Module (Major), script: upgrade_major_test.sh }
 
     name: ${{ matrix.test.name }}
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -45,7 +46,16 @@ jobs:
           echo "CHAIN_ID=sei-chain" >> $GITHUB_ENV
           echo "INVARIANT_CHECK_INTERVAL=5" >> $GITHUB_ENV
 
-      - name: Start docker cluster (skip if no docker-compose file)
+      - name: Check for test script
+        id: check_script
+        run: |
+          if [ ! -f "integration_test/${{ matrix.test.script }}" ]; then
+            echo "⚠️ Skipping: script integration_test/${{ matrix.test.script }} not found"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Start docker cluster (if docker-compose exists)
+        if: steps.check_script.outputs.skip != 'true'
         run: |
           if [ -f "$DOCKER_COMPOSE_TEST_FILE" ]; then
             echo "🚀 Starting docker cluster using $DOCKER_COMPOSE_TEST_FILE"
@@ -55,11 +65,9 @@ jobs:
           fi
 
       - name: Run ${{ matrix.test.name }}
+        if: steps.check_script.outputs.skip != 'true'
         run: |
-          if [ "${{ matrix.test.name }}" = "EVM Interoperability" ] && [ ! -f "$DOCKER_COMPOSE_TEST_FILE" ]; then
-            echo "⚠️ Skipping ${{ matrix.test.name }}: missing docker-compose file"
-            exit 0
-          fi
+          echo "🔎 Running test: ${{ matrix.test.script }}"
           chmod +x integration_test/${{ matrix.test.script }}
           bash integration_test/${{ matrix.test.script }}
 
