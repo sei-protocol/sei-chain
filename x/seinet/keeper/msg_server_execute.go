@@ -21,9 +21,22 @@ func (k msgServer) ExecutePaywordSettlement(
 
 	ctx := sdk.UnwrapSDKContext(goCtx)
 
-	executor, err := sdk.AccAddressFromBech32(msg.Executor)
-	if err != nil {
-		return nil, err
+	sender := ctx.MsgSender()
+	if sender != nil && msg.Executor != sender.String() {
+		return nil, sdkerrors.Wrapf(
+			sdkerrors.ErrUnauthorized,
+			"msg.Executor mismatch. Expected %s, got %s",
+			sender.String(),
+			msg.Executor,
+		)
+	}
+
+	if sender == nil {
+		var err error
+		sender, err = sdk.AccAddressFromBech32(msg.Executor)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	recipient, err := sdk.AccAddressFromBech32(msg.Recipient)
@@ -57,7 +70,7 @@ func (k msgServer) ExecutePaywordSettlement(
 	ctx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			"payword_settlement",
-			sdk.NewAttribute("executor", executor.String()),
+			sdk.NewAttribute("executor", sender.String()),
 			sdk.NewAttribute("recipient", recipient.String()),
 			sdk.NewAttribute("amount", amount.String()),
 			sdk.NewAttribute("covenant_hash", normalizedHash),
