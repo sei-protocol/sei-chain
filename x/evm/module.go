@@ -416,9 +416,9 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 		if len(r.Logs) == 0 {
 			continue
 		}
-		// Re-create a per-tx bloom from EVM-only logs (exclude synthetic)
+		// Re-create a per-tx bloom from EVM-only logs (exclude synthetic receipts but not synthetic logs)
 		evmOnlyBloom := ethtypes.CreateBloom(&ethtypes.Receipt{
-			Logs: keeper.GetEvmOnlyLogsForTx(r, 0),
+			Logs: keeper.GetLogsForTx(r, 0),
 		})
 		evmOnlyBlooms = append(evmOnlyBlooms, evmOnlyBloom)
 	}

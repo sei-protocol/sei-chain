@@ -1,0 +1,9 @@
+go 1.24.5
+
+use (
+	.
+	./sei-cosmos
+	./sei-tendermint
+	./sei-wasmd
+	./sei-wasmvm
+)

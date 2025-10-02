@@ -28,6 +28,7 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
@@ -64,6 +65,9 @@ func (t TestAppOpts) Get(s string) interface{} {
 	}
 	if s == FlagSCEnable {
 		return t.useSc
+	}
+	if s == evmrpc.FlagFlushReceiptSync {
+		return true
 	}
 	return nil
 }

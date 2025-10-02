@@ -101,12 +101,12 @@ describe("CW20 to ERC20 Pointer", function () {
 
                     const res = await executeWasm(pointer,  { transfer: { recipient: accounts[1].seiAddress, amount: "100" } });
                     const txHash = res["txhash"];
-                    const receipt = await ethers.provider.getTransactionReceipt(`0x${txHash}`); 
+                    const receipt = await ethers.provider.send('sei_getTransactionReceipt', [`0x${txHash}`]);
                     expect(receipt).not.to.be.null;
                     console.log("receipt[\"blockNumber\"]", receipt["blockNumber"]);
                     const bn = receipt["blockNumber"];
                     const filter = {
-                        fromBlock: '0x' + bn.toString(16),
+                        fromBlock: bn,
                         toBlock: 'latest',
                         address: receipt["to"],
                         topics: [ethers.id("Transfer(address,address,uint256)")]

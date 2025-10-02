@@ -250,4 +250,4 @@ test-group-%:split-test-packages
 		echo "⚡ Not found, running with -parallel=4"; \
 		PARALLEL="-parallel=4"; \
 	fi; \
-	cat $(BUILDDIR)/packages.txt.$* | xargs go test $$PARALLEL -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic
+	cat $(BUILDDIR)/packages.txt.$* | xargs go test $$PARALLEL -mod=readonly -timeout=10m -race -coverprofile=$*.profile.out -covermode=atomic -coverpkg=./...

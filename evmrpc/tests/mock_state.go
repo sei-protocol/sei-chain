@@ -23,8 +23,18 @@ type RpcResponse struct {
 	Result  evmrpc.StateAccessResponse `json:"result"`
 }
 
-func mockStatesFromJsonFile(ctx sdk.Context, hash string, a *app.App, client *MockClient) int64 {
-	file, err := os.Open(fmt.Sprintf("mock_data/%s", hash))
+func mockStatesFromBlockJson(ctx sdk.Context, blockNum uint64, a *app.App, client *MockClient) int64 {
+	filepath := fmt.Sprintf("mock_data/blocks/%d.json", blockNum)
+	return mockStatesFromJsonFile(ctx, filepath, a, client)
+}
+
+func mockStatesFromTxJson(ctx sdk.Context, hash string, a *app.App, client *MockClient) int64 {
+	filepath := fmt.Sprintf("mock_data/transactions/%s.json", hash)
+	return mockStatesFromJsonFile(ctx, filepath, a, client)
+}
+
+func mockStatesFromJsonFile(ctx sdk.Context, filepath string, a *app.App, client *MockClient) int64 {
+	file, err := os.Open(filepath) //nolint:gosec
 	check(err)
 	defer func() { _ = file.Close() }()
 	data, err := io.ReadAll(file)

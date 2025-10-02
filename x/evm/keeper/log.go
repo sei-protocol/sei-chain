@@ -90,17 +90,6 @@ func GetLogsForTx(receipt *types.Receipt, logStartIndex uint) []*ethtypes.Log {
 	return utils.Map(receipt.Logs, func(l *types.Log) *ethtypes.Log { return convertLog(l, receipt, logStartIndex) })
 }
 
-func GetEvmOnlyLogsForTx(receipt *types.Receipt, logStartIndex uint) []*ethtypes.Log {
-	logs := make([]*ethtypes.Log, 0, len(receipt.Logs))
-	for _, l := range receipt.Logs {
-		if l.Synthetic {
-			continue
-		}
-		logs = append(logs, convertLog(l, receipt, logStartIndex))
-	}
-	return logs
-}
-
 func convertLog(l *types.Log, receipt *types.Receipt, logStartIndex uint) *ethtypes.Log {
 	return &ethtypes.Log{
 		Address:     common.HexToAddress(l.Address),

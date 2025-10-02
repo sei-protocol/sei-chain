@@ -1,0 +1,60 @@
+syntax = "proto3";
+package cosmwasm.wasm.v1;
+
+import "gogoproto/gogo.proto";
+import "cosmwasm/wasm/v1/types.proto";
+import "cosmwasm/wasm/v1/tx.proto";
+
+option go_package = "github.com/CosmWasm/wasmd/x/wasm/types";
+
+// GenesisState - genesis state of x/wasm
+message GenesisState {
+  Params params = 1 [ (gogoproto.nullable) = false ];
+  repeated Code codes = 2
+      [ (gogoproto.nullable) = false, (gogoproto.jsontag) = "codes,omitempty" ];
+  repeated Contract contracts = 3 [
+    (gogoproto.nullable) = false,
+    (gogoproto.jsontag) = "contracts,omitempty"
+  ];
+  repeated Sequence sequences = 4 [
+    (gogoproto.nullable) = false,
+    (gogoproto.jsontag) = "sequences,omitempty"
+  ];
+  repeated GenMsgs gen_msgs = 5 [
+    (gogoproto.nullable) = false,
+    (gogoproto.jsontag) = "gen_msgs,omitempty"
+  ];
+
+  // GenMsgs define the messages that can be executed during genesis phase in
+  // order. The intention is to have more human readable data that is auditable.
+  message GenMsgs {
+    // sum is a single message
+    oneof sum {
+      MsgStoreCode store_code = 1;
+      MsgInstantiateContract instantiate_contract = 2;
+      MsgExecuteContract execute_contract = 3;
+    }
+  }
+}
+
+// Code struct encompasses CodeInfo and CodeBytes
+message Code {
+  uint64 code_id = 1 [ (gogoproto.customname) = "CodeID" ];
+  CodeInfo code_info = 2 [ (gogoproto.nullable) = false ];
+  bytes code_bytes = 3;
+  // Pinned to wasmvm cache
+  bool pinned = 4;
+}
+
+// Contract struct encompasses ContractAddress, ContractInfo, and ContractState
+message Contract {
+  string contract_address = 1;
+  ContractInfo contract_info = 2 [ (gogoproto.nullable) = false ];
+  repeated Model contract_state = 3 [ (gogoproto.nullable) = false ];
+}
+
+// Sequence key and value of an id generation counter
+message Sequence {
+  bytes id_key = 1 [ (gogoproto.customname) = "IDKey" ];
+  uint64 value = 2;
+}

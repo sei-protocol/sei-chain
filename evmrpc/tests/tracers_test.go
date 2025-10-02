@@ -2,11 +2,13 @@ package tests
 
 import (
 	"encoding/json"
-	"fmt"
+	"math"
 	"testing"
 
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -37,7 +39,6 @@ func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
 			res := sendRequestWithNamespace("sei", port, "traceBlockByNumberExcludeTraceFail", "0x2", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",
 			})
-			fmt.Println(res)
 			txs := res["result"].([]interface{})
 			require.Len(t, txs, 1)
 			blockHash := txs[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
@@ -69,7 +70,6 @@ func TestTraceBlockByHashExcludeTraceFail(t *testing.T) {
 			res := sendRequestWithNamespace("sei", port, "traceBlockByHashExcludeTraceFail", "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",
 			})
-			fmt.Println(res)
 			txs := res["result"].([]interface{})
 			require.Len(t, txs, 1)
 			blockHash := txs[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
@@ -145,6 +145,23 @@ func TestTraceStateAccess(t *testing.T) {
 			require.Contains(t, result, "params")
 			tmResult := res["result"].(map[string]interface{})["tendermint"].(map[string]interface{})["traces"]
 			require.Len(t, tmResult, 6)
+		},
+	)
+}
+
+func TestTraceBlockWithFailureThenSuccess(t *testing.T) {
+	maxUseiInWei := sdk.NewInt(math.MaxInt64).Mul(state.SdkUseiToSweiMultiplier).BigInt()
+	insufficientFundsTx := signAndEncodeTx(sendAmount(0, maxUseiInWei), mnemonic1)
+	successTx := signAndEncodeTx(send(1), mnemonic1)
+	SetupTestServer([][][]byte{{insufficientFundsTx, successTx}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("debug", port, "traceBlockByNumber", "0x2", map[string]interface{}{
+				"timeout": "60s", "tracer": "flatCallTracer",
+			})
+			// the first tx should show a trace failure indicating insufficient funds
+			require.Contains(t, res["result"].([]interface{})[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["error"].(string), "insufficient funds")
+			// the second tx should show a trace success and a gas used of 21000 (0x5208)
+			require.Equal(t, "0x5208", res["result"].([]interface{})[1].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["result"].(map[string]interface{})["gasUsed"])
 		},
 	)
 }

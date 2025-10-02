@@ -3,21 +3,26 @@ package tests
 import (
 	"encoding/hex"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	"github.com/sei-protocol/sei-chain/x/evm/state"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 )
 
-func cw20Initializer(mnemonic string) func(ctx sdk.Context, a *app.App) {
+func cw20Initializer(mnemonic string, pointer bool) func(ctx sdk.Context, a *app.App) {
 	return func(ctx sdk.Context, a *app.App) {
 		code, err := os.ReadFile("../../contracts/wasm/cw20_base.wasm")
 		if err != nil {
@@ -36,6 +41,19 @@ func cw20Initializer(mnemonic string) func(ctx sdk.Context, a *app.App) {
 		}
 		evmAddr := common.BytesToAddress(contractAddr)
 		a.EvmKeeper.SetAddressMapping(ctx, contractAddr, evmAddr)
+
+		if pointer {
+			blockCtx, err := a.EvmKeeper.GetVMBlockContext(ctx, core.GasPool(math.MaxUint64))
+			if err != nil {
+				panic(err)
+			}
+			cfg := types.DefaultChainConfig().EthereumConfig(a.EvmKeeper.ChainID(ctx))
+			evmInstance := vm.NewEVM(*blockCtx, state.NewDBImpl(ctx, &a.EvmKeeper, false), cfg, vm.Config{}, a.EvmKeeper.CustomPrecompiles(ctx))
+			_, err = a.EvmKeeper.UpsertERCCW20Pointer(ctx, evmInstance, contractAddr.String(), utils.ERCMetadata{Name: "test", Symbol: "test"})
+			if err != nil {
+				panic(err)
+			}
+		}
 	}
 }
 

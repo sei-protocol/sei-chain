@@ -97,9 +97,9 @@ describe("ERC721 to CW721 Pointer", function () {
                 address: await pointerAcc1.getAddress(),
                 topics: [ethers.id("Approval(address,address,uint256)")]
             };
-            // eth_ excludes synthetic logs now -> expect 0
+            // eth_ includes synthetic logs -> expect 1
             const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
-            expect(ethlogs.length).to.equal(0);
+            expect(ethlogs.length).to.equal(1);
 
             // send via sei_ endpoint - synthetic event shows up
             const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
@@ -129,9 +129,9 @@ describe("ERC721 to CW721 Pointer", function () {
                 address: await pointerAcc1.getAddress(),
                 topics: [ethers.id("Transfer(address,address,uint256)")]
             };
-            // send via eth_ endpoint - synthetic event doesn't show up
+            // send via eth_ endpoint
             const ethlogs = await ethers.provider.send('eth_getLogs', [filter]);
-            expect(ethlogs.length).to.equal(0);
+            expect(ethlogs.length).to.equal(1);
             const seilogs = await ethers.provider.send('sei_getLogs', [filter]);
             expect(seilogs.length).to.equal(1);
             seilogs.forEach(async (log) => {
