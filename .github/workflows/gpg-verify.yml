@@ -1,0 +1,24 @@
+name: 🔐 GPG Signature Verify
+
+on:
+  push:
+    paths:
+      - 'docs/signatures/integrity-checksums.txt'
+      - 'docs/signatures/integrity-checksums.txt.asc'
+  workflow_dispatch:
+
+jobs:
+  gpg-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🔑 Import Keeper Public Key
+        run: |
+          echo "${{ secrets.KEEPER_PUBLIC_KEY }}" > pubkey.asc
+          gpg --import pubkey.asc
+
+      - name: ✅ Verify clearsigned file
+        run: |
+          gpg --verify docs/signatures/integrity-checksums.txt.asc
