@@ -22,7 +22,7 @@ var signerMap = map[derived.SignerVersion]func(*big.Int) ethtypes.Signer{
 // RecoverEVMSender recovers the sender address from an Ethereum transaction
 // using the same logic as the preprocess ante handler.
 // This ensures consistency between transaction preprocessing and RPC queries.
-func RecoverEVMSender(ethTx *ethtypes.Transaction, blockHeight int64, blockTime uint64) (common.Address, error) {
+func RecoverEVMSender(ethTx *ethtypes.Transaction, blockHeight int64, blockTime int64) (common.Address, error) {
 	// Get the chain ID from the transaction
 	chainID := ethTx.ChainId()
 
@@ -35,7 +35,11 @@ func RecoverEVMSender(ethTx *ethtypes.Transaction, blockHeight int64, blockTime 
 	if chainID.Int64() == 0 {
 		signer = ethtypes.NewEIP155Signer(chainID)
 	} else {
-		version := getSignerVersion(blockHeight, blockTime, ethCfg)
+		var uintBlockTime uint64
+		if blockTime > 0 {
+			uintBlockTime = uint64(blockTime)
+		}
+		version := getSignerVersion(blockHeight, uintBlockTime, ethCfg)
 		signer = signerMap[version](chainID)
 	}
 
@@ -90,5 +94,5 @@ func getSignerVersion(blockHeight int64, blockTime uint64, ethCfg *params.ChainC
 
 // RecoverEVMSenderWithContext is a convenience wrapper that extracts block info from context
 func RecoverEVMSenderWithContext(ctx sdk.Context, ethTx *ethtypes.Transaction) (common.Address, error) {
-	return RecoverEVMSender(ethTx, ctx.BlockHeight(), uint64(ctx.BlockTime().Unix()))
+	return RecoverEVMSender(ethTx, ctx.BlockHeight(), ctx.BlockTime().Unix())
 }

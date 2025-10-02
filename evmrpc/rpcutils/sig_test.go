@@ -275,7 +275,7 @@ func TestRecoverEVMSender_RealWorldTransaction(t *testing.T) {
 func TestRecoverEVMSender_GeneratedTransactions(t *testing.T) {
 	chainID := big.NewInt(1329)
 	blockHeight := int64(1000000)
-	blockTime := uint64(1234567890)
+	blockTime := int64(1234567890)
 
 	successCount := 0
 	failCount := 0
@@ -460,7 +460,7 @@ func TestRecoverEVMSender_FromTestData(t *testing.T) {
 		}
 
 		// Recover sender
-		recoveredAddr, err := RecoverEVMSender(&tx, int64(txData.BlockNumber), txData.BlockTime)
+		recoveredAddr, err := RecoverEVMSender(&tx, int64(txData.BlockNumber), int64(txData.BlockTime))
 		if err != nil {
 			t.Errorf("Test %d (tx %s): Recovery failed: %v", i, txData.TxHash, err)
 			failCount++

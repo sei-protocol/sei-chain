@@ -327,7 +327,8 @@ func EncodeTmBlock(
 			if !fullTx {
 				transactions = append(transactions, hash.Hex())
 			} else {
-				newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Unix()), uint64(len(transactions)), baseFeePerGas, chainConfig)
+				blockUnix := toUint64(blockTime.Unix())
+				newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), blockUnix, uint64(len(transactions)), baseFeePerGas, chainConfig)
 				replaceFrom(newTx, receipt)
 				transactions = append(transactions, newTx)
 			}

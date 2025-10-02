@@ -79,6 +79,14 @@ func getHeightFromBigIntBlockNumber(latest int64, blockNumber *big.Int) int64 {
 	}
 }
 
+// this avoids a gosec lint error rather than just casting
+func toUint64(value int64) uint64 {
+	if value < 0 {
+		return 0
+	}
+	return uint64(value)
+}
+
 func getTestKeyring(homeDir string) (keyring.Keyring, error) {
 	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
 	clientCtx, err := config.ReadFromClientConfig(clientCtx)
@@ -225,7 +233,7 @@ func filterTransactions(
 				}
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
-				sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, uint64(block.Block.Time.Unix()))
+				sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, block.Block.Time.Unix())
 				receipt, err := k.GetReceipt(latestCtx, hash)
 				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
 					continue

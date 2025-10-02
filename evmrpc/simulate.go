@@ -582,14 +582,14 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 		Number:        blockNumber,
 		BaseFee:       baseFee,
 		GasLimit:      gasLimit,
-		Time:          uint64(time.Now().Unix()), //nolint:gosec
+		Time:          toUint64(time.Now().Unix()),
 		ExcessBlobGas: &zeroExcessBlobGas,
 	}
 
 	//TODO: what should happen if an err occurs here?
 	if blockErr == nil {
 		header.ParentHash = common.BytesToHash(block.BlockID.Hash)
-		header.Time = uint64(block.Block.Time.Unix()) //nolint:gosec
+		header.Time = toUint64(block.Block.Time.Unix())
 	}
 	return header
 }

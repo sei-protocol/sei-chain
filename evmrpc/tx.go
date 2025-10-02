@@ -119,7 +119,7 @@ func getTransactionReceipt(
 		for _, tx := range block.Block.Txs {
 			etx := getEthTxForTxBz(tx, t.txConfigProvider(block.Block.Height).TxDecoder())
 			if etx != nil && etx.Hash() == hash {
-				from, err := rpcutils.RecoverEVMSender(etx, height, uint64(block.Block.Time.Unix()))
+				from, err := rpcutils.RecoverEVMSender(etx, height, block.Block.Time.Unix())
 				if err != nil {
 					return nil, err
 				}
@@ -329,7 +329,8 @@ func (t *TransactionAPI) encodeRPCTransaction(ethtx *ethtypes.Transaction, block
 	blockHash := common.HexToHash(block.BlockID.Hash.String())
 	blockNumber := uint64(block.Block.Height) //nolint:gosec
 	blockTime := block.Block.Time
-	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(txIndex), baseFeePerGas, chainConfig)
+	blockUnix := toUint64(blockTime.Unix())
+	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, blockUnix, uint64(txIndex), baseFeePerGas, chainConfig)
 	replaceFrom(res, receipt)
 	return res, nil
 }
@@ -443,7 +444,7 @@ func encodeReceipt(ctxProvider func(int64) sdk.Context, txConfigProvider func(in
 		"status":            hexutil.Uint(receipt.Status),
 	}
 	if etx != nil && receipt.From == "" {
-		from, err := rpcutils.RecoverEVMSender(etx, int64(receipt.BlockNumber), uint64(block.Block.Time.Unix()))
+		from, err := rpcutils.RecoverEVMSender(etx, int64(receipt.BlockNumber), block.Block.Time.Unix())
 		if err == nil {
 			fields["from"] = from
 		}
