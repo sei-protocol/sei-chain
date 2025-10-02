@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -225,4 +226,33 @@ func (s *contextTestSuite) TestUnwrapSDKContext() {
 
 	ctx = context.Background()
 	s.Require().Panics(func() { types.UnwrapSDKContext(ctx) })
+}
+
+func TestContext_Priority(t *testing.T) {
+	var (
+		requireNoPriority = func(t *testing.T, ctx types.Context) {
+			require.Zero(t, ctx.Priority())
+			require.False(t, ctx.HasPriority())
+		}
+		requirePriority = func(t *testing.T, ctx types.Context, priority int64) {
+			require.Equal(t, priority, ctx.Priority())
+			require.True(t, ctx.HasPriority())
+		}
+	)
+
+	// Assert that a new context has no priority set and does not have priority.
+	var subject types.Context
+	requireNoPriority(t, subject)
+
+	// Assert that setting a priority sets the priority and marks the context as
+	// having priority set. But does not change the original context.
+	prioritisedSubject := subject.WithPriority(100)
+	requirePriority(t, prioritisedSubject, 100)
+	requireNoPriority(t, subject)
+
+	// Assert that setting priority to 0 updates the priority but still marks the
+	// context as having priority set. But does not change the original context.
+	deprioritisedSubject := subject.WithPriority(0)
+	requirePriority(t, deprioritisedSubject, 0)
+	requireNoPriority(t, subject)
 }
