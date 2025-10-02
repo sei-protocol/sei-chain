@@ -301,7 +301,7 @@ func TestVoteProtobuf(t *testing.T) {
 		passesValidateBasic bool
 	}{
 		{"success", vote, true, true},
-		{"fail vote validate basic", &Vote{}, true, false},
+		{"fail vote validate basic", &Vote{}, false, false},
 	}
 	for _, tc := range testCases {
 		protoProposal := tc.vote.ToProto()

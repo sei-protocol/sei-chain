@@ -209,7 +209,7 @@ func ValidatorFromProto(vp *tmproto.Validator) (*Validator, error) {
 	v.VotingPower = vp.GetVotingPower()
 	v.ProposerPriority = vp.GetProposerPriority()
 
-	return v, nil
+	return v, v.ValidateBasic()
 }
 
 //----------------------------------------

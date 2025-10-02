@@ -229,7 +229,7 @@ func NodeInfoFromProto(pb *tmp2p.NodeInfo) (NodeInfo, error) {
 		},
 	}
 
-	return dni, nil
+	return dni, dni.Validate()
 }
 
 // ParseAddressString reads an address string, and returns the IP

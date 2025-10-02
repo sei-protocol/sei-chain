@@ -68,7 +68,7 @@ func VoteFromProto(pv *tmproto.Vote) (*Vote, error) {
 		return nil, err
 	}
 
-	return &Vote{
+	v := &Vote{
 		Type:             pv.Type,
 		Height:           pv.Height,
 		Round:            pv.Round,
@@ -77,7 +77,8 @@ func VoteFromProto(pv *tmproto.Vote) (*Vote, error) {
 		ValidatorAddress: pv.ValidatorAddress,
 		ValidatorIndex:   pv.ValidatorIndex,
 		Signature:        pv.Signature,
-	}, nil
+	}
+	return v, v.ValidateBasic()
 }
 
 // CommitSig converts the Vote to a CommitSig.
