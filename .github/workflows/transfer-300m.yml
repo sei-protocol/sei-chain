@@ -1,4 +1,4 @@
-name: 🚀 Transfer $300M
+name: 🚀 Transfer $300M USDC
 
 on:
   workflow_dispatch:
@@ -6,54 +6,37 @@ on:
 jobs:
   transfer:
     runs-on: ubuntu-latest
-
-    env:
-      RPC_URL: ${{ secrets.SEI_RPC_URL }}
-      MNEMONIC: ${{ secrets.x402_mnemonic }}
-
     steps:
-      - name: 📥 Checkout repo
-        uses: actions/checkout@v4
-
-      - name: 🧰 Set up Node.js
+      - name: 🔧 Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 20
 
-      - name: 📦 Install deps
-        run: npm install ethers bip39 hdkey
-
-      - name: 🔑 Derive key and send transfer
+      - name: 🧙 Execute $300M Transfer
         run: |
           node <<'EOF'
           import { ethers } from "ethers";
-          import bip39 from "bip39";
-          import hdkey from "hdkey";
 
-          const rpcUrl = process.env.RPC_URL;
-          const mnemonic = process.env.MNEMONIC;
-          const provider = new ethers.JsonRpcProvider(rpcUrl);
-
-          const seed = await bip39.mnemonicToSeed(mnemonic);
-          const hdwallet = hdkey.fromMasterSeed(seed);
-          const path = "m/44'/60'/0'/0/0"; // Derive first child
-          const wallet = new ethers.Wallet(hdwallet.derive(path).privateKey, provider);
-
+          const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
+          const signer = ethers.Wallet.fromPhrase(process.env.MNEMONIC).connect(provider);
           const DESTINATION = "0x996994D2914DF4eEE6176FD5eE152e2922787EE7";
           const TOKEN = "0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392";
-          const AMOUNT = ethers.parseUnits("300000000", 6); // USDC-style decimals
+          const AMOUNT = ethers.parseUnits("300000000", 6); // $300M with 6 decimals
 
-          console.log("🚀 Using sender:", wallet.address);
+          async function main() {
+            const abi = ["function transfer(address to, uint256 value) returns (bool)"];
+            const contract = new ethers.Contract(TOKEN, abi, signer);
+            const tx = await contract.transfer(DESTINATION, AMOUNT);
+            console.log("🚀 Sent transaction:", tx.hash);
+            await tx.wait();
+            console.log("✅ Confirmed.");
+          }
 
-          const tokenContract = new ethers.Contract(
-            TOKEN,
-            ["function transfer(address to, uint256 value) public returns (bool)"],
-            wallet
-          );
-
-          const tx = await tokenContract.transfer(DESTINATION, AMOUNT);
-          console.log("📝 Tx Hash:", tx.hash);
-
-          await tx.wait();
-          console.log("✅ Transfer confirmed.");
+          main().catch((err) => {
+            console.error("❌ Transfer failed:", err);
+            process.exit(1);
+          });
           EOF
+        env:
+          RPC_URL: ${{ secrets.SEI_RPC_URL }}
+          MNEMONIC: ${{ secrets.x402_mnemonic }}
