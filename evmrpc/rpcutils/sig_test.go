@@ -1,4 +1,4 @@
-package helpers
+package rpcutils
 
 import (
 	"encoding/hex"

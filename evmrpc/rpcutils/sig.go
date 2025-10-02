@@ -1,4 +1,4 @@
-package helpers
+package rpcutils
 
 import (
 	"math/big"
@@ -8,11 +8,12 @@ import (
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/helpers"
 	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
-var SignerMap = map[derived.SignerVersion]func(*big.Int) ethtypes.Signer{
+var signerMap = map[derived.SignerVersion]func(*big.Int) ethtypes.Signer{
 	derived.London: ethtypes.NewLondonSigner,
 	derived.Cancun: ethtypes.NewCancunSigner,
 	derived.Prague: ethtypes.NewPragueSigner,
@@ -28,10 +29,15 @@ func RecoverEVMSender(ethTx *ethtypes.Transaction, blockHeight int64, blockTime 
 	// Get the chain config and determine the signer version
 	chainCfg := evmtypes.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
-	version := getSignerVersion(blockHeight, blockTime, ethCfg)
 
 	// Create the signer with the transaction's chain ID
-	signer := SignerMap[version](chainID)
+	var signer ethtypes.Signer
+	if chainID.Int64() == 0 {
+		signer = ethtypes.NewEIP155Signer(chainID)
+	} else {
+		version := getSignerVersion(blockHeight, blockTime, ethCfg)
+		signer = signerMap[version](chainID)
+	}
 
 	// Get raw signature values
 	V, R, S := ethTx.RawSignatureValues()
@@ -48,7 +54,7 @@ func RecoverEVMSender(ethTx *ethtypes.Transaction, blockHeight int64, blockTime 
 	}
 
 	// Recover the sender address
-	evmAddr, _, _, err := GetAddresses(V, R, S, txHash)
+	evmAddr, _, _, err := helpers.GetAddresses(V, R, S, txHash)
 	if err != nil {
 		return common.Address{}, err
 	}

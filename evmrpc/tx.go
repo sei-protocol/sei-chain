@@ -20,7 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/sei-protocol/sei-chain/utils/helpers"
+	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -119,7 +119,7 @@ func getTransactionReceipt(
 		for _, tx := range block.Block.Txs {
 			etx := getEthTxForTxBz(tx, t.txConfigProvider(block.Block.Height).TxDecoder())
 			if etx != nil && etx.Hash() == hash {
-				from, err := helpers.RecoverEVMSender(etx, height, uint64(block.Block.Time.Unix()))
+				from, err := rpcutils.RecoverEVMSender(etx, height, uint64(block.Block.Time.Unix()))
 				if err != nil {
 					return nil, err
 				}
@@ -210,7 +210,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 		for _, tx := range res.Txs {
 			etx := getEthTxForTxBz(tx, t.txConfigProvider(LatestCtxHeight).TxDecoder())
 			if etx != nil && etx.Hash() == hash {
-				from, err := helpers.RecoverEVMSenderWithContext(sdkCtx, etx)
+				from, err := rpcutils.RecoverEVMSenderWithContext(sdkCtx, etx)
 				if err != nil {
 					sdkCtx.Logger().Error("failed to recover sender", "err", err, "tx", etx.Hash().Hex())
 					return nil, err
@@ -329,7 +329,7 @@ func (t *TransactionAPI) encodeRPCTransaction(ethtx *ethtypes.Transaction, block
 	blockHash := common.HexToHash(block.BlockID.Hash.String())
 	blockNumber := uint64(block.Block.Height) //nolint:gosec
 	blockTime := block.Block.Time
-	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
+	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(txIndex), baseFeePerGas, chainConfig)
 	replaceFrom(res, receipt)
 	return res, nil
 }
@@ -443,7 +443,7 @@ func encodeReceipt(ctxProvider func(int64) sdk.Context, txConfigProvider func(in
 		"status":            hexutil.Uint(receipt.Status),
 	}
 	if etx != nil && receipt.From == "" {
-		from, err := helpers.RecoverEVMSender(etx, int64(receipt.BlockNumber), uint64(block.Block.Time.Unix()))
+		from, err := rpcutils.RecoverEVMSender(etx, int64(receipt.BlockNumber), uint64(block.Block.Time.Unix()))
 		if err == nil {
 			fields["from"] = from
 		}
