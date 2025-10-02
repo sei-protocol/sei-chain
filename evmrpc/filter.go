@@ -531,6 +531,18 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 			begin = end
 		}
 	}
+	blockRange := end - begin + 1
+
+	// Use config value instead of hardcoded constant
+	if blockRange > a.filterConfig.maxBlock {
+		return nil, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, a.filterConfig.maxBlock)
+	}
+
+	// Only apply rate limiting for large queries (> RPSLimitThreshold blocks)
+	if blockRange > RPSLimitThreshold && !a.globalRPSLimiter.Allow() {
+		return nil, fmt.Errorf("log query rate limit exceeded for large queries, please try again later")
+	}
+
 	if begin > latestReceiptVersion || end > latestReceiptVersion {
 		return nil, fmt.Errorf("block range includes unavailable block(s)")
 	}
@@ -542,18 +554,6 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 		if header.Header.Height > latestReceiptVersion {
 			return nil, fmt.Errorf("block hash %s isn't available yet", crit.BlockHash.Hex())
 		}
-	}
-
-	blockRange := end - begin + 1
-
-	// Use config value instead of hardcoded constant
-	if blockRange > a.filterConfig.maxBlock {
-		return nil, fmt.Errorf("block range too large (%d), maximum allowed is %d blocks", blockRange, a.filterConfig.maxBlock)
-	}
-
-	// Only apply rate limiting for large queries (> RPSLimitThreshold blocks)
-	if blockRange > RPSLimitThreshold && !a.globalRPSLimiter.Allow() {
-		return nil, fmt.Errorf("log query rate limit exceeded for large queries, please try again later")
 	}
 
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)
