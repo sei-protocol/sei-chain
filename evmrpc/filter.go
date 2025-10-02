@@ -516,6 +516,11 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 	defer recordMetricsWithError(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now(), err)
 	// Calculate block range
 	latest := a.logFetcher.ctxProvider(LatestCtxHeight).BlockHeight()
+	// get block number from hash and compare to latest
+	latestReceiptVersion, err := a.logFetcher.k.GetLatestReceiptVersion(a.logFetcher.ctxProvider(LatestCtxHeight))
+	if err != nil {
+		return nil, err
+	}
 	begin, end := latest, latest
 	if crit.FromBlock != nil {
 		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
@@ -524,6 +529,18 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 		end = getHeightFromBigIntBlockNumber(latest, crit.ToBlock)
 		if crit.FromBlock == nil && begin > end {
 			begin = end
+		}
+	}
+	if begin > latestReceiptVersion || end > latestReceiptVersion {
+		return nil, fmt.Errorf("block range includes unavailable block(s)")
+	}
+	if crit.BlockHash != nil {
+		header, err := a.tmClient.HeaderByHash(ctx, crit.BlockHash[:])
+		if err != nil {
+			return nil, err
+		}
+		if header.Header.Height > latestReceiptVersion {
+			return nil, fmt.Errorf("block hash %s isn't available yet", crit.BlockHash.Hex())
 		}
 	}
 

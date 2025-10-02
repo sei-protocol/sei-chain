@@ -446,6 +446,70 @@ func TestGetLogsBlockHashIsNotZero(t *testing.T) {
 	}
 }
 
+func TestFilterGetLogsBlockHashNotYetAvailable(t *testing.T) {
+	t.Parallel()
+	// Query for a block hash that corresponds to a block height (200)
+	// that is greater than the latest receipt version (103)
+	// This should return an error saying the block hash isn't available yet
+
+	filterCriteria := map[string]interface{}{
+		"blockHash": FutureBlockHash,
+	}
+	resObj := sendRequestGood(t, "getLogs", filterCriteria)
+
+	// Should return an error
+	errorObj, hasError := resObj["error"]
+	require.True(t, hasError, "Expected an error when querying for block hash with height > latest receipt version")
+
+	errorMap := errorObj.(map[string]interface{})
+	errorMessage := errorMap["message"].(string)
+	require.Contains(t, errorMessage, "isn't available yet", "Error message should indicate block hash isn't available yet")
+}
+
+func TestFilterGetLogsBlockRangeIncludesUnavailableBlock(t *testing.T) {
+	t.Parallel()
+	// Query for a block range where toBlock (200) is greater than the latest receipt version (103)
+	// This tests that querying a range with unavailable blocks doesn't cause issues
+	// and returns logs only for available blocks or returns an appropriate error
+
+	filterCriteria := map[string]interface{}{
+		"fromBlock": "0x64", // 100 in hex - this block exists
+		"toBlock":   "0xc8", // 200 in hex - this block height > latest receipt version
+	}
+	resObj := sendRequestGood(t, "getLogs", filterCriteria)
+
+	// The behavior could be either:
+	// 1. Return an error indicating the range includes unavailable blocks
+	// 2. Return empty results (no logs found in the unavailable range)
+	// We check for both possibilities
+
+	errorObj, hasError := resObj["error"]
+	require.True(t, hasError, "Expected an error when querying for block range with unavailable block")
+	// If there's an error, it should mention the block range or unavailability
+	errorMap := errorObj.(map[string]interface{})
+	errorMessage := errorMap["message"].(string)
+	// The error could be about block range, system overload, or unavailability
+	require.Contains(t, errorMessage, "unavailable block(s)", "Error message should indicate block range includes unavailable block(s)")
+}
+
+func TestFilterGetLogsBlockRangePartiallyAvailable(t *testing.T) {
+	t.Parallel()
+	// Query for a block range that spans both available and unavailable blocks
+	// fromBlock: 100 (available), toBlock: 105 (should be available since it's < 200)
+
+	filterCriteria := map[string]interface{}{
+		"fromBlock": "0x64", // 100 in hex
+		"toBlock":   "0x69", // 105 in hex - still within available range
+	}
+	resObj := sendRequestGood(t, "getLogs", filterCriteria)
+
+	// Success case - should return a valid array
+	result, ok := resObj["result"]
+	require.True(t, ok, "Result should exist")
+	_, isArray := result.([]interface{})
+	require.True(t, isArray, "Result should be an array")
+}
+
 func TestGetLogsTransactionIndexConsistency(t *testing.T) {
 	t.Parallel()
 
