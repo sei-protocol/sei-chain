@@ -211,8 +211,8 @@ func filterTransactions(
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
 				sender, _ := helpers.RecoverEVMSender(ethtx, block.Block.Height, uint64(block.Block.Time.Unix()))
-				receipt, err := k.GetReceipt(latestCtx, hash)
-				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(latestCtx, receipt) {
+				receipt, found := getOrSetCachedReceipt(latestCtx, k, block, hash)
+				if !found || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(latestCtx, receipt) {
 					continue
 				}
 				if _, ok := nonceMap[sender.Hex()]; !ok {
@@ -231,8 +231,8 @@ func filterTransactions(
 					continue
 				}
 				th := sha256.Sum256(block.Block.Txs[i])
-				_, err := k.GetReceipt(latestCtx, th)
-				if err != nil {
+				_, found := getOrSetCachedReceipt(latestCtx, k, block, th)
+				if !found {
 					continue
 				}
 				txs = append(txs, indexedMsg{index: i, msg: msg})
