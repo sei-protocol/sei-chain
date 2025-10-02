@@ -551,6 +551,9 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 		if err != nil {
 			return nil, err
 		}
+		if header == nil || header.Header == nil {
+			return nil, fmt.Errorf("block hash %s not found", crit.BlockHash.Hex())
+		}
 		if header.Header.Height > latestReceiptVersion {
 			return nil, fmt.Errorf("block hash %s isn't available yet", crit.BlockHash.Hex())
 		}
