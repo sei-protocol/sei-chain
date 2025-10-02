@@ -95,7 +95,7 @@ func makePeerManager(peers map[types.NodeID]testPeer) *p2p.PeerManager {
 		MaxConnectedUpgrade: 2,
 	}, p2p.NopMetrics())
 	for nodeId := range peers {
-		_, err := peerManager.Add(p2p.NodeAddress{Protocol: "memory", NodeID: nodeId})
+		_, err := peerManager.Add(p2p.NodeAddress{NodeID: nodeId, Hostname: "a.com", Port: 1234})
 		peerManager.MarkReadyConnected(nodeId)
 		if err != nil {
 			panic(err)
