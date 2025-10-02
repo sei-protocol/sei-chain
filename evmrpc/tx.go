@@ -444,7 +444,7 @@ func encodeReceipt(ctxProvider func(int64) sdk.Context, txConfigProvider func(in
 		"status":            hexutil.Uint(receipt.Status),
 	}
 	if etx != nil && receipt.From == "" {
-		from, err := rpcutils.RecoverEVMSender(etx, int64(receipt.BlockNumber), block.Block.Time.Unix())
+		from, err := rpcutils.RecoverEVMSender(etx, block.Block.Height, block.Block.Time.Unix())
 		if err == nil {
 			fields["from"] = from
 		}
