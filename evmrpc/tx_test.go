@@ -112,7 +112,7 @@ func TestSign(t *testing.T) {
 	signed, err := txApi.Sign(account, []byte("data"))
 	require.Nil(t, err)
 	require.NotEmpty(t, signed)
-	
+
 	// Test signing with address that doesn't have hosted key
 	nonExistentAddr := common.HexToAddress("0x9999999999999999999999999999999999999999")
 	_, err = txApi.Sign(nonExistentAddr, []byte("data"))
@@ -198,7 +198,7 @@ func TestCumulativeGasUsedPopulation(t *testing.T) {
 func TestGetTransactionReceiptFailedTxWithZeroGas(t *testing.T) {
 	// This tests the receipt population logic for ante handler failures
 	txHash := common.HexToHash("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	
+
 	// Create a failed receipt with 0 gas (ante handler failure case)
 	receipt := &types.Receipt{
 		TxHashHex:        txHash.Hex(),
@@ -210,7 +210,7 @@ func TestGetTransactionReceiptFailedTxWithZeroGas(t *testing.T) {
 	}
 	err := EVMKeeper.MockReceipt(Ctx, txHash, receipt)
 	require.NoError(t, err)
-	
+
 	body := fmt.Sprintf(`{"jsonrpc": "2.0","method": "eth_getTransactionReceipt","params":["%s"],"id":"test"}`, txHash.Hex())
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
@@ -221,7 +221,7 @@ func TestGetTransactionReceiptFailedTxWithZeroGas(t *testing.T) {
 	require.Nil(t, err)
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	
+
 	// The receipt should be returned even if tx not found in block
 	// This tests that the code path for Status==0 && GasUsed==0 is executed
 	result := resObj["result"]
@@ -243,11 +243,11 @@ func TestGetTransactionByBlockNumberAndIndexErrors(t *testing.T) {
 	require.Nil(t, err)
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	
+
 	// Should get an error for invalid tx index
 	errMap := resObj["error"].(map[string]interface{})
 	require.Contains(t, errMap["message"].(string), "invalid tx index")
-	
+
 	body = fmt.Sprintf(`{"jsonrpc": "2.0","method": "eth_getTransactionByBlockNumberAndIndex","params":["0x999999","0x0"],"id":"test"}`)
 	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
@@ -258,7 +258,7 @@ func TestGetTransactionByBlockNumberAndIndexErrors(t *testing.T) {
 	require.Nil(t, err)
 	resObj = map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	
+
 	// Should get an error for non-existent block
 	errMap = resObj["error"].(map[string]interface{})
 	require.NotNil(t, errMap["message"])
@@ -276,11 +276,11 @@ func TestGetTransactionByBlockHashAndIndexErrors(t *testing.T) {
 	require.Nil(t, err)
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	
+
 	// Should get an error for non-existent block hash
 	errMap := resObj["error"].(map[string]interface{})
 	require.NotNil(t, errMap["message"])
-	
+
 	body = fmt.Sprintf(`{"jsonrpc": "2.0","method": "eth_getTransactionByBlockHashAndIndex","params":["%s","0xFFFFFFFFFF"],"id":"test"}`, TestBlockHash)
 	req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
@@ -291,7 +291,7 @@ func TestGetTransactionByBlockHashAndIndexErrors(t *testing.T) {
 	require.Nil(t, err)
 	resObj = map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	
+
 	// Should get an error for invalid tx index
 	errMap = resObj["error"].(map[string]interface{})
 	require.Contains(t, errMap["message"].(string), "invalid tx index")
@@ -309,14 +309,14 @@ func TestGetTransactionByHashNotFound(t *testing.T) {
 	require.Nil(t, err)
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	
+
 	// Should return null for non-existent transaction
 	require.Nil(t, resObj["result"])
 }
 
 func TestGetTransactionByHashTxNotFound(t *testing.T) {
 	txHash := common.HexToHash("0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
-	
+
 	// Create a receipt but ensure the tx won't be found in the block
 	receipt := &types.Receipt{
 		TxHashHex:        txHash.Hex(),
@@ -327,7 +327,7 @@ func TestGetTransactionByHashTxNotFound(t *testing.T) {
 	}
 	err := EVMKeeper.MockReceipt(Ctx, txHash, receipt)
 	require.NoError(t, err)
-	
+
 	body := fmt.Sprintf(`{"jsonrpc": "2.0","method": "eth_getTransactionByHash","params":["%s"],"id":"test"}`, txHash.Hex())
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
@@ -338,7 +338,7 @@ func TestGetTransactionByHashTxNotFound(t *testing.T) {
 	require.Nil(t, err)
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	
+
 	// Should return null when tx not found in block
 	require.Nil(t, resObj["result"])
 }
@@ -355,7 +355,7 @@ func TestGetTransactionErrorByHashNotFound(t *testing.T) {
 	require.Nil(t, err)
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	
+
 	// Should return empty string for non-existent transaction
 	require.Equal(t, "", resObj["result"])
 }
@@ -371,7 +371,7 @@ func TestGetTransactionWithBlockIndexOutOfRange(t *testing.T) {
 	require.Nil(t, err)
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	
+
 	// Should get an error for index out of range
 	errMap := resObj["error"].(map[string]interface{})
 	require.Contains(t, errMap["message"].(string), "transaction index out of range")
@@ -379,7 +379,7 @@ func TestGetTransactionWithBlockIndexOutOfRange(t *testing.T) {
 
 func TestEncodeReceiptTransactionNotFound(t *testing.T) {
 	txHash := common.HexToHash("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
-	
+
 	// Create a receipt with invalid transaction index
 	receipt := &types.Receipt{
 		TxHashHex:        txHash.Hex(),
@@ -390,7 +390,7 @@ func TestEncodeReceiptTransactionNotFound(t *testing.T) {
 	}
 	err := EVMKeeper.MockReceipt(Ctx, txHash, receipt)
 	require.NoError(t, err)
-	
+
 	body := fmt.Sprintf(`{"jsonrpc": "2.0","method": "eth_getTransactionReceipt","params":["%s"],"id":"test"}`, txHash.Hex())
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
@@ -401,7 +401,7 @@ func TestEncodeReceiptTransactionNotFound(t *testing.T) {
 	require.Nil(t, err)
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	
+
 	// Should get an error when transaction not found in block
 	errMap := resObj["error"].(map[string]interface{})
 	require.Contains(t, errMap["message"].(string), "failed to find transaction in block")
@@ -411,7 +411,7 @@ func TestEncodeReceiptWithEthTxAndEmptyFrom(t *testing.T) {
 	// This test uses an existing transaction that should have a receipt
 	// The test verifies that receipts are properly encoded with from field
 	txHash := common.HexToHash("0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32")
-	
+
 	body := fmt.Sprintf(`{"jsonrpc": "2.0","method": "eth_getTransactionReceipt","params":["%s"],"id":"test"}`, txHash.Hex())
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
@@ -422,7 +422,7 @@ func TestEncodeReceiptWithEthTxAndEmptyFrom(t *testing.T) {
 	require.Nil(t, err)
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	
+
 	// Should successfully get receipt with from field populated
 	result := resObj["result"]
 	if result != nil {
@@ -434,7 +434,7 @@ func TestEncodeReceiptWithEthTxAndEmptyFrom(t *testing.T) {
 func TestEncodeReceiptContractAddress(t *testing.T) {
 	// Test coverage for lines 456-463: contract address handling
 	txHash := common.HexToHash("0xbbbb0000000000000000000000000000000000000000000000000000000000bb")
-	
+
 	// Create a receipt with contract address but no "to" field (contract creation)
 	receipt := &types.Receipt{
 		TxHashHex:        txHash.Hex(),
@@ -448,7 +448,7 @@ func TestEncodeReceiptContractAddress(t *testing.T) {
 	}
 	err := EVMKeeper.MockReceipt(Ctx, txHash, receipt)
 	require.NoError(t, err)
-	
+
 	body := fmt.Sprintf(`{"jsonrpc": "2.0","method": "eth_getTransactionReceipt","params":["%s"],"id":"test"}`, txHash.Hex())
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
@@ -459,7 +459,7 @@ func TestEncodeReceiptContractAddress(t *testing.T) {
 	require.Nil(t, err)
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	
+
 	// Should have contractAddress field set
 	if resObj["result"] != nil {
 		resultMap := resObj["result"].(map[string]interface{})
@@ -470,7 +470,7 @@ func TestEncodeReceiptContractAddress(t *testing.T) {
 func TestEncodeReceiptWithToAddress(t *testing.T) {
 	// Test coverage for lines 461-463: receipt.To != ""
 	txHash := common.HexToHash("0xcccc0000000000000000000000000000000000000000000000000000000000cc")
-	
+
 	// Create a receipt with "to" field set (regular transaction)
 	receipt := &types.Receipt{
 		TxHashHex:        txHash.Hex(),
@@ -484,7 +484,7 @@ func TestEncodeReceiptWithToAddress(t *testing.T) {
 	}
 	err := EVMKeeper.MockReceipt(Ctx, txHash, receipt)
 	require.NoError(t, err)
-	
+
 	body := fmt.Sprintf(`{"jsonrpc": "2.0","method": "eth_getTransactionReceipt","params":["%s"],"id":"test"}`, txHash.Hex())
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, TestPort), strings.NewReader(body))
 	require.Nil(t, err)
@@ -495,7 +495,7 @@ func TestEncodeReceiptWithToAddress(t *testing.T) {
 	require.Nil(t, err)
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
-	
+
 	// Should have "to" field set
 	if resObj["result"] != nil {
 		resultMap := resObj["result"].(map[string]interface{})
