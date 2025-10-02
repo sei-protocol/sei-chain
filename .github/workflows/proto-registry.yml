@@ -1,6 +1,5 @@
 name: 🛰️ Buf-Push
 
-# Triggers only when proto files change or via manual dispatch
 on:
   workflow_dispatch:
   push:
@@ -31,7 +30,8 @@ jobs:
             exit 1
           fi
 
-      # Optional: auth fallback if needed
+      # Optional: Login is not required for pushing with env-var-based auth
+      # Keeping this in case you want explicit CLI login as a side-effect
       - name: 🔐 Login to buf.build
         run: buf login --token "${{ secrets.BUF_TOKEN }}"
 
@@ -39,4 +39,5 @@ jobs:
         uses: bufbuild/buf-push-action@v1
         with:
           input: "proto"
-          buf_token: ${{ secrets.BUF_TOKEN }}
+        env:
+          BUF_TOKEN: ${{ secrets.BUF_TOKEN }}
