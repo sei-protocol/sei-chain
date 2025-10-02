@@ -198,7 +198,8 @@ func filterTransactions(
 	includeBankTransfers bool,
 ) []indexedMsg {
 	txs := []indexedMsg{}
-	nonceMap := make(map[string]uint64)
+	txCounts := make(map[string]uint64)
+	startOfBlockNonce := make(map[string]uint64)
 	txConfig := txConfigProvider(block.Block.Height)
 	latestCtx := ctxProvider(LatestCtxHeight)
 	ctx := ctxProvider(block.Block.Height)
@@ -221,16 +222,20 @@ func filterTransactions(
 				if !found || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
 					continue
 				}
-				if _, ok := nonceMap[sender.Hex()]; !ok {
-					nonceMap[sender.Hex()] = k.GetNonce(prevCtx, common.HexToAddress(sender.Hex()))
-				}
-				if nonceMap[sender.Hex()] != ethtx.Nonce() {
-					continue
+				txCount := txCounts[sender.Hex()]
+				if receipt.Status == 0 {
+					// check if the transaction bumped nonce. If not, exclude it
+					if _, ok := startOfBlockNonce[sender.Hex()]; !ok {
+						startOfBlockNonce[sender.Hex()] = k.GetNonce(prevCtx, common.HexToAddress(sender.Hex()))
+					}
+					if txCount+startOfBlockNonce[sender.Hex()] != ethtx.Nonce() {
+						continue
+					}
 				}
 				if !includeSyntheticTxs && receipt.TxType == types.ShellEVMTxType {
 					continue
 				}
-				nonceMap[sender.Hex()]++
+				txCounts[sender.Hex()] = txCount + 1
 				txs = append(txs, indexedMsg{index: i, msg: msg})
 			case *wasmtypes.MsgExecuteContract:
 				if !includeSyntheticTxs {
