@@ -447,7 +447,6 @@ func TestGetLogsBlockHashIsNotZero(t *testing.T) {
 }
 
 func TestFilterGetLogsBlockHashNotYetAvailable(t *testing.T) {
-	t.Parallel()
 	// Query for a block hash that corresponds to a block height (200)
 	// that is greater than the latest receipt version (103)
 	// This should return an error saying the block hash isn't available yet
@@ -467,7 +466,6 @@ func TestFilterGetLogsBlockHashNotYetAvailable(t *testing.T) {
 }
 
 func TestFilterGetLogsBlockRangeIncludesUnavailableBlock(t *testing.T) {
-	t.Parallel()
 	// Query for a block range where toBlock (200) is greater than the latest receipt version (103)
 	// This tests that querying a range with unavailable blocks doesn't cause issues
 	// and returns logs only for available blocks or returns an appropriate error
@@ -493,7 +491,6 @@ func TestFilterGetLogsBlockRangeIncludesUnavailableBlock(t *testing.T) {
 }
 
 func TestFilterGetLogsBlockRangePartiallyAvailable(t *testing.T) {
-	t.Parallel()
 	// Query for a block range that spans both available and unavailable blocks
 	// fromBlock: 100 (available), toBlock: 105 (should be available since it's < 200)
 
