@@ -582,7 +582,7 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 		Number:        blockNumber,
 		BaseFee:       baseFee,
 		GasLimit:      gasLimit,
-		Time:          toUint64(time.Now().Unix()),
+		Time:          toUint64(time.Now().Unix()), //nolint:gosec
 		ExcessBlobGas: &zeroExcessBlobGas,
 	}
 
