@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"sort"
 	"sync"
 	"time"
@@ -828,13 +827,8 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	ctx := f.ctxProvider(block.Block.Height)
 	totalLogs := uint(0)
 	evmTxIndex := 0
-	signer := ethtypes.MakeSigner(
-		evmtypes.DefaultChainConfig().EthereumConfig(f.k.ChainID(ctx)),
-		big.NewInt(ctx.BlockHeight()),
-		uint64(ctx.BlockTime().Unix()), //nolint:gosec
-	)
 
-	for _, hash := range getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, signer, f.includeSyntheticReceipts) {
+	for _, hash := range getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts) {
 		receipt, found := getCachedReceipt(f.globalBlockCache, block.Block.Height, hash.hash)
 		if !found {
 			var err error

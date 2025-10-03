@@ -2,14 +2,13 @@ package evmrpc
 
 import (
 	"context"
-	"math/big"
 	"strconv"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
+	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -48,18 +47,13 @@ func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]m
 	}
 
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
-	signer := ethtypes.MakeSigner(
-		types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
-		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Unix()),
-	)
-
 	for _, tx := range resUnconfirmedTxs.Txs {
 		ethTx := getEthTxForTxBz(tx, t.txConfigProvider(LatestCtxHeight).TxDecoder())
 		if ethTx == nil { // not an evm tx
 			continue
 		}
-		fromAddr, err := ethtypes.Sender(signer, ethTx)
+
+		fromAddr, err := rpcutils.RecoverEVMSender(ethTx, sdkCtx.BlockHeight(), sdkCtx.BlockTime().Unix())
 		if err != nil {
 			return nil, err
 		}
