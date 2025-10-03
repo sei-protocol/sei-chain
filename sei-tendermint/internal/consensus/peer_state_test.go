@@ -5,12 +5,21 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/version"
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
+
+var plausibleTestHeader = types.Header{
+	Version: version.Consensus{
+		Block: version.BlockProtocol,
+	},
+	Height:          1,
+	ProposerAddress: make(types.Address, 20),
+}
 
 func peerStateSetup(h, r, v int) *PeerState {
 	ps := NewPeerState(log.NewNopLogger(), "testPeerState")
@@ -122,6 +131,7 @@ func TestSetHasProposal(t *testing.T) {
 				Hash:  make([]byte, crypto.HashSize),
 			},
 		},
+		Header: plausibleTestHeader,
 		// Missing signature
 	}
 	ps.SetHasProposal(invalidProposal)
@@ -142,6 +152,7 @@ func TestSetHasProposal(t *testing.T) {
 				Hash:  crypto.CRandBytes(crypto.HashSize),
 			},
 		},
+		Header:    plausibleTestHeader,
 		Signature: []byte("signature"),
 	}
 	ps3.SetHasProposal(tooLargeTotalProposal)
@@ -160,6 +171,7 @@ func TestSetHasProposal(t *testing.T) {
 				Hash:  crypto.CRandBytes(crypto.HashSize),
 			},
 		},
+		Header:    plausibleTestHeader,
 		Signature: []byte("signature"),
 	}
 	ps.SetHasProposal(validProposal)
@@ -179,6 +191,7 @@ func TestSetHasProposal(t *testing.T) {
 				Hash:  crypto.CRandBytes(crypto.HashSize),
 			},
 		},
+		Header:    plausibleTestHeader,
 		Signature: []byte("signature"),
 	}
 	ps2.SetHasProposal(differentProposal)
@@ -235,6 +248,7 @@ func TestSetHasProposalMemoryLimit(t *testing.T) {
 
 			// Set up proposal with test case total
 			proposal.BlockID.PartSetHeader.Total = tc.total
+			proposal.Header = plausibleTestHeader // Use a plausible header
 
 			// Try to set the proposal
 			ps.SetHasProposal(proposal)
@@ -424,6 +438,7 @@ func TestSetHasProposalEdgeCases(t *testing.T) {
 				},
 				Timestamp: time.Now(),
 				Signature: []byte("test-signature"),
+				Header:    plausibleTestHeader,
 			},
 			expectProposal: true, // Should be set
 			expectPanic:    false,
