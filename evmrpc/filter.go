@@ -515,6 +515,11 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 	defer recordMetricsWithError(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now(), err)
 	// Calculate block range
 	latest := a.logFetcher.ctxProvider(LatestCtxHeight).BlockHeight()
+	// get block number from hash and compare to latest
+	latestReceiptVersion, err := a.logFetcher.k.GetLatestReceiptVersion(a.logFetcher.ctxProvider(LatestCtxHeight))
+	if err != nil {
+		return nil, err
+	}
 	begin, end := latest, latest
 	if crit.FromBlock != nil {
 		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
@@ -525,7 +530,6 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 			begin = end
 		}
 	}
-
 	blockRange := end - begin + 1
 
 	// Use config value instead of hardcoded constant
@@ -536,6 +540,22 @@ func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (r
 	// Only apply rate limiting for large queries (> RPSLimitThreshold blocks)
 	if blockRange > RPSLimitThreshold && !a.globalRPSLimiter.Allow() {
 		return nil, fmt.Errorf("log query rate limit exceeded for large queries, please try again later")
+	}
+
+	if begin > latestReceiptVersion || end > latestReceiptVersion {
+		return nil, fmt.Errorf("block range includes unavailable block(s)")
+	}
+	if crit.BlockHash != nil {
+		header, err := a.tmClient.HeaderByHash(ctx, crit.BlockHash[:])
+		if err != nil {
+			return nil, err
+		}
+		if header == nil || header.Header == nil {
+			return nil, fmt.Errorf("block hash %s not found", crit.BlockHash.Hex())
+		}
+		if header.Header.Height > latestReceiptVersion {
+			return nil, fmt.Errorf("block hash %s isn't available yet", crit.BlockHash.Hex())
+		}
 	}
 
 	logs, _, err := a.logFetcher.GetLogsByFilters(ctx, crit, 0)

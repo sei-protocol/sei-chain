@@ -52,6 +52,7 @@ func TestGetReceiptWithRetry(t *testing.T) {
 func TestFlushTransientReceiptsSync(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
+	ctx = ctx.WithBlockHeight(10)
 	txHash := common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
 	receipt := &types.Receipt{TxHashHex: txHash.Hex(), Status: 1}
 
@@ -72,6 +73,10 @@ func TestFlushTransientReceiptsSync(t *testing.T) {
 	err = k.FlushTransientReceiptsSync(ctx)
 	require.NoError(t, err)
 
+	version, err := k.GetLatestReceiptVersion(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(10), version)
+
 	// Now should be retrievable from persistent store
 	pr, err := k.GetReceipt(ctx, txHash)
 	require.NoError(t, err)
@@ -81,9 +86,18 @@ func TestFlushTransientReceiptsSync(t *testing.T) {
 	_, _ = k.GetTransientReceipt(ctx, txHash, 0)
 	// Could be not found or still present depending on flush logic, so we don't assert error here
 
+	ctx = ctx.WithBlockHeight(11)
+	version, err = k.GetLatestReceiptVersion(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(10), version) // should still be 10 because we haven't flushed yet
+
 	// Flushing with no receipts should not error
 	err = k.FlushTransientReceiptsSync(ctx)
 	require.NoError(t, err)
+
+	version, err = k.GetLatestReceiptVersion(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(11), version) // now should be 11 because we flushed
 }
 
 func TestDeleteTransientReceipt(t *testing.T) {

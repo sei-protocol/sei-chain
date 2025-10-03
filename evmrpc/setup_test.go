@@ -55,11 +55,13 @@ const MockHeight2 = 2
 const MockHeight103 = 103
 const MockHeight101 = 101
 const MockHeight100 = 100
+const MockHeight200 = 200
 
 var DebugTraceHashHex = "0x1234567890123456789023456789012345678901234567890123456789000004"
 var DebugTraceBlockHash = "0xBE17E0261E539CB7E9A91E123A6D794E0163D656FCF9B8EAC07823F7ED28512B"
 var DebugTracePanicBlockHash = "0x0000000000000000000000000000000000000000000000000000000000000003"
 var MultiTxBlockHash = "0x0000000000000000000000000000000000000000000000000000000000000002"
+var FutureBlockHash = "0x00000000000000000000000000000000000000000000000000000000000000C8"
 
 var TestCosmosTxHash = "690D39ADF56D4C811B766DFCD729A415C36C4BFFE80D63E305373B9518EBFB14"
 var TestEvmTxHash = "0xf02362077ac075a397344172496b28e913ce5294879d811bb0269b3be20a872e"
@@ -333,7 +335,20 @@ func (c *MockClient) BlockByHash(_ context.Context, hash bytes.HexBytes) (*coret
 	if hash.String() == MultiTxBlockHash[2:] {
 		return c.mockBlock(MockHeight2), nil
 	}
+	if hash.String() == FutureBlockHash[2:] {
+		return c.mockBlock(MockHeight200), nil
+	}
 	return c.mockBlock(MockHeight8), nil
+}
+
+func (c *MockClient) HeaderByHash(_ context.Context, hash bytes.HexBytes) (*coretypes.ResultHeader, error) {
+	block, err := c.BlockByHash(context.Background(), hash)
+	if err != nil {
+		return nil, err
+	}
+	return &coretypes.ResultHeader{
+		Header: &block.Block.Header,
+	}, nil
 }
 
 func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.ResultBlockResults, error) {
@@ -1039,6 +1054,16 @@ func setupLogs() {
 			Topics:    []string{"0x0000000000000000000000000000000000000000000000000000000000000234", "0x0000000000000000000000000000000000000000000000000000000000000789"},
 			Synthetic: true,
 		}},
+		EffectiveGasPrice: 100,
+	})
+
+	// write mock receipt for height 199
+	CtxHeight199 := Ctx.WithBlockHeight(199)
+	EVMKeeper.MockReceipt(CtxHeight199, common.HexToHash("0x1234567890123456789012345678901234567890123456789012345678901999"), &types.Receipt{
+		BlockNumber:       199,
+		TransactionIndex:  0,
+		TxHashHex:         "0x1234567890123456789012345678901234567890123456789012345678901999",
+		GasUsed:           21000,
 		EffectiveGasPrice: 100,
 	})
 
