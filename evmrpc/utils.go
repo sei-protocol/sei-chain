@@ -223,7 +223,7 @@ func filterTransactions(
 					continue
 				}
 				txCount := txCounts[sender.Hex()]
-				if receipt.Status == 0 {
+				if receipt.Status == 0 && receipt.EffectiveGasPrice == 0 {
 					// check if the transaction bumped nonce. If not, exclude it
 					if _, ok := startOfBlockNonce[sender.Hex()]; !ok {
 						startOfBlockNonce[sender.Hex()] = k.GetNonce(prevCtx, common.HexToAddress(sender.Hex()))
