@@ -9,6 +9,22 @@ import (
 	"github.com/gogo/protobuf/proto"
 )
 
+// Int is a type constraint for integer types.
+type Int interface {
+	~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uint |
+		~int8 | ~int16 | ~int32 | ~int64 | ~int
+}
+
+// SafeCast casts between integer types, checking for overflows.
+func SafeCast[To Int, From Int](v From) (x To, ok bool) {
+	x = To(v)
+	// This can be further optimized by:
+	// * making compiler detect if From -> To conversion is always safe
+	// * making compiler detect if the parity check is necessary
+	ok = From(x) == v && (x < 0) == (v < 0)
+	return
+}
+
 // Hash is a SHA-256 hash.
 type Hash [sha256.Size]byte
 
