@@ -21,7 +21,7 @@ import (
 	"io"
 
 	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/internal/conn"
+	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
 )
 
@@ -38,55 +38,12 @@ func makeKeyAndInfo() (crypto.PrivKey, types.NodeInfo) {
 	return peerKey, peerInfo
 }
 
-// Establishes a connection to the transport.
-// Returns both ends of the connection.
-func connect(ctx context.Context, tr *Router) (c1 *Connection, c2 *Connection, err error) {
-	defer func() {
-		if err != nil {
-			if c1 != nil {
-				c1.Close()
-			}
-			if c2 != nil {
-				c2.Close()
-			}
-		}
-	}()
-	// Here we are utilizing the fact that Router accepts connection proactively
-	// before Accept is called.
-	c1, err = tr.Dial(ctx, tr.Endpoint())
-	if err != nil {
-		return nil, nil, fmt.Errorf("Dial(): %w", err)
-	}
-	c2, err = tr.Accept(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("Accept(): %w", err)
-	}
-	if got, want := c1.LocalEndpoint(), c2.RemoteEndpoint(); got != want {
-		return nil, nil, fmt.Errorf("c1.LocalEndpoint() = %v, want %v", got, want)
-	}
-	if got, want := c1.RemoteEndpoint(), c2.LocalEndpoint(); got != want {
-		return nil, nil, fmt.Errorf("c1.RemoteEndpoint() = %v, want %v", got, want)
-	}
-	return c1, c2, nil
-}
-
 func TestRouter_AcceptMaxAcceptedConnections(t *testing.T) {
+	logger, _ := log.NewDefaultLogger("plain", "debug")
 	ctx := t.Context()
-	transport := NewRouter(
-		log.NewNopLogger(),
-		Endpoint{tcp.TestReserveAddr()},
-		conn.DefaultMConnConfig(),
-		[]*ChannelDescriptor{{ID: chID, Priority: 1}},
-		RouterOptions{
-			MaxAcceptedConnections: 2,
-		},
-	)
+	h := spawnRouter(t,logger)
 
 	err := utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnBgNamed("transport", func() error { return transport.Run(ctx) })
-		if err := transport.WaitForStart(ctx); err != nil {
-			return err
-		}
 		t.Logf("The first two connections should be accepted just fine.")
 
 		a1, a2, err := connect(ctx, transport)

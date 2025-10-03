@@ -68,6 +68,9 @@ var Panics = require.Panics
 // Fail .
 var Fail = require.Fail
 
+// FailNow .
+var FailNow = require.FailNow
+
 // Positive .
 func Positive[T cmp.Ordered](t TestingT, e T, msgAndArgs ...any) {
 	require.Positive(t, e, msgAndArgs...)

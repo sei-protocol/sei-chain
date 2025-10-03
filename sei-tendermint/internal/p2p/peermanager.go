@@ -319,6 +319,7 @@ type PeerManager struct {
 	evictWaker *tmsync.Waker // wakes up EvictNext() on relevant peer changes
 
 	mtx           sync.Mutex
+	dynamicPrivatePeers map[types.NodeID]struct{} // dynamically added private peers
 	store         *peerStore
 	subscriptions map[*PeerUpdates]*PeerUpdates // keyed by struct identity (address)
 	dialing       map[types.NodeID]bool         // peers being dialed (DialNext → Dialed/DialFail)
@@ -361,6 +362,7 @@ func NewPeerManager(
 		evictWaker: tmsync.NewWaker(),
 
 		store:         store,
+		dynamicPrivatePeers: map[types.NodeID]struct{}{},
 		dialing:       map[types.NodeID]bool{},
 		upgrading:     map[types.NodeID]types.NodeID{},
 		connected:     map[types.NodeID]bool{},
@@ -377,6 +379,12 @@ func NewPeerManager(
 		return nil, err
 	}
 	return peerManager, nil
+}
+
+func (m *PeerManager) AddPrivatePeer(id types.NodeID) {
+	m.mtx.Lock()
+	defer m.mtx.Unlock()
+	m.dynamicPrivatePeers[id] = struct{}{}
 }
 
 // configurePeers configures peers in the peer store with ephemeral runtime
@@ -939,9 +947,13 @@ func (m *PeerManager) Advertise(peerID types.NodeID, limit uint16) []NodeAddress
 			}
 
 			// only add non-private NodeIDs
-			if _, ok := m.options.PrivatePeers[nodeAddr.NodeID]; !ok {
-				addresses = append(addresses, addressInfo.Address)
+			if _, ok := m.options.PrivatePeers[nodeAddr.NodeID]; ok {
+				continue
 			}
+			if _,ok := m.dynamicPrivatePeers[nodeAddr.NodeID]; ok {
+				continue
+			}
+			addresses = append(addresses, addressInfo.Address)
 		}
 	}
 

@@ -1,4 +1,4 @@
-package p2ptest
+package p2p
 
 import (
 	"context"
@@ -10,31 +10,43 @@ import (
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/types"
+	gogotypes "github.com/gogo/protobuf/types"
 )
+
+// Message is a simple message containing a string-typed Value field.
+type TestMessage = gogotypes.StringValue
+
+func NodeInSlice(id types.NodeID, ids []types.NodeID) bool {
+	for _, n := range ids {
+		if id == n {
+			return true
+		}
+	}
+	return false
+}
 
 // Network sets up an in-memory network that can be used for high-level P2P
 // testing. It creates an arbitrary number of nodes that are connected to each
 // other, and can open channels across all nodes with custom reactors.
-type Network struct {
+type TestNetwork struct {
 	logger log.Logger
-	nodes  utils.Mutex[map[types.NodeID]*Node]
+	nodes  utils.Mutex[map[types.NodeID]*TestNode]
 }
 
 // NetworkOptions is an argument structure to parameterize the
 // MakeNetwork function.
-type NetworkOptions struct {
+type TestNetworkOptions struct {
 	NumNodes int
-	NodeOpts NodeOptions
+	NodeOpts TestNodeOptions
 }
 
-type NodeOptions struct {
+type TestNodeOptions struct {
 	MaxPeers     uint16
 	MaxConnected uint16
 	MaxRetryTime time.Duration
@@ -42,11 +54,11 @@ type NodeOptions struct {
 
 // MakeNetwork creates a test network with the given number of nodes and
 // connects them to each other.
-func MakeNetwork(t *testing.T, opts NetworkOptions) *Network {
+func MakeTestNetwork(t *testing.T, opts TestNetworkOptions) *TestNetwork {
 	logger, _ := log.NewDefaultLogger("plain", "info")
-	n := &Network{
+	n := &TestNetwork{
 		logger: logger,
-		nodes:  utils.NewMutex(map[types.NodeID]*Node{}),
+		nodes:  utils.NewMutex(map[types.NodeID]*TestNode{}),
 	}
 	for i := 0; i < opts.NumNodes; i++ {
 		n.MakeNode(t, opts.NodeOpts)
@@ -54,8 +66,8 @@ func MakeNetwork(t *testing.T, opts NetworkOptions) *Network {
 	return n
 }
 
-func (n *Network) Nodes() []*Node {
-	var res []*Node
+func (n *TestNetwork) Nodes() []*TestNode {
+	var res []*TestNode
 	for nodes := range n.nodes.Lock() {
 		for _, node := range nodes {
 			res = append(res, node)
@@ -67,8 +79,8 @@ func (n *Network) Nodes() []*Node {
 // Start starts the network by setting up a list of node addresses to dial in
 // addition to creating a peer update subscription for each node. Finally, all
 // nodes are connected to each other.
-func (n *Network) Start(t *testing.T) {
-	subs := map[types.NodeID]*p2p.PeerUpdates{}
+func (n *TestNetwork) Start(t *testing.T) {
+	subs := map[types.NodeID]*PeerUpdates{}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	nodes := n.Nodes()
@@ -90,9 +102,9 @@ func (n *Network) Start(t *testing.T) {
 				require.Fail(t, "operation canceled")
 			case peerUpdate := <-subs[source.NodeID].Updates():
 				peerUpdate.Channels = nil
-				require.Equal(t, p2p.PeerUpdate{
+				require.Equal(t, PeerUpdate{
 					NodeID: target.NodeID,
-					Status: p2p.PeerStatusUp,
+					Status: PeerStatusUp,
 				}, peerUpdate)
 			}
 
@@ -101,9 +113,9 @@ func (n *Network) Start(t *testing.T) {
 				require.Fail(t, "operation canceled")
 			case peerUpdate := <-subs[target.NodeID].Updates():
 				peerUpdate.Channels = nil
-				require.Equal(t, p2p.PeerUpdate{
+				require.Equal(t, PeerUpdate{
 					NodeID: source.NodeID,
-					Status: p2p.PeerStatusUp,
+					Status: PeerStatusUp,
 				}, peerUpdate)
 			}
 
@@ -117,7 +129,7 @@ func (n *Network) Start(t *testing.T) {
 }
 
 // NodeIDs returns the network's node IDs.
-func (n *Network) NodeIDs() []types.NodeID {
+func (n *TestNetwork) NodeIDs() []types.NodeID {
 	ids := []types.NodeID{}
 	for nodes := range n.nodes.Lock() {
 		for id := range nodes {
@@ -129,11 +141,11 @@ func (n *Network) NodeIDs() []types.NodeID {
 
 // MakeChannels makes a channel on all nodes and returns them, automatically
 // doing error checks and cleanups.
-func (n *Network) MakeChannels(
+func (n *TestNetwork) MakeChannels(
 	t *testing.T,
-	chDesc *p2p.ChannelDescriptor,
-) map[types.NodeID]*p2p.Channel {
-	channels := map[types.NodeID]*p2p.Channel{}
+	chDesc *ChannelDescriptor,
+) map[types.NodeID]*Channel {
+	channels := map[types.NodeID]*Channel{}
 	for nodes := range n.nodes.Lock() {
 		for id, n := range nodes {
 			channels[id] = n.MakeChannel(t, chDesc)
@@ -145,11 +157,11 @@ func (n *Network) MakeChannels(
 // MakeChannelsNoCleanup makes a channel on all nodes and returns them,
 // automatically doing error checks. The caller must ensure proper cleanup of
 // all the channels.
-func (n *Network) MakeChannelsNoCleanup(
+func (n *TestNetwork) MakeChannelsNoCleanup(
 	t *testing.T,
-	chDesc *p2p.ChannelDescriptor,
-) map[types.NodeID]*p2p.Channel {
-	channels := map[types.NodeID]*p2p.Channel{}
+	chDesc *ChannelDescriptor,
+) map[types.NodeID]*Channel {
+	channels := map[types.NodeID]*Channel{}
 	for nodes := range n.nodes.Lock() {
 		for _, node := range nodes {
 			channels[node.NodeID] = node.MakeChannelNoCleanup(t, chDesc)
@@ -158,7 +170,7 @@ func (n *Network) MakeChannelsNoCleanup(
 	return channels
 }
 
-func (n *Network) Node(id types.NodeID) *Node {
+func (n *TestNetwork) Node(id types.NodeID) *TestNode {
 	for nodes := range n.nodes.Lock() {
 		return nodes[id]
 	}
@@ -166,14 +178,14 @@ func (n *Network) Node(id types.NodeID) *Node {
 }
 
 // RandomNode returns a random node.
-func (n *Network) RandomNode() *Node {
+func (n *TestNetwork) RandomNode() *TestNode {
 	nodes := n.Nodes()
 	return nodes[rand.Intn(len(nodes))] // nolint:gosec
 }
 
 // Peers returns a node's peers (i.e. everyone except itself).
-func (n *Network) Peers(id types.NodeID) []*Node {
-	var peers []*Node
+func (n *TestNetwork) Peers(id types.NodeID) []*TestNode {
+	var peers []*TestNode
 	for _, n := range n.Nodes() {
 		if n.NodeID != id {
 			peers = append(peers, n)
@@ -184,11 +196,11 @@ func (n *Network) Peers(id types.NodeID) []*Node {
 
 // Remove removes a node from the network, stopping it and waiting for all other
 // nodes to pick up the disconnection.
-func (n *Network) Remove(ctx context.Context, t *testing.T, id types.NodeID) {
-	ctx, cancel := context.WithCancel(ctx)
+func (n *TestNetwork) Remove(t *testing.T, id types.NodeID) {
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	var node *Node
-	var subs []*p2p.PeerUpdates
+	var node *TestNode
+	var subs []*PeerUpdates
 	for nodes := range n.nodes.Lock() {
 		require.Contains(t, nodes, id)
 		node = nodes[id]
@@ -203,22 +215,22 @@ func (n *Network) Remove(ctx context.Context, t *testing.T, id types.NodeID) {
 		node.Router.Wait()
 	}
 	for _, sub := range subs {
-		RequireUpdate(t, sub, p2p.PeerUpdate{
+		RequireUpdate(t, sub, PeerUpdate{
 			NodeID: node.NodeID,
-			Status: p2p.PeerStatusDown,
+			Status: PeerStatusDown,
 		})
 	}
 }
 
 // Node is a node in a Network, with a Router and a PeerManager.
-type Node struct {
+type TestNode struct {
 	Logger      log.Logger
 	NodeID      types.NodeID
 	NodeInfo    types.NodeInfo
-	NodeAddress p2p.NodeAddress
+	NodeAddress NodeAddress
 	PrivKey     crypto.PrivKey
-	Router      *p2p.Router
-	PeerManager *p2p.PeerManager
+	Router      *Router
+	PeerManager *PeerManager
 
 	cancel context.CancelFunc
 }
@@ -226,7 +238,7 @@ type Node struct {
 // MakeNode creates a new Node configured for the network with a
 // running peer manager, but does not add it to the existing
 // network. Callers are responsible for updating peering relationships.
-func (n *Network) MakeNode(t *testing.T, opts NodeOptions) *Node {
+func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	privKey := ed25519.GenPrivKey()
 	nodeID := types.NodeIDFromPubKey(privKey.PubKey())
 	logger := n.logger.With("node", nodeID[:5])
@@ -236,9 +248,9 @@ func (n *Network) MakeNode(t *testing.T, opts NodeOptions) *Node {
 		maxRetryTime = opts.MaxRetryTime
 	}
 
-	routerOpts := p2p.RouterOptions {
+	routerOpts := RouterOptions {
 		DialSleep: func(_ context.Context) error { return nil },
-		Endpoint: p2p.Endpoint{AddrPort:tcp.TestReserveAddr()},
+		Endpoint: Endpoint{AddrPort:tcp.TestReserveAddr()},
 		Connection: conn.DefaultMConnConfig(),
 	}
 	nodeInfo := types.NodeInfo{
@@ -248,18 +260,18 @@ func (n *Network) MakeNode(t *testing.T, opts NodeOptions) *Node {
 		Network:    "test",
 	}
 
-	peerManager, err := p2p.NewPeerManager(logger, nodeID, dbm.NewMemDB(), p2p.PeerManagerOptions{
+	peerManager, err := NewPeerManager(logger, nodeID, dbm.NewMemDB(), PeerManagerOptions{
 		MinRetryTime:    10 * time.Millisecond,
 		MaxRetryTime:    maxRetryTime,
 		RetryTimeJitter: time.Millisecond,
 		MaxPeers:        opts.MaxPeers,
 		MaxConnected:    opts.MaxConnected,
-	}, p2p.NopMetrics())
+	}, NopMetrics())
 	require.NoError(t, err)
 
-	router, err := p2p.NewRouter(
+	router, err := NewRouter(
 		logger,
-		p2p.NopMetrics(),
+		NopMetrics(),
 		privKey,
 		peerManager,
 		func() *types.NodeInfo { return &nodeInfo },
@@ -279,7 +291,7 @@ func (n *Network) MakeNode(t *testing.T, opts NodeOptions) *Node {
 		cancel()
 	})
 
-	node := &Node{
+	node := &TestNode{
 		Logger:      logger,
 		NodeID:      nodeID,
 		NodeInfo:    nodeInfo,
@@ -299,10 +311,10 @@ func (n *Network) MakeNode(t *testing.T, opts NodeOptions) *Node {
 // MakeChannel opens a channel, with automatic error handling and cleanup. On
 // test cleanup, it also checks that the channel is empty, to make sure
 // all expected messages have been asserted.
-func (n *Node) MakeChannel(
+func (n *TestNode) MakeChannel(
 	t *testing.T,
-	chDesc *p2p.ChannelDescriptor,
-) *p2p.Channel {
+	chDesc *ChannelDescriptor,
+) *Channel {
 	channel, err := n.Router.OpenChannel(chDesc)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -313,10 +325,10 @@ func (n *Node) MakeChannel(
 
 // MakeChannelNoCleanup opens a channel, with automatic error handling. The
 // caller must ensure proper cleanup of the channel.
-func (n *Node) MakeChannelNoCleanup(
+func (n *TestNode) MakeChannelNoCleanup(
 	t *testing.T,
-	chDesc *p2p.ChannelDescriptor,
-) *p2p.Channel {
+	chDesc *ChannelDescriptor,
+) *Channel {
 	channel, err := n.Router.OpenChannel(chDesc)
 	require.NoError(t, err)
 	return channel
@@ -324,29 +336,112 @@ func (n *Node) MakeChannelNoCleanup(
 
 // MakePeerUpdates opens a peer update subscription, with automatic cleanup.
 // It checks that all updates have been consumed during cleanup.
-func (n *Node) MakePeerUpdates(ctx context.Context, t *testing.T) *p2p.PeerUpdates {
+func (n *TestNode) MakePeerUpdates(ctx context.Context, t *testing.T) *PeerUpdates {
 	t.Helper()
 	sub := n.PeerManager.Subscribe(ctx)
-	t.Cleanup(func() {
-		RequireNoUpdates(ctx, t, sub)
-	})
-
+	t.Cleanup(func() { RequireNoUpdates(t, sub) })
 	return sub
 }
 
 // MakePeerUpdatesNoRequireEmpty opens a peer update subscription, with automatic cleanup.
 // It does *not* check that all updates have been consumed, but will
 // close the update channel.
-func (n *Node) MakePeerUpdatesNoRequireEmpty(ctx context.Context, t *testing.T) *p2p.PeerUpdates {
+func (n *TestNode) MakePeerUpdatesNoRequireEmpty(ctx context.Context) *PeerUpdates {
 	return n.PeerManager.Subscribe(ctx)
 }
 
-func MakeChannelDesc(chID p2p.ChannelID) *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func MakeTestChannelDesc(chID ChannelID) *ChannelDescriptor {
+	return &ChannelDescriptor{
 		ID:                  chID,
-		MessageType:         &Message{},
+		MessageType:         &TestMessage{},
 		Priority:            5,
 		SendQueueCapacity:   10,
 		RecvMessageCapacity: 10,
+	}
+}
+
+// RequireEmpty requires that the given channel is empty.
+func RequireEmpty(t *testing.T, channels ...*Channel) {
+	t.Helper()
+	for _, ch := range channels {
+		if ch.ReceiveLen() != 0 {
+			t.Errorf("nonempty channel %v", ch)
+		}
+	}
+}
+
+// RequireReceive requires that the given envelope is received on the channel.
+func RequireReceive(t *testing.T, channel *Channel, expect Envelope) {
+	t.Helper()
+	RequireReceiveUnordered(t, channel, utils.Slice(&expect))
+}
+
+// RequireReceiveUnordered requires that the given envelopes are all received on
+// the channel, ignoring order.
+func RequireReceiveUnordered(t *testing.T, channel *Channel, expect []*Envelope) {
+	t.Helper()
+	t.Logf("awaiting %d messages", len(expect))
+	actual := []*Envelope{}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	iter := channel.Receive(ctx)
+	for iter.Next(ctx) {
+		actual = append(actual, iter.Envelope())
+		if len(actual) == len(expect) {
+			require.ElementsMatch(t, expect, actual, "len=%d", len(actual))
+			return
+		}
+	}
+	require.FailNow(t, "not enough messages")
+}
+
+// RequireSend requires that the given envelope is sent on the channel.
+func RequireSend(t *testing.T, channel *Channel, envelope Envelope) {
+	t.Logf("sending message %v", envelope)
+	require.NoError(t, channel.Send(t.Context(), envelope))
+}
+
+// RequireNoUpdates requires that a PeerUpdates subscription is empty.
+func RequireNoUpdates(t *testing.T, peerUpdates *PeerUpdates) {
+	t.Helper()
+	if len(peerUpdates.Updates()) != 0 {
+		require.FailNow(t, "unexpected peer updates")
+	}
+}
+
+// RequireError requires that the given peer error is submitted for a peer.
+func RequireSendError(t *testing.T, channel *Channel, peerError PeerError) {
+	require.NoError(t, channel.SendError(t.Context(), peerError))
+}
+
+// RequireUpdate requires that a PeerUpdates subscription yields the given update.
+func RequireUpdate(t *testing.T, peerUpdates *PeerUpdates, expect PeerUpdate) {
+	t.Logf("awaiting update %v", expect)
+	update, err := utils.Recv(t.Context(), peerUpdates.Updates())
+	if err != nil {
+		require.FailNow(t, "utils.Recv(): %w", err)
+	}
+	require.Equal(t, expect.NodeID, update.NodeID, "node id did not match")
+	require.Equal(t, expect.Status, update.Status, "statuses did not match")
+}
+
+// RequireUpdates requires that a PeerUpdates subscription yields the given updates
+// in the given order.
+func RequireUpdates(t *testing.T, peerUpdates *PeerUpdates, expect []PeerUpdate) {
+	t.Logf("awaiting %d updates", len(expect))
+	actual := []PeerUpdate{}
+	for {
+		update, err := utils.Recv(t.Context(), peerUpdates.Updates())
+		if err != nil {
+			require.FailNow(t, "utils.Recv(): %v", err)
+		}
+		actual = append(actual, update)
+		if len(actual) == len(expect) {
+			for idx := range expect {
+				require.Equal(t, expect[idx].NodeID, actual[idx].NodeID)
+				require.Equal(t, expect[idx].Status, actual[idx].Status)
+			}
+			return
+		}
 	}
 }

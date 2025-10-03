@@ -575,7 +575,7 @@ func (r *Router) dialPeers(ctx context.Context) error {
 }
 
 func (r *Router) connectPeer(ctx context.Context, address NodeAddress) {
-	tcpConn, err := r.dialPeer(ctx, address)
+	tcpConn, err := r.Dial(ctx, address)
 	switch {
 	case errors.Is(err, context.Canceled):
 		return
@@ -588,12 +588,14 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) {
 	}
 
 	conn, err := r.handshakePeer(ctx, tcpConn, address.NodeID)
+	if errors.Is(err, context.Canceled) {
+		conn.Close()
+		return
+	}
 	if err != nil {
-		if !errors.Is(err, context.Canceled) {
-			r.logger.Debug("failed to handshake with peer", "peer", address, "err", err)
-			if err := r.peerManager.DialFailed(ctx, address); err != nil {
-				r.logger.Error("failed to report dial failure", "peer", address, "err", err)
-			}
+		r.logger.Debug("failed to handshake with peer", "peer", address, "err", err)
+		if err := r.peerManager.DialFailed(ctx, address); err != nil {
+			r.logger.Error("failed to report dial failure", "peer", address, "err", err)
 		}
 		conn.Close()
 		return
@@ -614,7 +616,7 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) {
 }
 
 // dialPeer connects to a peer by dialing it.
-func (r *Router) dialPeer(ctx context.Context, address NodeAddress) (net.Conn, error) {
+func (r *Router) Dial(ctx context.Context, address NodeAddress) (net.Conn, error) {
 	resolveCtx := ctx
 	if r.options.ResolveTimeout > 0 {
 		var cancel context.CancelFunc
@@ -628,9 +630,7 @@ func (r *Router) dialPeer(ctx context.Context, address NodeAddress) (net.Conn, e
 	case err != nil:
 		// Mark the peer as private so it's not broadcasted to other peers.
 		// This is reset upon restart of the node.
-		if r.peerManager.options.PrivatePeers != nil {
-			r.peerManager.options.PrivatePeers[address.NodeID] = struct{}{}
-		}
+		r.peerManager.AddPrivatePeer(address.NodeID)
 		return nil, fmt.Errorf("failed to resolve address %q: %w", address, err)
 	case len(endpoints) == 0:
 		return nil, fmt.Errorf("address %q did not resolve to any endpoints", address)
