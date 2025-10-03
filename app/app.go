@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -179,6 +180,13 @@ func getGovProposalHandlers() []govclient.ProposalHandler {
 var (
 	// DefaultNodeHome default home directories for the application daemon
 	DefaultNodeHome string
+
+	// upgradePanicRe matches upgrade panic messages using Cosmovisor-compatible regex
+	// Matches multiple upgrade-related panic patterns:
+	// 1. UPGRADE "name" NEEDED at height: 123 (or height123)
+	// 2. Wrong app version X, upgrade handler is missing for name upgrade plan
+	// 3. BINARY UPDATED BEFORE TRIGGER! UPGRADE "name"
+	upgradePanicRe = regexp.MustCompile(`^(UPGRADE "[^"]+" NEEDED at height:?\s*\d+|Wrong app version \d+, upgrade handler is missing for .+ upgrade plan|BINARY UPDATED BEFORE TRIGGER! UPGRADE "[^"]+")`)
 
 	// ModuleBasics defines the module BasicManager is in charge of setting up basic,
 	// non-dependant module elements, such as codec registration
@@ -386,6 +394,8 @@ type App struct {
 	wsServerStartSignal       chan struct{}
 	httpServerStartSignalSent bool
 	wsServerStartSignalSent   bool
+
+	txPrioritizer sdk.TxPrioritizer
 }
 
 type AppOption func(*App)
@@ -977,6 +987,8 @@ func New(
 
 	app.RegisterDeliverTxHook(app.AddCosmosEventsToEVMReceiptIfApplicable)
 
+	app.txPrioritizer = NewSeiTxPrioritizer(logger, &app.EvmKeeper, &app.UpgradeKeeper, &app.ParamsKeeper).GetTxPriorityHint
+	app.SetTxPrioritizer(app.txPrioritizer)
 	return app
 }
 
@@ -1133,7 +1145,7 @@ func (app *App) ClearOptimisticProcessingInfo() {
 	app.optimisticProcessingInfo = OptimisticProcessingInfo{}
 }
 
-func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error) {
+func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcessProposal) (resp *abci.ResponseProcessProposal, err error) {
 	// TODO: this check decodes transactions which is redone in subsequent processing. We might be able to optimize performance
 	// by recording the decoding results and avoid decoding again later on.
 
@@ -1143,20 +1155,23 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			Status: abci.ResponseProcessProposal_REJECT,
 		}, nil
 	}
-	if app.GetOptimisticProcessingInfo().Completion == nil {
+
+	app.optimisticProcessingInfoMutex.Lock()
+	shouldStartOptimisticProcessing := app.optimisticProcessingInfo.Completion == nil
+	if shouldStartOptimisticProcessing {
 		completionSignal := make(chan struct{}, 1)
-		optimisticProcessingInfo := OptimisticProcessingInfo{
+		app.optimisticProcessingInfo = OptimisticProcessingInfo{
 			Height:     req.Height,
 			Hash:       req.Hash,
 			Completion: completionSignal,
 		}
-		app.optimisticProcessingInfoMutex.Lock()
-		app.optimisticProcessingInfo = optimisticProcessingInfo
-		app.optimisticProcessingInfoMutex.Unlock()
+	}
+	app.optimisticProcessingInfoMutex.Unlock()
 
+	if shouldStartOptimisticProcessing {
 		plan, found := app.UpgradeKeeper.GetUpgradePlan(ctx)
 		if found && plan.ShouldExecute(ctx) {
-			app.Logger().Info(fmt.Sprintf("Potential upgrade planned for height=%d skipping optimistic processing", plan.Height))
+			app.Logger().Info("Potential upgrade planned; skipping optimistic processing", "height", plan.Height)
 			app.optimisticProcessingInfoMutex.Lock()
 			app.optimisticProcessingInfo.Aborted = true
 			completion := app.optimisticProcessingInfo.Completion
@@ -1164,24 +1179,40 @@ func (app *App) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestProcess
 			completion <- struct{}{}
 		} else {
 			go func() {
-				events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit, false)
+				// ProcessBlock has panic recovery and returns error for any processing failures
+				// All panics (including GetSigners) are handled in ProcessBlock, not affecting proposal acceptance
+				events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, req, req.ProposedLastCommit, false)
+
 				app.optimisticProcessingInfoMutex.Lock()
-				app.optimisticProcessingInfo.Events = events
-				app.optimisticProcessingInfo.TxRes = txResults
-				app.optimisticProcessingInfo.EndBlockResp = endBlockResp
+				if processErr != nil {
+					// ProcessBlock failed (including GetSigners panics), mark as aborted
+					app.Logger().Info("ProcessBlock failed in optimistic processing", "error", processErr)
+					app.optimisticProcessingInfo.Aborted = true
+				} else {
+					// ProcessBlock succeeded, store results
+					app.optimisticProcessingInfo.Events = events
+					app.optimisticProcessingInfo.TxRes = txResults
+					app.optimisticProcessingInfo.EndBlockResp = endBlockResp
+				}
 				completion := app.optimisticProcessingInfo.Completion
 				app.optimisticProcessingInfoMutex.Unlock()
 				completion <- struct{}{}
 			}()
 		}
-	} else if !bytes.Equal(app.GetOptimisticProcessingInfo().Hash, req.Hash) {
-		app.optimisticProcessingInfoMutex.Lock()
-		app.optimisticProcessingInfo.Aborted = true
-		app.optimisticProcessingInfoMutex.Unlock()
+	} else {
+		// Optimistic processing already running, check if hash matches
+		if !bytes.Equal(app.GetOptimisticProcessingInfo().Hash, req.Hash) {
+			app.optimisticProcessingInfoMutex.Lock()
+			app.optimisticProcessingInfo.Aborted = true
+			app.optimisticProcessingInfoMutex.Unlock()
+		}
 	}
-	return &abci.ResponseProcessProposal{
+
+	resp = &abci.ResponseProcessProposal{
 		Status: abci.ResponseProcessProposal_ACCEPT,
-	}, nil
+	}
+
+	return resp, nil
 }
 
 func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
@@ -1224,7 +1255,11 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 	}
 	metrics.IncrementOptimisticProcessingCounter(false)
 	ctx.Logger().Info("optimistic processing ineligible")
-	events, txResults, endBlockResp, _ := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit, false)
+	events, txResults, endBlockResp, processErr := app.ProcessBlock(ctx, req.Txs, req, req.DecidedLastCommit, false)
+	if processErr != nil {
+		ctx.Logger().Error("ProcessBlock failed in FinalizeBlocker", "error", processErr)
+		return nil, processErr
+	}
 
 	app.SetDeliverStateToCommit()
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
@@ -1585,7 +1620,23 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedT
 	return app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices), ctx
 }
 
-func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) ([]abci.Event, []*abci.ExecTxResult, abci.ResponseEndBlock, error) {
+func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			panicMsg := fmt.Sprintf("%v", r)
+			// Re-panic for upgrade-related panics to allow proper upgrade mechanism
+			if upgradePanicRe.MatchString(panicMsg) {
+				ctx.Logger().Error("upgrade panic detected, panicking to trigger upgrade", "panic", r)
+				panic(r) // Re-panic to trigger upgrade mechanism
+			}
+			ctx.Logger().Error("panic recovered in ProcessBlock", "panic", r)
+			err = fmt.Errorf("ProcessBlock panic: %v", r)
+			events = nil
+			txResults = nil
+			endBlockResp = abci.ResponseEndBlock{}
+		}
+	}()
+
 	defer func() {
 		if !app.httpServerStartSignalSent {
 			app.httpServerStartSignalSent = true
@@ -1598,7 +1649,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	}()
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
 
-	events := []abci.Event{}
+	events = []abci.Event{}
 	beginBlockReq := abci.RequestBeginBlock{
 		Hash: req.GetHash(),
 		ByzantineValidators: utils.Map(req.GetByzantineValidators(), func(mis abci.Misbehavior) abci.Evidence {
@@ -1625,7 +1676,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	events = append(events, beginBlockResp.Events...)
 
 	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs)) // nil for non-EVM txs
-	txResults := make([]*abci.ExecTxResult, len(txs))
+	txResults = make([]*abci.ExecTxResult, len(txs))
 	typedTxs := app.DecodeTransactionsConcurrently(ctx, txs)
 
 	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs, typedTxs)
@@ -1664,7 +1715,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		}
 	}
 
-	endBlockResp := app.EndBlock(ctx, abci.RequestEndBlock{
+	endBlockResp = app.EndBlock(ctx, abci.RequestEndBlock{
 		Height:       req.GetHeight(),
 		BlockGasUsed: evmTotalGasUsed,
 	})
@@ -1945,7 +1996,14 @@ func RegisterSwaggerAPI(rtr *mux.Router) {
 // checkTotalBlockGas checks that the block gas limit is not exceeded by our best estimate of
 // the total gas by the txs in the block. The gas of a tx is either the gas estimate if it's an EVM tx,
 // or the gas wanted if it's a Cosmos tx.
-func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
+func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) (result bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			ctx.Logger().Error("panic recovered in checkTotalBlockGas", "panic", r)
+			result = false // Reject proposal if panic occurs
+		}
+	}()
+
 	totalGas, totalGasWanted := uint64(0), uint64(0)
 	nonzeroTxsCnt := 0
 	for _, tx := range txs {
@@ -1957,7 +2015,13 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 		// check gasless first (this has to happen before other checks to avoid panics)
 		isGasless, err := antedecorators.IsTxGasless(decodedTx, ctx, app.OracleKeeper, &app.EvmKeeper)
 		if err != nil {
-			ctx.Logger().Error("error checking if tx is gasless", "error", err)
+			if strings.Contains(err.Error(), "panic in IsTxGasless") {
+				// This is a unexpected panic, reject the entire proposal
+				ctx.Logger().Error("malicious transaction detected in gasless check", "error", err)
+				return false
+			}
+			// Other business logic errors (like duplicate votes) - continue processing but tx is not gasless
+			ctx.Logger().Info("transaction failed gasless check but not malicious", "error", err)
 			continue
 		}
 		if isGasless {
@@ -2020,6 +2084,7 @@ func (app *App) checkTotalBlockGas(ctx sdk.Context, txs [][]byte) bool {
 			return false
 		}
 	}
+
 	return true
 }
 
