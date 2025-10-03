@@ -2,11 +2,11 @@ coverage:
   precision: 2
   round: down
   status:
-    # TODO: uncomment this when we have a healthier repo
-    # project:
-    #   default:
-    #     target: 60%
-    #     threshold: 0.1% # allow this much decrease on project
+    # TODO: change project level coverage back to ~60% after we have a healthier repo
+    project:
+      default:
+        target: 25%
+        threshold: 0.1% # allow this much decrease on project
     patch:
       default:
         target: 70%
