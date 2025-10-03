@@ -175,7 +175,7 @@ type Router struct {
 	dynamicIDFilterer func(context.Context, types.NodeID) error
 
 	started      chan struct{}
-	listener     chan *Connection
+	listener     chan net.Conn
 }
 
 func (r *Router) getChannelDescs() []*ChannelDescriptor {
@@ -227,7 +227,7 @@ func NewRouter(
 		// This is rendezvous channel, so that no unclosed connections get stuck inside
 		// when transport is closing.
 		started:  make(chan struct{}),
-		listener: make(chan *Connection),
+		listener: make(chan net.Conn),
 	}
 
 	router.BaseService = service.NewBaseService(logger, "router", router)
@@ -268,17 +268,15 @@ func (r *Router) listenRoutine(ctx context.Context) error {
 			return nil
 		})
 		for {
-			conn, err := listener.Accept()
+			tcpConn, err := listener.Accept()
 			if err != nil {
 				if errors.Is(err, net.ErrClosed) {
 					return nil
 				}
 				return err
 			}
-			descs := r.getChannelDescs()
-			mconn := newConnection(r.logger, conn, r.options.Connection, descs)
-			if err := utils.Send(ctx, r.listener, mconn); err != nil {
-				mconn.Close()
+			if err := utils.Send(ctx, r.listener, tcpConn); err != nil {
+				tcpConn.Close()
 				return err
 			}
 		}
@@ -471,14 +469,14 @@ func (r *Router) dialSleep(ctx context.Context) error {
 // and spawns goroutines that route messages to/from them.
 func (r *Router) acceptPeers(ctx context.Context) error {
 	for {
-		conn,err :=  utils.Recv(ctx, r.listener)
+		tcpConn,err :=  utils.Recv(ctx, r.listener)
 		if err != nil {
 			return err
 		}
 		r.metrics.NewConnections.With("direction", "in").Add(1)
-		incomingAddr := conn.RemoteEndpoint().AddrPort
+		incomingAddr := remoteEndpoint(tcpConn).AddrPort
 		if err := r.connTracker.AddConn(incomingAddr); err != nil {
-			closeErr := conn.Close()
+			closeErr := tcpConn.Close()
 			r.logger.Error("rate limiting incoming peer",
 				"err", err,
 				"addr", incomingAddr.String(),
@@ -490,19 +488,14 @@ func (r *Router) acceptPeers(ctx context.Context) error {
 
 		// Spawn a goroutine for the handshake, to avoid head-of-line blocking.
 		r.Spawn("openConnection", func(ctx context.Context) error {
-			defer func() {
-				if err := conn.Close(); err != nil {
-					r.logger.Error("closed connection", "addr", incomingAddr.String(), "err", err)
-				}
-			}()
-			return r.openConnection(ctx, conn)
+			return r.openConnection(ctx, tcpConn)
 		})
 	}
 }
 
-func (r *Router) openConnection(ctx context.Context, conn *Connection) error {
-	defer conn.Close()
-	incomingAddr := conn.RemoteEndpoint().AddrPort
+func (r *Router) openConnection(ctx context.Context, tcpConn net.Conn) error {
+	defer tcpConn.Close()
+	incomingAddr := remoteEndpoint(tcpConn).AddrPort
 	defer r.connTracker.RemoveConn(incomingAddr)
 
 	if err := r.filterPeersIP(ctx, incomingAddr); err != nil {
@@ -525,10 +518,11 @@ func (r *Router) openConnection(ctx context.Context, conn *Connection) error {
 	// The Router should do the handshake and have a final ack/fail
 	// message to make sure both ends have accepted the connection, such
 	// that it can be coordinated with the peer manager.
-	peerInfo, err := r.handshakePeer(ctx, conn, "")
+	conn, err := r.handshakePeer(ctx, tcpConn, "")
 	if err != nil {
 		return fmt.Errorf("peer handshake failed: endpoint=%v: %w", conn, err)
 	}
+	peerInfo := conn.PeerInfo()
 	if err := r.filterPeersID(ctx, peerInfo.NodeID); err != nil {
 		r.logger.Debug("peer filtered by node ID", "node", peerInfo.NodeID, "err", err)
 		return nil
@@ -536,7 +530,7 @@ func (r *Router) openConnection(ctx context.Context, conn *Connection) error {
 	if err := r.peerManager.Accepted(peerInfo.NodeID); err != nil {
 		return fmt.Errorf("failed to accept connection: op=incoming/accepted, peer=%v: %w", peerInfo.NodeID, err)
 	}
-	return r.routePeer(ctx, peerInfo.NodeID, conn, toChannelIDs(peerInfo.Channels))
+	return r.routePeer(ctx, conn)
 }
 
 // dialPeers maintains outbound connections to peers by dialing them.
@@ -581,7 +575,7 @@ func (r *Router) dialPeers(ctx context.Context) error {
 }
 
 func (r *Router) connectPeer(ctx context.Context, address NodeAddress) {
-	conn, err := r.dialPeer(ctx, address)
+	tcpConn, err := r.dialPeer(ctx, address)
 	switch {
 	case errors.Is(err, context.Canceled):
 		return
@@ -593,7 +587,7 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) {
 		return
 	}
 
-	peerInfo, err := r.handshakePeer(ctx, conn, address.NodeID)
+	conn, err := r.handshakePeer(ctx, tcpConn, address.NodeID)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			r.logger.Debug("failed to handshake with peer", "peer", address, "err", err)
@@ -616,18 +610,11 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) {
 		return
 	}
 
-	r.Spawn("routePeer", func(ctx context.Context) error {
-		defer func() {
-			if err := conn.Close(); err != nil {
-				r.logger.Error("closed connection", "peer", address.NodeID, "err", err)
-			}
-		}()
-		return r.routePeer(ctx, address.NodeID, conn, toChannelIDs(peerInfo.Channels))
-	})
+	r.Spawn("routePeer", func(ctx context.Context) error { return r.routePeer(ctx, conn) })
 }
 
 // dialPeer connects to a peer by dialing it.
-func (r *Router) dialPeer(ctx context.Context, address NodeAddress) (*Connection, error) {
+func (r *Router) dialPeer(ctx context.Context, address NodeAddress) (net.Conn, error) {
 	resolveCtx := ctx
 	if r.options.ResolveTimeout > 0 {
 		var cancel context.CancelFunc
@@ -676,11 +663,9 @@ func (r *Router) dialPeer(ctx context.Context, address NodeAddress) (*Connection
 			r.logger.Debug("failed to dial endpoint", "peer", address.NodeID, "endpoint", endpoint, "err", err)
 			continue
 		}
-		descs := r.getChannelDescs()
-		conn := newConnection(r.logger, tcpConn, r.options.Connection, descs)
 		r.metrics.NewConnections.With("direction", "out").Add(1)
 		r.logger.Debug("dialed peer", "peer", address.NodeID, "endpoint", endpoint)
-		return conn, nil
+		return tcpConn, nil
 	}
 	return nil, errors.New("all endpoints failed")
 }
@@ -689,48 +674,61 @@ func (r *Router) dialPeer(ctx context.Context, address NodeAddress) (*Connection
 // expectID is given, we check that the peer's info matches it.
 func (r *Router) handshakePeer(
 	ctx context.Context,
-	conn *Connection,
+	tcpConn net.Conn,
 	expectID types.NodeID,
-) (types.NodeInfo, error) {
-
+) (c *Connection, err error) {
+	defer func() {
+		if err!=nil { tcpConn.Close() }
+	}()
 	if r.options.HandshakeTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, r.options.HandshakeTimeout)
 		defer cancel()
 	}
-
 	nodeInfo := r.nodeInfoProducer()
-	peerInfo, err := conn.Handshake(ctx, *nodeInfo, r.privKey)
+	conn, err := Handshake(
+		ctx,
+		r.logger,
+		*nodeInfo,
+		r.privKey,
+		tcpConn,
+		r.options.Connection,
+		r.getChannelDescs(),
+	)
 	if err != nil {
-		return types.NodeInfo{}, err
+		return nil, err
 	}
+	peerInfo := conn.PeerInfo()
 	if peerInfo.Network != nodeInfo.Network {
 		if err := r.peerManager.Delete(peerInfo.NodeID); err != nil {
-			return types.NodeInfo{}, fmt.Errorf("problem removing peer from store from incorrect network [%s]: %w", peerInfo.Network, err)
+			return nil, fmt.Errorf("problem removing peer from store from incorrect network [%s]: %w", peerInfo.Network, err)
 		}
-		return types.NodeInfo{}, fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)
+		return nil, fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)
 	}
-
 	if expectID != "" && expectID != peerInfo.NodeID {
-		return types.NodeInfo{}, fmt.Errorf("expected to connect with peer %q, got %q",
+		return nil, fmt.Errorf("expected to connect with peer %q, got %q",
 			expectID, peerInfo.NodeID)
 	}
 
 	if err := nodeInfo.CompatibleWith(peerInfo); err != nil {
-		return types.NodeInfo{}, ErrRejected{
+		return nil, ErrRejected{
 			err:            err,
 			id:             peerInfo.ID(),
 			isIncompatible: true,
 		}
 	}
-	return peerInfo, nil
+	return conn, nil
 }
 
 // routePeer routes inbound and outbound messages between a peer and the reactor
 // channels. It will close the given connection and send queue when done, or if
 // they are closed elsewhere it will cause this method to shut down and return.
-func (r *Router) routePeer(ctx context.Context, peerID types.NodeID, conn *Connection, channels ChannelIDSet) error {
+func (r *Router) routePeer(ctx context.Context, conn *Connection) error {
+	defer conn.Close()
 	r.metrics.Peers.Add(1)
+	peerInfo := conn.PeerInfo()
+	peerID := peerInfo.NodeID
+	channels := toChannelIDs(peerInfo.Channels)
 	peerCtx, cancel := context.WithCancel(ctx)
 	state := &peerState{
 		cancel:   cancel,
@@ -746,13 +744,9 @@ func (r *Router) routePeer(ctx context.Context, peerID types.NodeID, conn *Conne
 	r.peerManager.Ready(ctx, peerID, channels)
 	r.logger.Debug("peer connected", "peer", peerID, "endpoint", conn)
 	err := scope.Run(peerCtx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error { return conn.Run(ctx) })
 		s.Spawn(func() error { return r.receivePeer(ctx, peerID, conn) })
 		s.Spawn(func() error { return r.sendPeer(ctx, peerID, conn, state.queue) })
-		<-ctx.Done()
-		// TODO(gprusak): we need to close the connection here, because
-		// the mock connection used in tests does not respect the context.
-		// Get rid of these stupid mocks.
-		_ = conn.Close()
 		return nil
 	})
 	r.logger.Info("peer disconnected", "peer", peerID, "endpoint", conn, "err", err)

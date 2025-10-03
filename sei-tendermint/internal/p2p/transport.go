@@ -2,12 +2,10 @@ package p2p
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"net"
 	"net/netip"
-	"sync"
 	"sync/atomic"
 
 
@@ -24,59 +22,41 @@ type InvalidEndpointErr struct{ error }
 
 // Connection implements Connection for Transport.
 type Connection struct {
-	logger       log.Logger
-	conn         net.Conn
-	mConnConfig  conn.MConnConfig
-	channelDescs []*ChannelDescriptor
-	errorCh      chan error
-	doneCh       chan struct{}
-	closeOnce    sync.Once
-
-	mconn *conn.MConnection // set during Handshake()
-}
-
-// newMConnConnection creates a new Connection.
-func newConnection(
-	logger log.Logger,
-	conn net.Conn,
-	mConnConfig conn.MConnConfig,
-	channelDescs []*ChannelDescriptor,
-) *Connection {
-	return &Connection{
-		logger:       logger,
-		conn:         conn,
-		mConnConfig:  mConnConfig,
-		channelDescs: channelDescs,
-		errorCh:      make(chan error, 1), // buffered to avoid onError leak
-		doneCh:       make(chan struct{}),
-	}
+	conn net.Conn
+	peerInfo types.NodeInfo
+	mconn *conn.MConnection
 }
 
 // Handshake implements Connection.
-func (c *Connection) Handshake(
+func Handshake(
 	ctx context.Context,
+	logger log.Logger,
 	nodeInfo types.NodeInfo,
 	privKey crypto.PrivKey,
-) (types.NodeInfo, error) {
-	if c.mconn != nil {
-		return types.NodeInfo{}, errors.New("connection is already handshaked")
-	}
-	var peerInfo types.NodeInfo
-	var secretConn *conn.SecretConnection
-	var ok atomic.Bool
-	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	tcpConn net.Conn,
+	mConnConfig conn.MConnConfig,
+	channelDescs []*ChannelDescriptor,
+) (c *Connection, err error) {
+	defer func() {
+		// Late error check. Close conn to avoid leaking it.
+		if err != nil {
+			tcpConn.Close()
+		}
+	}()
+	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*Connection, error) {
+		var ok atomic.Bool
 		s.SpawnBg(func() error {
+			// Early error check. Close conn to terminate tasks which do not respect ctx.
 			<-ctx.Done()
-			// Close the connection if handshake did not complete.
 			if !ok.Load() {
-				c.conn.Close()
+				tcpConn.Close()
 			}
 			return nil
 		})
 		var err error
-		secretConn, err = conn.MakeSecretConnection(c.conn, privKey)
+		secretConn, err := conn.MakeSecretConnection(tcpConn, privKey)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		s.Spawn(func() error {
 			_, err := protoio.NewDelimitedWriter(secretConn).WriteMsg(nodeInfo.ToProto())
@@ -84,35 +64,37 @@ func (c *Connection) Handshake(
 		})
 		var pbPeerInfo p2pproto.NodeInfo
 		if _, err := protoio.NewDelimitedReader(secretConn, types.MaxNodeInfoSize()).ReadMsg(&pbPeerInfo); err != nil {
-			return err
+			return nil, err
 		}
-		peerInfo, err = types.NodeInfoFromProto(&pbPeerInfo)
+		peerInfo, err := types.NodeInfoFromProto(&pbPeerInfo)
 		if err != nil {
-			return fmt.Errorf("error reading NodeInfo: %w", err)
+			return nil, fmt.Errorf("error reading NodeInfo: %w", err)
 		}
 		// Authenticate the peer first.
 		peerID := types.NodeIDFromPubKey(secretConn.RemotePubKey())
 		if peerID != peerInfo.NodeID {
-			return fmt.Errorf("peer's public key did not match its node ID %q (expected %q)",
+			return nil, fmt.Errorf("peer's public key did not match its node ID %q (expected %q)",
 				peerInfo.NodeID, peerID)
 		}
 		if err := peerInfo.Validate(); err != nil {
-			return fmt.Errorf("invalid handshake NodeInfo: %w", err)
+			return nil, fmt.Errorf("invalid handshake NodeInfo: %w", err)
 		}
 		ok.Store(true)
-		return nil
+		return &Connection{
+			conn:     tcpConn,
+			peerInfo: peerInfo,
+			mconn:    conn.NewMConnection(
+				logger.With("peer", remoteEndpoint(tcpConn).NodeAddress(peerInfo.NodeID)),
+				secretConn,
+				channelDescs,
+				mConnConfig,
+			),
+		}, nil
 	})
-	if err != nil {
-		return types.NodeInfo{}, err
-	}
-	// mconn takes ownership of conn.
-	c.mconn = conn.SpawnMConnection(
-		c.logger.With("peer", c.RemoteEndpoint().NodeAddress(peerInfo.NodeID)),
-		secretConn,
-		c.channelDescs,
-		c.mConnConfig,
-	)
-	return peerInfo, nil
+}
+
+func (c *Connection) Run(ctx context.Context) error {
+	return c.mconn.Run(ctx)
 }
 
 // String displays connection information.
@@ -138,17 +120,23 @@ func (c *Connection) LocalEndpoint() Endpoint {
 	return Endpoint{c.conn.LocalAddr().(*net.TCPAddr).AddrPort()}
 }
 
+func (c *Connection) PeerInfo() types.NodeInfo {
+	return c.peerInfo
+}
+
+// RemoteEndpoint implements Connection.
+func remoteEndpoint(conn net.Conn) Endpoint {
+	return Endpoint{conn.RemoteAddr().(*net.TCPAddr).AddrPort()}
+}
+
 // RemoteEndpoint implements Connection.
 func (c *Connection) RemoteEndpoint() Endpoint {
-	return Endpoint{c.conn.RemoteAddr().(*net.TCPAddr).AddrPort()}
+	return remoteEndpoint(c.conn)
 }
 
 // Close implements Connection.
 func (c *Connection) Close() error {
-	if c.mconn == nil {
-		return c.conn.Close()
-	}
-	return c.mconn.Close()
+	return c.conn.Close()
 }
 
 // Endpoint represents a transport connection endpoint, either local or remote.

@@ -1,4 +1,4 @@
-package p2p_test
+package p2p
 
 import (
 	"context"
@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/tendermint/tendermint/crypto/ed25519"
-	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/bytes"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
@@ -22,7 +21,7 @@ import (
 	"io"
 
 	"github.com/tendermint/tendermint/crypto"
-	"github.com/tendermint/tendermint/internal/p2p/conn"
+	"github.com/tendermint/tendermint/internal/conn"
 	"github.com/tendermint/tendermint/libs/log"
 )
 
@@ -41,7 +40,7 @@ func makeKeyAndInfo() (crypto.PrivKey, types.NodeInfo) {
 
 // Establishes a connection to the transport.
 // Returns both ends of the connection.
-func connect(ctx context.Context, tr *p2p.Transport) (c1 *p2p.Connection, c2 *p2p.Connection, err error) {
+func connect(ctx context.Context, tr *Router) (c1 *Connection, c2 *Connection, err error) {
 	defer func() {
 		if err != nil {
 			if c1 != nil {
@@ -52,7 +51,7 @@ func connect(ctx context.Context, tr *p2p.Transport) (c1 *p2p.Connection, c2 *p2
 			}
 		}
 	}()
-	// Here we are utilizing the fact that Transport accepts connection proactively
+	// Here we are utilizing the fact that Router accepts connection proactively
 	// before Accept is called.
 	c1, err = tr.Dial(ctx, tr.Endpoint())
 	if err != nil {
@@ -71,14 +70,14 @@ func connect(ctx context.Context, tr *p2p.Transport) (c1 *p2p.Connection, c2 *p2
 	return c1, c2, nil
 }
 
-func TestTransport_AcceptMaxAcceptedConnections(t *testing.T) {
+func TestRouter_AcceptMaxAcceptedConnections(t *testing.T) {
 	ctx := t.Context()
-	transport := p2p.NewTransport(
+	transport := NewRouter(
 		log.NewNopLogger(),
-		p2p.Endpoint{tcp.TestReserveAddr()},
+		Endpoint{tcp.TestReserveAddr()},
 		conn.DefaultMConnConfig(),
-		[]*p2p.ChannelDescriptor{{ID: chID, Priority: 1}},
-		p2p.TransportOptions{
+		[]*ChannelDescriptor{{ID: chID, Priority: 1}},
+		RouterOptions{
 			MaxAcceptedConnections: 2,
 		},
 	)
@@ -135,24 +134,24 @@ func TestTransport_AcceptMaxAcceptedConnections(t *testing.T) {
 	}
 }
 
-func TestTransport_Listen(t *testing.T) {
+func TestRouter_Listen(t *testing.T) {
 	reservePort := func(ip netip.Addr) netip.AddrPort {
 		addr := tcp.TestReserveAddr()
 		return netip.AddrPortFrom(ip, addr.Port())
 	}
 
 	testcases := []struct {
-		endpoint p2p.Endpoint
+		endpoint Endpoint
 		ok       bool
 	}{
 		// Valid v4 and v6 addresses, with mconn and tcp protocols.
-		{p2p.Endpoint{reservePort(netip.IPv4Unspecified())}, true},
-		{p2p.Endpoint{reservePort(tcp.IPv4Loopback())}, true},
-		{p2p.Endpoint{reservePort(netip.IPv6Unspecified())}, true},
-		{p2p.Endpoint{reservePort(netip.IPv6Loopback())}, true},
+		{Endpoint{reservePort(netip.IPv4Unspecified())}, true},
+		{Endpoint{reservePort(tcp.IPv4Loopback())}, true},
+		{Endpoint{reservePort(netip.IPv6Unspecified())}, true},
+		{Endpoint{reservePort(netip.IPv6Loopback())}, true},
 
 		// Invalid endpoints.
-		{p2p.Endpoint{}, false},
+		{Endpoint{}, false},
 	}
 
 	aKey, aInfo := makeKeyAndInfo()
@@ -162,12 +161,12 @@ func TestTransport_Listen(t *testing.T) {
 			ctx := t.Context()
 			t.Cleanup(leaktest.Check(t))
 
-			transport := p2p.NewTransport(
+			transport := NewRouter(
 				log.NewNopLogger(),
 				tc.endpoint,
 				conn.DefaultMConnConfig(),
-				[]*p2p.ChannelDescriptor{{ID: chID, Priority: 1}},
-				p2p.TransportOptions{},
+				[]*ChannelDescriptor{{ID: chID, Priority: 1}},
+				RouterOptions{},
 			)
 			if got, want := transport.Endpoint(), tc.endpoint; got != want {
 				t.Fatalf("transport.Endpoint() = %v, want %v", got, want)
@@ -215,7 +214,7 @@ func TestTransport_Listen(t *testing.T) {
 				return nil
 			}))
 			if !tc.ok {
-				var want p2p.InvalidEndpointErr
+				var want InvalidEndpointErr
 				if !errors.As(err, &want) {
 					t.Fatalf("error = %v, want %T", err, want)
 				}
@@ -230,24 +229,24 @@ func TestTransport_Listen(t *testing.T) {
 }
 
 // transportFactory is used to set up transports for tests.
-type transportFactory = func(ctx context.Context) *p2p.Transport
+type transportFactory = func(ctx context.Context) *Router
 
-// testTransports is a registry of transport factories for withTransports().
-var testTransports = map[string](func() transportFactory){}
+// testRouters is a registry of transport factories for withRouters().
+var testRouters = map[string](func() transportFactory){}
 
-// withTransports is a test helper that runs a test against all transports
-// registered in testTransports.
-func withTransports(t *testing.T, tester func(*testing.T, transportFactory)) {
+// withRouters is a test helper that runs a test against all transports
+// registered in testRouters.
+func withRouters(t *testing.T, tester func(*testing.T, transportFactory)) {
 	t.Helper()
 	t.Cleanup(leaktest.Check(t))
-	tester(t, func(ctx context.Context) *p2p.Transport {
+	tester(t, func(ctx context.Context) *Router {
 		logger, _ := log.NewDefaultLogger("plain", "info")
-		transport := p2p.NewTransport(
+		transport := NewRouter(
 			logger,
-			p2p.Endpoint{tcp.TestReserveAddr()},
+			Endpoint{tcp.TestReserveAddr()},
 			conn.DefaultMConnConfig(),
-			[]*p2p.ChannelDescriptor{{ID: chID, Priority: 1}},
-			p2p.TransportOptions{},
+			[]*ChannelDescriptor{{ID: chID, Priority: 1}},
+			RouterOptions{},
 		)
 		go func() {
 			if err := transport.Run(ctx); err != nil {
@@ -261,7 +260,7 @@ func withTransports(t *testing.T, tester func(*testing.T, transportFactory)) {
 	})
 }
 
-func TestTransport_DialEndpoints(t *testing.T) {
+func TestRouter_DialEndpoints(t *testing.T) {
 	ipTestCases := []struct {
 		ip netip.Addr
 		ok bool
@@ -273,9 +272,9 @@ func TestTransport_DialEndpoints(t *testing.T) {
 		{netip.AddrFrom4([4]byte{224, 0, 0, 1}), false},
 	}
 
-	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
+	withRouters(t, func(t *testing.T, makeRouter transportFactory) {
 		ctx := t.Context()
-		a := makeTransport(ctx)
+		a := makeRouter(ctx)
 		endpoint := a.Endpoint()
 
 		// Spawn a goroutine to simply accept any connections until closed.
@@ -295,7 +294,7 @@ func TestTransport_DialEndpoints(t *testing.T) {
 		require.NoError(t, conn.Close())
 
 		// Dialing empty endpoint should error.
-		_, err = a.Dial(ctx, p2p.Endpoint{})
+		_, err = a.Dial(ctx, Endpoint{})
 		require.Error(t, err)
 
 		// Tests for networked endpoints (with IP).
@@ -315,35 +314,35 @@ func TestTransport_DialEndpoints(t *testing.T) {
 	})
 }
 
-func TestTransport_Endpoints(t *testing.T) {
-	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
+func TestRouter_Endpoints(t *testing.T) {
+	withRouters(t, func(t *testing.T, makeRouter transportFactory) {
 		ctx := t.Context()
-		a := makeTransport(ctx)
-		b := makeTransport(ctx)
+		a := makeRouter(ctx)
+		b := makeRouter(ctx)
 
 		// Both transports return valid and different endpoints.
 		aEndpoint := a.Endpoint()
 		bEndpoint := b.Endpoint()
 		require.NotEqual(t, aEndpoint, bEndpoint)
-		for _, endpoint := range []p2p.Endpoint{aEndpoint, bEndpoint} {
+		for _, endpoint := range []Endpoint{aEndpoint, bEndpoint} {
 			err := endpoint.Validate()
 			require.NoError(t, err, "invalid endpoint %q", endpoint)
 		}
 	})
 }
 
-func TestTransport_String(t *testing.T) {
-	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
-		a := makeTransport(t.Context())
+func TestRouter_String(t *testing.T) {
+	withRouters(t, func(t *testing.T, makeRouter transportFactory) {
+		a := makeRouter(t.Context())
 		require.NotEmpty(t, a.String())
 	})
 }
 
 func TestConnection_Handshake(t *testing.T) {
-	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
+	withRouters(t, func(t *testing.T, makeRouter transportFactory) {
 		ctx := t.Context()
-		a := makeTransport(ctx)
-		b := makeTransport(ctx)
+		a := makeRouter(ctx)
+		b := makeRouter(ctx)
 		ab, ba := dialAccept(ctx, t, a, b)
 
 		// A handshake should pass the given keys and NodeInfo.
@@ -397,10 +396,10 @@ func TestConnection_Handshake(t *testing.T) {
 }
 
 func TestConnection_HandshakeCancel(t *testing.T) {
-	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
+	withRouters(t, func(t *testing.T, makeRouter transportFactory) {
 		ctx := t.Context()
-		a := makeTransport(ctx)
-		b := makeTransport(ctx)
+		a := makeRouter(ctx)
+		b := makeRouter(ctx)
 
 		// Handshake should error on context cancellation.
 		ab, ba := dialAccept(ctx, t, a, b)
@@ -423,10 +422,10 @@ func TestConnection_HandshakeCancel(t *testing.T) {
 }
 
 func TestConnection_FlushClose(t *testing.T) {
-	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
+	withRouters(t, func(t *testing.T, makeRouter transportFactory) {
 		ctx := t.Context()
-		a := makeTransport(ctx)
-		b := makeTransport(ctx)
+		a := makeRouter(ctx)
+		b := makeRouter(ctx)
 		ab, _ := dialAcceptHandshake(ctx, t, a, b)
 
 		ab.Close()
@@ -440,10 +439,10 @@ func TestConnection_FlushClose(t *testing.T) {
 }
 
 func TestConnection_LocalRemoteEndpoint(t *testing.T) {
-	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
+	withRouters(t, func(t *testing.T, makeRouter transportFactory) {
 		ctx := t.Context()
-		a := makeTransport(ctx)
-		b := makeTransport(ctx)
+		a := makeRouter(ctx)
+		b := makeRouter(ctx)
 		ab, ba := dialAcceptHandshake(ctx, t, a, b)
 
 		// Local and remote connection endpoints correspond to each other.
@@ -455,10 +454,10 @@ func TestConnection_LocalRemoteEndpoint(t *testing.T) {
 }
 
 func TestConnection_SendReceive(t *testing.T) {
-	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
+	withRouters(t, func(t *testing.T, makeRouter transportFactory) {
 		ctx := t.Context()
-		a := makeTransport(ctx)
-		b := makeTransport(ctx)
+		a := makeRouter(ctx)
+		b := makeRouter(ctx)
 		ab, ba := dialAcceptHandshake(ctx, t, a, b)
 
 		// Can send and receive a to b.
@@ -497,10 +496,10 @@ func TestConnection_SendReceive(t *testing.T) {
 }
 
 func TestConnection_String(t *testing.T) {
-	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
+	withRouters(t, func(t *testing.T, makeRouter transportFactory) {
 		ctx := t.Context()
-		a := makeTransport(ctx)
-		b := makeTransport(ctx)
+		a := makeRouter(ctx)
+		b := makeRouter(ctx)
 		ab, _ := dialAccept(ctx, t, a, b)
 		require.NotEmpty(t, ab.String())
 	})
@@ -514,17 +513,17 @@ func TestEndpoint_NodeAddress(t *testing.T) {
 	)
 
 	testcases := []struct {
-		endpoint p2p.Endpoint
-		expect   p2p.NodeAddress
+		endpoint Endpoint
+		expect   NodeAddress
 	}{
 		// Valid endpoints.
 		{
-			p2p.Endpoint{netip.AddrPortFrom(ip4, 8080)},
-			p2p.NodeAddress{Hostname: "1.2.3.4", Port: 8080},
+			Endpoint{netip.AddrPortFrom(ip4, 8080)},
+			NodeAddress{Hostname: "1.2.3.4", Port: 8080},
 		},
 		{
-			p2p.Endpoint{netip.AddrPortFrom(ip6, 8080)},
-			p2p.NodeAddress{Hostname: "b10c::1", Port: 8080},
+			Endpoint{netip.AddrPortFrom(ip6, 8080)},
+			NodeAddress{Hostname: "b10c::1", Port: 8080},
 		},
 	}
 	for _, tc := range testcases {
@@ -545,16 +544,16 @@ func TestEndpoint_Validate(t *testing.T) {
 	ip6 := netip.AddrFrom16([16]byte{0xb1, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})
 
 	testcases := []struct {
-		endpoint    p2p.Endpoint
+		endpoint    Endpoint
 		expectValid bool
 	}{
 		// Valid endpoints.
-		{p2p.Endpoint{netip.AddrPortFrom(ip4, 0)}, true},
-		{p2p.Endpoint{netip.AddrPortFrom(ip6, 0)}, true},
-		{p2p.Endpoint{netip.AddrPortFrom(ip4, 8008)}, true},
+		{Endpoint{netip.AddrPortFrom(ip4, 0)}, true},
+		{Endpoint{netip.AddrPortFrom(ip6, 0)}, true},
+		{Endpoint{netip.AddrPortFrom(ip4, 8008)}, true},
 
 		// Invalid endpoints.
-		{p2p.Endpoint{}, false},
+		{Endpoint{}, false},
 	}
 	for _, tc := range testcases {
 		t.Run(tc.endpoint.String(), func(t *testing.T) {
@@ -570,13 +569,13 @@ func TestEndpoint_Validate(t *testing.T) {
 
 // dialAccept is a helper that dials b from a and returns both sides of the
 // connection.
-func dialAccept(ctx context.Context, t *testing.T, a, b *p2p.Transport) (*p2p.Connection, *p2p.Connection) {
+func dialAccept(ctx context.Context, t *testing.T, a, b *Router) (*Connection, *Connection) {
 	t.Helper()
 
 	endpoint := b.Endpoint()
 
-	var acceptConn *p2p.Connection
-	var dialConn *p2p.Connection
+	var acceptConn *Connection
+	var dialConn *Connection
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error {
 			var err error
@@ -600,7 +599,7 @@ func dialAccept(ctx context.Context, t *testing.T, a, b *p2p.Transport) (*p2p.Co
 
 // dialAcceptHandshake is a helper that dials and handshakes b from a and
 // returns both sides of the connection.
-func dialAcceptHandshake(ctx context.Context, t *testing.T, a, b *p2p.Transport) (*p2p.Connection, *p2p.Connection) {
+func dialAcceptHandshake(ctx context.Context, t *testing.T, a, b *Router) (*Connection, *Connection) {
 	t.Helper()
 
 	ab, ba := dialAccept(ctx, t, a, b)

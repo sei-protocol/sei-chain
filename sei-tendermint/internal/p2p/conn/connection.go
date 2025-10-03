@@ -146,13 +146,13 @@ func (q *sendQueue) setFlush(t time.Time) {
 }
 
 // NewMConnection wraps net.Conn and creates multiplex connection with a config
-func SpawnMConnection(
+func NewMConnection(
 	logger log.Logger,
 	conn net.Conn,
 	chDescs []*ChannelDescriptor,
 	config MConnConfig,
 ) *MConnection {
-	c := &MConnection{
+	return &MConnection{
 		logger:    logger,
 		conn:      conn,
 		sendQueue: utils.NewWatch(newSendQueue(chDescs)),
@@ -160,27 +160,22 @@ func SpawnMConnection(
 		recvPong:  utils.NewAtomicWatch(false),
 		config:    config,
 	}
-	c.handle = scope.SpawnGlobal(func(ctx context.Context) error {
-		return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-			s.SpawnNamed("pingRoutine", func() error { return c.pingRoutine(ctx) })
-			s.SpawnNamed("sendRoutine", func() error { return c.sendRoutine(ctx) })
-			s.SpawnNamed("recvRoutine", func() error { return c.recvRoutine(ctx) })
-			s.SpawnNamed("statsRoutine", func() error { return c.statsRoutine(ctx) })
-			<-ctx.Done()
-			// Unfortunately golang std IO operations do not support cancellation via context.
-			// Instead, we trigger cancellation by closing the underlying connection.
-			// Alternatively, we could utilise net.Conn.Set[Read|Write]Deadline() methods
-			// for precise cancellation, but we don't have a need for that here.
-			c.conn.Close()
-			return ctx.Err()
-		})
-	})
-	return c
 }
 
-// Close closes the connection and awaits for background tasks to complete.
-func (c *MConnection) Close() error {
-	return c.handle.Terminate()
+func (c *MConnection) Run(ctx context.Context) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnNamed("pingRoutine", func() error { return c.pingRoutine(ctx) })
+		s.SpawnNamed("sendRoutine", func() error { return c.sendRoutine(ctx) })
+		s.SpawnNamed("recvRoutine", func() error { return c.recvRoutine(ctx) })
+		s.SpawnNamed("statsRoutine", func() error { return c.statsRoutine(ctx) })
+		<-ctx.Done()
+		// Unfortunately golang std IO operations do not support cancellation via context.
+		// Instead, we trigger cancellation by closing the underlying connection.
+		// Alternatively, we could utilise net.Conn.Set[Read|Write]Deadline() methods
+		// for precise cancellation, but we don't have a need for that here.
+		c.conn.Close()
+		return ctx.Err()
+	})
 }
 
 func (c *MConnection) String() string {
