@@ -87,7 +87,21 @@ install-price-feeder: go.sum
 ###############################################################################
 ###                       RocksDB Backend Support                           ###
 ###############################################################################
-# Prerequisites (Ubuntu/Debian):
+# Prerequisites:
+# - build-essential (gcc, g++, make)
+# - pkg-config
+# - cmake
+# - git
+# - zlib development headers
+# - bzip2 development headers
+# - snappy development headers
+# - lz4 development headers
+# - zstd development headers
+# - jemalloc development headers
+# - gflags development headers
+# - liburing development headers
+#
+# Installation on Ubuntu/Debian:
 # sudo apt-get update
 # sudo apt-get install -y build-essential pkg-config cmake git zlib1g-dev \
 #     libbz2-dev libsnappy-dev liblz4-dev libzstd-dev libjemalloc-dev \
