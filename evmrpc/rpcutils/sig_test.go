@@ -494,7 +494,7 @@ func TestRecoverEVMSender_InvalidSignature(t *testing.T) {
 	// Test error path when GetAddresses fails (lines 63-64)
 	// Create a transaction with invalid signature values
 	to := common.HexToAddress("0x1234567890123456789012345678901234567890")
-	
+
 	// Create a transaction with invalid R, S values (all zeros)
 	ethTx := types.NewTx(&types.LegacyTx{
 		Nonce:    0,
@@ -516,16 +516,16 @@ func TestGetSigner_CancunFork(t *testing.T) {
 	// Test Cancun fork detection (lines 88-89)
 	// We need to use a block number/time that triggers Cancun
 	// Since upgrade heights are hardcoded, we'll test the logic by using a very high block number
-	
+
 	// Create a transaction
 	chainID := big.NewInt(1329)
 	tx, _ := createSignedTx(t, chainID, types.DynamicFeeTxType, 0)
-	
+
 	// Use a very high block number that would be after Cancun activation
 	// The actual Cancun block is defined in the chain config
 	blockNum := int64(999999999999) // Far future block
 	blockTime := int64(9999999999)  // Far future time
-	
+
 	// This should still work - the signer selection doesn't break recovery
 	_, err := RecoverEVMSender(tx, blockNum, blockTime)
 	require.NoError(t, err, "Should successfully recover even with Cancun signer")
@@ -536,11 +536,11 @@ func TestGetSigner_DefaultLondon(t *testing.T) {
 	// Use a block number before any fork upgrades
 	chainID := big.NewInt(1329)
 	tx, expectedAddr := createSignedTx(t, chainID, types.DynamicFeeTxType, 0)
-	
+
 	// Use block 1 which should default to London
 	blockNum := int64(1)
 	blockTime := int64(1000000)
-	
+
 	recoveredAddr, err := RecoverEVMSender(tx, blockNum, blockTime)
 	require.NoError(t, err)
 	require.Equal(t, expectedAddr, recoveredAddr, "Should recover with London signer")
