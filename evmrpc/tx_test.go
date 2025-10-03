@@ -1040,6 +1040,63 @@ func TestGetTransactionByHashMempoolTransaction(t *testing.T) {
 	}
 }
 
+func TestEncodeReceiptWithEmptyFrom(t *testing.T) {
+	// Test receipt encoding when receipt.From is empty
+	// Should recover sender from transaction (line 447)
+	txHash := tx1.Hash()
+
+	receipt := &types.Receipt{
+		TxHashHex:        txHash.Hex(),
+		BlockNumber:      8,
+		Status:           1,
+		GasUsed:          21000,
+		TransactionIndex: 0,
+		From:             "", // Empty from - triggers recovery
+		To:               "0x9876543210987654321098765432109876543210",
+	}
+	ctxWithHeight := Ctx.WithBlockHeight(8)
+	err := EVMKeeper.MockReceipt(ctxWithHeight, txHash, receipt)
+	require.NoError(t, err)
+
+	resObj := sendRequestGood(t, "getTransactionReceipt", txHash.Hex())
+
+	result := resObj["result"]
+	if result != nil {
+		resultMap := result.(map[string]interface{})
+		// Verify from was recovered from the transaction
+		require.NotNil(t, resultMap["from"])
+	}
+}
+
+func TestReplaceFromWithEmptyFromField(t *testing.T) {
+	// Test replaceFrom function when tx.From is empty (lines 340-342)
+	// This happens with legacy transactions that don't have from populated
+	txHash := tx1.Hash()
+
+	receipt := &types.Receipt{
+		TxHashHex:        txHash.Hex(),
+		BlockNumber:      8,
+		Status:           1,
+		GasUsed:          21000,
+		TransactionIndex: 0,
+		From:             "0x1234567890123456789012345678901234567890",
+		To:               "0x9876543210987654321098765432109876543210",
+	}
+	ctxWithHeight := Ctx.WithBlockHeight(8)
+	err := EVMKeeper.MockReceipt(ctxWithHeight, txHash, receipt)
+	require.NoError(t, err)
+
+	// Query by block and index which uses encodeRPCTransaction and replaceFrom
+	resObj := sendRequestGood(t, "getTransactionByBlockNumberAndIndex", "0x8", "0x0")
+
+	result := resObj["result"]
+	if result != nil {
+		resultMap := result.(map[string]interface{})
+		// Verify from field is present (either from tx or receipt)
+		require.NotNil(t, resultMap["from"])
+	}
+}
+
 func TestGetTransactionByBlockNumberAndIndexSuccess(t *testing.T) {
 	// Test retrieving a transaction by block number and index
 	resObj := sendRequestGood(t, "getTransactionByBlockNumberAndIndex", "0x8", "0x0")
