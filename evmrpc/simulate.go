@@ -312,12 +312,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
-	signer := ethtypes.MakeSigner(
-		types.DefaultChainConfig().EthereumConfig(b.keeper.ChainID(sdkCtx)),
-		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Unix()), //nolint:gosec
-	)
-	msgs := filterTransactions(b.keeper, b.ctxProvider, b.txConfigProvider, tmBlock, signer, false, false)
+	msgs := filterTransactions(b.keeper, b.ctxProvider, b.txConfigProvider, tmBlock, false, false)
 	idxToMsgs := make(map[int]sdk.Msg, len(msgs))
 	for _, msg := range msgs {
 		idxToMsgs[msg.index] = msg.msg
@@ -599,14 +594,14 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 		Number:        blockNumber,
 		BaseFee:       baseFee,
 		GasLimit:      gasLimit,
-		Time:          uint64(time.Now().Unix()), //nolint:gosec
+		Time:          toUint64(time.Now().Unix()), //nolint:gosec
 		ExcessBlobGas: &zeroExcessBlobGas,
 	}
 
 	//TODO: what should happen if an err occurs here?
 	if blockErr == nil {
 		header.ParentHash = common.BytesToHash(block.BlockID.Hash)
-		header.Time = uint64(block.Block.Time.Unix()) //nolint:gosec
+		header.Time = toUint64(block.Block.Time.Unix())
 	}
 	return header
 }

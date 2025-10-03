@@ -269,9 +269,7 @@ func TestConnection_SendReceive(t *testing.T) {
 		err := ab.SendMessage(ctx, chID, []byte("foo"))
 		require.NoError(t, err)
 
-		t.Logf("ba.ReceiveMessage")
 		ch, msg, err := ba.ReceiveMessage(ctx)
-		t.Logf("ba.ReceiveMessage returned")
 		require.NoError(t, err)
 		require.Equal(t, []byte("foo"), msg)
 		require.Equal(t, chID, ch)
@@ -289,7 +287,6 @@ func TestConnection_SendReceive(t *testing.T) {
 		ba.Close()
 
 		_, _, err = ab.ReceiveMessage(ctx)
-		t.Logf("errrr = %v", err)
 		require.Error(t, err)
 
 		err = ab.SendMessage(ctx, chID, []byte("closed"))
@@ -439,7 +436,6 @@ func TestEndpoint_Validate(t *testing.T) {
 // dialAccept is a helper that dials b from a and returns both sides of the
 // connection.
 func dialAccept(ctx context.Context, t *testing.T, a, b p2p.Transport) (p2p.Connection, p2p.Connection) {
-	defer t.Logf("dialAccept DONE")
 	t.Helper()
 
 	endpoint := b.Endpoint()
@@ -470,7 +466,6 @@ func dialAccept(ctx context.Context, t *testing.T, a, b p2p.Transport) (p2p.Conn
 // dialAcceptHandshake is a helper that dials and handshakes b from a and
 // returns both sides of the connection.
 func dialAcceptHandshake(ctx context.Context, t *testing.T, a, b p2p.Transport) (p2p.Connection, p2p.Connection) {
-	defer t.Logf("dialAcceptHandshake DONE")
 	t.Helper()
 
 	ab, ba := dialAccept(ctx, t, a, b)
