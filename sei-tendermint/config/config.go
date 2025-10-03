@@ -97,6 +97,7 @@ func DefaultConfig() *Config {
 func DefaultValidatorConfig() *Config {
 	cfg := DefaultConfig()
 	cfg.Mode = ModeValidator
+	cfg.TxIndex.Indexer = []string{"null"}
 	return cfg
 }
 
@@ -698,10 +699,10 @@ type P2PConfig struct { //nolint: maligned
 // DefaultP2PConfig returns a default configuration for the peer-to-peer layer
 func DefaultP2PConfig() *P2PConfig {
 	return &P2PConfig{
-		ListenAddress:                 "tcp://0.0.0.0:26656",
+		ListenAddress:                 "tcp://127.0.0.1:26656",
 		ExternalAddress:               "",
 		UPNP:                          false,
-		MaxConnections:                64,
+		MaxConnections:                100,
 		MaxIncomingConnectionAttempts: 100,
 		FlushThrottleTimeout:          100 * time.Millisecond,
 		// The MTU (Maximum Transmission Unit) for Ethernet is 1500 bytes.
@@ -710,11 +711,11 @@ func DefaultP2PConfig() *P2PConfig {
 		// Ethernet is 1500 - 20 -20 = 1460
 		// Source: https://stackoverflow.com/a/3074427/820520
 		MaxPacketMsgPayloadSize: 1400,
-		SendRate:                5120000, // 5 mB/s
-		RecvRate:                5120000, // 5 mB/s
+		SendRate:                20971520, // 20 MB/s per connection
+		RecvRate:                20971520, // 20 MB/s per connection
 		PexReactor:              true,
 		AllowDuplicateIP:        false,
-		HandshakeTimeout:        5 * time.Second,
+		HandshakeTimeout:        10 * time.Second,
 		DialTimeout:             3 * time.Second,
 		TestDialFail:            false,
 		QueueType:               "simple-priority",
@@ -1015,7 +1016,7 @@ func DefaultStateSyncConfig() *StateSyncConfig {
 		TrustPeriod:             168 * time.Hour,
 		DiscoveryTime:           15 * time.Second,
 		ChunkRequestTimeout:     15 * time.Second,
-		Fetchers:                4,
+		Fetchers:                2,
 		BackfillBlocks:          0,
 		BackfillDuration:        0 * time.Second,
 		VerifyLightBlockTimeout: 60 * time.Second,
