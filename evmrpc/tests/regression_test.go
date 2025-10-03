@@ -1,6 +1,8 @@
 package tests
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -95,7 +97,7 @@ func Test0x78b377a6459b9ad6a0f64a858ea7afe90dc00a7bba0f0535758572ba1fe59e26(t *t
 	testTx(t,
 		"0x78b377a6459b9ad6a0f64a858ea7afe90dc00a7bba0f0535758572ba1fe59e26",
 		"v5.5.2",
-		"0x18aaf",
+		"0x182b0",
 		"0x000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000004563918244f40000000000000000000000000000000000000000000000000e9fc7a6844505c1bc07",
 		false,
 	)
@@ -352,7 +354,9 @@ func Test0x2cbbf34f930076000024953b87da7dc119a04f71fc4734a4bfabbe60558a49c6(t *t
 func testTx(t *testing.T, txHash string, version string, expectedGasUsed string, expectedOutput string, hasErr bool) {
 	s := SetupMockPacificTestServer(func(a *app.App, mc *MockClient) sdk.Context {
 		ctx := a.RPCContextProvider(evmrpc.LatestCtxHeight).WithClosestUpgradeName(version)
+		ctx = setLegacySstoreIfNeeded(ctx, a, version)
 		blockHeight := mockStatesFromTxJson(ctx, txHash, a, mc)
+		ctx = setLegacySstoreIfNeeded(ctx, a, version)
 		return ctx.WithBlockHeight(blockHeight)
 	})
 	s.Run(
@@ -386,9 +390,11 @@ func testBlock(
 	s := SetupMockPacificTestServer(
 		func(a *app.App, mc *MockClient) sdk.Context {
 			ctx := a.RPCContextProvider(evmrpc.LatestCtxHeight).WithClosestUpgradeName(version)
+			ctx = setLegacySstoreIfNeeded(ctx, a, version)
 			blockHeight := mockStatesFromBlockJson(
 				ctx, blockNumber, a, mc,
 			)
+			ctx = setLegacySstoreIfNeeded(ctx, a, version)
 			return ctx.WithBlockHeight(blockHeight)
 		},
 	)
@@ -403,4 +409,71 @@ func testBlock(
 			require.Equal(t, expectedGasUsed, res["gasUsed"])
 		},
 	)
+}
+
+const legacySstoreGas = uint64(20000)
+
+func setLegacySstoreIfNeeded(ctx sdk.Context, a *app.App, version string) sdk.Context {
+	if !isVersionLessOrEqual(version, "v6.2.0") {
+		return ctx
+	}
+	params := a.EvmKeeper.GetParams(ctx)
+	if params.SeiSstoreSetGasEip2200 == legacySstoreGas {
+		return ctx
+	}
+	params.SeiSstoreSetGasEip2200 = legacySstoreGas
+	params.RegisterPointerDisabled = false
+	a.EvmKeeper.SetParams(ctx, params)
+	return ctx
+}
+
+func isVersionLessOrEqual(version, target string) bool {
+	// Remove 'v' prefix if present
+	if len(version) > 0 && version[0] == 'v' {
+		version = version[1:]
+	}
+	if len(target) > 0 && target[0] == 'v' {
+		target = target[1:]
+	}
+
+	// Split version strings into parts
+	versionParts := strings.Split(version, ".")
+	targetParts := strings.Split(target, ".")
+
+	// Pad shorter version with zeros
+	maxLen := len(versionParts)
+	if len(targetParts) > maxLen {
+		maxLen = len(targetParts)
+	}
+
+	for len(versionParts) < maxLen {
+		versionParts = append(versionParts, "0")
+	}
+	for len(targetParts) < maxLen {
+		targetParts = append(targetParts, "0")
+	}
+
+	// Compare each part
+	for i := 0; i < maxLen; i++ {
+		vPart, err1 := strconv.Atoi(versionParts[i])
+		tPart, err2 := strconv.Atoi(targetParts[i])
+
+		if err1 != nil || err2 != nil {
+			// If parsing fails, fall back to string comparison
+			if versionParts[i] < targetParts[i] {
+				return true
+			} else if versionParts[i] > targetParts[i] {
+				return false
+			}
+			continue
+		}
+
+		if vPart < tPart {
+			return true
+		} else if vPart > tPart {
+			return false
+		}
+	}
+
+	return true // versions are equal
 }
