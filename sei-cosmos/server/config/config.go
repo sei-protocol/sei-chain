@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -14,7 +15,8 @@ import (
 )
 
 const (
-	defaultMinGasPrices = ""
+	// DefaultMinGasPrices defines the default minimum gas prices
+	DefaultMinGasPrices = "0.02usei"
 
 	// DefaultGRPCAddress defines the default address to bind the gRPC server to.
 	DefaultGRPCAddress = "0.0.0.0:9090"
@@ -22,12 +24,27 @@ const (
 	// DefaultGRPCWebAddress defines the default address to bind the gRPC-web server to.
 	DefaultGRPCWebAddress = "0.0.0.0:9091"
 
-	// DefaultConcurrencyWorkers defines the default workers to use for concurrent transactions
-	DefaultConcurrencyWorkers = 20
-
 	// DefaultOccEanbled defines whether to use OCC for tx processing
-	DefaultOccEnabled = false
+	DefaultOccEnabled = true
 )
+
+var (
+	// DefaultConcurrencyWorkers defines the default workers to use for concurrent transactions
+	// Set to 2x CPU cores, capped at 128, minimum 10
+	DefaultConcurrencyWorkers = getConcurrencyWorkers()
+)
+
+// getConcurrencyWorkers returns the default number of concurrency workers
+func getConcurrencyWorkers() int {
+	workers := runtime.NumCPU() * 2
+	if workers > 128 {
+		return 128
+	}
+	if workers < 10 {
+		return 10
+	}
+	return workers
+}
 
 // BaseConfig defines the server's basic configuration
 type BaseConfig struct {
@@ -214,7 +231,7 @@ type Config struct {
 	StateSync   StateSyncConfig          `mapstructure:"state-sync"`
 	StateCommit config.StateCommitConfig `mapstructure:"state-commit"`
 	StateStore  config.StateStoreConfig  `mapstructure:"state-store"`
-	Genesis     GenesisConfig            `mapstructure:genesis`
+	Genesis     GenesisConfig            `mapstructure:"genesis"`
 }
 
 // SetMinGasPrices sets the validator's minimum gas prices.
@@ -248,24 +265,29 @@ func (c *Config) GetMinGasPrices() sdk.DecCoins {
 func DefaultConfig() *Config {
 	return &Config{
 		BaseConfig: BaseConfig{
-			MinGasPrices:        defaultMinGasPrices,
-			InterBlockCache:     true,
-			Pruning:             storetypes.PruningOptionDefault,
-			PruningKeepRecent:   "0",
-			PruningKeepEvery:    "0",
-			PruningInterval:     "0",
-			MinRetainBlocks:     0,
-			IndexEvents:         make([]string, 0),
-			IAVLCacheSize:       781250, // 50 MB
-			IAVLDisableFastNode: true,
-			CompactionInterval:  0,
-			NoVersioning:        false,
-			ConcurrencyWorkers:  DefaultConcurrencyWorkers,
-			OccEnabled:          DefaultOccEnabled,
+			MinGasPrices:                 DefaultMinGasPrices,
+			InterBlockCache:              true,
+			Pruning:                      storetypes.PruningOptionNothing,
+			PruningKeepRecent:            "0",
+			PruningKeepEvery:             "0",
+			PruningInterval:              "0",
+			MinRetainBlocks:              0,
+			IndexEvents:                  make([]string, 0),
+			IAVLCacheSize:                781250, // 50 MB
+			IAVLDisableFastNode:          true,
+			CompactionInterval:           0,
+			NoVersioning:                 false,
+			SeparateOrphanStorage:        false,
+			SeparateOrphanVersionsToKeep: 0,
+			NumOrphanPerFile:             0,
+			OrphanDirectory:              "",
+			ConcurrencyWorkers:           DefaultConcurrencyWorkers,
+			OccEnabled:                   DefaultOccEnabled,
 		},
 		Telemetry: telemetry.Config{
-			Enabled:      false,
-			GlobalLabels: [][]string{},
+			Enabled:                 true,
+			PrometheusRetentionTime: 7200,
+			GlobalLabels:            [][]string{},
 		},
 		API: APIConfig{
 			Enable:             false,
@@ -273,6 +295,7 @@ func DefaultConfig() *Config {
 			Address:            "tcp://0.0.0.0:1317",
 			MaxOpenConnections: 1000,
 			RPCReadTimeout:     10,
+			RPCWriteTimeout:    0,
 			RPCMaxBodyBytes:    1000000,
 		},
 		GRPC: GRPCConfig{
