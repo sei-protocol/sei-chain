@@ -187,6 +187,36 @@ func TestClaimSpecificCW721(t *testing.T) {
 	}
 }
 
+func TestClaimSingleCW721(t *testing.T) {
+	k := &testkeeper.EVMTestApp.EvmKeeper
+	origCtx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).WithChainID("sei-test").WithBlockTime(time.Now())
+	txConfig := testkeeper.EVMTestApp.GetTxConfig()
+	a := pcommon.MustGetABI(solo.F, "abi.json")
+	method := a.Methods["claimSpecific"]
+	wKeeper := wasmkeeper.NewDefaultPermissionKeeper(testkeeper.EVMTestApp.WasmKeeper)
+	p := solo.NewExecutor(a, k, k.BankKeeper(), k.AccountKeeper(), wKeeper, testkeeper.EVMTestApp.WasmKeeper, txConfig)
+	claimeeKey := testkeeper.MockPrivateKey()
+	claimee, _ := testkeeper.PrivateKeyToAddresses(claimeeKey)
+	claimerKey := testkeeper.MockPrivateKey()
+	_, claimer := testkeeper.PrivateKeyToAddresses(claimerKey)
+	acc := authtypes.NewBaseAccount(claimee, claimeeKey.PubKey(), 10, 0)
+	k.AccountKeeper().SetAccount(origCtx, acc)
+	contractAddr := setupCW721Contract(origCtx, claimeeKey, *wKeeper)
+	ctx, _ := origCtx.CacheContext()
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(2000000, 1, 1))
+	_, remainingGas, err := p.ClaimSpecific(ctx, claimer, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaimSpecific(claimee, claimer, &evmtypes.Asset{AssetType: evmtypes.AssetType_TYPECW721, ContractAddress: contractAddr.String(), Denom: "5"}), claimee, claimer, acc, claimeeKey)}, false)
+	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
+	require.NoError(t, err)
+	require.Equal(t, uint64(1903347), remainingGas)
+	for i := 0; i < 15; i++ {
+		if i == 5 {
+			require.Equal(t, k.GetSeiAddressOrDefault(ctx, claimer).String(), queryCW721Owner(ctx, testkeeper.EVMTestApp.WasmKeeper, contractAddr, fmt.Sprintf("%d", i)))
+		} else {
+			require.Equal(t, claimee.String(), queryCW721Owner(ctx, testkeeper.EVMTestApp.WasmKeeper, contractAddr, fmt.Sprintf("%d", i)))
+		}
+	}
+}
+
 func TestClaimSpecificNative(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	origCtx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).WithChainID("sei-test").WithBlockTime(time.Now())
