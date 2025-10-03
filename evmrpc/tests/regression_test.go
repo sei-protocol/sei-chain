@@ -364,7 +364,11 @@ func testTx(t *testing.T, txHash string, version string, expectedGasUsed string,
 					"tracer": "callTracer",
 				},
 			)
-			res := raw["result"].(map[string]interface{})
+			res, ok := raw["result"].(map[string]interface{})
+			if !ok {
+				t.Logf("raw: %v", raw)
+				require.Fail(t, "raw could not be converted to map[string]interface{}")
+			}
 			if hasErr {
 				require.Contains(t, res, "error")
 			}
