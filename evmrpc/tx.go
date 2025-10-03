@@ -20,6 +20,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -66,23 +67,11 @@ func NewSeiTransactionAPI(
 }
 
 func (t *SeiTransactionAPI) GetTransactionReceiptExcludeTraceFail(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
-	sdkCtx := t.ctxProvider(LatestCtxHeight)
-	signer := ethtypes.MakeSigner(
-		types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
-		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Unix()),
-	)
-	return getTransactionReceipt(ctx, t.TransactionAPI, hash, true, t.isPanicTx, true, signer)
+	return getTransactionReceipt(ctx, t.TransactionAPI, hash, true, t.isPanicTx, true)
 }
 
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
-	sdkCtx := t.ctxProvider(LatestCtxHeight)
-	signer := ethtypes.MakeSigner(
-		types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
-		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Unix()),
-	)
-	return getTransactionReceipt(ctx, t, hash, false, nil, t.includeSynthetic, signer)
+	return getTransactionReceipt(ctx, t, hash, false, nil, t.includeSynthetic)
 }
 
 func getTransactionReceipt(
@@ -92,7 +81,6 @@ func getTransactionReceipt(
 	excludePanicTxs bool,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 	includeSynthetic bool,
-	signer ethtypes.Signer,
 ) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getTransactionReceipt", t.connectionType, startTime)
@@ -131,14 +119,10 @@ func getTransactionReceipt(
 		for _, tx := range block.Block.Txs {
 			etx := getEthTxForTxBz(tx, t.txConfigProvider(block.Block.Height).TxDecoder())
 			if etx != nil && etx.Hash() == hash {
-				// Get the signer
-				signer := ethtypes.MakeSigner(
-					types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkctx)),
-					big.NewInt(height),
-					uint64(block.Block.Time.Unix()),
-				)
-				from, _ := ethtypes.Sender(signer, etx)
-
+				from, err := rpcutils.RecoverEVMSender(etx, height, block.Block.Time.Unix())
+				if err != nil { // codecov:ignore - defensive error handling for invalid signatures
+					return nil, err // codecov:ignore
+				}
 				// Update receipt with correct information
 				receipt.From = from.Hex()
 				if etx.To() != nil {
@@ -161,7 +145,7 @@ func getTransactionReceipt(
 	if err != nil {
 		return nil, err
 	}
-	return encodeReceipt(t.ctxProvider, t.txConfigProvider, receipt, t.keeper, block, includeSynthetic, signer)
+	return encodeReceipt(t.ctxProvider, t.txConfigProvider, receipt, t.keeper, block, includeSynthetic)
 }
 
 func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
@@ -226,12 +210,11 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 		for _, tx := range res.Txs {
 			etx := getEthTxForTxBz(tx, t.txConfigProvider(LatestCtxHeight).TxDecoder())
 			if etx != nil && etx.Hash() == hash {
-				signer := ethtypes.MakeSigner(
-					types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
-					big.NewInt(sdkCtx.BlockHeight()),
-					uint64(sdkCtx.BlockTime().Unix()),
-				)
-				from, _ := ethtypes.Sender(signer, etx)
+				from, err := rpcutils.RecoverEVMSenderWithContext(sdkCtx, etx)
+				if err != nil { // codecov:ignore - defensive error handling for invalid signatures
+					sdkCtx.Logger().Error("failed to recover sender", "err", err, "tx", etx.Hash().Hex()) // codecov:ignore
+					return nil, err                                                                       // codecov:ignore
+				}
 				v, r, s := etx.RawSignatureValues()
 				res := export.RPCTransaction{
 					Type:     hexutil.Uint64(etx.Type()),
@@ -316,13 +299,7 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 }
 
 func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, txIndex uint32, includeSynthetic bool) (*export.RPCTransaction, error) {
-	ctx := t.ctxProvider(block.Block.Height)
-	signer := ethtypes.MakeSigner(
-		types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(ctx)),
-		big.NewInt(ctx.BlockHeight()),
-		uint64(ctx.BlockTime().Unix()), //nolint:gosec
-	)
-	msgs := filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, signer, includeSynthetic, false)
+	msgs := filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, includeSynthetic, false)
 	if txIndex >= uint32(len(msgs)) { //nolint:gosec
 		return nil, errors.New("transaction index out of range")
 	}
@@ -352,8 +329,17 @@ func (t *TransactionAPI) encodeRPCTransaction(ethtx *ethtypes.Transaction, block
 	blockHash := common.HexToHash(block.BlockID.Hash.String())
 	blockNumber := uint64(block.Block.Height)
 	blockTime := block.Block.Time
-	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(txIndex), baseFeePerGas, chainConfig) //nolint:gosec
+	blockUnix := toUint64(blockTime.Unix())
+	res := export.NewRPCTransaction(ethtx, blockHash, blockNumber, blockUnix, uint64(txIndex), baseFeePerGas, chainConfig)
+	replaceFrom(res, receipt)
 	return res, nil
+}
+
+// replaceFrom updates the From field of the transaction if it is not already set, for edge cases for Legacy Txs.
+func replaceFrom(tx *export.RPCTransaction, receipt *types.Receipt) {
+	if tx.From == (common.Address{}) && receipt != nil {
+		tx.From = common.HexToAddress(receipt.From)
+	}
 }
 
 func (t *TransactionAPI) Sign(addr common.Address, data hexutil.Bytes) (result hexutil.Bytes, returnErr error) {
@@ -374,13 +360,7 @@ func (t *TransactionAPI) Sign(addr common.Address, data hexutil.Bytes) (result h
 }
 
 func (t *TransactionAPI) getFilteredMsgs(block *coretypes.ResultBlock) []indexedMsg {
-	ctx := t.ctxProvider(block.Block.Height)
-	signer := ethtypes.MakeSigner(
-		types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(ctx)),
-		big.NewInt(ctx.BlockHeight()),
-		uint64(ctx.BlockTime().Unix()), //nolint:gosec
-	)
-	return filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, signer, t.includeSynthetic, false)
+	return filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, t.includeSynthetic, false)
 }
 
 func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction {
@@ -432,11 +412,11 @@ func GetEvmTxIndex(ctx sdk.Context, block *coretypes.ResultBlock, msgs []indexed
 	return -1, false, nil, -1
 }
 
-func encodeReceipt(ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, receipt *types.Receipt, k *keeper.Keeper, block *coretypes.ResultBlock, includeSynthetic bool, signer ethtypes.Signer) (map[string]interface{}, error) {
+func encodeReceipt(ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, receipt *types.Receipt, k *keeper.Keeper, block *coretypes.ResultBlock, includeSynthetic bool) (map[string]interface{}, error) {
 	blockHash := block.BlockID.Hash
 	bh := common.HexToHash(blockHash.String())
 	ctx := ctxProvider(block.Block.Height)
-	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, signer, includeSynthetic, false)
+	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSynthetic, false)
 	evmTxIndex, foundTx, etx, logIndexOffset := GetEvmTxIndex(ctx, block, msgs, receipt.TransactionIndex, k)
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
 	if !foundTx {
@@ -464,7 +444,7 @@ func encodeReceipt(ctxProvider func(int64) sdk.Context, txConfigProvider func(in
 		"status":            hexutil.Uint(receipt.Status),
 	}
 	if etx != nil && receipt.From == "" {
-		from, err := ethtypes.Sender(signer, etx)
+		from, err := rpcutils.RecoverEVMSender(etx, block.Block.Height, block.Block.Time.Unix())
 		if err == nil {
 			fields["from"] = from
 		}
