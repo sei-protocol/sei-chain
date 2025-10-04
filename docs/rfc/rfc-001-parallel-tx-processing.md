@@ -2,11 +2,17 @@
 
 ## Changelog
 
+- 2025-10-01: Added lineage notes tying accesscontrol DAG scheduling to optimistic proposal processing and royalty settlement.
 - 2022-09-10: Initial draft
 
 ## Abstract
 
 This document discusses a proposal to enable parallel processing of transaction messages in a block safely and deterministically. ABCI++ support is a prerequisite. Cosmos-SDK/wasmd forking is also necessary.
+
+## Relationship to Related RFCs
+
+- [RFC-000: Optimistic Proposal Processing](./rfc-000-optimistic-proposal-processing.md) — establishes the ProcessProposal branching semantics that this RFC uses as a foundation for parallel execution planning.
+- [RFC-002: SeiKinSettlement — Sovereign Royalty Enforcement via CCTP + CCIP](./rfc-002-royalty-aware-optimistic-processing.md) — leverages the `accesscontrol` DAG model defined here to guarantee deterministic royalty routing alongside settlement flows.
 
 ## Background
 As shown by recent load tests, after the optimizations of `EndBlock` are in place, the biggest bottleneck Sei has when processing thousands of transactions per block is the sequential processing of transactions. Each transaction takes 0.5ms on an `m5.12xlarge` EC2 machine, which translates to 0.5s for a 1000-tx block and 1s for a 2000-tx block, respectively. Since there is no obvious bottleneck within each transaction's processing logic (even signature verification is pretty fast, when transaction data size is reasonable), the best way we can improve performance is through parallelization of transaction processing.

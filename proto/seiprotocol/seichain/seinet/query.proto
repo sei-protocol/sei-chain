@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package seiprotocol.seichain.seinet;
+
+import "google/api/annotations.proto";
+
+option go_package = "github.com/sei-protocol/sei-chain/x/seinet/types";
+
+// Query defines the gRPC querier service for the seinet module.
+service Query {
+  // VaultBalance returns the balances held by the seinet vault module account.
+  rpc VaultBalance(QueryVaultBalanceRequest) returns (QueryVaultBalanceResponse) {
+    option (google.api.http).get = "/sei-protocol/seichain/seinet/vault_balance";
+  }
+
+  // CovenantBalance returns the balances held by the seinet covenant module account.
+  rpc CovenantBalance(QueryCovenantBalanceRequest) returns (QueryCovenantBalanceResponse) {
+    option (google.api.http).get = "/sei-protocol/seichain/seinet/covenant_balance";
+  }
+}
+
+// QueryVaultBalanceRequest represents the request payload for querying the vault balance.
+message QueryVaultBalanceRequest {
+  // address optionally specifies an account to query instead of the module default.
+  string address = 1;
+}
+
+// QueryVaultBalanceResponse represents the response payload for querying the vault balance.
+message QueryVaultBalanceResponse {
+  repeated QueryBalance balances = 1;
+}
+
+// QueryCovenantBalanceRequest represents the request payload for querying the covenant balance.
+message QueryCovenantBalanceRequest {
+  // address optionally specifies an account to query instead of the module default.
+  string address = 1;
+}
+
+// QueryCovenantBalanceResponse represents the response payload for querying the covenant balance.
+message QueryCovenantBalanceResponse {
+  repeated QueryBalance balances = 1;
+}
+
+// QueryBalance represents an individual balance returned from balance queries.
+message QueryBalance {
+  string denom = 1;
+  string amount = 2;
+}

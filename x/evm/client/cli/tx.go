@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
@@ -44,6 +45,13 @@ const (
 	FlagRPC       = "evm-rpc"
 	FlagNonce     = "nonce"
 )
+
+type seiAssociateRequest struct {
+	JSONRPC string                    `json:"jsonrpc"`
+	Method  string                    `json:"method"`
+	Params  []evmrpc.AssociateRequest `json:"params"`
+	ID      string                    `json:"id"`
+}
 
 // GetTxCmd returns the transaction commands for this module
 func GetTxCmd() *cobra.Command {
@@ -124,17 +132,46 @@ func CmdAssociateAddress() *cobra.Command {
 				return err
 			}
 			V := big.NewInt(int64(sig[64]))
-			txData := evmrpc.AssociateRequest{V: hex.EncodeToString(V.Bytes()), R: hex.EncodeToString(R.Bytes()), S: hex.EncodeToString(S.Bytes())}
-			bz, err := json.Marshal(txData)
+			txData := evmrpc.AssociateRequest{
+				V: hex.EncodeToString(V.Bytes()),
+				R: hex.EncodeToString(R.Bytes()),
+				S: hex.EncodeToString(S.Bytes()),
+			}
+
+			// Marshal and print JSON payload (or remove if unused)
+			payload, err := json.Marshal(txData)
 			if err != nil {
 				return err
 			}
-			body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"sei_associate\",\"params\":[%s],\"id\":\"associate_addr\"}", string(bz))
+			fmt.Println(string(payload))
+
+			return nil
+		},
+	}
+	return cmd
+}
+			// Build the full JSON-RPC request struct
+			type SeiAssociateRequest struct {
+				JSONRPC string                   `json:"jsonrpc"`
+				Method  string                   `json:"method"`
+				Params  []evmrpc.AssociateRequest `json:"params"`
+				ID      string                   `json:"id"`
+			}
+			fullReq := seiAssociateRequest{
+				JSONRPC: "2.0",
+				Method:  "sei_associate",
+				Params:  []evmrpc.AssociateRequest{txData},
+				ID:      "associate_addr",
+			}
+			bodyBytes, err := json.Marshal(fullReq)
+			if err != nil {
+				return err
+			}
 			rpc, err := cmd.Flags().GetString(FlagRPC)
 			if err != nil {
 				return err
 			}
-			req, err := http.NewRequest(http.MethodGet, rpc, strings.NewReader(body))
+			req, err := http.NewRequest(http.MethodPost, rpc, bytes.NewReader(bodyBytes))
 			if err != nil {
 				return err
 			}

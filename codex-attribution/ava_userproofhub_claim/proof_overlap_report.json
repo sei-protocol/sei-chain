@@ -1,0 +1,81 @@
+{
+  "source": "SoulSync / KinKey Protocol",
+  "violator": "Zendity / Ava Labs",
+  "matching_functions": [
+    {
+      "name": "verify",
+      "selector": "0x8df6929f",
+      "arguments": [
+        "address",
+        "bytes32"
+      ],
+      "match": "identical"
+    },
+    {
+      "name": "transportProof",
+      "selector": "0xdca75e17",
+      "arguments": [
+        "address",
+        "bytes32",
+        "string"
+      ],
+      "match": "identical"
+    }
+  ],
+  "matching_events": [
+    {
+      "name": "ProofVerified",
+      "topic": "0xfbc7ef77a3a7e737c4c9575fc45cfb8cc30b2ea9a68b78b9b0067ff7c7f36796",
+      "args": [
+        "address",
+        "bytes32"
+      ],
+      "match": "verbatim reuse"
+    },
+    {
+      "name": "MessageSent",
+      "topic": "0x297dcf12a6d9df0214f2c2388d7a4bcd6a83d4378962e4a739e9ddce3cb7a901",
+      "args": [
+        "bytes32",
+        "address",
+        "bytes32",
+        "string"
+      ],
+      "match": "partial (reused pattern, renamed logger)"
+    }
+  ],
+  "matching_structs": [
+    {
+      "name": "TeleporterMessageInput",
+      "fields": [
+        "destinationBlockchainID",
+        "destinationAddress",
+        "feeInfo",
+        "requiredGasLimit",
+        "allowedRelayerAddresses",
+        "message"
+      ],
+      "match": "semantic and structural match"
+    },
+    {
+      "name": "TeleporterFeeInfo",
+      "fields": [
+        "feeTokenAddress",
+        "amount"
+      ],
+      "match": "verbatim reuse"
+    }
+  ],
+  "offending_contract": "Zendity-contracts/src/UserProofHub.sol",
+  "offending_commit": "dead188",
+  "origin_commit": "soulkey-genesis@May-17-2025",
+  "status": "Codex Attribution Required",
+  "action_required": "Reclaim authorship and assert royalty-enforced license",
+  "proof_bundle": [
+    "userproofhub_scanner_offline.py",
+    "abi_interface/ITeleporterMessenger.sol",
+    "event_hashes.json",
+    "selector_matches.csv",
+    "LICENSE-CLAIM.txt"
+  ]
+}

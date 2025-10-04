@@ -2,6 +2,7 @@
 
 ## Changelog
 
+- 2025-10-01: Documentation refresh to situate the optimistic processing design within the SeiKin royalty-enforcement lineage.
 - 2022-08-16: Initial draft
 
 ## Abstract
@@ -9,6 +10,14 @@
 This document discusses an optimization of block proposal processing based on
 the upcoming Tendermint ABCI++ interface. Specifically, it involves an optimistic
 processing mechanism.
+
+## Relationship to Subsequent RFCs
+
+- [RFC-001: Parallel Transaction Message Processing](./rfc-001-parallel-tx-processing.md) — builds on the optimistic execution
+  groundwork introduced here to formalize resource access DAG scheduling.
+- [RFC-002: SeiKinSettlement — Sovereign Royalty Enforcement via CCTP + CCIP](./rfc-002-royalty-aware-optimistic-processing.md) —
+  layers royalty-aware settlement routing onto the optimistic/parallel execution pipeline and references this RFC for the
+  original ProcessProposal branching semantics.
 
 ## Background
 
