@@ -373,7 +373,7 @@ func encodeReceipt(ctxProvider func(int64) sdk.Context, txConfigProvider func(in
 	blockHash := block.BlockID.Hash
 	bh := common.HexToHash(blockHash.String())
 	ctx := ctxProvider(block.Block.Height)
-	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSynthetic, false)
+	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSynthetic, false, true)
 	evmTxIndex, foundTx, etx, logIndexOffset := GetEvmTxIndex(ctx, block, msgs, receipt.TransactionIndex, k)
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
 	if !foundTx {

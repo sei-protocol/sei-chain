@@ -191,6 +191,7 @@ func filterTransactions(
 	block *coretypes.ResultBlock,
 	includeSyntheticTxs bool,
 	includeBankTransfers bool,
+	checkNonce bool,
 ) []indexedMsg {
 	txs := []indexedMsg{}
 	txCounts := make(map[string]uint64)
@@ -211,25 +212,27 @@ func filterTransactions(
 				}
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
-				sender, _ := helpers.RecoverEVMSender(ethtx, block.Block.Height, uint64(block.Block.Time.Unix()))
 				receipt, found := getOrSetCachedReceipt(latestCtx, k, block, hash)
 				if !found || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(latestCtx, receipt) {
 					continue
 				}
-				txCount := txCounts[sender.Hex()]
-				if receipt.Status == 0 && receipt.EffectiveGasPrice == 0 {
-					// check if the transaction bumped nonce. If not, exclude it
-					if _, ok := startOfBlockNonce[sender.Hex()]; !ok {
-						startOfBlockNonce[sender.Hex()] = k.GetNonce(prevCtx, common.HexToAddress(sender.Hex()))
-					}
-					if txCount+startOfBlockNonce[sender.Hex()] != ethtx.Nonce() {
-						continue
-					}
-				}
 				if !includeSyntheticTxs && receipt.TxType == types.ShellEVMTxType {
 					continue
 				}
-				txCounts[sender.Hex()] = txCount + 1
+				if checkNonce {
+					sender, _ := helpers.RecoverEVMSender(ethtx, block.Block.Height, uint64(block.Block.Time.Unix()))
+					txCount := txCounts[sender.Hex()]
+					if receipt.Status == 0 && receipt.EffectiveGasPrice == 0 {
+						// check if the transaction bumped nonce. If not, exclude it
+						if _, ok := startOfBlockNonce[sender.Hex()]; !ok {
+							startOfBlockNonce[sender.Hex()] = k.GetNonce(prevCtx, common.HexToAddress(sender.Hex()))
+						}
+						if txCount+startOfBlockNonce[sender.Hex()] != ethtx.Nonce() {
+							continue
+						}
+					}
+					txCounts[sender.Hex()] = txCount + 1
+				}
 				txs = append(txs, indexedMsg{index: i, msg: msg})
 			case *wasmtypes.MsgExecuteContract:
 				if !includeSyntheticTxs {
@@ -298,9 +301,10 @@ func getTxHashesFromBlock(
 	k *keeper.Keeper,
 	block *coretypes.ResultBlock,
 	shouldIncludeSynthetic bool,
+	checkNonce bool,
 ) []typedTxHash {
 	txHashes := []typedTxHash{}
-	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, false) {
+	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, false, checkNonce) {
 		switch tx.msg.(type) {
 		case *types.MsgEVMTransaction:
 			ethtx, _ := tx.msg.(*types.MsgEVMTransaction).AsTransaction()

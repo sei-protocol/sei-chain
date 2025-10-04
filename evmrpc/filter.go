@@ -829,7 +829,7 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	ctx := f.ctxProvider(block.Block.Height)
 	totalLogs := uint(0)
 	evmTxIndex := 0
-	for _, hash := range getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts) {
+	for _, hash := range getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, false) {
 		receipt, found := getOrSetCachedReceipt(ctx, f.k, block, hash.hash)
 		if !found {
 			ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", hash.hash.Hex()))
