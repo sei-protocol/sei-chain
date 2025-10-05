@@ -39,6 +39,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/tools"
 	"github.com/sei-protocol/sei-chain/tools/migration/ss"
+	accesscontrolcli "github.com/sei-protocol/sei-chain/x/accesscontrol/client/cli"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
@@ -212,6 +213,8 @@ func txCommand() *cobra.Command {
 		authcmd.GetBroadcastCommand(),
 		authcmd.GetEncodeCommand(),
 		authcmd.GetDecodeCommand(),
+		flags.LineBreak,
+		accesscontrolcli.GetTxCmd(),
 	)
 
 	app.ModuleBasics.AddTxCommands(cmd)
