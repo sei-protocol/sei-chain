@@ -1,0 +1,44 @@
+name: Analyze
+
+on:
+  push:
+    branches: [main, seiv2, evm, release/**]
+    paths:
+      - '**.go'
+      - go.mod
+      - go.sum
+  pull_request:
+    paths:
+      - '**.go'
+      - go.mod
+      - go.sum
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: '1.21'
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: go
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3

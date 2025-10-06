@@ -1,0 +1,19 @@
+// proto/dummy/v1/dummy.proto
+syntax = "proto3";
+
+package dummy.v1;
+
+option go_package = "github.com/YOUR_GITHUB_USERNAME/sei-chain/x/dummy/types";
+
+// Dummy service to test Buf push
+service DummyService {
+  rpc Ping (PingRequest) returns (PingResponse);
+}
+
+message PingRequest {
+  string message = 1;
+}
+
+message PingResponse {
+  string reply = 1;
+}

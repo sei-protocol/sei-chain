@@ -163,7 +163,7 @@ jobs:
                 blocks: [
                   { "type":"section", "text":{"type":"mrkdwn","text":("*PR #"+$n+":* "+$t)} },
                   { "type":"section", "text":{"type":"mrkdwn","text":("• Author: "+$a)} },
-                  { "type":"section", "text":{"type":"mrkdwn","text":("• Link: <"+$u+">")} }
+                  { "type":"section", "text":{"type":"mrkdwn","text":("• Link: <"+$u+">") } }
                 ],
                 unfurl_links:false, unfurl_media:false
               }')" )
@@ -193,7 +193,7 @@ jobs:
           test "$upload_url" != "null" -a "$file_id" != "null" || { echo "getUploadURLExternal failed: $ticket" >&2; exit 1; }
 
           curl -sS -X POST "$upload_url" \
-            -F "filename=@review.md;type=text/markdown" \
+            -F "filename=@review.md;type=text/markdown" 
             > /dev/null
 
           payload=$(jq -n --arg fid "$file_id" --arg ch "$SLACK_CHANNEL_ID" --arg ts "$TS" \

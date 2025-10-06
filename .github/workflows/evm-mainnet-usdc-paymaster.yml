@@ -1,0 +1,138 @@
+name: USDC TransferWithAuthorization
+
+on:
+  workflow_dispatch:
+    inputs:
+      to_address:
+        description: "Recipient address"
+        required: true
+      usdc_amount:
+        description: "Amount in human-readable format (e.g., 100.0)"
+        required: true
+      valid_after:
+        description: "Start time (ISO 8601, e.g., 2025-09-28T00:00:00Z)"
+        required: true
+      valid_before:
+        description: "End time (ISO 8601, e.g., 2025-09-29T00:00:00Z)"
+        required: true
+      nonce:
+        description: "Hex nonce (must match backend claim)"
+        required: true
+      ephemeral_key:
+        description: "Optional ephemeral private key"
+        required: false
+        default: ""
+
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    env:
+      PRIVATE_KEY: ${{ github.event.inputs.ephemeral_key != '' && github.event.inputs.ephemeral_key || secrets.KEEPER_PRIVATE_KEY }}
+    steps:
+      - name: ⬇️ Checkout
+        uses: actions/checkout@v3
+
+      - name: 🛠️ Setup Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: 🧮 Compute EIP-712 Signature
+        id: sign
+        run: |
+          set -euo pipefail
+          FROM_ADDRESS=$(cast wallet address --private-key "$PRIVATE_KEY")
+          TO_ADDRESS="${{ github.event.inputs.to_address }}"
+          USDC_AMOUNT_HUMAN="${{ github.event.inputs.usdc_amount }}"
+          USDC_AMOUNT_WEI=$(cast to-wei "$USDC_AMOUNT_HUMAN" --decimals 6)
+
+          VALID_AFTER_ISO="${{ github.event.inputs.valid_after }}"
+          VALID_BEFORE_ISO="${{ github.event.inputs.valid_before }}"
+          VALID_AFTER=$(date --date="$VALID_AFTER_ISO" +%s)
+          VALID_BEFORE=$(date --date="$VALID_BEFORE_ISO" +%s)
+          NONCE="${{ github.event.inputs.nonce }}"
+
+          DOMAIN_SEPARATOR="0x0000000000000000000000000000000000000000000000000000000000000000"  # Replace with real if needed
+          USDC_ADDRESS="0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"  # Mainnet USDC
+
+          # Generate EIP-712 signature (replace domain separator if needed)
+          SIG=$(cast sig "TransferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)")
+          DIGEST=$(cast keccak "0x$SIG$(cast abi-encode 'tuple(address,address,uint256,uint256,uint256,bytes32)' \
+            $FROM_ADDRESS $TO_ADDRESS $USDC_AMOUNT_WEI $VALID_AFTER $VALID_BEFORE $NONCE | cut -c 3-)")
+
+          SIGNATURE=$(cast sign --private-key "$PRIVATE_KEY" "$DIGEST")
+          V=$(echo "$SIGNATURE" | cut -c131-132)
+          R=0x$(echo "$SIGNATURE" | cut -c3-66)
+          S=0x$(echo "$SIGNATURE" | cut -c67-130)
+
+          echo "FROM_ADDRESS=$FROM_ADDRESS" >> "$GITHUB_ENV"
+          echo "TO_ADDRESS=$TO_ADDRESS" >> "$GITHUB_ENV"
+          echo "USDC_AMOUNT_WEI=$USDC_AMOUNT_WEI" >> "$GITHUB_ENV"
+          echo "USDC_AMOUNT_HUMAN=$USDC_AMOUNT_HUMAN" >> "$GITHUB_ENV"
+          echo "VALID_AFTER=$VALID_AFTER" >> "$GITHUB_ENV"
+          echo "VALID_BEFORE=$VALID_BEFORE" >> "$GITHUB_ENV"
+          echo "NONCE=$NONCE" >> "$GITHUB_ENV"
+          echo "V=$V" >> "$GITHUB_ENV"
+          echo "R=$R" >> "$GITHUB_ENV"
+          echo "S=$S" >> "$GITHUB_ENV"
+
+      - name: 🚀 Send TransferWithAuthorization
+        run: |
+          cast send $USDC_ADDRESS \
+            "transferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce,uint8 v,bytes32 r,bytes32 s)" \
+            "$FROM_ADDRESS" "$TO_ADDRESS" "$USDC_AMOUNT_WEI" "$VALID_AFTER" "$VALID_BEFORE" "$NONCE" "$V" "$R" "$S" \
+            --private-key "$PRIVATE_KEY" \
+            --legacy \
+            --rpc-url "https://mainnet.infura.io/v3/${{ secrets.INFURA_KEY }}" \
+            --gas-price 25gwei
+
+      - name: 🧾 Save Receipt Artifact
+        run: |
+          jq -n \
+            --arg from "$FROM_ADDRESS" \
+            --arg to "$TO_ADDRESS" \
+            --arg amount "$USDC_AMOUNT_HUMAN" \
+            --arg valid_after "$VALID_AFTER" \
+            --arg valid_before "$VALID_BEFORE" \
+            --arg nonce "$NONCE" \
+            --arg v "$V" \
+            --arg r "$R" \
+            --arg s "$S" \
+            '{from: $from, to: $to, amount: $amount, valid_after: $valid_after, valid_before: $valid_before, nonce: $nonce, v: $v, r: $r, s: $s}' > usdc_receipt.json
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: usdc-authz-receipt
+          path: usdc_receipt.json
+
+      - name: 📣 Notify Slack of Broadcast
+        if: success()
+        run: |
+          set -euo pipefail
+          payload=$(jq -n \
+            --arg from "$FROM_ADDRESS" \
+            --arg to "$TO_ADDRESS" \
+            --arg amt "$USDC_AMOUNT_HUMAN" \
+            --arg vaf "$VALID_AFTER_ISO" \
+            --arg vbf "$VALID_BEFORE_ISO" \
+            '{channel: env.SLACK_CHANNEL_ID,
+              text: "✅ *USDC TransferWithAuthorization* completed",
+              blocks: [
+                {type: "section", text: {type: "mrkdwn", text: "*USDC Authorization Executed*" }},
+                {type: "section", fields: [
+                  {type: "mrkdwn", text: "*From:*\n\($from)"},
+                  {type: "mrkdwn", text: "*To:*\n\($to)"},
+                  {type: "mrkdwn", text: "*Amount:*\n\($amt) USDC"},
+                  {type: "mrkdwn", text: "*Valid After:*\n\($vaf)"},
+                  {type: "mrkdwn", text: "*Valid Before:*\n\($vbf)"}
+                ]}
+              ]}')
+          echo "$payload" > slack_payload.json
+
+          curl -sS -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $SLACK_TRANSFER_TOKEN" \
+            -H "Content-type: application/json" \
+            --data @slack_payload.json
+        env:
+          SLACK_TRANSFER_TOKEN: ${{ secrets.SLACK_TRANSFER_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}

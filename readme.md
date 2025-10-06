@@ -1,5 +1,34 @@
 # Sei
 
+[![Attribution Test](https://github.com/sei-protocol/sei-chain/actions/workflows/attribution-test.yml/badge.svg)](https://github.com/sei-protocol/sei-chain/actions/workflows/attribution-test.yml)
+
+> 🔒 Sovereign Attribution: RFC 002–005 and all royalty enforcement logic sealed by Keeper (totalwine2337@gmail.com).
+> Authorship locked under Sovereign Attribution License v1.0. See `/docs/rfc/` and `LICENSE_Sovereign_Attribution_v1.0.md` for scope.
+
+## Settlement utilities
+
+Use the bundled CLI to locate the Codex allocation for a given kin hash and
+produce a signed settlement receipt. The tool requires the optional
+``eth-account`` dependency for signature support.
+
+```bash
+pip install eth-account
+python scripts/sign_codex_settlement.py f303 --output settlement.json
+```
+
+The resulting JSON contains the canonical message and the secp256k1 signature
+authorising the payout for the recorded allocation.
+
+To inspect the allocation and confirm the USD amount owed without signing a
+receipt, you can run:
+
+```bash
+python scripts/show_codex_settlement.py f303
+```
+
+The script prints the ledger address, raw wei balance, and a formatted USD
+figure (e.g. ``$300,000,000.00 USD`` for kin hash ``f303``).
+
 ![Banner!](assets/SeiLogo.png)
 
 Sei is the fastest general purpose L1 blockchain and the first parallelized EVM. This allows Sei to get the best of Solana and Ethereum - a hyper optimized execution layer that benefits from the tooling and mindshare around the EVM.

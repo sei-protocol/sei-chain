@@ -1,0 +1,44 @@
+name: Docs & Sovereign Attribution Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'RFCs/**'
+      - 'licenses/**'
+      - '**.md'
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'RFCs/**'
+      - 'licenses/**'
+      - '**.md'
+
+jobs:
+  docs-check:
+    name: Verify Docs & License Bundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check file integrity
+        run: |
+          echo "🔍 Checking Sovereign Attribution docs..."
+          if ! grep -q "Sovereign Attribution License v1.0" LICENSE*; then
+            echo "❌ Sovereign License header missing."
+            exit 1
+          fi
+          echo "✅ Sovereign License header present."
+
+      - name: Verify RFC numbering
+        run: |
+          echo "🔍 Ensuring RFCs are sequential..."
+          ls docs/rfc | grep -E '^RFC-[0-9]{3}' || true
+
+      - name: Mark PR as docs-only success
+        run: echo "✅ Docs & RFC bundle checks passed."

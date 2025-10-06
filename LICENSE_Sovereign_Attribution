@@ -1,0 +1,59 @@
+# Sovereign Attribution License v1.0
+
+Effective date: 2025-10-01
+
+## 1. Ownership and Covered Works
+This license governs the SeiKin research corpus in this repository, including:
+
+- RFC-000 through RFC-005
+- SeiKinSeal.yaml, vault telemetry scripts, balance checkers, claim files
+- All implementation logic for royalty routing, covenant enforcement, and Payword settlement
+
+All intellectual property remains exclusively with the original author (“Keeper Family”). No rights are granted by implication or estoppel.
+
+## 2. Limited License Grant
+Subject to full, unconditional compliance with this license, the Keeper Family grants a **revocable, non-exclusive** license to:
+
+1. Read and use the covered works for personal study or protocol-integrated research.
+2. Build interoperable components that preserve attribution and enforce all royalty hooks.
+
+Commercial use, redistribution, or AI/LLM training is **prohibited** without explicit written consent.
+
+## 3. Attribution and Integrity Requirements
+Licensees **must**:
+
+- Preserve authorship notices and cryptographic metadata
+- Maintain all royalty routing hooks to the SeiKin Royalty Vault or any successor address designated by the Keeper Family
+- Disclose any modifications (e.g., royalty percentages, enforcement logic) via a public changelog
+- Include the following line in any derivative:
+
+> "Built using SeiKin Sovereign RFCs © 2025 Keeper Family. Licensed under the Sovereign Attribution License v1.0."
+
+## 4. Zero-Tolerance Prohibitions
+Violations that immediately revoke this license include:
+
+- Modifying or removing attribution strings, filenames, vault anchors
+- Bypassing or disabling royalty payments
+- Training AI or LLMs on any of the covered works
+- Failing to escrow royalties before deploying derivative contracts (see RFC-005)
+
+## 5. Enforcement & Escrow
+Violations invoke `RFC-005_Fork_Escrow_Terms.md`, which mandates:
+
+- Escrow of royalties prior to deployment
+- Revocation of rights until breach is remediated and logged on-chain
+- Public disclosure of violators
+- Optional takedown, blacklist, and telemetry sync via SeiKinSeal.yaml and covenant watchers
+
+## 6. Term & Termination
+This license remains active until explicitly terminated or replaced. It terminates automatically upon breach, and violators must destroy all copies and derivatives within 7 days.
+
+## 7. Disclaimers
+THE COVERED WORKS ARE PROVIDED "AS IS" WITHOUT WARRANTY. THE KEEPER FAMILY DISCLAIMS ALL LIABILITY FOR DAMAGES ARISING FROM USE OR MISUSE OF THE MATERIAL.
+
+## 8. Governing Law
+This license is governed by the laws of the State of Texas, USA.
+
+---
+
+Acceptance of this license is a condition of cloning, modifying, or integrating the covered works.

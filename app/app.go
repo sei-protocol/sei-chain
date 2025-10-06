@@ -136,6 +136,9 @@ import (
 	oraclemodule "github.com/sei-protocol/sei-chain/x/oracle"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
+	seinetmodule "github.com/sei-protocol/sei-chain/x/seinet"
+	seinetkeeper "github.com/sei-protocol/sei-chain/x/seinet/keeper"
+	seinettypes "github.com/sei-protocol/sei-chain/x/seinet/types"
 	tokenfactorymodule "github.com/sei-protocol/sei-chain/x/tokenfactory"
 	tokenfactorykeeper "github.com/sei-protocol/sei-chain/x/tokenfactory/keeper"
 	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
@@ -216,23 +219,26 @@ var (
 		wasm.AppModuleBasic{},
 		epochmodule.AppModuleBasic{},
 		tokenfactorymodule.AppModuleBasic{},
+		seinetmodule.AppModuleBasic{},
 		// this line is used by starport scaffolding # stargate/app/moduleBasic
 	)
 
 	// module account permissions
 	maccPerms = map[string][]string{
-		acltypes.ModuleName:            nil,
-		authtypes.FeeCollectorName:     nil,
-		distrtypes.ModuleName:          nil,
-		minttypes.ModuleName:           {authtypes.Minter},
-		stakingtypes.BondedPoolName:    {authtypes.Burner, authtypes.Staking},
-		stakingtypes.NotBondedPoolName: {authtypes.Burner, authtypes.Staking},
-		govtypes.ModuleName:            {authtypes.Burner},
-		ibctransfertypes.ModuleName:    {authtypes.Minter, authtypes.Burner},
-		oracletypes.ModuleName:         nil,
-		wasm.ModuleName:                {authtypes.Burner},
-		evmtypes.ModuleName:            {authtypes.Minter, authtypes.Burner},
-		tokenfactorytypes.ModuleName:   {authtypes.Minter, authtypes.Burner},
+		acltypes.ModuleName:              nil,
+		authtypes.FeeCollectorName:       nil,
+		distrtypes.ModuleName:            nil,
+		minttypes.ModuleName:             {authtypes.Minter},
+		stakingtypes.BondedPoolName:      {authtypes.Burner, authtypes.Staking},
+		stakingtypes.NotBondedPoolName:   {authtypes.Burner, authtypes.Staking},
+		govtypes.ModuleName:              {authtypes.Burner},
+		ibctransfertypes.ModuleName:      {authtypes.Minter, authtypes.Burner},
+		oracletypes.ModuleName:           nil,
+		wasm.ModuleName:                  {authtypes.Burner},
+		evmtypes.ModuleName:              {authtypes.Minter, authtypes.Burner},
+		tokenfactorytypes.ModuleName:     {authtypes.Minter, authtypes.Burner},
+		seinettypes.SeinetRoyaltyAccount: {authtypes.Minter, authtypes.Burner},
+		seinettypes.SeinetVaultAccount:   {authtypes.Minter, authtypes.Burner},
 		// this line is used by starport scaffolding # stargate/app/maccPerms
 	}
 
@@ -352,6 +358,7 @@ type App struct {
 	EpochKeeper epochmodulekeeper.Keeper
 
 	TokenFactoryKeeper tokenfactorykeeper.Keeper
+	SeinetKeeper       seinetkeeper.Keeper
 
 	// mm is the module manager
 	mm *module.Manager
@@ -438,6 +445,7 @@ func New(
 		evmtypes.StoreKey, wasm.StoreKey,
 		epochmoduletypes.StoreKey,
 		tokenfactorytypes.StoreKey,
+		seinettypes.StoreKey,
 		// this line is used by starport scaffolding # stargate/app/storeKey
 	)
 	tkeys := sdk.NewTransientStoreKeys(paramstypes.TStoreKey, evmtypes.TransientStoreKey)
@@ -571,6 +579,13 @@ func New(
 		app.AccountKeeper,
 		app.BankKeeper.(bankkeeper.BaseKeeper).WithMintCoinsRestriction(tokenfactorytypes.NewTokenFactoryDenomMintCoinsRestriction()),
 		app.DistrKeeper,
+	)
+
+	app.SeinetKeeper = seinetkeeper.NewKeeper(
+		appCodec,
+		app.keys[seinettypes.StoreKey],
+		app.BankKeeper,
+		app.AccountKeeper,
 	)
 
 	// The last arguments can contain custom message handlers, and custom query handlers,
@@ -759,6 +774,7 @@ func New(
 		transferModule,
 		epochModule,
 		tokenfactorymodule.NewAppModule(app.TokenFactoryKeeper, app.AccountKeeper, app.BankKeeper),
+		seinetmodule.NewAppModule(app.SeinetKeeper),
 		authzmodule.NewAppModule(appCodec, app.AuthzKeeper, app.AccountKeeper, app.BankKeeper, app.interfaceRegistry),
 		// this line is used by starport scaffolding # stargate/app/appModule
 	)
@@ -791,6 +807,7 @@ func New(
 		evmtypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
+		seinettypes.ModuleName,
 		acltypes.ModuleName,
 	)
 
@@ -822,6 +839,7 @@ func New(
 		evmtypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
+		seinettypes.ModuleName,
 		acltypes.ModuleName,
 	)
 
@@ -851,6 +869,7 @@ func New(
 		feegrant.ModuleName,
 		oracletypes.ModuleName,
 		tokenfactorytypes.ModuleName,
+		seinettypes.ModuleName,
 		epochmoduletypes.ModuleName,
 		wasm.ModuleName,
 		evmtypes.ModuleName,

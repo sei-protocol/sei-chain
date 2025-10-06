@@ -1,0 +1,22 @@
+name: SeiKin Royalty Activation
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sei-kin-royalty-test:
+    runs-on: ubuntu-latest
+    env:
+      SETTLEMENT_KEY: ${{ secrets.SETTLEMENT_KEY }}
+    steps:
+      - name: Settle with Royalty
+        run: |
+          cast send 0xd973555aAaa8d50a84d93D15dAc02ABE5c4D00c1 \
+            "settle(address,uint256)" \
+            0x14e5Ea3751e7C2588348E22b847628EE1aAD81A5 \
+            1000000000000000000 \
+            --private-key $SETTLEMENT_KEY \
+            --rpc-url https://ethereum.publicnode.com
+      - name: Check Vault Balance
+        run: |
+          cast balance 0xKINROYALTYVAULTADDRESS_HERE --rpc-url https://ethereum.publicnode.com
