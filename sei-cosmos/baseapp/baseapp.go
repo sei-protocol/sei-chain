@@ -35,7 +35,6 @@ import (
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
-	metricutils "github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 const (
@@ -266,11 +265,6 @@ func NewBaseApp(
 		}
 		otel.SetTracerProvider(tp)
 		tr = tp.Tracer("component-main")
-	}
-	// Bind OTEL metrics provider
-	err := metricutils.SetupOtelMetricsProvider()
-	if err != nil {
-		logger.Error(err.Error())
 	}
 	app := &BaseApp{
 		logger: logger,
