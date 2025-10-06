@@ -83,11 +83,14 @@ jobs:
 
       # Now we upload the merged report to Codecov
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
-          file: ./coverage.txt
+          files: ./coverage.txt
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
+          flags: sei-chain
+          disable_search: true
+          name: sei-chain-coverage
 
   unit-test-check:
     name: Unit Test Check
