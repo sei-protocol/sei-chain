@@ -102,14 +102,14 @@ type MConnConfig struct {
 	PongTimeout             time.Duration // Time to wait for a pong
 }
 
-func (c *MConnConfig) getSendRate() rate.Limit {
+func (c *MConnConfig) getSendRateLimit() rate.Limit {
 	if c.SendRate <= 0 {
 		return rate.Inf
 	}
 	return rate.Limit(c.SendRate)
 }
 
-func (c *MConnConfig) getRecvRate() rate.Limit {
+func (c *MConnConfig) getRecvRateLimit() rate.Limit {
 	if c.RecvRate <= 0 {
 		return rate.Inf
 	}
@@ -337,7 +337,7 @@ func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 	// In fact, buffering should be just moved to the encryption layer.
 	const minWriteBufferSize = 65536
 	maxPacketMsgSize := c.maxPacketMsgSize()
-	limiter := rate.NewLimiter(c.config.getSendRate(), max(maxPacketMsgSize, int(c.config.SendRate)))
+	limiter := rate.NewLimiter(c.config.getSendRateLimit(), max(maxPacketMsgSize, int(c.config.SendRate)))
 	bufWriter := bufio.NewWriterSize(c.conn, minWriteBufferSize)
 	protoWriter := protoio.NewDelimitedWriter(bufWriter)
 	for {
@@ -372,7 +372,7 @@ func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 	const readBufferSize = 1024
 	maxPacketMsgSize := c.maxPacketMsgSize()
-	limiter := rate.NewLimiter(c.config.getRecvRate(), max(int(c.config.RecvRate), maxPacketMsgSize))
+	limiter := rate.NewLimiter(c.config.getRecvRateLimit(), max(int(c.config.RecvRate), maxPacketMsgSize))
 	bufReader := bufio.NewReaderSize(c.conn, readBufferSize)
 	protoReader := protoio.NewDelimitedReader(bufReader, maxPacketMsgSize)
 	channels := map[ChannelID]*recvChannel{}
