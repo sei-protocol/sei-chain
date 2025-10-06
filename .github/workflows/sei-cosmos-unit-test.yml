@@ -27,50 +27,52 @@ jobs:
         with:
           go-version: 1.24
       - name: Create a file with all core Cosmos SDK pkgs
+        working-directory: ./sei-cosmos
         run: go list ./... > pkgs.txt
       - name: Split pkgs into 10 files
+        working-directory: ./sei-cosmos
         run: split -d -n l/10 pkgs.txt pkgs.txt.part.
       # cache multiple
       - uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-00"
-          path: ./pkgs.txt.part.00
+          path: ./sei-cosmos/pkgs.txt.part.00
       - uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-01"
-          path: ./pkgs.txt.part.01
+          path: ./sei-cosmos/pkgs.txt.part.01
       - uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-02"
-          path: ./pkgs.txt.part.02
+          path: ./sei-cosmos/pkgs.txt.part.02
       - uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-03"
-          path: ./pkgs.txt.part.03
+          path: ./sei-cosmos/pkgs.txt.part.03
       - uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-04"
-          path: ./pkgs.txt.part.04
+          path: ./sei-cosmos/pkgs.txt.part.04
       - uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-05"
-          path: ./pkgs.txt.part.05
+          path: ./sei-cosmos/pkgs.txt.part.05
       - uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-06"
-          path: ./pkgs.txt.part.06
+          path: ./sei-cosmos/pkgs.txt.part.06
       - uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-07"
-          path: ./pkgs.txt.part.07
+          path: ./sei-cosmos/pkgs.txt.part.07
       - uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-08"
-          path: ./pkgs.txt.part.08
+          path: ./sei-cosmos/pkgs.txt.part.08
       - uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-09"
-          path: ./pkgs.txt.part.09
+          path: ./sei-cosmos/pkgs.txt.part.09
 
   tests:
     runs-on: ubuntu-latest
@@ -104,13 +106,14 @@ jobs:
           key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
 
       - name: test & coverage report creation
+        working-directory: ./sei-cosmos
         run: |
           cat pkgs.txt.part.${{ matrix.part }} | xargs go test -mod=readonly -race -timeout 5m -coverprofile=${{ matrix.part }}profile.out -covermode=atomic -tags='ledger test_ledger_mock'
 
       - uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-${{ matrix.part }}-coverage"
-          path: ./${{ matrix.part }}profile.out
+          path: ./sei-cosmos/${{ matrix.part }}profile.out
 
   upload-coverage-report:
     needs: tests
@@ -135,13 +138,16 @@ jobs:
         run: go get github.com/wadey/gocovmerge && go install github.com/wadey/gocovmerge
 
       - name: Merge coverage reports
+        working-directory: ./sei-cosmos
         run: gocovmerge $(find . -type f -name '*profile.out') > coverage.txt
 
       - name: Check coverage report lines
+        working-directory: ./sei-cosmos
         run: wc -l coverage.txt
         continue-on-error: true
 
       - name: Check coverage report files
+        working-directory: ./sei-cosmos
         run: ls **/*profile.out
         continue-on-error: true
 
@@ -149,7 +155,7 @@ jobs:
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: ./coverage.txt
+          files: ./sei-cosmos/coverage.txt
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
           flags: sei-cosmos
