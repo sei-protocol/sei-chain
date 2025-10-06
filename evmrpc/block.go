@@ -224,14 +224,10 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 	}
 
 	// Get all tx hashes for the block
-	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	height := block.Block.Height
-	signer := ethtypes.MakeSigner(
-		types.DefaultChainConfig().EthereumConfig(a.keeper.ChainID(sdkCtx)),
-		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Unix()),
-	)
-	txHashes := getTxHashesFromBlock(a.ctxProvider, a.txConfigProvider, a.keeper, block, signer, shouldIncludeSynthetic(a.namespace))
+
+	txHashes := getTxHashesFromBlock(a.ctxProvider, a.txConfigProvider, a.keeper, block, shouldIncludeSynthetic(a.namespace))
+
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}
@@ -250,7 +246,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					mtx.Unlock()
 				}
 			} else {
-				encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, a.includeShellReceipts, signer)
+				encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, a.includeShellReceipts)
 				if err != nil {
 					mtx.Lock()
 					returnErr = err
@@ -306,12 +302,8 @@ func EncodeTmBlock(
 	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	transactions := []interface{}{}
 	latestCtx := ctxProvider(LatestCtxHeight)
-	signer := ethtypes.MakeSigner(
-		types.DefaultChainConfig().EthereumConfig(k.ChainID(latestCtx)),
-		big.NewInt(latestCtx.BlockHeight()),
-		uint64(latestCtx.BlockTime().Unix()), //nolint:gosec
-	)
-	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, signer, includeSyntheticTxs, includeBankTransfers)
+
+	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSyntheticTxs, includeBankTransfers)
 
 	blockBloom := make([]byte, ethtypes.BloomByteLength)
 	for _, msg := range msgs {
@@ -319,13 +311,15 @@ func EncodeTmBlock(
 		case *types.MsgEVMTransaction:
 			ethtx, _ := m.AsTransaction()
 			hash := ethtx.Hash()
+			receipt, _ := k.GetReceipt(latestCtx, hash)
 			if !fullTx {
 				transactions = append(transactions, hash.Hex())
 			} else {
-				newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), uint64(blockTime.Second()), uint64(len(transactions)), baseFeePerGas, chainConfig) //nolint:gosec
+				blockUnix := toUint64(blockTime.Unix())
+				newTx := export.NewRPCTransaction(ethtx, blockhash, number.Uint64(), blockUnix, uint64(len(transactions)), baseFeePerGas, chainConfig)
+				replaceFrom(newTx, receipt)
 				transactions = append(transactions, newTx)
 			}
-			receipt, _ := k.GetReceipt(latestCtx, hash)
 			or := make([]byte, ethtypes.BloomByteLength)
 			bloom := ethtypes.Bloom{}
 			bloom.SetBytes(receipt.LogsBloom)
