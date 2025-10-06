@@ -10,15 +10,227 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"errors"
+	"fmt"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/bytes"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/types"
+	"io"
+
+	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/internal/p2p/conn"
+	"github.com/tendermint/tendermint/libs/log"
 )
 
+func makeKeyAndInfo() (crypto.PrivKey, types.NodeInfo) {
+	peerKey := ed25519.GenPrivKey()
+	nodeID := types.NodeIDFromPubKey(peerKey.PubKey())
+	peerInfo := types.NodeInfo{
+		NodeID:     nodeID,
+		ListenAddr: "0.0.0.0:0",
+		Network:    "test",
+		Moniker:    string(nodeID),
+		Channels:   []byte{0x01, 0x02},
+	}
+	return peerKey, peerInfo
+}
+
+// Establishes a connection to the transport.
+// Returns both ends of the connection.
+func connect(ctx context.Context, tr *p2p.Transport) (c1 p2p.Connection, c2 p2p.Connection, err error) {
+	defer func() {
+		if err != nil {
+			if c1 != nil {
+				c1.Close()
+			}
+			if c2 != nil {
+				c2.Close()
+			}
+		}
+	}()
+	// Here we are utilizing the fact that Transport accepts connection proactively
+	// before Accept is called.
+	c1, err = tr.Dial(ctx, tr.Endpoint())
+	if err != nil {
+		return nil, nil, fmt.Errorf("Dial(): %w", err)
+	}
+	c2, err = tr.Accept(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("Accept(): %w", err)
+	}
+	if got, want := c1.LocalEndpoint(), c2.RemoteEndpoint(); got != want {
+		return nil, nil, fmt.Errorf("c1.LocalEndpoint() = %v, want %v", got, want)
+	}
+	if got, want := c1.RemoteEndpoint(), c2.LocalEndpoint(); got != want {
+		return nil, nil, fmt.Errorf("c1.RemoteEndpoint() = %v, want %v", got, want)
+	}
+	return c1, c2, nil
+}
+
+func TestTransport_AcceptMaxAcceptedConnections(t *testing.T) {
+	ctx := t.Context()
+	transport := p2p.NewTransport(
+		log.NewNopLogger(),
+		p2p.Endpoint{tcp.TestReserveAddr()},
+		conn.DefaultMConnConfig(),
+		[]*p2p.ChannelDescriptor{{ID: chID, Priority: 1}},
+		p2p.TransportOptions{
+			MaxAcceptedConnections: 2,
+		},
+	)
+
+	err := utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBgNamed("transport", func() error { return transport.Run(ctx) })
+		if err := transport.WaitForStart(ctx); err != nil {
+			return err
+		}
+		t.Logf("The first two connections should be accepted just fine.")
+
+		a1, a2, err := connect(ctx, transport)
+		if err != nil {
+			return fmt.Errorf("1st connect(): %w", err)
+		}
+		defer a1.Close()
+		defer a2.Close()
+
+		b1, b2, err := connect(ctx, transport)
+		if err != nil {
+			return fmt.Errorf("2nd connect(): %w", err)
+		}
+		defer b1.Close()
+		defer b2.Close()
+
+		t.Logf("The third connection will be dialed successfully, but the accept should not go through.")
+		c1, err := transport.Dial(ctx, transport.Endpoint())
+		if err != nil {
+			return fmt.Errorf("3rd Dial(): %w", err)
+		}
+		defer c1.Close()
+		if err := utils.WithTimeout(ctx, time.Second, func(ctx context.Context) error {
+			c2, err := transport.Accept(ctx)
+			if err == nil {
+				c2.Close()
+			}
+			return err
+		}); !errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("Accept() over cap: %v, want %v", err, context.DeadlineExceeded)
+		}
+
+		t.Logf("once either of the other connections are closed, the accept goes through.")
+		a1.Close()
+		a2.Close() // we close both a1 and a2 to make sure the connection count drops below the limit.
+		c2, err := transport.Accept(ctx)
+		if err != nil {
+			return fmt.Errorf("3rd Accept(): %w", err)
+		}
+		defer c2.Close()
+		return nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTransport_Listen(t *testing.T) {
+	reservePort := func(ip netip.Addr) netip.AddrPort {
+		addr := tcp.TestReserveAddr()
+		return netip.AddrPortFrom(ip, addr.Port())
+	}
+
+	testcases := []struct {
+		endpoint p2p.Endpoint
+		ok       bool
+	}{
+		// Valid v4 and v6 addresses, with mconn and tcp protocols.
+		{p2p.Endpoint{reservePort(netip.IPv4Unspecified())}, true},
+		{p2p.Endpoint{reservePort(tcp.IPv4Loopback())}, true},
+		{p2p.Endpoint{reservePort(netip.IPv6Unspecified())}, true},
+		{p2p.Endpoint{reservePort(netip.IPv6Loopback())}, true},
+
+		// Invalid endpoints.
+		{p2p.Endpoint{}, false},
+	}
+
+	aKey, aInfo := makeKeyAndInfo()
+	bKey, bInfo := makeKeyAndInfo()
+	for _, tc := range testcases {
+		t.Run(tc.endpoint.String(), func(t *testing.T) {
+			ctx := t.Context()
+			t.Cleanup(leaktest.Check(t))
+
+			transport := p2p.NewTransport(
+				log.NewNopLogger(),
+				tc.endpoint,
+				conn.DefaultMConnConfig(),
+				[]*p2p.ChannelDescriptor{{ID: chID, Priority: 1}},
+				p2p.TransportOptions{},
+			)
+			if got, want := transport.Endpoint(), tc.endpoint; got != want {
+				t.Fatalf("transport.Endpoint() = %v, want %v", got, want)
+			}
+
+			err := utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+				s.SpawnBgNamed("transport", func() error { return transport.Run(ctx) })
+				if err := transport.WaitForStart(ctx); err != nil {
+					return err
+				}
+				s.SpawnNamed("dial", func() error {
+					conn, err := transport.Dial(ctx, tc.endpoint)
+					if err != nil {
+						return fmt.Errorf("transport.Dial(): %w", err)
+					}
+					defer conn.Close()
+					if _, err := conn.Handshake(ctx, aInfo, aKey); err != nil {
+						return fmt.Errorf("conn.Handshake(): %w", err)
+					}
+					if err := conn.Close(); err != nil {
+						return fmt.Errorf("conn.Close(): %w", err)
+					}
+					if _, _, err := conn.ReceiveMessage(ctx); !errors.Is(err, io.EOF) {
+						return fmt.Errorf("conn.ReceiveMessage() =  %v, want %v", err, io.EOF)
+					}
+					return nil
+				})
+				s.SpawnNamed("accept", func() error {
+					conn, err := transport.Accept(ctx)
+					if err != nil {
+						return fmt.Errorf("transport.Accept(): %w", err)
+					}
+					defer conn.Close()
+					if _, err := conn.Handshake(ctx, bInfo, bKey); err != nil {
+						return fmt.Errorf("conn.Handshake(): %w", err)
+					}
+					if err := conn.Close(); err != nil {
+						return fmt.Errorf("conn.Close(): %w", err)
+					}
+					if _, _, err := conn.ReceiveMessage(ctx); !errors.Is(err, io.EOF) {
+						return fmt.Errorf("conn.ReceiveMessage() =  %v, want %v", err, io.EOF)
+					}
+					return nil
+				})
+				return nil
+			}))
+			if !tc.ok {
+				var want p2p.InvalidEndpointErr
+				if !errors.As(err, &want) {
+					t.Fatalf("error = %v, want %T", err, want)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			// Dialing the closed endpoint should error
+			_, err = transport.Dial(ctx, tc.endpoint)
+			require.Error(t, err)
+		})
+	}
+}
+
 // transportFactory is used to set up transports for tests.
-type transportFactory = func(ctx context.Context) p2p.Transport
+type transportFactory = func(ctx context.Context) *p2p.Transport
 
 // testTransports is a registry of transport factories for withTransports().
 var testTransports = map[string](func() transportFactory){}
@@ -27,12 +239,26 @@ var testTransports = map[string](func() transportFactory){}
 // registered in testTransports.
 func withTransports(t *testing.T, tester func(*testing.T, transportFactory)) {
 	t.Helper()
-	for name, transportFactory := range testTransports {
-		t.Run(name, func(t *testing.T) {
-			t.Cleanup(leaktest.Check(t))
-			tester(t, transportFactory())
-		})
-	}
+	t.Cleanup(leaktest.Check(t))
+	tester(t, func(ctx context.Context) *p2p.Transport {
+		logger, _ := log.NewDefaultLogger("plain", "info")
+		transport := p2p.NewTransport(
+			logger,
+			p2p.Endpoint{tcp.TestReserveAddr()},
+			conn.DefaultMConnConfig(),
+			[]*p2p.ChannelDescriptor{{ID: chID, Priority: 1}},
+			p2p.TransportOptions{},
+		)
+		go func() {
+			if err := transport.Run(ctx); err != nil {
+				panic(err)
+			}
+		}()
+		if err := transport.WaitForStart(ctx); err != nil {
+			panic(err)
+		}
+		return transport
+	})
 }
 
 func TestTransport_DialEndpoints(t *testing.T) {
@@ -72,23 +298,11 @@ func TestTransport_DialEndpoints(t *testing.T) {
 		_, err = a.Dial(ctx, p2p.Endpoint{})
 		require.Error(t, err)
 
-		// Dialing without protocol should error.
-		noProtocol := endpoint
-		noProtocol.Protocol = ""
-		_, err = a.Dial(ctx, noProtocol)
-		require.Error(t, err)
-
-		// Dialing with invalid protocol should error.
-		fooProtocol := endpoint
-		fooProtocol.Protocol = "foo"
-		_, err = a.Dial(ctx, fooProtocol)
-		require.Error(t, err)
-
 		// Tests for networked endpoints (with IP).
 		for _, tc := range ipTestCases {
 			t.Run(tc.ip.String(), func(t *testing.T) {
 				e := endpoint
-				e.Addr = netip.AddrPortFrom(tc.ip, endpoint.Addr.Port())
+				e.AddrPort = netip.AddrPortFrom(tc.ip, endpoint.Port())
 				conn, err := a.Dial(ctx, e)
 				if tc.ok {
 					require.NoError(t, err)
@@ -98,13 +312,6 @@ func TestTransport_DialEndpoints(t *testing.T) {
 				}
 			})
 		}
-
-		// Non-networked endpoints should error.
-		noIP := endpoint
-		noIP.Addr = netip.AddrPort{}
-		noIP.Path = "foo"
-		_, err = a.Dial(ctx, noIP)
-		require.Error(t, err)
 	})
 }
 
@@ -122,17 +329,6 @@ func TestTransport_Endpoints(t *testing.T) {
 			err := endpoint.Validate()
 			require.NoError(t, err, "invalid endpoint %q", endpoint)
 		}
-	})
-}
-
-func TestTransport_Protocols(t *testing.T) {
-	withTransports(t, func(t *testing.T, makeTransport transportFactory) {
-		ctx := t.Context()
-		a := makeTransport(ctx)
-		protocols := a.Protocols()
-		endpoint := a.Endpoint()
-		require.NotEmpty(t, protocols)
-		require.Contains(t, protocols, endpoint.Protocol)
 	})
 }
 
@@ -323,27 +519,13 @@ func TestEndpoint_NodeAddress(t *testing.T) {
 	}{
 		// Valid endpoints.
 		{
-			p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip4, 8080), Path: "path"},
-			p2p.NodeAddress{Protocol: "tcp", Hostname: "1.2.3.4", Port: 8080, Path: "path"},
+			p2p.Endpoint{netip.AddrPortFrom(ip4, 8080)},
+			p2p.NodeAddress{Hostname: "1.2.3.4", Port: 8080},
 		},
 		{
-			p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip6, 8080), Path: "path"},
-			p2p.NodeAddress{Protocol: "tcp", Hostname: "b10c::1", Port: 8080, Path: "path"},
+			p2p.Endpoint{netip.AddrPortFrom(ip6, 8080)},
+			p2p.NodeAddress{Hostname: "b10c::1", Port: 8080},
 		},
-		{
-			p2p.Endpoint{Protocol: "memory", Path: "foo"},
-			p2p.NodeAddress{Protocol: "memory", Path: "foo"},
-		},
-		{
-			p2p.Endpoint{Protocol: "memory", Path: string(id)},
-			p2p.NodeAddress{Protocol: "memory", Path: string(id)},
-		},
-
-		// Partial (invalid) endpoints.
-		{p2p.Endpoint{}, p2p.NodeAddress{}},
-		{p2p.Endpoint{Protocol: "tcp"}, p2p.NodeAddress{Protocol: "tcp"}},
-		{p2p.Endpoint{Addr: netip.AddrPortFrom(ip4, 0)}, p2p.NodeAddress{Hostname: "1.2.3.4"}},
-		{p2p.Endpoint{Path: "path"}, p2p.NodeAddress{Path: "path"}},
 	}
 	for _, tc := range testcases {
 		t.Run(tc.endpoint.String(), func(t *testing.T) {
@@ -358,49 +540,6 @@ func TestEndpoint_NodeAddress(t *testing.T) {
 	}
 }
 
-func TestEndpoint_String(t *testing.T) {
-	var (
-		ip4    = netip.AddrFrom4([4]byte{1, 2, 3, 4})
-		ip6    = netip.AddrFrom16([16]byte{0xb1, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})
-		nodeID = types.NodeID("00112233445566778899aabbccddeeff00112233")
-	)
-
-	testcases := []struct {
-		endpoint p2p.Endpoint
-		expect   string
-	}{
-		// Non-networked endpoints.
-		{p2p.Endpoint{Protocol: "memory", Path: string(nodeID)}, "memory:" + string(nodeID)},
-		{p2p.Endpoint{Protocol: "file", Path: "foo"}, "file:///foo"},
-		{p2p.Endpoint{Protocol: "file", Path: "👋"}, "file:///%F0%9F%91%8B"},
-
-		// IPv4 endpoints.
-		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip4, 0)}, "tcp://1.2.3.4"},
-		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip4, 8080)}, "tcp://1.2.3.4:8080"},
-		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip4, 8080), Path: "/path"}, "tcp://1.2.3.4:8080/path"},
-		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip4, 0), Path: "path/👋"}, "tcp://1.2.3.4/path/%F0%9F%91%8B"},
-
-		// IPv6 endpoints.
-		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip6, 0)}, "tcp://b10c::1"},
-		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip6, 8080)}, "tcp://[b10c::1]:8080"},
-		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip6, 8080), Path: "/path"}, "tcp://[b10c::1]:8080/path"},
-		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip6, 0), Path: "path/👋"}, "tcp://b10c::1/path/%F0%9F%91%8B"},
-
-		// Partial (invalid) endpoints.
-		{p2p.Endpoint{}, ""},
-		{p2p.Endpoint{Protocol: "tcp"}, "tcp:"},
-		{p2p.Endpoint{Addr: netip.AddrPortFrom(ip4, 0)}, "1.2.3.4"},
-		{p2p.Endpoint{Addr: netip.AddrPortFrom(ip6, 0)}, "b10c::1"},
-		{p2p.Endpoint{Addr: netip.AddrPortFrom(netip.IPv4Unspecified(), 8080)}, "0.0.0.0:8080"},
-		{p2p.Endpoint{Path: "foo"}, "/foo"},
-	}
-	for _, tc := range testcases {
-		t.Run(tc.expect, func(t *testing.T) {
-			require.Equal(t, tc.expect, tc.endpoint.String())
-		})
-	}
-}
-
 func TestEndpoint_Validate(t *testing.T) {
 	ip4 := netip.AddrFrom4([4]byte{1, 2, 3, 4})
 	ip6 := netip.AddrFrom16([16]byte{0xb1, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01})
@@ -410,16 +549,12 @@ func TestEndpoint_Validate(t *testing.T) {
 		expectValid bool
 	}{
 		// Valid endpoints.
-		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip4, 0)}, true},
-		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip6, 0)}, true},
-		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip4, 8008)}, true},
-		{p2p.Endpoint{Protocol: "tcp", Addr: netip.AddrPortFrom(ip4, 8080), Path: "path"}, true},
-		{p2p.Endpoint{Protocol: "memory", Path: "path"}, true},
+		{p2p.Endpoint{netip.AddrPortFrom(ip4, 0)}, true},
+		{p2p.Endpoint{netip.AddrPortFrom(ip6, 0)}, true},
+		{p2p.Endpoint{netip.AddrPortFrom(ip4, 8008)}, true},
 
 		// Invalid endpoints.
 		{p2p.Endpoint{}, false},
-		{p2p.Endpoint{Addr: netip.AddrPortFrom(ip4, 0)}, false},
-		{p2p.Endpoint{Protocol: "tcp"}, false},
 	}
 	for _, tc := range testcases {
 		t.Run(tc.endpoint.String(), func(t *testing.T) {
@@ -435,7 +570,7 @@ func TestEndpoint_Validate(t *testing.T) {
 
 // dialAccept is a helper that dials b from a and returns both sides of the
 // connection.
-func dialAccept(ctx context.Context, t *testing.T, a, b p2p.Transport) (p2p.Connection, p2p.Connection) {
+func dialAccept(ctx context.Context, t *testing.T, a, b *p2p.Transport) (p2p.Connection, p2p.Connection) {
 	t.Helper()
 
 	endpoint := b.Endpoint()
@@ -465,7 +600,7 @@ func dialAccept(ctx context.Context, t *testing.T, a, b p2p.Transport) (p2p.Conn
 
 // dialAcceptHandshake is a helper that dials and handshakes b from a and
 // returns both sides of the connection.
-func dialAcceptHandshake(ctx context.Context, t *testing.T, a, b p2p.Transport) (p2p.Connection, p2p.Connection) {
+func dialAcceptHandshake(ctx context.Context, t *testing.T, a, b *p2p.Transport) (p2p.Connection, p2p.Connection) {
 	t.Helper()
 
 	ab, ba := dialAccept(ctx, t, a, b)

@@ -77,6 +77,7 @@ func (ln *TCPListener) Accept() (net.Conn, error) {
 	timeoutConn := newTimeoutConn(tc, ln.timeoutReadWrite)
 	secretConn, err := MakeSecretConnection(timeoutConn, ln.secretConnKey)
 	if err != nil {
+		_ = tc.Close()
 		return nil, err
 	}
 
