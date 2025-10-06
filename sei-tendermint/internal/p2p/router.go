@@ -239,6 +239,10 @@ func (r *Router) Endpoint() Endpoint {
 	return r.options.Endpoint
 }
 
+func (r *Router) Address() NodeAddress {
+	return r.Endpoint().NodeAddress(r.nodeInfoProducer().NodeID)
+}
+
 func (r *Router) WaitForStart(ctx context.Context) error {
 	_, _, err := utils.RecvOrClosed(ctx, r.started)
 	return err
@@ -248,7 +252,9 @@ func (r *Router) listenRoutine(ctx context.Context) error {
 	if err := r.Endpoint().Validate(); err != nil {
 		return err
 	}
-	listener, err := tcp.Listen(r.Endpoint().AddrPort)
+	var err error
+	var listener net.Listener
+	listener, err = tcp.Listen(r.Endpoint().AddrPort)
 	if err != nil {
 		return fmt.Errorf("net.Listen(): %w", err)
 	}

@@ -329,14 +329,13 @@ func TestRouter_Channel_Error(t *testing.T) {
 }
 
 type RouterHandle struct {
-	filterByIP  atomic.Pointer[func(ctx context.Context, addr netip.AddrPort) error]
 	router      *Router
 	peerManager *PeerManager
 }
 
 var keyFiltered, infoFiltered = makeKeyAndInfo()
 
-func spawnRouter(t *testing.T, logger log.Logger) *RouterHandle {
+func spawnRouterWithOptions(t *testing.T, logger log.Logger, ropts RouterOptions) *RouterHandle {
 	t.Helper()
 	ctx := t.Context()
 	// Set up and start the router.
@@ -360,18 +359,7 @@ func spawnRouter(t *testing.T, logger log.Logger) *RouterHandle {
 			}
 			return nil
 		},
-		RouterOptions{
-			DialSleep:          func(context.Context) error { return nil },
-			NumConcurrentDials: func() int { return 100 },
-			FilterPeerByIP: func(ctx context.Context, addr netip.AddrPort) error {
-				if f := r.filterByIP.Load(); f != nil {
-					return (*f)(ctx, addr)
-				}
-				return nil
-			},
-			Endpoint: Endpoint{tcp.TestReserveAddr()},
-			Connection: conn.DefaultMConnConfig(),
-		},
+		ropts,
 	)
 	require.NoError(t, err)
 	require.NoError(t, router.Start(ctx))
@@ -379,6 +367,20 @@ func spawnRouter(t *testing.T, logger log.Logger) *RouterHandle {
 	require.NoError(t, router.WaitForStart(ctx))
 	r.router = router
 	return &r
+}
+
+func makeRouterOptions() RouterOptions {
+	return RouterOptions{
+		DialSleep:          func(context.Context) error { return nil },
+		NumConcurrentDials: func() int { return 100 },
+		Endpoint: Endpoint{tcp.TestReserveAddr()},
+		Connection: conn.DefaultMConnConfig(),
+	}
+}
+
+func spawnRouter(t *testing.T, logger log.Logger) *RouterHandle {
+	t.Helper()
+	return spawnRouterWithOptions(t, logger, makeRouterOptions())
 }
 
 func handshake(ctx context.Context, logger log.Logger, tcpConn net.Conn, info types.NodeInfo, key crypto.PrivKey) (*Connection, error) {
@@ -396,7 +398,16 @@ func TestRouter_FilterByIP(t *testing.T) {
 	ctx := t.Context()
 	t.Cleanup(leaktest.Check(t))
 
-	h := spawnRouter(t, logger)
+
+	var reject atomic.Bool
+	opts := makeRouterOptions()
+	opts.FilterPeerByIP = func(ctx context.Context, addr netip.AddrPort) error {
+		if reject.Load() {
+			return errors.New("fail all")
+		}
+		return nil
+	}
+	h := spawnRouterWithOptions(t, logger, opts)
 	sub := h.peerManager.Subscribe(ctx)
 
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -417,9 +428,7 @@ func TestRouter_FilterByIP(t *testing.T) {
 		})
 		s.SpawnBgNamed("conn.Run()", func() error { return conn.Run(ctx) })
 		t.Logf("Enable filtering.")
-		h.filterByIP.Store(utils.Alloc(func(ctx context.Context, addr netip.AddrPort) error {
-			return errors.New("fail all")
-		}))
+		reject.Store(true)
 
 		t.Logf("Connection should fail during handshake.")
 		key, info = makeKeyAndInfo()
@@ -429,7 +438,7 @@ func TestRouter_FilterByIP(t *testing.T) {
 		}
 		defer conn.Close()
 		if _, err := handshake(ctx, logger, tcpConn, info, key); err == nil {
-			return fmt.Errorf("conn.Handshake(): expected error")
+			return fmt.Errorf("handshake(): expected error")
 		}
 		return nil
 	}); err != nil {

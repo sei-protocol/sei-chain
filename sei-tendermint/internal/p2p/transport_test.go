@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/netip"
 	"testing"
+	"sync/atomic"
 	"time"
 
 	"github.com/fortytw2/leaktest"
@@ -38,52 +39,41 @@ func makeKeyAndInfo() (crypto.PrivKey, types.NodeInfo) {
 	return peerKey, peerInfo
 }
 
-func TestRouter_AcceptMaxAcceptedConnections(t *testing.T) {
+func TestRouter_MaxAcceptedConnections(t *testing.T) {
 	logger, _ := log.NewDefaultLogger("plain", "debug")
 	ctx := t.Context()
-	h := spawnRouter(t,logger)
+	opts := makeRouterOptions()
+	opts.MaxAcceptedConnections = 2
+	h := spawnRouterWithOptions(t,logger,opts)
 
 	err := utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		t.Logf("The first two connections should be accepted just fine.")
-
-		a1, a2, err := connect(ctx, transport)
-		if err != nil {
-			return fmt.Errorf("1st connect(): %w", err)
+		var total atomic.Int64
+		t.Logf("spawn a bunch of connections, making sure that no more than %d are accepted at any given time", opts.MaxAcceptedConnections)
+		for range 10 {
+			s.Spawn(func() error {
+				key, info := makeKeyAndInfo()
+				// Establish a connection.
+				tcpConn,err := tcp.Dial(ctx, h.router.Endpoint().AddrPort)
+				if err!=nil {
+					return fmt.Errorf("tcp.Dial(): %w", err)
+				}
+				conn,err := handshake(ctx, logger, tcpConn, info, key)
+				if err!=nil {
+					return fmt.Errorf("handshake(): %w", err)
+				}
+				defer conn.Close()
+				// Check that limit was not exceeded.
+				if got,wantMax:=total.Add(1),int64(opts.MaxAcceptedConnections); got>wantMax {
+					return fmt.Errorf("accepted too many connections: %d > %d", got, wantMax)
+				}
+				defer total.Add(-1)
+				// Keep the connection open for a while to force other dialers to wait.
+				if err:=utils.Sleep(ctx, 100 * time.Millisecond); err!=nil {
+					return err
+				}
+				return nil
+			})
 		}
-		defer a1.Close()
-		defer a2.Close()
-
-		b1, b2, err := connect(ctx, transport)
-		if err != nil {
-			return fmt.Errorf("2nd connect(): %w", err)
-		}
-		defer b1.Close()
-		defer b2.Close()
-
-		t.Logf("The third connection will be dialed successfully, but the accept should not go through.")
-		c1, err := transport.Dial(ctx, transport.Endpoint())
-		if err != nil {
-			return fmt.Errorf("3rd Dial(): %w", err)
-		}
-		defer c1.Close()
-		if err := utils.WithTimeout(ctx, time.Second, func(ctx context.Context) error {
-			c2, err := transport.Accept(ctx)
-			if err == nil {
-				c2.Close()
-			}
-			return err
-		}); !errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("Accept() over cap: %v, want %v", err, context.DeadlineExceeded)
-		}
-
-		t.Logf("once either of the other connections are closed, the accept goes through.")
-		a1.Close()
-		a2.Close() // we close both a1 and a2 to make sure the connection count drops below the limit.
-		c2, err := transport.Accept(ctx)
-		if err != nil {
-			return fmt.Errorf("3rd Accept(): %w", err)
-		}
-		defer c2.Close()
 		return nil
 	}))
 	if err != nil {
