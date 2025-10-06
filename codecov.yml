@@ -4,30 +4,31 @@ coverage:
   status:
     project:
       default:
-        target: 50%
+        target: auto
         threshold: 0.1% # allow this much decrease on project
-      # Per-module coverage targets
       sei-chain:
+        target: 60%
         paths:
-          - "**"                      # include everything
-        ignore:
-          - "sei-cosmos/**"
-          - "sei-tendermint/**"
-          - "sei-wasmd/**"
-          - "sei-wasmvm/**"
+          - "!sei-cosmos/**"
+          - "!sei-tendermint/**"
+          - "!sei-wasmd/**"
+          - "!sei-wasmvm/**"
         flags:
           - sei-chain
       sei-cosmos:
+        target: 40%
         paths:
           - "sei-cosmos/**"
         flags:
           - sei-cosmos
       sei-tendermint:
+        target: 50%
         paths:
           - "sei-tendermint/**"
         flags:
           - sei-tendermint
       sei-wasmd:
+        target: 40%
         paths:
           - "sei-wasmd/**"
         flags:
@@ -46,6 +47,7 @@ ignore:
   - "**/docs/**"
   - "**/*.md"
   - "**/*.rst"
+  - "**/example/**"
 
   # Generated protobuf files
   - "**/*pb*.go"
