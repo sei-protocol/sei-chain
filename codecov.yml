@@ -2,11 +2,37 @@ coverage:
   precision: 2
   round: down
   status:
-    # TODO: change project level coverage back to ~60% after we have a healthier repo
     project:
       default:
-        target: 25%
+        target: auto
         threshold: 0.1% # allow this much decrease on project
+      sei-chain:
+        target: 60%
+        paths:
+          - "!sei-cosmos/**"
+          - "!sei-tendermint/**"
+          - "!sei-wasmd/**"
+          - "!sei-wasmvm/**"
+        flags:
+          - sei-chain
+      sei-cosmos:
+        target: 40%
+        paths:
+          - "sei-cosmos/**"
+        flags:
+          - sei-cosmos
+      sei-tendermint:
+        target: 50%
+        paths:
+          - "sei-tendermint/**"
+        flags:
+          - sei-tendermint
+      sei-wasmd:
+        target: 40%
+        paths:
+          - "sei-wasmd/**"
+        flags:
+          - sei-wasmd
     patch:
       default:
         target: 70%
@@ -17,16 +43,32 @@ comment:
   require_changes: true
 
 ignore:
-  - "docs"
-  - "*.md"
-  - "*.rst"
+  # Common documentation and metadata
+  - "**/docs/**"
+  - "**/*.md"
+  - "**/*.rst"
+  - "**/example/**"
+
+  # Generated protobuf files
   - "**/*pb*.go"
-  - "tests/**/*"
-  - "x/**/test_common.go"
-  - "scripts/"
-  - "contrib"
-  - "integration_test/**/*"
-  - "docker/**/*"
-  - "testutil/**"
-  - "precompiles/*/legacy/**"
+  - "**/*.pb.go"
+  - "**/*.pb.gw.go"
+
+  # Tests and test utilities
+  - "**/tests/*"
+  - "**/tests/**/*"
+  - "**/integration_test/**/*"
+  - "**/testutil/**"
+  - "**/x/**/test_common.go"
+  - "**/x/**/testdata/**"
+
+  # Scripts, tooling, and contribution helpers
+  - "**/scripts/**"
+  - "**/contrib/**"
+  - "**/docker/**"
+  - "**/cmd/**"
+
+  # Project-specific exclusions
+  - "**/precompiles/*/legacy/**"
   - "**/cli/**"
+  - "**/types/*.pb.go"
