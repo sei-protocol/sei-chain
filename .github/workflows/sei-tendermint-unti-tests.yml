@@ -47,7 +47,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-${{ matrix.part }}-coverage"
-          path: ./${{ matrix.part }}.profile.out
+          path: ./sei-tendermint/${{ matrix.part }}.profile.out
 
   upload-coverage-report:
     needs: tests
@@ -61,6 +61,8 @@ jobs:
       # Download all coverage reports from the 'tests' job
       - name: Download coverage reports
         uses: actions/download-artifact@v4
+        with:
+          path: ./sei-tendermint
 
       - name: Set GOPATH
         run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
@@ -75,10 +77,12 @@ jobs:
         run: gocovmerge $(find . -type f -name '*profile.out') > coverage.txt
 
       - name: Check coverage report lines
+        working-directory: ./sei-tendermint
         run: wc -l coverage.txt
         continue-on-error: true
 
       - name: Check coverage report files
+        working-directory: ./sei-tendermint
         run: ls **/*profile.out
         continue-on-error: true
 
@@ -86,7 +90,7 @@ jobs:
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: ./coverage.txt
+          files: ./sei-tendermint/coverage.txt
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
           flags: sei-tendermint
