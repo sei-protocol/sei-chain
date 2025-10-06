@@ -94,9 +94,6 @@ type BaseConfig struct {
 	// which informs Tendermint what to index. If empty, all events will be indexed.
 	IndexEvents []string `mapstructure:"index-events"`
 
-	// IavlCacheSize set the size of the iavl tree cache.
-	IAVLCacheSize uint64 `mapstructure:"iavl-cache-size"`
-
 	// IAVLDisableFastNode enables or disables the fast sync node.
 	IAVLDisableFastNode bool `mapstructure:"iavl-disable-fastnode"`
 
@@ -273,7 +270,6 @@ func DefaultConfig() *Config {
 			PruningInterval:              "0",
 			MinRetainBlocks:              0,
 			IndexEvents:                  nil,
-			IAVLCacheSize:                781250, // Default cache size is 50mb
 			IAVLDisableFastNode:          true,
 			CompactionInterval:           0,
 			NoVersioning:                 false,
@@ -357,7 +353,6 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			HaltTime:                     v.GetUint64("halt-time"),
 			IndexEvents:                  v.GetStringSlice("index-events"),
 			MinRetainBlocks:              v.GetUint64("min-retain-blocks"),
-			IAVLCacheSize:                v.GetUint64("iavl-cache-size"),
 			IAVLDisableFastNode:          v.GetBool("iavl-disable-fastnode"),
 			CompactionInterval:           v.GetUint64("compaction-interval"),
 			NoVersioning:                 v.GetBool("no-versioning"),
