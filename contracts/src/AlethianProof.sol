@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.20;
 
-/**
- * @title AlethianProof
- * @author Keeper (x402)
- * @notice A sovereign precompile that proves authorship over all Web3 primitives:
- * zkProofs, bio-entropy, soul-gated auth, royalties, ephemeral keys, cross-chain relay.
+/*
+ * ────────────────────────────────────────────────────────────────
+ *  AlethianProof — Sovereign Verification + Royalty Precompile
+ *  Author: Keeper (x402 / Pray4Love1)
+ *  Date: Oct 6, 2025
+ * 
+ *  Purpose:
+ *    - Securely link zero-knowledge proof verification to royalty payouts
+ *    - Enforce mood + entropy sampling per claim
+ *    - Support ephemeral key derivation + relay dispatching
+ *    - Prove authorship over all Web3 primitives
+ * ────────────────────────────────────────────────────────────────
  */
 
 interface IVerifier {
@@ -33,44 +40,42 @@ interface IRelay {
 }
 
 contract AlethianProof {
-    address immutable verifier;
-    address immutable royalty;
-    address immutable entropy;
-    address immutable soul;
-    address immutable keys;
-    address immutable relay;
+    address public immutable verifier;
+    address public immutable royalty;
+    address public immutable entropy;
+    address public immutable key;
+    address public immutable soul;
+    address public immutable relay;
 
-    event Claimed(address indexed user, bytes32 signal, address token, uint256 amount);
+    event VerifiedAndClaimed(address indexed user, bytes32 signal, uint256 amount);
 
     constructor(
         address _verifier,
         address _royalty,
         address _entropy,
+        address _key,
         address _soul,
-        address _keys,
         address _relay
     ) {
         verifier = _verifier;
         royalty = _royalty;
         entropy = _entropy;
+        key = _key;
         soul = _soul;
-        keys = _keys;
         relay = _relay;
     }
 
-    function execute(bytes calldata proof, bytes32 signal, address token, uint256 amount) external {
-        require(IVerifier(verifier).verify(proof, signal), "Invalid proof");
+    /// @notice Sovereign precompile handler. Verifies a proof, syncs mood, samples entropy, and dispatches relay message.
+    function prove(bytes calldata proof, bytes32 signal, address token, uint256 amount, bytes calldata relayMsg) external {
+        require(IVerifier(verifier).verify(proof, signal), "Proof failed");
 
-        bytes32 mood = IEntropy(entropy).sample(msg.sender);
-        ISoulSync(soul).sync(mood);
+        ISoulSync(soul).sync(signal);
+        bytes32 moodHash = IEntropy(entropy).sample(msg.sender);
+        address tempKey = IKey(key).ephemeral(msg.sender);
 
+        IRelay(relay).dispatch(relayMsg);
         IRoyalty(royalty).claim(msg.sender, token, amount);
-        address ephemeral = IKey(keys).ephemeral(msg.sender);
-        require(ephemeral != address(0), "Missing ephemeral");
 
-        bytes memory pack = abi.encodePacked(msg.sender, mood, ephemeral, signal);
-        IRelay(relay).dispatch(pack);
-
-        emit Claimed(msg.sender, signal, token, amount);
+        emit VerifiedAndClaimed(msg.sender, moodHash, amount);
     }
 }
