@@ -711,8 +711,8 @@ func DefaultP2PConfig() *P2PConfig {
 		// Ethernet is 1500 - 20 -20 = 1460
 		// Source: https://stackoverflow.com/a/3074427/820520
 		MaxPacketMsgPayloadSize: 1400,
-		SendRate:                20971520, // 20 MB/s per connection
-		RecvRate:                20971520, // 20 MB/s per connection
+		SendRate:                20971520, // 20 MiB/s per connection
+		RecvRate:                20971520, // 20 MiB/s per connection
 		PexReactor:              true,
 		AllowDuplicateIP:        false,
 		HandshakeTimeout:        10 * time.Second,
