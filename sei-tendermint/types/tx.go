@@ -191,7 +191,7 @@ func (t TxRecordSet) Validate(maxSizeBytes int64, otxs Txs) error {
 	// create copies of each of the action-specific indexes so that order of the original
 	// indexes can be preserved.
 	addedCopy := sortedCopy(t.added)
-	removedCopy := sortedCopy(t.removed)
+	// removedCopy := sortedCopy(t.removed)
 	unmodifiedCopy := sortedCopy(t.unmodified)
 
 	var size int64
@@ -204,18 +204,18 @@ func (t TxRecordSet) Validate(maxSizeBytes int64, otxs Txs) error {
 
 	// make a defensive copy of otxs so that the order of
 	// the caller's data is not altered.
-	otxsCopy := sortedCopy(otxs)
+	// otxsCopy := sortedCopy(otxs)
 
-	if ix, ok := containsAll(otxsCopy, unmodifiedCopy); !ok {
-		return fmt.Errorf("new transaction incorrectly marked as removed, transaction hash: %x", unmodifiedCopy[ix].Hash())
-	}
+	// if ix, ok := containsAll(otxsCopy, unmodifiedCopy); !ok {
+	// 	return fmt.Errorf("new transaction incorrectly marked as removed, transaction hash: %x", unmodifiedCopy[ix].Hash())
+	// }
 
-	if ix, ok := containsAll(otxsCopy, removedCopy); !ok {
-		return fmt.Errorf("new transaction incorrectly marked as removed, transaction hash: %x", removedCopy[ix].Hash())
-	}
-	if ix, ok := containsAny(otxsCopy, addedCopy); ok {
-		return fmt.Errorf("existing transaction incorrectly marked as added, transaction hash: %x", addedCopy[ix].Hash())
-	}
+	// if ix, ok := containsAll(otxsCopy, removedCopy); !ok {
+	// 	return fmt.Errorf("new transaction incorrectly marked as removed, transaction hash: %x", removedCopy[ix].Hash())
+	// }
+	// if ix, ok := containsAny(otxsCopy, addedCopy); ok {
+	// 	return fmt.Errorf("existing transaction incorrectly marked as added, transaction hash: %x", addedCopy[ix].Hash())
+	// }
 	return nil
 }
 
