@@ -26,14 +26,9 @@ def test_submit_proof_rejects_replay_nonce():
 
 def test_update_validator_beacon_requires_owner():
     contract = SeiWiFiProofContract(owner="owner")
-    assert (
-        contract.update_validator_beacon("other", "validator", "hash")
-        == "Error: Unauthorized"
-    )
-    assert (
-        contract.update_validator_beacon("owner", "validator", "hash")
-        == "Beacon updated: validator"
-    )
+
+    assert contract.update_validator_beacon("other", "validator", "hash") == "Error: Unauthorized"
+    assert contract.update_validator_beacon("owner", "validator", "hash") == "Beacon updated: validator"
     assert contract.validator_beacons["validator"] == "hash"
 
 
@@ -45,6 +40,7 @@ def test_tap_and_pay_generates_vault_and_transaction_hash():
 
 def test_create_streaming_vault_is_deterministic():
     entropy = "f" * 64
-    vault = create_streaming_vault("user", entropy, "10")
-    assert vault == "vault_user_ffffffff"
-    assert create_streaming_vault("user", entropy, "20") == vault
+
+    vault = create_streaming_vault("addr1", entropy, "10")
+    assert vault == "vault_addr1_ffffffff"
+    assert create_streaming_vault("addr1", entropy, "20") == vault
