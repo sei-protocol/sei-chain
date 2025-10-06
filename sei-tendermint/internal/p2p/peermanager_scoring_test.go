@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,17 @@ import (
 	"github.com/tendermint/tendermint/types"
 )
 
+func testAddr(x string) NodeAddress {
+	if len(x) != 1 {
+		panic("x must be a single character")
+	}
+	return NodeAddress{
+		NodeID:   types.NodeID(strings.Repeat(x, 40)),
+		Hostname: fmt.Sprintf("%v.com", x),
+		Port:     26657,
+	}
+}
+
 func TestPeerScoring(t *testing.T) {
 	// coppied from p2p_test shared variables
 	selfKey := ed25519.GenPrivKeyFromSecret([]byte{0xf9, 0x1b, 0x08, 0xaa, 0x38, 0xee, 0x34, 0xdd})
@@ -25,8 +37,8 @@ func TestPeerScoring(t *testing.T) {
 	require.NoError(t, err)
 
 	// create a fake node
-	id := types.NodeID(strings.Repeat("a1", 20))
-	added, err := peerManager.Add(NodeAddress{NodeID: id, Protocol: "memory"})
+	a := testAddr("a")
+	added, err := peerManager.Add(a)
 	require.NoError(t, err)
 	require.True(t, added)
 
@@ -35,77 +47,76 @@ func TestPeerScoring(t *testing.T) {
 	t.Run("Synchronous", func(t *testing.T) {
 		// update the manager and make sure it's correct
 		defaultScore := DefaultMutableScore
-		require.EqualValues(t, defaultScore, peerManager.Scores()[id])
+		require.EqualValues(t, defaultScore, peerManager.Scores()[a.NodeID])
 
 		// add a bunch of good status updates and watch things increase.
 		for i := 1; i < 10; i++ {
 			peerManager.processPeerEvent(ctx, PeerUpdate{
-				NodeID: id,
+				NodeID: a.NodeID,
 				Status: PeerStatusGood,
 			})
-			require.EqualValues(t, defaultScore+PeerScore(i), peerManager.Scores()[id])
+			require.EqualValues(t, defaultScore+PeerScore(i), peerManager.Scores()[a.NodeID])
 		}
 		// watch the corresponding decreases respond to update
 		for i := 1; i < 10; i++ {
 			peerManager.processPeerEvent(ctx, PeerUpdate{
-				NodeID: id,
+				NodeID: a.NodeID,
 				Status: PeerStatusBad,
 			})
-			require.EqualValues(t, DefaultMutableScore+PeerScore(9)-PeerScore(i), peerManager.Scores()[id])
+			require.EqualValues(t, DefaultMutableScore+PeerScore(9)-PeerScore(i), peerManager.Scores()[a.NodeID])
 		}
 
 		// Dial failure should decrease score
-		addr := NodeAddress{NodeID: id, Protocol: "memory"}
-		_ = peerManager.DialFailed(ctx, addr)
-		_ = peerManager.DialFailed(ctx, addr)
-		_ = peerManager.DialFailed(ctx, addr)
-		require.EqualValues(t, DefaultMutableScore-2, peerManager.Scores()[id])
+		_ = peerManager.DialFailed(ctx, a)
+		_ = peerManager.DialFailed(ctx, a)
+		_ = peerManager.DialFailed(ctx, a)
+		require.EqualValues(t, DefaultMutableScore-2, peerManager.Scores()[a.NodeID])
 
 		// Disconnect every 3 times should also decrease score
 		for i := 1; i < 7; i++ {
-			peerManager.Disconnected(ctx, id)
+			peerManager.Disconnected(ctx, a.NodeID)
 		}
-		require.EqualValues(t, DefaultMutableScore-2, peerManager.Scores()[id])
+		require.EqualValues(t, DefaultMutableScore-2, peerManager.Scores()[a.NodeID])
 	})
 	t.Run("AsynchronousIncrement", func(t *testing.T) {
-		start := peerManager.Scores()[id]
+		start := peerManager.Scores()[a.NodeID]
 		pu := peerManager.Subscribe(ctx)
 		pu.SendUpdate(ctx, PeerUpdate{
-			NodeID: id,
+			NodeID: a.NodeID,
 			Status: PeerStatusGood,
 		})
 		require.Eventually(t,
-			func() bool { return start+1 == peerManager.Scores()[id] },
+			func() bool { return start+1 == peerManager.Scores()[a.NodeID] },
 			time.Second,
 			time.Millisecond,
-			"startAt=%d score=%d", start, peerManager.Scores()[id])
+			"startAt=%d score=%d", start, peerManager.Scores()[a.NodeID])
 	})
 	t.Run("AsynchronousDecrement", func(t *testing.T) {
-		start := peerManager.Scores()[id]
+		start := peerManager.Scores()[a.NodeID]
 		pu := peerManager.Subscribe(ctx)
 		pu.SendUpdate(ctx, PeerUpdate{
-			NodeID: id,
+			NodeID: a.NodeID,
 			Status: PeerStatusBad,
 		})
 		require.Eventually(t,
-			func() bool { return start-1 == peerManager.Scores()[id] },
+			func() bool { return start-1 == peerManager.Scores()[a.NodeID] },
 			time.Second,
 			time.Millisecond,
-			"startAt=%d score=%d", start, peerManager.Scores()[id])
+			"startAt=%d score=%d", start, peerManager.Scores()[a.NodeID])
 	})
 	t.Run("TestNonPersistantPeerUpperBound", func(t *testing.T) {
 		// Reset peer state to remove any previous penalties
-		peerManager.store.peers[id] = &peerInfo{
-			ID:           id,
+		peerManager.store.peers[a.NodeID] = &peerInfo{
+			ID:           a.NodeID,
 			MutableScore: DefaultMutableScore,
 		}
 
 		// Add successful blocks to increase score
 		for i := 0; i < 100; i++ {
-			peerManager.IncrementBlockSyncs(id)
+			peerManager.IncrementBlockSyncs(a.NodeID)
 		}
 
 		// Score should be capped at MaxPeerScoreNotPersistent
-		require.EqualValues(t, MaxPeerScoreNotPersistent, peerManager.Scores()[id])
+		require.EqualValues(t, MaxPeerScoreNotPersistent, peerManager.Scores()[a.NodeID])
 	})
 }
