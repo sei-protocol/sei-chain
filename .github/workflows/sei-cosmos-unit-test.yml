@@ -96,6 +96,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: "${{ github.sha }}-${{ matrix.part }}"
+          path: ./sei-cosmos
       - name: Get data from Go build cache
         uses: actions/cache@v3
         with:
@@ -127,6 +128,8 @@ jobs:
       # Download all coverage reports from the 'tests' job
       - name: Download coverage reports
         uses: actions/download-artifact@v4
+        with:
+          path: ./sei-cosmos
 
       - name: Set GOPATH
         run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
