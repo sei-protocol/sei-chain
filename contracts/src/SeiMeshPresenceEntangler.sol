@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.19;
 
 import {ISoulMoodOracle} from "./interfaces/ISoulMoodOracle.sol";
@@ -30,118 +30,60 @@ contract SeiMeshPresenceEntangler {
     /// @notice External oracle providing the current mood for a given soul.
     ISoulMoodOracle public immutable moodOracle;
 
-    /// @notice Details about the current entanglement session.
-    struct Entanglement {
-        address soul;
-        string mood;
-        uint256 nonce;
-        uint256 timestamp;
+    /// @notice Emitted when presence is entangled for a user.
+    event PresenceEntangled(address indexed user, bytes32 wifiHash, bytes32 moodHash, bytes32 proofId);
+
+    struct PresenceProof {
+        bytes32 wifiHash;
+        bytes32 moodHash;
+        uint64 timestamp;
         bytes32 proofId;
     }
 
-    /// @notice Emitted when the validator entangles a soul presence.
-    event Entangled(
-        address indexed validator,
-        address indexed soul,
-        string mood,
-        uint256 indexed nonce,
-        bytes32 proofId
-    );
+    mapping(address => bool) public hasMinted;
+    mapping(address => PresenceProof) public proofs;
 
-    /// @notice Emitted when the validator releases the active entanglement.
-    event Released(address indexed validator, address indexed soul, bytes32 proofId);
-
-    /// @dev Tracks whether an entanglement is currently active.
-    bool private _active;
-
-    /// @dev Storage for the current entanglement details.
-    Entanglement private _currentEntanglement;
-
-    /// @dev Registry of previously observed proof identifiers for immutability.
-    mapping(bytes32 => bool) private _proofRegistry;
-
-    /// @param validator_ Address permitted to entangle and release.
-    /// @param meshSSIDHash_ The SSID hash this contract is bound to.
-    /// @param moodOracle_ External oracle exposing the soul mood state.
-    constructor(address validator_, bytes32 meshSSIDHash_, ISoulMoodOracle moodOracle_) {
-        if (validator_ == address(0) || address(moodOracle_) == address(0)) {
-            revert ZeroAddress();
-        }
-        validator = validator_;
-        meshSSIDHash = meshSSIDHash_;
-        moodOracle = moodOracle_;
-    }
-
-    /// @notice Returns the current entanglement information and whether it is active.
-    function currentEntanglement()
-        external
-        view
-        returns (Entanglement memory entanglement, bool isActive)
-    {
-        return (_currentEntanglement, _active);
-    }
-
-    /// @notice Returns whether a given proof identifier has been previously committed.
-    function isProofCommitted(bytes32 proofId) external view returns (bool) {
-        return _proofRegistry[proofId];
-    }
-
-    /// @notice Indicates whether the contract currently maintains an entanglement.
-    function isEntangled() external view returns (bool) {
-        return _active;
-    }
-
-    /// @notice Validator-only operation to entangle a soul based on the oracle-provided mood.
-    /// @param soul Address whose presence is being attested.
-    /// @param nonce Validator supplied nonce ensuring uniqueness of the proof.
-    /// @return proofId The immutable identifier representing this entanglement.
-    function entangle(address soul, uint256 nonce) external returns (bytes32 proofId) {
+    modifier onlyValidator() {
         if (msg.sender != validator) revert Unauthorized();
-        if (_active) revert AlreadyEntangled();
-        if (soul == address(0)) revert ZeroAddress();
+        _;
+    }
 
-        string memory mood = moodOracle.moodOf(soul);
-        proofId = keccak256(abi.encodePacked(soul, meshSSIDHash, mood, nonce));
-        if (_proofRegistry[proofId]) revert ProofAlreadyCommitted();
+    constructor(address _soulOracle, address _validator, string memory ssid) {
+        if (_soulOracle == address(0) || _validator == address(0)) revert ZeroAddress();
+        moodOracle = ISoulMoodOracle(_soulOracle);
+        validator = _validator;
+        meshSSIDHash = keccak256(abi.encodePacked(ssid));
+    }
 
-        _proofRegistry[proofId] = true;
-        _currentEntanglement = Entanglement({
-            soul: soul,
-            mood: mood,
-            nonce: nonce,
-            timestamp: block.timestamp,
+    /// @notice Entangles a user’s WiFi presence and current mood into a verifiable proof.
+    function entanglePresence(address user, string calldata ssid, uint64 nonce) external onlyValidator {
+        if (hasMinted[user]) revert ProofAlreadyCommitted();
+
+        bytes32 wifiHash = keccak256(abi.encodePacked(ssid));
+        require(wifiHash == meshSSIDHash, "SSID mismatch");
+
+        bytes32 moodHash = moodOracle.getLatestMoodHash(user);
+        bytes32 proofId = keccak256(abi.encodePacked(user, wifiHash, moodHash, nonce));
+
+        proofs[user] = PresenceProof({
+            wifiHash: wifiHash,
+            moodHash: moodHash,
+            timestamp: uint64(block.timestamp),
             proofId: proofId
         });
-        _active = true;
 
-        emit Entangled(validator, soul, mood, nonce, proofId);
+        hasMinted[user] = true;
+        emit PresenceEntangled(user, wifiHash, moodHash, proofId);
     }
 
-    /// @notice Validator-only operation to release the current entanglement.
-    function release() external {
-        if (msg.sender != validator) revert Unauthorized();
-        if (!_active) revert NoActiveEntanglement();
-
-        address soul = _currentEntanglement.soul;
-        bytes32 proofId = _currentEntanglement.proofId;
-
-        delete _currentEntanglement;
-        _active = false;
-
-        emit Released(validator, soul, proofId);
+    /// @notice View a user’s stored proof.
+    function viewProof(address user) external view returns (PresenceProof memory) {
+        return proofs[user];
     }
 
-    /// @notice Offline-verifiable helper that recomputes the proof identifier and checks commitment.
-    /// @param soul Address originally entangled.
-    /// @param mood Mood string observed from the oracle at entanglement time.
-    /// @param nonce Validator supplied nonce used for entanglement.
-    /// @return True when the proof exists in the registry.
-    function verifyProof(address soul, string calldata mood, uint256 nonce)
-        external
-        view
-        returns (bool)
-    {
-        bytes32 proofId = keccak256(abi.encodePacked(soul, meshSSIDHash, mood, nonce));
-        return _proofRegistry[proofId];
+    /// @notice Verify whether a given proof matches a user’s stored data.
+    function verifyProof(bytes32 ssidHash, bytes32 moodHash, address user) external view returns (bool) {
+        PresenceProof memory p = proofs[user];
+        return (p.wifiHash == ssidHash && p.moodHash == moodHash);
     }
 }
