@@ -2,26 +2,34 @@ coverage:
   precision: 2
   round: down
   status:
-    # TODO: change project level coverage back to ~60% after we have a healthier repo
     project:
       default:
-        target: 25%
+        target: 50%
         threshold: 0.1% # allow this much decrease on project
       # Per-module coverage targets
       sei-chain:
-        target: 35%
+        paths:
+          - "**"                      # include everything
+        ignore:
+          - "sei-cosmos/**"
+          - "sei-tendermint/**"
+          - "sei-wasmd/**"
+          - "sei-wasmvm/**"
         flags:
           - sei-chain
       sei-cosmos:
-        target: 25%
+        paths:
+          - "sei-cosmos/**"
         flags:
           - sei-cosmos
       sei-tendermint:
-        target: 25%
+        paths:
+          - "sei-tendermint/**"
         flags:
           - sei-tendermint
       sei-wasmd:
-        target: 25%
+        paths:
+          - "sei-wasmd/**"
         flags:
           - sei-wasmd
     patch:
