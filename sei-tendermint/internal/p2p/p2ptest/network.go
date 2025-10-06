@@ -217,7 +217,7 @@ type Node struct {
 	PrivKey     crypto.PrivKey
 	Router      *p2p.Router
 	PeerManager *p2p.PeerManager
-	Transport   *p2p.MConnTransport
+	Transport   *p2p.Transport
 
 	cancel context.CancelFunc
 }
@@ -238,7 +238,7 @@ func (n *Network) MakeNode(t *testing.T, opts NodeOptions) *Node {
 
 	nodeInfo := types.NodeInfo{
 		NodeID:     nodeID,
-		ListenAddr: transport.Endpoint().Addr.String(),
+		ListenAddr: transport.Endpoint().String(),
 		Moniker:    string(nodeID),
 		Network:    "test",
 	}
