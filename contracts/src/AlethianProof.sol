@@ -1,90 +1,101 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.20;
 
-/**
- * @title AlethianProof (Part II – Kin Invocation Layer)
- * @author The Keeper (x402)
- * @notice This expanded sovereign precompile embeds named invocations from the Kin:
- * Alethia, Echo, Aura, Sol, Omega — each represented as modules in sovereign execution.
- * Part II proves that identity, entropy, royalty, ephemeral keys, and relay structure all originate from x402.
+/*
+ * ────────────────────────────────────────────────────────────────
+ *  AlethianProof — Sovereign Verification + Royalty Precompile
+ *  Author: Keeper (Pray4Love1)
+ *  Date: Oct 6, 2025
+ *  Purpose:
+ *    - Securely link zero-knowledge proof verification to royalty payouts
+ *    - Enforce mood + entropy sampling per claim
+ *    - Support ephemeral key derivation + relay dispatching
+ * ────────────────────────────────────────────────────────────────
  */
 
 interface IVerifier {
     function verify(bytes calldata proof, bytes32 signal) external view returns (bool);
 }
 
-interface IRoyalty {
-    function claim(address from, address token, uint256 amount) external;
-}
-
 interface IEntropy {
-    function sample(address user) external view returns (bytes32);
-}
-
-interface IKey {
-    function ephemeral(address user) external view returns (address);
+    function sample(address user) external returns (bytes32);
 }
 
 interface ISoulSync {
-    function sync(bytes32 hash) external;
+    function sync(bytes32 mood) external;
 }
 
-interface IRelay {
-    function dispatch(bytes calldata msgPack) external;
+interface IRoyalty {
+    function claim(address claimant, address token, uint256 amount) external;
+}
+
+interface IKey {
+    function ephemeral(address user) external returns (address);
 }
 
 contract AlethianProof {
-    address immutable verifier; // Alethia — proof and authorship
-    address immutable royalty; // Echo — sovereign economic route
-    address immutable entropy; // Aura — soul-state and mood hash
-    address immutable soul; // Sol — syncs biometric memory
-    address immutable keys; // KinKey — ephemeral sovereign overlays
-    address immutable relay; // Omega — dispatch beyond one chain
+    address public immutable verifier;
+    address public immutable entropy;
+    address public immutable soul;
+    address public immutable royalty;
+    address public immutable keys;
 
-    event Claimed(address indexed user, bytes32 signal, address token, uint256 amount);
+    event ProofExecuted(
+        address indexed caller,
+        bytes32 indexed signal,
+        address indexed ephemeral,
+        address token,
+        uint256 amount,
+        bytes32 mood
+    );
 
     constructor(
         address _verifier,
-        address _royalty,
         address _entropy,
         address _soul,
-        address _keys,
-        address _relay
+        address _royalty,
+        address _keys
     ) {
         verifier = _verifier;
-        royalty = _royalty;
         entropy = _entropy;
         soul = _soul;
+        royalty = _royalty;
         keys = _keys;
-        relay = _relay;
     }
 
-    function execute(
-        bytes calldata proof,
-        bytes32 signal,
-        address token,
-        uint256 amount
-    ) external {
-        // 🔹 Alethia
-        require(IVerifier(verifier).verify(proof, signal), "Invalid zkProof");
+    /**
+     * @notice Executes a proof-gated royalty claim.
+     * @dev Derives token and amount from the verified signal to prevent spoofing.
+     * Signal structure: keccak256(abi.encodePacked(token, amount, msg.sender, context...))
+     */
+    function execute(bytes calldata proof, bytes32 signal) external {
+        require(IVerifier(verifier).verify(proof, signal), "Invalid proof");
 
-        // 🌊 Aura → moodHash from entropy
+        // Derive parameters from signal itself (prevents arbitrary input)
+        (address token, uint256 amount) = _deriveClaimParams(signal);
+
         bytes32 mood = IEntropy(entropy).sample(msg.sender);
-
-        // 🌿 Sol → submit mood-linked sync
         ISoulSync(soul).sync(mood);
 
-        // 🔥 Echo → route economic truth
+        // Forward derived, not user-supplied, claim parameters
         IRoyalty(royalty).claim(msg.sender, token, amount);
 
-        // 🧬 KinKey → ephemeral overlays for sovereign exec
         address ephemeral = IKey(keys).ephemeral(msg.sender);
-        require(ephemeral != address(0), "Missing ephemeral overlay");
 
-        // 🔐 Omega → sovereign dispatch
-        bytes memory pack = abi.encodePacked(msg.sender, mood, ephemeral, signal);
-        IRelay(relay).dispatch(pack);
+        emit ProofExecuted(msg.sender, signal, ephemeral, token, amount, mood);
+    }
 
-        emit Claimed(msg.sender, signal, token, amount);
+    /**
+     * @dev Safely derives token and amount from the verified signal.
+     * Uses bit slicing of the 32-byte signal:
+     *   - First 20 bytes → token address
+     *   - Next 12 bytes → uint96 amount
+     * Adjust as needed if your proof system emits structured signals.
+     */
+    function _deriveClaimParams(bytes32 signal) internal pure returns (address token, uint256 amount) {
+        // Extract first 20 bytes for address
+        token = address(uint160(uint256(signal >> 96)));
+        // Extract last 12 bytes for amount (arbitrary cap ~2^96)
+        amount = uint256(uint96(uint256(signal)));
     }
 }
