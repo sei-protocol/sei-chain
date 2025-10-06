@@ -1,0 +1,18 @@
+{
+  "validators": [
+    {
+      "name": "SeiValidator_1",
+      "beacon_ssid": "SeiMesh_Node1",
+      "public_key": "0xABCD1234...",
+      "lat": 37.7749,
+      "lon": -122.4194
+    },
+    {
+      "name": "SeiValidator_2",
+      "beacon_ssid": "SeiMesh_Node2",
+      "public_key": "0xDEAD5678...",
+      "lat": 34.0522,
+      "lon": -118.2437
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "beacons": [
+    {
+      "ssid": "SeiMesh_Tower_01",
+      "ssid_hash": "0a410096806815b11563cd3c376878cbfa4a1c09c673cf55ac19a5bc056f403a",
+      "location": "Austin, TX",
+      "pubkey": "0x12fa000000000000000000000000000000000001",
+      "validator": "0xBeac0nV100000000000000000000000000000001"
+    }
+  ]
+}

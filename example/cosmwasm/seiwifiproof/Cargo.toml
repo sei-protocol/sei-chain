@@ -1,0 +1,26 @@
+[package]
+name = "seiwifiproof"
+version = "0.1.0"
+edition = "2021"
+authors = ["SeiMesh Contributors"]
+description = "Presence proof contract for SeiMesh WiFi beacons"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+library = []
+
+[dependencies]
+cosmwasm-std = { version = "1.3.1", features = ["staking"] }
+cw-storage-plus = "1.1.0"
+schemars = "0.8.12"
+serde = { version = "1.0", features = ["derive"] }
+sha2 = "0.10"
+thiserror = "1.0"
+
+[dev-dependencies]
+cosmwasm-schema = "1.3.1"
+cw-multi-test = "1.1.0"
