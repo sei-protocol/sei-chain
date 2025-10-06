@@ -7,13 +7,12 @@ import (
 	"net"
 	"net/netip"
 	"sync/atomic"
-
-
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils/scope"
+
 	p2pproto "github.com/tendermint/tendermint/proto/tendermint/p2p"
 	"github.com/tendermint/tendermint/types"
 )

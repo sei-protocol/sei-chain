@@ -312,7 +312,6 @@ func createRouter(
 	config.Connection.SendRate = cfg.P2P.SendRate
 	config.Connection.RecvRate = cfg.P2P.RecvRate
 	config.Connection.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
-
 	return p2p.NewRouter(
 		p2pLogger,
 		p2pMetrics,

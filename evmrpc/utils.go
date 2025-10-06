@@ -13,19 +13,18 @@ import (
 	"time"
 
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
-
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
+	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
 	"github.com/sei-protocol/sei-chain/evmrpc/stats"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -78,6 +77,14 @@ func getHeightFromBigIntBlockNumber(latest int64, blockNumber *big.Int) int64 {
 	default:
 		return blockNumber.Int64()
 	}
+}
+
+// this avoids a gosec lint error rather than just casting
+func toUint64(value int64) uint64 {
+	if value < 0 {
+		return 0
+	}
+	return uint64(value)
 }
 
 func getTestKeyring(homeDir string) (keyring.Keyring, error) {
@@ -204,7 +211,6 @@ func filterTransactions(
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	block *coretypes.ResultBlock,
-	signer ethtypes.Signer,
 	includeSyntheticTxs bool,
 	includeBankTransfers bool,
 ) []indexedMsg {
@@ -227,7 +233,7 @@ func filterTransactions(
 				}
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
-				sender, _ := signer.Sender(ethtx)
+				sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, block.Block.Time.Unix())
 				receipt, err := k.GetReceipt(latestCtx, hash)
 				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
 					continue
@@ -322,11 +328,10 @@ func getTxHashesFromBlock(
 	txConfigProvider func(int64) client.TxConfig,
 	k *keeper.Keeper,
 	block *coretypes.ResultBlock,
-	signer ethtypes.Signer,
 	shouldIncludeSynthetic bool,
 ) []typedTxHash {
 	txHashes := []typedTxHash{}
-	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, signer, shouldIncludeSynthetic, false) {
+	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, false) {
 		switch tx.msg.(type) {
 		case *types.MsgEVMTransaction:
 			ethtx, _ := tx.msg.(*types.MsgEVMTransaction).AsTransaction()
