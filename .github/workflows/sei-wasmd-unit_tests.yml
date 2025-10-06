@@ -50,7 +50,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-profiles-${{ matrix.partition }}
-          path: profiles/
+          path: ./sei-wasmd/profiles/
 
   upload-coverage:
     name: Upload Coverage to Codecov
@@ -78,10 +78,11 @@ jobs:
           find /tmp/workspace -type f -name '*.out' -print0 | xargs -0 gocovmerge > coverage.txt
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.txt
-          flags: unittests
-          name: codecov-umbrella
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
+          flags: sei-wasmd
+          disable_search: true
+          name: sei-wasmd-coverage
