@@ -74,6 +74,7 @@ jobs:
         run: go get github.com/wadey/gocovmerge && go install github.com/wadey/gocovmerge
 
       - name: Merge coverage reports
+        working-directory: ./sei-tendermint
         run: gocovmerge $(find . -type f -name '*profile.out') > coverage.txt
 
       - name: Check coverage report lines
