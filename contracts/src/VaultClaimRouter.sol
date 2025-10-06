@@ -11,88 +11,69 @@ interface IKinPresenceToken {
 }
 
 /// @title VaultClaimRouter
-/// @notice Routes validated SeiMesh presence proofs to payouts and SoulSigil mints.
+/// @notice Routes validated SeiMesh presence proofs to reward payouts and SoulSigil mints.
 contract VaultClaimRouter is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    /// @notice Vault configuration for each proof domain (e.g., SSID or location hash).
     struct VaultConfig {
-        IERC20 asset;
-        uint256 payoutAmount;
-        bool active;
-        string defaultTokenURI;
+        IERC20 asset;              // Token to pay out
+        uint256 payoutAmount;      // Amount per claim
+        bool active;               // Is this vault accepting claims
+        string defaultTokenURI;    // URI for SoulSigil metadata
+        IKinPresenceToken soulSigil; // Reference to mintable SoulSigil contract
     }
 
+    /// @notice vaultId => VaultConfig
     mapping(bytes32 => VaultConfig) public vaults;
+
+    /// @notice vaultId => moodHash => wasClaimed
     mapping(bytes32 => mapping(bytes32 => bool)) public proofRegistry;
-    mapping(bytes32 => mapping(bytes32 => bool)) public proofConsumed;
 
-    IKinPresenceToken public presenceToken;
+    /// @notice Emitted when a user claims a reward and receives their SoulSigil.
+    event TokensClaimed(address indexed user, bytes32 indexed vaultId, uint256 amount, bytes32 moodHash);
 
-    event VaultConfigured(bytes32 indexed vaultId, address asset, uint256 payoutAmount, string defaultTokenURI);
-    event VaultStatusUpdated(bytes32 indexed vaultId, bool active);
-    event ProofStatus(bytes32 indexed vaultId, bytes32 indexed proofHash, bool allowed);
-    event PresenceTokenUpdated(address indexed token);
-    event ProofClaimed(bytes32 indexed vaultId, bytes32 indexed proofHash, address indexed beneficiary, string metadataURI);
-
-    constructor() Ownable(msg.sender) {}
-
-    function setPresenceToken(address token) external onlyOwner {
-        presenceToken = IKinPresenceToken(token);
-        emit PresenceTokenUpdated(token);
-    }
-
+    /// @notice Registers or updates a vault config.
     function configureVault(
         bytes32 vaultId,
-        IERC20 asset,
+        address asset,
         uint256 payoutAmount,
         string calldata defaultTokenURI,
-        bool active
+        address soulSigil
     ) external onlyOwner {
+        require(asset != address(0), "Invalid asset");
+        require(soulSigil != address(0), "Invalid SoulSigil");
+
         vaults[vaultId] = VaultConfig({
-            asset: asset,
+            asset: IERC20(asset),
             payoutAmount: payoutAmount,
-            active: active,
-            defaultTokenURI: defaultTokenURI
+            active: true,
+            defaultTokenURI: defaultTokenURI,
+            soulSigil: IKinPresenceToken(soulSigil)
         });
-        emit VaultConfigured(vaultId, address(asset), payoutAmount, defaultTokenURI);
-        emit VaultStatusUpdated(vaultId, active);
     }
 
-    function setVaultStatus(bytes32 vaultId, bool active) external onlyOwner {
-        VaultConfig storage vault = vaults[vaultId];
-        require(address(vault.asset) != address(0) || vault.payoutAmount == 0, "vault_uninitialized");
-        vault.active = active;
-        emit VaultStatusUpdated(vaultId, active);
+    /// @notice Disables a vault (no further claims allowed).
+    function deactivateVault(bytes32 vaultId) external onlyOwner {
+        vaults[vaultId].active = false;
     }
 
-    function allowProof(bytes32 vaultId, bytes32 proofHash, bool allowed) external onlyOwner {
-        proofRegistry[vaultId][proofHash] = allowed;
-        emit ProofStatus(vaultId, proofHash, allowed);
-    }
-
-    function submitProof(
+    /// @notice Claims a reward + NFT for a presence proof (one-time per moodHash per vault).
+    /// @dev `vaultId` is typically the keccak of SSID or location, `moodHash` is a proof from a mood oracle.
+    function claimPresenceReward(
         bytes32 vaultId,
-        bytes32 proofHash,
-        address beneficiary,
-        string calldata metadataURI
+        bytes32 moodHash,
+        address to
     ) external nonReentrant {
-        VaultConfig storage vault = vaults[vaultId];
-        require(vault.active, "vault_inactive");
-        require(proofRegistry[vaultId][proofHash], "proof_not_authorized");
-        require(!proofConsumed[vaultId][proofHash], "proof_already_used");
-        require(beneficiary != address(0), "invalid_beneficiary");
+        VaultConfig memory vault = vaults[vaultId];
+        require(vault.active, "Vault inactive");
+        require(!proofRegistry[vaultId][moodHash], "Already claimed");
 
-        proofConsumed[vaultId][proofHash] = true;
+        proofRegistry[vaultId][moodHash] = true;
 
-        if (address(vault.asset) != address(0) && vault.payoutAmount > 0) {
-            vault.asset.safeTransfer(beneficiary, vault.payoutAmount);
-        }
+        vault.asset.safeTransfer(to, vault.payoutAmount);
+        vault.soulSigil.mintPresence(to, vault.defaultTokenURI);
 
-        if (address(presenceToken) != address(0)) {
-            string memory tokenURI = bytes(metadataURI).length > 0 ? metadataURI : vault.defaultTokenURI;
-            presenceToken.mintPresence(beneficiary, tokenURI);
-        }
-
-        emit ProofClaimed(vaultId, proofHash, beneficiary, metadataURI);
+        emit TokensClaimed(to, vaultId, vault.payoutAmount, moodHash);
     }
 }
