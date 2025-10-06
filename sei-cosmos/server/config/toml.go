@@ -137,6 +137,10 @@ enable-service-label = {{ .Telemetry.EnableServiceLabel }}
 # PrometheusRetentionTime, when positive, enables a Prometheus metrics sink.
 prometheus-retention-time = {{ .Telemetry.PrometheusRetentionTime }}
 
+# When both 'api.enable' and 'telemetry.enabled' are true, this node will expose
+# application metrics (custom Cosmos SDK metrics) on the API server endpoint along with the
+# Tendermint metrics (port 26660) which are always enabled.
+
 # GlobalLabels defines a global set of name/value label tuples applied to all
 # metrics emitted using the wrapper functions defined in telemetry package.
 #

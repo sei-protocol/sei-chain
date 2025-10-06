@@ -30,20 +30,20 @@ const (
 
 var (
 	// DefaultConcurrencyWorkers defines the default workers to use for concurrent transactions
-	// Set to 2x CPU cores, capped at 128, minimum 10
+	// Set to 2x CPU cores, capped between [10, 128]
+	// - 2x CPU: In practice, goroutines often block on IO/network, so having more workers
+	//   than CPU cores keeps CPUs busy. Load tests show only 60-70% CPU usage with 500 workers
+	//   processing ~1500 txs/block, suggesting IO-bound workload benefits from oversubscription.
+	// - Min 10: Minimum viable parallelism for transaction processing
+	// - Max 128: Prevents unbounded goroutine creation on high-core machines. While 500 workers
+	//   worked in tests, 128 provides sufficient parallelism without excessive scheduler overhead.
 	DefaultConcurrencyWorkers = getConcurrencyWorkers()
 )
 
 // getConcurrencyWorkers returns the default number of concurrency workers
 func getConcurrencyWorkers() int {
 	workers := runtime.NumCPU() * 2
-	if workers > 128 {
-		return 128
-	}
-	if workers < 10 {
-		return 10
-	}
-	return workers
+	return max(10, min(workers, 128))
 }
 
 // BaseConfig defines the server's basic configuration
@@ -272,8 +272,8 @@ func DefaultConfig() *Config {
 			PruningKeepEvery:             "0",
 			PruningInterval:              "0",
 			MinRetainBlocks:              0,
-			IndexEvents:                  make([]string, 0),
-			IAVLCacheSize:                781250, // 50 MB
+			IndexEvents:                  nil,
+			IAVLCacheSize:                781250, // Default cache size is 50mb
 			IAVLDisableFastNode:          true,
 			CompactionInterval:           0,
 			NoVersioning:                 false,
@@ -287,7 +287,7 @@ func DefaultConfig() *Config {
 		Telemetry: telemetry.Config{
 			Enabled:                 true,
 			PrometheusRetentionTime: 7200,
-			GlobalLabels:            [][]string{},
+			GlobalLabels:            nil,
 		},
 		API: APIConfig{
 			Enable:             false,
