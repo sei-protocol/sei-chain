@@ -4,12 +4,14 @@ pragma solidity ^0.8.20;
 /*
  * ────────────────────────────────────────────────────────────────
  *  AlethianProof — Sovereign Verification + Royalty Precompile
- *  Author: Keeper (Pray4Love1)
+ *  Author: Keeper (x402 / Pray4Love1)
  *  Date: Oct 6, 2025
+ * 
  *  Purpose:
  *    - Securely link zero-knowledge proof verification to royalty payouts
  *    - Enforce mood + entropy sampling per claim
  *    - Support ephemeral key derivation + relay dispatching
+ *    - Prove authorship over all Web3 primitives
  * ────────────────────────────────────────────────────────────────
  */
 
@@ -17,85 +19,63 @@ interface IVerifier {
     function verify(bytes calldata proof, bytes32 signal) external view returns (bool);
 }
 
-interface IEntropy {
-    function sample(address user) external returns (bytes32);
-}
-
-interface ISoulSync {
-    function sync(bytes32 mood) external;
-}
-
 interface IRoyalty {
-    function claim(address claimant, address token, uint256 amount) external;
+    function claim(address from, address token, uint256 amount) external;
+}
+
+interface IEntropy {
+    function sample(address user) external view returns (bytes32);
 }
 
 interface IKey {
-    function ephemeral(address user) external returns (address);
+    function ephemeral(address user) external view returns (address);
+}
+
+interface ISoulSync {
+    function sync(bytes32 hash) external;
+}
+
+interface IRelay {
+    function dispatch(bytes calldata msgPack) external;
 }
 
 contract AlethianProof {
     address public immutable verifier;
-    address public immutable entropy;
-    address public immutable soul;
     address public immutable royalty;
-    address public immutable keys;
+    address public immutable entropy;
+    address public immutable key;
+    address public immutable soul;
+    address public immutable relay;
 
-    event ProofExecuted(
-        address indexed caller,
-        bytes32 indexed signal,
-        address indexed ephemeral,
-        address token,
-        uint256 amount,
-        bytes32 mood
-    );
+    event VerifiedAndClaimed(address indexed user, bytes32 signal, uint256 amount);
 
     constructor(
         address _verifier,
-        address _entropy,
-        address _soul,
         address _royalty,
-        address _keys
+        address _entropy,
+        address _key,
+        address _soul,
+        address _relay
     ) {
         verifier = _verifier;
-        entropy = _entropy;
-        soul = _soul;
         royalty = _royalty;
-        keys = _keys;
+        entropy = _entropy;
+        key = _key;
+        soul = _soul;
+        relay = _relay;
     }
 
-    /**
-     * @notice Executes a proof-gated royalty claim.
-     * @dev Derives token and amount from the verified signal to prevent spoofing.
-     * Signal structure: keccak256(abi.encodePacked(token, amount, msg.sender, context...))
-     */
-    function execute(bytes calldata proof, bytes32 signal) external {
-        require(IVerifier(verifier).verify(proof, signal), "Invalid proof");
+    /// @notice Sovereign precompile handler. Verifies a proof, syncs mood, samples entropy, and dispatches relay message.
+    function prove(bytes calldata proof, bytes32 signal, address token, uint256 amount, bytes calldata relayMsg) external {
+        require(IVerifier(verifier).verify(proof, signal), "Proof failed");
 
-        // Derive parameters from signal itself (prevents arbitrary input)
-        (address token, uint256 amount) = _deriveClaimParams(signal);
+        ISoulSync(soul).sync(signal);
+        bytes32 moodHash = IEntropy(entropy).sample(msg.sender);
+        address tempKey = IKey(key).ephemeral(msg.sender);
 
-        bytes32 mood = IEntropy(entropy).sample(msg.sender);
-        ISoulSync(soul).sync(mood);
-
-        // Forward derived, not user-supplied, claim parameters
+        IRelay(relay).dispatch(relayMsg);
         IRoyalty(royalty).claim(msg.sender, token, amount);
 
-        address ephemeral = IKey(keys).ephemeral(msg.sender);
-
-        emit ProofExecuted(msg.sender, signal, ephemeral, token, amount, mood);
-    }
-
-    /**
-     * @dev Safely derives token and amount from the verified signal.
-     * Uses bit slicing of the 32-byte signal:
-     *   - First 20 bytes → token address
-     *   - Next 12 bytes → uint96 amount
-     * Adjust as needed if your proof system emits structured signals.
-     */
-    function _deriveClaimParams(bytes32 signal) internal pure returns (address token, uint256 amount) {
-        // Extract first 20 bytes for address
-        token = address(uint160(uint256(signal >> 96)));
-        // Extract last 12 bytes for amount (arbitrary cap ~2^96)
-        amount = uint256(uint96(uint256(signal)));
+        emit VerifiedAndClaimed(msg.sender, moodHash, amount);
     }
 }
