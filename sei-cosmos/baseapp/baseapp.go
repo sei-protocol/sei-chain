@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/armon/go-metrics"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/armon/go-metrics"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/server/config"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	"github.com/gogo/protobuf/proto"
@@ -35,6 +35,7 @@ import (
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
+	metricutils "github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 const (
@@ -253,6 +254,7 @@ func NewBaseApp(
 		}
 	}
 
+	// Enable Tracing
 	tp := trace.NewNoopTracerProvider()
 	otel.SetTracerProvider(trace.NewNoopTracerProvider())
 	tr := tp.Tracer("component-main")
@@ -264,6 +266,11 @@ func NewBaseApp(
 		}
 		otel.SetTracerProvider(tp)
 		tr = tp.Tracer("component-main")
+	}
+	// Bind OTEL metrics provider
+	err := metricutils.SetupOtelMetricsProvider()
+	if err != nil {
+		logger.Error(err.Error())
 	}
 	app := &BaseApp{
 		logger: logger,

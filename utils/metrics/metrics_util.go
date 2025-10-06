@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 	"runtime/debug"
 	"strconv"
@@ -10,7 +11,19 @@ import (
 	metrics "github.com/armon/go-metrics"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/prometheus"
+	sdk "go.opentelemetry.io/otel/sdk/metric"
 )
+
+func SetupOtelMetricsProvider() error {
+	metricsExporter, err := prometheus.New(prometheus.WithNamespace("seidb"))
+	if err != nil {
+		return fmt.Errorf("failed to create Prometheus exporter: %w", err)
+	}
+	otel.SetMeterProvider(sdk.NewMeterProvider(sdk.WithReader(metricsExporter)))
+	return nil
+}
 
 func SafeTelemetryIncrCounter(val float32, keys ...string) {
 	defer func() {
