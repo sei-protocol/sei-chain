@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -238,7 +239,7 @@ func TestConvertBlockNumber(t *testing.T) {
 			return sdk.Context{}.WithBlockHeight(1000)
 		}
 		return sdk.Context{}
-	}, nil, nil, &MockClient{}, nil, nil, nil)
+	}, nil, nil, &MockClient{}, nil, nil, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Equal(t, int64(10), backend.ConvertBlockNumber(10))
 	require.Equal(t, int64(1), backend.ConvertBlockNumber(0))
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-2))
@@ -281,6 +282,8 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 		config,
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
+		evmrpc.NewBlockCache(3000),
+		&sync.Mutex{},
 	)
 
 	// Test HeaderByNumber with a height before v6.2.0 upgrade
@@ -313,6 +316,8 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 		config,
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
+		evmrpc.NewBlockCache(3000),
+		&sync.Mutex{},
 	)
 
 	headerDifferentChain, err := backendDifferentChain.HeaderByNumber(context.Background(), 1000)
@@ -333,7 +338,7 @@ func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 
 	backend := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper,
 		func(int64) client.TxConfig { return TxConfig },
-		&MockClient{}, cfg, testApp.BaseApp, testApp.TracerAnteHandler)
+		&MockClient{}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 
 	header, err := backend.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
@@ -352,13 +357,13 @@ func TestGasLimitFallbackToDefault(t *testing.T) {
 	cfg := &evmrpc.SimulateConfig{GasCap: 20_000_000, EVMTimeout: time.Second}
 
 	// Case 1: BlockResults fails
-	backend1 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &brFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler)
+	backend1 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &brFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	h1, err := backend1.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(10_000_000), h1.GasLimit) // DefaultBlockGasLimit
 
 	// Case 2: Block fails
-	backend2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &bcFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler)
+	backend2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &bcFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	h2, err := backend2.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(10_000_000), h2.GasLimit) // DefaultBlockGasLimit
@@ -396,6 +401,8 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		evmrpc.ConnectionTypeHTTP,
+		evmrpc.NewBlockCache(3000),
+		&sync.Mutex{},
 	)
 
 	// Setup test data - create addresses and fund account

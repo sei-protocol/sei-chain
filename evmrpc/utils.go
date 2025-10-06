@@ -196,6 +196,8 @@ func filterTransactions(
 	block *coretypes.ResultBlock,
 	includeSyntheticTxs bool,
 	includeBankTransfers bool,
+	cacheCreationMutex *sync.Mutex,
+	globalBlockCache BlockCache,
 ) []indexedMsg {
 	txs := []indexedMsg{}
 	txCounts := make(map[string]uint64)
@@ -218,7 +220,7 @@ func filterTransactions(
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
 				sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, block.Block.Time.Unix())
-				receipt, found := getOrSetCachedReceipt(latestCtx, k, block, hash)
+				receipt, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)
 				if !found || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
 					continue
 				}
@@ -242,7 +244,7 @@ func filterTransactions(
 					continue
 				}
 				th := sha256.Sum256(block.Block.Txs[i])
-				_, found := getOrSetCachedReceipt(latestCtx, k, block, th)
+				_, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
 				if !found {
 					continue
 				}
@@ -316,9 +318,11 @@ func getTxHashesFromBlock(
 	k *keeper.Keeper,
 	block *coretypes.ResultBlock,
 	shouldIncludeSynthetic bool,
+	cacheCreationMutex *sync.Mutex,
+	globalBlockCache BlockCache,
 ) []typedTxHash {
 	txHashes := []typedTxHash{}
-	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, false) {
+	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, false, cacheCreationMutex, globalBlockCache) {
 		switch tx.msg.(type) {
 		case *types.MsgEVMTransaction:
 			ethtx, _ := tx.msg.(*types.MsgEVMTransaction).AsTransaction()
