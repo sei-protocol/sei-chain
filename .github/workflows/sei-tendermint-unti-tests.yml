@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19"]
+        part: [ "00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19" ]
     steps:
       - uses: actions/setup-python@v3
       - uses: actions/setup-go@v3
@@ -84,11 +84,14 @@ jobs:
 
       # Now we upload the merged report to Codecov
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
-          file: ./coverage.txt
+          files: ./coverage.txt
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
+          flags: sei-tendermint
+          disable_search: true
+          name: sei-tendermint-coverage
 
   unit-test-check:
     name: Unit Test Check
@@ -104,16 +107,16 @@ jobs:
           retry_on: error
           timeout_seconds: 60
           command: |
-              jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
-              job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
-
-              for status in $job_statuses
-              do
-                echo "Status: $status"
-                if [[ "$status" == "failure" ]]; then
-                  echo "Some or all tests have failed!"
-                  exit 1
-                fi
-              done
-
-              echo "All tests have passed!"
+            jobs=$(curl https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
+            job_statuses=$(echo "$jobs" | jq -r '.jobs[] | .conclusion')
+            
+            for status in $job_statuses
+            do
+              echo "Status: $status"
+              if [[ "$status" == "failure" ]]; then
+                echo "Some or all tests have failed!"
+                exit 1
+              fi
+            done
+            
+            echo "All tests have passed!"
