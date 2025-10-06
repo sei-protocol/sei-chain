@@ -17,7 +17,7 @@ import (
 )
 
 func SetupOtelMetricsProvider() error {
-	metricsExporter, err := prometheus.New(prometheus.WithNamespace("seidb"))
+	metricsExporter, err := prometheus.New(prometheus.WithNamespace("sei-chain"))
 	if err != nil {
 		return fmt.Errorf("failed to create Prometheus exporter: %w", err)
 	}
