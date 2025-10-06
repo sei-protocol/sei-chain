@@ -528,7 +528,7 @@ func deployContract(t *testing.T, ctx sdk.Context, k *keeper.Keeper, path string
 	require.Nil(t, err)
 	txData := ethtypes.LegacyTx{
 		GasPrice: big.NewInt(1000000000000),
-		Gas:      4000000,
+		Gas:      8000000,
 		To:       nil,
 		Value:    big.NewInt(0),
 		Data:     bz,

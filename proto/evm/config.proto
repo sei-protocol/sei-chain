@@ -22,4 +22,5 @@ message ChainConfig {
     int64 verkle_time = 3 [
       (gogoproto.moretags) = "yaml:\"verkle_time\""
     ];
+    uint64 sei_sstore_set_gas_eip2200 = 4;
   }

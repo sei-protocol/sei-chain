@@ -312,12 +312,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
-	signer := ethtypes.MakeSigner(
-		types.DefaultChainConfig().EthereumConfig(b.keeper.ChainID(sdkCtx)),
-		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Unix()), //nolint:gosec
-	)
-	msgs := filterTransactions(b.keeper, b.ctxProvider, b.txConfigProvider, tmBlock, signer, false, false)
+	msgs := filterTransactions(b.keeper, b.ctxProvider, b.txConfigProvider, tmBlock, false, false)
 	idxToMsgs := make(map[int]sdk.Msg, len(msgs))
 	for _, msg := range msgs {
 		idxToMsgs[msg.index] = msg.msg
@@ -389,9 +384,19 @@ func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
 
 func (b *Backend) RPCEVMTimeout() time.Duration { return b.config.EVMTimeout }
 
+func (b *Backend) chainConfigForHeight(height int64) *params.ChainConfig {
+	ctx := b.ctxProvider(height)
+	evParams := b.keeper.GetParams(ctx)
+	sstore := evParams.SeiSstoreSetGasEip2200
+	return types.DefaultChainConfig().EthereumConfigWithSstore(b.keeper.ChainID(ctx), &sstore)
+}
+
 func (b *Backend) ChainConfig() *params.ChainConfig {
-	ctx := b.ctxProvider(LatestCtxHeight)
-	return types.DefaultChainConfig().EthereumConfig(b.keeper.ChainID(ctx))
+	return b.chainConfigForHeight(LatestCtxHeight)
+}
+
+func (b *Backend) ChainConfigAtHeight(height int64) *params.ChainConfig {
+	return b.chainConfigForHeight(height)
 }
 
 func (b *Backend) GetPoolNonce(_ context.Context, addr common.Address) (uint64, error) {
@@ -515,7 +520,9 @@ func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateD
 	if blockCtx == nil {
 		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(wasmd.IsWasmdCall(msg.To)), b.keeper.GetGasPool())
 	}
-	evm := vm.NewEVM(*blockCtx, stateDB, b.ChainConfig(), *vmConfig, b.keeper.CustomPrecompiles(b.ctxProvider(h.Number.Int64())))
+	height := h.Number.Int64()
+	chainCfg := b.chainConfigForHeight(height)
+	evm := vm.NewEVM(*blockCtx, stateDB, chainCfg, *vmConfig, b.keeper.CustomPrecompiles(b.ctxProvider(height)))
 	evm.SetTxContext(txContext)
 	return evm
 }
@@ -587,14 +594,14 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 		Number:        blockNumber,
 		BaseFee:       baseFee,
 		GasLimit:      gasLimit,
-		Time:          uint64(time.Now().Unix()), //nolint:gosec
+		Time:          toUint64(time.Now().Unix()), //nolint:gosec
 		ExcessBlobGas: &zeroExcessBlobGas,
 	}
 
 	//TODO: what should happen if an err occurs here?
 	if blockErr == nil {
 		header.ParentHash = common.BytesToHash(block.BlockID.Hash)
-		header.Time = uint64(block.Block.Time.Unix()) //nolint:gosec
+		header.Time = toUint64(block.Block.Time.Unix())
 	}
 	return header
 }
