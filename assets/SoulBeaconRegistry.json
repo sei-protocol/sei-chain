@@ -1,0 +1,13 @@
+{
+  "validators": [
+    {
+      "name": "SeiValidator_1",
+      "beacon_ssid": "SeiMesh_Node1",
+      "public_key": "0x1234567890abcdef1234567890abcdef12345678",
+      "lat": 37.7749,
+      "lon": -122.4194,
+      "endpoint": "http://127.0.0.1:7545",
+      "notes": "Reference validator for local development"
+    }
+  ]
+}
