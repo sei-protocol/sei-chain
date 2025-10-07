@@ -333,6 +333,9 @@ func (c *MockClient) BlockByHash(_ context.Context, hash bytes.HexBytes) (*coret
 	if hash.String() == MultiTxBlockHash[2:] {
 		return c.mockBlock(MockHeight2), nil
 	}
+	if strings.ToLower(hash.String()) == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+		return nil, errors.New("not found")
+	}
 	return c.mockBlock(MockHeight8), nil
 }
 
