@@ -6,9 +6,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     rm -rf /var/lib/apt/lists/*
 
 # Cache Go modules
+COPY go.work go.work.sum ./
 COPY go.mod go.sum ./
 COPY sei-wasmvm/go.mod sei-wasmvm/go.sum ./sei-wasmvm/
 COPY sei-wasmd/go.mod sei-wasmd/go.sum ./sei-wasmd/
+COPY sei-cosmos/go.mod sei-cosmos/go.sum ./sei-cosmos/
+COPY sei-tendermint/go.mod sei-tendermint/go.sum ./sei-tendermint/
 RUN go mod download
 
 # Copy source and build (CGO enabled for libwasmvm)
