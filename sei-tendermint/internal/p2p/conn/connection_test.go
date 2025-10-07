@@ -5,19 +5,19 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"testing"
 	"time"
-	"fmt"
 
 	"github.com/fortytw2/leaktest"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
-	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/proto/tendermint/p2p"
 )
 
@@ -42,7 +42,7 @@ func newMConnectionWithCh(
 
 func mayDisconnectAfterDone(ctx context.Context, err error) error {
 	err = utils.IgnoreCancel(err)
-	if err==nil || ctx.Err()==nil || !IsDisconnect(err) {
+	if err == nil || ctx.Err() == nil || !IsDisconnect(err) {
 		return err
 	}
 	return nil
@@ -51,28 +51,27 @@ func mayDisconnectAfterDone(ctx context.Context, err error) error {
 func TestMConnectionSendRecv(t *testing.T) {
 	t.Cleanup(leaktest.CheckTimeout(t, 10*time.Second))
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		server, client, err := tcp.TestPipe(ctx)
-		if err != nil { return err }
+		server, client := tcp.TestPipe()
 		mconn1 := newMConnection(client)
-		s.SpawnBg(func() error { return mayDisconnectAfterDone(ctx,mconn1.Run(ctx)) })
+		s.SpawnBg(func() error { return mayDisconnectAfterDone(ctx, mconn1.Run(ctx)) })
 		mconn2 := newMConnection(server)
-		s.SpawnBg(func() error { return mayDisconnectAfterDone(ctx,mconn2.Run(ctx)) })
+		s.SpawnBg(func() error { return mayDisconnectAfterDone(ctx, mconn2.Run(ctx)) })
 
 		rng := utils.TestRng()
 		want := utils.GenBytes(rng, 20)
-		if err:=mconn2.Send(ctx, 0x01, want); err!=nil {
+		if err := mconn2.Send(ctx, 0x01, want); err != nil {
 			return fmt.Errorf("mconn2.Send(): %v", err)
 		}
 		_, got, err := mconn1.Recv(ctx)
 		if err != nil {
 			return fmt.Errorf("mconn1.Recv(): %v", err)
 		}
-		if err:= utils.TestDiff(want, got); err!=nil {
+		if err := utils.TestDiff(want, got); err != nil {
 			return fmt.Errorf("mconn1.Recv(): %v", err)
 		}
 		return nil
 	})
-	if err!=nil {
+	if err != nil {
 		t.Fatal(err)
 	}
 }
@@ -96,8 +95,7 @@ func pongMsg() *p2p.Packet {
 func TestMConnectionPingPong(t *testing.T) {
 	t.Cleanup(leaktest.CheckTimeout(t, 10*time.Second))
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		server, client , err := tcp.TestPipe(ctx)
-		if err != nil { return err }
+		server, client := tcp.TestPipe()
 		mconn := newMConnection(client)
 		s.Spawn(func() error { return mconn.Run(ctx) })
 		protoReader := protoio.NewDelimitedReader(server, maxPingPongPacketSize)
@@ -105,7 +103,7 @@ func TestMConnectionPingPong(t *testing.T) {
 		for range 3 {
 			// read ping
 			var got p2p.Packet
-			if _, err := protoReader.ReadMsg(&got); err!=nil {
+			if _, err := protoReader.ReadMsg(&got); err != nil {
 				return fmt.Errorf("protoReader.ReadMsg(): %w", err)
 			}
 			if _, ok := got.Sum.(*p2p.Packet_PacketPing); !ok {
@@ -113,7 +111,7 @@ func TestMConnectionPingPong(t *testing.T) {
 			}
 
 			// respond with pong
-			if _, err := protoWriter.WriteMsg(pongMsg()); err!=nil {
+			if _, err := protoWriter.WriteMsg(pongMsg()); err != nil {
 				return fmt.Errorf("protoWriter.WriteMsg(): %w", err)
 			}
 		}
@@ -126,54 +124,46 @@ func TestMConnectionPingPong(t *testing.T) {
 	}
 }
 
-func newConns(ctx context.Context) (*MConnection, *MConnection, error) {
-	server, client, err := tcp.TestPipe(ctx)
-	if err != nil { return nil,nil,err }
-	// create client conn with two channels
-	chDescs := []*ChannelDescriptor{
-		{ID: 0x01, Priority: 1, SendQueueCapacity: 1},
-		{ID: 0x02, Priority: 1, SendQueueCapacity: 1},
-	}
-	mc := newMConnectionWithCh(client, chDescs)
-	ms := newMConnection(server)
-	return mc, ms, nil
-}
-
 func TestMConnectionReadErrorBadEncoding(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1,c2, err := tcp.TestPipe(ctx)
-		if err!=nil { return err }
+		c1, c2 := tcp.TestPipe()
 		s.Spawn(func() error {
 			mconn := newMConnection(c1)
-			if got,want := mconn.Run(ctx),(errBadEncoding{}); !errors.As(got, &want) {
+			if got, want := mconn.Run(ctx), (errBadEncoding{}); !errors.As(got, &want) {
 				return fmt.Errorf("got %v, want %T", got, want)
 			}
 			return nil
 		})
 
 		defer c2.Close()
-		if _, err := c2.Write([]byte{1, 2, 3, 4, 5}); err!=nil {
+		if _, err := c2.Write([]byte{1, 2, 3, 4, 5}); err != nil {
 			return fmt.Errorf("c2.Write(): %w", err)
 		}
 		return nil
 	})
-	if err!=nil {
+	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestMConnectionReadErrorUnknownChannel(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		mconnClient, mconnServer,err := newConns(ctx)
-		if err!=nil { return err }
+		server, client := tcp.TestPipe()
+		// create client conn with two channels
+		chDescs := []*ChannelDescriptor{
+			{ID: 0x01, Priority: 1, SendQueueCapacity: 1},
+			{ID: 0x02, Priority: 1, SendQueueCapacity: 1},
+		}
+		mconnClient := newMConnectionWithCh(client, chDescs)
+		mconnServer := newMConnection(server)
 		s.Spawn(func() error {
-			if err:=mconnClient.Run(ctx); !IsDisconnect(err) {
+			if err := mconnClient.Run(ctx); !IsDisconnect(err) {
 				return fmt.Errorf("got %v, want disconnect error", err)
 			}
 			return nil
 		})
 		s.Spawn(func() error {
-			if err,want:=mconnServer.Run(ctx), (errBadChannel{}); !errors.As(err, &want) {
+			if err, want := mconnServer.Run(ctx), (errBadChannel{}); !errors.As(err, &want) {
 				return fmt.Errorf("got %v, want %T", err, want)
 			}
 			return nil
@@ -186,23 +176,22 @@ func TestMConnectionReadErrorUnknownChannel(t *testing.T) {
 		}
 		// send msg on channel unknown by the server.
 		// should cause an error on the server side.
-		if err:=mconnClient.Send(ctx, 0x02, msg); err!=nil {
+		if err := mconnClient.Send(ctx, 0x02, msg); err != nil {
 			return fmt.Errorf("mconnClient.Send(): %w", err)
 		}
 		return nil
 	})
-	if err!=nil {
+	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestMConnectionReadErrorLongMessage(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1,c2,err := tcp.TestPipe(ctx)
-		if err!=nil { return err }
+		c1, c2 := tcp.TestPipe()
 		mconn1 := newMConnection(c1)
 		s.Spawn(func() error {
-			if err,want := mconn1.Run(ctx), (errBadEncoding{}); !errors.As(err, &want) {
+			if err, want := mconn1.Run(ctx), (errBadEncoding{}); !errors.As(err, &want) {
 				return fmt.Errorf("expected errBadEncoding, got %v", err)
 			}
 			return nil
@@ -220,14 +209,14 @@ func TestMConnectionReadErrorLongMessage(t *testing.T) {
 		packet := &p2p.Packet{
 			Sum: &p2p.Packet_PacketMsg{PacketMsg: msg},
 		}
-		if _, err := protoWriter.WriteMsg(packet); err!=nil {
+		if _, err := protoWriter.WriteMsg(packet); err != nil {
 			return fmt.Errorf("protoWriter.WriteMsg(): %w", err)
 		}
 		chID, gotData, err := mconn1.Recv(ctx)
-		if err!=nil {
+		if err != nil {
 			return fmt.Errorf("mconn.Recv(): %w", err)
 		}
-		if chID!=ChannelID(0x01) {
+		if chID != ChannelID(0x01) {
 			return fmt.Errorf("got channel ID %v, want 1", chID)
 		}
 		if !bytes.Equal(gotData, msg.Data) {
@@ -242,7 +231,7 @@ func TestMConnectionReadErrorLongMessage(t *testing.T) {
 		_, _ = protoWriter.WriteMsg(packet)
 		return nil
 	})
-	if err!=nil {
+	if err != nil {
 		t.Fatal(err)
 	}
 }
@@ -271,11 +260,10 @@ func TestConnVectors(t *testing.T) {
 
 func TestMConnectionChannelOverflow(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-		c1, c2, err := tcp.TestPipe(ctx)
-		if err != nil { return err }
+		c1, c2 := tcp.TestPipe()
 		m1 := newMConnection(c1)
 		s.Spawn(func() error {
-			if err,want:=m1.Run(ctx),(&errBadChannel{}); !errors.As(err, want) {
+			if err, want := m1.Run(ctx), (&errBadChannel{}); !errors.As(err, want) {
 				return fmt.Errorf("got %v, want %T", err, want)
 			}
 			return nil
@@ -291,12 +279,12 @@ func TestMConnectionChannelOverflow(t *testing.T) {
 		packet := &p2p.Packet{
 			Sum: &p2p.Packet_PacketMsg{PacketMsg: msg},
 		}
-		if _, err := protoWriter.WriteMsg(packet); err!=nil {
+		if _, err := protoWriter.WriteMsg(packet); err != nil {
 			return fmt.Errorf("protoWriter.WriteMsg(): %w", err)
 		}
 		return nil
 	})
-	if err!=nil {
+	if err != nil {
 		t.Fatal(err)
 	}
 }

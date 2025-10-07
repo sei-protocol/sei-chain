@@ -8,15 +8,15 @@ import (
 
 	dbm "github.com/tendermint/tm-db"
 
+	gogotypes "github.com/gogo/protobuf/types"
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/libs/utils/require"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/types"
-	gogotypes "github.com/gogo/protobuf/types"
 )
 
 // Message is a simple message containing a string-typed Value field.
@@ -248,9 +248,9 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 		maxRetryTime = opts.MaxRetryTime
 	}
 
-	routerOpts := RouterOptions {
-		DialSleep: func(_ context.Context) error { return nil },
-		Endpoint: Endpoint{AddrPort:tcp.TestReserveAddr()},
+	routerOpts := RouterOptions{
+		DialSleep:  func(_ context.Context) error { return nil },
+		Endpoint:   Endpoint{AddrPort: tcp.TestReserveAddr()},
 		Connection: conn.DefaultMConnConfig(),
 	}
 	routerOpts.Connection.FlushThrottle = 0

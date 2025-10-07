@@ -3,15 +3,15 @@ package p2p
 import (
 	"context"
 	"fmt"
-	"math"
-	"net"
-	"net/netip"
-	"sync/atomic"
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils/scope"
+	"math"
+	"net"
+	"net/netip"
+	"sync/atomic"
 
 	p2pproto "github.com/tendermint/tendermint/proto/tendermint/p2p"
 	"github.com/tendermint/tendermint/types"
@@ -21,9 +21,9 @@ type InvalidEndpointErr struct{ error }
 
 // Connection implements Connection for Transport.
 type Connection struct {
-	conn net.Conn
+	conn     net.Conn
 	peerInfo types.NodeInfo
-	mconn *conn.MConnection
+	mconn    *conn.MConnection
 }
 
 // Handshake implements Connection.
@@ -82,7 +82,7 @@ func HandshakeOrClose(
 		return &Connection{
 			conn:     tcpConn,
 			peerInfo: peerInfo,
-			mconn:    conn.NewMConnection(
+			mconn: conn.NewMConnection(
 				logger.With("peer", remoteEndpoint(tcpConn).NodeAddress(peerInfo.NodeID)),
 				secretConn,
 				channelDescs,

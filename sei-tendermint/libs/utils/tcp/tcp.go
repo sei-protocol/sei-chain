@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net"
 	"net/netip"
-	"syscall"
 	"sync/atomic"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 
@@ -26,7 +26,7 @@ func Norm(addr netip.AddrPort) netip.AddrPort {
 
 func Dial(ctx context.Context, addr netip.AddrPort) (*net.TCPConn, error) {
 	d := net.Dialer{}
-	conn,err := d.DialContext(ctx, "tcp", addr.String())
+	conn, err := d.DialContext(ctx, "tcp", addr.String())
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +48,7 @@ func AcceptOrClose(ctx context.Context, l *net.TCPListener) (*net.TCPConn, error
 			l.Close()
 			return ctx.Err()
 		})
-		conn,err := l.AcceptTCP()
+		conn, err := l.AcceptTCP()
 		if err != nil {
 			l.Close()
 			return err
@@ -60,7 +60,7 @@ func AcceptOrClose(ctx context.Context, l *net.TCPListener) (*net.TCPConn, error
 	conn := res.Load()
 	// Handle the race condition, where conn is accepted, but listener gets closed anyway.
 	// We close the conn to adhere to the function contract.
-	if conn != nil && err!=nil {
+	if conn != nil && err != nil {
 		conn.Close()
 		conn = nil
 	}
@@ -91,7 +91,7 @@ func Listen(addr netip.AddrPort) (*net.TCPListener, error) {
 	// Passing the background context is ok, because Listen is
 	// non-blocking if it doesn't need to resolve the address
 	// against a DNS server.
-	l,err := cfg.Listen(context.Background(), "tcp", addr.String())
+	l, err := cfg.Listen(context.Background(), "tcp", addr.String())
 	if err != nil {
 		return nil, err
 	}
@@ -132,30 +132,31 @@ func TestReserveAddr() netip.AddrPort {
 	return addr
 }
 
-func TestPipe(ctx context.Context) (*net.TCPConn, *net.TCPConn, error) {
+func TestPipe() (*net.TCPConn, *net.TCPConn) {
 	addr := TestReserveAddr()
-	listen,err := Listen(addr)
-	if err!=nil { return nil,nil,err }
+	listen, err := Listen(addr)
+	if err != nil {
+		panic(err)
+	}
 	defer listen.Close()
 	var c1, c2 *net.TCPConn
-	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	ctx := context.Background()
+	scope.Parallel(func(s scope.ParallelScope) error {
 		s.Spawn(func() error {
 			var err error
-			c1,err = AcceptOrClose(ctx,listen)
-			return err
+			if c1, err = AcceptOrClose(ctx, listen); err != nil {
+				panic(err)
+			}
+			return nil
 		})
 		s.Spawn(func() error {
 			var err error
-			c2,err = Dial(ctx, addr)
-			return err
+			if c2, err = Dial(ctx, addr); err != nil {
+				panic(err)
+			}
+			return nil
 		})
 		return nil
 	})
-	if err!=nil {
-		if c1!=nil { c1.Close() }
-		if c2!=nil { c2.Close() }
-		return nil,nil,err
-	}
-	return c1,c2,nil
+	return c1, c2
 }
-

@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
-	"io"
 
 	"github.com/fortytw2/leaktest"
 	"github.com/gogo/protobuf/proto"
@@ -21,15 +21,15 @@ import (
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/types"
 )
 
 func mayDisconnectAfterDone(ctx context.Context, err error) error {
 	err = utils.IgnoreCancel(err)
-	if err==nil || ctx.Err()==nil || !conn.IsDisconnect(err) {
+	if err == nil || ctx.Err() == nil || !conn.IsDisconnect(err) {
 		return err
 	}
 	return nil
@@ -121,7 +121,7 @@ func TestRouter_Channel_Basic(t *testing.T) {
 		func() *types.NodeInfo { return &selfInfo },
 		nil,
 		RouterOptions{
-			Endpoint: Endpoint{tcp.TestReserveAddr()},
+			Endpoint:   Endpoint{tcp.TestReserveAddr()},
 			Connection: conn.DefaultMConnConfig(),
 		},
 	)
@@ -384,8 +384,8 @@ func makeRouterOptions() RouterOptions {
 	return RouterOptions{
 		DialSleep:          func(context.Context) error { return nil },
 		NumConcurrentDials: func() int { return 100 },
-		Endpoint: Endpoint{tcp.TestReserveAddr()},
-		Connection: conn.DefaultMConnConfig(),
+		Endpoint:           Endpoint{tcp.TestReserveAddr()},
+		Connection:         conn.DefaultMConnConfig(),
 	}
 }
 
@@ -397,7 +397,7 @@ func spawnRouter(t *testing.T, logger log.Logger) *RouterHandle {
 func handshake(ctx context.Context, logger log.Logger, tcpConn net.Conn, info types.NodeInfo, key crypto.PrivKey) (*Connection, error) {
 	return HandshakeOrClose(
 		ctx,
-		logger.With("node",info.NodeID),
+		logger.With("node", info.NodeID),
 		info, key, tcpConn,
 		conn.DefaultMConnConfig(),
 		[]*ChannelDescriptor{},
@@ -408,7 +408,6 @@ func TestRouter_FilterByIP(t *testing.T) {
 	logger, _ := log.NewDefaultLogger("plain", "debug")
 	ctx := t.Context()
 	t.Cleanup(leaktest.Check(t))
-
 
 	var reject atomic.Bool
 	opts := makeRouterOptions()
@@ -506,7 +505,7 @@ func TestRouter_AcceptPeers(t *testing.T) {
 					if err != nil {
 						return nil
 					}
-					if err:=conn.Run(ctx); !errors.Is(err, io.EOF) {
+					if err := conn.Run(ctx); !errors.Is(err, io.EOF) {
 						return fmt.Errorf("want EOF, got %w", err)
 					}
 				}
@@ -568,7 +567,7 @@ func TestRouter_DialPeer_Retry(t *testing.T) {
 
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		addr := tcp.TestReserveAddr()
-		listener,err := tcp.Listen(addr)
+		listener, err := tcp.Listen(addr)
 		if err != nil {
 			return fmt.Errorf("tcp.Listen(): %w", err)
 		}
@@ -630,7 +629,7 @@ func TestRouter_DialPeer_Reject(t *testing.T) {
 			h := spawnRouter(t, logger)
 			if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 				addr := tcp.TestReserveAddr()
-				listener,err := tcp.Listen(addr)
+				listener, err := tcp.Listen(addr)
 				if err != nil {
 					return fmt.Errorf("tcp.Listen(): %w", err)
 				}
@@ -682,7 +681,7 @@ func TestRouter_DialPeers_Parallel(t *testing.T) {
 		for i, info := range infos {
 			t.Logf("ACCEPT %v %v", i, info.NodeID)
 			addr := tcp.TestReserveAddr()
-			listener,err := tcp.Listen(addr)
+			listener, err := tcp.Listen(addr)
 			if err != nil {
 				return fmt.Errorf("tcp.Listen(): %w", err)
 			}
@@ -725,7 +724,7 @@ func TestRouter_EvictPeers(t *testing.T) {
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		key, info := makeKeyAndInfo()
 		tcpConn, err := tcp.Dial(ctx, h.router.Endpoint().AddrPort)
-		if err!=nil {
+		if err != nil {
 			return fmt.Errorf("Dial(): %w", err)
 		}
 		defer tcpConn.Close()
@@ -745,7 +744,7 @@ func TestRouter_EvictPeers(t *testing.T) {
 			Status: PeerStatusDown,
 		})
 		t.Log("Wait for conn down")
-		if err:=conn.Run(ctx); !errors.Is(err, io.EOF) {
+		if err := conn.Run(ctx); !errors.Is(err, io.EOF) {
 			return fmt.Errorf("want EOF, got %w", err)
 		}
 		return nil
@@ -782,14 +781,14 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		key, info := makeKeyAndInfo()
 		info.Channels = []byte{byte(desc1.ID)}
-		descs := []*ChannelDescriptor{ desc1 }
+		descs := []*ChannelDescriptor{desc1}
 		tcpConn, err := tcp.Dial(ctx, h.router.Endpoint().AddrPort)
-		if err!=nil {
+		if err != nil {
 			return fmt.Errorf("Dial(): %w", err)
 		}
 		conn, err := HandshakeOrClose(
 			ctx,
-			logger.With("node",info.NodeID),
+			logger.With("node", info.NodeID),
 			info, key, tcpConn,
 			conn.DefaultMConnConfig(),
 			descs,
@@ -801,7 +800,7 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 			NodeID: info.NodeID,
 			Status: PeerStatusUp,
 		})
-		s.SpawnBg(func() error { return mayDisconnectAfterDone(ctx,conn.Run(ctx)) })
+		s.SpawnBg(func() error { return mayDisconnectAfterDone(ctx, conn.Run(ctx)) })
 		n := 1
 		msg1 := &TestMessage{Value: "Hello"}
 		msg2 := &TestMessage{Value: "Hello2"}

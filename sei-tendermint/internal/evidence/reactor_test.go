@@ -20,7 +20,6 @@ import (
 	"github.com/tendermint/tendermint/internal/evidence"
 	"github.com/tendermint/tendermint/internal/evidence/mocks"
 	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/p2p/p2ptest"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -34,14 +33,14 @@ var (
 )
 
 type reactorTestSuite struct {
-	network          *p2ptest.Network
+	network          *p2p.TestNetwork
 	logger           log.Logger
 	reactors         map[types.NodeID]*evidence.Reactor
 	pools            map[types.NodeID]*evidence.Pool
 	evidenceChannels map[types.NodeID]*p2p.Channel
 	peerUpdates      map[types.NodeID]*p2p.PeerUpdates
 	peerChans        map[types.NodeID]chan p2p.PeerUpdate
-	nodes            []*p2ptest.Node
+	nodes            []*p2p.TestNode
 	numStateStores   int
 }
 
@@ -56,7 +55,7 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 	rts := &reactorTestSuite{
 		numStateStores: numStateStores,
 		logger:         log.NewNopLogger().With("testCase", t.Name()),
-		network:        p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: numStateStores}),
+		network:        p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numStateStores}),
 		reactors:       make(map[types.NodeID]*evidence.Reactor, numStateStores),
 		pools:          make(map[types.NodeID]*evidence.Pool, numStateStores),
 		peerUpdates:    make(map[types.NodeID]*p2p.PeerUpdates, numStateStores),
@@ -191,7 +190,7 @@ func (rts *reactorTestSuite) waitForEvidence(t *testing.T, evList types.Evidence
 	wg := sync.WaitGroup{}
 
 	for id := range rts.pools {
-		if len(ids) > 0 && !p2ptest.NodeInSlice(id, ids) {
+		if len(ids) > 0 && !p2p.NodeInSlice(id, ids) {
 			// if an ID list is specified, then we only
 			// want to wait for those pools that are
 			// specified in the list, otherwise, wait for
@@ -298,7 +297,7 @@ func TestReactorBroadcastEvidence(t *testing.T) {
 	// primary. As a result, the primary will gossip all evidence to each secondary.
 
 	primary := rts.network.RandomNode()
-	secondaries := make([]*p2ptest.Node, 0, len(rts.network.NodeIDs())-1)
+	secondaries := make([]*p2p.TestNode, 0, len(rts.network.NodeIDs())-1)
 	secondaryIDs := make([]types.NodeID, 0, cap(secondaries))
 	for _, node := range rts.network.Nodes() {
 		if node.NodeID == primary.NodeID {

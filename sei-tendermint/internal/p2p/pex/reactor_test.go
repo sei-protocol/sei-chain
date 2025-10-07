@@ -15,7 +15,6 @@ import (
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/p2p/p2ptest"
 	"github.com/tendermint/tendermint/internal/p2p/pex"
 	"github.com/tendermint/tendermint/libs/log"
 	p2pproto "github.com/tendermint/tendermint/proto/tendermint/p2p"
@@ -321,7 +320,7 @@ func setupSingle(ctx context.Context, t *testing.T) *singleTestReactor {
 }
 
 type reactorTestSuite struct {
-	network *p2ptest.Network
+	network *p2p.TestNetwork
 
 	reactors    map[types.NodeID]*pex.Reactor
 	pexChannels map[types.NodeID]*p2p.Channel
@@ -352,9 +351,9 @@ func setupNetwork(ctx context.Context, t *testing.T, opts testOptions) *reactorT
 	if opts.BufferSize == 0 {
 		opts.BufferSize = defaultBufferSize
 	}
-	networkOpts := p2ptest.NetworkOptions{
+	networkOpts := p2p.TestNetworkOptions{
 		NumNodes: opts.TotalNodes,
-		NodeOpts: p2ptest.NodeOptions{
+		NodeOpts: p2p.TestNodeOptions{
 			MaxPeers:     opts.MaxPeers,
 			MaxConnected: opts.MaxConnected,
 			MaxRetryTime: opts.MaxRetryTime,
@@ -364,7 +363,7 @@ func setupNetwork(ctx context.Context, t *testing.T, opts testOptions) *reactorT
 	realNodes := opts.TotalNodes - opts.MockNodes
 
 	rts := &reactorTestSuite{
-		network:     p2ptest.MakeNetwork(t, networkOpts),
+		network:     p2p.MakeTestNetwork(t, networkOpts),
 		reactors:    make(map[types.NodeID]*pex.Reactor, realNodes),
 		pexChannels: make(map[types.NodeID]*p2p.Channel, opts.TotalNodes),
 		peerChans:   make(map[types.NodeID]chan p2p.PeerUpdate, opts.TotalNodes),
@@ -430,7 +429,7 @@ func (r *reactorTestSuite) addNodes(ctx context.Context, t *testing.T, nodes int
 	t.Helper()
 
 	for range nodes {
-		node := r.network.MakeNode(t, p2ptest.NodeOptions{
+		node := r.network.MakeNode(t, p2p.TestNodeOptions{
 			MaxPeers:     r.opts.MaxPeers,
 			MaxConnected: r.opts.MaxConnected,
 			MaxRetryTime: r.opts.MaxRetryTime,

@@ -4,24 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"golang.org/x/net/netutil"
 	"io"
 	"math/rand"
+	"net"
 	"net/netip"
 	"runtime"
 	"sync"
 	"time"
-	"net"
-	"golang.org/x/net/netutil"
 
 	"github.com/gogo/protobuf/proto"
 
-	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -174,8 +174,8 @@ type Router struct {
 
 	dynamicIDFilterer func(context.Context, types.NodeID) error
 
-	started      chan struct{}
-	listener     chan net.Conn
+	started  chan struct{}
+	listener chan net.Conn
 }
 
 func (r *Router) getChannelDescs() []*ChannelDescriptor {
@@ -288,6 +288,7 @@ func (r *Router) listenRoutine(ctx context.Context) error {
 		}
 	})
 }
+
 // ChannelCreator allows routers to construct their own channels,
 // either by receiving a reference to Router.OpenChannel or using some
 // kind shim for testing purposes.
@@ -475,7 +476,7 @@ func (r *Router) dialSleep(ctx context.Context) error {
 // and spawns goroutines that route messages to/from them.
 func (r *Router) acceptPeers(ctx context.Context) error {
 	for {
-		tcpConn,err :=  utils.Recv(ctx, r.listener)
+		tcpConn, err := utils.Recv(ctx, r.listener)
 		if err != nil {
 			return err
 		}
@@ -684,7 +685,9 @@ func (r *Router) handshakePeer(
 	expectID types.NodeID,
 ) (c *Connection, err error) {
 	defer func() {
-		if err!=nil { tcpConn.Close() }
+		if err != nil {
+			tcpConn.Close()
+		}
 	}()
 	if r.options.HandshakeTimeout > 0 {
 		var cancel context.CancelFunc

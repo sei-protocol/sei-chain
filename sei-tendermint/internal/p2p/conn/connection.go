@@ -22,7 +22,6 @@ import (
 	"github.com/tendermint/tendermint/proto/tendermint/p2p"
 )
 
-
 func IsDisconnect(err error) bool {
 	return errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) || errors.As(err, utils.Alloc[*net.OpError](nil))
 }
@@ -182,7 +181,7 @@ func NewMConnection(
 }
 
 func (c *MConnection) Run(ctx context.Context) error {
- 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("pingRoutine", func() error { return c.pingRoutine(ctx) })
 		s.SpawnNamed("sendRoutine", func() error { return c.sendRoutine(ctx) })
 		s.SpawnNamed("recvRoutine", func() error { return c.recvRoutine(ctx) })

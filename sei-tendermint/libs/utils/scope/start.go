@@ -13,16 +13,16 @@ import (
 type scope struct {
 	// scope is a concurrecy primitive, so no-ctx-in-struct rule does not apply
 	// nolint:containedctx
-	ctx context.Context
-	cancel context.CancelFunc
-	all sync.WaitGroup
-	main sync.WaitGroup
+	ctx     context.Context
+	cancel  context.CancelFunc
+	all     sync.WaitGroup
+	main    sync.WaitGroup
 	errOnce sync.Once
-	err error
+	err     error
 }
 
 // Scope of concurrenct tasks.
-type Scope struct { *scope }
+type Scope struct{ *scope }
 
 // SpawnBg spawns a background task.
 // Background tasks get canceled when all the main tasks return.
@@ -50,7 +50,7 @@ func (s Scope) Spawn(t func() error) {
 // If err is not nil and no error was set before,
 // sets err as the scope error.
 func (s Scope) Cancel(err error) {
-	if err!=nil {
+	if err != nil {
 		s.errOnce.Do(func() {
 			s.err = err
 		})
@@ -146,7 +146,7 @@ func (s Scope) SpawnBgNamed(name string, t func() error) {
 // Returns the first error returned by any task (main or background).
 func Run(ctx context.Context, main func(context.Context, Scope) error) error {
 	ctx, cancel := context.WithCancel(ctx)
-	s := Scope{&scope{ctx:ctx,cancel:cancel}}
+	s := Scope{&scope{ctx: ctx, cancel: cancel}}
 	s.Spawn(func() error { return main(ctx, s) })
 	s.main.Wait()
 	s.cancel()

@@ -3,8 +3,8 @@ package p2p
 import (
 	"context"
 	"net/netip"
-	"testing"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	"github.com/fortytw2/leaktest"
@@ -13,9 +13,9 @@ import (
 	"fmt"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
-	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/types"
 
 	"github.com/tendermint/tendermint/crypto"
@@ -36,7 +36,7 @@ func makeKeyAndInfo() (crypto.PrivKey, types.NodeInfo) {
 			Block: 2,
 			App:   3,
 		},
-		Version:    "1.2.3",
+		Version: "1.2.3",
 		Other: types.NodeInfoOther{
 			TxIndex:    "on",
 			RPCAddress: "rpc.domain.com",
@@ -50,7 +50,7 @@ func TestRouter_MaxAcceptedConnections(t *testing.T) {
 	ctx := t.Context()
 	opts := makeRouterOptions()
 	opts.MaxAcceptedConnections = 2
-	h := spawnRouterWithOptions(t,logger,opts)
+	h := spawnRouterWithOptions(t, logger, opts)
 
 	err := utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		var total atomic.Int64
@@ -59,22 +59,22 @@ func TestRouter_MaxAcceptedConnections(t *testing.T) {
 			s.Spawn(func() error {
 				key, info := makeKeyAndInfo()
 				// Establish a connection.
-				tcpConn,err := tcp.Dial(ctx, h.router.Endpoint().AddrPort)
-				if err!=nil {
+				tcpConn, err := tcp.Dial(ctx, h.router.Endpoint().AddrPort)
+				if err != nil {
 					return fmt.Errorf("tcp.Dial(): %w", err)
 				}
-				conn,err := handshake(ctx, logger, tcpConn, info, key)
-				if err!=nil {
+				conn, err := handshake(ctx, logger, tcpConn, info, key)
+				if err != nil {
 					return fmt.Errorf("handshake(): %w", err)
 				}
 				defer conn.Close()
 				// Check that limit was not exceeded.
-				if got,wantMax:=total.Add(1),int64(opts.MaxAcceptedConnections); got>wantMax {
+				if got, wantMax := total.Add(1), int64(opts.MaxAcceptedConnections); got > wantMax {
 					return fmt.Errorf("accepted too many connections: %d > %d", got, wantMax)
 				}
 				defer total.Add(-1)
 				// Keep the connection open for a while to force other dialers to wait.
-				if err:=utils.Sleep(ctx, 100 * time.Millisecond); err!=nil {
+				if err := utils.Sleep(ctx, 100*time.Millisecond); err != nil {
 					return err
 				}
 				return nil
@@ -107,8 +107,8 @@ func TestRouter_Listen(t *testing.T) {
 			if got, want := h.router.Endpoint().Addr(), tc; got != want {
 				t.Fatalf("transport.Endpoint() = %v, want %v", got, want)
 			}
-			tcpConn,err := tcp.Dial(ctx, h.router.Endpoint().AddrPort)
-			if err!=nil {
+			tcpConn, err := tcp.Dial(ctx, h.router.Endpoint().AddrPort)
+			if err != nil {
 				t.Fatalf("tcp.Dial(): %v", err)
 			}
 			defer tcpConn.Close()
@@ -124,9 +124,9 @@ func TestRouter_Listen(t *testing.T) {
 func TestHandshake_NodeInfo(t *testing.T) {
 	logger, _ := log.NewDefaultLogger("plain", "debug")
 	ctx := t.Context()
-	h := spawnRouter(t,logger)
-	tcpConn,err := tcp.Dial(ctx, h.router.Endpoint().AddrPort)
-	if err!=nil {
+	h := spawnRouter(t, logger)
+	tcpConn, err := tcp.Dial(ctx, h.router.Endpoint().AddrPort)
+	if err != nil {
 		t.Fatalf("tcp.Dial(): %v", err)
 	}
 	defer tcpConn.Close()
@@ -147,8 +147,8 @@ func TestHandshake_Context(t *testing.T) {
 	ctx := t.Context()
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		addr := tcp.TestReserveAddr()
-		listener,err := tcp.Listen(addr)
-		if err!=nil {
+		listener, err := tcp.Listen(addr)
+		if err != nil {
 			return fmt.Errorf("tcp.Listen(): %w", err)
 		}
 		defer listener.Close()
@@ -164,8 +164,8 @@ func TestHandshake_Context(t *testing.T) {
 			return nil
 		})
 
-		tcpConn,err := tcp.Dial(ctx, addr)
-		if err!=nil {
+		tcpConn, err := tcp.Dial(ctx, addr)
+		if err != nil {
 			t.Fatalf("tcp.Dial(): %v", err)
 		}
 
@@ -173,8 +173,8 @@ func TestHandshake_Context(t *testing.T) {
 			defer tcpConn.Close()
 			// Second connection end tries to handshake.
 			key, info := makeKeyAndInfo()
-			conn,err := handshake(ctx, logger, tcpConn, info, key)
-			if err==nil {
+			conn, err := handshake(ctx, logger, tcpConn, info, key)
+			if err == nil {
 				defer conn.Close()
 				return fmt.Errorf("handshake(): expected error, got %w", err)
 			}
@@ -199,25 +199,27 @@ func TestRouter_SendReceive_Random(t *testing.T) {
 	nodes := network.NodeIDs()
 	network.Start(t)
 	for i := range 100 {
-		t.Logf("ITER %v",i)
+		t.Logf("ITER %v", i)
 		from := nodes[rng.Intn(len(nodes))]
 		to := nodes[rng.Intn(len(nodes))]
-		if from == to { continue }
+		if from == to {
+			continue
+		}
 		chID := ChannelID(rng.Intn(len(channels)))
-		want := &TestMessage{Value: utils.GenString(rng,10)}
+		want := &TestMessage{Value: utils.GenString(rng, 10)}
 
-		if err:=channels[chID][from].Send(ctx, Envelope{
+		if err := channels[chID][from].Send(ctx, Envelope{
 			ChannelID: chID,
-			Message: want,
-			To: to,
-		}); err!=nil {
+			Message:   want,
+			To:        to,
+		}); err != nil {
 			t.Fatalf("Send(): %v", err)
 		}
-		got,err := channels[chID][to].Receive1(ctx)
-		if err!=nil {
+		got, err := channels[chID][to].Receive1(ctx)
+		if err != nil {
 			t.Fatalf("Receive1(): %v", err)
 		}
-		if err:=utils.TestDiff[proto.Message](want, got.Message); err!=nil {
+		if err := utils.TestDiff[proto.Message](want, got.Message); err != nil {
 			t.Fatalf("Receive1(): %v", err)
 		}
 	}
