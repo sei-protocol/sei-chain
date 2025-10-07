@@ -1206,3 +1206,107 @@ func TestMempoolExpiration(t *testing.T) {
 	require.Equal(t, 0, txmp.expirationIndex.Size())
 	require.Equal(t, 0, txmp.txStore.Size())
 }
+
+type nonceCheckApplication struct {
+	*application
+	nonces          map[string]uint64
+	pendingNonces   map[string]map[uint64]struct{}
+	pendingNonceMtx *sync.RWMutex
+}
+
+func (app *nonceCheckApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, error) {
+	nonce := uint64(req.Tx[0])
+	sender := string(req.Tx[1:])
+	if nonce < app.nonces[sender] {
+		return &abci.ResponseCheckTxV2{
+			ResponseCheckTx: &abci.ResponseCheckTx{
+				Code: code.CodeTypeBadNonce,
+			},
+		}, nil
+	}
+	res := &abci.ResponseCheckTxV2{
+		ResponseCheckTx: &abci.ResponseCheckTx{
+			Code: code.CodeTypeOK,
+		},
+		EVMNonce:         nonce,
+		EVMSenderAddress: sender,
+		IsEVM:            true,
+		Checker:          func() abci.PendingTxCheckerResponse { return abci.Accepted },
+		ExpireTxHandler:  func() {},
+	}
+	app.pendingNonceMtx.Lock()
+	defer app.pendingNonceMtx.Unlock()
+	if _, ok := app.pendingNonces[sender]; !ok {
+		app.pendingNonces[sender] = map[uint64]struct{}{}
+	}
+	app.pendingNonces[sender][nonce] = struct{}{}
+	if nonce == app.nonces[sender] {
+		return res, nil
+	}
+	res.IsPendingTransaction = true
+	res.ExpireTxHandler = func() {
+		app.pendingNonceMtx.Lock()
+		defer app.pendingNonceMtx.Unlock()
+		delete(app.pendingNonces[sender], nonce)
+	}
+	res.Checker = func() abci.PendingTxCheckerResponse {
+		app.pendingNonceMtx.RLock()
+		defer app.pendingNonceMtx.RUnlock()
+		for nextPending := app.nonces[sender]; ; nextPending++ {
+			if _, ok := app.pendingNonces[sender][nextPending]; !ok {
+				if nonce < nextPending {
+					return abci.Accepted
+				}
+				return abci.Pending
+			}
+		}
+	}
+	return res, nil
+}
+
+func TestTxMempool_PendingNonce(t *testing.T) {
+	// Setup
+	ctx := t.Context()
+
+	client := abciclient.NewLocalClient(log.NewNopLogger(), &nonceCheckApplication{
+		application:     &application{Application: kvstore.NewApplication()},
+		nonces:          map[string]uint64{"sender": 0},
+		pendingNonces:   map[string]map[uint64]struct{}{},
+		pendingNonceMtx: &sync.RWMutex{},
+	})
+	if err := client.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Wait)
+	txmp := setup(t, client, 500)
+	txmp.config.TTLNumBlocks = 10
+	txmp.height = 1
+
+	tx1 := append([]byte{0}, []byte("sender")...)
+	require.NoError(t, txmp.CheckTx(ctx, tx1, nil, TxInfo{SenderID: 0, SenderNodeID: "test"}))
+	require.Len(t, txmp.pendingTxs.txs, 0)
+	require.Len(t, txmp.priorityIndex.txs, 1)
+
+	require.NoError(t, txmp.Update(ctx, txmp.height+1, []types.Tx{}, []*abci.ExecTxResult{}, nil, nil, false))
+	require.Len(t, txmp.pendingTxs.txs, 0)
+	require.Len(t, txmp.priorityIndex.txs, 1)
+
+	tx2 := append([]byte{1}, []byte("sender")...)
+	require.NoError(t, txmp.CheckTx(ctx, tx2, nil, TxInfo{SenderID: 0, SenderNodeID: "test"}))
+	require.Len(t, txmp.pendingTxs.txs, 1)
+	require.Len(t, txmp.priorityIndex.txs, 1)
+
+	require.NoError(t, txmp.Update(ctx, txmp.height+1, []types.Tx{}, []*abci.ExecTxResult{}, nil, nil, false))
+	require.Len(t, txmp.pendingTxs.txs, 0) // both txs are promoted to priorityIndex
+	require.Len(t, txmp.priorityIndex.txs, 1)
+	require.Len(t, txmp.priorityIndex.evmQueue["sender"], 2) // two transactions from the sender
+
+	// a few blocks later, the txs haven't been included in a block yet...
+	require.NoError(t, txmp.Update(ctx, txmp.height+txmp.config.TTLNumBlocks-1, []types.Tx{}, []*abci.ExecTxResult{}, nil, nil, false))
+	require.Len(t, txmp.priorityIndex.txs, 1)
+	require.Len(t, txmp.priorityIndex.evmQueue["sender"], 1) // two transactions from the sender
+
+	txs := txmp.ReapMaxBytesMaxGas(1000, 1000, 1000)
+	require.Len(t, txs, 1)
+	require.Equal(t, tx2, []byte(txs[0])) // tx2 with out of order nonce is included!
+}
