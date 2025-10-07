@@ -2,14 +2,13 @@ package evmrpc
 
 import (
 	"context"
-	"math/big"
 	"strconv"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/export"
+	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -32,7 +31,8 @@ func NewTxPoolAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(
 	return &TxPoolAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, txPoolConfig: txPoolConfig, connectionType: connectionType}
 }
 
-// For now, we put all unconfirmed txs in pending and none in queued
+// Content returns the content of the txpool.
+// for now, we put all unconfirmed txs in pending and none in queued.
 func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]map[string]*export.RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("sei_content", t.connectionType, startTime, returnErr)
@@ -48,22 +48,15 @@ func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]m
 	}
 
 	sdkCtx := t.ctxProvider(LatestCtxHeight)
-	signer := ethtypes.MakeSigner(
-		types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
-		big.NewInt(sdkCtx.BlockHeight()),
-		toUint64(sdkCtx.BlockTime().Unix()),
-	)
-
 	for _, tx := range resUnconfirmedTxs.Txs {
 		ethTx := getEthTxForTxBz(tx, t.txConfigProvider(LatestCtxHeight).TxDecoder())
 		if ethTx == nil { // not an evm tx
 			continue
 		}
-		fromAddr, err := ethtypes.Sender(signer, ethTx)
+		fromAddr, err := rpcutils.RecoverEVMSenderWithContext(sdkCtx, ethTx)
 		if err != nil {
 			return nil, err
 		}
-
 		nonce := ethTx.Nonce()
 		chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx))
 		res := export.NewRPCPendingTransaction(ethTx, nil, chainConfig)
