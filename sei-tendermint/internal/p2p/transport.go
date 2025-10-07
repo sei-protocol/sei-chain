@@ -27,7 +27,7 @@ type Connection struct {
 }
 
 // Handshake implements Connection.
-func Handshake(
+func HandshakeOrClose(
 	ctx context.Context,
 	logger log.Logger,
 	nodeInfo types.NodeInfo,

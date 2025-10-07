@@ -253,6 +253,7 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 		Endpoint: Endpoint{AddrPort:tcp.TestReserveAddr()},
 		Connection: conn.DefaultMConnConfig(),
 	}
+	routerOpts.Connection.FlushThrottle = 0
 	nodeInfo := types.NodeInfo{
 		NodeID:     nodeID,
 		ListenAddr: routerOpts.Endpoint.String(),
@@ -416,6 +417,7 @@ func RequireSendError(t *testing.T, channel *Channel, peerError PeerError) {
 
 // RequireUpdate requires that a PeerUpdates subscription yields the given update.
 func RequireUpdate(t *testing.T, peerUpdates *PeerUpdates, expect PeerUpdate) {
+	t.Helper()
 	t.Logf("awaiting update %v", expect)
 	update, err := utils.Recv(t.Context(), peerUpdates.Updates())
 	if err != nil {
@@ -428,6 +430,7 @@ func RequireUpdate(t *testing.T, peerUpdates *PeerUpdates, expect PeerUpdate) {
 // RequireUpdates requires that a PeerUpdates subscription yields the given updates
 // in the given order.
 func RequireUpdates(t *testing.T, peerUpdates *PeerUpdates, expect []PeerUpdate) {
+	t.Helper()
 	t.Logf("awaiting %d updates", len(expect))
 	actual := []PeerUpdate{}
 	for {

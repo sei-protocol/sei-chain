@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"io"
 
 	"github.com/fortytw2/leaktest"
 	"github.com/gogo/protobuf/proto"
@@ -25,6 +26,14 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/types"
 )
+
+func mayDisconnectAfterDone(ctx context.Context, err error) error {
+	err = utils.IgnoreCancel(err)
+	if err==nil || ctx.Err()==nil || !conn.IsDisconnect(err) {
+		return err
+	}
+	return nil
+}
 
 func echoReactor(ctx context.Context, channel *Channel) {
 	iter := channel.Receive(ctx)
@@ -49,6 +58,7 @@ func TestRouter_Network(t *testing.T) {
 	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 8})
 	local := network.RandomNode()
 	peers := network.Peers(local.NodeID)
+	chDesc := makeChDesc(5)
 	channels := network.MakeChannels(t, chDesc)
 
 	network.Start(t)
@@ -74,7 +84,7 @@ func TestRouter_Network(t *testing.T) {
 	for _, peer := range peers {
 		expect = append(expect, &Envelope{
 			From:      peer.NodeID,
-			ChannelID: 1,
+			ChannelID: chDesc.ID,
 			Message:   &TestMessage{Value: "bar"},
 		})
 	}
@@ -96,8 +106,8 @@ func TestRouter_Network(t *testing.T) {
 func TestRouter_Channel_Basic(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 	logger, _ := log.NewDefaultLogger("plain", "debug")
-
 	ctx := t.Context()
+	chDesc := makeChDesc(5)
 
 	// Set up a router with no transports (so no peers).
 	peerManager, err := NewPeerManager(logger, selfID, dbm.NewMemDB(), PeerManagerOptions{}, NopMetrics())
@@ -148,9 +158,9 @@ func TestRouter_Channel_Basic(t *testing.T) {
 	RequireEmpty(t, channel)
 }
 
-// Channel tests are hairy to mock, so we use an in-memory network instead.
-func TestRouter_Channel_SendReceive(t *testing.T) {
+func TestRouter_SendReceive(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
+	chDesc := makeChDesc(5)
 
 	t.Logf("Create a test network and open a channel on all nodes.")
 	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 3})
@@ -210,6 +220,7 @@ func TestRouter_Channel_SendReceive(t *testing.T) {
 
 func TestRouter_Channel_Broadcast(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
+	chDesc := makeChDesc(5)
 
 	t.Logf("Create a test network and open a channel on all nodes.")
 	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 4})
@@ -244,7 +255,7 @@ func TestRouter_Channel_Wrapper(t *testing.T) {
 	ids := network.NodeIDs()
 	aID, bID := ids[0], ids[1]
 	chDesc := &ChannelDescriptor{
-		ID:                  chID,
+		ID:                  17,
 		MessageType:         &wrapperMessage{},
 		Priority:            5,
 		SendQueueCapacity:   10,
@@ -307,7 +318,7 @@ func (w *wrapperMessage) Unwrap() (proto.Message, error) {
 
 func TestRouter_Channel_Error(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
-
+	chDesc := makeChDesc(5)
 	ctx := t.Context()
 
 	t.Logf("Create a test network and open a channel on all nodes.")
@@ -384,7 +395,7 @@ func spawnRouter(t *testing.T, logger log.Logger) *RouterHandle {
 }
 
 func handshake(ctx context.Context, logger log.Logger, tcpConn net.Conn, info types.NodeInfo, key crypto.PrivKey) (*Connection, error) {
-	return Handshake(
+	return HandshakeOrClose(
 		ctx,
 		logger.With("node",info.NodeID),
 		info, key, tcpConn,
@@ -426,7 +437,8 @@ func TestRouter_FilterByIP(t *testing.T) {
 			NodeID: info.NodeID,
 			Status: PeerStatusUp,
 		})
-		s.SpawnBgNamed("conn.Run()", func() error { return conn.Run(ctx) })
+		conn.Close()
+
 		t.Logf("Enable filtering.")
 		reject.Store(true)
 
@@ -494,8 +506,8 @@ func TestRouter_AcceptPeers(t *testing.T) {
 					if err != nil {
 						return nil
 					}
-					if err:=conn.Run(ctx); !errors.Is(err, context.Canceled) {
-						return fmt.Errorf("want Canceled, got %w", err)
+					if err:=conn.Run(ctx); !errors.Is(err, io.EOF) {
+						return fmt.Errorf("want EOF, got %w", err)
 					}
 				}
 				return nil
@@ -636,8 +648,8 @@ func TestRouter_DialPeer_Reject(t *testing.T) {
 				if err != nil {
 					return nil
 				}
-				if err := conn.Run(ctx); !errors.Is(err, context.Canceled) {
-					return fmt.Errorf("want Canceled, got %w", err)
+				if err := conn.Run(ctx); !errors.Is(err, io.EOF) {
+					return fmt.Errorf("want EOF, got %w", err)
 				}
 				return nil
 			}); err != nil {
@@ -733,8 +745,8 @@ func TestRouter_EvictPeers(t *testing.T) {
 			Status: PeerStatusDown,
 		})
 		t.Log("Wait for conn down")
-		if err:=conn.Run(ctx); !errors.Is(err, context.Canceled) {
-			return fmt.Errorf("want Canceled, got %w", err)
+		if err:=conn.Run(ctx); !errors.Is(err, io.EOF) {
+			return fmt.Errorf("want EOF, got %w", err)
 		}
 		return nil
 	}); err != nil {
@@ -747,9 +759,8 @@ func makeChDesc(id ChannelID) *ChannelDescriptor {
 		ID:                  id,
 		MessageType:         &TestMessage{},
 		Priority:            5,
-		SendQueueCapacity:   10,
 		RecvBufferCapacity:  10,
-		RecvMessageCapacity: 10,
+		RecvMessageCapacity: 10000,
 	}
 }
 
@@ -771,12 +782,18 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		key, info := makeKeyAndInfo()
 		info.Channels = []byte{byte(desc1.ID)}
+		descs := []*ChannelDescriptor{ desc1 }
 		tcpConn, err := tcp.Dial(ctx, h.router.Endpoint().AddrPort)
 		if err!=nil {
 			return fmt.Errorf("Dial(): %w", err)
 		}
-		defer tcpConn.Close()
-		conn, err := handshake(ctx, logger, tcpConn, info, key)
+		conn, err := HandshakeOrClose(
+			ctx,
+			logger.With("node",info.NodeID),
+			info, key, tcpConn,
+			conn.DefaultMConnConfig(),
+			descs,
+		)
 		if err != nil {
 			return fmt.Errorf("conn.Handshake(): %w", err)
 		}
@@ -784,7 +801,7 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 			NodeID: info.NodeID,
 			Status: PeerStatusUp,
 		})
-		s.SpawnBg(func() error { return conn.Run(ctx) })
+		s.SpawnBg(func() error { return mayDisconnectAfterDone(ctx,conn.Run(ctx)) })
 		n := 1
 		msg1 := &TestMessage{Value: "Hello"}
 		msg2 := &TestMessage{Value: "Hello2"}

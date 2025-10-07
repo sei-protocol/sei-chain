@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"reflect"
@@ -20,6 +21,11 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/proto/tendermint/p2p"
 )
+
+
+func IsDisconnect(err error) bool {
+	return errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) || errors.As(err, utils.Alloc[*net.OpError](nil))
+}
 
 // ChannelID is an arbitrary channel ID.
 type ChannelID uint16
@@ -89,7 +95,6 @@ type MConnection struct {
 	recvPong  utils.AtomicWatch[bool]
 	recvCh    chan mConnMessage
 	config    MConnConfig
-	handle    *scope.GlobalHandle[error]
 }
 
 // MConnConfig is a MConnection configuration.
@@ -177,18 +182,19 @@ func NewMConnection(
 }
 
 func (c *MConnection) Run(ctx context.Context) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+ 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("pingRoutine", func() error { return c.pingRoutine(ctx) })
 		s.SpawnNamed("sendRoutine", func() error { return c.sendRoutine(ctx) })
 		s.SpawnNamed("recvRoutine", func() error { return c.recvRoutine(ctx) })
 		s.SpawnNamed("statsRoutine", func() error { return c.statsRoutine(ctx) })
 		<-ctx.Done()
+		s.Cancel(ctx.Err())
 		// Unfortunately golang std IO operations do not support cancellation via context.
 		// Instead, we trigger cancellation by closing the underlying connection.
 		// Alternatively, we could utilise net.Conn.Set[Read|Write]Deadline() methods
 		// for precise cancellation, but we don't have a need for that here.
 		c.conn.Close()
-		return ctx.Err()
+		return nil
 	})
 }
 
@@ -200,26 +206,24 @@ func (c *MConnection) String() string {
 // WARNING: takes ownership of msgBytes
 // TODO(gprusak): fix the ownership
 func (c *MConnection) Send(ctx context.Context, chID ChannelID, msgBytes []byte) error {
-	return c.handle.WhileRunning(ctx, func(ctx context.Context) error {
-		c.logger.Debug("Send", "channel", chID, "conn", c, "msgBytes", msgBytes)
-		for q, ctrl := range c.sendQueue.Lock() {
-			ch, ok := q.channels[chID]
-			if !ok {
-				return errBadChannel{fmt.Errorf("unknown channel %X", chID)}
-			}
-			if err := ctrl.WaitUntil(ctx, func() bool { return !ch.queue.Full() }); err != nil {
-				return err
-			}
-			ch.queue.PushBack(&msgBytes)
-			ctrl.Updated()
+	c.logger.Debug("Send", "channel", chID, "conn", c, "msgBytes", msgBytes)
+	for q, ctrl := range c.sendQueue.Lock() {
+		ch, ok := q.channels[chID]
+		if !ok {
+			return errBadChannel{fmt.Errorf("unknown channel %X", chID)}
 		}
-		return nil
-	})
+		if err := ctrl.WaitUntil(ctx, func() bool { return !ch.queue.Full() }); err != nil {
+			return err
+		}
+		ch.queue.PushBack(&msgBytes)
+		ctrl.Updated()
+	}
+	return nil
 }
 
 // Recv .
 func (c *MConnection) Recv(ctx context.Context) (ChannelID, []byte, error) {
-	m, err := scope.WhileRunning1(ctx, c.handle, func(ctx context.Context) (mConnMessage, error) { return utils.Recv(ctx, c.recvCh) })
+	m, err := utils.Recv(ctx, c.recvCh)
 	return m.channelID, m.payload, err
 }
 
@@ -343,12 +347,7 @@ func (c *MConnection) sendRoutine(ctx context.Context) (err error) {
 		if msg != nil {
 			n, err := protoWriter.WriteMsg(msg)
 			if err != nil {
-				// WriteMsg doesn't respect context, so in case of context cancellation
-				// ignore the writing error.
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				return fmt.Errorf("protoWriter.Write(): %w", err)
+				return fmt.Errorf("protoWriter.WriteMsg(): %w", err)
 			}
 			if err := limiter.WaitN(ctx, n); err != nil {
 				return err
@@ -381,12 +380,10 @@ func (c *MConnection) recvRoutine(ctx context.Context) (err error) {
 		packet := &p2p.Packet{}
 		n, err := protoReader.ReadMsg(packet)
 		if err != nil {
-			// ReadMsg doesn't respect context, so in case of context cancellation
-			// ignore the writing error.
-			if ctx.Err() != nil {
-				return ctx.Err()
+			if !IsDisconnect(err) {
+				err = errBadEncoding{err}
 			}
-			return errBadEncoding{fmt.Errorf("protoReader.ReadMsg(): %w", err)}
+			return fmt.Errorf("protoReader.ReadMsg(): %w", err)
 		}
 		if err := limiter.WaitN(ctx, n); err != nil {
 			return err

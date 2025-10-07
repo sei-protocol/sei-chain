@@ -469,3 +469,17 @@ func BenchmarkReadSecretConnection(b *testing.B) {
 	}
 	b.StopTimer()
 }
+
+type closer interface {
+	Close() error
+}
+
+func closeAll(t *testing.T, closers ...closer) func() {
+	return func() {
+		for _, s := range closers {
+			if err := s.Close(); err != nil {
+				t.Log(err)
+			}
+		}
+	}
+}

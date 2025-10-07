@@ -131,3 +131,31 @@ func TestReserveAddr() netip.AddrPort {
 	}
 	return addr
 }
+
+func TestPipe(ctx context.Context) (*net.TCPConn, *net.TCPConn, error) {
+	addr := TestReserveAddr()
+	listen,err := Listen(addr)
+	if err!=nil { return nil,nil,err }
+	defer listen.Close()
+	var c1, c2 *net.TCPConn
+	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error {
+			var err error
+			c1,err = AcceptOrClose(ctx,listen)
+			return err
+		})
+		s.Spawn(func() error {
+			var err error
+			c2,err = Dial(ctx, addr)
+			return err
+		})
+		return nil
+	})
+	if err!=nil {
+		if c1!=nil { c1.Close() }
+		if c2!=nil { c2.Close() }
+		return nil,nil,err
+	}
+	return c1,c2,nil
+}
+

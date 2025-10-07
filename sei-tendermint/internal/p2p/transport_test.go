@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/fortytw2/leaktest"
+	"github.com/gogo/protobuf/proto"
 
 	"fmt"
 	"github.com/tendermint/tendermint/crypto/ed25519"
@@ -88,16 +89,11 @@ func TestRouter_MaxAcceptedConnections(t *testing.T) {
 
 // Test checking if listening on various local interfaces works.
 func TestRouter_Listen(t *testing.T) {
-	reservePort := func(ip netip.Addr) Endpoint {
-		addr := tcp.TestReserveAddr()
-		return Endpoint{netip.AddrPortFrom(ip, addr.Port())}
-	}
-
-	testcases := []Endpoint{
-		reservePort(netip.IPv4Unspecified()),
-		reservePort(tcp.IPv4Loopback()),
-		reservePort(netip.IPv6Unspecified()),
-		reservePort(netip.IPv6Loopback()),
+	testcases := []netip.Addr{
+		netip.IPv4Unspecified(),
+		tcp.IPv4Loopback(),
+		netip.IPv6Unspecified(),
+		netip.IPv6Loopback(),
 	}
 
 	for _, tc := range testcases {
@@ -106,74 +102,125 @@ func TestRouter_Listen(t *testing.T) {
 			ctx := t.Context()
 			t.Cleanup(leaktest.Check(t))
 			opts := makeRouterOptions()
-			opts.Endpoint = tc
+			opts.Endpoint.AddrPort = netip.AddrPortFrom(tc, opts.Endpoint.Port())
 			h := spawnRouterWithOptions(t, logger, opts)
-			if got, want := h.router.Endpoint(), tc; got != want {
+			if got, want := h.router.Endpoint().Addr(), tc; got != want {
 				t.Fatalf("transport.Endpoint() = %v, want %v", got, want)
 			}
 			tcpConn,err := tcp.Dial(ctx, h.router.Endpoint().AddrPort)
 			if err!=nil {
-				t.Fatalf("tcp.Dial(): %w", err)
+				t.Fatalf("tcp.Dial(): %v", err)
 			}
 			defer tcpConn.Close()
 			key, info := makeKeyAndInfo()
 			if _, err := handshake(ctx, logger, tcpConn, info, key); err != nil {
-				t.Fatalf("handshake(): %w", err)
+				t.Fatalf("handshake(): %v", err)
 			}
 		})
 	}
 }
 
 // Test checking that handshake provides correct NodeInfo.
-func TestConnection_Handshake(t *testing.T) {
+func TestHandshake_NodeInfo(t *testing.T) {
+	logger, _ := log.NewDefaultLogger("plain", "debug")
 	ctx := t.Context()
-	// TODO
+	h := spawnRouter(t,logger)
+	tcpConn,err := tcp.Dial(ctx, h.router.Endpoint().AddrPort)
+	if err!=nil {
+		t.Fatalf("tcp.Dial(): %v", err)
+	}
+	defer tcpConn.Close()
+	key, info := makeKeyAndInfo()
+	conn, err := handshake(ctx, logger, tcpConn, info, key)
+	if err != nil {
+		t.Fatalf("handshake(): %v", err)
+	}
+	defer conn.Close()
+	if err := utils.TestDiff(selfInfo, conn.PeerInfo()); err != nil {
+		t.Fatalf("conn.PeerInfo(): %v", err)
+	}
 }
 
 // Test checking that handshake respects the context.
-func TestConnection_HandshakeCancel(t *testing.T) {
+func TestHandshake_Context(t *testing.T) {
+	logger, _ := log.NewDefaultLogger("plain", "debug")
 	ctx := t.Context()
-	// TODO
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		addr := tcp.TestReserveAddr()
+		listener,err := tcp.Listen(addr)
+		if err!=nil {
+			return fmt.Errorf("tcp.Listen(): %w", err)
+		}
+		defer listener.Close()
+
+		s.SpawnBg(func() error {
+			// One connection end does not handshake.
+			tcpConn, err := tcp.AcceptOrClose(ctx, listener)
+			if err != nil {
+				return fmt.Errorf("tcp.AcceptOrClose(): %w", err)
+			}
+			defer tcpConn.Close()
+			<-ctx.Done()
+			return nil
+		})
+
+		tcpConn,err := tcp.Dial(ctx, addr)
+		if err!=nil {
+			t.Fatalf("tcp.Dial(): %v", err)
+		}
+
+		s.SpawnBg(func() error {
+			defer tcpConn.Close()
+			// Second connection end tries to handshake.
+			key, info := makeKeyAndInfo()
+			conn,err := handshake(ctx, logger, tcpConn, info, key)
+			if err==nil {
+				defer conn.Close()
+				return fmt.Errorf("handshake(): expected error, got %w", err)
+			}
+			return nil
+		})
+		// Cancel context, which should make both connection terminate gracefully.
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
-func TestConnection_SendReceive(t *testing.T) {
+func TestRouter_SendReceive_Random(t *testing.T) {
 	ctx := t.Context()
-	a := makeRouter(ctx)
-	b := makeRouter(ctx)
-	ab, ba := dialAcceptHandshake(ctx, t, a, b)
+	rng := utils.TestRng()
+	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 5})
+	channels := map[ChannelID]map[types.NodeID]*Channel{}
+	for id := range ChannelID(4) {
+		channels[id] = network.MakeChannels(t, makeChDesc(id))
+	}
+	nodes := network.NodeIDs()
+	network.Start(t)
+	for i := range 100 {
+		t.Logf("ITER %v",i)
+		from := nodes[rng.Intn(len(nodes))]
+		to := nodes[rng.Intn(len(nodes))]
+		if from == to { continue }
+		chID := ChannelID(rng.Intn(len(channels)))
+		want := &TestMessage{Value: utils.GenString(rng,10)}
 
-	// Can send and receive a to b.
-	err := ab.SendMessage(ctx, chID, []byte("foo"))
-	require.NoError(t, err)
-
-	ch, msg, err := ba.ReceiveMessage(ctx)
-	require.NoError(t, err)
-	require.Equal(t, []byte("foo"), msg)
-	require.Equal(t, chID, ch)
-
-	// Can send and receive b to a.
-	err = ba.SendMessage(ctx, chID, []byte("bar"))
-	require.NoError(t, err)
-
-	_, msg, err = ab.ReceiveMessage(ctx)
-	require.NoError(t, err)
-	require.Equal(t, []byte("bar"), msg)
-
-	// Close one side of the connection. Both sides should then error
-	// with io.EOF when trying to send or receive.
-	ba.Close()
-
-	_, _, err = ab.ReceiveMessage(ctx)
-	require.Error(t, err)
-
-	err = ab.SendMessage(ctx, chID, []byte("closed"))
-	require.Error(t, err)
-
-	_, _, err = ba.ReceiveMessage(ctx)
-	require.Error(t, err)
-
-	err = ba.SendMessage(ctx, chID, []byte("closed"))
-	require.Error(t, err)
+		if err:=channels[chID][from].Send(ctx, Envelope{
+			ChannelID: chID,
+			Message: want,
+			To: to,
+		}); err!=nil {
+			t.Fatalf("Send(): %v", err)
+		}
+		got,err := channels[chID][to].Receive1(ctx)
+		if err!=nil {
+			t.Fatalf("Receive1(): %v", err)
+		}
+		if err:=utils.TestDiff[proto.Message](want, got.Message); err!=nil {
+			t.Fatalf("Receive1(): %v", err)
+		}
+	}
 }
 
 func TestEndpoint_NodeAddress(t *testing.T) {

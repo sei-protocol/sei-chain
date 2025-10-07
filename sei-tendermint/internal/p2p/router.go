@@ -603,7 +603,7 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) {
 		if err := r.peerManager.DialFailed(ctx, address); err != nil {
 			r.logger.Error("failed to report dial failure", "peer", address, "err", err)
 		}
-		conn.Close()
+		tcpConn.Close()
 		return
 	}
 
@@ -692,7 +692,7 @@ func (r *Router) handshakePeer(
 		defer cancel()
 	}
 	nodeInfo := r.nodeInfoProducer()
-	conn, err := Handshake(
+	conn, err := HandshakeOrClose(
 		ctx,
 		r.logger,
 		*nodeInfo,
