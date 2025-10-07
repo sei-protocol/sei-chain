@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -38,8 +39,20 @@ type SendConfig struct {
 	slow bool
 }
 
-func NewSendAPI(tmClient rpcclient.Client, txConfigProvider func(int64) client.TxConfig, sendConfig *SendConfig, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, homeDir string, simulateConfig *SimulateConfig, app *baseapp.BaseApp,
-	antehandler sdk.AnteHandler, connectionType ConnectionType) *SendAPI {
+func NewSendAPI(
+	tmClient rpcclient.Client,
+	txConfigProvider func(int64) client.TxConfig,
+	sendConfig *SendConfig,
+	k *keeper.Keeper,
+	ctxProvider func(int64) sdk.Context,
+	homeDir string,
+	simulateConfig *SimulateConfig,
+	app *baseapp.BaseApp,
+	antehandler sdk.AnteHandler,
+	connectionType ConnectionType,
+	globalBlockCache BlockCache,
+	cacheCreationMutex *sync.Mutex,
+) *SendAPI {
 	return &SendAPI{
 		tmClient:         tmClient,
 		txConfigProvider: txConfigProvider,
@@ -47,7 +60,7 @@ func NewSendAPI(tmClient rpcclient.Client, txConfigProvider func(int64) client.T
 		keeper:           k,
 		ctxProvider:      ctxProvider,
 		homeDir:          homeDir,
-		backend:          NewBackend(ctxProvider, k, txConfigProvider, tmClient, simulateConfig, app, antehandler),
+		backend:          NewBackend(ctxProvider, k, txConfigProvider, tmClient, simulateConfig, app, antehandler, globalBlockCache, cacheCreationMutex),
 		connectionType:   connectionType,
 	}
 }

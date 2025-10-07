@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/semaphore"
@@ -60,9 +61,11 @@ func NewSimulationAPI(
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
+	globalBlockCache BlockCache,
+	cacheCreationMutex *sync.Mutex,
 ) *SimulationAPI {
 	api := &SimulationAPI{
-		backend:        NewBackend(ctxProvider, keeper, txConfigProvider, tmClient, config, app, antehandler),
+		backend:        NewBackend(ctxProvider, keeper, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex),
 		connectionType: connectionType,
 	}
 	if config.MaxConcurrentSimulationCalls > 0 {
@@ -212,24 +215,38 @@ var _ tracers.Backend = (*Backend)(nil)
 
 type Backend struct {
 	*eth.EthAPIBackend
-	ctxProvider      func(int64) sdk.Context
-	txConfigProvider func(int64) client.TxConfig
-	keeper           *keeper.Keeper
-	tmClient         rpcclient.Client
-	config           *SimulateConfig
-	app              *baseapp.BaseApp
-	antehandler      sdk.AnteHandler
+	ctxProvider        func(int64) sdk.Context
+	txConfigProvider   func(int64) client.TxConfig
+	keeper             *keeper.Keeper
+	tmClient           rpcclient.Client
+	config             *SimulateConfig
+	app                *baseapp.BaseApp
+	antehandler        sdk.AnteHandler
+	globalBlockCache   BlockCache
+	cacheCreationMutex *sync.Mutex
 }
 
-func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txConfigProvider func(int64) client.TxConfig, tmClient rpcclient.Client, config *SimulateConfig, app *baseapp.BaseApp, antehandler sdk.AnteHandler) *Backend {
+func NewBackend(
+	ctxProvider func(int64) sdk.Context,
+	keeper *keeper.Keeper,
+	txConfigProvider func(int64) client.TxConfig,
+	tmClient rpcclient.Client,
+	config *SimulateConfig,
+	app *baseapp.BaseApp,
+	antehandler sdk.AnteHandler,
+	globalBlockCache BlockCache,
+	cacheCreationMutex *sync.Mutex,
+) *Backend {
 	return &Backend{
-		ctxProvider:      ctxProvider,
-		keeper:           keeper,
-		txConfigProvider: txConfigProvider,
-		tmClient:         tmClient,
-		config:           config,
-		app:              app,
-		antehandler:      antehandler,
+		ctxProvider:        ctxProvider,
+		keeper:             keeper,
+		txConfigProvider:   txConfigProvider,
+		tmClient:           tmClient,
+		config:             config,
+		app:                app,
+		antehandler:        antehandler,
+		globalBlockCache:   globalBlockCache,
+		cacheCreationMutex: cacheCreationMutex,
 	}
 }
 
@@ -304,7 +321,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
-	msgs := filterTransactions(b.keeper, b.ctxProvider, b.txConfigProvider, tmBlock, false, false)
+	msgs := filterTransactions(b.keeper, b.ctxProvider, b.txConfigProvider, tmBlock, false, false, b.cacheCreationMutex, b.globalBlockCache)
 	idxToMsgs := make(map[int]sdk.Msg, len(msgs))
 	for _, msg := range msgs {
 		idxToMsgs[msg.index] = msg.msg

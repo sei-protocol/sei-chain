@@ -378,7 +378,7 @@ func SetupTestingAppWithLevelDb(isCheckTx bool, enableEVMCustomPrecompiles bool)
 	}
 
 	cleanupFn := func() {
-		db.Close()
+		_ = db.Close()
 		err = os.RemoveAll(dir)
 		if err != nil {
 			panic(err)
