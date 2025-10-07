@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 
 	storetypes "github.com/cosmos/cosmos-sdk/store/types"
@@ -14,7 +15,8 @@ import (
 )
 
 const (
-	defaultMinGasPrices = ""
+	// DefaultMinGasPrices defines the default minimum gas prices
+	DefaultMinGasPrices = "0.02usei"
 
 	// DefaultGRPCAddress defines the default address to bind the gRPC server to.
 	DefaultGRPCAddress = "0.0.0.0:9090"
@@ -22,12 +24,27 @@ const (
 	// DefaultGRPCWebAddress defines the default address to bind the gRPC-web server to.
 	DefaultGRPCWebAddress = "0.0.0.0:9091"
 
-	// DefaultConcurrencyWorkers defines the default workers to use for concurrent transactions
-	DefaultConcurrencyWorkers = 20
-
 	// DefaultOccEanbled defines whether to use OCC for tx processing
-	DefaultOccEnabled = false
+	DefaultOccEnabled = true
 )
+
+var (
+	// DefaultConcurrencyWorkers defines the default workers to use for concurrent transactions
+	// Set to 2x CPU cores, capped between [10, 128]
+	// - 2x CPU: In practice, goroutines often block on IO/network, so having more workers
+	//   than CPU cores keeps CPUs busy. Load tests show only 60-70% CPU usage with 500 workers
+	//   processing ~1500 txs/block, suggesting IO-bound workload benefits from oversubscription.
+	// - Min 10: Minimum viable parallelism for transaction processing
+	// - Max 128: Prevents unbounded goroutine creation on high-core machines. While 500 workers
+	//   worked in tests, 128 provides sufficient parallelism without excessive scheduler overhead.
+	DefaultConcurrencyWorkers = getConcurrencyWorkers()
+)
+
+// getConcurrencyWorkers returns the default number of concurrency workers
+func getConcurrencyWorkers() int {
+	workers := runtime.NumCPU() * 2
+	return max(10, min(workers, 128))
+}
 
 // BaseConfig defines the server's basic configuration
 type BaseConfig struct {
@@ -76,9 +93,6 @@ type BaseConfig struct {
 	// IndexEvents defines the set of events in the form {eventType}.{attributeKey},
 	// which informs Tendermint what to index. If empty, all events will be indexed.
 	IndexEvents []string `mapstructure:"index-events"`
-
-	// IavlCacheSize set the size of the iavl tree cache.
-	IAVLCacheSize uint64 `mapstructure:"iavl-cache-size"`
 
 	// IAVLDisableFastNode enables or disables the fast sync node.
 	IAVLDisableFastNode bool `mapstructure:"iavl-disable-fastnode"`
@@ -214,7 +228,7 @@ type Config struct {
 	StateSync   StateSyncConfig          `mapstructure:"state-sync"`
 	StateCommit config.StateCommitConfig `mapstructure:"state-commit"`
 	StateStore  config.StateStoreConfig  `mapstructure:"state-store"`
-	Genesis     GenesisConfig            `mapstructure:genesis`
+	Genesis     GenesisConfig            `mapstructure:"genesis"`
 }
 
 // SetMinGasPrices sets the validator's minimum gas prices.
@@ -248,24 +262,28 @@ func (c *Config) GetMinGasPrices() sdk.DecCoins {
 func DefaultConfig() *Config {
 	return &Config{
 		BaseConfig: BaseConfig{
-			MinGasPrices:        defaultMinGasPrices,
-			InterBlockCache:     true,
-			Pruning:             storetypes.PruningOptionDefault,
-			PruningKeepRecent:   "0",
-			PruningKeepEvery:    "0",
-			PruningInterval:     "0",
-			MinRetainBlocks:     0,
-			IndexEvents:         make([]string, 0),
-			IAVLCacheSize:       781250, // 50 MB
-			IAVLDisableFastNode: true,
-			CompactionInterval:  0,
-			NoVersioning:        false,
-			ConcurrencyWorkers:  DefaultConcurrencyWorkers,
-			OccEnabled:          DefaultOccEnabled,
+			MinGasPrices:                 DefaultMinGasPrices,
+			InterBlockCache:              true,
+			Pruning:                      storetypes.PruningOptionNothing,
+			PruningKeepRecent:            "0",
+			PruningKeepEvery:             "0",
+			PruningInterval:              "0",
+			MinRetainBlocks:              0,
+			IndexEvents:                  nil,
+			IAVLDisableFastNode:          true,
+			CompactionInterval:           0,
+			NoVersioning:                 false,
+			SeparateOrphanStorage:        false,
+			SeparateOrphanVersionsToKeep: 0,
+			NumOrphanPerFile:             0,
+			OrphanDirectory:              "",
+			ConcurrencyWorkers:           DefaultConcurrencyWorkers,
+			OccEnabled:                   DefaultOccEnabled,
 		},
 		Telemetry: telemetry.Config{
-			Enabled:      false,
-			GlobalLabels: [][]string{},
+			Enabled:                 true,
+			PrometheusRetentionTime: 7200,
+			GlobalLabels:            nil,
 		},
 		API: APIConfig{
 			Enable:             false,
@@ -273,6 +291,7 @@ func DefaultConfig() *Config {
 			Address:            "tcp://0.0.0.0:1317",
 			MaxOpenConnections: 1000,
 			RPCReadTimeout:     10,
+			RPCWriteTimeout:    0,
 			RPCMaxBodyBytes:    1000000,
 		},
 		GRPC: GRPCConfig{
@@ -334,7 +353,6 @@ func GetConfig(v *viper.Viper) (Config, error) {
 			HaltTime:                     v.GetUint64("halt-time"),
 			IndexEvents:                  v.GetStringSlice("index-events"),
 			MinRetainBlocks:              v.GetUint64("min-retain-blocks"),
-			IAVLCacheSize:                v.GetUint64("iavl-cache-size"),
 			IAVLDisableFastNode:          v.GetBool("iavl-disable-fastnode"),
 			CompactionInterval:           v.GetUint64("compaction-interval"),
 			NoVersioning:                 v.GetBool("no-versioning"),

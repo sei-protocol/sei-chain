@@ -75,10 +75,6 @@ inter-block-cache = {{ .BaseConfig.InterBlockCache }}
 # ["message.sender", "message.recipient"]
 index-events = {{ .BaseConfig.IndexEvents }}
 
-# IavlCacheSize set the size of the iavl tree cache.
-# Default cache size is 50mb.
-iavl-cache-size = {{ .BaseConfig.IAVLCacheSize }}
-
 # IAVLDisableFastNode enables or disables the fast node feature of IAVL.
 # Default is true.
 iavl-disable-fastnode = {{ .BaseConfig.IAVLDisableFastNode }}
@@ -105,7 +101,8 @@ num-orphan-per-file = {{ .BaseConfig.NumOrphanPerFile }}
 orphan-dir = "{{ .BaseConfig.OrphanDirectory }}"
 
 # concurrency-workers defines how many workers to run for concurrent transaction execution
-# concurrency-workers = {{ .BaseConfig.ConcurrencyWorkers }}
+# Default is dynamically set to 2x CPU cores, capped at 128, with a minimum of 10
+concurrency-workers = {{ .BaseConfig.ConcurrencyWorkers }}
 
 # occ-enabled defines whether OCC is enabled or not for transaction execution
 occ-enabled = {{ .BaseConfig.OccEnabled }}
@@ -135,6 +132,10 @@ enable-service-label = {{ .Telemetry.EnableServiceLabel }}
 
 # PrometheusRetentionTime, when positive, enables a Prometheus metrics sink.
 prometheus-retention-time = {{ .Telemetry.PrometheusRetentionTime }}
+
+# When both 'api.enable' and 'telemetry.enabled' are true, this node will expose
+# application metrics (custom Cosmos SDK metrics) on the API server endpoint along with the
+# Tendermint metrics (port 26660) which are always enabled.
 
 # GlobalLabels defines a global set of name/value label tuples applied to all
 # metrics emitted using the wrapper functions defined in telemetry package.
