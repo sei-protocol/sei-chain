@@ -430,6 +430,11 @@ func New(
 	bApp.SetVersion(version.Version)
 	bApp.SetInterfaceRegistry(interfaceRegistry)
 
+	// Bind OTEL metrics provider once at application construction
+	if err := metrics.SetupOtelMetricsProvider(); err != nil {
+		logger.Error(err.Error())
+	}
+
 	keys := sdk.NewKVStoreKeys(
 		acltypes.StoreKey, authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
 		minttypes.StoreKey, distrtypes.StoreKey, slashingtypes.StoreKey,
