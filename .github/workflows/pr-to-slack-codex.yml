@@ -34,7 +34,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
-          printenv "$OPENAI_API_KEY" | codex login --with-api-key
+          printenv ${{ secrets.OPENAI_API_KEY }} | codex login --with-api-key
 
       - name: Compute merge-base diff (compact)
         run: |
