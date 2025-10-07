@@ -357,7 +357,7 @@ replace (
 	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.6
 	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.15.7-sei-7.0.20250929182230-93350978bb7c
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
-	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.55-0.20251001140318-177aea7f21b4
+	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.54
 	// Latest goleveldb is broken, we have to stick to this version
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	github.com/tendermint/tendermint => ./sei-tendermint
