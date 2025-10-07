@@ -89,7 +89,7 @@ func (t *Tree) IsEmpty() bool {
 }
 
 func (t *Tree) SetInitialVersion(initialVersion int64) error {
-	if initialVersion >= math.MaxUint32 {
+	if initialVersion < 0 || initialVersion > math.MaxUint32 {
 		return fmt.Errorf("version overflows uint32: %d", initialVersion)
 	}
 	t.initialVersion = uint32(initialVersion)
@@ -210,14 +210,14 @@ func (t *Tree) GetWithIndex(key []byte) (int64, []byte) {
 func (t *Tree) GetByIndex(index int64) ([]byte, []byte) {
 	t.mtx.RLock()
 	defer t.mtx.RUnlock()
-	if index > math.MaxUint32 {
-		return nil, nil
-	}
 	if t.root == nil {
 		return nil, nil
 	}
-
-	key, value := t.root.GetByIndex(uint32(index))
+	if index < 0 || index > math.MaxUint32 {
+		return nil, nil
+	}
+	idx := uint32(index)
+	key, value := t.root.GetByIndex(idx)
 	if !t.zeroCopy {
 		key = utils.Clone(key)
 		value = utils.Clone(value)
@@ -282,11 +282,15 @@ func (t *Tree) Export() *Exporter {
 	// do normal post-order traversal export
 	return newExporter(func(callback func(node *types.SnapshotNode) bool) {
 		t.ScanPostOrder(func(node Node) bool {
+			height := node.Height()
+			if height > math.MaxInt8 {
+				panic(fmt.Sprintf("node height %d overflows int8", height))
+			}
 			return callback(&types.SnapshotNode{
 				Key:     node.Key(),
 				Value:   node.Value(),
 				Version: int64(node.Version()),
-				Height:  int8(node.Height()),
+				Height:  int8(height),
 			})
 		})
 	})

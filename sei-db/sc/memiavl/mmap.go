@@ -2,6 +2,7 @@ package memiavl
 
 import (
 	"os"
+	"path/filepath"
 
 	"github.com/ledgerwatch/erigon-lib/mmap"
 	"github.com/sei-protocol/sei-db/common/errors"
@@ -18,7 +19,7 @@ type MmapFile struct {
 // Open openes the file and create the mmap.
 // the mmap is created with flags: PROT_READ, MAP_SHARED, MADV_RANDOM.
 func NewMmap(path string) (*MmapFile, error) {
-	file, err := os.Open(path)
+	file, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return nil, err
 	}

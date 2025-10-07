@@ -73,5 +73,5 @@ func DBRandomRead(inputKVDir string, numVersions int, outputDir string, dbBacken
 		panic(err)
 	}
 	bench.BenchmarkDBRead(backend, inputKVDir, numVersions, concurrency, maxOps)
-	backend.Close()
+	_ = backend.Close()
 }

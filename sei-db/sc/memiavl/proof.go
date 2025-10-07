@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/cosmos/iavl"
@@ -157,20 +158,24 @@ func pathToLeaf(node Node, key []byte) (iavl.PathToLeaf, Node, error) {
 	var path iavl.PathToLeaf
 
 	for {
-		height := node.Height()
-		if height == 0 {
+		h := node.Height()
+		if h == 0 {
 			if bytes.Equal(node.Key(), key) {
 				return path, node, nil
 			}
 
 			return path, node, errors.New("key does not exist")
 		}
+		if h > math.MaxInt8 {
+			panic("node height exceeds int8")
+		}
+		height := int8(h)
 
 		if bytes.Compare(key, node.Key()) < 0 {
 			// left side
 			right := node.Right()
 			path = append(path, iavl.ProofInnerNode{
-				Height:  int8(height),
+				Height:  height,
 				Size:    node.Size(),
 				Version: int64(node.Version()),
 				Left:    nil,
@@ -183,7 +188,7 @@ func pathToLeaf(node Node, key []byte) (iavl.PathToLeaf, Node, error) {
 		// right side
 		left := node.Left()
 		path = append(path, iavl.ProofInnerNode{
-			Height:  int8(height),
+			Height:  height,
 			Size:    node.Size(),
 			Version: int64(node.Version()),
 			Left:    left.Hash(),

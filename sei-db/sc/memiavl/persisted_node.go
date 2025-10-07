@@ -3,6 +3,7 @@ package memiavl
 import (
 	"bytes"
 	"crypto/sha256"
+	"math"
 	"sort"
 
 	"github.com/sei-protocol/sei-db/common/utils"
@@ -178,12 +179,20 @@ func (node PersistedNode) Get(key []byte) ([]byte, uint32) {
 		start = getStartLeaf(node.index, count, preTrees)
 	}
 
-	// binary search in the leaf node array
-	i := uint32(sort.Search(int(count), func(i int) bool {
-		leafKey := node.snapshot.LeafKey(start + uint32(i))
-		return bytes.Compare(leafKey, key) >= 0
-	}))
+	if int64(count) > math.MaxInt32 {
+		panic("node size exceeds int32")
+	}
 
+	// binary search in the leaf node array
+	res := sort.Search(int(count), func(i int) bool {
+		leafKey := node.snapshot.LeafKey(start + uint32(i)) //nolint:gosec
+		return bytes.Compare(leafKey, key) >= 0
+	})
+
+	if res < 0 {
+		panic("sort.Search returned negative index")
+	}
+	i := uint32(res) //nolint:gosec
 	leaf := i + start
 	if leaf >= start+count {
 		// return the next index if the key is greater than all keys in the node

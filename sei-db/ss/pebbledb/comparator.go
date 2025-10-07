@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/sei-protocol/sei-db/common/utils"
@@ -130,9 +131,9 @@ func (f mvccKeyFormatter) Format(s fmt.State, verb rune) {
 	k, vBz, ok := SplitMVCCKey(f.key)
 	if ok {
 		v, _ := decodeUint64Ascending(vBz)
-		fmt.Fprintf(s, "%s/%d", k, v)
+		_, _ = fmt.Fprintf(s, "%s/%d", k, v)
 	} else {
-		fmt.Fprintf(s, "%s", f.key)
+		_, _ = fmt.Fprintf(s, "%s", f.key)
 	}
 }
 
@@ -208,7 +209,7 @@ func MVCCEncode(key []byte, version int64) (dst []byte) {
 	dst = append(dst, key...)
 	dst = append(dst, 0)
 
-	if version != 0 {
+	if version > 0 {
 		extra := byte(1 + 8)
 		dst = encodeUint64Ascending(dst, uint64(version))
 		dst = append(dst, extra)
@@ -236,6 +237,10 @@ func decodeUint64Ascending(b []byte) (int64, error) {
 		return 0, fmt.Errorf("insufficient bytes to decode uint64 int value; expected 8; got %d", len(b))
 	}
 
-	v := int64(binary.BigEndian.Uint64(b))
+	uv := binary.BigEndian.Uint64(b)
+	if uv > math.MaxInt64 {
+		return 0, fmt.Errorf("uint64 value overflows int64: %d", uv)
+	}
+	v := int64(uv)
 	return v, nil
 }

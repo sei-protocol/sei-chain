@@ -20,11 +20,12 @@ import (
 // each of which is assigned to a portion of the kv data and writes to db in `batchSize` batches.
 // It maintains a `latencies` channel which aggregates all the latencies
 func writeToDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, concurrency int, version int64, batchSize int) []time.Duration {
-	var allLatencies []time.Duration
-	latencies := make(chan time.Duration, len(allKVs))
+	allKVsLen := len(allKVs)
+	allLatencies := make([]time.Duration, 0, allKVsLen)
+	latencies := make(chan time.Duration, allKVsLen)
 
-	kvsPerRoutine := len(allKVs) / concurrency
-	remainder := len(allKVs) % concurrency
+	kvsPerRoutine := allKVsLen / concurrency
+	remainder := allKVsLen % concurrency
 
 	wg := &sync.WaitGroup{}
 
@@ -131,7 +132,7 @@ func BenchmarkDBWrite(db types.StateStore, inputKVDir string, numVersions int, c
 // that randomly select a version, key and query the db.
 // It only performs `maxOps“ random reads and maintains a `latencies` channel which aggregates all the latencies.
 func readFromDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, numVersions int, concurrency int, maxOps int64) []time.Duration {
-	var allLatencies []time.Duration
+	allLatencies := make([]time.Duration, 0, maxOps)
 	latencies := make(chan time.Duration, maxOps)
 
 	var opCounter int64
@@ -217,7 +218,7 @@ func BenchmarkDBRead(db types.StateStore, inputKVDir string, numVersions int, co
 // that randomly select a version, key, seeks to that key and starts a forward iteration for at most `numIterationSteps` steps.
 // It only performs `maxOps“ forward iterations and maintains a `latencies` channel which aggregates all the latencies.
 func forwardIterateDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, numVersions int, concurrency int, numIterationSteps int, maxOps int64) ([]time.Duration, int) {
-	var allLatencies []time.Duration
+	allLatencies := make([]time.Duration, 0, maxOps)
 	var totalSteps int
 	latencies := make(chan time.Duration, maxOps)
 	steps := make(chan int, maxOps)
@@ -247,7 +248,6 @@ func forwardIterateDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePa
 				if err != nil {
 					panic(err)
 				}
-				defer it.Close()
 
 				step := 0
 				for j := 0; j < numIterationSteps && it.Valid(); it.Next() {
@@ -257,6 +257,7 @@ func forwardIterateDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePa
 
 				latencies <- latency
 				steps <- step
+				_ = it.Close()
 			}
 		}()
 	}
@@ -308,7 +309,7 @@ func BenchmarkDBForwardIteration(db types.StateStore, inputKVDir string, numVers
 // that randomly select a version, key, seeks to that key and starts a reverse iteration for at most `numIterationSteps` steps.
 // It only performs `maxOps“ reverse iterations and maintains a `latencies` channel which aggregates all the latencies.
 func reverseIterateDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, numVersions int, concurrency int, numIterationSteps int, maxOps int64) ([]time.Duration, int) {
-	var allLatencies []time.Duration
+	allLatencies := make([]time.Duration, 0, maxOps)
 	var totalSteps int
 	latencies := make(chan time.Duration, maxOps)
 	steps := make(chan int, maxOps)
@@ -338,7 +339,7 @@ func reverseIterateDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePa
 				if err != nil {
 					panic(err)
 				}
-				defer it.Close()
+				defer func() { _ = it.Close() }()
 
 				step := 0
 				for j := 0; j < numIterationSteps && it.Valid(); it.Next() {

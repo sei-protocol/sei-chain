@@ -46,7 +46,7 @@ func executeDumpIAVL(cmd *cobra.Command, _ []string) {
 	if err != nil {
 		panic(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	err = DumpIAVLData(module, db, outputDir)
 	if err != nil {
 		panic(err)
@@ -72,20 +72,22 @@ func DumpIAVLData(module string, db *memiavl.DB, outputDir string) error {
 			if err != nil {
 				return err
 			}
-			_, err = currentFile.WriteString(fmt.Sprintf("Tree %s has version %d and root hash: %X \n", moduleName, tree.Version(), tree.RootHash()))
+			_, err = fmt.Fprintf(currentFile, "Tree %s has version %d and root hash: %X \n", moduleName, tree.Version(), tree.RootHash())
 			if err != nil {
+				_ = currentFile.Close()
 				return nil
 			}
 			tree.ScanPostOrder(func(node memiavl.Node) bool {
 				if node.IsLeaf() {
-					_, err := currentFile.WriteString(fmt.Sprintf("Key: %X, Value: %X \n", node.Key(), node.Value()))
+					_, err := fmt.Fprintf(currentFile, "Key: %X, Value: %X \n", node.Key(), node.Value())
 					if err != nil {
+						_ = currentFile.Close()
 						panic(err)
 					}
 				}
 				return true
 			})
-			currentFile.Close()
+			_ = currentFile.Close()
 			fmt.Printf("Finished dumping module: %s \n", moduleName)
 		}
 	}

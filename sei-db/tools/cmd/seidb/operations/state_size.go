@@ -52,7 +52,7 @@ func executeStateSize(cmd *cobra.Command, _ []string) {
 	if err != nil {
 		panic(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Get the actual height of the opened database
 	actualHeight := db.Version()
@@ -88,9 +88,11 @@ func collectModuleStats(tree *memiavl.Tree, moduleName string) *ModuleResult {
 			result.TotalNumKeys++
 			keySize := len(node.Key())
 			valueSize := len(node.Value())
+			totalSize := uint64(keySize + valueSize) //nolint:gosec
+
 			result.TotalKeySize += uint64(keySize)
 			result.TotalValueSize += uint64(valueSize)
-			result.TotalSize += uint64(keySize + valueSize)
+			result.TotalSize += totalSize
 
 			prefixKey := fmt.Sprintf("%X", node.Key())
 			prefix := prefixKey[:2]
@@ -99,7 +101,7 @@ func collectModuleStats(tree *memiavl.Tree, moduleName string) *ModuleResult {
 			}
 			result.PrefixSizes[prefix].KeySize += uint64(keySize)
 			result.PrefixSizes[prefix].ValueSize += uint64(valueSize)
-			result.PrefixSizes[prefix].TotalSize += uint64(keySize + valueSize)
+			result.PrefixSizes[prefix].TotalSize += totalSize
 			result.PrefixSizes[prefix].KeyCount++
 
 			// Handle EVM contract analysis
@@ -109,7 +111,7 @@ func collectModuleStats(tree *memiavl.Tree, moduleName string) *ModuleResult {
 					result.ContractSizes[addr] = &utils.ContractSizeEntry{Address: addr}
 				}
 				entry := result.ContractSizes[addr]
-				entry.TotalSize += uint64(len(node.Key()) + len(node.Value()))
+				entry.TotalSize += totalSize
 				entry.KeyCount++
 			}
 
@@ -133,7 +135,7 @@ func limitToTopContracts(contracts map[string]*utils.ContractSizeEntry, limit in
 	}
 
 	// Convert to slice for sorting
-	var contractSlice []utils.ContractSizeEntry
+	contractSlice := make([]utils.ContractSizeEntry, 0, len(contracts))
 	for _, contract := range contracts {
 		contractSlice = append(contractSlice, *contract)
 	}
@@ -205,8 +207,7 @@ func exportResultsToDynamoDB(moduleResults map[string]*ModuleResult, height int6
 		return fmt.Errorf("failed to create DynamoDB client: %w", err)
 	}
 
-	var analyses []*utils.StateSizeAnalysis
-
+	analyses := make([]*utils.StateSizeAnalysis, 0, len(moduleResults))
 	for _, result := range moduleResults {
 		// Create analysis object directly from raw data
 		analysis := createStateSizeAnalysis(height, result.ModuleName, result)
@@ -273,7 +274,7 @@ func createStateSizeAnalysis(blockHeight int64, moduleName string, result *Modul
 
 	prefixJSON, _ := json.Marshal(result.PrefixSizes)
 
-	var contractSlice []utils.ContractSizeEntry
+	contractSlice := make([]utils.ContractSizeEntry, 0, len(result.ContractSizes))
 	for _, contract := range result.ContractSizes {
 		contractSlice = append(contractSlice, *contract)
 	}

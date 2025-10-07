@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
+	"math"
 )
 
 type MemNode struct {
@@ -176,7 +177,11 @@ func (node *MemNode) Get(key []byte) ([]byte, uint32) {
 	}
 	right := node.Right()
 	value, index := right.Get(key)
-	return value, index + uint32(node.Size()) - uint32(right.Size())
+	size := node.Size() - right.Size()
+	if size < 0 || size > math.MaxUint32 {
+		panic("size under/overflows uint32")
+	}
+	return value, index + uint32(size)
 }
 
 func (node *MemNode) GetByIndex(index uint32) ([]byte, []byte) {
@@ -188,7 +193,11 @@ func (node *MemNode) GetByIndex(index uint32) ([]byte, []byte) {
 	}
 
 	left := node.Left()
-	leftSize := uint32(left.Size())
+	leftSizei64 := left.Size()
+	if leftSizei64 < 0 || leftSizei64 > math.MaxUint32 {
+		panic("left size under/overflows uint32")
+	}
+	leftSize := uint32(leftSizei64)
 	if index < leftSize {
 		return left.GetByIndex(index)
 	}

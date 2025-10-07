@@ -2,7 +2,6 @@ package memiavl
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -131,8 +130,8 @@ func (ai *TreeImporter) Close() error {
 
 // doImport a stream of `types.SnapshotNode`s into a new snapshot.
 func doImport(dir string, version int64, nodes <-chan *types.SnapshotNode) (returnErr error) {
-	if version > int64(math.MaxUint32) {
-		return errors.New("version overflows uint32")
+	if version < 0 || version > int64(math.MaxUint32) {
+		return fmt.Errorf("version under/overflows uint32: %d", version)
 	}
 
 	return writeSnapshot(context.Background(), dir, uint32(version), func(w *snapshotWriter) (uint32, error) {
@@ -167,15 +166,16 @@ type importer struct {
 }
 
 func (i *importer) Add(n *types.SnapshotNode) error {
-	if n.Version > int64(math.MaxUint32) {
-		return errors.New("version overflows uint32")
+	if n.Version < 0 || n.Version > math.MaxUint32 {
+		return fmt.Errorf("node version under/overflows uint32: %d", n.Version)
 	}
+	version := uint32(n.Version)
 
 	if n.Height == 0 {
 		node := &MemNode{
 			height:  0,
 			size:    1,
-			version: uint32(n.Version),
+			version: version,
 			key:     n.Key,
 			value:   n.Value,
 		}
@@ -193,10 +193,14 @@ func (i *importer) Add(n *types.SnapshotNode) error {
 	leftNode := i.nodeStack[len(i.nodeStack)-2]
 	rightNode := i.nodeStack[len(i.nodeStack)-1]
 
+	if n.Height < 0 {
+		return fmt.Errorf("node height under/overflows uint8: %d", n.Height)
+	}
+
 	node := &MemNode{
 		height:  uint8(n.Height),
 		size:    leftNode.size + rightNode.size,
-		version: uint32(n.Version),
+		version: version,
 		key:     n.Key,
 		left:    leftNode,
 		right:   rightNode,
@@ -207,7 +211,14 @@ func (i *importer) Add(n *types.SnapshotNode) error {
 	node.left = nil
 	node.right = nil
 
-	preTrees := uint8(len(i.nodeStack) - 2)
+	pt := len(i.nodeStack) - 2
+	if pt < 0 || pt > math.MaxUint8 {
+		return fmt.Errorf("preTrees out of range: %d", pt)
+	}
+	preTrees := uint8(pt)
+	if node.size < 0 || node.size > math.MaxUint32 {
+		return fmt.Errorf("node size under/overflows uint32: %d", node.size)
+	}
 	if err := i.writeBranch(node.version, uint32(node.size), node.height, preTrees, keyLeaf, nodeHash); err != nil {
 		return err
 	}

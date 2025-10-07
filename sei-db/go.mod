@@ -1,6 +1,6 @@
 module github.com/sei-protocol/sei-db
 
-go 1.19
+go 1.24.5
 
 require (
 	github.com/alitto/pond v1.8.3

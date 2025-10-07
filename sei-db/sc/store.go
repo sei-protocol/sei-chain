@@ -2,6 +2,7 @@ package sc
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
@@ -54,7 +55,7 @@ func (cs *CommitStore) Rollback(targetVersion int64) error {
 	options := cs.opts
 	options.LoadForOverwriting = true
 	if cs.db != nil {
-		cs.db.Close()
+		_ = cs.db.Close()
 	}
 	db, err := memiavl.OpenDB(cs.logger, targetVersion, options)
 	if err != nil {
@@ -82,7 +83,7 @@ func (cs *CommitStore) LoadVersion(targetVersion int64, copyExisting bool) (type
 		}, nil
 	}
 	if cs.db != nil {
-		cs.db.Close()
+		_ = cs.db.Close()
 	}
 	db, err := memiavl.OpenDB(cs.logger, targetVersion, cs.opts)
 	if err != nil {
@@ -129,6 +130,10 @@ func (cs *CommitStore) GetTreeByName(name string) types.Tree {
 }
 
 func (cs *CommitStore) Exporter(version int64) (types.Exporter, error) {
+	if version < 0 || version > math.MaxUint32 {
+		return nil, fmt.Errorf("version %d out of range", version)
+	}
+
 	exporter, err := memiavl.NewMultiTreeExporter(cs.opts.Dir, uint32(version), cs.opts.OnlyAllowExportOnSnapshotVersion)
 	if err != nil {
 		return nil, err
@@ -137,6 +142,11 @@ func (cs *CommitStore) Exporter(version int64) (types.Exporter, error) {
 }
 
 func (cs *CommitStore) Importer(version int64) (types.Importer, error) {
+
+	if version < 0 || version > math.MaxUint32 {
+		return nil, fmt.Errorf("version %d out of range", version)
+	}
+
 	treeImporter, err := memiavl.NewMultiTreeImporter(cs.opts.Dir, uint64(version))
 	if err != nil {
 		return nil, err

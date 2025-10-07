@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/setup-go@v3
         with:
-          go-version: '1.19'
+          go-version: '1.24'
       - uses: actions/checkout@v3
       - name: Run Go Tests
         run: |
@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/setup-go@v3
         with:
-          go-version: '1.19'
+          go-version: '1.24'
       - uses: actions/checkout@v3
       
       - name: Install RocksDB dependencies
@@ -81,7 +81,7 @@ jobs:
       - uses: actions/checkout@v3
       - uses: actions/setup-go@v3
         with:
-          go-version: '1.19'
+          go-version: '1.24'
 
       # Download all coverage reports from the 'tests' job
       - name: Download coverage reports

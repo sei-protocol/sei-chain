@@ -70,7 +70,7 @@ func DumpDbData(dbBackend string, module string, outputDir string, dbDir string)
 	if err != nil {
 		panic(err)
 	}
-	defer currentFile.Close()
+	defer func() { _ = currentFile.Close() }()
 
 	// TODO: Defer Close Db
 	ssConfig := config.DefaultStateStoreConfig()
@@ -84,7 +84,7 @@ func DumpDbData(dbBackend string, module string, outputDir string, dbDir string)
 
 	// Callback to write db entries to file
 	_, err = backend.RawIterate(module, func(key, value []byte, version int64) bool {
-		_, err = currentFile.WriteString(fmt.Sprintf("Key: %X Val: %X Version: %d\n", key, value, version))
+		_, err = fmt.Fprintf(currentFile, "Key: %X Val: %X Version: %d\n", key, value, version)
 		if err != nil {
 			panic(err)
 		}

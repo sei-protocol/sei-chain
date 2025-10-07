@@ -40,7 +40,7 @@ func (s *StorageBenchSuite) BenchmarkGet(b *testing.B) {
 
 	db, err := s.NewDB(b.TempDir())
 	require.NoError(b, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	cs := &iavl.ChangeSet{}
 	cs.Pairs = []*iavl.KVPair{}
@@ -73,7 +73,7 @@ func (s *StorageBenchSuite) BenchmarkGet(b *testing.B) {
 func (s *StorageBenchSuite) BenchmarkApplyChangeset(b *testing.B) {
 	db, err := s.NewDB(b.TempDir())
 	require.NoError(b, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	b.Run(s.BenchBackendName, func(b *testing.B) {
 		b.ResetTimer()
@@ -126,7 +126,7 @@ func (s *StorageBenchSuite) BenchmarkIterate(b *testing.B) {
 
 	db, err := s.NewDB(b.TempDir())
 	require.NoError(b, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	b.StopTimer()
 

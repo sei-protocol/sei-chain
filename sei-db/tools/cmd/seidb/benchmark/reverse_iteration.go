@@ -68,5 +68,5 @@ func DBReverseIteration(inputKVDir string, numVersions int, outputDir string, db
 		panic(err)
 	}
 	bench.BenchmarkDBReverseIteration(backend, inputKVDir, numVersions, concurrency, maxOps, iterationSteps)
-	backend.Close()
+	_ = backend.Close()
 }

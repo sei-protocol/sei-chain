@@ -432,7 +432,7 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 
 	itr := db.storage.NewIteratorCF(readOpts, db.cfHandle)
 	rocksItr := NewRocksDBIterator(itr, prefix, start, end, latestVersion, 1, false)
-	defer rocksItr.Close()
+	defer func() { _ = rocksItr.Close() }()
 
 	for rocksItr.Valid() {
 		key := rocksItr.Key()

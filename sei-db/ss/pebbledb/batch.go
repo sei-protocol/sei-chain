@@ -15,6 +15,9 @@ type Batch struct {
 }
 
 func NewBatch(storage *pebble.DB, version int64) (*Batch, error) {
+	if version < 0 {
+		return nil, fmt.Errorf("version must be non-negative")
+	}
 	var versionBz [VersionSize]byte
 	binary.LittleEndian.PutUint64(versionBz[:], uint64(version))
 

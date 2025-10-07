@@ -73,12 +73,12 @@ func WriteTreeDataToFile(tree *iavl.MutableTree, filenamePattern string, chunkSi
 
 	createNewFile := func() {
 		if currentFile != nil {
-			currentFile.Close()
+			_ = currentFile.Close()
 		}
 
 		filename := fmt.Sprintf("%s_chunk_%d.kv", filenamePattern, currentChunk)
 		var err error
-		currentFile, err = os.Create(filename)
+		currentFile, err = os.Create(filepath.Clean(filename))
 		if err != nil {
 			panic(err)
 		}
@@ -97,11 +97,11 @@ func WriteTreeDataToFile(tree *iavl.MutableTree, filenamePattern string, chunkSi
 		}
 
 		if err := writeByteSlice(currentFile, key); err != nil {
-			currentFile.Close()
+			_ = currentFile.Close()
 			panic(err)
 		}
 		if err := writeByteSlice(currentFile, value); err != nil {
-			currentFile.Close()
+			_ = currentFile.Close()
 			panic(err)
 		}
 
@@ -114,13 +114,13 @@ func WriteTreeDataToFile(tree *iavl.MutableTree, filenamePattern string, chunkSi
 	}
 
 	if currentFile != nil {
-		currentFile.Close()
+		_ = currentFile.Close()
 	}
 }
 
 // Writes raw bytes to file
 func writeByteSlice(w io.Writer, data []byte) error {
-	length := uint32(len(data))
+	length := uint32(len(data)) //nolint: gosec
 	if err := binary.Write(w, binary.LittleEndian, length); err != nil {
 		return err
 	}
@@ -130,11 +130,11 @@ func writeByteSlice(w io.Writer, data []byte) error {
 
 // Reads raw keys / values from a file
 func ReadKVEntriesFromFile(filename string) ([]KeyValuePair, error) {
-	f, err := os.Open(filename)
+	f, err := os.Open(filepath.Clean(filename))
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var kvPairs []KeyValuePair
 	for {
@@ -166,14 +166,6 @@ func readByteSlice(r io.Reader) ([]byte, error) {
 	data := make([]byte, length)
 	_, err := io.ReadFull(r, data)
 	return data, err
-}
-
-// Randomly Shuffle kv pairs once read
-func RandomShuffle(kvPairs []KeyValuePair) {
-	rand.Seed(time.Now().UnixNano())
-	rand.Shuffle(len(kvPairs), func(i, j int) {
-		kvPairs[i], kvPairs[j] = kvPairs[j], kvPairs[i]
-	})
 }
 
 // NOTE: Assumes latencies is sorted
@@ -269,11 +261,13 @@ func LoadAndShuffleKV(inputDir string, concurrency int) ([]KeyValuePair, error) 
 }
 
 func CreateFile(outputDir string, fileName string) (*os.File, error) {
+	outputDir = filepath.Clean(outputDir)
+	fileName = filepath.Clean(fileName)
 	err := os.MkdirAll(outputDir, fs.ModePerm)
 	if err != nil {
 		return nil, err
 	}
-	filename := filepath.Join(outputDir, fileName)
+	filename := filepath.Clean(filepath.Join(outputDir, fileName))
 
 	currentFile, err := os.Create(filename)
 	if err != nil {

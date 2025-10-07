@@ -37,7 +37,7 @@ func BenchmarkRandomGet(b *testing.B) {
 	require.NoError(b, err)
 	snapshot, err := OpenSnapshot(snapshotDir)
 	require.NoError(b, err)
-	defer snapshot.Close()
+	defer func() { _ = snapshot.Close() }()
 
 	b.Run("memiavl", func(b *testing.B) {
 		require.Equal(b, targetValue, tree.Get(targetKey))

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -543,7 +544,7 @@ func (db *DB) reloadMultiTree(mtree *MultiTree) error {
 	if err := mtree.apply(db.pendingLogEntry); err != nil {
 		return err
 	}
-	return db.MultiTree.ReplaceWith(mtree)
+	return db.ReplaceWith(mtree)
 }
 
 // rewriteIfApplicable execute the snapshot rewrite strategy according to current height
@@ -552,12 +553,12 @@ func (db *DB) rewriteIfApplicable(height int64) {
 		return
 	}
 
-	if db.snapshotInterval <= 0 || height <= 0 || height < db.MultiTree.SnapshotVersion() {
+	if db.snapshotInterval <= 0 || height <= 0 || height < db.SnapshotVersion() {
 		return
 	}
 
 	// create snapshot when current height - last snapshot height > interval
-	if height-db.MultiTree.SnapshotVersion() >= int64(db.snapshotInterval) {
+	if height-db.SnapshotVersion() >= int64(db.snapshotInterval) {
 		if err := db.rewriteSnapshotBackground(); err != nil {
 			db.logger.Error("failed to rewrite snapshot in background", "err", err)
 		}
@@ -912,6 +913,9 @@ func GetLatestVersion(dir string) (int64, error) {
 	lastIndex, err := changelog.GetLastIndex(changelog.LogPath(dir))
 	if err != nil {
 		return 0, err
+	}
+	if metadata.InitialVersion < 0 || metadata.InitialVersion > math.MaxUint32 {
+		return 0, fmt.Errorf("invalid initial version: %d", metadata.InitialVersion)
 	}
 	return utils.IndexToVersion(lastIndex, uint32(metadata.InitialVersion)), nil
 }

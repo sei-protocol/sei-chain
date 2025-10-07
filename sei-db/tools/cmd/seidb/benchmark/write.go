@@ -73,5 +73,5 @@ func DBWrite(inputKVDir string, numVersions int, outputDir string, dbBackend str
 		panic(err)
 	}
 	bench.BenchmarkDBWrite(backend, inputKVDir, numVersions, concurrency, batchSize)
-	backend.Close()
+	_ = backend.Close()
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 
@@ -61,7 +62,7 @@ func NewEmptySnapshot(version uint32) *Snapshot {
 // and mmap the other files.
 func OpenSnapshot(snapshotDir string) (*Snapshot, error) {
 	// read metadata file
-	bz, err := os.ReadFile(filepath.Join(snapshotDir, FileNameMetadata))
+	bz, err := os.ReadFile(filepath.Join(filepath.Clean(snapshotDir), FileNameMetadata))
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +159,7 @@ func OpenSnapshot(snapshotDir string) (*Snapshot, error) {
 		snapshot.root = &PersistedNode{
 			snapshot: snapshot,
 			isLeaf:   false,
-			index:    uint32(nodesLen - 1),
+			index:    uint32(nodesLen - 1), //nolint:gosec
 		}
 	} else if leavesLen > 0 {
 		snapshot.root = &PersistedNode{
@@ -246,12 +247,12 @@ func (snapshot *Snapshot) leavesLen() int {
 // ScanNodes iterate over the nodes in the snapshot order (depth-first post-order, leaf nodes before branch nodes)
 func (snapshot *Snapshot) ScanNodes(callback func(node PersistedNode) error) error {
 	for i := 0; i < snapshot.leavesLen(); i++ {
-		if err := callback(snapshot.Leaf(uint32(i))); err != nil {
+		if err := callback(snapshot.Leaf(uint32(i))); err != nil { //nolint:gosec
 			return err
 		}
 	}
 	for i := 0; i < snapshot.nodesLen(); i++ {
-		if err := callback(snapshot.Node(uint32(i))); err != nil {
+		if err := callback(snapshot.Node(uint32(i))); err != nil { //nolint:gosec
 			return err
 		}
 	}
@@ -317,7 +318,7 @@ func (snapshot *Snapshot) export(callback func(*types.SnapshotNode) bool) {
 
 	var pendingTrees int
 	var i, j uint32
-	for ; i < uint32(snapshot.nodesLen()); i++ {
+	for ; i < uint32(snapshot.nodesLen()); i++ { //nolint:gosec
 		// pending branch node
 		node := snapshot.nodesLayout.Node(i)
 		for pendingTrees < int(node.PreTrees())+2 {
@@ -337,8 +338,13 @@ func (snapshot *Snapshot) export(callback func(*types.SnapshotNode) bool) {
 				return
 			}
 		}
+		hui8 := node.Height()
+		if hui8 > math.MaxInt8 {
+			panic("node height exceeds int8")
+		}
+		height := int8(hui8)
 		enode := &types.SnapshotNode{
-			Height:  int8(node.Height()),
+			Height:  height,
 			Version: int64(node.Version()),
 			Key:     snapshot.LeafKey(node.KeyLeaf()),
 		}
@@ -369,7 +375,7 @@ func writeSnapshot(
 	dir string, version uint32,
 	doWrite func(*snapshotWriter) (uint32, error),
 ) (returnErr error) {
-	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+	if err := os.MkdirAll(dir, os.ModePerm); err != nil { //nolint:gosec
 		return err
 	}
 
@@ -489,7 +495,10 @@ func newSnapshotWriter(ctx context.Context, nodesWriter, leavesWriter, kvsWriter
 func (w *snapshotWriter) writeKeyValue(key, value []byte) error {
 	var numBuf [4]byte
 
-	binary.LittleEndian.PutUint32(numBuf[:], uint32(len(key)))
+	keyLen := uint32(len(key))     //nolint:gosec
+	valueLen := uint32(len(value)) //nolint:gosec
+
+	binary.LittleEndian.PutUint32(numBuf[:], keyLen)
 	if _, err := w.kvWriter.Write(numBuf[:]); err != nil {
 		return err
 	}
@@ -497,7 +506,7 @@ func (w *snapshotWriter) writeKeyValue(key, value []byte) error {
 		return err
 	}
 
-	binary.LittleEndian.PutUint32(numBuf[:], uint32(len(value)))
+	binary.LittleEndian.PutUint32(numBuf[:], valueLen)
 	if _, err := w.kvWriter.Write(numBuf[:]); err != nil {
 		return err
 	}
@@ -505,14 +514,14 @@ func (w *snapshotWriter) writeKeyValue(key, value []byte) error {
 		return err
 	}
 
-	w.kvsOffset += 4 + 4 + uint64(len(key)) + uint64(len(value))
+	w.kvsOffset += 4 + 4 + uint64(keyLen) + uint64(valueLen)
 	return nil
 }
 
 func (w *snapshotWriter) writeLeaf(version uint32, key, value, hash []byte) error {
 	var buf [SizeLeafWithoutHash]byte
 	binary.LittleEndian.PutUint32(buf[OffsetLeafVersion:], version)
-	binary.LittleEndian.PutUint32(buf[OffsetLeafKeyLen:], uint32(len(key)))
+	binary.LittleEndian.PutUint32(buf[OffsetLeafKeyLen:], uint32(len(key))) //nolint:gosec
 	binary.LittleEndian.PutUint64(buf[OffsetLeafKeyOffset:], w.kvsOffset)
 
 	if err := w.writeKeyValue(key, value); err != nil {
@@ -561,9 +570,17 @@ func (w *snapshotWriter) writeRecursive(node Node) error {
 		return w.writeLeaf(node.Version(), node.Key(), node.Value(), node.Hash())
 	}
 
+	if w.leafCounter < w.branchCounter {
+		return fmt.Errorf("leafCounter %d < branchCounter %d", w.leafCounter, w.branchCounter)
+	}
+	pt := w.leafCounter - w.branchCounter
+	if pt > math.MaxUint8 {
+		return fmt.Errorf("too many pending trees %d exceed %d", pt, math.MaxUint8)
+	}
+
 	// record the number of pending subtrees before the current one,
 	// it's always positive and won't exceed the tree height, so we can use an uint8 to store it.
-	preTrees := uint8(w.leafCounter - w.branchCounter)
+	preTrees := uint8(pt)
 
 	if err := w.writeRecursive(node.Left()); err != nil {
 		return err
@@ -573,9 +590,14 @@ func (w *snapshotWriter) writeRecursive(node Node) error {
 		return err
 	}
 
-	return w.writeBranch(node.Version(), uint32(node.Size()), node.Height(), preTrees, keyLeaf, node.Hash())
+	size := node.Size()
+	if size < 0 || size > math.MaxUint32 {
+		return fmt.Errorf("node size %d out of range", size)
+	}
+
+	return w.writeBranch(node.Version(), uint32(size), node.Height(), preTrees, keyLeaf, node.Hash())
 }
 
 func createFile(name string) (*os.File, error) {
-	return os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	return os.OpenFile(filepath.Clean(name), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 }

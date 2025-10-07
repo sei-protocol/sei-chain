@@ -140,6 +140,9 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	database.lastRangeHashedCache = lastHashed
 
 	if config.DedicatedChangelog {
+		if config.KeepRecent < 0 {
+			return nil, errors.New("KeepRecent must be non-negative")
+		}
 		streamHandler, _ := changelog.NewStream(
 			logger.NewNopLogger(),
 			utils.GetChangelogPath(dataDir),
@@ -164,7 +167,7 @@ func NewWithDB(storage *pebble.DB) *Database {
 
 func (db *Database) Close() error {
 	if db.streamHandler != nil {
-		db.streamHandler.Close()
+		_ = db.streamHandler.Close()
 		db.streamHandler = nil
 		close(db.pendingChanges)
 	}
@@ -176,6 +179,9 @@ func (db *Database) Close() error {
 }
 
 func (db *Database) SetLatestVersion(version int64) error {
+	if version < 0 {
+		return fmt.Errorf("version must be non-negative")
+	}
 	var ts [VersionSize]byte
 	binary.LittleEndian.PutUint64(ts[:], uint64(version))
 	err := db.storage.Set([]byte(latestVersionKey), ts[:], defaultWriteOpts)
@@ -197,10 +203,17 @@ func (db *Database) GetLatestVersion() (int64, error) {
 		return 0, closer.Close()
 	}
 
-	return int64(binary.LittleEndian.Uint64(bz)), closer.Close()
+	uz := binary.LittleEndian.Uint64(bz)
+	if uz > math.MaxInt64 {
+		return 0, fmt.Errorf("latest version in database overflows int64: %d", uz)
+	}
+	return int64(uz), closer.Close()
 }
 
 func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error {
+	if version < 0 {
+		return fmt.Errorf("version must be non-negative")
+	}
 	if version > db.earliestVersion || ignoreVersion {
 		db.earliestVersion = version
 
@@ -216,6 +229,9 @@ func (db *Database) GetEarliestVersion() (int64, error) {
 }
 
 func (db *Database) SetLastRangeHashed(latestHashed int64) error {
+	if latestHashed < 0 {
+		return fmt.Errorf("latestHashed must be non-negative")
+	}
 	var ts [VersionSize]byte
 	binary.LittleEndian.PutUint64(ts[:], uint64(latestHashed))
 
@@ -253,7 +269,11 @@ func retrieveEarliestVersion(db *pebble.DB) (int64, error) {
 		return 0, closer.Close()
 	}
 
-	return int64(binary.LittleEndian.Uint64(bz)), closer.Close()
+	ubz := binary.LittleEndian.Uint64(bz)
+	if ubz > math.MaxInt64 {
+		return 0, fmt.Errorf("earliest version in database overflows int64: %d", ubz)
+	}
+	return int64(ubz), closer.Close()
 }
 
 // SetLatestKey sets the latest key processed during migration.
@@ -270,7 +290,7 @@ func (db *Database) GetLatestMigratedKey() ([]byte, error) {
 		}
 		return nil, err
 	}
-	defer closer.Close()
+	defer func() { _ = closer.Close() }()
 	return bz, nil
 }
 
@@ -288,7 +308,7 @@ func (db *Database) GetLatestMigratedModule() (string, error) {
 		}
 		return "", err
 	}
-	defer closer.Close()
+	defer func() { _ = closer.Close() }()
 	return string(bz), nil
 }
 
@@ -536,10 +556,10 @@ func (db *Database) Prune(version int64) error {
 	if err != nil {
 		return err
 	}
-	defer itr.Close()
+	defer func() { _ = itr.Close() }()
 
 	batch := db.storage.NewBatch()
-	defer batch.Close()
+	defer func() { _ = batch.Close() }()
 
 	var (
 		counter                                 int
@@ -838,7 +858,7 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 	if err != nil {
 		return false, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
-	defer itr.Close()
+	defer func() { _ = itr.Close() }()
 
 	for itr.First(); itr.Valid(); itr.Next() {
 		currKeyEncoded := itr.Key()
@@ -1037,10 +1057,14 @@ func retrieveLastRangeHashed(db *pebble.DB) (int64, error) {
 		}
 		return 0, err
 	}
-	defer closer.Close()
+	func() { _ = closer.Close() }()
 
 	if len(bz) == 0 {
 		return 0, nil
 	}
-	return int64(binary.LittleEndian.Uint64(bz)), nil
+	ubz := binary.LittleEndian.Uint64(bz)
+	if ubz > math.MaxInt64 {
+		return 0, fmt.Errorf("last range hashed in database overflows int64: %d", ubz)
+	}
+	return int64(ubz), nil
 }

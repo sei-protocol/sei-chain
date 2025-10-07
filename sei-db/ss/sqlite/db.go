@@ -114,7 +114,7 @@ func (db *Database) GetLatestVersion() (int64, error) {
 		return 0, fmt.Errorf("failed to prepare SQL statement: %w", err)
 	}
 
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	var latestHeight int64
 	if err := stmt.QueryRow(reservedStoreKey, keyLatestHeight).Scan(&latestHeight); err != nil {
@@ -165,7 +165,7 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byt
 		return nil, fmt.Errorf("failed to prepare SQL statement: %w", err)
 	}
 
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	var (
 		value []byte
@@ -288,7 +288,7 @@ func (db *Database) PrintRowsDebug() {
 		panic(fmt.Errorf("failed to prepare SQL statement: %w", err))
 	}
 
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	rows, err := stmt.Query()
 	if err != nil {

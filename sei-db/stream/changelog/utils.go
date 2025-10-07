@@ -3,6 +3,7 @@ package changelog
 import (
 	"bytes"
 	"encoding/binary"
+	"math"
 	"os"
 	"path/filepath"
 	"unsafe"
@@ -25,13 +26,13 @@ func GetLastIndex(dir string) (index uint64, err error) {
 	if err != nil {
 		return 0, err
 	}
-	defer rlog.Close()
+	defer func() { _ = rlog.Close() }()
 	return rlog.LastIndex()
 }
 
 // truncateCorruptedTail truncates the corrupted tail
 func truncateCorruptedTail(path string, format wal.LogFormat) error {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return err
 	}
@@ -65,7 +66,7 @@ func loadNextJSONEntry(data []byte) (n int, err error) {
 		return 0, wal.ErrCorrupt
 	}
 	line := data[:idx]
-	dres := gjson.Get(*(*string)(unsafe.Pointer(&line)), "data")
+	dres := gjson.Get(*(*string)(unsafe.Pointer(&line)), "data") //nolint:gosec
 	if dres.Type != gjson.String {
 		return 0, wal.ErrCorrupt
 	}
@@ -74,14 +75,18 @@ func loadNextJSONEntry(data []byte) (n int, err error) {
 
 // loadNextBinaryEntry loads binary data like data_size + data
 func loadNextBinaryEntry(data []byte) (n int, err error) {
-	size, n := binary.Uvarint(data)
+	s, n := binary.Uvarint(data)
 	if n <= 0 {
 		return 0, wal.ErrCorrupt
 	}
-	if uint64(len(data)-n) < size {
+	if s > math.MaxInt32 {
 		return 0, wal.ErrCorrupt
 	}
-	return n + int(size), nil
+	size := int(s)
+	if len(data)-n < size {
+		return 0, wal.ErrCorrupt
+	}
+	return n + size, nil
 }
 
 func channelBatchRecv[T any](ch <-chan *T) []*T {

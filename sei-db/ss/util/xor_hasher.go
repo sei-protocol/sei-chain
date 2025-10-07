@@ -90,6 +90,9 @@ func (x XorHashCalculator) ComputeHashes() [][]byte {
 }
 
 func Serialize(node types.RawSnapshotNode) []byte {
+	if node.Version < 0 {
+		panic("Expecting version to be non-negative")
+	}
 	keySize := len(node.Key)
 	valueSize := len(node.Value)
 	versionSize := 8

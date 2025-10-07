@@ -46,7 +46,7 @@ func TestProofs(t *testing.T) {
 			snapshot, err := OpenSnapshot(tmpDir)
 			require.NoError(t, err)
 			ptree := NewFromSnapshot(snapshot, true, 0)
-			defer ptree.Close()
+			defer func() { _ = ptree.Close() }()
 
 			proof, err = ptree.GetMembershipProof(tc.existKey)
 			require.NoError(t, err)
