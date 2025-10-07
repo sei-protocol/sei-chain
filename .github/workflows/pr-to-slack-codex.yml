@@ -2,7 +2,7 @@ name: PR → Codex review → Slack
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    #types: [opened, reopened, ready_for_review]
 
 jobs:
   codex_review:
@@ -34,7 +34,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
-          printenv ${{ secrets.OPENAI_API_KEY }} | codex login --with-api-key
+          echo ${{ secrets.OPENAI_API_KEY }} | codex login --with-api-key
 
       - name: Compute merge-base diff (compact)
         run: |
