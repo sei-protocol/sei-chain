@@ -2,6 +2,7 @@ package keeper
 
 import (
 	"bytes"
+	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -76,8 +77,13 @@ func (k *Keeper) PruneZeroStorageSlots(ctx sdk.Context, limit int) (int, int) {
 	}
 
 	for _, key := range keysToDelete {
+		fmt.Printf("[DEBUG] Deleting zero storage slot with key: %x\n", key)
 		store.Delete(key)
 		deleted++
+	}
+
+	if deleted > 0 {
+		fmt.Printf("[DEBUG] Total zero storage slots deleted: %d (processed: %d)\n", deleted, processed)
 	}
 
 	return processed, deleted
