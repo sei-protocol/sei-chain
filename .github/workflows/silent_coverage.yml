@@ -1,0 +1,44 @@
+name: Silent Coverage Check
+
+on:
+  push:
+    branches:
+      - main
+      - seiv2
+      - evm
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  silent-test:
+    name: Silent Go Coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Run tests & generate coverage
+        run: |
+          go test ./... -coverprofile=coverage.out
+          go tool cover -func=coverage.out > coverage.txt
+          go tool cover -html=coverage.out -o coverage.html
+
+      - name: Save local coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-coverage
+          path: |
+            coverage.out
+            coverage.txt
+            coverage.html
+
+      - name: Silent Marker
+        run: echo "🔕 Coverage check complete – silent mode enabled."

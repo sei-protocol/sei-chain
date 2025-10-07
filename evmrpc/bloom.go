@@ -1,6 +1,10 @@
 package evmrpc
 
 import (
+	"runtime"
+	"sync"
+	"sync/atomic"
+
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -23,6 +27,7 @@ func calcBloomIndexes(b []byte) bloomIndexes {
 	return idxs
 }
 
+// EncodeFilters encodes addresses and topics into bloom filter indexes.
 // res: AND on outer level, OR on mid level, AND on inner level (i.e. all 3 bits)
 func EncodeFilters(addresses []common.Address, topics [][]common.Hash) (res [][]bloomIndexes) {
 	filters := make([][][]byte, 1+len(topics))
@@ -41,7 +46,6 @@ func EncodeFilters(addresses []common.Address, topics [][]common.Hash) (res [][]
 		filters = append(filters, filter)
 	}
 	for _, filter := range filters {
-		// Gather the bit indexes of the filter rule, special casing the nil filter
 		if len(filter) == 0 {
 			continue
 		}
@@ -53,7 +57,6 @@ func EncodeFilters(addresses []common.Address, topics [][]common.Hash) (res [][]
 			}
 			bloomBits[i] = calcBloomIndexes(clause)
 		}
-		// Accumulate the filter rules if no nil rule was within
 		if bloomBits != nil {
 			res = append(res, bloomBits)
 		}
@@ -61,14 +64,52 @@ func EncodeFilters(addresses []common.Address, topics [][]common.Hash) (res [][]
 	return
 }
 
-// TODO: parallelize if filters too large
+// MatchFilters checks whether all the supplied filter rules match the bloom
+// filter. For large input slices the work is split into chunks and evaluated in
+// parallel to speed up matching. The final result is deterministic regardless of
+// execution order.
 func MatchFilters(bloom ethtypes.Bloom, filters [][]bloomIndexes) bool {
-	for _, filter := range filters {
-		if !matchFilter(bloom, filter) {
-			return false
+	workers := runtime.GOMAXPROCS(0)
+
+	// For small filter sets, run sequentially to avoid goroutine overhead.
+	if len(filters) <= workers {
+		for _, filter := range filters {
+			if !matchFilter(bloom, filter) {
+				return false
+			}
 		}
+		return true
 	}
-	return true
+
+	// Split filters into chunks and evaluate concurrently.
+	chunkSize := (len(filters) + workers - 1) / workers
+
+	var ok atomic.Bool
+	ok.Store(true)
+
+	var wg sync.WaitGroup
+	for i := 0; i < len(filters); i += chunkSize {
+		end := i + chunkSize
+		if end > len(filters) {
+			end = len(filters)
+		}
+		wg.Add(1)
+		go func(sub [][]bloomIndexes) {
+			defer wg.Done()
+			for _, f := range sub {
+				if !ok.Load() {
+					return
+				}
+				if !matchFilter(bloom, f) {
+					ok.Store(false)
+					return
+				}
+			}
+		}(filters[i:end])
+	}
+
+	wg.Wait()
+	return ok.Load()
 }
 
 func matchFilter(bloom ethtypes.Bloom, filter []bloomIndexes) bool {
@@ -82,7 +123,6 @@ func matchFilter(bloom ethtypes.Bloom, filter []bloomIndexes) bool {
 
 func matchBloomIndexes(bloom ethtypes.Bloom, idx bloomIndexes) bool {
 	for _, bit := range idx {
-		// big endian
 		whichByte := bloom[ethtypes.BloomByteLength-1-bit/8]
 		mask := BitMasks[bit%8]
 		if whichByte&mask == 0 {
