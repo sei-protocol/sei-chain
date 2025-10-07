@@ -101,7 +101,7 @@ func TestHTTPBatching(t *testing.T) {
 	for _, tx := range txs {
 		// Broadcast the transaction and wait for it to commit (rather use
 		// c.BroadcastTxSync though in production).
-		_, err := batch.BroadcastTxSync(ctx, tx)
+		_, err := batch.BroadcastTxCommit(ctx, tx)
 		require.NoError(t, err)
 	}
 

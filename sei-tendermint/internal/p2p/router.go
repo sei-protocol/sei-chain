@@ -145,7 +145,7 @@ type Router struct {
 	privKey     crypto.PrivKey
 	peerManager *PeerManager
 	chDescs     []*ChannelDescriptor
-	transport   Transport
+	transport   *Transport
 	connTracker connectionTracker
 
 	peerStates       utils.RWMutex[map[types.NodeID]*peerState]
@@ -177,7 +177,7 @@ func NewRouter(
 	privKey crypto.PrivKey,
 	peerManager *PeerManager,
 	nodeInfoProducer func() *types.NodeInfo,
-	transport Transport,
+	transport *Transport,
 	dynamicIDFilterer func(context.Context, types.NodeID) error,
 	options RouterOptions,
 ) (*Router, error) {
@@ -399,14 +399,14 @@ func (r *Router) dialSleep(ctx context.Context) error {
 
 // acceptPeers accepts inbound connections from peers on the given transport,
 // and spawns goroutines that route messages to/from them.
-func (r *Router) acceptPeers(ctx context.Context, transport Transport) error {
+func (r *Router) acceptPeers(ctx context.Context, transport *Transport) error {
 	for {
 		conn, err := transport.Accept(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to accept connection: %w", err)
 		}
 		r.metrics.NewConnections.With("direction", "in").Add(1)
-		incomingAddr := conn.RemoteEndpoint().Addr
+		incomingAddr := conn.RemoteEndpoint().AddrPort
 		if err := r.connTracker.AddConn(incomingAddr); err != nil {
 			closeErr := conn.Close()
 			r.logger.Error("rate limiting incoming peer",
@@ -432,7 +432,7 @@ func (r *Router) acceptPeers(ctx context.Context, transport Transport) error {
 
 func (r *Router) openConnection(ctx context.Context, conn Connection) error {
 	defer conn.Close()
-	incomingAddr := conn.RemoteEndpoint().Addr
+	incomingAddr := conn.RemoteEndpoint().AddrPort
 	defer r.connTracker.RemoveConn(incomingAddr)
 
 	if err := r.filterPeersIP(ctx, incomingAddr); err != nil {
@@ -652,7 +652,6 @@ func (r *Router) handshakePeer(
 // they are closed elsewhere it will cause this method to shut down and return.
 func (r *Router) routePeer(ctx context.Context, peerID types.NodeID, conn Connection, channels ChannelIDSet) error {
 	r.metrics.Peers.Add(1)
-	r.peerManager.Ready(ctx, peerID, channels)
 	peerCtx, cancel := context.WithCancel(ctx)
 	state := &peerState{
 		cancel:   cancel,
@@ -665,6 +664,7 @@ func (r *Router) routePeer(ctx context.Context, peerID types.NodeID, conn Connec
 		}
 		states[peerID] = state
 	}
+	r.peerManager.Ready(ctx, peerID, channels)
 	r.logger.Debug("peer connected", "peer", peerID, "endpoint", conn)
 	err := scope.Run(peerCtx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error { return r.receivePeer(ctx, peerID, conn) })

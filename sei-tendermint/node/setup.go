@@ -309,9 +309,9 @@ func createRouter(
 	transportConf.SendRate = cfg.P2P.SendRate
 	transportConf.RecvRate = cfg.P2P.RecvRate
 	transportConf.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
-	transport := p2p.NewMConnTransport(
+	transport := p2p.NewTransport(
 		p2pLogger, ep, transportConf, []*p2p.ChannelDescriptor{},
-		p2p.MConnTransportOptions{
+		p2p.TransportOptions{
 			MaxAcceptedConnections: uint32(cfg.P2P.MaxConnections),
 		},
 	)
