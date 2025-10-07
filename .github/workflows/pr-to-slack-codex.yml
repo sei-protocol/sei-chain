@@ -2,7 +2,7 @@ name: PR → Codex review → Slack
 
 on:
   pull_request:
-    #types: [opened, reopened, ready_for_review]
+    types: [opened, reopened, ready_for_review]
 
 jobs:
   codex_review:
