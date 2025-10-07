@@ -12,7 +12,7 @@ const (
 )
 
 var (
-	MaxNumOfWorkers = runtime.NumCPU() * 2 // each worker will handle a batch of WorkerBatchSize blocks
+	MaxNumOfWorkers = runtime.NumCPU() // each worker will handle a batch of WorkerBatchSize blocks
 )
 
 // WorkerPool manages a pool of goroutines for concurrent task execution
