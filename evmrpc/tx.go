@@ -34,13 +34,14 @@ const UnconfirmedTxQueryMaxPage = 20
 const UnconfirmedTxQueryPerPage = 30
 
 type TransactionAPI struct {
-	tmClient         rpcclient.Client
-	keeper           *keeper.Keeper
-	ctxProvider      func(int64) sdk.Context
-	txConfigProvider func(int64) client.TxConfig
-	homeDir          string
-	connectionType   ConnectionType
-	includeSynthetic bool
+	tmClient                    rpcclient.Client
+	keeper                      *keeper.Keeper
+	ctxProvider                 func(int64) sdk.Context
+	txConfigProvider            func(int64) client.TxConfig
+	homeDir                     string
+	connectionType              ConnectionType
+	includeSynthetic            bool
+	lastSeenNoncePerBlockNumber map[int64]uint64
 }
 
 type SeiTransactionAPI struct {
@@ -49,7 +50,7 @@ type SeiTransactionAPI struct {
 }
 
 func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, connectionType ConnectionType) *TransactionAPI {
-	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType}
+	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType, lastSeenNoncePerBlockNumber: make(map[int64]uint64)}
 }
 
 func NewSeiTransactionAPI(
@@ -295,6 +296,23 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	}
 
 	nonce := t.keeper.CalculateNextNonce(sdkCtx, address, pending)
+
+	if blkNr != nil {
+		if previousNonce, ok := t.lastSeenNoncePerBlockNumber[*blkNr]; ok && previousNonce < nonce {
+			sdkCtx.Logger().Error(
+				"[NONCE_DEBUG] *** NONCE INCONSISTENCY DETECTED ***",
+				"address", address.Hex(),
+				"block", *blkNr,
+				"previous_nonce", previousNonce,
+				"current_nonce", nonce,
+				"difference", int64(nonce)-int64(previousNonce),
+			)
+			noncev2 := t.keeper.CalculateNextNonce(sdkCtx, address, pending)
+			nonce = noncev2
+		}
+		t.lastSeenNoncePerBlockNumber[*blkNr] = nonce
+	}
+
 	return (*hexutil.Uint64)(&nonce), nil
 }
 
