@@ -133,6 +133,8 @@ func TestChainConfigReflectsSstoreParam(t *testing.T) {
 		&SConfig,
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
+		evmrpc.NewBlockCache(3000),
+		&sync.Mutex{},
 	)
 
 	oldCfg := backend.ChainConfigAtHeight(oldHeight)
