@@ -18,7 +18,7 @@ import (
 type TxPoolAPI struct {
 	tmClient         rpcclient.Client
 	keeper           *keeper.Keeper
-	ctxProvider      func(int64, bool) sdk.Context
+	ctxProvider      func(int64) sdk.Context
 	txConfigProvider func(int64) client.TxConfig
 	txPoolConfig     *TxPoolConfig
 	connectionType   ConnectionType
@@ -28,7 +28,7 @@ type TxPoolConfig struct {
 	maxNumTxs int
 }
 
-func NewTxPoolAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64, bool) sdk.Context, txConfigProvider func(int64) client.TxConfig, txPoolConfig *TxPoolConfig, connectionType ConnectionType) *TxPoolAPI {
+func NewTxPoolAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, txPoolConfig *TxPoolConfig, connectionType ConnectionType) *TxPoolAPI {
 	return &TxPoolAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, txPoolConfig: txPoolConfig, connectionType: connectionType}
 }
 
@@ -47,7 +47,7 @@ func (t *TxPoolAPI) Content(ctx context.Context) (result map[string]map[string]m
 		return nil, err
 	}
 
-	sdkCtx := t.ctxProvider(LatestCtxHeight, false)
+	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	signer := ethtypes.MakeSigner(
 		types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
 		big.NewInt(sdkCtx.BlockHeight()),

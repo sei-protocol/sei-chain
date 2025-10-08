@@ -53,7 +53,7 @@ type SimulationAPI struct {
 }
 
 func NewSimulationAPI(
-	ctxProvider func(int64, bool) sdk.Context,
+	ctxProvider func(int64) sdk.Context,
 	keeper *keeper.Keeper,
 	txConfigProvider func(int64) client.TxConfig,
 	tmClient rpcclient.Client,
@@ -213,7 +213,7 @@ var _ tracers.Backend = (*Backend)(nil)
 
 type Backend struct {
 	*eth.EthAPIBackend
-	ctxProvider      func(int64, bool) sdk.Context
+	ctxProvider      func(int64) sdk.Context
 	txConfigProvider func(int64) client.TxConfig
 	keeper           *keeper.Keeper
 	tmClient         rpcclient.Client
@@ -222,7 +222,7 @@ type Backend struct {
 	antehandler      sdk.AnteHandler
 }
 
-func NewBackend(ctxProvider func(int64, bool) sdk.Context, keeper *keeper.Keeper, txConfigProvider func(int64) client.TxConfig, tmClient rpcclient.Client, config *SimulateConfig, app *baseapp.BaseApp, antehandler sdk.AnteHandler) *Backend {
+func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txConfigProvider func(int64) client.TxConfig, tmClient rpcclient.Client, config *SimulateConfig, app *baseapp.BaseApp, antehandler sdk.AnteHandler) *Backend {
 	return &Backend{
 		ctxProvider:      ctxProvider,
 		keeper:           keeper,
@@ -240,7 +240,7 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 		return nil, nil, err
 	}
 	isWasmdCall, ok := ctx.Value(CtxIsWasmdPrecompileCallKey).(bool)
-	sdkCtx := b.ctxProvider(height, false).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(ok && isWasmdCall)
+	sdkCtx := b.ctxProvider(height).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(ok && isWasmdCall)
 	if !isLatestBlock {
 		// no need to check version for latest block
 		if err := CheckVersion(sdkCtx, b.keeper); err != nil {
@@ -248,12 +248,12 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 		}
 	}
 	header := b.getHeader(big.NewInt(height))
-	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight, false)).TruncateInt().BigInt()
+	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return state.NewDBImpl(sdkCtx, b.keeper, true), header, nil
 }
 
 func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found bool, tx *ethtypes.Transaction, blockHash common.Hash, blockNumber uint64, index uint64, err error) {
-	sdkCtx := b.ctxProvider(LatestCtxHeight, false)
+	sdkCtx := b.ctxProvider(LatestCtxHeight)
 	receipt, err := b.keeper.GetReceipt(sdkCtx, txHash)
 	if err != nil {
 		return false, nil, common.Hash{}, 0, 0, err
@@ -285,7 +285,7 @@ func (b Backend) ConvertBlockNumber(bn rpc.BlockNumber) int64 {
 	blockNum := bn.Int64()
 	switch blockNum {
 	case rpc.SafeBlockNumber.Int64(), rpc.FinalizedBlockNumber.Int64(), rpc.LatestBlockNumber.Int64():
-		blockNum = b.ctxProvider(LatestCtxHeight, false).BlockHeight()
+		blockNum = b.ctxProvider(LatestCtxHeight).BlockHeight()
 	case rpc.EarliestBlockNumber.Int64():
 		genesisRes, err := b.tmClient.Genesis(context.Background())
 		if err != nil {
@@ -309,7 +309,7 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 		return nil, nil, err
 	}
 	TraceTendermintIfApplicable(ctx, "BlockResults", []string{stringifyInt64Ptr(&tmBlock.Block.Height)}, blockRes)
-	sdkCtx := b.ctxProvider(LatestCtxHeight, false)
+	sdkCtx := b.ctxProvider(LatestCtxHeight)
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
 	msgs := filterTransactions(b.keeper, b.ctxProvider, b.txConfigProvider, tmBlock, false, false)
@@ -385,7 +385,7 @@ func (b *Backend) RPCGasCap() uint64 { return b.config.GasCap }
 func (b *Backend) RPCEVMTimeout() time.Duration { return b.config.EVMTimeout }
 
 func (b *Backend) chainConfigForHeight(height int64) *params.ChainConfig {
-	ctx := b.ctxProvider(height, false)
+	ctx := b.ctxProvider(height)
 	evParams := b.keeper.GetParams(ctx)
 	sstore := evParams.SeiSstoreSetGasEip2200
 	return types.DefaultChainConfig().EthereumConfigWithSstore(b.keeper.ChainID(ctx), &sstore)
@@ -400,7 +400,7 @@ func (b *Backend) ChainConfigAtHeight(height int64) *params.ChainConfig {
 }
 
 func (b *Backend) GetPoolNonce(_ context.Context, addr common.Address) (uint64, error) {
-	return state.NewDBImpl(b.ctxProvider(LatestCtxHeight, false), b.keeper, true).GetNonce(addr), nil
+	return state.NewDBImpl(b.ctxProvider(LatestCtxHeight), b.keeper, true).GetNonce(addr), nil
 }
 
 func (b *Backend) Engine() consensus.Engine {
@@ -506,10 +506,10 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block) (s
 	TraceTendermintIfApplicable(ctx, "Validators", []string{stringifyInt64Ptr(&prevBlockHeight)}, res)
 	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(res.Validators)
 	reqBeginBlock.Simulate = true
-	sdkCtx := b.ctxProvider(prevBlockHeight, false).WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
+	sdkCtx := b.ctxProvider(prevBlockHeight).WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
 	_ = b.app.BeginBlock(sdkCtx, reqBeginBlock)
 	sdkCtx = sdkCtx.WithNextMs(
-		b.ctxProvider(sdkCtx.BlockHeight(), false).MultiStore(),
+		b.ctxProvider(sdkCtx.BlockHeight()).MultiStore(),
 		[]string{"oracle", "oracle_mem"},
 	)
 	return sdkCtx, tmBlock, nil
@@ -518,18 +518,18 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block) (s
 func (b *Backend) GetEVM(_ context.Context, msg *core.Message, stateDB vm.StateDB, h *ethtypes.Header, vmConfig *vm.Config, blockCtx *vm.BlockContext) *vm.EVM {
 	txContext := core.NewEVMTxContext(msg)
 	if blockCtx == nil {
-		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight, false).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(wasmd.IsWasmdCall(msg.To)), b.keeper.GetGasPool())
+		blockCtx, _ = b.keeper.GetVMBlockContext(b.ctxProvider(LatestCtxHeight).WithIsEVM(true).WithEVMEntryViaWasmdPrecompile(wasmd.IsWasmdCall(msg.To)), b.keeper.GetGasPool())
 	}
 	height := h.Number.Int64()
 	chainCfg := b.chainConfigForHeight(height)
-	evm := vm.NewEVM(*blockCtx, stateDB, chainCfg, *vmConfig, b.keeper.CustomPrecompiles(b.ctxProvider(height, false)))
+	evm := vm.NewEVM(*blockCtx, stateDB, chainCfg, *vmConfig, b.keeper.CustomPrecompiles(b.ctxProvider(height)))
 	evm.SetTxContext(txContext)
 	return evm
 }
 
 func (b *Backend) CurrentHeader() *ethtypes.Header {
-	header := b.getHeader(big.NewInt(b.ctxProvider(LatestCtxHeight, false).BlockHeight()))
-	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight, false)).TruncateInt().BigInt()
+	header := b.getHeader(big.NewInt(b.ctxProvider(LatestCtxHeight).BlockHeight()))
+	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	return header
 }
 
@@ -550,7 +550,7 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 			// we don't want to get the latest block from Tendermint's perspective, because
 			// Tendermint writes store in TM store before commits application state. The
 			// latest block in Tendermint may not have its application state committed yet.
-			currentHeight := b.ctxProvider(LatestCtxHeight, false).BlockHeight()
+			currentHeight := b.ctxProvider(LatestCtxHeight).BlockHeight()
 			blockNumber = &currentHeight
 			isLatestBlock = true
 		}
@@ -566,8 +566,8 @@ func (b *Backend) getBlockHeight(ctx context.Context, blockNrOrHash rpc.BlockNum
 
 func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 	zeroExcessBlobGas := uint64(0)
-	baseFee := b.keeper.GetNextBaseFeePerGas(b.ctxProvider(blockNumber.Int64()-1, false)).TruncateInt().BigInt()
-	ctx := b.ctxProvider(blockNumber.Int64(), false)
+	baseFee := b.keeper.GetNextBaseFeePerGas(b.ctxProvider(blockNumber.Int64() - 1)).TruncateInt().BigInt()
+	ctx := b.ctxProvider(blockNumber.Int64())
 	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < b.keeper.UpgradeKeeper().GetDoneHeight(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "6.2.0") {
 		baseFee = nil
 	}
@@ -607,7 +607,7 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 }
 
 func (b *Backend) GetCustomPrecompiles(h int64) map[common.Address]vm.PrecompiledContract {
-	return b.keeper.CustomPrecompiles(b.ctxProvider(h, false))
+	return b.keeper.CustomPrecompiles(b.ctxProvider(h))
 }
 
 func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error {
@@ -655,10 +655,10 @@ func noSignatureSet(tx *ethtypes.Transaction) bool {
 
 type Engine struct {
 	*ethash.Ethash
-	ctxProvider func(int64, bool) sdk.Context
+	ctxProvider func(int64) sdk.Context
 	keeper      *keeper.Keeper
 }
 
 func (e *Engine) Author(*ethtypes.Header) (common.Address, error) {
-	return e.keeper.GetFeeCollectorAddress(e.ctxProvider(LatestCtxHeight, false))
+	return e.keeper.GetFeeCollectorAddress(e.ctxProvider(LatestCtxHeight))
 }

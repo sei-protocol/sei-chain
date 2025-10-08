@@ -34,14 +34,13 @@ const UnconfirmedTxQueryMaxPage = 20
 const UnconfirmedTxQueryPerPage = 30
 
 type TransactionAPI struct {
-	tmClient                    rpcclient.Client
-	keeper                      *keeper.Keeper
-	ctxProvider                 func(int64, bool) sdk.Context
-	txConfigProvider            func(int64) client.TxConfig
-	homeDir                     string
-	connectionType              ConnectionType
-	includeSynthetic            bool
-	lastSeenNoncePerBlockNumber map[int64]uint64
+	tmClient         rpcclient.Client
+	keeper           *keeper.Keeper
+	ctxProvider      func(int64) sdk.Context
+	txConfigProvider func(int64) client.TxConfig
+	homeDir          string
+	connectionType   ConnectionType
+	includeSynthetic bool
 }
 
 type SeiTransactionAPI struct {
@@ -49,14 +48,14 @@ type SeiTransactionAPI struct {
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
 }
 
-func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64, bool) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, connectionType ConnectionType) *TransactionAPI {
-	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType, lastSeenNoncePerBlockNumber: make(map[int64]uint64)}
+func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, connectionType ConnectionType) *TransactionAPI {
+	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType}
 }
 
 func NewSeiTransactionAPI(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
-	ctxProvider func(int64, bool) sdk.Context,
+	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	connectionType ConnectionType,
@@ -85,7 +84,7 @@ func getTransactionReceipt(
 ) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_getTransactionReceipt", t.connectionType, startTime, returnErr)
-	sdkctx := t.ctxProvider(LatestCtxHeight, false)
+	sdkctx := t.ctxProvider(LatestCtxHeight)
 
 	if excludePanicTxs {
 		isPanicTx, err := isPanicTx(ctx, hash)
@@ -152,7 +151,7 @@ func getTransactionReceipt(
 func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_getVMError", t.connectionType, startTime, returnErr)
-	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight, false), hash)
+	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		return "", err
 	}
@@ -201,7 +200,7 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.Hash) (result *export.RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_getTransactionByHash", t.connectionType, startTime, returnErr)
-	sdkCtx := t.ctxProvider(LatestCtxHeight, false)
+	sdkCtx := t.ctxProvider(LatestCtxHeight)
 	// first try get from mempool
 	for page := 1; page <= UnconfirmedTxQueryMaxPage; page++ {
 		res, err := t.tmClient.UnconfirmedTxs(ctx, &page, nil)
@@ -237,7 +236,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	}
 
 	// then try get from committed
-	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight, false), hash)
+	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return nil, nil
@@ -250,7 +249,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 		return nil, err
 	}
 	filteredMsgs := t.getFilteredMsgs(block)
-	txIndex, found, ethtx, _ := GetEvmTxIndex(t.ctxProvider(LatestCtxHeight, false), block, filteredMsgs, receipt.TransactionIndex, t.keeper)
+	txIndex, found, ethtx, _ := GetEvmTxIndex(t.ctxProvider(LatestCtxHeight), block, filteredMsgs, receipt.TransactionIndex, t.keeper)
 	if !found {
 		return nil, nil
 	}
@@ -263,7 +262,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash common.Hash) (result string, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_getTransactionErrorByHash", t.connectionType, startTime, returnErr)
-	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight, false), hash)
+	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), hash)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return "", nil
@@ -276,7 +275,7 @@ func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash commo
 func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Uint64, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_getTransactionCount", t.connectionType, startTime, returnErr)
-	sdkCtx := t.ctxProvider(LatestCtxHeight, false)
+	sdkCtx := t.ctxProvider(LatestCtxHeight)
 
 	var pending bool
 	if blockNrOrHash.BlockHash == nil && *blockNrOrHash.BlockNumber == rpc.PendingBlockNumber {
@@ -289,30 +288,13 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 	}
 
 	if blkNr != nil {
-		sdkCtx = t.ctxProvider(*blkNr, true)
+		sdkCtx = t.ctxProvider(*blkNr)
 		if err := CheckVersion(sdkCtx, t.keeper); err != nil {
 			return nil, err
 		}
 	}
 
 	nonce := t.keeper.CalculateNextNonce(sdkCtx, address, pending)
-
-	if blkNr != nil {
-		if previousNonce, ok := t.lastSeenNoncePerBlockNumber[*blkNr]; ok && previousNonce != nonce {
-			sdkCtx.Logger().Error(
-				"[NONCE_DEBUG] *** NONCE INCONSISTENCY DETECTED ***",
-				"address", address.Hex(),
-				"block", *blkNr,
-				"previous_nonce", previousNonce,
-				"current_nonce", nonce,
-				"difference", int64(nonce)-int64(previousNonce),
-			)
-			noncev2 := t.keeper.CalculateNextNonce(sdkCtx, address, pending)
-			nonce = noncev2
-		}
-		t.lastSeenNoncePerBlockNumber[*blkNr] = nonce
-	}
-
 	return (*hexutil.Uint64)(&nonce), nil
 }
 
@@ -332,18 +314,18 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, t
 }
 
 func (t *TransactionAPI) encodeRPCTransaction(ethtx *ethtypes.Transaction, block *coretypes.ResultBlock, txIndex uint32) (*export.RPCTransaction, error) {
-	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight, false), ethtx.Hash())
+	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), ethtx.Hash())
 	if err != nil {
 		return nil, err
 	}
 	height := int64(receipt.BlockNumber) // nolint:gosec
 	var baseFeePerGas *big.Int
 	if block.Block.Height > 1 {
-		baseFeePerGas = t.keeper.GetNextBaseFeePerGas(t.ctxProvider(height-1, false)).TruncateInt().BigInt()
+		baseFeePerGas = t.keeper.GetNextBaseFeePerGas(t.ctxProvider(height - 1)).TruncateInt().BigInt()
 	} else {
 		baseFeePerGas = types.DefaultMinFeePerGas.TruncateInt().BigInt()
 	}
-	chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(t.ctxProvider(height, false)))
+	chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(t.ctxProvider(height)))
 	blockHash := common.HexToHash(block.BlockID.Hash.String())
 	blockNumber := uint64(block.Block.Height) //nolint:gosec
 	blockTime := block.Block.Time
@@ -430,10 +412,10 @@ func GetEvmTxIndex(ctx sdk.Context, block *coretypes.ResultBlock, msgs []indexed
 	return -1, false, nil, -1
 }
 
-func encodeReceipt(ctxProvider func(int64, bool) sdk.Context, txConfigProvider func(int64) client.TxConfig, receipt *types.Receipt, k *keeper.Keeper, block *coretypes.ResultBlock, includeSynthetic bool) (map[string]interface{}, error) {
+func encodeReceipt(ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, receipt *types.Receipt, k *keeper.Keeper, block *coretypes.ResultBlock, includeSynthetic bool) (map[string]interface{}, error) {
 	blockHash := block.BlockID.Hash
 	bh := common.HexToHash(blockHash.String())
-	ctx := ctxProvider(block.Block.Height, false)
+	ctx := ctxProvider(block.Block.Height)
 	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSynthetic, false)
 	evmTxIndex, foundTx, etx, logIndexOffset := GetEvmTxIndex(ctx, block, msgs, receipt.TransactionIndex, k)
 	// convert tx index including cosmos txs to tx index excluding cosmos txs

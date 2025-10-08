@@ -254,7 +254,7 @@ type EventItemDataWrapper struct {
 func NewFilterAPI(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
-	ctxProvider func(int64, bool) sdk.Context,
+	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	filterConfig *FilterConfig,
 	connectionType ConnectionType,
@@ -514,7 +514,7 @@ func (a *FilterAPI) GetFilterLogs(
 func (a *FilterAPI) GetLogs(ctx context.Context, crit filters.FilterCriteria) (res []*ethtypes.Log, err error) {
 	defer recordMetricsWithError(fmt.Sprintf("%s_getLogs", a.namespace), a.connectionType, time.Now(), err)
 	// Calculate block range
-	latest := a.logFetcher.ctxProvider(LatestCtxHeight, false).BlockHeight()
+	latest := a.logFetcher.ctxProvider(LatestCtxHeight).BlockHeight()
 	begin, end := latest, latest
 	if crit.FromBlock != nil {
 		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
@@ -636,7 +636,7 @@ type LogFetcher struct {
 	tmClient                 rpcclient.Client
 	k                        *keeper.Keeper
 	txConfigProvider         func(int64) client.TxConfig
-	ctxProvider              func(int64, bool) sdk.Context
+	ctxProvider              func(int64) sdk.Context
 	filterConfig             *FilterConfig
 	includeSyntheticReceipts bool
 	dbReadSemaphore          chan struct{}
@@ -646,7 +646,7 @@ type LogFetcher struct {
 }
 
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
-	latest := f.ctxProvider(LatestCtxHeight, false).BlockHeight()
+	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
 	begin, end := latest, latest
 	if crit.FromBlock != nil {
 		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
@@ -824,7 +824,7 @@ func (f *LogFetcher) IsLogExactMatch(log *ethtypes.Log, crit filters.FilterCrite
 
 // Unified log collection logic
 func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, collector logCollector, applyExactMatch bool) {
-	ctx := f.ctxProvider(block.Block.Height, false)
+	ctx := f.ctxProvider(block.Block.Height)
 	totalLogs := uint(0)
 	evmTxIndex := 0
 
@@ -901,7 +901,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	}
 
 	applyOpenEndedLogLimit := f.filterConfig.maxLog > 0 && (crit.FromBlock == nil || crit.ToBlock == nil)
-	latest := f.ctxProvider(LatestCtxHeight, false).BlockHeight()
+	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
 	begin, end := latest, latest
 	if crit.FromBlock != nil {
 		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
@@ -1006,7 +1006,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		var blockBloom ethtypes.Bloom
 		if len(crit.Addresses) != 0 || len(crit.Topics) != 0 {
 			// Bloom cache miss - read from database
-			providerCtx := f.ctxProvider(height, false)
+			providerCtx := f.ctxProvider(height)
 			if f.includeSyntheticReceipts {
 				blockBloom = f.k.GetBlockBloom(providerCtx)
 			} else {

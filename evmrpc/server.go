@@ -36,7 +36,7 @@ func NewEVMHTTPServer(
 	k *keeper.Keeper,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
-	ctxProvider func(int64, bool) sdk.Context,
+	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	isPanicOrSyntheticTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // used in *ExcludeTraceFail endpoints
@@ -44,7 +44,7 @@ func NewEVMHTTPServer(
 	logger = logger.With("module", "evmrpc")
 
 	// Initialize RPC tracker
-	stats.InitRPCTracker(ctxProvider(LatestCtxHeight, false).Context(), logger, config.RPCStatsInterval)
+	stats.InitRPCTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
 
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,
@@ -62,7 +62,7 @@ func NewEVMHTTPServer(
 	}
 	sendAPI := NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeHTTP)
 
-	ctx := ctxProvider(LatestCtxHeight, false)
+	ctx := ctxProvider(LatestCtxHeight)
 
 	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP)
 	debugAPI := NewDebugAPI(tmClient, k, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config)
@@ -202,14 +202,14 @@ func NewEVMWebSocketServer(
 	k *keeper.Keeper,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
-	ctxProvider func(int64, bool) sdk.Context,
+	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 ) (EVMServer, error) {
 	logger = logger.With("module", "evmrpc")
 
 	// Initialize WebSocket tracker.
-	stats.InitWSTracker(ctxProvider(LatestCtxHeight, false).Context(), logger, config.RPCStatsInterval)
+	stats.InitWSTracker(ctxProvider(LatestCtxHeight).Context(), logger, config.RPCStatsInterval)
 
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
 		ReadTimeout:       config.ReadTimeout,

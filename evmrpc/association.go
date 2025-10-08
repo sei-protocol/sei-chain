@@ -23,13 +23,13 @@ import (
 type AssociationAPI struct {
 	tmClient         rpcclient.Client
 	keeper           *keeper.Keeper
-	ctxProvider      func(int64, bool) sdk.Context
+	ctxProvider      func(int64) sdk.Context
 	txConfigProvider func(int64) client.TxConfig
 	sendAPI          *SendAPI
 	connectionType   ConnectionType
 }
 
-func NewAssociationAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64, bool) sdk.Context, txConfigProvider func(int64) client.TxConfig, sendAPI *SendAPI, connectionType ConnectionType) *AssociationAPI {
+func NewAssociationAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, sendAPI *SendAPI, connectionType ConnectionType) *AssociationAPI {
 	return &AssociationAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, sendAPI: sendAPI, connectionType: connectionType}
 }
 
@@ -91,7 +91,7 @@ func (t *AssociationAPI) Associate(ctx context.Context, req *AssociateRequest) (
 func (t *AssociationAPI) GetSeiAddress(_ context.Context, ethAddress common.Address) (result string, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("sei_getSeiAddress", t.connectionType, startTime, returnErr)
-	seiAddress, found := t.keeper.GetSeiAddress(t.ctxProvider(LatestCtxHeight, false), ethAddress)
+	seiAddress, found := t.keeper.GetSeiAddress(t.ctxProvider(LatestCtxHeight), ethAddress)
 	if !found {
 		return "", fmt.Errorf("failed to find Sei address for %s", ethAddress.Hex())
 	}
@@ -106,7 +106,7 @@ func (t *AssociationAPI) GetEVMAddress(_ context.Context, seiAddress string) (re
 	if err != nil {
 		return "", err
 	}
-	ethAddress, found := t.keeper.GetEVMAddress(t.ctxProvider(LatestCtxHeight, false), seiAddr)
+	ethAddress, found := t.keeper.GetEVMAddress(t.ctxProvider(LatestCtxHeight), seiAddr)
 	if !found {
 		return "", fmt.Errorf("failed to find EVM address for %s", seiAddress)
 	}
@@ -125,7 +125,7 @@ func decodeHexString(hexString string) ([]byte, error) {
 func (t *AssociationAPI) GetCosmosTx(ctx context.Context, ethHash common.Hash) (result string, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("sei_getCosmosTx", t.connectionType, startTime, returnErr)
-	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight, false), ethHash)
+	receipt, err := t.keeper.GetReceipt(t.ctxProvider(LatestCtxHeight), ethHash)
 	if err != nil {
 		return "", err
 	}

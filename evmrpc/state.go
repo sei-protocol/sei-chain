@@ -26,11 +26,11 @@ import (
 type StateAPI struct {
 	tmClient       rpcclient.Client
 	keeper         *keeper.Keeper
-	ctxProvider    func(int64, bool) sdk.Context
+	ctxProvider    func(int64) sdk.Context
 	connectionType ConnectionType
 }
 
-func NewStateAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64, bool) sdk.Context, connectionType ConnectionType) *StateAPI {
+func NewStateAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, connectionType ConnectionType) *StateAPI {
 	return &StateAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, connectionType: connectionType}
 }
 
@@ -41,12 +41,12 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 	if err != nil {
 		return nil, err
 	}
-	sdkCtx := a.ctxProvider(LatestCtxHeight, false)
+	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
 		if sdkCtx.BlockHeight() < *block {
 			return nil, errors.New("cannot query future blocks")
 		}
-		sdkCtx = a.ctxProvider(*block, false)
+		sdkCtx = a.ctxProvider(*block)
 		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
 			return nil, err
 		}
@@ -62,12 +62,12 @@ func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrO
 	if err != nil {
 		return nil, err
 	}
-	sdkCtx := a.ctxProvider(LatestCtxHeight, false)
+	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
 		if sdkCtx.BlockHeight() < *block {
 			return nil, errors.New("cannot query future blocks")
 		}
-		sdkCtx = a.ctxProvider(*block, false)
+		sdkCtx = a.ctxProvider(*block)
 		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
 			return nil, err
 		}
@@ -83,12 +83,12 @@ func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hex
 	if err != nil {
 		return nil, err
 	}
-	sdkCtx := a.ctxProvider(LatestCtxHeight, false)
+	sdkCtx := a.ctxProvider(LatestCtxHeight)
 	if block != nil {
 		if sdkCtx.BlockHeight() < *block {
 			return nil, errors.New("cannot query future blocks")
 		}
-		sdkCtx = a.ctxProvider(*block, false)
+		sdkCtx = a.ctxProvider(*block)
 		if err := CheckVersion(sdkCtx, a.keeper); err != nil {
 			return nil, err
 		}
@@ -128,7 +128,7 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 	if err != nil {
 		return nil, err
 	}
-	sdkCtx := a.ctxProvider(block.Block.Height, false)
+	sdkCtx := a.ctxProvider(block.Block.Height)
 	if err := CheckVersion(sdkCtx, a.keeper); err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ OUTER:
 func (a *StateAPI) GetNonce(_ context.Context, address common.Address) uint64 {
 	startTime := time.Now()
 	defer recordMetrics("eth_getNonce", a.connectionType, startTime)
-	return a.keeper.GetNonce(a.ctxProvider(LatestCtxHeight, false), address)
+	return a.keeper.GetNonce(a.ctxProvider(LatestCtxHeight), address)
 }
 
 // decodeHash parses a hex-encoded 32-byte hash. The input may optionally

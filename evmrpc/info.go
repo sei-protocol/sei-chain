@@ -26,7 +26,7 @@ const defaultThresholdPercentage = 80       // 80%
 type InfoAPI struct {
 	tmClient         rpcclient.Client
 	keeper           *keeper.Keeper
-	ctxProvider      func(int64, bool) sdk.Context
+	ctxProvider      func(int64) sdk.Context
 	txConfigProvider func(int64) client.TxConfig
 	homeDir          string
 	connectionType   ConnectionType
@@ -34,7 +34,7 @@ type InfoAPI struct {
 	txDecoder        sdk.TxDecoder
 }
 
-func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64, bool) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, maxBlocks int64, connectionType ConnectionType, txDecoder sdk.TxDecoder) *InfoAPI {
+func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, maxBlocks int64, connectionType ConnectionType, txDecoder sdk.TxDecoder) *InfoAPI {
 	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType, maxBlocks: maxBlocks, txDecoder: txDecoder}
 }
 
@@ -48,20 +48,20 @@ type FeeHistoryResult struct {
 func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
 	startTime := time.Now()
 	defer recordMetrics("eth_BlockNumber", i.connectionType, startTime)
-	return hexutil.Uint64(i.ctxProvider(LatestCtxHeight, false).BlockHeight()) //nolint:gosec
+	return hexutil.Uint64(i.ctxProvider(LatestCtxHeight).BlockHeight()) //nolint:gosec
 }
 
 //nolint:revive
 func (i *InfoAPI) ChainId() *hexutil.Big {
 	startTime := time.Now()
 	defer recordMetrics("eth_ChainId", i.connectionType, startTime)
-	return (*hexutil.Big)(i.keeper.ChainID(i.ctxProvider(LatestCtxHeight, false)))
+	return (*hexutil.Big)(i.keeper.ChainID(i.ctxProvider(LatestCtxHeight)))
 }
 
 func (i *InfoAPI) Coinbase() (addr common.Address, err error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_Coinbase", i.connectionType, startTime, err)
-	return i.keeper.GetFeeCollectorAddress(i.ctxProvider(LatestCtxHeight, false))
+	return i.keeper.GetFeeCollectorAddress(i.ctxProvider(LatestCtxHeight))
 }
 
 func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
@@ -80,7 +80,7 @@ func (i *InfoAPI) Accounts() (result []common.Address, returnErr error) {
 func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_GasPrice", i.connectionType, startTime, returnErr)
-	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(LatestCtxHeight, false)).TruncateInt().BigInt()
+	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
 	totalGasUsed, err := i.getCongestionData(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -149,7 +149,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 		return nil, err
 	}
 	genesisHeight := genesis.Genesis.InitialHeight
-	currentHeight := i.ctxProvider(LatestCtxHeight, false).BlockHeight()
+	currentHeight := i.ctxProvider(LatestCtxHeight).BlockHeight()
 	switch lastBlock {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		lastBlockNumber = currentHeight
@@ -177,7 +177,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 	for blockNum := result.OldestBlock.ToInt().Int64(); blockNum <= lastBlockNumber; blockNum++ {
 		var gasUsedRatio float64
 
-		sdkCtx := i.ctxProvider(blockNum, false)
+		sdkCtx := i.ctxProvider(blockNum)
 		if CheckVersion(sdkCtx, i.keeper) != nil {
 			// either height is pruned or before EVM is introduced
 			// For non-EVM blocks or pruned blocks, use 0.0 as gas used ratio
@@ -254,7 +254,7 @@ func (i *InfoAPI) safeGetBaseFee(targetHeight int64) (res *big.Int) {
 			res = nil
 		}
 	}()
-	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(targetHeight, false))
+	baseFee := i.keeper.GetNextBaseFeePerGas(i.ctxProvider(targetHeight))
 	res = baseFee.TruncateInt().BigInt()
 	return
 }
@@ -274,7 +274,7 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 			continue
 		}
 		// okay to get from latest since receipt is immutable
-		receipt, err := i.keeper.GetReceipt(i.ctxProvider(LatestCtxHeight, false), ethtx.Hash())
+		receipt, err := i.keeper.GetReceipt(i.ctxProvider(LatestCtxHeight), ethtx.Hash())
 		if err != nil {
 			return nil, err
 		}
@@ -308,7 +308,7 @@ func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGa
 			continue
 		}
 		// okay to get from latest since receipt is immutable
-		receipt, err := i.keeper.GetReceiptWithRetry(i.ctxProvider(LatestCtxHeight, false), ethtx.Hash(), 3)
+		receipt, err := i.keeper.GetReceiptWithRetry(i.ctxProvider(LatestCtxHeight), ethtx.Hash(), 3)
 		if err != nil {
 			return 0, err
 		}
@@ -330,13 +330,13 @@ func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) 
 	}
 
 	// Get the gas limit from consensus params using the SDK context
-	sdkCtx := i.ctxProvider(blockHeight, false)
+	sdkCtx := i.ctxProvider(blockHeight)
 	var gasLimit uint64
 	if sdkCtx.ConsensusParams() != nil && sdkCtx.ConsensusParams().Block != nil {
 		gasLimit = uint64(sdkCtx.ConsensusParams().Block.MaxGas) //nolint:gosec
 	} else {
 		// Fallback: try current context
-		currentCtx := i.ctxProvider(LatestCtxHeight, false)
+		currentCtx := i.ctxProvider(LatestCtxHeight)
 		if currentCtx.ConsensusParams() != nil && currentCtx.ConsensusParams().Block != nil {
 			gasLimit = uint64(currentCtx.ConsensusParams().Block.MaxGas) //nolint:gosec
 		} else {
@@ -358,7 +358,7 @@ func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) 
 			continue
 		}
 		// okay to get from latest since receipt is immutable
-		receipt, err := i.keeper.GetReceiptWithRetry(i.ctxProvider(LatestCtxHeight, false), ethtx.Hash(), 3)
+		receipt, err := i.keeper.GetReceiptWithRetry(i.ctxProvider(LatestCtxHeight), ethtx.Hash(), 3)
 		if err != nil {
 			return 0, err
 		}
@@ -407,7 +407,7 @@ func CalculatePercentiles(rewardPercentiles []float64, GasAndRewards []GasAndRew
 }
 
 func (i *InfoAPI) isChainCongested(totalGasUsed uint64) bool {
-	sdkCtx := i.ctxProvider(LatestCtxHeight, false)
+	sdkCtx := i.ctxProvider(LatestCtxHeight)
 	var gasLimit uint64
 	if sdkCtx.ConsensusParams() != nil && sdkCtx.ConsensusParams().Block != nil {
 		maxGas := sdkCtx.ConsensusParams().Block.MaxGas

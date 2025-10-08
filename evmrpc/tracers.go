@@ -32,7 +32,7 @@ type DebugAPI struct {
 	tracersAPI         *tracers.API
 	tmClient           rpcclient.Client
 	keeper             *keeper.Keeper
-	ctxProvider        func(int64, bool) sdk.Context
+	ctxProvider        func(int64) sdk.Context
 	txConfigProvider   func(int64) client.TxConfig
 	connectionType     ConnectionType
 	isPanicCache       *expirable.LRU[common.Hash, bool] // hash to isPanic
@@ -60,7 +60,7 @@ type SeiDebugAPI struct {
 func NewDebugAPI(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
-	ctxProvider func(int64, bool) sdk.Context,
+	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
@@ -96,7 +96,7 @@ func NewDebugAPI(
 func NewSeiDebugAPI(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
-	ctxProvider func(int64, bool) sdk.Context,
+	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
@@ -168,7 +168,7 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
 
-	latest := api.ctxProvider(LatestCtxHeight, false).BlockHeight()
+	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
 	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
@@ -227,7 +227,7 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 // If this method's internal trace call needs to be subject to the *same* semaphore, it would require passing it down or careful structuring.
 // For now, we assume the top-level RPC calls are what we're limiting.
 func (api *DebugAPI) isPanicOrSyntheticTx(ctx context.Context, hash common.Hash) (isPanic bool, err error) {
-	sdkctx := api.ctxProvider(LatestCtxHeight, false)
+	sdkctx := api.ctxProvider(LatestCtxHeight)
 	receipt, err := api.keeper.GetReceipt(sdkctx, hash)
 	if err != nil {
 		return false, err
@@ -282,7 +282,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	ctx, cancel := context.WithTimeout(ctx, api.traceTimeout)
 	defer cancel()
 
-	latest := api.ctxProvider(LatestCtxHeight, false).BlockHeight()
+	latest := api.ctxProvider(LatestCtxHeight).BlockHeight()
 	if api.maxBlockLookback >= 0 && number.Int64() < latest-api.maxBlockLookback {
 		return nil, fmt.Errorf("block number %d is beyond max lookback of %d", number.Int64(), api.maxBlockLookback)
 	}
