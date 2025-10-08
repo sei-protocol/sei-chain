@@ -37,7 +37,7 @@ const (
 type BlockAPI struct {
 	tmClient             rpcclient.Client
 	keeper               *keeper.Keeper
-	ctxProvider          func(int64) sdk.Context
+	ctxProvider          func(int64, bool) sdk.Context
 	txConfigProvider     func(int64) client.TxConfig
 	connectionType       ConnectionType
 	namespace            string
@@ -50,7 +50,7 @@ type SeiBlockAPI struct {
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
 }
 
-func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType) *BlockAPI {
+func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64, bool) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType) *BlockAPI {
 	return &BlockAPI{
 		tmClient:             tmClient,
 		keeper:               k,
@@ -66,7 +66,7 @@ func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 func NewSeiBlockAPI(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
-	ctxProvider func(int64) sdk.Context,
+	ctxProvider func(int64, bool) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
@@ -90,7 +90,7 @@ func NewSeiBlockAPI(
 func NewSei2BlockAPI(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
-	ctxProvider func(int64) sdk.Context,
+	ctxProvider func(int64, bool) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
@@ -149,7 +149,7 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	}
 
 	// Validate EVM block height for pacific-1 chain
-	sdkCtx := a.ctxProvider(LatestCtxHeight)
+	sdkCtx := a.ctxProvider(LatestCtxHeight, false)
 	if err := ValidateEVMBlockHeight(sdkCtx.ChainID(), block.Block.Height); err != nil {
 		return nil, err
 	}
@@ -206,7 +206,7 @@ func (a *BlockAPI) getBlockByNumber(
 
 	// Validate EVM block height for pacific-1 chain
 	if numberPtr != nil {
-		sdkCtx := a.ctxProvider(LatestCtxHeight)
+		sdkCtx := a.ctxProvider(LatestCtxHeight, false)
 		if err := ValidateEVMBlockHeight(sdkCtx.ChainID(), *numberPtr); err != nil {
 			return nil, err
 		}
@@ -249,7 +249,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		go func(i int, hash typedTxHash) {
 			defer wg.Done()
 			defer recoverAndLog()
-			receipt, err := a.keeper.GetReceipt(a.ctxProvider(height), hash.hash)
+			receipt, err := a.keeper.GetReceipt(a.ctxProvider(height, false), hash.hash)
 			if err != nil {
 				// When the transaction doesn't exist, skip it
 				if !strings.Contains(err.Error(), "not found") {
@@ -285,7 +285,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 }
 
 func EncodeTmBlock(
-	ctxProvider func(int64) sdk.Context,
+	ctxProvider func(int64, bool) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	block *coretypes.ResultBlock,
 	blockRes *coretypes.ResultBlockResults,
@@ -303,17 +303,17 @@ func EncodeTmBlock(
 	txHash := common.HexToHash(block.Block.DataHash.String())
 	resultHash := common.HexToHash(block.Block.LastResultsHash.String())
 	miner := common.HexToAddress(block.Block.ProposerAddress.String())
-	ctx := ctxProvider(block.Block.Height)
+	ctx := ctxProvider(block.Block.Height, false)
 	var baseFeePerGas *big.Int
 	if block.Block.Height > 1 {
-		baseFeePerGas = k.GetNextBaseFeePerGas(ctxProvider(block.Block.Height - 1)).TruncateInt().BigInt()
+		baseFeePerGas = k.GetNextBaseFeePerGas(ctxProvider(block.Block.Height-1, false)).TruncateInt().BigInt()
 	} else {
 		baseFeePerGas = types.DefaultMinFeePerGas.TruncateInt().BigInt()
 	}
 	var blockGasUsed int64
 	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	transactions := []interface{}{}
-	latestCtx := ctxProvider(LatestCtxHeight)
+	latestCtx := ctxProvider(LatestCtxHeight, false)
 
 	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSyntheticTxs, includeBankTransfers)
 

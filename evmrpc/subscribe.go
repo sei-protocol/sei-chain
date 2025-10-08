@@ -40,7 +40,7 @@ type SubscriptionConfig struct {
 	newHeadLimit         uint64
 }
 
-func NewSubscriptionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, filterConfig *FilterConfig, connectionType ConnectionType) *SubscriptionAPI {
+func NewSubscriptionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64, bool) sdk.Context, logFetcher *LogFetcher, subscriptionConfig *SubscriptionConfig, filterConfig *FilterConfig, connectionType ConnectionType) *SubscriptionAPI {
 	logFetcher.filterConfig = filterConfig
 	api := &SubscriptionAPI{
 		tmClient:            tmClient,
@@ -63,7 +63,7 @@ func NewSubscriptionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider
 		for {
 			res := <-subCh
 			eventHeader := res.Data.(tmtypes.EventDataNewBlockHeader)
-			ctx := ctxProvider(eventHeader.Header.Height)
+			ctx := ctxProvider(eventHeader.Header.Height, false)
 			baseFeePerGas := k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
 			ethHeader, err := encodeTmHeader(eventHeader, baseFeePerGas)
 			if err != nil {
@@ -156,7 +156,7 @@ func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriter
 	// to unbounded filter
 	if filter.FromBlock != nil && filter.FromBlock.Int64() == 0 &&
 		filter.ToBlock != nil && filter.ToBlock.Int64() < 0 {
-		latest := big.NewInt(a.logFetcher.ctxProvider(LatestCtxHeight).BlockHeight())
+		latest := big.NewInt(a.logFetcher.ctxProvider(LatestCtxHeight, false).BlockHeight())
 		unboundedFilter := &filters.FilterCriteria{
 			FromBlock: latest, // set to latest block height
 			ToBlock:   nil,    // set to nil to continue listening

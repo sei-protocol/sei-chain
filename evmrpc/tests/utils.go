@@ -124,12 +124,12 @@ func SetupMockPacificTestServer(initializer func(*app.App, *MockClient) sdk.Cont
 	// seed mock client with genesis block results so latest height queries work
 	mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	ctx := initializer(a, mockClient)
-	return setupTestServer(a, func(int64) sdk.Context { return ctx }, mockClient)
+	return setupTestServer(a, func(int64, bool) sdk.Context { return ctx }, mockClient)
 }
 
 func setupTestServer(
 	a *app.App,
-	ctxProvider func(int64) sdk.Context,
+	ctxProvider func(int64, bool) sdk.Context,
 	mockClient *MockClient,
 ) TestServer {
 	port := int(portProvider.Add(1))

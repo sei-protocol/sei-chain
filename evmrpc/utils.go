@@ -208,7 +208,7 @@ type indexedMsg struct {
 
 func filterTransactions(
 	k *keeper.Keeper,
-	ctxProvider func(int64) sdk.Context,
+	ctxProvider func(int64, bool) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	block *coretypes.ResultBlock,
 	includeSyntheticTxs bool,
@@ -217,9 +217,9 @@ func filterTransactions(
 	txs := []indexedMsg{}
 	nonceMap := make(map[string]uint64)
 	txConfig := txConfigProvider(block.Block.Height)
-	latestCtx := ctxProvider(LatestCtxHeight)
-	ctx := ctxProvider(block.Block.Height)
-	prevCtx := ctxProvider(block.Block.Height - 1)
+	latestCtx := ctxProvider(LatestCtxHeight, false)
+	ctx := ctxProvider(block.Block.Height, false)
+	prevCtx := ctxProvider(block.Block.Height-1, false)
 	for i, tx := range block.Block.Txs {
 		sdkTx, err := txConfig.TxDecoder()(tx)
 		if err != nil {
@@ -324,7 +324,7 @@ type typedTxHash struct {
 }
 
 func getTxHashesFromBlock(
-	ctxProvider func(int64) sdk.Context,
+	ctxProvider func(int64, bool) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	k *keeper.Keeper,
 	block *coretypes.ResultBlock,

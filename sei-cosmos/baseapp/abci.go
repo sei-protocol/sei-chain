@@ -741,6 +741,7 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 	if height < app.migrationHeight && app.qms != nil {
 		cacheMS, err = app.qms.CacheMultiStoreWithVersion(height)
 	} else {
+		// this seems like it could resolve differently depending on the race
 		cacheMS, err = app.cms.CacheMultiStoreWithVersion(height)
 	}
 
@@ -754,6 +755,7 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 
 	checkStateCtx := app.checkState.Context()
 	// branch the commit-multistore for safety
+	// the block header used here can be random - that does not seem like RC of the issue
 	ctx := sdk.NewContext(
 		cacheMS, checkStateCtx.BlockHeader(), true, app.logger,
 	).WithMinGasPrices(app.minGasPrices).WithBlockHeight(height)

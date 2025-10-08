@@ -28,7 +28,7 @@ type SendAPI struct {
 	txConfigProvider func(int64) client.TxConfig
 	sendConfig       *SendConfig
 	keeper           *keeper.Keeper
-	ctxProvider      func(int64) sdk.Context
+	ctxProvider      func(int64, bool) sdk.Context
 	homeDir          string
 	backend          *Backend
 	connectionType   ConnectionType
@@ -38,7 +38,7 @@ type SendConfig struct {
 	slow bool
 }
 
-func NewSendAPI(tmClient rpcclient.Client, txConfigProvider func(int64) client.TxConfig, sendConfig *SendConfig, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, homeDir string, simulateConfig *SimulateConfig, app *baseapp.BaseApp,
+func NewSendAPI(tmClient rpcclient.Client, txConfigProvider func(int64) client.TxConfig, sendConfig *SendConfig, k *keeper.Keeper, ctxProvider func(int64, bool) sdk.Context, homeDir string, simulateConfig *SimulateConfig, app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler, connectionType ConnectionType) *SendAPI {
 	return &SendAPI{
 		tmClient:         tmClient,
@@ -108,14 +108,14 @@ func (s *SendAPI) SendRawTransaction(ctx context.Context, input hexutil.Bytes) (
 func (s *SendAPI) simulateTx(ctx context.Context, tx *ethtypes.Transaction) (estimate uint64, err error) {
 	var from common.Address
 	if tx.Type() == ethtypes.DynamicFeeTxType {
-		signer := ethtypes.NewLondonSigner(s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
+		signer := ethtypes.NewLondonSigner(s.keeper.ChainID(s.ctxProvider(LatestCtxHeight, false)))
 		from, err = signer.Sender(tx)
 		if err != nil {
 			err = fmt.Errorf("failed to get sender for dynamic fee tx: %w", err)
 			return
 		}
 	} else if tx.Protected() {
-		signer := ethtypes.NewEIP155Signer(s.keeper.ChainID(s.ctxProvider(LatestCtxHeight)))
+		signer := ethtypes.NewEIP155Signer(s.keeper.ChainID(s.ctxProvider(LatestCtxHeight, false)))
 		from, err = signer.Sender(tx)
 		if err != nil {
 			err = fmt.Errorf("failed to get sender for protected tx: %w", err)
@@ -210,7 +210,7 @@ func (s *SendAPI) signTransaction(unsignedTx *ethtypes.Transaction, from string)
 	if !ok {
 		return nil, errors.New("from address does not have hosted key")
 	}
-	chainId := s.keeper.ChainID(s.ctxProvider(LatestCtxHeight))
+	chainId := s.keeper.ChainID(s.ctxProvider(LatestCtxHeight, false))
 	signer := ethtypes.LatestSignerForChainID(chainId)
 	return ethtypes.SignTx(unsignedTx, signer, privKey)
 }
