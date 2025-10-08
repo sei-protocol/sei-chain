@@ -5,12 +5,14 @@ import (
 	"encoding/binary"
 	"io"
 	"math"
+	"sync/atomic"
+	"unsafe"
 )
 
 type MemNode struct {
 	height  uint8
-	size    int64
 	version uint32
+	size    int64
 	key     []byte
 	value   []byte
 	left    Node
@@ -19,10 +21,45 @@ type MemNode struct {
 }
 
 var _ Node = (*MemNode)(nil)
+var (
+	TotalMemNodeSize  = atomic.Int64{}
+	TotalNumOfMemNode = atomic.Int64{}
+)
+
+func newBranchNode(
+	height uint8,
+	size int64,
+	version uint32,
+	key []byte,
+	left Node,
+	right Node) *MemNode {
+	return &MemNode{
+		height:  height,
+		size:    size,
+		version: version,
+		key:     key,
+		left:    left,
+		right:   right,
+	}
+}
 
 func newLeafNode(key, value []byte, version uint32) *MemNode {
 	return &MemNode{
 		key: key, value: value, version: version, size: 1,
+	}
+}
+
+func IncrementMemNodeSize(node *MemNode) {
+	if node != nil {
+		// struct itself (includes slice headers and interface headers)
+		size := int64(unsafe.Sizeof(*node))
+
+		// backing arrays for the slices (bytes)
+		size += int64(cap(node.key))
+		size += int64(cap(node.value))
+		size += int64(cap(node.hash))
+		TotalMemNodeSize.Add(size)
+		TotalNumOfMemNode.Add(1)
 	}
 }
 

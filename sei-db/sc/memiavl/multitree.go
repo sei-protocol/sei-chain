@@ -9,12 +9,14 @@ import (
 	"sort"
 
 	"github.com/alitto/pond"
+	"golang.org/x/exp/slices"
+
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-db/common/errors"
+	"github.com/sei-protocol/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/stream/types"
-	"golang.org/x/exp/slices"
 )
 
 const MetadataFileName = "__metadata"
@@ -259,6 +261,7 @@ func (t *MultiTree) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error 
 	if !found {
 		return fmt.Errorf("unknown tree name %s", name)
 	}
+	metrics.SeiDBMetrics.NumOfKVPairs.Add(context.Background(), int64(len(changeSet.Pairs)))
 	t.trees[i].ApplyChangeSet(changeSet)
 	return nil
 }

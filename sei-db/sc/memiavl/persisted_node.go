@@ -148,23 +148,14 @@ func (node PersistedNode) Hash() []byte {
 func (node PersistedNode) Mutate(version, _ uint32) *MemNode {
 	if node.isLeaf {
 		key, value := node.snapshot.LeafKeyValue(node.index)
-		return &MemNode{
-			height:  0,
-			size:    1,
-			version: version,
-			key:     key,
-			value:   value,
-		}
+		leafNode := newLeafNode(key, value, version)
+		IncrementMemNodeSize(leafNode)
+		return leafNode
 	}
 	data := node.branchNode()
-	return &MemNode{
-		height:  data.Height(),
-		size:    int64(data.Size()),
-		version: version,
-		key:     node.Key(),
-		left:    node.Left(),
-		right:   node.Right(),
-	}
+	branchNode := newBranchNode(data.Height(), int64(data.Size()), version, node.Key(), node.Left(), node.Right())
+	IncrementMemNodeSize(branchNode)
+	return branchNode
 }
 
 func (node PersistedNode) Get(key []byte) ([]byte, uint32) {
