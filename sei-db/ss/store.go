@@ -21,9 +21,6 @@ const (
 
 	// PebbleDBBackend represents pebbledb
 	PebbleDBBackend BackendType = "pebbledb"
-
-	// SQLiteBackend represents sqlite
-	SQLiteBackend BackendType = "sqlite"
 )
 
 type BackendInitializer func(dir string, config config.StateStoreConfig) (types.StateStore, error)
