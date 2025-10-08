@@ -28,7 +28,12 @@ func (k *Keeper) GetState(ctx sdk.Context, addr common.Address, hash common.Hash
 }
 
 func (k *Keeper) SetState(ctx sdk.Context, addr common.Address, key common.Hash, val common.Hash) {
-	k.PrefixStore(ctx, types.StateKey(addr)).Set(key[:], val[:])
+	store := k.PrefixStore(ctx, types.StateKey(addr))
+	if val == (common.Hash{}) {
+		store.Delete(key[:])
+		return
+	}
+	store.Set(key[:], val[:])
 }
 
 func (k *Keeper) IterateState(ctx sdk.Context, cb func(addr common.Address, key common.Hash, val common.Hash) bool) {
