@@ -661,7 +661,7 @@ func (app *BaseApp) ApplySnapshotChunk(context context.Context, req *abci.Reques
 }
 
 func (app *BaseApp) handleQueryGRPC(handler GRPCQueryHandler, req abci.RequestQuery) abci.ResponseQuery {
-	ctx, err := app.CreateQueryContext(req.Height, req.Prove)
+	ctx, err := app.CreateQueryContext(req.Height, req.Prove, false)
 	if err != nil {
 		return sdkerrors.QueryResultWithDebug(err, app.trace)
 	}
@@ -709,7 +709,7 @@ func checkNegativeHeight(height int64) error {
 
 // CreateQueryContext creates a new sdk.Context for a query, taking as args
 // the block height and whether the query needs a proof or not.
-func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, error) {
+func (app *BaseApp) CreateQueryContext(height int64, prove bool, isCalledFromTransactionCount bool) (sdk.Context, error) {
 	err := checkNegativeHeight(height)
 	if err != nil {
 		return sdk.Context{}, err
@@ -739,10 +739,10 @@ func (app *BaseApp) CreateQueryContext(height int64, prove bool) (sdk.Context, e
 
 	var cacheMS types.CacheMultiStore
 	if height < app.migrationHeight && app.qms != nil {
-		cacheMS, err = app.qms.CacheMultiStoreWithVersion(height)
+		cacheMS, err = app.qms.CacheMultiStoreWithVersion(height, isCalledFromTransactionCount)
 	} else {
 		// this seems like it could resolve differently depending on the race
-		cacheMS, err = app.cms.CacheMultiStoreWithVersion(height)
+		cacheMS, err = app.cms.CacheMultiStoreWithVersion(height, isCalledFromTransactionCount)
 	}
 
 	if err != nil {
@@ -965,7 +965,7 @@ func handleQueryCustom(app *BaseApp, path []string, req abci.RequestQuery) abci.
 		return sdkerrors.QueryResultWithDebug(sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "no custom querier found for route %s", path[1]), app.trace)
 	}
 
-	ctx, err := app.CreateQueryContext(req.Height, req.Prove)
+	ctx, err := app.CreateQueryContext(req.Height, req.Prove, false)
 	if err != nil {
 		return sdkerrors.QueryResultWithDebug(err, app.trace)
 	}

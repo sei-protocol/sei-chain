@@ -578,7 +578,7 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 // attempts to load stores at a given version (height). An error is returned if
 // any store cannot be loaded. This should only be used for querying and
 // iterating at past heights.
-func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStore, error) {
+func (rs *Store) CacheMultiStoreWithVersion(version int64, _ bool) (types.CacheMultiStore, error) {
 	cachedStores := make(map[types.StoreKey]types.CacheWrapper)
 	for key, store := range rs.stores {
 		switch store.GetStoreType() {
@@ -605,7 +605,7 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 }
 
 func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore, error) {
-	return rs.CacheMultiStoreWithVersion(version)
+	return rs.CacheMultiStoreWithVersion(version, false)
 }
 
 // GetStore returns a mounted Store for a given StoreKey. If the StoreKey does
