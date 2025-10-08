@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -57,6 +58,8 @@ type Database struct {
 
 	// Earliest version for db after pruning
 	earliestVersion int64
+	// Latest version for db
+	latestVersion int64
 
 	asyncWriteWG sync.WaitGroup
 
@@ -68,6 +71,8 @@ type Database struct {
 }
 
 func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
+	//TODO: add a new config and check if readonly = true to support readonly mode
+
 	storage, cfHandle, err := OpenRocksDB(dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open RocksDB: %w", err)
@@ -84,7 +89,13 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		tsLow = int64(binary.LittleEndian.Uint64(tsLowBz))
 	}
 
+	// Initialize earliest version
 	earliestVersion, err := retrieveEarliestVersion(storage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve earliest version: %w", err)
+	}
+
+	latestVersion, err := retrieveLatestVersion(storage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve earliest version: %w", err)
 	}
@@ -95,6 +106,7 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		cfHandle:        cfHandle,
 		tsLow:           tsLow,
 		earliestVersion: earliestVersion,
+		latestVersion:   latestVersion,
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
 	}
 
@@ -116,51 +128,6 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	return database, nil
 }
 
-func NewWithDB(storage *grocksdb.DB, cfHandle *grocksdb.ColumnFamilyHandle) (*Database, error) {
-	slice, err := storage.GetFullHistoryTsLow(cfHandle)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get full_history_ts_low: %w", err)
-	}
-
-	var tsLow int64
-	tsLowBz := copyAndFreeSlice(slice)
-	if len(tsLowBz) > 0 {
-		tsLow = int64(binary.LittleEndian.Uint64(tsLowBz))
-	}
-
-	earliestVersion, err := retrieveEarliestVersion(storage)
-	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve earliest version: %w", err)
-	}
-
-	return &Database{
-		storage:         storage,
-		cfHandle:        cfHandle,
-		tsLow:           tsLow,
-		earliestVersion: earliestVersion,
-	}, nil
-}
-
-func (db *Database) Close() error {
-	if db.streamHandler != nil {
-		// Close the changelog stream first
-		db.streamHandler.Close()
-		// Close the pending changes channel to signal the background goroutine to stop
-		close(db.pendingChanges)
-		// Wait for the async writes to finish processing all buffered items
-		db.asyncWriteWG.Wait()
-		// Only set to nil after background goroutine has finished
-		db.streamHandler = nil
-	}
-
-	db.storage.Close()
-
-	db.storage = nil
-	db.cfHandle = nil
-
-	return nil
-}
-
 func (db *Database) getSlice(storeKey string, version int64, key []byte) (*grocksdb.Slice, error) {
 	return db.storage.GetCF(
 		newTSReadOptions(version),
@@ -170,30 +137,33 @@ func (db *Database) getSlice(storeKey string, version int64, key []byte) (*grock
 }
 
 func (db *Database) SetLatestVersion(version int64) error {
+	db.latestVersion = version
 	var ts [TimestampSize]byte
 	binary.LittleEndian.PutUint64(ts[:], uint64(version))
-
 	return db.storage.Put(defaultWriteOpts, []byte(latestVersionKey), ts[:])
 }
 
-func (db *Database) GetLatestVersion() (int64, error) {
-	bz, err := db.storage.GetBytes(defaultReadOpts, []byte(latestVersionKey))
-	if err != nil {
+func (db *Database) GetLatestVersion() int64 {
+	return db.latestVersion
+}
+
+// retrieveLatestVersion retrieves the latest version from the database, if not found, return 0.
+func retrieveLatestVersion(storage *grocksdb.DB) (int64, error) {
+	bz, err := storage.GetBytes(defaultReadOpts, []byte(latestVersionKey))
+	if err != nil || len(bz) == 0 {
 		return 0, err
 	}
-
-	if len(bz) == 0 {
-		// in case of a fresh database
-		return 0, nil
+	uz := binary.LittleEndian.Uint64(bz)
+	if uz > math.MaxInt64 {
+		return 0, fmt.Errorf("latest version in rocksdb overflows int64: %d", uz)
 	}
 
-	return int64(binary.LittleEndian.Uint64(bz)), nil
+	return int64(uz), nil
 }
 
 func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error {
 	if version > db.earliestVersion || ignoreVersion {
 		db.earliestVersion = version
-
 		var ts [TimestampSize]byte
 		binary.LittleEndian.PutUint64(ts[:], uint64(version))
 		return db.storage.Put(defaultWriteOpts, []byte(earliestVersionKey), ts[:])
@@ -201,8 +171,21 @@ func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error 
 	return nil
 }
 
-func (db *Database) GetEarliestVersion() (int64, error) {
-	return db.earliestVersion, nil
+func (db *Database) GetEarliestVersion() int64 {
+	return db.earliestVersion
+}
+
+// retrieveEarliestVersion retrieves the earliest version from the database, if not found, return 0.
+func retrieveEarliestVersion(storage *grocksdb.DB) (int64, error) {
+	bz, err := storage.GetBytes(defaultReadOpts, []byte(earliestVersionKey))
+	if err != nil || len(bz) == 0 {
+		return 0, err
+	}
+	ubz := binary.LittleEndian.Uint64(bz)
+	if ubz > math.MaxInt64 {
+		return 0, fmt.Errorf("earliest version in rocksdb overflows int64: %d", ubz)
+	}
+	return int64(ubz), nil
 }
 
 func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error) {
@@ -240,6 +223,7 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 		version = 1
 	}
 
+	// Update latest version in batch
 	b := NewBatch(db, version)
 
 	for _, kvPair := range cs.Changeset.Pairs {
@@ -254,7 +238,12 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 		}
 	}
 
-	return b.Write()
+	err := b.Write()
+	if err != nil {
+		return err
+	}
+	db.latestVersion = version
+	return nil
 }
 
 func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
@@ -290,10 +279,6 @@ func (db *Database) writeAsyncInBackground() {
 				if err != nil {
 					panic(err)
 				}
-			}
-			err := db.SetLatestVersion(version)
-			if err != nil {
-				panic(err)
 			}
 		}
 	}
@@ -407,7 +392,7 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 	}
 	start, end := util.IterateWithPrefix(prefix, nil, nil)
 
-	latestVersion, err := db.GetLatestVersion()
+	latestVersion, err := retrieveLatestVersion(db.storage)
 	if err != nil {
 		return false, err
 	}
@@ -508,18 +493,21 @@ func (db *Database) WriteBlockRangeHash(storeKey string, beginBlockRange, endBlo
 	panic("implement me")
 }
 
-// retrieveEarliestVersion retrieves the earliest version from the database
-func retrieveEarliestVersion(storage *grocksdb.DB) (int64, error) {
-	bz, err := storage.GetBytes(defaultReadOpts, []byte(earliestVersionKey))
-	if err != nil {
-		fmt.Printf("warning: rocksdb get for earliestVersionKey failed: %v", err)
-		return 0, nil
+func (db *Database) Close() error {
+	if db.streamHandler != nil {
+		// Close the changelog stream first
+		db.streamHandler.Close()
+		// Close the pending changes channel to signal the background goroutine to stop
+		close(db.pendingChanges)
+		// Wait for the async writes to finish processing all buffered items
+		db.asyncWriteWG.Wait()
+		// Only set to nil after background goroutine has finished
+		db.streamHandler = nil
 	}
 
-	if len(bz) == 0 {
-		// in case of a fresh database
-		return 0, nil
-	}
+	db.storage.Close()
+	db.storage = nil
+	db.cfHandle = nil
 
-	return int64(binary.LittleEndian.Uint64(bz)), nil
+	return nil
 }
