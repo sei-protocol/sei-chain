@@ -3,6 +3,7 @@ package keeper
 import (
 	"bytes"
 	"fmt"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -10,22 +11,14 @@ import (
 
 const ZeroStorageCleanupBatchSize = 100
 
+// zeroStorageCleanupCheckpointInMemory tracks the checkpoint without persisting to KV store.
+var zeroStorageCleanupCheckpointInMemory []byte
+
 func (k *Keeper) GetZeroStorageCleanupCheckpoint(ctx sdk.Context) []byte {
-	store := ctx.KVStore(k.storeKey)
-	bz := store.Get(types.ZeroStorageCleanupCheckpointKey)
-	if len(bz) == 0 {
+	if len(zeroStorageCleanupCheckpointInMemory) == 0 {
 		return nil
 	}
-	return append([]byte(nil), bz...)
-}
-
-func (k *Keeper) setZeroStorageCleanupCheckpoint(ctx sdk.Context, key []byte) {
-	store := ctx.KVStore(k.storeKey)
-	if len(key) == 0 {
-		store.Delete(types.ZeroStorageCleanupCheckpointKey)
-		return
-	}
-	store.Set(types.ZeroStorageCleanupCheckpointKey, key)
+	return append([]byte(nil), zeroStorageCleanupCheckpointInMemory...)
 }
 
 func (k *Keeper) PruneZeroStorageSlots(ctx sdk.Context, limit int) (int, int) {
@@ -33,15 +26,16 @@ func (k *Keeper) PruneZeroStorageSlots(ctx sdk.Context, limit int) (int, int) {
 		return 0, 0
 	}
 
-	checkpoint := k.GetZeroStorageCleanupCheckpoint(ctx)
+	start := time.Now()
+
+	checkpoint := append([]byte(nil), zeroStorageCleanupCheckpointInMemory...)
 	store := k.PrefixStore(ctx, types.StateKeyPrefix)
 	iterator := store.Iterator(checkpoint, nil)
 	defer func() { _ = iterator.Close() }()
 
 	processed := 0
-	deleted := 0
+	zeroValueCount := 0
 	skippedCheckpoint := len(checkpoint) == 0
-	keysToDelete := make([][]byte, 0, limit)
 	var lastKey []byte
 
 	for ; iterator.Valid() && processed < limit; iterator.Next() {
@@ -59,34 +53,29 @@ func (k *Keeper) PruneZeroStorageSlots(ctx sdk.Context, limit int) (int, int) {
 
 		val := iterator.Value()
 		if isZeroStorageValue(val) {
-			keysToDelete = append(keysToDelete, key)
+			zeroValueCount++
 		}
 	}
 
 	if processed == 0 {
 		if len(checkpoint) != 0 && !iterator.Valid() {
-			k.setZeroStorageCleanupCheckpoint(ctx, nil)
+			zeroStorageCleanupCheckpointInMemory = nil
 		}
+		duration := time.Since(start)
+		fmt.Printf("[DEBUG] Zero storage slot scan took %s (processed: %d, zero-value: %d)\n", duration, processed, zeroValueCount)
 		return 0, 0
 	}
 
 	if iterator.Valid() {
-		k.setZeroStorageCleanupCheckpoint(ctx, lastKey)
+		zeroStorageCleanupCheckpointInMemory = append([]byte(nil), lastKey...)
 	} else {
-		k.setZeroStorageCleanupCheckpoint(ctx, nil)
+		zeroStorageCleanupCheckpointInMemory = nil
 	}
 
-	for _, key := range keysToDelete {
-		fmt.Printf("[DEBUG] Deleting zero storage slot with key: %x\n", key)
-		store.Delete(key)
-		deleted++
-	}
+	duration := time.Since(start)
+	fmt.Printf("[DEBUG] Zero storage slot scan took %s (processed: %d, zero-value: %d)\n", duration, processed, zeroValueCount)
 
-	if deleted > 0 {
-		fmt.Printf("[DEBUG] Total zero storage slots deleted: %d (processed: %d)\n", deleted, processed)
-	}
-
-	return processed, deleted
+	return processed, 0
 }
 
 func isZeroStorageValue(val []byte) bool {

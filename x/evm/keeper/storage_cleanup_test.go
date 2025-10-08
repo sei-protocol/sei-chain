@@ -31,10 +31,10 @@ func TestPruneZeroStorageSlots(t *testing.T) {
 
 	processed, deleted := k.PruneZeroStorageSlots(ctx, 2)
 	require.Equal(t, 2, processed)
-	require.Equal(t, 1, deleted)
+	require.Equal(t, 0, deleted)
 
 	store1 = k.PrefixStore(ctx, types.StateKey(addr1))
-	require.False(t, store1.Has(slot1[:]))
+	require.True(t, store1.Has(slot1[:]))
 	require.True(t, store1.Has(slot2[:]))
 
 	expectedCheckpoint := append(addr1.Bytes(), slot2.Bytes()...)
@@ -42,13 +42,13 @@ func TestPruneZeroStorageSlots(t *testing.T) {
 
 	processed, deleted = k.PruneZeroStorageSlots(ctx, 2)
 	require.Equal(t, 1, processed)
-	require.Equal(t, 1, deleted)
+	require.Equal(t, 0, deleted)
 
 	store2 = k.PrefixStore(ctx, types.StateKey(addr2))
-	require.False(t, store2.Has(slot3[:]))
+	require.True(t, store2.Has(slot3[:]))
 	require.Nil(t, k.GetZeroStorageCleanupCheckpoint(ctx))
 
 	processed, deleted = k.PruneZeroStorageSlots(ctx, evmkeeper.ZeroStorageCleanupBatchSize)
-	require.Equal(t, 1, processed)
+	require.Equal(t, 3, processed)
 	require.Equal(t, 0, deleted)
 }
