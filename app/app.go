@@ -1930,11 +1930,11 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 	authtx.RegisterTxService(app.GRPCQueryRouter(), clientCtx, app.Simulate, app.interfaceRegistry)
 }
 
-func (app *App) RPCContextProvider(i int64, isCalledFromTransactionCount bool) sdk.Context {
+func (app *App) RPCContextProvider(i int64, _ bool) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
 		return app.GetCheckCtx().WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
-	ctx, err := app.CreateQueryContext(i, false, isCalledFromTransactionCount)
+	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
 		panic(err)
 	}

@@ -111,7 +111,7 @@ type MultiStore interface {
 
 	// CacheMultiStoreWithVersion branches the underlying MultiStore where
 	// each stored is loaded at a specific version (height).
-	CacheMultiStoreWithVersion(version int64, isCalledFromTransactionCount bool) (CacheMultiStore, error)
+	CacheMultiStoreWithVersion(version int64) (CacheMultiStore, error)
 
 	// CacheMultiStoreForExport create a cache multistore specifically for state export
 	CacheMultiStoreForExport(version int64) (CacheMultiStore, error)

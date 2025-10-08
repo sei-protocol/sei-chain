@@ -248,12 +248,12 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 
 // CacheMultiStoreWithVersion Implements interface MultiStore
 // used to createQueryContext, abci_query or grpc query service.
-func (rs *Store) CacheMultiStoreWithVersion(version int64, isCalledFromGetTransactionCount bool) (types.CacheMultiStore, error) {
-	if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
-		// I'm guessing it returns from here sometimes - lastCommitInfo probably has not been bumped but the nonce got
-		// updated (or some other state)
-		return rs.CacheMultiStore(), nil
-	}
+func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStore, error) {
+	//if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
+	//	// I'm guessing it returns from here sometimes - lastCommitInfo probably has not been bumped but the nonce got
+	//	// updated (or some other state)
+	//	return rs.CacheMultiStore(), nil
+	//}
 	rs.mtx.RLock()
 	defer rs.mtx.RUnlock()
 	stores := make(map[types.StoreKey]types.CacheWrapper)
