@@ -12,7 +12,9 @@ type Application interface {
 	Query(context.Context, *RequestQuery) (*ResponseQuery, error) // Query for state
 
 	// Mempool Connection
-	CheckTx(context.Context, *RequestCheckTx) (*ResponseCheckTxV2, error) // Validate a tx for the mempool
+	CheckTx(context.Context, *RequestCheckTx) (*ResponseCheckTxV2, error)             // Validate a tx for the mempool; deprecated
+	CheckTxWrapped(context.Context, *RequestCheckTx) (*ResponseCheckTxV2, any, error) // Validate a tx for the mempool
+	CheckNonce(context.Context, any, int) (bool, error)
 
 	// Consensus Connection
 	InitChain(context.Context, *RequestInitChain) (*ResponseInitChain, error) // Initialize blockchain w validators/other info from TendermintCore
@@ -54,6 +56,14 @@ func (BaseApplication) Info(_ context.Context, req *RequestInfo) (*ResponseInfo,
 
 func (BaseApplication) CheckTx(_ context.Context, req *RequestCheckTx) (*ResponseCheckTxV2, error) {
 	return &ResponseCheckTxV2{ResponseCheckTx: &ResponseCheckTx{Code: CodeTypeOK}}, nil
+}
+
+func (BaseApplication) CheckTxWrapped(_ context.Context, req *RequestCheckTx) (*ResponseCheckTxV2, any, error) {
+	return &ResponseCheckTxV2{ResponseCheckTx: &ResponseCheckTx{Code: CodeTypeOK}}, nil, nil
+}
+
+func (BaseApplication) CheckNonce(_ context.Context, req any, index int) (bool, error) {
+	return true, nil
 }
 
 func (BaseApplication) Commit(_ context.Context) (*ResponseCommit, error) {

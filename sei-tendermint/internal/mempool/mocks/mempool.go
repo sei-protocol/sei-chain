@@ -109,8 +109,8 @@ func (_m *Mempool) Lock() {
 }
 
 // ReapMaxBytesMaxGas provides a mock function with given fields: maxBytes, maxGas, maxGasEstimated
-func (_m *Mempool) ReapMaxBytesMaxGas(maxBytes int64, maxGas int64, maxGasEstimated int64) types.Txs {
-	ret := _m.Called(maxBytes, maxGas, maxGasEstimated)
+func (_m *Mempool) ReapMaxBytesMaxGas(ctx context.Context, maxBytes int64, maxGas int64, maxGasEstimated int64) types.Txs {
+	ret := _m.Called(ctx, maxBytes, maxGas, maxGasEstimated)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReapMaxBytesMaxGas")

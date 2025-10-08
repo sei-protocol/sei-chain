@@ -236,7 +236,7 @@ func TestMempoolRmBadTx(t *testing.T) {
 
 		// check for the tx
 		for {
-			txs := assertMempool(t, cs.txNotifier).ReapMaxBytesMaxGas(int64(len(txBytes)), -1, -1)
+			txs := assertMempool(t, cs.txNotifier).ReapMaxBytesMaxGas(ctx, int64(len(txBytes)), -1, -1)
 			if len(txs) == 0 {
 				emptyMempoolCh <- struct{}{}
 				return
@@ -326,6 +326,15 @@ func (app *CounterApplication) CheckTx(_ context.Context, req *abci.RequestCheck
 	}
 	app.mempoolTxCount++
 	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{Code: code.CodeTypeOK}}, nil
+}
+
+func (app *CounterApplication) CheckTxWrapped(ctx context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, any, error) {
+	res, err := app.CheckTx(ctx, req)
+	return res, nil, err
+}
+
+func (app *CounterApplication) CheckNonce(ctx context.Context, req any, index int) (bool, error) {
+	return true, nil
 }
 
 func txAsUint64(tx []byte) uint64 {

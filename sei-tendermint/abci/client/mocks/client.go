@@ -601,6 +601,16 @@ func (_m *Client) VerifyVoteExtension(_a0 context.Context, _a1 *types.RequestVer
 	return r0, r1
 }
 
+func (_m *Client) CheckNonce(_a0 context.Context, _a1 any, _a2 int) (bool, error) {
+	ret := _m.Called(_a0, _a1, _a2)
+	return ret.Get(0).(bool), ret.Error(1)
+}
+
+func (_m *Client) CheckTxWrapped(_a0 context.Context, _a1 *types.RequestCheckTx) (*types.ResponseCheckTxV2, any, error) {
+	ret := _m.Called(_a0, _a1)
+	return ret.Get(0).(*types.ResponseCheckTxV2), ret.Get(1).(any), ret.Error(2)
+}
+
 // Wait provides a mock function with no fields
 func (_m *Client) Wait() {
 	_m.Called()

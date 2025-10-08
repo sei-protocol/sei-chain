@@ -2,10 +2,13 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -36,6 +39,26 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.Re
 	_, span := app.GetBaseApp().TracingInfo.Start("CheckTx")
 	defer span.End()
 	return app.BaseApp.CheckTx(ctx, req)
+}
+
+func (app *App) CheckTxWrapped(ctx context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, any, error) {
+	_, span := app.GetBaseApp().TracingInfo.Start("CheckTxWrapped")
+	defer span.End()
+	tx, err := app.txDecoder(req.Tx)
+	if err != nil {
+		res := sdkerrors.ResponseCheckTx(err, 0, 0, false)
+		return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, nil, err
+	}
+	res, err := app.CheckTxDecoded(tx, req)
+	if err != nil {
+		return res, nil, err
+	}
+	if tx != nil && len(tx.GetMsgs()) > 0 {
+		if evmMsg, ok := tx.GetMsgs()[0].(*evmtypes.MsgEVMTransaction); ok {
+			return res, evmMsg, nil
+		}
+	}
+	return res, nil, nil
 }
 
 func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
@@ -79,4 +102,13 @@ func (app *App) LoadLatest(ctx context.Context, req *abci.RequestLoadLatest) (*a
 	}
 	app.mounter()
 	return app.BaseApp.LoadLatest(ctx, req)
+}
+
+func (app *App) CheckNonce(ctx context.Context, req any, index int) (bool, error) {
+	sdkCtx := app.GetCheckCtx()
+	msg, ok := req.(*evmtypes.MsgEVMTransaction)
+	if !ok {
+		return false, fmt.Errorf("invalid request type: %T", req)
+	}
+	return app.EvmKeeper.CheckNonce(sdkCtx, msg, index)
 }

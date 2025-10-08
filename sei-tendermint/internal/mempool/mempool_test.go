@@ -166,6 +166,15 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*a
 	}}, nil
 }
 
+func (app *application) CheckTxWrapped(ctx context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, any, error) {
+	res, err := app.CheckTx(ctx, req)
+	return res, nil, err
+}
+
+func (app *application) CheckNonce(ctx context.Context, req any, index int) (bool, error) {
+	return true, nil
+}
+
 func (app *application) GetTxPriorityHint(context.Context, *abci.RequestGetTxPriorityHint) (*abci.ResponseGetTxPriorityHint, error) {
 	return &abci.ResponseGetTxPriorityHint{
 		// Return non-zero priority to allow testing the eviction logic effectively.
@@ -410,7 +419,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, 50, -1)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(ctx, -1, 50, -1)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -421,7 +430,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(1000, -1, -1)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(ctx, 1000, -1, -1)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -433,7 +442,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(1500, 30, -1)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(ctx, 1500, 30, -1)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Equal(t, int64(5690), txmp.SizeBytes())
@@ -444,7 +453,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, 2, -1)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(ctx, -1, 2, -1)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 2)
@@ -454,7 +463,7 @@ func TestTxMempool_ReapMaxBytesMaxGas(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, -1, 50)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(ctx, -1, -1, 50)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 50)
@@ -502,7 +511,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_FallbackToGasWanted(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		reapedTxs := txmp.ReapMaxBytesMaxGas(-1, -1, 50)
+		reapedTxs := txmp.ReapMaxBytesMaxGas(ctx, -1, -1, 50)
 		ensurePrioritized(reapedTxs)
 		require.Equal(t, len(tTxs), txmp.Size())
 		require.Len(t, reapedTxs, 50)
@@ -606,7 +615,7 @@ func TestTxMempool_ReapMaxBytesMaxGas_MinGasEVMTxThreshold(t *testing.T) {
 
 	// With MinGasEVMTx=21000, estimatedGas (10000) is ignored and we fallback to gasWanted (50000).
 	// Setting maxGasEstimated below gasWanted should therefore result in 0 reaped txs.
-	reaped := txmp.ReapMaxBytesMaxGas(-1, -1, 40000)
+	reaped := txmp.ReapMaxBytesMaxGas(ctx, -1, -1, 40000)
 	require.Len(t, reaped, 0)
 
 	// Note: If MinGasEVMTx is changed to 0, the same scenario would use estimatedGas (10000)
@@ -669,7 +678,7 @@ func TestTxMempool_Reap_SkipGasUnfitAndCollectMinTxs(t *testing.T) {
 	}
 
 	// Reap with a maxGasEstimated that makes the first tx unfit but allows many small txs
-	reaped := txmp.ReapMaxBytesMaxGas(-1, -1, 50)
+	reaped := txmp.ReapMaxBytesMaxGas(ctx, -1, -1, 50)
 	require.Len(t, reaped, MinTxsToPeek)
 
 	// Ensure all reaped small txs are under gas constraint
@@ -710,7 +719,7 @@ func TestTxMempool_Reap_SkipGasUnfitStopsAtMinEvenWithCapacity(t *testing.T) {
 	}
 
 	// Make the gas limit very small so the first (big) tx is unfit and we only collect MinTxsPerBlock
-	reaped := txmp.ReapMaxBytesMaxGas(-1, -1, 10)
+	reaped := txmp.ReapMaxBytesMaxGas(ctx, -1, -1, 10)
 	require.Len(t, reaped, MinTxsToPeek)
 }
 
@@ -1264,6 +1273,19 @@ func (app *nonceCheckApplication) CheckTx(_ context.Context, req *abci.RequestCh
 	return res, nil
 }
 
+func (app *nonceCheckApplication) CheckTxWrapped(ctx context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, any, error) {
+	res, err := app.CheckTx(ctx, req)
+	return res, uint64(req.Tx[0]), err
+}
+
+func (app *nonceCheckApplication) CheckNonce(ctx context.Context, req any, index int) (bool, error) {
+	nonce := req.(uint64)
+	if nonce == 0 {
+		return true, nil
+	}
+	return false, nil
+}
+
 func TestTxMempool_PendingNonce(t *testing.T) {
 	// Setup
 	ctx := t.Context()
@@ -1281,6 +1303,7 @@ func TestTxMempool_PendingNonce(t *testing.T) {
 	txmp := setup(t, client, 500)
 	txmp.config.TTLNumBlocks = 10
 	txmp.height = 1
+	txmp.config.CheckNonceBeforePropose = true
 
 	tx1 := append([]byte{0}, []byte("sender")...)
 	require.NoError(t, txmp.CheckTx(ctx, tx1, nil, TxInfo{SenderID: 0, SenderNodeID: "test"}))
@@ -1306,7 +1329,12 @@ func TestTxMempool_PendingNonce(t *testing.T) {
 	require.Len(t, txmp.priorityIndex.txs, 1)
 	require.Len(t, txmp.priorityIndex.evmQueue["sender"], 1) // two transactions from the sender
 
-	txs := txmp.ReapMaxBytesMaxGas(1000, 1000, 1000)
+	txs := txmp.ReapMaxBytesMaxGas(ctx, 1000, 1000, 1000)
+	require.Len(t, txs, 0) // tx2 has invalid nonce so won't be reaped with CheckNonceBeforePropose turned on
+
+	// now with CheckNonceBeforePropose turned off, tx2 should be reaped (which isn't ideal)
+	txmp.config.CheckNonceBeforePropose = false
+	txs = txmp.ReapMaxBytesMaxGas(ctx, 1000, 1000, 1000)
 	require.Len(t, txs, 1)
 	require.Equal(t, tx2, []byte(txs[0])) // tx2 with out of order nonce is included!
 }

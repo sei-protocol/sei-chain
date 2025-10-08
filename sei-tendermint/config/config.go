@@ -862,6 +862,10 @@ type MempoolConfig struct {
 	//
 	// See DropUtilisationThreshold and DropPriorityThreshold.
 	DropPriorityReservoirSize int `mapstructure:"drop-priority-reservoir-size"`
+
+	// Do a JIT check of nonce before proposing a block to make sure no transaction
+	// with invalid nonce is included in the block.
+	CheckNonceBeforePropose bool `mapstructure:"check-nonce-before-propose"`
 }
 
 // DefaultMempoolConfig returns a default configuration for the Tendermint mempool.
@@ -888,6 +892,7 @@ func DefaultMempoolConfig() *MempoolConfig {
 		DropPriorityThreshold:        0.1,
 		DropUtilisationThreshold:     1.0,
 		DropPriorityReservoirSize:    10_240,
+		CheckNonceBeforePropose:      false,
 	}
 }
 
