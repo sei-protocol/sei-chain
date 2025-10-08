@@ -318,7 +318,7 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 	}
 
 	val, err := db.Get(storeKey, version, key)
-	if err != nil && !errors.Is(err, errorutils.ErrRecordNotFound) {
+	if err != nil {
 		return false, err
 	}
 
@@ -327,11 +327,15 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 
 func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byte, error) {
 	if targetVersion < db.earliestVersion {
-		return nil, errorutils.ErrRecordNotFound
+		return nil, nil
 	}
 
 	prefixedVal, err := getMVCCSlice(db.storage, storeKey, key, targetVersion)
 	if err != nil {
+		if errors.Is(err, errorutils.ErrRecordNotFound) {
+			return nil, nil
+		}
+
 		return nil, fmt.Errorf("failed to perform PebbleDB read: %w", err)
 	}
 
@@ -358,7 +362,7 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byt
 	}
 
 	// the value is considered deleted
-	return nil, errorutils.ErrRecordNotFound
+	return nil, nil
 }
 
 func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) error {

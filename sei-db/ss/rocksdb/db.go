@@ -6,13 +6,12 @@ package rocksdb
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/linxGnu/grocksdb"
-	errorutils "github.com/sei-protocol/sei-db/common/errors"
+	"github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/config"
@@ -212,7 +211,7 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 	}
 
 	slice, err := db.getSlice(storeKey, version, key)
-	if err != nil && !errors.Is(err, errorutils.ErrRecordNotFound) {
+	if err != nil {
 		return false, err
 	}
 
@@ -221,17 +220,12 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 
 func (db *Database) Get(storeKey string, version int64, key []byte) ([]byte, error) {
 	if version < db.earliestVersion {
-		return nil, errorutils.ErrRecordNotFound
+		return nil, nil
 	}
 
 	slice, err := db.getSlice(storeKey, version, key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get RocksDB slice: %w", err)
-	}
-
-	if !slice.Exists() {
-		slice.Free()
-		return nil, errorutils.ErrRecordNotFound
 	}
 
 	return copyAndFreeSlice(slice), nil
@@ -330,11 +324,11 @@ func (db *Database) Prune(version int64) error {
 
 func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, errorutils.ErrKeyEmpty
+		return nil, errors.ErrKeyEmpty
 	}
 
 	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
-		return nil, errorutils.ErrStartAfterEnd
+		return nil, errors.ErrStartAfterEnd
 	}
 
 	prefix := storePrefix(storeKey)
@@ -346,11 +340,11 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 
 func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
-		return nil, errorutils.ErrKeyEmpty
+		return nil, errors.ErrKeyEmpty
 	}
 
 	if start != nil && end != nil && bytes.Compare(start, end) > 0 {
-		return nil, errorutils.ErrStartAfterEnd
+		return nil, errors.ErrStartAfterEnd
 	}
 
 	prefix := storePrefix(storeKey)
