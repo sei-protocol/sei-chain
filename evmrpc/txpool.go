@@ -27,6 +27,11 @@ type TxPoolConfig struct {
 	maxNumTxs int
 }
 
+// NewTxPoolConfig creates a new TxPoolConfig primarily for tests.
+func NewTxPoolConfig(maxNumTxs int) *TxPoolConfig {
+	return &TxPoolConfig{maxNumTxs: maxNumTxs}
+}
+
 func NewTxPoolAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, txPoolConfig *TxPoolConfig, connectionType ConnectionType) *TxPoolAPI {
 	return &TxPoolAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, txPoolConfig: txPoolConfig, connectionType: connectionType}
 }
