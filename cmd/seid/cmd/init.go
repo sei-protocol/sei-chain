@@ -20,10 +20,11 @@ import (
 	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/client/input"
-	"github.com/cosmos/cosmos-sdk/server"
+	srvconfig "github.com/cosmos/cosmos-sdk/server/config"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/x/genutil"
+	"github.com/sei-protocol/sei-chain/evmrpc"
 )
 
 const (
@@ -32,6 +33,9 @@ const (
 
 	// FlagSeed defines a flag to initialize the private validator key from a specific seed.
 	FlagRecover = "recover"
+
+	// FlagMode defines the node mode flag.
+	FlagMode = "mode"
 )
 
 type printInfo struct {
@@ -74,14 +78,25 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			clientCtx := client.GetClientContextFromCmd(cmd)
 			cdc := clientCtx.Codec
-			serverCtx := server.GetServerContextFromCmd(cmd)
-			config := serverCtx.Config
 
-			// Override default config.toml values with optimized values
-			params.SetTendermintConfigs(config)
+			// Get node mode from flag
+			modeStr, _ := cmd.Flags().GetString(FlagMode)
+			nodeMode := params.NodeMode(modeStr)
 
-			config.SetRoot(clientCtx.HomeDir)
-			configPath := filepath.Join(config.RootDir, "config")
+			// Validate mode
+			switch nodeMode {
+			case params.NodeModeValidator, params.NodeModeFull, params.NodeModeSeed, params.NodeModeArchive:
+				// Valid mode
+			default:
+				return fmt.Errorf("invalid node mode: %s (valid modes: validator, full, seed, archive)", modeStr)
+			}
+
+			// Create and configure Tendermint config (outputs to config.toml)
+			tmConfig := tmcfg.DefaultConfig()
+			tmConfig.Mode = string(nodeMode) // Set mode first
+			params.SetTendermintConfigByMode(tmConfig)
+			tmConfig.SetRoot(clientCtx.HomeDir)
+			configPath := filepath.Join(tmConfig.RootDir, "config")
 
 			chainID, _ := cmd.Flags().GetString(flags.FlagChainID)
 			if chainID == "" {
@@ -103,14 +118,14 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 				}
 			}
 
-			nodeID, _, err := genutil.InitializeNodeValidatorFilesFromMnemonic(config, mnemonic)
+			nodeID, _, err := genutil.InitializeNodeValidatorFilesFromMnemonic(tmConfig, mnemonic)
 			if err != nil {
 				return err
 			}
 
-			config.Moniker = args[0]
+			tmConfig.Moniker = args[0]
 
-			genFile := config.GenesisFile()
+			genFile := tmConfig.GenesisFile()
 			overwrite, _ := cmd.Flags().GetBool(FlagOverwrite)
 
 			if !overwrite && tmos.FileExists(genFile) {
@@ -148,12 +163,35 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 				return err
 			}
 
-			toPrint := newPrintInfo(config.Moniker, chainID, nodeID, "", appState)
+			toPrint := newPrintInfo(tmConfig.Moniker, chainID, nodeID, "", appState)
 
-			err = tmcfg.WriteConfigFile(config.RootDir, config)
+			// Write Tendermint config.toml
+			err = tmcfg.WriteConfigFile(tmConfig.RootDir, tmConfig)
 			if err != nil {
 				panic(err)
 			}
+
+			// Create and configure app config (outputs to app.toml)
+			appConfig := srvconfig.DefaultConfig()
+			params.SetAppConfigByMode(appConfig, nodeMode)
+
+			// Configure EVM based on node mode
+			evmConfig := evmrpc.DefaultConfig
+			params.SetEVMConfigByMode(&evmConfig, nodeMode)
+
+			appTomlPath := filepath.Join(configPath, "app.toml")
+
+			// Get custom template from root.go
+			customAppTemplate, _ := initAppConfig()
+			srvconfig.SetConfigTemplate(customAppTemplate)
+
+			// Build custom app config with mode-specific values
+			customAppConfig := NewCustomAppConfig(appConfig, evmConfig)
+
+			srvconfig.WriteConfigFile(appTomlPath, customAppConfig)
+
+			fmt.Fprintf(os.Stderr, "\nNode initialized with mode: %s\n", nodeMode)
+			fmt.Fprintf(os.Stderr, "Configuration files generated in: %s\n\n", configPath)
 
 			return displayInfo(toPrint)
 		},
@@ -163,6 +201,7 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 	cmd.Flags().BoolP(FlagOverwrite, "o", false, "overwrite the genesis.json file")
 	cmd.Flags().Bool(FlagRecover, false, "provide seed phrase to recover existing key instead of creating")
 	cmd.Flags().String(flags.FlagChainID, "", "genesis file chain-id, if left blank will use sei")
+	cmd.Flags().String(FlagMode, "full", "node mode: validator, full, seed, or archive")
 
 	return cmd
 }
