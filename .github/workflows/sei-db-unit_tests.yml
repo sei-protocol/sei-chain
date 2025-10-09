@@ -76,7 +76,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: "${{ github.sha }}-coverage-rocksdb"
-          path: ./sei-db/profile.out
+          path: ./sei-db/rdb-profile.out
 
   upload-coverage-report:
     needs: [tests, tests-rocksdb]
