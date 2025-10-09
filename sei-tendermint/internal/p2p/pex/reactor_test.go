@@ -34,7 +34,7 @@ const (
 
 func TestReactorBasic(t *testing.T) {
 	ctx := t.Context()
-	// start a network with one mock reactor and one "real" reactor
+	t.Log("start a network with one mock reactor and one \"real\" reactor")
 	testNet := setupNetwork(ctx, t, testOptions{
 		MockNodes:  1,
 		TotalNodes: 2,
@@ -42,11 +42,10 @@ func TestReactorBasic(t *testing.T) {
 	testNet.connectAll(ctx, t)
 	testNet.start(ctx, t)
 
-	// assert that the mock node receives a request from the real node
+	t.Log("assert that the mock node receives a request from the real node")
 	testNet.listenForRequest(ctx, t, secondNode, firstNode, shortWait)
 
-	// assert that when a mock node sends a request it receives a response (and
-	// the correct one)
+	t.Log("assert that when a mock node sends a request it receives a response (and the correct one)")
 	testNet.sendRequest(ctx, t, firstNode, secondNode)
 	testNet.listenForResponse(ctx, t, secondNode, firstNode, shortWait, []p2pproto.PexAddress(nil))
 }
@@ -637,8 +636,8 @@ func (r *reactorTestSuite) connectCycle(ctx context.Context, t *testing.T) {
 
 func (r *reactorTestSuite) connectAll(ctx context.Context, t *testing.T) {
 	for i := range r.total {
-		for j := range r.total - 1 {
-			r.connectPeers(ctx, t, i, (i+j+1)%r.total)
+		for j := i + 1; j < r.total; j += 1 {
+			r.connectPeers(ctx, t, i, j)
 		}
 	}
 }
