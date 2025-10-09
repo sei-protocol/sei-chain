@@ -385,7 +385,7 @@ func RequireReceiveUnordered(t *testing.T, channel *Channel, expect []*Envelope)
 	actual := []*Envelope{}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	iter := channel.Receive(ctx)
+	iter := channel.RecvAll(ctx)
 	for iter.Next(ctx) {
 		actual = append(actual, iter.Envelope())
 		if len(actual) == len(expect) {

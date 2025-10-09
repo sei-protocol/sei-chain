@@ -215,7 +215,7 @@ func TestRouter_SendReceive_Random(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("Send(): %v", err)
 		}
-		got, err := channels[chID][to].Receive1(ctx)
+		got, err := channels[chID][to].Recv(ctx)
 		if err != nil {
 			t.Fatalf("Receive1(): %v", err)
 		}

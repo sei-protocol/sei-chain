@@ -291,7 +291,7 @@ func (r *Reactor) handleMessage(ctx context.Context, envelope *p2p.Envelope, blo
 // When the reactor is stopped, we will catch the signal and close the p2p Channel
 // gracefully.
 func (r *Reactor) processBlockSyncCh(ctx context.Context, blockSyncCh *p2p.Channel) {
-	iter := blockSyncCh.Receive(ctx)
+	iter := blockSyncCh.RecvAll(ctx)
 	for iter.Next(ctx) {
 		envelope := iter.Envelope()
 		if err := r.handleMessage(ctx, envelope, blockSyncCh); err != nil {

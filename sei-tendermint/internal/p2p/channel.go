@@ -105,11 +105,12 @@ func (ch *Channel) String() string { return fmt.Sprintf("p2p.Channel<%d:%s>", ch
 
 func (ch *Channel) ReceiveLen() int { return ch.inCh.Len() }
 
-func (ch *Channel) Receive1(ctx context.Context) (Envelope, error) { return ch.inCh.Recv(ctx) }
+// Recv Receives the next message from the channel.
+func (ch *Channel) Recv(ctx context.Context) (Envelope, error) { return ch.inCh.Recv(ctx) }
 
-// Receive returns a new unbuffered iterator to receive messages from ch.
+// RecvAll returns a new unbuffered iterator to receive messages from ch.
 // The iterator runs until ctx ends.
-func (ch *Channel) Receive(ctx context.Context) *ChannelIterator {
+func (ch *Channel) RecvAll(ctx context.Context) *ChannelIterator {
 	iter := &ChannelIterator{
 		pipe: make(chan Envelope), // unbuffered
 	}
