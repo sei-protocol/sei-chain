@@ -34,7 +34,7 @@ type StateCommitConfig struct {
 	AsyncCommitBuffer int `mapstructure:"async-commit-buffer"`
 
 	// SnapshotKeepRecent defines what many old snapshots (excluding the latest one) to keep
-	// defaults to 1 to make sure ibc relayers work.
+	// defaults to 0 to only keep one current snapshot
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
 	// SnapshotInterval defines the block interval the memiavl snapshot is taken, default to 10000.
