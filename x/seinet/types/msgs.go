@@ -115,4 +115,5 @@ func NormalizeHexHash(hash string) (string, error) {
 	if _, err := hex.DecodeString(normalized); err != nil {
 		return "", err
 	}
-	retur
+	return normalized, nil
+}
