@@ -27,7 +27,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.21"
+          go-version: "1.25"  # 🔁 Updated from 1.21
 
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -103,7 +103,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.21"
+          go-version: "1.25"  # ✅ FIXED HERE
 
       - name: Download all coverage profiles
         uses: actions/download-artifact@v4
@@ -138,6 +138,11 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     steps:
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.25"
+
       - name: Check for Failed Jobs
         run: |
           jobs=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs)
