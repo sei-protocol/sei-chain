@@ -163,7 +163,7 @@ func (r *Reactor) processPexCh(ctx context.Context) error {
 	incoming := make(chan *p2p.Envelope)
 	go func() {
 		defer close(incoming)
-		iter := r.channel.Receive(ctx)
+		iter := r.channel.RecvAll(ctx)
 		for iter.Next(ctx) {
 			if err := utils.Send(ctx, incoming, iter.Envelope()); err != nil {
 				return

@@ -7,13 +7,7 @@ import (
 	"time"
 )
 
-type connectionTracker interface {
-	AddConn(netip.AddrPort) error
-	RemoveConn(netip.AddrPort)
-	Len() int
-}
-
-type connTrackerImpl struct {
+type connTracker struct {
 	cache       map[netip.Addr]uint
 	lastConnect map[netip.Addr]time.Time
 	mutex       sync.RWMutex
@@ -21,8 +15,8 @@ type connTrackerImpl struct {
 	window      time.Duration
 }
 
-func newConnTracker(max uint, window time.Duration) connectionTracker {
-	return &connTrackerImpl{
+func newConnTracker(max uint, window time.Duration) *connTracker {
+	return &connTracker{
 		cache:       map[netip.Addr]uint{},
 		lastConnect: map[netip.Addr]time.Time{},
 		max:         max,
@@ -30,13 +24,13 @@ func newConnTracker(max uint, window time.Duration) connectionTracker {
 	}
 }
 
-func (rat *connTrackerImpl) Len() int {
+func (rat *connTracker) Len() int {
 	rat.mutex.RLock()
 	defer rat.mutex.RUnlock()
 	return len(rat.cache)
 }
 
-func (rat *connTrackerImpl) AddConn(addrPort netip.AddrPort) error {
+func (rat *connTracker) AddConn(addrPort netip.AddrPort) error {
 	address := addrPort.Addr()
 	rat.mutex.Lock()
 	defer rat.mutex.Unlock()
@@ -58,7 +52,7 @@ func (rat *connTrackerImpl) AddConn(addrPort netip.AddrPort) error {
 	return nil
 }
 
-func (rat *connTrackerImpl) RemoveConn(addrPort netip.AddrPort) {
+func (rat *connTracker) RemoveConn(addrPort netip.AddrPort) {
 	address := addrPort.Addr()
 	rat.mutex.Lock()
 	defer rat.mutex.Unlock()

@@ -512,7 +512,7 @@ func (r *Reactor) processPeerUpdates(ctx context.Context, peerUpdates *p2p.PeerU
 }
 
 func (r *Reactor) processMetadataCh(ctx context.Context, ch *p2p.Channel) {
-	iter := ch.Receive(ctx)
+	iter := ch.RecvAll(ctx)
 	for iter.Next(ctx) {
 		envelope := iter.Envelope()
 		if err := r.handleMetadataMessage(ctx, envelope); err != nil {
@@ -528,7 +528,7 @@ func (r *Reactor) processMetadataCh(ctx context.Context, ch *p2p.Channel) {
 }
 
 func (r *Reactor) processFileCh(ctx context.Context, ch *p2p.Channel) {
-	iter := ch.Receive(ctx)
+	iter := ch.RecvAll(ctx)
 	for iter.Next(ctx) {
 		envelope := iter.Envelope()
 		if err := r.handleFileMessage(ctx, envelope); err != nil {
@@ -544,7 +544,7 @@ func (r *Reactor) processFileCh(ctx context.Context, ch *p2p.Channel) {
 }
 
 func (r *Reactor) processLightBlockCh(ctx context.Context, ch *p2p.Channel) {
-	iter := ch.Receive(ctx)
+	iter := ch.RecvAll(ctx)
 	for iter.Next(ctx) {
 		envelope := iter.Envelope()
 		if err := r.handleLightBlockMessage(ctx, envelope); err != nil {
@@ -560,7 +560,7 @@ func (r *Reactor) processLightBlockCh(ctx context.Context, ch *p2p.Channel) {
 }
 
 func (r *Reactor) processParamsCh(ctx context.Context, ch *p2p.Channel) {
-	iter := ch.Receive(ctx)
+	iter := ch.RecvAll(ctx)
 	for iter.Next(ctx) {
 		envelope := iter.Envelope()
 		if err := r.handleParamsMessage(ctx, envelope); err != nil {
