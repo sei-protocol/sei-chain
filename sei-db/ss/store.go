@@ -41,17 +41,16 @@ func NewStateStore(logger logger.Logger, homeDir string, ssConfig config.StateSt
 	if err != nil {
 		return nil, err
 	}
+
 	// Handle auto recovery for DB running with async mode
-	if ssConfig.DedicatedChangelog {
-		changelogPath := utils.GetChangelogPath(utils.GetStateStorePath(homeDir, ssConfig.Backend))
-		if ssConfig.DBDirectory != "" {
-			changelogPath = utils.GetChangelogPath(ssConfig.DBDirectory)
-		}
-		err := RecoverStateStore(logger, changelogPath, stateStore)
-		if err != nil {
-			return nil, err
-		}
+	changelogPath := utils.GetChangelogPath(utils.GetStateStorePath(homeDir, ssConfig.Backend))
+	if ssConfig.DBDirectory != "" {
+		changelogPath = utils.GetChangelogPath(ssConfig.DBDirectory)
 	}
+	if err := RecoverStateStore(logger, changelogPath, stateStore); err != nil {
+		return nil, err
+	}
+
 	// Start the pruning manager for DB
 	pruningManager := pruning.NewPruningManager(logger, stateStore, int64(ssConfig.KeepRecent), int64(ssConfig.PruneIntervalSeconds))
 	pruningManager.Start()
@@ -62,9 +61,6 @@ func NewStateStore(logger logger.Logger, homeDir string, ssConfig config.StateSt
 func RecoverStateStore(logger logger.Logger, changelogPath string, stateStore types.StateStore) error {
 	ssLatestVersion := stateStore.GetLatestVersion()
 	logger.Info(fmt.Sprintf("Recovering from changelog %s with latest SS version %d", changelogPath, ssLatestVersion))
-	if ssLatestVersion <= 0 {
-		return nil
-	}
 	streamHandler, err := changelog.NewStream(logger, changelogPath, changelog.Config{})
 	if err != nil {
 		return err
@@ -84,15 +80,20 @@ func RecoverStateStore(logger logger.Logger, changelogPath string, stateStore ty
 	// Look backward to find where we should start replay from
 	curVersion := lastEntry.Version
 	curOffset := lastOffset
-	for curVersion > ssLatestVersion && curOffset > firstOffset {
-		curOffset--
-		curEntry, errRead := streamHandler.ReadAt(curOffset)
-		if errRead != nil {
-			return err
+	if ssLatestVersion > 0 {
+		for curVersion > ssLatestVersion && curOffset > firstOffset {
+			curOffset--
+			curEntry, errRead := streamHandler.ReadAt(curOffset)
+			if errRead != nil {
+				return err
+			}
+			curVersion = curEntry.Version
 		}
-		curVersion = curEntry.Version
+	} else {
+		// Fresh store (or no applied versions) – start from the first offset
+		curOffset = firstOffset
 	}
-	// Replay from the offset where the offset where the version is larger than SS store latest version
+	// Replay from the offset where the version is larger than SS store latest version
 	targetStartOffset := curOffset
 	logger.Info(fmt.Sprintf("Start replaying changelog to recover StateStore from offset %d to %d", targetStartOffset, lastOffset))
 	if targetStartOffset < lastOffset {

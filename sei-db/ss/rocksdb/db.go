@@ -110,20 +110,18 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
 	}
 
-	if config.DedicatedChangelog {
-		streamHandler, _ := changelog.NewStream(
-			logger.NewNopLogger(),
-			utils.GetChangelogPath(dataDir),
-			changelog.Config{
-				DisableFsync:  true,
-				ZeroCopy:      true,
-				KeepRecent:    uint64(config.KeepRecent),
-				PruneInterval: 300 * time.Second,
-			},
-		)
-		database.streamHandler = streamHandler
-		go database.writeAsyncInBackground()
-	}
+	streamHandler, _ := changelog.NewStream(
+		logger.NewNopLogger(),
+		utils.GetChangelogPath(dataDir),
+		changelog.Config{
+			DisableFsync:  true,
+			ZeroCopy:      true,
+			KeepRecent:    uint64(config.KeepRecent),
+			PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
+		},
+	)
+	database.streamHandler = streamHandler
+	go database.writeAsyncInBackground()
 
 	return database, nil
 }
@@ -495,16 +493,15 @@ func (db *Database) WriteBlockRangeHash(storeKey string, beginBlockRange, endBlo
 
 func (db *Database) Close() error {
 	if db.streamHandler != nil {
-		// Close the changelog stream first
-		db.streamHandler.Close()
 		// Close the pending changes channel to signal the background goroutine to stop
 		close(db.pendingChanges)
 		// Wait for the async writes to finish processing all buffered items
 		db.asyncWriteWG.Wait()
+		// Close the changelog stream first
+		_ = db.streamHandler.Close()
 		// Only set to nil after background goroutine has finished
 		db.streamHandler = nil
 	}
-
 	db.storage.Close()
 	db.storage = nil
 	db.cfHandle = nil

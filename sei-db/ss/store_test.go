@@ -15,16 +15,15 @@ import (
 
 func TestNewStateStore(t *testing.T) {
 	tempDir := os.TempDir()
-	homeDir := filepath.Join(tempDir, "seidb")
+	homeDir := filepath.Join(tempDir, "pebbledb")
 	ssConfig := config.StateStoreConfig{
-		DedicatedChangelog: true,
-		Backend:            string(PebbleDBBackend),
-		AsyncWriteBuffer:   50,
-		KeepRecent:         500,
+		Backend:          string(PebbleDBBackend),
+		AsyncWriteBuffer: 100,
+		KeepRecent:       500,
 	}
 	stateStore, err := NewStateStore(logger.NewNopLogger(), homeDir, ssConfig)
 	require.NoError(t, err)
-	for i := 1; i < 20; i++ {
+	for i := 1; i < 50; i++ {
 		var changesets []*proto.NamedChangeSet
 		kvPair := &iavl.KVPair{
 			Delete: false,
@@ -51,7 +50,7 @@ func TestNewStateStore(t *testing.T) {
 	require.NoError(t, err)
 
 	// Make sure key and values can be found
-	for i := 1; i < 20; i++ {
+	for i := 1; i < 50; i++ {
 		value, err := stateStore.Get("storeA", int64(i), []byte(fmt.Sprintf("key%d", i)))
 		require.NoError(t, err)
 		require.Equal(t, fmt.Sprintf("value%d", i), string(value))

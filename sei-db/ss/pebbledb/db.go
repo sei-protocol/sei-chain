@@ -152,34 +152,35 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	}
 	database.lastRangeHashedCache = lastHashed
 
-	if config.DedicatedChangelog {
-		if config.KeepRecent < 0 {
-			return nil, errors.New("KeepRecent must be non-negative")
-		}
-		streamHandler, _ := changelog.NewStream(
-			logger.NewNopLogger(),
-			utils.GetChangelogPath(dataDir),
-			changelog.Config{
-				DisableFsync:  true,
-				ZeroCopy:      true,
-				KeepRecent:    uint64(config.KeepRecent),
-				PruneInterval: 300 * time.Second,
-			},
-		)
-		database.streamHandler = streamHandler
-		go database.writeAsyncInBackground()
+	if config.KeepRecent < 0 {
+		return nil, errors.New("KeepRecent must be non-negative")
 	}
+	streamHandler, _ := changelog.NewStream(
+		logger.NewNopLogger(),
+		utils.GetChangelogPath(dataDir),
+		changelog.Config{
+			DisableFsync:  true,
+			ZeroCopy:      true,
+			KeepRecent:    uint64(config.KeepRecent),
+			PruneInterval: time.Duration(config.PruneIntervalSeconds) * time.Second,
+		},
+	)
+	database.streamHandler = streamHandler
+	go database.writeAsyncInBackground()
+
 	return database, nil
 }
 
 func (db *Database) Close() error {
 	if db.streamHandler != nil {
+		// First, stop accepting new pending changes and drain the worker
+		close(db.pendingChanges)
+		// Wait for the async writes to finish
+		db.asyncWriteWG.Wait()
+		// Now close the WAL stream
 		_ = db.streamHandler.Close()
 		db.streamHandler = nil
-		close(db.pendingChanges)
 	}
-	// Wait for the async writes to finish
-	db.asyncWriteWG.Wait()
 	err := db.storage.Close()
 	db.storage = nil
 	return err
