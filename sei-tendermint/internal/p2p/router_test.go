@@ -36,7 +36,7 @@ func mayDisconnectAfterDone(ctx context.Context, err error) error {
 }
 
 func echoReactor(ctx context.Context, channel *Channel) {
-	iter := channel.Receive(ctx)
+	iter := channel.RecvAll(ctx)
 	for iter.Next(ctx) {
 		envelope := iter.Envelope()
 		value := envelope.Message.(*TestMessage).Value

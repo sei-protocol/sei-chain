@@ -462,7 +462,7 @@ func (r *reactorTestSuite) listenFor(
 ) {
 	ctx, cancel := context.WithTimeout(ctx, waitPeriod)
 	defer cancel()
-	iter := r.pexChannels[node].Receive(ctx)
+	iter := r.pexChannels[node].RecvAll(ctx)
 	for iter.Next(ctx) {
 		envelope := iter.Envelope()
 		if conditional(envelope) && assertion(t, envelope) {
