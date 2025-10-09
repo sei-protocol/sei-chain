@@ -144,43 +144,44 @@ func TestHandshake_NodeInfo(t *testing.T) {
 // Test checking that handshake respects the context.
 func TestHandshake_Context(t *testing.T) {
 	logger, _ := log.NewDefaultLogger("plain", "debug")
-	ctx := t.Context()
-	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		addr := tcp.TestReserveAddr()
 		listener, err := tcp.Listen(addr)
 		if err != nil {
 			return fmt.Errorf("tcp.Listen(): %w", err)
 		}
-		defer listener.Close()
-
-		s.SpawnBg(func() error {
+		s.Spawn(func() error {
+			defer listener.Close()
 			// One connection end does not handshake.
 			tcpConn, err := tcp.AcceptOrClose(ctx, listener)
 			if err != nil {
 				return fmt.Errorf("tcp.AcceptOrClose(): %w", err)
 			}
-			defer tcpConn.Close()
-			<-ctx.Done()
+			s.SpawnBg(func() error {
+				defer tcpConn.Close()
+				<-ctx.Done()
+				return nil
+			})
 			return nil
 		})
-
-		tcpConn, err := tcp.Dial(ctx, addr)
-		if err != nil {
-			t.Fatalf("tcp.Dial(): %v", err)
-		}
-
-		s.SpawnBg(func() error {
-			defer tcpConn.Close()
+		s.Spawn(func() error {
 			// Second connection end tries to handshake.
-			key, info := makeKeyAndInfo()
-			conn, err := handshake(ctx, logger, tcpConn, info, key)
-			if err == nil {
-				defer conn.Close()
-				return fmt.Errorf("handshake(): expected error, got %w", err)
+			tcpConn, err := tcp.Dial(ctx, addr)
+			if err != nil {
+				t.Fatalf("tcp.Dial(): %v", err)
 			}
+			s.SpawnBg(func() error {
+				defer tcpConn.Close()
+				key, info := makeKeyAndInfo()
+				conn, err := handshake(ctx, logger, tcpConn, info, key)
+				if err == nil {
+					defer conn.Close()
+					return fmt.Errorf("handshake(): expected error, got %w", err)
+				}
+				return nil
+			})
 			return nil
 		})
-		// Cancel context, which should make both connection terminate gracefully.
 		return nil
 	})
 	if err != nil {
