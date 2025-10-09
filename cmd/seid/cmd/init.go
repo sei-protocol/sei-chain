@@ -38,6 +38,16 @@ const (
 	FlagMode = "mode"
 )
 
+// isValidMode checks if the given node mode is valid
+func isValidMode(mode params.NodeMode) bool {
+	switch mode {
+	case params.NodeModeValidator, params.NodeModeFull, params.NodeModeSeed, params.NodeModeArchive:
+		return true
+	default:
+		return false
+	}
+}
+
 type printInfo struct {
 	Moniker    string          `json:"moniker" yaml:"moniker"`
 	ChainID    string          `json:"chain_id" yaml:"chain_id"`
@@ -84,10 +94,7 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 			nodeMode := params.NodeMode(modeStr)
 
 			// Validate mode
-			switch nodeMode {
-			case params.NodeModeValidator, params.NodeModeFull, params.NodeModeSeed, params.NodeModeArchive:
-				// Valid mode
-			default:
+			if !isValidMode(nodeMode) {
 				return fmt.Errorf("invalid node mode: %s (valid modes: validator, full, seed, archive)", modeStr)
 			}
 

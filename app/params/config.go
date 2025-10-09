@@ -140,9 +140,6 @@ func setValidatorTypeAppConfig(config *srvconfig.Config) {
 	config.GRPCWeb.Enable = false
 	config.Rosetta.Enable = false
 	config.StateStore.Enable = false
-
-	// StateStore: validators don't need to keep state store history
-	config.StateStore.KeepRecent = 0
 }
 
 // setFullnodeTypeAppConfig sets common app config for fullnode-like nodes

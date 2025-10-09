@@ -155,12 +155,7 @@ func TestInitModeFlag(t *testing.T) {
 			nodeMode := params.NodeMode(mode)
 
 			// Verify mode is recognized
-			switch nodeMode {
-			case params.NodeModeValidator, params.NodeModeFull, params.NodeModeSeed, params.NodeModeArchive:
-				// Valid
-			default:
-				t.Fatalf("Mode %s not recognized", mode)
-			}
+			require.True(t, isValidMode(nodeMode), "Mode %s should be valid", mode)
 		})
 	}
 
@@ -169,13 +164,7 @@ func TestInitModeFlag(t *testing.T) {
 		invalidMode := params.NodeMode("invalid")
 
 		// Should not match any valid mode
-		valid := false
-		switch invalidMode {
-		case params.NodeModeValidator, params.NodeModeFull, params.NodeModeSeed, params.NodeModeArchive:
-			valid = true
-		}
-
-		require.False(t, valid, "Invalid mode should not be accepted")
+		require.False(t, isValidMode(invalidMode), "Invalid mode should not be accepted")
 	})
 }
 
