@@ -26,7 +26,10 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: nightly
+          version: nightly  # You may also pin to a stable tag if desired
+
+      - name: Install dependencies
+        run: forge install  # ✅ Ensure OpenZeppelin gets installed into lib/
 
       - name: Run Forge build
         run: |
