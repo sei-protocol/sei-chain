@@ -10,6 +10,7 @@ coverage:
         target: 60%
         paths:
           - "!sei-cosmos/**"
+          - "!sei-db/**"
           - "!sei-tendermint/**"
           - "!sei-wasmd/**"
           - "!sei-wasmvm/**"
