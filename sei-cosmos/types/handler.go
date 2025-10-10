@@ -136,8 +136,15 @@ func (wad WrappedAnteDecorator) AnteHandle(ctx Context, tx Tx, simulate bool, ne
 			
 			spanName := fmt.Sprintf("AnteDecorator.%s", decoratorName)
 			spanCtx, span := tracingInfo.StartWithContext(spanName, ctx.TraceSpanContext())
-			defer span.End()
 			ctx = ctx.WithTraceSpanContext(spanCtx)
+			
+			// Wrap next() to end the span before calling it
+			wrappedNext := func(ctx Context, tx Tx, simulate bool) (Context, error) {
+				span.End() // End this decorator's span before calling next
+				return next(ctx, tx, simulate)
+			}
+			
+			return wad.Decorator.AnteHandle(ctx, tx, simulate, wrappedNext)
 		}
 	}
 	
