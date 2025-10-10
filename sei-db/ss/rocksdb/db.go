@@ -247,7 +247,12 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 }
 
 func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
-	// Write to WAL first
+	// Add to pending changes
+	db.pendingChanges <- VersionedChangesets{
+		Version:    version,
+		Changesets: changesets,
+	}
+	// Write to WAL
 	if db.streamHandler != nil {
 		entry := proto.ChangelogEntry{
 			Version: version,
@@ -259,12 +264,6 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 			return err
 		}
 	}
-	// Then write to pending changes
-	db.pendingChanges <- VersionedChangesets{
-		Version:    version,
-		Changesets: changesets,
-	}
-
 	return nil
 }
 
