@@ -3,11 +3,11 @@ package p2p
 import (
 	"context"
 	"fmt"
-	"github.com/tendermint/tendermint/crypto"
+	"time"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
-	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/gogo/protobuf/proto"
 	"math"
 	"net"
 	"net/netip"
@@ -17,24 +17,26 @@ import (
 	"github.com/tendermint/tendermint/types"
 )
 
+const queueBufferDefault = 1024
+
 type InvalidEndpointErr struct{ error }
 
 // Connection implements Connection for Transport.
 type Connection struct {
-	conn     net.Conn
+	cancel chan struct{}
+	router *Router
+	conn net.Conn
 	peerInfo types.NodeInfo
-	mconn    *conn.MConnection
+	sendQueue *Queue[sendMsg]
+	mconn *conn.MConnection
 }
 
 // Handshake implements Connection.
 func HandshakeOrClose(
 	ctx context.Context,
-	logger log.Logger,
+	r *Router,
 	nodeInfo types.NodeInfo,
-	privKey crypto.PrivKey,
 	tcpConn net.Conn,
-	mConnConfig conn.MConnConfig,
-	channelDescs []*ChannelDescriptor,
 ) (c *Connection, err error) {
 	defer func() {
 		// Late error check. Close conn to avoid leaking it.
@@ -53,7 +55,7 @@ func HandshakeOrClose(
 			return nil
 		})
 		var err error
-		secretConn, err := conn.MakeSecretConnection(tcpConn, privKey)
+		secretConn, err := conn.MakeSecretConnection(tcpConn, r.privKey)
 		if err != nil {
 			return nil, err
 		}
@@ -81,37 +83,92 @@ func HandshakeOrClose(
 		ok.Store(true)
 		return &Connection{
 			conn:     tcpConn,
+			sendQueue: NewQueue[sendMsg](queueBufferDefault),
 			peerInfo: peerInfo,
 			mconn: conn.NewMConnection(
-				logger.With("peer", remoteEndpoint(tcpConn).NodeAddress(peerInfo.NodeID)),
+				r.logger.With("peer", remoteEndpoint(tcpConn).NodeAddress(peerInfo.NodeID)),
 				secretConn,
-				channelDescs,
-				mConnConfig,
+				r.getChannelDescriptors(),
+				r.options.Connection,
 			),
 		}, nil
 	})
 }
 
+func (c *Connection) sendRoutine(ctx context.Context) error {
+	for {
+		start := time.Now().UTC()
+		m, err := c.sendQueue.Recv(ctx)
+		if err != nil {
+			return err
+		}
+		c.router.metrics.RouterPeerQueueRecv.Observe(time.Since(start).Seconds())
+		bz, err := proto.Marshal(m.Message)
+		if err != nil {
+			panic(fmt.Sprintf("proto.Marshal(): %v", err))
+		}
+		if m.ChannelID > math.MaxUint8 {
+			return fmt.Errorf("MConnection only supports 1-byte channel IDs (got %v)", m.ChannelID)
+		}
+		if err := c.mconn.Send(ctx, m.ChannelID, bz); err != nil {
+			return err
+		}
+		c.router.logger.Debug("sent message", "peer", c.peerInfo.NodeID, "message", m.Message)
+	}
+}
+
+// receivePeer receives inbound messages from a peer, deserializes them and
+// passes them on to the appropriate channel.
+func (c *Connection) recvRoutine(ctx context.Context) error {
+	for {
+		chID, bz, err := c.mconn.Recv(ctx)
+		if err != nil {
+			return err
+		}
+		for chs := range c.router.channels.RLock() {
+			ch, ok := chs[chID]
+			if !ok {
+				// TODO(gprusak): verify if this is a misbehavior, and drop the peer if it is.
+				c.router.logger.Debug("dropping message for unknown channel", "peer", c.peerInfo.NodeID, "channel", chID)
+				continue
+			}
+
+			msg := proto.Clone(ch.desc.MessageType)
+			if err := proto.Unmarshal(bz, msg); err != nil {
+				return fmt.Errorf("message decoding failed, dropping message: [peer=%v] %w", c.peerInfo.NodeID, err)
+			}
+			if wrapper, ok := msg.(Wrapper); ok {
+				var err error
+				if msg, err = wrapper.Unwrap(); err != nil {
+					return fmt.Errorf("failed to unwrap message: %w", err)
+				}
+			}
+			// Priority is not used since all messages in this queue are from the same channel.
+			if _, ok := ch.recvQueue.Send(recvMsg{From: c.peerInfo.NodeID, Message: msg}, proto.Size(msg), 0).Get(); ok {
+				c.router.metrics.QueueDroppedMsgs.With("ch_id", fmt.Sprint(chID), "direction", "in").Add(float64(1))
+			}
+			c.router.metrics.PeerReceiveBytesTotal.With(
+				"chID", fmt.Sprint(chID),
+				"peer_id", string(c.peerInfo.NodeID),
+				"message_type", c.router.lc.ValueToMetricLabel(msg)).Add(float64(proto.Size(msg)))
+			c.router.logger.Debug("received message", "peer", c.peerInfo.NodeID, "message", msg)
+		}
+	}
+}
+
 func (c *Connection) Run(ctx context.Context) error {
-	return c.mconn.Run(ctx)
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error { return c.mconn.Run(ctx) })
+		s.Spawn(func() error { return c.sendRoutine(ctx) })
+		s.Spawn(func() error { return c.recvRoutine(ctx) })
+		_,_,_ = utils.RecvOrClosed(ctx, c.cancel)
+		return context.Canceled
+	})
 }
 
 // String displays connection information.
 func (c *Connection) String() string {
 	return c.RemoteEndpoint().String()
-}
-
-// SendMessage implements Connection.
-func (c *Connection) SendMessage(ctx context.Context, chID ChannelID, msg []byte) error {
-	if chID > math.MaxUint8 {
-		return fmt.Errorf("MConnection only supports 1-byte channel IDs (got %v)", chID)
-	}
-	return c.mconn.Send(ctx, chID, msg)
-}
-
-// ReceiveMessage implements Connection.
-func (c *Connection) ReceiveMessage(ctx context.Context) (ChannelID, []byte, error) {
-	return c.mconn.Recv(ctx)
 }
 
 // LocalEndpoint implements Connection.
@@ -163,4 +220,4 @@ func (e Endpoint) Validate() error {
 		return InvalidEndpointErr{fmt.Errorf("endpoint has invalid address %q", e.String())}
 	}
 	return nil
-}
+

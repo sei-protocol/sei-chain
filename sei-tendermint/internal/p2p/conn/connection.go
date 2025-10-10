@@ -186,12 +186,12 @@ func (c *MConnection) Run(ctx context.Context) error {
 		s.SpawnNamed("sendRoutine", func() error { return c.sendRoutine(ctx) })
 		s.SpawnNamed("recvRoutine", func() error { return c.recvRoutine(ctx) })
 		s.SpawnNamed("statsRoutine", func() error { return c.statsRoutine(ctx) })
-		<-ctx.Done()
-		s.Cancel(ctx.Err())
 		// Unfortunately golang std IO operations do not support cancellation via context.
 		// Instead, we trigger cancellation by closing the underlying connection.
 		// Alternatively, we could utilise net.Conn.Set[Read|Write]Deadline() methods
 		// for precise cancellation, but we don't have a need for that here.
+		<-ctx.Done()
+		s.Cancel(ctx.Err())
 		c.conn.Close()
 		return nil
 	})
