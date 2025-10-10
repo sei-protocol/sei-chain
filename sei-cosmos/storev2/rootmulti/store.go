@@ -251,7 +251,7 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStore, error) {
 	rs.mtx.RLock()
 	defer rs.mtx.RUnlock()
-	stores := make(map[types.StoreKey]types.CacheWrapper)
+	stores := make(map[types.StoreKey]types.KVStore)
 	// add the transient/mem stores registered in current app.
 	for k, store := range rs.ckvStores {
 		if store.GetStoreType() != types.StoreTypeIAVL {
@@ -269,7 +269,15 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 		}
 	}
 
-	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil), nil
+	cacheWrappers := make(map[types.StoreKey]types.CacheWrapper, len(stores))
+	for k, store := range stores {
+		if store.GetStoreType() == types.StoreTypeIAVL {
+			panic("must not serve memiavl store for historical queries")
+		}
+		cacheWrappers[k] = store
+	}
+
+	return cachemulti.NewStore(nil, cacheWrappers, rs.storeKeys, nil, nil, nil), nil
 }
 
 func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore, error) {
