@@ -108,10 +108,10 @@ func (db *Database) Close() error {
 	return err
 }
 
-func (db *Database) GetLatestVersion() (int64, error) {
+func (db *Database) GetLatestVersion() int64 {
 	stmt, err := db.storage.Prepare("SELECT value FROM state_storage WHERE store_key = ? AND key = ?")
 	if err != nil {
-		return 0, fmt.Errorf("failed to prepare SQL statement: %w", err)
+		return 0
 	}
 
 	defer func() { _ = stmt.Close() }()
@@ -120,13 +120,12 @@ func (db *Database) GetLatestVersion() (int64, error) {
 	if err := stmt.QueryRow(reservedStoreKey, keyLatestHeight).Scan(&latestHeight); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			// in case of a fresh database
-			return 0, nil
+			return 0
 		}
-
-		return 0, fmt.Errorf("failed to query row: %w", err)
+		return 0
 	}
 
-	return latestHeight, nil
+	return latestHeight
 }
 
 func (db *Database) SetLatestVersion(version int64) error {
@@ -138,7 +137,7 @@ func (db *Database) SetLatestVersion(version int64) error {
 	return nil
 }
 
-func (db *Database) GetEarliestVersion() (int64, error) {
+func (db *Database) GetEarliestVersion() int64 {
 	panic("not implemented")
 }
 
@@ -341,5 +340,15 @@ func (db *Database) RawImport(ch <-chan types.RawSnapshotNode) error {
 
 // WriteBlockRangeHash writes a hash for a range of blocks to the database
 func (db *Database) WriteBlockRangeHash(storeKey string, beginBlockRange, endBlockRange int64, hash []byte) error {
+	panic("implement me")
+}
+
+func (db *Database) GetLatestMigratedKey() ([]byte, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (db *Database) GetLatestMigratedModule() (string, error) {
+	//TODO implement me
 	panic("implement me")
 }
