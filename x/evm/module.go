@@ -345,6 +345,10 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 		}
 	}
 
+	if scanned, deleted := am.keeper.PruneZeroStorageSlots(ctx, keeper.ZeroStorageCleanupBatchSize); deleted > 0 {
+		ctx.Logger().Info(fmt.Sprintf("pruned %d zero-value contract storage slots while scanning %d keys", deleted, scanned))
+	}
+
 	newBaseFee := am.keeper.AdjustDynamicBaseFeePerGas(ctx, uint64(req.BlockGasUsed)) // nolint:gosec
 	if newBaseFee != nil {
 		metrics.GaugeEvmBlockBaseFee(newBaseFee.TruncateInt().BigInt(), req.Height)
