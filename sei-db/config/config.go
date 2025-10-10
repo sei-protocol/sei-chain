@@ -34,7 +34,7 @@ type StateCommitConfig struct {
 	AsyncCommitBuffer int `mapstructure:"async-commit-buffer"`
 
 	// SnapshotKeepRecent defines what many old snapshots (excluding the latest one) to keep
-	// defaults to 1 to make sure ibc relayers work.
+	// defaults to 0 to only keep one current snapshot
 	SnapshotKeepRecent uint32 `mapstructure:"snapshot-keep-recent"`
 
 	// SnapshotInterval defines the block interval the memiavl snapshot is taken, default to 10000.
@@ -61,9 +61,6 @@ type StateStoreConfig struct {
 	// If not explicitly set, default to application home directory
 	// default to empty
 	DBDirectory string `mapstructure:"db-directory"`
-
-	// DedicatedChangelog defines if we should use a separate changelog for SS store other than sharing with SC
-	DedicatedChangelog bool `mapstructure:"dedicated-changelog"`
 
 	// Backend defines the backend database used for state-store
 	// Supported backends: pebbledb, rocksdb
@@ -101,7 +98,6 @@ func DefaultStateCommitConfig() StateCommitConfig {
 	return StateCommitConfig{
 		Enable:             true,
 		AsyncCommitBuffer:  DefaultAsyncCommitBuffer,
-		CacheSize:          DefaultCacheSize,
 		SnapshotInterval:   DefaultSnapshotInterval,
 		SnapshotKeepRecent: DefaultSnapshotKeepRecent,
 	}

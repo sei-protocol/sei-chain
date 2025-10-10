@@ -59,10 +59,7 @@ func (k *Keeper) DeleteTransientReceipt(ctx sdk.Context, txHash common.Hash, txI
 // by EVM transaction hash (not Sei transaction hash) to function properly.
 func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	// receipts are immutable, use latest version
-	lv, err := k.receiptStore.GetLatestVersion()
-	if err != nil {
-		return nil, err
-	}
+	lv := k.receiptStore.GetLatestVersion()
 
 	// try persistent store
 	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
@@ -89,10 +86,7 @@ func (k *Keeper) GetReceipt(ctx sdk.Context, txHash common.Hash) (*types.Receipt
 // Only used for testing
 func (k *Keeper) GetReceiptFromReceiptStore(ctx sdk.Context, txHash common.Hash) (*types.Receipt, error) {
 	// receipts are immutable, use latest version
-	lv, err := k.receiptStore.GetLatestVersion()
-	if err != nil {
-		return nil, err
-	}
+	lv := k.receiptStore.GetLatestVersion()
 
 	// try persistent store
 	bz, err := k.receiptStore.Get(types.ReceiptStoreKey, lv, types.ReceiptKey(txHash))
