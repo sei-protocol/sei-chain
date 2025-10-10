@@ -37,7 +37,8 @@ type TransactionAPI struct {
 	keeper           *keeper.Keeper
 	ctxProvider      func(int64) sdk.Context
 	txConfig         client.TxConfig
-	txConfigProvider func(int64) client.TxConfig
+	txDecoder        sdk.TxDecoder
+	legacyTxDecoder  sdk.TxDecoder
 	homeDir          string
 	connectionType   ConnectionType
 	includeSynthetic bool
@@ -49,7 +50,7 @@ type SeiTransactionAPI struct {
 }
 
 func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, connectionType ConnectionType) *TransactionAPI {
-	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType}
+	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txConfigProvider(V606UpgradeHeight + 1).TxDecoder(), legacyTxDecoder: txConfigProvider(V606UpgradeHeight - 1).TxDecoder(), homeDir: homeDir, connectionType: connectionType}
 }
 
 func NewSeiTransactionAPI(
@@ -105,6 +106,10 @@ func getTransactionReceipt(
 		}
 		return nil, err
 	}
+	txDecoder := t.txDecoder
+	if IsPreV606Upgrade(sdkctx.ChainID(), int64(receipt.BlockNumber)) {
+		txDecoder = t.legacyTxDecoder
+	}
 	// Fill in the receipt if the transaction has failed and used 0 gas
 	// This case is for when a tx fails before it makes it to the VM
 	if receipt.Status == 0 && receipt.GasUsed == 0 {
@@ -117,7 +122,7 @@ func getTransactionReceipt(
 
 		// Find the transaction in the block
 		for _, tx := range block.Block.Txs {
-			etx := getEthTxForTxBz(tx, t.txConfigProvider(block.Block.Height).TxDecoder())
+			etx := getEthTxForTxBz(tx, txDecoder)
 			if etx != nil && etx.Hash() == hash {
 
 				from, err := helpers.RecoverEVMSender(etx, height, uint64(block.Block.Time.Unix()))
@@ -147,7 +152,7 @@ func getTransactionReceipt(
 	if err != nil {
 		return nil, err
 	}
-	return encodeReceipt(t.ctxProvider, t.txConfigProvider, receipt, t.keeper, block, includeSynthetic)
+	return encodeReceipt(t.ctxProvider, txDecoder, receipt, t.keeper, block, includeSynthetic)
 }
 
 func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
@@ -195,7 +200,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 			break
 		}
 		for _, tx := range res.Txs {
-			etx := getEthTxForTxBz(tx, t.txConfigProvider(LatestCtxHeight).TxDecoder())
+			etx := getEthTxForTxBz(tx, t.txDecoder)
 			if etx != nil && etx.Hash() == hash {
 				from, err := helpers.RecoverEVMSenderWithContext(sdkCtx, etx)
 				if err != nil {
@@ -276,7 +281,11 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 	if int(index) >= len(block.Block.Txs) {
 		return nil, nil
 	}
-	ethtx := getEthTxForTxBz(block.Block.Txs[int(index)], t.txConfigProvider(block.Block.Height).TxDecoder())
+	txDecoder := t.txDecoder
+	if IsPreV606Upgrade(t.ctxProvider(LatestCtxHeight).ChainID(), int64(block.Block.Height)) {
+		txDecoder = t.legacyTxDecoder
+	}
+	ethtx := getEthTxForTxBz(block.Block.Txs[int(index)], txDecoder)
 	if ethtx == nil {
 		return nil, nil
 	}
@@ -369,11 +378,11 @@ func GetEvmTxIndex(ctx sdk.Context, block *coretypes.ResultBlock, msgs []indexed
 	return -1, false, nil, -1
 }
 
-func encodeReceipt(ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, receipt *types.Receipt, k *keeper.Keeper, block *coretypes.ResultBlock, includeSynthetic bool) (map[string]interface{}, error) {
+func encodeReceipt(ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, receipt *types.Receipt, k *keeper.Keeper, block *coretypes.ResultBlock, includeSynthetic bool) (map[string]interface{}, error) {
 	blockHash := block.BlockID.Hash
 	bh := common.HexToHash(blockHash.String())
 	ctx := ctxProvider(block.Block.Height)
-	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSynthetic, false, true)
+	msgs := filterTransactions(k, ctxProvider, txDecoder, block, includeSynthetic, false, true)
 	evmTxIndex, foundTx, etx, logIndexOffset := GetEvmTxIndex(ctx, block, msgs, receipt.TransactionIndex, k)
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
 	if !foundTx {

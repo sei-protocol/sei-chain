@@ -288,7 +288,15 @@ func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(
 	}
 
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, filterConfig: filterConfig, includeSyntheticReceipts: shouldIncludeSynthetic(namespace)}
+	logFetcher := &LogFetcher{
+		tmClient:                 tmClient,
+		k:                        k,
+		ctxProvider:              ctxProvider,
+		txDecoder:                txConfigProvider(V606UpgradeHeight + 1).TxDecoder(),
+		legacyTxDecoder:          txConfigProvider(V606UpgradeHeight - 1).TxDecoder(),
+		filterConfig:             filterConfig,
+		includeSyntheticReceipts: shouldIncludeSynthetic(namespace),
+	}
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
 		namespace:      namespace,
@@ -641,7 +649,8 @@ func (a *FilterAPI) Cleanup() {
 type LogFetcher struct {
 	tmClient                 rpcclient.Client
 	k                        *keeper.Keeper
-	txConfigProvider         func(int64) client.TxConfig
+	txDecoder                sdk.TxDecoder
+	legacyTxDecoder          sdk.TxDecoder
 	ctxProvider              func(int64) sdk.Context
 	filterConfig             *FilterConfig
 	includeSyntheticReceipts bool
@@ -829,7 +838,11 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	ctx := f.ctxProvider(block.Block.Height)
 	totalLogs := uint(0)
 	evmTxIndex := 0
-	for _, hash := range getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, false) {
+	decoder := f.txDecoder
+	if IsPreV606Upgrade(ctx.ChainID(), block.Block.Height) {
+		decoder = f.legacyTxDecoder
+	}
+	for _, hash := range getTxHashesFromBlock(f.ctxProvider, decoder, f.k, block, f.includeSyntheticReceipts, false) {
 		receipt, found := getOrSetCachedReceipt(ctx, f.k, block, hash.hash)
 		if !found {
 			ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", hash.hash.Hex()))

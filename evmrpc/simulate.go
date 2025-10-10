@@ -214,6 +214,8 @@ type Backend struct {
 	*eth.EthAPIBackend
 	ctxProvider      func(int64) sdk.Context
 	txConfigProvider func(int64) client.TxConfig
+	txDecoder        sdk.TxDecoder
+	legacyTxDecoder  sdk.TxDecoder
 	keeper           *keeper.Keeper
 	tmClient         rpcclient.Client
 	config           *SimulateConfig
@@ -226,6 +228,8 @@ func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txCo
 		ctxProvider:      ctxProvider,
 		keeper:           keeper,
 		txConfigProvider: txConfigProvider,
+		txDecoder:        txConfigProvider(V606UpgradeHeight + 1).TxDecoder(),
+		legacyTxDecoder:  txConfigProvider(V606UpgradeHeight - 1).TxDecoder(),
 		tmClient:         tmClient,
 		config:           config,
 		app:              app,
@@ -261,7 +265,11 @@ func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (tx *e
 	}
 	txIndex := hexutil.Uint(receipt.TransactionIndex)
 	tmTx := block.Block.Txs[int(txIndex)]
-	tx = getEthTxForTxBz(tmTx, b.txConfigProvider(block.Block.Height).TxDecoder())
+	txDecoder := b.txDecoder
+	if IsPreV606Upgrade(sdkCtx.ChainID(), block.Block.Height) {
+		txDecoder = b.legacyTxDecoder
+	}
+	tx = getEthTxForTxBz(tmTx, txDecoder)
 	blockHash = common.BytesToHash(block.Block.Header.Hash().Bytes())
 	return tx, blockHash, uint64(txHeight), uint64(txIndex), nil
 }
@@ -300,13 +308,17 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
-	msgs := filterTransactions(b.keeper, b.ctxProvider, b.txConfigProvider, tmBlock, false, false, true)
+	txDecoder := b.txDecoder
+	if IsPreV606Upgrade(sdkCtx.ChainID(), blockNum) {
+		txDecoder = b.legacyTxDecoder
+	}
+	msgs := filterTransactions(b.keeper, b.ctxProvider, txDecoder, tmBlock, false, false, true)
 	idxToMsgs := make(map[int]sdk.Msg, len(msgs))
 	for _, msg := range msgs {
 		idxToMsgs[msg.index] = msg.msg
 	}
 	for i := range blockRes.TxsResults {
-		decoded, err := b.txConfigProvider(blockRes.Height).TxDecoder()(tmBlock.Block.Txs[i])
+		decoded, err := txDecoder(tmBlock.Block.Txs[i])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -400,7 +412,11 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 		return nil, vm.BlockContext{}, nil, emptyRelease, errors.New("transaction not found")
 	}
 	tx := txs[txIndex]
-	sdkTx, err := b.txConfigProvider(block.Number().Int64()).TxDecoder()(tx)
+	txDecoder := b.txDecoder
+	if IsPreV606Upgrade(stateDB.(*state.DBImpl).Ctx().ChainID(), block.Number().Int64()) {
+		txDecoder = b.legacyTxDecoder
+	}
+	sdkTx, err := txDecoder(tx)
 	if err != nil {
 		panic(err)
 	}
@@ -434,11 +450,15 @@ func (b *Backend) ReplayTransactionTillIndex(ctx context.Context, block *ethtype
 	if txIndex < 0 {
 		return state.NewDBImpl(sdkCtx.WithIsEVM(true), b.keeper, true), tmBlock.Block.Txs, nil
 	}
+	txDecoder := b.txDecoder
+	if IsPreV606Upgrade(sdkCtx.ChainID(), block.Number().Int64()) {
+		txDecoder = b.legacyTxDecoder
+	}
 	for idx, tx := range tmBlock.Block.Txs {
 		if idx > txIndex {
 			break
 		}
-		sdkTx, err := b.txConfigProvider(block.Number().Int64()).TxDecoder()(tx)
+		sdkTx, err := txDecoder(tx)
 		if err != nil {
 			panic(err)
 		}

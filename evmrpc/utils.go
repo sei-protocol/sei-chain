@@ -35,6 +35,7 @@ import (
 )
 
 const LatestCtxHeight int64 = -1
+const V606UpgradeHeight = 151573570
 
 // Since we use a static base fee, we want GasUsedRatio returned in RPC queries
 // to reflect the fact that base fee would never change, which is only true if
@@ -187,7 +188,7 @@ type indexedMsg struct {
 func filterTransactions(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
-	txConfigProvider func(int64) client.TxConfig,
+	txDecoder sdk.TxDecoder,
 	block *coretypes.ResultBlock,
 	includeSyntheticTxs bool,
 	includeBankTransfers bool,
@@ -196,11 +197,10 @@ func filterTransactions(
 	txs := []indexedMsg{}
 	txCounts := make(map[string]uint64)
 	startOfBlockNonce := make(map[string]uint64)
-	txConfig := txConfigProvider(block.Block.Height)
 	latestCtx := ctxProvider(LatestCtxHeight)
 	prevCtx := ctxProvider(block.Block.Height - 1)
 	for i, tx := range block.Block.Data.Txs {
-		sdkTx, err := txConfig.TxDecoder()(tx)
+		sdkTx, err := txDecoder(tx)
 		if err != nil {
 			continue
 		}
@@ -297,14 +297,14 @@ type typedTxHash struct {
 
 func getTxHashesFromBlock(
 	ctxProvider func(int64) sdk.Context,
-	txConfigProvider func(int64) client.TxConfig,
+	txDecoder sdk.TxDecoder,
 	k *keeper.Keeper,
 	block *coretypes.ResultBlock,
 	shouldIncludeSynthetic bool,
 	checkNonce bool,
 ) []typedTxHash {
 	txHashes := []typedTxHash{}
-	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, false, checkNonce) {
+	for _, tx := range filterTransactions(k, ctxProvider, txDecoder, block, shouldIncludeSynthetic, false, checkNonce) {
 		switch tx.msg.(type) {
 		case *types.MsgEVMTransaction:
 			ethtx, _ := tx.msg.(*types.MsgEVMTransaction).AsTransaction()
@@ -330,6 +330,10 @@ func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 	}
 	return receipt.EffectiveGasPrice == 0 && (strings.Contains(receipt.VmError, core.ErrNonceTooHigh.Error()) ||
 		strings.Contains(receipt.VmError, core.ErrNonceTooLow.Error()))
+}
+
+func IsPreV606Upgrade(chainID string, height int64) bool {
+	return chainID == "pacific-1" && height < V606UpgradeHeight
 }
 
 type ParallelRunner struct {

@@ -38,7 +38,8 @@ type BlockAPI struct {
 	tmClient             rpcclient.Client
 	keeper               *keeper.Keeper
 	ctxProvider          func(int64) sdk.Context
-	txConfigProvider     func(int64) client.TxConfig
+	txDecoder            sdk.TxDecoder
+	legacyTxDecoder      sdk.TxDecoder
 	connectionType       ConnectionType
 	namespace            string
 	includeShellReceipts bool
@@ -55,7 +56,8 @@ func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 		tmClient:             tmClient,
 		keeper:               k,
 		ctxProvider:          ctxProvider,
-		txConfigProvider:     txConfigProvider,
+		txDecoder:            txConfigProvider(V606UpgradeHeight + 1).TxDecoder(),
+		legacyTxDecoder:      txConfigProvider(V606UpgradeHeight - 1).TxDecoder(),
 		connectionType:       connectionType,
 		includeShellReceipts: false,
 		includeBankTransfers: false,
@@ -75,7 +77,8 @@ func NewSeiBlockAPI(
 		tmClient:             tmClient,
 		keeper:               k,
 		ctxProvider:          ctxProvider,
-		txConfigProvider:     txConfigProvider,
+		txDecoder:            txConfigProvider(V606UpgradeHeight + 1).TxDecoder(),
+		legacyTxDecoder:      txConfigProvider(V606UpgradeHeight - 1).TxDecoder(),
 		connectionType:       connectionType,
 		includeShellReceipts: true,
 		includeBankTransfers: false,
@@ -151,7 +154,11 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	if err != nil {
 		return nil, err
 	}
-	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, blockRes, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
+	txDecoder := a.txDecoder
+	if IsPreV606Upgrade(a.ctxProvider(LatestCtxHeight).ChainID(), int64(block.Block.Height)) {
+		txDecoder = a.legacyTxDecoder
+	}
+	return EncodeTmBlock(a.ctxProvider, txDecoder, block, blockRes, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
@@ -206,7 +213,11 @@ func (a *BlockAPI) getBlockByNumber(
 	if err != nil {
 		return nil, err
 	}
-	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, blockRes, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
+	txDecoder := a.txDecoder
+	if IsPreV606Upgrade(a.ctxProvider(LatestCtxHeight).ChainID(), int64(block.Block.Height)) {
+		txDecoder = a.legacyTxDecoder
+	}
+	return EncodeTmBlock(a.ctxProvider, txDecoder, block, blockRes, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
@@ -225,7 +236,11 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 
 	// Get all tx hashes for the block
 	height := block.Block.Header.Height
-	txHashes := getTxHashesFromBlock(a.ctxProvider, a.txConfigProvider, a.keeper, block, shouldIncludeSynthetic(a.namespace), true)
+	txDecoder := a.txDecoder
+	if IsPreV606Upgrade(a.ctxProvider(LatestCtxHeight).ChainID(), int64(block.Block.Height)) {
+		txDecoder = a.legacyTxDecoder
+	}
+	txHashes := getTxHashesFromBlock(a.ctxProvider, txDecoder, a.keeper, block, shouldIncludeSynthetic(a.namespace), true)
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}
@@ -244,7 +259,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					mtx.Unlock()
 				}
 			} else {
-				encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, a.includeShellReceipts)
+				encodedReceipt, err := encodeReceipt(a.ctxProvider, txDecoder, receipt, a.keeper, block, a.includeShellReceipts)
 				if err != nil {
 					mtx.Lock()
 					returnErr = err
@@ -272,7 +287,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 
 func EncodeTmBlock(
 	ctxProvider func(int64) sdk.Context,
-	txConfigProvider func(int64) client.TxConfig,
+	txDecoder sdk.TxDecoder,
 	block *coretypes.ResultBlock,
 	blockRes *coretypes.ResultBlockResults,
 	k *keeper.Keeper,
@@ -295,7 +310,7 @@ func EncodeTmBlock(
 	chainConfig := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
 	transactions := []interface{}{}
 	latestCtx := ctxProvider(LatestCtxHeight)
-	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSyntheticTxs, includeBankTransfers, true)
+	msgs := filterTransactions(k, ctxProvider, txDecoder, block, includeSyntheticTxs, includeBankTransfers, true)
 
 	blockBloom := make([]byte, ethtypes.BloomByteLength)
 	for _, msg := range msgs {
@@ -418,8 +433,12 @@ func FullBloom() ethtypes.Bloom {
 func (a *BlockAPI) getEvmTxCount(txs tmtypes.Txs, height int64) *hexutil.Uint {
 	cnt := 0
 	// Only count eth txs
+	txDecoder := a.txDecoder
+	if IsPreV606Upgrade(a.ctxProvider(LatestCtxHeight).ChainID(), height) {
+		txDecoder = a.legacyTxDecoder
+	}
 	for _, tx := range txs {
-		ethtx := getEthTxForTxBz(tx, a.txConfigProvider(height).TxDecoder())
+		ethtx := getEthTxForTxBz(tx, txDecoder)
 		if ethtx != nil {
 			cnt += 1
 		}
