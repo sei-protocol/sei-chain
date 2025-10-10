@@ -804,6 +804,7 @@ func New(
 	)
 
 	app.mm.SetOrderEndBlockers(
+		evmtypes.ModuleName,
 		crisistypes.ModuleName,
 		govtypes.ModuleName,
 		stakingtypes.ModuleName,
@@ -824,7 +825,6 @@ func New(
 		ibctransfertypes.ModuleName,
 		oracletypes.ModuleName,
 		epochmoduletypes.ModuleName,
-		evmtypes.ModuleName,
 		wasm.ModuleName,
 		tokenfactorytypes.ModuleName,
 		acltypes.ModuleName,
