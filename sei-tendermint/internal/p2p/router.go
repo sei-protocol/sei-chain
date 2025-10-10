@@ -642,6 +642,7 @@ func (r *Router) Dial(ctx context.Context, address NodeAddress) (net.Conn, error
 	case len(endpoints) == 0:
 		return nil, fmt.Errorf("address %q did not resolve to any endpoints", address)
 	}
+	r.logger.Info("endpoints", "peer", address.NodeID, "endpoints", endpoints)
 
 	for _, endpoint := range endpoints {
 		dialCtx := ctx
@@ -667,7 +668,7 @@ func (r *Router) Dial(ctx context.Context, address NodeAddress) (net.Conn, error
 		dialer := net.Dialer{}
 		tcpConn, err := dialer.DialContext(dialCtx, "tcp", endpoint.String())
 		if err != nil {
-			r.logger.Debug("failed to dial endpoint", "peer", address.NodeID, "endpoint", endpoint, "err", err)
+			r.logger.Error("failed to dial endpoint", "peer", address.NodeID, "endpoint", endpoint, "err", err)
 			continue
 		}
 		r.metrics.NewConnections.With("direction", "out").Add(1)
