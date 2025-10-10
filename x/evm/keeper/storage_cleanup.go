@@ -39,7 +39,9 @@ func (k *Keeper) PruneZeroStorageSlots(ctx sdk.Context, limit int) (int, int) {
 	defer func() { _ = iterator.Close() }()
 
 	processed := 0
+	processedMetric := uint64(0)
 	deleted := 0
+	deletedMetric := uint64(0)
 	var bytesPruned uint64
 	skippedCheckpoint := len(checkpoint) == 0
 	var lastKey []byte
@@ -55,13 +57,15 @@ func (k *Keeper) PruneZeroStorageSlots(ctx sdk.Context, limit int) (int, int) {
 		}
 
 		processed++
+		processedMetric++
 		lastKey = key
 
 		val := iterator.Value()
 		if isZeroStorageValue(val) {
 			store.Delete(key)
 			deleted++
-			bytesPruned += uint64(len(key) + len(val))
+			deletedMetric++
+			bytesPruned += uint64(len(key)) + uint64(len(val))
 		}
 	}
 
@@ -81,10 +85,10 @@ func (k *Keeper) PruneZeroStorageSlots(ctx sdk.Context, limit int) (int, int) {
 		k.setZeroStorageCleanupCheckpoint(ctx, nil)
 	}
 
-	seimetrics.IncrEvmZeroStorageProcessedKeys(uint64(processed))
+	seimetrics.IncrEvmZeroStorageProcessedKeys(processedMetric)
 
 	if deleted > 0 {
-		seimetrics.IncrEvmZeroStoragePrunedKeys(uint64(deleted))
+		seimetrics.IncrEvmZeroStoragePrunedKeys(deletedMetric)
 		seimetrics.IncrEvmZeroStoragePrunedBytes(bytesPruned)
 		ctx.Logger().Info("pruned zero storage slots", "processed", processed, "deleted", deleted, "bytes_saved", bytesPruned)
 	}
