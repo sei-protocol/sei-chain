@@ -833,7 +833,7 @@ func (m *Asset) GetAssetType() AssetType {
 	if m != nil {
 		return m.AssetType
 	}
-	return AssetType_TYPECW20
+	return AssetType_TYPEUNKNOWN
 }
 
 func (m *Asset) GetContractAddress() string {
