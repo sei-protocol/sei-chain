@@ -37,6 +37,11 @@ const (
 	// Uvarint length of Data.Txs:          4 bytes
 	// Data.Txs field:                      1 byte
 	MaxOverheadForBlock int64 = 11
+
+	// MaxCommitSignatures is the maximum number of signatures in a commit. The max
+	// value is picked relative to the current number of validators and may need to
+	// be increased in the future as the network grows.
+	MaxCommitSignatures = 128
 )
 
 // Block defines the atomic unit of a Tendermint blockchain.
@@ -89,12 +94,7 @@ func (b *Block) ValidateBasic() error {
 		return fmt.Errorf("wrong Header.DataHash. Expected %X, got %X. Len of txs %d", w, g, len(b.Data.Txs))
 	}
 
-	// NOTE: b.Evidence may be nil, but we're just looping.
-	for i, ev := range b.Evidence {
-		if err := ev.ValidateBasic(); err != nil {
-			return fmt.Errorf("invalid evidence (#%d): %v", i, err)
-		}
-	}
+	// Evidence is validated as part of proto decoding. See EvidenceList.FromProto.
 
 	if w, g := b.Evidence.Hash(), b.EvidenceHash; !bytes.Equal(w, g) {
 		return fmt.Errorf("wrong Header.EvidenceHash. Expected %X, got %X", w, g)
@@ -821,6 +821,9 @@ func (commit *Commit) Size() int {
 // ValidateBasic performs basic validation that doesn't involve state data.
 // Does not actually check the cryptographic signatures.
 func (commit *Commit) ValidateBasic() error {
+	if commit == nil {
+		return nil
+	}
 	if commit.Height < 0 {
 		return errors.New("negative Height")
 	}
@@ -924,6 +927,10 @@ func CommitFromProto(cp *tmproto.Commit) (*Commit, error) {
 	bi, err := BlockIDFromProto(&cp.BlockID)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(cp.Signatures) > MaxCommitSignatures {
+		return nil, fmt.Errorf("too many signatures in commit: %d (max: %d)", len(cp.Signatures), MaxCommitSignatures)
 	}
 
 	sigs := make([]CommitSig, len(cp.Signatures))

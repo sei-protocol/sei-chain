@@ -35,6 +35,9 @@ func TxKeyFromProto(dp *tmproto.TxKey) (TxKey, error) {
 	if dp == nil {
 		return TxKey{}, errors.New("nil data")
 	}
+	if len(dp.TxKey) != sha256.Size {
+		return TxKey{}, fmt.Errorf("invalid tx key length: %d, expected: %d", len(dp.TxKey), sha256.Size)
+	}
 	var txBzs [sha256.Size]byte
 	for i := range dp.TxKey {
 		txBzs[i] = dp.TxKey[i]
@@ -44,6 +47,9 @@ func TxKeyFromProto(dp *tmproto.TxKey) (TxKey, error) {
 }
 
 func TxKeysListFromProto(dps []*tmproto.TxKey) ([]TxKey, error) {
+	if len(dps) > maxTxKeysPerProposal {
+		return nil, fmt.Errorf("too many tx keys in proposal: %d, max: %d", len(dps), maxTxKeysPerProposal)
+	}
 	var txKeys []TxKey
 	for _, txKey := range dps {
 		txKey, err := TxKeyFromProto(txKey)

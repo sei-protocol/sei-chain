@@ -841,6 +841,7 @@ func TestReactorMemoryLimitCoverage(t *testing.T) {
 			},
 		},
 		Timestamp: time.Now(),
+		Header:    plausibleTestHeader,
 		Signature: []byte("test-signature"),
 	}
 

@@ -18,6 +18,8 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
+var plausibleTestAddress = crypto.Address(make([]byte, crypto.AddressSize))
+
 func generateHeader() Header {
 	return Header{
 		Version: version.Consensus{Block: version.BlockProtocol},
@@ -182,6 +184,10 @@ func TestProposalValidateBasic(t *testing.T) {
 		{"Too big Signature", func(p *Proposal) {
 			p.Signature = make([]byte, MaxSignatureSize+1)
 		}, true},
+		{"Invalid LastCommit", func(p *Proposal) { p.LastCommit = &Commit{Height: -1} }, true},
+		{"Invalid EvidenceList", func(p *Proposal) { p.Evidence = []Evidence{nil} }, true},
+		{"Invalid Header", func(p *Proposal) { p.Header = Header{ChainID: string(make([]byte, 100))} }, true},
+		{"Too many TxKeys", func(p *Proposal) { p.TxKeys = make([]TxKey, maxTxKeysPerProposal+1) }, true},
 	}
 	blockID := makeBlockID(crypto.Checksum([]byte("blockhash")), math.MaxInt32, crypto.Checksum([]byte("partshash")))
 
@@ -208,9 +214,9 @@ func TestProposalValidateBasic(t *testing.T) {
 
 func TestProposalProtoBuf(t *testing.T) {
 	var txKeys []TxKey
-	proposal := NewProposal(1, 2, 3, makeBlockID([]byte("hash"), 2, []byte("part_set_hash")), tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
+	proposal := NewProposal(1, 2, 3, makeBlockID([]byte("hash"), 2, []byte("part_set_hash")), tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, plausibleTestAddress)
 	proposal.Signature = []byte("sig")
-	proposal2 := NewProposal(1, 2, 3, BlockID{}, tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, crypto.Address("testaddr"))
+	proposal2 := NewProposal(1, 2, 3, BlockID{}, tmtime.Now(), txKeys, generateHeader(), &Commit{Signatures: []CommitSig{}}, EvidenceList{}, plausibleTestAddress)
 
 	testCases := []struct {
 		msg     string
