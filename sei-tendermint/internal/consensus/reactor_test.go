@@ -26,7 +26,6 @@ import (
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/mempool"
 	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/p2p/p2ptest"
 	tmpubsub "github.com/tendermint/tendermint/internal/pubsub"
 	sm "github.com/tendermint/tendermint/internal/state"
 	statemocks "github.com/tendermint/tendermint/internal/state/mocks"
@@ -45,7 +44,7 @@ var (
 )
 
 type reactorTestSuite struct {
-	network             *p2ptest.Network
+	network             *p2p.TestNetwork
 	states              map[types.NodeID]*State
 	reactors            map[types.NodeID]*Reactor
 	subs                map[types.NodeID]eventbus.Subscription
@@ -74,7 +73,7 @@ func setup(
 	t.Helper()
 
 	rts := &reactorTestSuite{
-		network:       p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: numNodes}),
+		network:       p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numNodes}),
 		states:        make(map[types.NodeID]*State),
 		reactors:      make(map[types.NodeID]*Reactor, numNodes),
 		subs:          make(map[types.NodeID]eventbus.Subscription, numNodes),

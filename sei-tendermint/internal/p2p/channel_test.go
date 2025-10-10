@@ -85,11 +85,11 @@ func TestChannel(t *testing.T) {
 			},
 		},
 		{
-			Name: "ReceiveEmptyIteratorBlocks",
+			Name: "RecvAllEmptyIteratorBlocks",
 			Case: func(t *testing.T) {
 				ctx := t.Context()
 				_, ch := testChannel(1)
-				iter := ch.Receive(ctx)
+				iter := ch.RecvAll(ctx)
 				require.NotNil(t, iter)
 				out := make(chan bool)
 				go func() {
@@ -108,12 +108,12 @@ func TestChannel(t *testing.T) {
 			},
 		},
 		{
-			Name: "ReceiveWithData",
+			Name: "RecvAllWithData",
 			Case: func(t *testing.T) {
 				ctx := t.Context()
 				ins, ch := testChannel(1)
 				ins.In.Send(Envelope{From: "kip", To: "merlin"}, 0)
-				iter := ch.Receive(ctx)
+				iter := ch.RecvAll(ctx)
 				require.NotNil(t, iter)
 				require.True(t, iter.Next(ctx))
 
@@ -123,14 +123,14 @@ func TestChannel(t *testing.T) {
 			},
 		},
 		{
-			Name: "ReceiveWithCanceledContext",
+			Name: "RecvAllWithCanceledContext",
 			Case: func(t *testing.T) {
 				ctx := t.Context()
 				_, ch := testChannel(0)
 				cctx, ccancel := context.WithCancel(ctx)
 				ccancel()
 
-				iter := ch.Receive(cctx)
+				iter := ch.RecvAll(cctx)
 				require.NotNil(t, iter)
 				require.False(t, iter.Next(cctx))
 				require.Nil(t, iter.Envelope())
@@ -142,7 +142,7 @@ func TestChannel(t *testing.T) {
 				ctx := t.Context()
 				_, ch := testChannel(0)
 
-				iter := ch.Receive(ctx)
+				iter := ch.RecvAll(ctx)
 				require.NotNil(t, iter)
 
 				cctx, ccancel := context.WithCancel(ctx)
@@ -158,7 +158,7 @@ func TestChannel(t *testing.T) {
 				ins, ch := testChannel(1)
 
 				ins.In.Send(Envelope{From: "kip", To: "merlin"}, 0)
-				iter := ch.Receive(ctx)
+				iter := ch.RecvAll(ctx)
 				require.NotNil(t, iter)
 
 				require.True(t, iter.Next(ctx))
@@ -181,7 +181,7 @@ func TestChannel(t *testing.T) {
 				ins, ch := testChannel(1)
 
 				ins.In.Send(Envelope{From: "kip", To: "merlin"}, 0)
-				iter := ch.Receive(ctx)
+				iter := ch.RecvAll(ctx)
 				require.NotNil(t, iter)
 
 				require.True(t, iter.Next(ctx))
@@ -200,7 +200,7 @@ func TestChannel(t *testing.T) {
 				ctx := t.Context()
 				ins, ch := testChannel(1)
 
-				iter := ch.Receive(ctx)
+				iter := ch.RecvAll(ctx)
 				require.NotNil(t, iter)
 				require.Nil(t, iter.Envelope())
 

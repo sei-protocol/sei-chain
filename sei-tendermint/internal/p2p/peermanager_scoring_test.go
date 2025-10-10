@@ -1,8 +1,6 @@
 package p2p
 
 import (
-	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -14,17 +12,6 @@ import (
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/types"
 )
-
-func testAddr(x string) NodeAddress {
-	if len(x) != 1 {
-		panic("x must be a single character")
-	}
-	return NodeAddress{
-		NodeID:   types.NodeID(strings.Repeat(x, 40)),
-		Hostname: fmt.Sprintf("%v.com", x),
-		Port:     26657,
-	}
-}
 
 func TestPeerScoring(t *testing.T) {
 	// coppied from p2p_test shared variables

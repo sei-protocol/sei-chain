@@ -1321,7 +1321,7 @@ func (r *Reactor) handleMessage(ctx context.Context, envelope *p2p.Envelope, cha
 // the reactor is stopped, we will catch the signal and close the p2p Channel
 // gracefully.
 func (r *Reactor) processStateCh(ctx context.Context, chans channelBundle) {
-	iter := chans.state.Receive(ctx)
+	iter := chans.state.RecvAll(ctx)
 	for iter.Next(ctx) {
 		envelope := iter.Envelope()
 		if err := r.handleMessage(ctx, envelope, chans); err != nil {
@@ -1342,7 +1342,7 @@ func (r *Reactor) processStateCh(ctx context.Context, chans channelBundle) {
 // the reactor is stopped, we will catch the signal and close the p2p Channel
 // gracefully.
 func (r *Reactor) processDataCh(ctx context.Context, chans channelBundle) {
-	iter := chans.data.Receive(ctx)
+	iter := chans.data.RecvAll(ctx)
 	for iter.Next(ctx) {
 		envelope := iter.Envelope()
 		if err := r.handleMessage(ctx, envelope, chans); err != nil {
@@ -1363,7 +1363,7 @@ func (r *Reactor) processDataCh(ctx context.Context, chans channelBundle) {
 // the reactor is stopped, we will catch the signal and close the p2p Channel
 // gracefully.
 func (r *Reactor) processVoteCh(ctx context.Context, chans channelBundle) {
-	iter := chans.vote.Receive(ctx)
+	iter := chans.vote.RecvAll(ctx)
 	for iter.Next(ctx) {
 		envelope := iter.Envelope()
 		if err := r.handleMessage(ctx, envelope, chans); err != nil {
@@ -1384,7 +1384,7 @@ func (r *Reactor) processVoteCh(ctx context.Context, chans channelBundle) {
 // When the reactor is stopped, we will catch the signal and close the p2p
 // Channel gracefully.
 func (r *Reactor) processVoteSetBitsCh(ctx context.Context, chans channelBundle) {
-	iter := chans.votSet.Receive(ctx)
+	iter := chans.votSet.RecvAll(ctx)
 	for iter.Next(ctx) {
 		envelope := iter.Envelope()
 

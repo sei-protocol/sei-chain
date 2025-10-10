@@ -18,7 +18,6 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/p2p/p2ptest"
 	"github.com/tendermint/tendermint/libs/log"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	protomem "github.com/tendermint/tendermint/proto/tendermint/mempool"
@@ -26,7 +25,7 @@ import (
 )
 
 type reactorTestSuite struct {
-	network *p2ptest.Network
+	network *p2p.TestNetwork
 	logger  log.Logger
 
 	reactors        map[types.NodeID]*Reactor
@@ -49,7 +48,7 @@ func setupReactors(ctx context.Context, t *testing.T, logger log.Logger, numNode
 
 	rts := &reactorTestSuite{
 		logger:          log.NewNopLogger().With("testCase", t.Name()),
-		network:         p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: numNodes}),
+		network:         p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numNodes}),
 		reactors:        make(map[types.NodeID]*Reactor, numNodes),
 		mempoolChannels: make(map[types.NodeID]*p2p.Channel, numNodes),
 		mempools:        make(map[types.NodeID]*TxMempool, numNodes),
@@ -125,7 +124,7 @@ func (rts *reactorTestSuite) waitForTxns(t *testing.T, txs []types.Tx, ids ...ty
 	// rest of the network
 	wg := &sync.WaitGroup{}
 	for name, pool := range rts.mempools {
-		if !p2ptest.NodeInSlice(name, ids) {
+		if !p2p.NodeInSlice(name, ids) {
 			continue
 		}
 		if len(txs) == pool.Size() {
@@ -153,7 +152,7 @@ func TestReactorBroadcastDoesNotPanic(t *testing.T) {
 	logger := log.NewNopLogger()
 	rts := setupReactors(ctx, t, logger, numNodes, 0)
 
-	observePanic := func(r interface{}) {
+	observePanic := func(r any) {
 		t.Fatal("panic detected in reactor")
 	}
 

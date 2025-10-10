@@ -157,7 +157,7 @@ func (r *Reactor) handleMessage(ctx context.Context, envelope *p2p.Envelope) (er
 // processEvidenceCh implements a blocking event loop where we listen for p2p
 // Envelope messages from the evidenceCh.
 func (r *Reactor) processEvidenceCh(ctx context.Context, evidenceCh *p2p.Channel) {
-	iter := evidenceCh.Receive(ctx)
+	iter := evidenceCh.RecvAll(ctx)
 	for iter.Next(ctx) {
 		envelope := iter.Envelope()
 		if err := r.handleMessage(ctx, envelope); err != nil {
