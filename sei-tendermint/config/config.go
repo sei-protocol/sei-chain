@@ -97,7 +97,7 @@ func DefaultConfig() *Config {
 func DefaultValidatorConfig() *Config {
 	cfg := DefaultConfig()
 	cfg.Mode = ModeValidator
-	cfg.TxIndex.Indexer = []string{"null"}
+	cfg.TxIndex.Indexer = []string{"null"} // validators should not build the kv index
 	return cfg
 }
 
@@ -875,9 +875,9 @@ func DefaultMempoolConfig() *MempoolConfig {
 		MaxTxsBytes:                  1024 * 1024 * 1024, // 1GB
 		CacheSize:                    10000,
 		DuplicateTxsCacheSize:        100000,
-		MaxTxBytes:                   1024 * 1024, // 1MB
-		TTLDuration:                  0 * time.Second,
-		TTLNumBlocks:                 0,
+		MaxTxBytes:                   1024 * 1024,     // 1MB
+		TTLDuration:                  5 * time.Second, // prevent stale txs from filling mempool
+		TTLNumBlocks:                 10,              // remove txs after 10 blocks
 		TxNotifyThreshold:            0,
 		CheckTxErrorBlacklistEnabled: false,
 		CheckTxErrorThreshold:        0,
