@@ -10,6 +10,7 @@ coverage:
         target: 60%
         paths:
           - "!sei-cosmos/**"
+          - "!sei-db/**"
           - "!sei-tendermint/**"
           - "!sei-wasmd/**"
           - "!sei-wasmvm/**"
@@ -33,6 +34,12 @@ coverage:
           - "sei-wasmd/**"
         flags:
           - sei-wasmd
+      sei-db:
+        target: 30%
+        paths:
+          - "sei-db/**"
+        flags:
+          - sei-db
     patch:
       default:
         target: 70%
@@ -48,6 +55,7 @@ ignore:
   - "**/*.md"
   - "**/*.rst"
   - "**/example/**"
+  - "**/benchmark/**"
 
   # Generated protobuf files
   - "**/*pb*.go"
