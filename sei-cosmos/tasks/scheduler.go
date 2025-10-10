@@ -446,13 +446,7 @@ func (s *scheduler) executeAll(ctx sdk.Context, tasks []*deliverTxTask) error {
 
 	for _, task := range tasks {
 		t := task
-		// Start a "waiting" span before submitting to channel
-		waitCtx, waitSpan := s.traceSpan(ctx, "SchedulerWaitingForWorker", t)
-		t.Ctx = waitCtx
-		
 		s.DoExecute(func() {
-			// End the waiting span as soon as worker picks it up
-			waitSpan.End()
 			s.prepareAndRunTask(wg, ctx, t)
 		})
 	}
