@@ -270,16 +270,15 @@ func (r *Router) listenRoutine(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error {
 			<-ctx.Done()
+			s.Cancel(ctx.Err())
 			listener.Close()
 			return nil
 		})
 		for {
+			r.logger.Info("listening","addr", listener.Addr())
 			tcpConn, err := listener.Accept()
 			if err != nil {
-				if errors.Is(err, net.ErrClosed) {
-					return nil
-				}
-				return err
+				return fmt.Errorf("listener.Accept(): %w", err)
 			}
 			if err := utils.Send(ctx, r.listener, tcpConn); err != nil {
 				tcpConn.Close()
