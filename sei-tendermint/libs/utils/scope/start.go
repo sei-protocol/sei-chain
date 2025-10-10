@@ -7,28 +7,55 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/tendermint/tendermint/libs/utils"
 )
 
-// Scope of concurrenct tasks.
-type Scope struct {
+type scope struct {
 	// scope is a concurrecy primitive, so no-ctx-in-struct rule does not apply
 	// nolint:containedctx
-	ctx  context.Context
-	all  *errgroup.Group
-	main *sync.WaitGroup
+	ctx     context.Context
+	cancel  context.CancelFunc
+	all     sync.WaitGroup
+	main    sync.WaitGroup
+	errOnce sync.Once
+	err     error
+}
+
+// Scope of concurrenct tasks.
+type Scope struct{ *scope }
+
+// SpawnBg spawns a background task.
+// Background tasks get canceled when all the main tasks return.
+func (s Scope) SpawnBg(t func() error) {
+	s.all.Add(1)
+	go func() {
+		defer s.all.Done()
+		if err := t(); err != nil {
+			s.Cancel(err)
+		}
+	}()
 }
 
 // Spawn spawns a main task.
 // Scope gets automatically canceled when all the main tasks return.
 func (s Scope) Spawn(t func() error) {
 	s.main.Add(1)
-	s.all.Go(func() error {
+	s.SpawnBg(func() error {
 		defer s.main.Done()
 		return t()
 	})
+}
+
+// Cancels the scope.
+// If err is not nil and no error was set before,
+// sets err as the scope error.
+func (s Scope) Cancel(err error) {
+	if err != nil {
+		s.errOnce.Do(func() {
+			s.err = err
+		})
+	}
+	s.cancel()
 }
 
 // JoinHandle is a handle to an awaitable task.
@@ -112,10 +139,6 @@ func (s Scope) SpawnBgNamed(name string, t func() error) {
 	}
 }
 
-// SpawnBg spawns a background task.
-// Background tasks get canceled when all the main tasks return.
-func (s Scope) SpawnBg(t func() error) { s.all.Go(t) }
-
 // Run runs a scope capable of spawning tasks.
 // It is guaranteed that all the spawned tasks will be executed (even if spawned after the context is cancelled),
 // and that `Run` will return only after all the tasks have completed.
@@ -123,12 +146,12 @@ func (s Scope) SpawnBg(t func() error) { s.all.Go(t) }
 // Returns the first error returned by any task (main or background).
 func Run(ctx context.Context, main func(context.Context, Scope) error) error {
 	ctx, cancel := context.WithCancel(ctx)
-	all, ctx := errgroup.WithContext(ctx)
-	s := Scope{ctx, all, &sync.WaitGroup{}}
+	s := Scope{&scope{ctx: ctx, cancel: cancel}}
 	s.Spawn(func() error { return main(ctx, s) })
 	s.main.Wait()
-	cancel()
-	return s.all.Wait()
+	s.cancel()
+	s.all.Wait()
+	return s.err
 }
 
 // Run1 is the same as Run, but returns the result of the main task.

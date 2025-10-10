@@ -203,7 +203,7 @@ func (r *Reactor) handleMessage(ctx context.Context, envelope *p2p.Envelope) (er
 // Envelope messages from the mempoolCh.
 func (r *Reactor) processMempoolCh(ctx context.Context, mempoolCh *p2p.Channel) {
 	<-r.readyToStart
-	iter := mempoolCh.Receive(ctx)
+	iter := mempoolCh.RecvAll(ctx)
 	for iter.Next(ctx) {
 		envelope := iter.Envelope()
 		if err := r.handleMessage(ctx, envelope); err != nil {
