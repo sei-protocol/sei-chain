@@ -264,6 +264,10 @@ func encodeEvmTx(txData ethtypes.TxData, signed *ethtypes.Transaction) []byte {
 
 func signAndEncodeCosmosTx(msg sdk.Msg, mnemonic string, acctN uint64, seq uint64) []byte {
 	tx := signCosmosTxWithMnemonic(msg, mnemonic, acctN, seq)
+	return encodeCosmosTx(tx)
+}
+
+func encodeCosmosTx(tx sdk.Tx) []byte {
 	txBz, _ := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
 	return txBz
 }
