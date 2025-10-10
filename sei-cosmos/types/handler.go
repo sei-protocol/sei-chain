@@ -113,7 +113,6 @@ func DefaultWrappedAnteDecorator(decorator AnteDecorator) WrappedAnteDecorator {
 	return WrappedAnteDecorator{
 		Decorator: decorator,
 		// TODO:: Use DefaultDepDecorator when each decorator defines their own
-		//		  See NewConsumeGasForTxSizeDecorator for an example of how to implement a decorator
 		DepDecorator: NoDepDecorator{},
 	}
 }

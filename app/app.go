@@ -1560,7 +1560,10 @@ func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.
 		entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
 	}
 
-	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
+	var batchResult sdk.DeliverTxBatchResponse
+	withDurationLog("DeliverTxBatch", func() {
+		batchResult = app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
+	})
 
 	execResults := make([]*abci.ExecTxResult, 0, len(batchResult.Results))
 	for i, r := range batchResult.Results {
@@ -1677,39 +1680,68 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		},
 		Simulate: simulate,
 	}
-	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
+	var beginBlockResp abci.ResponseBeginBlock
+	withDurationLog("BeginBlock", func() {
+		beginBlockResp = app.BeginBlock(ctx, beginBlockReq)
+	})
 	events = append(events, beginBlockResp.Events...)
 
 	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs)) // nil for non-EVM txs
 	txResults = make([]*abci.ExecTxResult, len(txs))
-	typedTxs := app.DecodeTransactionsConcurrently(ctx, txs)
+	var typedTxs []sdk.Tx
+	withDurationLog("DecodeTransactionsConcurrently", func() {
+		typedTxs = app.DecodeTransactionsConcurrently(ctx, txs)
+	})
 
-	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs, typedTxs)
+	var prioritizedTxs, otherTxs [][]byte
+	var prioritizedTypedTxs, otherTypedTxs []sdk.Tx
+	var prioritizedIndices, otherIndices []int
+	withDurationLog("PartitionPrioritizedTxs", func() {
+		prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices = app.PartitionPrioritizedTxs(ctx, txs, typedTxs)
+	})
+
+	var prioritizedResults []*abci.ExecTxResult
 
 	// run the prioritized txs
-	prioritizedResults, ctx := app.ExecuteTxsConcurrently(ctx, prioritizedTxs, prioritizedTypedTxs, prioritizedIndices)
+	withDurationLog("ExecutePrioritizedTxs", func() {
+		prioritizedResults, ctx = app.ExecuteTxsConcurrently(ctx, prioritizedTxs, prioritizedTypedTxs, prioritizedIndices)
+	})
 	for relativePrioritizedIndex, originalIndex := range prioritizedIndices {
 		txResults[originalIndex] = prioritizedResults[relativePrioritizedIndex]
 		evmTxs[originalIndex] = app.GetEVMMsg(prioritizedTypedTxs[relativePrioritizedIndex])
 	}
 
 	// Finalize all Bank Module Transfers here so that events are included for prioritiezd txs
-	deferredWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
+	var deferredWriteEvents []abci.Event
+	withDurationLog("WriteDeferredBalances-Prioritized", func() {
+		deferredWriteEvents = app.BankKeeper.WriteDeferredBalances(ctx)
+	})
 	events = append(events, deferredWriteEvents...)
 
-	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
+	var midBlockEvents []abci.Event
+	withDurationLog("MidBlock", func() {
+		midBlockEvents = app.MidBlock(ctx, req.GetHeight())
+	})
 	events = append(events, midBlockEvents...)
 
-	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs, otherTypedTxs, otherIndices)
+	var otherResults []*abci.ExecTxResult
+	withDurationLog("ExecuteOtherTxs", func() {
+		otherResults, ctx = app.ExecuteTxsConcurrently(ctx, otherTxs, otherTypedTxs, otherIndices)
+	})
 	for relativeOtherIndex, originalIndex := range otherIndices {
 		txResults[originalIndex] = otherResults[relativeOtherIndex]
 		evmTxs[originalIndex] = app.GetEVMMsg(otherTypedTxs[relativeOtherIndex])
 	}
-	app.EvmKeeper.SetTxResults(txResults)
-	app.EvmKeeper.SetMsgs(evmTxs)
+	withDurationLog("SetTxResultsAndMsgs", func() {
+		app.EvmKeeper.SetTxResults(txResults)
+		app.EvmKeeper.SetMsgs(evmTxs)
+	})
 
 	// Finalize all Bank Module Transfers here so that events are included
-	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
+	var lazyWriteEvents []abci.Event
+	withDurationLog("WriteDeferredBalances-Other", func() {
+		lazyWriteEvents = app.BankKeeper.WriteDeferredBalances(ctx)
+	})
 	events = append(events, lazyWriteEvents...)
 
 	// Sum up total used per block only for evm transactions
@@ -1720,9 +1752,11 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		}
 	}
 
-	endBlockResp = app.EndBlock(ctx, abci.RequestEndBlock{
-		Height:       req.GetHeight(),
-		BlockGasUsed: evmTotalGasUsed,
+	withDurationLog("EndBlock", func() {
+		endBlockResp = app.EndBlock(ctx, abci.RequestEndBlock{
+			Height:       req.GetHeight(),
+			BlockGasUsed: evmTotalGasUsed,
+		})
 	})
 
 	events = append(events, endBlockResp.Events...)
@@ -2209,4 +2243,10 @@ func (app *App) inplacetestnetInitializer(pk cryptotypes.PubKey) error {
 func init() {
 	// override max wasm size to 2MB
 	wasmtypes.MaxWasmSize = 2 * 1024 * 1024
+}
+
+func withDurationLog(name string, f func()) {
+	//start := time.Now()
+	f()
+	//fmt.Println(name, "duration", time.Since(start))
 }

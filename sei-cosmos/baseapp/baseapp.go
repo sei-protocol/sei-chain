@@ -886,13 +886,26 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	// Wait for signals to complete before starting the transaction. This is needed before any of the
 	// resources are acceessed by the ante handlers and message handlers.
 	defer acltypes.SendAllSignalsForTx(ctx.TxCompletionChannels())
-	acltypes.WaitForAllSignalsForTx(ctx.TxBlockingChannels())
+
+	// Start RunTx span first, then everything is inside it
+	// Only create detailed child spans for every 10th transaction to reduce GC pressure
+	detailedTracing := app.TracingEnabled && (ctx.TxIndex()%100 == 0)
+
 	if app.TracingEnabled {
-		// check for existing parent tracer, and if applicable, use it
 		spanCtx, span := app.TracingInfo.StartWithContext("RunTx", ctx.TraceSpanContext())
 		defer span.End()
 		ctx = ctx.WithTraceSpanContext(spanCtx)
 		span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", checksum)))
+		span.SetAttributes(attribute.Int("txIndex", ctx.TxIndex()))
+	}
+
+	// ACL wait is now inside RunTx
+	if detailedTracing {
+		_, span := app.TracingInfo.StartWithContext("ACL.WaitForBlockingSignals", ctx.TraceSpanContext())
+		acltypes.WaitForAllSignalsForTx(ctx.TxBlockingChannels())
+		span.End()
+	} else {
+		acltypes.WaitForAllSignalsForTx(ctx.TxBlockingChannels())
 	}
 
 	// NOTE: GasWanted should be returned by the AnteHandler. GasUsed is
@@ -901,7 +914,14 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	var gasWanted uint64
 	var gasEstimate uint64
 
-	ms := ctx.MultiStore()
+	var ms sdk.MultiStore
+	if detailedTracing {
+		_, span := app.TracingInfo.StartWithContext("RunTx.GetMultiStore", ctx.TraceSpanContext())
+		ms = ctx.MultiStore()
+		span.End()
+	} else {
+		ms = ctx.MultiStore()
+	}
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -920,10 +940,26 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		return sdk.GasInfo{}, nil, nil, 0, nil, nil, ctx, sdkerrors.Wrap(sdkerrors.ErrTxDecode, "tx decode error")
 	}
 
-	msgs := tx.GetMsgs()
+	var msgs []sdk.Msg
+	if detailedTracing {
+		_, span := app.TracingInfo.StartWithContext("RunTx.GetMsgs", ctx.TraceSpanContext())
+		msgs = tx.GetMsgs()
+		span.End()
+	} else {
+		msgs = tx.GetMsgs()
+	}
 
-	if err := validateBasicTxMsgs(msgs); err != nil {
-		return sdk.GasInfo{}, nil, nil, 0, nil, nil, ctx, err
+	if detailedTracing {
+		_, span := app.TracingInfo.StartWithContext("RunTx.ValidateBasicMsgs", ctx.TraceSpanContext())
+		err = validateBasicTxMsgs(msgs)
+		span.End()
+		if err != nil {
+			return sdk.GasInfo{}, nil, nil, 0, nil, nil, ctx, err
+		}
+	} else {
+		if err := validateBasicTxMsgs(msgs); err != nil {
+			return sdk.GasInfo{}, nil, nil, 0, nil, nil, ctx, err
+		}
 	}
 
 	if app.anteHandler != nil {
@@ -944,9 +980,22 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		// NOTE: Alternatively, we could require that AnteHandler ensures that
 		// writes do not happen if aborted/failed.  This may have some
 		// performance benefits, but it'll be more difficult to get right.
-		anteCtx, msCache = app.cacheTxContext(ctx, checksum)
+		if detailedTracing {
+			_, span := app.TracingInfo.StartWithContext("AnteHandler.CacheTxContext", ctx.TraceSpanContext())
+			anteCtx, msCache = app.cacheTxContext(ctx, checksum)
+			span.End()
+		} else {
+			anteCtx, msCache = app.cacheTxContext(ctx, checksum)
+		}
 		anteCtx = anteCtx.WithEventManager(sdk.NewEventManager())
-		newCtx, err := app.anteHandler(anteCtx, tx, mode == runTxModeSimulate)
+		var newCtx sdk.Context
+		if detailedTracing {
+			_, span := app.TracingInfo.StartWithContext("AnteHandler.Execute", ctx.TraceSpanContext())
+			newCtx, err = app.anteHandler(anteCtx, tx, mode == runTxModeSimulate)
+			span.End()
+		} else {
+			newCtx, err = app.anteHandler(anteCtx, tx, mode == runTxModeSimulate)
+		}
 
 		if !newCtx.IsZero() {
 			// At this point, newCtx.MultiStore() is a store branch, or something else
@@ -979,6 +1028,10 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 
 		// Dont need to validate in checkTx mode
 		if ctx.MsgValidator() != nil && mode == runTxModeDeliver {
+			if detailedTracing {
+				_, span := app.TracingInfo.StartWithContext("AnteHandler.Validate", ctx.TraceSpanContext())
+				defer span.End()
+			}
 			storeAccessOpEvents := msCache.GetEvents()
 			accessOps := ctx.TxMsgAccessOps()[acltypes.ANTE_MSG_INDEX]
 
@@ -997,7 +1050,13 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		priority = ctx.Priority()
 		pendingTxChecker = ctx.PendingTxChecker()
 		expireHandler = ctx.ExpireTxHandler()
-		msCache.Write()
+		if detailedTracing {
+			_, span := app.TracingInfo.StartWithContext("AnteHandler.CacheWrite", ctx.TraceSpanContext())
+			msCache.Write()
+			span.End()
+		} else {
+			msCache.Write()
+		}
 		anteEvents = events.ToABCIEvents()
 		if app.TracingEnabled {
 			anteSpan.End()
@@ -1007,15 +1066,35 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	// Create a new Context based off of the existing Context with a MultiStore branch
 	// in case message processing fails. At this point, the MultiStore
 	// is a branch of a branch.
-	runMsgCtx, msCache := app.cacheTxContext(ctx, checksum)
+	var runMsgCtx sdk.Context
+	var msCache sdk.CacheMultiStore
+	if detailedTracing {
+		_, span := app.TracingInfo.StartWithContext("RunMsgs.CacheTxContext", ctx.TraceSpanContext())
+		runMsgCtx, msCache = app.cacheTxContext(ctx, checksum)
+		span.End()
+	} else {
+		runMsgCtx, msCache = app.cacheTxContext(ctx, checksum)
+	}
 
 	// Attempt to execute all messages and only update state if all messages pass
 	// and we're in DeliverTx. Note, runMsgs will never return a reference to a
 	// Result if any single message fails or does not have a registered Handler.
-	result, err = app.runMsgs(runMsgCtx, msgs, mode)
+	if detailedTracing {
+		_, span := app.TracingInfo.StartWithContext("RunMsgs.Execute", ctx.TraceSpanContext())
+		result, err = app.runMsgs(runMsgCtx, msgs, mode)
+		span.End()
+	} else {
+		result, err = app.runMsgs(runMsgCtx, msgs, mode)
+	}
 
 	if err == nil && mode == runTxModeDeliver {
-		msCache.Write()
+		if detailedTracing {
+			_, span := app.TracingInfo.StartWithContext("RunMsgs.CacheWrite", ctx.TraceSpanContext())
+			msCache.Write()
+			span.End()
+		} else {
+			msCache.Write()
+		}
 	}
 	// we do this since we will only be looking at result in DeliverTx
 	if result != nil && len(anteEvents) > 0 {
@@ -1095,13 +1174,29 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 			err          error
 		)
 
-		msgCtx, msgMsCache := app.cacheTxContext(ctx, [32]byte{})
+		var msgCtx sdk.Context
+		var msgMsCache sdk.CacheMultiStore
+		if app.TracingEnabled {
+			_, span := app.TracingInfo.StartWithContext(fmt.Sprintf("Msg[%d].CacheTxContext", i), ctx.TraceSpanContext())
+			msgCtx, msgMsCache = app.cacheTxContext(ctx, [32]byte{})
+			span.End()
+		} else {
+			msgCtx, msgMsCache = app.cacheTxContext(ctx, [32]byte{})
+		}
 		msgCtx = msgCtx.WithMessageIndex(i)
 
 		startTime := time.Now()
 		if handler := app.msgServiceRouter.Handler(msg); handler != nil {
 			// ADR 031 request type routing
-			msgResult, err = handler(msgCtx, msg)
+			if app.TracingEnabled {
+				msgType := sdk.MsgTypeURL(msg)
+				spanName := fmt.Sprintf("Msg[%d].%s", i, msgType)
+				_, span := app.TracingInfo.StartWithContext(spanName, ctx.TraceSpanContext())
+				msgResult, err = handler(msgCtx, msg)
+				span.End()
+			} else {
+				msgResult, err = handler(msgCtx, msg)
+			}
 			eventMsgName = sdk.MsgTypeURL(msg)
 			metrics.MeasureSinceWithLabels(
 				[]string{"sei", "cosmos", "run", "msg", "latency"},

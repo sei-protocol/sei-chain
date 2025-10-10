@@ -71,10 +71,13 @@ func assertEqualEvents(t *testing.T, expected, actual []types.Event, testName st
 
 // assertEqualExecTxResults validates the code, so that all errors don't count as a success
 func assertExecTxResultCode(t *testing.T, expected, actual []*types.ExecTxResult, code uint32, testName string) {
-	for _, e := range expected {
-		require.Equal(t, code, e.Code, "%s: Expected code %d, got %d", testName, code, e.Code)
-	}
-	for _, a := range actual {
+	assertTxResultCode(t, expected, code, testName)
+	assertTxResultCode(t, actual, code, testName)
+}
+
+// assertTxResultCode validates the code, so that all errors don't count as a success
+func assertTxResultCode(t *testing.T, results []*types.ExecTxResult, code uint32, testName string) {
+	for _, a := range results {
 		require.Equal(t, code, a.Code, "%s: Actual code %d, got %d", testName, code, a.Code)
 	}
 }
@@ -100,6 +103,7 @@ func assertEqualExecTxResults(t *testing.T, expected, actual []*types.ExecTxResu
 type Test struct {
 	name    string
 	runs    int
+	accts   int
 	shuffle bool
 	before  func(tCtx *utils.TestContext)
 	txs     func(tCtx *utils.TestContext) []*utils.TestMessage
@@ -211,7 +215,7 @@ func runTest(t *testing.T, tt Test) {
 		tt.before(sCtx)
 	}
 
-	sEvts, sResults, _, sErr := utils.RunWithoutOCC(sCtx, txs)
+	sEvts, sResults, _, _, sErr := utils.RunWithoutOCC(sCtx, txs)
 	require.NoError(t, sErr, tt.name)
 	require.Len(t, sResults, len(txs))
 
@@ -220,7 +224,7 @@ func runTest(t *testing.T, tt Test) {
 		if tt.before != nil {
 			tt.before(pCtx)
 		}
-		pEvts, pResults, _, pErr := utils.RunWithOCC(pCtx, txs)
+		pEvts, pResults, _, _, pErr := utils.RunWithOCC(pCtx, txs)
 		require.NoError(t, pErr, tt.name)
 		require.Len(t, pResults, len(txs))
 

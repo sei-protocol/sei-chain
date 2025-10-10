@@ -15,6 +15,7 @@ import (
 	crptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
@@ -56,7 +57,8 @@ func (t TestTx) GetGasEstimate() uint64 {
 }
 
 type TestAppOpts struct {
-	useSc bool
+	useSc         bool
+	enableTracing bool
 }
 
 func (t TestAppOpts) Get(s string) interface{} {
@@ -69,6 +71,9 @@ func (t TestAppOpts) Get(s string) interface{} {
 	if s == evmrpc.FlagFlushReceiptSync {
 		return true
 	}
+	if s == tracing.FlagTracing {
+		return t.enableTracing
+	}
 	return nil
 }
 
@@ -80,14 +85,18 @@ type TestWrapper struct {
 }
 
 func NewTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
-	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, false, baseAppOptions...)
+	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, false, false, baseAppOptions...)
+}
+
+func NewTestWrapperWithTracing(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
+	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, false, true, baseAppOptions...)
 }
 
 func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
-	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, baseAppOptions...)
+	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, false, baseAppOptions...)
 }
 
-func newTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, useSc bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
+func newTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, useSc bool, enableTracing bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
 	var appPtr *App
 	originalHome := DefaultNodeHome
 	tempHome := t.TempDir()
@@ -98,7 +107,7 @@ func newTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enable
 	if useSc {
 		appPtr = SetupWithSc(false, enableEVMCustomPrecompiles, baseAppOptions...)
 	} else {
-		appPtr = Setup(false, enableEVMCustomPrecompiles, false, baseAppOptions...)
+		appPtr = SetupWithTracing(false, enableEVMCustomPrecompiles, false, enableTracing, baseAppOptions...)
 	}
 	ctx := appPtr.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
 	wrapper := &TestWrapper{
@@ -215,6 +224,10 @@ func setupReceiptStore() (seidbtypes.StateStore, error) {
 }
 
 func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*baseapp.BaseApp)) (res *App) {
+	return SetupWithTracing(isCheckTx, enableEVMCustomPrecompiles, overrideWasmGasMultiplier, false, baseAppOptions...)
+}
+
+func SetupWithTracing(isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, enableTracing bool, baseAppOptions ...func(*baseapp.BaseApp)) (res *App) {
 	db := dbm.NewMemDB()
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
@@ -253,7 +266,7 @@ func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMulti
 		config.TestConfig(),
 		encodingConfig,
 		wasm.EnableAllProposals,
-		TestAppOpts{},
+		TestAppOpts{enableTracing: enableTracing},
 		wasmOpts,
 		EmptyACLOpts,
 		options,
@@ -308,7 +321,7 @@ func SetupWithSc(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions
 		config.TestConfig(),
 		encodingConfig,
 		wasm.EnableAllProposals,
-		TestAppOpts{true},
+		TestAppOpts{true, false},
 		EmptyWasmOpts,
 		EmptyACLOpts,
 		options,

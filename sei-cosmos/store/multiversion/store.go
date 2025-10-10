@@ -324,9 +324,9 @@ func (s *Store) checkIteratorAtIndex(index int) bool {
 		return true
 	}
 	iterateset := iterateSetAny.(Iterateset)
-	for _, iterationTracker := range iterateset {
+	for _, it := range iterateset {
 		// TODO: if the value of the key is nil maybe we need to exclude it? - actually it should
-		iteratorValid := s.validateIterator(index, *iterationTracker)
+		iteratorValid := s.validateIterator(index, *it)
 		valid = valid && iteratorValid
 	}
 	return valid
@@ -389,11 +389,9 @@ func (s *Store) ValidateTransactionState(index int) (bool, []int) {
 	// defer telemetry.MeasureSince(time.Now(), "store", "mvs", "validate")
 
 	// TODO: can we parallelize for all iterators?
-	iteratorValid := s.checkIteratorAtIndex(index)
+	//iteratorValid := s.checkIteratorAtIndex(index)
 
-	readsetValid, conflictIndices := s.checkReadsetAtIndex(index)
-
-	return iteratorValid && readsetValid, conflictIndices
+	return s.checkReadsetAtIndex(index)
 }
 
 func (s *Store) WriteLatestToStore() {

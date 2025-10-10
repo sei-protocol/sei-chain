@@ -156,13 +156,30 @@ func deployCW20Token(tCtx *TestContext, i int) (string, error) {
 
 // NewTestContext initializes a new TestContext with a new app and a new contract
 func NewTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, workers int, occEnabled bool) *TestContext {
+	return newTestContext(t, testAccts, blockTime, workers, occEnabled, false)
+}
+
+// NewTestContextWithTracing initializes a new TestContext with tracing enabled
+func NewTestContextWithTracing(t *testing.T, testAccts []TestAcct, blockTime time.Time, workers int, occEnabled bool) *TestContext {
+	return newTestContext(t, testAccts, blockTime, workers, occEnabled, true)
+}
+
+func newTestContext(t *testing.T, testAccts []TestAcct, blockTime time.Time, workers int, occEnabled bool, enableTracing bool) *TestContext {
 	contractFile := "../integration_test/contracts/mars.wasm"
 	cw20ContractFile := "../contracts/wasm/cw20_base.wasm"
 
-	wrapper := app.NewTestWrapper(t, blockTime, testAccts[0].PublicKey, true, func(ba *baseapp.BaseApp) {
-		ba.SetOccEnabled(occEnabled)
-		ba.SetConcurrencyWorkers(workers)
-	})
+	var wrapper *app.TestWrapper
+	if enableTracing {
+		wrapper = app.NewTestWrapperWithTracing(t, blockTime, testAccts[0].PublicKey, true, func(ba *baseapp.BaseApp) {
+			ba.SetOccEnabled(occEnabled)
+			ba.SetConcurrencyWorkers(workers)
+		})
+	} else {
+		wrapper = app.NewTestWrapper(t, blockTime, testAccts[0].PublicKey, true, func(ba *baseapp.BaseApp) {
+			ba.SetOccEnabled(occEnabled)
+			ba.SetConcurrencyWorkers(workers)
+		})
+	}
 	testApp := wrapper.App
 	ctx := wrapper.Ctx
 	ctx = ctx.WithBlockHeader(tmproto.Header{Height: ctx.BlockHeader().Height, ChainID: ctx.BlockHeader().ChainID, Time: blockTime})
@@ -300,16 +317,16 @@ func toTxBytes(testCtx *TestContext, msgs []*TestMessage) [][]byte {
 }
 
 // RunWithOCC runs the given messages with OCC enabled, number of workers is configured via context
-func RunWithOCC(testCtx *TestContext, msgs []*TestMessage) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
+func RunWithOCC(testCtx *TestContext, msgs []*TestMessage) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, time.Duration, error) {
 	return runTxs(testCtx, msgs, true)
 }
 
 // RunWithoutOCC runs the given messages without OCC enabled
-func RunWithoutOCC(testCtx *TestContext, msgs []*TestMessage) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
+func RunWithoutOCC(testCtx *TestContext, msgs []*TestMessage) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, time.Duration, error) {
 	return runTxs(testCtx, msgs, false)
 }
 
-func runTxs(testCtx *TestContext, msgs []*TestMessage, occ bool) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, error) {
+func runTxs(testCtx *TestContext, msgs []*TestMessage, occ bool) ([]types.Event, []*types.ExecTxResult, types.ResponseEndBlock, time.Duration, error) {
 	app.EnableOCC = occ
 	txs := toTxBytes(testCtx, msgs)
 	req := &types.RequestFinalizeBlock{
@@ -317,7 +334,10 @@ func runTxs(testCtx *TestContext, msgs []*TestMessage, occ bool) ([]types.Event,
 		Height: testCtx.Ctx.BlockHeader().Height,
 	}
 
-	return testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, req.DecidedLastCommit, false)
+	start := time.Now()
+	evts, res, reb, err := testCtx.TestApp.ProcessBlock(testCtx.Ctx, txs, req, req.DecidedLastCommit, false)
+	duration := time.Since(start)
+	return evts, res, reb, duration, err
 }
 
 func JoinMsgs(msgsList ...[]*TestMessage) []*TestMessage {
