@@ -72,6 +72,7 @@ type Context struct {
 	closestUpgradeName string
 
 	traceSpanContext context.Context
+	tracingInfo      interface{} // stores *tracing.Info to avoid circular import
 
 	isTracing   bool
 	storeTracer gaskv.IStoreTracer
@@ -229,6 +230,10 @@ func (c Context) BlockHeader() tmproto.Header {
 
 func (c Context) TraceSpanContext() context.Context {
 	return c.traceSpanContext
+}
+
+func (c Context) TracingInfo() interface{} {
+	return c.tracingInfo
 }
 
 func (c Context) IsTracing() bool {
@@ -462,6 +467,11 @@ func (c Context) WithMsgValidator(msgValidator *acltypes.MsgValidator) Context {
 
 func (c Context) WithTraceSpanContext(ctx context.Context) Context {
 	c.traceSpanContext = ctx
+	return c
+}
+
+func (c Context) WithTracingInfo(info interface{}) Context {
+	c.tracingInfo = info
 	return c
 }
 

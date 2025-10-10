@@ -1,7 +1,11 @@
 package types
 
 import (
+	"fmt"
+	"reflect"
+
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
+	"github.com/cosmos/cosmos-sdk/utils/tracing"
 )
 
 // Handler defines the core of the state transition function of an application.
@@ -118,6 +122,25 @@ func DefaultWrappedAnteDecorator(decorator AnteDecorator) WrappedAnteDecorator {
 }
 
 func (wad WrappedAnteDecorator) AnteHandle(ctx Context, tx Tx, simulate bool, next AnteHandler) (newCtx Context, err error) {
+	// Add tracing for each decorator (sampling set by scheduler)
+	if ctx.IsTracing() && ctx.TracingInfo() != nil {
+		// Type assert to get the tracing.Info
+		if tracingInfo, ok := ctx.TracingInfo().(*tracing.Info); ok {
+			// Get decorator name using reflection
+			decoratorType := reflect.TypeOf(wad.Decorator)
+			decoratorName := decoratorType.String()
+			// Remove package prefix for cleaner names
+			if decoratorType.Kind() == reflect.Ptr {
+				decoratorName = decoratorType.Elem().Name()
+			}
+			
+			spanName := fmt.Sprintf("AnteDecorator.%s", decoratorName)
+			spanCtx, span := tracingInfo.StartWithContext(spanName, ctx.TraceSpanContext())
+			defer span.End()
+			ctx = ctx.WithTraceSpanContext(spanCtx)
+		}
+	}
+	
 	return wad.Decorator.AnteHandle(ctx, tx, simulate, next)
 }
 

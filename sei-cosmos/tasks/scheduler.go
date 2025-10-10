@@ -479,6 +479,11 @@ func (s *scheduler) traceSpan(ctx sdk.Context, name string, task *deliverTxTask)
 // prepareTask initializes the context and version stores for a task
 func (s *scheduler) prepareTask(task *deliverTxTask) {
 	ctx := task.Ctx.WithTxIndex(task.AbsoluteIndex)
+	
+	// Set detailed tracing for sampled transactions (every 100th)
+	if task.AbsoluteIndex%100 == 0 {
+		ctx = ctx.WithIsTracing(true)
+	}
 
 	_, span := s.traceSpan(ctx, "SchedulerPrepare", task)
 	defer span.End()
@@ -539,21 +544,18 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 
 	s.prepareTask(task)
 
-	// Only trace detailed timing for every 100th transaction to reduce overhead
-	detailedTracing := task.AbsoluteIndex%100 == 0
-	
-	if detailedTracing {
+	if task.Ctx.IsTracing() {
 		// Start a span to capture the gap between prepare and deliverTx
 		_, waitSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask.WaitingToDeliver", task)
 		waitSpan.End()
 	}
 	
 	var deliverSpan trace.Span
-	if detailedTracing {
+	if task.Ctx.IsTracing() {
 		_, deliverSpan = s.traceSpan(task.Ctx, "SchedulerExecuteTask.DeliverTx", task)
 	}
 	resp := s.deliverTx(task.Ctx, task.Request, task.SdkTx, task.Checksum)
-	if detailedTracing {
+	if task.Ctx.IsTracing() {
 		deliverSpan.End()
 	}
 	
