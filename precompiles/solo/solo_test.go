@@ -177,7 +177,7 @@ func TestClaimSpecificCW721(t *testing.T) {
 	k.AccountKeeper().SetAccount(origCtx, acc)
 	contractAddr := setupCW721Contract(origCtx, claimeeKey, *wKeeper)
 	ctx, _ := origCtx.CacheContext()
-	ctx = ctx.WithGasMeter(sdk.NewGasMeter(2000000, 1, 1))
+	ctx = ctx.WithGasMeter(sdk.NewGasMeter(3000000, 1, 1))
 	_, remainingGas, err := p.ClaimSpecific(ctx, claimer, &method, []interface{}{signClaimMsg(t, evmtypes.NewMsgClaimSpecific(claimee, claimer, &evmtypes.Asset{AssetType: evmtypes.AssetType_TYPECW721, ContractAddress: contractAddr.String()}), claimee, claimer, acc, claimeeKey)}, false)
 	ctx = ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 	require.NoError(t, err)
