@@ -1865,14 +1865,10 @@ func (app *App) RPCContextProvider(i int64) sdk.Context {
 func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
 	txConfigProvider := func(height int64) client.TxConfig {
-		if app.ChainID != "pacific-1" {
-			return app.encodingConfig.TxConfig
+		if evmrpc.IsPreV606Upgrade(app.ChainID, height) {
+			return app.legacyEncodingConfig.TxConfig
 		}
-		// use current for post v6.0.6 heights
-		if height >= v606UpgradeHeight {
-			return app.encodingConfig.TxConfig
-		}
-		return app.legacyEncodingConfig.TxConfig
+		return app.encodingConfig.TxConfig
 	}
 
 	if app.evmRPCConfig.HTTPEnabled {

@@ -15,6 +15,7 @@ import (
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/utils/helpers"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
@@ -23,7 +24,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
-	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
@@ -35,6 +35,7 @@ import (
 )
 
 const LatestCtxHeight int64 = -1
+const V606UpgradeHeight = 151573570
 
 // Since we use a static base fee, we want GasUsedRatio returned in RPC queries
 // to reflect the fact that base fee would never change, which is only true if
@@ -187,19 +188,19 @@ type indexedMsg struct {
 func filterTransactions(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
-	txConfigProvider func(int64) client.TxConfig,
+	txDecoder sdk.TxDecoder,
 	block *coretypes.ResultBlock,
-	signer ethtypes.Signer,
 	includeSyntheticTxs bool,
 	includeBankTransfers bool,
+	checkNonce bool,
 ) []indexedMsg {
 	txs := []indexedMsg{}
-	nonceMap := make(map[string]uint64)
-	txConfig := txConfigProvider(block.Block.Height)
+	txCounts := make(map[string]uint64)
+	startOfBlockNonce := make(map[string]uint64)
 	latestCtx := ctxProvider(LatestCtxHeight)
 	prevCtx := ctxProvider(block.Block.Height - 1)
 	for i, tx := range block.Block.Data.Txs {
-		sdkTx, err := txConfig.TxDecoder()(tx)
+		sdkTx, err := txDecoder(tx)
 		if err != nil {
 			continue
 		}
@@ -211,29 +212,35 @@ func filterTransactions(
 				}
 				ethtx, _ := m.AsTransaction()
 				hash := ethtx.Hash()
-				sender, _ := signer.Sender(ethtx)
-				receipt, err := k.GetReceipt(latestCtx, hash)
-				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(latestCtx, receipt) {
-					continue
-				}
-				if _, ok := nonceMap[sender.Hex()]; !ok {
-					nonceMap[sender.Hex()] = k.GetNonce(prevCtx, common.HexToAddress(sender.Hex()))
-				}
-				if nonceMap[sender.Hex()] != ethtx.Nonce() {
+				receipt, found := getOrSetCachedReceipt(latestCtx, k, block, hash)
+				if !found || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(latestCtx, receipt) {
 					continue
 				}
 				if !includeSyntheticTxs && receipt.TxType == types.ShellEVMTxType {
 					continue
 				}
-				nonceMap[sender.Hex()]++
+				if checkNonce {
+					sender, _ := helpers.RecoverEVMSender(ethtx, block.Block.Height, uint64(block.Block.Time.Unix()))
+					txCount := txCounts[sender.Hex()]
+					if receipt.Status == 0 && receipt.EffectiveGasPrice == 0 {
+						// check if the transaction bumped nonce. If not, exclude it
+						if _, ok := startOfBlockNonce[sender.Hex()]; !ok {
+							startOfBlockNonce[sender.Hex()] = k.GetNonce(prevCtx, common.HexToAddress(sender.Hex()))
+						}
+						if txCount+startOfBlockNonce[sender.Hex()] != ethtx.Nonce() {
+							continue
+						}
+					}
+					txCounts[sender.Hex()] = txCount + 1
+				}
 				txs = append(txs, indexedMsg{index: i, msg: msg})
 			case *wasmtypes.MsgExecuteContract:
 				if !includeSyntheticTxs {
 					continue
 				}
 				th := sha256.Sum256(block.Block.Txs[i])
-				_, err := k.GetReceipt(latestCtx, th)
-				if err != nil {
+				_, found := getOrSetCachedReceipt(latestCtx, k, block, th)
+				if !found {
 					continue
 				}
 				txs = append(txs, indexedMsg{index: i, msg: msg})
@@ -290,14 +297,14 @@ type typedTxHash struct {
 
 func getTxHashesFromBlock(
 	ctxProvider func(int64) sdk.Context,
-	txConfigProvider func(int64) client.TxConfig,
+	txDecoder sdk.TxDecoder,
 	k *keeper.Keeper,
 	block *coretypes.ResultBlock,
-	signer ethtypes.Signer,
 	shouldIncludeSynthetic bool,
+	checkNonce bool,
 ) []typedTxHash {
 	txHashes := []typedTxHash{}
-	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, signer, shouldIncludeSynthetic, false) {
+	for _, tx := range filterTransactions(k, ctxProvider, txDecoder, block, shouldIncludeSynthetic, false, checkNonce) {
 		switch tx.msg.(type) {
 		case *types.MsgEVMTransaction:
 			ethtx, _ := tx.msg.(*types.MsgEVMTransaction).AsTransaction()
@@ -323,6 +330,10 @@ func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 	}
 	return receipt.EffectiveGasPrice == 0 && (strings.Contains(receipt.VmError, core.ErrNonceTooHigh.Error()) ||
 		strings.Contains(receipt.VmError, core.ErrNonceTooLow.Error()))
+}
+
+func IsPreV606Upgrade(chainID string, height int64) bool {
+	return chainID == "pacific-1" && height < V606UpgradeHeight
 }
 
 type ParallelRunner struct {
