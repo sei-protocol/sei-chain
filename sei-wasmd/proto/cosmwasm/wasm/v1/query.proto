@@ -218,7 +218,7 @@ message QueryPinnedCodesRequest {
 // Query/PinnedCodes RPC method
 message QueryPinnedCodesResponse {
   repeated uint64 code_ids = 1
-      [ (gogoproto.nullable) = false, (gogoproto.customname) = "CodeIDs" ];
+      [ (gogoproto.customname) = "CodeIDs" ];
   // pagination defines the pagination in the response.
   cosmos.base.query.v1beta1.PageResponse pagination = 2;
 }
