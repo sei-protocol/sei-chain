@@ -95,6 +95,8 @@ type metricsSnapshot struct {
 	compactionBytesWritten int64
 	flushCount             int64
 	flushBytesWritten      int64
+	cacheHits              int64
+	cacheMisses            int64
 }
 
 type VersionedChangesets struct {
@@ -1296,6 +1298,12 @@ func (db *Database) collectAndRecordMetrics() {
 	cacheMisses := int64(m.BlockCache.Misses)
 	cacheSize := int64(m.BlockCache.Size)
 	// Record absolute values (not cumulative)
+	if cacheHitsDelta := cacheHits - lastSnapshot.cacheHits; cacheHitsDelta > 0 {
+		seidbmetrics.PebbleDBMetrics.CacheHits.Add(ctx, cacheHitsDelta)
+	}
+	if cacheMissesDelta := cacheMisses - lastSnapshot.cacheMisses; cacheMissesDelta > 0 {
+		seidbmetrics.PebbleDBMetrics.CacheMisses.Add(ctx, cacheMissesDelta)
+	}
 	seidbmetrics.PebbleDBMetrics.CacheHits.Add(ctx, cacheHits)
 	seidbmetrics.PebbleDBMetrics.CacheMisses.Add(ctx, cacheMisses)
 	seidbmetrics.PebbleDBMetrics.CacheSize.Record(ctx, cacheSize)
@@ -1308,6 +1316,8 @@ func (db *Database) collectAndRecordMetrics() {
 		compactionBytesWritten: compactionBytesWritten,
 		flushCount:             flushCount,
 		flushBytesWritten:      flushBytesWritten,
+		cacheHits:              cacheHits,
+		cacheMisses:            cacheMisses,
 	}
 	db.metricsMu.Unlock()
 }
