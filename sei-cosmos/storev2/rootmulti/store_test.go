@@ -58,14 +58,14 @@ func TestSCSS_WriteAndHistoricalRead(t *testing.T) {
 	c2 := store.Commit(true)
 	require.Equal(t, int64(2), c2.Version)
 
+	// Wait for SS to asynchronously catch up to v2
+	waitUntilSSVersion(t, store, c2.Version)
+
 	// Current read (latest) should be v2
 	cmsLatest, err := store.CacheMultiStoreWithVersion(c2.Version)
 	require.NoError(t, err)
 	gotLatest := cmsLatest.GetKVStore(key).Get(keyBytes)
 	require.Equal(t, valV2, gotLatest)
-
-	// Wait for SS to asynchronously catch up to v2
-	waitUntilSSVersion(t, store, c2.Version)
 
 	// Historical read at v1 should return v1 (served by SS)
 	cmsV1, err := store.CacheMultiStoreWithVersion(c1.Version)
