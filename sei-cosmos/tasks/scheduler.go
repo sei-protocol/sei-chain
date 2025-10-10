@@ -446,7 +446,13 @@ func (s *scheduler) executeAll(ctx sdk.Context, tasks []*deliverTxTask) error {
 
 	for _, task := range tasks {
 		t := task
+		// Start a "waiting" span before submitting to channel
+		waitCtx, waitSpan := s.traceSpan(ctx, "SchedulerWaitingForWorker", t)
+		t.Ctx = waitCtx
+		
 		s.DoExecute(func() {
+			// End the waiting span as soon as worker picks it up
+			waitSpan.End()
 			s.prepareAndRunTask(wg, ctx, t)
 		})
 	}
@@ -521,6 +527,7 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 
 	// in the synchronous case, we only want to re-execute tasks that need re-executing
 	if s.synchronous {
+		_, syncSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask.SyncMode", task)
 		// even if already validated, it could become invalid again due to preceeding
 		// reruns. Make sure previous writes are invalidated before rerunning.
 		if task.IsStatus(statusValidated) {
@@ -533,16 +540,38 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 			task.Reset()
 			task.Increment()
 		}
+		syncSpan.End()
 	}
 
 	s.prepareTask(task)
 
+	// Only trace detailed timing for every 100th transaction to reduce overhead
+	detailedTracing := task.AbsoluteIndex%100 == 0
+	
+	if detailedTracing {
+		// Start a span to capture the gap between prepare and deliverTx
+		_, waitSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask.WaitingToDeliver", task)
+		waitSpan.End()
+	}
+	
+	var deliverSpan trace.Span
+	if detailedTracing {
+		_, deliverSpan = s.traceSpan(task.Ctx, "SchedulerExecuteTask.DeliverTx", task)
+	}
 	resp := s.deliverTx(task.Ctx, task.Request, task.SdkTx, task.Checksum)
+	if detailedTracing {
+		deliverSpan.End()
+	}
+	
 	// close the abort channel
+	_, abortCheckSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask.CheckAbort", task)
 	close(task.AbortCh)
 	abort, ok := <-task.AbortCh
+	abortCheckSpan.End()
+	
 	if ok {
 		// if there is an abort item that means we need to wait on the dependent tx
+		_, writeEstSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask.WriteEstimates", task)
 		task.SetStatus(statusAborted)
 		task.Abort = &abort
 		task.AppendDependencies([]int{abort.DependentTxIdx})
@@ -550,9 +579,11 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 		for _, v := range task.VersionStores {
 			v.WriteEstimatesToMultiVersionStore()
 		}
+		writeEstSpan.End()
 		return
 	}
 
+	_, writeSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask.WriteToMVStore", task)
 	task.SetStatus(statusExecuted)
 	task.Response = &resp
 
@@ -560,4 +591,5 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 	for _, v := range task.VersionStores {
 		v.WriteToMultiVersionStore()
 	}
+	writeSpan.End()
 }
