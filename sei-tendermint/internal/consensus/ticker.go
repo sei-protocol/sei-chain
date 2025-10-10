@@ -7,10 +7,6 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
-var (
-	tickTockBufferSize = 10
-)
-
 // TimeoutTicker is a timer that schedules timeouts
 // conditional on the height/round/step in the timeoutInfo.
 // The timeoutInfo.Duration may be non-positive.
@@ -36,7 +32,7 @@ func NewTimeoutTicker(logger log.Logger) TimeoutTicker {
 	tt := &timeoutTicker{
 		logger:   logger,
 		tick:     utils.NewAtomicWatch(utils.None[timeoutInfo]()),
-		tockChan: make(chan timeoutInfo, tickTockBufferSize),
+		tockChan: make(chan timeoutInfo),
 	}
 	return tt
 }
@@ -60,19 +56,33 @@ func (t *timeoutTicker) ScheduleTimeout(newti timeoutInfo) {
 // timers are interupted and replaced by new ticks from later steps
 // timeouts of 0 on the tickChan will be immediately relayed to the tockChan
 func (t *timeoutTicker) Run(ctx context.Context) error {
+	tock := utils.NewAtomicWatch(utils.None[timeoutInfo]()) // last fired timeout
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		return t.tick.Iter(ctx, func(ctx context.Context, mti utils.Option[timeoutInfo]) error {
-			ti, ok := mti.Get()
+		s.Spawn(func() error {
+			// Task measuring timeouts.
+			return t.tick.Iter(ctx, func(ctx context.Context, mti utils.Option[timeoutInfo]) error {
+				ti, ok := mti.Get()
+				if !ok {
+					return nil
+				}
+				t.logger.Debug("Internal state machine timeout scheduled", "duration", ti.Duration, "height", ti.Height, "round", ti.Round, "step", ti.Step)
+				if err := utils.Sleep(ctx, ti.Duration); err != nil {
+					return err
+				}
+				t.logger.Debug("Internal state machine timeout elapsed ", "duration", ti.Duration, "height", ti.Height, "round", ti.Round, "step", ti.Step)
+				tock.Store(utils.Some(ti))
+				return nil
+			})
+		})
+		// Task reporting timeouts via channel.
+		// TODO(gprusak): it would be better to expose t.tock directly,
+		// however the receiving task doesn't support receiving from AtomicWatch yet.
+		return tock.Iter(ctx, func(ctx context.Context, mto utils.Option[timeoutInfo]) error {
+			to, ok := mto.Get()
 			if !ok {
 				return nil
 			}
-			t.logger.Debug("Internal state machine timeout scheduled", "duration", ti.Duration, "height", ti.Height, "round", ti.Round, "step", ti.Step)
-			if err := utils.Sleep(ctx, ti.Duration); err != nil {
-				return err
-			}
-			t.logger.Debug("Internal state machine timeout elapsed ", "duration", ti.Duration, "height", ti.Height, "round", ti.Round, "step", ti.Step)
-			s.Spawn(func() error { return utils.Send(ctx, t.tockChan, ti) })
-			return nil
+			return utils.Send(ctx, t.tockChan, to)
 		})
 	})
 }
