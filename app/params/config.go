@@ -111,6 +111,7 @@ func setFullnodeTypeTendermintConfig(config *tmcfg.Config) {
 
 // SetTendermintConfigByMode sets Tendermint config values based on node mode
 // Note: config.Mode should be set by the caller before calling this function
+// Archive nodes should have config.Mode = "full" since Tendermint doesn't recognize "archive"
 func SetTendermintConfigByMode(config *tmcfg.Config) {
 	mode := NodeMode(config.Mode)
 
@@ -128,6 +129,8 @@ func SetTendermintConfigByMode(config *tmcfg.Config) {
 		setFullnodeTypeTendermintConfig(config)
 
 	case NodeModeArchive:
+		// Archive nodes use full node Tendermint config
+		// The difference is in app config (keeping all history)
 		setFullnodeTypeTendermintConfig(config)
 	}
 }
@@ -153,6 +156,9 @@ func setFullnodeTypeAppConfig(config *srvconfig.Config) {
 
 	// StateStore: full nodes keep recent history for queries
 	config.StateStore.KeepRecent = 100000
+
+	// MinRetainBlocks: keep 100k blocks for Tendermint pruning
+	config.MinRetainBlocks = 100000
 }
 
 // setArchiveTypeAppConfig configures archive node settings

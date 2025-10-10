@@ -100,7 +100,13 @@ func InitCmd(mbm module.BasicManager, defaultNodeHome string) *cobra.Command {
 
 			// Create and configure Tendermint config (outputs to config.toml)
 			tmConfig := tmcfg.DefaultConfig()
-			tmConfig.Mode = string(nodeMode) // Set mode first
+			// Tendermint only supports "validator", "full", "seed" modes
+			// Archive nodes use "full" mode in Tendermint but have different app config
+			if nodeMode == params.NodeModeArchive {
+				tmConfig.Mode = string(params.NodeModeFull)
+			} else {
+				tmConfig.Mode = string(nodeMode)
+			}
 			params.SetTendermintConfigByMode(tmConfig)
 			tmConfig.SetRoot(clientCtx.HomeDir)
 			configPath := filepath.Join(tmConfig.RootDir, "config")
