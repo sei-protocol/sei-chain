@@ -377,6 +377,15 @@ func (cli *socketClient) GetTxPriorityHint(ctx context.Context, req *types.Reque
 	return res.GetGetTxPriorityHint(), nil
 }
 
+func (cli *socketClient) CheckNonce(ctx context.Context, req any, index int) (bool, error) {
+	return false, errors.New("not implemented")
+}
+
+func (cli *socketClient) CheckTxWrapped(ctx context.Context, req *types.RequestCheckTx) (*types.ResponseCheckTxV2, any, error) {
+	res, err := cli.CheckTx(ctx, req)
+	return res, nil, err
+}
+
 //----------------------------------------
 
 func resMatchesReq(req *types.Request, res *types.Response) (ok bool) {

@@ -77,6 +77,7 @@ type WrappedTx struct {
 	evmAddress string
 	evmNonce   uint64
 	isEVM      bool
+	evmMessage any // *evmtypes.MsgEVMTransaction to avoid import cycle
 }
 
 // IsBefore returns true if the WrappedTx is before the given WrappedTx

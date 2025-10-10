@@ -209,6 +209,10 @@ func (*Application) CheckTx(_ context.Context, req *types.RequestCheckTx) (*type
 	return &types.ResponseCheckTxV2{ResponseCheckTx: &types.ResponseCheckTx{Code: code.CodeTypeOK, GasWanted: 1}}, nil
 }
 
+func (*Application) CheckTxWrapped(_ context.Context, req *types.RequestCheckTx) (*types.ResponseCheckTxV2, any, error) {
+	return &types.ResponseCheckTxV2{ResponseCheckTx: &types.ResponseCheckTx{Code: code.CodeTypeOK, GasWanted: 1}}, nil, nil
+}
+
 func (app *Application) Commit(_ context.Context) (*types.ResponseCommit, error) {
 	app.mu.Lock()
 	defer app.mu.Unlock()

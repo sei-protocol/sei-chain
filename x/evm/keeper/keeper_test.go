@@ -11,17 +11,21 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/testutil/keeper"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/config"
+	"github.com/sei-protocol/sei-chain/x/evm/derived"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
@@ -386,4 +390,188 @@ func TestGetBaseFeeBeforeV620(t *testing.T) {
 	ctxOtherChain := testCtx.WithChainID("test-chain")
 	baseFeeOther := keeper.GetBaseFee(ctxOtherChain)
 	require.NotNil(t, baseFeeOther, "Base fee should not be nil for non-pacific-1 chains")
+}
+
+func TestKeeper_CheckNonce(t *testing.T) {
+	k, ctx := keeper.MockEVMKeeper()
+	chainID := k.ChainID(ctx)
+	chainCfg := types.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	fromAddr := crypto.PubkeyToAddress(key.PublicKey)
+
+	tests := []struct {
+		name           string
+		setup          func(ctx sdk.Context, k *evmkeeper.Keeper)
+		msg            *types.MsgEVMTransaction
+		index          int
+		expectedResult bool
+		expectedError  string
+	}{
+		{
+			name: "nil derived message should return error",
+			msg: &types.MsgEVMTransaction{
+				Derived: nil,
+			},
+			index:          0,
+			expectedResult: false,
+			expectedError:  "derived is nil",
+		},
+		{
+			name: "first transaction with correct nonce should pass",
+			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
+				// Set nonce to 0 for the address
+				k.SetNonce(ctx, fromAddr, 0)
+			},
+			msg:            createMockEVMTransaction(t, privKey, ethCfg, blockNum, 0),
+			index:          0,
+			expectedResult: true,
+			expectedError:  "",
+		},
+		{
+			name: "first transaction with incorrect nonce should fail",
+			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
+				// Set nonce to 5 for the address
+				k.SetNonce(ctx, fromAddr, 5)
+			},
+			msg:            createMockEVMTransaction(t, privKey, ethCfg, blockNum, 0),
+			index:          0,
+			expectedResult: false,
+			expectedError:  "",
+		},
+		{
+			name: "second transaction with correct nonce should pass",
+			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
+				// Set nonce to 0 for the address
+				k.SetNonce(ctx, fromAddr, 1)
+			},
+			msg:            createMockEVMTransaction(t, privKey, ethCfg, blockNum, 1),
+			index:          1,
+			expectedResult: true,
+			expectedError:  "",
+		},
+		{
+			name: "second transaction with incorrect nonce should fail",
+			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
+				// Set nonce to 0 for the address
+				k.SetNonce(ctx, fromAddr, 0)
+			},
+			msg:            createMockEVMTransaction(t, privKey, ethCfg, blockNum, 2),
+			index:          1,
+			expectedResult: false,
+			expectedError:  "",
+		},
+		{
+			name: "transaction with nonce already in tempNonces should pass",
+			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
+				// Set nonce to 0 for the address
+				k.SetNonce(ctx, fromAddr, 0)
+			},
+			msg:            createMockEVMTransaction(t, privKey, ethCfg, blockNum, 0),
+			index:          1,
+			expectedResult: true,
+			expectedError:  "",
+		},
+		{
+			name: "transaction with nonce already in tempNonces but different value should fail",
+			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
+				// Set nonce to 0 for the address
+				k.SetNonce(ctx, fromAddr, 0)
+			},
+			msg:            createMockEVMTransaction(t, privKey, ethCfg, blockNum, 1),
+			index:          1,
+			expectedResult: false,
+			expectedError:  "",
+		},
+		{
+			name: "multiple transactions in sequence should work",
+			setup: func(ctx sdk.Context, k *evmkeeper.Keeper) {
+				// Set nonce to 0 for the address
+				k.SetNonce(ctx, fromAddr, 0)
+			},
+			msg:            createMockEVMTransaction(t, privKey, ethCfg, blockNum, 0),
+			index:          0,
+			expectedResult: true,
+			expectedError:  "",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			k, ctx := keeper.MockEVMKeeper()
+			if test.setup != nil {
+				test.setup(ctx, k)
+			}
+
+			result, err := k.CheckNonce(ctx, test.msg, test.index)
+
+			if test.expectedError != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), test.expectedError)
+			} else {
+				require.NoError(t, err)
+			}
+
+			require.Equal(t, test.expectedResult, result)
+		})
+	}
+}
+
+func TestKeeper_CheckNonce_SequentialTransactions(t *testing.T) {
+	k, ctx := keeper.MockEVMKeeper()
+	chainID := k.ChainID(ctx)
+	chainCfg := types.DefaultChainConfig()
+	ethCfg := chainCfg.EthereumConfig(chainID)
+	blockNum := big.NewInt(ctx.BlockHeight())
+	privKey := testkeeper.MockPrivateKey()
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, _ := crypto.HexToECDSA(testPrivHex)
+	fromAddr := crypto.PubkeyToAddress(key.PublicKey)
+
+	// Set initial nonce
+	k.SetNonce(ctx, fromAddr, 0)
+
+	// Test sequential transactions
+	for i := 0; i < 5; i++ {
+		msg := createMockEVMTransaction(t, privKey, ethCfg, blockNum, uint64(i))
+		result, err := k.CheckNonce(ctx, msg, i)
+		require.NoError(t, err)
+		require.True(t, result, "Transaction %d should pass", i)
+	}
+}
+
+func createMockEVMTransaction(t *testing.T, privKey cryptotypes.PrivKey, ethCfg *params.ChainConfig, blockNum *big.Int, nonce uint64) *types.MsgEVMTransaction {
+	// Convert cryptotypes.PrivKey to ECDSA key
+	testPrivHex := hex.EncodeToString(privKey.Bytes())
+	key, err := crypto.HexToECDSA(testPrivHex)
+	require.NoError(t, err)
+
+	to := new(common.Address)
+	txData := ethtypes.DynamicFeeTx{
+		Nonce:     nonce,
+		GasFeeCap: big.NewInt(10000000000000),
+		Gas:       1000,
+		To:        to,
+		Value:     big.NewInt(1000000000000000),
+		Data:      []byte("test data"),
+		ChainID:   ethCfg.ChainID,
+	}
+
+	signer := ethtypes.MakeSigner(ethCfg, blockNum, uint64(time.Now().Unix()))
+	tx, err := ethtypes.SignTx(ethtypes.NewTx(&txData), signer, key)
+	require.NoError(t, err)
+
+	typedTx, err := ethtx.NewDynamicFeeTx(tx)
+	require.NoError(t, err)
+
+	msg, err := types.NewMsgEVMTransaction(typedTx)
+	require.NoError(t, err)
+	msg.Derived = &derived.Derived{
+		SenderEVMAddr: crypto.PubkeyToAddress(key.PublicKey),
+	}
+
+	return msg
 }

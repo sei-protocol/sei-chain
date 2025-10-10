@@ -190,3 +190,12 @@ func (cli *grpcClient) LoadLatest(ctx context.Context, params *types.RequestLoad
 func (cli *grpcClient) GetTxPriorityHint(ctx context.Context, req *types.RequestGetTxPriorityHint) (*types.ResponseGetTxPriorityHint, error) {
 	return cli.client.GetTxPriorityHint(ctx, types.ToRequestGetTxPriorityHint(req).GetGetTxPriorityHint(), grpc.WaitForReady(true))
 }
+
+func (cli *grpcClient) CheckNonce(ctx context.Context, req any, index int) (bool, error) {
+	return false, errors.New("not implemented")
+}
+
+func (cli *grpcClient) CheckTxWrapped(ctx context.Context, req *types.RequestCheckTx) (*types.ResponseCheckTxV2, any, error) {
+	res, err := cli.CheckTx(ctx, req)
+	return res, nil, err
+}
