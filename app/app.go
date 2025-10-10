@@ -623,7 +623,6 @@ func New(
 
 	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
 	ssConfig := ssconfig.DefaultStateStoreConfig()
-	ssConfig.DedicatedChangelog = true
 	ssConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
 	ssConfig.DBDirectory = receiptStorePath
 	ssConfig.KeepLastVersion = false
