@@ -12,3 +12,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: bufbuild/buf-action@v1
+        with:
+          version: 1.58.0
