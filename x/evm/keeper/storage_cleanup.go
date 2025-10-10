@@ -42,7 +42,6 @@ func (k *Keeper) PruneZeroStorageSlots(ctx sdk.Context, limit int) (int, int) {
 	deleted := 0
 	var bytesPruned uint64
 	skippedCheckpoint := len(checkpoint) == 0
-	keysToDelete := make([][]byte, 0, limit)
 	var lastKey []byte
 
 	for ; iterator.Valid() && processed < limit; iterator.Next() {
@@ -60,12 +59,16 @@ func (k *Keeper) PruneZeroStorageSlots(ctx sdk.Context, limit int) (int, int) {
 
 		val := iterator.Value()
 		if isZeroStorageValue(val) {
-			keysToDelete = append(keysToDelete, key)
+			store.Delete(key)
+			deleted++
 			bytesPruned += uint64(len(key) + len(val))
 		}
 	}
 
 	if processed == 0 {
+		// No keys were iterated, so the saved checkpoint already points to the end
+		// of the iterator. Clear it so the next run restarts from the beginning
+		// rather than resuming from an exhausted position.
 		if len(checkpoint) != 0 && !iterator.Valid() {
 			k.setZeroStorageCleanupCheckpoint(ctx, nil)
 		}
@@ -78,10 +81,7 @@ func (k *Keeper) PruneZeroStorageSlots(ctx sdk.Context, limit int) (int, int) {
 		k.setZeroStorageCleanupCheckpoint(ctx, nil)
 	}
 
-	for _, key := range keysToDelete {
-		store.Delete(key)
-		deleted++
-	}
+	seimetrics.IncrEvmZeroStorageProcessedKeys(uint64(processed))
 
 	if deleted > 0 {
 		seimetrics.IncrEvmZeroStoragePrunedKeys(uint64(deleted))

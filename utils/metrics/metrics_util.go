@@ -208,6 +208,14 @@ func IncrEvmZeroStoragePrunedKeys(count uint64) {
 	)
 }
 
+// sei_evm_zero_storage_processed_keys
+func IncrEvmZeroStorageProcessedKeys(count uint64) {
+	SafeTelemetryIncrCounter(
+		float32(count),
+		"sei", "evm", "zero", "storage", "processed", "keys",
+	)
+}
+
 // sei_evm_zero_storage_pruned_bytes
 func IncrEvmZeroStoragePrunedBytes(bytes uint64) {
 	SafeTelemetryIncrCounter(
