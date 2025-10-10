@@ -2,6 +2,7 @@ package pebbledb
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -16,12 +17,15 @@ import (
 	"github.com/cockroachdb/pebble/bloom"
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/common/logger"
+	seidbmetrics "github.com/sei-protocol/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/ss/types"
 	"github.com/sei-protocol/sei-db/ss/util"
 	"github.com/sei-protocol/sei-db/stream/changelog"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/exp/slices"
 )
 
@@ -77,6 +81,20 @@ type Database struct {
 	lastRangeHashedCache int64
 	lastRangeHashedMu    sync.RWMutex
 	hashComputationMu    sync.Mutex
+
+	// Metrics collection
+	metricsCtx        context.Context
+	metricsCancel     context.CancelFunc
+	lastMetricsValues metricsSnapshot
+	metricsMu         sync.RWMutex
+}
+
+type metricsSnapshot struct {
+	compactionCount        int64
+	compactionBytesRead    int64
+	compactionBytesWritten int64
+	flushCount             int64
+	flushBytesWritten      int64
 }
 
 type VersionedChangesets struct {
@@ -137,6 +155,9 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		return nil, fmt.Errorf("failed to retrieve latest version: %w", err)
 	}
 
+	// Create metrics context
+	metricsCtx, metricsCancel := context.WithCancel(context.Background())
+
 	database := &Database{
 		storage:         db,
 		asyncWriteWG:    sync.WaitGroup{},
@@ -144,6 +165,8 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		earliestVersion: earliestVersion,
 		latestVersion:   atomic.Int64{},
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
+		metricsCtx:      metricsCtx,
+		metricsCancel:   metricsCancel,
 	}
 	database.latestVersion.Store(latestVersion)
 
@@ -170,10 +193,18 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	database.streamHandler = streamHandler
 	go database.writeAsyncInBackground()
 
+	// Start background metrics collection
+	go database.collectMetricsInBackground()
+
 	return database, nil
 }
 
 func (db *Database) Close() error {
+	// Stop metrics collection
+	if db.metricsCancel != nil {
+		db.metricsCancel()
+	}
+
 	if db.streamHandler != nil {
 		// First, stop accepting new pending changes and drain the worker
 		close(db.pendingChanges)
@@ -339,6 +370,13 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 }
 
 func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byte, error) {
+	startTime := time.Now()
+	defer func() {
+		seidbmetrics.PebbleDBMetrics.GetLatency.Record(
+			context.Background(),
+			time.Since(startTime).Microseconds(),
+		)
+	}()
 	if targetVersion < db.earliestVersion {
 		return nil, nil
 	}
@@ -379,6 +417,13 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byt
 }
 
 func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) error {
+	startTime := time.Now()
+	defer func() {
+		seidbmetrics.PebbleDBMetrics.ApplyChangesetLatency.Record(
+			context.Background(),
+			time.Since(startTime).Milliseconds(),
+		)
+	}()
 	// Check if version is 0 and change it to 1
 	// We do this specifically since keys written as part of genesis state come in as version 0
 	// But pebbledb treats version 0 as special, so apply the changeset at version 1 instead
@@ -414,6 +459,18 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 }
 
 func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
+	startTime := time.Now()
+	defer func() {
+		seidbmetrics.PebbleDBMetrics.ApplyChangesetAsyncLatency.Record(
+			context.Background(),
+			time.Since(startTime).Microseconds(),
+		)
+		// Record pending queue depth
+		seidbmetrics.PebbleDBMetrics.PendingChangesQueueDepth.Record(
+			context.Background(),
+			int64(len(db.pendingChanges)),
+		)
+	}()
 	// Add to pending changes first
 	db.pendingChanges <- VersionedChangesets{
 		Version:    version,
@@ -483,6 +540,17 @@ func (db *Database) computeMissingRanges(latestVersion int64) error {
 }
 
 func (db *Database) computeHashForRange(beginBlock, endBlock int64) error {
+	startTime := time.Now()
+	defer func() {
+		seidbmetrics.PebbleDBMetrics.HashComputationLatency.Record(
+			context.Background(),
+			time.Since(startTime).Milliseconds(),
+			metric.WithAttributes(
+				attribute.Int64("begin_block", beginBlock),
+				attribute.Int64("end_block", endBlock),
+			),
+		)
+	}()
 	chunkSize := endBlock - beginBlock + 1
 	if chunkSize <= 0 {
 		// Nothing to do
@@ -567,6 +635,14 @@ func (db *Database) writeAsyncInBackground() {
 // it has been updated. This occurs when that module's keys are updated in between pruning runs, the node after is restarted.
 // This is not a large issue given the next time that module is updated, it will be properly pruned thereafter.
 func (db *Database) Prune(version int64) error {
+	startTime := time.Now()
+	defer func() {
+		seidbmetrics.PebbleDBMetrics.PruneLatency.Record(
+			context.Background(),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(attribute.Int64("version", version)),
+		)
+	}()
 	earliestVersion := version + 1 // we increment by 1 to include the provided version
 
 	itr, err := db.storage.NewIter(nil)
@@ -672,6 +748,14 @@ func (db *Database) Prune(version int64) error {
 }
 
 func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+	startTime := time.Now()
+	defer func() {
+		seidbmetrics.PebbleDBMetrics.IterationLatency.Record(
+			context.Background(),
+			time.Since(startTime).Microseconds(),
+		)
+	}()
+
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -710,6 +794,14 @@ func prefixEnd(b []byte) []byte {
 }
 
 func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
+	startTime := time.Now()
+	defer func() {
+		seidbmetrics.PebbleDBMetrics.ReverseIterationLatency.Record(
+			context.Background(),
+			time.Since(startTime).Microseconds(),
+		)
+	}()
+
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -738,6 +830,15 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 // Import loads the initial version of the state in parallel with numWorkers goroutines
 // TODO: Potentially add retries instead of panics
 func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) error {
+	startTime := time.Now()
+	defer func() {
+		seidbmetrics.PebbleDBMetrics.ImportLatency.Record(
+			context.Background(),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(attribute.Int64("version", version)),
+		)
+	}()
+
 	var wg sync.WaitGroup
 
 	worker := func() {
@@ -1084,4 +1185,129 @@ func retrieveLastRangeHashed(db *pebble.DB) (int64, error) {
 		return 0, fmt.Errorf("last range hashed in database overflows int64: %d", ubz)
 	}
 	return int64(ubz), nil
+}
+
+// collectMetricsInBackground periodically collects PebbleDB internal metrics
+func (db *Database) collectMetricsInBackground() {
+	ticker := time.NewTicker(10 * time.Second) // Collect metrics every 10 seconds
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-db.metricsCtx.Done():
+			return
+		case <-ticker.C:
+			db.collectAndRecordMetrics()
+		}
+	}
+}
+
+// collectAndRecordMetrics collects PebbleDB internal metrics and records them
+func (db *Database) collectAndRecordMetrics() {
+	if db.storage == nil {
+		return
+	}
+
+	m := db.storage.Metrics()
+	ctx := context.Background()
+
+	db.metricsMu.Lock()
+	lastSnapshot := db.lastMetricsValues
+	db.metricsMu.Unlock()
+
+	// Compaction metrics - PebbleDB tracks compactions in the Compact field
+	compactionCount := m.Compact.Count
+
+	// Calculate bytes read/written from level metrics
+	var compactionBytesRead int64
+	var compactionBytesWritten int64
+	for level := 0; level < len(m.Levels); level++ {
+		levelMetrics := m.Levels[level]
+		compactionBytesRead += int64(levelMetrics.BytesIn)
+		compactionBytesWritten += int64(levelMetrics.BytesCompacted)
+	}
+
+	// Calculate deltas for counters
+	compactionCountDelta := compactionCount - lastSnapshot.compactionCount
+	compactionBytesReadDelta := compactionBytesRead - lastSnapshot.compactionBytesRead
+	compactionBytesWrittenDelta := compactionBytesWritten - lastSnapshot.compactionBytesWritten
+
+	// Record deltas as counters
+	if compactionCountDelta > 0 {
+		seidbmetrics.PebbleDBMetrics.CompactionCount.Add(ctx, compactionCountDelta)
+	}
+	if compactionBytesReadDelta > 0 {
+		seidbmetrics.PebbleDBMetrics.CompactionBytesRead.Add(ctx, compactionBytesReadDelta)
+	}
+	if compactionBytesWrittenDelta > 0 {
+		seidbmetrics.PebbleDBMetrics.CompactionBytesWritten.Add(ctx, compactionBytesWrittenDelta)
+	}
+
+	// Record compaction duration if available
+	if compactionCountDelta > 0 && m.Compact.Duration > 0 {
+		avgDurationSeconds := m.Compact.Duration.Seconds() / float64(compactionCountDelta)
+		seidbmetrics.PebbleDBMetrics.CompactionDuration.Record(ctx, avgDurationSeconds)
+	}
+
+	// Flush metrics
+	flushCount := m.Flush.Count
+	flushBytesWritten := int64(m.Flush.WriteThroughput.Bytes)
+
+	flushCountDelta := flushCount - lastSnapshot.flushCount
+	flushBytesWrittenDelta := flushBytesWritten - lastSnapshot.flushBytesWritten
+
+	if flushCountDelta > 0 {
+		seidbmetrics.PebbleDBMetrics.FlushCount.Add(ctx, flushCountDelta)
+	}
+	if flushBytesWrittenDelta > 0 {
+		seidbmetrics.PebbleDBMetrics.FlushBytesWritten.Add(ctx, flushBytesWrittenDelta)
+	}
+
+	// Record flush duration if available
+	if flushCountDelta > 0 && m.Flush.WriteThroughput.WorkDuration > 0 {
+		avgDurationSeconds := m.Flush.WriteThroughput.WorkDuration.Seconds() / float64(flushCountDelta)
+		seidbmetrics.PebbleDBMetrics.FlushDuration.Record(ctx, avgDurationSeconds)
+	}
+
+	// Storage metrics (gauges - absolute values)
+	var sstableCount int64
+	var sstableTotalSize int64
+	for level := 0; level < len(m.Levels); level++ {
+		levelMetrics := m.Levels[level]
+		sstableCount += levelMetrics.NumFiles
+		sstableTotalSize += int64(levelMetrics.Size)
+	}
+
+	seidbmetrics.PebbleDBMetrics.SSTableCount.Record(ctx, sstableCount)
+	seidbmetrics.PebbleDBMetrics.SSTableTotalSize.Record(ctx, sstableTotalSize)
+
+	// Memtable metrics
+	memtableCount := int64(m.MemTable.Count)
+	memtableTotalSize := int64(m.MemTable.Size)
+	seidbmetrics.PebbleDBMetrics.MemtableCount.Record(ctx, memtableCount)
+	seidbmetrics.PebbleDBMetrics.MemtableTotalSize.Record(ctx, memtableTotalSize)
+
+	// WAL metrics
+	walSize := int64(m.WAL.Size)
+	seidbmetrics.PebbleDBMetrics.WALSize.Record(ctx, walSize)
+
+	// Cache metrics - BlockCache is a struct, not a pointer
+	cacheHits := int64(m.BlockCache.Hits)
+	cacheMisses := int64(m.BlockCache.Misses)
+	cacheSize := int64(m.BlockCache.Size)
+	// Record absolute values (not cumulative)
+	seidbmetrics.PebbleDBMetrics.CacheHits.Add(ctx, cacheHits)
+	seidbmetrics.PebbleDBMetrics.CacheMisses.Add(ctx, cacheMisses)
+	seidbmetrics.PebbleDBMetrics.CacheSize.Record(ctx, cacheSize)
+
+	// Update last snapshot
+	db.metricsMu.Lock()
+	db.lastMetricsValues = metricsSnapshot{
+		compactionCount:        compactionCount,
+		compactionBytesRead:    compactionBytesRead,
+		compactionBytesWritten: compactionBytesWritten,
+		flushCount:             flushCount,
+		flushBytesWritten:      flushBytesWritten,
+	}
+	db.metricsMu.Unlock()
 }
