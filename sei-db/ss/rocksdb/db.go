@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/linxGnu/grocksdb"
@@ -59,7 +60,7 @@ type Database struct {
 	// Earliest version for db after pruning
 	earliestVersion int64
 	// Latest version for db
-	latestVersion int64
+	latestVersion atomic.Int64
 
 	asyncWriteWG sync.WaitGroup
 
@@ -106,9 +107,10 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		cfHandle:        cfHandle,
 		tsLow:           tsLow,
 		earliestVersion: earliestVersion,
-		latestVersion:   latestVersion,
+		latestVersion:   atomic.Int64{},
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
 	}
+	database.latestVersion.Store(latestVersion)
 
 	streamHandler, _ := changelog.NewStream(
 		logger.NewNopLogger(),
@@ -135,14 +137,14 @@ func (db *Database) getSlice(storeKey string, version int64, key []byte) (*grock
 }
 
 func (db *Database) SetLatestVersion(version int64) error {
-	db.latestVersion = version
+	db.latestVersion.Store(version)
 	var ts [TimestampSize]byte
 	binary.LittleEndian.PutUint64(ts[:], uint64(version))
 	return db.storage.Put(defaultWriteOpts, []byte(latestVersionKey), ts[:])
 }
 
 func (db *Database) GetLatestVersion() int64 {
-	return db.latestVersion
+	return db.latestVersion.Load()
 }
 
 // retrieveLatestVersion retrieves the latest version from the database, if not found, return 0.
@@ -240,7 +242,7 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 	if err != nil {
 		return err
 	}
-	db.latestVersion = version
+	db.latestVersion.Store(version)
 	return nil
 }
 

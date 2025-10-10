@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/armon/go-metrics"
@@ -60,7 +61,7 @@ type Database struct {
 	// Earliest version for db after pruning
 	earliestVersion int64
 	// Latest version for db
-	latestVersion int64
+	latestVersion atomic.Int64
 
 	// Map of module to when each was last updated
 	// Used in pruning to skip over stores that have not been updated recently
@@ -141,9 +142,10 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		asyncWriteWG:    sync.WaitGroup{},
 		config:          config,
 		earliestVersion: earliestVersion,
-		latestVersion:   latestVersion,
+		latestVersion:   atomic.Int64{},
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
 	}
+	database.latestVersion.Store(latestVersion)
 
 	// Initialize the lastRangeHashed cache
 	lastHashed, err := retrieveLastRangeHashed(db)
@@ -190,7 +192,7 @@ func (db *Database) SetLatestVersion(version int64) error {
 	if version < 0 {
 		return fmt.Errorf("version must be non-negative")
 	}
-	db.latestVersion = version
+	db.latestVersion.Store(version)
 	var ts [VersionSize]byte
 	binary.LittleEndian.PutUint64(ts[:], uint64(version))
 	err := db.storage.Set([]byte(latestVersionKey), ts[:], defaultWriteOpts)
@@ -198,7 +200,7 @@ func (db *Database) SetLatestVersion(version int64) error {
 }
 
 func (db *Database) GetLatestVersion() int64 {
-	return db.latestVersion
+	return db.latestVersion.Load()
 }
 
 // Retrieve latestVersion from db, if not found, return 0.
@@ -407,7 +409,7 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 		return err
 	}
 	// Update latest version on write success
-	db.latestVersion = version
+	db.latestVersion.Store(version)
 	return nil
 }
 
