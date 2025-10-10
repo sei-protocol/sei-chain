@@ -1,21 +1,23 @@
 syntax = "proto3";
 package cosmos.params.v1beta1;
 
-option go_package            = "github.com/cosmos/cosmos-sdk/x/params/types";
-option (gogoproto.equal_all) = true;
-
-import "gogoproto/gogo.proto";
 import "cosmos/base/v1beta1/coin.proto";
+import "gogoproto/gogo.proto";
+
+option go_package = "github.com/cosmos/cosmos-sdk/x/params/types";
+option (gogoproto.equal_all) = true;
 
 // Defines fee params that are controlled through governance
 message FeesParams {
-  repeated cosmos.base.v1beta1.DecCoin global_minimum_gas_prices = 1
-      [(gogoproto.nullable) = false, (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.DecCoins"];
+  repeated cosmos.base.v1beta1.DecCoin global_minimum_gas_prices = 1 [
+    (gogoproto.nullable) = false,
+    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.DecCoins"
+  ];
   repeated string allowed_fee_denoms = 2;
 }
 
 message CosmosGasParams {
-  uint64 cosmos_gas_multiplier_numerator   = 1;
+  uint64 cosmos_gas_multiplier_numerator = 1;
   uint64 cosmos_gas_multiplier_denominator = 2;
 }
 

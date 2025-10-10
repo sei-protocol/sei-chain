@@ -2,10 +2,10 @@ syntax = "proto3";
 
 package ibc.lightclients.localhost.v1;
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/light-clients/09-localhost/types";
-
 import "gogoproto/gogo.proto";
 import "ibc/core/client/v1/client.proto";
+
+option go_package = "github.com/cosmos/ibc-go/v3/modules/light-clients/09-localhost/types";
 
 // ClientState defines a loopback (localhost) client. It requires (read-only)
 // access to keys outside the client prefix.

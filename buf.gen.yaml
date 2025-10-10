@@ -6,31 +6,37 @@ inputs:
   - directory: sei-wasmd/proto
 plugins:
   - local:
-      - go
-      - run
-      - github.com/regen-network/cosmos-proto/protoc-gen-gocosmos
+      - ./build/proto/gocosmos/protoc-gen-gocosmos
     opt:
-      - plugins=grpc
+      - plugins=interfacetype+grpc
       - Mgoogle/protobuf/duration.proto=github.com/gogo/protobuf/types
       - Mgoogle/protobuf/struct.proto=github.com/gogo/protobuf/types
       - Mgoogle/protobuf/timestamp.proto=github.com/gogo/protobuf/types
       - Mgoogle/protobuf/wrappers.proto=github.com/gogo/protobuf/types
       - Mgoogle/protobuf/any.proto=github.com/cosmos/cosmos-sdk/codec/types
-      - Mcosmos/orm/v1alpha1/orm.proto=github.com/cosmos/cosmos-sdk/api/cosmos/orm/v1alpha1
-    #      - go_opt=paths=source_relative
-    #      - paths=source_relative
-    out: ./xxx
+    out: ./build/proto/gocosmos
   - local:
+      # The version used is consistent with the grp-gateway version in go.mod.
       - go
       - run
-      - github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway
-    out: ./xxx
-    opt: logtostderr=true
+      - github.com/grpc-ecosystem/grpc-gateway/protoc-gen-grpc-gateway@v1.16.0
+    out: ./build/proto/gocosmos
+    opt:
+      - logtostderr=true
+      - allow_colon_final_segments=true
+    
+    # Note that buf v2 does not support using generator per input directory.
+    # As a workaround, we generate all the code in a separate output directory.
+    # Then we copy the generated code to the desired location for tendermint only.
+    # This is because tendermint uses gogofaster while cosmos-sdk and wasmd use gocosmos 
+    # (a fork of gogo/protobuf maintained by cosmos).
+    # In the future we should consider using a single generator for all of them.
   - local:
+      # The version used is consistent with the gogofaster version used by tendermint.
       - go
       - run
-      - github.com/gogo/protobuf/protoc-gen-gogofaster
-    out: ./xxx/xx
+      - github.com/gogo/protobuf/protoc-gen-gogofaster@v1.3.2
+    out: ./build/proto/gogofaster
     opt:
       - Mgoogle/protobuf/timestamp.proto=github.com/gogo/protobuf/types
       - Mgoogle/protobuf/duration.proto=github.com/golang/protobuf/ptypes/duration

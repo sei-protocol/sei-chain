@@ -2,7 +2,6 @@ syntax = "proto3";
 package seiprotocol.seichain.tokenfactory;
 
 import "gogoproto/gogo.proto";
-import "cosmos/base/v1beta1/coin.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/tokenfactory/types";
 
@@ -13,5 +12,5 @@ message DenomAuthorityMetadata {
   option (gogoproto.equal) = true;
 
   // Can be empty for no admin, or a valid sei address
-  string admin = 1 [ (gogoproto.moretags) = "yaml:\"admin\"" ];
+  string admin = 1 [(gogoproto.moretags) = "yaml:\"admin\""];
 }

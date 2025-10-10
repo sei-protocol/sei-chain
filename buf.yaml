@@ -3,27 +3,26 @@ version: v2
 modules:
   - path: proto
     name: buf.build/sei-protocol/sei-chain
-    lint:
-      use:
-        - STANDARD
-        - COMMENTS
-        - FILE_LOWER_SNAKE_CASE
-      except:
-        - UNARY_RPC
-        - COMMENT_FIELD
-        - SERVICE_SUFFIX
-        - PACKAGE_VERSION_SUFFIX
-        - RPC_REQUEST_STANDARD_NAME
-      ignore:
-        - proto/tendermint
   - path: sei-cosmos/proto
   - path: sei-cosmos/third_party/proto
   - path: sei-tendermint/proto
   - path: sei-wasmd/proto
-#  - path: sei-wasmd/third_party/proto
-deps:
-#  - buf.build/sei-protocol/cosmos-sdk
-#  - buf.build/sei-protocol/third-party
+  - path: sei-wasmd/third_party/proto
+
+lint:
+  use:
+    - BASIC
+    - FILE_LOWER_SNAKE_CASE
+    - UNARY_RPC
+  except:
+    - COMMENT_FIELD
+    - PACKAGE_VERSION_SUFFIX
+    - PACKAGE_SAME_DIRECTORY
+    - PACKAGE_DIRECTORY_MATCH
+    - PACKAGE_SAME_GO_PACKAGE
+  ignore:
+    - sei-wasmd/third_party/proto
+    - sei-cosmos/third_party/proto
 
 breaking:
   use:
