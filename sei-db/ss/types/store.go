@@ -14,9 +14,9 @@ type StateStore interface {
 	Iterator(storeKey string, version int64, start, end []byte) (DBIterator, error)
 	ReverseIterator(storeKey string, version int64, start, end []byte) (DBIterator, error)
 	RawIterate(storeKey string, fn func([]byte, []byte, int64) bool) (bool, error)
-	GetLatestVersion() (int64, error)
+	GetLatestVersion() int64
 	SetLatestVersion(version int64) error
-	GetEarliestVersion() (int64, error)
+	GetEarliestVersion() int64
 	SetEarliestVersion(version int64, ignoreVersion bool) error
 	GetLatestMigratedKey() ([]byte, error)
 	GetLatestMigratedModule() (string, error)

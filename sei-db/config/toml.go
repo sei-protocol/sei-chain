@@ -23,7 +23,7 @@ sc-zero-copy = {{ .StateCommit.ZeroCopy }}
 sc-async-commit-buffer = {{ .StateCommit.AsyncCommitBuffer }}
 
 # KeepRecent defines how many state-commit snapshots (besides the latest one) to keep
-# defaults to 1 to make sure ibc relayers work.
+# defaults to 0 to only keep one current snapshot
 sc-keep-recent = {{ .StateCommit.SnapshotKeepRecent }}
 
 # SnapshotInterval defines the block interval the snapshot is taken, default to 10000 blocks.
