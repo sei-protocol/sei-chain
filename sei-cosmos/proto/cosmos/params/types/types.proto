@@ -17,8 +17,8 @@ message FeesParams {
 }
 
 message CosmosGasParams {
-  uint64 cosmos_gas_multiplier_numerator = 1;
-  uint64 cosmos_gas_multiplier_denominator = 2;
+  uint64 cosmos_gas_multiplier_numerator = 1 [(gogoproto.jsontag) = "cosmos_gas_multiplier_numerator,string,omitempty"];
+  uint64 cosmos_gas_multiplier_denominator = 2 [(gogoproto.jsontag) = "cosmos_gas_multiplier_denominator,string,omitempty"];
 }
 
 message GenesisState {
