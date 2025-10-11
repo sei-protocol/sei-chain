@@ -23,7 +23,6 @@ pushd "$(go env GOMODCACHE)/github.com/regen-network/cosmos-proto@v0.3.1" &&
   go build -o "${build_out}/protoc-gen-gocosmos" ./protoc-gen-gocosmos &&
   popd
 
-
 go run github.com/bufbuild/buf/cmd/buf@v1.58.0 generate
 
 # We can't manipulate the outputs enough to eliminate the extra move-abouts.
