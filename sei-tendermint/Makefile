@@ -75,45 +75,6 @@ $(BUILDDIR)/:
 	mkdir -p $@
 
 ###############################################################################
-###                                Protobuf                                 ###
-###############################################################################
-
-# Installs the gogofaster plugin for protoc, required for generating protobuf files.
-# Otherwise, if already installed, this is a no-op.
-check-proto-deps:
-	@go install github.com/gogo/protobuf/protoc-gen-gogofaster@v1.3.2
-.PHONY: check-proto-deps
-
-proto-gen: check-proto-deps
-	@echo "Generating Protobuf files"
-	@$(BUF) generate
-	@mv ./proto/tendermint/abci/types.pb.go ./abci/types/
-.PHONY: proto-gen
-
-# These targets are provided for convenience and are intended for local
-# execution only.
-proto-lint: check-proto-deps
-	@echo "Linting Protobuf files"
-	@$(BUF) lint
-.PHONY: proto-lint
-
-proto-format: check-proto-deps
-	@echo "Formatting Protobuf files"
-	@$(BUF) format -w
-.PHONY: proto-format
-
-proto-check-breaking: check-proto-deps
-	@echo "Checking for breaking changes in Protobuf files against local branch"
-	@echo "Note: This is only useful if your changes have not yet been committed."
-	@echo "      Otherwise read up on buf's \"breaking\" command usage:"
-	@echo "      https://docs.buf.build/breaking/usage"
-	@$(BUF) breaking --against ".git"
-.PHONY: proto-check-breaking
-
-proto-all: proto-gen proto-format proto-lint proto-check-breaking
-.PHONY: proto-all
-
-###############################################################################
 ###                              Build ABCI                                 ###
 ###############################################################################
 

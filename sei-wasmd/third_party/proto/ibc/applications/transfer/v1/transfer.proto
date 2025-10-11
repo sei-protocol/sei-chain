@@ -2,9 +2,9 @@ syntax = "proto3";
 
 package ibc.applications.transfer.v1;
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/apps/transfer/types";
-
 import "gogoproto/gogo.proto";
+
+option go_package = "github.com/cosmos/ibc-go/v3/modules/apps/transfer/types";
 
 // DenomTrace contains the base denomination for ICS20 fungible tokens and the
 // source tracing information path.

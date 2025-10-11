@@ -10,7 +10,7 @@ option go_package = "github.com/cosmos/cosmos-sdk/crypto/types";
 // signed and with which modes.
 message MultiSignature {
   option (gogoproto.goproto_unrecognized) = true;
-  repeated bytes signatures               = 1;
+  repeated bytes signatures = 1;
 }
 
 // CompactBitArray is an implementation of a space efficient bit array.
@@ -21,5 +21,5 @@ message CompactBitArray {
   option (gogoproto.goproto_stringer) = false;
 
   uint32 extra_bits_stored = 1;
-  bytes  elems             = 2;
+  bytes elems = 2;
 }

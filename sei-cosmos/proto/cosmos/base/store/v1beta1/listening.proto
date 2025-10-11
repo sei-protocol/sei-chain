@@ -10,7 +10,7 @@ option go_package = "github.com/cosmos/cosmos-sdk/store/types";
 // Since: cosmos-sdk 0.43
 message StoreKVPair {
   string store_key = 1; // the store key for the KVStore this pair originates from
-  bool delete      = 2; // true indicates a delete operation, false indicates a set operation
-  bytes key        = 3;
-  bytes value      = 4;
+  bool delete = 2; // true indicates a delete operation, false indicates a set operation
+  bytes key = 3;
+  bytes value = 4;
 }

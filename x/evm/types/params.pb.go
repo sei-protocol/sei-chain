@@ -27,28 +27,22 @@ const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 // Params defines the parameters for the module
 type Params struct {
 	// string base_denom = 1 [
-	//
-	//	(gogoproto.moretags)   = "yaml:\"base_denom\"",
-	//	(gogoproto.jsontag) = "base_denom"
-	//
+	//   (gogoproto.moretags)   = "yaml:\"base_denom\"",
+	//   (gogoproto.jsontag) = "base_denom"
 	// ];
 	PriorityNormalizer github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,2,opt,name=priority_normalizer,json=priorityNormalizer,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"priority_normalizer" yaml:"priority_normalizer"`
 	BaseFeePerGas      github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,3,opt,name=base_fee_per_gas,json=baseFeePerGas,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"base_fee_per_gas" yaml:"base_fee_per_gas"`
 	MinimumFeePerGas   github_com_cosmos_cosmos_sdk_types.Dec `protobuf:"bytes,4,opt,name=minimum_fee_per_gas,json=minimumFeePerGas,proto3,customtype=github.com/cosmos/cosmos-sdk/types.Dec" json:"minimum_fee_per_gas" yaml:"minimum_fee_per_gas"`
 	// ChainConfig chain_config = 5 [(gogoproto.moretags) = "yaml:\"chain_config\"", (gogoproto.nullable) = false];
-	//
-	//	string chain_id = 6 [
-	//	(gogoproto.moretags)   = "yaml:\"chain_id\"",
-	//	(gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
-	//	(gogoproto.nullable)   = false,
-	//	(gogoproto.jsontag) = "chain_id"
-	//
+	//   string chain_id = 6 [
+	//   (gogoproto.moretags)   = "yaml:\"chain_id\"",
+	//   (gogoproto.customtype) = "github.com/cosmos/cosmos-sdk/types.Int",
+	//   (gogoproto.nullable)   = false,
+	//   (gogoproto.jsontag) = "chain_id"
 	// ];
 	// repeated string whitelisted_codehashes_bank_send = 7 [
-	//
-	//	(gogoproto.moretags)   = "yaml:\"whitelisted_codehashes_bank_send\"",
-	//	(gogoproto.jsontag) = "whitelisted_codehashes_bank_send"
-	//
+	//   (gogoproto.moretags)   = "yaml:\"whitelisted_codehashes_bank_send\"",
+	//   (gogoproto.jsontag) = "whitelisted_codehashes_bank_send"
 	// ];
 	WhitelistedCwCodeHashesForDelegateCall [][]byte                               `protobuf:"bytes,8,rep,name=whitelisted_cw_code_hashes_for_delegate_call,json=whitelistedCwCodeHashesForDelegateCall,proto3" json:"whitelisted_cw_code_hashes_for_delegate_call" yaml:"whitelisted_cw_code_hashes_for_delegate_call"`
 	DeliverTxHookWasmGasLimit              uint64                                 `protobuf:"varint,9,opt,name=deliver_tx_hook_wasm_gas_limit,json=deliverTxHookWasmGasLimit,proto3" json:"deliver_tx_hook_wasm_gas_limit,omitempty"`

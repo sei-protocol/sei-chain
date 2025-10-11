@@ -122,7 +122,7 @@ service ReflectionService {
   // GetChainDescriptor returns the description of the chain
   rpc GetChainDescriptor(GetChainDescriptorRequest) returns (GetChainDescriptorResponse) {
     option (google.api.http).get = "/cosmos/base/reflection/v1beta1/app_descriptor/chain";
-  };
+  }
   // GetCodecDescriptor returns the descriptor of the codec of the application
   rpc GetCodecDescriptor(GetCodecDescriptorRequest) returns (GetCodecDescriptorResponse) {
     option (google.api.http).get = "/cosmos/base/reflection/v1beta1/app_descriptor/codec";
@@ -143,6 +143,7 @@ service ReflectionService {
 
 // GetAuthnDescriptorRequest is the request used for the GetAuthnDescriptor RPC
 message GetAuthnDescriptorRequest {}
+
 // GetAuthnDescriptorResponse is the response returned by the GetAuthnDescriptor RPC
 message GetAuthnDescriptorResponse {
   // authn describes how to authenticate to the application when sending transactions
@@ -151,6 +152,7 @@ message GetAuthnDescriptorResponse {
 
 // GetChainDescriptorRequest is the request used for the GetChainDescriptor RPC
 message GetChainDescriptorRequest {}
+
 // GetChainDescriptorResponse is the response returned by the GetChainDescriptor RPC
 message GetChainDescriptorResponse {
   // chain describes application chain information
@@ -159,6 +161,7 @@ message GetChainDescriptorResponse {
 
 // GetCodecDescriptorRequest is the request used for the GetCodecDescriptor RPC
 message GetCodecDescriptorRequest {}
+
 // GetCodecDescriptorResponse is the response returned by the GetCodecDescriptor RPC
 message GetCodecDescriptorResponse {
   // codec describes the application codec such as registered interfaces and implementations
@@ -167,6 +170,7 @@ message GetCodecDescriptorResponse {
 
 // GetConfigurationDescriptorRequest is the request used for the GetConfigurationDescriptor RPC
 message GetConfigurationDescriptorRequest {}
+
 // GetConfigurationDescriptorResponse is the response returned by the GetConfigurationDescriptor RPC
 message GetConfigurationDescriptorResponse {
   // config describes the application's sdk.Config
@@ -175,6 +179,7 @@ message GetConfigurationDescriptorResponse {
 
 // GetQueryServicesDescriptorRequest is the request used for the GetQueryServicesDescriptor RPC
 message GetQueryServicesDescriptorRequest {}
+
 // GetQueryServicesDescriptorResponse is the response returned by the GetQueryServicesDescriptor RPC
 message GetQueryServicesDescriptorResponse {
   // queries provides information on the available queryable services
@@ -183,6 +188,7 @@ message GetQueryServicesDescriptorResponse {
 
 // GetTxDescriptorRequest is the request used for the GetTxDescriptor RPC
 message GetTxDescriptorRequest {}
+
 // GetTxDescriptorResponse is the response returned by the GetTxDescriptor RPC
 message GetTxDescriptorResponse {
   // tx provides information on msgs that can be forwarded to the application

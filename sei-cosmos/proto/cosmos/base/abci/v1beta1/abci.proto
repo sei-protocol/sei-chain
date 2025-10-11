@@ -2,10 +2,10 @@ syntax = "proto3";
 package cosmos.base.abci.v1beta1;
 
 import "gogoproto/gogo.proto";
-import "tendermint/abci/types.proto";
 import "google/protobuf/any.proto";
+import "tendermint/abci/types.proto";
 
-option go_package                       = "github.com/cosmos/cosmos-sdk/types";
+option go_package = "github.com/cosmos/cosmos-sdk/types";
 option (gogoproto.goproto_stringer_all) = false;
 
 // TxResponse defines a structure containing relevant tx data and metadata. The
@@ -26,7 +26,10 @@ message TxResponse {
   // non-deterministic.
   string raw_log = 6;
   // The output of the application's logger (typed). May be non-deterministic.
-  repeated ABCIMessageLog logs = 7 [(gogoproto.castrepeated) = "ABCIMessageLogs", (gogoproto.nullable) = false];
+  repeated ABCIMessageLog logs = 7 [
+    (gogoproto.castrepeated) = "ABCIMessageLogs",
+    (gogoproto.nullable) = false
+  ];
   // Additional information. May be non-deterministic.
   string info = 8;
   // Amount of gas requested for transaction.
@@ -53,11 +56,14 @@ message ABCIMessageLog {
   option (gogoproto.stringer) = true;
 
   uint32 msg_index = 1;
-  string log       = 2;
+  string log = 2;
 
   // Events contains a slice of Event objects that were emitted during some
   // execution.
-  repeated StringEvent events = 3 [(gogoproto.castrepeated) = "StringEvents", (gogoproto.nullable) = false];
+  repeated StringEvent events = 3 [
+    (gogoproto.castrepeated) = "StringEvents",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // StringEvent defines en Event object wrapper where all the attributes
@@ -65,14 +71,14 @@ message ABCIMessageLog {
 message StringEvent {
   option (gogoproto.stringer) = true;
 
-  string             type       = 1;
+  string type = 1;
   repeated Attribute attributes = 2 [(gogoproto.nullable) = false];
 }
 
 // Attribute defines an attribute wrapper where the key and value are
 // strings instead of raw bytes.
 message Attribute {
-  string key   = 1;
+  string key = 1;
   string value = 2;
 }
 
@@ -104,14 +110,18 @@ message Result {
   repeated tendermint.abci.Event events = 3 [(gogoproto.nullable) = false];
 
   // EVM VM error during execution
+  // buf:lint:ignore FIELD_LOWER_SNAKE_CASE We have caught this late; keeping to avoid breaking changes.
   string evmError = 4;
 }
 
 // SimulationResponse defines the response generated when a transaction is
 // successfully simulated.
 message SimulationResponse {
-  GasInfo gas_info = 1 [(gogoproto.embed) = true, (gogoproto.nullable) = false];
-  Result  result   = 2;
+  GasInfo gas_info = 1 [
+    (gogoproto.embed) = true,
+    (gogoproto.nullable) = false
+  ];
+  Result result = 2;
 }
 
 // MsgData defines the data returned in a Result object during message
@@ -120,7 +130,7 @@ message MsgData {
   option (gogoproto.stringer) = true;
 
   string msg_type = 1;
-  bytes  data     = 2;
+  bytes data = 2;
 }
 
 // TxMsgData defines a list of MsgData. A transaction will have a MsgData object
@@ -136,13 +146,22 @@ message SearchTxsResult {
   option (gogoproto.stringer) = true;
 
   // Count of all txs
-  uint64 total_count = 1 [(gogoproto.moretags) = "yaml:\"total_count\"", (gogoproto.jsontag) = "total_count"];
+  uint64 total_count = 1 [
+    (gogoproto.moretags) = "yaml:\"total_count\"",
+    (gogoproto.jsontag) = "total_count"
+  ];
   // Count of txs in current page
   uint64 count = 2;
   // Index of current page, start from 1
-  uint64 page_number = 3 [(gogoproto.moretags) = "yaml:\"page_number\"", (gogoproto.jsontag) = "page_number"];
+  uint64 page_number = 3 [
+    (gogoproto.moretags) = "yaml:\"page_number\"",
+    (gogoproto.jsontag) = "page_number"
+  ];
   // Count of total pages
-  uint64 page_total = 4 [(gogoproto.moretags) = "yaml:\"page_total\"", (gogoproto.jsontag) = "page_total"];
+  uint64 page_total = 4 [
+    (gogoproto.moretags) = "yaml:\"page_total\"",
+    (gogoproto.jsontag) = "page_total"
+  ];
   // Max count txs per page
   uint64 limit = 5;
   // List of txs in current page

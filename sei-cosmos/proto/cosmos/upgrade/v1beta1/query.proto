@@ -1,9 +1,8 @@
 syntax = "proto3";
 package cosmos.upgrade.v1beta1;
 
-import "google/protobuf/any.proto";
-import "google/api/annotations.proto";
 import "cosmos/upgrade/v1beta1/upgrade.proto";
+import "google/api/annotations.proto";
 
 option go_package = "github.com/cosmos/cosmos-sdk/x/upgrade/types";
 
@@ -26,7 +25,7 @@ service Query {
   // This rpc is deprecated now that IBC has its own replacement
   // (https://github.com/cosmos/ibc-go/blob/2c880a22e9f9cc75f62b527ca94aa75ce1106001/proto/ibc/core/client/v1/query.proto#L54)
   rpc UpgradedConsensusState(QueryUpgradedConsensusStateRequest) returns (QueryUpgradedConsensusStateResponse) {
-    option deprecated            = true;
+    option deprecated = true;
     option (google.api.http).get = "/cosmos/upgrade/v1beta1/upgraded_consensus_state/{last_height}";
   }
 

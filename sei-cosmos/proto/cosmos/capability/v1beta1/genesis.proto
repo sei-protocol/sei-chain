@@ -1,8 +1,8 @@
 syntax = "proto3";
 package cosmos.capability.v1beta1;
 
-import "gogoproto/gogo.proto";
 import "cosmos/capability/v1beta1/capability.proto";
+import "gogoproto/gogo.proto";
 
 option go_package = "github.com/cosmos/cosmos-sdk/x/capability/types";
 
@@ -12,7 +12,10 @@ message GenesisOwners {
   uint64 index = 1;
 
   // index_owners are the owners at the given index.
-  CapabilityOwners index_owners = 2 [(gogoproto.nullable) = false, (gogoproto.moretags) = "yaml:\"index_owners\""];
+  CapabilityOwners index_owners = 2 [
+    (gogoproto.nullable) = false,
+    (gogoproto.moretags) = "yaml:\"index_owners\""
+  ];
 }
 
 // GenesisState defines the capability module's genesis state.

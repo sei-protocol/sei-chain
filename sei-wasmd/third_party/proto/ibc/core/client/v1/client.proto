@@ -2,11 +2,11 @@ syntax = "proto3";
 
 package ibc.core.client.v1;
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/core/02-client/types";
-
+import "cosmos/upgrade/v1beta1/upgrade.proto";
 import "gogoproto/gogo.proto";
 import "google/protobuf/any.proto";
-import "cosmos/upgrade/v1beta1/upgrade.proto";
+
+option go_package = "github.com/cosmos/ibc-go/v3/modules/core/02-client/types";
 
 // IdentifiedClientState defines a client state with an additional client
 // identifier field.
@@ -32,8 +32,10 @@ message ClientConsensusStates {
   // client identifier
   string client_id = 1 [(gogoproto.moretags) = "yaml:\"client_id\""];
   // consensus states and their heights associated with the client
-  repeated ConsensusStateWithHeight consensus_states = 2
-      [(gogoproto.moretags) = "yaml:\"consensus_states\"", (gogoproto.nullable) = false];
+  repeated ConsensusStateWithHeight consensus_states = 2 [
+    (gogoproto.moretags) = "yaml:\"consensus_states\"",
+    (gogoproto.nullable) = false
+  ];
 }
 
 // ClientUpdateProposal is a governance proposal. If it passes, the substitute
@@ -56,13 +58,13 @@ message ClientUpdateProposal {
 // UpgradeProposal is a gov Content type for initiating an IBC breaking
 // upgrade.
 message UpgradeProposal {
-  option (gogoproto.goproto_getters)  = false;
+  option (gogoproto.goproto_getters) = false;
   option (gogoproto.goproto_stringer) = false;
-  option (gogoproto.equal)            = true;
+  option (gogoproto.equal) = true;
 
-  string                      title       = 1;
-  string                      description = 2;
-  cosmos.upgrade.v1beta1.Plan plan        = 3 [(gogoproto.nullable) = false];
+  string title = 1;
+  string description = 2;
+  cosmos.upgrade.v1beta1.Plan plan = 3 [(gogoproto.nullable) = false];
 
   // An UpgradedClientState must be provided to perform an IBC breaking upgrade.
   // This will make the chain commit to the correct upgraded (self) client state
@@ -84,7 +86,7 @@ message UpgradeProposal {
 // height continues to be monitonically increasing even as the RevisionHeight
 // gets reset
 message Height {
-  option (gogoproto.goproto_getters)  = false;
+  option (gogoproto.goproto_getters) = false;
   option (gogoproto.goproto_stringer) = false;
 
   // the revision that the client is currently on
