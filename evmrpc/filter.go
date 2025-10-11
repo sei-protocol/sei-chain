@@ -68,6 +68,20 @@ func getCachedReceipt(globalBlockCache BlockCache, blockHeight int64, txHash com
 	return nil, false
 }
 
+func getOrSetCachedReceipt(cacheCreationMutex *sync.Mutex, globalBlockCache BlockCache, ctx sdk.Context, k *keeper.Keeper, block *coretypes.ResultBlock, txHash common.Hash) (*evmtypes.Receipt, bool) {
+	blockHeight := block.Block.Height
+	receipt, found := getCachedReceipt(globalBlockCache, blockHeight, txHash)
+	if found {
+		return receipt, true
+	}
+	receipt, err := k.GetReceipt(ctx, txHash)
+	if err != nil {
+		return nil, false
+	}
+	setCachedReceipt(cacheCreationMutex, globalBlockCache, blockHeight, block, txHash, receipt)
+	return receipt, true
+}
+
 // LoadOrStore ensures atomic cache entry creation (like sync.Map.LoadOrStore)
 func loadOrStoreCacheEntry(cacheCreationMutex *sync.Mutex, globalBlockCache BlockCache, blockHeight int64, block *coretypes.ResultBlock) *BlockCacheEntry {
 	// Fast path: try to get existing entry
@@ -261,6 +275,7 @@ func NewFilterAPI(
 	namespace string,
 	dbReadSemaphore chan struct{},
 	globalBlockCache BlockCache,
+	cacheCreationMutex *sync.Mutex,
 	globalLogSlicePool *LogSlicePool,
 ) *FilterAPI {
 	if filterConfig.maxBlock <= 0 {
@@ -280,6 +295,7 @@ func NewFilterAPI(
 		includeSyntheticReceipts: shouldIncludeSynthetic(namespace),
 		dbReadSemaphore:          dbReadSemaphore,
 		globalBlockCache:         globalBlockCache,
+		cacheCreationMutex:       cacheCreationMutex,
 		globalLogSlicePool:       globalLogSlicePool,
 	}
 	filters := make(map[ethrpc.ID]filter)
@@ -641,7 +657,7 @@ type LogFetcher struct {
 	includeSyntheticReceipts bool
 	dbReadSemaphore          chan struct{}
 	globalBlockCache         BlockCache
-	cacheCreationMutex       sync.Mutex
+	cacheCreationMutex       *sync.Mutex
 	globalLogSlicePool       *LogSlicePool
 }
 
@@ -828,15 +844,11 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	totalLogs := uint(0)
 	evmTxIndex := 0
 
-	for _, hash := range getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts) {
-		receipt, found := getCachedReceipt(f.globalBlockCache, block.Block.Height, hash.hash)
+	for _, hash := range getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache) {
+		receipt, found := getOrSetCachedReceipt(f.cacheCreationMutex, f.globalBlockCache, ctx, f.k, block, hash.hash)
 		if !found {
-			var err error
-			receipt, err = f.k.GetReceipt(ctx, hash.hash)
-			if err != nil {
-				continue
-			}
-			setCachedReceipt(&f.cacheCreationMutex, f.globalBlockCache, block.Block.Height, block, hash.hash, receipt)
+			ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", hash.hash.Hex()))
+			continue
 		}
 
 		txLogs := keeper.GetLogsForTx(receipt, totalLogs)
@@ -1031,7 +1043,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		}
 
 		// Use LoadOrStore to create/get cache entry atomically
-		entry := loadOrStoreCacheEntry(&f.cacheCreationMutex, f.globalBlockCache, height, block)
+		entry := loadOrStoreCacheEntry(f.cacheCreationMutex, f.globalBlockCache, height, block)
 		// Fill bloom if we have it and it's missing
 		if blockBloom != (ethtypes.Bloom{}) {
 			fillMissingFields(entry, block, blockBloom)
