@@ -101,7 +101,6 @@ func (m NodeMode) IsFullnodeType() bool {
 // setValidatorTypeTendermintConfig sets common Tendermint config for validator-like nodes
 func setValidatorTypeTendermintConfig(config *tmcfg.Config) {
 	config.TxIndex.Indexer = []string{"null"} // Validators don't need tx indexing
-	config.RPC.EventLogWindowSize = 0
 	config.P2P.AllowDuplicateIP = false
 }
 
