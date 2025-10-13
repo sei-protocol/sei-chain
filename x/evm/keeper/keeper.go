@@ -87,6 +87,8 @@ type Keeper struct {
 	customPrecompiles       map[common.Address]precompiles.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
 	latestUpgrade           string
+
+	typedTxs sync.Map
 }
 
 type AddressNoncePair struct {
@@ -604,6 +606,19 @@ func (k *Keeper) getReplayBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
 		BlobBaseFee: blobBaseFee,
 		Random:      random,
 	}, nil
+}
+
+func (k *Keeper) SetTypedTxs(height int64, txs []sdk.Tx) {
+	k.typedTxs.Delete(height - 1000)
+	k.typedTxs.Store(height, txs)
+}
+
+func (k *Keeper) GetTypedTxs(height int64) []sdk.Tx {
+	txs, ok := k.typedTxs.Load(height)
+	if !ok {
+		return nil
+	}
+	return txs.([]sdk.Tx)
 }
 
 func uint64Cmp(a, b uint64) int {

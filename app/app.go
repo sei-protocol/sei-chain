@@ -1602,6 +1602,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs)) // nil for non-EVM txs
 	txResults := make([]*abci.ExecTxResult, len(txs))
 	typedTxs := app.DecodeTransactionsConcurrently(ctx, txs)
+	app.EvmKeeper.SetTypedTxs(req.GetHeight(), typedTxs)
 
 	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs, typedTxs)
 
@@ -1865,14 +1866,10 @@ func (app *App) RPCContextProvider(i int64) sdk.Context {
 func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	tmservice.RegisterTendermintService(app.BaseApp.GRPCQueryRouter(), clientCtx, app.interfaceRegistry)
 	txConfigProvider := func(height int64) client.TxConfig {
-		if app.ChainID != "pacific-1" {
-			return app.encodingConfig.TxConfig
+		if evmrpc.IsPreV606Upgrade(app.ChainID, height) {
+			return app.legacyEncodingConfig.TxConfig
 		}
-		// use current for post v6.0.6 heights
-		if height >= v606UpgradeHeight {
-			return app.encodingConfig.TxConfig
-		}
-		return app.legacyEncodingConfig.TxConfig
+		return app.encodingConfig.TxConfig
 	}
 
 	if app.evmRPCConfig.HTTPEnabled {

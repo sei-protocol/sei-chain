@@ -19,6 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/lib/ethapi"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/utils/helpers"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -36,7 +37,8 @@ type TransactionAPI struct {
 	keeper           *keeper.Keeper
 	ctxProvider      func(int64) sdk.Context
 	txConfig         client.TxConfig
-	txConfigProvider func(int64) client.TxConfig
+	txDecoder        sdk.TxDecoder
+	legacyTxDecoder  sdk.TxDecoder
 	homeDir          string
 	connectionType   ConnectionType
 	includeSynthetic bool
@@ -48,7 +50,7 @@ type SeiTransactionAPI struct {
 }
 
 func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, connectionType ConnectionType) *TransactionAPI {
-	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType}
+	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txDecoder: txConfigProvider(V606UpgradeHeight + 1).TxDecoder(), legacyTxDecoder: txConfigProvider(V606UpgradeHeight - 1).TxDecoder(), homeDir: homeDir, connectionType: connectionType}
 }
 
 func NewSeiTransactionAPI(
@@ -66,23 +68,11 @@ func NewSeiTransactionAPI(
 }
 
 func (t *SeiTransactionAPI) GetTransactionReceiptExcludeTraceFail(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
-	sdkCtx := t.ctxProvider(LatestCtxHeight)
-	signer := ethtypes.MakeSigner(
-		types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
-		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Unix()),
-	)
-	return getTransactionReceipt(ctx, t.TransactionAPI, hash, true, t.isPanicTx, true, signer)
+	return getTransactionReceipt(ctx, t.TransactionAPI, hash, true, t.isPanicTx, true)
 }
 
 func (t *TransactionAPI) GetTransactionReceipt(ctx context.Context, hash common.Hash) (result map[string]interface{}, returnErr error) {
-	sdkCtx := t.ctxProvider(LatestCtxHeight)
-	signer := ethtypes.MakeSigner(
-		types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
-		big.NewInt(sdkCtx.BlockHeight()),
-		uint64(sdkCtx.BlockTime().Unix()),
-	)
-	return getTransactionReceipt(ctx, t, hash, false, nil, t.includeSynthetic, signer)
+	return getTransactionReceipt(ctx, t, hash, false, nil, t.includeSynthetic)
 }
 
 func getTransactionReceipt(
@@ -92,7 +82,6 @@ func getTransactionReceipt(
 	excludePanicTxs bool,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 	includeSynthetic bool,
-	signer ethtypes.Signer,
 ) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetrics("eth_getTransactionReceipt", t.connectionType, startTime, returnErr == nil)
@@ -117,6 +106,10 @@ func getTransactionReceipt(
 		}
 		return nil, err
 	}
+	txDecoder := t.txDecoder
+	if IsPreV606Upgrade(sdkctx.ChainID(), int64(receipt.BlockNumber)) {
+		txDecoder = t.legacyTxDecoder
+	}
 	// Fill in the receipt if the transaction has failed and used 0 gas
 	// This case is for when a tx fails before it makes it to the VM
 	if receipt.Status == 0 && receipt.GasUsed == 0 {
@@ -129,15 +122,13 @@ func getTransactionReceipt(
 
 		// Find the transaction in the block
 		for _, tx := range block.Block.Txs {
-			etx := getEthTxForTxBz(tx, t.txConfigProvider(block.Block.Height).TxDecoder())
+			etx := getEthTxForTxBz(tx, txDecoder)
 			if etx != nil && etx.Hash() == hash {
-				// Get the signer
-				signer := ethtypes.MakeSigner(
-					types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkctx)),
-					big.NewInt(height),
-					uint64(block.Block.Time.Unix()),
-				)
-				from, _ := ethtypes.Sender(signer, etx)
+
+				from, err := helpers.RecoverEVMSender(etx, height, uint64(block.Block.Time.Unix()))
+				if err != nil {
+					return nil, err
+				}
 
 				// Update receipt with correct information
 				receipt.From = from.Hex()
@@ -161,7 +152,7 @@ func getTransactionReceipt(
 	if err != nil {
 		return nil, err
 	}
-	return encodeReceipt(t.ctxProvider, t.txConfigProvider, receipt, t.keeper, block, includeSynthetic, signer)
+	return encodeReceipt(t.ctxProvider, txDecoder, receipt, t.keeper, block, includeSynthetic)
 }
 
 func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
@@ -209,14 +200,13 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 			break
 		}
 		for _, tx := range res.Txs {
-			etx := getEthTxForTxBz(tx, t.txConfigProvider(LatestCtxHeight).TxDecoder())
+			etx := getEthTxForTxBz(tx, t.txDecoder)
 			if etx != nil && etx.Hash() == hash {
-				signer := ethtypes.MakeSigner(
-					types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx)),
-					big.NewInt(sdkCtx.BlockHeight()),
-					uint64(sdkCtx.BlockTime().Unix()),
-				)
-				from, _ := ethtypes.Sender(signer, etx)
+				from, err := helpers.RecoverEVMSenderWithContext(sdkCtx, etx)
+				if err != nil {
+					sdkCtx.Logger().Error("failed to recover sender", "err", err, "tx", etx.Hash().Hex())
+					return nil, err
+				}
 				v, r, s := etx.RawSignatureValues()
 				res := ethapi.RPCTransaction{
 					Type:     hexutil.Uint64(etx.Type()),
@@ -291,7 +281,11 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 	if int(index) >= len(block.Block.Txs) {
 		return nil, nil
 	}
-	ethtx := getEthTxForTxBz(block.Block.Txs[int(index)], t.txConfigProvider(block.Block.Height).TxDecoder())
+	txDecoder := t.txDecoder
+	if IsPreV606Upgrade(t.ctxProvider(LatestCtxHeight).ChainID(), int64(block.Block.Height)) {
+		txDecoder = t.legacyTxDecoder
+	}
+	ethtx := getEthTxForTxBz(block.Block.Txs[int(index)], txDecoder)
 	if ethtx == nil {
 		return nil, nil
 	}
@@ -300,13 +294,22 @@ func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, i
 		return nil, err
 	}
 	height := int64(receipt.BlockNumber)
-	baseFeePerGas := t.keeper.GetBaseFee(t.ctxProvider(height))
-	chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(t.ctxProvider(height)))
+	sdkCtx := t.ctxProvider(height)
+	baseFeePerGas := t.keeper.GetBaseFee(sdkCtx)
+	chainConfig := types.DefaultChainConfig().EthereumConfig(t.keeper.ChainID(sdkCtx))
 	blockHash := common.HexToHash(block.BlockID.Hash.String())
 	blockNumber := uint64(block.Block.Height)
 	blockTime := block.Block.Time
 	res := ethapi.NewRPCTransaction(ethtx, blockHash, blockNumber, uint64(blockTime.Second()), uint64(receipt.TransactionIndex), baseFeePerGas, chainConfig)
+	replaceFrom(res, receipt)
 	return res, nil
+}
+
+// replaceFrom updates the From field of the transaction if it is not already set, for edge cases for Legacy Txs.
+func replaceFrom(tx *ethapi.RPCTransaction, receipt *types.Receipt) {
+	if tx.From == (common.Address{}) && receipt != nil {
+		tx.From = common.HexToAddress(receipt.From)
+	}
 }
 
 func (t *TransactionAPI) Sign(addr common.Address, data hexutil.Bytes) (result hexutil.Bytes, returnErr error) {
@@ -375,11 +378,11 @@ func GetEvmTxIndex(ctx sdk.Context, block *coretypes.ResultBlock, msgs []indexed
 	return -1, false, nil, -1
 }
 
-func encodeReceipt(ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, receipt *types.Receipt, k *keeper.Keeper, block *coretypes.ResultBlock, includeSynthetic bool, signer ethtypes.Signer) (map[string]interface{}, error) {
+func encodeReceipt(ctxProvider func(int64) sdk.Context, txDecoder sdk.TxDecoder, receipt *types.Receipt, k *keeper.Keeper, block *coretypes.ResultBlock, includeSynthetic bool) (map[string]interface{}, error) {
 	blockHash := block.BlockID.Hash
 	bh := common.HexToHash(blockHash.String())
 	ctx := ctxProvider(block.Block.Height)
-	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, signer, includeSynthetic, false)
+	msgs := filterTransactions(k, ctxProvider, txDecoder, block, includeSynthetic, false, true)
 	evmTxIndex, foundTx, etx, logIndexOffset := GetEvmTxIndex(ctx, block, msgs, receipt.TransactionIndex, k)
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
 	if !foundTx {
@@ -407,7 +410,7 @@ func encodeReceipt(ctxProvider func(int64) sdk.Context, txConfigProvider func(in
 		"status":            hexutil.Uint(receipt.Status),
 	}
 	if etx != nil && receipt.From == "" {
-		from, err := ethtypes.Sender(signer, etx)
+		from, err := helpers.RecoverEVMSender(etx, int64(receipt.BlockNumber), uint64(block.Block.Time.Unix()))
 		if err == nil {
 			fields["from"] = from
 		}

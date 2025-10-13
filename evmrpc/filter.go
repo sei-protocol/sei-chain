@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"sort"
 	"sync"
 	"time"
@@ -20,7 +19,6 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
-	"github.com/sei-protocol/sei-chain/x/evm/types"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 	"github.com/tendermint/tendermint/rpc/coretypes"
@@ -68,6 +66,20 @@ func getCachedReceipt(blockHeight int64, txHash common.Hash) (*evmtypes.Receipt,
 		}
 	}
 	return nil, false
+}
+
+func getOrSetCachedReceipt(ctx sdk.Context, k *keeper.Keeper, block *coretypes.ResultBlock, txHash common.Hash) (*evmtypes.Receipt, bool) {
+	blockHeight := block.Block.Height
+	receipt, found := getCachedReceipt(blockHeight, txHash)
+	if found {
+		return receipt, true
+	}
+	receipt, err := k.GetReceipt(ctx, txHash)
+	if err != nil {
+		return nil, false
+	}
+	setCachedReceipt(blockHeight, block, txHash, receipt)
+	return receipt, true
 }
 
 // LoadOrStore ensures atomic cache entry creation (like sync.Map.LoadOrStore)
@@ -276,7 +288,15 @@ func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(
 	}
 
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, filterConfig: filterConfig, includeSyntheticReceipts: shouldIncludeSynthetic(namespace)}
+	logFetcher := &LogFetcher{
+		tmClient:                 tmClient,
+		k:                        k,
+		ctxProvider:              ctxProvider,
+		txDecoder:                txConfigProvider(V606UpgradeHeight + 1).TxDecoder(),
+		legacyTxDecoder:          txConfigProvider(V606UpgradeHeight - 1).TxDecoder(),
+		filterConfig:             filterConfig,
+		includeSyntheticReceipts: shouldIncludeSynthetic(namespace),
+	}
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
 		namespace:      namespace,
@@ -629,7 +649,8 @@ func (a *FilterAPI) Cleanup() {
 type LogFetcher struct {
 	tmClient                 rpcclient.Client
 	k                        *keeper.Keeper
-	txConfigProvider         func(int64) client.TxConfig
+	txDecoder                sdk.TxDecoder
+	legacyTxDecoder          sdk.TxDecoder
 	ctxProvider              func(int64) sdk.Context
 	filterConfig             *FilterConfig
 	includeSyntheticReceipts bool
@@ -817,22 +838,15 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	ctx := f.ctxProvider(block.Block.Height)
 	totalLogs := uint(0)
 	evmTxIndex := 0
-	signer := ethtypes.MakeSigner(
-		types.DefaultChainConfig().EthereumConfig(f.k.ChainID(ctx)),
-		big.NewInt(ctx.BlockHeight()),
-		uint64(ctx.BlockTime().Unix()),
-	)
-
-	for _, hash := range getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, signer, f.includeSyntheticReceipts) {
-		receipt, found := getCachedReceipt(block.Block.Height, hash.hash)
+	decoder := f.txDecoder
+	if IsPreV606Upgrade(ctx.ChainID(), block.Block.Height) {
+		decoder = f.legacyTxDecoder
+	}
+	for _, hash := range getTxHashesFromBlock(f.ctxProvider, decoder, f.k, block, f.includeSyntheticReceipts, false) {
+		receipt, found := getOrSetCachedReceipt(ctx, f.k, block, hash.hash)
 		if !found {
-			var err error
-			receipt, err = f.k.GetReceipt(ctx, hash.hash)
-			if err != nil {
-				ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", hash.hash.Hex()))
-				continue
-			}
-			setCachedReceipt(block.Block.Height, block, hash.hash, receipt)
+			ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", hash.hash.Hex()))
+			continue
 		}
 
 		txLogs := keeper.GetLogsForTx(receipt, totalLogs)
