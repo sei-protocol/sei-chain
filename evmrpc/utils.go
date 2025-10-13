@@ -233,6 +233,9 @@ func filterTransactions(
 			}
 			sdkTx = typedTx
 		}
+		if sdkTx == nil {
+			continue
+		}
 		for _, msg := range sdkTx.GetMsgs() {
 			switch m := msg.(type) {
 			case *types.MsgEVMTransaction:
