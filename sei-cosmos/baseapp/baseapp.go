@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
+	"github.com/armon/go-metrics"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/armon/go-metrics"
+	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/server/config"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	"github.com/gogo/protobuf/proto"
@@ -97,6 +97,7 @@ type BaseApp struct { //nolint: maligned
 	preCommitHandler          sdk.PreCommitHandler
 	closeHandler              sdk.CloseHandler
 	inplaceTestnetInitializer sdk.InplaceTestnetInitializer
+	txPrioritizer             sdk.TxPrioritizer
 
 	appStore
 	baseappVersions
@@ -252,6 +253,7 @@ func NewBaseApp(
 		}
 	}
 
+	// Enable Tracing
 	tp := trace.NewNoopTracerProvider()
 	otel.SetTracerProvider(trace.NewNoopTracerProvider())
 	tr := tp.Tracer("component-main")

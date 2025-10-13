@@ -1117,20 +1117,6 @@ func (app *BaseApp) ProcessProposal(ctx context.Context, req *abci.RequestProces
 		}
 	}()
 
-	defer func() {
-		if err := recover(); err != nil {
-			app.logger.Error(
-				"panic recovered in ProcessProposal",
-				"height", req.Height,
-				"time", req.Time,
-				"hash", fmt.Sprintf("%X", req.Hash),
-				"panic", err,
-			)
-
-			resp = &abci.ResponseProcessProposal{Status: abci.ResponseProcessProposal_REJECT}
-		}
-	}()
-
 	if app.processProposalHandler != nil {
 		resp, err = app.processProposalHandler(app.processProposalState.ctx, req)
 		if err != nil {
@@ -1227,4 +1213,48 @@ func (app *BaseApp) LoadLatest(ctx context.Context, req *abci.RequestLoadLatest)
 	}
 	app.initialHeight = app.cms.LastCommitID().Version
 	return &abci.ResponseLoadLatest{}, nil
+}
+
+func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxPriorityHint) (_resp *abci.ResponseGetTxPriorityHint, _err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Fall back to no-op priority if we panic for any reason. This is to avoid DoS
+			// vectors where a malicious actor crafts a transaction that panics the
+			// prioritizer. Since the prioritizer is used as a hint only, it's safe to fall
+			// back to zero priority in this case and log the panic for monitoring purposes.
+			app.logger.Error("tx prioritizer base app panicked. Falling back on no priority", "error", r)
+			if _err == nil {
+				_resp = &abci.ResponseGetTxPriorityHint{Priority: 0}
+			}
+			// Do not overwrite an existing error if one was already set to keep panics a
+			// non-event at this stage but safeguard against them.
+		}
+	}()
+
+	defer telemetry.MeasureSince(time.Now(), "abci", "get_tx_priority_hint")
+
+	tx, err := app.txDecoder(req.Tx)
+	if err != nil {
+		return nil, err
+	}
+	if tx == nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrInvalidRequest, "nil tx")
+	}
+
+	// TODO: should we bother validating the messages here?
+	msgs := tx.GetMsgs()
+	if err := validateBasicTxMsgs(msgs); err != nil {
+		return nil, err
+	}
+	var priority int64
+	if app.txPrioritizer != nil {
+		sdkCtx := app.getContextForTx(runTxModeCheck, req.Tx)
+		priority, err = app.txPrioritizer(sdkCtx, tx)
+		if err != nil {
+			return nil, sdkerrors.Wrap(sdkerrors.ErrLogic, fmt.Sprintf("error getting tx priority: %s", err.Error()))
+		}
+	}
+	return &abci.ResponseGetTxPriorityHint{
+		Priority: priority,
+	}, nil
 }

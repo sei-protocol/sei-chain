@@ -21,7 +21,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
 	"github.com/cosmos/cosmos-sdk/store/cachemulti"
 	"github.com/cosmos/cosmos-sdk/store/dbadapter"
-	"github.com/cosmos/cosmos-sdk/store/multiversion"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/occ"
 	"github.com/cosmos/cosmos-sdk/utils/tracing"
@@ -56,25 +55,6 @@ func abortRecoveryFunc(response *types.ResponseDeliverTx) {
 		// empty code and codespace
 		response.Info = "occ abort"
 	}
-}
-
-func requestListWithEstimatedWritesets(n int) []*sdk.DeliverTxEntry {
-	tasks := make([]*sdk.DeliverTxEntry, n)
-	for i := 0; i < n; i++ {
-		tasks[i] = &sdk.DeliverTxEntry{
-			Request: types.RequestDeliverTx{
-				Tx: []byte(fmt.Sprintf("%d", i)),
-			},
-			AbsoluteIndex: i,
-			EstimatedWritesets: sdk.MappedWritesets{
-				testStoreKey: multiversion.WriteSet{
-					string(itemKey): []byte("foo"),
-				},
-			},
-		}
-
-	}
-	return tasks
 }
 
 func initTestCtx(injectStores bool) sdk.Context {
@@ -242,42 +222,6 @@ func TestProcessAll(t *testing.T) {
 			expectedErr: nil,
 		},
 		{
-			name:      "Test every tx accesses same key with estimated writesets",
-			workers:   50,
-			runs:      1,
-			addStores: true,
-			requests:  requestListWithEstimatedWritesets(1000),
-			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx) {
-				defer abortRecoveryFunc(&res)
-				// all txs read and write to the same key to maximize conflicts
-				kv := ctx.MultiStore().GetKVStore(testStoreKey)
-				val := string(kv.Get(itemKey))
-
-				// write to the store with this tx's index
-				kv.Set(itemKey, req.Tx)
-
-				// return what was read from the store (final attempt should be index-1)
-				return types.ResponseDeliverTx{
-					Info: val,
-				}
-			},
-			assertions: func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx) {
-				for idx, response := range res {
-					if idx == 0 {
-						require.Equal(t, "", response.Info)
-					} else {
-						// the info is what was read from the kv store by the tx
-						// each tx writes its own index, so the info should be the index of the previous tx
-						require.Equal(t, fmt.Sprintf("%d", idx-1), response.Info)
-					}
-				}
-				// confirm last write made it to the parent store
-				latest := ctx.MultiStore().GetKVStore(testStoreKey).Get(itemKey)
-				require.Equal(t, []byte(fmt.Sprintf("%d", len(res)-1)), latest)
-			},
-			expectedErr: nil,
-		},
-		{
 			name:      "Test some tx accesses same key",
 			workers:   50,
 			runs:      1,
@@ -321,42 +265,6 @@ func TestProcessAll(t *testing.T) {
 				for idx, response := range res {
 					require.Equal(t, fmt.Sprintf("%d", idx), response.Info)
 				}
-			},
-			expectedErr: nil,
-		},
-		{
-			name:      "Test every tx accesses same key with estimated writesets",
-			workers:   50,
-			runs:      1,
-			addStores: true,
-			requests:  requestListWithEstimatedWritesets(1000),
-			deliverTxFunc: func(ctx sdk.Context, req types.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx) {
-				defer abortRecoveryFunc(&res)
-				// all txs read and write to the same key to maximize conflicts
-				kv := ctx.MultiStore().GetKVStore(testStoreKey)
-				val := string(kv.Get(itemKey))
-
-				// write to the store with this tx's index
-				kv.Set(itemKey, req.Tx)
-
-				// return what was read from the store (final attempt should be index-1)
-				return types.ResponseDeliverTx{
-					Info: val,
-				}
-			},
-			assertions: func(t *testing.T, ctx sdk.Context, res []types.ResponseDeliverTx) {
-				for idx, response := range res {
-					if idx == 0 {
-						require.Equal(t, "", response.Info)
-					} else {
-						// the info is what was read from the kv store by the tx
-						// each tx writes its own index, so the info should be the index of the previous tx
-						require.Equal(t, fmt.Sprintf("%d", idx-1), response.Info)
-					}
-				}
-				// confirm last write made it to the parent store
-				latest := ctx.MultiStore().GetKVStore(testStoreKey).Get(itemKey)
-				require.Equal(t, []byte(fmt.Sprintf("%d", len(res)-1)), latest)
 			},
 			expectedErr: nil,
 		},

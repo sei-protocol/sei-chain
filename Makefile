@@ -84,6 +84,64 @@ install-with-race-detector: go.sum
 install-price-feeder: go.sum
 		go install $(BUILD_FLAGS) ./oracle/price-feeder
 
+###############################################################################
+###                       RocksDB Backend Support                           ###
+###############################################################################
+# Prerequisites:
+# - build-essential (gcc, g++, make)
+# - pkg-config
+# - cmake
+# - git
+# - zlib development headers
+# - bzip2 development headers
+# - snappy development headers
+# - lz4 development headers
+# - zstd development headers
+# - jemalloc development headers
+# - gflags development headers
+# - liburing development headers
+#
+# Installation on Ubuntu/Debian:
+# sudo apt-get update
+# sudo apt-get install -y build-essential pkg-config cmake git zlib1g-dev \
+#     libbz2-dev libsnappy-dev liblz4-dev libzstd-dev libjemalloc-dev \
+#     libgflags-dev liburing-dev
+#
+# Usage:
+# 1. Build RocksDB (one time): make build-rocksdb
+# 2. Install seid with RocksDB: make install-rocksdb
+###############################################################################
+
+# Build and install RocksDB from source (one time setup)
+build-rocksdb:
+	@echo "Building RocksDB v8.9.1..."
+	@if [ -d "rocksdb" ]; then \
+		echo "rocksdb directory already exists, removing..."; \
+		rm -rf rocksdb; \
+	fi
+	git clone https://github.com/facebook/rocksdb.git
+	cd rocksdb && \
+		git checkout v8.9.1 && \
+		make clean && \
+		CXXFLAGS='-march=native -DNDEBUG' make -j"$$(nproc)" shared_lib && \
+		sudo make install-shared
+	@echo '/usr/local/lib' | sudo tee /etc/ld.so.conf.d/rocksdb.conf
+	@sudo ldconfig
+	@echo "RocksDB installation complete!"
+
+# Install seid with RocksDB backend support
+install-rocksdb: go.sum
+	@echo "Checking for RocksDB installation..."
+	@if ! ldconfig -p | grep -q librocksdb; then \
+		echo "Error: RocksDB not found. Please run 'make build-rocksdb' first."; \
+		exit 1; \
+	fi
+	@echo "RocksDB found, proceeding with installation..."
+	CGO_CFLAGS="-I/usr/local/include" \
+	CGO_LDFLAGS="-L/usr/local/lib -lrocksdb -lz -lbz2 -lsnappy -llz4 -lzstd -ljemalloc" \
+	go install $(BUILD_FLAGS) -tags "$(build_tags) rocksdbBackend" ./cmd/seid
+	@echo "seid installed with RocksDB backend support!"
+
 loadtest: go.sum
 		go build $(BUILD_FLAGS) -o ./build/loadtest ./loadtest/
 

@@ -186,7 +186,7 @@ func TestDeriveHDPathRange(t *testing.T) {
 	}
 }
 
-func ExampleStringifyPathParams() {
+func ExampleNewParams() {
 	path := hd.NewParams(44, 0, 0, false, 0)
 	fmt.Println(path.String())
 	path = hd.NewParams(44, 33, 7, true, 9)
@@ -196,7 +196,7 @@ func ExampleStringifyPathParams() {
 	// m/44'/33'/7'/1/9
 }
 
-func ExampleSomeBIP32TestVecs() {
+func ExampleComputeMastersFromSeed() {
 	seed := mnemonicToSeed("barrel original fuel morning among eternal " +
 		"filter ball stove pluck matrix mechanic")
 	master, ch := hd.ComputeMastersFromSeed(seed)

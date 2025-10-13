@@ -394,6 +394,8 @@ type App struct {
 	wsServerStartSignal       chan struct{}
 	httpServerStartSignalSent bool
 	wsServerStartSignalSent   bool
+
+	txPrioritizer sdk.TxPrioritizer
 }
 
 type AppOption func(*App)
@@ -427,6 +429,11 @@ func New(
 	bApp.SetCommitMultiStoreTracer(traceStore)
 	bApp.SetVersion(version.Version)
 	bApp.SetInterfaceRegistry(interfaceRegistry)
+
+	// Bind OTEL metrics provider once at application construction
+	if err := metrics.SetupOtelMetricsProvider(); err != nil {
+		logger.Error(err.Error())
+	}
 
 	keys := sdk.NewKVStoreKeys(
 		acltypes.StoreKey, authtypes.StoreKey, authzkeeper.StoreKey, banktypes.StoreKey, stakingtypes.StoreKey,
@@ -616,7 +623,6 @@ func New(
 
 	receiptStorePath := filepath.Join(homePath, "data", "receipt.db")
 	ssConfig := ssconfig.DefaultStateStoreConfig()
-	ssConfig.DedicatedChangelog = true
 	ssConfig.KeepRecent = cast.ToInt(appOpts.Get(server.FlagMinRetainBlocks))
 	ssConfig.DBDirectory = receiptStorePath
 	ssConfig.KeepLastVersion = false
@@ -985,6 +991,8 @@ func New(
 
 	app.RegisterDeliverTxHook(app.AddCosmosEventsToEVMReceiptIfApplicable)
 
+	app.txPrioritizer = NewSeiTxPrioritizer(logger, &app.EvmKeeper, &app.UpgradeKeeper, &app.ParamsKeeper).GetTxPriorityHint
+	app.SetTxPrioritizer(app.txPrioritizer)
 	return app
 }
 
@@ -1927,8 +1935,7 @@ func (app *App) RPCContextProvider(i int64) sdk.Context {
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
-		app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
-		return app.GetCheckCtx().WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
+		panic(err)
 	}
 	closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
 	if closestUpgrade == "" && upgradeHeight == 0 {
