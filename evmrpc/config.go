@@ -129,7 +129,7 @@ var DefaultConfig = Config{
 	MaxTxPoolTxs:                 1000,
 	Slow:                         false,
 	FlushReceiptSync:             false,
-	DisableWatermark:            false,
+	DisableWatermark:             false,
 	DenyList:                     make([]string, 0),
 	MaxLogNoBlock:                10000,
 	MaxBlocksForLog:              2000,
