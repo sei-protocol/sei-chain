@@ -199,10 +199,17 @@ func filterTransactions(
 	startOfBlockNonce := make(map[string]uint64)
 	latestCtx := ctxProvider(LatestCtxHeight)
 	prevCtx := ctxProvider(block.Block.Height - 1)
+	typedTxs := k.GetTypedTxs(block.Block.Height)
 	for i, tx := range block.Block.Data.Txs {
-		sdkTx, err := txDecoder(tx)
-		if err != nil {
-			continue
+		var sdkTx sdk.Tx
+		if typedTxs != nil {
+			sdkTx = typedTxs[i]
+		} else {
+			sdkTx_, err := txDecoder(tx)
+			if err != nil {
+				continue
+			}
+			sdkTx = sdkTx_
 		}
 		for _, msg := range sdkTx.GetMsgs() {
 			switch m := msg.(type) {
