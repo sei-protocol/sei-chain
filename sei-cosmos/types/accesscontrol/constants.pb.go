@@ -103,8 +103,9 @@ func (AccessOperationSelectorType) EnumDescriptor() ([]byte, []int) {
 type ResourceType int32
 
 const (
-	ResourceType_ANY                                      ResourceType = 0
-	ResourceType_KV                                       ResourceType = 1
+	ResourceType_ANY ResourceType = 0
+	ResourceType_KV  ResourceType = 1
+	// buf:lint:ignore ENUM_VALUE_UPPER_SNAKE_CASE We have caught this late; keeping to avoid breaking changes.
 	ResourceType_Mem                                      ResourceType = 2
 	ResourceType_KV_BANK                                  ResourceType = 4
 	ResourceType_KV_STAKING                               ResourceType = 5
