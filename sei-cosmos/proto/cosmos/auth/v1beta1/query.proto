@@ -1,12 +1,12 @@
 syntax = "proto3";
 package cosmos.auth.v1beta1;
 
-import "cosmos/base/query/v1beta1/pagination.proto";
-import "gogoproto/gogo.proto";
-import "google/protobuf/any.proto";
-import "google/api/annotations.proto";
 import "cosmos/auth/v1beta1/auth.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
 import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
+import "google/api/annotations.proto";
+import "google/protobuf/any.proto";
 
 option go_package = "github.com/cosmos/cosmos-sdk/x/auth/types";
 
@@ -56,7 +56,7 @@ message QueryAccountsResponse {
 
 // QueryAccountRequest is the request type for the Query/Account RPC method.
 message QueryAccountRequest {
-  option (gogoproto.equal)           = false;
+  option (gogoproto.equal) = false;
   option (gogoproto.goproto_getters) = false;
 
   // address defines the address to query for.
@@ -77,8 +77,6 @@ message QueryParamsResponse {
   // params defines the parameters of the module.
   Params params = 1 [(gogoproto.nullable) = false];
 }
-
-
 
 // QueryNextAccountRequest is the request type for the Query/NextAccountNumber RPC method.
 message QueryNextAccountNumberRequest {}

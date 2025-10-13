@@ -1,8 +1,8 @@
 syntax = "proto3";
 package cosmos.mint.v1beta1;
 
-import "gogoproto/gogo.proto";
 import "cosmos/mint/v1beta1/mint.proto";
+import "gogoproto/gogo.proto";
 
 option go_package = "github.com/cosmos/cosmos-sdk/x/mint/types";
 

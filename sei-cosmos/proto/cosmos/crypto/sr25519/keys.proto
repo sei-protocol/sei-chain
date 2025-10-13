@@ -3,14 +3,14 @@ package cosmos.crypto.sr25519;
 
 import "gogoproto/gogo.proto";
 
-option go_package                       = "github.com/cosmos/cosmos-sdk/crypto/keys/sr25519";
-option (gogoproto.messagename_all)      = true;
+option go_package = "github.com/cosmos/cosmos-sdk/crypto/keys/sr25519";
+option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.goproto_stringer_all) = false;
-option (gogoproto.goproto_getters_all)  = false;
+option (gogoproto.messagename_all) = true;
 
 // PubKey defines a secp256r1 ECDSA public key.
 message PubKey {
-    option (gogoproto.goproto_stringer) = false;
+  option (gogoproto.goproto_stringer) = false;
 
-    bytes key = 1 [(gogoproto.casttype) = "github.com/tendermint/tendermint/crypto/sr25519.PubKey"];
+  bytes key = 1 [(gogoproto.casttype) = "github.com/tendermint/tendermint/crypto/sr25519.PubKey"];
 }

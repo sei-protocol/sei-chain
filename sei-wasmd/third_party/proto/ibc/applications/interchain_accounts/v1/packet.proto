@@ -2,10 +2,10 @@ syntax = "proto3";
 
 package ibc.applications.interchain_accounts.v1;
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types";
-
-import "google/protobuf/any.proto";
 import "gogoproto/gogo.proto";
+import "google/protobuf/any.proto";
+
+option go_package = "github.com/cosmos/ibc-go/v3/modules/apps/27-interchain-accounts/types";
 
 // Type defines a classification of message issued from a controller chain to its associated interchain accounts
 // host
@@ -20,8 +20,8 @@ enum Type {
 
 // InterchainAccountPacketData is comprised of a raw transaction, type of transaction and optional memo field.
 message InterchainAccountPacketData {
-  Type   type = 1;
-  bytes  data = 2;
+  Type type = 1;
+  bytes data = 2;
   string memo = 3;
 }
 
