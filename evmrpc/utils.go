@@ -220,10 +220,18 @@ func filterTransactions(
 	latestCtx := ctxProvider(LatestCtxHeight)
 	ctx := ctxProvider(block.Block.Height)
 	prevCtx := ctxProvider(block.Block.Height - 1)
+	typedTxs, typedTxCached := k.GetTypedTxs(block.Block.Height)
 	for i, tx := range block.Block.Txs {
-		sdkTx, err := txConfig.TxDecoder()(tx)
-		if err != nil {
-			continue
+		var sdkTx sdk.Tx
+		if typedTxCached {
+			sdkTx = typedTxs[i]
+		} else {
+			// only decode if the typed txs are not cached
+			typedTx, err := txConfig.TxDecoder()(tx)
+			if err != nil {
+				continue
+			}
+			sdkTx = typedTx
 		}
 		for _, msg := range sdkTx.GetMsgs() {
 			switch m := msg.(type) {
