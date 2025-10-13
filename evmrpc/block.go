@@ -43,6 +43,7 @@ type BlockAPI struct {
 	namespace            string
 	includeShellReceipts bool
 	includeBankTransfers bool
+	watermarks           *WatermarkManager
 }
 
 type SeiBlockAPI struct {
@@ -50,7 +51,7 @@ type SeiBlockAPI struct {
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
 }
 
-func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType) *BlockAPI {
+func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType, watermarks *WatermarkManager) *BlockAPI {
 	return &BlockAPI{
 		tmClient:             tmClient,
 		keeper:               k,
@@ -60,6 +61,7 @@ func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 		includeShellReceipts: false,
 		includeBankTransfers: false,
 		namespace:            EthNamespace,
+		watermarks:           watermarks,
 	}
 }
 
@@ -70,6 +72,7 @@ func NewSeiBlockAPI(
 	txConfigProvider func(int64) client.TxConfig,
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
+	watermarks *WatermarkManager,
 ) *SeiBlockAPI {
 	blockAPI := &BlockAPI{
 		tmClient:             tmClient,
@@ -80,6 +83,7 @@ func NewSeiBlockAPI(
 		includeShellReceipts: true,
 		includeBankTransfers: false,
 		namespace:            SeiNamespace,
+		watermarks:           watermarks,
 	}
 	return &SeiBlockAPI{
 		BlockAPI:  blockAPI,
@@ -94,8 +98,9 @@ func NewSei2BlockAPI(
 	txConfigProvider func(int64) client.TxConfig,
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
+	watermarks *WatermarkManager,
 ) *SeiBlockAPI {
-	blockAPI := NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, connectionType, isPanicTx)
+	blockAPI := NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, connectionType, isPanicTx, watermarks)
 	blockAPI.namespace = Sei2Namespace
 	blockAPI.includeBankTransfers = true
 	return blockAPI
@@ -118,8 +123,11 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if err != nil {
 		return nil, err
 	}
-	block, err := blockByNumberWithRetry(ctx, a.tmClient, numberPtr, 1)
+	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, numberPtr, 1)
 	if err != nil {
+		return nil, err
+	}
+	if err := a.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
 		return nil, err
 	}
 	return a.getEvmTxCount(block.Block.Txs, block.Block.Height), nil
@@ -130,6 +138,9 @@ func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockTransactionCountByHash", a.namespace), a.connectionType, startTime, returnErr)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
 	if err != nil {
+		return nil, err
+	}
+	if err := a.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
 		return nil, err
 	}
 	return a.getEvmTxCount(block.Block.Txs, block.Block.Height), nil
@@ -145,6 +156,9 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr)
 	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
 	if err != nil {
+		return nil, err
+	}
+	if err := a.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
 		return nil, err
 	}
 
@@ -212,8 +226,11 @@ func (a *BlockAPI) getBlockByNumber(
 		}
 	}
 
-	block, err := blockByNumberWithRetry(ctx, a.tmClient, numberPtr, 1)
+	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, numberPtr, 1)
 	if err != nil {
+		return nil, err
+	}
+	if err := a.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
 		return nil, err
 	}
 	blockRes, err := blockResultsWithRetry(ctx, a.tmClient, &block.Block.Height)
@@ -221,6 +238,13 @@ func (a *BlockAPI) getBlockByNumber(
 		return nil, err
 	}
 	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, blockRes, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
+}
+
+func (a *BlockAPI) ensureHeightAvailable(ctx context.Context, height int64) error {
+	if a.watermarks == nil {
+		return nil
+	}
+	return a.watermarks.EnsureHeightAvailable(ctx, height)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
@@ -232,13 +256,16 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 		return nil, err
 	}
 
-	block, err := blockByNumberWithRetry(ctx, a.tmClient, heightPtr, 1)
+	block, err := blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, heightPtr, 1)
 	if err != nil {
 		return nil, err
 	}
 
 	// Get all tx hashes for the block
 	height := block.Block.Height
+	if err := a.ensureHeightAvailable(ctx, height); err != nil {
+		return nil, err
+	}
 	txHashes := getTxHashesFromBlock(a.ctxProvider, a.txConfigProvider, a.keeper, block, shouldIncludeSynthetic(a.namespace))
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}

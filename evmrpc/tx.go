@@ -41,6 +41,7 @@ type TransactionAPI struct {
 	homeDir          string
 	connectionType   ConnectionType
 	includeSynthetic bool
+	watermarks       *WatermarkManager
 }
 
 type SeiTransactionAPI struct {
@@ -48,8 +49,8 @@ type SeiTransactionAPI struct {
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
 }
 
-func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, connectionType ConnectionType) *TransactionAPI {
-	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType}
+func NewTransactionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, connectionType ConnectionType, watermarks *WatermarkManager) *TransactionAPI {
+	return &TransactionAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType, watermarks: watermarks}
 }
 
 func NewSeiTransactionAPI(
@@ -60,8 +61,9 @@ func NewSeiTransactionAPI(
 	homeDir string,
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
+	watermarks *WatermarkManager,
 ) *SeiTransactionAPI {
-	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType)
+	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType, watermarks)
 	baseAPI.includeSynthetic = true
 	return &SeiTransactionAPI{TransactionAPI: baseAPI, isPanicTx: isPanicTx}
 }
@@ -110,8 +112,11 @@ func getTransactionReceipt(
 	if receipt.Status == 0 && receipt.GasUsed == 0 {
 		// Get the block
 		height := int64(receipt.BlockNumber) //nolint:gosec
-		block, err := blockByNumberWithRetry(ctx, t.tmClient, &height, 1)
+		block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &height, 1)
 		if err != nil {
+			return nil, err
+		}
+		if err := t.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
 			return nil, err
 		}
 
@@ -141,7 +146,7 @@ func getTransactionReceipt(
 		}
 	}
 	height := int64(receipt.BlockNumber) //nolint:gosec
-	block, err := blockByNumberWithRetry(ctx, t.tmClient, &height, 1)
+	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &height, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -175,8 +180,11 @@ func (t *TransactionAPI) getTransactionByBlockNumberAndIndex(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	block, err := blockByNumberWithRetry(ctx, t.tmClient, blockNumber, 1)
+	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, blockNumber, 1)
 	if err != nil {
+		return nil, err
+	}
+	if err := t.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
 		return nil, err
 	}
 	return t.getTransactionWithBlock(block, txIndex, t.includeSynthetic)
@@ -187,6 +195,9 @@ func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, 
 	defer recordMetricsWithError("eth_getTransactionByBlockHashAndIndex", t.connectionType, startTime, returnErr)
 	block, err := blockByHash(ctx, t.tmClient, blockHash[:])
 	if err != nil {
+		return nil, err
+	}
+	if err := t.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
 		return nil, err
 	}
 	var idx uint32
@@ -244,8 +255,11 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 		return nil, err
 	}
 	blockNumber := int64(receipt.BlockNumber) //nolint:gosec
-	block, err := blockByNumberWithRetry(ctx, t.tmClient, &blockNumber, 1)
+	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &blockNumber, 1)
 	if err != nil {
+		return nil, err
+	}
+	if err := t.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
 		return nil, err
 	}
 	filteredMsgs := t.getFilteredMsgs(block)
@@ -257,6 +271,13 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 		return nil, errors.New("transaction is not an EVM transaction and thus cannot be represented in _getTransaction* endpoints")
 	}
 	return t.encodeRPCTransaction(ethtx, block, uint32(txIndex)) //nolint:gosec
+}
+
+func (t *TransactionAPI) ensureHeightAvailable(ctx context.Context, height int64) error {
+	if t.watermarks == nil {
+		return nil
+	}
+	return t.watermarks.EnsureHeightAvailable(ctx, height)
 }
 
 func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash common.Hash) (result string, returnErr error) {

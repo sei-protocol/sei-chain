@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net"
 	"net/http"
@@ -399,6 +400,15 @@ func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.
 	}, nil
 }
 
+func (c *MockClient) Status(context.Context) (*coretypes.ResultStatus, error) {
+	return &coretypes.ResultStatus{
+		SyncInfo: coretypes.SyncInfo{
+			LatestBlockHeight:   MockHeight103,
+			EarliestBlockHeight: 1,
+		},
+	}, nil
+}
+
 func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query string, outCapacity ...int) (<-chan coretypes.ResultEvent, error) {
 	if query == "tm.event = 'NewBlockHeader'" {
 		resCh := make(chan coretypes.ResultEvent, 5)
@@ -545,6 +555,13 @@ func init() {
 		panic(err)
 	}
 	testApp.Commit(context.Background())
+	if store := EVMKeeper.ReceiptStore(); store != nil {
+		latest := int64(math.MaxInt64)
+		if err := store.SetLatestVersion(latest); err != nil {
+			panic(err)
+		}
+		_ = store.SetEarliestVersion(1, true)
+	}
 	ctxProvider := func(height int64) sdk.Context {
 		if height == MockHeight2 {
 			return MultiTxCtx.WithIsTracing(true)
@@ -556,6 +573,7 @@ func init() {
 	goodConfig.HTTPPort = TestPort
 	goodConfig.WSPort = TestWSPort
 	goodConfig.FilterTimeout = 500 * time.Millisecond
+	goodConfig.DisableWatermark = true
 	goodConfig.MaxLogNoBlock = 10
 	infoLog, err := log.NewDefaultLogger("text", "info")
 	if err != nil {
@@ -573,6 +591,7 @@ func init() {
 	// Start bad http server
 	badConfig := evmrpc.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
+	badConfig.DisableWatermark = true
 	badConfig.FilterTimeout = 500 * time.Millisecond
 	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
 	if err != nil {
@@ -1116,6 +1135,11 @@ func sendRequestWithNamespace(t *testing.T, namespace string, port int, method s
 	require.Nil(t, err)
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	if errVal, exists := resObj["error"]; exists && errVal != nil {
+		if t != nil {
+			t.Logf("rpc error response for %s_%s: %v", namespace, method, errVal)
+		}
+	}
 	return resObj
 }
 

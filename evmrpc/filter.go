@@ -262,6 +262,7 @@ func NewFilterAPI(
 	dbReadSemaphore chan struct{},
 	globalBlockCache BlockCache,
 	globalLogSlicePool *LogSlicePool,
+	watermarks *WatermarkManager,
 ) *FilterAPI {
 	if filterConfig.maxBlock <= 0 {
 		filterConfig.maxBlock = DefaultMaxBlockRange
@@ -281,6 +282,7 @@ func NewFilterAPI(
 		dbReadSemaphore:          dbReadSemaphore,
 		globalBlockCache:         globalBlockCache,
 		globalLogSlicePool:       globalLogSlicePool,
+		watermarks:               watermarks,
 	}
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
@@ -643,10 +645,18 @@ type LogFetcher struct {
 	globalBlockCache         BlockCache
 	cacheCreationMutex       sync.Mutex
 	globalLogSlicePool       *LogSlicePool
+	watermarks               *WatermarkManager
 }
 
 func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
-	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
+	latest, err := f.latestHeight(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	earliest, err := f.earliestHeight(ctx)
+	if err != nil {
+		earliest = 0
+	}
 	begin, end := latest, latest
 	if crit.FromBlock != nil {
 		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
@@ -659,6 +669,18 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	}
 	if lastToHeight > begin {
 		begin = lastToHeight
+	}
+	if begin < earliest {
+		begin = earliest
+	}
+	if end > latest {
+		end = latest
+	}
+	if end < earliest {
+		end = earliest
+	}
+	if begin > end {
+		return []*ethtypes.Log{}, end, nil
 	}
 
 	blockRange := end - begin + 1
@@ -805,6 +827,47 @@ func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log) []*ethtypes.Log 
 	return res
 }
 
+func (f *LogFetcher) ensureHeightAvailable(ctx context.Context, height int64) error {
+	if f.watermarks == nil {
+		return nil
+	}
+	return f.watermarks.EnsureHeightAvailable(ctx, height)
+}
+
+func (f *LogFetcher) latestHeight(ctx context.Context) (int64, error) {
+	if f.watermarks != nil {
+		return f.watermarks.LatestHeight(ctx)
+	}
+	if f.ctxProvider == nil {
+		return 0, fmt.Errorf("ctx provider not configured")
+	}
+	return f.ctxProvider(LatestCtxHeight).BlockHeight(), nil
+}
+
+func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
+	if f.watermarks != nil {
+		return f.watermarks.EarliestHeight(ctx)
+	}
+	if f.ctxProvider == nil {
+		return 0, fmt.Errorf("ctx provider not configured")
+	}
+	storeCtx := f.ctxProvider(LatestCtxHeight)
+	ms := storeCtx.MultiStore()
+	if ms == nil {
+		return 0, nil
+	}
+	earliest := int64(0)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				earliest = 0
+			}
+		}()
+		earliest = ms.GetEarliestVersion()
+	}()
+	return earliest, nil
+}
+
 // Pooled version that reuses slice allocation
 func (f *LogFetcher) GetLogsForBlockPooled(block *coretypes.ResultBlock, crit filters.FilterCriteria, filters [][]bloomIndexes, result *[]*ethtypes.Log) {
 	collector := &pooledCollector{logs: result}
@@ -894,6 +957,11 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			close(res)
 			return res, 0, false, nil
 		}
+		if err := f.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
+			res := make(chan *coretypes.ResultBlock)
+			close(res)
+			return res, 0, false, nil
+		}
 		res := make(chan *coretypes.ResultBlock, 1)
 		res <- block
 		close(res)
@@ -901,7 +969,14 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	}
 
 	applyOpenEndedLogLimit := f.filterConfig.maxLog > 0 && (crit.FromBlock == nil || crit.ToBlock == nil)
-	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
+	latest, err := f.latestHeight(ctx)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	earliest, err := f.earliestHeight(ctx)
+	if err != nil {
+		earliest = 0
+	}
 	begin, end := latest, latest
 	if crit.FromBlock != nil {
 		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
@@ -915,12 +990,21 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	if lastToHeight > begin {
 		begin = lastToHeight
 	}
+	if begin < earliest {
+		begin = earliest
+	}
+	if end > latest {
+		end = latest
+	}
+	if end < earliest {
+		end = earliest
+	}
 
 	blockRange := end - begin + 1
 	if applyOpenEndedLogLimit && blockRange > f.filterConfig.maxBlock {
 		begin = end - f.filterConfig.maxBlock + 1
-		if begin < 1 {
-			begin = 1
+		if begin < earliest {
+			begin = earliest
 		}
 	} else if !applyOpenEndedLogLimit && f.filterConfig.maxBlock > 0 && blockRange > f.filterConfig.maxBlock {
 		// Use consistent error message format
@@ -988,6 +1072,11 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 
 		// check cache first, without holding the semaphore
 		if cachedEntry, found := f.globalBlockCache.Get(height); found {
+			if cachedEntry.Block != nil {
+				if err := f.ensureHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
+					continue
+				}
+			}
 			res <- cachedEntry.Block
 			continue
 		}
@@ -998,6 +1087,11 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		// Re-check cache after acquiring semaphore, in case another worker cached it.
 		if cachedEntry, found := f.globalBlockCache.Get(height); found {
 			<-f.dbReadSemaphore
+			if cachedEntry.Block != nil {
+				if err := f.ensureHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
+					continue
+				}
+			}
 			res <- cachedEntry.Block
 			continue
 		}
@@ -1020,12 +1114,16 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		}
 
 		// fetch block from network
-		block, err := blockByNumberWithRetry(ctx, f.tmClient, &height, 1)
+		block, err := blockByNumberRespectingWatermarks(ctx, f.tmClient, f.watermarks, &height, 1)
 		if err != nil {
 			select {
 			case errChan <- fmt.Errorf("failed to fetch block at height %d: %w", height, err):
 			default:
 			}
+			<-f.dbReadSemaphore
+			continue
+		}
+		if err := f.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
 			<-f.dbReadSemaphore
 			continue
 		}

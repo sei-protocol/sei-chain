@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -136,6 +137,7 @@ func setupTestServer(
 	cfg := evmrpc.DefaultConfig
 	cfg.HTTPEnabled = true
 	cfg.HTTPPort = port
+	cfg.DisableWatermark = true
 	s, err := evmrpc.NewEVMHTTPServer(
 		log.NewNopLogger(),
 		cfg,
@@ -152,6 +154,16 @@ func setupTestServer(
 	)
 	if err != nil {
 		panic(err)
+	}
+	if store := a.EvmKeeper.ReceiptStore(); store != nil {
+		latest := int64(math.MaxInt64)
+		if latest <= 0 {
+			latest = 1
+		}
+		if err := store.SetLatestVersion(latest); err != nil {
+			panic(err)
+		}
+		_ = store.SetEarliestVersion(1, true)
 	}
 	return TestServer{EVMServer: s, port: port, mockClient: mockClient, app: a}
 }

@@ -26,6 +26,7 @@ type opts struct {
 	maxTxPoolTxs                 interface{}
 	slow                         interface{}
 	flushReceiptSync             interface{}
+	disableWatermark             interface{}
 	denyList                     interface{}
 	maxLogNoBlock                interface{}
 	maxBlocksForLog              interface{}
@@ -90,6 +91,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.flush_receipt_sync" {
 		return o.flushReceiptSync
 	}
+	if k == "evm.disable_watermark" {
+		return o.disableWatermark
+	}
 	if k == "evm.deny_list" {
 		return o.denyList
 	}
@@ -140,6 +144,7 @@ func TestReadConfig(t *testing.T) {
 		time.Duration(5),
 		time.Duration(5),
 		1000,
+		false,
 		false,
 		false,
 		make([]string, 0),
