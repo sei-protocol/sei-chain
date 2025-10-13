@@ -355,7 +355,7 @@ func TestProcessAll(t *testing.T) {
 					Tracer: &tr,
 				}
 
-				s := NewScheduler(tt.workers, ti, tt.deliverTxFunc)
+				s := NewScheduler(tt.workers, ti, false, tt.deliverTxFunc)
 				ctx := initTestCtx(tt.addStores)
 
 				if tt.before != nil {

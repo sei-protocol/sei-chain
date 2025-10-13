@@ -890,7 +890,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	// Start RunTx span first, then everything is inside it
 	// Detailed tracing is set by scheduler for sampled transactions
 
-	if app.TracingEnabled {
+	if ctx.IsTracing() {
 		spanCtx, span := app.TracingInfo.StartWithContext("RunTx", ctx.TraceSpanContext())
 		defer span.End()
 		ctx = ctx.WithTraceSpanContext(spanCtx)
@@ -963,12 +963,12 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 
 	if app.anteHandler != nil {
 		// Set TracingInfo in context so decorators can use it
-		if app.TracingEnabled {
+		if ctx.IsTracing() {
 			ctx = ctx.WithTracingInfo(app.TracingInfo)
 		}
 		
 		var anteSpan trace.Span
-		if app.TracingEnabled {
+		if ctx.IsTracing() {
 			// trace AnteHandler
 			_, anteSpan = app.TracingInfo.StartWithContext("AnteHandler", ctx.TraceSpanContext())
 		}
@@ -1061,7 +1061,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 			msCache.Write()
 		}
 		anteEvents = events.ToABCIEvents()
-		if app.TracingEnabled {
+		if ctx.IsTracing() {
 			anteSpan.End()
 		}
 	}
@@ -1159,7 +1159,7 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 			panic(err)
 		}
 	}()
-	if app.TracingEnabled {
+	if ctx.IsTracing() {
 		spanCtx, span := app.TracingInfo.StartWithContext("RunMsgs", ctx.TraceSpanContext())
 		defer span.End()
 		ctx = ctx.WithTraceSpanContext(spanCtx)
@@ -1185,23 +1185,27 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 
 		var msgCtx sdk.Context
 		var msgMsCache sdk.CacheMultiStore
-		if app.TracingEnabled {
+		if ctx.IsTracing() {
 			_, span := app.TracingInfo.StartWithContext(fmt.Sprintf("Msg[%d].CacheTxContext", i), ctx.TraceSpanContext())
 			msgCtx, msgMsCache = app.cacheTxContext(ctx, [32]byte{})
 			span.End()
 		} else {
 			msgCtx, msgMsCache = app.cacheTxContext(ctx, [32]byte{})
 		}
+
 		msgCtx = msgCtx.WithMessageIndex(i)
 
 		startTime := time.Now()
 		if handler := app.msgServiceRouter.Handler(msg); handler != nil {
 			// ADR 031 request type routing
-			if app.TracingEnabled {
+			if ctx.IsTracing() {
 				msgType := sdk.MsgTypeURL(msg)
 				spanName := fmt.Sprintf("Msg[%d].%s", i, msgType)
 				_, span := app.TracingInfo.StartWithContext(spanName, ctx.TraceSpanContext())
 				msgResult, err = handler(msgCtx, msg)
+				if err != nil {
+					span.SetAttributes(attribute.String("error", err.Error()))
+				}
 				span.End()
 			} else {
 				msgResult, err = handler(msgCtx, msg)

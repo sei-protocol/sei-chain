@@ -263,7 +263,8 @@ func (app *BaseApp) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchReques
 	}
 
 	// avoid overhead for empty batches
-	scheduler := tasks.NewScheduler(app.concurrencyWorkers, app.TracingInfo, app.DeliverTx)
+	fmt.Println("TRACING: ", ctx.IsTracing())
+	scheduler := tasks.NewScheduler(app.concurrencyWorkers, app.TracingInfo, ctx.IsTracing(), app.DeliverTx)
 	txRes, err := scheduler.ProcessAll(ctx, req.TxEntries)
 	if err != nil {
 		ctx.Logger().Error("error while processing scheduler", "err", err)

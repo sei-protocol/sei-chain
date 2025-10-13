@@ -9,6 +9,7 @@ import (
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/sei-protocol/sei-load/generator"
 
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	"github.com/sei-protocol/sei-chain/precompiles"
@@ -70,6 +71,26 @@ func EVMTransferNonConflicting(tCtx *utils.TestContext, count int) []*utils.Test
 	return msgs
 }
 
+func EVMGenerator(tCtx *utils.TestContext, g generator.Generator, count int) []*utils.TestMessage {
+	var msgs []*utils.TestMessage
+	for i := 0; i < count; i++ {
+		loadTx, _ := g.Generate()
+		msgs = append(msgs, toTestMsg(loadTx.EthTx, loadTx.Scenario.Sender.Address))
+	}
+	return msgs
+}
+
+// EVMTransferNonConflictingWithNonce generates a list of EVM transfer messages that do not conflict with each other
+// each message will have a brand new address but with also the provided nonce
+func EVMTransferNonConflictingWithNonce(tCtx *utils.TestContext, count int, nonce uint64) []*utils.TestMessage {
+	var msgs []*utils.TestMessage
+	for i := 0; i < count; i++ {
+		testAcct := utils.NewSigner()
+		msgs = append(msgs, evmTransferWithNonce(testAcct, testAcct.EvmAddress, "EVMTransferNonConflicting", nonce))
+	}
+	return msgs
+}
+
 // EVMTransferConflicting generates a list of EVM transfer messages to the same address
 func EVMTransferConflicting(tCtx *utils.TestContext, count int) []*utils.TestMessage {
 	var msgs []*utils.TestMessage
@@ -80,9 +101,7 @@ func EVMTransferConflicting(tCtx *utils.TestContext, count int) []*utils.TestMes
 	return msgs
 }
 
-// EVMTransferNonConflicting generates a list of EVM transfer messages that do not conflict with each other
-// each message will have a brand new address
-func evmTransfer(testAcct utils.TestAcct, to common.Address, scenario string) *utils.TestMessage {
+func evmTransferWithNonce(testAcct utils.TestAcct, to common.Address, scenario string, nonce uint64) *utils.TestMessage {
 	signedTx, err := ethtypes.SignTx(ethtypes.NewTx(&ethtypes.DynamicFeeTx{
 		GasFeeCap: new(big.Int).SetUint64(100000000000),
 		GasTipCap: new(big.Int).SetUint64(100000000000),
@@ -90,7 +109,7 @@ func evmTransfer(testAcct utils.TestAcct, to common.Address, scenario string) *u
 		ChainID:   big.NewInt(config.DefaultChainID),
 		To:        &to,
 		Value:     big.NewInt(1),
-		Nonce:     0,
+		Nonce:     nonce,
 	}), testAcct.EvmSigner, testAcct.EvmPrivateKey)
 
 	if err != nil {
@@ -113,6 +132,36 @@ func evmTransfer(testAcct utils.TestAcct, to common.Address, scenario string) *u
 		EVMSigner: testAcct,
 		Type:      scenario,
 	}
+}
+
+func toTestMsg(tx *ethtypes.Transaction, from common.Address) *utils.TestMessage {
+	txData, err := ethtx.NewTxDataFromTx(tx)
+	if err != nil {
+		panic(err)
+	}
+
+	msg, err := types.NewMsgEVMTransaction(txData)
+	if err != nil {
+		panic(err)
+	}
+
+	// Create TestAcct with EVM address - toTxBytes will use this to fund the account
+	evmSigner := utils.TestAcct{
+		EvmAddress:     from,
+		AccountAddress: utils.GetSeiAddress(from), // Use helper to get proper Sei address
+	}
+
+	return &utils.TestMessage{
+		Msg:       msg,
+		IsEVM:     true,
+		EVMSigner: evmSigner,
+	}
+}
+
+// EVMTransferNonConflicting generates a list of EVM transfer messages that do not conflict with each other
+// each message will have a brand new address
+func evmTransfer(testAcct utils.TestAcct, to common.Address, scenario string) *utils.TestMessage {
+	return evmTransferWithNonce(testAcct, to, scenario, 0)
 }
 
 func BankTransfer(tCtx *utils.TestContext, count int) []*utils.TestMessage {

@@ -10,6 +10,7 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/occ_tests/messages"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
+	"github.com/sei-protocol/sei-load/generator"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/abci/types"
 )
@@ -104,6 +105,7 @@ type Test struct {
 	name    string
 	runs    int
 	accts   int
+	gen     generator.Generator
 	shuffle bool
 	before  func(tCtx *utils.TestContext)
 	txs     func(tCtx *utils.TestContext) []*utils.TestMessage

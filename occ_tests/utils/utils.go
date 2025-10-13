@@ -26,6 +26,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/sei-protocol/sei-load/generator"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -78,6 +79,11 @@ func NewTestAccounts(count int) []TestAcct {
 		testAccounts = append(testAccounts, NewSigner())
 	}
 	return testAccounts
+}
+
+// GetSeiAddress converts an EVM address to a Sei address (direct cast, same as GetSeiAddressOrDefault)
+func GetSeiAddress(evmAddr common.Address) sdk.AccAddress {
+	return sdk.AccAddress(evmAddr[:])
 }
 
 func NewSigner() TestAcct {
@@ -254,16 +260,19 @@ func toTxBytes(testCtx *TestContext, msgs []*TestMessage) [][]byte {
 		})
 
 		if tm.IsEVM {
-			amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)))
+			_, ok := testCtx.TestApp.EvmKeeper.GetSeiAddress(testCtx.Ctx, tm.EVMSigner.EvmAddress)
+			if !ok {
+				seiAddr := testCtx.TestApp.EvmKeeper.GetSeiAddressOrDefault(testCtx.Ctx, tm.EVMSigner.EvmAddress)
+				amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)))
 
-			// fund account so it has funds
-			if err := testCtx.TestApp.BankKeeper.MintCoins(testCtx.Ctx, minttypes.ModuleName, amounts); err != nil {
-				panic(err)
+				// fund account so it has funds
+				if err := testCtx.TestApp.BankKeeper.MintCoins(testCtx.Ctx, minttypes.ModuleName, amounts); err != nil {
+					panic(err)
+				}
+				if err := testCtx.TestApp.BankKeeper.SendCoinsFromModuleToAccount(testCtx.Ctx, minttypes.ModuleName, seiAddr, amounts); err != nil {
+					panic(err)
+				}
 			}
-			if err := testCtx.TestApp.BankKeeper.SendCoinsFromModuleToAccount(testCtx.Ctx, minttypes.ModuleName, tm.EVMSigner.AccountAddress, amounts); err != nil {
-				panic(err)
-			}
-
 			b, err := tc.TxEncoder()(tBuilder.GetTx())
 			if err != nil {
 				panic(err)
@@ -385,4 +394,43 @@ func CompareStores(t *testing.T, storeKey sdk.StoreKey, expected store.KVStore, 
 
 	// Ensure there are no extra keys in the actual store
 	require.False(t, iactual.Valid(), "%s: Extra key found in the actual store: %s", testName, storeKey.Name())
+}
+
+// InitAccounts provisions all accounts from a generator with initial balances
+func (tc *TestContext) InitAccounts(g generator.Generator) {
+	if g == nil {
+		return // Skip if no generator provided
+	}
+
+	// Use same amounts as test accounts
+	amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)))
+	bankkeeper := tc.TestApp.BankKeeper
+
+	// Track seen addresses to avoid duplicates
+	seen := make(map[common.Address]bool)
+
+	// Iterate over all account pools
+	for _, pool := range g.GetAccountPools() {
+		var count int
+		for {
+			acct := pool.NextAccount()
+			if _, ok := seen[acct.Address]; ok {
+				break
+			}
+			fmt.Printf("funding[%d]: %s\n", count, acct.Address.Hex())
+			count++
+			seen[acct.Address] = true
+
+			// Convert EVM address to Sei address (same as GetSeiAddressOrDefault)
+			seiAddr := sdk.AccAddress(acct.Address[:])
+
+			// Mint and send coins - account will be created automatically by bank keeper
+			if err := bankkeeper.MintCoins(tc.Ctx, minttypes.ModuleName, amounts); err != nil {
+				panic(fmt.Sprintf("failed to mint coins for %s: %v", seiAddr, err))
+			}
+			if err := bankkeeper.SendCoinsFromModuleToAccount(tc.Ctx, minttypes.ModuleName, seiAddr, amounts); err != nil {
+				panic(fmt.Sprintf("failed to send coins to %s: %v", seiAddr, err))
+			}
+		}
+	}
 }

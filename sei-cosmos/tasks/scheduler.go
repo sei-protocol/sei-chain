@@ -105,6 +105,7 @@ type scheduler struct {
 	workers            int
 	multiVersionStores map[sdk.StoreKey]multiversion.MultiVersionStore
 	tracingInfo        *tracing.Info
+	tracingEnabled     bool
 	allTasksMap        map[int]*deliverTxTask
 	allTasks           []*deliverTxTask
 	executeCh          chan func()
@@ -115,12 +116,13 @@ type scheduler struct {
 }
 
 // NewScheduler creates a new scheduler
-func NewScheduler(workers int, tracingInfo *tracing.Info, deliverTxFunc func(ctx sdk.Context, req types.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx)) Scheduler {
+func NewScheduler(workers int, tracingInfo *tracing.Info, tracingEnabled bool, deliverTxFunc func(ctx sdk.Context, req types.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) (res types.ResponseDeliverTx)) Scheduler {
 	return &scheduler{
-		workers:     workers,
-		deliverTx:   deliverTxFunc,
-		tracingInfo: tracingInfo,
-		metrics:     &schedulerMetrics{},
+		workers:        workers,
+		deliverTx:      deliverTxFunc,
+		tracingInfo:    tracingInfo,
+		tracingEnabled: tracingEnabled,
+		metrics:        &schedulerMetrics{},
 	}
 }
 
@@ -479,9 +481,9 @@ func (s *scheduler) traceSpan(ctx sdk.Context, name string, task *deliverTxTask)
 // prepareTask initializes the context and version stores for a task
 func (s *scheduler) prepareTask(task *deliverTxTask) {
 	ctx := task.Ctx.WithTxIndex(task.AbsoluteIndex)
-	
-	// Set detailed tracing for sampled transactions (every 100th)
-	if task.AbsoluteIndex%100 == 0 {
+
+	// Set detailed tracing for sampled transactions (every 10th = 10%) only if tracing is enabled
+	if s.tracingEnabled && task.AbsoluteIndex%10 == 0 {
 		ctx = ctx.WithIsTracing(true)
 	}
 
@@ -549,7 +551,7 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 		_, waitSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask.WaitingToDeliver", task)
 		waitSpan.End()
 	}
-	
+
 	var deliverSpan trace.Span
 	if task.Ctx.IsTracing() {
 		_, deliverSpan = s.traceSpan(task.Ctx, "SchedulerExecuteTask.DeliverTx", task)
@@ -558,13 +560,13 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 	if task.Ctx.IsTracing() {
 		deliverSpan.End()
 	}
-	
+
 	// close the abort channel
 	_, abortCheckSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask.CheckAbort", task)
 	close(task.AbortCh)
 	abort, ok := <-task.AbortCh
 	abortCheckSpan.End()
-	
+
 	if ok {
 		// if there is an abort item that means we need to wait on the dependent tx
 		_, writeEstSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask.WriteEstimates", task)
