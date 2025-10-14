@@ -892,7 +892,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 
 	if ctx.IsTracing() {
 		spanCtx, span := app.TracingInfo.StartWithContext("RunTx", ctx.TraceSpanContext())
-		defer span.End()
+		defer tracing.CloseSpan(span)
 		ctx = ctx.WithTraceSpanContext(spanCtx)
 		span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", checksum)))
 		span.SetAttributes(attribute.Int("txIndex", ctx.TxIndex()))
@@ -902,7 +902,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	if ctx.IsTracing() {
 		_, span := app.TracingInfo.StartWithContext("ACL.WaitForBlockingSignals", ctx.TraceSpanContext())
 		acltypes.WaitForAllSignalsForTx(ctx.TxBlockingChannels())
-		span.End()
+		tracing.CloseSpan(span)
 	} else {
 		acltypes.WaitForAllSignalsForTx(ctx.TxBlockingChannels())
 	}
@@ -917,7 +917,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	if ctx.IsTracing() {
 		_, span := app.TracingInfo.StartWithContext("RunTx.GetMultiStore", ctx.TraceSpanContext())
 		ms = ctx.MultiStore()
-		span.End()
+		tracing.CloseSpan(span)
 	} else {
 		ms = ctx.MultiStore()
 	}
@@ -943,7 +943,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	if ctx.IsTracing() {
 		_, span := app.TracingInfo.StartWithContext("RunTx.GetMsgs", ctx.TraceSpanContext())
 		msgs = tx.GetMsgs()
-		span.End()
+		tracing.CloseSpan(span)
 	} else {
 		msgs = tx.GetMsgs()
 	}
@@ -951,7 +951,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	if ctx.IsTracing() {
 		_, span := app.TracingInfo.StartWithContext("RunTx.ValidateBasicMsgs", ctx.TraceSpanContext())
 		err = validateBasicTxMsgs(msgs)
-		span.End()
+		tracing.CloseSpan(span)
 		if err != nil {
 			return sdk.GasInfo{}, nil, nil, 0, nil, nil, ctx, err
 		}
@@ -986,7 +986,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		if ctx.IsTracing() {
 			_, span := app.TracingInfo.StartWithContext("AnteHandler.CacheTxContext", ctx.TraceSpanContext())
 			anteCtx, msCache = app.cacheTxContext(ctx, checksum)
-			span.End()
+			tracing.CloseSpan(span)
 		} else {
 			anteCtx, msCache = app.cacheTxContext(ctx, checksum)
 		}
@@ -995,7 +995,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		if ctx.IsTracing() {
 			_, span := app.TracingInfo.StartWithContext("AnteHandler.Execute", ctx.TraceSpanContext())
 			newCtx, err = app.anteHandler(anteCtx, tx, mode == runTxModeSimulate)
-			span.End()
+			tracing.CloseSpan(span)
 		} else {
 			newCtx, err = app.anteHandler(anteCtx, tx, mode == runTxModeSimulate)
 		}
@@ -1033,7 +1033,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		if ctx.MsgValidator() != nil && mode == runTxModeDeliver {
 			if ctx.IsTracing() {
 				_, span := app.TracingInfo.StartWithContext("AnteHandler.Validate", ctx.TraceSpanContext())
-				defer span.End()
+				defer tracing.CloseSpan(span)
 			}
 			storeAccessOpEvents := msCache.GetEvents()
 			accessOps := ctx.TxMsgAccessOps()[acltypes.ANTE_MSG_INDEX]
@@ -1056,20 +1056,20 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		if ctx.IsTracing() {
 			_, span := app.TracingInfo.StartWithContext("AnteHandler.CacheWrite", ctx.TraceSpanContext())
 			msCache.Write()
-			span.End()
+			tracing.CloseSpan(span)
 		} else {
 			msCache.Write()
 		}
 		anteEvents = events.ToABCIEvents()
 		if ctx.IsTracing() {
-			anteSpan.End()
+			tracing.CloseSpan(anteSpan)
 		}
 	}
 
 	// Capture any gap between AnteHandler and RunMsgs
 	if ctx.IsTracing() {
 		_, gapSpan := app.TracingInfo.StartWithContext("RunTx.AnteToMsgsGap", ctx.TraceSpanContext())
-		gapSpan.End()
+		tracing.CloseSpan(gapSpan)
 	}
 
 	// Create a new Context based off of the existing Context with a MultiStore branch
@@ -1080,7 +1080,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	if ctx.IsTracing() {
 		_, span := app.TracingInfo.StartWithContext("RunMsgs.CacheTxContext", ctx.TraceSpanContext())
 		runMsgCtx, msCache = app.cacheTxContext(ctx, checksum)
-		span.End()
+		tracing.CloseSpan(span)
 	} else {
 		runMsgCtx, msCache = app.cacheTxContext(ctx, checksum)
 	}
@@ -1091,7 +1091,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	if ctx.IsTracing() {
 		_, span := app.TracingInfo.StartWithContext("RunMsgs.Execute", ctx.TraceSpanContext())
 		result, err = app.runMsgs(runMsgCtx, msgs, mode)
-		span.End()
+		tracing.CloseSpan(span)
 	} else {
 		result, err = app.runMsgs(runMsgCtx, msgs, mode)
 	}
@@ -1100,7 +1100,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		if ctx.IsTracing() {
 			_, span := app.TracingInfo.StartWithContext("RunMsgs.CacheWrite", ctx.TraceSpanContext())
 			msCache.Write()
-			span.End()
+			tracing.CloseSpan(span)
 		} else {
 			msCache.Write()
 		}
@@ -1161,7 +1161,7 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 	}()
 	if ctx.IsTracing() {
 		spanCtx, span := app.TracingInfo.StartWithContext("RunMsgs", ctx.TraceSpanContext())
-		defer span.End()
+		defer tracing.CloseSpan(span)
 		ctx = ctx.WithTraceSpanContext(spanCtx)
 	}
 	msgLogs := make(sdk.ABCIMessageLogs, 0, len(msgs))
@@ -1188,7 +1188,7 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 		if ctx.IsTracing() {
 			_, span := app.TracingInfo.StartWithContext(fmt.Sprintf("Msg[%d].CacheTxContext", i), ctx.TraceSpanContext())
 			msgCtx, msgMsCache = app.cacheTxContext(ctx, [32]byte{})
-			span.End()
+			tracing.CloseSpan(span)
 		} else {
 			msgCtx, msgMsCache = app.cacheTxContext(ctx, [32]byte{})
 		}
@@ -1206,7 +1206,7 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 				if err != nil {
 					span.SetAttributes(attribute.String("error", err.Error()))
 				}
-				span.End()
+				tracing.CloseSpan(span)
 			} else {
 				msgResult, err = handler(msgCtx, msg)
 			}

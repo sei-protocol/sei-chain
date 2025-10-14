@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/utils/tracing"
 	"github.com/sei-protocol/sei-chain/occ_tests/messages"
 	"github.com/sei-protocol/sei-chain/occ_tests/utils"
 	"github.com/sei-protocol/sei-load/config"
@@ -49,7 +50,7 @@ func TestPerfEvmTransferNonConflictingWithTracing(t *testing.T) {
 		ChainID:    713714, // Must match config.DefaultChainID
 		SeiChainID: "test",
 		Accounts: &config.AccountConfig{
-			Accounts: 100,
+			Accounts: 20,
 		},
 		Scenarios: []config.Scenario{
 			{
@@ -62,12 +63,12 @@ func TestPerfEvmTransferNonConflictingWithTracing(t *testing.T) {
 	require.NoError(t, err)
 	runPerfTestWithTracing(t, Test{
 		runs:  1,
-		accts: 500,
+		accts: 2,
 		gen:   g,
 		name:  "Test evm transfers non-conflicting with tracing",
 		txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
 			return utils.JoinMsgs(
-				messages.EVMGenerator(tCtx, g, 100),
+				messages.EVMGenerator(tCtx, g, 10),
 			)
 		},
 	})
@@ -77,12 +78,15 @@ func runPerfTestWithTracing(t *testing.T, tt Test) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(tt.accts)
 	ctx := utils.NewTestContextWithTracing(t, accts, blockTime, 500, true)
-	_ = runBlock(t, tt, ctx, true)
+	_ = runBlock(t, tt, ctx, false)
 	for range tt.runs {
+		tracing.ResetTraces()
 		// This uses a fresh context so we don't accumulate the traces together
 		ctx.TestApp.TracingInfo.SetContext(context.Background())
 		duration := runBlock(t, tt, ctx, true)
 		fmt.Printf("duration = %v\n", duration)
+		// Flush all deferred spans to Jaeger
+		tracing.FlushTraces()
 		t.Logf("Traces available at http://localhost:16686")
 	}
 }

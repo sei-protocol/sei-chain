@@ -21,7 +21,7 @@ func NewTracedAnteDecorator(wrapped sdk.AnteDecorator, tracingInfo *tracing.Info
 func (d TracedAnteDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (newCtx sdk.Context, err error) {
 	if d.tracingInfo != nil {
 		_, span := d.tracingInfo.Start(d.traceName)
-		defer span.End()
+		defer tracing.CloseSpan(span)
 	}
 	return d.wrapped.AnteHandle(ctx, tx, simulate, next)
 }

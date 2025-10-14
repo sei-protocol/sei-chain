@@ -134,17 +134,37 @@ func (wad WrappedAnteDecorator) AnteHandle(ctx Context, tx Tx, simulate bool, ne
 				decoratorName = decoratorType.Elem().Name()
 			}
 			
+			// Span for the entire decorator execution (including setup)
 			spanName := fmt.Sprintf("AnteDecorator.%s", decoratorName)
 			spanCtx, span := tracingInfo.StartWithContext(spanName, ctx.TraceSpanContext())
 			ctx = ctx.WithTraceSpanContext(spanCtx)
 			
 			// Wrap next() to end the span before calling it
 			wrappedNext := func(ctx Context, tx Tx, simulate bool) (Context, error) {
-				span.End() // End this decorator's span before calling next
-				return next(ctx, tx, simulate)
+				// End the decorator's span
+				tracing.CloseSpan(span)
+				
+				// Span to capture overhead between decorators
+				gapSpanName := fmt.Sprintf("Gap.%s->Next", decoratorName)
+				gapSpanCtx, gapSpan := tracingInfo.StartWithContext(gapSpanName, ctx.TraceSpanContext())
+				ctx = ctx.WithTraceSpanContext(gapSpanCtx)
+				
+				// Call the next decorator
+				result, err := next(ctx, tx, simulate)
+				
+				tracing.CloseSpan(gapSpan)
+				return result, err
 			}
 			
-			return wad.Decorator.AnteHandle(ctx, tx, simulate, wrappedNext)
+			// Span for the actual decorator work (excluding wrappedNext execution)
+			workSpanName := fmt.Sprintf("Work.%s", decoratorName)
+			workSpanCtx, workSpan := tracingInfo.StartWithContext(workSpanName, ctx.TraceSpanContext())
+			ctx = ctx.WithTraceSpanContext(workSpanCtx)
+			
+			result, err := wad.Decorator.AnteHandle(ctx, tx, simulate, wrappedNext)
+			
+			tracing.CloseSpan(workSpan)
+			return result, err
 		}
 	}
 	

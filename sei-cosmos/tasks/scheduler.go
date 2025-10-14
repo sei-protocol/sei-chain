@@ -377,8 +377,11 @@ func (s *scheduler) shouldRerun(task *deliverTxTask) bool {
 }
 
 func (s *scheduler) validateTask(ctx sdk.Context, task *deliverTxTask) bool {
-	_, span := s.traceSpan(ctx, "SchedulerValidate", task)
-	defer span.End()
+	var span trace.Span
+	if ctx.IsTracing() {
+		_, span = s.traceSpan(ctx, "SchedulerValidate", task)
+		defer tracing.CloseSpan(span)
+	}
 
 	if s.shouldRerun(task) {
 		return false
@@ -396,8 +399,11 @@ func (s *scheduler) findFirstNonValidated() (int, bool) {
 }
 
 func (s *scheduler) validateAll(ctx sdk.Context, tasks []*deliverTxTask) ([]*deliverTxTask, error) {
-	ctx, span := s.traceSpan(ctx, "SchedulerValidateAll", nil)
-	defer span.End()
+	var span trace.Span
+	if ctx.IsTracing() {
+		ctx, span = s.traceSpan(ctx, "SchedulerValidateAll", nil)
+		defer tracing.CloseSpan(span)
+	}
 
 	var mx sync.Mutex
 	var res []*deliverTxTask
@@ -437,9 +443,12 @@ func (s *scheduler) executeAll(ctx sdk.Context, tasks []*deliverTxTask) error {
 	if len(tasks) == 0 {
 		return nil
 	}
-	ctx, span := s.traceSpan(ctx, "SchedulerExecuteAll", nil)
-	span.SetAttributes(attribute.Bool("synchronous", s.synchronous))
-	defer span.End()
+	var span trace.Span
+	if ctx.IsTracing() {
+		ctx, span = s.traceSpan(ctx, "SchedulerExecuteAll", nil)
+		span.SetAttributes(attribute.Bool("synchronous", s.synchronous))
+		defer tracing.CloseSpan(span)
+	}
 
 	// validationWg waits for all validations to complete
 	// validations happen in separate goroutines in order to wait on previous index
@@ -459,10 +468,17 @@ func (s *scheduler) executeAll(ctx sdk.Context, tasks []*deliverTxTask) error {
 }
 
 func (s *scheduler) prepareAndRunTask(wg *sync.WaitGroup, ctx sdk.Context, task *deliverTxTask) {
-	eCtx, eSpan := s.traceSpan(ctx, "SchedulerExecute", task)
-	defer eSpan.End()
+	// Set the initial context on the task
+	task.Ctx = ctx.WithTxIndex(task.AbsoluteIndex)
+	task.Ctx = task.Ctx.WithIsTracing(s.tracingEnabled && task.AbsoluteIndex%1 == 0)
 
-	task.Ctx = eCtx
+	// Now check if this task should be traced
+	var eSpan trace.Span
+	if task.Ctx.IsTracing() {
+		task.Ctx, eSpan = s.traceSpan(task.Ctx, "SchedulerExecute", task)
+		defer tracing.CloseSpan(eSpan)
+	}
+
 	s.executeTask(task)
 	wg.Done()
 }
@@ -480,15 +496,14 @@ func (s *scheduler) traceSpan(ctx sdk.Context, name string, task *deliverTxTask)
 
 // prepareTask initializes the context and version stores for a task
 func (s *scheduler) prepareTask(task *deliverTxTask) {
-	ctx := task.Ctx.WithTxIndex(task.AbsoluteIndex)
+	ctx := task.Ctx
 
-	// Set detailed tracing for sampled transactions (every 10th = 10%) only if tracing is enabled
-	if s.tracingEnabled && task.AbsoluteIndex%10 == 0 {
-		ctx = ctx.WithIsTracing(true)
+	// Only create spans for traced transactions
+	var span trace.Span
+	if ctx.IsTracing() {
+		ctx, span = s.traceSpan(ctx, "SchedulerPrepare", task)
+		defer tracing.CloseSpan(span)
 	}
-
-	_, span := s.traceSpan(ctx, "SchedulerPrepare", task)
-	defer span.End()
 
 	// initialize the context
 	abortCh := make(chan occ.Abort, len(s.multiVersionStores))
@@ -522,13 +537,18 @@ func (s *scheduler) prepareTask(task *deliverTxTask) {
 }
 
 func (s *scheduler) executeTask(task *deliverTxTask) {
-	dCtx, dSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask", task)
-	defer dSpan.End()
-	task.Ctx = dCtx
+	var dSpan trace.Span
+	if task.Ctx.IsTracing() {
+		task.Ctx, dSpan = s.traceSpan(task.Ctx, "SchedulerExecuteTask", task)
+		defer tracing.CloseSpan(dSpan)
+	}
 
 	// in the synchronous case, we only want to re-execute tasks that need re-executing
 	if s.synchronous {
-		_, syncSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask.SyncMode", task)
+		var syncSpan trace.Span
+		if task.Ctx.IsTracing() {
+			_, syncSpan = s.traceSpan(task.Ctx, "SchedulerExecuteTask.SyncMode", task)
+		}
 		// even if already validated, it could become invalid again due to preceeding
 		// reruns. Make sure previous writes are invalidated before rerunning.
 		if task.IsStatus(statusValidated) {
@@ -541,16 +561,12 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 			task.Reset()
 			task.Increment()
 		}
-		syncSpan.End()
+		if task.Ctx.IsTracing() {
+			tracing.CloseSpan(syncSpan)
+		}
 	}
 
 	s.prepareTask(task)
-
-	if task.Ctx.IsTracing() {
-		// Start a span to capture the gap between prepare and deliverTx
-		_, waitSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask.WaitingToDeliver", task)
-		waitSpan.End()
-	}
 
 	var deliverSpan trace.Span
 	if task.Ctx.IsTracing() {
@@ -558,18 +574,26 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 	}
 	resp := s.deliverTx(task.Ctx, task.Request, task.SdkTx, task.Checksum)
 	if task.Ctx.IsTracing() {
-		deliverSpan.End()
+		tracing.CloseSpan(deliverSpan)
 	}
 
 	// close the abort channel
-	_, abortCheckSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask.CheckAbort", task)
+	var abortCheckSpan trace.Span
+	if task.Ctx.IsTracing() {
+		_, abortCheckSpan = s.traceSpan(task.Ctx, "SchedulerExecuteTask.CheckAbort", task)
+	}
 	close(task.AbortCh)
 	abort, ok := <-task.AbortCh
-	abortCheckSpan.End()
+	if task.Ctx.IsTracing() {
+		tracing.CloseSpan(abortCheckSpan)
+	}
 
 	if ok {
 		// if there is an abort item that means we need to wait on the dependent tx
-		_, writeEstSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask.WriteEstimates", task)
+		var writeEstSpan trace.Span
+		if task.Ctx.IsTracing() {
+			_, writeEstSpan = s.traceSpan(task.Ctx, "SchedulerExecuteTask.WriteEstimates", task)
+		}
 		task.SetStatus(statusAborted)
 		task.Abort = &abort
 		task.AppendDependencies([]int{abort.DependentTxIdx})
@@ -577,11 +601,16 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 		for _, v := range task.VersionStores {
 			v.WriteEstimatesToMultiVersionStore()
 		}
-		writeEstSpan.End()
+		if task.Ctx.IsTracing() {
+			tracing.CloseSpan(writeEstSpan)
+		}
 		return
 	}
 
-	_, writeSpan := s.traceSpan(task.Ctx, "SchedulerExecuteTask.WriteToMVStore", task)
+	var writeSpan trace.Span
+	if task.Ctx.IsTracing() {
+		_, writeSpan = s.traceSpan(task.Ctx, "SchedulerExecuteTask.WriteToMVStore", task)
+	}
 	task.SetStatus(statusExecuted)
 	task.Response = &resp
 
@@ -589,5 +618,7 @@ func (s *scheduler) executeTask(task *deliverTxTask) {
 	for _, v := range task.VersionStores {
 		v.WriteToMultiVersionStore()
 	}
-	writeSpan.End()
+	if task.Ctx.IsTracing() {
+		tracing.CloseSpan(writeSpan)
+	}
 }
