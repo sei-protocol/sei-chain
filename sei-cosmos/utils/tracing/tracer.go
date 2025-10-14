@@ -3,6 +3,7 @@ package tracing
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/jaeger"
@@ -47,14 +48,31 @@ func GetTracerProviderOptions(url string) ([]trace.TracerProviderOption, error) 
 }
 
 type Info struct {
-	Tracer        *otrace.Tracer
-	tracerContext context.Context
-	BlockSpan     *otrace.Span
-
-	mtx sync.RWMutex
+	Tracer         *otrace.Tracer
+	tracerContext  context.Context
+	BlockSpan      *otrace.Span
+	tracingEnabled int32 // Use int32 for atomic operations
+	mtx            sync.RWMutex
 }
 
+func NewTracingInfo(tr *otrace.Tracer, tracingEnabled bool) *Info {
+	tracingEnabledInt32 := int32(0) // default to false
+	if tracingEnabled {
+		tracingEnabledInt32 = int32(1)
+	}
+	return &Info{
+		Tracer:         tr,
+		tracingEnabled: tracingEnabledInt32,
+	}
+}
+
+// NoOpSpan is a no-op span which does nothing.
+var NoOpSpan = otrace.SpanFromContext(context.TODO())
+
 func (i *Info) Start(name string) (context.Context, otrace.Span) {
+	if atomic.LoadInt32(&i.tracingEnabled) == 0 {
+		return context.Background(), NoOpSpan
+	}
 	i.mtx.Lock()
 	defer i.mtx.Unlock()
 	if i.tracerContext == nil {
@@ -64,6 +82,9 @@ func (i *Info) Start(name string) (context.Context, otrace.Span) {
 }
 
 func (i *Info) StartWithContext(name string, ctx context.Context) (context.Context, otrace.Span) {
+	if atomic.LoadInt32(&i.tracingEnabled) == 0 {
+		return ctx, NoOpSpan
+	}
 	i.mtx.Lock()
 	defer i.mtx.Unlock()
 	if ctx == nil {
@@ -73,12 +94,18 @@ func (i *Info) StartWithContext(name string, ctx context.Context) (context.Conte
 }
 
 func (i *Info) GetContext() context.Context {
+	if atomic.LoadInt32(&i.tracingEnabled) == 0 {
+		return context.Background()
+	}
 	i.mtx.RLock()
 	defer i.mtx.RUnlock()
 	return i.tracerContext
 }
 
 func (i *Info) SetContext(c context.Context) {
+	if atomic.LoadInt32(&i.tracingEnabled) == 0 {
+		return
+	}
 	i.mtx.Lock()
 	defer i.mtx.Unlock()
 	i.tracerContext = c
