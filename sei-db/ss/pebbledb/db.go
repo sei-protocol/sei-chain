@@ -546,14 +546,14 @@ func (db *Database) writeAsyncInBackground() {
 	db.asyncWriteWG.Add(1)
 	defer db.asyncWriteWG.Done()
 	for nextChange := range db.pendingChanges {
-		if db.streamHandler != nil {
-			version := nextChange.Version
-			for _, cs := range nextChange.Changesets {
-				err := db.ApplyChangeset(version, cs)
-				if err != nil {
-					panic(err)
-				}
+		version := nextChange.Version
+		for _, cs := range nextChange.Changesets {
+			if err := db.ApplyChangeset(version, cs); err != nil {
+				panic(err)
 			}
+		}
+		if err := db.SetLatestVersion(version); err != nil {
+			panic(err)
 		}
 	}
 

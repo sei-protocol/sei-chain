@@ -189,6 +189,10 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 		pairs = append(pairs, kvPair)
 	}
 	if len(pairs) == 0 {
+		// ensure the receipt store watermark advances even for empty blocks
+		if err := k.receiptStore.SetLatestVersion(ctx.BlockHeight()); err != nil {
+			return err
+		}
 		return nil
 	}
 	ncs := &proto.NamedChangeSet{

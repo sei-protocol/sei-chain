@@ -73,7 +73,9 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, error)
 	// Receipt store height participates only in the latest watermark, since
 	// pruning guarantees the earliest watermark is bounded by TM+SS.
 	if m.receiptStore != nil {
-		latestCandidates = append(latestCandidates, m.receiptStore.GetLatestVersion())
+		if latest := m.receiptStore.GetLatestVersion(); latest > 0 {
+			latestCandidates = append(latestCandidates, latest)
+		}
 	}
 
 	if len(latestCandidates) == 0 {
