@@ -648,7 +648,9 @@ type LogFetcher struct {
 	watermarks               *WatermarkManager
 }
 
-func normalizeBlockBounds(latest, earliest, lastToHeight int64, crit filters.FilterCriteria) (int64, int64) {
+// NormalizeBlockBounds clamps the requested block range to the available
+// heights while honoring filter criteria and incremental pagination.
+func NormalizeBlockBounds(latest, earliest, lastToHeight int64, crit filters.FilterCriteria) (int64, int64) {
 	begin, end := latest, latest
 	if crit.FromBlock != nil {
 		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
@@ -683,7 +685,7 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	if err != nil {
 		earliest = 0
 	}
-	begin, end := normalizeBlockBounds(latest, earliest, lastToHeight, crit)
+	begin, end := NormalizeBlockBounds(latest, earliest, lastToHeight, crit)
 	if begin > end {
 		return []*ethtypes.Log{}, end, nil
 	}
@@ -982,7 +984,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	if err != nil {
 		earliest = 0
 	}
-	begin, end := normalizeBlockBounds(latest, earliest, lastToHeight, crit)
+	begin, end := NormalizeBlockBounds(latest, earliest, lastToHeight, crit)
 
 	blockRange := end - begin + 1
 	if applyOpenEndedLogLimit && blockRange > f.filterConfig.maxBlock {
