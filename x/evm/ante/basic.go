@@ -21,19 +21,19 @@ func NewBasicDecorator(k *keeper.Keeper) *BasicDecorator {
 	return &BasicDecorator{k}
 }
 
-// cherrypicked from go-ethereum:txpool:ValidateTransaction
-func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+// validateBasic contains the core validation logic extracted from BasicDecorator
+func validateBasic(ctx sdk.Context, tx sdk.Tx, simulate bool, k *keeper.Keeper) (sdk.Context, error) {
 	msg := evmtypes.MustGetEVMTransactionMessage(tx)
 	etx, _ := msg.AsTransaction()
 
-	if msg.Derived != nil && !gl.k.EthReplayConfig.Enabled && !gl.k.EthBlockTestConfig.Enabled {
-		startingNonce := gl.k.GetNonce(ctx, msg.Derived.SenderEVMAddr)
+	if msg.Derived != nil && !k.EthReplayConfig.Enabled && !k.EthBlockTestConfig.Enabled {
+		startingNonce := k.GetNonce(ctx, msg.Derived.SenderEVMAddr)
 		txNonce := etx.Nonce()
 		if !ctx.IsCheckTx() && !ctx.IsReCheckTx() && startingNonce == txNonce {
 			ctx = ctx.WithDeliverTxCallback(func(callCtx sdk.Context) {
 				// bump nonce if it is for some reason not incremented (e.g. ante failure)
-				if gl.k.GetNonce(callCtx, msg.Derived.SenderEVMAddr) == startingNonce {
-					gl.k.SetNonce(callCtx, msg.Derived.SenderEVMAddr, startingNonce+1)
+				if k.GetNonce(callCtx, msg.Derived.SenderEVMAddr) == startingNonce {
+					k.SetNonce(callCtx, msg.Derived.SenderEVMAddr, startingNonce+1)
 				}
 			})
 		}
@@ -88,6 +88,15 @@ func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, n
 	//		return ctx, err
 	//	}
 	//}
+	return ctx, nil
+}
+
+// cherrypicked from go-ethereum:txpool:ValidateTransaction
+func (gl BasicDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+	ctx, err := validateBasic(ctx, tx, simulate, gl.k)
+	if err != nil {
+		return ctx, err
+	}
 	return next(ctx, tx, simulate)
 }
 

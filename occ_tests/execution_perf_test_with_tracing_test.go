@@ -50,7 +50,7 @@ func TestPerfEvmTransferNonConflictingWithTracing(t *testing.T) {
 		ChainID:    713714, // Must match config.DefaultChainID
 		SeiChainID: "test",
 		Accounts: &config.AccountConfig{
-			Accounts: 20,
+			Accounts: 1000,
 		},
 		Scenarios: []config.Scenario{
 			{
@@ -68,7 +68,7 @@ func TestPerfEvmTransferNonConflictingWithTracing(t *testing.T) {
 		name:  "Test evm transfers non-conflicting with tracing",
 		txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
 			return utils.JoinMsgs(
-				messages.EVMGenerator(tCtx, g, 10),
+				messages.EVMGenerator(tCtx, g, 500),
 			)
 		},
 	})
@@ -77,17 +77,16 @@ func TestPerfEvmTransferNonConflictingWithTracing(t *testing.T) {
 func runPerfTestWithTracing(t *testing.T, tt Test) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(tt.accts)
-	ctx := utils.NewTestContextWithTracing(t, accts, blockTime, 500, true)
+	ctx := utils.NewTestContext(t, accts, blockTime, 500, true)
 	_ = runBlock(t, tt, ctx, false)
 	for range tt.runs {
 		tracing.ResetTraces()
 		// This uses a fresh context so we don't accumulate the traces together
 		ctx.TestApp.TracingInfo.SetContext(context.Background())
-		duration := runBlock(t, tt, ctx, true)
+		duration := runBlock(t, tt, ctx, false)
 		fmt.Printf("duration = %v\n", duration)
 		// Flush all deferred spans to Jaeger
 		tracing.FlushTraces()
-		t.Logf("Traces available at http://localhost:16686")
 	}
 }
 

@@ -14,7 +14,8 @@ func NewEVMNoCosmosFieldsDecorator() EVMNoCosmosFieldsDecorator {
 	return EVMNoCosmosFieldsDecorator{}
 }
 
-func (d EVMNoCosmosFieldsDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+// validateNoCosmosFields contains the core validation logic
+func validateNoCosmosFields(ctx sdk.Context, tx sdk.Tx) (sdk.Context, error) {
 	txBody, ok := tx.(interface {
 		GetBody() *txtypes.TxBody
 	})
@@ -62,5 +63,13 @@ func (d EVMNoCosmosFieldsDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simul
 		}
 	}
 
+	return ctx, nil
+}
+
+func (d EVMNoCosmosFieldsDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+	ctx, err := validateNoCosmosFields(ctx, tx)
+	if err != nil {
+		return ctx, err
+	}
 	return next(ctx, tx, simulate)
 }

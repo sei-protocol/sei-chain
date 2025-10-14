@@ -108,17 +108,9 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 
 	anteHandler, anteDepGenerator := sdk.ChainAnteDecorators(anteDecorators...)
 
-	evmAnteDecorators := []sdk.AnteFullDecorator{
-		// NOTE: NewEVMNoCosmosFieldsDecorator must come first to prevent writing state to chain without being charged.
-		// E.g. EVMPreprocessDecorator may short-circuit all the later ante handlers if AssociateTx and ignore NewEVMNoCosmosFieldsDecorator.
-		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMNoCosmosFieldsDecorator()),
-		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMPreprocessDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper())),
-		sdk.DefaultWrappedAnteDecorator(evmante.NewBasicDecorator(options.EVMKeeper)),
-		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMFeeCheckDecorator(options.EVMKeeper, options.UpgradeKeeper)),
-		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMSigVerifyDecorator(options.EVMKeeper, options.LatestCtxGetter)),
-		sdk.DefaultWrappedAnteDecorator(evmante.NewGasDecorator(options.EVMKeeper)),
-	}
-	evmAnteHandler, evmAnteDepGenerator := sdk.ChainAnteDecorators(evmAnteDecorators...)
+	// Choose between monolithic (fast) or traditional chain (for comparison)
+	evmAnteHandler, evmAnteDepGenerator := newMonolithicEVMAnteHandler(options)
+	//evmAnteHandler, evmAnteDepGenerator := newTraditionalEVMAnteHandler(options)
 
 	router := evmante.NewEVMRouterDecorator(anteHandler, evmAnteHandler, anteDepGenerator, evmAnteDepGenerator)
 
@@ -133,4 +125,50 @@ func NewAnteHandlerAndDepGenerator(options HandlerOptions) (sdk.AnteHandler, sdk
 	tracerAnteHandler, _ := sdk.ChainAnteDecorators(tracerAnteDecorators...)
 
 	return router.AnteHandle, tracerAnteHandler, router.AnteDeps, nil
+}
+
+// newMonolithicEVMAnteHandler creates a monolithic EVM ante handler that eliminates
+// decorator chain overhead by calling decorators sequentially in a simple loop.
+// This provides better performance by avoiding closure allocation and wrapper overhead.
+func newMonolithicEVMAnteHandler(options HandlerOptions) (sdk.AnteHandler, sdk.AnteDepGenerator) {
+	// EVM ante decorators (unwrapped for direct use)
+	evmAnteDecorators := []sdk.AnteDecorator{
+		evmante.NewEVMNoCosmosFieldsDecorator(),
+		evmante.NewEVMPreprocessDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper()),
+		evmante.NewBasicDecorator(options.EVMKeeper),
+		evmante.NewEVMFeeCheckDecorator(options.EVMKeeper, options.UpgradeKeeper),
+		evmante.NewEVMSigVerifyDecorator(options.EVMKeeper, options.LatestCtxGetter),
+		evmante.NewGasDecorator(options.EVMKeeper),
+	}
+
+	// Use monolithic handler for execution (zero overhead)
+	monolithicEVMHandler := evmante.NewMonolithicEVMAnteHandler(evmAnteDecorators)
+	evmAnteHandler := monolithicEVMHandler.AnteHandle
+
+	// Wrap decorators for dependency generation only (not in hot path)
+	evmAnteDecoratorsWrapped := make([]sdk.AnteFullDecorator, len(evmAnteDecorators))
+	for i, decorator := range evmAnteDecorators {
+		evmAnteDecoratorsWrapped[i] = sdk.DefaultWrappedAnteDecorator(decorator)
+	}
+	_, evmAnteDepGenerator := sdk.ChainAnteDecorators(evmAnteDecoratorsWrapped...)
+
+	return evmAnteHandler, evmAnteDepGenerator
+}
+
+// newTraditionalEVMAnteHandler creates the traditional recursive decorator chain.
+// This is kept for comparison/testing purposes to measure the overhead of the chain pattern.
+func newTraditionalEVMAnteHandler(options HandlerOptions) (sdk.AnteHandler, sdk.AnteDepGenerator) {
+	evmAnteDecorators := []sdk.AnteFullDecorator{
+		// NOTE: NewEVMNoCosmosFieldsDecorator must come first to prevent writing state to chain without being charged.
+		// E.g. EVMPreprocessDecorator may short-circuit all the later ante handlers if AssociateTx and ignore NewEVMNoCosmosFieldsDecorator.
+		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMNoCosmosFieldsDecorator()),
+		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMPreprocessDecorator(options.EVMKeeper, options.EVMKeeper.AccountKeeper())),
+		sdk.DefaultWrappedAnteDecorator(evmante.NewBasicDecorator(options.EVMKeeper)),
+		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMFeeCheckDecorator(options.EVMKeeper, options.UpgradeKeeper)),
+		sdk.DefaultWrappedAnteDecorator(evmante.NewEVMSigVerifyDecorator(options.EVMKeeper, options.LatestCtxGetter)),
+		sdk.DefaultWrappedAnteDecorator(evmante.NewGasDecorator(options.EVMKeeper)),
+	}
+	evmAnteHandler, evmAnteDepGenerator := sdk.ChainAnteDecorators(evmAnteDecorators...)
+
+	return evmAnteHandler, evmAnteDepGenerator
 }
