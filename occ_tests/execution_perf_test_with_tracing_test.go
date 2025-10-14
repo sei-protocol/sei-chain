@@ -17,18 +17,19 @@ import (
 // but with OpenTelemetry tracing enabled. To use this:
 //
 //  1. Start Jaeger locally:
-//     docker run -d --name jaeger \
-//     -e COLLECTOR_ZIPKIN_HOST_PORT=:9411 \
-//     -p 5775:5775/udp \
-//     -p 6831:6831/udp \
-//     -p 6832:6832/udp \
-//     -p 5778:5778 \
-//     -p 16686:16686 \
-//     -p 14250:14250 \
-//     -p 14268:14268 \
-//     -p 14269:14269 \
-//     -p 9411:9411 \
-//     jaegertracing/all-in-one:latest
+//
+// docker run -d --name jaeger \
+// -e COLLECTOR_ZIPKIN_HOST_PORT=:9411 \
+// -p 5775:5775/udp \
+// -p 6831:6831/udp \
+// -p 6832:6832/udp \
+// -p 5778:5778 \
+// -p 16686:16686 \
+// -p 14250:14250 \
+// -p 14268:14268 \
+// -p 14269:14269 \
+// -p 9411:9411 \
+// jaegertracing/all-in-one:latest
 //
 //  2. Run the test:
 //     go test -v -run TestPerfEvmTransferNonConflictingWithTracing ./occ_tests
@@ -78,7 +79,8 @@ func runPerfTestWithTracing(t *testing.T, tt Test) {
 	ctx := utils.NewTestContextWithTracing(t, accts, blockTime, 500, true)
 	_ = runBlock(t, tt, ctx, true)
 	for range tt.runs {
-		ctx.Ctx = ctx.Ctx.WithTraceSpanContext(context.Background())
+		// This uses a fresh context so we don't accumulate the traces together
+		ctx.TestApp.TracingInfo.SetContext(context.Background())
 		duration := runBlock(t, tt, ctx, true)
 		fmt.Printf("duration = %v\n", duration)
 		t.Logf("Traces available at http://localhost:16686")
