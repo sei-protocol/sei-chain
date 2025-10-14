@@ -1,6 +1,7 @@
 package occ
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -47,11 +48,11 @@ func TestPerfEvmTransferNonConflictingWithTracing(t *testing.T) {
 		ChainID:    713714, // Must match config.DefaultChainID
 		SeiChainID: "test",
 		Accounts: &config.AccountConfig{
-			Accounts: 500,
+			Accounts: 100,
 		},
 		Scenarios: []config.Scenario{
 			{
-				Name:   "EVMTransfer",
+				Name:   "EVMTransferNoop",
 				Weight: 1,
 			},
 		},
@@ -65,7 +66,7 @@ func TestPerfEvmTransferNonConflictingWithTracing(t *testing.T) {
 		name:  "Test evm transfers non-conflicting with tracing",
 		txs: func(tCtx *utils.TestContext) []*utils.TestMessage {
 			return utils.JoinMsgs(
-				messages.EVMGenerator(tCtx, g, 500),
+				messages.EVMGenerator(tCtx, g, 100),
 			)
 		},
 	})
@@ -75,9 +76,9 @@ func runPerfTestWithTracing(t *testing.T, tt Test) {
 	blockTime := time.Now()
 	accts := utils.NewTestAccounts(tt.accts)
 	ctx := utils.NewTestContextWithTracing(t, accts, blockTime, 500, true)
+	_ = runBlock(t, tt, ctx, true)
 	for range tt.runs {
-		// this will init and associate accounts
-		_ = runBlock(t, tt, ctx, false)
+		ctx.Ctx = ctx.Ctx.WithTraceSpanContext(context.Background())
 		duration := runBlock(t, tt, ctx, true)
 		fmt.Printf("duration = %v\n", duration)
 		t.Logf("Traces available at http://localhost:16686")
@@ -86,7 +87,6 @@ func runPerfTestWithTracing(t *testing.T, tt Test) {
 
 func runBlock(t *testing.T, tt Test, ctx *utils.TestContext, tracing bool) time.Duration {
 	ctx.Ctx = ctx.Ctx.WithIsTracing(tracing)
-	ctx.TestApp.TracingEnabled = tracing
 	txs := tt.txs(ctx)
 	_, pResults, _, duration, pErr := utils.RunWithOCC(ctx, txs)
 	require.NoError(t, pErr, tt.name)

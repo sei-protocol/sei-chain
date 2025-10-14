@@ -75,6 +75,7 @@ func EVMGenerator(tCtx *utils.TestContext, g generator.Generator, count int) []*
 	var msgs []*utils.TestMessage
 	for i := 0; i < count; i++ {
 		loadTx, _ := g.Generate()
+		fmt.Println(loadTx.Scenario.Sender.Address.Hex(), ":", loadTx.EthTx.To().Hex())
 		msgs = append(msgs, toTestMsg(loadTx.EthTx, loadTx.Scenario.Sender.Address))
 	}
 	return msgs

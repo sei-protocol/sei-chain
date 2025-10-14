@@ -262,6 +262,7 @@ func toTxBytes(testCtx *TestContext, msgs []*TestMessage) [][]byte {
 		if tm.IsEVM {
 			_, ok := testCtx.TestApp.EvmKeeper.GetSeiAddress(testCtx.Ctx, tm.EVMSigner.EvmAddress)
 			if !ok {
+				fmt.Println("funding", tm.EVMSigner.EvmAddress.Hex())
 				seiAddr := testCtx.TestApp.EvmKeeper.GetSeiAddressOrDefault(testCtx.Ctx, tm.EVMSigner.EvmAddress)
 				amounts := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1000000000000000000)), sdk.NewCoin("uusdc", sdk.NewInt(1000000000000000)))
 
