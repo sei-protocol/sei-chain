@@ -39,9 +39,6 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/tools"
 	"github.com/sei-protocol/sei-chain/tools/migration/ss"
-	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
-	"github.com/sei-protocol/sei-chain/x/evm/querier"
-	"github.com/sei-protocol/sei-chain/x/evm/replay"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -404,33 +401,6 @@ func getPrimeNums(lo int, hi int) []int {
 // return "", nil if no custom configuration is required for the application.
 // nolint: staticcheck
 func initAppConfig() (string, interface{}) {
-	// The following code snippet is just for reference.
-
-	// WASMConfig defines configuration for the wasm module.
-	type WASMConfig struct {
-		// This is the maximum sdk gas (wasm and storage) that we allow for any x/wasm "smart" queries
-		QueryGasLimit uint64 `mapstructure:"query_gas_limit"`
-
-		// Address defines the gRPC-web server to listen on
-		LruSize uint64 `mapstructure:"lru_size"`
-	}
-
-	type CustomAppConfig struct {
-		serverconfig.Config
-
-		WASM WASMConfig `mapstructure:"wasm"`
-
-		EVM evmrpc.Config `mapstructure:"evm"`
-
-		ETHReplay replay.Config `mapstructure:"eth_replay"`
-
-		ETHBlockTest blocktest.Config `mapstructure:"eth_block_test"`
-
-		EvmQuery querier.Config `mapstructure:"evm_query"`
-
-		LightInvariance app.LightInvarianceConfig `mapstructure:"light_invariance"`
-	}
-
 	// Optionally allow the chain developer to overwrite the SDK's default
 	// server config.
 	srvCfg := serverconfig.DefaultConfig()
@@ -462,18 +432,9 @@ func initAppConfig() (string, interface{}) {
 	// Metrics
 	srvCfg.Telemetry.Enabled = true
 	srvCfg.Telemetry.PrometheusRetentionTime = 60
-	customAppConfig := CustomAppConfig{
-		Config: *srvCfg,
-		WASM: WASMConfig{
-			LruSize:       1,
-			QueryGasLimit: 300000,
-		},
-		EVM:             evmrpc.DefaultConfig,
-		ETHReplay:       replay.DefaultConfig,
-		ETHBlockTest:    blocktest.DefaultConfig,
-		EvmQuery:        querier.DefaultConfig,
-		LightInvariance: app.DefaultLightInvarianceConfig,
-	}
+
+	// Use shared CustomAppConfig from app_config.go
+	customAppConfig := NewCustomAppConfig(srvCfg, evmrpc.DefaultConfig)
 
 	customAppTemplate := serverconfig.DefaultConfigTemplate + `
 [wasm]
