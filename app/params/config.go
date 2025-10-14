@@ -1,9 +1,9 @@
 package params
 
 import (
-	"time"
-
+	srvconfig "github.com/cosmos/cosmos-sdk/server/config"
 	"github.com/cosmos/cosmos-sdk/types/address"
+	"github.com/sei-protocol/sei-chain/evmrpc"
 	tmcfg "github.com/tendermint/tendermint/config"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -80,27 +80,120 @@ func SetAddressPrefixes() {
 	})
 }
 
-func SetTendermintConfigs(config *tmcfg.Config) {
-	// P2P configs
-	config.P2P.MaxConnections = 200
-	config.P2P.SendRate = 20480000
-	config.P2P.RecvRate = 20480000
-	config.P2P.MaxPacketMsgPayloadSize = 1000000 // 1MB
-	config.P2P.FlushThrottleTimeout = 10 * time.Millisecond
-	// Mempool configs
-	config.Mempool.Size = 1000
-	config.Mempool.MaxTxsBytes = 10737418240
-	config.Mempool.MaxTxBytes = 2048576
-	config.Mempool.TTLDuration = 5 * time.Second
-	config.Mempool.TTLNumBlocks = 10
-	// Consensus Configs
-	config.Consensus.GossipTransactionKeyOnly = true
-	config.Consensus.UnsafeProposeTimeoutOverride = 300 * time.Millisecond
-	config.Consensus.UnsafeProposeTimeoutDeltaOverride = 50 * time.Millisecond
-	config.Consensus.UnsafeVoteTimeoutOverride = 50 * time.Millisecond
-	config.Consensus.UnsafeVoteTimeoutDeltaOverride = 50 * time.Millisecond
-	config.Consensus.UnsafeCommitTimeoutOverride = 200 * time.Millisecond
-	config.Consensus.UnsafeBypassCommitTimeoutOverride = &UnsafeBypassCommitTimeoutOverride
-	// Metrics
-	config.Instrumentation.Prometheus = true
+// NodeMode represents the type of node being run
+// Extends Tendermint's Mode with additional archive mode
+type NodeMode string
+
+const (
+	// Reuse Tendermint's mode constants
+	NodeModeValidator NodeMode = tmcfg.ModeValidator // "validator"
+	NodeModeFull      NodeMode = tmcfg.ModeFull      // "full"
+	NodeModeSeed      NodeMode = tmcfg.ModeSeed      // "seed"
+	// Additional mode specific to Sei Chain
+	NodeModeArchive NodeMode = "archive"
+)
+
+// IsFullnodeType returns true if the node is a fullnode-like node (full or archive)
+func (m NodeMode) IsFullnodeType() bool {
+	return m == NodeModeFull || m == NodeModeArchive
+}
+
+// setValidatorTypeTendermintConfig sets common Tendermint config for validator-like nodes
+func setValidatorTypeTendermintConfig(config *tmcfg.Config) {
+	config.TxIndex.Indexer = []string{"null"} // Validators don't need tx indexing
+	config.P2P.AllowDuplicateIP = false
+}
+
+// setFullnodeTypeTendermintConfig sets common Tendermint config for fullnode-like nodes
+func setFullnodeTypeTendermintConfig(config *tmcfg.Config) {
+	config.TxIndex.Indexer = []string{"kv"} // Full nodes need tx indexing for queries
+}
+
+// SetTendermintConfigByMode sets Tendermint config values based on node mode
+// Note: config.Mode should be set by the caller before calling this function
+// Archive nodes should have config.Mode = "full" since Tendermint doesn't recognize "archive"
+func SetTendermintConfigByMode(config *tmcfg.Config) {
+	mode := NodeMode(config.Mode)
+
+	switch mode {
+	case NodeModeValidator:
+		setValidatorTypeTendermintConfig(config)
+
+	case NodeModeSeed:
+		setValidatorTypeTendermintConfig(config)
+		// Seed nodes need more connections to serve peers
+		config.P2P.MaxConnections = 1000
+		config.P2P.AllowDuplicateIP = true
+
+	case NodeModeFull:
+		setFullnodeTypeTendermintConfig(config)
+
+	case NodeModeArchive:
+		// Archive nodes use full node Tendermint config
+		// The difference is in app config (keeping all history)
+		setFullnodeTypeTendermintConfig(config)
+	}
+}
+
+// setValidatorTypeAppConfig sets common app config for validator-like nodes
+func setValidatorTypeAppConfig(config *srvconfig.Config) {
+	// Services: validators should minimize exposed services for security
+	config.API.Enable = false
+	config.GRPC.Enable = false
+	config.GRPCWeb.Enable = false
+	config.Rosetta.Enable = false
+	config.StateStore.Enable = false
+}
+
+// setFullnodeTypeAppConfig sets common app config for fullnode-like nodes
+func setFullnodeTypeAppConfig(config *srvconfig.Config) {
+	// Services: full nodes provide query services
+	config.API.Enable = true
+	config.GRPC.Enable = true
+	config.GRPCWeb.Enable = true
+	config.Rosetta.Enable = true
+	config.StateStore.Enable = true
+
+	// StateStore: full nodes keep recent history for queries
+	config.StateStore.KeepRecent = 100000
+
+	// MinRetainBlocks: keep 100k blocks for Tendermint pruning
+	config.MinRetainBlocks = 100000
+}
+
+// setArchiveTypeAppConfig configures archive node settings
+// Archive nodes are like full nodes but keep all history
+func setArchiveTypeAppConfig(config *srvconfig.Config) {
+	// Start with full node configuration
+	setFullnodeTypeAppConfig(config)
+
+	// Archive nodes keep all history
+	config.StateStore.KeepRecent = 0 // 0 = keep all history
+}
+
+// SetAppConfigByMode sets app config values based on node mode
+func SetAppConfigByMode(config *srvconfig.Config, mode NodeMode) {
+	switch mode {
+	case NodeModeValidator, NodeModeSeed:
+		// Validator and Seed nodes share the same app config
+		setValidatorTypeAppConfig(config)
+
+	case NodeModeFull:
+		setFullnodeTypeAppConfig(config)
+
+	case NodeModeArchive:
+		setArchiveTypeAppConfig(config)
+
+	default:
+		// Default to full node settings
+		SetAppConfigByMode(config, NodeModeFull)
+	}
+}
+
+// SetEVMConfigByMode sets EVM config based on node mode
+// Validators and seeds have EVM disabled, full nodes and archives have it enabled
+func SetEVMConfigByMode(config *evmrpc.Config, mode NodeMode) {
+	evmEnabled := mode.IsFullnodeType()
+	config.HTTPEnabled = evmEnabled
+	config.WSEnabled = evmEnabled
 }
