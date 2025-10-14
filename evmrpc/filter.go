@@ -648,15 +648,7 @@ type LogFetcher struct {
 	watermarks               *WatermarkManager
 }
 
-func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
-	latest, err := f.latestHeight(ctx)
-	if err != nil {
-		return nil, 0, err
-	}
-	earliest, err := f.earliestHeight(ctx)
-	if err != nil {
-		earliest = 0
-	}
+func normalizeBlockBounds(latest, earliest, lastToHeight int64, crit filters.FilterCriteria) (int64, int64) {
 	begin, end := latest, latest
 	if crit.FromBlock != nil {
 		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
@@ -679,6 +671,19 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 	if end < earliest {
 		end = earliest
 	}
+	return begin, end
+}
+
+func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
+	latest, err := f.latestHeight(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	earliest, err := f.earliestHeight(ctx)
+	if err != nil {
+		earliest = 0
+	}
+	begin, end := normalizeBlockBounds(latest, earliest, lastToHeight, crit)
 	if begin > end {
 		return []*ethtypes.Log{}, end, nil
 	}
@@ -977,28 +982,7 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	if err != nil {
 		earliest = 0
 	}
-	begin, end := latest, latest
-	if crit.FromBlock != nil {
-		begin = getHeightFromBigIntBlockNumber(latest, crit.FromBlock)
-	}
-	if crit.ToBlock != nil {
-		end = getHeightFromBigIntBlockNumber(latest, crit.ToBlock)
-		if crit.FromBlock == nil && begin > end {
-			begin = end
-		}
-	}
-	if lastToHeight > begin {
-		begin = lastToHeight
-	}
-	if begin < earliest {
-		begin = earliest
-	}
-	if end > latest {
-		end = latest
-	}
-	if end < earliest {
-		end = earliest
-	}
+	begin, end := normalizeBlockBounds(latest, earliest, lastToHeight, crit)
 
 	blockRange := end - begin + 1
 	if applyOpenEndedLogLimit && blockRange > f.filterConfig.maxBlock {
