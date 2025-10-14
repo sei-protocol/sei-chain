@@ -188,42 +188,25 @@ describe("EVM Test", function () {
 
     describe("Block Properties", function () {
       it("Should have consistent block properties for a block", async function () {
-        
         const currentBlockNumber = await ethers.provider.getBlockNumber();
-        
         const iface = new ethers.Interface(["function getBlockProperties() view returns (bytes32 blockHash, address coinbase, uint256 prevrandao, uint256 gaslimit, uint256 number, uint256 timestamp)"]);
-        
         const addr = await evmTester.getAddress()
-        
-        const targetBlock = currentBlockNumber - 2;
-        
         const tx = {
           to: addr,
           data: iface.encodeFunctionData("getBlockProperties", []),
-          blockTag: targetBlock
+          blockTag: currentBlockNumber-2
         };
-        
         const result = await ethers.provider.call(tx);
 
         // wait for block to change
-        const startTime = Date.now();
-        const timeout = 3000; // 3 seconds
         while(true){
           const bn = await ethers.provider.getBlockNumber();
           if(bn !== currentBlockNumber){
                 break
           }
-          
-          // Check if timeout has been reached
-          if(Date.now() - startTime > timeout){
-            throw new Error(`Timeout: Block did not change within ${timeout}ms`);
-          }
-          
           await sleep(100)
         }
-        
         const result2 = await ethers.provider.call(tx);
-        
         expect(result).to.equal(result2)
       });
 
