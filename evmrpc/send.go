@@ -38,8 +38,19 @@ type SendConfig struct {
 	slow bool
 }
 
-func NewSendAPI(tmClient rpcclient.Client, txConfigProvider func(int64) client.TxConfig, sendConfig *SendConfig, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, homeDir string, simulateConfig *SimulateConfig, app *baseapp.BaseApp,
-	antehandler sdk.AnteHandler, connectionType ConnectionType) *SendAPI {
+func NewSendAPI(
+	tmClient rpcclient.Client,
+	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
+	sendConfig *SendConfig,
+	k *keeper.Keeper,
+	ctxProvider func(int64) sdk.Context,
+	homeDir string,
+	simulateConfig *SimulateConfig,
+	app *baseapp.BaseApp,
+	antehandler sdk.AnteHandler,
+	connectionType ConnectionType,
+) *SendAPI {
 	return &SendAPI{
 		tmClient:         tmClient,
 		txConfigProvider: txConfigProvider,
@@ -47,7 +58,7 @@ func NewSendAPI(tmClient rpcclient.Client, txConfigProvider func(int64) client.T
 		keeper:           k,
 		ctxProvider:      ctxProvider,
 		homeDir:          homeDir,
-		backend:          NewBackend(ctxProvider, k, txConfigProvider, tmClient, simulateConfig, app, antehandler),
+		backend:          NewBackend(ctxProvider, k, txConfigProvider, earliestVersion, tmClient, simulateConfig, app, antehandler),
 		connectionType:   connectionType,
 	}
 }

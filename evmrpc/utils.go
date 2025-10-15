@@ -188,15 +188,19 @@ func filterTransactions(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	block *coretypes.ResultBlock,
 	includeSyntheticTxs bool,
 	includeBankTransfers bool,
-) []indexedMsg {
+) ([]indexedMsg, error) {
 	txs := []indexedMsg{}
 	nonceMap := make(map[string]uint64)
 	txConfig := txConfigProvider(block.Block.Height)
 	latestCtx := ctxProvider(LatestCtxHeight)
 	prevCtx := ctxProvider(block.Block.Height - 1)
+	if earliestVersion() > prevCtx.BlockHeight() {
+		return nil, fmt.Errorf("block pruned: %d vs %d", earliestVersion(), prevCtx.BlockHeight())
+	}
 	for i, tx := range block.Block.Data.Txs {
 		sdkTx, err := txConfig.TxDecoder()(tx)
 		if err != nil {
@@ -244,7 +248,7 @@ func filterTransactions(
 			}
 		}
 	}
-	return txs
+	return txs, nil
 }
 
 func recordMetrics(apiMethod string, connectionType ConnectionType, startTime time.Time, success bool) {
@@ -290,12 +294,17 @@ type typedTxHash struct {
 func getTxHashesFromBlock(
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	k *keeper.Keeper,
 	block *coretypes.ResultBlock,
 	shouldIncludeSynthetic bool,
-) []typedTxHash {
+) ([]typedTxHash, error) {
 	txHashes := []typedTxHash{}
-	for _, tx := range filterTransactions(k, ctxProvider, txConfigProvider, block, shouldIncludeSynthetic, false) {
+	txs, err := filterTransactions(k, ctxProvider, txConfigProvider, earliestVersion, block, shouldIncludeSynthetic, false)
+	if err != nil {
+		return nil, err
+	}
+	for _, tx := range txs {
 		switch tx.msg.(type) {
 		case *types.MsgEVMTransaction:
 			ethtx, _ := tx.msg.(*types.MsgEVMTransaction).AsTransaction()
@@ -304,7 +313,7 @@ func getTxHashesFromBlock(
 			txHashes = append(txHashes, typedTxHash{hash: common.Hash(sha256.Sum256(block.Block.Txs[tx.index])), isEvm: false})
 		}
 	}
-	return txHashes
+	return txHashes, nil
 }
 
 func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
