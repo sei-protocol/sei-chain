@@ -99,10 +99,8 @@ func RecoverStateStore(logger logger.Logger, changelogPath string, stateStore ty
 	if targetStartOffset < lastOffset {
 		return streamHandler.Replay(targetStartOffset, lastOffset, func(index uint64, entry proto.ChangelogEntry) error {
 			// commit to state store
-			for _, cs := range entry.Changesets {
-				if err := stateStore.ApplyChangeset(entry.Version, cs); err != nil {
-					return err
-				}
+			if err := stateStore.ApplyChangesetSync(entry.Version, entry.Changesets); err != nil {
+				return err
 			}
 			if err := stateStore.SetLatestVersion(entry.Version); err != nil {
 				return err

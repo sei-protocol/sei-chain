@@ -214,7 +214,8 @@ func (db *Database) Get(storeKey string, version int64, key []byte) ([]byte, err
 	return copyAndFreeSlice(slice), nil
 }
 
-func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) error {
+// ApplyChangesetSync apply all changesets for a single version in blocking way
+func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedChangeSet) error {
 	// Check if version is 0 and change it to 1
 	// We do this specifically since keys written as part of genesis state come in as version 0
 	// But pebbledb treats version 0 as special, so apply the changeset at version 1 instead
@@ -226,14 +227,16 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 	// Update latest version in batch
 	b := NewBatch(db, version)
 
-	for _, kvPair := range cs.Changeset.Pairs {
-		if kvPair.Value == nil {
-			if err := b.Delete(cs.Name, kvPair.Key); err != nil {
-				return err
-			}
-		} else {
-			if err := b.Set(cs.Name, kvPair.Key, kvPair.Value); err != nil {
-				return err
+	for _, cs := range changeset {
+		for _, kvPair := range cs.Changeset.Pairs {
+			if kvPair.Value == nil {
+				if err := b.Delete(cs.Name, kvPair.Key); err != nil {
+					return err
+				}
+			} else {
+				if err := b.Set(cs.Name, kvPair.Key, kvPair.Value); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -242,6 +245,7 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 	if err != nil {
 		return err
 	}
+	// Update latest version once all writes succeed
 	db.latestVersion.Store(version)
 	return nil
 }
@@ -273,11 +277,8 @@ func (db *Database) writeAsyncInBackground() {
 	for nextChange := range db.pendingChanges {
 		if db.streamHandler != nil {
 			version := nextChange.Version
-			for _, cs := range nextChange.Changesets {
-				err := db.ApplyChangeset(version, cs)
-				if err != nil {
-					panic(err)
-				}
+			if err := db.ApplyChangesetSync(version, nextChange.Changesets); err != nil {
+				panic(err)
 			}
 		}
 	}

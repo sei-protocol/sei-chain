@@ -54,7 +54,7 @@ func (s *StorageBenchSuite) BenchmarkGet(b *testing.B) {
 		Changeset: *cs,
 	}
 
-	require.NoError(b, db.ApplyChangeset(1, ncs))
+	require.NoError(b, db.ApplyChangesetSync(1, []*proto.NamedChangeSet{ncs}))
 
 	b.Run(s.BenchBackendName, func(b *testing.B) {
 		b.ResetTimer()
@@ -101,7 +101,7 @@ func (s *StorageBenchSuite) BenchmarkApplyChangeset(b *testing.B) {
 				Changeset: *cs,
 			}
 			b.StartTimer()
-			require.NoError(b, db.ApplyChangeset(int64(b.N+1), ncs))
+			require.NoError(b, db.ApplyChangesetSync(int64(b.N+1), []*proto.NamedChangeSet{ncs}))
 		}
 	})
 }
@@ -140,7 +140,7 @@ func (s *StorageBenchSuite) BenchmarkIterate(b *testing.B) {
 		Changeset: *cs,
 	}
 
-	require.NoError(b, db.ApplyChangeset(1, ncs))
+	require.NoError(b, db.ApplyChangesetSync(1, []*proto.NamedChangeSet{ncs}))
 
 	sort.Slice(keys, func(i, j int) bool {
 		return bytes.Compare(keys[i], keys[j]) < 0

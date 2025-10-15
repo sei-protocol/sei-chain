@@ -91,19 +91,11 @@ func executeReplayChangelog(cmd *cobra.Command, _ []string) {
 
 func processChangelogEntry(index uint64, entry proto.ChangelogEntry) error {
 	fmt.Printf("Offset: %d, Height: %d\n", index, entry.Version)
-	for _, changeset := range entry.Changesets {
-		storeName := changeset.Name
-		for _, kv := range changeset.Changeset.Pairs {
-			if dryRun {
-				fmt.Printf("store: %s, key: %X\n", storeName, kv.Key)
-			}
-		}
-		if ssStore != nil {
-			fmt.Printf("Re-applied changeset for height %d\n", entry.Version)
-			err := ssStore.ApplyChangeset(entry.Version, changeset)
-			if err != nil {
-				return err
-			}
+	if ssStore != nil {
+		fmt.Printf("Re-applied changeset for height %d\n", entry.Version)
+		err := ssStore.ApplyChangesetSync(entry.Version, entry.Changesets)
+		if err != nil {
+			return err
 		}
 	}
 	return nil

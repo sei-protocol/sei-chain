@@ -197,7 +197,7 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 	}
 
 	if sync {
-		return k.receiptStore.ApplyChangeset(ctx.BlockHeight(), ncs)
+		return k.receiptStore.ApplyChangesetSync(ctx.BlockHeight(), []*proto.NamedChangeSet{ncs})
 	} else {
 		var changesets []*proto.NamedChangeSet
 		changesets = append(changesets, ncs)
