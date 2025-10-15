@@ -30,7 +30,7 @@ func FillData(db types.StateStore, numKeys int, versions int) error {
 			Changeset: *cs,
 		}
 
-		err := db.ApplyChangeset(i, ncs)
+		err := db.ApplyChangesetSync(i, []*proto.NamedChangeSet{ncs})
 		if err != nil {
 			return err
 		}
@@ -57,7 +57,7 @@ func DBApplyChangeset(db types.StateStore, version int64, storeKey string, key, 
 		Changeset: *cs,
 	}
 
-	return db.ApplyChangeset(version, ncs)
+	return db.ApplyChangesetSync(version, []*proto.NamedChangeSet{ncs})
 }
 
 // Helper for creating the changeset and applying it to db
@@ -73,5 +73,5 @@ func DBApplyDeleteChangeset(db types.StateStore, version int64, storeKey string,
 		Changeset: *cs,
 	}
 
-	return db.ApplyChangeset(version, ncs)
+	return db.ApplyChangesetSync(version, []*proto.NamedChangeSet{ncs})
 }

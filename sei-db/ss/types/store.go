@@ -22,10 +22,9 @@ type StateStore interface {
 	GetLatestMigratedModule() (string, error)
 	WriteBlockRangeHash(storeKey string, beginBlockRange, endBlockRange int64, hash []byte) error
 
-	// ApplyChangeset Persist the change set of a block,
-	// the `changeSet` should be ordered by (storeKey, key),
+	// ApplyChangesetSync Persist all changeset of a block and bump the latest version
 	// the version should be latest version plus one.
-	ApplyChangeset(version int64, cs *proto.NamedChangeSet) error
+	ApplyChangesetSync(version int64, changesets []*proto.NamedChangeSet) error
 
 	// ApplyChangesetAsync Write changesets into WAL file first and apply later for async writes
 	ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error
