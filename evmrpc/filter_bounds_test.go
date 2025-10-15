@@ -1,14 +1,14 @@
-package evmrpc_test
+package evmrpc
 
 import (
 	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/eth/filters"
-	"github.com/sei-protocol/sei-chain/evmrpc"
+	"github.com/stretchr/testify/require"
 )
 
-func TestNormalizeBlockBounds(t *testing.T) {
+func TestComputeBlockBounds(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -20,6 +20,7 @@ func TestNormalizeBlockBounds(t *testing.T) {
 		toBlock      *big.Int
 		wantBegin    int64
 		wantEnd      int64
+		errContains  string
 	}{
 		{
 			name:      "defaults when no bounds provided",
@@ -51,36 +52,42 @@ func TestNormalizeBlockBounds(t *testing.T) {
 			wantEnd:      100,
 		},
 		{
-			name:      "begin clamped to earliest",
-			latest:    100,
-			earliest:  30,
-			fromBlock: big.NewInt(5),
-			wantBegin: 30,
-			wantEnd:   100,
-		},
-		{
-			name:      "end clamped to latest",
-			latest:    100,
-			toBlock:   big.NewInt(150),
-			wantBegin: 100,
-			wantEnd:   100,
-		},
-		{
-			name:      "end clamped to earliest",
-			latest:    100,
-			earliest:  30,
-			toBlock:   big.NewInt(5),
-			wantBegin: 30,
-			wantEnd:   30,
-		},
-		{
-			name:         "last height surpasses end",
+			name:         "last height surpasses end returns empty range",
 			latest:       100,
 			fromBlock:    big.NewInt(20),
 			toBlock:      big.NewInt(40),
 			lastToHeight: 60,
 			wantBegin:    60,
 			wantEnd:      40,
+		},
+		{
+			name:        "from before earliest fails",
+			latest:      100,
+			earliest:    30,
+			fromBlock:   big.NewInt(5),
+			errContains: "before earliest available block 30",
+		},
+		{
+			name:        "to after latest fails",
+			latest:      100,
+			earliest:    0,
+			toBlock:     big.NewInt(150),
+			errContains: "after latest available block 100",
+		},
+		{
+			name:        "to before earliest fails",
+			latest:      100,
+			earliest:    30,
+			toBlock:     big.NewInt(5),
+			errContains: "before earliest available block 30",
+		},
+		{
+			name:        "from greater than to fails",
+			latest:      100,
+			earliest:    0,
+			fromBlock:   big.NewInt(40),
+			toBlock:     big.NewInt(20),
+			errContains: "greater than toBlock",
 		},
 		{
 			name:         "last height below begin no change",
@@ -97,13 +104,15 @@ func TestNormalizeBlockBounds(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			crit := filters.FilterCriteria{FromBlock: tc.fromBlock, ToBlock: tc.toBlock}
-			gotBegin, gotEnd := evmrpc.NormalizeBlockBounds(tc.latest, tc.earliest, tc.lastToHeight, crit)
-			if gotBegin != tc.wantBegin {
-				t.Fatalf("begin mismatch: got %d, want %d", gotBegin, tc.wantBegin)
+			gotBegin, gotEnd, err := ComputeBlockBounds(tc.latest, tc.earliest, tc.lastToHeight, crit)
+			if tc.errContains != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.errContains)
+				return
 			}
-			if gotEnd != tc.wantEnd {
-				t.Fatalf("end mismatch: got %d, want %d", gotEnd, tc.wantEnd)
-			}
+			require.NoError(t, err)
+			require.Equalf(t, tc.wantBegin, gotBegin, "begin mismatch")
+			require.Equalf(t, tc.wantEnd, gotEnd, "end mismatch")
 		})
 	}
 }
