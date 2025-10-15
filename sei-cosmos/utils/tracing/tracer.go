@@ -51,26 +51,24 @@ type Info struct {
 	Tracer         *otrace.Tracer
 	tracerContext  context.Context
 	BlockSpan      *otrace.Span
-	tracingEnabled int32 // Use int32 for atomic operations
+	tracingEnabled *atomic.Bool
 	mtx            sync.RWMutex
 }
 
 func NewTracingInfo(tr *otrace.Tracer, tracingEnabled bool) *Info {
-	var tracingEnabledInt32 int32 // default to false
-	if tracingEnabled {
-		tracingEnabledInt32 = int32(1)
-	}
-	return &Info{
+	info := &Info{
 		Tracer:         tr,
-		tracingEnabled: tracingEnabledInt32,
+		tracingEnabled: &atomic.Bool{},
 	}
+	info.tracingEnabled.Store(tracingEnabled)
+	return info
 }
 
 // NoOpSpan is a no-op span which does nothing.
 var NoOpSpan = otrace.SpanFromContext(context.TODO())
 
 func (i *Info) Start(name string) (context.Context, otrace.Span) {
-	if atomic.LoadInt32(&i.tracingEnabled) == 0 {
+	if !i.tracingEnabled.Load() {
 		return context.Background(), NoOpSpan
 	}
 	i.mtx.Lock()
@@ -82,7 +80,7 @@ func (i *Info) Start(name string) (context.Context, otrace.Span) {
 }
 
 func (i *Info) StartWithContext(name string, ctx context.Context) (context.Context, otrace.Span) {
-	if atomic.LoadInt32(&i.tracingEnabled) == 0 {
+	if !i.tracingEnabled.Load() {
 		return ctx, NoOpSpan
 	}
 	i.mtx.Lock()
@@ -94,7 +92,7 @@ func (i *Info) StartWithContext(name string, ctx context.Context) (context.Conte
 }
 
 func (i *Info) GetContext() context.Context {
-	if atomic.LoadInt32(&i.tracingEnabled) == 0 {
+	if !i.tracingEnabled.Load() {
 		return context.Background()
 	}
 	i.mtx.RLock()
@@ -103,7 +101,7 @@ func (i *Info) GetContext() context.Context {
 }
 
 func (i *Info) SetContext(c context.Context) {
-	if atomic.LoadInt32(&i.tracingEnabled) == 0 {
+	if !i.tracingEnabled.Load() {
 		return
 	}
 	i.mtx.Lock()
