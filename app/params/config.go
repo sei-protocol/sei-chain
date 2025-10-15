@@ -141,7 +141,6 @@ func setValidatorTypeAppConfig(config *srvconfig.Config) {
 	config.API.Enable = false
 	config.GRPC.Enable = false
 	config.GRPCWeb.Enable = false
-	config.Rosetta.Enable = false
 	config.StateStore.Enable = false
 }
 
@@ -151,7 +150,6 @@ func setFullnodeTypeAppConfig(config *srvconfig.Config) {
 	config.API.Enable = true
 	config.GRPC.Enable = true
 	config.GRPCWeb.Enable = true
-	config.Rosetta.Enable = true
 	config.StateStore.Enable = true
 
 	// StateStore: full nodes keep recent history for queries
