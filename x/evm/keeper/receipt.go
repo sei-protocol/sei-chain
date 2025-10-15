@@ -188,13 +188,6 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context, sync bool) error {
 		kvPair := &iavl.KVPair{Key: types.ReceiptKey(types.TransientReceiptKey(iter.Key()).TransactionHash()), Value: marshalledReceipt}
 		pairs = append(pairs, kvPair)
 	}
-	if len(pairs) == 0 {
-		// ensure the receipt store watermark advances even for empty blocks
-		if err := k.receiptStore.SetLatestVersion(ctx.BlockHeight()); err != nil {
-			return err
-		}
-		return nil
-	}
 	ncs := &proto.NamedChangeSet{
 		Name:      types.ReceiptStoreKey,
 		Changeset: iavl.ChangeSet{Pairs: pairs},

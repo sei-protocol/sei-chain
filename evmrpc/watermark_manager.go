@@ -42,10 +42,6 @@ func NewWatermarkManager(
 // Watermarks returns the earliest and latest block heights that are safe to
 // serve. Earliest is inclusive, latest is inclusive.
 func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, error) {
-	if m == nil {
-		return 0, 0, errNoHeightSource
-	}
-
 	var (
 		latest      int64
 		latestSet   bool
@@ -129,10 +125,6 @@ func (m *WatermarkManager) EarliestHeight(ctx context.Context) (int64, error) {
 // ResolveHeight normalizes a requested block identifier into a concrete height
 // that is guaranteed to be within the available watermarks.
 func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, error) {
-	if m == nil {
-		return 0, errNoHeightSource
-	}
-
 	earliest, latest, err := m.Watermarks(ctx)
 	if err != nil {
 		return 0, err
@@ -181,9 +173,6 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 // EnsureHeightAvailable verifies that the provided height falls within the
 // computed watermarks.
 func (m *WatermarkManager) EnsureHeightAvailable(ctx context.Context, height int64) error {
-	if m == nil {
-		return errNoHeightSource
-	}
 	earliest, latest, err := m.Watermarks(ctx)
 	if err != nil {
 		return err
@@ -208,9 +197,6 @@ func blockByNumberRespectingWatermarks(
 	heightPtr *int64,
 	maxRetries int,
 ) (*coretypes.ResultBlock, error) {
-	if wm == nil {
-		return blockByNumberWithRetry(ctx, client, heightPtr, maxRetries)
-	}
 	if heightPtr == nil {
 		latest, err := wm.LatestHeight(ctx)
 		if err != nil {
