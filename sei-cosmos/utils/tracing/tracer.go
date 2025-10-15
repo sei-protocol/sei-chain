@@ -51,14 +51,14 @@ type Info struct {
 	Tracer         *otrace.Tracer
 	tracerContext  context.Context
 	BlockSpan      *otrace.Span
-	tracingEnabled *atomic.Bool
+	tracingEnabled atomic.Bool
 	mtx            sync.RWMutex
 }
 
 func NewTracingInfo(tr *otrace.Tracer, tracingEnabled bool) *Info {
 	info := &Info{
 		Tracer:         tr,
-		tracingEnabled: &atomic.Bool{},
+		tracingEnabled: atomic.Bool{},
 	}
 	info.tracingEnabled.Store(tracingEnabled)
 	return info
