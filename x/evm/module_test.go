@@ -121,7 +121,7 @@ func TestABCI(t *testing.T) {
 	k.SetMsgs([]*types.MsgEVMTransaction{msg})
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 1, Log: "test error"}})
 	m.EndBlock(ctx, abci.RequestEndBlock{})
-	err = k.FlushTransientReceiptsSync(ctx)
+	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
 	tx, _ := msg.AsTransaction()
 	receipt, err := k.GetReceipt(ctx, tx.Hash())
@@ -166,7 +166,7 @@ func TestLegacyReceiptMigrationInterval(t *testing.T) {
 		m.BeginBlock(ctx, abci.RequestBeginBlock{})
 		m.EndBlock(ctx, abci.RequestEndBlock{})
 	}
-	k.FlushTransientReceiptsSync(ctx)
+	k.FlushTransientReceipts(ctx)
 
 	// After migration interval, legacy KV entry should be gone
 	exists := k.PrefixStore(ctx, types.ReceiptKeyPrefix).Get(txHash[:]) != nil

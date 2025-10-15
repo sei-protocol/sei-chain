@@ -581,7 +581,7 @@ func TestCollectLogsEvmTransactionIndex(t *testing.T) {
 		// Fill bloom filter to match our test filters
 		receipt.LogsBloom[0] = 0xFF // Simple bloom that will match any filter
 
-		k.MockReceipt(ctx, txHash, receipt)
+		testkeeper.MustMockReceipt(t, k, ctx, txHash, receipt)
 	}
 
 	// Test the core logic that collectLogs implements
