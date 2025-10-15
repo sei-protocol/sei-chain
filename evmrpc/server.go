@@ -64,10 +64,7 @@ func NewEVMHTTPServer(
 
 	ctx := ctxProvider(LatestCtxHeight)
 
-	var watermarks *WatermarkManager
-	if !config.DisableWatermark {
-		watermarks = NewWatermarkManager(tmClient, ctxProvider, nil, k.ReceiptStore())
-	}
+	watermarks := NewWatermarkManager(tmClient, ctxProvider, nil, k.ReceiptStore())
 	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, watermarks)
 	debugAPI := NewDebugAPI(tmClient, k, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config)
 	if isPanicOrSyntheticTxFunc == nil {
@@ -231,10 +228,7 @@ func NewEVMWebSocketServer(
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
 	}
-	var watermarks *WatermarkManager
-	if !config.DisableWatermark {
-		watermarks = NewWatermarkManager(tmClient, ctxProvider, nil, k.ReceiptStore())
-	}
+	watermarks := NewWatermarkManager(tmClient, ctxProvider, nil, k.ReceiptStore())
 	dbReadSemaphore := make(chan struct{}, MaxDBReadConcurrency)
 	globalBlockCache := NewBlockCache(3000)
 	globalLogSlicePool := NewLogSlicePool()

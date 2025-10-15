@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	storetypes "github.com/cosmos/cosmos-sdk/store/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/rpc"
 	sstypes "github.com/sei-protocol/sei-db/ss/types"
@@ -48,44 +47,64 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, error)
 	}
 
 	var (
-		earliestCandidates []int64
-		latestCandidates   []int64
+		latest      int64
+		latestSet   bool
+		earliest    int64
+		earliestSet bool
 	)
 
+	setLatest := func(candidate int64) {
+		if candidate < 0 {
+			return
+		}
+		if !latestSet || candidate < latest {
+			latest = candidate
+			latestSet = true
+		}
+	}
+
+	setEarliest := func(candidate int64) {
+		if candidate < 0 {
+			return
+		}
+		if !earliestSet || candidate > earliest {
+			earliest = candidate
+			earliestSet = true
+		}
+	}
+
 	// Tendermint heights
-	if latest, earliest, err := m.fetchTendermintWatermarks(ctx); err == nil {
-		latestCandidates = append(latestCandidates, latest)
-		earliestCandidates = append(earliestCandidates, earliest)
+	if tmLatest, tmEarliest, err := m.fetchTendermintWatermarks(ctx); err == nil {
+		setLatest(tmLatest)
+		setEarliest(tmEarliest)
 	} else if !errors.Is(err, errNoHeightSource) {
 		return 0, 0, err
 	}
 
+	if m.ctxProvider != nil {
+		if ctxHeight := m.ctxProvider(LatestCtxHeight).BlockHeight(); ctxHeight > 0 {
+			setLatest(ctxHeight)
+		}
+	}
+
 	// State store heights (historical state DB)
 	if ssLatest, ssEarliest, ok := m.fetchStateStoreWatermarks(); ok {
-		latestCandidates = append(latestCandidates, ssLatest)
-		earliestCandidates = append(earliestCandidates, ssEarliest)
-	} else if msLatest, msEarliest, ok := m.fetchMultiStoreWatermarks(); ok {
-		// Fall back to application multistore heights if state store unavailable
-		latestCandidates = append(latestCandidates, msLatest)
-		earliestCandidates = append(earliestCandidates, msEarliest)
+		setLatest(ssLatest)
+		setEarliest(ssEarliest)
 	}
 
 	// Receipt store height participates only in the latest watermark, since
 	// pruning guarantees the earliest watermark is bounded by TM+SS.
 	if m.receiptStore != nil {
-		if latest := m.receiptStore.GetLatestVersion(); latest > 0 {
-			latestCandidates = append(latestCandidates, latest)
-		}
+		setLatest(m.receiptStore.GetLatestVersion())
 	}
 
-	if len(latestCandidates) == 0 {
+	if !latestSet {
 		return 0, 0, errNoHeightSource
 	}
 
-	latest := minInt64(latestCandidates)
-	earliest := int64(0)
-	if len(earliestCandidates) > 0 {
-		earliest = maxInt64(earliestCandidates)
+	if !earliestSet {
+		earliest = 0
 	}
 
 	if latest < earliest {
@@ -223,51 +242,4 @@ func (m *WatermarkManager) fetchStateStoreWatermarks() (int64, int64, bool) {
 		return 0, 0, false
 	}
 	return m.stateStore.GetLatestVersion(), m.stateStore.GetEarliestVersion(), true
-}
-
-func (m *WatermarkManager) fetchMultiStoreWatermarks() (latest int64, earliest int64, ok bool) {
-	if m.ctxProvider == nil {
-		return 0, 0, false
-	}
-	ctx := m.ctxProvider(LatestCtxHeight)
-	ms := ctx.MultiStore()
-	if ms == nil {
-		return 0, 0, false
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			latest, earliest, ok = 0, 0, false
-		}
-	}()
-	earliest = ms.GetEarliestVersion()
-	if earliest == 0 {
-		earliest = ctx.BlockHeight()
-	}
-	if commitStore, implements := ms.(interface{ LastCommitID() storetypes.CommitID }); implements {
-		latest = commitStore.LastCommitID().Version
-	}
-	if latest == 0 {
-		latest = ctx.BlockHeight()
-	}
-	return latest, earliest, true
-}
-
-func minInt64(values []int64) int64 {
-	min := values[0]
-	for _, v := range values[1:] {
-		if v < min {
-			min = v
-		}
-	}
-	return min
-}
-
-func maxInt64(values []int64) int64 {
-	max := values[0]
-	for _, v := range values[1:] {
-		if v > max {
-			max = v
-		}
-	}
-	return max
 }

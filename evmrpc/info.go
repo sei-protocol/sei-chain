@@ -394,19 +394,45 @@ func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) 
 }
 
 func (i *InfoAPI) latestHeight(ctx context.Context) (int64, error) {
-	if i.watermarks != nil {
-		return i.watermarks.LatestHeight(ctx)
+	return i.heightWithWatermarks(ctx, func(c context.Context) (int64, error) {
+		return i.watermarks.LatestHeight(c)
+	}, i.latestHeightFromContext)
+}
+
+func (i *InfoAPI) earliestHeight(ctx context.Context) (int64, error) {
+	return i.heightWithWatermarks(ctx, func(c context.Context) (int64, error) {
+		return i.watermarks.EarliestHeight(c)
+	}, i.earliestHeightFromContext)
+}
+
+func (i *InfoAPI) heightWithWatermarks(
+	ctx context.Context,
+	wmFunc func(context.Context) (int64, error),
+	fallback func() (int64, error),
+) (int64, error) {
+	if i.watermarks != nil && wmFunc != nil {
+		height, err := wmFunc(ctx)
+		if err == nil {
+			return height, nil
+		}
+		if !errors.Is(err, errNoHeightSource) {
+			return 0, err
+		}
 	}
+	if fallback == nil {
+		return 0, fmt.Errorf("ctx provider not configured")
+	}
+	return fallback()
+}
+
+func (i *InfoAPI) latestHeightFromContext() (int64, error) {
 	if i.ctxProvider == nil {
 		return 0, fmt.Errorf("ctx provider not configured")
 	}
 	return i.ctxProvider(LatestCtxHeight).BlockHeight(), nil
 }
 
-func (i *InfoAPI) earliestHeight(ctx context.Context) (int64, error) {
-	if i.watermarks != nil {
-		return i.watermarks.EarliestHeight(ctx)
-	}
+func (i *InfoAPI) earliestHeightFromContext() (int64, error) {
 	if i.ctxProvider == nil {
 		return 0, fmt.Errorf("ctx provider not configured")
 	}

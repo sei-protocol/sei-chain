@@ -75,9 +75,6 @@ type Config struct {
 	// controls whether to synchronously flush receipts before block finalze or not
 	FlushReceiptSync bool `mapstructure:"flush_receipt_sync"`
 
-	// DisableWatermark disables cross-store watermark gating (intended for tests)
-	DisableWatermark bool `mapstructure:"disable_watermark"`
-
 	// Deny list defines list of methods that EVM RPC should fail fast
 	DenyList []string `mapstructure:"deny_list"`
 
@@ -129,7 +126,6 @@ var DefaultConfig = Config{
 	MaxTxPoolTxs:                 1000,
 	Slow:                         false,
 	FlushReceiptSync:             false,
-	DisableWatermark:             false,
 	DenyList:                     make([]string, 0),
 	MaxLogNoBlock:                10000,
 	MaxBlocksForLog:              2000,
@@ -160,7 +156,6 @@ const (
 	flagCheckTxTimeout               = "evm.checktx_timeout"
 	flagSlow                         = "evm.slow"
 	FlagFlushReceiptSync             = "evm.flush_receipt_sync"
-	flagDisableWatermark             = "evm.disable_watermark"
 	flagDenyList                     = "evm.deny_list"
 	flagMaxLogNoBlock                = "evm.max_log_no_block"
 	flagMaxBlocksForLog              = "evm.max_blocks_for_log"
@@ -258,11 +253,6 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 	}
 	if v := opts.Get(FlagFlushReceiptSync); v != nil {
 		if cfg.FlushReceiptSync, err = cast.ToBoolE(v); err != nil {
-			return cfg, err
-		}
-	}
-	if v := opts.Get(flagDisableWatermark); v != nil {
-		if cfg.DisableWatermark, err = cast.ToBoolE(v); err != nil {
 			return cfg, err
 		}
 	}

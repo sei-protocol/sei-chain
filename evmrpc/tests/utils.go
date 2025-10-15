@@ -137,7 +137,6 @@ func setupTestServer(
 	cfg := evmrpc.DefaultConfig
 	cfg.HTTPEnabled = true
 	cfg.HTTPPort = port
-	cfg.DisableWatermark = true
 	s, err := evmrpc.NewEVMHTTPServer(
 		log.NewNopLogger(),
 		cfg,

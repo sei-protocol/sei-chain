@@ -37,7 +37,7 @@ func TestWatermarksAggregatesSources(t *testing.T) {
 	require.Equal(t, int64(8), latest)
 }
 
-func TestWatermarksFallbackToMultiStore(t *testing.T) {
+func TestWatermarksIncludesCtxProviderHeight(t *testing.T) {
 	multi := &fakeMultiStore{earliest: 0, latest: 0}
 	ctx := sdk.Context{}.
 		WithBlockHeight(12).
@@ -49,7 +49,7 @@ func TestWatermarksFallbackToMultiStore(t *testing.T) {
 
 	earliest, latest, err := wm.Watermarks(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, int64(12), earliest)
+	require.Equal(t, int64(5), earliest)
 	require.Equal(t, int64(12), latest)
 }
 

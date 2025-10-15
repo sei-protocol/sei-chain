@@ -81,7 +81,7 @@ func TestGetTransactionCount(t *testing.T) {
 
 func TestGetTransactionError(t *testing.T) {
 	h := common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
-	EVMKeeper.MockReceipt(Ctx, h, &types.Receipt{VmError: "test error"})
+	EVMKeeper.MockReceipt(Ctx, h, &types.Receipt{VmError: "test error", BlockNumber: 1})
 	resObj := sendRequestGood(t, "getTransactionErrorByHash", "0x1111111111111111111111111111111111111111111111111111111111111111")
 	require.Equal(t, "test error", resObj["result"])
 
