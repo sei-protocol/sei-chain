@@ -61,7 +61,7 @@ func writeToDBConcurrently(db types.StateStore, allKVs []utils.KeyValuePair, con
 				}
 				ncs.Changeset = *cs
 				startTime := time.Now()
-				err := db.ApplyChangeset(version, ncs)
+				err := db.ApplyChangesetSync(version, []*proto.NamedChangeSet{ncs})
 				latency := time.Since(startTime)
 
 				if err == nil {
