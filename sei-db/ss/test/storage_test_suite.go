@@ -6,6 +6,7 @@ import (
 
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-db/config"
+	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/ss/types"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/exp/slices"
@@ -225,6 +226,54 @@ func (s *StorageTestSuite) TestDatabaseApplyChangeset() {
 			s.Require().True(ok)
 		}
 	}
+}
+
+// Ensure ApplyChangesetSync(version, []*NamedChangeSet{moduleA, moduleB, ...})
+// only bumps latest version after all module writes are persisted.
+func (s *StorageTestSuite) TestApplyChangesetSyncAtomicAcrossModules() {
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
+	s.Require().NoError(err)
+
+	defer func() { _ = db.Close() }()
+
+	// Prepare two modules' changesets at the same version
+	cs1 := &iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Key: []byte("a1"), Value: []byte("v1")},
+		{Key: []byte("a2"), Value: []byte("v2")},
+	}}
+	cs2 := &iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Key: []byte("b1"), Value: []byte("v3")},
+		{Key: []byte("b2"), Value: []byte("v4")},
+	}}
+
+	ncs1 := &proto.NamedChangeSet{Name: storeKey1, Changeset: *cs1}
+	ncs2 := &proto.NamedChangeSet{Name: storeKey2, Changeset: *cs2}
+
+	// Latest version should be 0 before apply
+	s.Require().Equal(int64(0), db.GetLatestVersion())
+
+	// Apply both modules in one sync call
+	s.Require().NoError(db.ApplyChangesetSync(1, []*proto.NamedChangeSet{ncs1, ncs2}))
+
+	// After ApplyChangesetSync returns, latest version must reflect completion
+	s.Require().Equal(int64(1), db.GetLatestVersion())
+
+	// And both modules' data must be readable at version 1
+	v, err := db.Get(storeKey1, 1, []byte("a1"))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte("v1"), v)
+
+	v, err = db.Get(storeKey1, 1, []byte("a2"))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte("v2"), v)
+
+	v, err = db.Get(storeKey2, 1, []byte("b1"))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte("v3"), v)
+
+	v, err = db.Get(storeKey2, 1, []byte("b2"))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte("v4"), v)
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorEmptyDomain() {
