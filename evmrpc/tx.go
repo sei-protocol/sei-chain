@@ -116,9 +116,6 @@ func getTransactionReceipt(
 		if err != nil {
 			return nil, err
 		}
-		if err := t.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
-			return nil, err
-		}
 
 		// Find the transaction in the block
 		for _, tx := range block.Block.Txs {
@@ -184,20 +181,14 @@ func (t *TransactionAPI) getTransactionByBlockNumberAndIndex(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	if err := t.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
-		return nil, err
-	}
 	return t.getTransactionWithBlock(block, txIndex, t.includeSynthetic)
 }
 
 func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, txIndex hexutil.Uint) (result *export.RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_getTransactionByBlockHashAndIndex", t.connectionType, startTime, returnErr)
-	block, err := blockByHash(ctx, t.tmClient, blockHash[:])
+	block, err := blockByHashRespectingWatermarks(ctx, t.tmClient, t.watermarks, blockHash[:], 1)
 	if err != nil {
-		return nil, err
-	}
-	if err := t.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
 		return nil, err
 	}
 	var idx uint32
@@ -259,9 +250,6 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	if err != nil {
 		return nil, err
 	}
-	if err := t.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
-		return nil, err
-	}
 	filteredMsgs := t.getFilteredMsgs(block)
 	txIndex, found, ethtx, _ := GetEvmTxIndex(t.ctxProvider(LatestCtxHeight), block, filteredMsgs, receipt.TransactionIndex, t.keeper)
 	if !found {
@@ -271,13 +259,6 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 		return nil, errors.New("transaction is not an EVM transaction and thus cannot be represented in _getTransaction* endpoints")
 	}
 	return t.encodeRPCTransaction(ethtx, block, uint32(txIndex)) //nolint:gosec
-}
-
-func (t *TransactionAPI) ensureHeightAvailable(ctx context.Context, height int64) error {
-	if t.watermarks == nil {
-		return nil
-	}
-	return t.watermarks.EnsureHeightAvailable(ctx, height)
 }
 
 func (t *TransactionAPI) GetTransactionErrorByHash(_ context.Context, hash common.Hash) (result string, returnErr error) {

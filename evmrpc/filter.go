@@ -834,45 +834,12 @@ func (f *LogFetcher) mergeSortedLogs(batches [][]*ethtypes.Log) []*ethtypes.Log 
 	return res
 }
 
-func (f *LogFetcher) ensureHeightAvailable(ctx context.Context, height int64) error {
-	if f.watermarks == nil {
-		return nil
-	}
-	return f.watermarks.EnsureHeightAvailable(ctx, height)
-}
-
 func (f *LogFetcher) latestHeight(ctx context.Context) (int64, error) {
-	if f.watermarks != nil {
-		return f.watermarks.LatestHeight(ctx)
-	}
-	if f.ctxProvider == nil {
-		return 0, fmt.Errorf("ctx provider not configured")
-	}
-	return f.ctxProvider(LatestCtxHeight).BlockHeight(), nil
+	return f.watermarks.LatestHeight(ctx)
 }
 
 func (f *LogFetcher) earliestHeight(ctx context.Context) (int64, error) {
-	if f.watermarks != nil {
-		return f.watermarks.EarliestHeight(ctx)
-	}
-	if f.ctxProvider == nil {
-		return 0, fmt.Errorf("ctx provider not configured")
-	}
-	storeCtx := f.ctxProvider(LatestCtxHeight)
-	ms := storeCtx.MultiStore()
-	if ms == nil {
-		return 0, nil
-	}
-	earliest := int64(0)
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				earliest = 0
-			}
-		}()
-		earliest = ms.GetEarliestVersion()
-	}()
-	return earliest, nil
+	return f.watermarks.EarliestHeight(ctx)
 }
 
 // Pooled version that reuses slice allocation
@@ -957,14 +924,9 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 			return res, 0, false, nil
 		}
 
-		block, err := blockByHashWithRetry(ctx, f.tmClient, crit.BlockHash[:], 1)
+		block, err := blockByHashRespectingWatermarks(ctx, f.tmClient, f.watermarks, crit.BlockHash[:], 1)
 		if err != nil {
 			// For non-existent blocks, return empty channel instead of error
-			res := make(chan *coretypes.ResultBlock)
-			close(res)
-			return res, 0, false, nil
-		}
-		if err := f.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
 			res := make(chan *coretypes.ResultBlock)
 			close(res)
 			return res, 0, false, nil
@@ -976,11 +938,11 @@ func (f *LogFetcher) fetchBlocksByCrit(ctx context.Context, crit filters.FilterC
 	}
 
 	applyOpenEndedLogLimit := f.filterConfig.maxLog > 0 && (crit.FromBlock == nil || crit.ToBlock == nil)
-	latest, err := f.latestHeight(ctx)
+	latest, err := f.watermarks.LatestHeight(ctx)
 	if err != nil {
 		return nil, 0, false, err
 	}
-	earliest, err := f.earliestHeight(ctx)
+	earliest, err := f.watermarks.EarliestHeight(ctx)
 	if err != nil {
 		earliest = 0
 	}
@@ -1059,7 +1021,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		// check cache first, without holding the semaphore
 		if cachedEntry, found := f.globalBlockCache.Get(height); found {
 			if cachedEntry.Block != nil {
-				if err := f.ensureHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
+				if err := f.watermarks.EnsureHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
 					continue
 				}
 			}
@@ -1074,7 +1036,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		if cachedEntry, found := f.globalBlockCache.Get(height); found {
 			<-f.dbReadSemaphore
 			if cachedEntry.Block != nil {
-				if err := f.ensureHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
+				if err := f.watermarks.EnsureHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
 					continue
 				}
 			}
@@ -1106,10 +1068,6 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 			case errChan <- fmt.Errorf("failed to fetch block at height %d: %w", height, err):
 			default:
 			}
-			<-f.dbReadSemaphore
-			continue
-		}
-		if err := f.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
 			<-f.dbReadSemaphore
 			continue
 		}

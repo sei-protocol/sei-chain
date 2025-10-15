@@ -106,12 +106,9 @@ func (a *StateAPI) GetProof(ctx context.Context, address common.Address, storage
 		}
 		block, err = blockByNumberRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockNumber, 1)
 	} else {
-		block, err = blockByHash(ctx, a.tmClient, blockNrOrHash.BlockHash[:])
+		block, err = blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockNrOrHash.BlockHash[:], 1)
 	}
 	if err != nil {
-		return nil, err
-	}
-	if err := a.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
 		return nil, err
 	}
 	sdkCtx := a.ctxProvider(block.Block.Height)
@@ -159,40 +156,7 @@ func (a *StateAPI) GetNonce(_ context.Context, address common.Address) uint64 {
 }
 
 func (a *StateAPI) resolveHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, error) {
-	if a.watermarks != nil {
-		return a.watermarks.ResolveHeight(ctx, blockNrOrHash)
-	}
-	heightPtr, err := GetBlockNumberByNrOrHash(ctx, a.tmClient, blockNrOrHash)
-	if err != nil {
-		return 0, err
-	}
-	if heightPtr == nil {
-		return a.ctxProvider(LatestCtxHeight).BlockHeight(), nil
-	}
-	if err := a.ensureHeightAvailable(ctx, *heightPtr); err != nil {
-		return 0, err
-	}
-	return *heightPtr, nil
-}
-
-func (a *StateAPI) ensureHeightAvailable(ctx context.Context, height int64) error {
-	if a.watermarks != nil {
-		return a.watermarks.EnsureHeightAvailable(ctx, height)
-	}
-	if a.tmClient == nil {
-		return nil
-	}
-	status, err := a.tmClient.Status(ctx)
-	if err != nil {
-		return err
-	}
-	if height > status.SyncInfo.LatestBlockHeight {
-		return fmt.Errorf("requested block height %d is not yet available; safe latest is %d", height, status.SyncInfo.LatestBlockHeight)
-	}
-	if height < status.SyncInfo.EarliestBlockHeight {
-		return fmt.Errorf("requested block height %d has been pruned; earliest available is %d", height, status.SyncInfo.EarliestBlockHeight)
-	}
-	return nil
+	return a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 }
 
 // decodeHash parses a hex-encoded 32-byte hash. The input may optionally

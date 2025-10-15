@@ -216,7 +216,9 @@ func TestGetProof(t *testing.T) {
 		_, err := testApp.Commit(context.Background())
 		require.Nil(t, err)
 	}
-	stateAPI := evmrpc.NewStateAPI(&MockClient{}, &testApp.EvmKeeper, func(int64) sdk.Context { return testApp.GetCheckCtx() }, evmrpc.ConnectionTypeHTTP, nil)
+	client := &MockClient{}
+	watermarks := evmrpc.NewWatermarkManager(client, func(int64) sdk.Context { return testApp.GetCheckCtx() }, nil, testApp.EvmKeeper.ReceiptStore())
+	stateAPI := evmrpc.NewStateAPI(client, &testApp.EvmKeeper, func(int64) sdk.Context { return testApp.GetCheckCtx() }, evmrpc.ConnectionTypeHTTP, watermarks)
 	require.Equal(t, "0x0000000000000000000000000000000000000000000000000000000000616263", testApp.EvmKeeper.GetState(testApp.GetCheckCtx(), evmAddr, common.BytesToHash(key)).Hex())
 	tests := []struct {
 		key         string

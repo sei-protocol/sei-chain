@@ -127,20 +127,14 @@ func (a *BlockAPI) GetBlockTransactionCountByNumber(ctx context.Context, number 
 	if err != nil {
 		return nil, err
 	}
-	if err := a.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
-		return nil, err
-	}
 	return a.getEvmTxCount(block.Block.Txs, block.Block.Height), nil
 }
 
 func (a *BlockAPI) GetBlockTransactionCountByHash(ctx context.Context, blockHash common.Hash) (result *hexutil.Uint, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockTransactionCountByHash", a.namespace), a.connectionType, startTime, returnErr)
-	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
+	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
 	if err != nil {
-		return nil, err
-	}
-	if err := a.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
 		return nil, err
 	}
 	return a.getEvmTxCount(block.Block.Txs, block.Block.Height), nil
@@ -154,11 +148,8 @@ func (a *BlockAPI) GetBlockByHash(ctx context.Context, blockHash common.Hash, fu
 func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fullTx bool, includeSyntheticTxs bool, isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)) (result map[string]interface{}, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError(fmt.Sprintf("%s_getBlockByHash", a.namespace), a.connectionType, startTime, returnErr)
-	block, err := blockByHashWithRetry(ctx, a.tmClient, blockHash[:], 1)
+	block, err := blockByHashRespectingWatermarks(ctx, a.tmClient, a.watermarks, blockHash[:], 1)
 	if err != nil {
-		return nil, err
-	}
-	if err := a.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
 		return nil, err
 	}
 
@@ -230,21 +221,11 @@ func (a *BlockAPI) getBlockByNumber(
 	if err != nil {
 		return nil, err
 	}
-	if err := a.ensureHeightAvailable(ctx, block.Block.Height); err != nil {
-		return nil, err
-	}
 	blockRes, err := blockResultsWithRetry(ctx, a.tmClient, &block.Block.Height)
 	if err != nil {
 		return nil, err
 	}
 	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, blockRes, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx)
-}
-
-func (a *BlockAPI) ensureHeightAvailable(ctx context.Context, height int64) error {
-	if a.watermarks == nil {
-		return nil
-	}
-	return a.watermarks.EnsureHeightAvailable(ctx, height)
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
@@ -263,9 +244,6 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 
 	// Get all tx hashes for the block
 	height := block.Block.Height
-	if err := a.ensureHeightAvailable(ctx, height); err != nil {
-		return nil, err
-	}
 	txHashes := getTxHashesFromBlock(a.ctxProvider, a.txConfigProvider, a.keeper, block, shouldIncludeSynthetic(a.namespace))
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}

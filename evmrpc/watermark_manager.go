@@ -225,6 +225,26 @@ func blockByNumberRespectingWatermarks(
 	return blockByNumberWithRetry(ctx, client, heightPtr, maxRetries)
 }
 
+func blockByHashRespectingWatermarks(
+	ctx context.Context,
+	client rpcclient.Client,
+	wm *WatermarkManager,
+	hash []byte,
+	maxRetries int,
+) (*coretypes.ResultBlock, error) {
+	block, err := blockByHashWithRetry(ctx, client, hash, maxRetries)
+	if err != nil {
+		return nil, err
+	}
+	if wm == nil {
+		return block, nil
+	}
+	if err := wm.EnsureHeightAvailable(ctx, block.Block.Height); err != nil {
+		return nil, err
+	}
+	return block, nil
+}
+
 func (m *WatermarkManager) fetchTendermintWatermarks(ctx context.Context) (int64, int64, error) {
 	if m.tmClient == nil {
 		return 0, 0, errNoHeightSource

@@ -91,7 +91,7 @@ func TestGetTransactionError(t *testing.T) {
 
 func TestSign(t *testing.T) {
 	homeDir := t.TempDir()
-	txApi := evmrpc.NewTransactionAPI(nil, nil, nil, nil, homeDir, evmrpc.ConnectionTypeHTTP, nil)
+	txApi := evmrpc.NewTransactionAPI(nil, nil, nil, nil, homeDir, evmrpc.ConnectionTypeHTTP, &evmrpc.WatermarkManager{})
 	infoApi := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir, 1024, evmrpc.ConnectionTypeHTTP, nil, nil)
 	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
 	clientCtx, err := config.ReadFromClientConfig(clientCtx)
