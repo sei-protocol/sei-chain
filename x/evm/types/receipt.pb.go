@@ -113,7 +113,8 @@ type Receipt struct {
 	To                string `protobuf:"bytes,11,opt,name=to,proto3" json:"to,omitempty" yaml:"to"`
 	VmError           string `protobuf:"bytes,12,opt,name=vm_error,json=vmError,proto3" json:"vm_error,omitempty" yaml:"vm_error"`
 	Logs              []*Log `protobuf:"bytes,13,rep,name=logs,proto3" json:"logs,omitempty"`
-	LogsBloom         []byte `protobuf:"bytes,14,opt,name=logsBloom,proto3" json:"logsBloom,omitempty"`
+	// buf:lint:ignore FIELD_LOWER_SNAKE_CASE We have caught this late; keeping to avoid breaking changes.
+	LogsBloom []byte `protobuf:"bytes,14,opt,name=logsBloom,proto3" json:"logsBloom,omitempty"`
 }
 
 func (m *Receipt) Reset()         { *m = Receipt{} }
