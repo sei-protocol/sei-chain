@@ -12,17 +12,17 @@ func TestNewTracingInfo(t *testing.T) {
 	tests := []struct {
 		name           string
 		tracingEnabled bool
-		wantEnabled    int32
+		wantEnabled    bool
 	}{
 		{
 			name:           "tracing enabled",
 			tracingEnabled: true,
-			wantEnabled:    1,
+			wantEnabled:    true,
 		},
 		{
 			name:           "tracing disabled",
 			tracingEnabled: false,
-			wantEnabled:    0,
+			wantEnabled:    false,
 		},
 	}
 
@@ -33,7 +33,7 @@ func TestNewTracingInfo(t *testing.T) {
 
 			require.NotNil(t, info)
 			require.NotNil(t, info.Tracer)
-			require.Equal(t, tt.wantEnabled, info.tracingEnabled)
+			require.Equal(t, tt.wantEnabled, info.tracingEnabled.Load())
 		})
 	}
 }
