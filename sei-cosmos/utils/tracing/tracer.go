@@ -56,7 +56,7 @@ type Info struct {
 }
 
 func NewTracingInfo(tr *otrace.Tracer, tracingEnabled bool) *Info {
-	tracingEnabledInt32 := int32(0) // default to false
+	var tracingEnabledInt32 int32 // default to false
 	if tracingEnabled {
 		tracingEnabledInt32 = int32(1)
 	}
