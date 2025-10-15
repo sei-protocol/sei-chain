@@ -96,7 +96,7 @@ func TestBlockAPIEnsureHeightUnavailable(t *testing.T) {
 
 	_, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "requested block height")
+	require.Contains(t, err.Error(), "requested height")
 }
 
 func TestLogFetcherSkipsUnavailableCachedBlock(t *testing.T) {
@@ -155,5 +155,5 @@ func TestStateAPIGetProofUnavailableHeight(t *testing.T) {
 	blockParam := rpc.BlockNumberOrHashWithHash(common.HexToHash(highBlockHashHex), true)
 	_, err := api.GetProof(context.Background(), common.Address{}, []string{}, blockParam)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "requested block height")
+	require.Contains(t, err.Error(), "requested height")
 }

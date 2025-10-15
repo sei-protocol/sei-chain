@@ -39,14 +39,16 @@ func NewWatermarkManager(
 	}
 }
 
-// Watermarks returns the earliest and latest block heights that are safe to
-// serve. Earliest is inclusive, latest is inclusive.
-func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, error) {
+// Watermarks returns the earliest block height, earliest state height, and
+// latest height that are safe to serve. Earliest heights are inclusive.
+func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64, error) {
 	var (
-		latest      int64
-		latestSet   bool
-		earliest    int64
-		earliestSet bool
+		latest           int64
+		latestSet        bool
+		blockEarliest    int64
+		blockEarliestSet bool
+		stateEarliest    int64
+		stateEarliestSet bool
 	)
 
 	setLatest := func(candidate int64) {
@@ -59,22 +61,32 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, error)
 		}
 	}
 
-	setEarliest := func(candidate int64) {
+	setBlockEarliest := func(candidate int64) {
 		if candidate < 0 {
 			return
 		}
-		if !earliestSet || candidate > earliest {
-			earliest = candidate
-			earliestSet = true
+		if !blockEarliestSet || candidate > blockEarliest {
+			blockEarliest = candidate
+			blockEarliestSet = true
 		}
 	}
 
-	// Tendermint heights
+	setStateEarliest := func(candidate int64) {
+		if candidate < 0 {
+			return
+		}
+		if !stateEarliestSet || candidate > stateEarliest {
+			stateEarliest = candidate
+			stateEarliestSet = true
+		}
+	}
+
+	// Tendermint heights govern both block availability and the latest safe height.
 	if tmLatest, tmEarliest, err := m.fetchTendermintWatermarks(ctx); err == nil {
 		setLatest(tmLatest)
-		setEarliest(tmEarliest)
+		setBlockEarliest(tmEarliest)
 	} else if !errors.Is(err, errNoHeightSource) {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 
 	if m.ctxProvider != nil {
@@ -83,49 +95,65 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, error)
 		}
 	}
 
-	// State store heights (historical state DB)
+	// State store heights (historical state DB) may lag behind block pruning.
 	if ssLatest, ssEarliest, ok := m.fetchStateStoreWatermarks(); ok {
 		setLatest(ssLatest)
-		setEarliest(ssEarliest)
+		setStateEarliest(ssEarliest)
 	}
 
-	// Receipt store height participates only in the latest watermark, since
-	// pruning guarantees the earliest watermark is bounded by TM+SS.
+	// Receipt store height participates only in the latest watermark.
 	if m.receiptStore != nil {
 		setLatest(m.receiptStore.GetLatestVersion())
 	}
 
 	if !latestSet {
-		return 0, 0, errNoHeightSource
+		return 0, 0, 0, errNoHeightSource
 	}
 
-	if !earliestSet {
-		earliest = 0
+	if !blockEarliestSet {
+		blockEarliest = 0
 	}
 
-	if latest < earliest {
-		return 0, 0, fmt.Errorf("computed latest watermark %d is behind earliest %d", latest, earliest)
+	if !stateEarliestSet {
+		stateEarliest = blockEarliest
 	}
-	return earliest, latest, nil
+
+	if blockEarliest > latest {
+		return 0, 0, 0, fmt.Errorf("computed block earliest watermark %d is beyond latest %d", blockEarliest, latest)
+	}
+
+	if stateEarliest > latest {
+		return 0, 0, 0, fmt.Errorf("computed state earliest watermark %d is beyond latest %d", stateEarliest, latest)
+	}
+
+	return blockEarliest, stateEarliest, latest, nil
 }
 
 // LatestHeight returns the inclusive latest height guaranteed to have complete
 // data.
 func (m *WatermarkManager) LatestHeight(ctx context.Context) (int64, error) {
-	_, latest, err := m.Watermarks(ctx)
+	_, _, latest, err := m.Watermarks(ctx)
 	return latest, err
 }
 
 // EarliestHeight returns the earliest height that remains fully queryable.
 func (m *WatermarkManager) EarliestHeight(ctx context.Context) (int64, error) {
-	earliest, _, err := m.Watermarks(ctx)
-	return earliest, err
+	blockEarliest, _, _, err := m.Watermarks(ctx)
+	return blockEarliest, err
 }
 
-// ResolveHeight normalizes a requested block identifier into a concrete height
-// that is guaranteed to be within the available watermarks.
+// EarliestStateHeight returns the earliest height with state availability.
+func (m *WatermarkManager) EarliestStateHeight(ctx context.Context) (int64, error) {
+	_, stateEarliest, _, err := m.Watermarks(ctx)
+	return stateEarliest, err
+}
+
+// ResolveHeight normalizes a requested block identifier into a concrete height.
+// If the resolved height sits outside the tracked watermarks, the method returns
+// an error explaining whether it is too old (pruned) or too new (not yet
+// available).
 func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, error) {
-	earliest, latest, err := m.Watermarks(ctx)
+	_, stateEarliest, latest, err := m.Watermarks(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -139,7 +167,7 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 			return 0, err
 		}
 		height := res.Block.Height
-		if err := m.ensureWithinWatermarks(height, earliest, latest); err != nil {
+		if err := m.ensureWithinWatermarks(height, stateEarliest, latest); err != nil {
 			return 0, err
 		}
 		return height, nil
@@ -154,7 +182,7 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
 		return latest, nil
 	case rpc.EarliestBlockNumber:
-		return earliest, nil
+		return stateEarliest, nil
 	}
 
 	heightPtr, err := getBlockNumber(ctx, m.tmClient, blockNr)
@@ -164,28 +192,28 @@ func (m *WatermarkManager) ResolveHeight(ctx context.Context, blockNrOrHash rpc.
 	if heightPtr == nil {
 		return latest, nil
 	}
-	if err := m.ensureWithinWatermarks(*heightPtr, earliest, latest); err != nil {
+	if err := m.ensureWithinWatermarks(*heightPtr, stateEarliest, latest); err != nil {
 		return 0, err
 	}
 	return *heightPtr, nil
 }
 
-// EnsureHeightAvailable verifies that the provided height falls within the
-// computed watermarks.
-func (m *WatermarkManager) EnsureHeightAvailable(ctx context.Context, height int64) error {
-	earliest, latest, err := m.Watermarks(ctx)
+// EnsureBlockHeightAvailable verifies that the provided block height falls within
+// the computed watermarks.
+func (m *WatermarkManager) EnsureBlockHeightAvailable(ctx context.Context, height int64) error {
+	blockEarliest, _, latest, err := m.Watermarks(ctx)
 	if err != nil {
 		return err
 	}
-	return m.ensureWithinWatermarks(height, earliest, latest)
+	return m.ensureWithinWatermarks(height, blockEarliest, latest)
 }
 
 func (m *WatermarkManager) ensureWithinWatermarks(height, earliest, latest int64) error {
 	if height > latest {
-		return fmt.Errorf("requested block height %d is not yet available; safe latest is %d", height, latest)
+		return fmt.Errorf("requested height %d is not yet available; safe latest is %d", height, latest)
 	}
 	if height < earliest {
-		return fmt.Errorf("requested block height %d has been pruned; earliest available is %d", height, earliest)
+		return fmt.Errorf("requested height %d has been pruned; earliest available is %d", height, earliest)
 	}
 	return nil
 }
@@ -205,7 +233,7 @@ func blockByNumberRespectingWatermarks(
 		resolved := latest
 		return blockByNumberWithRetry(ctx, client, &resolved, maxRetries)
 	}
-	if err := wm.EnsureHeightAvailable(ctx, *heightPtr); err != nil {
+	if err := wm.EnsureBlockHeightAvailable(ctx, *heightPtr); err != nil {
 		return nil, err
 	}
 	return blockByNumberWithRetry(ctx, client, heightPtr, maxRetries)
@@ -225,7 +253,7 @@ func blockByHashRespectingWatermarks(
 	if wm == nil {
 		return block, nil
 	}
-	if err := wm.EnsureHeightAvailable(ctx, block.Block.Height); err != nil {
+	if err := wm.EnsureBlockHeightAvailable(ctx, block.Block.Height); err != nil {
 		return nil, err
 	}
 	return block, nil

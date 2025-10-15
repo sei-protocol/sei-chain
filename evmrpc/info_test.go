@@ -442,7 +442,7 @@ func TestWatermarkComputation(t *testing.T) {
 	}
 	wm := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore())
 	require.NotPanics(t, func() {
-		_, _, err := wm.Watermarks(context.Background())
+		_, _, _, err := wm.Watermarks(context.Background())
 		assert.NoError(t, err)
 		latest, err := wm.LatestHeight(context.Background())
 		assert.NoError(t, err)

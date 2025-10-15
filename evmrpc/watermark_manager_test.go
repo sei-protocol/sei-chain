@@ -31,9 +31,10 @@ func TestWatermarksAggregatesSources(t *testing.T) {
 	receiptStore := &fakeStateStore{latest: 9, earliest: 3}
 	wm := NewWatermarkManager(tmClient, nil, stateStore, receiptStore)
 
-	earliest, latest, err := wm.Watermarks(context.Background())
+	blockEarliest, stateEarliest, latest, err := wm.Watermarks(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, int64(3), earliest)
+	require.Equal(t, int64(2), blockEarliest)
+	require.Equal(t, int64(3), stateEarliest)
 	require.Equal(t, int64(8), latest)
 }
 
@@ -47,15 +48,16 @@ func TestWatermarksIncludesCtxProviderHeight(t *testing.T) {
 	}
 	wm := NewWatermarkManager(tmClient, func(int64) sdk.Context { return ctx }, nil, nil)
 
-	earliest, latest, err := wm.Watermarks(context.Background())
+	blockEarliest, stateEarliest, latest, err := wm.Watermarks(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, int64(5), earliest)
+	require.Equal(t, int64(5), blockEarliest)
+	require.Equal(t, int64(5), stateEarliest)
 	require.Equal(t, int64(12), latest)
 }
 
 func TestWatermarksNoSources(t *testing.T) {
 	wm := NewWatermarkManager(nil, nil, nil, nil)
-	_, _, err := wm.Watermarks(context.Background())
+	_, _, _, err := wm.Watermarks(context.Background())
 	require.ErrorIs(t, err, errNoHeightSource)
 }
 
@@ -88,16 +90,16 @@ func TestResolveHeightByHash(t *testing.T) {
 	require.Equal(t, int64(4), blockHeight)
 }
 
-func TestEnsureHeightAvailableBounds(t *testing.T) {
+func TestEnsureBlockHeightAvailableBounds(t *testing.T) {
 	tmClient := &fakeTMClient{
 		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 6, EarliestBlockHeight: 3}},
 	}
 	wm := NewWatermarkManager(tmClient, nil, nil, nil)
 
-	require.NoError(t, wm.EnsureHeightAvailable(context.Background(), 5))
+	require.NoError(t, wm.EnsureBlockHeightAvailable(context.Background(), 5))
 
-	require.ErrorContains(t, wm.EnsureHeightAvailable(context.Background(), 7), "not yet available")
-	require.ErrorContains(t, wm.EnsureHeightAvailable(context.Background(), 2), "has been pruned")
+	require.ErrorContains(t, wm.EnsureBlockHeightAvailable(context.Background(), 7), "not yet available")
+	require.ErrorContains(t, wm.EnsureBlockHeightAvailable(context.Background(), 2), "has been pruned")
 }
 
 func TestLatestAndEarliestHeightHelpers(t *testing.T) {
@@ -108,9 +110,44 @@ func TestLatestAndEarliestHeightHelpers(t *testing.T) {
 	earliest, err := wm.EarliestHeight(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int64(11), earliest)
+	earliestState, err := wm.EarliestStateHeight(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, int64(11), earliestState)
 	latest, err := wm.LatestHeight(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, int64(22), latest)
+}
+
+func TestResolveHeightUsesStateEarliest(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 20, EarliestBlockHeight: 5}},
+	}
+	stateStore := &fakeStateStore{latest: 18, earliest: 10}
+	wm := NewWatermarkManager(tmClient, nil, stateStore, nil)
+
+	belowState := rpc.BlockNumber(9)
+	_, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &belowState})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "has been pruned")
+
+	within := rpc.BlockNumber(12)
+	resolved, err := wm.ResolveHeight(context.Background(), rpc.BlockNumberOrHash{BlockNumber: &within})
+	require.NoError(t, err)
+	require.Equal(t, int64(12), resolved)
+}
+
+func TestStateWatermarksCanLagBlocks(t *testing.T) {
+	tmClient := &fakeTMClient{
+		status: &coretypes.ResultStatus{SyncInfo: coretypes.SyncInfo{LatestBlockHeight: 30, EarliestBlockHeight: 12}},
+	}
+	stateStore := &fakeStateStore{latest: 28, earliest: 15}
+	wm := NewWatermarkManager(tmClient, nil, stateStore, nil)
+
+	blockEarliest, stateEarliest, latest, err := wm.Watermarks(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, int64(12), blockEarliest)
+	require.Equal(t, int64(15), stateEarliest)
+	require.Equal(t, int64(28), latest)
 }
 
 type fakeTMClient struct {

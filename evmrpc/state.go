@@ -38,7 +38,7 @@ func NewStateAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(i
 func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result *hexutil.Big, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_getBalance", a.connectionType, startTime, returnErr)
-	height, err := a.resolveHeight(ctx, blockNrOrHash)
+	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func (a *StateAPI) GetBalance(ctx context.Context, address common.Address, block
 func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_getCode", a.connectionType, startTime, returnErr)
-	height, err := a.resolveHeight(ctx, blockNrOrHash)
+	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ func (a *StateAPI) GetCode(ctx context.Context, address common.Address, blockNrO
 func (a *StateAPI) GetStorageAt(ctx context.Context, address common.Address, hexKey string, blockNrOrHash rpc.BlockNumberOrHash) (result hexutil.Bytes, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_getStorageAt", a.connectionType, startTime, returnErr)
-	height, err := a.resolveHeight(ctx, blockNrOrHash)
+	height, err := a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 	if err != nil {
 		return nil, err
 	}
@@ -153,10 +153,6 @@ func (a *StateAPI) GetNonce(_ context.Context, address common.Address) uint64 {
 	startTime := time.Now()
 	defer recordMetrics("eth_getNonce", a.connectionType, startTime)
 	return a.keeper.GetNonce(a.ctxProvider(LatestCtxHeight), address)
-}
-
-func (a *StateAPI) resolveHeight(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (int64, error) {
-	return a.watermarks.ResolveHeight(ctx, blockNrOrHash)
 }
 
 // decodeHash parses a hex-encoded 32-byte hash. The input may optionally

@@ -1055,7 +1055,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		// check cache first, without holding the semaphore
 		if cachedEntry, found := f.globalBlockCache.Get(height); found {
 			if cachedEntry.Block != nil {
-				if err := f.watermarks.EnsureHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
+				if err := f.watermarks.EnsureBlockHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
 					continue
 				}
 			}
@@ -1070,7 +1070,7 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 		if cachedEntry, found := f.globalBlockCache.Get(height); found {
 			<-f.dbReadSemaphore
 			if cachedEntry.Block != nil {
-				if err := f.watermarks.EnsureHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
+				if err := f.watermarks.EnsureBlockHeightAvailable(ctx, cachedEntry.Block.Block.Height); err != nil {
 					continue
 				}
 			}
