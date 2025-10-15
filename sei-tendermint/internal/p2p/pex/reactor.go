@@ -13,6 +13,7 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	protop2p "github.com/tendermint/tendermint/proto/tendermint/p2p"
 	"github.com/tendermint/tendermint/types"
 )
@@ -160,75 +161,77 @@ func (r *Reactor) OnStop() {}
 // processPexCh implements a blocking event loop where we listen for p2p
 // Envelope messages from the pexCh.
 func (r *Reactor) processPexCh(ctx context.Context) error {
-	incoming := make(chan *p2p.Envelope)
-	go func() {
-		defer close(incoming)
-		iter := r.channel.RecvAll(ctx)
-		for iter.Next(ctx) {
-			if err := utils.Send(ctx, incoming, iter.Envelope()); err != nil {
-				return
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		incoming := make(chan p2p.RecvMsg)
+		s.Spawn(func() error {
+			for {
+				m,err := r.channel.Recv(ctx)
+				if err!=nil {
+					return err
+				}
+				if err := utils.Send(ctx, incoming, m); err != nil {
+					return err
+				}
 			}
-		}
-	}()
+		})
 
-	// Initially, we will request peers quickly to bootstrap.  This duration
-	// will be adjusted upward as knowledge of the network grows.
-	var nextPeerRequest = minReceiveRequestInterval
-	noAvailablePeerFailCounter := 0
-	lastNoAvailablePeersTime := time.Now()
+		// Initially, we will request peers quickly to bootstrap.  This duration
+		// will be adjusted upward as knowledge of the network grows.
+		var nextPeerRequest = minReceiveRequestInterval
+		noAvailablePeerFailCounter := 0
+		lastNoAvailablePeersTime := time.Now()
 
-	timer := time.NewTimer(0)
-	for {
-		timer.Reset(nextPeerRequest)
+		timer := time.NewTimer(0)
+		for {
+			timer.Reset(nextPeerRequest)
 
-		select {
-		case <-ctx.Done():
-			return nil
+			select {
+			case <-ctx.Done():
+				return nil
 
-		case <-timer.C:
-			// back off sending peer requests if there's none available.
-			// Let the loop continue to handle incoming pex messages
-			waitPeriod := noAvailablePeersWaitPeriod * time.Duration(noAvailablePeerFailCounter)
-			if time.Since(lastNoAvailablePeersTime) < waitPeriod {
-				r.logger.Debug(fmt.Sprintf("waiting for more peers to become available still in the waitPeriod=%v\n", waitPeriod))
-				continue
-			}
-
-			// Send a request for more peer addresses.
-			if err := r.sendRequestForPeers(ctx); err != nil {
-				r.logger.Error("failed to send request for peers", "err", err)
-				if errors.Is(err, NoPeersAvailableError) {
-					noAvailablePeerFailCounter++
-					lastNoAvailablePeersTime = time.Now()
+			case <-timer.C:
+				// back off sending peer requests if there's none available.
+				// Let the loop continue to handle incoming pex messages
+				waitPeriod := noAvailablePeersWaitPeriod * time.Duration(noAvailablePeerFailCounter)
+				if time.Since(lastNoAvailablePeersTime) < waitPeriod {
+					r.logger.Debug(fmt.Sprintf("waiting for more peers to become available still in the waitPeriod=%v\n", waitPeriod))
 					continue
 				}
-				return err
-			}
-			noAvailablePeerFailCounter = 0
-		case envelope, ok := <-incoming:
-			if !ok {
-				return nil // channel closed
-			}
 
-			// A request from another peer, or a response to one of our requests.
-			dur, err := r.handlePexMessage(ctx, envelope)
-			if err != nil {
-				r.logger.Error("failed to process message",
-					"ch_id", envelope.ChannelID, "envelope", envelope, "err", err)
-				if serr := r.channel.SendError(ctx, p2p.PeerError{
-					NodeID: envelope.From,
-					Err:    err,
-				}); serr != nil {
-					return serr
+				// Send a request for more peer addresses.
+				if err := r.sendRequestForPeers(); err != nil {
+					r.logger.Error("failed to send request for peers", "err", err)
+					if errors.Is(err, NoPeersAvailableError) {
+						noAvailablePeerFailCounter++
+						lastNoAvailablePeersTime = time.Now()
+						continue
+					}
+					return err
 				}
-			} else if dur != 0 {
-				// We got a useful result; update the poll timer.
-				nextPeerRequest = dur
-			}
+				noAvailablePeerFailCounter = 0
+			case m, ok := <-incoming:
+				if !ok {
+					return nil // channel closed
+				}
 
-			timer.Stop()
+				// A request from another peer, or a response to one of our requests.
+				dur, err := r.handlePexMessage(ctx, m)
+				if err != nil {
+					r.logger.Error("failed to process pex message",
+						"msg", m, "err", err)
+					r.channel.SendError(ctx, p2p.PeerError{
+						NodeID: m.From,
+						Err:    err,
+					})
+				} else if dur != 0 {
+					// We got a useful result; update the poll timer.
+					nextPeerRequest = dur
+				}
+
+				timer.Stop()
+			}
 		}
-	}
+	})
 }
 
 // processPeerUpdates initiates a blocking process where we listen for and handle
@@ -247,34 +250,32 @@ func (r *Reactor) processPeerUpdates(ctx context.Context, peerUpdates *p2p.PeerU
 // handlePexMessage handles envelopes sent from peers on the PexChannel.
 // If an update was received, a new polling interval is returned; otherwise the
 // duration is 0.
-func (r *Reactor) handlePexMessage(ctx context.Context, envelope *p2p.Envelope) (time.Duration, error) {
-	logger := r.logger.With("peer", envelope.From)
+func (r *Reactor) handlePexMessage(ctx context.Context, m p2p.RecvMsg) (time.Duration, error) {
+	logger := r.logger.With("peer", m.From)
 
-	switch msg := envelope.Message.(type) {
+	switch msg := m.Message.(type) {
 	case *protop2p.PexRequest:
 		// Verify that this peer hasn't sent us another request too recently.
-		if err := r.markPeerRequest(envelope.From); err != nil {
-			return 0, fmt.Errorf("PEX mark peer req from %s: %w", envelope.From, err)
+		if err := r.markPeerRequest(m.From); err != nil {
+			return 0, fmt.Errorf("PEX mark peer req from %s: %w", m.From, err)
 		}
 
 		// Fetch peers from the peer manager, convert NodeAddresses into URL
 		// strings, and send them back to the caller.
-		nodeAddresses := r.peerManager.Advertise(envelope.From, maxAddresses)
+		nodeAddresses := r.peerManager.Advertise(m.From, maxAddresses)
 		pexAddresses := make([]protop2p.PexAddress, len(nodeAddresses))
 		for idx, addr := range nodeAddresses {
 			pexAddresses[idx] = protop2p.PexAddress{
 				URL: addr.String(),
 			}
 		}
-		return 0, r.channel.Send(ctx, p2p.Envelope{
-			To:      envelope.From,
-			Message: &protop2p.PexResponse{Addresses: pexAddresses},
-		})
+		r.channel.Send(&protop2p.PexResponse{Addresses: pexAddresses}, m.From)
+		return 0, nil
 
 	case *protop2p.PexResponse:
 		// Verify that this response corresponds to one of our pending requests.
-		if err := r.markPeerResponse(envelope.From); err != nil {
-			return 0, fmt.Errorf("PEX mark peer resp from %s: %w", envelope.From, err)
+		if err := r.markPeerResponse(m.From); err != nil {
+			return 0, fmt.Errorf("PEX mark peer resp from %s: %w", m.From, err)
 		}
 
 		// Verify that the response does not exceed the safety limit.
@@ -342,27 +343,18 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 // that peer a request for more peer addresses. The chosen peer is moved into
 // the requestsSent bucket so that we will not attempt to contact them again
 // until they've replied or updated.
-func (r *Reactor) sendRequestForPeers(ctx context.Context) error {
+func (r *Reactor) sendRequestForPeers() error {
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
-	if len(r.availablePeers) == 0 {
-		return NoPeersAvailableError
-	}
-
 	// Select an arbitrary peer from the available set.
-	var peerID types.NodeID
-	for peerID = range r.availablePeers {
-		break
+	for peerID := range r.availablePeers {
+		// Move the peer from available to pending.
+		delete(r.availablePeers, peerID)
+		r.requestsSent[peerID] = struct{}{}
+		r.channel.Send(&protop2p.PexRequest{}, peerID)
+		return nil
 	}
-	// Move the peer from available to pending.
-	delete(r.availablePeers, peerID)
-	r.requestsSent[peerID] = struct{}{}
-
-	// TODO(gprusak): blocking send while holding a mutex.
-	return r.channel.Send(ctx, p2p.Envelope{
-		To:      peerID,
-		Message: &protop2p.PexRequest{},
-	})
+	return NoPeersAvailableError
 }
 
 // calculateNextRequestTime selects how long we should wait before attempting

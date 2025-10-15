@@ -5,15 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"golang.org/x/net/netutil"
-	"io"
 	"math/rand"
 	"net"
 	"net/netip"
 	"runtime"
-	"sync"
 	"time"
-
-	"github.com/gogo/protobuf/proto"
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
@@ -164,15 +160,18 @@ type Router struct {
 }
 
 func (r *Router) getChannelDescs() []*ChannelDescriptor {
-	r.channelMtx.RLock()
-	defer r.channelMtx.RUnlock()
-	descs := make([]*ChannelDescriptor, len(r.chDescs))
-	copy(descs, r.chDescs)
-	return descs
+	for channels := range r.channels.Lock() {
+		descs := make([]*ChannelDescriptor, len(channels))
+		for _,ch := range channels {
+			descs = append(descs,&ch.desc)
+		}
+		return descs
+	}
+	panic("unreachable")
 }
 
 type chDescAdderWithCallback struct {
-	chDesc *ChannelDescriptor
+	chDesc ChannelDescriptor
 	cb     func(*Channel)
 }
 
@@ -278,30 +277,24 @@ func (r *Router) listenRoutine(ctx context.Context) error {
 type ChannelCreator func(context.Context, *ChannelDescriptor) (*Channel, error)
 
 // OpenChannel opens a new channel for the given message type.
-func (r *Router) OpenChannel(chDesc *ChannelDescriptor) (*Channel, error) {
-	r.channelMtx.Lock()
-	defer r.channelMtx.Unlock()
-
-	id := chDesc.ID
-	if _, ok := r.channelQueues[id]; ok {
-		return nil, fmt.Errorf("channel %v already exists", id)
+func (r *Router) OpenChannel(chDesc ChannelDescriptor) (*Channel, error) {
+	for channels := range r.channels.Lock() {
+		id := chDesc.ID
+		if _, ok := channels[id]; ok {
+			return nil, fmt.Errorf("channel %v already exists", id)
+		}
+		channels[id] = newChannel(r,chDesc)
+		// add the channel to the nodeInfo if it's not already there.
+		r.nodeInfoProducer().AddChannel(uint16(chDesc.ID))
+		return channels[id], nil
 	}
-	r.chDescs = append(r.chDescs, chDesc)
-	channel := newChannel(id, queue, outCh, errCh)
-
-	r.channelQueues[id] = queue
-	r.channelMessages[id] = messageType
-
-	// add the channel to the nodeInfo if it's not already there.
-	r.nodeInfoProducer().AddChannel(uint16(chDesc.ID))
-	return channel, nil
+	panic("unreachable")
 }
 
 func (r *Router) numConccurentDials() int {
 	if r.options.NumConcurrentDials == nil {
 		return runtime.NumCPU()
 	}
-
 	return r.options.NumConcurrentDials()
 }
 
@@ -309,7 +302,6 @@ func (r *Router) filterPeersIP(ctx context.Context, addrPort netip.AddrPort) err
 	if r.options.FilterPeerByIP == nil {
 		return nil
 	}
-
 	return r.options.FilterPeerByIP(ctx, addrPort)
 }
 
@@ -407,7 +399,7 @@ func (r *Router) openConnection(ctx context.Context, tcpConn net.Conn) error {
 	if err := r.peerManager.Accepted(peerInfo.NodeID); err != nil {
 		return fmt.Errorf("failed to accept connection: op=incoming/accepted, peer=%v: %w", peerInfo.NodeID, err)
 	}
-	return r.routePeer(ctx, conn)
+	return conn.Run(ctx)
 }
 
 // dialPeers maintains outbound connections to peers by dialing them.
@@ -451,31 +443,30 @@ func (r *Router) dialPeers(ctx context.Context) error {
 	})
 }
 
-func (r *Router) connectPeer(ctx context.Context, address NodeAddress) {
+func (r *Router) connectPeer(ctx context.Context, address NodeAddress) (err error) {
 	tcpConn, err := r.Dial(ctx, address)
-	switch {
-	case errors.Is(err, context.Canceled):
-		return
-	case err != nil:
-		r.logger.Debug("failed to dial peer", "peer", address, "err", err)
-		if err = r.peerManager.DialFailed(ctx, address); err != nil {
-			r.logger.Debug("failed to report dial failure", "peer", address, "err", err)
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			if err = r.peerManager.DialFailed(ctx, address); err != nil {
+				r.logger.Debug("failed to report dial failure", "peer", address, "err", err)
+			}
 		}
-		return
+		return fmt.Errorf("failed to dial peer %v: %w", address, err)
 	}
+	defer func() {
+		if err != nil {
+			tcpConn.Close()
+		}
+	}()
 
 	conn, err := r.handshakePeer(ctx, tcpConn, address.NodeID)
-	if errors.Is(err, context.Canceled) {
-		conn.Close()
-		return
-	}
 	if err != nil {
-		r.logger.Debug("failed to handshake with peer", "peer", address, "err", err)
-		if err := r.peerManager.DialFailed(ctx, address); err != nil {
-			r.logger.Error("failed to report dial failure", "peer", address, "err", err)
+		if !errors.Is(err, context.Canceled) {
+			if err := r.peerManager.DialFailed(ctx, address); err != nil {
+				r.logger.Error("failed to report dial failure", "peer", address, "err", err)
+			}
 		}
-		tcpConn.Close()
-		return
+		return fmt.Errorf("failed to handshake with peer", "peer", address, "err", err)
 	}
 
 	// TODO(gprusak): this symmetric logic for handling duplicate connections is a source of race conditions:
@@ -484,12 +475,10 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) {
 	// * break the symmetry by favoring incoming connection iff my.NodeID > peer.NodeID
 	// * keep incoming and outcoming connection pools separate to avoid the collision (recommended)
 	if err := r.peerManager.Dialed(address); err != nil {
-		r.logger.Info("failed to dial peer", "op", "outgoing/dialing", "peer", address.NodeID, "err", err)
-		conn.Close()
-		return
+		return fmt.Errorf("failed to dial peer", "op", "outgoing/dialing", "peer", address.NodeID, "err", err)
 	}
-
-	r.Spawn("routePeer", func(ctx context.Context) error { return r.routePeer(ctx, conn) })
+	r.Spawn("conn.Run", func(ctx context.Context) error { return conn.Run(ctx) })
+	return nil
 }
 
 // dialPeer connects to a peer by dialing it.
@@ -591,46 +580,6 @@ func (r *Router) handshakePeer(
 	return conn, nil
 }
 
-// routePeer routes inbound and outbound messages between a peer and the reactor
-// channels. It will close the given connection and send queue when done, or if
-// they are closed elsewhere it will cause this method to shut down and return.
-func (r *Router) routePeer(ctx context.Context, conn *Connection) error {
-	defer conn.Close()
-	r.metrics.Peers.Add(1)
-	peerInfo := conn.PeerInfo()
-	peerID := peerInfo.NodeID
-	channels := toChannelIDs(peerInfo.Channels)
-	peerCtx, cancel := context.WithCancel(ctx)
-	state := &peerState{
-		cancel:   cancel,
-		channels: channels,
-	}
-	for states := range r.peerStates.Lock() {
-		if old, ok := states[peerID]; ok {
-			old.cancel()
-		}
-		states[peerID] = state
-	}
-	r.peerManager.Ready(ctx, peerID, channels)
-	r.logger.Debug("peer connected", "peer", peerID, "endpoint", conn)
-	err := conn.Run(peerCtx)
-	r.logger.Info("peer disconnected", "peer", peerID, "endpoint", conn, "err", err)
-	for states := range r.peerStates.Lock() {
-		if states[peerID] == state {
-			delete(states, peerID)
-		}
-	}
-	// TODO(gprusak): investigate if peerManager handles overlapping connetions correctly
-	r.peerManager.Disconnected(ctx, peerID)
-	r.metrics.Peers.Add(-1)
-	if errors.Is(err, io.EOF) {
-		return nil
-	}
-	return err
-}
-
-
-
 // evictPeers evicts connected peers as requested by the peer manager.
 func (r *Router) evictPeers(ctx context.Context) error {
 	for {
@@ -641,13 +590,13 @@ func (r *Router) evictPeers(ctx context.Context) error {
 		for states := range r.peerStates.Lock() {
 			if s, ok := states[ev.ID]; ok {
 				r.logger.Info("evicting peer", "peer", ev.ID, "cause", ev.Cause)
-				s.cancel()
+				s.Close()
 			}
 		}
 	}
 }
 
-func (r *Router) AddChDescToBeAdded(chDesc *ChannelDescriptor, callback func(*Channel)) {
+func (r *Router) AddChDescToBeAdded(chDesc ChannelDescriptor, callback func(*Channel)) {
 	r.chDescsToBeAdded = append(r.chDescsToBeAdded, chDescAdderWithCallback{
 		chDesc: chDesc,
 		cb:     callback,
@@ -678,18 +627,3 @@ func (r *Router) OnStart(ctx context.Context) error {
 // here, since that would cause any reactor senders to panic, so it is the
 // sender's responsibility.
 func (r *Router) OnStop() {}
-
-type ChannelIDSet map[ChannelID]struct{}
-
-func (cs ChannelIDSet) Contains(id ChannelID) bool {
-	_, ok := cs[id]
-	return ok
-}
-
-func toChannelIDs(bytes []byte) ChannelIDSet {
-	c := make(map[ChannelID]struct{}, len(bytes))
-	for _, b := range bytes {
-		c[ChannelID(b)] = struct{}{}
-	}
-	return c
-}

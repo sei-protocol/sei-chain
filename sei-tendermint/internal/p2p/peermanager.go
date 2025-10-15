@@ -1009,7 +1009,7 @@ func (m *PeerManager) Register(ctx context.Context, peerUpdates *PeerUpdates) {
 			case <-ctx.Done():
 				return
 			case pu := <-peerUpdates.routerUpdatesCh:
-				m.processPeerEvent(ctx, pu)
+				m.processPeerEvent(pu)
 			}
 		}
 	}()
@@ -1022,13 +1022,9 @@ func (m *PeerManager) Register(ctx context.Context, peerUpdates *PeerUpdates) {
 	}()
 }
 
-func (m *PeerManager) processPeerEvent(ctx context.Context, pu PeerUpdate) {
+func (m *PeerManager) processPeerEvent(pu PeerUpdate) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
-
-	if ctx.Err() != nil {
-		return
-	}
 
 	switch pu.Status {
 	case PeerStatusBad:

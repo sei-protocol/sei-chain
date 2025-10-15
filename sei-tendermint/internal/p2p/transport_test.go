@@ -209,13 +209,7 @@ func TestRouter_SendReceive_Random(t *testing.T) {
 		chID := ChannelID(rng.Intn(len(channels)))
 		want := &TestMessage{Value: utils.GenString(rng, 10)}
 
-		if err := channels[chID][from].Send(ctx, Envelope{
-			ChannelID: chID,
-			Message:   want,
-			To:        to,
-		}); err != nil {
-			t.Fatalf("Send(): %v", err)
-		}
+		channels[chID][from].Send(want,to)
 		got, err := channels[chID][to].Recv(ctx)
 		if err != nil {
 			t.Fatalf("Receive1(): %v", err)

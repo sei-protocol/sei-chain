@@ -7,6 +7,7 @@ import (
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/gogo/protobuf/proto"
 	"math"
 	"net"
@@ -21,11 +22,27 @@ const queueBufferDefault = 1024
 
 type InvalidEndpointErr struct{ error }
 
+func toChannelIDs(bytes []byte) ChannelIDSet {
+	c := make(map[ChannelID]struct{}, len(bytes))
+	for _, b := range bytes {
+		c[ChannelID(b)] = struct{}{}
+	}
+	return c
+}
+
+type ChannelIDSet map[ChannelID]struct{}
+
+func (cs ChannelIDSet) Contains(id ChannelID) bool {
+	_, ok := cs[id]
+	return ok
+}
+
 // Connection implements Connection for Transport.
 type Connection struct {
 	cancel chan struct{}
 	router *Router
 	conn net.Conn
+	peerChannels ChannelIDSet
 	peerInfo types.NodeInfo
 	sendQueue *Queue[sendMsg]
 	mconn *conn.MConnection
@@ -85,10 +102,11 @@ func HandshakeOrClose(
 			conn:     tcpConn,
 			sendQueue: NewQueue[sendMsg](queueBufferDefault),
 			peerInfo: peerInfo,
+			peerChannels: toChannelIDs(peerInfo.Channels),
 			mconn: conn.NewMConnection(
 				r.logger.With("peer", remoteEndpoint(tcpConn).NodeAddress(peerInfo.NodeID)),
 				secretConn,
-				r.getChannelDescriptors(),
+				r.getChannelDescs(),
 				r.options.Connection,
 			),
 		}, nil
@@ -144,7 +162,7 @@ func (c *Connection) recvRoutine(ctx context.Context) error {
 				}
 			}
 			// Priority is not used since all messages in this queue are from the same channel.
-			if _, ok := ch.recvQueue.Send(recvMsg{From: c.peerInfo.NodeID, Message: msg}, proto.Size(msg), 0).Get(); ok {
+			if _, ok := ch.recvQueue.Send(RecvMsg{From: c.peerInfo.NodeID, Message: msg}, proto.Size(msg), 0).Get(); ok {
 				c.router.metrics.QueueDroppedMsgs.With("ch_id", fmt.Sprint(chID), "direction", "in").Add(float64(1))
 			}
 			c.router.metrics.PeerReceiveBytesTotal.With(
@@ -157,13 +175,34 @@ func (c *Connection) recvRoutine(ctx context.Context) error {
 }
 
 func (c *Connection) Run(ctx context.Context) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	peerInfo := c.PeerInfo()
+	peerID := peerInfo.NodeID
+	c.router.metrics.Peers.Add(1)
+	defer c.router.metrics.Peers.Add(-1)
+	for conns := range c.router.peerStates.Lock() {
+		if old, ok := conns[peerID]; ok {
+			old.Close()
+		}
+		conns[peerID] = c
+	}
+	c.router.peerManager.Ready(ctx, peerID, c.peerChannels)
+	c.router.logger.Info("peer connected", "peer", peerID, "endpoint", c)
+	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error { return c.mconn.Run(ctx) })
 		s.Spawn(func() error { return c.sendRoutine(ctx) })
 		s.Spawn(func() error { return c.recvRoutine(ctx) })
 		_,_,_ = utils.RecvOrClosed(ctx, c.cancel)
 		return context.Canceled
 	})
+	c.router.logger.Info("peer disconnected", "peer", peerID, "endpoint", c, "err", err)
+	for conns := range c.router.peerStates.Lock() {
+		if conns[peerID] == c {
+			delete(conns, peerID)
+		}
+	}
+	// TODO(gprusak): investigate if peerManager handles overlapping connetions correctly
+	c.router.peerManager.Disconnected(ctx, peerID)
+	return err
 }
 
 // String displays connection information.
@@ -185,14 +224,14 @@ func remoteEndpoint(conn net.Conn) Endpoint {
 	return Endpoint{conn.RemoteAddr().(*net.TCPAddr).AddrPort()}
 }
 
-// RemoteEndpoint implements Connection.
+// RemoteEndpoint.
 func (c *Connection) RemoteEndpoint() Endpoint {
 	return remoteEndpoint(c.conn)
 }
 
-// Close implements Connection.
-func (c *Connection) Close() error {
-	return c.conn.Close()
+// Close.
+func (c *Connection) Close() {
+	close(c.cancel)
 }
 
 // Endpoint represents a transport connection endpoint, either local or remote.
@@ -220,4 +259,4 @@ func (e Endpoint) Validate() error {
 		return InvalidEndpointErr{fmt.Errorf("endpoint has invalid address %q", e.String())}
 	}
 	return nil
-
+}

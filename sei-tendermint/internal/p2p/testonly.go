@@ -143,7 +143,7 @@ func (n *TestNetwork) NodeIDs() []types.NodeID {
 // doing error checks and cleanups.
 func (n *TestNetwork) MakeChannels(
 	t *testing.T,
-	chDesc *ChannelDescriptor,
+	chDesc ChannelDescriptor,
 ) map[types.NodeID]*Channel {
 	channels := map[types.NodeID]*Channel{}
 	for nodes := range n.nodes.Lock() {
@@ -159,7 +159,7 @@ func (n *TestNetwork) MakeChannels(
 // all the channels.
 func (n *TestNetwork) MakeChannelsNoCleanup(
 	t *testing.T,
-	chDesc *ChannelDescriptor,
+	chDesc ChannelDescriptor,
 ) map[types.NodeID]*Channel {
 	channels := map[types.NodeID]*Channel{}
 	for nodes := range n.nodes.Lock() {
@@ -314,7 +314,7 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 // all expected messages have been asserted.
 func (n *TestNode) MakeChannel(
 	t *testing.T,
-	chDesc *ChannelDescriptor,
+	chDesc ChannelDescriptor,
 ) *Channel {
 	channel, err := n.Router.OpenChannel(chDesc)
 	require.NoError(t, err)
@@ -328,7 +328,7 @@ func (n *TestNode) MakeChannel(
 // caller must ensure proper cleanup of the channel.
 func (n *TestNode) MakeChannelNoCleanup(
 	t *testing.T,
-	chDesc *ChannelDescriptor,
+	chDesc ChannelDescriptor,
 ) *Channel {
 	channel, err := n.Router.OpenChannel(chDesc)
 	require.NoError(t, err)
@@ -351,8 +351,8 @@ func (n *TestNode) MakePeerUpdatesNoRequireEmpty(ctx context.Context) *PeerUpdat
 	return n.PeerManager.Subscribe(ctx)
 }
 
-func MakeTestChannelDesc(chID ChannelID) *ChannelDescriptor {
-	return &ChannelDescriptor{
+func MakeTestChannelDesc(chID ChannelID) ChannelDescriptor {
+	return ChannelDescriptor{
 		ID:                  chID,
 		MessageType:         &TestMessage{},
 		Priority:            5,
@@ -372,34 +372,25 @@ func RequireEmpty(t *testing.T, channels ...*Channel) {
 }
 
 // RequireReceive requires that the given envelope is received on the channel.
-func RequireReceive(t *testing.T, channel *Channel, expect Envelope) {
+func RequireReceive(t *testing.T, channel *Channel, want RecvMsg) {
 	t.Helper()
-	RequireReceiveUnordered(t, channel, utils.Slice(&expect))
+	RequireReceiveUnordered(t, channel, utils.Slice(want))
 }
 
 // RequireReceiveUnordered requires that the given envelopes are all received on
 // the channel, ignoring order.
-func RequireReceiveUnordered(t *testing.T, channel *Channel, expect []*Envelope) {
+func RequireReceiveUnordered(t *testing.T, channel *Channel, want []RecvMsg) {
 	t.Helper()
-	t.Logf("awaiting %d messages", len(expect))
-	actual := []*Envelope{}
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	iter := channel.RecvAll(ctx)
-	for iter.Next(ctx) {
-		actual = append(actual, iter.Envelope())
-		if len(actual) == len(expect) {
-			require.ElementsMatch(t, expect, actual, "len=%d", len(actual))
-			return
+	t.Logf("awaiting %d messages", len(want))
+	var got []RecvMsg
+	for len(got) < len(want) {
+		m,err := channel.recvQueue.Recv(t.Context())
+		if err!=nil {
+			panic(err)
 		}
+		got = append(got, m)
 	}
-	require.FailNow(t, "not enough messages")
-}
-
-// RequireSend requires that the given envelope is sent on the channel.
-func RequireSend(t *testing.T, channel *Channel, envelope Envelope) {
-	t.Logf("sending message %v", envelope)
-	require.NoError(t, channel.Send(t.Context(), envelope))
+	require.ElementsMatch(t, want, got, "len=%d", len(got))
 }
 
 // RequireNoUpdates requires that a PeerUpdates subscription is empty.
@@ -408,11 +399,6 @@ func RequireNoUpdates(t *testing.T, peerUpdates *PeerUpdates) {
 	if len(peerUpdates.Updates()) != 0 {
 		require.FailNow(t, "unexpected peer updates")
 	}
-}
-
-// RequireError requires that the given peer error is submitted for a peer.
-func RequireSendError(t *testing.T, channel *Channel, peerError PeerError) {
-	require.NoError(t, channel.SendError(t.Context(), peerError))
 }
 
 // RequireUpdate requires that a PeerUpdates subscription yields the given update.

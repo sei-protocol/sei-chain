@@ -16,7 +16,7 @@ type sendMsg struct {
 	ChannelID ChannelID     // channel id
 }
 
-type recvMsg struct {
+type RecvMsg struct {
 	Message   proto.Message // UNWRAPPED message payload
 	From      types.NodeID  // sender
 }
@@ -59,7 +59,7 @@ func (pe PeerError) Unwrap() error { return pe.Err }
 type Channel struct {
 	router *Router
 	desc  ChannelDescriptor
-	recvQueue  *Queue[recvMsg] // inbound messages (peers to reactors)
+	recvQueue  *Queue[RecvMsg] // inbound messages (peers to reactors)
 }
 
 // NewChannel creates a new channel. It is primarily for internal and test
@@ -70,7 +70,7 @@ func newChannel(router *Router, desc ChannelDescriptor) *Channel {
 		desc:  desc,
 		// TODO(gprusak): get rid of this random cap*cap value once we understand
 		// what the sizes per channel really should be.
-		recvQueue: NewQueue[recvMsg](desc.RecvBufferCapacity * desc.RecvBufferCapacity),
+		recvQueue: NewQueue[RecvMsg](desc.RecvBufferCapacity * desc.RecvBufferCapacity),
 	}
 }
 
@@ -95,32 +95,32 @@ func (ch *Channel) send(msg proto.Message, queues ...*Queue[sendMsg]) {
 
 func (ch *Channel) Send(msg proto.Message, to types.NodeID) {
 	ok := false
-	var s *peerState
-	for states := range ch.router.peerStates.RLock() {
-		s, ok = states[to]
+	var c *Connection
+	for conns := range ch.router.peerStates.RLock() {
+		c, ok = conns[to]
 	}
 	if !ok {
 		ch.router.logger.Debug("dropping message for unconnected peer", "peer", to, "channel", ch.desc.ID)
 		return
 	}
-	if _, contains := s.channels[ch.desc.ID]; !contains {
+	if _, contains := c.peerChannels[ch.desc.ID]; !contains {
 		// reactor tried to send a message across a channel that the
 		// peer doesn't have available. This is a known issue due to
 		// how peer subscriptions work:
 		// https://github.com/tendermint/tendermint/issues/6598
 		return
 	}
-	ch.send(msg, s.queue)
+	ch.send(msg, c.sendQueue)
 }
 
 // Broadcasts msg to all peers on the channel.
 func (ch *Channel) Broadcast(msg proto.Message) {
 	var queues []*Queue[sendMsg]
-	for states := range ch.router.peerStates.RLock() {
-		queues = make([]*Queue[sendMsg], 0, len(states))
-		for _, s := range states {
-			if _, ok := s.channels[ch.desc.ID]; ok {
-				queues = append(queues, s.queue)
+	for conns := range ch.router.peerStates.RLock() {
+		queues = make([]*Queue[sendMsg], 0, len(conns))
+		for _, c := range conns {
+			if _, ok := c.peerChannels[ch.desc.ID]; ok {
+				queues = append(queues, c.sendQueue)
 			}
 		}
 	}
@@ -129,7 +129,7 @@ func (ch *Channel) Broadcast(msg proto.Message) {
 
 // SendError blocks until the given error has been sent, or ctx ends.
 // An error only occurs if the context ends before the send completes.
-func (ch *Channel) SendError(ctx context.Context, pe PeerError) {
+func (ch *Channel) SendError(pe PeerError) {
 	// TODO: this should be atomic.
 	shouldEvict := pe.Fatal || ch.router.peerManager.HasMaxPeerCapacity()
 	ch.router.logger.Error("peer error",
@@ -140,7 +140,7 @@ func (ch *Channel) SendError(ctx context.Context, pe PeerError) {
 	if shouldEvict {
 		ch.router.peerManager.Errored(pe.NodeID, pe.Err)
 	} else {
-		ch.router.peerManager.processPeerEvent(ctx, PeerUpdate{
+		ch.router.peerManager.processPeerEvent(PeerUpdate{
 			NodeID: pe.NodeID,
 			Status: PeerStatusBad,
 		})
@@ -152,8 +152,6 @@ func (ch *Channel) String() string { return fmt.Sprintf("p2p.Channel<%d:%s>", ch
 func (ch *Channel) ReceiveLen() int { return ch.recvQueue.Len() }
 
 // Recv Receives the next message from the channel.
-func (ch *Channel) Recv(ctx context.Context) (proto.Message, types.NodeID, error) {
-	m,err := ch.recvQueue.Recv(ctx)
-	if err != nil { return nil,"",err }
-	return m.Message, m.From, nil
+func (ch *Channel) Recv(ctx context.Context) (RecvMsg, error) {
+	return ch.recvQueue.Recv(ctx)
 }
