@@ -270,6 +270,7 @@ func NewFilterAPI(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	filterConfig *FilterConfig,
 	connectionType ConnectionType,
 	namespace string,
@@ -291,6 +292,7 @@ func NewFilterAPI(
 		k:                        k,
 		ctxProvider:              ctxProvider,
 		txConfigProvider:         txConfigProvider,
+		earliestVersion:          earliestVersion
 		filterConfig:             filterConfig,
 		includeSyntheticReceipts: shouldIncludeSynthetic(namespace),
 		dbReadSemaphore:          dbReadSemaphore,
@@ -653,6 +655,7 @@ type LogFetcher struct {
 	k                        *keeper.Keeper
 	txConfigProvider         func(int64) client.TxConfig
 	ctxProvider              func(int64) sdk.Context
+	earliestVersion          func() int64
 	filterConfig             *FilterConfig
 	includeSyntheticReceipts bool
 	dbReadSemaphore          chan struct{}
@@ -661,7 +664,7 @@ type LogFetcher struct {
 	globalLogSlicePool       *LogSlicePool
 }
 
-func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
+func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, rerr error) {
 	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
 	begin, end := latest, latest
 	if crit.FromBlock != nil {
@@ -722,6 +725,12 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		sortedBatches = append(sortedBatches, localLogs)
 		resultsMutex.Unlock()
 	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			rerr = fmt.Errorf("encountered error when fetching logs: %v", r)
+		}
+	}()
 
 	// Batch process with fail-fast
 	blockBatch := make([]*coretypes.ResultBlock, 0, WorkerBatchSize)
@@ -843,9 +852,12 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	ctx := f.ctxProvider(block.Block.Height)
 	totalLogs := uint(0)
 	evmTxIndex := 0
-
-	for _, hash := range getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache) {
-		receipt, found := getOrSetCachedReceipt(f.cacheCreationMutex, f.globalBlockCache, ctx, f.k, block, hash.hash)
+	txHashes, err := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.earliestVersion, f.k, block, f.includeSyntheticReceipts, f.cacheCreationMutex, f.globalBlockCache)
+	if err != nil {
+		panic(err)
+	}
+	for _, hash := range txHashes {
+		receipt, found := getCachedReceipt(block.Block.Height, hash.hash)
 		if !found {
 			ctx.Logger().Error(fmt.Sprintf("collectLogs: unable to find receipt for hash %s", hash.hash.Hex()))
 			continue

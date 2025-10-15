@@ -38,6 +38,7 @@ func NewEVMHTTPServer(
 	antehandler sdk.AnteHandler,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	homeDir string,
 	isPanicOrSyntheticTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // used in *ExcludeTraceFail endpoints
 ) (EVMServer, error) {
@@ -61,15 +62,15 @@ func NewEVMHTTPServer(
 
 	ctx := ctxProvider(LatestCtxHeight)
 
-	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, globalBlockCache, cacheCreationMutex)
-	debugAPI := NewDebugAPI(tmClient, k, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex)
+	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, earliestVersion, homeDir, ConnectionTypeHTTP, globalBlockCache, cacheCreationMutex)
+	debugAPI := NewDebugAPI(tmClient, k, ctxProvider, txConfigProvider, earliestVersion, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex)
 	if isPanicOrSyntheticTxFunc == nil {
 		isPanicOrSyntheticTxFunc = func(ctx context.Context, hash common.Hash) (bool, error) {
 			return debugAPI.isPanicOrSyntheticTx(ctx, hash)
 		}
 	}
-	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, globalBlockCache, cacheCreationMutex)
-	seiDebugAPI := NewSeiDebugAPI(tmClient, k, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex)
+	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, earliestVersion, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, globalBlockCache, cacheCreationMutex)
+	seiDebugAPI := NewSeiDebugAPI(tmClient, k, ctxProvider, txConfigProvider, earliestVersion, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex)
 
 	dbReadSemaphore := make(chan struct{}, MaxDBReadConcurrency)
 	globalLogSlicePool := NewLogSlicePool()
@@ -80,15 +81,15 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, globalBlockCache, cacheCreationMutex),
+			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, earliestVersion, ConnectionTypeHTTP, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "sei",
-			Service:   NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, globalBlockCache, cacheCreationMutex),
+			Service:   NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, earliestVersion, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "sei2",
-			Service:   NewSei2BlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, globalBlockCache, cacheCreationMutex),
+			Service:   NewSei2BlockAPI(tmClient, k, ctxProvider, txConfigProvider, earliestVersion, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "eth",
@@ -112,7 +113,7 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSimulationAPI(ctxProvider, k, txConfigProvider, tmClient, simulateConfig, app, antehandler, ConnectionTypeHTTP, globalBlockCache, cacheCreationMutex),
+			Service:   NewSimulationAPI(ctxProvider, k, txConfigProvider, earliestVersion, tmClient, simulateConfig, app, antehandler, ConnectionTypeHTTP, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "net",
@@ -125,6 +126,7 @@ func NewEVMHTTPServer(
 				k,
 				ctxProvider,
 				txConfigProvider,
+				earliestVersion,
 				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog},
 				ConnectionTypeHTTP,
 				"eth",
@@ -141,6 +143,7 @@ func NewEVMHTTPServer(
 				k,
 				ctxProvider,
 				txConfigProvider,
+				earliestVersion,
 				&FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog},
 				ConnectionTypeHTTP,
 				"sei",
@@ -201,6 +204,7 @@ func NewEVMWebSocketServer(
 	antehandler sdk.AnteHandler,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	homeDir string,
 ) (EVMServer, error) {
 	httpServer := NewHTTPServer(logger, rpc.HTTPTimeouts{
@@ -228,11 +232,11 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeWS, globalBlockCache, cacheCreationMutex),
+			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, earliestVersion, ConnectionTypeWS, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeWS, globalBlockCache, cacheCreationMutex),
+			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, earliestVersion, homeDir, ConnectionTypeWS, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "eth",
@@ -244,11 +248,11 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSendAPI(tmClient, txConfigProvider, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeWS, globalBlockCache, cacheCreationMutex),
+			Service:   NewSendAPI(tmClient, txConfigProvider, earliestVersion, &SendConfig{slow: config.Slow}, k, ctxProvider, homeDir, simulateConfig, app, antehandler, ConnectionTypeWS, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewSimulationAPI(ctxProvider, k, txConfigProvider, tmClient, simulateConfig, app, antehandler, ConnectionTypeWS, globalBlockCache, cacheCreationMutex),
+			Service:   NewSimulationAPI(ctxProvider, k, txConfigProvider, earliestVersion, tmClient, simulateConfig, app, antehandler, ConnectionTypeWS, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "net",
@@ -261,6 +265,7 @@ func NewEVMWebSocketServer(
 				k:                  k,
 				ctxProvider:        ctxProvider,
 				txConfigProvider:   txConfigProvider,
+				earliestVersion:    earliestVersion,
 				dbReadSemaphore:    dbReadSemaphore,
 				globalBlockCache:   globalBlockCache,
 				cacheCreationMutex: cacheCreationMutex,
