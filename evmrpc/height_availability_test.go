@@ -92,7 +92,7 @@ func TestBlockAPIEnsureHeightUnavailable(t *testing.T) {
 	highHeight := latest + 5
 	client := newHeightTestClient(highHeight, earliest, latest)
 	watermarks := NewWatermarkManager(client, testCtxProvider, nil, nil)
-	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks)
+	api := NewBlockAPI(client, nil, testCtxProvider, testTxConfigProvider, ConnectionTypeHTTP, watermarks, nil, nil)
 
 	_, err := api.GetBlockByHash(context.Background(), common.HexToHash(highBlockHashHex), false)
 	require.Error(t, err)
