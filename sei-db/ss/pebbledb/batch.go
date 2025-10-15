@@ -1,11 +1,14 @@
 package pebbledb
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/sei-protocol/sei-db/common/errors"
+	seidbmetrics "github.com/sei-protocol/sei-db/common/metrics"
 )
 
 type Batch struct {
@@ -62,7 +65,19 @@ func (b *Batch) Delete(storeKey string, key []byte) error {
 }
 
 func (b *Batch) Write() (err error) {
+	startTime := time.Now()
+	batchSize := int64(b.batch.Len())
+
 	defer func() {
+		ctx := context.Background()
+		seidbmetrics.PebbleDBMetrics.BatchWriteLatency.Record(
+			ctx,
+			time.Since(startTime).Milliseconds(),
+		)
+		seidbmetrics.PebbleDBMetrics.BatchSize.Record(
+			ctx,
+			batchSize,
+		)
 		err = errors.Join(err, b.batch.Close())
 	}()
 
@@ -122,7 +137,18 @@ func (b *Batch) HardDelete(storeKey string, key []byte) error {
 }
 
 func (b *RawBatch) Write() (err error) {
+	startTime := time.Now()
+	batchSize := int64(b.batch.Len())
 	defer func() {
+		ctx := context.Background()
+		seidbmetrics.PebbleDBMetrics.BatchWriteLatency.Record(
+			ctx,
+			time.Since(startTime).Milliseconds(),
+		)
+		seidbmetrics.PebbleDBMetrics.BatchSize.Record(
+			ctx,
+			batchSize,
+		)
 		err = errors.Join(err, b.batch.Close())
 	}()
 

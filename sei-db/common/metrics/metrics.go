@@ -53,6 +53,193 @@ var (
 			metric.WithUnit("{count}"),
 		)),
 	}
+
+	// PebbleDB State Store Metrics
+	PebbleDBMetrics = struct {
+		// Operation Latencies
+		GetLatency                 metric.Int64Histogram
+		ApplyChangesetLatency      metric.Int64Histogram
+		ApplyChangesetAsyncLatency metric.Int64Histogram
+		PruneLatency               metric.Float64Histogram
+		ImportLatency              metric.Float64Histogram
+		HashComputationLatency     metric.Int64Histogram
+		BatchWriteLatency          metric.Int64Histogram
+		IterationLatency           metric.Int64Histogram
+		ReverseIterationLatency    metric.Int64Histogram
+
+		// Database Internal Metrics
+		CompactionCount        metric.Int64Counter
+		CompactionDuration     metric.Float64Histogram
+		CompactionBytesRead    metric.Int64Counter
+		CompactionBytesWritten metric.Int64Counter
+		FlushCount             metric.Int64Counter
+		FlushDuration          metric.Float64Histogram
+		FlushBytesWritten      metric.Int64Counter
+
+		// Storage Metrics
+		SSTableCount      metric.Int64Gauge
+		SSTableTotalSize  metric.Int64Gauge
+		MemtableCount     metric.Int64Gauge
+		MemtableTotalSize metric.Int64Gauge
+		WALSize           metric.Int64Gauge
+
+		// Cache Metrics
+		CacheHits   metric.Int64Counter
+		CacheMisses metric.Int64Counter
+		CacheSize   metric.Int64Gauge
+
+		// Operational Metrics
+		BatchSize                metric.Int64Histogram
+		PendingChangesQueueDepth metric.Int64Gauge
+		IteratorCount            metric.Int64Gauge
+	}{
+		// Operation Latencies
+		GetLatency: must(meter.Int64Histogram(
+			"pebble_get_latency",
+			metric.WithDescription("Time taken to get a key from PebbleDB"),
+			metric.WithUnit("us"),
+		)),
+		ApplyChangesetLatency: must(meter.Int64Histogram(
+			"pebble_apply_changeset_latency",
+			metric.WithDescription("Time taken to apply changeset to PebbleDB"),
+			metric.WithUnit("ms"),
+		)),
+		ApplyChangesetAsyncLatency: must(meter.Int64Histogram(
+			"pebble_apply_changeset_async_latency",
+			metric.WithDescription("Time taken to queue changeset for async write"),
+			metric.WithUnit("us"),
+		)),
+		PruneLatency: must(meter.Float64Histogram(
+			"pebble_prune_latency",
+			metric.WithDescription("Time taken to prune old versions from PebbleDB"),
+			metric.WithUnit("s"),
+		)),
+		ImportLatency: must(meter.Float64Histogram(
+			"pebble_import_latency",
+			metric.WithDescription("Time taken to import snapshot data to PebbleDB"),
+			metric.WithUnit("s"),
+		)),
+		HashComputationLatency: must(meter.Int64Histogram(
+			"pebble_hash_computation_latency",
+			metric.WithDescription("Time taken to compute hash for a block range"),
+			metric.WithUnit("ms"),
+		)),
+		BatchWriteLatency: must(meter.Int64Histogram(
+			"pebble_batch_write_latency",
+			metric.WithDescription("Time taken to write a batch to PebbleDB"),
+			metric.WithUnit("ms"),
+		)),
+		IterationLatency: must(meter.Int64Histogram(
+			"pebble_iteration_latency",
+			metric.WithDescription("Time taken to create an iterator"),
+			metric.WithUnit("us"),
+		)),
+		ReverseIterationLatency: must(meter.Int64Histogram(
+			"pebble_reverse_iteration_latency",
+			metric.WithDescription("Time taken to create a reverse iterator"),
+			metric.WithUnit("us"),
+		)),
+
+		// Compaction Metrics
+		CompactionCount: must(meter.Int64Counter(
+			"pebble_compaction_count",
+			metric.WithDescription("Total number of compactions"),
+			metric.WithUnit("{count}"),
+		)),
+		CompactionDuration: must(meter.Float64Histogram(
+			"pebble_compaction_duration",
+			metric.WithDescription("Duration of compaction operations"),
+			metric.WithUnit("s"),
+		)),
+		CompactionBytesRead: must(meter.Int64Counter(
+			"pebble_compaction_bytes_read",
+			metric.WithDescription("Total bytes read during compaction"),
+			metric.WithUnit("By"),
+		)),
+		CompactionBytesWritten: must(meter.Int64Counter(
+			"pebble_compaction_bytes_written",
+			metric.WithDescription("Total bytes written during compaction"),
+			metric.WithUnit("By"),
+		)),
+
+		// Flush Metrics
+		FlushCount: must(meter.Int64Counter(
+			"pebble_flush_count",
+			metric.WithDescription("Total number of memtable flushes"),
+			metric.WithUnit("{count}"),
+		)),
+		FlushDuration: must(meter.Float64Histogram(
+			"pebble_flush_duration",
+			metric.WithDescription("Duration of memtable flush operations"),
+			metric.WithUnit("s"),
+		)),
+		FlushBytesWritten: must(meter.Int64Counter(
+			"pebble_flush_bytes_written",
+			metric.WithDescription("Total bytes written during memtable flushes"),
+			metric.WithUnit("By"),
+		)),
+
+		// Storage Metrics
+		SSTableCount: must(meter.Int64Gauge(
+			"pebble_sstable_count",
+			metric.WithDescription("Current number of SSTables"),
+			metric.WithUnit("{count}"),
+		)),
+		SSTableTotalSize: must(meter.Int64Gauge(
+			"pebble_sstable_total_size",
+			metric.WithDescription("Total size of all SSTables"),
+			metric.WithUnit("By"),
+		)),
+		MemtableCount: must(meter.Int64Gauge(
+			"pebble_memtable_count",
+			metric.WithDescription("Current number of memtables"),
+			metric.WithUnit("{count}"),
+		)),
+		MemtableTotalSize: must(meter.Int64Gauge(
+			"pebble_memtable_total_size",
+			metric.WithDescription("Total size of all memtables"),
+			metric.WithUnit("By"),
+		)),
+		WALSize: must(meter.Int64Gauge(
+			"pebble_wal_size",
+			metric.WithDescription("Current size of Write-Ahead Log"),
+			metric.WithUnit("By"),
+		)),
+
+		// Cache Metrics
+		CacheHits: must(meter.Int64Counter(
+			"pebble_cache_hits",
+			metric.WithDescription("Total number of cache hits"),
+			metric.WithUnit("{count}"),
+		)),
+		CacheMisses: must(meter.Int64Counter(
+			"pebble_cache_misses",
+			metric.WithDescription("Total number of cache misses"),
+			metric.WithUnit("{count}"),
+		)),
+		CacheSize: must(meter.Int64Gauge(
+			"pebble_cache_size",
+			metric.WithDescription("Current cache size"),
+			metric.WithUnit("By"),
+		)),
+
+		// Operational Metrics
+		BatchSize: must(meter.Int64Histogram(
+			"pebble_batch_size",
+			metric.WithDescription("Size of batches written to PebbleDB"),
+			metric.WithUnit("By"),
+		)),
+		PendingChangesQueueDepth: must(meter.Int64Gauge(
+			"pebble_pending_changes_queue_depth",
+			metric.WithDescription("Number of pending changesets in async write queue"),
+			metric.WithUnit("{count}"),
+		)),
+		IteratorCount: must(meter.Int64Gauge(
+			"pebble_iterator_count",
+			metric.WithDescription("Current number of active iterators"),
+			metric.WithUnit("{count}"),
+		)),
+	}
 )
 
 // must panics if err is non-nil, otherwise returns v.
