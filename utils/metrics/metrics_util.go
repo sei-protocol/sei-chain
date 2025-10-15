@@ -398,6 +398,30 @@ func IncrementAssociationError(scenario string, err types.AssociationMissingErr)
 	)
 }
 
+func IncrementNonceMismatch(tooHigh bool) {
+	cause := "too_low"
+	if tooHigh {
+		cause = "too_high"
+	}
+	SafeTelemetryIncrCounterWithLabels(
+		[]string{"sei", "nonce", "mismatch"},
+		1,
+		[]metrics.Label{
+			telemetry.NewLabel("cause", cause),
+		},
+	)
+}
+
+func IncrementPendingNonce(event string) {
+	SafeTelemetryIncrCounterWithLabels(
+		[]string{"sei", "pending", "nonce"},
+		1,
+		[]metrics.Label{
+			telemetry.NewLabel("event", event),
+		},
+	)
+}
+
 // Measures the RPC request latency in milliseconds
 // Metric Name:
 //

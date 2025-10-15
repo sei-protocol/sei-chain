@@ -9,6 +9,7 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmtypes "github.com/tendermint/tendermint/types"
 
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
@@ -73,12 +74,14 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 			}
 			txKey := tmtypes.Tx(ctx.TxBytes()).Key()
 			svd.evmKeeper.AddPendingNonce(txKey, evmAddr, txNonce, thenCtx.Priority())
+			metrics.IncrementPendingNonce("added")
 		})
 
 		// if the mempool expires a transaction, this handler is invoked
 		ctx = ctx.WithExpireTxHandler(func() {
 			txKey := tmtypes.Tx(ctx.TxBytes()).Key()
 			svd.evmKeeper.RemovePendingNonce(txKey)
+			metrics.IncrementPendingNonce("expired")
 		})
 
 		if txNonce > nextNonce {
@@ -97,6 +100,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 
 				if txNonce < nextNonceToBeMined {
 					// this nonce has already been mined, we cannot accept it again
+					metrics.IncrementPendingNonce("rejected")
 					return abci.Rejected
 				} else if txNonce < nextPendingNonce {
 					// check if the sender still has enough funds to pay for gas
@@ -108,12 +112,14 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 					// this nonce is allowed to process as it is part of the
 					// consecutive nonces from nextNonceToBeMined to nextPendingNonce
 					// This logic allows multiple nonces from an account to be processed in a block.
+					metrics.IncrementPendingNonce("accepted")
 					return abci.Accepted
 				}
 				return abci.Pending
 			})
 		}
 	} else if txNonce != nextNonce {
+		metrics.IncrementNonceMismatch(txNonce > nextNonce)
 		return ctx, sdkerrors.ErrWrongSequence
 	}
 
