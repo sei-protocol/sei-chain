@@ -140,6 +140,7 @@ func setupTestServer(
 		a.TracerAnteHandler,
 		ctxProvider,
 		func(int64) client.TxConfig { return a.GetTxConfig() },
+		a.CommitMultiStore().GetEarliestVersion,
 		"",
 		func(ctx context.Context, hash common.Hash) (bool, error) {
 			return false, nil

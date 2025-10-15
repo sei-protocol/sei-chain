@@ -265,7 +265,16 @@ type EventItemDataWrapper struct {
 	Value json.RawMessage `json:"value"`
 }
 
-func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, filterConfig *FilterConfig, connectionType ConnectionType, namespace string) *FilterAPI {
+func NewFilterAPI(
+	tmClient rpcclient.Client,
+	k *keeper.Keeper,
+	ctxProvider func(int64) sdk.Context,
+	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
+	filterConfig *FilterConfig,
+	connectionType ConnectionType,
+	namespace string,
+) *FilterAPI {
 	if filterConfig.maxBlock <= 0 {
 		filterConfig.maxBlock = DefaultMaxBlockRange
 	}
@@ -274,7 +283,7 @@ func NewFilterAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(
 	}
 
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, filterConfig: filterConfig, includeSyntheticReceipts: shouldIncludeSynthetic(namespace)}
+	logFetcher := &LogFetcher{tmClient: tmClient, k: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, earliestVersion: earliestVersion, filterConfig: filterConfig, includeSyntheticReceipts: shouldIncludeSynthetic(namespace)}
 	filters := make(map[ethrpc.ID]filter)
 	api := &FilterAPI{
 		namespace:      namespace,
@@ -629,11 +638,12 @@ type LogFetcher struct {
 	k                        *keeper.Keeper
 	txConfigProvider         func(int64) client.TxConfig
 	ctxProvider              func(int64) sdk.Context
+	earliestVersion          func() int64
 	filterConfig             *FilterConfig
 	includeSyntheticReceipts bool
 }
 
-func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, err error) {
+func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCriteria, lastToHeight int64) (res []*ethtypes.Log, end int64, rerr error) {
 	latest := f.ctxProvider(LatestCtxHeight).BlockHeight()
 	begin, end := latest, latest
 	if crit.FromBlock != nil {
@@ -694,6 +704,12 @@ func (f *LogFetcher) GetLogsByFilters(ctx context.Context, crit filters.FilterCr
 		sortedBatches = append(sortedBatches, localLogs)
 		resultsMutex.Unlock()
 	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			rerr = fmt.Errorf("encountered error when fetching logs: %v", r)
+		}
+	}()
 
 	// Batch process with fail-fast
 	blockBatch := make([]*coretypes.ResultBlock, 0, WorkerBatchSize)
@@ -815,7 +831,11 @@ func (f *LogFetcher) collectLogs(block *coretypes.ResultBlock, crit filters.Filt
 	ctx := f.ctxProvider(block.Block.Height)
 	totalLogs := uint(0)
 	evmTxIndex := 0
-	for _, hash := range getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.k, block, f.includeSyntheticReceipts) {
+	txHashes, err := getTxHashesFromBlock(f.ctxProvider, f.txConfigProvider, f.earliestVersion, f.k, block, f.includeSyntheticReceipts)
+	if err != nil {
+		panic(err)
+	}
+	for _, hash := range txHashes {
 		receipt, found := getCachedReceipt(block.Block.Height, hash.hash)
 		if !found {
 			var err error
