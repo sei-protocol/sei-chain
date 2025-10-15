@@ -203,7 +203,6 @@ func setupReceiptStore() (seidbtypes.StateStore, error) {
 	}
 
 	ssConfig := ssconfig.DefaultStateStoreConfig()
-	ssConfig.DedicatedChangelog = true
 	ssConfig.KeepRecent = 0 // No min retain blocks in test
 	ssConfig.DBDirectory = tempDir
 	ssConfig.KeepLastVersion = false

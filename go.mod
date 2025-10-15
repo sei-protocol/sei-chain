@@ -35,6 +35,7 @@ require (
 	github.com/sirkon/goproxy v1.4.8
 	github.com/spf13/cast v1.5.0
 	github.com/spf13/cobra v1.8.1
+	github.com/spf13/viper v1.13.0
 	github.com/stretchr/testify v1.11.1
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d
 	github.com/tendermint/tendermint v0.37.0-dev
@@ -47,7 +48,6 @@ require (
 	golang.org/x/time v0.13.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20241021214115-324edc3d5d38
 	google.golang.org/grpc v1.67.1
-	google.golang.org/protobuf v1.36.8
 	gopkg.in/yaml.v2 v2.4.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -281,7 +281,6 @@ require (
 	github.com/spf13/afero v1.9.2 // indirect
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/spf13/viper v1.13.0 // indirect
 	github.com/ssgreg/nlreturn/v2 v2.2.1 // indirect
 	github.com/stbenjam/no-sprintf-host-port v0.1.1 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
@@ -332,6 +331,7 @@ require (
 	golang.org/x/tools v0.29.0 // indirect
 	google.golang.org/genproto v0.0.0-20231002182017-d307bd883b97 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241015192408-796eee8c2d53 // indirect
+	google.golang.org/protobuf v1.36.8 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	honnef.co/go/tools v0.3.1 // indirect
@@ -363,7 +363,7 @@ replace (
 	github.com/cosmos/ibc-go/v3 => github.com/sei-protocol/sei-ibc-go/v3 v3.3.6
 	github.com/ethereum/go-ethereum => github.com/sei-protocol/go-ethereum v1.15.7-sei-7.0.20250929182230-93350978bb7c
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
-	github.com/sei-protocol/sei-db => github.com/sei-protocol/sei-db v0.0.55
+	github.com/sei-protocol/sei-db => ./sei-db
 	// Latest goleveldb is broken, we have to stick to this version
 	github.com/syndtr/goleveldb => github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	github.com/tendermint/tendermint => ./sei-tendermint

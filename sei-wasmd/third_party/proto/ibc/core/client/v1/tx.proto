@@ -2,10 +2,10 @@ syntax = "proto3";
 
 package ibc.core.client.v1;
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/core/02-client/types";
-
 import "gogoproto/gogo.proto";
 import "google/protobuf/any.proto";
+
+option go_package = "github.com/cosmos/ibc-go/v3/modules/core/02-client/types";
 
 // Msg defines the ibc/client Msg service.
 service Msg {
@@ -24,7 +24,7 @@ service Msg {
 
 // MsgCreateClient defines a message to create an IBC client
 message MsgCreateClient {
-  option (gogoproto.equal)           = false;
+  option (gogoproto.equal) = false;
   option (gogoproto.goproto_getters) = false;
 
   // light client state
@@ -42,7 +42,7 @@ message MsgCreateClientResponse {}
 // MsgUpdateClient defines an sdk.Msg to update a IBC client state using
 // the given header.
 message MsgUpdateClient {
-  option (gogoproto.equal)           = false;
+  option (gogoproto.equal) = false;
   option (gogoproto.goproto_getters) = false;
 
   // client unique identifier
@@ -59,7 +59,7 @@ message MsgUpdateClientResponse {}
 // MsgUpgradeClient defines an sdk.Msg to upgrade an IBC client to a new client
 // state
 message MsgUpgradeClient {
-  option (gogoproto.equal)           = false;
+  option (gogoproto.equal) = false;
   option (gogoproto.goproto_getters) = false;
 
   // client unique identifier
@@ -83,7 +83,7 @@ message MsgUpgradeClientResponse {}
 // MsgSubmitMisbehaviour defines an sdk.Msg type that submits Evidence for
 // light client misbehaviour.
 message MsgSubmitMisbehaviour {
-  option (gogoproto.equal)           = false;
+  option (gogoproto.equal) = false;
   option (gogoproto.goproto_getters) = false;
 
   // client unique identifier
