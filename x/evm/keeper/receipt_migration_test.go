@@ -53,8 +53,7 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 	// Verify first 100 legacy receipts are retrievable from receipt.db after migration
 	for i := 0; i < 100; i++ {
 		tx := txs[i]
-		r, err := k.GetReceiptFromReceiptStore(ctx, tx)
-		require.NoError(t, err)
+		r := testkeeper.WaitForReceiptFromStore(t, k, ctx, tx)
 		require.Equal(t, tx.Hex(), r.TxHashHex)
 	}
 	// Verify last receipt is not retrievable from receipt.db after migration
@@ -63,8 +62,7 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 
 	// Check GetReceipt works for migrated receipts
 	for _, tx := range txs[:100] {
-		r, err := k.GetReceipt(ctx, tx)
-		require.NoError(t, err)
+		r := testkeeper.WaitForReceipt(t, k, ctx, tx)
 		require.Equal(t, tx.Hex(), r.TxHashHex)
 	}
 
@@ -79,8 +77,7 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 
 	// Verify all receipts are retrievable from receipt.db after migration
 	for _, tx := range txs {
-		r, err := k.GetReceiptFromReceiptStore(ctx, tx)
-		require.NoError(t, err)
+		r := testkeeper.WaitForReceiptFromStore(t, k, ctx, tx)
 		require.Equal(t, tx.Hex(), r.TxHashHex)
 	}
 
@@ -91,8 +88,7 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 
 	// Check GetReceipt works for all receipts
 	for _, tx := range txs {
-		r, err := k.GetReceipt(ctx, tx)
-		require.NoError(t, err)
+		r := testkeeper.WaitForReceipt(t, k, ctx, tx)
 		require.Equal(t, tx.Hex(), r.TxHashHex)
 	}
 }

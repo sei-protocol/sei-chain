@@ -70,8 +70,7 @@ func TestSimple(t *testing.T) {
 	require.Empty(t, res.VmError)
 
 	require.NoError(t, k.FlushTransientReceipts(ctx))
-	receipt, err := k.GetReceipt(ctx, common.HexToHash(res.Hash))
-	require.Nil(t, err)
+	receipt := testkeeper.WaitForReceipt(t, k, ctx, common.HexToHash(res.Hash))
 	require.NotNil(t, receipt)
 	require.Equal(t, uint32(ethtypes.ReceiptStatusSuccessful), receipt.Status)
 	k.SetERC20NativePointer(ctx, "test", common.HexToAddress(receipt.ContractAddress))

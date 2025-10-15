@@ -210,6 +210,12 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
 
 	var changesets []*proto.NamedChangeSet
 	changesets = append(changesets, ncs)
+	// Genesis and some unit tests execute at block height 0. Async writes
+	// rely on a positive version to avoid regressions in the underlying
+	// state store metadata, so fall back to a synchronous apply in that case.
+	if ctx.BlockHeight() == 0 {
+		return k.receiptStore.ApplyChangesetSync(ctx.BlockHeight(), changesets)
+	}
 	err := k.receiptStore.ApplyChangesetAsync(ctx.BlockHeight(), changesets)
 	if err != nil {
 		if !strings.Contains(err.Error(), "not implemented") { // for tests
