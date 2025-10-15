@@ -40,8 +40,7 @@ func (cs ChannelIDSet) Contains(id ChannelID) bool {
 // Connection implements Connection for Transport.
 type Connection struct {
 	cancel chan struct{}
-	router *Router
-	conn net.Conn
+	conn *net.TCPConn
 	peerChannels ChannelIDSet
 	peerInfo types.NodeInfo
 	sendQueue *Queue[sendMsg]
@@ -52,8 +51,7 @@ type Connection struct {
 func HandshakeOrClose(
 	ctx context.Context,
 	r *Router,
-	nodeInfo types.NodeInfo,
-	tcpConn net.Conn,
+	tcpConn *net.TCPConn,
 ) (c *Connection, err error) {
 	defer func() {
 		// Late error check. Close conn to avoid leaking it.
@@ -61,6 +59,7 @@ func HandshakeOrClose(
 			tcpConn.Close()
 		}
 	}()
+	nodeInfo := r.nodeInfoProducer()
 	return scope.Run1(ctx, func(ctx context.Context, s scope.Scope) (*Connection, error) {
 		var ok atomic.Bool
 		s.SpawnBg(func() error {
@@ -113,14 +112,14 @@ func HandshakeOrClose(
 	})
 }
 
-func (c *Connection) sendRoutine(ctx context.Context) error {
+func (c *Connection) sendRoutine(ctx context.Context, r *Router) error {
 	for {
 		start := time.Now().UTC()
 		m, err := c.sendQueue.Recv(ctx)
 		if err != nil {
 			return err
 		}
-		c.router.metrics.RouterPeerQueueRecv.Observe(time.Since(start).Seconds())
+		r.metrics.RouterPeerQueueRecv.Observe(time.Since(start).Seconds())
 		bz, err := proto.Marshal(m.Message)
 		if err != nil {
 			panic(fmt.Sprintf("proto.Marshal(): %v", err))
@@ -131,23 +130,23 @@ func (c *Connection) sendRoutine(ctx context.Context) error {
 		if err := c.mconn.Send(ctx, m.ChannelID, bz); err != nil {
 			return err
 		}
-		c.router.logger.Debug("sent message", "peer", c.peerInfo.NodeID, "message", m.Message)
+		r.logger.Debug("sent message", "peer", c.peerInfo.NodeID, "message", m.Message)
 	}
 }
 
 // receivePeer receives inbound messages from a peer, deserializes them and
 // passes them on to the appropriate channel.
-func (c *Connection) recvRoutine(ctx context.Context) error {
+func (c *Connection) recvRoutine(ctx context.Context, r *Router) error {
 	for {
 		chID, bz, err := c.mconn.Recv(ctx)
 		if err != nil {
 			return err
 		}
-		for chs := range c.router.channels.RLock() {
+		for chs := range r.channels.RLock() {
 			ch, ok := chs[chID]
 			if !ok {
 				// TODO(gprusak): verify if this is a misbehavior, and drop the peer if it is.
-				c.router.logger.Debug("dropping message for unknown channel", "peer", c.peerInfo.NodeID, "channel", chID)
+				r.logger.Debug("dropping message for unknown channel", "peer", c.peerInfo.NodeID, "channel", chID)
 				continue
 			}
 
@@ -163,45 +162,45 @@ func (c *Connection) recvRoutine(ctx context.Context) error {
 			}
 			// Priority is not used since all messages in this queue are from the same channel.
 			if _, ok := ch.recvQueue.Send(RecvMsg{From: c.peerInfo.NodeID, Message: msg}, proto.Size(msg), 0).Get(); ok {
-				c.router.metrics.QueueDroppedMsgs.With("ch_id", fmt.Sprint(chID), "direction", "in").Add(float64(1))
+				r.metrics.QueueDroppedMsgs.With("ch_id", fmt.Sprint(chID), "direction", "in").Add(float64(1))
 			}
-			c.router.metrics.PeerReceiveBytesTotal.With(
+			r.metrics.PeerReceiveBytesTotal.With(
 				"chID", fmt.Sprint(chID),
 				"peer_id", string(c.peerInfo.NodeID),
-				"message_type", c.router.lc.ValueToMetricLabel(msg)).Add(float64(proto.Size(msg)))
-			c.router.logger.Debug("received message", "peer", c.peerInfo.NodeID, "message", msg)
+				"message_type", r.lc.ValueToMetricLabel(msg)).Add(float64(proto.Size(msg)))
+			r.logger.Debug("received message", "peer", c.peerInfo.NodeID, "message", msg)
 		}
 	}
 }
 
-func (c *Connection) Run(ctx context.Context) error {
+func (c *Connection) Run(ctx context.Context, r *Router) error {
 	peerInfo := c.PeerInfo()
 	peerID := peerInfo.NodeID
-	c.router.metrics.Peers.Add(1)
-	defer c.router.metrics.Peers.Add(-1)
-	for conns := range c.router.peerStates.Lock() {
+	r.metrics.Peers.Add(1)
+	defer r.metrics.Peers.Add(-1)
+	for conns := range r.conns.Lock() {
 		if old, ok := conns[peerID]; ok {
 			old.Close()
 		}
 		conns[peerID] = c
 	}
-	c.router.peerManager.Ready(ctx, peerID, c.peerChannels)
-	c.router.logger.Info("peer connected", "peer", peerID, "endpoint", c)
+	r.peerManager.Ready(ctx, peerID, c.peerChannels)
+	r.logger.Info("peer connected", "peer", peerID, "endpoint", c)
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error { return c.mconn.Run(ctx) })
-		s.Spawn(func() error { return c.sendRoutine(ctx) })
-		s.Spawn(func() error { return c.recvRoutine(ctx) })
+		s.Spawn(func() error { return c.sendRoutine(ctx, r) })
+		s.Spawn(func() error { return c.recvRoutine(ctx, r) })
 		_,_,_ = utils.RecvOrClosed(ctx, c.cancel)
 		return context.Canceled
 	})
-	c.router.logger.Info("peer disconnected", "peer", peerID, "endpoint", c, "err", err)
-	for conns := range c.router.peerStates.Lock() {
+	r.logger.Info("peer disconnected", "peer", peerID, "endpoint", c, "err", err)
+	for conns := range r.conns.Lock() {
 		if conns[peerID] == c {
 			delete(conns, peerID)
 		}
 	}
 	// TODO(gprusak): investigate if peerManager handles overlapping connetions correctly
-	c.router.peerManager.Disconnected(ctx, peerID)
+	r.peerManager.Disconnected(ctx, peerID)
 	return err
 }
 

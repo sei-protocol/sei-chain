@@ -215,11 +215,11 @@ func (r *Reactor) processPexCh(ctx context.Context) error {
 				}
 
 				// A request from another peer, or a response to one of our requests.
-				dur, err := r.handlePexMessage(ctx, m)
+				dur, err := r.handlePexMessage(m)
 				if err != nil {
 					r.logger.Error("failed to process pex message",
 						"msg", m, "err", err)
-					r.channel.SendError(ctx, p2p.PeerError{
+					r.channel.SendError(p2p.PeerError{
 						NodeID: m.From,
 						Err:    err,
 					})
@@ -250,7 +250,7 @@ func (r *Reactor) processPeerUpdates(ctx context.Context, peerUpdates *p2p.PeerU
 // handlePexMessage handles envelopes sent from peers on the PexChannel.
 // If an update was received, a new polling interval is returned; otherwise the
 // duration is 0.
-func (r *Reactor) handlePexMessage(ctx context.Context, m p2p.RecvMsg) (time.Duration, error) {
+func (r *Reactor) handlePexMessage(m p2p.RecvMsg) (time.Duration, error) {
 	logger := r.logger.With("peer", m.From)
 
 	switch msg := m.Message.(type) {

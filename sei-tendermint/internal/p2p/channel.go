@@ -56,17 +56,20 @@ func (pe PeerError) Unwrap() error { return pe.Err }
 
 // Channel is a bidirectional channel to exchange Protobuf messages with peers.
 // Each message is wrapped in an Envelope to specify its sender and receiver.
-type Channel struct {
-	router *Router
+type channel struct {
 	desc  ChannelDescriptor
 	recvQueue  *Queue[RecvMsg] // inbound messages (peers to reactors)
 }
 
+type Channel struct {
+	*channel
+	router *Router
+}
+
 // NewChannel creates a new channel. It is primarily for internal and test
 // use, reactors should use Router.OpenChannel().
-func newChannel(router *Router, desc ChannelDescriptor) *Channel {
-	return &Channel{
-		router: router,
+func newChannel(desc ChannelDescriptor) *channel {
+	return &channel{
 		desc:  desc,
 		// TODO(gprusak): get rid of this random cap*cap value once we understand
 		// what the sizes per channel really should be.
@@ -96,7 +99,7 @@ func (ch *Channel) send(msg proto.Message, queues ...*Queue[sendMsg]) {
 func (ch *Channel) Send(msg proto.Message, to types.NodeID) {
 	ok := false
 	var c *Connection
-	for conns := range ch.router.peerStates.RLock() {
+	for conns := range ch.router.conns.RLock() {
 		c, ok = conns[to]
 	}
 	if !ok {
@@ -116,7 +119,7 @@ func (ch *Channel) Send(msg proto.Message, to types.NodeID) {
 // Broadcasts msg to all peers on the channel.
 func (ch *Channel) Broadcast(msg proto.Message) {
 	var queues []*Queue[sendMsg]
-	for conns := range ch.router.peerStates.RLock() {
+	for conns := range ch.router.conns.RLock() {
 		queues = make([]*Queue[sendMsg], 0, len(conns))
 		for _, c := range conns {
 			if _, ok := c.peerChannels[ch.desc.ID]; ok {
