@@ -378,7 +378,8 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byt
 	return nil, nil
 }
 
-func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) error {
+// ApplyChangesetSync apply all changesets for a single version in blocking way
+func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedChangeSet) error {
 	// Check if version is 0 and change it to 1
 	// We do this specifically since keys written as part of genesis state come in as version 0
 	// But pebbledb treats version 0 as special, so apply the changeset at version 1 instead
@@ -392,23 +393,24 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 		return err
 	}
 
-	for _, kvPair := range cs.Changeset.Pairs {
-		if kvPair.Value == nil {
-			if err := b.Delete(cs.Name, kvPair.Key); err != nil {
+	for _, cs := range changeset {
+		for _, kvPair := range cs.Changeset.Pairs {
+			if kvPair.Value == nil {
+				if err := b.Delete(cs.Name, kvPair.Key); err != nil {
+					return err
+				}
+			} else if err := b.Set(cs.Name, kvPair.Key, kvPair.Value); err != nil {
 				return err
 			}
-		} else if err := b.Set(cs.Name, kvPair.Key, kvPair.Value); err != nil {
-			return err
 		}
+		// Mark the store as updated
+		db.storeKeyDirty.Store(cs.Name, version)
 	}
-
-	// Mark the store as updated
-	db.storeKeyDirty.Store(cs.Name, version)
 
 	if err := b.Write(); err != nil {
 		return err
 	}
-	// Update latest version on write success
+	// Update latest version after all writes succeed
 	db.latestVersion.Store(version)
 	return nil
 }
@@ -546,13 +548,13 @@ func (db *Database) writeAsyncInBackground() {
 	db.asyncWriteWG.Add(1)
 	defer db.asyncWriteWG.Done()
 	for nextChange := range db.pendingChanges {
-		version := nextChange.Version
-		for _, cs := range nextChange.Changesets {
-			if err := db.ApplyChangeset(version, cs); err != nil {
+		if db.streamHandler != nil {
+			version := nextChange.Version
+			if err := db.ApplyChangesetSync(version, nextChange.Changesets); err != nil {
 				panic(err)
 			}
 		}
-		if err := db.SetLatestVersion(version); err != nil {
+		if err := db.SetLatestVersion(nextChange.Version); err != nil {
 			panic(err)
 		}
 	}

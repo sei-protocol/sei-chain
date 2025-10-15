@@ -68,7 +68,7 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 		require.Equal(t, tx.Hex(), r.TxHashHex)
 	}
 
-	// Advance height to ensure subsequent ApplyChangeset uses a new version
+	// Advance height to ensure subsequent ApplyChangesetSync uses a new version
 	ctx = ctx.WithBlockHeight(ctx.BlockHeight() + 1)
 	migrated, err = k.MigrateLegacyReceiptsBatch(ctx, keeper.LegacyReceiptMigrationBatchSize)
 	require.NoError(t, err)

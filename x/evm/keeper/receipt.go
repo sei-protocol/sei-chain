@@ -216,7 +216,7 @@ func (k *Keeper) flushTransientReceipts(ctx sdk.Context) error {
 			return err
 		}
 		// fallback to synchronous apply for stores that do not support async writes
-		return k.receiptStore.ApplyChangeset(ctx.BlockHeight(), ncs)
+		return k.receiptStore.ApplyChangesetSync(ctx.BlockHeight(), []*proto.NamedChangeSet{ncs})
 	}
 	return nil
 }

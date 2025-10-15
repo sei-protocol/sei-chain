@@ -152,7 +152,7 @@ func (rs *Store) flush() error {
 		})
 		if rs.ssStore != nil {
 			if err := rs.ssStore.ApplyChangesetAsync(currentVersion, changeSets); err != nil {
-				panic(err)
+				return err
 			}
 			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
 		}
