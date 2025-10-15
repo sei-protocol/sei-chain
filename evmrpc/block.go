@@ -39,6 +39,7 @@ type BlockAPI struct {
 	keeper               *keeper.Keeper
 	ctxProvider          func(int64) sdk.Context
 	txConfigProvider     func(int64) client.TxConfig
+	earliestVersion      func() int64
 	connectionType       ConnectionType
 	namespace            string
 	includeShellReceipts bool
@@ -52,12 +53,22 @@ type SeiBlockAPI struct {
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error)
 }
 
-func NewBlockAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, connectionType ConnectionType, globalBlockCache BlockCache, cacheCreationMutex *sync.Mutex) *BlockAPI {
+func NewBlockAPI(
+	tmClient rpcclient.Client,
+	k *keeper.Keeper,
+	ctxProvider func(int64) sdk.Context,
+	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
+	connectionType ConnectionType,
+	globalBlockCache BlockCache,
+	cacheCreationMutex *sync.Mutex,
+) *BlockAPI {
 	return &BlockAPI{
 		tmClient:             tmClient,
 		keeper:               k,
 		ctxProvider:          ctxProvider,
 		txConfigProvider:     txConfigProvider,
+		earliestVersion:      earliestVersion,
 		connectionType:       connectionType,
 		includeShellReceipts: false,
 		includeBankTransfers: false,
@@ -72,6 +83,7 @@ func NewSeiBlockAPI(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 	globalBlockCache BlockCache,
@@ -82,6 +94,7 @@ func NewSeiBlockAPI(
 		keeper:               k,
 		ctxProvider:          ctxProvider,
 		txConfigProvider:     txConfigProvider,
+		earliestVersion:      earliestVersion,
 		connectionType:       connectionType,
 		includeShellReceipts: true,
 		includeBankTransfers: false,
@@ -100,12 +113,13 @@ func NewSei2BlockAPI(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 ) *SeiBlockAPI {
-	blockAPI := NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, connectionType, isPanicTx, globalBlockCache, cacheCreationMutex)
+	blockAPI := NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, earliestVersion, connectionType, isPanicTx, globalBlockCache, cacheCreationMutex)
 	blockAPI.namespace = Sei2Namespace
 	blockAPI.includeBankTransfers = true
 	return blockAPI
@@ -161,7 +175,24 @@ func (a *BlockAPI) getBlockByHash(ctx context.Context, blockHash common.Hash, fu
 	if err != nil {
 		return nil, err
 	}
-	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, blockRes, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx, a.globalBlockCache, a.cacheCreationMutex)
+	encodedBlock, err := EncodeTmBlock(
+		a.ctxProvider,
+		a.txConfigProvider,
+		a.earliestVersion,
+		block,
+		blockRes,
+		a.keeper,
+		fullTx,
+		a.includeBankTransfers,
+		includeSyntheticTxs,
+		isPanicTx,
+		a.globalBlockCache,
+		a.cacheCreationMutex,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return encodedBlock, nil
 }
 
 func (a *BlockAPI) GetBlockByNumber(ctx context.Context, number rpc.BlockNumber, fullTx bool) (result map[string]interface{}, returnErr error) {
@@ -216,7 +247,24 @@ func (a *BlockAPI) getBlockByNumber(
 	if err != nil {
 		return nil, err
 	}
-	return EncodeTmBlock(a.ctxProvider, a.txConfigProvider, block, blockRes, a.keeper, fullTx, a.includeBankTransfers, includeSyntheticTxs, isPanicTx, a.globalBlockCache, a.cacheCreationMutex)
+	encodedBlock, err := EncodeTmBlock(
+		a.ctxProvider,
+		a.txConfigProvider,
+		a.earliestVersion,
+		block,
+		blockRes,
+		a.keeper,
+		fullTx,
+		a.includeBankTransfers,
+		includeSyntheticTxs,
+		isPanicTx,
+		a.globalBlockCache,
+		a.cacheCreationMutex,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return encodedBlock, nil
 }
 
 func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (result []map[string]interface{}, returnErr error) {
@@ -235,9 +283,19 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 
 	// Get all tx hashes for the block
 	height := block.Block.Height
-
-	txHashes := getTxHashesFromBlock(a.ctxProvider, a.txConfigProvider, a.keeper, block, shouldIncludeSynthetic(a.namespace), a.cacheCreationMutex, a.globalBlockCache)
-
+	txHashes, err := getTxHashesFromBlock(
+		a.ctxProvider,
+		a.txConfigProvider,
+		a.earliestVersion,
+		a.keeper,
+		block,
+		shouldIncludeSynthetic(a.namespace),
+		a.cacheCreationMutex,
+		a.globalBlockCache,
+	)
+	if err != nil {
+		return nil, err
+	}
 	// Get tx receipts for all hashes in parallel
 	wg := sync.WaitGroup{}
 	mtx := sync.Mutex{}
@@ -256,7 +314,17 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 					mtx.Unlock()
 				}
 			} else {
-				encodedReceipt, err := encodeReceipt(a.ctxProvider, a.txConfigProvider, receipt, a.keeper, block, a.includeShellReceipts, a.globalBlockCache, a.cacheCreationMutex)
+				encodedReceipt, err := encodeReceipt(
+					a.ctxProvider,
+					a.txConfigProvider,
+					a.earliestVersion,
+					receipt,
+					a.keeper,
+					block,
+					a.includeShellReceipts,
+					a.globalBlockCache,
+					a.cacheCreationMutex,
+				)
 				if err != nil {
 					mtx.Lock()
 					returnErr = err
@@ -285,6 +353,7 @@ func (a *BlockAPI) GetBlockReceipts(ctx context.Context, blockNrOrHash rpc.Block
 func EncodeTmBlock(
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	block *coretypes.ResultBlock,
 	blockRes *coretypes.ResultBlockResults,
 	k *keeper.Keeper,
@@ -315,7 +384,10 @@ func EncodeTmBlock(
 	transactions := []interface{}{}
 	latestCtx := ctxProvider(LatestCtxHeight)
 
-	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSyntheticTxs, includeBankTransfers, cacheCreationMutex, globalBlockCache)
+	msgs, err := filterTransactions(k, ctxProvider, txConfigProvider, earliestVersion, block, includeSyntheticTxs, includeBankTransfers, cacheCreationMutex, globalBlockCache)
+	if err != nil {
+		return nil, err
+	}
 
 	blockBloom := make([]byte, ethtypes.BloomByteLength)
 	for _, msg := range msgs {
