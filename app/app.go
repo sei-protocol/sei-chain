@@ -1833,9 +1833,12 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 		}
 		return app.legacyEncodingConfig.TxConfig
 	}
+	earliestVersionFetcher := func() int64 {
+		return app.CommitMultiStore().GetEarliestVersion()
+	}
 
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, earliestVersionFetcher, DefaultNodeHome, nil)
 		if err != nil {
 			panic(err)
 		}
@@ -1848,7 +1851,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, earliestVersionFetcher, DefaultNodeHome)
 		if err != nil {
 			panic(err)
 		}

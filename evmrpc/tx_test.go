@@ -92,7 +92,7 @@ func TestGetTransactionError(t *testing.T) {
 
 func TestSign(t *testing.T) {
 	homeDir := t.TempDir()
-	txApi := evmrpc.NewTransactionAPI(nil, nil, nil, nil, homeDir, evmrpc.ConnectionTypeHTTP, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	txApi := evmrpc.NewTransactionAPI(nil, nil, nil, nil, noopEarliestVersionFetcher, homeDir, evmrpc.ConnectionTypeHTTP, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	infoApi := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir, 1024, evmrpc.ConnectionTypeHTTP, nil)
 	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
 	clientCtx, err := config.ReadFromClientConfig(clientCtx)

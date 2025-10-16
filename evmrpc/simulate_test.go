@@ -239,7 +239,7 @@ func TestConvertBlockNumber(t *testing.T) {
 			return sdk.Context{}.WithBlockHeight(1000)
 		}
 		return sdk.Context{}
-	}, nil, nil, &MockClient{}, nil, nil, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	}, nil, nil, noopEarliestVersionFetcher, &MockClient{}, nil, nil, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Equal(t, int64(10), backend.ConvertBlockNumber(10))
 	require.Equal(t, int64(1), backend.ConvertBlockNumber(0))
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-2))

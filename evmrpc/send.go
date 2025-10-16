@@ -42,6 +42,7 @@ type SendConfig struct {
 func NewSendAPI(
 	tmClient rpcclient.Client,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	sendConfig *SendConfig,
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
@@ -60,7 +61,7 @@ func NewSendAPI(
 		keeper:           k,
 		ctxProvider:      ctxProvider,
 		homeDir:          homeDir,
-		backend:          NewBackend(ctxProvider, k, txConfigProvider, tmClient, simulateConfig, app, antehandler, globalBlockCache, cacheCreationMutex),
+		backend:          NewBackend(ctxProvider, k, txConfigProvider, earliestVersion, tmClient, simulateConfig, app, antehandler, globalBlockCache, cacheCreationMutex),
 		connectionType:   connectionType,
 	}
 }
