@@ -62,13 +62,14 @@ func NewDebugAPI(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 	debugCfg Config,
 ) *DebugAPI {
-	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler)
+	backend := NewBackend(ctxProvider, k, txConfigProvider, earliestVersion, tmClient, config, app, antehandler)
 	tracersAPI := tracers.NewAPI(backend)
 	evictCallback := func(key common.Hash, value bool) {}
 	isPanicCache := expirable.NewLRU[common.Hash, bool](IsPanicCacheSize, evictCallback, IsPanicCacheTTL)
@@ -97,13 +98,14 @@ func NewSeiDebugAPI(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 	debugCfg Config,
 ) *SeiDebugAPI {
-	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler)
+	backend := NewBackend(ctxProvider, k, txConfigProvider, earliestVersion, tmClient, config, app, antehandler)
 	tracersAPI := tracers.NewAPI(backend)
 
 	var sem chan struct{}

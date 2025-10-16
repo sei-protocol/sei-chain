@@ -12,7 +12,10 @@ import (
 	"sync"
 	"time"
 
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/utils/helpers"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
@@ -176,6 +179,78 @@ func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash byt
 	return blockRes, err
 }
 
+type indexedMsg struct {
+	msg   sdk.Msg
+	index int
+}
+
+func filterTransactions(
+	k *keeper.Keeper,
+	ctxProvider func(int64) sdk.Context,
+	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
+	block *coretypes.ResultBlock,
+	includeSyntheticTxs bool,
+	includeBankTransfers bool,
+) ([]indexedMsg, error) {
+	txs := []indexedMsg{}
+	nonceMap := make(map[string]uint64)
+	txConfig := txConfigProvider(block.Block.Height)
+	latestCtx := ctxProvider(LatestCtxHeight)
+	prevCtx := ctxProvider(block.Block.Height - 1)
+	if earliestVersion() > prevCtx.BlockHeight() {
+		return nil, fmt.Errorf("block pruned: %d vs %d", earliestVersion(), prevCtx.BlockHeight())
+	}
+	for i, tx := range block.Block.Data.Txs {
+		sdkTx, err := txConfig.TxDecoder()(tx)
+		if err != nil {
+			continue
+		}
+		for _, msg := range sdkTx.GetMsgs() {
+			switch m := msg.(type) {
+			case *types.MsgEVMTransaction:
+				if m.IsAssociateTx() {
+					continue
+				}
+				ethtx, _ := m.AsTransaction()
+				hash := ethtx.Hash()
+				sender, _ := helpers.RecoverEVMSender(ethtx, block.Block.Height, uint64(block.Block.Time.Unix()))
+				receipt, err := k.GetReceipt(latestCtx, hash)
+				if err != nil || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(latestCtx, receipt) {
+					continue
+				}
+				if _, ok := nonceMap[sender.Hex()]; !ok {
+					nonceMap[sender.Hex()] = k.GetNonce(prevCtx, common.HexToAddress(sender.Hex()))
+				}
+				if nonceMap[sender.Hex()] != ethtx.Nonce() {
+					continue
+				}
+				if !includeSyntheticTxs && receipt.TxType == types.ShellEVMTxType {
+					continue
+				}
+				nonceMap[sender.Hex()]++
+				txs = append(txs, indexedMsg{index: i, msg: msg})
+			case *wasmtypes.MsgExecuteContract:
+				if !includeSyntheticTxs {
+					continue
+				}
+				th := sha256.Sum256(block.Block.Txs[i])
+				_, err := k.GetReceipt(latestCtx, th)
+				if err != nil {
+					continue
+				}
+				txs = append(txs, indexedMsg{index: i, msg: msg})
+			case *banktypes.MsgSend:
+				if !includeBankTransfers {
+					continue
+				}
+				txs = append(txs, indexedMsg{index: i, msg: msg})
+			}
+		}
+	}
+	return txs, nil
+}
+
 func recordMetrics(apiMethod string, connectionType ConnectionType, startTime time.Time, success bool) {
 	metrics.IncrementRpcRequestCounter(apiMethod, string(connectionType), success)
 	metrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
@@ -211,28 +286,34 @@ func shouldIncludeSynthetic(namespace string) bool {
 	return namespace == "sei"
 }
 
-func getTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig, shouldIncludeSynthetic bool) []common.Hash {
-	txHashes := []common.Hash{}
-	for i, tx := range block.Block.Data.Txs {
-		sdkTx, err := txConfig.TxDecoder()(tx)
-		if err != nil {
-			fmt.Printf("error decoding tx %d in block %d, skipping\n", i, block.Block.Height)
-			continue
-		}
-		if len(sdkTx.GetMsgs()) > 0 {
-			if evmTx, ok := sdkTx.GetMsgs()[0].(*types.MsgEVMTransaction); ok {
-				if evmTx.IsAssociateTx() {
-					continue
-				}
-				ethtx, _ := evmTx.AsTransaction()
-				txHashes = append(txHashes, ethtx.Hash())
-			}
-		}
-		if shouldIncludeSynthetic {
-			txHashes = append(txHashes, sha256.Sum256(tx))
+type typedTxHash struct {
+	hash  common.Hash
+	isEvm bool
+}
+
+func getTxHashesFromBlock(
+	ctxProvider func(int64) sdk.Context,
+	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
+	k *keeper.Keeper,
+	block *coretypes.ResultBlock,
+	shouldIncludeSynthetic bool,
+) ([]typedTxHash, error) {
+	txHashes := []typedTxHash{}
+	txs, err := filterTransactions(k, ctxProvider, txConfigProvider, earliestVersion, block, shouldIncludeSynthetic, false)
+	if err != nil {
+		return nil, err
+	}
+	for _, tx := range txs {
+		switch tx.msg.(type) {
+		case *types.MsgEVMTransaction:
+			ethtx, _ := tx.msg.(*types.MsgEVMTransaction).AsTransaction()
+			txHashes = append(txHashes, typedTxHash{hash: ethtx.Hash(), isEvm: true})
+		case *wasmtypes.MsgExecuteContract:
+			txHashes = append(txHashes, typedTxHash{hash: common.Hash(sha256.Sum256(block.Block.Txs[tx.index])), isEvm: false})
 		}
 	}
-	return txHashes
+	return txHashes, nil
 }
 
 func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {

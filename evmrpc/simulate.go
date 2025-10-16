@@ -55,6 +55,7 @@ func NewSimulationAPI(
 	ctxProvider func(int64) sdk.Context,
 	keeper *keeper.Keeper,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	tmClient rpcclient.Client,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
@@ -62,7 +63,7 @@ func NewSimulationAPI(
 	connectionType ConnectionType,
 ) *SimulationAPI {
 	api := &SimulationAPI{
-		backend:        NewBackend(ctxProvider, keeper, txConfigProvider, tmClient, config, app, antehandler),
+		backend:        NewBackend(ctxProvider, keeper, txConfigProvider, earliestVersion, tmClient, config, app, antehandler),
 		connectionType: connectionType,
 	}
 	if config.MaxConcurrentSimulationCalls > 0 {
@@ -214,6 +215,7 @@ type Backend struct {
 	*eth.EthAPIBackend
 	ctxProvider      func(int64) sdk.Context
 	txConfigProvider func(int64) client.TxConfig
+	earliestVersion  func() int64
 	keeper           *keeper.Keeper
 	tmClient         rpcclient.Client
 	config           *SimulateConfig
@@ -221,11 +223,21 @@ type Backend struct {
 	antehandler      sdk.AnteHandler
 }
 
-func NewBackend(ctxProvider func(int64) sdk.Context, keeper *keeper.Keeper, txConfigProvider func(int64) client.TxConfig, tmClient rpcclient.Client, config *SimulateConfig, app *baseapp.BaseApp, antehandler sdk.AnteHandler) *Backend {
+func NewBackend(
+	ctxProvider func(int64) sdk.Context,
+	keeper *keeper.Keeper,
+	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
+	tmClient rpcclient.Client,
+	config *SimulateConfig,
+	app *baseapp.BaseApp,
+	antehandler sdk.AnteHandler,
+) *Backend {
 	return &Backend{
 		ctxProvider:      ctxProvider,
 		keeper:           keeper,
 		txConfigProvider: txConfigProvider,
+		earliestVersion:  earliestVersion,
 		tmClient:         tmClient,
 		config:           config,
 		app:              app,
@@ -298,9 +310,16 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 		return nil, nil, err
 	}
 	sdkCtx := b.ctxProvider(LatestCtxHeight)
-	sdkCtxAtHeight := b.ctxProvider(tmBlock.Block.Height)
 	var txs []*ethtypes.Transaction
 	var metadata []tracersutils.TraceBlockMetadata
+	msgs, err := filterTransactions(b.keeper, b.ctxProvider, b.txConfigProvider, b.earliestVersion, tmBlock, false, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	idxToMsgs := make(map[int]sdk.Msg, len(msgs))
+	for _, msg := range msgs {
+		idxToMsgs[msg.index] = msg.msg
+	}
 	for i := range blockRes.TxsResults {
 		decoded, err := b.txConfigProvider(blockRes.Height).TxDecoder()(tmBlock.Block.Txs[i])
 		if err != nil {
@@ -311,15 +330,12 @@ func (b Backend) BlockByNumber(ctx context.Context, bn rpc.BlockNumber) (*ethtyp
 			continue
 		}
 		shouldTrace := false
-		for _, msg := range decoded.GetMsgs() {
+		if msg, ok := idxToMsgs[i]; ok {
 			switch m := msg.(type) {
 			case *types.MsgEVMTransaction:
-				if m.IsAssociateTx() {
-					continue
-				}
 				ethtx, _ := m.AsTransaction()
 				receipt, err := b.keeper.GetReceipt(sdkCtx, ethtx.Hash())
-				if err != nil || receipt.BlockNumber != uint64(tmBlock.Block.Height) || isReceiptFromAnteError(sdkCtxAtHeight, receipt) {
+				if err != nil {
 					continue
 				}
 				TraceReceiptIfApplicable(ctx, receipt)
@@ -391,7 +407,7 @@ func (b *Backend) StateAtTransaction(ctx context.Context, block *ethtypes.Block,
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, emptyRelease, err
 	}
-	blockContext, err := b.keeper.GetVMBlockContext(stateDB.(*state.DBImpl).Ctx(), core.GasPool(b.RPCGasCap()))
+	blockContext, err := b.keeper.GetVMBlockContext(stateDB.(*state.DBImpl).Ctx(), b.keeper.GetGasPool())
 	if err != nil {
 		return nil, vm.BlockContext{}, nil, emptyRelease, err
 	}
@@ -578,7 +594,7 @@ func (b *Backend) PrepareTx(statedb vm.StateDB, tx *ethtypes.Transaction) error 
 }
 
 func (b *Backend) GetBlockContext(ctx context.Context, block *ethtypes.Block, statedb vm.StateDB, backend ethapi.ChainContextBackend) (vm.BlockContext, error) {
-	blockCtx, err := b.keeper.GetVMBlockContext(statedb.(*state.DBImpl).Ctx(), core.GasPool(b.RPCGasCap()))
+	blockCtx, err := b.keeper.GetVMBlockContext(statedb.(*state.DBImpl).Ctx(), b.keeper.GetGasPool())
 	if err != nil {
 		return vm.BlockContext{}, nil
 	}
