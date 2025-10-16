@@ -77,7 +77,7 @@ func TestInitModeConfiguration(t *testing.T) {
 				require.True(t, v.GetBool("api.enable"), "API should be enabled")
 				require.True(t, v.GetBool("grpc.enable"), "gRPC should be enabled")
 				require.True(t, v.GetBool("grpc-web.enable"), "gRPC-Web should be enabled")
-				require.True(t, v.GetBool("rosetta.enable"), "Rosetta should be enabled")
+				require.False(t, v.GetBool("rosetta.enable"), "Rosetta is disabled by default for all modes")
 				require.True(t, v.GetBool("state-store.ss-enable"), "StateStore should be enabled")
 
 				// Note: EVM config requires custom template, tested separately in TestSetEVMConfigByMode and binary tests
