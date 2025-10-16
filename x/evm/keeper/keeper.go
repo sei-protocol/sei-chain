@@ -93,6 +93,8 @@ type Keeper struct {
 	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
 	latestUpgrade           string
+
+	tempNonces map[common.Address]uint64
 }
 
 type AddressNoncePair struct {
@@ -153,6 +155,7 @@ func NewKeeper(
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*AddressNoncePair),
 		receiptStore:                 receiptStateStore,
+		tempNonces:                   map[common.Address]uint64{},
 	}
 	return k
 }
@@ -623,6 +626,29 @@ func (k *Keeper) getReplayBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
 		BlobBaseFee: blobBaseFee,
 		Random:      random,
 	}, nil
+}
+
+func (k *Keeper) CheckNonce(ctx sdk.Context, msg *types.MsgEVMTransaction, index int) (bool, error) {
+	if index == 0 {
+		k.tempNonces = map[common.Address]uint64{}
+	}
+	if msg.Derived == nil {
+		return false, fmt.Errorf("derived is nil")
+	}
+	from := msg.Derived.SenderEVMAddr
+	ethtx, _ := msg.AsTransaction()
+	if nonce, ok := k.tempNonces[from]; ok {
+		if nonce == ethtx.Nonce() {
+			k.tempNonces[from]++
+			return true, nil
+		}
+		return false, nil
+	}
+	if k.GetNonce(ctx, from) == ethtx.Nonce() {
+		k.tempNonces[from]++
+		return true, nil
+	}
+	return false, nil
 }
 
 func uint64Cmp(a, b uint64) int {
