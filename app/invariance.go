@@ -239,10 +239,56 @@ func (app *App) LightInvarianceTotalSupply(cms sdk.CommitMultiStore) {
 	weiDiff := weiPostTotal.Sub(weiPreTotal)
 	weiDiffInUsei, weiDiffRemainder := bankkeeper.SplitUseiWeiAmount(weiDiff)
 	if !weiDiffRemainder.IsZero() {
+		// print out the addresses that have non-zero wei diff
 		panic(fmt.Sprintf("non-zero wei diff found! Pre-block wei total %s, post-block wei total %s", weiPreTotal, weiPostTotal))
 	}
 	useiDiff := useiPreTotal.Sub(useiPostTotal).Sub(weiDiffInUsei).Add(supplyChanged)
 	if !useiDiff.IsZero() {
+		// Per-account check to identify accounts with discrepancies
+		app.Logger().Error(fmt.Sprintf("Found usei diff of %s, checking per account...", useiDiff))
+		for _, addr := range useiChangedAddr {
+			key := append(banktypes.CreateAccountBalancesPrefix(addr), []byte(sdk.MustGetBaseDenom())...)
+
+			// Get pre-block balance (from original store)
+			preVal := ckv.Get(key)
+			preBalance := sdk.ZeroInt()
+			if preVal != nil {
+				var preCoin sdk.Coin
+				if err := preCoin.Unmarshal(preVal); err == nil {
+					preBalance = preCoin.Amount
+				}
+			}
+
+			// Get post-block balance (from changed pairs)
+			postBalance := sdk.ZeroInt()
+			for _, p := range balanceChangePairs {
+				if len(p.Key) < 2 {
+					continue
+				}
+				addrLen := int(p.Key[1])
+				if len(p.Key) < addrLen+2 {
+					continue
+				}
+				pAddr := p.Key[2 : addrLen+2]
+				pDenom := p.Key[addrLen+2:]
+				if string(pDenom) == sdk.MustGetBaseDenom() && string(pAddr) == string(addr) {
+					if !p.Delete {
+						var postCoin sdk.Coin
+						if err := postCoin.Unmarshal(p.Value); err == nil {
+							postBalance = postCoin.Amount
+						}
+					}
+					break
+				}
+			}
+
+			diff := preBalance.Sub(postBalance)
+			if !diff.IsZero() {
+				app.Logger().Error(fmt.Sprintf("Account %s has usei diff: pre=%s post=%s diff=%s",
+					sdk.AccAddress(addr).String(), preBalance, postBalance, diff))
+			}
+		}
+
 		panic(fmt.Sprintf("unexpected usei balance total found! Pre-block usei total %s wei total %s total supply %s, post-block usei total %s wei total %s total supply %s", useiPreTotal, weiPreTotal, preTotalSupply, useiPostTotal, weiPostTotal, preTotalSupply.Add(supplyChanged)))
 	}
 	app.Logger().Info("successfully verified supply light invariance")

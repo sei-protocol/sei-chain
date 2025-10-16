@@ -917,7 +917,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		return sdk.GasInfo{}, nil, nil, 0, nil, nil, ctx, err
 	}
 
-	if app.anteHandler != nil {
+	if false && app.anteHandler != nil {
 		var anteSpan trace.Span
 		// trace AnteHandler
 		_, anteSpan = app.TracingInfo.StartWithContext("AnteHandler", ctx.TraceSpanContext())

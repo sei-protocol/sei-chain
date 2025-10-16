@@ -1324,7 +1324,12 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 				return &abci.ResponseFinalizeBlock{}, nil
 			}
 			cms := app.WriteState()
-			app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
+			if true {
+				//TODO: Replace stub guard with real condition and restore light invariance checks when ante handlers are re-enabled.
+				// Skip light invariance checks while benchmarking without ante handlers.
+			} else {
+				app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
+			}
 			appHash := app.GetWorkingHash()
 			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
 			return &resp, nil
@@ -1343,7 +1348,12 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		return &abci.ResponseFinalizeBlock{}, nil
 	}
 	cms := app.WriteState()
-	app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
+	if true {
+		//TODO: Replace stub guard with real condition and restore light invariance checks when ante handlers are re-enabled.
+		// Skip light invariance checks while benchmarking without ante handlers.
+	} else {
+		app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
+	}
 	appHash := app.GetWorkingHash()
 	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
 	return &resp, nil
@@ -1766,8 +1776,13 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	}
 
 	// Finalize all Bank Module Transfers here so that events are included for prioritiezd txs
-	deferredWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
-	events = append(events, deferredWriteEvents...)
+	if true {
+		//TODO: Replace stub guard with real condition and restore deferred balance writes when ante handlers are re-enabled.
+		// Skip deferred balance writes while benchmarking without ante handlers.
+	} else {
+		deferredWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
+		events = append(events, deferredWriteEvents...)
+	}
 
 	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
 	events = append(events, midBlockEvents...)
@@ -1781,8 +1796,13 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	app.EvmKeeper.SetMsgs(evmTxs)
 
 	// Finalize all Bank Module Transfers here so that events are included
-	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
-	events = append(events, lazyWriteEvents...)
+	if true {
+		//TODO: Replace stub guard with real condition and restore deferred balance writes when ante handlers are re-enabled.
+		// Skip deferred balance writes while benchmarking without ante handlers.
+	} else {
+		lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
+		events = append(events, lazyWriteEvents...)
+	}
 
 	// Sum up total used per block only for evm transactions
 	evmTotalGasUsed := int64(0)

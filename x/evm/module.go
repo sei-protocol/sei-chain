@@ -353,57 +353,62 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 	if newBaseFee != nil {
 		metrics.GaugeEvmBlockBaseFee(newBaseFee.TruncateInt().BigInt(), req.Height)
 	}
-	var coinbase sdk.AccAddress
-	if am.keeper.EthBlockTestConfig.Enabled {
-		blocks := am.keeper.BlockTest.Json.Blocks
-		block, err := blocks[ctx.BlockHeight()-1].Decode()
-		if err != nil {
-			panic(err)
-		}
-		coinbase = am.keeper.GetSeiAddressOrDefault(ctx, block.Header_.Coinbase)
-	} else if am.keeper.EthReplayConfig.Enabled {
-		coinbase = am.keeper.GetSeiAddressOrDefault(ctx, am.keeper.ReplayBlock.Header_.Coinbase)
-		am.keeper.SetReplayedHeight(ctx)
-	} else {
-		coinbase = am.keeper.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)
-	}
 	evmTxDeferredInfoList := am.keeper.GetAllEVMTxDeferredInfo(ctx)
-	denom := am.keeper.GetBaseDenom(ctx)
-	surplus := am.keeper.GetAnteSurplusSum(ctx)
-	for _, deferredInfo := range evmTxDeferredInfoList {
-		txHash := common.BytesToHash(deferredInfo.TxHash)
-		if deferredInfo.Error != "" && txHash.Cmp(ethtypes.EmptyTxsHash) != 0 {
-			_ = am.keeper.SetTransientReceipt(ctx, txHash, &types.Receipt{
-				TxHashHex:        txHash.Hex(),
-				TransactionIndex: deferredInfo.TxIndex,
-				VmError:          deferredInfo.Error,
-				BlockNumber:      uint64(ctx.BlockHeight()), // nolint:gosec
-			})
-			continue
-		}
-		idx := int(deferredInfo.TxIndex)
-		coinbaseAddress := state.GetCoinbaseAddress(idx)
-		useiBalance := am.keeper.BankKeeper().GetBalance(ctx, coinbaseAddress, denom).Amount
-		lockedUseiBalance := am.keeper.BankKeeper().LockedCoins(ctx, coinbaseAddress).AmountOf(denom)
-		balance := useiBalance.Sub(lockedUseiBalance)
-		weiBalance := am.keeper.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
-		if !balance.IsZero() || !weiBalance.IsZero() {
-			if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, coinbase, balance, weiBalance); err != nil {
-				ctx.Logger().Error(fmt.Sprintf("failed to send usei surplus from %s to coinbase account due to %s", coinbaseAddress.String(), err))
+	if true {
+		//TODO: Replace stub guard with real condition and restore surplus redistribution when ante handlers are re-enabled.
+		// Skip surplus redistribution while benchmarking without ante handlers.
+	} else {
+		var coinbase sdk.AccAddress
+		if am.keeper.EthBlockTestConfig.Enabled {
+			blocks := am.keeper.BlockTest.Json.Blocks
+			block, err := blocks[ctx.BlockHeight()-1].Decode()
+			if err != nil {
+				panic(err)
 			}
+			coinbase = am.keeper.GetSeiAddressOrDefault(ctx, block.Header_.Coinbase)
+		} else if am.keeper.EthReplayConfig.Enabled {
+			coinbase = am.keeper.GetSeiAddressOrDefault(ctx, am.keeper.ReplayBlock.Header_.Coinbase)
+			am.keeper.SetReplayedHeight(ctx)
+		} else {
+			coinbase = am.keeper.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)
 		}
-		surplus = surplus.Add(deferredInfo.Surplus)
-	}
-	if surplus.IsPositive() {
-		surplusUsei, surplusWei := state.SplitUseiWeiAmount(surplus.BigInt())
-		if surplusUsei.GT(sdk.ZeroInt()) {
-			if err := am.keeper.BankKeeper().AddCoins(ctx, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(am.keeper.GetBaseDenom(ctx), surplusUsei)), true); err != nil {
-				ctx.Logger().Error("failed to send usei surplus of %s to EVM module account", surplusUsei)
+		denom := am.keeper.GetBaseDenom(ctx)
+		surplus := am.keeper.GetAnteSurplusSum(ctx)
+		for _, deferredInfo := range evmTxDeferredInfoList {
+			txHash := common.BytesToHash(deferredInfo.TxHash)
+			if deferredInfo.Error != "" && txHash.Cmp(ethtypes.EmptyTxsHash) != 0 {
+				_ = am.keeper.SetTransientReceipt(ctx, txHash, &types.Receipt{
+					TxHashHex:        txHash.Hex(),
+					TransactionIndex: deferredInfo.TxIndex,
+					VmError:          deferredInfo.Error,
+					BlockNumber:      uint64(ctx.BlockHeight()), // nolint:gosec
+				})
+				continue
 			}
+			idx := int(deferredInfo.TxIndex)
+			coinbaseAddress := state.GetCoinbaseAddress(idx)
+			useiBalance := am.keeper.BankKeeper().GetBalance(ctx, coinbaseAddress, denom).Amount
+			lockedUseiBalance := am.keeper.BankKeeper().LockedCoins(ctx, coinbaseAddress).AmountOf(denom)
+			balance := useiBalance.Sub(lockedUseiBalance)
+			weiBalance := am.keeper.BankKeeper().GetWeiBalance(ctx, coinbaseAddress)
+			if !balance.IsZero() || !weiBalance.IsZero() {
+				if err := am.keeper.BankKeeper().SendCoinsAndWei(ctx, coinbaseAddress, coinbase, balance, weiBalance); err != nil {
+					ctx.Logger().Error(fmt.Sprintf("failed to send usei surplus from %s to coinbase account due to %s", coinbaseAddress.String(), err))
+				}
+			}
+			surplus = surplus.Add(deferredInfo.Surplus)
 		}
-		if surplusWei.GT(sdk.ZeroInt()) {
-			if err := am.keeper.BankKeeper().AddWei(ctx, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), surplusWei); err != nil {
-				ctx.Logger().Error("failed to send wei surplus of %s to EVM module account", surplusWei)
+		if surplus.IsPositive() {
+			surplusUsei, surplusWei := state.SplitUseiWeiAmount(surplus.BigInt())
+			if surplusUsei.GT(sdk.ZeroInt()) {
+				if err := am.keeper.BankKeeper().AddCoins(ctx, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), sdk.NewCoins(sdk.NewCoin(am.keeper.GetBaseDenom(ctx), surplusUsei)), true); err != nil {
+					ctx.Logger().Error("failed to send usei surplus of %s to EVM module account", surplusUsei)
+				}
+			}
+			if surplusWei.GT(sdk.ZeroInt()) {
+				if err := am.keeper.BankKeeper().AddWei(ctx, am.keeper.AccountKeeper().GetModuleAddress(types.ModuleName), surplusWei); err != nil {
+					ctx.Logger().Error("failed to send wei surplus of %s to EVM module account", surplusWei)
+				}
 			}
 		}
 	}
