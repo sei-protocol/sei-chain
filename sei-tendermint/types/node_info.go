@@ -3,6 +3,7 @@ package types
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"strings"
 
@@ -76,7 +77,7 @@ func (info NodeInfo) ID() NodeID {
 // url-encoding), and we just need to be careful with how we handle that in our
 // clients. (e.g. off by default).
 func (info NodeInfo) Validate() error {
-	if _, err := ParseAddressString(info.ID().AddressString(info.ListenAddr)); err != nil {
+	if _, err := ResolveAddressString(info.ID().AddressString(info.ListenAddr)); err != nil {
 		return err
 	}
 
@@ -232,10 +233,10 @@ func NodeInfoFromProto(pb *tmp2p.NodeInfo) (NodeInfo, error) {
 	return dni, nil
 }
 
-// ParseAddressString reads an address string, and returns the IP
+// ResolveAddressString reads an address string, and returns the IP
 // address and port information, returning an error for any validation
 // errors.
-func ParseAddressString(addr string) (netip.AddrPort, error) {
+func ResolveAddressString(addr string) (netip.AddrPort, error) {
 	addrWithoutProtocol := removeProtocolIfDefined(addr)
 	spl := strings.Split(addrWithoutProtocol, "@")
 	if len(spl) != 2 {
@@ -250,7 +251,11 @@ func ParseAddressString(addr string) (netip.AddrPort, error) {
 	if err := id.Validate(); err != nil {
 		return netip.AddrPort{}, err
 	}
-	return netip.ParseAddrPort(spl[1])
+	tcpAddr, err := net.ResolveTCPAddr("tcp", spl[1])
+	if err != nil {
+		return netip.AddrPort{}, err
+	}
+	return tcpAddr.AddrPort(), nil
 }
 
 func removeProtocolIfDefined(addr string) string {

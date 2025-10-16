@@ -178,7 +178,7 @@ func TestNodeInfoAddChannel(t *testing.T) {
 	require.Contains(t, nodeInfo.Channels, byte(0x02))
 }
 
-func TestParseAddressString(t *testing.T) {
+func TestResolveAddressString(t *testing.T) {
 	testCases := []struct {
 		name     string
 		addr     string
@@ -242,7 +242,7 @@ func TestParseAddressString(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			addr, err := ParseAddressString(tc.addr)
+			addr, err := ResolveAddressString(tc.addr)
 			if tc.correct {
 				require.NoError(t, err, tc.addr)
 				assert.Contains(t, tc.expected, addr.String())
