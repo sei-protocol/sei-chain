@@ -1,7 +1,6 @@
 package app_test
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"math/big"
@@ -79,10 +78,7 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 	otel.SetTracerProvider(defaultTracer)
 	tr := defaultTracer.Tracer("component-main")
 
-	tracingInfo := &tracing.Info{
-		Tracer: &tr,
-	}
-	tracingInfo.SetContext(context.Background())
+	tracingInfo := tracing.NewTracingInfo(tr, true)
 	antehandler, _, anteDepGenerator, err := app.NewAnteHandlerAndDepGenerator(
 		app.HandlerOptions{
 			HandlerOptions: ante.HandlerOptions{
