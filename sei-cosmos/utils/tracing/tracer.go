@@ -48,16 +48,16 @@ func GetTracerProviderOptions(url string) ([]trace.TracerProviderOption, error) 
 }
 
 type Info struct {
-	Tracer         *otrace.Tracer
-	tracerContext  context.Context
-	BlockSpan      *otrace.Span
+	tracer         otrace.Tracer
+	blockSpan      otrace.Span
 	tracingEnabled atomic.Bool
 	mtx            sync.RWMutex
 }
 
-func NewTracingInfo(tr *otrace.Tracer, tracingEnabled bool) *Info {
+func NewTracingInfo(tr otrace.Tracer, tracingEnabled bool) *Info {
 	info := &Info{
-		Tracer:         tr,
+		tracer:         tr,
+		blockSpan:      NoOpSpan,
 		tracingEnabled: atomic.Bool{},
 	}
 	info.tracingEnabled.Store(tracingEnabled)
@@ -73,10 +73,12 @@ func (i *Info) Start(name string) (context.Context, otrace.Span) {
 	}
 	i.mtx.Lock()
 	defer i.mtx.Unlock()
-	if i.tracerContext == nil {
-		i.tracerContext = context.Background()
+	// if we have a started block span, we can use that as a parent span
+	ctx := context.Background()
+	if i.blockSpan.IsRecording() {
+		ctx = otrace.ContextWithSpanContext(ctx, i.blockSpan.SpanContext())
 	}
-	return (*i.Tracer).Start(i.tracerContext, name)
+	return i.tracer.Start(ctx, name)
 }
 
 func (i *Info) StartWithContext(name string, ctx context.Context) (context.Context, otrace.Span) {
@@ -88,23 +90,33 @@ func (i *Info) StartWithContext(name string, ctx context.Context) (context.Conte
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return (*i.Tracer).Start(ctx, name)
+	return i.tracer.Start(ctx, name)
 }
 
-func (i *Info) GetContext() context.Context {
+func (i *Info) StartBlockSpan(c context.Context) (context.Context, otrace.Span) {
 	if !i.tracingEnabled.Load() {
-		return context.Background()
+		return c, nil
 	}
-	i.mtx.RLock()
-	defer i.mtx.RUnlock()
-	return i.tracerContext
+	i.mtx.Lock()
+	defer i.mtx.Unlock()
+	if i.blockSpan.IsRecording() { // already started
+		return c, i.blockSpan
+	}
+	ctx, span := i.tracer.Start(c, "Block")
+	i.blockSpan = span
+	return ctx, i.blockSpan
+
 }
 
-func (i *Info) SetContext(c context.Context) {
+func (i *Info) EndBlockSpan() {
 	if !i.tracingEnabled.Load() {
 		return
 	}
 	i.mtx.Lock()
 	defer i.mtx.Unlock()
-	i.tracerContext = c
+	if !i.blockSpan.IsRecording() { // already ended
+		return
+	}
+	i.blockSpan.End()
+	i.blockSpan = NoOpSpan
 }

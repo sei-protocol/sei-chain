@@ -1,7 +1,6 @@
 package baseapp
 
 import (
-	"context"
 	"fmt"
 	"reflect"
 	"strings"
@@ -282,13 +281,11 @@ func NewBaseApp(
 		},
 		txDecoder:        txDecoder,
 		TmConfig:         tmConfig,
-		TracingInfo:      tracing.NewTracingInfo(&tr, tracingEnabled),
+		TracingInfo:      tracing.NewTracingInfo(tr, tracingEnabled),
 		commitLock:       &sync.Mutex{},
 		checkTxStateLock: &sync.RWMutex{},
 		deliverTxHooks:   []DeliverTxHook{},
 	}
-
-	app.TracingInfo.SetContext(context.Background())
 
 	for _, option := range options {
 		option(app)
