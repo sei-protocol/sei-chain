@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"math/big"
 	"net"
 	"net/http"
@@ -1272,5 +1271,5 @@ func isPanicTxFunc(ctx context.Context, hash common.Hash) (bool, error) {
 }
 
 func noopEarliestVersionFetcher() int64 {
-	return math.MaxInt64
+	return 0
 }
