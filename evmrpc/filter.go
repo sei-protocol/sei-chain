@@ -183,6 +183,13 @@ var (
 	globalRPSLimiter = rate.NewLimiter(rate.Limit(GlobalRPSLimit), GlobalRPSLimit)
 )
 
+// ClearGlobalBlockCache clears the global block cache - useful for tests.
+func ClearGlobalBlockCache() {
+	cacheCreationMutex.Lock()
+	defer cacheCreationMutex.Unlock()
+	globalBlockCache = NewBlockCache(3000)
+}
+
 // Log slice pool to reduce allocations in batch processing
 type LogSlicePool struct {
 	pool sync.Pool
