@@ -67,7 +67,13 @@ func BlockMetaFromProto(pb *tmproto.BlockMeta) (*BlockMeta, error) {
 
 // ValidateBasic performs basic validation.
 func (bm *BlockMeta) ValidateBasic() error {
+	if bm == nil {
+		return errors.New("nil BlockMeta")
+	}
 	if err := bm.BlockID.ValidateBasic(); err != nil {
+		return err
+	}
+	if err := bm.Header.ValidateBasic(); err != nil {
 		return err
 	}
 	if !bytes.Equal(bm.BlockID.Hash, bm.Header.Hash()) {

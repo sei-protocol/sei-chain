@@ -48,6 +48,7 @@ func TestPeerStateMemoryLimits(t *testing.T) {
 					BlockID:   blockID,
 					Timestamp: time.Now(),
 					Signature: []byte("test-signature"),
+					Header:    plausibleTestHeader,
 				}
 				ps.SetHasProposal(proposal)
 				if tc.expectError {
