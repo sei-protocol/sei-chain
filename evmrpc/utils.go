@@ -390,3 +390,48 @@ func recoverAndLog() {
 		debug.PrintStack()
 	}
 }
+
+// BlockValidationParams contains the parameters needed to validate block availability
+type BlockValidationParams struct {
+	LatestHeight     int64
+	MaxBlockLookback int64
+	EarliestVersion  int64
+}
+
+// ValidateBlockAccess validates that a block is accessible based on lookback and retention policies.
+// It checks both Tendermint block retention (min-retain-blocks) and app state retention (ss-keep-recent).
+func ValidateBlockAccess(blockNumber int64, params BlockValidationParams) error {
+	// Check Tendermint block retention (min-retain-blocks)
+	if params.MaxBlockLookback >= 0 && blockNumber < params.LatestHeight-params.MaxBlockLookback {
+		return fmt.Errorf("block number %d is beyond max lookback of %d", blockNumber, params.MaxBlockLookback)
+	}
+
+	// Check app state retention (ss-keep-recent and related state sync settings)
+	if params.EarliestVersion > blockNumber {
+		return fmt.Errorf("height not available (requested height: %d, base height: %d)", blockNumber, params.EarliestVersion)
+	}
+
+	return nil
+}
+
+// ValidateBlockNumberAccess validates access to a block by block number.
+func ValidateBlockNumberAccess(number rpc.BlockNumber, params BlockValidationParams) error {
+	// Special block numbers are always allowed
+	if number == rpc.LatestBlockNumber || number == rpc.FinalizedBlockNumber {
+		return nil
+	}
+
+	blockNumber := number.Int64()
+	return ValidateBlockAccess(blockNumber, params)
+}
+
+// ValidateBlockHashAccess validates access to a block by block hash.
+// It first converts the hash to a block number, then validates access.
+func ValidateBlockHashAccess(ctx context.Context, tmClient rpcclient.Client, hash common.Hash, params BlockValidationParams) error {
+	block, err := blockByHash(ctx, tmClient, hash.Bytes())
+	if err != nil {
+		return fmt.Errorf("failed to get block by hash: %w", err)
+	}
+
+	return ValidateBlockAccess(block.Block.Height, params)
+}

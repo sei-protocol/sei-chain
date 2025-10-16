@@ -1,4 +1,5 @@
 name: golangci-lint
+
 on:
   push:
     tags:
@@ -8,21 +9,44 @@ on:
       - main
       - seiv2
   pull_request:
+
 permissions:
   contents: read
-  # Optional: allow read access to pull request. Use with `only-new-issues` option.
-  # pull-requests: read
+
 jobs:
   golangci:
     name: lint
     runs-on: ubuntu-latest
+
     steps:
+      - uses: actions/checkout@v3
+
       - uses: actions/setup-go@v3
         with:
-          go-version: 1.24
-      - uses: actions/checkout@v3
+          go-version: 1.24  # ✅ Latest version wins
+
+      - name: Cache Go modules
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Cache golangci-lint
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/golangci-lint
+          key: ${{ runner.os }}-golangci-${{ hashFiles('.golangci.yml') }}
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.4.0
+          version: v2.4.0  # ✅ Latest version wins
           args: --timeout 10m0s
+
+      - name: Post failure message
+        if: failure()
+        run: echo "❌ Linting failed. Please fix issues before merging."
