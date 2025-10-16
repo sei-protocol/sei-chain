@@ -95,7 +95,7 @@ func (i *Info) StartWithContext(name string, ctx context.Context) (context.Conte
 
 func (i *Info) StartBlockSpan(c context.Context) (context.Context, otrace.Span) {
 	if !i.tracingEnabled.Load() {
-		return c, nil
+		return c, NoOpSpan
 	}
 	i.mtx.Lock()
 	defer i.mtx.Unlock()
