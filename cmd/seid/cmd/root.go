@@ -525,6 +525,9 @@ max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
 # Timeout for each trace call
 trace_timeout = "{{ .EVM.TraceTimeout }}"
 
+# The max number of typed transactions to cache
+typed_tx_cache_limit = {{ .EVM.TypedTxCacheLimit }}
+
 [eth_replay]
 eth_replay_enabled = {{ .ETHReplay.Enabled }}
 eth_rpc = "{{ .ETHReplay.EthRPC }}"

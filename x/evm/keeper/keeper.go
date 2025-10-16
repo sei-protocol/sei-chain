@@ -38,6 +38,7 @@ import (
 
 	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/datastructures"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
@@ -93,6 +94,9 @@ type Keeper struct {
 	customPrecompiles       map[common.Address]putils.VersionedPrecompiles
 	latestCustomPrecompiles map[common.Address]vm.PrecompiledContract
 	latestUpgrade           string
+
+	typedTxs          *datastructures.TypedSyncMap[int64, []sdk.Tx]
+	typedTxCacheLimit int64
 }
 
 type AddressNoncePair struct {
@@ -132,7 +136,7 @@ func (ctx *ReplayChainContext) Config() *params.ChainConfig {
 func NewKeeper(
 	storeKey sdk.StoreKey, transientStoreKey sdk.StoreKey, paramstore paramtypes.Subspace, receiptStateStore seidbtypes.StateStore,
 	bankKeeper bankkeeper.Keeper, accountKeeper *authkeeper.AccountKeeper, stakingKeeper *stakingkeeper.Keeper,
-	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper) *Keeper {
+	transferKeeper ibctransferkeeper.Keeper, wasmKeeper *wasmkeeper.PermissionedKeeper, wasmViewKeeper *wasmkeeper.Keeper, upgradeKeeper *upgradekeeper.Keeper, typedTxCacheLimit int64) *Keeper {
 
 	if !paramstore.HasKeyTable() {
 		paramstore = paramstore.WithKeyTable(types.ParamKeyTable())
@@ -153,6 +157,8 @@ func NewKeeper(
 		cachedFeeCollectorAddressMtx: &sync.RWMutex{},
 		keyToNonce:                   make(map[tmtypes.TxKey]*AddressNoncePair),
 		receiptStore:                 receiptStateStore,
+		typedTxs:                     datastructures.NewTypedSyncMap[int64, []sdk.Tx](),
+		typedTxCacheLimit:            typedTxCacheLimit,
 	}
 	return k
 }
@@ -623,6 +629,21 @@ func (k *Keeper) getReplayBlockCtx(ctx sdk.Context) (*vm.BlockContext, error) {
 		BlobBaseFee: blobBaseFee,
 		Random:      random,
 	}, nil
+}
+
+func (k *Keeper) GetTypedTxs(height int64) ([]sdk.Tx, bool) {
+	txs, ok := k.typedTxs.Load(height)
+	if !ok {
+		return nil, false
+	}
+	return txs, true
+}
+
+func (k *Keeper) SetTypedTxs(height int64, txs []sdk.Tx) {
+	if int64(k.typedTxs.Len()) >= k.typedTxCacheLimit {
+		k.typedTxs.Delete(height - k.typedTxCacheLimit)
+	}
+	k.typedTxs.Store(height, txs)
 }
 
 func uint64Cmp(a, b uint64) int {

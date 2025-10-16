@@ -387,3 +387,28 @@ func TestGetBaseFeeBeforeV620(t *testing.T) {
 	baseFeeOther := keeper.GetBaseFee(ctxOtherChain)
 	require.NotNil(t, baseFeeOther, "Base fee should not be nil for non-pacific-1 chains")
 }
+
+type testTx struct {
+	val int64
+}
+
+func (tx *testTx) GetMsgs() []sdk.Msg     { return []sdk.Msg{} }
+func (tx *testTx) ValidateBasic() error   { return nil }
+func (tx *testTx) GetGasEstimate() uint64 { return 0 }
+
+func TestTypedTxsCache(t *testing.T) {
+	limit := int64(1000)
+
+	for i := int64(0); i < limit+1; i++ {
+		testkeeper.EVMTestApp.EvmKeeper.SetTypedTxs(i, []sdk.Tx{&testTx{val: i}})
+	}
+
+	_, ok := testkeeper.EVMTestApp.EvmKeeper.GetTypedTxs(0)
+	require.False(t, ok)
+
+	for i := int64(1); i < limit+1; i++ {
+		tx, ok := testkeeper.EVMTestApp.EvmKeeper.GetTypedTxs(i)
+		require.True(t, ok)
+		require.Equal(t, i, tx[0].(*testTx).val)
+	}
+}

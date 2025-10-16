@@ -36,6 +36,7 @@ type opts struct {
 	maxTraceLookbackBlocks       interface{}
 	traceTimeout                 interface{}
 	rpcStatsInterval             interface{}
+	typedTxCacheLimit            interface{}
 }
 
 func (o *opts) Get(k string) interface{} {
@@ -120,6 +121,9 @@ func (o *opts) Get(k string) interface{} {
 	if k == "evm.rpc_stats_interval" {
 		return o.rpcStatsInterval
 	}
+	if k == "evm.typed_tx_cache_limit" {
+		return o.typedTxCacheLimit
+	}
 	panic("unknown key")
 }
 
@@ -152,6 +156,7 @@ func TestReadConfig(t *testing.T) {
 		int64(100),
 		30 * time.Second,
 		10 * time.Second,
+		1000,
 	}
 	_, err := evmrpc.ReadConfig(&goodOpts)
 	require.Nil(t, err)
@@ -243,6 +248,11 @@ func TestReadConfig(t *testing.T) {
 
 	badOpts = goodOpts
 	badOpts.traceTimeout = "bad"
+	_, err = evmrpc.ReadConfig(&badOpts)
+	require.NotNil(t, err)
+
+	badOpts = goodOpts
+	badOpts.typedTxCacheLimit = "bad"
 	_, err = evmrpc.ReadConfig(&badOpts)
 	require.NotNil(t, err)
 }

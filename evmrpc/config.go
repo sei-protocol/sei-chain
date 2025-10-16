@@ -106,6 +106,9 @@ type Config struct {
 
 	// RPCStatsInterval for how often to report stats
 	RPCStatsInterval time.Duration `mapstructure:"rpc_stats_interval"`
+
+	// TypedTxCacheLimit sets the max number of typed transactions to cache
+	TypedTxCacheLimit int64 `mapstructure:"typed_tx_cache_limit"`
 }
 
 var DefaultConfig = Config{
@@ -136,6 +139,7 @@ var DefaultConfig = Config{
 	MaxTraceLookbackBlocks:       10000,
 	TraceTimeout:                 30 * time.Second,
 	RPCStatsInterval:             10 * time.Second,
+	TypedTxCacheLimit:            1000,
 }
 
 const (
@@ -166,6 +170,7 @@ const (
 	flagMaxTraceLookbackBlocks       = "evm.max_trace_lookback_blocks"
 	flagTraceTimeout                 = "evm.trace_timeout"
 	flagRPCStatsInterval             = "evm.rpc_stats_interval"
+	flagTypedTxCacheLimit            = "evm.typed_tx_cache_limit"
 )
 
 func ReadConfig(opts servertypes.AppOptions) (Config, error) {
@@ -306,6 +311,10 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
-
+	if v := opts.Get(flagTypedTxCacheLimit); v != nil {
+		if cfg.TypedTxCacheLimit, err = cast.ToInt64E(v); err != nil {
+			return cfg, err
+		}
+	}
 	return cfg, nil
 }
