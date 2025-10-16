@@ -209,11 +209,7 @@ func (n *TestNetwork) Remove(t *testing.T, id types.NodeID) {
 			subs = append(subs, peer.PeerManager.Subscribe(ctx))
 		}
 	}
-	node.cancel()
-	if node.Router.IsRunning() {
-		node.Router.Stop()
-		node.Router.Wait()
-	}
+	node.Router.Stop()
 	for _, sub := range subs {
 		RequireUpdate(t, sub, PeerUpdate{
 			NodeID: node.NodeID,
@@ -231,8 +227,6 @@ type TestNode struct {
 	PrivKey     crypto.PrivKey
 	Router      *Router
 	PeerManager *PeerManager
-
-	cancel context.CancelFunc
 }
 
 // MakeNode creates a new Node configured for the network with a
@@ -282,15 +276,7 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(t.Context())
-	require.NoError(t, router.Start(ctx))
-	t.Cleanup(func() {
-		if router.IsRunning() {
-			router.Stop()
-			router.Wait()
-		}
-		cancel()
-	})
+	require.NoError(t, router.Start(t.Context()))
 
 	node := &TestNode{
 		Logger:      logger,
@@ -300,7 +286,6 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 		PrivKey:     privKey,
 		Router:      router,
 		PeerManager: peerManager,
-		cancel:      cancel,
 	}
 
 	for nodes := range n.nodes.Lock() {
@@ -384,7 +369,7 @@ func RequireReceiveUnordered(t *testing.T, channel *Channel, want []RecvMsg) {
 	t.Logf("awaiting %d messages", len(want))
 	var got []RecvMsg
 	for len(got) < len(want) {
-		m,err := channel.recvQueue.Recv(t.Context())
+		m,err := channel.Recv(t.Context())
 		if err!=nil {
 			panic(err)
 		}

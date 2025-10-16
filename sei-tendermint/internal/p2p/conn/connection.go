@@ -23,7 +23,7 @@ import (
 )
 
 func IsDisconnect(err error) bool {
-	return errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) || errors.As(err, utils.Alloc[*net.OpError](nil))
+	return errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) || utils.ErrorAs[*net.OpError](err).IsPresent()
 }
 
 // ChannelID is an arbitrary channel ID.

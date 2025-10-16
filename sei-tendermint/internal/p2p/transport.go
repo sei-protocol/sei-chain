@@ -39,7 +39,7 @@ func (cs ChannelIDSet) Contains(id ChannelID) bool {
 
 // Connection implements Connection for Transport.
 type Connection struct {
-	cancel chan struct{}
+	close_ utils.AtomicWatch[bool]
 	conn *net.TCPConn
 	peerChannels ChannelIDSet
 	peerInfo types.NodeInfo
@@ -94,6 +94,7 @@ func HandshakeOrClose(ctx context.Context, r *Router, tcpConn *net.TCPConn) (c *
 		}
 		ok.Store(true)
 		return &Connection{
+			close_: utils.NewAtomicWatch(false),
 			conn:     tcpConn,
 			sendQueue: NewQueue[sendMsg](queueBufferDefault),
 			peerInfo: peerInfo,
@@ -186,7 +187,7 @@ func (c *Connection) Run(ctx context.Context, r *Router) error {
 		s.Spawn(func() error { return c.mconn.Run(ctx) })
 		s.Spawn(func() error { return c.sendRoutine(ctx, r) })
 		s.Spawn(func() error { return c.recvRoutine(ctx, r) })
-		_,_,_ = utils.RecvOrClosed(ctx, c.cancel)
+		_,_ = c.close_.Wait(ctx, func(v bool) bool { return v })
 		return context.Canceled
 	})
 	r.logger.Info("peer disconnected", "peer", peerID, "endpoint", c, "err", err)
@@ -226,8 +227,7 @@ func (c *Connection) RemoteEndpoint() Endpoint {
 
 // Close.
 func (c *Connection) Close() {
-	// TODO(gprusak): this is not idempotent - crashes on double close
-	close(c.cancel)
+	c.close_.Store(true)
 }
 
 // Endpoint represents a transport connection endpoint, either local or remote.

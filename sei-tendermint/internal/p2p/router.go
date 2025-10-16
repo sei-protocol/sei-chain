@@ -161,7 +161,7 @@ type Router struct {
 
 func (r *Router) getChannelDescs() []*ChannelDescriptor {
 	for channels := range r.channels.Lock() {
-		descs := make([]*ChannelDescriptor, len(channels))
+		descs := make([]*ChannelDescriptor, 0, len(channels))
 		for _,ch := range channels {
 			descs = append(descs,&ch.desc)
 		}
@@ -392,7 +392,7 @@ func (r *Router) dialPeers(ctx context.Context) error {
 					sem.Release(1)
 
 					if err != nil {
-						return fmt.Errorf("failed to connect to peer %v: %w", address.NodeID, err)
+						return fmt.Errorf("connectPeer(): %w", err)
 					}
 					return conn.Run(ctx, r)
 				}()
@@ -414,7 +414,7 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) (c *Conne
 	tcpConn, err := r.Dial(ctx, address)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
-			if err = r.peerManager.DialFailed(ctx, address); err != nil {
+			if err := r.peerManager.DialFailed(ctx, address); err != nil {
 				r.logger.Debug("failed to report dial failure", "peer", address, "err", err)
 			}
 		}
@@ -430,10 +430,10 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) (c *Conne
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			if err := r.peerManager.DialFailed(ctx, address); err != nil {
-				r.logger.Error("failed to report dial failure", "peer", address, "err", err)
+				r.logger.Error("failed to report dial failure %v: %w", address, err)
 			}
 		}
-		return nil, fmt.Errorf("failed to handshake with peer", "peer", address, "err", err)
+		return nil, fmt.Errorf("failed to handshake with peer %v: %w", address, err)
 	}
 
 	// TODO(gprusak): this symmetric logic for handling duplicate connections is a source of race conditions:
@@ -442,7 +442,7 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) (c *Conne
 	// * break the symmetry by favoring incoming connection iff my.NodeID > peer.NodeID
 	// * keep incoming and outcoming connection pools separate to avoid the collision (recommended)
 	if err := r.peerManager.Dialed(address); err != nil {
-		return nil, fmt.Errorf("failed to dial peer", "op", "outgoing/dialing", "peer", address.NodeID, "err", err)
+		return nil, fmt.Errorf("failed to dial outgoing/dialing peer %v: %w", address.NodeID, err)
 	}
 	return conn,nil
 }

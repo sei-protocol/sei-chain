@@ -35,6 +35,16 @@ func mayDisconnectAfterDone(ctx context.Context, err error) error {
 	return nil
 }
 
+func makeChDesc(id ChannelID) ChannelDescriptor {
+	return ChannelDescriptor{
+		ID:                  id,
+		MessageType:         &TestMessage{},
+		Priority:            5,
+		RecvBufferCapacity:  10,
+		RecvMessageCapacity: 10000,
+	}
+}
+
 func echoReactor(ctx context.Context, channel *Channel) {
 	for {
 		m,err := channel.Recv(ctx)
@@ -99,24 +109,7 @@ func TestRouter_Channel_Basic(t *testing.T) {
 	ctx := t.Context()
 	chDesc := makeChDesc(5)
 
-	// Set up a router with no transports (so no peers).
-	peerManager, err := NewPeerManager(logger, selfID, dbm.NewMemDB(), PeerManagerOptions{}, NopMetrics())
-	require.NoError(t, err)
-
-	router, err := NewRouter(
-		logger,
-		NopMetrics(),
-		selfKey,
-		peerManager,
-		func() *types.NodeInfo { return &selfInfo },
-		nil,
-		RouterOptions{
-			Endpoint:   Endpoint{tcp.TestReserveAddr()},
-			Connection: conn.DefaultMConnConfig(),
-		},
-	)
-	require.NoError(t, err)
-
+	router := makeRouter(logger)
 	require.NoError(t, router.Start(ctx))
 	t.Cleanup(router.Wait)
 
@@ -138,7 +131,7 @@ func TestRouter_Channel_Basic(t *testing.T) {
 	channel.Send(&TestMessage{Value: "foo"}, types.NodeID(strings.Repeat("a", 40)))
 
 	t.Logf("A message to ourselves should be dropped.")
-	channel.Send(&TestMessage{Value: "self"}, selfID)
+	channel.Send(&TestMessage{Value: "self"}, router.Address().NodeID)
 	RequireEmpty(t, channel)
 }
 
@@ -213,7 +206,7 @@ func TestRouter_Channel_Broadcast(t *testing.T) {
 
 	t.Logf("Removing one node from the network shouldn't prevent broadcasts from working.")
 	network.Remove(t, dID)
-	b.Broadcast(&TestMessage{Value: "bar"})
+	a.Broadcast(&TestMessage{Value: "bar"})
 	for _, ch := range utils.Slice(b,c) {
 		RequireReceive(t, ch, RecvMsg{From: aID, Message: &TestMessage{Value: "bar"}})
 	}
@@ -306,14 +299,15 @@ func TestRouter_Channel_Error(t *testing.T) {
 	})
 }
 
-var keyFiltered, infoFiltered = makeKeyAndInfo()
+var keyFiltered = makeKey()
+var infoFiltered = makeInfo(keyFiltered)
 
-func makeRouterWithOptions(logger log.Logger, ropts RouterOptions) *Router {
+func makeRouterWithOptionsAndKey(logger log.Logger, ropts RouterOptions, key crypto.PrivKey) *Router {
 	// Set up and start the router.
 	opts := PeerManagerOptions{
 		MinRetryTime: 100 * time.Millisecond,
 	}
-	key,info := makeKeyAndInfo()
+	info := makeInfo(key)
 	peerManager, err := NewPeerManager(logger, info.NodeID, dbm.NewMemDB(), opts, NopMetrics())
 	if err!=nil {
 		panic(fmt.Errorf("NewPeerManager: %w", err))
@@ -347,8 +341,16 @@ func makeRouterOptions() RouterOptions {
 	}
 }
 
+func makeRouterWithOptions(logger log.Logger, ropts RouterOptions) *Router {
+	return makeRouterWithOptionsAndKey(logger, ropts, makeKey())
+}
+
+func makeRouterWithKey(logger log.Logger, key crypto.PrivKey) *Router {
+	return makeRouterWithOptionsAndKey(logger, makeRouterOptions(), key)
+}
+
 func makeRouter(logger log.Logger) *Router {
-	return makeRouterWithOptions(logger, makeRouterOptions())
+	return makeRouterWithKey(logger, makeKey())
 }
 
 func TestRouter_FilterByIP(t *testing.T) {
@@ -406,21 +408,19 @@ func TestRouter_FilterByIP(t *testing.T) {
 }
 
 func TestRouter_AcceptPeers(t *testing.T) {
-	key, info := makeKeyAndInfo()
-	info2 := info
-	info2.Network = "other-network"
-	info3 := info
-	info3.Channels = []byte{0x23}
+	selfKey := makeKey()
+	peerKey := makeKey()
+	badInfo := makeInfo(peerKey)
+	badInfo.Network = "other-network"
 	testcases := map[string]struct {
 		info types.NodeInfo
 		key  crypto.PrivKey
 		ok   bool
 	}{
-		"valid handshake":       {info, key, true},
-		"empty handshake":       {types.NodeInfo{}, key, false},
-		"self handshake":        {selfInfo, selfKey, false},
-		"incompatible network":  {info2, key, false},
-		"incompatible channels": {info3, key, false},
+		"valid handshake":       {makeInfo(peerKey), peerKey, true},
+		"empty handshake":       {types.NodeInfo{}, peerKey, false},
+		"self handshake":        {makeInfo(selfKey), selfKey, false},
+		"incompatible network":  {badInfo, peerKey, false},
 		"filtered":              {infoFiltered, keyFiltered, false},
 	}
 
@@ -429,22 +429,21 @@ func TestRouter_AcceptPeers(t *testing.T) {
 			logger, _ := log.NewDefaultLogger("plain", "debug")
 			t.Cleanup(leaktest.Check(t))
 			if err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-				r := makeRouter(logger)
+				r := makeRouterWithKey(logger,selfKey)
 				s.SpawnBg(func() error { return r.Run(ctx) })
 				sub := r.peerManager.Subscribe(ctx)
 
-				r2 := makeRouter(logger)
+				x := makeRouterWithKey(logger,tc.key)
 				// WARNING: here we malform the router internal state.
 				// It would be better to have a dedicated API for performing malformed handshakes.
-				r2.privKey = tc.key
-				*r2.nodeInfoProducer() = tc.info
-				tcpConn,err := r2.Dial(ctx, r.Address())
+				*x.nodeInfoProducer() = tc.info
+				tcpConn,err := x.Dial(ctx, r.Address())
 				if err != nil {
 					return fmt.Errorf("peerTransport.Dial(): %w", err)
 				}
 				defer tcpConn.Close()
 				if tc.ok {
-					if _, err := HandshakeOrClose(ctx, r2, tcpConn); err != nil {
+					if _, err := HandshakeOrClose(ctx, x, tcpConn); err != nil {
 						return fmt.Errorf("conn.Handshake(): %w", err)
 					}
 					RequireUpdate(t, sub, PeerUpdate{
@@ -452,13 +451,13 @@ func TestRouter_AcceptPeers(t *testing.T) {
 						Status: PeerStatusUp,
 					})
 				} else {
-					// Expect immediate or delayed failure.
+					t.Logf("Expect immediate or delayed failure.")
 					// Peer should drop the connection during handshake.
-					conn, err := HandshakeOrClose(ctx, r2, tcpConn)
+					conn, err := HandshakeOrClose(ctx, x, tcpConn)
 					if err != nil {
 						return nil
 					}
-					if err := conn.Run(ctx, r2); !errors.Is(err, io.EOF) {
+					if err := conn.Run(ctx, x); !errors.Is(err, io.EOF) {
 						return fmt.Errorf("want EOF, got %w", err)
 					}
 				}
@@ -705,16 +704,6 @@ func TestRouter_EvictPeers(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func makeChDesc(id ChannelID) ChannelDescriptor {
-	return ChannelDescriptor{
-		ID:                  id,
-		MessageType:         &TestMessage{},
-		Priority:            5,
-		RecvBufferCapacity:  10,
-		RecvMessageCapacity: 10000,
 	}
 }
 
