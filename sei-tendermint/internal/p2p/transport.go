@@ -48,11 +48,7 @@ type Connection struct {
 }
 
 // Handshake implements Connection.
-func HandshakeOrClose(
-	ctx context.Context,
-	r *Router,
-	tcpConn *net.TCPConn,
-) (c *Connection, err error) {
+func HandshakeOrClose(ctx context.Context, r *Router, tcpConn *net.TCPConn) (c *Connection, err error) {
 	defer func() {
 		// Late error check. Close conn to avoid leaking it.
 		if err != nil {
@@ -219,7 +215,7 @@ func (c *Connection) PeerInfo() types.NodeInfo {
 }
 
 // RemoteEndpoint implements Connection.
-func remoteEndpoint(conn net.Conn) Endpoint {
+func remoteEndpoint(conn *net.TCPConn) Endpoint {
 	return Endpoint{conn.RemoteAddr().(*net.TCPAddr).AddrPort()}
 }
 
@@ -230,6 +226,7 @@ func (c *Connection) RemoteEndpoint() Endpoint {
 
 // Close.
 func (c *Connection) Close() {
+	// TODO(gprusak): this is not idempotent - crashes on double close
 	close(c.cancel)
 }
 

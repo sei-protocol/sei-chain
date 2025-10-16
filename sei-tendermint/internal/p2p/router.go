@@ -308,15 +308,13 @@ func (r *Router) acceptPeers(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error {
 			<-ctx.Done()
+			s.Cancel(ctx.Err())
 			listener.Close()
 			return nil
 		})
 		for {
 			tcpConn, err := listener.Accept()
 			if err != nil {
-				if errors.Is(err, net.ErrClosed) {
-					return nil
-				}
 				return err
 			}
 
@@ -380,12 +378,12 @@ func (r *Router) dialPeers(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		sem := semaphore.NewWeighted(int64(r.numConccurentDials()))
 		for {
+			if err := sem.Acquire(ctx, 1); err != nil {
+				return err
+			}
 			address, err := r.peerManager.DialNext(ctx)
 			if err != nil {
 				return fmt.Errorf("failed to find next peer to dial: %w", err)
-			}
-			if err := sem.Acquire(ctx, 1); err != nil {
-				return err
 			}
 			s.Spawn(func() error {
 				err := func() error {
