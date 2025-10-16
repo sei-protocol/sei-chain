@@ -220,13 +220,11 @@ func TestInfo_StartBlockSpan_DisabledTracing(t *testing.T) {
 	tracer := noop.NewTracerProvider().Tracer("test")
 	info := NewTracingInfo(tracer, false)
 
-	ctx := context.Background()
-	returnedCtx, span := info.StartBlockSpan(ctx)
+	span := info.StartBlockSpan()
 
-	// When tracing is disabled, should return the input context and nil span
-	require.NotNil(t, returnedCtx)
-	require.Equal(t, ctx, returnedCtx)
-	require.Nil(t, span)
+	// When tracing is disabled, should return NoOpSpan
+	require.NotNil(t, span)
+	require.Equal(t, NoOpSpan, span)
 }
 
 func TestInfo_StartBlockSpan_EnabledTracing(t *testing.T) {
@@ -236,13 +234,10 @@ func TestInfo_StartBlockSpan_EnabledTracing(t *testing.T) {
 	tracer := tp.Tracer("test")
 	info := NewTracingInfo(tracer, true)
 
-	ctx := context.Background()
-	returnedCtx, span := info.StartBlockSpan(ctx)
+	span := info.StartBlockSpan()
 
-	// When tracing is enabled, should return valid context and span
-	require.NotNil(t, returnedCtx)
-	require.NotNil(t, span)
-	require.NotEqual(t, ctx, returnedCtx) // Context should have span context
+	// When tracing is enabled, should return valid span
+	require.NotEqual(t, NoOpSpan, span)
 
 	// Span should be recording
 	require.True(t, span.IsRecording())
@@ -258,17 +253,13 @@ func TestInfo_StartBlockSpan_Idempotent(t *testing.T) {
 	tracer := tp.Tracer("test")
 	info := NewTracingInfo(tracer, true)
 
-	ctx := context.Background()
-
 	// Start block span first time
-	ctx1, span1 := info.StartBlockSpan(ctx)
-	require.NotNil(t, ctx1)
+	span1 := info.StartBlockSpan()
 	require.NotNil(t, span1)
 	require.True(t, span1.IsRecording())
 
 	// Start block span second time - should return the same span
-	ctx2, span2 := info.StartBlockSpan(ctx)
-	require.NotNil(t, ctx2)
+	span2 := info.StartBlockSpan()
 	require.NotNil(t, span2)
 
 	// Should be the same span (idempotent)
@@ -296,8 +287,7 @@ func TestInfo_EndBlockSpan_EnabledTracing(t *testing.T) {
 	tracer := tp.Tracer("test")
 	info := NewTracingInfo(tracer, true)
 
-	ctx := context.Background()
-	_, span := info.StartBlockSpan(ctx)
+	span := info.StartBlockSpan()
 	require.True(t, span.IsRecording())
 
 	// End the block span
@@ -314,8 +304,7 @@ func TestInfo_EndBlockSpan_Idempotent(t *testing.T) {
 	tracer := tp.Tracer("test")
 	info := NewTracingInfo(tracer, true)
 
-	ctx := context.Background()
-	_, span := info.StartBlockSpan(ctx)
+	span := info.StartBlockSpan()
 	require.True(t, span.IsRecording())
 
 	// End the block span first time
@@ -353,9 +342,7 @@ func TestInfo_ChildSpan_ParentedToBlockSpan(t *testing.T) {
 	info := NewTracingInfo(tracer, true)
 
 	// Start a block span
-	ctx := context.Background()
-	blockCtx, blockSpan := info.StartBlockSpan(ctx)
-	require.NotNil(t, blockCtx)
+	blockSpan := info.StartBlockSpan()
 	require.NotNil(t, blockSpan)
 	require.True(t, blockSpan.IsRecording())
 
@@ -403,8 +390,7 @@ func TestInfo_MultipleChildSpans_ParentedToBlockSpan(t *testing.T) {
 	info := NewTracingInfo(tracer, true)
 
 	// Start a block span
-	ctx := context.Background()
-	_, blockSpan := info.StartBlockSpan(ctx)
+	blockSpan := info.StartBlockSpan()
 	require.True(t, blockSpan.IsRecording())
 	blockSpanContext := blockSpan.SpanContext()
 
@@ -466,8 +452,7 @@ func TestInfo_ChildSpan_AfterBlockSpanEnds(t *testing.T) {
 	info := NewTracingInfo(tracer, true)
 
 	// Start and end a block span
-	ctx := context.Background()
-	_, blockSpan := info.StartBlockSpan(ctx)
+	blockSpan := info.StartBlockSpan()
 	require.True(t, blockSpan.IsRecording())
 	blockSpanContext := blockSpan.SpanContext()
 	info.EndBlockSpan()
@@ -502,8 +487,7 @@ func TestInfo_BlockSpan_ConcurrentAccess(t *testing.T) {
 	info := NewTracingInfo(tracer, true)
 
 	// Start block span
-	ctx := context.Background()
-	_, blockSpan := info.StartBlockSpan(ctx)
+	blockSpan := info.StartBlockSpan()
 	require.True(t, blockSpan.IsRecording())
 
 	// Test concurrent access to Start while block span is active
@@ -552,11 +536,10 @@ func BenchmarkInfo_StartBlockSpan(b *testing.B) {
 	tp := noop.NewTracerProvider()
 	tracer := tp.Tracer("test")
 	info := NewTracingInfo(tracer, true)
-	ctx := context.Background()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = info.StartBlockSpan(ctx)
+		_ = info.StartBlockSpan()
 		info.EndBlockSpan()
 	}
 }

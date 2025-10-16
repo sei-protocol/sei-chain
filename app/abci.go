@@ -11,7 +11,7 @@ import (
 )
 
 func (app *App) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res abci.ResponseBeginBlock) {
-	_, blockSpan := app.GetBaseApp().TracingInfo.StartBlockSpan(context.Background())
+	blockSpan := app.GetBaseApp().TracingInfo.StartBlockSpan()
 	blockSpan.SetAttributes(attribute.Int64("height", req.Header.Height))
 	spanCtx, beginBlockSpan := app.GetBaseApp().TracingInfo.Start("BeginBlock")
 	defer beginBlockSpan.End()

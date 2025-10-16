@@ -93,18 +93,18 @@ func (i *Info) StartWithContext(name string, ctx context.Context) (context.Conte
 	return i.tracer.Start(ctx, name)
 }
 
-func (i *Info) StartBlockSpan(c context.Context) (context.Context, otrace.Span) {
+func (i *Info) StartBlockSpan() otrace.Span {
 	if !i.tracingEnabled.Load() {
-		return c, NoOpSpan
+		return NoOpSpan
 	}
 	i.mtx.Lock()
 	defer i.mtx.Unlock()
 	if i.blockSpan.IsRecording() { // already started
-		return c, i.blockSpan
+		return i.blockSpan
 	}
-	ctx, span := i.tracer.Start(c, "Block")
+	_, span := i.tracer.Start(context.Background(), "Block")
 	i.blockSpan = span
-	return ctx, i.blockSpan
+	return span
 
 }
 
