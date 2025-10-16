@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"golang.org/x/net/netutil"
 	"golang.org/x/sync/semaphore"
 	"math/rand"
+	"math"
 	"net"
 	"net/netip"
 	"runtime"
@@ -156,7 +156,6 @@ type Router struct {
 	dynamicIDFilterer func(context.Context, types.NodeID) error
 
 	started  chan struct{}
-	listener chan net.Conn
 }
 
 func (r *Router) getChannelDescs() []*ChannelDescriptor {
@@ -204,7 +203,6 @@ func NewRouter(
 		// This is rendezvous channel, so that no unclosed connections get stuck inside
 		// when transport is closing.
 		started:  make(chan struct{}),
-		listener: make(chan net.Conn),
 	}
 
 	router.BaseService = service.NewBaseService(logger, "router", router)
@@ -297,14 +295,13 @@ func (r *Router) acceptPeers(ctx context.Context) error {
 		return fmt.Errorf("net.Listen(): %w", err)
 	}
 	close(r.started) // signal that we are listening
-	if r.options.MaxAcceptedConnections > 0 {
-		// FIXME: This will establish the inbound connection but simply hang it
-		// until another connection is released. It would probably be better to
-		// return an error to the remote peer or close the connection. This is
-		// also a DoS vector since the connection will take up kernel resources.
-		// This was just carried over from the legacy P2P stack.
-		listener = netutil.LimitListener(listener, int(r.options.MaxAcceptedConnections))
+
+	maxConns := r.options.MaxAcceptedConnections
+	if maxConns == 0 {
+		maxConns = math.MaxInt32
 	}
+	sem := semaphore.NewWeighted(int64(maxConns))
+
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.Spawn(func() error {
 			<-ctx.Done()
@@ -313,13 +310,18 @@ func (r *Router) acceptPeers(ctx context.Context) error {
 			return nil
 		})
 		for {
+			if err := sem.Acquire(ctx, 1); err!=nil {
+				return err
+			}
 			tcpConn, err := listener.Accept()
 			if err != nil {
 				return err
 			}
 
-			// Spawn a goroutine for the handshake, to avoid head-of-line blocking.
+			// Spawn a goroutine per connection.
 			s.Spawn(func() error {
+				defer fmt.Printf("RELEASED\n")
+				defer sem.Release(1)
 				if err := r.openConnection(ctx, tcpConn.(*net.TCPConn)); err != nil {
 					r.logger.Error("accept", "err", err)
 				}

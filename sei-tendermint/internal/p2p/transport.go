@@ -7,7 +7,6 @@ import (
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/gogo/protobuf/proto"
 	"math"
 	"net"
@@ -39,7 +38,6 @@ func (cs ChannelIDSet) Contains(id ChannelID) bool {
 
 // Connection implements Connection for Transport.
 type Connection struct {
-	close_ utils.AtomicWatch[bool]
 	conn *net.TCPConn
 	peerChannels ChannelIDSet
 	peerInfo types.NodeInfo
@@ -94,7 +92,6 @@ func HandshakeOrClose(ctx context.Context, r *Router, tcpConn *net.TCPConn) (c *
 		}
 		ok.Store(true)
 		return &Connection{
-			close_: utils.NewAtomicWatch(false),
 			conn:     tcpConn,
 			sendQueue: NewQueue[sendMsg](queueBufferDefault),
 			peerInfo: peerInfo,
@@ -187,8 +184,7 @@ func (c *Connection) Run(ctx context.Context, r *Router) error {
 		s.Spawn(func() error { return c.mconn.Run(ctx) })
 		s.Spawn(func() error { return c.sendRoutine(ctx, r) })
 		s.Spawn(func() error { return c.recvRoutine(ctx, r) })
-		_,_ = c.close_.Wait(ctx, func(v bool) bool { return v })
-		return context.Canceled
+		return nil
 	})
 	r.logger.Info("peer disconnected", "peer", peerID, "endpoint", c, "err", err)
 	for conns := range r.conns.Lock() {
@@ -227,7 +223,7 @@ func (c *Connection) RemoteEndpoint() Endpoint {
 
 // Close.
 func (c *Connection) Close() {
-	c.close_.Store(true)
+	c.conn.Close()
 }
 
 // Endpoint represents a transport connection endpoint, either local or remote.

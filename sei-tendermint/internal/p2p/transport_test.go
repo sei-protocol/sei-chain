@@ -33,7 +33,7 @@ func makeInfo(key crypto.PrivKey) types.NodeInfo {
 		ListenAddr: "127.0.0.1:1239",
 		Network:    "test",
 		Moniker:    string(nodeID),
-		Channels:   []byte{0x01, 0x02},
+		Channels:   []byte{},
 		ProtocolVersion: types.ProtocolVersion{
 			P2P:   1,
 			Block: 2,
@@ -55,12 +55,15 @@ func TestRouter_MaxAcceptedConnections(t *testing.T) {
 
 	err := utils.IgnoreCancel(scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		r := makeRouterWithOptions(logger, opts)
-		s.SpawnBg(func() error { return r.Run(ctx) })
+		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
+		if err := r.WaitForStart(ctx); err!=nil {
+			return err
+		}
 
 		var total atomic.Int64
 		t.Logf("spawn a bunch of connections, making sure that no more than %d are accepted at any given time", opts.MaxAcceptedConnections)
 		for range 10 {
-			s.Spawn(func() error {
+			s.SpawnNamed("test", func() error {
 				x := makeRouter(logger)
 				// Establish a connection.
 				tcpConn, err := x.Dial(ctx, r.Address())
@@ -108,7 +111,11 @@ func TestRouter_Listen(t *testing.T) {
 				opts := makeRouterOptions()
 				opts.Endpoint.AddrPort = netip.AddrPortFrom(tc, opts.Endpoint.Port())
 				r := makeRouterWithOptions(logger, opts)
-				s.SpawnBg(func() error { return r.Run(ctx) })
+				s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
+				if err := r.WaitForStart(ctx); err!=nil {
+					return err
+				}
+
 				if got, want := r.Endpoint().Addr(), tc; got != want {
 					return fmt.Errorf("r.Endpoint() = %v, want %v", got, want)
 				}
@@ -136,7 +143,10 @@ func TestHandshake_NodeInfo(t *testing.T) {
 	logger, _ := log.NewDefaultLogger("plain", "debug")
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		r := makeRouter(logger)
-		s.SpawnBg(func() error { return r.Run(ctx) })
+		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
+		if err := r.WaitForStart(ctx); err!=nil {
+			return err
+		}
 
 		x := makeRouter(logger)
 		tcpConn, err := x.Dial(ctx, r.Address())
