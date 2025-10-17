@@ -660,10 +660,23 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 
 	s.Require().NoError(FillData(db, 10, 50))
 
+	// Write some metadata (hash keys) to verify they don't interfere with pruning
+	// These keys start with "s/_" and should be ignored during pruning
+	// Only test with pebbledb since rocksdb doesn't implement hash metadata yet
+	if s.Config.Backend == "pebbledb" {
+		s.Require().NoError(db.WriteBlockRangeHash(storeKey1, 1, 10, []byte("hash1-10")))
+		s.Require().NoError(db.WriteBlockRangeHash(storeKey1, 11, 20, []byte("hash11-20")))
+		s.Require().NoError(db.WriteBlockRangeHash(storeKey2, 1, 25, []byte("hash1-25")))
+	}
+
 	// Verify earliest version is 0
 	earliestVersion := db.GetEarliestVersion()
 	s.Require().NoError(err)
 	s.Require().Equal(int64(0), earliestVersion)
+
+	// Verify latest version is accessible
+	latestVersionBefore := db.GetLatestVersion()
+	s.Require().Equal(int64(50), latestVersionBefore)
 
 	// prune the first 25 versions
 	s.Require().NoError(db.Prune(25))
@@ -676,6 +689,11 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 	latestVersion := db.GetLatestVersion()
 	s.Require().NoError(err)
 	s.Require().Equal(int64(50), latestVersion)
+
+	// Verify metadata keys are still accessible after pruning
+	// (this verifies metadata keys weren't corrupted during pruning)
+	s.Require().Equal(int64(50), db.GetLatestVersion())
+	s.Require().Equal(int64(26), db.GetEarliestVersion())
 
 	// Ensure all keys are no longer present up to and including version 25 and
 	// all keys are present after version 25.
@@ -705,6 +723,10 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 	earliestVersion = db.GetEarliestVersion()
 	s.Require().NoError(err)
 	s.Require().Equal(int64(51), earliestVersion)
+
+	// Verify metadata is still intact after full pruning
+	s.Require().Equal(int64(50), db.GetLatestVersion())
+	s.Require().Equal(int64(51), db.GetEarliestVersion())
 
 	for v := int64(1); v <= 50; v++ {
 		for i := 0; i < 10; i++ {
