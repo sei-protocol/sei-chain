@@ -2,6 +2,7 @@ package p2p
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -76,54 +77,55 @@ func (n *TestNetwork) Nodes() []*TestNode {
 	return res
 }
 
+func (n *TestNetwork) ConnectCycle(ctx context.Context, t *testing.T) {
+	nodes := n.Nodes()
+	N := len(nodes)
+	for i := range nodes {
+		if _, err := nodes[i].PeerManager.Add(nodes[(i+1)%len(nodes)].NodeAddress); err!=nil {
+			panic(err)
+		}
+	}
+	for i := range n.Nodes() {
+		for ready,ctrl := range nodes[i].PeerManager.ready.Lock() {
+			for _,peer := range utils.Slice(nodes[(i+1)%N],nodes[(i+N-1)%N]) {
+				if err := ctrl.WaitUntil(ctx, func() bool {
+					_,ok := ready[peer.NodeID]
+					return ok
+				}); err!=nil {
+					panic(err)
+				}
+			}
+		}
+	}
+}
+
 // Start starts the network by setting up a list of node addresses to dial in
 // addition to creating a peer update subscription for each node. Finally, all
 // nodes are connected to each other.
 func (n *TestNetwork) Start(t *testing.T) {
-	subs := map[types.NodeID]*PeerUpdates{}
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
 	nodes := n.Nodes()
-	for _, node := range nodes {
-		subs[node.NodeID] = node.PeerManager.Subscribe(ctx)
-	}
-
-	// For each node, dial the nodes that it still doesn't have a connection to
-	// (either inbound or outbound), and wait for both sides to confirm the
-	// connection via the subscriptions.
+	// Populate peer managers.
 	for i, source := range nodes {
 		for _, target := range nodes[i+1:] { // nodes <i already connected
-			added, err := source.PeerManager.Add(target.NodeAddress)
-			require.NoError(t, err)
-			require.True(t, added)
-
-			select {
-			case <-ctx.Done():
-				require.Fail(t, "operation canceled")
-			case peerUpdate := <-subs[source.NodeID].Updates():
-				peerUpdate.Channels = nil
-				require.Equal(t, PeerUpdate{
-					NodeID: target.NodeID,
-					Status: PeerStatusUp,
-				}, peerUpdate)
+			if _, err := source.PeerManager.Add(target.NodeAddress); err!=nil {
+				panic(fmt.Errorf("Add(%v): %w", target.NodeAddress, err))
 			}
-
-			select {
-			case <-ctx.Done():
-				require.Fail(t, "operation canceled")
-			case peerUpdate := <-subs[target.NodeID].Updates():
-				peerUpdate.Channels = nil
-				require.Equal(t, PeerUpdate{
-					NodeID: source.NodeID,
-					Status: PeerStatusUp,
-				}, peerUpdate)
+		}
+	}
+	// Await connections.
+	for _, source := range nodes {
+		for ready,ctrl := range source.PeerManager.ready.Lock() {
+			for _, target := range nodes {
+				if target.NodeID == source.NodeID {
+					continue
+				}
+				if err := ctrl.WaitUntil(t.Context(), func() bool {
+					_,ok := ready[target.NodeID]
+					return ok
+				}); err!=nil {
+					panic(err)
+				}
 			}
-
-			// Add the address to the target as well, so it's able to dial the
-			// source back if that's even necessary.
-			added, err = target.PeerManager.Add(source.NodeAddress)
-			require.NoError(t, err)
-			require.True(t, added)
 		}
 	}
 }
@@ -229,6 +231,39 @@ type TestNode struct {
 	PeerManager *PeerManager
 }
 
+func (n *TestNode) Connect(ctx context.Context, target *TestNode) {
+	if _, err := n.PeerManager.Add(target.NodeAddress); err!=nil {
+		panic(err)
+	}
+	for ready,ctrl := range n.PeerManager.ready.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			_,ok := ready[target.NodeID]
+			return ok
+		}); err!=nil {
+			panic(err)
+		}
+	}
+	for ready,ctrl := range target.PeerManager.ready.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			_,ok := ready[n.NodeID]
+			return ok
+		}); err!=nil {
+			panic(err)
+		}
+	}
+}
+
+func (n *TestNode) WaitUntilDisconnected(ctx context.Context, target types.NodeID) {
+	for ready,ctrl := range n.PeerManager.ready.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			_, ok := ready[target]
+			return !ok
+		}); err!=nil {
+			panic(err)
+		}
+	}
+}
+
 // MakeNode creates a new Node configured for the network with a
 // running peer manager, but does not add it to the existing
 // network. Callers are responsible for updating peering relationships.
@@ -277,6 +312,7 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	require.NoError(t, err)
 
 	require.NoError(t, router.Start(t.Context()))
+	require.NoError(t, router.WaitForStart(t.Context()))
 
 	node := &TestNode{
 		Logger:      logger,

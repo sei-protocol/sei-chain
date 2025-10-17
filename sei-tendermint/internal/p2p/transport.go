@@ -186,7 +186,6 @@ func (c *Connection) Run(ctx context.Context, r *Router) error {
 		s.Spawn(func() error { return c.recvRoutine(ctx, r) })
 		return nil
 	})
-	r.logger.Info("peer disconnected", "peer", peerID, "endpoint", c, "err", err)
 	for conns := range r.conns.Lock() {
 		if conns[peerID] == c {
 			delete(conns, peerID)

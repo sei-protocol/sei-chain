@@ -320,7 +320,6 @@ func (r *Router) acceptPeers(ctx context.Context) error {
 
 			// Spawn a goroutine per connection.
 			s.Spawn(func() error {
-				defer fmt.Printf("RELEASED\n")
 				defer sem.Release(1)
 				if err := r.openConnection(ctx, tcpConn.(*net.TCPConn)); err != nil {
 					r.logger.Error("accept", "err", err)

@@ -71,6 +71,7 @@ type PeerUpdate struct {
 // PeerUpdates is a peer update subscription with notifications about peer
 // events (currently just status changes).
 type PeerUpdates struct {
+	preexistingPeers []PeerUpdate
 	routerUpdatesCh  chan PeerUpdate
 	reactorUpdatesCh chan PeerUpdate
 }
@@ -83,6 +84,10 @@ func NewPeerUpdates(updatesCh chan PeerUpdate, buf int) *PeerUpdates {
 		reactorUpdatesCh: updatesCh,
 		routerUpdatesCh:  make(chan PeerUpdate, buf),
 	}
+}
+
+func (pu *PeerUpdates) PreexistingPeers() []PeerUpdate {
+	return pu.preexistingPeers
 }
 
 // Updates returns a channel for consuming peer updates.
@@ -325,7 +330,7 @@ type PeerManager struct {
 	dialing             map[types.NodeID]bool         // peers being dialed (DialNext → Dialed/DialFail)
 	upgrading           map[types.NodeID]types.NodeID // peers claimed for upgrade (DialNext → Dialed/DialFail)
 	connected           map[types.NodeID]bool         // connected peers (Dialed/Accepted → Disconnected)
-	ready               map[types.NodeID]bool         // ready peers (Ready → Disconnected)
+	ready               utils.Watch[map[types.NodeID]ChannelIDSet]         // ready peers (Ready → Disconnected)
 	evict               map[types.NodeID]error        // peers scheduled for eviction (Connected → EvictNext)
 	evicting            map[types.NodeID]bool         // peers being evicted (EvictNext → Disconnected)
 	metrics             *Metrics
@@ -366,7 +371,7 @@ func NewPeerManager(
 		dialing:             map[types.NodeID]bool{},
 		upgrading:           map[types.NodeID]types.NodeID{},
 		connected:           map[types.NodeID]bool{},
-		ready:               map[types.NodeID]bool{},
+		ready:               utils.NewWatch(map[types.NodeID]ChannelIDSet{}),
 		evict:               map[types.NodeID]error{},
 		evicting:            map[types.NodeID]bool{},
 		subscriptions:       map[*PeerUpdates]*PeerUpdates{},
@@ -794,7 +799,10 @@ func (m *PeerManager) Ready(ctx context.Context, peerID types.NodeID, channels C
 	defer m.mtx.Unlock()
 
 	if m.connected[peerID] {
-		m.ready[peerID] = true
+		for ready,ctrl := range m.ready.Lock() {
+			ready[peerID] = channels
+			ctrl.Updated()
+		}
 		m.broadcast(ctx, PeerUpdate{
 			NodeID:   peerID,
 			Status:   PeerStatusUp,
@@ -883,15 +891,19 @@ func (m *PeerManager) Disconnected(ctx context.Context, peerID types.NodeID) {
 		m.store.ranked = nil
 	}
 
-	ready := m.ready[peerID]
 
 	delete(m.connected, peerID)
 	delete(m.upgrading, peerID)
 	delete(m.evict, peerID)
 	delete(m.evicting, peerID)
-	delete(m.ready, peerID)
+	var isReady bool
+	for ready,ctrl := range m.ready.Lock() {
+		_,isReady = ready[peerID]
+		delete(ready, peerID)
+		ctrl.Updated()
+	}
 
-	if ready {
+	if isReady {
 		m.broadcast(ctx, PeerUpdate{
 			NodeID: peerID,
 			Status: PeerStatusDown,
@@ -1002,6 +1014,18 @@ func (m *PeerManager) Register(ctx context.Context, peerUpdates *PeerUpdates) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 	m.subscriptions[peerUpdates] = peerUpdates
+
+	var updates []PeerUpdate
+	for ready := range m.ready.Lock() {
+		for id, channels := range ready {
+			updates = append(updates, PeerUpdate{
+				NodeID:   id,
+				Status:   PeerStatusUp,
+				Channels: channels,
+			})
+		}
+	}
+	peerUpdates.preexistingPeers = updates
 
 	go func() {
 		for {
@@ -1118,12 +1142,13 @@ func (m *PeerManager) Score(id types.NodeID) int {
 func (m *PeerManager) Status(id types.NodeID) PeerStatus {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
-	switch {
-	case m.ready[id]:
-		return PeerStatusUp
-	default:
+	for ready := range m.ready.Lock() {
+		if _,ok := ready[id]; ok {
+			return PeerStatusUp
+		}
 		return PeerStatusDown
 	}
+	panic("unreachable")
 }
 
 func (m *PeerManager) State(id types.NodeID) string {
@@ -1131,8 +1156,10 @@ func (m *PeerManager) State(id types.NodeID) string {
 	defer m.mtx.Unlock()
 
 	states := []string{}
-	if _, ok := m.ready[id]; ok {
-		states = append(states, "ready")
+	for ready := range m.ready.Lock() {
+		if _,ok := ready[id]; ok {
+			states = append(states, "ready")
+		}
 	}
 	if _, ok := m.dialing[id]; ok {
 		states = append(states, "dialing")
@@ -1606,7 +1633,10 @@ func keyPeerInfoRange() ([]byte, []byte) {
 
 // Added for unit test
 func (m *PeerManager) MarkReadyConnected(nodeId types.NodeID) {
-	m.ready[nodeId] = true
+	for ready,ctrl := range m.ready.Lock() {
+		ready[nodeId] = ChannelIDSet{}
+		ctrl.Updated()
+	}
 	m.connected[nodeId] = true
 }
 
