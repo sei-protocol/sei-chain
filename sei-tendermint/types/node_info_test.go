@@ -8,8 +8,8 @@ import (
 
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	tmnet "github.com/tendermint/tendermint/libs/net"
-	"github.com/tendermint/tendermint/version"
 	"github.com/tendermint/tendermint/libs/utils/require"
+	"github.com/tendermint/tendermint/version"
 )
 
 const testCh = 0x01
@@ -181,8 +181,8 @@ func TestNodeInfoAddChannel(t *testing.T) {
 func TestResolveAddressStringDNS(t *testing.T) {
 	addr, err := ResolveAddressString("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@localhost:1234")
 	require.NoError(t, err)
-	require.True(t,addr.Addr().IsLoopback())
-	require.Equal(t,1234,addr.Port())
+	require.True(t, addr.Addr().IsLoopback())
+	require.Equal(t, 1234, addr.Port())
 }
 
 func TestResolveAddressString(t *testing.T) {
