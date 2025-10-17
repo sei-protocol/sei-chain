@@ -60,10 +60,6 @@ const (
 	// paramMsgSize is the maximum size of a paramsResponseMessage
 	paramMsgSize = int(1e5) // ~100kb
 
-	// lightBlockResponseTimeout is how long the dispatcher waits for a peer to
-	// return a light block
-	lightBlockResponseTimeout = 10 * time.Second
-
 	// maxLightBlockRequestRetries is the amount of retries acceptable before
 	// the backfill process aborts
 	maxLightBlockRequestRetries = 20
@@ -516,7 +512,7 @@ func (r *Reactor) backfill(
 					// pop the next peer of the list to send a request to
 					peer := r.peers.Pop(ctx)
 					r.logger.Debug("fetching next block", "height", height, "peer", peer)
-					subCtx, cancel := context.WithTimeout(ctxWithCancel, lightBlockResponseTimeout)
+					subCtx, cancel := context.WithTimeout(ctxWithCancel, r.cfg.LightBlockResponseTimeout)
 					defer cancel()
 					lb, err := func() (*types.LightBlock, error) {
 						defer cancel()

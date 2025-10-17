@@ -133,8 +133,9 @@ func setup(
 	rts.blockStore = store.NewBlockStore(dbm.NewMemDB())
 
 	cfg := config.DefaultStateSyncConfig()
+	cfg.LightBlockResponseTimeout = 100 * time.Millisecond
 
-	logger := log.NewNopLogger()
+	logger, _ := log.NewDefaultLogger("plain", "debug")
 
 	rts.reactor = NewReactor(
 		factory.DefaultTestChainID,
