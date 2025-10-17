@@ -5,11 +5,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	tmnet "github.com/tendermint/tendermint/libs/net"
 	"github.com/tendermint/tendermint/version"
+	"github.com/tendermint/tendermint/libs/utils/require"
 )
 
 const testCh = 0x01
@@ -176,6 +176,13 @@ func TestNodeInfoAddChannel(t *testing.T) {
 	// adding the same channel again shouldn't be a problem
 	nodeInfo.AddChannel(2)
 	require.Contains(t, nodeInfo.Channels, byte(0x02))
+}
+
+func TestResolveAddressStringDNS(t *testing.T) {
+	addr, err := ResolveAddressString("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@localhost:1234")
+	require.NoError(t, err)
+	require.True(t,addr.Addr().IsLoopback())
+	require.Equal(t,1234,addr.Port())
 }
 
 func TestResolveAddressString(t *testing.T) {
