@@ -3,8 +3,6 @@ package pex
 import (
 	"context"
 	"errors"
-	//"net/netip"
-	"strings"
 	"testing"
 	"time"
 
@@ -82,7 +80,7 @@ func TestReactorSendsRequestsTooOften(t *testing.T) {
 	}
 	t.Log("Send again.")
 	ch.Send(&p2pproto.PexRequest{}, n1)
-	t.Log("n0 should force disconnect.")
+	t.Log("n1 should force disconnect.")
 	testNet.listenForPeerDown(t, 1, 0)
 }
 
@@ -130,18 +128,29 @@ func TestReactorNeverSendsTooManyPeers(t *testing.T) {
 	testNet.pingAndlistenForNAddresses(ctx, t, 1, 0, shortWait, 100)
 }
 
-/*
 func TestReactorErrorsOnReceivingTooManyPeers(t *testing.T) {
 	ctx := t.Context()
+	testNet := setupNetwork(t, testOptions{
+		MockNodes:  1,
+		TotalNodes: 2,
+	})
+	testNet.connectAll(t)
+	testNet.start(ctx, t)
 
-	r := setupSingle(ctx, t)
-	peer := p2p.Endpoint{
-		AddrPort: netip.AddrPortFrom(netip.IPv6Loopback(), 1234),
-	}.NodeAddress(randomNodeID())
-	added, err := r.manager.Add(peer)
-	require.NoError(t, err)
-	require.True(t, added)
+	n0,n1 := testNet.checkNodePair(t, 0, 1)
+	ch := testNet.pexChannels[n0]
 
+	t.Log("wait for a request")
+	for {
+		m,err := ch.Recv(ctx)
+		require.NoError(t, err)
+		require.Equal(t, n1, m.From)
+		_,ok := m.Message.(*p2pproto.PexRequest)
+		if !ok { continue }
+		break
+	}
+
+	t.Log("send a response with too many addresses")
 	addresses := make([]p2pproto.PexAddress, 101)
 	for i := range addresses {
 		nodeAddress := p2p.NodeAddress{NodeID: randomNodeID()}
@@ -149,35 +158,11 @@ func TestReactorErrorsOnReceivingTooManyPeers(t *testing.T) {
 			URL: nodeAddress.String(),
 		}
 	}
+	ch.Send(&p2pproto.PexResponse{Addresses: addresses}, n1)
 
-	r.peerCh <- p2p.PeerUpdate{
-		NodeID: peer.NodeID,
-		Status: p2p.PeerStatusUp,
-	}
-
-	select {
-	// wait for a request and then send a response with too many addresses
-	case req := <-r.pexOutCh:
-		if _, ok := req.Message.(*p2pproto.PexRequest); !ok {
-			t.Fatal("expected v2 pex request")
-		}
-		r.pexInCh.Send(p2p.Envelope{
-			From: peer.NodeID,
-			Message: &p2pproto.PexResponse{
-				Addresses: addresses,
-			},
-		}, 0)
-
-	case <-time.After(10 * time.Second):
-		t.Fatal("pex failed to send a request within 10 seconds")
-	}
-
-	peerErr := <-r.pexErrCh
-	require.Error(t, peerErr.Err)
-	require.Empty(t, r.pexOutCh)
-	require.Contains(t, peerErr.Err.Error(), "peer sent too many addresses")
-	require.Equal(t, peer.NodeID, peerErr.NodeID)
-}*/
+	t.Log("n1 should force disconnect.")
+	testNet.listenForPeerDown(t, 1, 0)
+}
 
 func TestReactorSmallPeerStoreInALargeNetwork(t *testing.T) {
 	ctx := t.Context()
@@ -561,12 +546,6 @@ func (r *reactorTestSuite) addAddresses(t *testing.T, node int, addrs []int) {
 		require.NoError(t, err)
 		require.True(t, added)
 	}
-}
-
-func newNodeID(t *testing.T, id string) types.NodeID {
-	nodeID, err := types.NewNodeID(strings.Repeat(id, 2*types.NodeIDByteLength))
-	require.NoError(t, err)
-	return nodeID
 }
 
 func randomNodeID() types.NodeID {
