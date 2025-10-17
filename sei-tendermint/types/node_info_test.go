@@ -9,6 +9,7 @@ import (
 
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	tmnet "github.com/tendermint/tendermint/libs/net"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/version"
@@ -189,24 +190,21 @@ func TestResolveAddressStringDNS(t *testing.T) {
 
 func TestResolveAddressString(t *testing.T) {
 	testCases := []struct {
-		name    string
-		addr    string
-		want    netip.AddrPort
-		correct bool
+		name string
+		addr string
+		want utils.Option[netip.AddrPort]
 	}{
 		{name: "no node id and no protocol", addr: "127.0.0.1:8080"},
 		{name: "no node id w/ tcp input", addr: "tcp://127.0.0.1:8080"},
 		{
-			name:    "no protocol",
-			addr:    "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
-			want:    netip.AddrPortFrom(tcp.IPv4Loopback(), 8080),
-			correct: true,
+			name: "no protocol",
+			addr: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
+			want: utils.Some(netip.AddrPortFrom(tcp.IPv4Loopback(), 8080)),
 		},
 		{
-			name:    "tcp input",
-			addr:    "tcp://deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
-			want:    netip.AddrPortFrom(tcp.IPv4Loopback(), 8080),
-			correct: true,
+			name: "tcp input",
+			addr: "tcp://deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
+			want: utils.Some(netip.AddrPortFrom(tcp.IPv4Loopback(), 8080)),
 		},
 
 		{name: "malformed tcp input", addr: "tcp//deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080"},
@@ -225,10 +223,9 @@ func TestResolveAddressString(t *testing.T) {
 		{name: "too short notHex nodeId w/tcp", addr: "tcp://this-isnot-hex@127.0.0.1:8080"},
 		{name: "notHex nodeId w/tcp", addr: "tcp://xxxxbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080"},
 		{
-			name:    "correct nodeId w/tcp",
-			addr:    "tcp://deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
-			want:    netip.AddrPortFrom(tcp.IPv4Loopback(), 8080),
-			correct: true,
+			name: "correct nodeId w/tcp",
+			addr: "tcp://deadbeefdeadbeefdeadbeefdeadbeefdeadbeef@127.0.0.1:8080",
+			want: utils.Some(netip.AddrPortFrom(tcp.IPv4Loopback(), 8080)),
 		},
 
 		{name: "no node id", addr: "tcp://@127.0.0.1:8080"},
@@ -243,9 +240,9 @@ func TestResolveAddressString(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := ResolveAddressString(tc.addr)
-			if tc.correct {
+			if want, ok := tc.want.Get(); ok {
 				require.NoError(t, err, tc.addr)
-				require.Equal(t, tcp.Norm(tc.want), tcp.Norm(got))
+				require.Equal(t, tcp.Norm(want), tcp.Norm(got))
 			} else {
 				require.Error(t, err, "%v", tc.addr)
 			}
