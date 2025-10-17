@@ -285,9 +285,6 @@ timeout-read = "{{ .RPC.TimeoutRead }}"
 #######################################################
 [p2p]
 
-# Select the p2p internal queue
-queue-type = "{{ .P2P.QueueType }}"
-
 # Address to listen for incoming connections
 laddr = "{{ .P2P.ListenAddress }}"
 
@@ -350,6 +347,11 @@ recv-rate = {{ .P2P.RecvRate }}
 
 # List of node IDs, to which a connection will be (re)established, dropping an existing peer if any existing limit has been reached
 unconditional-peer-ids = "{{ .P2P.UnconditionalPeerIDs }}"
+
+##### Unused P2P Options (Not Recommended) #####
+
+# # Select the p2p internal queue (unused field, no effect)
+# queue-type = "{{ .P2P.QueueType }}"
 
 
 #######################################################
@@ -477,6 +479,8 @@ use-p2p = {{ .StateSync.UseP2P }}
 # for example: "host.example.com:2125"
 rpc-servers = "{{ StringsJoin .StateSync.RPCServers "," }}"
 
+# AUTO-MANAGED: These fields are automatically set by state-sync scripts.
+# Most users should NOT set these manually. They will be replaced at runtime.
 # The hash and height of a trusted block. Must be within the trust-period.
 trust-height = {{ .StateSync.TrustHeight }}
 trust-hash = "{{ .StateSync.TrustHash }}"
@@ -654,8 +658,18 @@ blocks-behind-check-interval = {{ .SelfRemediation.BlocksBehindCheckIntervalSeco
 # Cooldown between each restart
 restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
 
+#######################################################
+###    DB Sync Configuration (Auto-managed)         ###
+#######################################################
+# AUTO-MANAGED: DB Sync functionality is no longer actively used.
+# These settings are retained for backward compatibility with existing scripts.
+# Most node operators should NOT manually configure these settings.
+
 [db-sync]
+# AUTO-MANAGED: May be automatically modified by scripts. Keep as 'false' for most nodes.
 db-sync-enable = "{{ .DBSync.Enable }}"
+
+# The following settings are not recommended for manual configuration:
 snapshot-interval = "{{ .DBSync.SnapshotInterval }}"
 snapshot-directory = "{{ .DBSync.SnapshotDirectory }}"
 snapshot-worker-count = "{{ .DBSync.SnapshotWorkerCount }}"

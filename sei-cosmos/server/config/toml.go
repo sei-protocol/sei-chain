@@ -23,15 +23,25 @@ const DefaultConfigTemplate = `# This is a TOML config file.
 # specified in this config (e.g. 0.25token1;0.0001token2).
 minimum-gas-prices = "{{ .BaseConfig.MinGasPrices }}"
 
+###############################################################################
+###     IAVL Pruning Configuration (Auto-managed)                           ###
+###############################################################################
+# IMPORTANT: These settings ONLY apply to IAVL state storage.
+# They are COMPLETELY IGNORED when SeiDB is enabled (default for all nodes).
+# 
+# AUTO-MANAGED: These fields may be automatically modified by scripts.
+# For SeiDB state management, use [state-commit] and [state-store] settings.
+#
+# Most node operators should NOT manually configure these settings.
+#
 # Pruning Strategies:
-# - default: Keep the recent 362880 blocks and prune is triggered every 10 blocks
-# - nothing: all historic states will be saved, nothing will be deleted (i.e. archiving node)
-# - everything: all saved states will be deleted, storing only the recent 2 blocks; pruning at every block
-# - custom: allow pruning options to be manually specified through 'pruning-keep-recent' and 'pruning-interval'
-# Pruning strategy is completely ignored when seidb is enabled
+# - default: Keep recent 362880 blocks, prune every 10 blocks
+# - nothing: Keep all historic states (archiving node)
+# - everything: Keep only recent 2 blocks, prune at every block
+# - custom: Manually specify via 'pruning-keep-recent' and 'pruning-interval'
 pruning = "{{ .BaseConfig.Pruning }}"
 
-# These are applied if and only if the pruning strategy is custom, and seidb is not enabled
+# Applied only if pruning strategy is 'custom' and SeiDB is disabled
 pruning-keep-recent = "{{ .BaseConfig.PruningKeepRecent }}"
 pruning-keep-every = "{{ .BaseConfig.PruningKeepEvery }}"
 pruning-interval = "{{ .BaseConfig.PruningInterval }}"

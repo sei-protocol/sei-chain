@@ -518,22 +518,31 @@ max_subscriptions_new_head = {{ .EVM.MaxSubscriptionsNewHead }}
 # Set to 0 for unlimited.
 max_concurrent_trace_calls = {{ .EVM.MaxConcurrentTraceCalls }}
 
-# Max number of blocks allowed to look back for tracing
-# Set to -1 for unlimited lookback, which is useful for archive nodes.
+# Max number of blocks allowed to look back for debug_trace* RPC calls.
+# This setting limits how far back in block history trace requests can go.
+# - For full nodes: Keep at default (10000) to limit resource usage
+# - For archive nodes: Set to -1 for unlimited lookback to support full historical tracing
+# Note: Unlimited lookback requires significantly more disk space and memory.
 max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
 
 # Timeout for each trace call
 trace_timeout = "{{ .EVM.TraceTimeout }}"
 
-[eth_replay]
-eth_replay_enabled = {{ .ETHReplay.Enabled }}
-eth_rpc = "{{ .ETHReplay.EthRPC }}"
-eth_data_dir = "{{ .ETHReplay.EthDataDir }}"
-eth_replay_contract_state_checks = {{ .ETHReplay.ContractStateChecks }}
-
-[eth_blocktest]
-eth_blocktest_enabled = {{ .ETHBlockTest.Enabled }}
-eth_blocktest_test_data_path = "{{ .ETHBlockTest.TestDataPath }}"
+###############################################################################
+###          ETH Replay & Blocktest (Auto-managed)                         ###
+###############################################################################
+# AUTO-MANAGED: These settings are automatically managed by internal tools.
+# They should NOT be configured by node operators.
+#
+# [eth_replay]
+# eth_replay_enabled = {{ .ETHReplay.Enabled }}
+# eth_rpc = "{{ .ETHReplay.EthRPC }}"
+# eth_data_dir = "{{ .ETHReplay.EthDataDir }}"
+# eth_replay_contract_state_checks = {{ .ETHReplay.ContractStateChecks }}
+#
+# [eth_blocktest]
+# eth_blocktest_enabled = {{ .ETHBlockTest.Enabled }}
+# eth_blocktest_test_data_path = "{{ .ETHBlockTest.TestDataPath }}"
 
 [evm_query]
 evm_query_gas_limit = {{ .EvmQuery.GasLimit }}
