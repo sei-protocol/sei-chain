@@ -39,7 +39,7 @@ jobs:
       - name: Run Go Tests
         working-directory: ./sei-tendermint
         run: |
-          NUM_SPLIT=20 test-group-${{matrix.part}}
+          NUM_SPLIT=20 make test-group-${{matrix.part}}
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
