@@ -8,5 +8,4 @@ option go_package = "github.com/sei-protocol/sei-chain/x/epoch/types";
 // Params defines the parameters for the module.
 message Params {
   option (gogoproto.goproto_stringer) = false;
-  
 }

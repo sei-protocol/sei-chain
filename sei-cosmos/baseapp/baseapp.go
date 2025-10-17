@@ -1,7 +1,6 @@
 package baseapp
 
 import (
-	"context"
 	"fmt"
 	"reflect"
 	"strings"
@@ -172,8 +171,7 @@ type BaseApp struct { //nolint: maligned
 
 	TmConfig *tmcfg.Config
 
-	TracingInfo    *tracing.Info
-	TracingEnabled bool
+	TracingInfo *tracing.Info
 
 	concurrencyWorkers int
 	occEnabled         bool
@@ -281,18 +279,13 @@ func NewBaseApp(
 			grpcQueryRouter:  NewGRPCQueryRouter(),
 			msgServiceRouter: NewMsgServiceRouter(),
 		},
-		txDecoder:      txDecoder,
-		TmConfig:       tmConfig,
-		TracingEnabled: tracingEnabled,
-		TracingInfo: &tracing.Info{
-			Tracer: &tr,
-		},
+		txDecoder:        txDecoder,
+		TmConfig:         tmConfig,
+		TracingInfo:      tracing.NewTracingInfo(tr, tracingEnabled),
 		commitLock:       &sync.Mutex{},
 		checkTxStateLock: &sync.RWMutex{},
 		deliverTxHooks:   []DeliverTxHook{},
 	}
-
-	app.TracingInfo.SetContext(context.Background())
 
 	for _, option := range options {
 		option(app)
@@ -887,13 +880,11 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	// resources are acceessed by the ante handlers and message handlers.
 	defer acltypes.SendAllSignalsForTx(ctx.TxCompletionChannels())
 	acltypes.WaitForAllSignalsForTx(ctx.TxBlockingChannels())
-	if app.TracingEnabled {
-		// check for existing parent tracer, and if applicable, use it
-		spanCtx, span := app.TracingInfo.StartWithContext("RunTx", ctx.TraceSpanContext())
-		defer span.End()
-		ctx = ctx.WithTraceSpanContext(spanCtx)
-		span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", checksum)))
-	}
+	// check for existing parent tracer, and if applicable, use it
+	spanCtx, span := app.TracingInfo.StartWithContext("RunTx", ctx.TraceSpanContext())
+	defer span.End()
+	ctx = ctx.WithTraceSpanContext(spanCtx)
+	span.SetAttributes(attribute.String("txHash", fmt.Sprintf("%X", checksum)))
 
 	// NOTE: GasWanted should be returned by the AnteHandler. GasUsed is
 	// determined by the GasMeter. We need access to the context to get the gas
@@ -928,11 +919,9 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 
 	if app.anteHandler != nil {
 		var anteSpan trace.Span
-		if app.TracingEnabled {
-			// trace AnteHandler
-			_, anteSpan = app.TracingInfo.StartWithContext("AnteHandler", ctx.TraceSpanContext())
-			defer anteSpan.End()
-		}
+		// trace AnteHandler
+		_, anteSpan = app.TracingInfo.StartWithContext("AnteHandler", ctx.TraceSpanContext())
+		defer anteSpan.End()
 		var (
 			anteCtx sdk.Context
 			msCache sdk.CacheMultiStore
@@ -999,9 +988,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		expireHandler = ctx.ExpireTxHandler()
 		msCache.Write()
 		anteEvents = events.ToABCIEvents()
-		if app.TracingEnabled {
-			anteSpan.End()
-		}
+		anteSpan.End()
 	}
 
 	// Create a new Context based off of the existing Context with a MultiStore branch
@@ -1071,11 +1058,9 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 			panic(err)
 		}
 	}()
-	if app.TracingEnabled {
-		spanCtx, span := app.TracingInfo.StartWithContext("RunMsgs", ctx.TraceSpanContext())
-		defer span.End()
-		ctx = ctx.WithTraceSpanContext(spanCtx)
-	}
+	spanCtx, span := app.TracingInfo.StartWithContext("RunMsgs", ctx.TraceSpanContext())
+	defer span.End()
+	ctx = ctx.WithTraceSpanContext(spanCtx)
 	msgLogs := make(sdk.ABCIMessageLogs, 0, len(msgs))
 	events := sdk.EmptyEvents()
 	txMsgData := &sdk.TxMsgData{

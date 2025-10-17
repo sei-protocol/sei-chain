@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -67,8 +68,10 @@ func NewDebugAPI(
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 	debugCfg Config,
+	globalBlockCache BlockCache,
+	cacheCreationMutex *sync.Mutex,
 ) *DebugAPI {
-	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler)
+	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex)
 	tracersAPI := tracers.NewAPI(backend)
 	evictCallback := func(key common.Hash, value bool) {}
 	isPanicCache := expirable.NewLRU[common.Hash, bool](IsPanicCacheSize, evictCallback, IsPanicCacheTTL)
@@ -103,8 +106,10 @@ func NewSeiDebugAPI(
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 	debugCfg Config,
+	globalBlockCache BlockCache,
+	cacheCreationMutex *sync.Mutex,
 ) *SeiDebugAPI {
-	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler)
+	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex)
 	tracersAPI := tracers.NewAPI(backend)
 
 	var sem chan struct{}

@@ -1,14 +1,14 @@
 syntax = "proto3";
 package cosmwasm.wasm.v1;
 
-import "gogoproto/gogo.proto";
 import "cosmos/base/v1beta1/coin.proto";
 import "cosmwasm/wasm/v1/types.proto";
+import "gogoproto/gogo.proto";
 
 option go_package = "github.com/CosmWasm/wasmd/x/wasm/types";
-option (gogoproto.goproto_stringer_all) = false;
-option (gogoproto.goproto_getters_all) = false;
 option (gogoproto.equal_all) = true;
+option (gogoproto.goproto_getters_all) = false;
+option (gogoproto.goproto_stringer_all) = false;
 
 // StoreCodeProposal gov proposal content type to submit WASM code to the system
 message StoreCodeProposal {
@@ -19,7 +19,7 @@ message StoreCodeProposal {
   // RunAs is the address that is passed to the contract's environment as sender
   string run_as = 3;
   // WASMByteCode can be raw or gzip compressed
-  bytes wasm_byte_code = 4 [ (gogoproto.customname) = "WASMByteCode" ];
+  bytes wasm_byte_code = 4 [(gogoproto.customname) = "WASMByteCode"];
   // Used in v1beta1
   reserved 5, 6;
   // InstantiatePermission to apply on contract creation, optional
@@ -38,11 +38,11 @@ message InstantiateContractProposal {
   // Admin is an optional address that can execute migrations
   string admin = 4;
   // CodeID is the reference to the stored WASM code
-  uint64 code_id = 5 [ (gogoproto.customname) = "CodeID" ];
+  uint64 code_id = 5 [(gogoproto.customname) = "CodeID"];
   // Label is optional metadata to be stored with a constract instance.
   string label = 6;
   // Msg json encoded message to be passed to the contract on instantiation
-  bytes msg = 7 [ (gogoproto.casttype) = "RawContractMessage" ];
+  bytes msg = 7 [(gogoproto.casttype) = "RawContractMessage"];
   // Funds coins that are transferred to the contract on instantiation
   repeated cosmos.base.v1beta1.Coin funds = 8 [
     (gogoproto.nullable) = false,
@@ -61,9 +61,9 @@ message MigrateContractProposal {
   // Contract is the address of the smart contract
   string contract = 4;
   // CodeID references the new WASM code
-  uint64 code_id = 5 [ (gogoproto.customname) = "CodeID" ];
+  uint64 code_id = 5 [(gogoproto.customname) = "CodeID"];
   // Msg json encoded message to be passed to the contract on migration
-  bytes msg = 6 [ (gogoproto.casttype) = "RawContractMessage" ];
+  bytes msg = 6 [(gogoproto.casttype) = "RawContractMessage"];
 }
 
 // SudoContractProposal gov proposal content type to call sudo on a contract.
@@ -75,7 +75,7 @@ message SudoContractProposal {
   // Contract is the address of the smart contract
   string contract = 3;
   // Msg json encoded message to be passed to the contract as sudo
-  bytes msg = 4 [ (gogoproto.casttype) = "RawContractMessage" ];
+  bytes msg = 4 [(gogoproto.casttype) = "RawContractMessage"];
 }
 
 // ExecuteContractProposal gov proposal content type to call execute on a
@@ -90,7 +90,7 @@ message ExecuteContractProposal {
   // Contract is the address of the smart contract
   string contract = 4;
   // Msg json encoded message to be passed to the contract as execute
-  bytes msg = 5 [ (gogoproto.casttype) = "RawContractMessage" ];
+  bytes msg = 5 [(gogoproto.casttype) = "RawContractMessage"];
   // Funds coins that are transferred to the contract on instantiation
   repeated cosmos.base.v1beta1.Coin funds = 6 [
     (gogoproto.nullable) = false,
@@ -105,7 +105,7 @@ message UpdateAdminProposal {
   // Description is a human readable text
   string description = 2;
   // NewAdmin address to be set
-  string new_admin = 3 [ (gogoproto.moretags) = "yaml:\"new_admin\"" ];
+  string new_admin = 3 [(gogoproto.moretags) = "yaml:\"new_admin\""];
   // Contract is the address of the smart contract
   string contract = 4;
 }
@@ -125,9 +125,9 @@ message ClearAdminProposal {
 // wasmvm cache.
 message PinCodesProposal {
   // Title is a short summary
-  string title = 1 [ (gogoproto.moretags) = "yaml:\"title\"" ];
+  string title = 1 [(gogoproto.moretags) = "yaml:\"title\""];
   // Description is a human readable text
-  string description = 2 [ (gogoproto.moretags) = "yaml:\"description\"" ];
+  string description = 2 [(gogoproto.moretags) = "yaml:\"description\""];
   // CodeIDs references the new WASM codes
   repeated uint64 code_ids = 3 [
     (gogoproto.customname) = "CodeIDs",
@@ -139,9 +139,9 @@ message PinCodesProposal {
 // the wasmvm cache.
 message UnpinCodesProposal {
   // Title is a short summary
-  string title = 1 [ (gogoproto.moretags) = "yaml:\"title\"" ];
+  string title = 1 [(gogoproto.moretags) = "yaml:\"title\""];
   // Description is a human readable text
-  string description = 2 [ (gogoproto.moretags) = "yaml:\"description\"" ];
+  string description = 2 [(gogoproto.moretags) = "yaml:\"description\""];
   // CodeIDs references the WASM codes
   repeated uint64 code_ids = 3 [
     (gogoproto.customname) = "CodeIDs",
@@ -153,20 +153,19 @@ message UnpinCodesProposal {
 // applied.
 message AccessConfigUpdate {
   // CodeID is the reference to the stored WASM code to be updated
-  uint64 code_id = 1 [ (gogoproto.customname) = "CodeID" ];
+  uint64 code_id = 1 [(gogoproto.customname) = "CodeID"];
   // InstantiatePermission to apply to the set of code ids
-  AccessConfig instantiate_permission = 2 [ (gogoproto.nullable) = false ];
+  AccessConfig instantiate_permission = 2 [(gogoproto.nullable) = false];
 }
 
 // UpdateInstantiateConfigProposal gov proposal content type to update
 // instantiate config to a  set of code ids.
 message UpdateInstantiateConfigProposal {
   // Title is a short summary
-  string title = 1 [ (gogoproto.moretags) = "yaml:\"title\"" ];
+  string title = 1 [(gogoproto.moretags) = "yaml:\"title\""];
   // Description is a human readable text
-  string description = 2 [ (gogoproto.moretags) = "yaml:\"description\"" ];
+  string description = 2 [(gogoproto.moretags) = "yaml:\"description\""];
   // AccessConfigUpdate contains the list of code ids and the access config
   // to be applied.
-  repeated AccessConfigUpdate access_config_updates = 3
-      [ (gogoproto.nullable) = false ];
+  repeated AccessConfigUpdate access_config_updates = 3 [(gogoproto.nullable) = false];
 }

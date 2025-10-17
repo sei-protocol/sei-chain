@@ -1,9 +1,9 @@
 syntax = "proto3";
 package seiprotocol.seichain.epoch;
 
-import "gogoproto/gogo.proto";
-import "epoch/params.proto";
 import "epoch/epoch.proto";
+import "epoch/params.proto";
+import "gogoproto/gogo.proto";
 // this line is used by starport scaffolding # genesis/proto/import
 
 option go_package = "github.com/sei-protocol/sei-chain/x/epoch/types";
