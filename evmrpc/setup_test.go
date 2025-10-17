@@ -565,7 +565,7 @@ func init() {
 		panic(err)
 	}
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
-	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", isPanicTxFunc)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, noopEarliestVersionFetcher, "", isPanicTxFunc)
 	if err != nil {
 		panic(err)
 	}
@@ -577,7 +577,7 @@ func init() {
 	badConfig := evmrpc.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, noopEarliestVersionFetcher, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -600,6 +600,7 @@ func init() {
 		testApp.TracerAnteHandler,
 		ctxProvider,
 		txConfigProvider,
+		noopEarliestVersionFetcher,
 		"",
 		isPanicTxFunc,
 	)
@@ -624,6 +625,7 @@ func init() {
 		testApp.TracerAnteHandler,
 		ctxProvider,
 		txConfigProvider,
+		noopEarliestVersionFetcher,
 		"",
 		isPanicTxFunc,
 	)
@@ -635,7 +637,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "")
+	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, noopEarliestVersionFetcher, "")
 	if err != nil {
 		panic(err)
 	}
@@ -1266,4 +1268,8 @@ func TestEcho(t *testing.T) {
 func isPanicTxFunc(ctx context.Context, hash common.Hash) (bool, error) {
 	result := hash == common.HexToHash(TestPanicTxHash) || hash == common.HexToHash(TestSyntheticTxHash)
 	return result, nil
+}
+
+func noopEarliestVersionFetcher() int64 {
+	return 0
 }

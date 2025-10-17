@@ -239,7 +239,7 @@ func TestConvertBlockNumber(t *testing.T) {
 			return sdk.Context{}.WithBlockHeight(1000)
 		}
 		return sdk.Context{}
-	}, nil, nil, &MockClient{}, nil, nil, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	}, nil, nil, noopEarliestVersionFetcher, &MockClient{}, nil, nil, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Equal(t, int64(10), backend.ConvertBlockNumber(10))
 	require.Equal(t, int64(1), backend.ConvertBlockNumber(0))
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-2))
@@ -278,6 +278,7 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 		ctxProvider,
 		&testApp.EvmKeeper,
 		func(int64) client.TxConfig { return TxConfig },
+		noopEarliestVersionFetcher,
 		&MockClient{},
 		config,
 		testApp.BaseApp,
@@ -312,6 +313,7 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 		ctxProviderDifferentChain,
 		&testApp.EvmKeeper,
 		func(int64) client.TxConfig { return TxConfig },
+		noopEarliestVersionFetcher,
 		&MockClient{},
 		config,
 		testApp.BaseApp,
@@ -338,6 +340,7 @@ func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 
 	backend := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper,
 		func(int64) client.TxConfig { return TxConfig },
+		noopEarliestVersionFetcher,
 		&MockClient{}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 
 	header, err := backend.HeaderByNumber(context.Background(), 1)
@@ -357,13 +360,13 @@ func TestGasLimitFallbackToDefault(t *testing.T) {
 	cfg := &evmrpc.SimulateConfig{GasCap: 20_000_000, EVMTimeout: time.Second}
 
 	// Case 1: BlockResults fails
-	backend1 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &brFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	backend1 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, noopEarliestVersionFetcher, &brFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	h1, err := backend1.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(10_000_000), h1.GasLimit) // DefaultBlockGasLimit
 
 	// Case 2: Block fails
-	backend2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &bcFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	backend2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, noopEarliestVersionFetcher, &bcFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	h2, err := backend2.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(10_000_000), h2.GasLimit) // DefaultBlockGasLimit
@@ -396,6 +399,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		ctxProvider,
 		EVMKeeper,
 		func(int64) client.TxConfig { return TxConfig },
+		noopEarliestVersionFetcher,
 		&MockClient{},
 		config,
 		testApp.BaseApp,

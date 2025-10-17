@@ -39,6 +39,7 @@ type TransactionAPI struct {
 	keeper             *keeper.Keeper
 	ctxProvider        func(int64) sdk.Context
 	txConfigProvider   func(int64) client.TxConfig
+	earliestVersion    func() int64
 	homeDir            string
 	connectionType     ConnectionType
 	includeSynthetic   bool
@@ -56,6 +57,7 @@ func NewTransactionAPI(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	homeDir string,
 	connectionType ConnectionType,
 	globalBlockCache BlockCache,
@@ -66,6 +68,7 @@ func NewTransactionAPI(
 		keeper:             k,
 		ctxProvider:        ctxProvider,
 		txConfigProvider:   txConfigProvider,
+		earliestVersion:    earliestVersion,
 		homeDir:            homeDir,
 		connectionType:     connectionType,
 		globalBlockCache:   globalBlockCache,
@@ -78,13 +81,14 @@ func NewSeiTransactionAPI(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	homeDir string,
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 ) *SeiTransactionAPI {
-	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType, globalBlockCache, cacheCreationMutex)
+	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, earliestVersion, homeDir, connectionType, globalBlockCache, cacheCreationMutex)
 	baseAPI.includeSynthetic = true
 	return &SeiTransactionAPI{TransactionAPI: baseAPI, isPanicTx: isPanicTx}
 }
@@ -168,7 +172,7 @@ func getTransactionReceipt(
 	if err != nil {
 		return nil, err
 	}
-	return encodeReceipt(t.ctxProvider, t.txConfigProvider, receipt, t.keeper, block, includeSynthetic, t.globalBlockCache, t.cacheCreationMutex)
+	return encodeReceipt(t.ctxProvider, t.txConfigProvider, t.earliestVersion, receipt, t.keeper, block, includeSynthetic, t.globalBlockCache, t.cacheCreationMutex)
 }
 
 func (t *TransactionAPI) GetVMError(hash common.Hash) (result string, returnErr error) {
@@ -271,7 +275,10 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	if err != nil {
 		return nil, err
 	}
-	filteredMsgs := t.getFilteredMsgs(block)
+	filteredMsgs, err := t.getFilteredMsgs(block)
+	if err != nil {
+		return nil, err
+	}
 	txIndex, found, ethtx, _ := GetEvmTxIndex(t.ctxProvider(LatestCtxHeight), block, filteredMsgs, receipt.TransactionIndex, t.keeper)
 	if !found {
 		return nil, nil
@@ -322,7 +329,10 @@ func (t *TransactionAPI) GetTransactionCount(ctx context.Context, address common
 }
 
 func (t *TransactionAPI) getTransactionWithBlock(block *coretypes.ResultBlock, txIndex uint32, includeSynthetic bool) (*export.RPCTransaction, error) {
-	msgs := filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, includeSynthetic, false, t.cacheCreationMutex, t.globalBlockCache)
+	msgs, err := filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, t.earliestVersion, block, includeSynthetic, false, t.cacheCreationMutex, t.globalBlockCache)
+	if err != nil {
+		return nil, err
+	}
 	if txIndex >= uint32(len(msgs)) { //nolint:gosec
 		return nil, errors.New("transaction index out of range")
 	}
@@ -382,8 +392,8 @@ func (t *TransactionAPI) Sign(addr common.Address, data hexutil.Bytes) (result h
 	return nil, errors.New("address does not have hosted key")
 }
 
-func (t *TransactionAPI) getFilteredMsgs(block *coretypes.ResultBlock) []indexedMsg {
-	return filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, block, t.includeSynthetic, false, t.cacheCreationMutex, t.globalBlockCache)
+func (t *TransactionAPI) getFilteredMsgs(block *coretypes.ResultBlock) ([]indexedMsg, error) {
+	return filterTransactions(t.keeper, t.ctxProvider, t.txConfigProvider, t.earliestVersion, block, t.includeSynthetic, false, t.cacheCreationMutex, t.globalBlockCache)
 }
 
 func getEthTxForTxBz(tx tmtypes.Tx, decoder sdk.TxDecoder) *ethtypes.Transaction {
@@ -438,6 +448,7 @@ func GetEvmTxIndex(ctx sdk.Context, block *coretypes.ResultBlock, msgs []indexed
 func encodeReceipt(
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	receipt *types.Receipt,
 	k *keeper.Keeper,
 	block *coretypes.ResultBlock,
@@ -448,7 +459,10 @@ func encodeReceipt(
 	blockHash := block.BlockID.Hash
 	bh := common.HexToHash(blockHash.String())
 	ctx := ctxProvider(block.Block.Height)
-	msgs := filterTransactions(k, ctxProvider, txConfigProvider, block, includeSynthetic, false, cacheCreationMutex, globalBlockCache)
+	msgs, err := filterTransactions(k, ctxProvider, txConfigProvider, earliestVersion, block, includeSynthetic, false, cacheCreationMutex, globalBlockCache)
+	if err != nil {
+		return nil, err
+	}
 	evmTxIndex, foundTx, etx, logIndexOffset := GetEvmTxIndex(ctx, block, msgs, receipt.TransactionIndex, k)
 	// convert tx index including cosmos txs to tx index excluding cosmos txs
 	if !foundTx {
