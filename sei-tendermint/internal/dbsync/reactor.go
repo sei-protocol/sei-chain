@@ -48,8 +48,8 @@ const (
 	MetadataFilename         = "METADATA"
 )
 
-func GetMetadataChannelDescriptor() *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func GetMetadataChannelDescriptor() p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		ID:                  MetadataChannel,
 		MessageType:         new(dstypes.Message),
 		Priority:            6,
@@ -60,8 +60,8 @@ func GetMetadataChannelDescriptor() *p2p.ChannelDescriptor {
 	}
 }
 
-func GetFileChannelDescriptor() *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func GetFileChannelDescriptor() p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		ID:                  FileChannel,
 		Priority:            3,
 		MessageType:         new(dstypes.Message),
@@ -72,8 +72,8 @@ func GetFileChannelDescriptor() *p2p.ChannelDescriptor {
 	}
 }
 
-func GetLightBlockChannelDescriptor() *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func GetLightBlockChannelDescriptor() p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		ID:                  LightBlockChannel,
 		MessageType:         new(dstypes.Message),
 		Priority:            5,
@@ -84,8 +84,8 @@ func GetLightBlockChannelDescriptor() *p2p.ChannelDescriptor {
 	}
 }
 
-func GetParamsChannelDescriptor() *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func GetParamsChannelDescriptor() p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		ID:                  ParamsChannel,
 		MessageType:         new(dstypes.Message),
 		Priority:            2,

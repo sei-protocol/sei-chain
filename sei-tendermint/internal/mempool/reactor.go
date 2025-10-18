@@ -79,7 +79,7 @@ func defaultObservePanic(r any) {}
 
 // getChannelDescriptor produces an instance of a descriptor for this
 // package's required channels.
-func GetChannelDescriptor(cfg *config.MempoolConfig) *p2p.ChannelDescriptor {
+func GetChannelDescriptor(cfg *config.MempoolConfig) p2p.ChannelDescriptor {
 	largestTx := make([]byte, cfg.MaxTxBytes)
 	batchMsg := protomem.Message{
 		Sum: &protomem.Message_Txs{
@@ -87,7 +87,7 @@ func GetChannelDescriptor(cfg *config.MempoolConfig) *p2p.ChannelDescriptor {
 		},
 	}
 
-	return &p2p.ChannelDescriptor{
+	return p2p.ChannelDescriptor{
 		ID:                  MempoolChannel,
 		MessageType:         new(protomem.Message),
 		Priority:            5,

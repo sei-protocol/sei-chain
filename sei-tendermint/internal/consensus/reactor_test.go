@@ -55,8 +55,8 @@ type reactorTestSuite struct {
 	voteSetBitsChannels map[types.NodeID]*p2p.Channel
 }
 
-func chDesc(chID p2p.ChannelID, size int) *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func chDesc(chID p2p.ChannelID, size int) p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		ID:                 chID,
 		MessageType:        new(tmcons.Message),
 		RecvBufferCapacity: int(math.Sqrt(float64(size)) + 1),

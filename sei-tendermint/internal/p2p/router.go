@@ -223,6 +223,14 @@ func (r *Router) WaitForStart(ctx context.Context) error {
 	return err
 }
 
+func (r *Router) OpenChannelOrPanic(chDesc ChannelDescriptor) *Channel {
+	ch, err := r.OpenChannel(chDesc)
+	if err != nil {
+		panic(err)
+	}
+	return ch
+}
+
 // OpenChannel opens a new channel for the given message type.
 func (r *Router) OpenChannel(chDesc ChannelDescriptor) (*Channel, error) {
 	for channels := range r.channels.Lock() {

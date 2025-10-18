@@ -38,8 +38,8 @@ const (
 	syncTimeout = 180 * time.Second
 )
 
-func GetChannelDescriptor() *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func GetChannelDescriptor() p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		ID:                  BlockSyncChannel,
 		MessageType:         new(bcproto.Message),
 		Priority:            5,
@@ -108,7 +108,6 @@ func NewReactor(
 	blockExec *sm.BlockExecutor,
 	store *store.BlockStore,
 	consReactor consensusReactor,
-	peerEvents p2p.PeerEventSubscriber,
 	peerManager *p2p.PeerManager,
 	blockSync bool,
 	metrics *consensus.Metrics,
@@ -123,7 +122,6 @@ func NewReactor(
 		store:                     store,
 		consReactor:               consReactor,
 		blockSync:                 newAtomicBool(blockSync),
-		peerEvents:                peerEvents,
 		peerManager:               peerManager,
 		metrics:                   metrics,
 		eventBus:                  eventBus,
@@ -182,7 +180,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	}
 
 	go r.processBlockSyncCh(ctx, r.channel)
-	go r.processPeerUpdates(ctx, r.peerEvents(ctx), r.channel)
+	go r.processPeerUpdates(ctx, r.channel)
 
 	return nil
 }
@@ -197,7 +195,7 @@ func (r *Reactor) OnStop() {
 
 // respondToPeer loads a block and sends it to the requesting peer, if we have it.
 // Otherwise, we'll respond saying we do not have it.
-func (r *Reactor) respondToPeer(ctx context.Context, msg *bcproto.BlockRequest, peerID types.NodeID, blockSyncCh *p2p.Channel) error {
+func (r *Reactor) respondToPeer(msg *bcproto.BlockRequest, peerID types.NodeID, blockSyncCh *p2p.Channel) error {
 	block := r.store.LoadBlock(msg.Height)
 	if block == nil {
 		r.logger.Info("peer requesting a block we do not have", "peer", peerID, "height", msg.Height)
@@ -217,7 +215,7 @@ func (r *Reactor) respondToPeer(ctx context.Context, msg *bcproto.BlockRequest, 
 // handleMessage handles an Envelope sent from a peer on a specific p2p Channel.
 // It will handle errors and any possible panics gracefully. A caller can handle
 // any error returned by sending a PeerError on the respective channel.
-func (r *Reactor) handleMessage(ctx context.Context, m p2p.RecvMsg, blockSyncCh *p2p.Channel) (err error) {
+func (r *Reactor) handleMessage(m p2p.RecvMsg, blockSyncCh *p2p.Channel) (err error) {
 	defer func() {
 		if e := recover(); e != nil {
 			err = fmt.Errorf("panic in processing message: %v", e)
@@ -233,7 +231,7 @@ func (r *Reactor) handleMessage(ctx context.Context, m p2p.RecvMsg, blockSyncCh 
 
 	switch msg := m.Message.(type) {
 	case *bcproto.BlockRequest:
-		return r.respondToPeer(ctx, msg, m.From, blockSyncCh)
+		return r.respondToPeer(msg, m.From, blockSyncCh)
 	case *bcproto.BlockResponse:
 		block, err := types.BlockFromProto(msg.Block)
 
@@ -276,7 +274,7 @@ func (r *Reactor) processBlockSyncCh(ctx context.Context, blockSyncCh *p2p.Chann
 	for {
 		m,err := blockSyncCh.Recv(ctx)
 		if err!=nil { return }
-		if err := r.handleMessage(ctx, m, blockSyncCh); err != nil {
+		if err := r.handleMessage(m, blockSyncCh); err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return
 			}
@@ -332,7 +330,7 @@ func (r *Reactor) autoRestartIfBehind(ctx context.Context) {
 }
 
 // processPeerUpdate processes a PeerUpdate.
-func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpdate, blockSyncCh *p2p.Channel) {
+func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate, blockSyncCh *p2p.Channel) {
 	r.logger.Debug("received peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
 
 	// XXX: Pool#RedoRequest can sometimes give us an empty peer.
@@ -355,13 +353,14 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 // processPeerUpdates initiates a blocking process where we listen for and handle
 // PeerUpdate messages. When the reactor is stopped, we will catch the signal and
 // close the p2p PeerUpdatesCh gracefully.
-func (r *Reactor) processPeerUpdates(ctx context.Context, peerUpdates *p2p.PeerUpdates, blockSyncCh *p2p.Channel) {
+func (r *Reactor) processPeerUpdates(ctx context.Context, blockSyncCh *p2p.Channel) {
+	peerUpdates := r.peerManager.Subscribe(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case peerUpdate := <-peerUpdates.Updates():
-			r.processPeerUpdate(ctx, peerUpdate, blockSyncCh)
+			r.processPeerUpdate(peerUpdate, blockSyncCh)
 		}
 	}
 }

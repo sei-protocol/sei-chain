@@ -68,8 +68,8 @@ const (
 	maxLightBlockRequestRetries = 20
 )
 
-func GetSnapshotChannelDescriptor() *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func GetSnapshotChannelDescriptor() p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		ID:                  SnapshotChannel,
 		MessageType:         new(ssproto.Message),
 		Priority:            6,
@@ -80,8 +80,8 @@ func GetSnapshotChannelDescriptor() *p2p.ChannelDescriptor {
 	}
 }
 
-func GetChunkChannelDescriptor() *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func GetChunkChannelDescriptor() p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		ID:                  ChunkChannel,
 		Priority:            3,
 		MessageType:         new(ssproto.Message),
@@ -92,8 +92,8 @@ func GetChunkChannelDescriptor() *p2p.ChannelDescriptor {
 	}
 }
 
-func GetLightBlockChannelDescriptor() *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func GetLightBlockChannelDescriptor() p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		ID:                  LightBlockChannel,
 		MessageType:         new(ssproto.Message),
 		Priority:            5,
@@ -104,8 +104,8 @@ func GetLightBlockChannelDescriptor() *p2p.ChannelDescriptor {
 	}
 }
 
-func GetParamsChannelDescriptor() *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func GetParamsChannelDescriptor() p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		ID:                  ParamsChannel,
 		MessageType:         new(ssproto.Message),
 		Priority:            2,

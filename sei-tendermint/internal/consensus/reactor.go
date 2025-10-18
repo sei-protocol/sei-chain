@@ -29,8 +29,8 @@ var (
 	_ p2p.Wrapper     = (*tmcons.Message)(nil)
 )
 
-func GetStateChannelDescriptor() *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func GetStateChannelDescriptor() p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		ID:                  StateChannel,
 		MessageType:         new(tmcons.Message),
 		Priority:            8,
@@ -41,8 +41,8 @@ func GetStateChannelDescriptor() *p2p.ChannelDescriptor {
 	}
 }
 
-func GetDataChannelDescriptor() *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func GetDataChannelDescriptor() p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		// TODO: Consider a split between gossiping current block and catchup
 		// stuff. Once we gossip the whole block there is nothing left to send
 		// until next height or round.
@@ -56,8 +56,8 @@ func GetDataChannelDescriptor() *p2p.ChannelDescriptor {
 	}
 }
 
-func GetVoteChannelDescriptor() *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func GetVoteChannelDescriptor() p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		ID:                  VoteChannel,
 		MessageType:         new(tmcons.Message),
 		Priority:            10,
@@ -68,8 +68,8 @@ func GetVoteChannelDescriptor() *p2p.ChannelDescriptor {
 	}
 }
 
-func GetVoteSetChannelDescriptor() *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func GetVoteSetChannelDescriptor() p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		ID:                  VoteSetBitsChannel,
 		MessageType:         new(tmcons.Message),
 		Priority:            5,

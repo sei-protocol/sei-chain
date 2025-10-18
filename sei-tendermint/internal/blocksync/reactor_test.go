@@ -72,7 +72,7 @@ func setup(
 		peerUpdates:       make(map[types.NodeID]*p2p.PeerUpdates, numNodes),
 	}
 
-	chDesc := &p2p.ChannelDescriptor{
+	chDesc := p2p.ChannelDescriptor{
 		ID:                 BlockSyncChannel,
 		MessageType:        new(bcproto.Message),
 		RecvBufferCapacity: 32,
@@ -106,7 +106,6 @@ func makeReactor(
 	ctx context.Context,
 	t *testing.T,
 	genDoc *types.GenesisDoc,
-	peerEvents p2p.PeerEventSubscriber,
 	peerManager *p2p.PeerManager,
 	restartChan chan struct{},
 	selfRemediationConfig *config.SelfRemediationConfig,
@@ -159,7 +158,6 @@ func makeReactor(
 		blockExec,
 		blockStore,
 		nil,
-		peerEvents,
 		peerManager,
 		true,
 		consensus.NopMetrics(),
@@ -189,7 +187,6 @@ func (rts *reactorTestSuite) addNode(
 	rts.peerUpdates[nodeID] = p2p.NewPeerUpdates(rts.peerChans[nodeID], 1)
 	rts.network.Node(nodeID).PeerManager.Register(ctx, rts.peerUpdates[nodeID])
 
-	peerEvents := func(ctx context.Context) *p2p.PeerUpdates { return rts.peerUpdates[nodeID] }
 	restartChan := make(chan struct{})
 	remediationConfig := config.DefaultSelfRemediationConfig()
 	remediationConfig.BlocksBehindThreshold = 1000
@@ -198,7 +195,6 @@ func (rts *reactorTestSuite) addNode(
 		ctx,
 		t,
 		genDoc,
-		peerEvents,
 		rts.network.Node(nodeID).PeerManager,
 		restartChan,
 		config.DefaultSelfRemediationConfig(),

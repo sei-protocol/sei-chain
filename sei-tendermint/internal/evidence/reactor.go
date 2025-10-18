@@ -31,8 +31,8 @@ const (
 
 // GetChannelDescriptor produces an instance of a descriptor for this
 // package's required channels.
-func GetChannelDescriptor() *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func GetChannelDescriptor() p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		ID:                  EvidenceChannel,
 		MessageType:         new(tmproto.Evidence),
 		Priority:            6,
