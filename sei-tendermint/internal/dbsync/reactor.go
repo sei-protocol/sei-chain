@@ -237,66 +237,56 @@ func (r *Reactor) handleMetadataRequest(ctx context.Context, req *dstypes.Metada
 			r.logger.Debug(fmt.Sprintf("handle metadata request encountered error %s", err))
 		}
 		if !responded {
-			err = r.metadataChannel.Send(ctx, p2p.Envelope{
-				To: from,
-				Message: &dstypes.MetadataResponse{
-					Height:    0,
-					Hash:      []byte{},
-					Filenames: []string{},
-				},
-			})
+			r.metadataChannel.Send(&dstypes.MetadataResponse{
+				Height:    0,
+				Hash:      []byte{},
+				Filenames: []string{},
+			}, from)
+			err = nil
 		}
 	}()
 
 	if r.config.SnapshotDirectory == "" {
-		return
+		return nil
 	}
 
 	metadataHeightFile := filepath.Join(r.config.SnapshotDirectory, MetadataHeightFilename)
 	heightData, err := os.ReadFile(metadataHeightFile)
 	if err != nil {
-		err = fmt.Errorf("cannot read height file %s due to %s", metadataHeightFile, err)
-		return
+		return fmt.Errorf("cannot read height file %s due to %s", metadataHeightFile, err)
 	}
 	height, err := strconv.ParseUint(string(heightData), 10, 64)
 	if err != nil {
-		err = fmt.Errorf("height data should be an integer but got %s", heightData)
-		return
+		return fmt.Errorf("height data should be an integer but got %s", heightData)
 	}
 	heightSubdirectory := filepath.Join(r.config.SnapshotDirectory, fmt.Sprintf("%s%d", HeightSubdirectoryPrefix, height))
 	metadataFilename := filepath.Join(heightSubdirectory, MetadataFilename)
 	data, err := os.ReadFile(metadataFilename)
 	if err != nil {
-		err = fmt.Errorf("cannot read metadata file %s due to %s", metadataFilename, err)
-		return
+		return fmt.Errorf("cannot read metadata file %s due to %s", metadataFilename, err)
 	}
 	msg := dstypes.MetadataResponse{}
-	err = msg.Unmarshal(data)
-	if err != nil {
-		err = fmt.Errorf("cannot unmarshal metadata file %s due to %s", metadataFilename, err)
-		return
+	if err := msg.Unmarshal(data); err != nil {
+		return fmt.Errorf("cannot unmarshal metadata file %s due to %s", metadataFilename, err)
 	}
-	err = r.metadataChannel.Send(ctx, p2p.Envelope{
-		To:      from,
-		Message: &msg,
-	})
+	r.metadataChannel.Send(&msg,from)
 	responded = true
-	return
+	return nil
 }
 
-func (r *Reactor) handleMetadataMessage(ctx context.Context, envelope *p2p.Envelope) error {
-	logger := r.logger.With("peer", envelope.From)
+func (r *Reactor) handleMetadataMessage(ctx context.Context, m p2p.RecvMsg) error {
+	logger := r.logger.With("peer", m.From)
 
-	switch msg := envelope.Message.(type) {
+	switch msg := m.Message.(type) {
 	case *dstypes.MetadataRequest:
-		return r.handleMetadataRequest(ctx, msg, envelope.From)
+		return r.handleMetadataRequest(ctx, msg, m.From)
 
 	case *dstypes.MetadataResponse:
 		if msg.Height == 0 {
 			return nil
 		}
 		logger.Info("received metadata", "height", msg.Height, "size", len(msg.Filenames))
-		r.syncer.SetMetadata(ctx, envelope.From, msg)
+		r.syncer.SetMetadata(ctx, m.From, msg)
 
 	default:
 		return fmt.Errorf("received unknown message: %T", msg)
@@ -312,44 +302,38 @@ func (r *Reactor) handleFileRequest(ctx context.Context, req *dstypes.FileReques
 			r.logger.Debug(fmt.Sprintf("handle file request encountered error %s", err))
 		}
 		if !responded {
-			err = r.fileChannel.Send(ctx, p2p.Envelope{
-				To: from,
-				Message: &dstypes.FileResponse{
-					Height:   0,
-					Filename: "",
-					Data:     []byte{},
-				},
-			})
+			r.fileChannel.Send(&dstypes.FileResponse{
+				Height:   0,
+				Filename: "",
+				Data:     []byte{},
+			}, from)
+			err = nil
 		}
 	}()
 
 	if r.config.SnapshotDirectory == "" {
-		return
+		return nil
 	}
 
 	heightSubdirectory := filepath.Join(r.config.SnapshotDirectory, fmt.Sprintf("%s%d", HeightSubdirectoryPrefix, req.Height))
 	filename := filepath.Join(heightSubdirectory, req.Filename)
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		err = fmt.Errorf("cannot read file %s due to %s", filename, err)
-		return
+		return fmt.Errorf("cannot read file %s due to %s", filename, err)
 	}
-	err = r.fileChannel.Send(ctx, p2p.Envelope{
-		To: from,
-		Message: &dstypes.FileResponse{
-			Height:   req.Height,
-			Filename: req.Filename,
-			Data:     data,
-		},
-	})
+	r.fileChannel.Send(&dstypes.FileResponse{
+		Height:   req.Height,
+		Filename: req.Filename,
+		Data:     data,
+	}, from)
 	responded = true
-	return
+	return nil
 }
 
-func (r *Reactor) handleFileMessage(ctx context.Context, envelope *p2p.Envelope) error {
-	switch msg := envelope.Message.(type) {
+func (r *Reactor) handleFileMessage(ctx context.Context, m p2p.RecvMsg) error {
+	switch msg := m.Message.(type) {
 	case *dstypes.FileRequest:
-		return r.handleFileRequest(ctx, msg, envelope.From)
+		return r.handleFileRequest(ctx, msg, m.From)
 
 	case *dstypes.FileResponse:
 		// using msg.Height is a more reliable check for empty response than
@@ -366,7 +350,7 @@ func (r *Reactor) handleFileMessage(ctx context.Context, envelope *p2p.Envelope)
 	return nil
 }
 
-func (r *Reactor) handleLightBlockMessage(ctx context.Context, envelope *p2p.Envelope) error {
+func (r *Reactor) handleLightBlockMessage(ctx context.Context, envelope p2p.RecvMsg) error {
 	switch msg := envelope.Message.(type) {
 	case *dstypes.LightBlockRequest:
 		lb, err := r.fetchLightBlock(msg.Height)
@@ -375,14 +359,7 @@ func (r *Reactor) handleLightBlockMessage(ctx context.Context, envelope *p2p.Env
 			return err
 		}
 		if lb == nil {
-			if err := r.lightBlockChannel.Send(ctx, p2p.Envelope{
-				To: envelope.From,
-				Message: &dstypes.LightBlockResponse{
-					LightBlock: nil,
-				},
-			}); err != nil {
-				return err
-			}
+			r.lightBlockChannel.Send(&dstypes.LightBlockResponse{LightBlock: nil}, envelope.From)
 			return nil
 		}
 
@@ -394,14 +371,8 @@ func (r *Reactor) handleLightBlockMessage(ctx context.Context, envelope *p2p.Env
 
 		// NOTE: If we don't have the light block we will send a nil light block
 		// back to the requested node, indicating that we don't have it.
-		if err := r.lightBlockChannel.Send(ctx, p2p.Envelope{
-			To: envelope.From,
-			Message: &dstypes.LightBlockResponse{
-				LightBlock: lbproto,
-			},
-		}); err != nil {
-			return err
-		}
+		r.lightBlockChannel.Send(&dstypes.LightBlockResponse{LightBlock: lbproto}, envelope.From)
+
 	case *dstypes.LightBlockResponse:
 		var height int64
 		if msg.LightBlock != nil {
@@ -421,8 +392,8 @@ func (r *Reactor) handleLightBlockMessage(ctx context.Context, envelope *p2p.Env
 	return nil
 }
 
-func (r *Reactor) handleParamsMessage(ctx context.Context, envelope *p2p.Envelope) error {
-	switch msg := envelope.Message.(type) {
+func (r *Reactor) handleParamsMessage(ctx context.Context, m p2p.RecvMsg) error {
+	switch msg := m.Message.(type) {
 	case *dstypes.ParamsRequest:
 		cp, err := r.stateStore.LoadConsensusParams(int64(msg.Height))
 		if err != nil {
@@ -431,15 +402,10 @@ func (r *Reactor) handleParamsMessage(ctx context.Context, envelope *p2p.Envelop
 		}
 
 		cpproto := cp.ToProto()
-		if err := r.paramsChannel.Send(ctx, p2p.Envelope{
-			To: envelope.From,
-			Message: &dstypes.ParamsResponse{
-				Height:          msg.Height,
-				ConsensusParams: cpproto,
-			},
-		}); err != nil {
-			return err
-		}
+		r.paramsChannel.Send(&dstypes.ParamsResponse{
+			Height:          msg.Height,
+			ConsensusParams: cpproto,
+		}, m.From)
 	case *dstypes.ParamsResponse:
 		r.mtx.RLock()
 		defer r.mtx.RUnlock()
@@ -455,7 +421,7 @@ func (r *Reactor) handleParamsMessage(ctx context.Context, envelope *p2p.Envelop
 				r.logger.Error("failed to send consensus params, stateprovider not ready for response")
 			}
 		} else {
-			r.logger.Debug("received unexpected params response; using RPC state provider", "peer", envelope.From)
+			r.logger.Debug("received unexpected params response; using RPC state provider", "peer", m.From)
 		}
 
 	default:
@@ -512,84 +478,56 @@ func (r *Reactor) processPeerUpdates(ctx context.Context, peerUpdates *p2p.PeerU
 }
 
 func (r *Reactor) processMetadataCh(ctx context.Context, ch *p2p.Channel) {
-	iter := ch.RecvAll(ctx)
-	for iter.Next(ctx) {
-		envelope := iter.Envelope()
-		if err := r.handleMetadataMessage(ctx, envelope); err != nil {
-			r.logger.Error("failed to process message", "ch_id", envelope.ChannelID, "envelope", envelope, "err", err)
-			if serr := ch.SendError(ctx, p2p.PeerError{
-				NodeID: envelope.From,
-				Err:    err,
-			}); serr != nil {
-				return
-			}
+	for {
+		m,err := ch.Recv(ctx)
+		if err!=nil { return }
+		if err := r.handleMetadataMessage(ctx, m); err != nil {
+			r.logger.Error("failed to process metadataCh message", "envelope", m, "err", err)
+			ch.SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }
 
 func (r *Reactor) processFileCh(ctx context.Context, ch *p2p.Channel) {
-	iter := ch.RecvAll(ctx)
-	for iter.Next(ctx) {
-		envelope := iter.Envelope()
-		if err := r.handleFileMessage(ctx, envelope); err != nil {
-			r.logger.Error("failed to process message", "ch_id", envelope.ChannelID, "envelope", envelope, "err", err)
-			if serr := ch.SendError(ctx, p2p.PeerError{
-				NodeID: envelope.From,
-				Err:    err,
-			}); serr != nil {
-				return
-			}
+	for {
+		m,err := ch.Recv(ctx)
+		if err!=nil { return }
+		if err := r.handleFileMessage(ctx, m); err != nil {
+			r.logger.Error("failed to process fileCh message", "envelope", m, "err", err)
+			ch.SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }
 
 func (r *Reactor) processLightBlockCh(ctx context.Context, ch *p2p.Channel) {
-	iter := ch.RecvAll(ctx)
-	for iter.Next(ctx) {
-		envelope := iter.Envelope()
-		if err := r.handleLightBlockMessage(ctx, envelope); err != nil {
-			r.logger.Error("failed to process message", "ch_id", envelope.ChannelID, "envelope", envelope, "err", err)
-			if serr := ch.SendError(ctx, p2p.PeerError{
-				NodeID: envelope.From,
-				Err:    err,
-			}); serr != nil {
-				return
-			}
+	for {
+		m,err := ch.Recv(ctx)
+		if err!=nil { return }
+		if err := r.handleLightBlockMessage(ctx, m); err != nil {
+			r.logger.Error("failed to process lightBlockCh message", "envelope", m, "err", err)
+			ch.SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }
 
 func (r *Reactor) processParamsCh(ctx context.Context, ch *p2p.Channel) {
-	iter := ch.RecvAll(ctx)
-	for iter.Next(ctx) {
-		envelope := iter.Envelope()
-		if err := r.handleParamsMessage(ctx, envelope); err != nil {
-			r.logger.Error("failed to process message", "ch_id", envelope.ChannelID, "envelope", envelope, "err", err)
-			if serr := ch.SendError(ctx, p2p.PeerError{
-				NodeID: envelope.From,
-				Err:    err,
-			}); serr != nil {
-				return
-			}
+	for {
+		m,err := ch.Recv(ctx)
+		if err!=nil { return }
+		if err := r.handleParamsMessage(ctx, m); err != nil {
+			r.logger.Error("failed to process paramsCh message", "envelope", m, "err", err)
+			ch.SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }
 
-func (r *Reactor) requestMetadata(ctx context.Context) error {
-	return r.metadataChannel.Send(ctx, p2p.Envelope{
-		Broadcast: true,
-		Message:   &dstypes.MetadataRequest{},
-	})
-}
+func (r *Reactor) requestMetadata() { r.metadataChannel.Broadcast(&dstypes.MetadataRequest{}) }
 
-func (r *Reactor) requestFile(ctx context.Context, peer types.NodeID, height uint64, filename string) error {
-	return r.fileChannel.Send(ctx, p2p.Envelope{
-		To: peer,
-		Message: &dstypes.FileRequest{
-			Height:   height,
-			Filename: filename,
-		},
-	})
+func (r *Reactor) requestFile(peer types.NodeID, height uint64, filename string) {
+	r.fileChannel.Send(&dstypes.FileRequest{
+		Height:   height,
+		Filename: filename,
+	}, peer)
 }
 
 func (r *Reactor) fetchLightBlock(height uint64) (*types.LightBlock, error) {

@@ -1218,7 +1218,7 @@ func (r *Reactor) recoverToErr(err *error) {
 		*err = fmt.Errorf("panic in processing message: %v", e)
 		r.logger.Error(
 			"recovering from processing message panic",
-			"err", err,
+			"err", *err,
 			"stack", string(debug.Stack()),
 		)
 	}
