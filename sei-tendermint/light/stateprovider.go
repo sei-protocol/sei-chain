@@ -405,12 +405,7 @@ func (s *StateProviderP2P) consensusParams(ctx context.Context, height int64) (t
 			}
 
 			go func(peer types.NodeID) {
-				if err := s.paramsSendCh.Send(childCtx, p2p.Envelope{
-					To:      peer,
-					Message: s.paramsReqCreator(uint64(height)),
-				}); err != nil {
-					return
-				}
+				s.paramsSendCh.Send(s.paramsReqCreator(uint64(height)),peer)
 
 				select {
 				case <-childCtx.Done():

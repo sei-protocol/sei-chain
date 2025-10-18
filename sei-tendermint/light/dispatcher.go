@@ -94,14 +94,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, peer types.NodeID, height int
 	d.calls[peer] = ch
 
 	// send request
-	if err := d.requestCh.Send(ctx, p2p.Envelope{
-		To:      peer,
-		Message: d.lightBlockMsgCreator(uint64(height)),
-	}); err != nil {
-		close(ch)
-		return ch, err
-	}
-
+	d.requestCh.Send(d.lightBlockMsgCreator(uint64(height)),peer)
 	return ch, nil
 }
 
