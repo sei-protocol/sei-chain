@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"runtime/debug"
 	"sort"
 	"sync"
@@ -173,6 +172,11 @@ type Reactor struct {
 	backfillBlockTotal int64
 	backfilledBlocks   int64
 
+	// For some reason channels below used to be processed synchronously.
+	// Now each of these has their own processing loop, but to simulate the previous
+	// behavior we use a mutex to ensure only one message is processed at a time across all channels.
+	// TODO(gprusak): verify that the message handlers can be executed concurrenty and remove this mutex.
+	processChGuard    sync.Mutex
 	snapshotChannel   *p2p.Channel
 	chunkChannel      *p2p.Channel
 	lightBlockChannel *p2p.Channel
@@ -328,12 +332,10 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		return nil
 	}
 
-	go r.processChannels(ctx, map[p2p.ChannelID]*p2p.Channel{
-		SnapshotChannel:   r.snapshotChannel,
-		ChunkChannel:      r.chunkChannel,
-		LightBlockChannel: r.lightBlockChannel,
-		ParamsChannel:     r.paramsChannel,
-	})
+	go r.processSnapshotCh(ctx)
+	go r.processChunkCh(ctx)
+	go r.processLightBlockCh(ctx)
+	go r.processParamsCh(ctx)
 
 	if !r.cfg.UseLocalSnapshot {
 		go r.processPeerUpdates(ctx, r.peerEvents(ctx))
@@ -648,9 +650,10 @@ func (r *Reactor) backfill(
 // handleSnapshotMessage handles ms sent from peers on the
 // SnapshotChannel. It returns an error only if the Envelope.Message is unknown
 // for this channel. This should never be called outside of handleMessage.
-func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg, snapshotCh *p2p.Channel) (err error) {
+func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg) (err error) {
 	defer r.recoverToErr(&err)
 	logger := r.logger.With("peer", m.From)
+	snapshotCh := r.snapshotChannel
 
 	switch msg := m.Message.(type) {
 	case *ssproto.SnapshotsRequest:
@@ -715,7 +718,8 @@ func (r *Reactor) handleSnapshotMessage(ctx context.Context, m p2p.RecvMsg, snap
 // handleChunkMessage handles ms sent from peers on the ChunkChannel.
 // It returns an error only if the Envelope.Message is unknown for this channel.
 // This should never be called outside of handleMessage.
-func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg, chunkCh *p2p.Channel) (err error) {
+func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg) (err error) {
+	chunkCh := r.chunkChannel
 	defer r.recoverToErr(&err)
 	switch msg := m.Message.(type) {
 	case *ssproto.ChunkRequest:
@@ -800,7 +804,8 @@ func (r *Reactor) handleChunkMessage(ctx context.Context, m p2p.RecvMsg, chunkCh
 	return nil
 }
 
-func (r *Reactor) handleLightBlockMessage(ctx context.Context, m p2p.RecvMsg, blockCh *p2p.Channel) (err error) {
+func (r *Reactor) handleLightBlockMessage(ctx context.Context, m p2p.RecvMsg) (err error) {
+	blockCh := r.lightBlockChannel
 	defer r.recoverToErr(&err)
 	switch msg := m.Message.(type) {
 	case *ssproto.LightBlockRequest:
@@ -856,15 +861,10 @@ func (r *Reactor) handleParamsMessage(ctx context.Context, m p2p.RecvMsg, params
 		}
 
 		cpproto := cp.ToProto()
-		if err := paramsCh.Send(ctx, p2p.Envelope{
-			To: m.From,
-			Message: &ssproto.ParamsResponse{
-				Height:          msg.Height,
-				ConsensusParams: cpproto,
-			},
-		}); err != nil {
-			return err
-		}
+		paramsCh.Send(&ssproto.ParamsResponse{
+			Height:          msg.Height,
+			ConsensusParams: cpproto,
+		},m.From)
 	case *ssproto.ParamsResponse:
 		r.mtx.RLock()
 		defer r.mtx.RUnlock()
@@ -899,6 +899,58 @@ func (r *Reactor) recoverToErr(err *error) {
 			"err", *err,
 			"stack", string(debug.Stack()),
 		)
+	}
+}
+
+func (r *Reactor) processSnapshotCh(ctx context.Context) {
+	for {
+		m,err := r.snapshotChannel.Recv(ctx)
+		if err != nil { return }
+		r.processChGuard.Lock()
+		if err := r.handleSnapshotMessage(ctx, m); err != nil {
+			r.logger.Error("failed to process snapshotCh message", "envelope", m, "err", err)
+			r.snapshotChannel.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+		}
+		r.processChGuard.Unlock()
+	}
+}
+
+func (r *Reactor) processChunkCh(ctx context.Context) {
+	for {
+		m,err := r.chunkChannel.Recv(ctx)
+		if err != nil { return }
+		r.processChGuard.Lock()
+		if err := r.handleChunkMessage(ctx, m); err != nil {
+			r.logger.Error("failed to process chunkCh message", "envelope", m, "err", err)
+			r.chunkChannel.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+		}
+		r.processChGuard.Unlock()
+	}
+}
+
+func (r *Reactor) processLightBlockCh(ctx context.Context) {
+	for {
+		m,err := r.lightBlockChannel.Recv(ctx)
+		if err != nil { return }
+		r.processChGuard.Lock()
+		if err := r.handleLightBlockMessage(ctx, m); err != nil {
+			r.logger.Error("failed to process lightBlockCh message", "envelope", m, "err", err)
+			r.lightBlockChannel.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+		}
+		r.processChGuard.Unlock()
+	}
+}
+
+func (r *Reactor) processParamsCh(ctx context.Context) {
+	for {
+		m,err := r.paramsChannel.Recv(ctx)
+		if err != nil { return }
+		r.processChGuard.Lock()
+		if err := r.handleParamsMessage(ctx, m, r.paramsChannel); err != nil {
+			r.logger.Error("failed to process paramsCh message", "envelope", m, "err", err)
+			r.paramsChannel.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+		}
+		r.processChGuard.Unlock()
 	}
 }
 
@@ -947,11 +999,7 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 		newProvider := light.NewBlockProvider(peerUpdate.NodeID, r.chainID, r.dispatcher)
 
 		r.providers[peerUpdate.NodeID] = newProvider
-		err := r.syncer.AddPeer(ctx, peerUpdate.NodeID)
-		if err != nil {
-			r.logger.Error("error adding peer to syncer", "error", err)
-			return
-		}
+		r.syncer.AddPeer(peerUpdate.NodeID)
 		if sp, ok := r.stateProvider.(*light.StateProviderP2P); ok {
 			// we do this in a separate routine to not block whilst waiting for the light client to finish
 			// whatever call it's currently executing
