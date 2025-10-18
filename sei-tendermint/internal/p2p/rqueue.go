@@ -5,7 +5,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
 	"github.com/tendermint/tendermint/libs/utils"
 )
 
@@ -71,15 +70,15 @@ func (x *byMax[T]) Pop() any {
 
 // pqEnvelope defines a wrapper around an Envelope with priority to be inserted
 // into a priority Queue used for Envelope scheduling.
-type pqEnvelope struct {
-	envelope  Envelope
+type pqEnvelope[M any] struct {
+	msg  M
 	priority  int
 	size      int
 	timestamp time.Time
 }
 
 // true <=> a has higher priority than b
-func (a *pqEnvelope) Less(b *pqEnvelope) bool {
+func (a *pqEnvelope[M]) Less(b *pqEnvelope[M]) bool {
 	// higher base priority wins
 	if a, b := a.priority, b.priority; a != b {
 		return a > b
@@ -92,53 +91,53 @@ func (a *pqEnvelope) Less(b *pqEnvelope) bool {
 	return a.size > b.size
 }
 
-type inner struct {
+type inner[M any] struct {
 	capacity int
-	byMin    byMin[*pqEnvelope]
-	byMax    byMax[*pqEnvelope]
+	byMin    byMin[*pqEnvelope[M]]
+	byMax    byMax[*pqEnvelope[M]]
 }
 
-func newInner(capacity int) *inner {
-	return &inner{
+func newInner[M any](capacity int) *inner[M] {
+	return &inner[M]{
 		capacity: capacity,
 		// We prune the maximal elements whenever capacity is exceeded.
 		// Therefore to avoid reallocation we need the heaps to have capacity+1.
-		byMin: newByMin[*pqEnvelope](capacity + 1),
-		byMax: newByMax[*pqEnvelope](capacity + 1),
+		byMin: newByMin[*pqEnvelope[M]](capacity + 1),
+		byMax: newByMax[*pqEnvelope[M]](capacity + 1),
 	}
 }
 
-func (i *inner) Len() int { return i.byMin.Len() }
+func (i *inner[M]) Len() int { return i.byMin.Len() }
 
-func (i *inner) Push(e *pqEnvelope) utils.Option[Envelope] {
+func (i *inner[M]) Push(e *pqEnvelope[M]) utils.Option[M] {
 	w := newWithIdx(e)
 	heap.Push(&i.byMin, w)
 	heap.Push(&i.byMax, w)
 	if i.byMin.Len() > i.capacity {
-		w := heap.Pop(&i.byMax).(*withIdx[*pqEnvelope])
+		w := heap.Pop(&i.byMax).(*withIdx[*pqEnvelope[M]])
 		heap.Remove(&i.byMin, w.minIdx)
-		return utils.Some(w.v.envelope)
+		return utils.Some(w.v.msg)
 	}
-	return utils.None[Envelope]()
+	return utils.None[M]()
 }
 
-func (i *inner) Pop() *pqEnvelope {
-	w := heap.Pop(&i.byMin).(*withIdx[*pqEnvelope])
+func (i *inner[M]) Pop() *pqEnvelope[M] {
+	w := heap.Pop(&i.byMin).(*withIdx[*pqEnvelope[M]])
 	heap.Remove(&i.byMax, w.maxIdx)
 	return w.v
 }
 
-type Queue struct{ inner utils.Watch[*inner] }
+type Queue[M any] struct{ inner utils.Watch[*inner[M]] }
 
-func NewQueue(size int) *Queue {
+func NewQueue[M any](size int) *Queue[M] {
 	if size <= 0 {
 		// prevent caller from shooting self in the foot.
 		size = 1
 	}
-	return &Queue{inner: utils.NewWatch(newInner(size))}
+	return &Queue[M]{inner: utils.NewWatch(newInner[M](size))}
 }
 
-func (q *Queue) Len() int {
+func (q *Queue[M]) Len() int {
 	for inner := range q.inner.Lock() {
 		return inner.Len()
 	}
@@ -147,12 +146,12 @@ func (q *Queue) Len() int {
 
 // Non-blocking send.
 // Returns the pruned message if any.
-func (q *Queue) Send(e Envelope, priority int) utils.Option[Envelope] {
+func (q *Queue[M]) Send(msg M, size int, priority int) utils.Option[M] {
 	// We construct the pqEnvelope without holding the lock to avoid contention.
-	pqe := &pqEnvelope{
-		envelope:  e,
-		size:      proto.Size(e.Message),
-		priority:  priority,
+	pqe := &pqEnvelope[M]{
+		msg: msg,
+		size: size,
+		priority: priority,
 		timestamp: time.Now().UTC(),
 	}
 	for inner, ctrl := range q.inner.Lock() {
@@ -164,12 +163,12 @@ func (q *Queue) Send(e Envelope, priority int) utils.Option[Envelope] {
 }
 
 // Blocking recv.
-func (q *Queue) Recv(ctx context.Context) (Envelope, error) {
+func (q *Queue[M]) Recv(ctx context.Context) (M, error) {
 	for inner, ctrl := range q.inner.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool { return inner.Len() > 0 }); err != nil {
-			return Envelope{}, err
+			return utils.Zero[M](), err
 		}
-		return inner.Pop().envelope, nil
+		return inner.Pop().msg, nil
 	}
 	panic("unreachable")
 }
