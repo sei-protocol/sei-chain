@@ -10,6 +10,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
@@ -366,6 +367,12 @@ type ParallelRunner struct {
 	Queue chan func()
 }
 
+var panicHook atomic.Value
+
+func SetPanicHook(h func(interface{})) {
+	panicHook.Store(h)
+}
+
 func NewParallelRunner(cnt int, capacity int) *ParallelRunner {
 	pr := &ParallelRunner{
 		Done:  sync.WaitGroup{},
@@ -377,16 +384,26 @@ func NewParallelRunner(cnt int, capacity int) *ParallelRunner {
 			defer pr.Done.Done()
 			defer recoverAndLog()
 			for f := range pr.Queue {
-				f()
+				runWithRecovery(f)
 			}
 		}()
 	}
 	return pr
 }
 
+func runWithRecovery(f func()) {
+	defer recoverAndLog()
+	f()
+}
+
 func recoverAndLog() {
 	if e := recover(); e != nil {
 		fmt.Printf("Panic recovered: %s\n", e)
 		debug.PrintStack()
+		if v := panicHook.Load(); v != nil {
+			if hook, ok := v.(func(interface{})); ok && hook != nil {
+				hook(e)
+			}
+		}
 	}
 }

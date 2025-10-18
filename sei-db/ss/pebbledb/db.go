@@ -554,6 +554,9 @@ func (db *Database) writeAsyncInBackground() {
 				panic(err)
 			}
 		}
+		if err := db.SetLatestVersion(nextChange.Version); err != nil {
+			panic(err)
+		}
 	}
 
 }

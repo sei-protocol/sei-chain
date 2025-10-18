@@ -3,6 +3,7 @@ package keeper
 import (
 	"encoding/hex"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
@@ -15,6 +16,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
+	"github.com/stretchr/testify/require"
 )
 
 var EVMTestApp = app.Setup(false, true, false)
@@ -125,4 +127,32 @@ func PrivateKeyToAddresses(privKey cryptotypes.PrivKey) (sdk.AccAddress, common.
 
 func UseiCoins(amount int64) sdk.Coins {
 	return sdk.NewCoins(sdk.NewCoin(sdk.MustGetBaseDenom(), sdk.NewInt(amount)))
+}
+
+func WaitForReceipt(t *testing.T, k *evmkeeper.Keeper, ctx sdk.Context, txHash common.Hash) *evmtypes.Receipt {
+	t.Helper()
+	var receipt *evmtypes.Receipt
+	require.Eventually(t, func() bool {
+		var err error
+		receipt, err = k.GetReceipt(ctx, txHash)
+		return err == nil
+	}, 2*time.Second, 10*time.Millisecond)
+	return receipt
+}
+
+func WaitForReceiptFromStore(t *testing.T, k *evmkeeper.Keeper, ctx sdk.Context, txHash common.Hash) *evmtypes.Receipt {
+	t.Helper()
+	var receipt *evmtypes.Receipt
+	require.Eventually(t, func() bool {
+		var err error
+		receipt, err = k.GetReceiptFromReceiptStore(ctx, txHash)
+		return err == nil
+	}, 2*time.Second, 10*time.Millisecond)
+	return receipt
+}
+
+func MustMockReceipt(t *testing.T, k *evmkeeper.Keeper, ctx sdk.Context, txHash common.Hash, receipt *evmtypes.Receipt) {
+	t.Helper()
+	require.NoError(t, k.MockReceipt(ctx, txHash, receipt))
+	WaitForReceipt(t, k, ctx, txHash)
 }

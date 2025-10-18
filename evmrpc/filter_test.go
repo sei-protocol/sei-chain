@@ -78,7 +78,6 @@ func TestFilterUninstall(t *testing.T) {
 	// uninstall existing filter
 	filterCriteria := map[string]interface{}{
 		"fromBlock": "0x1",
-		"toBlock":   "0xa",
 	}
 	resObj := sendRequestGood(t, "newFilter", filterCriteria)
 	filterId := resObj["result"].(string)
@@ -364,7 +363,6 @@ func TestFilterExpiration(t *testing.T) {
 	t.Parallel()
 	filterCriteria := map[string]interface{}{
 		"fromBlock": "0x1",
-		"toBlock":   "0xa",
 	}
 	resObj := sendRequestGood(t, "newFilter", filterCriteria)
 	filterId := resObj["result"].(string)
@@ -381,7 +379,6 @@ func TestFilterGetFilterLogsKeepsFilterAlive(t *testing.T) {
 	t.Parallel()
 	filterCriteria := map[string]interface{}{
 		"fromBlock": "0x1",
-		"toBlock":   "0xa",
 	}
 	resObj := sendRequestGood(t, "newFilter", filterCriteria)
 	filterId := resObj["result"].(string)
@@ -399,7 +396,6 @@ func TestFilterGetFilterChangesKeepsFilterAlive(t *testing.T) {
 	t.Parallel()
 	filterCriteria := map[string]interface{}{
 		"fromBlock": "0x1",
-		"toBlock":   "0xa",
 	}
 	resObj := sendRequestGood(t, "newFilter", filterCriteria)
 	filterId := resObj["result"].(string)
@@ -581,7 +577,7 @@ func TestCollectLogsEvmTransactionIndex(t *testing.T) {
 		// Fill bloom filter to match our test filters
 		receipt.LogsBloom[0] = 0xFF // Simple bloom that will match any filter
 
-		k.MockReceipt(ctx, txHash, receipt)
+		testkeeper.MustMockReceipt(t, k, ctx, txHash, receipt)
 	}
 
 	// Test the core logic that collectLogs implements

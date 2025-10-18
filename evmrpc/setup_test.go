@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net"
 	"net/http"
@@ -402,6 +403,15 @@ func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.
 	}, nil
 }
 
+func (c *MockClient) Status(context.Context) (*coretypes.ResultStatus, error) {
+	return &coretypes.ResultStatus{
+		SyncInfo: coretypes.SyncInfo{
+			LatestBlockHeight:   MockHeight103,
+			EarliestBlockHeight: 1,
+		},
+	}, nil
+}
+
 func (c *MockClient) Subscribe(ctx context.Context, subscriber string, query string, outCapacity ...int) (<-chan coretypes.ResultEvent, error) {
 	if query == "tm.event = 'NewBlockHeader'" {
 		resCh := make(chan coretypes.ResultEvent, 5)
@@ -548,6 +558,13 @@ func init() {
 		panic(err)
 	}
 	testApp.Commit(context.Background())
+	if store := EVMKeeper.ReceiptStore(); store != nil {
+		latest := int64(math.MaxInt64)
+		if err := store.SetLatestVersion(latest); err != nil {
+			panic(err)
+		}
+		_ = store.SetEarliestVersion(1, true)
+	}
 	ctxProvider := func(height int64) sdk.Context {
 		if height == MockHeight2 {
 			return MultiTxCtx.WithIsTracing(true)
@@ -1058,6 +1075,13 @@ func setupLogs() {
 	EVMKeeper.SetBlockBloom(Ctx, []ethtypes.Bloom{bloomSynth, bloom4, bloomTx1})
 	EVMKeeper.SetEvmOnlyBlockBloom(Ctx, []ethtypes.Bloom{bloom4, bloomTx1})
 
+	if store := EVMKeeper.ReceiptStore(); store != nil {
+		if err := store.SetLatestVersion(MockHeight103); err != nil {
+			panic(err)
+		}
+		_ = store.SetEarliestVersion(1, true)
+	}
+
 }
 
 //nolint:deadcode
@@ -1119,6 +1143,11 @@ func sendRequestWithNamespace(t *testing.T, namespace string, port int, method s
 	require.Nil(t, err)
 	resObj := map[string]interface{}{}
 	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	if errVal, exists := resObj["error"]; exists && errVal != nil {
+		if t != nil {
+			t.Logf("rpc error response for %s_%s: %v", namespace, method, errVal)
+		}
+	}
 	return resObj
 }
 
