@@ -750,14 +750,6 @@ func (db *Database) Prune(version int64) error {
 }
 
 func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
-	startTime := time.Now()
-	defer func() {
-		seidbmetrics.PebbleDBMetrics.IterationLatency.Record(
-			context.Background(),
-			time.Since(startTime).Microseconds(),
-		)
-	}()
-
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}
@@ -796,14 +788,6 @@ func prefixEnd(b []byte) []byte {
 }
 
 func (db *Database) ReverseIterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
-	startTime := time.Now()
-	defer func() {
-		seidbmetrics.PebbleDBMetrics.ReverseIterationLatency.Record(
-			context.Background(),
-			time.Since(startTime).Microseconds(),
-		)
-	}()
-
 	if (start != nil && len(start) == 0) || (end != nil && len(end) == 0) {
 		return nil, errorutils.ErrKeyEmpty
 	}

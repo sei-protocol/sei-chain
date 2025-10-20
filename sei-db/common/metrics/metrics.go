@@ -64,8 +64,6 @@ var (
 		ImportLatency              metric.Float64Histogram
 		HashComputationLatency     metric.Int64Histogram
 		BatchWriteLatency          metric.Int64Histogram
-		IterationLatency           metric.Int64Histogram
-		ReverseIterationLatency    metric.Int64Histogram
 
 		// Database Internal Metrics
 		CompactionCount        metric.Int64Counter
@@ -128,16 +126,6 @@ var (
 			"pebble_batch_write_latency",
 			metric.WithDescription("Time taken to write a batch to PebbleDB"),
 			metric.WithUnit("ms"),
-		)),
-		IterationLatency: must(meter.Int64Histogram(
-			"pebble_iteration_latency",
-			metric.WithDescription("Time taken to create an iterator"),
-			metric.WithUnit("us"),
-		)),
-		ReverseIterationLatency: must(meter.Int64Histogram(
-			"pebble_reverse_iteration_latency",
-			metric.WithDescription("Time taken to create a reverse iterator"),
-			metric.WithUnit("us"),
 		)),
 
 		// Compaction Metrics
