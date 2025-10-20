@@ -240,7 +240,7 @@ sc-cache-size = 1000
 ss-enable = true
 
 # DBBackend defines the backend database used for state-store.
-# Supported backends: pebbledb, rocksdb, sqlite
+# Supported backends: pebbledb, rocksdb
 # defaults to pebbledb (recommended)
 ss-backend = "pebbledb"
 

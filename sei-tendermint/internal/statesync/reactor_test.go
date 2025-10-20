@@ -72,6 +72,7 @@ func setup(
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 
 	cfg := config.DefaultStateSyncConfig()
+	cfg.LightBlockResponseTimeout = 100 * time.Millisecond
 
 	logger, _ := log.NewDefaultLogger("plain", "debug")
 
