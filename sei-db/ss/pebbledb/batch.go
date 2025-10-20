@@ -9,6 +9,8 @@ import (
 	"github.com/cockroachdb/pebble"
 	"github.com/sei-protocol/sei-db/common/errors"
 	seidbmetrics "github.com/sei-protocol/sei-db/common/metrics"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 type Batch struct {
@@ -72,7 +74,8 @@ func (b *Batch) Write() (err error) {
 		ctx := context.Background()
 		seidbmetrics.PebbleDBMetrics.BatchWriteLatency.Record(
 			ctx,
-			time.Since(startTime).Milliseconds(),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(attribute.Bool("success", err == nil)),
 		)
 		seidbmetrics.PebbleDBMetrics.BatchSize.Record(
 			ctx,
@@ -143,7 +146,8 @@ func (b *RawBatch) Write() (err error) {
 		ctx := context.Background()
 		seidbmetrics.PebbleDBMetrics.BatchWriteLatency.Record(
 			ctx,
-			time.Since(startTime).Milliseconds(),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(attribute.Bool("success", err == nil)),
 		)
 		seidbmetrics.PebbleDBMetrics.BatchSize.Record(
 			ctx,

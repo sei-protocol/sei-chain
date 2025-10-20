@@ -303,19 +303,27 @@ func (db *DB) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 	startTime := time.Now()
+	var retErr error
 	defer func() {
-		metrics.SeiDBMetrics.ApplyChangesetLatency.Record(context.Background(), time.Since(startTime).Milliseconds())
+		metrics.SeiDBMetrics.ApplyChangesetLatency.Record(
+			context.Background(),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(attribute.Bool("success", retErr == nil)),
+		)
 	}()
 	if db.readOnly {
-		return errReadOnly
+		retErr = errReadOnly
+		return retErr
 	}
 
 	if len(db.pendingLogEntry.Changesets) > 0 {
-		return errors.New("don't support multiple ApplyChangeSets calls in the same version")
+		retErr = errors.New("don't support multiple ApplyChangeSets calls in the same version")
+		return retErr
 	}
 	db.pendingLogEntry.Changesets = changeSets
 
-	return db.MultiTree.ApplyChangeSets(changeSets)
+	retErr = db.MultiTree.ApplyChangeSets(changeSets)
+	return retErr
 }
 
 // ApplyChangeSet wraps MultiTree.ApplyChangeSet, it also appends the changesets in the pending log,
@@ -476,7 +484,7 @@ func (db *DB) Commit() (version int64, returnErr error) {
 		ctx := context.Background()
 		metrics.SeiDBMetrics.CommitLatency.Record(
 			ctx,
-			time.Since(startTime).Milliseconds(),
+			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", returnErr == nil)),
 		)
 		metrics.SeiDBMetrics.MemNodeTotalSize.Record(ctx, TotalMemNodeSize.Load())
