@@ -155,7 +155,10 @@ func setFullnodeTypeAppConfig(config *srvconfig.Config) {
 	// StateStore: full nodes keep recent history for queries
 	config.StateStore.KeepRecent = 100000
 
-	// Pruning and MinRetainBlocks use defaults (nothing,0,0 - keep all history)
+	// MinRetainBlocks: prune Tendermint blocks older than 100k blocks
+	config.MinRetainBlocks = 100000
+
+	// Pruning uses defaults (nothing,0,0 - keep all state history)
 }
 
 // setArchiveTypeAppConfig configures archive node settings
