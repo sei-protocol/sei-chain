@@ -479,17 +479,6 @@ use-p2p = {{ .StateSync.UseP2P }}
 # for example: "host.example.com:2125"
 rpc-servers = "{{ StringsJoin .StateSync.RPCServers "," }}"
 
-# AUTO-MANAGED: These fields are automatically set by state-sync scripts.
-# Most users should NOT set these manually. They will be replaced at runtime.
-# The hash and height of a trusted block. Must be within the trust-period.
-trust-height = {{ .StateSync.TrustHeight }}
-trust-hash = "{{ .StateSync.TrustHash }}"
-
-# The trust period should be set so that Tendermint can detect and gossip misbehavior before
-# it is considered expired. For chains based on the Cosmos SDK, one day less than the unbonding
-# period should suffice.
-trust-period = "{{ .StateSync.TrustPeriod }}"
-
 # Backfill sequentially fetches after state sync completes, verifies and stores light blocks in reverse order.
 # backfill-blocks means it will keep reverse fetching up to backfill-blocks number of blocks behind state sync position
 # backfill-duration means it will keep fetching up to backfill-duration old time
@@ -658,18 +647,31 @@ blocks-behind-check-interval = {{ .SelfRemediation.BlocksBehindCheckIntervalSeco
 # Cooldown between each restart
 restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
 
+###############################################################################
+###                        Auto-managed Configuration                        ###
+###############################################################################
+
 #######################################################
-###    DB Sync Configuration (Auto-managed)         ###
+###         State Sync (Auto-managed)                ###
 #######################################################
-# AUTO-MANAGED: DB Sync functionality is no longer actively used.
-# These settings are retained for backward compatibility with existing scripts.
+# AUTO-MANAGED: These fields are automatically set by state-sync scripts.
 # Most node operators should NOT manually configure these settings.
 
-[db-sync]
-# AUTO-MANAGED: May be automatically modified by scripts. Keep as 'false' for most nodes.
-db-sync-enable = "{{ .DBSync.Enable }}"
+# The hash and height of a trusted block. Must be within the trust-period.
+trust-height = {{ .StateSync.TrustHeight }}
+trust-hash = "{{ .StateSync.TrustHash }}"
 
-# The following settings are not recommended for manual configuration:
+# The trust period should be set so that Tendermint can detect and gossip misbehavior before
+# it is considered expired. For chains based on the Cosmos SDK, one day less than the unbonding
+# period should suffice.
+trust-period = "{{ .StateSync.TrustPeriod }}"
+
+#######################################################
+###         DB Sync (Auto-managed)                   ###
+#######################################################
+# Most node operators should NOT manually configure these settings.
+
+db-sync-enable = "{{ .DBSync.Enable }}"
 snapshot-interval = "{{ .DBSync.SnapshotInterval }}"
 snapshot-directory = "{{ .DBSync.SnapshotDirectory }}"
 snapshot-worker-count = "{{ .DBSync.SnapshotWorkerCount }}"

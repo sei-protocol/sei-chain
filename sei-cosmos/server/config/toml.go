@@ -23,58 +23,6 @@ const DefaultConfigTemplate = `# This is a TOML config file.
 # specified in this config (e.g. 0.25token1;0.0001token2).
 minimum-gas-prices = "{{ .BaseConfig.MinGasPrices }}"
 
-###############################################################################
-###     IAVL Pruning Configuration (Auto-managed)                           ###
-###############################################################################
-# IMPORTANT: These settings ONLY apply to IAVL state storage.
-# They are COMPLETELY IGNORED when SeiDB is enabled (default for all nodes).
-# 
-# AUTO-MANAGED: These fields may be automatically modified by scripts.
-# For SeiDB state management, use [state-commit] and [state-store] settings.
-#
-# Most node operators should NOT manually configure these settings.
-#
-# Pruning Strategies:
-# - default: Keep recent 362880 blocks, prune every 10 blocks
-# - nothing: Keep all historic states (archiving node)
-# - everything: Keep only recent 2 blocks, prune at every block
-# - custom: Manually specify via 'pruning-keep-recent' and 'pruning-interval'
-pruning = "{{ .BaseConfig.Pruning }}"
-
-# Applied only if pruning strategy is 'custom' and SeiDB is disabled
-pruning-keep-recent = "{{ .BaseConfig.PruningKeepRecent }}"
-pruning-keep-every = "{{ .BaseConfig.PruningKeepEvery }}"
-pruning-interval = "{{ .BaseConfig.PruningInterval }}"
-
-# HaltHeight contains a non-zero block height at which a node will gracefully
-# halt and shutdown that can be used to assist upgrades and testing.
-#
-# Note: Commitment of state will be attempted on the corresponding block.
-halt-height = {{ .BaseConfig.HaltHeight }}
-
-# HaltTime contains a non-zero minimum block time (in Unix seconds) at which
-# a node will gracefully halt and shutdown that can be used to assist upgrades
-# and testing.
-#
-# Note: Commitment of state will be attempted on the corresponding block.
-halt-time = {{ .BaseConfig.HaltTime }}
-
-# MinRetainBlocks defines the minimum block height offset from the current
-# block being committed, such that all blocks past this offset are pruned
-# from Tendermint. It is used as part of the process of determining the
-# ResponseCommit.RetainHeight value during ABCI Commit. A value of 0 indicates
-# that no blocks should be pruned.
-#
-# This configuration value is only responsible for pruning Tendermint blocks.
-# It has no bearing on application state pruning which is determined by the
-# "pruning-*" configurations.
-#
-# Note: Tendermint block pruning is dependant on this parameter in conunction
-# with the unbonding (safety threshold) period, state pruning and state sync
-# snapshot parameters to determine the correct minimum value of
-# ResponseCommit.RetainHeight.
-min-retain-blocks = {{ .BaseConfig.MinRetainBlocks }}
-
 # InterBlockCache enables inter-block caching.
 inter-block-cache = {{ .BaseConfig.InterBlockCache }}
 
@@ -116,6 +64,35 @@ concurrency-workers = {{ .BaseConfig.ConcurrencyWorkers }}
 
 # occ-enabled defines whether OCC is enabled or not for transaction execution
 occ-enabled = {{ .BaseConfig.OccEnabled }}
+
+# HaltHeight contains a non-zero block height at which a node will gracefully
+# halt and shutdown that can be used to assist upgrades and testing.
+#
+# Note: Commitment of state will be attempted on the corresponding block.
+halt-height = {{ .BaseConfig.HaltHeight }}
+
+# HaltTime contains a non-zero minimum block time (in Unix seconds) at which
+# a node will gracefully halt and shutdown that can be used to assist upgrades
+# and testing.
+#
+# Note: Commitment of state will be attempted on the corresponding block.
+halt-time = {{ .BaseConfig.HaltTime }}
+
+# MinRetainBlocks defines the minimum block height offset from the current
+# block being committed, such that all blocks past this offset are pruned
+# from Tendermint. It is used as part of the process of determining the
+# ResponseCommit.RetainHeight value during ABCI Commit. A value of 0 indicates
+# that no blocks should be pruned.
+#
+# This configuration value is only responsible for pruning Tendermint blocks.
+# It has no bearing on application state pruning which is determined by the
+# "pruning-*" configurations.
+#
+# Note: Tendermint block pruning is dependant on this parameter in conunction
+# with the unbonding (safety threshold) period, state pruning and state sync
+# snapshot parameters to determine the correct minimum value of
+# ResponseCommit.RetainHeight.
+min-retain-blocks = {{ .BaseConfig.MinRetainBlocks }}
 
 ###############################################################################
 ###                         Telemetry Configuration                         ###
@@ -239,8 +216,73 @@ address = "{{ .GRPCWeb.Address }}"
 enable-unsafe-cors = {{ .GRPCWeb.EnableUnsafeCORS }}
 
 ###############################################################################
-###                        State Sync Configuration                         ###
+###                        Auto-managed Configuration                        ###
 ###############################################################################
+
+#######################################################
+###         Legacy IAVL Pruning (Auto-managed)       ###
+#######################################################
+[iavl-pruning]
+# IMPORTANT: These settings ONLY apply to IAVL state storage.
+# They are COMPLETELY IGNORED when SeiDB is enabled (default for all nodes).
+# 
+# AUTO-MANAGED: These fields may be automatically modified by scripts.
+# For SeiDB state management, use [state-commit] and [state-store] settings.
+#
+# Most node operators should NOT manually configure these settings.
+
+# Pruning Strategies:
+# - default: Keep recent 362880 blocks, prune every 10 blocks
+# - nothing: Keep all historic states (archiving node)
+# - everything: Keep only recent 2 blocks, prune at every block
+# - custom: Manually specify via 'pruning-keep-recent' and 'pruning-interval'
+pruning = "{{ .BaseConfig.Pruning }}"
+
+# Applied only if pruning strategy is 'custom' and SeiDB is disabled
+pruning-keep-recent = "{{ .BaseConfig.PruningKeepRecent }}"
+pruning-keep-every = "{{ .BaseConfig.PruningKeepEvery }}"
+pruning-interval = "{{ .BaseConfig.PruningInterval }}"
+
+#######################################################
+###         Halt & Min Retain (Auto-managed)         ###
+#######################################################
+# AUTO-MANAGED: These fields may be automatically set by scripts or upgrade handlers.
+# Most users should NOT manually configure these settings.
+
+# HaltHeight contains a non-zero block height at which a node will gracefully
+# halt and shutdown that can be used to assist upgrades and testing.
+#
+# Note: Commitment of state will be attempted on the corresponding block.
+halt-height = {{ .BaseConfig.HaltHeight }}
+
+# HaltTime contains a non-zero minimum block time (in Unix seconds) at which
+# a node will gracefully halt and shutdown that can be used to assist upgrades
+# and testing.
+#
+# Note: Commitment of state will be attempted on the corresponding block.
+halt-time = {{ .BaseConfig.HaltTime }}
+
+# MinRetainBlocks defines the minimum block height offset from the current
+# block being committed, such that all blocks past this offset are pruned
+# from Tendermint. It is used as part of the process of determining the
+# ResponseCommit.RetainHeight value during ABCI Commit. A value of 0 indicates
+# that no blocks should be pruned.
+#
+# This configuration value is only responsible for pruning Tendermint blocks.
+# It has no bearing on application state pruning which is determined by the
+# "pruning-*" configurations.
+#
+# Note: Tendermint block pruning is dependant on this parameter in conunction
+# with the unbonding (safety threshold) period, state pruning and state sync
+# snapshot parameters to determine the correct minimum value of
+# ResponseCommit.RetainHeight.
+min-retain-blocks = {{ .BaseConfig.MinRetainBlocks }}
+
+#######################################################
+###         State Sync (Auto-managed)                ###
+#######################################################
+# AUTO-MANAGED: These fields are automatically set by state-sync scripts.
+# Most users should NOT set these manually. They will be replaced at runtime.
 
 # State sync snapshots allow other nodes to rapidly join the network without replaying historical
 # blocks, instead downloading and applying a snapshot of the application state at a given height.
@@ -257,12 +299,12 @@ snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
 # default is emtpy which will then store under the app home directory same as before.
 snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
 
-###############################################################################
-###                         Genesis Configuration                           ###
-###############################################################################
+#######################################################
+###         Genesis (Auto-managed)                   ###
+#######################################################
+# AUTO-MANAGED: These fields are automatically set during chain initialization.
+# Most users should NOT set these manually.
 
-
-# Genesis config allows configuring whether to stream from an genesis json file in streamed form
 [genesis]
 
 # stream-import specifies whether to the stream the import from the genesis json file. The genesis

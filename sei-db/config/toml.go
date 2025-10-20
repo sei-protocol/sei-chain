@@ -28,10 +28,7 @@ sc-keep-recent = {{ .StateCommit.SnapshotKeepRecent }}
 
 # SnapshotInterval defines the block interval at which SeiDB takes state-commit snapshots.
 # When a node restarts, it needs to "replay changelog entries" from the last snapshot to the current height.
-# - Smaller interval (e.g., 1000): Faster node restarts, but more snapshots consume more disk space
-# - Larger interval (e.g., 100000): Slower node restarts, but uses less disk space
 # Default: 10000 blocks (recommended for most nodes)
-# Note: This is the setting teams often ask about when they want to reduce restart time.
 sc-snapshot-interval = {{ .StateCommit.SnapshotInterval }}
 
 # SnapshotWriterLimit defines the max concurrency for taking commit store snapshot
