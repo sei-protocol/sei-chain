@@ -2,9 +2,11 @@ package pebbledb
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 
 	"github.com/cockroachdb/pebble"
+	seidbmetrics "github.com/sei-protocol/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-db/ss/types"
 	"golang.org/x/exp/slices"
 )
@@ -92,6 +94,13 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 		} else {
 			itr.nextForward()
 		}
+	}
+
+	// Record iterator creation (separate metrics for forward and reverse)
+	if reverse {
+		seidbmetrics.PebbleDBMetrics.ReverseIteratorCreationCount.Add(context.Background(), 1)
+	} else {
+		seidbmetrics.PebbleDBMetrics.IteratorCreationCount.Add(context.Background(), 1)
 	}
 
 	return itr
@@ -289,6 +298,9 @@ func (itr *iterator) nextReverse() {
 }
 
 func (itr *iterator) Next() {
+	// Record iterator Next call (for both forward and reverse)
+	seidbmetrics.PebbleDBMetrics.IteratorNextCallCount.Add(context.Background(), 1)
+
 	if itr.reverse {
 		itr.nextReverse()
 	} else {

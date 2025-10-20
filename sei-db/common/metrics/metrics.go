@@ -87,9 +87,12 @@ var (
 		CacheSize   metric.Int64Gauge
 
 		// Operational Metrics
-		BatchSize                metric.Int64Histogram
-		PendingChangesQueueDepth metric.Int64Gauge
-		IteratorCount            metric.Int64Gauge
+		BatchSize                    metric.Int64Histogram
+		PendingChangesQueueDepth     metric.Int64Gauge
+		IteratorCount                metric.Int64Gauge
+		IteratorCreationCount        metric.Int64Counter
+		ReverseIteratorCreationCount metric.Int64Counter
+		IteratorNextCallCount        metric.Int64Counter
 	}{
 		// Operation Latencies
 		GetLatency: must(meter.Int64Histogram(
@@ -225,6 +228,21 @@ var (
 		IteratorCount: must(meter.Int64Gauge(
 			"pebble_iterator_count",
 			metric.WithDescription("Current number of active iterators"),
+			metric.WithUnit("{count}"),
+		)),
+		IteratorCreationCount: must(meter.Int64Counter(
+			"pebble_iterator_creation_count",
+			metric.WithDescription("Total number of forward iterators created"),
+			metric.WithUnit("{count}"),
+		)),
+		ReverseIteratorCreationCount: must(meter.Int64Counter(
+			"pebble_reverse_iterator_creation_count",
+			metric.WithDescription("Total number of reverse iterators created"),
+			metric.WithUnit("{count}"),
+		)),
+		IteratorNextCallCount: must(meter.Int64Counter(
+			"pebble_iterator_next_call_count",
+			metric.WithDescription("Total number of iterator Next calls (both forward and reverse)"),
 			metric.WithUnit("{count}"),
 		)),
 	}
