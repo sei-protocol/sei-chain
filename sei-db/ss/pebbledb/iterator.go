@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble"
-	seidbmetrics "github.com/sei-protocol/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-db/ss/types"
 	"golang.org/x/exp/slices"
 )
@@ -99,13 +98,13 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 	// Record iterator creation (separate metrics for forward and reverse)
 	ctx := context.Background()
 	if reverse {
-		seidbmetrics.PebbleDBMetrics.ReverseIteratorCreationCount.Add(ctx, 1)
+		Metrics.ReverseIteratorCreationCount.Add(ctx, 1)
 	} else {
-		seidbmetrics.PebbleDBMetrics.IteratorCreationCount.Add(ctx, 1)
+		Metrics.IteratorCreationCount.Add(ctx, 1)
 	}
 
 	// Increment active iterator count (gauge)
-	seidbmetrics.PebbleDBMetrics.IteratorCount.Add(ctx, 1)
+	Metrics.IteratorCount.Add(ctx, 1)
 
 	return itr
 }
@@ -303,7 +302,7 @@ func (itr *iterator) nextReverse() {
 
 func (itr *iterator) Next() {
 	// Record iterator Next call (for both forward and reverse)
-	seidbmetrics.PebbleDBMetrics.IteratorNextCallCount.Add(context.Background(), 1)
+	Metrics.IteratorNextCallCount.Add(context.Background(), 1)
 
 	if itr.reverse {
 		itr.nextReverse()
@@ -346,7 +345,7 @@ func (itr *iterator) Close() error {
 	itr.valid = false
 
 	// Decrement active iterator count (gauge)
-	seidbmetrics.PebbleDBMetrics.IteratorCount.Add(context.Background(), -1)
+	Metrics.IteratorCount.Add(context.Background(), -1)
 
 	return nil
 }

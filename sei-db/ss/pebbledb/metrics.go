@@ -1,4 +1,4 @@
-package metrics
+package pebbledb
 
 import (
 	"go.opentelemetry.io/otel"
@@ -6,56 +6,10 @@ import (
 )
 
 var (
-	meter = otel.Meter("seidb")
+	meter = otel.Meter("seidb.pebble")
 
-	SeiDBMetrics = struct {
-		RestartLatency          metric.Float64Histogram
-		SnapshotCreationLatency metric.Float64Histogram
-		CommitLatency           metric.Float64Histogram
-		ApplyChangesetLatency   metric.Float64Histogram
-		NumOfKVPairs            metric.Int64Counter
-		MemNodeTotalSize        metric.Int64Gauge
-		NumOfMemNode            metric.Int64Gauge
-	}{
-		RestartLatency: must(meter.Float64Histogram(
-			"restart_latency",
-			metric.WithDescription("Time taken to restart the memiavl database"),
-			metric.WithUnit("s"),
-		)),
-		SnapshotCreationLatency: must(meter.Float64Histogram(
-			"snapshot_creation_latency",
-			metric.WithDescription("Time taken to create memiavl snapshot"),
-			metric.WithUnit("s"),
-		)),
-		CommitLatency: must(meter.Float64Histogram(
-			"commit_latency",
-			metric.WithDescription("Time taken to commit"),
-			metric.WithUnit("s"),
-		)),
-		ApplyChangesetLatency: must(meter.Float64Histogram(
-			"apply_changeset_latency",
-			metric.WithDescription("Time taken to apply changesets"),
-			metric.WithUnit("s"),
-		)),
-		NumOfKVPairs: must(meter.Int64Counter(
-			"num_of_kv_pairs",
-			metric.WithDescription("Num of kv pairs in apply changesets"),
-			metric.WithUnit("{count}"),
-		)),
-		MemNodeTotalSize: must(meter.Int64Gauge(
-			"mem_node_total_size",
-			metric.WithDescription("Total size of memnodes"),
-			metric.WithUnit("By"),
-		)),
-		NumOfMemNode: must(meter.Int64Gauge(
-			"mem_node_count",
-			metric.WithDescription("Total number of mem nodes"),
-			metric.WithUnit("{count}"),
-		)),
-	}
-
-	// PebbleDB State Store Metrics
-	PebbleDBMetrics = struct {
+	// Metrics contains all PebbleDB-specific metrics
+	Metrics = struct {
 		// Operation Latencies
 		GetLatency                 metric.Float64Histogram
 		ApplyChangesetLatency      metric.Float64Histogram

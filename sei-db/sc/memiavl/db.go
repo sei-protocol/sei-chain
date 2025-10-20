@@ -21,7 +21,6 @@ import (
 	"github.com/cosmos/iavl"
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/stream/changelog"
@@ -96,7 +95,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 	)
 	startTime := time.Now()
 	defer func() {
-		metrics.SeiDBMetrics.RestartLatency.Record(
+		Metrics.RestartLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", returnErr == nil)),
@@ -305,7 +304,7 @@ func (db *DB) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error {
 	startTime := time.Now()
 	var retErr error
 	defer func() {
-		metrics.SeiDBMetrics.ApplyChangesetLatency.Record(
+		Metrics.ApplyChangesetLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", retErr == nil)),
@@ -482,13 +481,13 @@ func (db *DB) Commit() (version int64, returnErr error) {
 	startTime := time.Now()
 	defer func() {
 		ctx := context.Background()
-		metrics.SeiDBMetrics.CommitLatency.Record(
+		Metrics.CommitLatency.Record(
 			ctx,
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", returnErr == nil)),
 		)
-		metrics.SeiDBMetrics.MemNodeTotalSize.Record(ctx, TotalMemNodeSize.Load())
-		metrics.SeiDBMetrics.NumOfMemNode.Record(ctx, TotalNumOfMemNode.Load())
+		Metrics.MemNodeTotalSize.Record(ctx, TotalMemNodeSize.Load())
+		Metrics.NumOfMemNode.Record(ctx, TotalNumOfMemNode.Load())
 	}()
 	if db.readOnly {
 		return 0, errReadOnly
@@ -652,7 +651,7 @@ func (db *DB) rewriteSnapshotBackground() (returnErr error) {
 
 		cloned.logger.Info("finished best-effort catchup", "version", cloned.Version(), "latest", mtree.Version())
 		ch <- snapshotResult{mtree: mtree}
-		metrics.SeiDBMetrics.SnapshotCreationLatency.Record(
+		Metrics.SnapshotCreationLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 		)

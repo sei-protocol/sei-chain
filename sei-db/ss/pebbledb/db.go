@@ -17,7 +17,6 @@ import (
 	"github.com/cockroachdb/pebble/bloom"
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/common/logger"
-	seidbmetrics "github.com/sei-protocol/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/config"
 	"github.com/sei-protocol/sei-db/proto"
@@ -375,7 +374,7 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byt
 	startTime := time.Now()
 	var retErr error
 	defer func() {
-		seidbmetrics.PebbleDBMetrics.GetLatency.Record(
+		Metrics.GetLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", retErr == nil)),
@@ -427,7 +426,7 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 	startTime := time.Now()
 	var retErr error
 	defer func() {
-		seidbmetrics.PebbleDBMetrics.ApplyChangesetLatency.Record(
+		Metrics.ApplyChangesetLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", retErr == nil)),
@@ -475,13 +474,13 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 	startTime := time.Now()
 	var retErr error
 	defer func() {
-		seidbmetrics.PebbleDBMetrics.ApplyChangesetAsyncLatency.Record(
+		Metrics.ApplyChangesetAsyncLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", retErr == nil)),
 		)
 		// Record pending queue depth
-		seidbmetrics.PebbleDBMetrics.PendingChangesQueueDepth.Record(
+		Metrics.PendingChangesQueueDepth.Record(
 			context.Background(),
 			int64(len(db.pendingChanges)),
 		)
@@ -559,7 +558,7 @@ func (db *Database) computeHashForRange(beginBlock, endBlock int64) error {
 	startTime := time.Now()
 	var retErr error
 	defer func() {
-		seidbmetrics.PebbleDBMetrics.HashComputationLatency.Record(
+		Metrics.HashComputationLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(
@@ -657,7 +656,7 @@ func (db *Database) Prune(version int64) error {
 	startTime := time.Now()
 	var retErr error
 	defer func() {
-		seidbmetrics.PebbleDBMetrics.PruneLatency.Record(
+		Metrics.PruneLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(
@@ -848,7 +847,7 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) error {
 	startTime := time.Now()
 	var retErr error
 	defer func() {
-		seidbmetrics.PebbleDBMetrics.ImportLatency.Record(
+		Metrics.ImportLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(
@@ -1251,14 +1250,14 @@ func (db *Database) collectAndRecordMetrics(ctx context.Context) {
 	compactionBytesWrittenDelta := compactionBytesWritten - lastSnapshot.compactionBytesWritten
 
 	// Record deltas as counters
-	seidbmetrics.PebbleDBMetrics.CompactionCount.Add(ctx, compactionCountDelta)
-	seidbmetrics.PebbleDBMetrics.CompactionBytesRead.Add(ctx, compactionBytesReadDelta)
-	seidbmetrics.PebbleDBMetrics.CompactionBytesWritten.Add(ctx, compactionBytesWrittenDelta)
+	Metrics.CompactionCount.Add(ctx, compactionCountDelta)
+	Metrics.CompactionBytesRead.Add(ctx, compactionBytesReadDelta)
+	Metrics.CompactionBytesWritten.Add(ctx, compactionBytesWrittenDelta)
 
 	// Record compaction latency if available
 	if compactionCountDelta > 0 {
 		avgLatencySeconds := m.Compact.Duration.Seconds() / float64(compactionCountDelta)
-		seidbmetrics.PebbleDBMetrics.CompactionLatency.Record(
+		Metrics.CompactionLatency.Record(
 			ctx,
 			avgLatencySeconds,
 			metric.WithAttributes(attribute.Bool("success", ctx.Err() == nil)),
@@ -1272,13 +1271,13 @@ func (db *Database) collectAndRecordMetrics(ctx context.Context) {
 	flushCountDelta := flushCount - lastSnapshot.flushCount
 	flushBytesWrittenDelta := flushBytesWritten - lastSnapshot.flushBytesWritten
 
-	seidbmetrics.PebbleDBMetrics.FlushCount.Add(ctx, flushCountDelta)
-	seidbmetrics.PebbleDBMetrics.FlushBytesWritten.Add(ctx, flushBytesWrittenDelta)
+	Metrics.FlushCount.Add(ctx, flushCountDelta)
+	Metrics.FlushBytesWritten.Add(ctx, flushBytesWrittenDelta)
 
 	// Record flush latency if available
 	if flushCountDelta > 0 {
 		avgLatencySeconds := m.Flush.WriteThroughput.WorkDuration.Seconds() / float64(flushCountDelta)
-		seidbmetrics.PebbleDBMetrics.FlushLatency.Record(
+		Metrics.FlushLatency.Record(
 			ctx,
 			avgLatencySeconds,
 			metric.WithAttributes(attribute.Bool("success", ctx.Err() == nil)),
@@ -1294,18 +1293,18 @@ func (db *Database) collectAndRecordMetrics(ctx context.Context) {
 		sstableTotalSize += int64(levelMetrics.Size)
 	}
 
-	seidbmetrics.PebbleDBMetrics.SSTableCount.Record(ctx, sstableCount)
-	seidbmetrics.PebbleDBMetrics.SSTableTotalSize.Record(ctx, sstableTotalSize)
+	Metrics.SSTableCount.Record(ctx, sstableCount)
+	Metrics.SSTableTotalSize.Record(ctx, sstableTotalSize)
 
 	// Memtable metrics
 	memtableCount := int64(m.MemTable.Count)
 	memtableTotalSize := int64(m.MemTable.Size)
-	seidbmetrics.PebbleDBMetrics.MemtableCount.Record(ctx, memtableCount)
-	seidbmetrics.PebbleDBMetrics.MemtableTotalSize.Record(ctx, memtableTotalSize)
+	Metrics.MemtableCount.Record(ctx, memtableCount)
+	Metrics.MemtableTotalSize.Record(ctx, memtableTotalSize)
 
 	// WAL metrics
 	walSize := int64(m.WAL.Size)
-	seidbmetrics.PebbleDBMetrics.WALSize.Record(ctx, walSize)
+	Metrics.WALSize.Record(ctx, walSize)
 
 	// Cache metrics - BlockCache is a struct, not a pointer
 	cacheHits := int64(m.BlockCache.Hits)
@@ -1315,9 +1314,9 @@ func (db *Database) collectAndRecordMetrics(ctx context.Context) {
 	cacheHitsDelta := cacheHits - lastSnapshot.cacheHits
 	cacheMissesDelta := cacheMisses - lastSnapshot.cacheMisses
 
-	seidbmetrics.PebbleDBMetrics.CacheHits.Add(ctx, cacheHitsDelta)
-	seidbmetrics.PebbleDBMetrics.CacheMisses.Add(ctx, cacheMissesDelta)
-	seidbmetrics.PebbleDBMetrics.CacheSize.Record(ctx, cacheSize)
+	Metrics.CacheHits.Add(ctx, cacheHitsDelta)
+	Metrics.CacheMisses.Add(ctx, cacheMissesDelta)
+	Metrics.CacheSize.Record(ctx, cacheSize)
 
 	// Update last snapshot
 	db.metricsMu.Lock()
