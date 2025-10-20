@@ -253,6 +253,13 @@ func (n *TestNode) Connect(ctx context.Context, target *TestNode) {
 	}
 }
 
+func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
+	for conns := range n.Router.conns.Lock() {
+		conns[target].Close()
+	}
+	n.WaitUntilDisconnected(ctx, target)
+}
+
 func (n *TestNode) WaitUntilDisconnected(ctx context.Context, target types.NodeID) {
 	for ready,ctrl := range n.PeerManager.ready.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
@@ -351,9 +358,7 @@ func (n *TestNode) MakeChannelNoCleanup(
 	t *testing.T,
 	chDesc ChannelDescriptor,
 ) *Channel {
-	channel, err := n.Router.OpenChannel(chDesc)
-	require.NoError(t, err)
-	return channel
+	return n.Router.OpenChannelOrPanic(chDesc)
 }
 
 // MakePeerUpdates opens a peer update subscription, with automatic cleanup.

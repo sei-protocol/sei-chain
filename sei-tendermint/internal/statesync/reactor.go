@@ -408,7 +408,7 @@ func (r *Reactor) Sync(ctx context.Context) (sm.State, error) {
 	r.logger.Info("starting state sync")
 
 	if r.cfg.UseLocalSnapshot {
-		snapshotList, _ := r.recentSnapshots(context.Background(), 10)
+		snapshotList, _ := r.recentSnapshots(context.Background(), recentSnapshots)
 		for _, snap := range snapshotList {
 			r.syncer.AddSnapshot("self", snap)
 		}
@@ -956,7 +956,7 @@ func (r *Reactor) processParamsCh(ctx context.Context) {
 
 // processPeerUpdate processes a PeerUpdate, returning an error upon failing to
 // handle the PeerUpdate or if a panic is recovered.
-func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpdate) {
+func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 	r.logger.Debug("received peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
 
 	switch peerUpdate.Status {
@@ -1027,7 +1027,7 @@ func (r *Reactor) processPeerUpdates(ctx context.Context, peerUpdates *p2p.PeerU
 		case <-ctx.Done():
 			return
 		case peerUpdate := <-peerUpdates.Updates():
-			r.processPeerUpdate(ctx, peerUpdate)
+			r.processPeerUpdate(peerUpdate)
 		}
 	}
 }

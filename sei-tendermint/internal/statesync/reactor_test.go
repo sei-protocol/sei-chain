@@ -3,10 +3,11 @@ package statesync
 import (
 	"context"
 	"fmt"
-	"strings"
+	"slices"
 	"sync"
 	"testing"
 	"time"
+	"cmp"
 
 	"github.com/fortytw2/leaktest"
 	"github.com/stretchr/testify/mock"
@@ -16,6 +17,7 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/libs/utils/require"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/internal/proxy"
 	smmocks "github.com/tendermint/tendermint/internal/state/mocks"
@@ -36,11 +38,7 @@ const testAppVersion = 9
 
 type reactorTestSuite struct {
 	network *p2p.TestNetwork
-	snapshotCh *p2p.Channel
-	chunkCh    *p2p.Channel
-	blockCh    *p2p.Channel
-	paramsCh   *p2p.Channel
-
+	node    *p2p.TestNode
 	reactor *Reactor
 	syncer  *syncer
 
@@ -63,10 +61,10 @@ func setup(
 	}
 
 	network := p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{
-		NumNodes: 2,
+		NumNodes: 1,
 		NodeOpts: p2p.TestNodeOptions{
-			MaxPeers:     1,
-			MaxConnected: 1,
+			MaxPeers:     100,
+			MaxConnected: 100,
 			MaxRetryTime: time.Second,
 		},
 	})
@@ -75,16 +73,16 @@ func setup(
 
 	cfg := config.DefaultStateSyncConfig()
 
-	logger := log.NewNopLogger()
+	logger, _ := log.NewDefaultLogger("plain", "debug")
 
-	nodes := network.Nodes()
+	n := network.Nodes()[0]
 	reactor := NewReactor(
 		factory.DefaultTestChainID,
 		1,
 		*cfg,
 		logger.With("component", "reactor"),
 		conn,
-		nodes[0].PeerManager.Subscribe,
+		n.PeerManager.Subscribe,
 		stateStore,
 		blockStore,
 		"",
@@ -95,22 +93,18 @@ func setup(
 		make(chan struct{}),
 		config.DefaultSelfRemediationConfig(),
 	)
-	snapshotChs := network.MakeChannelsNoCleanup(t,GetSnapshotChannelDescriptor())
-	chunkChs := network.MakeChannelsNoCleanup(t,GetChunkChannelDescriptor())
-	blockChs := network.MakeChannelsNoCleanup(t,GetLightBlockChannelDescriptor())
-	paramsChs := network.MakeChannelsNoCleanup(t,GetParamsChannelDescriptor())
-	reactor.SetSnapshotChannel(snapshotChs[nodes[0].NodeID])
-	reactor.SetChunkChannel(chunkChs[nodes[0].NodeID])
-	reactor.SetLightBlockChannel(blockChs[nodes[0].NodeID])
-	reactor.SetParamsChannel(paramsChs[nodes[0].NodeID])
+	reactor.SetSnapshotChannel(n.Router.OpenChannelOrPanic(GetSnapshotChannelDescriptor()))
+	reactor.SetChunkChannel(n.Router.OpenChannelOrPanic(GetChunkChannelDescriptor()))
+	reactor.SetLightBlockChannel(n.Router.OpenChannelOrPanic(GetLightBlockChannelDescriptor()))
+	reactor.SetParamsChannel(n.Router.OpenChannelOrPanic(GetParamsChannelDescriptor()))
 
 	syncer := &syncer{
 		logger:        logger,
 		stateProvider: stateProvider,
 		conn:          conn,
 		snapshots:     newSnapshotPool(),
-		snapshotCh:    snapshotChs[nodes[0].NodeID],
-		chunkCh:       chunkChs[nodes[0].NodeID],
+		snapshotCh:    reactor.snapshotChannel,
+		chunkCh:       reactor.chunkChannel,
 		tempDir:       t.TempDir(),
 		fetchers:      cfg.Fetchers,
 		retryTimeout:  cfg.ChunkRequestTimeout,
@@ -124,17 +118,31 @@ func setup(
 
 	return &reactorTestSuite{
 		network: network,
+		node: n,
 		conn: conn,
 		stateProvider: stateProvider,
 		stateStore:    stateStore,
 		blockStore:    blockStore,
 		reactor:       reactor,
 		syncer:        syncer,
-		snapshotCh: snapshotChs[nodes[1].NodeID],
-		chunkCh:    chunkChs[nodes[1].NodeID],
-		blockCh:    blockChs[nodes[1].NodeID],
-		paramsCh:   paramsChs[nodes[1].NodeID],
 	}
+}
+
+func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
+	testNode := rts.network.MakeNode(t,p2p.TestNodeOptions {
+		MaxPeers:     1,
+		MaxConnected: 1,
+		MaxRetryTime: time.Second,
+	})
+	n := &Node{
+		TestNode:   testNode,
+		snapshotCh: testNode.Router.OpenChannelOrPanic(GetSnapshotChannelDescriptor()),
+		chunkCh:    testNode.Router.OpenChannelOrPanic(GetChunkChannelDescriptor()),
+		blockCh:    testNode.Router.OpenChannelOrPanic(GetLightBlockChannelDescriptor()),
+		paramsCh:   testNode.Router.OpenChannelOrPanic(GetParamsChannelDescriptor()),
+	}
+	rts.node.Connect(t.Context(), testNode)
+	return n
 }
 
 func TestReactor_Sync(t *testing.T) {
@@ -164,20 +172,23 @@ func TestReactor_Sync(t *testing.T) {
 	rts.stateStore.On("SaveValidatorSets", mock.AnythingOfType("int64"), mock.AnythingOfType("int64"),
 		mock.AnythingOfType("*types.ValidatorSet")).Return(nil)
 
-	closeCh := make(chan struct{})
-	defer close(closeCh)
-	go rts.handleLightBlockRequests(t, chain, 0)
-	go graduallyAddPeers(ctx, t, rts.peerUpdateCh, closeCh, 1*time.Second)
-	go rts.handleSnapshotRequests(t, []snapshot{
-		{
-			Height: uint64(snapshotHeight),
-			Format: 1,
-			Chunks: 1,
-		},
-	})
-
-	go rts.handleChunkRequests(t, []byte("abc"))
-	go rts.handleConsensusParamsRequest(t)
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		for {
+			if _,err := utils.Recv(ctx, ticker.C); err!=nil { return }
+			n := rts.AddPeer(t)
+			go n.handleLightBlockRequests(t, chain, 0)
+			go n.handleChunkRequests(t, []byte("abc"))
+			go n.handleConsensusParamsRequest(t)
+			go n.handleSnapshotRequests(t, []snapshot{
+				{
+					Height: uint64(snapshotHeight),
+					Format: 1,
+					Chunks: 1,
+				},
+			})
+		}
+	}()
 
 	// update the config to use the p2p provider
 	rts.reactor.cfg.UseP2P = true
@@ -192,13 +203,15 @@ func TestReactor_Sync(t *testing.T) {
 
 func TestReactor_ChunkRequest_InvalidRequest(t *testing.T) {
 	rts := setup(t, nil, nil)
-	rts.chunkCh.Broadcast(&ssproto.SnapshotsRequest{})
+	n := rts.AddPeer(t)
+	n.chunkCh.Broadcast(&ssproto.SnapshotsRequest{})
 	// TODO: expect non-fatal
 }
 
 func TestReactor_SnapshotsRequest_InvalidRequest(t *testing.T) {
 	rts := setup(t, nil, nil)
-	rts.snapshotCh.Broadcast(&ssproto.ChunkRequest{})
+	n := rts.AddPeer(t)
+	n.snapshotCh.Broadcast(&ssproto.ChunkRequest{})
 	// TODO: expect non-fatal
 }
 
@@ -243,22 +256,33 @@ func TestReactor_ChunkRequest(t *testing.T) {
 			}).Return(&abci.ResponseLoadSnapshotChunk{Chunk: tc.chunk}, nil)
 
 			rts := setup(t, conn, nil)
-
-			rts.chunkCh.Broadcast(tc.request)
-			m,err := rts.chunkCh.Recv(ctx)
+			n := rts.AddPeer(t)
+			n.chunkCh.Broadcast(tc.request)
+			m,err := n.chunkCh.Recv(ctx)
 			require.NoError(t, err)
-			require.Equal(t, tc.expectResponse, m.Message.(*ssproto.ChunkResponse))
+			if err:=utils.TestDiff(tc.expectResponse, m.Message.(*ssproto.ChunkResponse)); err!=nil {
+				t.Fatal(err)
+			}
 			conn.AssertExpectations(t)
 		})
+	}
+}
+
+func abciToSSProtoSnapshot(snapshot *abci.Snapshot) *ssproto.SnapshotsResponse {
+	return &ssproto.SnapshotsResponse{
+		Height:   snapshot.Height,
+		Format:   snapshot.Format,
+		Chunks:   snapshot.Chunks,
+		Hash:     snapshot.Hash,
+		Metadata: snapshot.Metadata,
 	}
 }
 
 func TestReactor_SnapshotsRequest(t *testing.T) {
 	testcases := map[string]struct {
 		snapshots       []*abci.Snapshot
-		expectResponses []*ssproto.SnapshotsResponse
 	}{
-		"no snapshots": {nil, []*ssproto.SnapshotsResponse{}},
+		"no snapshots": {nil},
 		">10 unordered snapshots": {
 			[]*abci.Snapshot{
 				{Height: 1, Format: 2, Chunks: 7, Hash: []byte{1, 2}, Metadata: []byte{1}},
@@ -274,18 +298,6 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 				{Height: 2, Format: 3, Chunks: 7, Hash: []byte{2, 3}, Metadata: []byte{11}},
 				{Height: 3, Format: 3, Chunks: 7, Hash: []byte{3, 3}, Metadata: []byte{12}},
 			},
-			[]*ssproto.SnapshotsResponse{
-				{Height: 3, Format: 4, Chunks: 7, Hash: []byte{3, 4}, Metadata: []byte{9}},
-				{Height: 3, Format: 3, Chunks: 7, Hash: []byte{3, 3}, Metadata: []byte{12}},
-				{Height: 3, Format: 2, Chunks: 7, Hash: []byte{3, 2}, Metadata: []byte{3}},
-				{Height: 3, Format: 1, Chunks: 7, Hash: []byte{3, 1}, Metadata: []byte{6}},
-				{Height: 2, Format: 4, Chunks: 7, Hash: []byte{2, 4}, Metadata: []byte{8}},
-				{Height: 2, Format: 3, Chunks: 7, Hash: []byte{2, 3}, Metadata: []byte{11}},
-				{Height: 2, Format: 2, Chunks: 7, Hash: []byte{2, 2}, Metadata: []byte{2}},
-				{Height: 2, Format: 1, Chunks: 7, Hash: []byte{2, 1}, Metadata: []byte{5}},
-				{Height: 1, Format: 4, Chunks: 7, Hash: []byte{1, 4}, Metadata: []byte{7}},
-				{Height: 1, Format: 3, Chunks: 7, Hash: []byte{1, 3}, Metadata: []byte{10}},
-			},
 		},
 	}
 	for name, tc := range testcases {
@@ -299,15 +311,37 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 			}, nil)
 
 			rts := setup(t, conn, nil)
+			n := rts.AddPeer(t)
+			n.snapshotCh.Broadcast(&ssproto.SnapshotsRequest{})
 
-			rts.snapshotCh.Broadcast(&ssproto.SnapshotsRequest{})
-			responses := make([]*ssproto.SnapshotsResponse, len(tc.expectResponses))
-			for i := range tc.expectResponses {
-				m,err := rts.snapshotCh.Recv(ctx)
-				require.NoError(t, err)
-				responses[i] = m.Message.(*ssproto.SnapshotsResponse)
+			// Compute the expected answer.
+			want := make([]*ssproto.SnapshotsResponse, len(tc.snapshots))
+			for i, snapshot := range tc.snapshots {
+				want[i] = abciToSSProtoSnapshot(snapshot)
 			}
-			require.Equal(t, tc.expectResponses, responses)
+			less := func(a, b *ssproto.SnapshotsResponse) int {
+				return cmp.Or(
+					cmp.Compare(b.Height,a.Height),
+					cmp.Compare(b.Format,a.Format),
+				)
+			}
+			slices.SortFunc(want, less)
+			if len(want) > recentSnapshots {
+				want = want[:recentSnapshots]
+			}
+
+			// Receive the actual answer.
+			got := make([]*ssproto.SnapshotsResponse, len(want))
+			for i := range want {
+				m,err := n.snapshotCh.Recv(ctx)
+				require.NoError(t, err)
+				got[i] = m.Message.(*ssproto.SnapshotsResponse)
+			}
+
+			slices.SortFunc(got, less)
+			if err:=utils.TestDiff(want, got); err!=nil {
+				t.Fatal(err)
+			}
 		})
 	}
 }
@@ -346,9 +380,9 @@ func TestReactor_LightBlockResponse(t *testing.T) {
 	require.NoError(t, rts.blockStore.SaveSignedHeader(sh, blockID))
 
 	rts.stateStore.On("LoadValidators", height).Return(vals, nil)
-
-	rts.blockCh.Broadcast(&ssproto.LightBlockRequest{Height: 10})
-	m,err := rts.blockCh.Recv(ctx)
+	n := rts.AddPeer(t)
+	n.blockCh.Broadcast(&ssproto.LightBlockRequest{Height: 10})
+	m,err := n.blockCh.Recv(ctx)
 	require.NoError(t, err)
 	res := m.Message.(*ssproto.LightBlockResponse)
 	receivedLB, err := types.LightBlockFromProto(res.LightBlock)
@@ -361,32 +395,12 @@ func TestReactor_BlockProviders(t *testing.T) {
 	defer cancel()
 
 	rts := setup(t, nil, nil)
-	rts.peerUpdateCh <- p2p.PeerUpdate{
-		NodeID: types.NodeID("aa"),
-		Status: p2p.PeerStatusUp,
-		Channels: p2p.ChannelIDSet{
-			SnapshotChannel:   struct{}{},
-			ChunkChannel:      struct{}{},
-			LightBlockChannel: struct{}{},
-			ParamsChannel:     struct{}{},
-		},
-	}
-	rts.peerUpdateCh <- p2p.PeerUpdate{
-		NodeID: types.NodeID("bb"),
-		Status: p2p.PeerStatusUp,
-		Channels: p2p.ChannelIDSet{
-			SnapshotChannel:   struct{}{},
-			ChunkChannel:      struct{}{},
-			LightBlockChannel: struct{}{},
-			ParamsChannel:     struct{}{},
-		},
-	}
-
-	closeCh := make(chan struct{})
-	defer close(closeCh)
+	a := rts.AddPeer(t)
+	b := rts.AddPeer(t)
 
 	chain := buildLightBlockChain(ctx, t, 1, 10, time.Now())
-	go rts.handleLightBlockRequests(t, chain, 0)
+	go a.handleLightBlockRequests(t, chain, 0)
+	go b.handleLightBlockRequests(t, chain, 0)
 
 	peers := rts.reactor.peers.All()
 	require.Len(t, peers, 2)
@@ -429,37 +443,18 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 	rts := setup(t, nil, nil)
 	// make syncer non nil else test won't think we are state syncing
 	rts.reactor.syncer = rts.syncer
-	peerA := types.NodeID(strings.Repeat("a", 2*types.NodeIDByteLength))
-	peerB := types.NodeID(strings.Repeat("b", 2*types.NodeIDByteLength))
-	peerC := types.NodeID(strings.Repeat("c", 2*types.NodeIDByteLength))
-
-	rts.peerUpdateCh <- p2p.PeerUpdate{
-		NodeID: peerA,
-		Status: p2p.PeerStatusUp,
-	}
-	rts.peerUpdateCh <- p2p.PeerUpdate{
-		NodeID: peerB,
-		Status: p2p.PeerStatusUp,
-	}
-	rts.peerUpdateCh <- p2p.PeerUpdate{
-		NodeID: peerC,
-		Status: p2p.PeerStatusUp,
-	}
-
+	peerA := rts.AddPeer(t)
+	peerB := rts.AddPeer(t)
+	peerC := rts.AddPeer(t)
 	chain := buildLightBlockChain(ctx, t, 1, 10, time.Now())
-	go rts.handleLightBlockRequests(t, chain, 0)
-	go rts.handleConsensusParamsRequest(t)
+	for _, peer := range utils.Slice(peerA, peerB, peerC) {
+		go peer.handleLightBlockRequests(t, chain, 0)
+		go peer.handleConsensusParamsRequest(t)
+	}
 
 	rts.reactor.cfg.UseP2P = true
 	rts.reactor.cfg.TrustHeight = 1
 	rts.reactor.cfg.TrustHash = fmt.Sprintf("%X", chain[1].Hash())
-
-	for _, p := range []types.NodeID{peerA, peerB, peerC} {
-		if !rts.reactor.peers.Contains(p) {
-			rts.reactor.peers.Append(p)
-		}
-	}
-	require.True(t, rts.reactor.peers.Len() >= 2, "peer network not configured")
 
 	ictx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
@@ -469,6 +464,12 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 	rts.reactor.mtx.Unlock()
 	require.NoError(t, err)
 	rts.reactor.syncer.stateProvider = rts.reactor.stateProvider
+
+	// initStateProvider is expected to block until 2 peers are available.
+	// However we need 3 peers to test witness removal.
+	require.Eventually(t, func() bool {
+		return rts.reactor.peers.Len() == 3
+	}, 5*time.Second, 100*time.Millisecond)
 
 	actx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
@@ -486,33 +487,29 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, commit.BlockID, state.LastBlockID)
 
-	added, err := rts.reactor.syncer.AddSnapshot(peerA, &snapshot{
+	added, err := rts.reactor.syncer.AddSnapshot(peerA.NodeID, &snapshot{
 		Height: 1, Format: 2, Chunks: 7, Hash: []byte{1, 2}, Metadata: []byte{1},
 	})
 	require.NoError(t, err)
 	require.True(t, added)
 
 	// verify that the state provider is a p2p provider
-	sp, ok := rts.reactor.stateProvider.(*light.StateProviderP2P)
-	require.True(t, ok)
+	sp := rts.reactor.stateProvider.(*light.StateProviderP2P)
 
-	// verify that a status-down peer starts in the list
+	// This is not really a list of providers, but rather list of witnesses,
+	// which excludes the first provider (which is primary)
 	require.Len(t, sp.Providers(), 2)
 
-	// notify that peer C is down
-	rts.peerUpdateCh <- p2p.PeerUpdate{
-		NodeID: peerC,
-		Status: p2p.PeerStatusDown,
-	}
+	t.Log("Disconnect the witness.")
+	n0 := types.NodeID(sp.Providers()[0].ID())
+	n1 := types.NodeID(sp.Providers()[1].ID())
+	rts.network.Node(n0).Router.Stop()
 
 	// removal is async, so we need to wait for the reactor to update
 	require.Eventually(t, func() bool {
 		return len(sp.Providers()) == 1
 	}, 5*time.Second, 100*time.Millisecond)
-
-	// should now have 1 witness (peer B)
-	require.Len(t, sp.Providers(), 1)
-	require.Equal(t, string(peerB), sp.Providers()[0].ID())
+	require.Equal(t,n1, types.NodeID(sp.Providers()[0].ID()))
 }
 
 func TestReactor_Backfill(t *testing.T) {
@@ -530,18 +527,15 @@ func TestReactor_Backfill(t *testing.T) {
 				stopTime          = time.Date(2020, 1, 1, 0, 100, 0, 0, time.UTC)
 			)
 
-			peers := []string{"a", "b", "c", "d"}
+			peers := utils.Slice(
+				rts.AddPeer(t),
+				rts.AddPeer(t),
+				rts.AddPeer(t),
+				rts.AddPeer(t),
+			)
+			chain := buildLightBlockChain(ctx, t, stopHeight-1, startHeight+1, stopTime)
 			for _, peer := range peers {
-				rts.peerUpdateCh <- p2p.PeerUpdate{
-					NodeID: types.NodeID(peer),
-					Status: p2p.PeerStatusUp,
-					Channels: p2p.ChannelIDSet{
-						SnapshotChannel:   struct{}{},
-						ChunkChannel:      struct{}{},
-						LightBlockChannel: struct{}{},
-						ParamsChannel:     struct{}{},
-					},
-				}
+				go peer.handleLightBlockRequests(t, chain, failureRate)
 			}
 
 			trackingHeight := startHeight
@@ -553,12 +547,6 @@ func TestReactor_Backfill(t *testing.T) {
 				trackingHeight--
 				return nil
 			})
-
-			chain := buildLightBlockChain(ctx, t, stopHeight-1, startHeight+1, stopTime)
-
-			closeCh := make(chan struct{})
-			defer close(closeCh)
-			go rts.handleLightBlockRequests(t, chain, failureRate)
 
 			err := rts.reactor.backfill(
 				ctx,
@@ -591,69 +579,6 @@ func TestReactor_Backfill(t *testing.T) {
 			require.Equal(t, rts.reactor.backfilledBlocks, rts.reactor.BackFilledBlocks())
 			require.Equal(t, rts.reactor.backfillBlockTotal, rts.reactor.BackFillBlocksTotal())
 		})
-	}
-}
-
-// retryUntil will continue to evaluate fn and will return successfully when true
-// or fail when the timeout is reached.
-func retryUntil(ctx context.Context, t *testing.T, fn func() bool, timeout time.Duration) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	for {
-		if fn() {
-			return
-		}
-		require.NoError(t, ctx.Err())
-	}
-}
-
-func (rts *reactorTestSuite) handleLightBlockRequests(
-	t *testing.T,
-	chain map[int64]*types.LightBlock,
-	failureRate int,
-) {
-	ctx := t.Context()
-	errorCount := 0
-	for requests:=0;; requests++ {
-		m,err := rts.blockCh.Recv(ctx)
-		if err != nil { return }
-		msg, ok := m.Message.(*ssproto.LightBlockRequest)
-		if !ok { continue }
-		if requests%10 >= failureRate {
-			lb, err := chain[int64(msg.Height)].ToProto()
-			require.NoError(t, err)
-			rts.blockCh.Send(&ssproto.LightBlockResponse{LightBlock: lb}, m.From)
-		} else {
-			switch errorCount % 3 {
-			case 0: // send a different block
-				vals, pv := factory.ValidatorSet(ctx, t, 3, 10)
-				_, _, lb := mockLB(ctx, t, int64(msg.Height), factory.DefaultTestTime, factory.MakeBlockID(), vals, pv)
-				differntLB, err := lb.ToProto()
-				if err!=nil { panic(err) }
-				rts.blockCh.Send(&ssproto.LightBlockResponse{LightBlock: differntLB}, m.From)
-			case 1: // send nil block i.e. pretend we don't have it
-				rts.blockCh.Send(&ssproto.LightBlockResponse{LightBlock: nil}, m.From)
-			case 2: // don't do anything
-			}
-			errorCount++
-		}
-	}
-}
-
-func (rts *reactorTestSuite) handleConsensusParamsRequest(t *testing.T) {
-	t.Helper()
-	ctx := t.Context()
-	params := types.DefaultConsensusParams()
-	paramsProto := params.ToProto()
-	for {
-		m,err := rts.paramsCh.Recv(ctx)
-		if err != nil { return }
-		msg := m.Message.(*ssproto.ParamsRequest)
-		rts.paramsCh.Send(&ssproto.ParamsResponse{
-			Height:          msg.Height,
-			ConsensusParams: paramsProto,
-		}, m.From)
 	}
 }
 
@@ -699,46 +624,73 @@ func mockLB(ctx context.Context, t *testing.T, height int64, time time.Time, las
 	}
 }
 
-// graduallyAddPeers delivers a new randomly-generated peer update on peerUpdateCh once
-// per interval, until closeCh is closed. Each peer update is assigned a random node ID.
-func graduallyAddPeers(
-	ctx context.Context,
+type Node struct {
+	*p2p.TestNode
+	snapshotCh *p2p.Channel
+	chunkCh    *p2p.Channel
+	blockCh    *p2p.Channel
+	paramsCh   *p2p.Channel
+}
+
+func (n *Node) handleLightBlockRequests(
 	t *testing.T,
-	peerUpdateCh chan p2p.PeerUpdate,
-	closeCh chan struct{},
-	interval time.Duration,
+	chain map[int64]*types.LightBlock,
+	failureRate int,
 ) {
-	ticker := time.NewTicker(interval)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-closeCh:
-			return
-		case <-ticker.C:
-			peerUpdateCh <- p2p.PeerUpdate{
-				NodeID: factory.RandomNodeID(t),
-				Status: p2p.PeerStatusUp,
-				Channels: p2p.ChannelIDSet{
-					SnapshotChannel:   struct{}{},
-					ChunkChannel:      struct{}{},
-					LightBlockChannel: struct{}{},
-					ParamsChannel:     struct{}{},
-				},
+	ctx := t.Context()
+	errorCount := 0
+	for requests:=0;; requests++ {
+		m,err := n.blockCh.Recv(ctx)
+		if err != nil { return }
+		msg, ok := m.Message.(*ssproto.LightBlockRequest)
+		if !ok { continue }
+		if requests%10 >= failureRate {
+			lb, err := chain[int64(msg.Height)].ToProto()
+			require.NoError(t, err)
+			n.blockCh.Send(&ssproto.LightBlockResponse{LightBlock: lb}, m.From)
+		} else {
+			switch errorCount % 3 {
+			case 0: // send a different block
+				vals, pv := factory.ValidatorSet(ctx, t, 3, 10)
+				_, _, lb := mockLB(ctx, t, int64(msg.Height), factory.DefaultTestTime, factory.MakeBlockID(), vals, pv)
+				differntLB, err := lb.ToProto()
+				if err!=nil { panic(err) }
+				n.blockCh.Send(&ssproto.LightBlockResponse{LightBlock: differntLB}, m.From)
+			case 1: // send nil block i.e. pretend we don't have it
+				n.blockCh.Send(&ssproto.LightBlockResponse{LightBlock: nil}, m.From)
+			case 2: // don't do anything
 			}
+			errorCount++
 		}
 	}
 }
 
-func (rts *reactorTestSuite) handleSnapshotRequests(t *testing.T, snapshots []snapshot) {
+func (n *Node) handleConsensusParamsRequest(t *testing.T) {
+	t.Helper()
+	ctx := t.Context()
+	params := types.DefaultConsensusParams()
+	paramsProto := params.ToProto()
+	for {
+		m,err := n.paramsCh.Recv(ctx)
+		if err != nil { return }
+		msg := m.Message.(*ssproto.ParamsRequest)
+		n.paramsCh.Send(&ssproto.ParamsResponse{
+			Height:          msg.Height,
+			ConsensusParams: paramsProto,
+		}, m.From)
+	}
+}
+
+
+func (n *Node) handleSnapshotRequests(t *testing.T, snapshots []snapshot) {
 	t.Helper()
 	ctx := t.Context()
 	for {
-		m,err := rts.snapshotCh.Recv(ctx)
+		m,err := n.snapshotCh.Recv(ctx)
 		if err != nil { return }
 		_ = m.Message.(*ssproto.SnapshotsRequest)
 		for _, snapshot := range snapshots {
-			rts.snapshotCh.Send(&ssproto.SnapshotsResponse{
+			n.snapshotCh.Send(&ssproto.SnapshotsResponse{
 				Height:   snapshot.Height,
 				Format:   snapshot.Format,
 				Chunks:   snapshot.Chunks,
@@ -749,14 +701,14 @@ func (rts *reactorTestSuite) handleSnapshotRequests(t *testing.T, snapshots []sn
 	}
 }
 
-func (rts *reactorTestSuite) handleChunkRequests(t *testing.T, chunk []byte) {
+func (n *Node) handleChunkRequests(t *testing.T, chunk []byte) {
 	t.Helper()
 	ctx := t.Context()
 	for {
-		m,err := rts.chunkCh.Recv(ctx)
+		m,err := n.chunkCh.Recv(ctx)
 		if err != nil { return }
 		msg := m.Message.(*ssproto.ChunkRequest)
-		rts.chunkCh.Send(&ssproto.ChunkResponse{
+		n.chunkCh.Send(&ssproto.ChunkResponse{
 			Height:  msg.Height,
 			Format:  msg.Format,
 			Index:   msg.Index,
