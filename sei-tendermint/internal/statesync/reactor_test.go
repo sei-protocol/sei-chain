@@ -202,20 +202,6 @@ func TestReactor_Sync(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestReactor_ChunkRequest_InvalidRequest(t *testing.T) {
-	rts := setup(t, nil, nil)
-	n := rts.AddPeer(t)
-	n.chunkCh.Broadcast(&ssproto.SnapshotsRequest{})
-	// TODO: expect non-fatal
-}
-
-func TestReactor_SnapshotsRequest_InvalidRequest(t *testing.T) {
-	rts := setup(t, nil, nil)
-	n := rts.AddPeer(t)
-	n.snapshotCh.Broadcast(&ssproto.ChunkRequest{})
-	// TODO: expect non-fatal
-}
-
 func TestReactor_ChunkRequest(t *testing.T) {
 	testcases := map[string]struct {
 		request        *ssproto.ChunkRequest
@@ -258,6 +244,9 @@ func TestReactor_ChunkRequest(t *testing.T) {
 
 			rts := setup(t, conn, nil)
 			n := rts.AddPeer(t)
+			// Send an invalid message, which should be just ignored.
+			n.chunkCh.Broadcast(&ssproto.SnapshotsRequest{})
+			// Send the actual message.
 			n.chunkCh.Broadcast(tc.request)
 			m,err := n.chunkCh.Recv(ctx)
 			require.NoError(t, err)
@@ -313,6 +302,10 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 
 			rts := setup(t, conn, nil)
 			n := rts.AddPeer(t)
+			// Send an invalid message, which should be just ignored.
+			// TODO(gprusak): P2P message type safety should be provided by router.
+			n.snapshotCh.Broadcast(&ssproto.ChunkRequest{})
+			// Send the actual message.
 			n.snapshotCh.Broadcast(&ssproto.SnapshotsRequest{})
 
 			// Compute the expected answer.

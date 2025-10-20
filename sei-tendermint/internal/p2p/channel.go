@@ -130,8 +130,7 @@ func (ch *Channel) Broadcast(msg proto.Message) {
 	ch.send(msg, queues...)
 }
 
-// SendError blocks until the given error has been sent, or ctx ends.
-// An error only occurs if the context ends before the send completes.
+// SendError reports a peer misbehavior to the router.
 func (ch *Channel) SendError(pe PeerError) {
 	// TODO: this should be atomic.
 	shouldEvict := pe.Fatal || ch.router.peerManager.HasMaxPeerCapacity()
