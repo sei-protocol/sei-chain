@@ -83,7 +83,7 @@ func setup(
 		*cfg,
 		logger.With("component", "reactor"),
 		conn,
-		n.PeerManager.Subscribe,
+		n.PeerManager,
 		stateStore,
 		blockStore,
 		"",

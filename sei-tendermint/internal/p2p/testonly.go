@@ -112,7 +112,7 @@ func (n *TestNetwork) Start(t *testing.T) {
 			}
 		}
 	}
-	// Await connections.
+	t.Log("Await connections.")
 	for _, source := range nodes {
 		for ready, ctrl := range source.PeerManager.ready.Lock() {
 			for _, target := range nodes {
@@ -254,7 +254,7 @@ func (n *TestNode) Connect(ctx context.Context, target *TestNode) {
 }
 
 func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
-	for conns := range n.Router.conns.Lock() {
+	for conns := range n.Router.conns.RLock() {
 		conns[target].Close()
 	}
 	n.WaitUntilDisconnected(ctx, target)

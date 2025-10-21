@@ -15,6 +15,7 @@ import (
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/service"
 	bcproto "github.com/tendermint/tendermint/proto/tendermint/blocksync"
 	"github.com/tendermint/tendermint/types"
@@ -82,7 +83,6 @@ type Reactor struct {
 	blockSync             *atomicBool
 	previousMaxPeerHeight int64
 
-	peerEvents  p2p.PeerEventSubscriber
 	peerManager *p2p.PeerManager
 	channel     *p2p.Channel
 
@@ -180,7 +180,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	}
 
 	go r.processBlockSyncCh(ctx, r.channel)
-	go r.processPeerUpdates(ctx, r.channel)
+	go r.processPeerUpdates(ctx)
 
 	return nil
 }
@@ -234,12 +234,10 @@ func (r *Reactor) handleMessage(m p2p.RecvMsg, blockSyncCh *p2p.Channel) (err er
 		return r.respondToPeer(msg, m.From, blockSyncCh)
 	case *bcproto.BlockResponse:
 		block, err := types.BlockFromProto(msg.Block)
-
-		r.logger.Info("received block response from peer", "peer", m.From, "height", block.Height)
 		if err != nil {
-			r.logger.Error("failed to convert block from proto", "peer", m.From, "err", err)
-			return err
+			return fmt.Errorf("types.BlockFromProto(): %w", err)
 		}
+		r.logger.Info("received block response from peer", "peer", m.From, "height", block.Height)
 		if err := r.pool.AddBlock(m.From, block, block.Size()); err != nil {
 			r.logger.Error("failed to add block", "err", err)
 		}
@@ -332,7 +330,8 @@ func (r *Reactor) autoRestartIfBehind(ctx context.Context) {
 }
 
 // processPeerUpdate processes a PeerUpdate.
-func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate, blockSyncCh *p2p.Channel) {
+func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
+	blockSyncCh := r.channel
 	r.logger.Debug("received peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
 
 	// XXX: Pool#RedoRequest can sometimes give us an empty peer.
@@ -355,15 +354,17 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate, blockSyncCh *p2p.
 // processPeerUpdates initiates a blocking process where we listen for and handle
 // PeerUpdate messages. When the reactor is stopped, we will catch the signal and
 // close the p2p PeerUpdatesCh gracefully.
-func (r *Reactor) processPeerUpdates(ctx context.Context, blockSyncCh *p2p.Channel) {
+func (r *Reactor) processPeerUpdates(ctx context.Context) {
 	peerUpdates := r.peerManager.Subscribe(ctx)
+	for _, update := range peerUpdates.PreexistingPeers() {
+		r.processPeerUpdate(update)
+	}
 	for {
-		select {
-		case <-ctx.Done():
+		update,err := utils.Recv(ctx,peerUpdates.Updates())
+		if err != nil {
 			return
-		case peerUpdate := <-peerUpdates.Updates():
-			r.processPeerUpdate(peerUpdate, blockSyncCh)
 		}
+		r.processPeerUpdate(update)
 	}
 }
 

@@ -19,6 +19,7 @@ import (
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/light"
 	"github.com/tendermint/tendermint/light/provider"
@@ -138,7 +139,7 @@ type Reactor struct {
 
 	conn           abciclient.Client
 	tempDir        string
-	peerEvents     p2p.PeerEventSubscriber
+	peerManager    *p2p.PeerManager
 	sendBlockError func(p2p.PeerError)
 	postSyncHook   func(context.Context, sm.State) error
 
@@ -196,7 +197,7 @@ func NewReactor(
 	cfg config.StateSyncConfig,
 	logger log.Logger,
 	conn abciclient.Client,
-	peerEvents p2p.PeerEventSubscriber,
+	peerManager *p2p.PeerManager,
 	stateStore sm.Store,
 	blockStore *store.BlockStore,
 	tempDir string,
@@ -213,7 +214,7 @@ func NewReactor(
 		initialHeight:                 initialHeight,
 		cfg:                           cfg,
 		conn:                          conn,
-		peerEvents:                    peerEvents,
+		peerManager:                    peerManager,
 		tempDir:                       tempDir,
 		stateStore:                    stateStore,
 		blockStore:                    blockStore,
@@ -334,7 +335,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	go r.processParamsCh(ctx)
 
 	if !r.cfg.UseLocalSnapshot {
-		go r.processPeerUpdates(ctx, r.peerEvents(ctx))
+		go r.processPeerUpdates(ctx)
 	}
 
 	if r.needsStateSync {
@@ -1025,14 +1026,17 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 // processPeerUpdates initiates a blocking process where we listen for and handle
 // PeerUpdate messages. When the reactor is stopped, we will catch the signal and
 // close the p2p PeerUpdatesCh gracefully.
-func (r *Reactor) processPeerUpdates(ctx context.Context, peerUpdates *p2p.PeerUpdates) {
+func (r *Reactor) processPeerUpdates(ctx context.Context) {
+	peerUpdates := r.peerManager.Subscribe(ctx)
+	for _, update := range peerUpdates.PreexistingPeers() {
+		r.processPeerUpdate(update)
+	}
 	for {
-		select {
-		case <-ctx.Done():
+		peerUpdate, err := utils.Recv(ctx, peerUpdates.Updates())
+		if err != nil {
 			return
-		case peerUpdate := <-peerUpdates.Updates():
-			r.processPeerUpdate(peerUpdate)
 		}
+		r.processPeerUpdate(peerUpdate)
 	}
 }
 
