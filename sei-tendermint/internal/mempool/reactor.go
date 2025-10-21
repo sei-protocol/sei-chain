@@ -201,7 +201,7 @@ func (r *Reactor) processMempoolCh(ctx context.Context, mempoolCh *p2p.Channel) 
 			return
 		}
 		if err := r.handleMessage(ctx, m); err != nil {
-			r.logger.Error("failed to process message", "envelope", m, "err", err)
+			r.logger.Error("failed to process message", "err", err)
 			mempoolCh.SendError(p2p.PeerError{
 				NodeID: m.From,
 				Err:    err,

@@ -110,17 +110,13 @@ func (r *Reactor) handleEvidenceMessage(ctx context.Context, m p2p.RecvMsg) (err
 			)
 		}
 	}()
-	r.logger.Debug("received message", "message", m.Message, "peer", m.From)
-	logger := r.logger.With("peer", m.From)
-
 	switch msg := m.Message.(type) {
 	case *tmproto.Evidence:
 		// Process the evidence received from a peer
 		// Evidence is sent and received one by one
 		ev, err := types.EvidenceFromProto(msg)
 		if err != nil {
-			logger.Error("failed to convert evidence", "err", err)
-			return err
+			return fmt.Errorf("types.EvidenceFromProto(): %w", err)
 		}
 		if err := r.evpool.AddEvidence(ctx, ev); err != nil {
 			// If we're given invalid evidence by the peer, notify the router that
@@ -147,7 +143,7 @@ func (r *Reactor) processEvidenceCh(ctx context.Context, evidenceCh *p2p.Channel
 			return
 		}
 		if err := r.handleEvidenceMessage(ctx, m); err != nil {
-			r.logger.Error("failed to process evidenceCh message", "envelope", m, "err", err)
+			r.logger.Error("failed to process evidenceCh message", "err", err)
 			evidenceCh.SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}

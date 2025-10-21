@@ -279,7 +279,7 @@ func (r *Reactor) processBlockSyncCh(ctx context.Context, blockSyncCh *p2p.Chann
 				return
 			}
 
-			r.logger.Error("failed to process blockSyncCh message", "envelope", m, "err", err)
+			r.logger.Error("failed to process blockSyncCh message", "err", err)
 			blockSyncCh.SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
