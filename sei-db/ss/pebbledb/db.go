@@ -452,6 +452,11 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 }
 
 func (db *Database) computeMissingRanges(latestVersion int64) error {
+	// If HashRange is disabled (<=0), skip computation
+	if db.config.HashRange <= 0 {
+		return nil
+	}
+
 	lastHashed, err := db.GetLastRangeHashed()
 	if err != nil {
 		return fmt.Errorf("failed to get last hashed range: %w", err)
