@@ -26,6 +26,8 @@ func BenchmarkRandomGet(b *testing.B) {
 	targetKey := items[500].key
 	targetValue := items[500].value
 	targetItem := itemT{key: targetKey}
+	opts := Options{}
+	opts.FillDefaults()
 
 	tree := New(0)
 	for _, item := range items {
@@ -35,7 +37,7 @@ func BenchmarkRandomGet(b *testing.B) {
 	snapshotDir := b.TempDir()
 	err := tree.WriteSnapshot(context.Background(), snapshotDir)
 	require.NoError(b, err)
-	snapshot, err := OpenSnapshot(snapshotDir)
+	snapshot, err := OpenSnapshot(snapshotDir, opts)
 	require.NoError(b, err)
 	defer func() { _ = snapshot.Close() }()
 
@@ -48,26 +50,7 @@ func BenchmarkRandomGet(b *testing.B) {
 		}
 	})
 	b.Run("memiavl-disk", func(b *testing.B) {
-		diskTree := NewFromSnapshot(snapshot, true, 0)
-		require.Equal(b, targetValue, diskTree.Get(targetKey))
-
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			_ = diskTree.Get(targetKey)
-		}
-	})
-	b.Run("memiavl-disk-cache-hit", func(b *testing.B) {
-		diskTree := NewFromSnapshot(snapshot, true, 1)
-		require.Equal(b, targetValue, diskTree.Get(targetKey))
-
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			_ = diskTree.Get(targetKey)
-		}
-	})
-	b.Run("memiavl-disk-cache-miss", func(b *testing.B) {
-		diskTree := NewFromSnapshot(snapshot, true, 0)
-		// enforce an empty cache to emulate cache miss
+		diskTree := NewFromSnapshot(snapshot, opts)
 		require.Equal(b, targetValue, diskTree.Get(targetKey))
 
 		b.ResetTimer()
