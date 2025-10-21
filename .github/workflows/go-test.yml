@@ -22,7 +22,7 @@ jobs:
             tags: ledger test_ledger_mock
           - name: DB
             path: ./sei-db
-          - name: tendermint
+          - name: Tendermint
             path: ./sei-tendermint
           - name: WasmD
             path: ./sei-wasmd
