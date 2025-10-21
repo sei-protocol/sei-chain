@@ -8,12 +8,23 @@ on:
 
 jobs:
   tests:
-    name: Test
+    name: "Test ${{ matrix.module }}"
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - .
+          - ./sei-cosmos
+          - ./sei-db
+          - ./sei-tendermint
+          - ./sei-wasmd
+          - ./sei-wasmvm
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
-          go-version: "1.25"
+          go-version: "1.24"
       - name: Go test
-        run: go test -v -tags='ledger test_ledger_mock' work
+        working-directory: "${{ matrix.module }}"
+        run: go test -v -tags='ledger test_ledger_mock' ./...
