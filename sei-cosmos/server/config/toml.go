@@ -15,7 +15,7 @@ const DefaultConfigTemplate = `# This is a TOML config file.
 # For more information, see https://github.com/toml-lang/toml
 
 ###############################################################################
-###                           Base Configuration                            ###
+###                   User-Configurable Settings                            ###
 ###############################################################################
 
 # The minimum gas prices a validator is willing to accept for processing a
@@ -23,60 +23,18 @@ const DefaultConfigTemplate = `# This is a TOML config file.
 # specified in this config (e.g. 0.25token1;0.0001token2).
 minimum-gas-prices = "{{ .BaseConfig.MinGasPrices }}"
 
-# InterBlockCache enables inter-block caching.
-inter-block-cache = {{ .BaseConfig.InterBlockCache }}
+# Pruning Strategies:
+# - default: Keep recent 362880 blocks, prune every 10 blocks
+# - nothing: Keep all historic states (archiving node)
+# - everything: Keep only recent 2 blocks, prune at every block
+# - custom: Manually specify via 'pruning-keep-recent' and 'pruning-interval'
+# NOTE: Pruning strategy is completely ignored when SeiDB is enabled (default)
+pruning = "{{ .BaseConfig.Pruning }}"
 
-# IndexEvents defines the set of events in the form {eventType}.{attributeKey},
-# which informs Tendermint what to index. If empty, all events will be indexed.
-#
-# Example:
-# ["message.sender", "message.recipient"]
-index-events = {{ .BaseConfig.IndexEvents }}
-
-# IAVLDisableFastNode enables or disables the fast node feature of IAVL.
-# Default is true.
-iavl-disable-fastnode = {{ .BaseConfig.IAVLDisableFastNode }}
-
-# CompactionInterval sets (in seconds) the interval between forced levelDB
-# compaction. A value of 0 means no forced levelDB.
-# Default is 0.
-compaction-interval = {{ .BaseConfig.CompactionInterval }}
-
-# deprecated
-no-versioning = {{ .BaseConfig.NoVersioning }}
-
-# Whether to store orphan data (to-be-deleted data pointers) outside the main
-# application LevelDB
-separate-orphan-storage = {{ .BaseConfig.SeparateOrphanStorage }}
-
-# if separate-orphan-storage is true, how many versions of orphan data to keep
-separate-orphan-versions-to-keep = {{ .BaseConfig.SeparateOrphanVersionsToKeep }}
-
-# if separate-orphan-storage is true, how many orphans to store in each file
-num-orphan-per-file = {{ .BaseConfig.NumOrphanPerFile }}
-
-# if separate-orphan-storage is true, where to store orphan data
-orphan-dir = "{{ .BaseConfig.OrphanDirectory }}"
-
-# concurrency-workers defines how many workers to run for concurrent transaction execution
-# Default is dynamically set to 2x CPU cores, capped at 128, with a minimum of 10
-concurrency-workers = {{ .BaseConfig.ConcurrencyWorkers }}
-
-# occ-enabled defines whether OCC is enabled or not for transaction execution
-occ-enabled = {{ .BaseConfig.OccEnabled }}
-
-# HaltHeight contains a non-zero block height at which a node will gracefully
-# halt and shutdown that can be used to assist upgrades and testing.
-#
-# Note: Commitment of state will be attempted on the corresponding block.
-halt-height = {{ .BaseConfig.HaltHeight }}
-
-# HaltTime contains a non-zero minimum block time (in Unix seconds) at which
-# a node will gracefully halt and shutdown that can be used to assist upgrades
-# and testing.
-#
-# Note: Commitment of state will be attempted on the corresponding block.
-halt-time = {{ .BaseConfig.HaltTime }}
+# Applied only if pruning strategy is 'custom' and SeiDB is disabled
+pruning-keep-recent = "{{ .BaseConfig.PruningKeepRecent }}"
+pruning-keep-every = "{{ .BaseConfig.PruningKeepEvery }}"
+pruning-interval = "{{ .BaseConfig.PruningInterval }}"
 
 # MinRetainBlocks defines the minimum block height offset from the current
 # block being committed, such that all blocks past this offset are pruned
@@ -95,7 +53,98 @@ halt-time = {{ .BaseConfig.HaltTime }}
 min-retain-blocks = {{ .BaseConfig.MinRetainBlocks }}
 
 ###############################################################################
-###                         Telemetry Configuration                         ###
+###                           gRPC Configuration                            ###
+###############################################################################
+
+[grpc]
+
+# Enable defines if the gRPC server should be enabled.
+# Recommended: False for validators, True for full nodes
+enable = {{ .GRPC.Enable }}
+
+# Address defines the gRPC server address to bind to.
+address = "{{ .GRPC.Address }}"
+
+###############################################################################
+###                        State Sync Configuration                         ###
+###############################################################################
+
+# State sync snapshots allow other nodes to rapidly join the network without replaying historical
+# blocks, instead downloading and applying a snapshot of the application state at a given height.
+[state-sync]
+
+# snapshot-interval specifies the block interval at which local state sync snapshots are
+# taken (0 to disable). Must be a multiple of pruning-keep-every.
+snapshot-interval = {{ .StateSync.SnapshotInterval }}
+
+# snapshot-keep-recent specifies the number of recent snapshots to keep and serve (0 to keep all).
+snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
+
+###############################################################################
+###                             SeiDB Configuration                         ###
+###############################################################################
+
+[state-commit]
+# Enable defines if the state-commit (memiavl) should be enabled to override existing IAVL db backend.
+sc-enable = {{ .StateCommit.Enable }}
+
+# SnapshotInterval defines the block interval at which SeiDB takes state-commit snapshots.
+# When a node restarts, it needs to "replay changelog entries" from the last snapshot to the current height.
+# Default: 10000 blocks (recommended for most nodes)
+sc-snapshot-interval = {{ .StateCommit.SnapshotInterval }}
+
+[state-store]
+
+# Enable defines whether the state-store should be enabled for storing historical data.
+# Supporting historical queries or exporting state snapshot requires setting this to true
+# This config only take effect when SeiDB is enabled (sc-enable = true)
+ss-enable = {{ .StateStore.Enable }}
+
+# DBBackend defines the backend database used for state-store.
+# Supported backends: pebbledb, rocksdb
+# defaults to pebbledb (recommended)
+ss-backend = "{{ .StateStore.Backend }}"
+
+# KeepRecent defines the number of versions to keep in state store
+# Setting it to 0 means keep everything
+# Default to keep the last 100,000 blocks
+ss-keep-recent = {{ .StateStore.KeepRecent }}
+
+###############################################################################
+###                  Default Configuration (Auto-managed)                   ###
+###############################################################################
+# The following sections use default values and typically do NOT need to be
+# modified by node operators. These are auto-managed or use sensible defaults.
+
+###############################################################################
+###                         Base Defaults (Auto-managed)                    ###
+###############################################################################
+
+# InterBlockCache enables inter-block caching.
+inter-block-cache = {{ .BaseConfig.InterBlockCache }}
+
+# IndexEvents defines the set of events in the form {eventType}.{attributeKey},
+# which informs Tendermint what to index. If empty, all events will be indexed.
+#
+# Example:
+# ["message.sender", "message.recipient"]
+index-events = {{ .BaseConfig.IndexEvents }}
+
+# IavlCacheSize set the size of the iavl tree cache.
+# Default cache size is 50mb.
+iavl-cache-size = {{ .BaseConfig.IAVLCacheSize }}
+
+# IAVLDisableFastNode enables or disables the fast node feature of IAVL.
+# Default is true.
+iavl-disable-fastnode = {{ .BaseConfig.IAVLDisableFastNode }}
+
+# CompactionInterval sets (in seconds) the interval between forced levelDB
+# compaction. A value of 0 means no forced levelDB.
+# Default is 0.
+compaction-interval = {{ .BaseConfig.CompactionInterval }}
+
+###############################################################################
+###                    Telemetry Configuration (Auto-managed)                ###
 ###############################################################################
 
 [telemetry]
@@ -134,7 +183,7 @@ global-labels = [{{ range $k, $v := .Telemetry.GlobalLabels }}
 ]
 
 ###############################################################################
-###                           API Configuration                             ###
+###                      API Configuration (Auto-managed)                    ###
 ###############################################################################
 
 [api]
@@ -164,7 +213,7 @@ rpc-max-body-bytes = {{ .API.RPCMaxBodyBytes }}
 enabled-unsafe-cors = {{ .API.EnableUnsafeCORS }}
 
 ###############################################################################
-###                           Rosetta Configuration                         ###
+###                    Rosetta Configuration (Auto-managed)                  ###
 ###############################################################################
 
 [rosetta]
@@ -188,19 +237,7 @@ retries = {{ .Rosetta.Retries }}
 offline = {{ .Rosetta.Offline }}
 
 ###############################################################################
-###                           gRPC Configuration                            ###
-###############################################################################
-
-[grpc]
-
-# Enable defines if the gRPC server should be enabled.
-enable = {{ .GRPC.Enable }}
-
-# Address defines the gRPC server address to bind to.
-address = "{{ .GRPC.Address }}"
-
-###############################################################################
-###                        gRPC Web Configuration                           ###
+###                   gRPC Web Configuration (Auto-managed)                  ###
 ###############################################################################
 
 [grpc-web]
@@ -215,39 +252,28 @@ address = "{{ .GRPCWeb.Address }}"
 # EnableUnsafeCORS defines if CORS should be enabled (unsafe - use it at your own risk).
 enable-unsafe-cors = {{ .GRPCWeb.EnableUnsafeCORS }}
 
+# snapshot-directory sets the directory for where state sync snapshots are persisted.
+# default is emtpy which will then store under the app home directory same as before.
+snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
+
 ###############################################################################
-###                        Auto-managed Configuration                        ###
+###                        Genesis Configuration (Auto-managed)              ###
 ###############################################################################
 
+[genesis]
+
+# stream-import specifies whether to the stream the import from the genesis json file. The genesis
+# file must be in stream form and exported in a streaming fashion.
+stream-import = {{ .Genesis.StreamImport }}
+
+# genesis-stream-file specifies the path of the genesis json file to stream from.
+genesis-stream-file = "{{ .Genesis.GenesisStreamFile }}"
+
 #######################################################
-###         Legacy IAVL Pruning (Auto-managed)       ###
+###         Halt & Shutdown (Auto-managed)           ###
 #######################################################
-[iavl-pruning]
-# IMPORTANT: These settings ONLY apply to IAVL state storage.
-# They are COMPLETELY IGNORED when SeiDB is enabled (default for all nodes).
-# 
-# AUTO-MANAGED: These fields may be automatically modified by scripts.
-# For SeiDB state management, use [state-commit] and [state-store] settings.
-#
+# AUTO-MANAGED: These fields may be automatically set by upgrade handlers.
 # Most node operators should NOT manually configure these settings.
-
-# Pruning Strategies:
-# - default: Keep recent 362880 blocks, prune every 10 blocks
-# - nothing: Keep all historic states (archiving node)
-# - everything: Keep only recent 2 blocks, prune at every block
-# - custom: Manually specify via 'pruning-keep-recent' and 'pruning-interval'
-pruning = "{{ .BaseConfig.Pruning }}"
-
-# Applied only if pruning strategy is 'custom' and SeiDB is disabled
-pruning-keep-recent = "{{ .BaseConfig.PruningKeepRecent }}"
-pruning-keep-every = "{{ .BaseConfig.PruningKeepEvery }}"
-pruning-interval = "{{ .BaseConfig.PruningInterval }}"
-
-#######################################################
-###         Halt & Min Retain (Auto-managed)         ###
-#######################################################
-# AUTO-MANAGED: These fields may be automatically set by scripts or upgrade handlers.
-# Most users should NOT manually configure these settings.
 
 # HaltHeight contains a non-zero block height at which a node will gracefully
 # halt and shutdown that can be used to assist upgrades and testing.
@@ -262,57 +288,40 @@ halt-height = {{ .BaseConfig.HaltHeight }}
 # Note: Commitment of state will be attempted on the corresponding block.
 halt-time = {{ .BaseConfig.HaltTime }}
 
-# MinRetainBlocks defines the minimum block height offset from the current
-# block being committed, such that all blocks past this offset are pruned
-# from Tendermint. It is used as part of the process of determining the
-# ResponseCommit.RetainHeight value during ABCI Commit. A value of 0 indicates
-# that no blocks should be pruned.
-#
-# This configuration value is only responsible for pruning Tendermint blocks.
-# It has no bearing on application state pruning which is determined by the
-# "pruning-*" configurations.
-#
-# Note: Tendermint block pruning is dependant on this parameter in conunction
-# with the unbonding (safety threshold) period, state pruning and state sync
-# snapshot parameters to determine the correct minimum value of
-# ResponseCommit.RetainHeight.
-min-retain-blocks = {{ .BaseConfig.MinRetainBlocks }}
+#######################################################
+###         Legacy IAVL Settings (Auto-managed)      ###
+#######################################################
+# AUTO-MANAGED: These settings are deprecated and retained for backward compatibility.
+# Most node operators should NOT manually configure these settings.
+
+# deprecated
+no-versioning = {{ .BaseConfig.NoVersioning }}
+
+# Whether to store orphan data (to-be-deleted data pointers) outside the main
+# application LevelDB
+separate-orphan-storage = {{ .BaseConfig.SeparateOrphanStorage }}
+
+# if separate-orphan-storage is true, how many versions of orphan data to keep
+separate-orphan-versions-to-keep = {{ .BaseConfig.SeparateOrphanVersionsToKeep }}
+
+# if separate-orphan-storage is true, how many orphans to store in each file
+num-orphan-per-file = {{ .BaseConfig.NumOrphanPerFile }}
+
+# if separate-orphan-storage is true, where to store orphan data
+orphan-dir = "{{ .BaseConfig.OrphanDirectory }}"
 
 #######################################################
-###         State Sync (Auto-managed)                ###
+###         Concurrency & OCC (Auto-managed)         ###
 #######################################################
-# AUTO-MANAGED: These fields are automatically set by state-sync scripts.
-# Most users should NOT set these manually. They will be replaced at runtime.
+# AUTO-MANAGED: These fields use dynamically calculated defaults.
+# Most node operators should NOT manually configure these settings.
 
-# State sync snapshots allow other nodes to rapidly join the network without replaying historical
-# blocks, instead downloading and applying a snapshot of the application state at a given height.
-[state-sync]
+# concurrency-workers defines how many workers to run for concurrent transaction execution
+# Default is dynamically set to 2x CPU cores, capped at 128, with a minimum of 10
+concurrency-workers = {{ .BaseConfig.ConcurrencyWorkers }}
 
-# snapshot-interval specifies the block interval at which local state sync snapshots are
-# taken (0 to disable). Must be a multiple of pruning-keep-every.
-snapshot-interval = {{ .StateSync.SnapshotInterval }}
-
-# snapshot-keep-recent specifies the number of recent snapshots to keep and serve (0 to keep all).
-snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
-
-# snapshot-directory sets the directory for where state sync snapshots are persisted.
-# default is emtpy which will then store under the app home directory same as before.
-snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
-
-#######################################################
-###         Genesis (Auto-managed)                   ###
-#######################################################
-# AUTO-MANAGED: These fields are automatically set during chain initialization.
-# Most users should NOT set these manually.
-
-[genesis]
-
-# stream-import specifies whether to the stream the import from the genesis json file. The genesis
-# file must be in stream form and exported in a streaming fashion.
-stream-import = {{ .Genesis.StreamImport }}
-
-# genesis-stream-file specifies the path of the genesis json file to stream from.
-genesis-stream-file = "{{ .Genesis.GenesisStreamFile }}"
+# occ-enabled defines whether OCC is enabled or not for transaction execution
+occ-enabled = {{ .BaseConfig.OccEnabled }}
 ` + config.DefaultConfigTemplate
 
 var configTemplate *template.Template

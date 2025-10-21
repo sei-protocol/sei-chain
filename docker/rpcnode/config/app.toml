@@ -2,13 +2,137 @@
 # For more information, see https://github.com/toml-lang/toml
 
 ###############################################################################
-###                           Base Configuration                            ###
+###                   User-Configurable Settings                            ###
 ###############################################################################
 
 # The minimum gas prices a validator is willing to accept for processing a
 # transaction. A transaction's fees must meet the minimum of any denomination
 # specified in this config (e.g. 0.25token1;0.0001token2).
 minimum-gas-prices = "0.01usei"
+
+# Pruning Strategies:
+# - default: Keep recent 362880 blocks, prune every 10 blocks
+# - nothing: Keep all historic states (archiving node)
+# - everything: Keep only recent 2 blocks, prune at every block
+# - custom: Manually specify via 'pruning-keep-recent', 'pruning-keep-every', and 'pruning-interval'
+# NOTE: Pruning strategy is completely ignored when SeiDB is enabled (default)
+pruning = "nothing"
+
+# Applied only if pruning strategy is 'custom' and SeiDB is disabled
+pruning-keep-recent = "0"
+pruning-keep-every = "0"
+pruning-interval = "0"
+
+# MinRetainBlocks defines the minimum block height offset from the current
+# block being committed, such that all blocks past this offset are pruned
+# from Tendermint.
+min-retain-blocks = 0
+
+###############################################################################
+###                           gRPC Configuration                            ###
+###############################################################################
+
+[grpc]
+
+# Enable defines if the gRPC server should be enabled.
+enable = true
+
+# Address defines the gRPC server address to bind to.
+address = "0.0.0.0:9090"
+
+###############################################################################
+###                        State Sync Configuration                         ###
+###############################################################################
+
+# State sync snapshots allow other nodes to rapidly join the network without replaying historical
+# blocks, instead downloading and applying a snapshot of the application state at a given height.
+[state-sync]
+
+# snapshot-interval specifies the block interval at which local state sync snapshots are
+# taken (0 to disable). Must be a multiple of pruning-keep-every.
+snapshot-interval = 0
+
+# snapshot-keep-recent specifies the number of recent snapshots to keep and serve (0 to keep all).
+snapshot-keep-recent = 2
+
+###############################################################################
+###                             SeiDB Configuration                         ###
+###############################################################################
+
+[state-commit]
+# Enable defines if the state-commit (memiavl) should be enabled to override existing IAVL db backend.
+sc-enable = true
+
+# SnapshotInterval defines the block interval the snapshot is taken, default to 10000 blocks.
+sc-snapshot-interval = 1000
+
+[state-store]
+
+# Enable defines if the state-store should be enabled for historical queries.
+# In order to use state-store, you need to make sure to enable state-commit at the same time
+ss-enable = true
+
+# DBBackend defines the backend database used for state-store.
+# Supported backends: pebbledb, rocksdb
+# defaults to pebbledb (recommended)
+ss-backend = "pebbledb"
+
+# KeepRecent defines the number of versions to keep in state store
+# Setting it to 0 means keep everything, default to 0
+ss-keep-recent = 1000
+
+###############################################################################
+###                             EVM Configuration                            ###
+###############################################################################
+
+[evm]
+
+# controls whether an HTTP EVM server is enabled
+http_enabled = true
+http_port = 8545
+
+# controls whether a websocket server is enabled
+ws_enabled = true
+ws_port = 8546
+
+# checkTx timeout for sig verify
+checktx_timeout = "5s"
+
+# controls whether to have txns go through one by one (for testing)
+slow = false
+
+# Deny list defines list of methods that EVM RPC should fail fast
+deny_list = []
+
+# max number of logs returned if block range is open-ended
+max_log_no_block = 10000
+
+# max number of blocks to query logs for
+max_blocks_for_log = 2000
+
+# max number of concurrent NewHead subscriptions
+max_subscriptions_new_head = 10000
+
+# MaxConcurrentTraceCalls defines the maximum number of concurrent debug_trace calls
+max_concurrent_trace_calls = 10
+
+# Max number of blocks allowed to look back for debug_trace* RPC calls
+max_trace_lookback_blocks = 10000
+
+# Timeout for each trace call
+trace_timeout = "30s"
+
+# EnableTestAPI enables the EVM test API
+enable_test_api = true
+
+# Set to 0 to disable request limiter, otherwise this limits the number of concurrent simulation calls.
+max_concurrent_simulation_calls = 0
+
+###############################################################################
+###                  Default Configuration (Auto-managed)                   ###
+###############################################################################
+# The following sections use default values and typically do NOT need to be
+# modified by node operators.
 
 # InterBlockCache enables inter-block caching.
 inter-block-cache = true
@@ -25,7 +149,7 @@ index-events = []
 iavl-cache-size = 781250
 
 ###############################################################################
-###                         Telemetry Configuration                         ###
+###                         Telemetry Configuration (Auto-managed)          ###
 ###############################################################################
 
 [telemetry]
@@ -59,7 +183,7 @@ global-labels = [
 ]
 
 ###############################################################################
-###                           API Configuration                             ###
+###                      API Configuration (Auto-managed)                    ###
 ###############################################################################
 
 [api]
@@ -89,7 +213,7 @@ rpc-max-body-bytes = 1000000
 enabled-unsafe-cors = true
 
 ###############################################################################
-###                           Rosetta Configuration                         ###
+###                    Rosetta Configuration (Auto-managed)                  ###
 ###############################################################################
 
 [rosetta]
@@ -113,19 +237,7 @@ retries = 3
 offline = false
 
 ###############################################################################
-###                           gRPC Configuration                            ###
-###############################################################################
-
-[grpc]
-
-# Enable defines if the gRPC server should be enabled.
-enable = true
-
-# Address defines the gRPC server address to bind to.
-address = "0.0.0.0:9090"
-
-###############################################################################
-###                        gRPC Web Configuration                           ###
+###                   gRPC Web Configuration (Auto-managed)                  ###
 ###############################################################################
 
 [grpc-web]
@@ -141,28 +253,11 @@ address = "0.0.0.0:9091"
 enable-unsafe-cors = true
 
 ###############################################################################
-###                        State Sync Configuration                         ###
+###                      SeiDB Configuration (Auto-managed)                  ###
 ###############################################################################
 
-# State sync snapshots allow other nodes to rapidly join the network without replaying historical
-# blocks, instead downloading and applying a snapshot of the application state at a given height.
-[state-sync]
-
-[wasm]
-# This is the maximum sdk gas (wasm and storage) that we allow for any x/wasm "smart" queries
-query_gas_limit = 300000
-# This is the number of wasm vm instances we keep cached in memory for speed-up
-# Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
-lru_size = 0
-
-###############################################################################
-###                             SeiDB Configuration                       ###
-###############################################################################
-
-[state-commit]
-
-# Enable defines if the state-commit (memiavl) should be enabled to override existing IAVL db backend.
-sc-enable = true
+# Defines the SC store directory, if not explicitly set, default to application home directory
+sc-directory = ""
 
 # ZeroCopy defines if memiavl should return slices pointing to mmap-ed buffers directly (zero-copy),
 # the zero-copied slices must not be retained beyond current block's execution.
@@ -177,34 +272,24 @@ sc-async-commit-buffer = 100
 # defaults to 1 to make sure ibc relayers work.
 sc-keep-recent = 1
 
-# SnapshotInterval defines the block interval the snapshot is taken, default to 10000 blocks.
-sc-snapshot-interval = 1000
-
 # SnapshotWriterLimit defines the max concurrency for taking commit store snapshot
 sc-snapshot-writer-limit = 2
 
 # CacheSize defines the size of the LRU cache for each store on top of the tree, default to 100000.
 sc-cache-size = 1000
 
-[state-store]
+# OnlyAllowExportOnSnapshotVersion defines whether we only allow state sync
+# snapshot creation happens after the memiavl snapshot is created.
+sc-only-allow-export-on-snapshot-version = false
 
-# Enable defines if the state-store should be enabled for historical queries.
-# In order to use state-store, you need to make sure to enable state-commit at the same time
-ss-enable = true
-
-# DBBackend defines the backend database used for state-store.
-# Supported backends: pebbledb, rocksdb
-# defaults to pebbledb (recommended)
-ss-backend = "pebbledb"
+# Defines the directory to store the state store db files
+# If not explicitly set, default to application home directory
+ss-db-directory = ""
 
 # AsyncWriteBuffer defines the async queue length for commits to be applied to State Store
 # Set <= 0 for synchronous writes, which means commits also need to wait for data to be persisted in State Store.
 # defaults to 100
 ss-async-write-buffer = 100
-
-# KeepRecent defines the number of versions to keep in state store
-# Setting it to 0 means keep everything, default to 0
-ss-keep-recent = 1000
 
 # PruneIntervalSeconds defines the minimum interval in seconds + some random delay to trigger pruning.
 # It is more efficient to trigger pruning less frequently with large interval.
@@ -215,84 +300,45 @@ ss-prune-interval = 60
 # defaults to 1
 ss-import-num-workers = 1
 
-[evm]
-
-# EnableTestAPI enables the EVM test API
-enable_test_api = true
-
-# Set to 0 to disable request limiter, otherwise this limits the number of concurrent simulation calls.
-max_concurrent_simulation_calls = 0
+# HashRange defines the range of blocks after which a XOR hash is computed and stored
+# defaults to 1,000,000 blocks
+ss-hash-range = 1000000
 
 ###############################################################################
-###                        Auto-managed Configuration                        ###
+###                       WASM Configuration (Auto-managed)                  ###
 ###############################################################################
 
-#######################################################
-###         Legacy IAVL Pruning (Auto-managed)       ###
-#######################################################
-# IMPORTANT: These settings ONLY apply to IAVL state storage.
-# They are COMPLETELY IGNORED when SeiDB is enabled (default for all nodes).
-# 
-# AUTO-MANAGED: These fields may be automatically modified by scripts.
-# For SeiDB state management, use [state-commit] and [state-store] settings.
-#
-# Most node operators should NOT manually configure these settings.
+[wasm]
+# This is the maximum sdk gas (wasm and storage) that we allow for any x/wasm "smart" queries
+query_gas_limit = 300000
+# This is the number of wasm vm instances we keep cached in memory for speed-up
+# Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
+lru_size = 0
 
-# default: the last 100 states are kept in addition to every 500th state; pruning at 10 block intervals
-# nothing: all historic states will be saved, nothing will be deleted (i.e. archiving node)
-# everything: all saved states will be deleted, storing only the current and previous state; pruning at 10 block intervals
-# custom: allow pruning options to be manually specified through 'pruning-keep-recent', 'pruning-keep-every', and 'pruning-interval'
-pruning = "nothing"
+###############################################################################
+###                        EVM Configuration (Auto-managed)                  ###
+###############################################################################
 
-# These are applied if and only if the pruning strategy is custom.
-pruning-keep-recent = "0"
-pruning-keep-every = "0"
-pruning-interval = "0"
+# list of CORS allowed origins, separated by comma
+cors_origins = "*"
+
+# list of WS origins, separated by comma
+ws_origins = "*"
+
+# snapshot-directory specifies and overrides the directory for where to store the snapshots
+snapshot-directory = ""
 
 #######################################################
-###         Halt & Min Retain (Auto-managed)         ###
+###         Halt & Shutdown (Auto-managed)           ###
 #######################################################
-# AUTO-MANAGED: These fields may be automatically set by scripts or upgrade handlers.
+# AUTO-MANAGED: These fields may be automatically set by upgrade handlers.
 # Most node operators should NOT manually configure these settings.
 
 # HaltHeight contains a non-zero block height at which a node will gracefully
 # halt and shutdown that can be used to assist upgrades and testing.
-#
-# Note: Commitment of state will be attempted on the corresponding block.
 halt-height = 0
 
 # HaltTime contains a non-zero minimum block time (in Unix seconds) at which
 # a node will gracefully halt and shutdown that can be used to assist upgrades
 # and testing.
-#
-# Note: Commitment of state will be attempted on the corresponding block.
 halt-time = 0
-
-# MinRetainBlocks defines the minimum block height offset from the current
-# block being committed, such that all blocks past this offset are pruned
-# from Tendermint. It is used as part of the process of determining the
-# ResponseCommit.RetainHeight value during ABCI Commit. A value of 0 indicates
-# that no blocks should be pruned.
-#
-# This configuration value is only responsible for pruning Tendermint blocks.
-# It has no bearing on application state pruning which is determined by the
-# "pruning-*" configurations.
-#
-# Note: Tendermint block pruning is dependant on this parameter in conunction
-# with the unbonding (safety threshold) period, state pruning and state sync
-# snapshot parameters to determine the correct minimum value of
-# ResponseCommit.RetainHeight.
-min-retain-blocks = 0
-
-#######################################################
-###         State Sync (Auto-managed)                ###
-#######################################################
-# AUTO-MANAGED: These fields are automatically set by state-sync scripts.
-# Most node operators should NOT manually configure these settings.
-
-# snapshot-interval specifies the block interval at which local state sync snapshots are
-# taken (0 to disable). Must be a multiple of pruning-keep-every.
-snapshot-interval = 0
-
-# snapshot-keep-recent specifies the number of recent snapshots to keep and serve (0 to keep all).
-snapshot-keep-recent = 2

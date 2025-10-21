@@ -80,8 +80,51 @@ const defaultConfigTemplate = `# This is a TOML config file.
 # "$HOME/.tendermint" by default, but could be changed via $TMHOME env variable
 # or --home cmd flag.
 
+###############################################################################
+###                      User-Configurable Settings                         ###
+###############################################################################
+
+#######################################################
+###           P2P Configuration                      ###
+#######################################################
+[p2p]
+
+# Address to listen for incoming connections
+laddr = "{{ .P2P.ListenAddress }}"
+
+# Address to advertise to peers for them to dial
+# If empty, will use the same port as the laddr,
+# and will introspect on the listener or use UPnP
+# to figure out the address. ip and port are required
+# example: 159.89.10.97:26656
+external-address = "{{ .P2P.ExternalAddress }}"
+
+# Comma separated list of peers to be added to the peer store
+# on startup. Either BootstrapPeers or PersistentPeers are
+# needed for peer discovery
+bootstrap-peers = "{{ .P2P.BootstrapPeers }}"
+
+# Comma separated list of nodes to keep persistent connections to
+persistent-peers = "{{ .P2P.PersistentPeers }}"
+
+# UPNP port forwarding
+upnp = {{ .P2P.UPNP }}
+
+# Rate at which packets can be sent, in bytes/second
+send-rate = {{ .P2P.SendRate }}
+
+# Rate at which packets can be received, in bytes/second
+recv-rate = {{ .P2P.RecvRate }}
+
+# List of node IDs, to which a connection will be (re)established, dropping an existing peer if any existing limit has been reached
+unconditional-peer-ids = "{{ .P2P.UnconditionalPeerIDs }}"
+
+###############################################################################
+###                  Default Configuration (Auto-managed)                    ###
+###############################################################################
+
 #######################################################################
-###                   Main Base Config Options                      ###
+###              Main Base Config (Auto-managed)                    ###
 #######################################################################
 
 # TCP or UNIX socket address of the ABCI application,
@@ -150,7 +193,7 @@ filter-peers = {{ .BaseConfig.FilterPeers }}
 
 
 #######################################################
-###       Priv Validator Configuration              ###
+###    Priv Validator Configuration (Auto-managed)  ###
 #######################################################
 [priv-validator]
 
@@ -181,7 +224,7 @@ root-ca-file = "{{ js .PrivValidator.RootCA }}"
 #######################################################################
 
 #######################################################
-###       RPC Server Configuration Options          ###
+###   RPC Server Configuration (Auto-managed)       ###
 #######################################################
 [rpc]
 
@@ -281,81 +324,7 @@ pprof-laddr = "{{ .RPC.PprofListenAddress }}"
 timeout-read = "{{ .RPC.TimeoutRead }}"
 
 #######################################################
-###           P2P Configuration Options             ###
-#######################################################
-[p2p]
-
-# Address to listen for incoming connections
-laddr = "{{ .P2P.ListenAddress }}"
-
-# Address to advertise to peers for them to dial
-# If empty, will use the same port as the laddr,
-# and will introspect on the listener or use UPnP
-# to figure out the address. ip and port are required
-# example: 159.89.10.97:26656
-external-address = "{{ .P2P.ExternalAddress }}"
-
-# Comma separated list of peers to be added to the peer store
-# on startup. Either BootstrapPeers or PersistentPeers are
-# needed for peer discovery
-bootstrap-peers = "{{ .P2P.BootstrapPeers }}"
-
-# Comma separated list of nodes to keep persistent connections to
-persistent-peers = "{{ .P2P.PersistentPeers }}"
-
-# Comma separated list of nodes for block sync only
-blocksync-peers = "{{ .P2P.BlockSyncPeers }}"
-
-# UPNP port forwarding
-upnp = {{ .P2P.UPNP }}
-
-# Maximum number of connections (inbound and outbound).
-max-connections = {{ .P2P.MaxConnections }}
-
-# Rate limits the number of incoming connection attempts per IP address.
-max-incoming-connection-attempts = {{ .P2P.MaxIncomingConnectionAttempts }}
-
-# Set true to enable the peer-exchange reactor
-pex = {{ .P2P.PexReactor }}
-
-# Comma separated list of peer IDs to keep private (will not be gossiped to other peers)
-# Warning: IPs will be exposed at /net_info, for more information https://github.com/tendermint/tendermint/issues/3055
-private-peer-ids = "{{ .P2P.PrivatePeerIDs }}"
-
-# Toggle to disable guard against peers connecting from the same ip.
-allow-duplicate-ip = {{ .P2P.AllowDuplicateIP }}
-
-# Peer connection configuration.
-handshake-timeout = "{{ .P2P.HandshakeTimeout }}"
-dial-timeout = "{{ .P2P.DialTimeout }}"
-
-# Time to wait before flushing messages out on the connection
-# TODO: Remove once MConnConnection is removed.
-flush-throttle-timeout = "{{ .P2P.FlushThrottleTimeout }}"
-
-# Maximum size of a message packet payload, in bytes
-# TODO: Remove once MConnConnection is removed.
-max-packet-msg-payload-size = {{ .P2P.MaxPacketMsgPayloadSize }}
-
-# Rate at which packets can be sent, in bytes/second
-# TODO: Remove once MConnConnection is removed.
-send-rate = {{ .P2P.SendRate }}
-
-# Rate at which packets can be received, in bytes/second
-# TODO: Remove once MConnConnection is removed.
-recv-rate = {{ .P2P.RecvRate }}
-
-# List of node IDs, to which a connection will be (re)established, dropping an existing peer if any existing limit has been reached
-unconditional-peer-ids = "{{ .P2P.UnconditionalPeerIDs }}"
-
-##### Unused P2P Options (Not Recommended) #####
-
-# # Select the p2p internal queue (unused field, no effect)
-# queue-type = "{{ .P2P.QueueType }}"
-
-
-#######################################################
-###          Mempool Configuration Option          ###
+###     Mempool Configuration (Auto-managed)        ###
 #######################################################
 [mempool]
 
@@ -460,7 +429,7 @@ drop-utilisation-threshold = {{ .Mempool.DropUtilisationThreshold }}
 drop-priority-reservoir-size = {{ .Mempool.DropPriorityReservoirSize }}
 
 #######################################################
-###         State Sync Configuration Options        ###
+###    State Sync Configuration (Auto-managed)      ###
 #######################################################
 [statesync]
 # State sync rapidly bootstraps a new node by discovering, fetching, and restoring a state machine
@@ -513,7 +482,7 @@ verify-light-block-timeout = "{{ .StateSync.VerifyLightBlockTimeout }}"
 blacklist-ttl = "{{ .StateSync.BlacklistTTL }}"
 
 #######################################################
-###         Consensus Configuration Options         ###
+###    Consensus Configuration (Auto-managed)       ###
 #######################################################
 [consensus]
 
@@ -581,7 +550,7 @@ unsafe-commit-timeout-override = "{{ .Consensus.UnsafeCommitTimeoutOverride }}"
 # unsafe-bypass-commit-timeout-override = {{ .Consensus.UnsafeBypassCommitTimeoutOverride }}
 
 #######################################################
-###   Transaction Indexer Configuration Options     ###
+###  Transaction Indexer Configuration (Auto-managed)###
 #######################################################
 [tx-index]
 
@@ -603,7 +572,7 @@ indexer = [{{ range $i, $e := .TxIndex.Indexer }}{{if $i}}, {{end}}{{ printf "%q
 psql-conn = "{{ .TxIndex.PsqlConn }}"
 
 #######################################################
-###       Instrumentation Configuration Options     ###
+###  Instrumentation Configuration (Auto-managed)   ###
 #######################################################
 [instrumentation]
 
@@ -625,7 +594,7 @@ max-open-connections = {{ .Instrumentation.MaxOpenConnections }}
 namespace = "{{ .Instrumentation.Namespace }}"
 
 #######################################################
-###       SelfRemediation Configuration Options     ###
+###  Self Remediation Configuration (Auto-managed)  ###
 #######################################################
 [self-remediation]
 
@@ -665,6 +634,40 @@ trust-hash = "{{ .StateSync.TrustHash }}"
 # it is considered expired. For chains based on the Cosmos SDK, one day less than the unbonding
 # period should suffice.
 trust-period = "{{ .StateSync.TrustPeriod }}"
+
+#######################################################
+###         P2P Configuration (Auto-managed)         ###
+#######################################################
+# AUTO-MANAGED: These fields use default values and typically do NOT need to be
+# modified by node operators.
+
+# Comma separated list of nodes for block sync only
+blocksync-peers = "{{ .P2P.BlockSyncPeers }}"
+
+# Toggle to disable guard against peers connecting from the same ip.
+allow-duplicate-ip = {{ .P2P.AllowDuplicateIP }}
+
+# Peer connection configuration.
+handshake-timeout = "{{ .P2P.HandshakeTimeout }}"
+dial-timeout = "{{ .P2P.DialTimeout }}"
+
+# Time to wait before flushing messages out on the connection
+flush-throttle-timeout = "{{ .P2P.FlushThrottleTimeout }}"
+
+# Maximum size of a message packet payload, in bytes
+max-packet-msg-payload-size = {{ .P2P.MaxPacketMsgPayloadSize }}
+
+# Maximum number of connections (inbound and outbound).
+max-connections = {{ .P2P.MaxConnections }}
+
+# Rate limits the number of incoming connection attempts per IP address.
+max-incoming-connection-attempts = {{ .P2P.MaxIncomingConnectionAttempts }}
+
+# Set true to enable the peer-exchange reactor
+pex = {{ .P2P.PexReactor }}
+
+# Comma separated list of peer IDs to keep private (will not be gossiped to other peers)
+private-peer-ids = "{{ .P2P.PrivatePeerIDs }}"
 
 #######################################################
 ###         DB Sync (Auto-managed)                   ###

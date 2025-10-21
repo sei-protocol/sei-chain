@@ -437,14 +437,12 @@ func initAppConfig() (string, interface{}) {
 	customAppConfig := NewCustomAppConfig(srvCfg, evmrpc.DefaultConfig)
 
 	customAppTemplate := serverconfig.DefaultConfigTemplate + `
-[wasm]
-# This is the maximum sdk gas (wasm and storage) that we allow for any x/wasm "smart" queries
-query_gas_limit = 300000
-# This is the number of wasm vm instances we keep cached in memory for speed-up
-# Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
-lru_size = 0
+###############################################################################
+###                             EVM Configuration                            ###
+###############################################################################
 
 [evm]
+
 # controls whether an HTTP EVM server is enabled
 http_enabled = {{ .EVM.HTTPEnabled }}
 http_port = {{ .EVM.HTTPPort }}
@@ -452,49 +450,6 @@ http_port = {{ .EVM.HTTPPort }}
 # controls whether a websocket server is enabled
 ws_enabled = {{ .EVM.WSEnabled }}
 ws_port = {{ .EVM.WSPort }}
-
-# ReadTimeout is the maximum duration for reading the entire
-# request, including the body.
-# Because ReadTimeout does not let Handlers make per-request
-# decisions on each request body's acceptable deadline or
-# upload rate, most users will prefer to use
-# ReadHeaderTimeout. It is valid to use them both.
-read_timeout = "{{ .EVM.ReadTimeout }}"
-
-# ReadHeaderTimeout is the amount of time allowed to read
-# request headers. The connection's read deadline is reset
-# after reading the headers and the Handler can decide what
-# is considered too slow for the body. If ReadHeaderTimeout
-# is zero, the value of ReadTimeout is used. If both are
-# zero, there is no timeout.
-read_header_timeout = "{{ .EVM.ReadHeaderTimeout }}"
-
-# WriteTimeout is the maximum duration before timing out
-# writes of the response. It is reset whenever a new
-# request's header is read. Like ReadTimeout, it does not
-# let Handlers make decisions on a per-request basis.
-write_timeout = "{{ .EVM.WriteTimeout }}"
-
-# IdleTimeout is the maximum amount of time to wait for the
-# next request when keep-alives are enabled. If IdleTimeout
-# is zero, the value of ReadTimeout is used. If both are
-# zero, ReadHeaderTimeout is used.
-idle_timeout = "{{ .EVM.IdleTimeout }}"
-
-# Maximum gas limit for simulation
-simulation_gas_limit = {{ .EVM.SimulationGasLimit }}
-
-# Timeout for EVM call in simulation
-simulation_evm_timeout = "{{ .EVM.SimulationEVMTimeout }}"
-
-# list of CORS allowed origins, separated by comma
-cors_origins = "{{ .EVM.CORSOrigins }}"
-
-# list of WS origins, separated by comma
-ws_origins = "{{ .EVM.WSOrigins }}"
-
-# timeout for filters
-filter_timeout = "{{ .EVM.FilterTimeout }}"
 
 # checkTx timeout for sig verify
 checktx_timeout = "{{ .EVM.CheckTxTimeout }}"
@@ -527,6 +482,60 @@ max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
 
 # Timeout for each trace call
 trace_timeout = "{{ .EVM.TraceTimeout }}"
+
+# EnableTestAPI enables the EVM test API
+enable_test_api = {{ .EVM.EnableTestAPI }}
+
+# Set to 0 to disable request limiter, otherwise this limits the number of concurrent simulation calls.
+max_concurrent_simulation_calls = {{ .EVM.MaxConcurrentSimulationCalls }}
+
+###############################################################################
+###                       WASM Configuration (Auto-managed)                  ###
+###############################################################################
+
+[wasm]
+# This is the maximum sdk gas (wasm and storage) that we allow for any x/wasm "smart" queries
+query_gas_limit = 300000
+# This is the number of wasm vm instances we keep cached in memory for speed-up
+# Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
+lru_size = 0
+
+###############################################################################
+###                        EVM Configuration (Auto-managed)                  ###
+###############################################################################
+
+# ReadTimeout is the maximum duration for reading the entire
+# request, including the body.
+read_timeout = "{{ .EVM.ReadTimeout }}"
+
+# ReadHeaderTimeout is the amount of time allowed to read
+# request headers. The connection's read deadline is reset
+# after reading the headers and the Handler can decide what
+# is considered too slow for the body.
+read_header_timeout = "{{ .EVM.ReadHeaderTimeout }}"
+
+# WriteTimeout is the maximum duration before timing out
+# writes of the response.
+write_timeout = "{{ .EVM.WriteTimeout }}"
+
+# IdleTimeout is the maximum amount of time to wait for the
+# next request when keep-alives are enabled.
+idle_timeout = "{{ .EVM.IdleTimeout }}"
+
+# Maximum gas limit for simulation
+simulation_gas_limit = {{ .EVM.SimulationGasLimit }}
+
+# Timeout for EVM call in simulation
+simulation_evm_timeout = "{{ .EVM.SimulationEVMTimeout }}"
+
+# list of CORS allowed origins, separated by comma
+cors_origins = "{{ .EVM.CORSOrigins }}"
+
+# list of WS origins, separated by comma
+ws_origins = "{{ .EVM.WSOrigins }}"
+
+# timeout for filters
+filter_timeout = "{{ .EVM.FilterTimeout }}"
 
 ###############################################################################
 ###          ETH Replay & Blocktest (Auto-managed)                         ###
