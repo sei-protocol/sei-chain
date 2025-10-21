@@ -2495,8 +2495,22 @@ func TestGossipTransactionKeyOnlyConfig(t *testing.T) {
 	proposalMsg := ProposalMessage{&proposal}
 	peerID, err := types.NewNodeID("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 	startTestRound(ctx, cs1, height, round)
-	cs1.handleMsg(ctx, msgInfo{&proposalMsg, peerID, time.Now()}, false)
+
+	// Assert invalid proposal is ignored.
+	invalidProposal := proposal
+	invalidProposal.Height = -3
+	cs1.handleMsg(ctx, msgInfo{&ProposalMessage{&invalidProposal}, peerID, time.Now()}, false)
 	rs := cs1.GetRoundState()
+	require.Nil(t, rs.Proposal)
+	require.Nil(t, rs.ProposalBlock)
+	require.Zero(t, rs.ProposalBlockParts.Total())
+
+	// Now assert that a valid proposal is processed correctly.
+	cs1.handleMsg(ctx, msgInfo{&proposalMsg, peerID, time.Now()}, false)
+
+	// GetRoundStates returns a snapshot of the current state. Therefore, we need to
+	// get it again after processing the proposal message.
+	rs = cs1.GetRoundState()
 	// Proposal, ProposalBlock and ProposalBlockParts sohuld be set since gossip-tx-key is true
 	if rs.Proposal == nil {
 		t.Error("rs.Proposal should be set")
