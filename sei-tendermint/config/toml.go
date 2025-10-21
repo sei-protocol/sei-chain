@@ -481,6 +481,17 @@ verify-light-block-timeout = "{{ .StateSync.VerifyLightBlockTimeout }}"
 
 blacklist-ttl = "{{ .StateSync.BlacklistTTL }}"
 
+# AUTO-MANAGED: These fields are automatically set by state-sync scripts.
+# Most node operators should NOT manually configure these settings.
+# The hash and height of a trusted block. Must be within the trust-period.
+trust-height = {{ .StateSync.TrustHeight }}
+trust-hash = "{{ .StateSync.TrustHash }}"
+
+# The trust period should be set so that Tendermint can detect and gossip misbehavior before
+# it is considered expired. For chains based on the Cosmos SDK, one day less than the unbonding
+# period should suffice.
+trust-period = "{{ .StateSync.TrustPeriod }}"
+
 #######################################################
 ###    Consensus Configuration (Auto-managed)       ###
 #######################################################
@@ -621,21 +632,6 @@ restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
 ###############################################################################
 
 #######################################################
-###         State Sync (Auto-managed)                ###
-#######################################################
-# AUTO-MANAGED: These fields are automatically set by state-sync scripts.
-# Most node operators should NOT manually configure these settings.
-
-# The hash and height of a trusted block. Must be within the trust-period.
-trust-height = {{ .StateSync.TrustHeight }}
-trust-hash = "{{ .StateSync.TrustHash }}"
-
-# The trust period should be set so that Tendermint can detect and gossip misbehavior before
-# it is considered expired. For chains based on the Cosmos SDK, one day less than the unbonding
-# period should suffice.
-trust-period = "{{ .StateSync.TrustPeriod }}"
-
-#######################################################
 ###         P2P Configuration (Auto-managed)         ###
 #######################################################
 # AUTO-MANAGED: These fields use default values and typically do NOT need to be
@@ -673,6 +669,7 @@ private-peer-ids = "{{ .P2P.PrivatePeerIDs }}"
 ###         DB Sync (Auto-managed)                   ###
 #######################################################
 # Most node operators should NOT manually configure these settings.
+[db-sync]
 
 db-sync-enable = "{{ .DBSync.Enable }}"
 snapshot-interval = "{{ .DBSync.SnapshotInterval }}"

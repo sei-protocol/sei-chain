@@ -130,10 +130,6 @@ inter-block-cache = {{ .BaseConfig.InterBlockCache }}
 # ["message.sender", "message.recipient"]
 index-events = {{ .BaseConfig.IndexEvents }}
 
-# IavlCacheSize set the size of the iavl tree cache.
-# Default cache size is 50mb.
-iavl-cache-size = {{ .BaseConfig.IAVLCacheSize }}
-
 # IAVLDisableFastNode enables or disables the fast node feature of IAVL.
 # Default is true.
 iavl-disable-fastnode = {{ .BaseConfig.IAVLDisableFastNode }}
