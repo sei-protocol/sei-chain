@@ -285,9 +285,10 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	}
 
 	routerOpts := RouterOptions{
-		DialSleep:  func(_ context.Context) error { return nil },
-		Endpoint:   Endpoint{AddrPort: tcp.TestReserveAddr()},
-		Connection: conn.DefaultMConnConfig(),
+		DialSleep:                func(_ context.Context) error { return nil },
+		Endpoint:                 Endpoint{AddrPort: tcp.TestReserveAddr()},
+		Connection:               conn.DefaultMConnConfig(),
+		IncomingConnectionWindow: utils.Some[time.Duration](0),
 	}
 	routerOpts.Connection.FlushThrottle = 0
 	nodeInfo := types.NodeInfo{
@@ -306,7 +307,7 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	}, NopMetrics())
 	require.NoError(t, err)
 
-	router, err := NewRouter(
+	router := NewRouter(
 		logger,
 		NopMetrics(),
 		privKey,
@@ -315,9 +316,6 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 		nil,
 		routerOpts,
 	)
-
-	require.NoError(t, err)
-
 	require.NoError(t, router.Start(t.Context()))
 	require.NoError(t, router.WaitForStart(t.Context()))
 

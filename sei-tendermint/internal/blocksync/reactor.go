@@ -15,8 +15,8 @@ import (
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/service"
+	"github.com/tendermint/tendermint/libs/utils"
 	bcproto "github.com/tendermint/tendermint/proto/tendermint/blocksync"
 	"github.com/tendermint/tendermint/types"
 )
@@ -360,7 +360,7 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) {
 		r.processPeerUpdate(update)
 	}
 	for {
-		update,err := utils.Recv(ctx,peerUpdates.Updates())
+		update, err := utils.Recv(ctx, peerUpdates.Updates())
 		if err != nil {
 			return
 		}

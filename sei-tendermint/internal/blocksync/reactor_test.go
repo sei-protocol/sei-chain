@@ -277,7 +277,7 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 		t,
 		func() bool {
 			height, _, _ := secondaryPool.GetStatus()
-			return secondaryPool.MaxPeerHeight() > 0 && height > 0 && height < 10
+			return secondaryPool.MaxPeerHeight() == maxBlockHeight && height > 0 && height <= maxBlockHeight
 		},
 		10*time.Second,
 		10*time.Millisecond,

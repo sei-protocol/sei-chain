@@ -19,8 +19,8 @@ import (
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/service"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/light"
 	"github.com/tendermint/tendermint/light/provider"
 	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
@@ -214,7 +214,7 @@ func NewReactor(
 		initialHeight:                 initialHeight,
 		cfg:                           cfg,
 		conn:                          conn,
-		peerManager:                    peerManager,
+		peerManager:                   peerManager,
 		tempDir:                       tempDir,
 		stateStore:                    stateStore,
 		blockStore:                    blockStore,

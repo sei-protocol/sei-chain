@@ -37,12 +37,11 @@ type RouterOptions struct {
 
 	// MaxIncomingConnectionAttempts rate limits the number of incoming connection
 	// attempts per IP address. Defaults to 100.
-	MaxIncomingConnectionAttempts uint
+	MaxIncomingConnectionAttempts utils.Option[uint]
 
 	// IncomingConnectionWindow describes how often an IP address
-	// can attempt to create a new connection. Defaults to 10
-	// milliseconds, and cannot be less than 1 millisecond.
-	IncomingConnectionWindow time.Duration
+	// can attempt to create a new connection. Defaults to 100ms.
+	IncomingConnectionWindow utils.Option[time.Duration]
 
 	// FilterPeerByIP is used by the router to inject filtering
 	// behavior for new incoming connections. The router passes
@@ -80,21 +79,12 @@ type RouterOptions struct {
 	Connection conn.MConnConfig
 }
 
-// Validate validates router options.
-func (o *RouterOptions) Validate() error {
-	switch {
-	case o.IncomingConnectionWindow == 0:
-		o.IncomingConnectionWindow = 100 * time.Millisecond
-	case o.IncomingConnectionWindow < time.Millisecond:
-		return fmt.Errorf("incomming connection window must be grater than 1m [%s]",
-			o.IncomingConnectionWindow)
-	}
+func (o *RouterOptions) getIncomingConnectionWindow() time.Duration {
+	return o.IncomingConnectionWindow.Or(100 * time.Millisecond)
+}
 
-	if o.MaxIncomingConnectionAttempts == 0 {
-		o.MaxIncomingConnectionAttempts = 100
-	}
-
-	return nil
+func (o *RouterOptions) getMaxIncomingConnectionAttempts() uint {
+	return o.MaxIncomingConnectionAttempts.Or(100)
 }
 
 // Router manages peer connections and routes messages between peers and reactor
@@ -180,10 +170,7 @@ func NewRouter(
 	nodeInfoProducer func() *types.NodeInfo,
 	dynamicIDFilterer func(context.Context, types.NodeID) error,
 	options RouterOptions,
-) (*Router, error) {
-	if err := options.Validate(); err != nil {
-		return nil, err
-	}
+) *Router {
 	router := &Router{
 		logger:           logger,
 		metrics:          metrics,
@@ -191,8 +178,8 @@ func NewRouter(
 		privKey:          privKey,
 		nodeInfoProducer: nodeInfoProducer,
 		connTracker: newConnTracker(
-			options.MaxIncomingConnectionAttempts,
-			options.IncomingConnectionWindow,
+			options.getMaxIncomingConnectionAttempts(),
+			options.getIncomingConnectionWindow(),
 		),
 		peerManager:       peerManager,
 		options:           options,
@@ -207,7 +194,7 @@ func NewRouter(
 
 	router.BaseService = service.NewBaseService(logger, "router", router)
 
-	return router, nil
+	return router
 }
 
 func (r *Router) Endpoint() Endpoint {

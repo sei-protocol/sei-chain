@@ -314,7 +314,7 @@ func makeRouterWithOptionsAndKey(logger log.Logger, ropts RouterOptions, key cry
 	if err != nil {
 		panic(fmt.Errorf("NewPeerManager: %w", err))
 	}
-	router, err := NewRouter(
+	return NewRouter(
 		logger.With("node", info.NodeID),
 		NopMetrics(),
 		key,
@@ -328,10 +328,6 @@ func makeRouterWithOptionsAndKey(logger log.Logger, ropts RouterOptions, key cry
 		},
 		ropts,
 	)
-	if err != nil {
-		panic(fmt.Errorf("NewRouter: %w", err))
-	}
-	return router
 }
 
 func makeRouterOptions() RouterOptions {
