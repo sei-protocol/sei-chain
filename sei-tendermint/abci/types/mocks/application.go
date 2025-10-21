@@ -494,6 +494,16 @@ func (_m *Application) VerifyVoteExtension(_a0 context.Context, _a1 *types.Reque
 	return r0, r1
 }
 
+func (_m *Application) CheckNonce(_a0 context.Context, _a1 any, _a2 int) (bool, error) {
+	ret := _m.Called(_a0, _a1, _a2)
+	return ret.Get(0).(bool), ret.Error(1)
+}
+
+func (_m *Application) CheckTxWrapped(_a0 context.Context, _a1 *types.RequestCheckTx) (*types.ResponseCheckTxV2, any, error) {
+	ret := _m.Called(_a0, _a1)
+	return ret.Get(0).(*types.ResponseCheckTxV2), ret.Get(1).(any), ret.Error(2)
+}
+
 // NewApplication creates a new instance of Application. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewApplication(t interface {

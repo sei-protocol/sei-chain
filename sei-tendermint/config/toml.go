@@ -457,6 +457,8 @@ drop-utilisation-threshold = {{ .Mempool.DropUtilisationThreshold }}
 # See DropUtilisationThreshold and DropPriorityThreshold.
 drop-priority-reservoir-size = {{ .Mempool.DropPriorityReservoirSize }}
 
+check-nonce-before-propose = {{ .Mempool.CheckNonceBeforePropose }}
+
 #######################################################
 ###         State Sync Configuration Options        ###
 #######################################################

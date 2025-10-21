@@ -967,7 +967,7 @@ func TestCreateProposalBlockPanicRecovery(t *testing.T) {
 
 	// Create mock mempool
 	mp := &mpmocks.Mempool{}
-	mp.On("ReapMaxBytesMaxGas", mock.Anything, mock.Anything, mock.Anything).Return(types.Txs{})
+	mp.On("ReapMaxBytesMaxGas", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(types.Txs{})
 
 	blockExec := sm.NewBlockExecutor(
 		stateStore,

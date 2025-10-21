@@ -363,7 +363,7 @@ func (txmp *TxMempool) CheckTx(
 		txmp.duplicateTxsCache.Increment(txHash)
 	}
 
-	res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTx{Tx: tx})
+	res, evmMsg, err := txmp.proxyAppConn.CheckTxWrapped(ctx, &abci.RequestCheckTx{Tx: tx})
 	txmp.totalCheckTxCount.Add(1)
 	if err != nil {
 		txmp.metrics.NumberOfFailedCheckTxs.Add(1)
@@ -402,6 +402,7 @@ func (txmp *TxMempool) CheckTx(
 		isEVM:         res.IsEVM,
 		removeHandler: removeHandler,
 		estimatedGas:  res.GasEstimated,
+		evmMessage:    evmMsg,
 	}
 
 	if err == nil {
@@ -533,7 +534,7 @@ func (txmp *TxMempool) Flush() {
 // NOTE:
 //   - Transactions returned are not removed from the mempool transaction
 //     store or indexes.
-func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimated int64) types.Txs {
+func (txmp *TxMempool) ReapMaxBytesMaxGas(ctx context.Context, maxBytes, maxGasWanted, maxGasEstimated int64) types.Txs {
 	txmp.mtx.Lock()
 	defer txmp.mtx.Unlock()
 
@@ -549,12 +550,25 @@ func (txmp *TxMempool) ReapMaxBytesMaxGas(maxBytes, maxGasWanted, maxGasEstimate
 		// do not reap anything if threshold is not met
 		return txs
 	}
+	checkNonceCount := 0
 	txmp.priorityIndex.ForEachTx(func(wtx *WrappedTx) bool {
 		size := types.ComputeProtoSizeForTxs([]types.Tx{wtx.tx})
 
 		// bytes limit is a hard stop
 		if maxBytes > -1 && totalSize+size > maxBytes {
 			return false
+		}
+
+		if wtx.evmMessage != nil && txmp.config.CheckNonceBeforePropose {
+			nonceValid, err := txmp.proxyAppConn.CheckNonce(ctx, wtx.evmMessage, checkNonceCount)
+			checkNonceCount++
+			if err != nil {
+				txmp.logger.Error("error checking nonce", "error", err)
+				return false
+			}
+			if !nonceValid {
+				return false
+			}
 		}
 
 		// if the tx doesn't have a gas estimate, fallback to gas wanted

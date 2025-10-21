@@ -208,7 +208,15 @@ func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abc
 // the ResponseCheckTx will contain relevant gas execution context.
 func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, error) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "check_tx")
+	tx, err := app.txDecoder(req.Tx)
+	if err != nil {
+		res := sdkerrors.ResponseCheckTx(err, 0, 0, app.trace)
+		return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, err
+	}
+	return app.CheckTxDecoded(tx, req)
+}
 
+func (app *BaseApp) CheckTxDecoded(tx sdk.Tx, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, error) {
 	var mode runTxMode
 
 	switch {
@@ -223,11 +231,6 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abc
 	}
 
 	sdkCtx := app.getContextForTx(mode, req.Tx)
-	tx, err := app.txDecoder(req.Tx)
-	if err != nil {
-		res := sdkerrors.ResponseCheckTx(err, 0, 0, app.trace)
-		return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, err
-	}
 	gInfo, result, _, priority, pendingTxChecker, expireTxHandler, txCtx, err := app.runTx(sdkCtx, mode, tx, sha256.Sum256(req.Tx))
 	if err != nil {
 		res := sdkerrors.ResponseCheckTx(err, gInfo.GasWanted, gInfo.GasUsed, app.trace)
@@ -1257,4 +1260,16 @@ func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxP
 	return &abci.ResponseGetTxPriorityHint{
 		Priority: priority,
 	}, nil
+}
+
+func (app *BaseApp) CheckTxWrapped(ctx context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, any, error) {
+	res, err := app.CheckTx(ctx, req)
+	if err != nil {
+		return res, nil, err
+	}
+	return res, nil, nil
+}
+
+func (app *BaseApp) CheckNonce(ctx context.Context, req any, index int) (bool, error) {
+	return true, nil
 }
