@@ -2,8 +2,8 @@ package factory
 
 import (
 	"context"
-	"sort"
 	"fmt"
+	"sort"
 
 	"github.com/tendermint/tendermint/types"
 )
@@ -27,7 +27,7 @@ func ValidatorSet(ctx context.Context, numValidators int, votingPower int64) (*t
 
 	for i := 0; i < numValidators; i++ {
 		val, privValidator, err := Validator(ctx, votingPower)
-		if err!=nil {
+		if err != nil {
 			panic(fmt.Errorf("Validator(): %w", err))
 		}
 		valz[i] = val

@@ -196,7 +196,7 @@ func (r *Reactor) handleMessage(ctx context.Context, m p2p.RecvMsg) (err error) 
 func (r *Reactor) processMempoolCh(ctx context.Context, mempoolCh *p2p.Channel) {
 	<-r.readyToStart
 	for {
-		m,err := mempoolCh.Recv(ctx)
+		m, err := mempoolCh.Recv(ctx)
 		if err != nil {
 			return
 		}

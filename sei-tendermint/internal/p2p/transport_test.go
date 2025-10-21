@@ -56,7 +56,7 @@ func TestRouter_MaxAcceptedConnections(t *testing.T) {
 	err := utils.IgnoreCancel(scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		r := makeRouterWithOptions(logger, opts)
 		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
-		if err := r.WaitForStart(ctx); err!=nil {
+		if err := r.WaitForStart(ctx); err != nil {
 			return err
 		}
 
@@ -112,7 +112,7 @@ func TestRouter_Listen(t *testing.T) {
 				opts.Endpoint.AddrPort = netip.AddrPortFrom(tc, opts.Endpoint.Port())
 				r := makeRouterWithOptions(logger, opts)
 				s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
-				if err := r.WaitForStart(ctx); err!=nil {
+				if err := r.WaitForStart(ctx); err != nil {
 					return err
 				}
 
@@ -144,7 +144,7 @@ func TestHandshake_NodeInfo(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		r := makeRouter(logger)
 		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
-		if err := r.WaitForStart(ctx); err!=nil {
+		if err := r.WaitForStart(ctx); err != nil {
 			return err
 		}
 
@@ -237,7 +237,7 @@ func TestRouter_SendReceive_Random(t *testing.T) {
 		chID := ChannelID(rng.Intn(len(channels)))
 		want := &TestMessage{Value: utils.GenString(rng, 10)}
 
-		channels[chID][from].Send(want,to)
+		channels[chID][from].Send(want, to)
 		got, err := channels[chID][to].Recv(ctx)
 		if err != nil {
 			t.Fatalf("Receive1(): %v", err)

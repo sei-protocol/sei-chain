@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	checkFrequency    = 500 * time.Millisecond
-	shortWait         = 5 * time.Second
-	longWait          = 20 * time.Second
+	checkFrequency = 500 * time.Millisecond
+	shortWait      = 5 * time.Second
+	longWait       = 20 * time.Second
 )
 
 func TestReactorBasic(t *testing.T) {
@@ -65,17 +65,19 @@ func TestReactorSendsRequestsTooOften(t *testing.T) {
 	testNet.connectAll(t)
 	testNet.start(ctx, t)
 
-	n0,n1 := testNet.checkNodePair(t, 0, 1)
+	n0, n1 := testNet.checkNodePair(t, 0, 1)
 	ch := testNet.pexChannels[n0]
 	t.Log("Send request.")
 	ch.Send(&p2pproto.PexRequest{}, n1)
 	t.Log("Await response.")
 	for {
-		m,err := ch.Recv(ctx)
+		m, err := ch.Recv(ctx)
 		require.NoError(t, err)
 		require.Equal(t, n1, m.From)
-		_,ok := m.Message.(*p2pproto.PexResponse)
-		if !ok { continue }
+		_, ok := m.Message.(*p2pproto.PexResponse)
+		if !ok {
+			continue
+		}
 		break
 	}
 	t.Log("Send again.")
@@ -137,16 +139,18 @@ func TestReactorErrorsOnReceivingTooManyPeers(t *testing.T) {
 	testNet.connectAll(t)
 	testNet.start(ctx, t)
 
-	n0,n1 := testNet.checkNodePair(t, 0, 1)
+	n0, n1 := testNet.checkNodePair(t, 0, 1)
 	ch := testNet.pexChannels[n0]
 
 	t.Log("wait for a request")
 	for {
-		m,err := ch.Recv(ctx)
+		m, err := ch.Recv(ctx)
 		require.NoError(t, err)
 		require.Equal(t, n1, m.From)
-		_,ok := m.Message.(*p2pproto.PexRequest)
-		if !ok { continue }
+		_, ok := m.Message.(*p2pproto.PexRequest)
+		if !ok {
+			continue
+		}
 		break
 	}
 
@@ -380,8 +384,8 @@ func (r *reactorTestSuite) listenFor(
 	ctx, cancel := context.WithTimeout(ctx, waitPeriod)
 	defer cancel()
 	for {
-		m,err := r.pexChannels[node].Recv(ctx)
-		if err!=nil {
+		m, err := r.pexChannels[node].Recv(ctx)
+		if err != nil {
 			break
 		}
 		if conditional(m) && assertion(t, m) {

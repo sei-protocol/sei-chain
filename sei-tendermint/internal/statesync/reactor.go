@@ -860,7 +860,7 @@ func (r *Reactor) handleParamsMessage(ctx context.Context, m p2p.RecvMsg, params
 		paramsCh.Send(&ssproto.ParamsResponse{
 			Height:          msg.Height,
 			ConsensusParams: cpproto,
-		},m.From)
+		}, m.From)
 	case *ssproto.ParamsResponse:
 		r.mtx.RLock()
 		defer r.mtx.RUnlock()
@@ -900,8 +900,10 @@ func (r *Reactor) recoverToErr(err *error) {
 
 func (r *Reactor) processSnapshotCh(ctx context.Context) {
 	for {
-		m,err := r.snapshotChannel.Recv(ctx)
-		if err != nil { return }
+		m, err := r.snapshotChannel.Recv(ctx)
+		if err != nil {
+			return
+		}
 		r.processChGuard.Lock()
 		if err := r.handleSnapshotMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process snapshotCh message", "envelope", m, "err", err)
@@ -913,8 +915,10 @@ func (r *Reactor) processSnapshotCh(ctx context.Context) {
 
 func (r *Reactor) processChunkCh(ctx context.Context) {
 	for {
-		m,err := r.chunkChannel.Recv(ctx)
-		if err != nil { return }
+		m, err := r.chunkChannel.Recv(ctx)
+		if err != nil {
+			return
+		}
 		r.processChGuard.Lock()
 		if err := r.handleChunkMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process chunkCh message", "envelope", m, "err", err)
@@ -926,8 +930,10 @@ func (r *Reactor) processChunkCh(ctx context.Context) {
 
 func (r *Reactor) processLightBlockCh(ctx context.Context) {
 	for {
-		m,err := r.lightBlockChannel.Recv(ctx)
-		if err != nil { return }
+		m, err := r.lightBlockChannel.Recv(ctx)
+		if err != nil {
+			return
+		}
 		r.processChGuard.Lock()
 		if err := r.handleLightBlockMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process lightBlockCh message", "envelope", m, "err", err)
@@ -939,8 +945,10 @@ func (r *Reactor) processLightBlockCh(ctx context.Context) {
 
 func (r *Reactor) processParamsCh(ctx context.Context) {
 	for {
-		m,err := r.paramsChannel.Recv(ctx)
-		if err != nil { return }
+		m, err := r.paramsChannel.Recv(ctx)
+		if err != nil {
+			return
+		}
 		r.processChGuard.Lock()
 		if err := r.handleParamsMessage(ctx, m, r.paramsChannel); err != nil {
 			r.logger.Error("failed to process paramsCh message", "envelope", m, "err", err)

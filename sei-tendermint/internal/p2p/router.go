@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"golang.org/x/sync/semaphore"
-	"math/rand"
 	"math"
+	"math/rand"
 	"net"
 	"net/netip"
 	"runtime"
@@ -148,21 +148,21 @@ type Router struct {
 	peerManager *PeerManager
 	connTracker *connTracker
 
-	conns       utils.RWMutex[map[types.NodeID]*Connection]
+	conns            utils.RWMutex[map[types.NodeID]*Connection]
 	nodeInfoProducer func() *types.NodeInfo
 
-	channels         utils.RWMutex[map[ChannelID]*channel]
+	channels utils.RWMutex[map[ChannelID]*channel]
 
 	dynamicIDFilterer func(context.Context, types.NodeID) error
 
-	started  chan struct{}
+	started chan struct{}
 }
 
 func (r *Router) getChannelDescs() []*ChannelDescriptor {
 	for channels := range r.channels.Lock() {
 		descs := make([]*ChannelDescriptor, 0, len(channels))
-		for _,ch := range channels {
-			descs = append(descs,&ch.desc)
+		for _, ch := range channels {
+			descs = append(descs, &ch.desc)
 		}
 		return descs
 	}
@@ -197,12 +197,12 @@ func NewRouter(
 		peerManager:       peerManager,
 		options:           options,
 		channels:          utils.NewRWMutex(map[ChannelID]*channel{}),
-		conns:        utils.NewRWMutex(map[types.NodeID]*Connection{}),
+		conns:             utils.NewRWMutex(map[types.NodeID]*Connection{}),
 		dynamicIDFilterer: dynamicIDFilterer,
 
 		// This is rendezvous channel, so that no unclosed connections get stuck inside
 		// when transport is closing.
-		started:  make(chan struct{}),
+		started: make(chan struct{}),
 	}
 
 	router.BaseService = service.NewBaseService(logger, "router", router)
@@ -241,8 +241,8 @@ func (r *Router) OpenChannel(chDesc ChannelDescriptor) (*Channel, error) {
 		channels[id] = newChannel(chDesc)
 		// add the channel to the nodeInfo if it's not already there.
 		r.nodeInfoProducer().AddChannel(uint16(chDesc.ID))
-		return &Channel {
-			router: r,
+		return &Channel{
+			router:  r,
 			channel: channels[id],
 		}, nil
 	}
@@ -318,7 +318,7 @@ func (r *Router) acceptPeers(ctx context.Context) error {
 			return nil
 		})
 		for {
-			if err := sem.Acquire(ctx, 1); err!=nil {
+			if err := sem.Acquire(ctx, 1); err != nil {
 				return err
 			}
 			tcpConn, err := listener.Accept()
@@ -343,7 +343,7 @@ func (r *Router) openConnection(ctx context.Context, tcpConn *net.TCPConn) error
 	r.metrics.NewConnections.With("direction", "in").Add(1)
 	incomingAddr := remoteEndpoint(tcpConn).AddrPort
 	if err := r.connTracker.AddConn(incomingAddr); err != nil {
-		return fmt.Errorf("rate limiting incoming peer %v: %w",incomingAddr, err)
+		return fmt.Errorf("rate limiting incoming peer %v: %w", incomingAddr, err)
 	}
 	defer r.connTracker.RemoveConn(incomingAddr)
 
@@ -396,8 +396,8 @@ func (r *Router) dialPeers(ctx context.Context) error {
 			}
 			s.Spawn(func() error {
 				err := func() error {
-					r.logger.Debug("Going to dial","peer", address.NodeID)
-					conn,err := r.connectPeer(ctx, address)
+					r.logger.Debug("Going to dial", "peer", address.NodeID)
+					conn, err := r.connectPeer(ctx, address)
 					sem.Release(1)
 
 					if err != nil {
@@ -405,7 +405,7 @@ func (r *Router) dialPeers(ctx context.Context) error {
 					}
 					return conn.Run(ctx, r)
 				}()
-				r.logger.Error("dial","err",err)
+				r.logger.Error("dial", "err", err)
 				return nil
 			})
 
@@ -453,7 +453,7 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) (c *Conne
 	if err := r.peerManager.Dialed(address); err != nil {
 		return nil, fmt.Errorf("failed to dial outgoing/dialing peer %v: %w", address.NodeID, err)
 	}
-	return conn,nil
+	return conn, nil
 }
 
 // dialPeer connects to a peer by dialing it.
@@ -540,7 +540,7 @@ func (r *Router) handshakePeer(
 		}
 		return nil, fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)
 	}
-	if want,ok := expectID.Get(); ok && want != peerInfo.NodeID {
+	if want, ok := expectID.Get(); ok && want != peerInfo.NodeID {
 		return nil, fmt.Errorf("expected to connect with peer %q, got %q",
 			want, peerInfo.NodeID)
 	}

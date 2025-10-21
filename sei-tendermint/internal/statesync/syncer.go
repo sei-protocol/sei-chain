@@ -555,7 +555,7 @@ func (s *syncer) requestChunk(snapshot *snapshot, chunk uint32) {
 		Format: snapshot.Format,
 		Index:  chunk,
 	}
-	s.chunkCh.Send(msg,peer)
+	s.chunkCh.Send(msg, peer)
 }
 
 // verifyApp verifies the sync, checking the app hash, last block height and app version

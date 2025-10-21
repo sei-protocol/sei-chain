@@ -405,7 +405,7 @@ func (s *StateProviderP2P) consensusParams(ctx context.Context, height int64) (t
 			}
 
 			go func(peer types.NodeID) {
-				s.paramsSendCh.Send(s.paramsReqCreator(uint64(height)),peer)
+				s.paramsSendCh.Send(s.paramsReqCreator(uint64(height)), peer)
 
 				select {
 				case <-childCtx.Done():

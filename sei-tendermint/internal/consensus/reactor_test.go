@@ -363,7 +363,7 @@ func TestReactorWithEvidence(t *testing.T) {
 	testName := "consensus_reactor_test"
 	tickerFunc := newMockTickerFunc(true)
 
-	valSet, privVals := factory.ValidatorSet(ctx, t, n, 30)
+	valSet, privVals := factory.ValidatorSet(ctx, n, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
 	states := make([]*State, n)
 	logger := consensusLogger()

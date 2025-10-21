@@ -269,7 +269,7 @@ func (r *Reactor) handleMetadataRequest(ctx context.Context, req *dstypes.Metada
 	if err := msg.Unmarshal(data); err != nil {
 		return fmt.Errorf("cannot unmarshal metadata file %s due to %s", metadataFilename, err)
 	}
-	r.metadataChannel.Send(&msg,from)
+	r.metadataChannel.Send(&msg, from)
 	responded = true
 	return nil
 }
@@ -479,8 +479,10 @@ func (r *Reactor) processPeerUpdates(ctx context.Context, peerUpdates *p2p.PeerU
 
 func (r *Reactor) processMetadataCh(ctx context.Context, ch *p2p.Channel) {
 	for {
-		m,err := ch.Recv(ctx)
-		if err!=nil { return }
+		m, err := ch.Recv(ctx)
+		if err != nil {
+			return
+		}
 		if err := r.handleMetadataMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process metadataCh message", "envelope", m, "err", err)
 			ch.SendError(p2p.PeerError{NodeID: m.From, Err: err})
@@ -490,8 +492,10 @@ func (r *Reactor) processMetadataCh(ctx context.Context, ch *p2p.Channel) {
 
 func (r *Reactor) processFileCh(ctx context.Context, ch *p2p.Channel) {
 	for {
-		m,err := ch.Recv(ctx)
-		if err!=nil { return }
+		m, err := ch.Recv(ctx)
+		if err != nil {
+			return
+		}
 		if err := r.handleFileMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process fileCh message", "envelope", m, "err", err)
 			ch.SendError(p2p.PeerError{NodeID: m.From, Err: err})
@@ -501,8 +505,10 @@ func (r *Reactor) processFileCh(ctx context.Context, ch *p2p.Channel) {
 
 func (r *Reactor) processLightBlockCh(ctx context.Context, ch *p2p.Channel) {
 	for {
-		m,err := ch.Recv(ctx)
-		if err!=nil { return }
+		m, err := ch.Recv(ctx)
+		if err != nil {
+			return
+		}
 		if err := r.handleLightBlockMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process lightBlockCh message", "envelope", m, "err", err)
 			ch.SendError(p2p.PeerError{NodeID: m.From, Err: err})
@@ -512,8 +518,10 @@ func (r *Reactor) processLightBlockCh(ctx context.Context, ch *p2p.Channel) {
 
 func (r *Reactor) processParamsCh(ctx context.Context, ch *p2p.Channel) {
 	for {
-		m,err := ch.Recv(ctx)
-		if err!=nil { return }
+		m, err := ch.Recv(ctx)
+		if err != nil {
+			return
+		}
 		if err := r.handleParamsMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process paramsCh message", "envelope", m, "err", err)
 			ch.SendError(p2p.PeerError{NodeID: m.From, Err: err})

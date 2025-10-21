@@ -17,8 +17,8 @@ type sendMsg struct {
 }
 
 type RecvMsg struct {
-	Message   proto.Message // UNWRAPPED message payload
-	From      types.NodeID  // sender
+	Message proto.Message // UNWRAPPED message payload
+	From    types.NodeID  // sender
 }
 
 // Wrapper is a Protobuf message that can contain a variety of inner messages
@@ -57,8 +57,8 @@ func (pe PeerError) Unwrap() error { return pe.Err }
 // Channel is a bidirectional channel to exchange Protobuf messages with peers.
 // Each message is wrapped in an Envelope to specify its sender and receiver.
 type channel struct {
-	desc  ChannelDescriptor
-	recvQueue  *Queue[RecvMsg] // inbound messages (peers to reactors)
+	desc      ChannelDescriptor
+	recvQueue *Queue[RecvMsg] // inbound messages (peers to reactors)
 }
 
 type Channel struct {
@@ -70,7 +70,7 @@ type Channel struct {
 // use, reactors should use Router.OpenChannel().
 func newChannel(desc ChannelDescriptor) *channel {
 	return &channel{
-		desc:  desc,
+		desc: desc,
 		// TODO(gprusak): get rid of this random cap*cap value once we understand
 		// what the sizes per channel really should be.
 		recvQueue: NewQueue[RecvMsg](desc.RecvBufferCapacity * desc.RecvBufferCapacity),
@@ -87,7 +87,7 @@ func (ch *Channel) send(msg proto.Message, queues ...*Queue[sendMsg]) {
 		}
 		msg = wrapper
 	}
-	m := sendMsg{msg,ch.desc.ID}
+	m := sendMsg{msg, ch.desc.ID}
 	size := proto.Size(msg)
 	for _, q := range queues {
 		if pruned, ok := q.Send(m, size, ch.desc.Priority).Get(); ok {
@@ -149,7 +149,9 @@ func (ch *Channel) SendError(pe PeerError) {
 	}
 }
 
-func (ch *Channel) String() string { return fmt.Sprintf("p2p.Channel<%d:%s>", ch.desc.ID, ch.desc.Name) }
+func (ch *Channel) String() string {
+	return fmt.Sprintf("p2p.Channel<%d:%s>", ch.desc.ID, ch.desc.Name)
+}
 
 func (ch *Channel) ReceiveLen() int { return ch.recvQueue.Len() }
 

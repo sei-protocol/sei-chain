@@ -94,7 +94,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, peer types.NodeID, height int
 	d.calls[peer] = ch
 
 	// send request
-	d.requestCh.Send(d.lightBlockMsgCreator(uint64(height)),peer)
+	d.requestCh.Send(d.lightBlockMsgCreator(uint64(height)), peer)
 	return ch, nil
 }
 

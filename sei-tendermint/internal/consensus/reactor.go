@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/tendermint/tendermint/config"
 	cstypes "github.com/tendermint/tendermint/internal/consensus/types"
 	"github.com/tendermint/tendermint/internal/eventbus"
@@ -21,7 +22,6 @@ import (
 	tmcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
-	"github.com/gogo/protobuf/proto"
 )
 
 var (
@@ -579,7 +579,7 @@ OUTER_LOOP:
 				propProto := rs.Proposal.ToProto()
 
 				logger.Debug("sending proposal", "height", prs.Height, "round", prs.Round, "txkeys", propProto.TxKeys)
-				dataCh.Send(&tmcons.Proposal{Proposal: *propProto},ps.peerID)
+				dataCh.Send(&tmcons.Proposal{Proposal: *propProto}, ps.peerID)
 
 				// NOTE: A peer might have received a different proposal message, so
 				// this Proposal msg will be rejected!
@@ -967,8 +967,10 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 // removed.
 func (r *Reactor) handleStateMessage(ctx context.Context, m p2p.RecvMsg) (err error) {
 	defer r.recoverToErr(&err)
-	msgI,err := WrapAndParse(m.Message)
-	if err!=nil { return err }
+	msgI, err := WrapAndParse(m.Message)
+	if err != nil {
+		return err
+	}
 	voteSetCh := r.channels.votSet
 	ps, ok := r.GetPeerState(m.From)
 	if !ok || ps == nil {
@@ -1052,8 +1054,10 @@ func (r *Reactor) handleStateMessage(ctx context.Context, m p2p.RecvMsg) (err er
 // removed.
 func (r *Reactor) handleDataMessage(ctx context.Context, m p2p.RecvMsg) (err error) {
 	defer r.recoverToErr(&err)
-	msgI,err := WrapAndParse(m.Message)
-	if err!=nil { return err }
+	msgI, err := WrapAndParse(m.Message)
+	if err != nil {
+		return err
+	}
 	logger := r.logger.With("peer", m.From, "ch_id", "DataChannel")
 
 	ps, ok := r.GetPeerState(m.From)
@@ -1105,8 +1109,10 @@ func (r *Reactor) handleDataMessage(ctx context.Context, m p2p.RecvMsg) (err err
 // removed.
 func (r *Reactor) handleVoteMessage(ctx context.Context, m p2p.RecvMsg) (err error) {
 	defer r.recoverToErr(&err)
-	msgI,err := WrapAndParse(m.Message)
-	if err!=nil { return err }
+	msgI, err := WrapAndParse(m.Message)
+	if err != nil {
+		return err
+	}
 	logger := r.logger.With("peer", m.From, "ch_id", "VoteChannel")
 
 	ps, ok := r.GetPeerState(m.From)
@@ -1151,8 +1157,10 @@ func (r *Reactor) handleVoteMessage(ctx context.Context, m p2p.RecvMsg) (err err
 // after the peer is removed.
 func (r *Reactor) handleVoteSetBitsMessage(ctx context.Context, m p2p.RecvMsg) (err error) {
 	defer r.recoverToErr(&err)
-	msgI,err := WrapAndParse(m.Message)
-	if err!=nil { return err }
+	msgI, err := WrapAndParse(m.Message)
+	if err != nil {
+		return err
+	}
 	logger := r.logger.With("peer", m.From, "ch_id", "VoteSetBitsChannel")
 
 	ps, ok := r.GetPeerState(m.From)
@@ -1231,7 +1239,7 @@ func (r *Reactor) recoverToErr(err *error) {
 // gracefully.
 func (r *Reactor) processStateCh(ctx context.Context) {
 	for {
-		m,err := r.channels.state.Recv(ctx)
+		m, err := r.channels.state.Recv(ctx)
 		if err != nil {
 			return
 		}
@@ -1249,8 +1257,10 @@ func (r *Reactor) processStateCh(ctx context.Context) {
 // gracefully.
 func (r *Reactor) processDataCh(ctx context.Context) {
 	for {
-		m,err := r.channels.data.Recv(ctx)
-		if err!=nil { return }
+		m, err := r.channels.data.Recv(ctx)
+		if err != nil {
+			return
+		}
 		if err := r.handleDataMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process dataCh message", "envelope", m, "err", err)
 			r.channels.data.SendError(p2p.PeerError{NodeID: m.From, Err: err})
@@ -1265,8 +1275,10 @@ func (r *Reactor) processDataCh(ctx context.Context) {
 // gracefully.
 func (r *Reactor) processVoteCh(ctx context.Context) {
 	for {
-		m,err := r.channels.vote.Recv(ctx)
-		if err!=nil { return }
+		m, err := r.channels.vote.Recv(ctx)
+		if err != nil {
+			return
+		}
 		if err := r.handleVoteMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process voteCh message", "envelope", m, "err", err)
 			r.channels.vote.SendError(p2p.PeerError{
@@ -1284,8 +1296,10 @@ func (r *Reactor) processVoteCh(ctx context.Context) {
 // Channel gracefully.
 func (r *Reactor) processVoteSetBitsCh(ctx context.Context) {
 	for {
-		m,err := r.channels.votSet.Recv(ctx)
-		if err!=nil { return }
+		m, err := r.channels.votSet.Recv(ctx)
+		if err != nil {
+			return
+		}
 		if err := r.handleVoteSetBitsMessage(ctx, m); err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return

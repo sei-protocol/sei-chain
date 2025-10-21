@@ -326,13 +326,13 @@ type PeerManager struct {
 	mtx                 sync.Mutex
 	dynamicPrivatePeers map[types.NodeID]struct{} // dynamically added private peers
 	store               *peerStore
-	subscriptions       map[*PeerUpdates]*PeerUpdates // keyed by struct identity (address)
-	dialing             map[types.NodeID]bool         // peers being dialed (DialNext → Dialed/DialFail)
-	upgrading           map[types.NodeID]types.NodeID // peers claimed for upgrade (DialNext → Dialed/DialFail)
-	connected           map[types.NodeID]bool         // connected peers (Dialed/Accepted → Disconnected)
-	ready               utils.Watch[map[types.NodeID]ChannelIDSet]         // ready peers (Ready → Disconnected)
-	evict               map[types.NodeID]error        // peers scheduled for eviction (Connected → EvictNext)
-	evicting            map[types.NodeID]bool         // peers being evicted (EvictNext → Disconnected)
+	subscriptions       map[*PeerUpdates]*PeerUpdates              // keyed by struct identity (address)
+	dialing             map[types.NodeID]bool                      // peers being dialed (DialNext → Dialed/DialFail)
+	upgrading           map[types.NodeID]types.NodeID              // peers claimed for upgrade (DialNext → Dialed/DialFail)
+	connected           map[types.NodeID]bool                      // connected peers (Dialed/Accepted → Disconnected)
+	ready               utils.Watch[map[types.NodeID]ChannelIDSet] // ready peers (Ready → Disconnected)
+	evict               map[types.NodeID]error                     // peers scheduled for eviction (Connected → EvictNext)
+	evicting            map[types.NodeID]bool                      // peers being evicted (EvictNext → Disconnected)
 	metrics             *Metrics
 }
 
@@ -799,7 +799,7 @@ func (m *PeerManager) Ready(ctx context.Context, peerID types.NodeID, channels C
 	defer m.mtx.Unlock()
 
 	if m.connected[peerID] {
-		for ready,ctrl := range m.ready.Lock() {
+		for ready, ctrl := range m.ready.Lock() {
 			ready[peerID] = channels
 			ctrl.Updated()
 		}
@@ -891,14 +891,13 @@ func (m *PeerManager) Disconnected(ctx context.Context, peerID types.NodeID) {
 		m.store.ranked = nil
 	}
 
-
 	delete(m.connected, peerID)
 	delete(m.upgrading, peerID)
 	delete(m.evict, peerID)
 	delete(m.evicting, peerID)
 	var isReady bool
-	for ready,ctrl := range m.ready.Lock() {
-		_,isReady = ready[peerID]
+	for ready, ctrl := range m.ready.Lock() {
+		_, isReady = ready[peerID]
 		delete(ready, peerID)
 		ctrl.Updated()
 	}
@@ -1143,7 +1142,7 @@ func (m *PeerManager) Status(id types.NodeID) PeerStatus {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 	for ready := range m.ready.Lock() {
-		if _,ok := ready[id]; ok {
+		if _, ok := ready[id]; ok {
 			return PeerStatusUp
 		}
 		return PeerStatusDown
@@ -1157,7 +1156,7 @@ func (m *PeerManager) State(id types.NodeID) string {
 
 	states := []string{}
 	for ready := range m.ready.Lock() {
-		if _,ok := ready[id]; ok {
+		if _, ok := ready[id]; ok {
 			states = append(states, "ready")
 		}
 	}
@@ -1633,7 +1632,7 @@ func keyPeerInfoRange() ([]byte, []byte) {
 
 // Added for unit test
 func (m *PeerManager) MarkReadyConnected(nodeId types.NodeID) {
-	for ready,ctrl := range m.ready.Lock() {
+	for ready, ctrl := range m.ready.Lock() {
 		ready[nodeId] = ChannelIDSet{}
 		ctrl.Updated()
 	}

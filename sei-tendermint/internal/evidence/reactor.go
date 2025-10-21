@@ -142,8 +142,10 @@ func (r *Reactor) handleEvidenceMessage(ctx context.Context, m p2p.RecvMsg) (err
 // Envelope messages from the evidenceCh.
 func (r *Reactor) processEvidenceCh(ctx context.Context, evidenceCh *p2p.Channel) {
 	for {
-		m,err := evidenceCh.Recv(ctx)
-		if err!=nil { return }
+		m, err := evidenceCh.Recv(ctx)
+		if err != nil {
+			return
+		}
 		if err := r.handleEvidenceMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process evidenceCh message", "envelope", m, "err", err)
 			evidenceCh.SendError(p2p.PeerError{NodeID: m.From, Err: err})
@@ -272,7 +274,7 @@ func (r *Reactor) broadcastEvidenceLoop(ctx context.Context, peerID types.NodeID
 		// peer may receive this piece of evidence multiple times if it added and
 		// removed frequently from the broadcasting peer.
 
-		evidenceCh.Send(evProto,peerID)
+		evidenceCh.Send(evProto, peerID)
 		r.logger.Debug("gossiped evidence to peer", "evidence", ev, "peer", peerID)
 
 		select {

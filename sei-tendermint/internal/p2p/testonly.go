@@ -81,17 +81,17 @@ func (n *TestNetwork) ConnectCycle(ctx context.Context, t *testing.T) {
 	nodes := n.Nodes()
 	N := len(nodes)
 	for i := range nodes {
-		if _, err := nodes[i].PeerManager.Add(nodes[(i+1)%len(nodes)].NodeAddress); err!=nil {
+		if _, err := nodes[i].PeerManager.Add(nodes[(i+1)%len(nodes)].NodeAddress); err != nil {
 			panic(err)
 		}
 	}
 	for i := range n.Nodes() {
-		for ready,ctrl := range nodes[i].PeerManager.ready.Lock() {
-			for _,peer := range utils.Slice(nodes[(i+1)%N],nodes[(i+N-1)%N]) {
+		for ready, ctrl := range nodes[i].PeerManager.ready.Lock() {
+			for _, peer := range utils.Slice(nodes[(i+1)%N], nodes[(i+N-1)%N]) {
 				if err := ctrl.WaitUntil(ctx, func() bool {
-					_,ok := ready[peer.NodeID]
+					_, ok := ready[peer.NodeID]
 					return ok
-				}); err!=nil {
+				}); err != nil {
 					panic(err)
 				}
 			}
@@ -107,22 +107,22 @@ func (n *TestNetwork) Start(t *testing.T) {
 	// Populate peer managers.
 	for i, source := range nodes {
 		for _, target := range nodes[i+1:] { // nodes <i already connected
-			if _, err := source.PeerManager.Add(target.NodeAddress); err!=nil {
+			if _, err := source.PeerManager.Add(target.NodeAddress); err != nil {
 				panic(fmt.Errorf("Add(%v): %w", target.NodeAddress, err))
 			}
 		}
 	}
 	// Await connections.
 	for _, source := range nodes {
-		for ready,ctrl := range source.PeerManager.ready.Lock() {
+		for ready, ctrl := range source.PeerManager.ready.Lock() {
 			for _, target := range nodes {
 				if target.NodeID == source.NodeID {
 					continue
 				}
 				if err := ctrl.WaitUntil(t.Context(), func() bool {
-					_,ok := ready[target.NodeID]
+					_, ok := ready[target.NodeID]
 					return ok
-				}); err!=nil {
+				}); err != nil {
 					panic(err)
 				}
 			}
@@ -232,22 +232,22 @@ type TestNode struct {
 }
 
 func (n *TestNode) Connect(ctx context.Context, target *TestNode) {
-	if _, err := n.PeerManager.Add(target.NodeAddress); err!=nil {
+	if _, err := n.PeerManager.Add(target.NodeAddress); err != nil {
 		panic(err)
 	}
-	for ready,ctrl := range n.PeerManager.ready.Lock() {
+	for ready, ctrl := range n.PeerManager.ready.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			_,ok := ready[target.NodeID]
+			_, ok := ready[target.NodeID]
 			return ok
-		}); err!=nil {
+		}); err != nil {
 			panic(err)
 		}
 	}
-	for ready,ctrl := range target.PeerManager.ready.Lock() {
+	for ready, ctrl := range target.PeerManager.ready.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
-			_,ok := ready[n.NodeID]
+			_, ok := ready[n.NodeID]
 			return ok
-		}); err!=nil {
+		}); err != nil {
 			panic(err)
 		}
 	}
@@ -261,11 +261,11 @@ func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
 }
 
 func (n *TestNode) WaitUntilDisconnected(ctx context.Context, target types.NodeID) {
-	for ready,ctrl := range n.PeerManager.ready.Lock() {
+	for ready, ctrl := range n.PeerManager.ready.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			_, ok := ready[target]
 			return !ok
-		}); err!=nil {
+		}); err != nil {
 			panic(err)
 		}
 	}
@@ -410,8 +410,8 @@ func RequireReceiveUnordered(t *testing.T, channel *Channel, want []RecvMsg) {
 	t.Logf("awaiting %d messages", len(want))
 	var got []RecvMsg
 	for len(got) < len(want) {
-		m,err := channel.Recv(t.Context())
-		if err!=nil {
+		m, err := channel.Recv(t.Context())
+		if err != nil {
 			panic(err)
 		}
 		got = append(got, m)

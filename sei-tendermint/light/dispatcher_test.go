@@ -2,21 +2,21 @@ package light
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-	"errors"
 
 	"github.com/fortytw2/leaktest"
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/tendermint/tendermint/internal/p2p"
+	"github.com/tendermint/tendermint/internal/test/factory"
 	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/internal/test/factory"
 	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
@@ -35,8 +35,8 @@ func GetLightBlockChannelDescriptor() p2p.ChannelDescriptor {
 }
 
 type testSuite struct {
-	network *p2p.TestNetwork
-	node    *p2p.TestNode
+	network    *p2p.TestNetwork
+	node       *p2p.TestNode
 	dispatcher *Dispatcher
 }
 
@@ -58,7 +58,7 @@ func setup(t *testing.T) *testSuite {
 
 	return &testSuite{
 		network: network,
-		node: n,
+		node:    n,
 		dispatcher: NewDispatcher(ch, func(height uint64) proto.Message {
 			return &ssproto.LightBlockRequest{
 				Height: height,
@@ -69,18 +69,18 @@ func setup(t *testing.T) *testSuite {
 
 type Node struct {
 	*p2p.TestNode
-	blockCh	 *p2p.Channel
+	blockCh *p2p.Channel
 }
 
 func (ts *testSuite) AddPeer(t *testing.T) *Node {
-	testNode := ts.network.MakeNode(t,p2p.TestNodeOptions {
+	testNode := ts.network.MakeNode(t, p2p.TestNodeOptions{
 		MaxPeers:     1,
 		MaxConnected: 1,
 		MaxRetryTime: time.Second,
 	})
 	n := &Node{
-		TestNode:   testNode,
-		blockCh:    testNode.Router.OpenChannelOrPanic(GetLightBlockChannelDescriptor()),
+		TestNode: testNode,
+		blockCh:  testNode.Router.OpenChannelOrPanic(GetLightBlockChannelDescriptor()),
 	}
 	ts.node.Connect(t.Context(), testNode)
 	return n
@@ -90,12 +90,14 @@ func (ts *testSuite) AddPeer(t *testing.T) *Node {
 // imitate the expected responses of the reactor wired to the dispatcher
 func (n *Node) handleRequests(ctx context.Context, d *Dispatcher) error {
 	for {
-		req,err := n.blockCh.Recv(ctx)
-		if err!=nil { return nil }
+		req, err := n.blockCh.Recv(ctx)
+		if err != nil {
+			return nil
+		}
 		height := req.Message.(*ssproto.LightBlockRequest).Height
 		resp := mockLBResp(ctx, n.NodeID, int64(height), time.Now())
 		block, _ := resp.block.ToProto()
-		if err:=d.Respond(ctx, block, n.NodeID); err!=nil {
+		if err := d.Respond(ctx, block, n.NodeID); err != nil {
 			return fmt.Errorf("d.Respond(): %w", err)
 		}
 	}
@@ -108,7 +110,7 @@ func TestDispatcherBasic(t *testing.T) {
 
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		var peers []*Node
-		for i := 0; i < numPeers; i++ {
+		for range numPeers {
 			n := ts.AddPeer(t)
 			s.SpawnBg(func() error { return n.handleRequests(ctx, ts.dispatcher) })
 			peers = append(peers, n)
@@ -116,18 +118,22 @@ func TestDispatcherBasic(t *testing.T) {
 
 		// make a bunch of async requests and require that the correct responses are
 		// given
-		for i,peer := range peers {
+		for i, peer := range peers {
 			s.Spawn(func() error {
 				height := int64(i + 1)
 				lb, err := ts.dispatcher.LightBlock(ctx, height, peer.NodeID)
-				if err!=nil { return fmt.Errorf("LightBlock(%v): %w", height, err) }
-				if lb.Height != height { return fmt.Errorf("expected height %v, got %v", height, lb.Height) }
+				if err != nil {
+					return fmt.Errorf("LightBlock(%v): %w", height, err)
+				}
+				if lb.Height != height {
+					return fmt.Errorf("expected height %v, got %v", height, lb.Height)
+				}
 				return nil
 			})
 		}
 		return nil
 	})
-	if err!=nil {
+	if err != nil {
 		t.Fatal(err)
 	}
 	// assert that all calls were responded to
@@ -140,21 +146,25 @@ func TestDispatcherReturnsNoBlock(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
 			for {
-				_,err := peer.blockCh.Recv(ctx)
-				if err!=nil { return nil }
-				if err:= ts.dispatcher.Respond(ctx, nil, peer.NodeID); err!=nil {
+				_, err := peer.blockCh.Recv(ctx)
+				if err != nil {
+					return nil
+				}
+				if err := ts.dispatcher.Respond(ctx, nil, peer.NodeID); err != nil {
 					return fmt.Errorf("d.Respond(): %w", err)
 				}
 			}
 		})
 		lb, err := ts.dispatcher.LightBlock(ctx, 1, peer.NodeID)
-		if err!=nil { return fmt.Errorf("LightBlock: %w", err) }
+		if err != nil {
+			return fmt.Errorf("LightBlock: %w", err)
+		}
 		if lb != nil {
 			return fmt.Errorf("expected no light block, got %v", lb)
 		}
 		return nil
 	})
-	if err!=nil {
+	if err != nil {
 		t.Fatal(err)
 	}
 }
@@ -166,7 +176,7 @@ func TestDispatcherTimeOutWaitingOnLightBlock(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, err := ts.dispatcher.LightBlock(ctx, 1, peer)
-	if !errors.Is(err, context.Canceled) {
+	if !errors.Is(err, ErrDisconnected) {
 		t.Fatalf("expected context.Canceled error, got %v", err)
 	}
 }
@@ -387,7 +397,7 @@ func mockLB(ctx context.Context, height int64, time time.Time, lastBlockID types
 	lastBlockID = factory.MakeBlockIDWithHash(header.Hash())
 	voteSet := types.NewVoteSet(factory.DefaultTestChainID, height, 0, tmproto.PrecommitType, currentVals)
 	commit, err := factory.MakeCommit(ctx, lastBlockID, height, 0, voteSet, currentPrivVals, time)
-	if err!=nil {
+	if err != nil {
 		panic(fmt.Errorf("factory.MakeCommit(): %w", err))
 	}
 	return nextVals, nextPrivVals, &types.LightBlock{

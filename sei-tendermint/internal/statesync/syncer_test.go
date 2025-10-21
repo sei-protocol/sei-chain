@@ -1,25 +1,25 @@
 package statesync
 
 import (
-	"errors"
-	"sync"
 	"context"
+	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
-	"fmt"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 
 	clientmocks "github.com/tendermint/tendermint/abci/client/mocks"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/internal/proxy"
-	"github.com/tendermint/tendermint/libs/utils/require"
-	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/tendermint/tendermint/libs/utils"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/internal/statesync/mocks"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
 	"github.com/tendermint/tendermint/types"
 	"github.com/tendermint/tendermint/version"
@@ -80,12 +80,12 @@ func TestSyncer_SyncAny(t *testing.T) {
 
 	// Adding a couple of peers should trigger snapshot discovery messages
 	rts.syncer.AddPeer(peerA.NodeID)
-	m,err := peerA.snapshotCh.Recv(ctx)
+	m, err := peerA.snapshotCh.Recv(ctx)
 	require.NoError(t, err)
 	require.Equal[proto.Message](t, &ssproto.SnapshotsRequest{}, m.Message)
 
 	rts.syncer.AddPeer(peerB.NodeID)
-	m,err = peerB.snapshotCh.Recv(ctx)
+	m, err = peerB.snapshotCh.Recv(ctx)
 	require.NoError(t, err)
 	require.Equal[proto.Message](t, &ssproto.SnapshotsRequest{}, m.Message)
 
@@ -134,11 +134,13 @@ func TestSyncer_SyncAny(t *testing.T) {
 	chunkRequestsMtx := sync.Mutex{}
 	var seen int
 	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		for _,peer := range utils.Slice(peerA,peerB,peerC) {
+		for _, peer := range utils.Slice(peerA, peerB, peerC) {
 			s.SpawnBg(func() error {
 				for {
-					m,err := peer.chunkCh.Recv(ctx)
-					if err!=nil { return nil }
+					m, err := peer.chunkCh.Recv(ctx)
+					if err != nil {
+						return nil
+					}
 					req := m.Message.(*ssproto.ChunkRequest)
 					if req.Height != 1 {
 						return fmt.Errorf("expected height 1, got %d", req.Height)
@@ -150,7 +152,7 @@ func TestSyncer_SyncAny(t *testing.T) {
 						return fmt.Errorf("requested index out of range: %d", req.Index)
 					}
 					added, err := rts.syncer.AddChunk(chunks[req.Index])
-					if err!=nil {
+					if err != nil {
 						return fmt.Errorf("AddChunk(): %w", err)
 					}
 					if !added {
@@ -191,20 +193,20 @@ func TestSyncer_SyncAny(t *testing.T) {
 		}, nil)
 
 		newState, lastCommit, err := rts.syncer.SyncAny(ctx, 0, func() error { return nil })
-		if err!=nil {
+		if err != nil {
 			return fmt.Errorf("rts.syncer.SyncAny(): %w", err)
 		}
 		// TODO(gprusak): we should have used utils.TestDiff here, however ValidatorSet has dynamic unexported field and
 		// does NOT provide Equal method.
-		if ok:=assert.Equal(t, state, newState); !ok {
+		if ok := assert.Equal(t, state, newState); !ok {
 			return fmt.Errorf("state mismatch, got %v want %v", newState, state)
 		}
-		if ok:=assert.Equal(t, commit, lastCommit); !ok {
+		if ok := assert.Equal(t, commit, lastCommit); !ok {
 			return fmt.Errorf("commit mismatch, got %v want %v", lastCommit, commit)
 		}
 		return nil
 	})
-	if err!=nil {
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -683,7 +685,7 @@ func TestSyncer_applyChunks_RejectSenders(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 
 			s1peers := rts.syncer.snapshots.GetPeers(s1)
-			if err:=utils.TestDiff([]types.NodeID{peerAID, peerCID}, s1peers); err!=nil {
+			if err := utils.TestDiff([]types.NodeID{peerAID, peerCID}, s1peers); err != nil {
 				t.Fatal(err)
 			}
 			require.NoError(t, chunks.Close())

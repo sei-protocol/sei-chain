@@ -3,15 +3,15 @@ package p2p
 import (
 	"context"
 	"fmt"
-	"time"
+	"github.com/gogo/protobuf/proto"
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/utils/scope"
-	"github.com/gogo/protobuf/proto"
 	"math"
 	"net"
 	"net/netip"
 	"sync/atomic"
+	"time"
 
 	p2pproto "github.com/tendermint/tendermint/proto/tendermint/p2p"
 	"github.com/tendermint/tendermint/types"
@@ -38,11 +38,11 @@ func (cs ChannelIDSet) Contains(id ChannelID) bool {
 
 // Connection implements Connection for Transport.
 type Connection struct {
-	conn *net.TCPConn
+	conn         *net.TCPConn
 	peerChannels ChannelIDSet
-	peerInfo types.NodeInfo
-	sendQueue *Queue[sendMsg]
-	mconn *conn.MConnection
+	peerInfo     types.NodeInfo
+	sendQueue    *Queue[sendMsg]
+	mconn        *conn.MConnection
 }
 
 // Handshake implements Connection.
@@ -92,9 +92,9 @@ func HandshakeOrClose(ctx context.Context, r *Router, tcpConn *net.TCPConn) (c *
 		}
 		ok.Store(true)
 		return &Connection{
-			conn:     tcpConn,
-			sendQueue: NewQueue[sendMsg](queueBufferDefault),
-			peerInfo: peerInfo,
+			conn:         tcpConn,
+			sendQueue:    NewQueue[sendMsg](queueBufferDefault),
+			peerInfo:     peerInfo,
 			peerChannels: toChannelIDs(peerInfo.Channels),
 			mconn: conn.NewMConnection(
 				r.logger.With("peer", remoteEndpoint(tcpConn).NodeAddress(peerInfo.NodeID)),

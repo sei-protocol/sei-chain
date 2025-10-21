@@ -272,8 +272,10 @@ func (r *Reactor) handleMessage(m p2p.RecvMsg, blockSyncCh *p2p.Channel) (err er
 // gracefully.
 func (r *Reactor) processBlockSyncCh(ctx context.Context, blockSyncCh *p2p.Channel) {
 	for {
-		m,err := blockSyncCh.Recv(ctx)
-		if err!=nil { return }
+		m, err := blockSyncCh.Recv(ctx)
+		if err != nil {
+			return
+		}
 		if err := r.handleMessage(m, blockSyncCh); err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return

@@ -81,7 +81,7 @@ func MakeHeader(h *types.Header) *types.Header {
 		h.ProposerAddress = RandomAddress()
 	}
 
-	if err := h.ValidateBasic(); err!=nil {
+	if err := h.ValidateBasic(); err != nil {
 		panic(err)
 	}
 	return h

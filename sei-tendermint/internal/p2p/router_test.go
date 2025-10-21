@@ -47,8 +47,10 @@ func makeChDesc(id ChannelID) ChannelDescriptor {
 
 func echoReactor(ctx context.Context, channel *Channel) {
 	for {
-		m,err := channel.Recv(ctx)
-		if err!=nil { return }
+		m, err := channel.Recv(ctx)
+		if err != nil {
+			return
+		}
 		channel.Send(m.Message, m.From)
 	}
 }
@@ -84,8 +86,8 @@ func TestRouter_Network(t *testing.T) {
 	want := []RecvMsg{}
 	for _, peer := range peers {
 		want = append(want, RecvMsg{
-			From:      peer.NodeID,
-			Message:   &TestMessage{Value: "bar"},
+			From:    peer.NodeID,
+			Message: &TestMessage{Value: "bar"},
 		})
 	}
 	RequireReceiveUnordered(t, channel, want)
@@ -199,7 +201,7 @@ func TestRouter_Channel_Broadcast(t *testing.T) {
 
 	t.Logf("Sending a broadcast from b should work.")
 	b.Broadcast(&TestMessage{Value: "foo"})
-	for _, ch := range utils.Slice(a,c,d) {
+	for _, ch := range utils.Slice(a, c, d) {
 		RequireReceive(t, ch, RecvMsg{From: bID, Message: &TestMessage{Value: "foo"}})
 	}
 	RequireEmpty(t, a, b, c, d)
@@ -207,7 +209,7 @@ func TestRouter_Channel_Broadcast(t *testing.T) {
 	t.Logf("Removing one node from the network shouldn't prevent broadcasts from working.")
 	network.Remove(t, dID)
 	a.Broadcast(&TestMessage{Value: "bar"})
-	for _, ch := range utils.Slice(b,c) {
+	for _, ch := range utils.Slice(b, c) {
 		RequireReceive(t, ch, RecvMsg{From: aID, Message: &TestMessage{Value: "bar"}})
 	}
 	RequireEmpty(t, a, b, c, d)
@@ -237,19 +239,19 @@ func TestRouter_Channel_Wrapper(t *testing.T) {
 	// Since wrapperMessage implements Wrapper and handles Message, it
 	// should automatically wrap and unwrap sent messages -- we prepend the
 	// wrapper actions to the message value to signal this.
-	a.Send(&TestMessage{Value: "foo"},bID)
+	a.Send(&TestMessage{Value: "foo"}, bID)
 	RequireReceive(t, b, RecvMsg{From: aID, Message: &TestMessage{Value: "unwrap:wrap:foo"}})
 
 	// If we send a different message that can't be wrapped, it should be dropped.
-	a.Send(&gogotypes.BoolValue{Value: true},bID)
+	a.Send(&gogotypes.BoolValue{Value: true}, bID)
 	RequireEmpty(t, b)
 
 	// If we send the wrapper message itself, it should also be passed through
 	// since WrapperMessage supports it, and should only be unwrapped at the receiver.
 	a.Send(&wrapperMessage{TestMessage: TestMessage{Value: "foo"}}, bID)
 	RequireReceive(t, b, RecvMsg{
-		From:      aID,
-		Message:   &TestMessage{Value: "unwrap:foo"},
+		From:    aID,
+		Message: &TestMessage{Value: "unwrap:foo"},
 	})
 }
 
@@ -309,7 +311,7 @@ func makeRouterWithOptionsAndKey(logger log.Logger, ropts RouterOptions, key cry
 	}
 	info := makeInfo(key)
 	peerManager, err := NewPeerManager(logger, info.NodeID, dbm.NewMemDB(), opts, NopMetrics())
-	if err!=nil {
+	if err != nil {
 		panic(fmt.Errorf("NewPeerManager: %w", err))
 	}
 	router, err := NewRouter(
@@ -326,7 +328,7 @@ func makeRouterWithOptionsAndKey(logger log.Logger, ropts RouterOptions, key cry
 		},
 		ropts,
 	)
-	if err!=nil {
+	if err != nil {
 		panic(fmt.Errorf("NewRouter: %w", err))
 	}
 	return router
@@ -369,14 +371,14 @@ func TestRouter_FilterByIP(t *testing.T) {
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		r := makeRouterWithOptions(logger, opts)
 		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
-		if err := r.WaitForStart(ctx); err!=nil {
+		if err := r.WaitForStart(ctx); err != nil {
 			return err
 		}
 		sub := r.peerManager.Subscribe(ctx)
 
 		t.Logf("Connection should succeed.")
 		r2 := makeRouter(logger)
-		tcpConn,err := r2.Dial(ctx, r.Address())
+		tcpConn, err := r2.Dial(ctx, r.Address())
 		if err != nil {
 			return fmt.Errorf("peerTransport.Dial(): %w", err)
 		}
@@ -420,11 +422,11 @@ func TestRouter_AcceptPeers(t *testing.T) {
 		key  crypto.PrivKey
 		ok   bool
 	}{
-		"valid handshake":       {makeInfo(peerKey), peerKey, true},
-		"empty handshake":       {types.NodeInfo{}, peerKey, false},
-		"self handshake":        {makeInfo(selfKey), selfKey, false},
-		"incompatible network":  {badInfo, peerKey, false},
-		"filtered":              {infoFiltered, keyFiltered, false},
+		"valid handshake":      {makeInfo(peerKey), peerKey, true},
+		"empty handshake":      {types.NodeInfo{}, peerKey, false},
+		"self handshake":       {makeInfo(selfKey), selfKey, false},
+		"incompatible network": {badInfo, peerKey, false},
+		"filtered":             {infoFiltered, keyFiltered, false},
 	}
 
 	for name, tc := range testcases {
@@ -432,18 +434,18 @@ func TestRouter_AcceptPeers(t *testing.T) {
 			logger, _ := log.NewDefaultLogger("plain", "debug")
 			t.Cleanup(leaktest.Check(t))
 			if err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
-				r := makeRouterWithKey(logger,selfKey)
+				r := makeRouterWithKey(logger, selfKey)
 				s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
-				if err := r.WaitForStart(ctx); err!=nil {
+				if err := r.WaitForStart(ctx); err != nil {
 					return err
 				}
 				sub := r.peerManager.Subscribe(ctx)
 
-				x := makeRouterWithKey(logger,tc.key)
+				x := makeRouterWithKey(logger, tc.key)
 				// WARNING: here we malform the router internal state.
 				// It would be better to have a dedicated API for performing malformed handshakes.
 				*x.nodeInfoProducer() = tc.info
-				tcpConn,err := x.Dial(ctx, r.Address())
+				tcpConn, err := x.Dial(ctx, r.Address())
 				if err != nil {
 					return fmt.Errorf("peerTransport.Dial(): %w", err)
 				}
@@ -485,7 +487,7 @@ func TestRouter_AcceptPeers_Parallel(t *testing.T) {
 		t.Logf("Set up and start the router.")
 		r := makeRouter(logger)
 		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
-		if err := r.WaitForStart(ctx); err!=nil {
+		if err := r.WaitForStart(ctx); err != nil {
 			return err
 		}
 		sub := r.peerManager.Subscribe(ctx)
@@ -509,7 +511,7 @@ func TestRouter_AcceptPeers_Parallel(t *testing.T) {
 				return fmt.Errorf("conn.Handshake(): %w", err)
 			}
 			RequireUpdate(t, sub, PeerUpdate{
-				NodeID:	peers[i].Address().NodeID,
+				NodeID: peers[i].Address().NodeID,
 				Status: PeerStatusUp,
 			})
 		}
@@ -527,7 +529,7 @@ func TestRouter_DialPeer_Retry(t *testing.T) {
 		t.Logf("Set up and start the router.")
 		r := makeRouter(logger)
 		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
-		if err := r.WaitForStart(ctx); err!=nil {
+		if err := r.WaitForStart(ctx); err != nil {
 			return err
 		}
 		sub := r.peerManager.Subscribe(ctx)
@@ -594,7 +596,7 @@ func TestRouter_DialPeer_Reject(t *testing.T) {
 			err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 				r := makeRouter(logger)
 				s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
-				if err := r.WaitForStart(ctx); err!=nil {
+				if err := r.WaitForStart(ctx); err != nil {
 					return err
 				}
 
@@ -635,13 +637,11 @@ func TestRouter_DialPeers_Parallel(t *testing.T) {
 	ctx := t.Context()
 	t.Cleanup(leaktest.Check(t))
 
-
-
 	t.Logf("Set up and start the router.")
 	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		r := makeRouter(logger)
 		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
-		if err := r.WaitForStart(ctx); err!=nil {
+		if err := r.WaitForStart(ctx); err != nil {
 			return err
 		}
 		sub := r.peerManager.Subscribe(ctx)
@@ -692,7 +692,7 @@ func TestRouter_EvictPeers(t *testing.T) {
 	if err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		r := makeRouter(logger)
 		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
-		if err := r.WaitForStart(ctx); err!=nil {
+		if err := r.WaitForStart(ctx); err != nil {
 			return err
 		}
 		sub := r.peerManager.Subscribe(ctx)
@@ -735,22 +735,28 @@ func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
 	if err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		r := makeRouter(logger)
 		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
-		if err := r.WaitForStart(ctx); err!=nil {
+		if err := r.WaitForStart(ctx); err != nil {
 			return err
 		}
 		sub := r.peerManager.Subscribe(ctx)
 
 		desc1 := makeChDesc(1)
 		r1, err := r.OpenChannel(desc1)
-		if err!=nil { return fmt.Errorf("r.OpenChannel(1): %w", err) }
+		if err != nil {
+			return fmt.Errorf("r.OpenChannel(1): %w", err)
+		}
 
 		desc2 := makeChDesc(2)
 		r2, err := r.OpenChannel(desc2)
-		if err!=nil { return fmt.Errorf("r.OpenChannel(2): %w", err) }
+		if err != nil {
+			return fmt.Errorf("r.OpenChannel(2): %w", err)
+		}
 
 		x := makeRouter(logger)
-		x1,err := x.OpenChannel(desc1)
-		if err!=nil { return fmt.Errorf("x.OpenChannel(1): %w", err) }
+		x1, err := x.OpenChannel(desc1)
+		if err != nil {
+			return fmt.Errorf("x.OpenChannel(1): %w", err)
+		}
 
 		tcpConn, err := x.Dial(ctx, r.Address())
 		if err != nil {

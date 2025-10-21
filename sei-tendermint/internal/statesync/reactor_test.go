@@ -1,13 +1,13 @@
 package statesync
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
 	"sync"
 	"testing"
 	"time"
-	"cmp"
 
 	"github.com/fortytw2/leaktest"
 	"github.com/stretchr/testify/mock"
@@ -16,8 +16,6 @@ import (
 	clientmocks "github.com/tendermint/tendermint/abci/client/mocks"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/config"
-	"github.com/tendermint/tendermint/libs/utils/require"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/internal/proxy"
 	smmocks "github.com/tendermint/tendermint/internal/state/mocks"
@@ -25,6 +23,8 @@ import (
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/internal/test/factory"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/light"
 	"github.com/tendermint/tendermint/light/provider"
 	ssproto "github.com/tendermint/tendermint/proto/tendermint/statesync"
@@ -118,9 +118,9 @@ func setup(
 	t.Cleanup(leaktest.Check(t))
 
 	return &reactorTestSuite{
-		network: network,
-		node: n,
-		conn: conn,
+		network:       network,
+		node:          n,
+		conn:          conn,
 		stateProvider: stateProvider,
 		stateStore:    stateStore,
 		blockStore:    blockStore,
@@ -130,7 +130,7 @@ func setup(
 }
 
 func (rts *reactorTestSuite) AddPeer(t *testing.T) *Node {
-	testNode := rts.network.MakeNode(t,p2p.TestNodeOptions {
+	testNode := rts.network.MakeNode(t, p2p.TestNodeOptions{
 		MaxPeers:     1,
 		MaxConnected: 1,
 		MaxRetryTime: time.Second,
@@ -176,7 +176,9 @@ func TestReactor_Sync(t *testing.T) {
 	go func() {
 		ticker := time.NewTicker(time.Second)
 		for {
-			if _,err := utils.Recv(ctx, ticker.C); err!=nil { return }
+			if _, err := utils.Recv(ctx, ticker.C); err != nil {
+				return
+			}
 			n := rts.AddPeer(t)
 			go n.handleLightBlockRequests(t, chain, 0)
 			go n.handleChunkRequests(t, []byte("abc"))
@@ -248,9 +250,9 @@ func TestReactor_ChunkRequest(t *testing.T) {
 			n.chunkCh.Broadcast(&ssproto.SnapshotsRequest{})
 			// Send the actual message.
 			n.chunkCh.Broadcast(tc.request)
-			m,err := n.chunkCh.Recv(ctx)
+			m, err := n.chunkCh.Recv(ctx)
 			require.NoError(t, err)
-			if err:=utils.TestDiff(tc.expectResponse, m.Message.(*ssproto.ChunkResponse)); err!=nil {
+			if err := utils.TestDiff(tc.expectResponse, m.Message.(*ssproto.ChunkResponse)); err != nil {
 				t.Fatal(err)
 			}
 			conn.AssertExpectations(t)
@@ -270,7 +272,7 @@ func abciToSSProtoSnapshot(snapshot *abci.Snapshot) *ssproto.SnapshotsResponse {
 
 func TestReactor_SnapshotsRequest(t *testing.T) {
 	testcases := map[string]struct {
-		snapshots       []*abci.Snapshot
+		snapshots []*abci.Snapshot
 	}{
 		"no snapshots": {nil},
 		">10 unordered snapshots": {
@@ -315,8 +317,8 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 			}
 			less := func(a, b *ssproto.SnapshotsResponse) int {
 				return cmp.Or(
-					cmp.Compare(b.Height,a.Height),
-					cmp.Compare(b.Format,a.Format),
+					cmp.Compare(b.Height, a.Height),
+					cmp.Compare(b.Format, a.Format),
 				)
 			}
 			slices.SortFunc(want, less)
@@ -327,13 +329,13 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 			// Receive the actual answer.
 			got := make([]*ssproto.SnapshotsResponse, len(want))
 			for i := range want {
-				m,err := n.snapshotCh.Recv(ctx)
+				m, err := n.snapshotCh.Recv(ctx)
 				require.NoError(t, err)
 				got[i] = m.Message.(*ssproto.SnapshotsResponse)
 			}
 
 			slices.SortFunc(got, less)
-			if err:=utils.TestDiff(want, got); err!=nil {
+			if err := utils.TestDiff(want, got); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -347,10 +349,10 @@ func TestReactor_LightBlockResponse(t *testing.T) {
 
 	var height int64 = 10
 	// generates a random header
-	h := factory.MakeHeader(t, &types.Header{})
+	h := factory.MakeHeader(&types.Header{})
 	h.Height = height
 	blockID := factory.MakeBlockIDWithHash(h.Hash())
-	vals, pv := factory.ValidatorSet(ctx, t, 1, 10)
+	vals, pv := factory.ValidatorSet(ctx, 1, 10)
 	vote, err := factory.MakeVote(ctx, pv[0], h.ChainID, 0, h.Height, 0, 2,
 		blockID, factory.DefaultTestTime)
 	require.NoError(t, err)
@@ -364,7 +366,7 @@ func TestReactor_LightBlockResponse(t *testing.T) {
 				vote.CommitSig(),
 			},
 		},
-}
+	}
 
 	lb := &types.LightBlock{
 		SignedHeader: sh,
@@ -376,7 +378,7 @@ func TestReactor_LightBlockResponse(t *testing.T) {
 	rts.stateStore.On("LoadValidators", height).Return(vals, nil)
 	n := rts.AddPeer(t)
 	n.blockCh.Broadcast(&ssproto.LightBlockRequest{Height: 10})
-	m,err := n.blockCh.Recv(ctx)
+	m, err := n.blockCh.Recv(ctx)
 	require.NoError(t, err)
 	res := m.Message.(*ssproto.LightBlockResponse)
 	receivedLB, err := types.LightBlockFromProto(res.LightBlock)
@@ -503,7 +505,7 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return len(sp.Providers()) == 1
 	}, 5*time.Second, 100*time.Millisecond)
-	require.Equal(t,n1, types.NodeID(sp.Providers()[0].ID()))
+	require.Equal(t, n1, types.NodeID(sp.Providers()[0].ID()))
 }
 
 func TestReactor_Backfill(t *testing.T) {
@@ -581,7 +583,7 @@ func buildLightBlockChain(ctx context.Context, t *testing.T, fromHeight, toHeigh
 	chain := make(map[int64]*types.LightBlock, toHeight-fromHeight)
 	lastBlockID := factory.MakeBlockID()
 	blockTime := startTime.Add(time.Duration(fromHeight-toHeight) * time.Minute)
-	vals, pv := factory.ValidatorSet(ctx, t, 3, 10)
+	vals, pv := factory.ValidatorSet(ctx, 3, 10)
 	for height := fromHeight; height < toHeight; height++ {
 		vals, pv, chain[height] = mockLB(ctx, t, height, blockTime, lastBlockID, vals, pv)
 		lastBlockID = factory.MakeBlockIDWithHash(chain[height].Header.Hash())
@@ -594,14 +596,14 @@ func mockLB(ctx context.Context, t *testing.T, height int64, time time.Time, las
 	currentVals *types.ValidatorSet, currentPrivVals []types.PrivValidator,
 ) (*types.ValidatorSet, []types.PrivValidator, *types.LightBlock) {
 	t.Helper()
-	header := factory.MakeHeader(t, &types.Header{
+	header := factory.MakeHeader(&types.Header{
 		Height:      height,
 		LastBlockID: lastBlockID,
 		Time:        time,
 	})
 	header.Version.App = testAppVersion
 
-	nextVals, nextPrivVals := factory.ValidatorSet(ctx, t, 3, 10)
+	nextVals, nextPrivVals := factory.ValidatorSet(ctx, 3, 10)
 	header.ValidatorsHash = currentVals.Hash()
 	header.NextValidatorsHash = nextVals.Hash()
 	header.ConsensusHash = types.DefaultConsensusParams().HashConsensusParams()
@@ -633,11 +635,15 @@ func (n *Node) handleLightBlockRequests(
 ) {
 	ctx := t.Context()
 	errorCount := 0
-	for requests:=0;; requests++ {
-		m,err := n.blockCh.Recv(ctx)
-		if err != nil { return }
+	for requests := 0; ; requests++ {
+		m, err := n.blockCh.Recv(ctx)
+		if err != nil {
+			return
+		}
 		msg, ok := m.Message.(*ssproto.LightBlockRequest)
-		if !ok { continue }
+		if !ok {
+			continue
+		}
 		if requests%10 >= failureRate {
 			lb, err := chain[int64(msg.Height)].ToProto()
 			require.NoError(t, err)
@@ -645,10 +651,12 @@ func (n *Node) handleLightBlockRequests(
 		} else {
 			switch errorCount % 3 {
 			case 0: // send a different block
-				vals, pv := factory.ValidatorSet(ctx, t, 3, 10)
+				vals, pv := factory.ValidatorSet(ctx, 3, 10)
 				_, _, lb := mockLB(ctx, t, int64(msg.Height), factory.DefaultTestTime, factory.MakeBlockID(), vals, pv)
 				differntLB, err := lb.ToProto()
-				if err!=nil { panic(err) }
+				if err != nil {
+					panic(err)
+				}
 				n.blockCh.Send(&ssproto.LightBlockResponse{LightBlock: differntLB}, m.From)
 			case 1: // send nil block i.e. pretend we don't have it
 				n.blockCh.Send(&ssproto.LightBlockResponse{LightBlock: nil}, m.From)
@@ -665,8 +673,10 @@ func (n *Node) handleConsensusParamsRequest(t *testing.T) {
 	params := types.DefaultConsensusParams()
 	paramsProto := params.ToProto()
 	for {
-		m,err := n.paramsCh.Recv(ctx)
-		if err != nil { return }
+		m, err := n.paramsCh.Recv(ctx)
+		if err != nil {
+			return
+		}
 		msg := m.Message.(*ssproto.ParamsRequest)
 		n.paramsCh.Send(&ssproto.ParamsResponse{
 			Height:          msg.Height,
@@ -675,13 +685,14 @@ func (n *Node) handleConsensusParamsRequest(t *testing.T) {
 	}
 }
 
-
 func (n *Node) handleSnapshotRequests(t *testing.T, snapshots []snapshot) {
 	t.Helper()
 	ctx := t.Context()
 	for {
-		m,err := n.snapshotCh.Recv(ctx)
-		if err != nil { return }
+		m, err := n.snapshotCh.Recv(ctx)
+		if err != nil {
+			return
+		}
 		_ = m.Message.(*ssproto.SnapshotsRequest)
 		for _, snapshot := range snapshots {
 			n.snapshotCh.Send(&ssproto.SnapshotsResponse{
@@ -699,8 +710,10 @@ func (n *Node) handleChunkRequests(t *testing.T, chunk []byte) {
 	t.Helper()
 	ctx := t.Context()
 	for {
-		m,err := n.chunkCh.Recv(ctx)
-		if err != nil { return }
+		m, err := n.chunkCh.Recv(ctx)
+		if err != nil {
+			return
+		}
 		msg := m.Message.(*ssproto.ChunkRequest)
 		n.chunkCh.Send(&ssproto.ChunkResponse{
 			Height:  msg.Height,

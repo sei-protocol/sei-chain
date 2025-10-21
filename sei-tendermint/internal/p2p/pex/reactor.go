@@ -161,8 +161,8 @@ func (r *Reactor) processPexCh(ctx context.Context) error {
 		incoming := make(chan p2p.RecvMsg)
 		s.Spawn(func() error {
 			for {
-				m,err := r.channel.Recv(ctx)
-				if err!=nil {
+				m, err := r.channel.Recv(ctx)
+				if err != nil {
 					return err
 				}
 				if err := utils.Send(ctx, incoming, m); err != nil {
@@ -235,7 +235,7 @@ func (r *Reactor) processPexCh(ctx context.Context) error {
 // close the p2p PeerUpdatesCh gracefully.
 func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 	peerUpdates := r.peerManager.Subscribe(ctx)
-	for _,update := range peerUpdates.PreexistingPeers() {
+	for _, update := range peerUpdates.PreexistingPeers() {
 		r.processPeerUpdate(update)
 	}
 	for {

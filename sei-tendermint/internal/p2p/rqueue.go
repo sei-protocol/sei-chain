@@ -71,7 +71,7 @@ func (x *byMax[T]) Pop() any {
 // pqEnvelope defines a wrapper around an Envelope with priority to be inserted
 // into a priority Queue used for Envelope scheduling.
 type pqEnvelope[M any] struct {
-	msg  M
+	msg       M
 	priority  int
 	size      int
 	timestamp time.Time
@@ -149,9 +149,9 @@ func (q *Queue[M]) Len() int {
 func (q *Queue[M]) Send(msg M, size int, priority int) utils.Option[M] {
 	// We construct the pqEnvelope without holding the lock to avoid contention.
 	pqe := &pqEnvelope[M]{
-		msg: msg,
-		size: size,
-		priority: priority,
+		msg:       msg,
+		size:      size,
+		priority:  priority,
 		timestamp: time.Now().UTC(),
 	}
 	for inner, ctrl := range q.inner.Lock() {
