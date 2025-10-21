@@ -40,7 +40,6 @@ type reactorTestSuite struct {
 	network *p2p.TestNetwork
 	node    *p2p.TestNode
 	reactor *Reactor
-	syncer  *syncer
 
 	conn          *clientmocks.Client
 	stateProvider *mocks.StateProvider
@@ -53,6 +52,7 @@ func setup(
 	t *testing.T,
 	conn *clientmocks.Client,
 	stateProvider *mocks.StateProvider,
+	setSyncer bool,
 ) *reactorTestSuite {
 	t.Helper()
 
@@ -99,17 +99,19 @@ func setup(
 	reactor.SetLightBlockChannel(n.Router.OpenChannelOrPanic(GetLightBlockChannelDescriptor()))
 	reactor.SetParamsChannel(n.Router.OpenChannelOrPanic(GetParamsChannelDescriptor()))
 
-	syncer := &syncer{
-		logger:        logger,
-		stateProvider: stateProvider,
-		conn:          conn,
-		snapshots:     newSnapshotPool(),
-		snapshotCh:    reactor.snapshotChannel,
-		chunkCh:       reactor.chunkChannel,
-		tempDir:       t.TempDir(),
-		fetchers:      cfg.Fetchers,
-		retryTimeout:  cfg.ChunkRequestTimeout,
-		metrics:       reactor.metrics,
+	if setSyncer {
+		reactor.syncer = &syncer{
+			logger:        logger,
+			stateProvider: stateProvider,
+			conn:          conn,
+			snapshots:     newSnapshotPool(),
+			snapshotCh:    reactor.snapshotChannel,
+			chunkCh:       reactor.chunkChannel,
+			tempDir:       t.TempDir(),
+			fetchers:      cfg.Fetchers,
+			retryTimeout:  cfg.ChunkRequestTimeout,
+			metrics:       reactor.metrics,
+		}
 	}
 
 	require.NoError(t, reactor.Start(t.Context()))
@@ -125,7 +127,6 @@ func setup(
 		stateStore:    stateStore,
 		blockStore:    blockStore,
 		reactor:       reactor,
-		syncer:        syncer,
 	}
 }
 
@@ -151,7 +152,7 @@ func TestReactor_Sync(t *testing.T) {
 	defer cancel()
 
 	const snapshotHeight = 7
-	rts := setup(t, nil, nil)
+	rts := setup(t, nil, nil, false)
 	chain := buildLightBlockChain(ctx, t, 1, 10, time.Now())
 	// app accepts any snapshot
 	rts.conn.On("OfferSnapshot", ctx, mock.IsType(&abci.RequestOfferSnapshot{})).
@@ -244,7 +245,7 @@ func TestReactor_ChunkRequest(t *testing.T) {
 				Chunk:  tc.request.Index,
 			}).Return(&abci.ResponseLoadSnapshotChunk{Chunk: tc.chunk}, nil)
 
-			rts := setup(t, conn, nil)
+			rts := setup(t, conn, nil, false)
 			n := rts.AddPeer(t)
 			// Send an invalid message, which should be just ignored.
 			n.chunkCh.Broadcast(&ssproto.SnapshotsRequest{})
@@ -302,7 +303,7 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 				Snapshots: tc.snapshots,
 			}, nil)
 
-			rts := setup(t, conn, nil)
+			rts := setup(t, conn, nil, false)
 			n := rts.AddPeer(t)
 			// Send an invalid message, which should be just ignored.
 			// TODO(gprusak): P2P message type safety should be provided by router.
@@ -345,7 +346,7 @@ func TestReactor_SnapshotsRequest(t *testing.T) {
 func TestReactor_LightBlockResponse(t *testing.T) {
 	ctx := t.Context()
 
-	rts := setup(t, nil, nil)
+	rts := setup(t, nil, nil, false)
 
 	var height int64 = 10
 	// generates a random header
@@ -390,7 +391,7 @@ func TestReactor_BlockProviders(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	rts := setup(t, nil, nil)
+	rts := setup(t, nil, nil, false)
 	a := rts.AddPeer(t)
 	b := rts.AddPeer(t)
 
@@ -436,9 +437,7 @@ func TestReactor_BlockProviders(t *testing.T) {
 func TestReactor_StateProviderP2P(t *testing.T) {
 	ctx := t.Context()
 
-	rts := setup(t, nil, nil)
-	// make syncer non nil else test won't think we are state syncing
-	rts.reactor.syncer = rts.syncer
+	rts := setup(t, nil, nil, true)
 	peerA := rts.AddPeer(t)
 	peerB := rts.AddPeer(t)
 	peerC := rts.AddPeer(t)
@@ -455,11 +454,13 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 	ictx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 
-	rts.reactor.mtx.Lock()
-	err := rts.reactor.initStateProvider(ictx, factory.DefaultTestChainID, 1)
-	rts.reactor.mtx.Unlock()
-	require.NoError(t, err)
-	rts.reactor.syncer.stateProvider = rts.reactor.stateProvider
+	func() {
+		rts.reactor.mtx.Lock()
+		defer rts.reactor.mtx.Unlock()
+		err := rts.reactor.initStateProvider(ictx, factory.DefaultTestChainID, 1)
+		require.NoError(t, err)
+		rts.reactor.syncer.stateProvider = rts.reactor.stateProvider
+	}()
 
 	// initStateProvider is expected to block until 2 peers are available.
 	// However we need 3 peers to test witness removal.
@@ -515,7 +516,7 @@ func TestReactor_Backfill(t *testing.T) {
 		t.Run(fmt.Sprintf("failure rate: %d", failureRate), func(t *testing.T) {
 			ctx := t.Context()
 			t.Cleanup(leaktest.CheckTimeout(t, 1*time.Minute))
-			rts := setup(t, nil, nil)
+			rts := setup(t, nil, nil, false)
 
 			var (
 				startHeight int64 = 20
