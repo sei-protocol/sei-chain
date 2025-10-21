@@ -1,5 +1,6 @@
 name: Go
 on:
+  workflow_call:
   pull_request:
   push:
     branches:
@@ -8,23 +9,31 @@ on:
 
 jobs:
   tests:
-    name: "Test ${{ matrix.module }}"
+    name: "Test ${{ matrix.modules.name }}"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        module:
-          - .
-          - ./sei-cosmos
-          - ./sei-db
-          - ./sei-tendermint
-          - ./sei-wasmd
-          - ./sei-wasmvm
+        modules:
+          - name: Chain
+            path: ./
+          - name: Cosmos
+            path: ./sei-cosmos
+            tags: ledger test_ledger_mock
+          - name: DB
+            path: ./sei-db
+          - name: tendermint
+            path: ./sei-tendermint
+          - name: WasmD
+            path: ./sei-wasmd
+            tags: ledger test_ledger_mock
+          - name: WasmVM
+            path: ./sei-wasmvm
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
-          go-version: "1.24"
+          go-version: '1.24'
       - name: Go test
-        working-directory: "${{ matrix.module }}"
-        run: go test -v -tags='ledger test_ledger_mock' ./...
+        working-directory: '${{ matrix.modules.path }}'
+        run: go test -tags='${{ matrix.modules.tags }}' ./...
