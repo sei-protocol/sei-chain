@@ -16,4 +16,4 @@ jobs:
         with:
           go-version: "1.25"
       - name: Go test
-        run: go test -v work
+        run: go test -v -tags='ledger test_ledger_mock' work
