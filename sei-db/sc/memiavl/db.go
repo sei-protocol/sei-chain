@@ -142,6 +142,11 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		return nil, err
 	}
 
+	for _, tree := range mtree.trees {
+		tree.snapshot.nodesMap.PrepareForRandomRead()
+		tree.snapshot.leavesMap.PrepareForRandomRead()
+	}
+
 	// Create rlog manager and open the rlog file
 	streamHandler, err := changelog.NewStream(logger, utils.GetChangelogPath(opts.Dir), changelog.Config{
 		DisableFsync:    true,
@@ -228,7 +233,6 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 	if !db.readOnly {
 		db.pruneSnapshots()
 	}
-	db.PrepareRandomRead()
 	return db, nil
 }
 
