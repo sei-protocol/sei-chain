@@ -465,14 +465,6 @@ func (t *MultiTree) ReplaceWith(other *MultiTree) error {
 	return errors.Join(errs...)
 }
 
-// PrepareRandomRead should be called after restart finish.
-func (t *MultiTree) PrepareRandomRead() {
-	for _, tree := range t.trees {
-		tree.snapshot.nodesMap.PrepareForRandomRead()
-		tree.snapshot.leavesMap.PrepareForRandomRead()
-	}
-}
-
 func readMetadata(dir string) (*proto.MultiTreeMetadata, error) {
 	// load commit info
 	bz, err := os.ReadFile(filepath.Join(filepath.Clean(dir), MetadataFileName))
