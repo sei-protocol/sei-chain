@@ -587,8 +587,8 @@ func (db *Database) Prune(version int64) error {
 	for itr.First(); itr.Valid(); {
 		currKeyEncoded := slices.Clone(itr.Key())
 
-		// Ignore metadata entry for version during pruning
-		if bytes.Equal(currKeyEncoded, []byte(latestVersionKey)) || bytes.Equal(currKeyEncoded, []byte(earliestVersionKey)) {
+		// Ignore metadata entries during pruning
+		if isMetadataKey(currKeyEncoded) {
 			itr.Next()
 			continue
 		}
@@ -879,8 +879,8 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 	for itr.First(); itr.Valid(); itr.Next() {
 		currKeyEncoded := itr.Key()
 
-		// Ignore metadata entry for version
-		if bytes.Equal(currKeyEncoded, []byte(latestVersionKey)) || bytes.Equal(currKeyEncoded, []byte(earliestVersionKey)) {
+		// Ignore metadata entries
+		if isMetadataKey(currKeyEncoded) {
 			continue
 		}
 
@@ -965,6 +965,10 @@ func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 		}
 	}
 	return nil
+}
+
+func isMetadataKey(key []byte) bool {
+	return bytes.HasPrefix(key, []byte("s/_"))
 }
 
 func storePrefix(storeKey string) []byte {
