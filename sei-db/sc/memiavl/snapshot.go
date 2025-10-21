@@ -652,7 +652,7 @@ func (snapshot *Snapshot) prefetchSnapshot(snapshotDir string, prefetchThreshold
 	if residentLeaves < prefetchThreshold {
 		_ = SequentialReadAndFillPageCache(filepath.Join(snapshotDir, FileNameLeaves))
 	}
-	log.Info(fmt.Sprintf("Prefetch all snapshot files completed in %ss\n", time.Since(startTime).Seconds()))
+	log.Info(fmt.Sprintf("Prefetch all snapshot files completed in %fs\n", time.Since(startTime).Seconds()))
 }
 
 // shouldPreloadTree determines if a tree should be preloaded based on size and name
