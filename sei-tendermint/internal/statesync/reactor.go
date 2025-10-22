@@ -189,8 +189,9 @@ type Reactor struct {
 
 // NewReactor returns a reference to a new state sync reactor, which implements
 // the service.Service interface. It accepts a logger, connections for snapshots
-// and querying, references to p2p Channels and a channel to listen for peer
-// updates on. Note, the reactor will close all p2p Channels when stopping.
+// and querying, a router used to open the required p2p channels, and a channel
+// to listen for peer updates on. Note, the reactor will close all p2p Channels
+// when stopping.
 func NewReactor(
 	chainID string,
 	initialHeight int64,
@@ -198,6 +199,7 @@ func NewReactor(
 	logger log.Logger,
 	conn abciclient.Client,
 	peerManager *p2p.PeerManager,
+	router *p2p.Router,
 	stateStore sm.Store,
 	blockStore *store.BlockStore,
 	tempDir string,
@@ -207,7 +209,23 @@ func NewReactor(
 	needsStateSync bool,
 	restartCh chan struct{},
 	selfRemediationConfig *config.SelfRemediationConfig,
-) *Reactor {
+) (*Reactor, error) {
+	snapshotChannel, err := router.OpenChannel(GetSnapshotChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("open snapshot channel: %w", err)
+	}
+	chunkChannel, err := router.OpenChannel(GetChunkChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("open chunk channel: %w", err)
+	}
+	lightBlockChannel, err := router.OpenChannel(GetLightBlockChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("open light block channel: %w", err)
+	}
+	paramsChannel, err := router.OpenChannel(GetParamsChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("open params channel: %w", err)
+	}
 	r := &Reactor{
 		logger:                        logger,
 		chainID:                       chainID,
@@ -224,29 +242,17 @@ func NewReactor(
 		eventBus:                      eventBus,
 		postSyncHook:                  postSyncHook,
 		needsStateSync:                needsStateSync,
+		snapshotChannel:               snapshotChannel,
+		chunkChannel:                  chunkChannel,
+		lightBlockChannel:             lightBlockChannel,
+		paramsChannel:                 paramsChannel,
 		lastNoAvailablePeers:          time.Time{},
 		restartCh:                     restartCh,
 		restartNoAvailablePeersWindow: time.Duration(selfRemediationConfig.StatesyncNoPeersRestartWindowSeconds) * time.Second,
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "StateSync", r)
-	return r
-}
-
-func (r *Reactor) SetSnapshotChannel(ch *p2p.Channel) {
-	r.snapshotChannel = ch
-}
-
-func (r *Reactor) SetChunkChannel(ch *p2p.Channel) {
-	r.chunkChannel = ch
-}
-
-func (r *Reactor) SetLightBlockChannel(ch *p2p.Channel) {
-	r.lightBlockChannel = ch
-}
-
-func (r *Reactor) SetParamsChannel(ch *p2p.Channel) {
-	r.paramsChannel = ch
+	return r, nil
 }
 
 // OnStart starts separate go routines for each p2p Channel and listens for
