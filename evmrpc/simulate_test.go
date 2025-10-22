@@ -461,8 +461,8 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 
 	// Fund the account for actual transactions
 	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(testCtx), sdk.NewInt(2000000)))
-	EVMKeeper.BankKeeper().MintCoins(testCtx, types.ModuleName, amts)
-	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(testCtx, types.ModuleName, sdk.AccAddress(from[:]), amts)
+	require.NoError(t, EVMKeeper.BankKeeper().MintCoins(testCtx, types.ModuleName, amts))
+	require.NoError(t, EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(testCtx, types.ModuleName, from[:], amts))
 
 	// Helper function to create uint64 pointer
 	uint64Ptr := func(v uint64) *uint64 { return &v }
@@ -636,32 +636,33 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		totalRequests := numCallRequests + numEstimateRequests
 
 		results := make(chan error, totalRequests)
-
+		var wg sync.WaitGroup
 		// Start mixed requests concurrently to verify they share the same limiter
-		for i := 0; i < numCallRequests; i++ {
+		for range numCallRequests {
+			wg.Add(1)
 			go func() {
+				defer wg.Done()
 				_, err := simAPI.Call(context.Background(), args, nil, nil, nil)
 				results <- err
 			}()
 		}
 
-		for i := 0; i < numEstimateRequests; i++ {
+		for range numEstimateRequests {
+			wg.Add(1)
 			go func() {
+				defer wg.Done()
 				_, err := simAPI.EstimateGas(context.Background(), args, nil, nil)
 				results <- err
 			}()
 		}
 
-		// Collect all results
-		var errors []error
-		for i := 0; i < totalRequests; i++ {
-			errors = append(errors, <-results)
-		}
+		wg.Wait()
+		close(results)
 
-		// Count results
+		// Collect all results and count
 		successCount := 0
 		rejectedCount := 0
-		for _, err := range errors {
+		for err := range results {
 			if err == nil {
 				successCount++
 			} else if strings.Contains(err.Error(), "rejected due to rate limit: server busy") {
@@ -683,17 +684,22 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		results := make(chan error, numRequests)
 
 		// Start requests concurrently to trigger rate limiting
-		for i := 0; i < numRequests; i++ {
+		var wg sync.WaitGroup
+		for range numRequests {
+			wg.Add(1)
 			go func() {
+				defer wg.Done()
 				_, err := simAPI.Call(context.Background(), args, nil, nil, nil)
 				results <- err
 			}()
 		}
+		wg.Wait()
+		close(results)
 
 		// Collect results and check error messages
 		var rateLimitErrors []error
-		for i := 0; i < numRequests; i++ {
-			if err := <-results; err != nil && strings.Contains(err.Error(), "rejected due to rate limit") {
+		for err := range results {
+			if err != nil && strings.Contains(err.Error(), "rejected due to rate limit") {
 				rateLimitErrors = append(rateLimitErrors, err)
 			}
 		}
