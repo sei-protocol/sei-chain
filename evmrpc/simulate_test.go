@@ -650,8 +650,8 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 	t.Run("TestDifferentMethodsShareSameLimiter", func(t *testing.T) {
 		tEnv := newTestEnv(t)
 		// Test that different simulation methods share the same rate limiter
-		numCallRequests := 3
-		numEstimateRequests := 3
+		numCallRequests := 10
+		numEstimateRequests := 10
 		totalRequests := numCallRequests + numEstimateRequests
 
 		results := make(chan error, totalRequests)
