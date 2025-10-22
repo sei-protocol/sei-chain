@@ -7,6 +7,8 @@ import (
 
 	"github.com/cockroachdb/pebble"
 	"github.com/sei-protocol/sei-db/ss/types"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/exp/slices"
 )
 
@@ -27,6 +29,7 @@ type iterator struct {
 	version            int64
 	valid              bool
 	reverse            bool
+	iterationCount     int64
 }
 
 func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool) *iterator {
@@ -94,17 +97,6 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 			itr.nextForward()
 		}
 	}
-
-	// Record iterator creation (separate metrics for forward and reverse)
-	ctx := context.Background()
-	if reverse {
-		Metrics.ReverseIteratorCreationCount.Add(ctx, 1)
-	} else {
-		Metrics.IteratorCreationCount.Add(ctx, 1)
-	}
-
-	// Increment active iterator count (gauge)
-	Metrics.IteratorCount.Add(ctx, 1)
 
 	return itr
 }
@@ -301,8 +293,7 @@ func (itr *iterator) nextReverse() {
 }
 
 func (itr *iterator) Next() {
-	// Record iterator Next call (for both forward and reverse)
-	Metrics.IteratorNextCallCount.Add(context.Background(), 1)
+	itr.iterationCount++
 
 	if itr.reverse {
 		itr.nextReverse()
@@ -344,8 +335,12 @@ func (itr *iterator) Close() error {
 	itr.source = nil
 	itr.valid = false
 
-	// Decrement active iterator count (gauge)
-	Metrics.IteratorCount.Add(context.Background(), -1)
+	// Record the number of iterations performed by this iterator
+	otelMetrics.iteratorIterations.Record(
+		context.Background(),
+		float64(itr.iterationCount),
+		metric.WithAttributes(attribute.Bool("reverse", itr.reverse)),
+	)
 
 	return nil
 }

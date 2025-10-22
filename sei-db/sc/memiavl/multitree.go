@@ -260,7 +260,7 @@ func (t *MultiTree) ApplyChangeSet(name string, changeSet iavl.ChangeSet) error 
 	if !found {
 		return fmt.Errorf("unknown tree name %s", name)
 	}
-	Metrics.NumOfKVPairs.Add(context.Background(), int64(len(changeSet.Pairs)))
+	otelMetrics.NumOfKVPairs.Add(context.Background(), int64(len(changeSet.Pairs)))
 	t.trees[i].ApplyChangeSet(changeSet)
 	return nil
 }

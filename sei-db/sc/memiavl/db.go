@@ -88,19 +88,19 @@ const (
 	SnapshotDirLen = len(SnapshotPrefix) + 20
 )
 
-func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *DB, returnErr error) {
+func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *DB, _err error) {
+	startTime := time.Now()
+	defer func() {
+		otelMetrics.RestartLatency.Record(
+			context.Background(),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(attribute.Bool("success", _err == nil)),
+		)
+	}()
 	var (
 		err      error
 		fileLock FileLock
 	)
-	startTime := time.Now()
-	defer func() {
-		Metrics.RestartLatency.Record(
-			context.Background(),
-			time.Since(startTime).Seconds(),
-			metric.WithAttributes(attribute.Bool("success", returnErr == nil)),
-		)
-	}()
 	if err := opts.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid commit store options: %w", err)
 	}
@@ -294,35 +294,33 @@ func (db *DB) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 
 // ApplyChangeSets wraps MultiTree.ApplyChangeSets, it also appends the changesets in the pending log,
 // which will be persisted to the rlog in next Commit call.
-func (db *DB) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error {
+func (db *DB) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (_err error) {
 	if len(changeSets) == 0 {
 		return nil
 	}
 
-	db.mtx.Lock()
-	defer db.mtx.Unlock()
 	startTime := time.Now()
-	var retErr error
 	defer func() {
-		Metrics.ApplyChangesetLatency.Record(
+		otelMetrics.ApplyChangesetLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
-			metric.WithAttributes(attribute.Bool("success", retErr == nil)),
+			metric.WithAttributes(attribute.Bool("success", _err == nil)),
 		)
 	}()
+
+	db.mtx.Lock()
+	defer db.mtx.Unlock()
+
 	if db.readOnly {
-		retErr = errReadOnly
-		return retErr
+		return errReadOnly
 	}
 
 	if len(db.pendingLogEntry.Changesets) > 0 {
-		retErr = errors.New("don't support multiple ApplyChangeSets calls in the same version")
-		return retErr
+		return errors.New("don't support multiple ApplyChangeSets calls in the same version")
 	}
 	db.pendingLogEntry.Changesets = changeSets
 
-	retErr = db.MultiTree.ApplyChangeSets(changeSets)
-	return retErr
+	return db.MultiTree.ApplyChangeSets(changeSets)
 }
 
 // ApplyChangeSet wraps MultiTree.ApplyChangeSet, it also appends the changesets in the pending log,
@@ -475,20 +473,21 @@ func (db *DB) pruneSnapshots() {
 }
 
 // Commit wraps SaveVersion to bump the version and writes the pending changes into log files to persist on disk
-func (db *DB) Commit() (version int64, returnErr error) {
-	db.mtx.Lock()
-	defer db.mtx.Unlock()
+func (db *DB) Commit() (version int64, _err error) {
 	startTime := time.Now()
 	defer func() {
 		ctx := context.Background()
-		Metrics.CommitLatency.Record(
+		otelMetrics.CommitLatency.Record(
 			ctx,
 			time.Since(startTime).Seconds(),
-			metric.WithAttributes(attribute.Bool("success", returnErr == nil)),
+			metric.WithAttributes(attribute.Bool("success", _err == nil)),
 		)
-		Metrics.MemNodeTotalSize.Record(ctx, TotalMemNodeSize.Load())
-		Metrics.NumOfMemNode.Record(ctx, TotalNumOfMemNode.Load())
+		otelMetrics.MemNodeTotalSize.Record(ctx, TotalMemNodeSize.Load())
+		otelMetrics.NumOfMemNode.Record(ctx, TotalNumOfMemNode.Load())
 	}()
+
+	db.mtx.Lock()
+	defer db.mtx.Unlock()
 	if db.readOnly {
 		return 0, errReadOnly
 	}
@@ -617,7 +616,7 @@ func (db *DB) RewriteSnapshotBackground() error {
 	return db.rewriteSnapshotBackground()
 }
 
-func (db *DB) rewriteSnapshotBackground() (returnErr error) {
+func (db *DB) rewriteSnapshotBackground() error {
 	if db.snapshotRewriteChan != nil {
 		return errors.New("there's another ongoing snapshot rewriting process")
 	}
@@ -651,7 +650,7 @@ func (db *DB) rewriteSnapshotBackground() (returnErr error) {
 
 		cloned.logger.Info("finished best-effort catchup", "version", cloned.Version(), "latest", mtree.Version())
 		ch <- snapshotResult{mtree: mtree}
-		Metrics.SnapshotCreationLatency.Record(
+		otelMetrics.SnapshotCreationLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 		)

@@ -80,22 +80,6 @@ type Database struct {
 	lastRangeHashedCache int64
 	lastRangeHashedMu    sync.RWMutex
 	hashComputationMu    sync.Mutex
-
-	// Metrics collection
-	metricsCtx        context.Context
-	metricsCancel     context.CancelFunc
-	lastMetricsValues metricsSnapshot
-	metricsMu         sync.RWMutex
-}
-
-type metricsSnapshot struct {
-	compactionCount        int64
-	compactionBytesRead    int64
-	compactionBytesWritten int64
-	flushCount             int64
-	flushBytesWritten      int64
-	cacheHits              int64
-	cacheMisses            int64
 }
 
 type VersionedChangesets struct {
@@ -156,9 +140,6 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		return nil, fmt.Errorf("failed to retrieve latest version: %w", err)
 	}
 
-	// Create metrics context
-	metricsCtx, metricsCancel := context.WithCancel(context.Background())
-
 	database := &Database{
 		storage:         db,
 		asyncWriteWG:    sync.WaitGroup{},
@@ -166,8 +147,6 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		earliestVersion: earliestVersion,
 		latestVersion:   atomic.Int64{},
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
-		metricsCtx:      metricsCtx,
-		metricsCancel:   metricsCancel,
 	}
 	database.latestVersion.Store(latestVersion)
 
@@ -195,17 +174,13 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 	go database.writeAsyncInBackground()
 
 	// Start background metrics collection
-	go database.collectMetricsInBackground()
+	metricsCtx, metricsCancel := context.WithCancel(context.Background())
+	go database.collectMetricsInBackground(metricsCtx, metricsCancel)
 
 	return database, nil
 }
 
 func (db *Database) Close() error {
-	// Stop metrics collection
-	if db.metricsCancel != nil {
-		db.metricsCancel()
-	}
-
 	if db.streamHandler != nil {
 		// First, stop accepting new pending changes and drain the worker
 		close(db.pendingChanges)
@@ -370,14 +345,13 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 	return val != nil, nil
 }
 
-func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byte, error) {
+func (db *Database) Get(storeKey string, targetVersion int64, key []byte) (_ []byte, _err error) {
 	startTime := time.Now()
-	var retErr error
 	defer func() {
-		Metrics.GetLatency.Record(
+		otelMetrics.getLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
-			metric.WithAttributes(attribute.Bool("success", retErr == nil)),
+			metric.WithAttributes(attribute.Bool("success", _err == nil)),
 		)
 	}()
 	if targetVersion < db.earliestVersion {
@@ -390,14 +364,12 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byt
 			return nil, nil
 		}
 
-		retErr = fmt.Errorf("failed to perform PebbleDB read: %w", err)
-		return nil, retErr
+		return nil, fmt.Errorf("failed to perform PebbleDB read: %w", err)
 	}
 
 	valBz, tombBz, ok := SplitMVCCKey(prefixedVal)
 	if !ok {
-		retErr = fmt.Errorf("invalid PebbleDB MVCC value: %s", prefixedVal)
-		return nil, retErr
+		return nil, fmt.Errorf("invalid PebbleDB MVCC value: %s", prefixedVal)
 	}
 
 	// A tombstone of zero or a target version that is less than the tombstone
@@ -408,8 +380,7 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byt
 
 	tombstone, err := decodeUint64Ascending(tombBz)
 	if err != nil {
-		retErr = fmt.Errorf("failed to decode value tombstone: %w", err)
-		return nil, retErr
+		return nil, fmt.Errorf("failed to decode value tombstone: %w", err)
 	}
 
 	// A tombstone of zero or a target version that is less than the tombstone
@@ -422,14 +393,13 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byt
 	return nil, nil
 }
 
-func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) error {
+func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) (_err error) {
 	startTime := time.Now()
-	var retErr error
 	defer func() {
-		Metrics.ApplyChangesetLatency.Record(
+		otelMetrics.applyChangesetLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
-			metric.WithAttributes(attribute.Bool("success", retErr == nil)),
+			metric.WithAttributes(attribute.Bool("success", _err == nil)),
 		)
 	}()
 	// Check if version is 0 and change it to 1
@@ -442,19 +412,16 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 	// Create batch and persist latest version in the batch
 	b, err := NewBatch(db.storage, version)
 	if err != nil {
-		retErr = err
-		return retErr
+		return err
 	}
 
 	for _, kvPair := range cs.Changeset.Pairs {
 		if kvPair.Value == nil {
 			if err := b.Delete(cs.Name, kvPair.Key); err != nil {
-				retErr = err
-				return retErr
+				return err
 			}
 		} else if err := b.Set(cs.Name, kvPair.Key, kvPair.Value); err != nil {
-			retErr = err
-			return retErr
+			return err
 		}
 	}
 
@@ -462,25 +429,23 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) erro
 	db.storeKeyDirty.Store(cs.Name, version)
 
 	if err := b.Write(); err != nil {
-		retErr = err
-		return retErr
+		return err
 	}
 	// Update latest version on write success
 	db.latestVersion.Store(version)
 	return nil
 }
 
-func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
+func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) (_err error) {
 	startTime := time.Now()
-	var retErr error
 	defer func() {
-		Metrics.ApplyChangesetAsyncLatency.Record(
+		otelMetrics.applyChangesetAsyncLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
-			metric.WithAttributes(attribute.Bool("success", retErr == nil)),
+			metric.WithAttributes(attribute.Bool("success", _err == nil)),
 		)
 		// Record pending queue depth
-		Metrics.PendingChangesQueueDepth.Record(
+		otelMetrics.pendingChangesQueueDepth.Record(
 			context.Background(),
 			int64(len(db.pendingChanges)),
 		)
@@ -499,8 +464,7 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 		entry.Upgrades = nil
 		err := db.streamHandler.WriteNextEntry(entry)
 		if err != nil {
-			retErr = err
-			return retErr
+			return err
 		}
 	}
 
@@ -554,17 +518,16 @@ func (db *Database) computeMissingRanges(latestVersion int64) error {
 	return nil
 }
 
-func (db *Database) computeHashForRange(beginBlock, endBlock int64) error {
+func (db *Database) computeHashForRange(beginBlock, endBlock int64) (_err error) {
 	startTime := time.Now()
-	var retErr error
 	defer func() {
-		Metrics.HashComputationLatency.Record(
+		otelMetrics.hashComputationLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(
 				attribute.Int64("begin_block", beginBlock),
 				attribute.Int64("end_block", endBlock),
-				attribute.Bool("success", retErr == nil),
+				attribute.Bool("success", _err == nil),
 			),
 		)
 	}()
@@ -616,11 +579,10 @@ func (db *Database) computeHashForRange(beginBlock, endBlock int64) error {
 		finalHash := allHashes[len(allHashes)-1]
 
 		if err := db.WriteBlockRangeHash(moduleName, beginBlock, endBlock, finalHash); err != nil {
-			retErr = fmt.Errorf(
+			return fmt.Errorf(
 				"failed to write block-range hash for module %q in [%d..%d]: %w",
 				moduleName, beginBlock, endBlock, err,
 			)
-			return retErr
 		}
 
 	}
@@ -652,16 +614,15 @@ func (db *Database) writeAsyncInBackground() {
 // NOTE: There is a rare case when a module's keys are skipped during pruning even though
 // it has been updated. This occurs when that module's keys are updated in between pruning runs, the node after is restarted.
 // This is not a large issue given the next time that module is updated, it will be properly pruned thereafter.
-func (db *Database) Prune(version int64) error {
+func (db *Database) Prune(version int64) (_err error) {
 	startTime := time.Now()
-	var retErr error
 	defer func() {
-		Metrics.PruneLatency.Record(
+		otelMetrics.pruneLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(
 				attribute.Int64("version", version),
-				attribute.Bool("success", retErr == nil),
+				attribute.Bool("success", _err == nil),
 			),
 		)
 	}()
@@ -669,8 +630,7 @@ func (db *Database) Prune(version int64) error {
 
 	itr, err := db.storage.NewIter(nil)
 	if err != nil {
-		retErr = err
-		return retErr
+		return err
 	}
 	defer func() { _ = itr.Close() }()
 
@@ -696,15 +656,13 @@ func (db *Database) Prune(version int64) error {
 		// Store current key and version
 		currKey, currVersion, currOK := SplitMVCCKey(currKeyEncoded)
 		if !currOK {
-			retErr = fmt.Errorf("invalid MVCC key")
-			return retErr
+			return fmt.Errorf("invalid MVCC key")
 		}
 
 		storeKey, err := parseStoreKey(currKey)
 		if err != nil {
 			// XXX: This should never happen given we skip the metadata keys.
-			retErr = err
-			return retErr
+			return err
 		}
 
 		// For every new module visited, check to see last time it was updated
@@ -721,8 +679,7 @@ func (db *Database) Prune(version int64) error {
 
 		currVersionDecoded, err := decodeUint64Ascending(currVersion)
 		if err != nil {
-			retErr = err
-			return retErr
+			return err
 		}
 
 		// Seek to next key if we are at a version which is higher than prune height
@@ -738,16 +695,14 @@ func (db *Database) Prune(version int64) error {
 		if prevVersionDecoded <= version && (bytes.Equal(prevKey, currKey) || valTombstoned(prevValEncoded) || !db.config.KeepLastVersion) {
 			err = batch.Delete(prevKeyEncoded, nil)
 			if err != nil {
-				retErr = err
-				return retErr
+				return err
 			}
 
 			counter++
 			if counter >= PruneCommitBatchSize {
 				err = batch.Commit(defaultWriteOpts)
 				if err != nil {
-					retErr = err
-					return retErr
+					return err
 				}
 
 				counter = 0
@@ -768,13 +723,11 @@ func (db *Database) Prune(version int64) error {
 	if counter > 0 {
 		err = batch.Commit(defaultWriteOpts)
 		if err != nil {
-			retErr = err
-			return retErr
+			return err
 		}
 	}
 
-	retErr = db.SetEarliestVersion(earliestVersion, false)
-	return retErr
+	return db.SetEarliestVersion(earliestVersion, false)
 }
 
 func (db *Database) Iterator(storeKey string, version int64, start, end []byte) (types.DBIterator, error) {
@@ -843,16 +796,15 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
 // TODO: Potentially add retries instead of panics
-func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) error {
+func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err error) {
 	startTime := time.Now()
-	var retErr error
 	defer func() {
-		Metrics.ImportLatency.Record(
+		otelMetrics.importLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(
 				attribute.Int64("version", version),
-				attribute.Bool("success", retErr == nil),
+				attribute.Bool("success", _err == nil),
 			),
 		)
 	}()
@@ -1206,16 +1158,17 @@ func retrieveLastRangeHashed(db *pebble.DB) (int64, error) {
 }
 
 // collectMetricsInBackground periodically collects PebbleDB internal metrics
-func (db *Database) collectMetricsInBackground() {
+func (db *Database) collectMetricsInBackground(ctx context.Context, cancel context.CancelFunc) {
+	defer cancel()
 	ticker := time.NewTicker(10 * time.Second) // Collect metrics every 10 seconds
 	defer ticker.Stop()
 
-	for db.metricsCtx.Err() == nil {
+	for ctx.Err() == nil {
 		select {
-		case <-db.metricsCtx.Done():
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			db.collectAndRecordMetrics(db.metricsCtx)
+			db.collectAndRecordMetrics(ctx)
 		}
 	}
 }
@@ -1228,106 +1181,35 @@ func (db *Database) collectAndRecordMetrics(ctx context.Context) {
 
 	m := db.storage.Metrics()
 
-	db.metricsMu.Lock()
-	lastSnapshot := db.lastMetricsValues
-	db.metricsMu.Unlock()
+	// Compaction metrics - report raw counts
+	otelMetrics.compactionCount.Add(ctx, m.Compact.Count)
+	otelMetrics.compactionDuration.Record(ctx, m.Compact.Duration.Seconds())
 
-	// Compaction metrics - PebbleDB tracks compactions in the Compact field
-	compactionCount := m.Compact.Count
+	// Flush metrics - report raw counts
+	otelMetrics.flushCount.Add(ctx, m.Flush.Count)
+	otelMetrics.flushDuration.Record(ctx, m.Flush.WriteThroughput.WorkDuration.Seconds())
+	otelMetrics.flushBytesWritten.Add(ctx, m.Flush.WriteThroughput.Bytes)
 
-	// Calculate bytes read/written from level metrics
-	var compactionBytesRead int64
-	var compactionBytesWritten int64
+	// Storage metrics per level with level as attribute
 	for level := 0; level < len(m.Levels); level++ {
 		levelMetrics := m.Levels[level]
-		compactionBytesRead += int64(levelMetrics.BytesIn)
-		compactionBytesWritten += int64(levelMetrics.BytesCompacted)
+		levelAttr := attribute.Int("level", level)
+
+		otelMetrics.sstableCount.Record(ctx, levelMetrics.NumFiles, metric.WithAttributes(levelAttr))
+		otelMetrics.sstableTotalSize.Record(ctx, int64(levelMetrics.Size), metric.WithAttributes(levelAttr))
+		otelMetrics.compactionBytesRead.Add(ctx, int64(levelMetrics.BytesIn), metric.WithAttributes(levelAttr))
+		otelMetrics.compactionBytesWritten.Add(ctx, int64(levelMetrics.BytesCompacted), metric.WithAttributes(levelAttr))
 	}
-
-	// Calculate deltas for counters
-	compactionCountDelta := compactionCount - lastSnapshot.compactionCount
-	compactionBytesReadDelta := compactionBytesRead - lastSnapshot.compactionBytesRead
-	compactionBytesWrittenDelta := compactionBytesWritten - lastSnapshot.compactionBytesWritten
-
-	// Record deltas as counters
-	Metrics.CompactionCount.Add(ctx, compactionCountDelta)
-	Metrics.CompactionBytesRead.Add(ctx, compactionBytesReadDelta)
-	Metrics.CompactionBytesWritten.Add(ctx, compactionBytesWrittenDelta)
-
-	// Record compaction latency if available
-	if compactionCountDelta > 0 {
-		avgLatencySeconds := m.Compact.Duration.Seconds() / float64(compactionCountDelta)
-		Metrics.CompactionLatency.Record(
-			ctx,
-			avgLatencySeconds,
-			metric.WithAttributes(attribute.Bool("success", ctx.Err() == nil)),
-		)
-	}
-
-	// Flush metrics
-	flushCount := m.Flush.Count
-	flushBytesWritten := int64(m.Flush.WriteThroughput.Bytes)
-
-	flushCountDelta := flushCount - lastSnapshot.flushCount
-	flushBytesWrittenDelta := flushBytesWritten - lastSnapshot.flushBytesWritten
-
-	Metrics.FlushCount.Add(ctx, flushCountDelta)
-	Metrics.FlushBytesWritten.Add(ctx, flushBytesWrittenDelta)
-
-	// Record flush latency if available
-	if flushCountDelta > 0 {
-		avgLatencySeconds := m.Flush.WriteThroughput.WorkDuration.Seconds() / float64(flushCountDelta)
-		Metrics.FlushLatency.Record(
-			ctx,
-			avgLatencySeconds,
-			metric.WithAttributes(attribute.Bool("success", ctx.Err() == nil)),
-		)
-	}
-
-	// Storage metrics (gauges - absolute values)
-	var sstableCount int64
-	var sstableTotalSize int64
-	for level := 0; level < len(m.Levels); level++ {
-		levelMetrics := m.Levels[level]
-		sstableCount += levelMetrics.NumFiles
-		sstableTotalSize += int64(levelMetrics.Size)
-	}
-
-	Metrics.SSTableCount.Record(ctx, sstableCount)
-	Metrics.SSTableTotalSize.Record(ctx, sstableTotalSize)
 
 	// Memtable metrics
-	memtableCount := int64(m.MemTable.Count)
-	memtableTotalSize := int64(m.MemTable.Size)
-	Metrics.MemtableCount.Record(ctx, memtableCount)
-	Metrics.MemtableTotalSize.Record(ctx, memtableTotalSize)
+	otelMetrics.memtableCount.Record(ctx, int64(m.MemTable.Count))
+	otelMetrics.memtableTotalSize.Record(ctx, int64(m.MemTable.Size))
 
 	// WAL metrics
-	walSize := int64(m.WAL.Size)
-	Metrics.WALSize.Record(ctx, walSize)
+	otelMetrics.walSize.Record(ctx, int64(m.WAL.Size))
 
-	// Cache metrics - BlockCache is a struct, not a pointer
-	cacheHits := int64(m.BlockCache.Hits)
-	cacheMisses := int64(m.BlockCache.Misses)
-	cacheSize := int64(m.BlockCache.Size)
-
-	cacheHitsDelta := cacheHits - lastSnapshot.cacheHits
-	cacheMissesDelta := cacheMisses - lastSnapshot.cacheMisses
-
-	Metrics.CacheHits.Add(ctx, cacheHitsDelta)
-	Metrics.CacheMisses.Add(ctx, cacheMissesDelta)
-	Metrics.CacheSize.Record(ctx, cacheSize)
-
-	// Update last snapshot
-	db.metricsMu.Lock()
-	db.lastMetricsValues = metricsSnapshot{
-		compactionCount:        compactionCount,
-		compactionBytesRead:    compactionBytesRead,
-		compactionBytesWritten: compactionBytesWritten,
-		flushCount:             flushCount,
-		flushBytesWritten:      flushBytesWritten,
-		cacheHits:              cacheHits,
-		cacheMisses:            cacheMisses,
-	}
-	db.metricsMu.Unlock()
+	// Cache metrics - report raw counts
+	otelMetrics.cacheHits.Add(ctx, int64(m.BlockCache.Hits))
+	otelMetrics.cacheMisses.Add(ctx, int64(m.BlockCache.Misses))
+	otelMetrics.cacheSize.Record(ctx, int64(m.BlockCache.Size))
 }

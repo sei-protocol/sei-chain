@@ -70,17 +70,17 @@ func (b *Batch) Write() (err error) {
 	batchSize := int64(b.batch.Len())
 
 	defer func() {
+		err = errors.Join(err, b.batch.Close())
 		ctx := context.Background()
-		Metrics.BatchWriteLatency.Record(
+		otelMetrics.batchWriteLatency.Record(
 			ctx,
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", err == nil)),
 		)
-		Metrics.BatchSize.Record(
+		otelMetrics.batchSize.Record(
 			ctx,
 			batchSize,
 		)
-		err = errors.Join(err, b.batch.Close())
 	}()
 
 	return b.batch.Commit(defaultWriteOpts)
@@ -142,17 +142,17 @@ func (b *RawBatch) Write() (err error) {
 	startTime := time.Now()
 	batchSize := int64(b.batch.Len())
 	defer func() {
+		err = errors.Join(err, b.batch.Close())
 		ctx := context.Background()
-		Metrics.BatchWriteLatency.Record(
+		otelMetrics.batchWriteLatency.Record(
 			ctx,
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", err == nil)),
 		)
-		Metrics.BatchSize.Record(
+		otelMetrics.batchSize.Record(
 			ctx,
 			batchSize,
 		)
-		err = errors.Join(err, b.batch.Close())
 	}()
 
 	return b.batch.Commit(defaultWriteOpts)
