@@ -293,14 +293,14 @@ func setupNetwork(t *testing.T, opts testOptions) *reactorTestSuite {
 			rts.mocks = append(rts.mocks, nodeID)
 			rts.pexChannels[nodeID] = node.Router.OpenChannelOrPanic(ChannelDescriptor())
 		} else {
-			reactor,err := NewReactor(
+			reactor, err := NewReactor(
 				node.Logger,
 				node.Router,
 				make(chan struct{}),
 				config.DefaultSelfRemediationConfig(),
 			)
-			if err!=nil {
-				t.Fatalf("NewReactor(): %v",err)
+			if err != nil {
+				t.Fatalf("NewReactor(): %v", err)
 			}
 			rts.reactors[nodeID] = reactor
 		}
@@ -361,14 +361,14 @@ func (r *reactorTestSuite) addNodes(t *testing.T, nodes int) {
 			MaxRetryTime: r.opts.MaxRetryTime,
 		})
 		nodeID := node.NodeID
-		reactor,err := NewReactor(
+		reactor, err := NewReactor(
 			node.Logger,
 			node.Router,
 			make(chan struct{}),
 			config.DefaultSelfRemediationConfig(),
 		)
-		if err!=nil {
-			t.Fatalf("NewReactor(): %v",err)
+		if err != nil {
+			t.Fatalf("NewReactor(): %v", err)
 		}
 		r.reactors[nodeID] = reactor
 		r.nodes = append(r.nodes, nodeID)

@@ -110,13 +110,15 @@ func makeSeedNode(
 		}
 	}()
 
-	pexReactor,err := pex.NewReactor(
+	pexReactor, err := pex.NewReactor(
 		logger,
 		router,
 		restartCh,
 		cfg.SelfRemediation,
 	)
-	if err != nil { return nil, fmt.Errorf("pex.NewReactor(): %w", err) }
+	if err != nil {
+		return nil, fmt.Errorf("pex.NewReactor(): %w", err)
+	}
 
 	proxyApp := proxy.New(client, logger.With("module", "proxy"), nodeMetrics.proxy)
 

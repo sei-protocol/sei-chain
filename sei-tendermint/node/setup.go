@@ -158,7 +158,7 @@ func createMempoolReactor(
 		mempool.WithPostCheck(sm.TxPostCheckFromStore(store)),
 	)
 
-	reactor,err := mempool.NewReactor(
+	reactor, err := mempool.NewReactor(
 		logger,
 		cfg.Mempool,
 		mp,
@@ -193,7 +193,7 @@ func createEvidenceReactor(
 	logger = logger.With("module", "evidence")
 
 	evidencePool := evidence.NewPool(logger, evidenceDB, store, blockStore, metrics, eventBus)
-	evidenceReactor,err := evidence.NewReactor(logger, router, evidencePool)
+	evidenceReactor, err := evidence.NewReactor(logger, router, evidencePool)
 	if err != nil {
 		return nil, nil, evidenceDB.Close, fmt.Errorf("evidence.NewReactor(): %w", err)
 	}

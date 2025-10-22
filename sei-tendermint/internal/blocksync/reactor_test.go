@@ -57,11 +57,11 @@ func setup(
 
 	logger, _ := log.NewDefaultLogger("plain", "info")
 	rts := &reactorTestSuite{
-		logger:            logger.With("module", "block_sync", "testCase", t.Name()),
-		network:           p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numNodes}),
-		nodes:             make([]types.NodeID, 0, numNodes),
-		reactors:          make(map[types.NodeID]*Reactor, numNodes),
-		app:               make(map[types.NodeID]abciclient.Client, numNodes),
+		logger:   logger.With("module", "block_sync", "testCase", t.Name()),
+		network:  p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numNodes}),
+		nodes:    make([]types.NodeID, 0, numNodes),
+		reactors: make(map[types.NodeID]*Reactor, numNodes),
+		app:      make(map[types.NodeID]abciclient.Client, numNodes),
 	}
 
 	for i, nodeID := range rts.network.NodeIDs() {
@@ -134,7 +134,7 @@ func makeReactor(
 		sm.NopMetrics(),
 	)
 
-	r,err := NewReactor(
+	r, err := NewReactor(
 		logger,
 		stateStore,
 		blockExec,
@@ -148,7 +148,7 @@ func makeReactor(
 		selfRemediationConfig,
 	)
 	if err != nil {
-		t.Fatalf("NewReactor(): %v",err)
+		t.Fatalf("NewReactor(): %v", err)
 	}
 	return r
 }

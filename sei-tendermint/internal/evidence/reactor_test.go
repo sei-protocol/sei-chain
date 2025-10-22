@@ -30,12 +30,12 @@ var (
 )
 
 type reactorTestSuite struct {
-	network          *p2p.TestNetwork
-	logger           log.Logger
-	reactors         map[types.NodeID]*evidence.Reactor
-	pools            map[types.NodeID]*evidence.Pool
-	nodes            []*p2p.TestNode
-	numStateStores   int
+	network        *p2p.TestNetwork
+	logger         log.Logger
+	reactors       map[types.NodeID]*evidence.Reactor
+	pools          map[types.NodeID]*evidence.Pool
+	nodes          []*p2p.TestNode
+	numStateStores int
 }
 
 func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTestSuite {
@@ -70,8 +70,8 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 		startPool(t, rts.pools[nodeID], stateStores[idx])
 		rts.nodes = append(rts.nodes, node)
 
-		reactor,err := evidence.NewReactor(logger, node.Router, rts.pools[nodeID])
-		if err!=nil {
+		reactor, err := evidence.NewReactor(logger, node.Router, rts.pools[nodeID])
+		if err != nil {
 			t.Fatalf("evidence.NewReactor(): %v", err)
 		}
 		rts.reactors[nodeID] = reactor

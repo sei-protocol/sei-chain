@@ -19,8 +19,8 @@ import (
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/utils/require"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
+	"github.com/tendermint/tendermint/libs/utils/require"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -28,9 +28,9 @@ type reactorTestSuite struct {
 	network *p2p.TestNetwork
 	logger  log.Logger
 
-	reactors        map[types.NodeID]*Reactor
-	mempools        map[types.NodeID]*TxMempool
-	kvstores        map[types.NodeID]*kvstore.Application
+	reactors map[types.NodeID]*Reactor
+	mempools map[types.NodeID]*TxMempool
+	kvstores map[types.NodeID]*kvstore.Application
 
 	nodes []types.NodeID
 }
@@ -43,11 +43,11 @@ func setupReactors(ctx context.Context, t *testing.T, logger log.Logger, numNode
 	t.Cleanup(func() { os.RemoveAll(cfg.RootDir) })
 
 	rts := &reactorTestSuite{
-		logger:          log.NewNopLogger().With("testCase", t.Name()),
-		network:         p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numNodes}),
-		reactors:        make(map[types.NodeID]*Reactor, numNodes),
-		mempools:        make(map[types.NodeID]*TxMempool, numNodes),
-		kvstores:        make(map[types.NodeID]*kvstore.Application, numNodes),
+		logger:   log.NewNopLogger().With("testCase", t.Name()),
+		network:  p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numNodes}),
+		reactors: make(map[types.NodeID]*Reactor, numNodes),
+		mempools: make(map[types.NodeID]*TxMempool, numNodes),
+		kvstores: make(map[types.NodeID]*kvstore.Application, numNodes),
 	}
 
 	for _, node := range rts.network.Nodes() {
@@ -61,13 +61,13 @@ func setupReactors(ctx context.Context, t *testing.T, logger log.Logger, numNode
 		mempool := setup(t, client, 0)
 		rts.mempools[nodeID] = mempool
 
-		reactor,err := NewReactor(
+		reactor, err := NewReactor(
 			rts.logger.With("nodeID", nodeID),
 			cfg.Mempool,
 			mempool,
 			node.Router,
 		)
-		if err!=nil {
+		if err != nil {
 			t.Fatalf("NewReactor(): %v", err)
 		}
 		rts.reactors[nodeID] = reactor
@@ -81,7 +81,7 @@ func setupReactors(ctx context.Context, t *testing.T, logger log.Logger, numNode
 	require.Len(t, rts.reactors, numNodes)
 
 	t.Cleanup(func() {
-		for _,reactor := range rts.reactors {
+		for _, reactor := range rts.reactors {
 			reactor.Stop()
 		}
 	})
@@ -327,7 +327,7 @@ func TestDontExhaustMaxActiveIDs(t *testing.T) {
 	nodeID := rts.nodes[0]
 
 	// ensure the reactor does not panic (i.e. exhaust active IDs)
-	for range MaxActiveIDs+1 {
+	for range MaxActiveIDs + 1 {
 		privKey := ed25519.GenPrivKey()
 		peerID := types.NodeIDFromPubKey(privKey.PubKey())
 		rts.reactors[nodeID].processPeerUpdate(ctx, p2p.PeerUpdate{
@@ -345,7 +345,7 @@ func TestMempoolIDsPanicsIfNodeRequestsOvermaxActiveIDs(t *testing.T) {
 	// 0 is already reserved for UnknownPeerID
 	ids := NewMempoolIDs()
 
-	for i := range MaxActiveIDs-1 {
+	for i := range MaxActiveIDs - 1 {
 		peerID, err := types.NewNodeID(fmt.Sprintf("%040d", i))
 		require.NoError(t, err)
 		ids.ReserveForPeer(peerID)

@@ -75,7 +75,7 @@ func setup(
 		nodeID := node.NodeID
 		state := states[i]
 
-		reactor,err := NewReactor(
+		reactor, err := NewReactor(
 			state.logger.With("node", nodeID),
 			state,
 			node.Router,
