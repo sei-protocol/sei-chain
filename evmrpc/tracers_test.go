@@ -62,7 +62,7 @@ func TestTraceTransactionTimeout(t *testing.T) {
 	)
 
 	errObj, ok := resObj["error"].(map[string]interface{})
-	require.True(t, ok, "expected node‑level timeout to trigger")
+	require.True(t, ok, "expected node‑level timeout to trigger, but got %v", resObj)
 	require.NotEmpty(t, errObj["message"].(string))
 }
 
