@@ -351,7 +351,10 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) (_ []b
 		otelMetrics.getLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
-			metric.WithAttributes(attribute.Bool("success", _err == nil)),
+			metric.WithAttributes(
+				attribute.Bool("success", _err == nil),
+				attribute.String("store", storeKey),
+			),
 		)
 	}()
 	if targetVersion < db.earliestVersion {
@@ -751,7 +754,7 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.earliestVersion, false), nil
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.earliestVersion, false, storeKey), nil
 }
 
 // Taken from pebbledb prefix upper bound
@@ -791,7 +794,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.earliestVersion, true), nil
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.earliestVersion, true, storeKey), nil
 }
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines

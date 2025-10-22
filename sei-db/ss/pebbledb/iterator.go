@@ -30,19 +30,21 @@ type iterator struct {
 	valid              bool
 	reverse            bool
 	iterationCount     int64
+	storeKey           string
 }
 
-func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool) *iterator {
+func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &iterator{
-			source:  src,
-			prefix:  prefix,
-			start:   mvccStart,
-			end:     mvccEnd,
-			version: version,
-			valid:   false,
-			reverse: reverse,
+			source:   src,
+			prefix:   prefix,
+			start:    mvccStart,
+			end:      mvccEnd,
+			version:  version,
+			valid:    false,
+			reverse:  reverse,
+			storeKey: storeKey,
 		}
 	}
 
@@ -55,13 +57,14 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 	}
 
 	itr := &iterator{
-		source:  src,
-		prefix:  prefix,
-		start:   mvccStart,
-		end:     mvccEnd,
-		version: version,
-		valid:   valid,
-		reverse: reverse,
+		source:   src,
+		prefix:   prefix,
+		start:    mvccStart,
+		end:      mvccEnd,
+		version:  version,
+		valid:    valid,
+		reverse:  reverse,
+		storeKey: storeKey,
 	}
 
 	if valid {
@@ -339,7 +342,10 @@ func (itr *iterator) Close() error {
 	otelMetrics.iteratorIterations.Record(
 		context.Background(),
 		float64(itr.iterationCount),
-		metric.WithAttributes(attribute.Bool("reverse", itr.reverse)),
+		metric.WithAttributes(
+			attribute.Bool("reverse", itr.reverse),
+			attribute.String("store", itr.storeKey),
+		),
 	)
 
 	return nil
