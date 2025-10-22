@@ -147,8 +147,32 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 
 		// Add metrics for receipt status
 		if receipt.Status == uint32(ethtypes.ReceiptStatusFailed) {
+			ctx.Logger().Error("EVM transaction receipt marked as FAILED",
+				"tx_hash", tx.Hash().Hex(),
+				"from", emsg.From.Hex(),
+				"to", func() string {
+					if emsg.To != nil {
+						return emsg.To.Hex()
+					}
+					return "contract_creation"
+				}(),
+				"gas_used", serverRes.GasUsed,
+				"vm_error", serverRes.VmError,
+				"receipt_status", receipt.Status,
+			)
 			seimetrics.SafeTelemetryIncrCounter(1, "receipt", "status", "failed")
 		} else {
+			ctx.Logger().Info("EVM transaction receipt marked as SUCCESS",
+				"tx_hash", tx.Hash().Hex(),
+				"from", emsg.From.Hex(),
+				"to", func() string {
+					if emsg.To != nil {
+						return emsg.To.Hex()
+					}
+					return "contract_creation"
+				}(),
+				"gas_used", serverRes.GasUsed,
+			)
 			seimetrics.SafeTelemetryIncrCounter(1, "receipt", "status", "success")
 		}
 
@@ -175,6 +199,21 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		// be checked in CheckTx first
 		err = applyErr
 
+		ctx.Logger().Error("EVM transaction applyEVMMessage failed",
+			"error", err,
+			"tx_hash", tx.Hash().Hex(),
+			"from", emsg.From.Hex(),
+			"to", func() string {
+				if emsg.To != nil {
+					return emsg.To.Hex()
+				}
+				return "contract_creation"
+			}(),
+			"value", emsg.Value.String(),
+			"gas_limit", emsg.GasLimit,
+			"nonce", emsg.Nonce,
+		)
+
 		seimetrics.SafeTelemetryIncrCounterWithLabels(
 			[]string{types.ModuleName, "errors", "apply_message"},
 			1,
@@ -189,6 +228,22 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 	// if applyErr is nil then res must be non-nil
 	if res.Err != nil {
 		serverRes.VmError = res.Err.Error()
+
+		ctx.Logger().Error("EVM transaction VM execution error",
+			"vm_error", serverRes.VmError,
+			"tx_hash", tx.Hash().Hex(),
+			"from", emsg.From.Hex(),
+			"to", func() string {
+				if emsg.To != nil {
+					return emsg.To.Hex()
+				}
+				return "contract_creation"
+			}(),
+			"value", emsg.Value.String(),
+			"gas_used", res.UsedGas,
+			"gas_limit", emsg.GasLimit,
+			"return_data", fmt.Sprintf("%x", res.ReturnData),
+		)
 
 		seimetrics.SafeTelemetryIncrCounterWithLabels(
 			[]string{types.ModuleName, "errors", "vm_execution"},

@@ -109,14 +109,52 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	// should not increment nonce since this isn't a transaction
 	res, err := k.applyEVMMessage(ctx, evmMsg, stateDB, gp, false)
 	if err != nil {
+		ctx.Logger().Error("EVM transaction failed during applyEVMMessage",
+			"error", err,
+			"from", from.Hex(),
+			"to", func() string {
+				if to != nil {
+					return to.Hex()
+				}
+				return "contract_creation"
+			}(),
+			"value", value.String(),
+			"gas_limit", evmMsg.GasLimit,
+			"data_len", len(data),
+		)
 		return nil, err
 	}
 	k.consumeEvmGas(ctx, res.UsedGas)
 	if res.Err != nil {
+		ctx.Logger().Error("EVM transaction failed during execution (VM error)",
+			"vm_error", res.Err.Error(),
+			"from", from.Hex(),
+			"to", func() string {
+				if to != nil {
+					return to.Hex()
+				}
+				return "contract_creation"
+			}(),
+			"value", value.String(),
+			"gas_used", res.UsedGas,
+			"gas_limit", evmMsg.GasLimit,
+			"return_data", fmt.Sprintf("%x", res.ReturnData),
+		)
 		return nil, res.Err
 	}
 	surplus, err := stateDB.Finalize()
 	if err != nil {
+		ctx.Logger().Error("EVM transaction failed during state finalization",
+			"error", err,
+			"from", from.Hex(),
+			"to", func() string {
+				if to != nil {
+					return to.Hex()
+				}
+				return "contract_creation"
+			}(),
+			"gas_used", res.UsedGas,
+		)
 		return nil, err
 	}
 	vmErr := ""
@@ -142,8 +180,33 @@ func (k *Keeper) CallEVM(ctx sdk.Context, from common.Address, to *common.Addres
 	}
 	receipt, err := k.WriteReceipt(ctx, stateDB, evmMsg, ethtypes.LegacyTxType, ctx.TxSum(), res.UsedGas, vmErr)
 	if err != nil {
+		ctx.Logger().Error("EVM transaction failed during receipt writing",
+			"error", err,
+			"from", from.Hex(),
+			"to", func() string {
+				if to != nil {
+					return to.Hex()
+				}
+				return "contract_creation"
+			}(),
+			"gas_used", res.UsedGas,
+			"vm_error", vmErr,
+		)
 		return nil, err
 	}
+	ctx.Logger().Info("EVM transaction executed successfully",
+		"from", from.Hex(),
+		"to", func() string {
+			if to != nil {
+				return to.Hex()
+			}
+			return "contract_creation"
+		}(),
+		"gas_used", res.UsedGas,
+		"gas_limit", evmMsg.GasLimit,
+		"receipt_status", receipt.Status,
+		"has_vm_error", vmErr != "",
+	)
 	bloom := ethtypes.Bloom{}
 	bloom.SetBytes(receipt.LogsBloom)
 	k.AppendToEvmTxDeferredInfo(ctx, bloom, ctx.TxSum(), surplus)
