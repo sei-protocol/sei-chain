@@ -62,6 +62,9 @@ snapshot-interval = 100
 # snapshot-keep-recent specifies the number of recent snapshots to keep and serve (0 to keep all).
 snapshot-keep-recent = 3
 
+# snapshot-directory specifies and overrides the directory for where to store the snapshots
+snapshot-directory = ""
+
 ###############################################################################
 ###                             SeiDB Configuration                         ###
 ###############################################################################
@@ -333,9 +336,6 @@ cors_origins = "*"
 
 # list of WS origins, separated by comma
 ws_origins = "*"
-
-# snapshot-directory specifies and overrides the directory for where to store the snapshots
-snapshot-directory = ""
 
 #######################################################
 ###         Halt & Shutdown (Auto-managed)           ###
