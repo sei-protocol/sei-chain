@@ -3,9 +3,11 @@ package tracers
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/big"
 	"os"
 	"reflect"
+	"regexp"
 	"slices"
 	"testing"
 
@@ -14,7 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
-	pbeth "github.com/sei-protocol/sei-chain/pb/sf/ethereum/type/v2"
+	pbeth "github.com/streamingfast/firehose-ethereum/types/pb/sf/ethereum/type/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
@@ -537,7 +539,41 @@ func blockEvent(height uint64) tracing.BlockEvent {
 	return tracing.BlockEvent{
 		Block: types.NewBlock(&types.Header{
 			Number: big.NewInt(int64(height)),
-		}, nil, nil, nil, nil),
-		TD: b(1),
+		}, nil, nil, nil),
+	}
+}
+
+var endsWithUnknownConstant = regexp.MustCompile(`.*\(\d+\)$`)
+
+func TestFirehose_BalanceChangeAllMappedCorrectly(t *testing.T) {
+	for i := 0; i <= math.MaxUint8; i++ {
+		tracingReason := tracing.BalanceChangeReason(i)
+		if tracingReason == tracing.BalanceChangeUnspecified || tracingReason == tracing.BalanceChangeRevert {
+			continue
+		}
+
+		if !endsWithUnknownConstant.MatchString(tracingReason.String()) {
+			require.NotPanics(t, func() {
+				balanceChangeReasonFromChain(tracingReason)
+			}, "BalanceChangeReason panicked for value %v", tracingReason)
+		}
+	}
+}
+
+func TestFirehose_GasChangeAllMappedCorrectly(t *testing.T) {
+	for i := 0; i <= math.MaxUint8; i++ {
+		tracingReason := tracing.GasChangeReason(i)
+
+		if tracingReason == tracing.GasChangeUnspecified ||
+			tracingReason == tracing.GasChangeCallOpCode ||
+			tracingReason == tracing.GasChangeIgnored {
+			continue
+		}
+
+		if !endsWithUnknownConstant.MatchString(tracingReason.String()) {
+			require.NotPanics(t, func() {
+				gasChangeReasonFromChain(tracingReason)
+			}, "GasChangeReason panicked for value %v", tracingReason)
+		}
 	}
 }

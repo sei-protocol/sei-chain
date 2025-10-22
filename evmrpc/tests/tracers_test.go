@@ -2,17 +2,18 @@ package tests
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
 	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app"
+	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
+	"github.com/sei-protocol/sei-chain/x/evm/types"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/lib/ethapi"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,7 +39,6 @@ func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
 			res := sendRequestWithNamespace("sei", port, "traceBlockByNumberExcludeTraceFail", "0x2", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",
 			})
-			fmt.Println(res)
 			txs := res["result"].([]interface{})
 			require.Len(t, txs, 1)
 			blockHash := txs[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
@@ -84,7 +84,7 @@ func TestTraceHistoricalPrecompiles(t *testing.T) {
 	txData := jsonExtractAsBytesFromArray(0).(*ethtypes.DynamicFeeTx)
 	SetupTestServer([][][]byte{{}, {}, {}}, mnemonicInitializer(mnemonic1), mockUpgrade("v5.5.2", 1), mockUpgrade(app.LatestUpgrade, 3)).Run(
 		func(port int) {
-			args := ethapi.TransactionArgs{
+			args := export.TransactionArgs{
 				From:     &from,
 				To:       txData.To,
 				Gas:      (*hexutil.Uint64)(&txData.Gas),
@@ -126,6 +126,25 @@ func TestTraceMultipleTransactionsShouldNotHang(t *testing.T) {
 			blockHash := res["result"].([]interface{})[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["blockHash"]
 			// assert that the block hash has been overwritten instead of the RLP hash.
 			require.Equal(t, "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", blockHash.(string))
+		},
+	)
+}
+
+func TestTraceStateAccess(t *testing.T) {
+	txBz := signAndEncodeTx(send(0), mnemonic1)
+	sdkTx, _ := testkeeper.EVMTestApp.GetTxConfig().TxDecoder()(txBz)
+	evmTx, _ := sdkTx.GetMsgs()[0].(*types.MsgEVMTransaction).AsTransaction()
+	hash := evmTx.Hash()
+	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
+		func(port int) {
+			res := sendRequestWithNamespace("debug", port, "traceStateAccess", hash.Hex())
+			result := res["result"].(map[string]interface{})["app"].(map[string]interface{})["modules"].(map[string]interface{})
+			require.Contains(t, result, "acc")
+			require.Contains(t, result, "bank")
+			require.Contains(t, result, "evm")
+			require.Contains(t, result, "params")
+			tmResult := res["result"].(map[string]interface{})["tendermint"].(map[string]interface{})["traces"]
+			require.Len(t, tmResult, 6)
 		},
 	)
 }

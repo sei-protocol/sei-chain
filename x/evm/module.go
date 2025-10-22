@@ -245,6 +245,10 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 18, func(ctx sdk.Context) error {
 		return migrations.MigrateDisableRegisterPointer(ctx, am.keeper)
 	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 19, func(ctx sdk.Context) error {
+		return migrations.MigrateRemoveCurrBlockBaseFee(ctx, am.keeper)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -282,7 +286,7 @@ func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 19 }
+func (AppModule) ConsensusVersion() uint64 { return 20 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
@@ -299,12 +303,26 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 				panic(err)
 			}
 			statedb := state.NewDBImpl(ctx, am.keeper, false)
-			vmenv := vm.NewEVM(*blockCtx, vm.TxContext{}, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{}, am.keeper.CustomPrecompiles(ctx))
-			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv, statedb)
+			vmenv := vm.NewEVM(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{}, am.keeper.CustomPrecompiles(ctx))
+			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv)
 			_, err = statedb.Finalize()
 			if err != nil {
 				panic(err)
 			}
+		}
+	}
+	if am.keeper.EthBlockTestConfig.Enabled {
+		parentHash := common.BytesToHash(ctx.BlockHeader().LastBlockId.Hash)
+		blockCtx, err := am.keeper.GetVMBlockContext(ctx, core.GasPool(math.MaxUint64))
+		if err != nil {
+			panic(err)
+		}
+		statedb := state.NewDBImpl(ctx, am.keeper, false)
+		vmenv := vm.NewEVM(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{}, am.keeper.CustomPrecompiles(ctx))
+		core.ProcessParentBlockHash(parentHash, vmenv)
+		_, err = statedb.Finalize()
+		if err != nil {
+			panic(err)
 		}
 	}
 }
@@ -314,6 +332,15 @@ func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
 func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.ValidatorUpdate {
 	// TODO: remove after all TxHashes have been removed
 	am.keeper.RemoveFirstNTxHashes(ctx, keeper.DefaultTxHashesToRemove)
+
+	// Migrate legacy EVM receipts to receipt.db in small batches every N blocks
+	if ctx.BlockHeight()%keeper.LegacyReceiptMigrationInterval == 0 {
+		if migrated, err := am.keeper.MigrateLegacyReceiptsBatch(ctx, keeper.LegacyReceiptMigrationBatchSize); err != nil {
+			ctx.Logger().Error(fmt.Sprintf("failed migrating legacy receipts: %s", err))
+		} else if migrated > 0 {
+			ctx.Logger().Info(fmt.Sprintf("migrated %d legacy EVM receipts to receipt.db", migrated))
+		}
+	}
 
 	newBaseFee := am.keeper.AdjustDynamicBaseFeePerGas(ctx, uint64(req.BlockGasUsed))
 	if newBaseFee != nil {
@@ -397,7 +424,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 		if len(di.TxHash) == 0 {
 			continue
 		}
-		r, err := am.keeper.GetTransientReceipt(ctx, common.BytesToHash(di.TxHash))
+		r, err := am.keeper.GetTransientReceipt(ctx, common.BytesToHash(di.TxHash), uint64(di.TxIndex))
 		if err != nil {
 			continue
 		}
@@ -408,14 +435,14 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 		if len(r.Logs) == 0 {
 			continue
 		}
-		// Re-create a per-tx bloom from EVM-only logs (exclude synthetic)
-		evmOnlyBloom := ethtypes.CreateBloom(ethtypes.Receipts{&ethtypes.Receipt{
-			Logs: keeper.GetEvmOnlyLogsForTx(r, 0),
-		}})
+		// Re-create a per-tx bloom from EVM-only logs (exclude synthetic receipts but not synthetic logs)
+		evmOnlyBloom := ethtypes.CreateBloom(&ethtypes.Receipt{
+			Logs: keeper.GetLogsForTx(r, 0),
+		})
 		evmOnlyBlooms = append(evmOnlyBlooms, evmOnlyBloom)
 	}
 	am.keeper.SetBlockBloom(ctx, allBlooms)
-	// am.keeper.SetEvmOnlyBlockBloom(ctx, evmOnlyBlooms)
+	am.keeper.SetEvmOnlyBlockBloom(ctx, evmOnlyBlooms)
 
 	return []abci.ValidatorUpdate{}
 }

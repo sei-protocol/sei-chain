@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 )
 
@@ -37,10 +38,10 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	stakingKeeper  pcommon.StakingKeeper
-	stakingQuerier pcommon.StakingQuerier
-	evmKeeper      pcommon.EVMKeeper
-	bankKeeper     pcommon.BankKeeper
+	stakingKeeper  utils.StakingKeeper
+	stakingQuerier utils.StakingQuerier
+	evmKeeper      utils.EVMKeeper
+	bankKeeper     utils.BankKeeper
 	address        common.Address
 
 	DelegateID        []byte
@@ -51,14 +52,14 @@ type PrecompileExecutor struct {
 	EditValidatorID   []byte
 }
 
-func NewPrecompile(stakingKeeper pcommon.StakingKeeper, stakingQuerier pcommon.StakingQuerier, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*pcommon.Precompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*pcommon.Precompile, error) {
 	newAbi := pcommon.MustGetABI(f, "abi.json")
 
 	p := &PrecompileExecutor{
-		stakingKeeper:  stakingKeeper,
-		stakingQuerier: stakingQuerier,
-		evmKeeper:      evmKeeper,
-		bankKeeper:     bankKeeper,
+		stakingKeeper:  keepers.StakingK(),
+		stakingQuerier: keepers.StakingQ(),
+		evmKeeper:      keepers.EVMK(),
+		bankKeeper:     keepers.BankK(),
 		address:        common.HexToAddress(StakingAddress),
 	}
 

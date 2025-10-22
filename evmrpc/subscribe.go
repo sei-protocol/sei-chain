@@ -64,7 +64,7 @@ func NewSubscriptionAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider
 			res := <-subCh
 			eventHeader := res.Data.(tmtypes.EventDataNewBlockHeader)
 			ctx := ctxProvider(eventHeader.Header.Height)
-			baseFeePerGas := k.GetCurrBaseFeePerGas(ctx).TruncateInt().BigInt()
+			baseFeePerGas := k.GetNextBaseFeePerGas(ctx).TruncateInt().BigInt()
 			ethHeader, err := encodeTmHeader(eventHeader, baseFeePerGas)
 			if err != nil {
 				fmt.Printf("error encoding new head event %#v due to %s\n", res.Data, err)
@@ -101,7 +101,7 @@ func handleListener(c chan map[string]interface{}, ethHeader map[string]interfac
 }
 
 func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, err error) {
-	defer recordMetrics("eth_newHeads", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics("eth_newHeads", a.connectionType, time.Now())
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
@@ -130,8 +130,6 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 				}
 			case <-rpcSub.Err():
 				break OUTER
-			case <-notifier.Closed():
-				break OUTER
 			}
 		}
 		a.newHeadListenersMtx.Lock()
@@ -145,7 +143,7 @@ func (a *SubscriptionAPI) NewHeads(ctx context.Context) (s *rpc.Subscription, er
 }
 
 func (a *SubscriptionAPI) Logs(ctx context.Context, filter *filters.FilterCriteria) (s *rpc.Subscription, err error) {
-	defer recordMetrics("eth_logs", a.connectionType, time.Now(), err == nil)
+	defer recordMetrics("eth_logs", a.connectionType, time.Now())
 	notifier, supported := rpc.NotifierFromContext(ctx)
 	if !supported {
 		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported

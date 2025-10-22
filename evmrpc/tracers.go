@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -15,7 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/tracers"
 	_ "github.com/ethereum/go-ethereum/eth/tracers/js"     // run init()s to register JS tracers
 	_ "github.com/ethereum/go-ethereum/eth/tracers/native" // run init()s to register native tracers
-	"github.com/ethereum/go-ethereum/lib/ethapi"
+	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -35,9 +36,9 @@ type DebugAPI struct {
 	ctxProvider        func(int64) sdk.Context
 	txConfigProvider   func(int64) client.TxConfig
 	connectionType     ConnectionType
-	backend            *Backend
 	isPanicCache       *expirable.LRU[common.Hash, bool] // hash to isPanic
-	traceCallSemaphore chan struct{}                     // Semaphore for limiting concurrent trace calls
+	backend            *Backend
+	traceCallSemaphore chan struct{} // Semaphore for limiting concurrent trace calls
 	maxBlockLookback   int64
 	traceTimeout       time.Duration
 }
@@ -62,13 +63,16 @@ func NewDebugAPI(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 	debugCfg Config,
+	globalBlockCache BlockCache,
+	cacheCreationMutex *sync.Mutex,
 ) *DebugAPI {
-	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler)
+	backend := NewBackend(ctxProvider, k, txConfigProvider, earliestVersion, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex)
 	tracersAPI := tracers.NewAPI(backend)
 	evictCallback := func(key common.Hash, value bool) {}
 	isPanicCache := expirable.NewLRU[common.Hash, bool](IsPanicCacheSize, evictCallback, IsPanicCacheTTL)
@@ -86,6 +90,7 @@ func NewDebugAPI(
 		txConfigProvider:   txConfigProvider,
 		connectionType:     connectionType,
 		isPanicCache:       isPanicCache,
+		backend:            backend,
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
 		traceTimeout:       debugCfg.TraceTimeout,
@@ -97,13 +102,16 @@ func NewSeiDebugAPI(
 	k *keeper.Keeper,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
 	config *SimulateConfig,
 	app *baseapp.BaseApp,
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 	debugCfg Config,
+	globalBlockCache BlockCache,
+	cacheCreationMutex *sync.Mutex,
 ) *SeiDebugAPI {
-	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler)
+	backend := NewBackend(ctxProvider, k, txConfigProvider, earliestVersion, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex)
 	tracersAPI := tracers.NewAPI(backend)
 
 	var sem chan struct{}
@@ -122,6 +130,7 @@ func NewSeiDebugAPI(
 		traceCallSemaphore: sem,
 		maxBlockLookback:   debugCfg.MaxTraceLookbackBlocks,
 		traceTimeout:       debugCfg.TraceTimeout,
+		backend:            backend,
 		// isPanicCache: nil, // Explicitly nil as per original structure for SeiDebugAPI's embedded DebugAPI
 	}
 
@@ -138,7 +147,7 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 	defer cancel()
 
 	startTime := time.Now()
-	defer recordMetrics("debug_traceTransaction", api.connectionType, startTime, returnErr == nil)
+	defer recordMetrics("debug_traceTransaction", api.connectionType, startTime)
 	result, returnErr = api.tracersAPI.TraceTransaction(ctx, hash, config)
 	return
 }
@@ -156,7 +165,7 @@ func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, 
 	}
 
 	startTime := time.Now()
-	defer recordMetrics("sei_traceBlockByNumberExcludeTraceFail", api.connectionType, startTime, returnErr == nil)
+	defer recordMetrics("sei_traceBlockByNumberExcludeTraceFail", api.connectionType, startTime)
 	// Accessing tracersAPI from the embedded DebugAPI
 	result, returnErr = api.DebugAPI.tracersAPI.TraceBlockByNumber(ctx, number, config)
 	if returnErr != nil {
@@ -184,7 +193,7 @@ func (api *SeiDebugAPI) TraceBlockByHashExcludeTraceFail(ctx context.Context, ha
 	defer cancel()
 
 	startTime := time.Now()
-	defer recordMetrics("sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime, returnErr == nil)
+	defer recordMetrics("sei_traceBlockByHashExcludeTraceFail", api.connectionType, startTime)
 	// Accessing tracersAPI from the embedded DebugAPI
 	result, returnErr = api.DebugAPI.tracersAPI.TraceBlockByHash(ctx, hash, config)
 	if returnErr != nil {
@@ -270,7 +279,7 @@ func (api *DebugAPI) TraceBlockByNumber(ctx context.Context, number rpc.BlockNum
 	}
 
 	startTime := time.Now()
-	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime, returnErr == nil)
+	defer recordMetrics("debug_traceBlockByNumber", api.connectionType, startTime)
 	result, returnErr = api.tracersAPI.TraceBlockByNumber(ctx, number, config)
 	return
 }
@@ -283,12 +292,12 @@ func (api *DebugAPI) TraceBlockByHash(ctx context.Context, hash common.Hash, con
 	defer cancel()
 
 	startTime := time.Now()
-	defer recordMetrics("debug_traceBlockByHash", api.connectionType, startTime, returnErr == nil)
+	defer recordMetrics("debug_traceBlockByHash", api.connectionType, startTime)
 	result, returnErr = api.tracersAPI.TraceBlockByHash(ctx, hash, config)
 	return
 }
 
-func (api *DebugAPI) TraceCall(ctx context.Context, args ethapi.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (result interface{}, returnErr error) {
+func (api *DebugAPI) TraceCall(ctx context.Context, args export.TransactionArgs, blockNrOrHash rpc.BlockNumberOrHash, config *tracers.TraceCallConfig) (result interface{}, returnErr error) {
 	release := api.acquireTraceSemaphore()
 	defer release()
 
@@ -296,7 +305,7 @@ func (api *DebugAPI) TraceCall(ctx context.Context, args ethapi.TransactionArgs,
 	defer cancel()
 
 	startTime := time.Now()
-	defer recordMetrics("debug_traceCall", api.connectionType, startTime, returnErr == nil)
+	defer recordMetrics("debug_traceCall", api.connectionType, startTime)
 	result, returnErr = api.tracersAPI.TraceCall(ctx, args, blockNrOrHash, config)
 	return
 }
@@ -319,7 +328,7 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 	ctx = WithTendermintTraces(ctx, tendermintTraces)
 	receiptTraces := &ReceiptTraces{Traces: []RawResponseReceipt{}}
 	ctx = WithReceiptTraces(ctx, receiptTraces)
-	tx, blockHash, blockNumber, index, err := api.backend.GetTransaction(ctx, hash)
+	_, tx, blockHash, blockNumber, index, err := api.backend.GetTransaction(ctx, hash)
 	if err != nil {
 		return nil, err
 	}
@@ -340,7 +349,7 @@ func (api *DebugAPI) TraceStateAccess(ctx context.Context, hash common.Hash) (re
 		return nil, err
 	}
 	response := StateAccessResponse{
-		AppState:        stateDB.(*state.DBImpl).Ctx().StoreTracer().DerivePrestateToJson(),
+		AppState:        state.GetDBImpl(stateDB).Ctx().StoreTracer().DerivePrestateToJson(),
 		TendermintState: tendermintTraces.MustMarshalToJson(),
 		Receipt:         receiptTraces.MustMarshalToJson(),
 	}

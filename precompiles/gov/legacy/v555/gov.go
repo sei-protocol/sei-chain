@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v555"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 )
 
@@ -48,24 +49,24 @@ func GetABI() abi.ABI {
 
 type Precompile struct {
 	pcommon.Precompile
-	govKeeper  pcommon.GovKeeper
-	evmKeeper  pcommon.EVMKeeper
-	bankKeeper pcommon.BankKeeper
+	govKeeper  utils.GovKeeper
+	evmKeeper  utils.EVMKeeper
+	bankKeeper utils.BankKeeper
 	address    common.Address
 
 	VoteID    []byte
 	DepositID []byte
 }
 
-func NewPrecompile(govKeeper pcommon.GovKeeper, evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper) (*Precompile, error) {
+func NewPrecompile(keepers utils.Keepers) (*Precompile, error) {
 	newAbi := GetABI()
 
 	p := &Precompile{
 		Precompile: pcommon.Precompile{ABI: newAbi},
-		govKeeper:  govKeeper,
-		evmKeeper:  evmKeeper,
+		govKeeper:  keepers.GovK(),
+		evmKeeper:  keepers.EVMK(),
 		address:    common.HexToAddress(GovAddress),
-		bankKeeper: bankKeeper,
+		bankKeeper: keepers.BankK(),
 	}
 
 	for name, m := range newAbi.Methods {
@@ -108,7 +109,7 @@ func (p Precompile) GetName() string {
 func (p Precompile) Run(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, value *big.Int, readOnly bool, _ bool, hooks *tracing.Hooks) (bz []byte, err error) {
 	defer func() {
 		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+			state.GetDBImpl(evm.StateDB).SetPrecompileError(err)
 		}
 	}()
 	if readOnly {

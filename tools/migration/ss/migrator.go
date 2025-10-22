@@ -8,6 +8,7 @@ import (
 	"github.com/armon/go-metrics"
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-chain/tools/utils"
+	seimetrics "github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-db/ss/types"
 	dbm "github.com/tendermint/tm-db"
 )
@@ -177,7 +178,7 @@ func ExportLeafNodesFromKey(db dbm.DB, ch chan<- types.RawSnapshotNode, startKey
 			if count%1000000 == 0 {
 				batchDuration := time.Since(startTimeBatch)
 				fmt.Printf("SeiDB Archive Migration: Last 1,000,000 iterations took: %v. Total scanned: %d, leaf nodes exported: %d\n", batchDuration, count, leafNodeCount)
-				metrics.IncrCounterWithLabels([]string{"sei", "migration", "leaf_nodes_exported"}, float32(batchLeafNodeCount), []metrics.Label{
+				seimetrics.SafeMetricsIncrCounterWithLabels([]string{"sei", "migration", "leaf_nodes_exported"}, float32(batchLeafNodeCount), []metrics.Label{
 					{Name: "module", Value: module},
 				})
 

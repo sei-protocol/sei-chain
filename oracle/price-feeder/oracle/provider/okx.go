@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
 
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/config"
 	"github.com/sei-protocol/sei-chain/oracle/price-feeder/oracle/types"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 )
 
 const (
@@ -199,7 +199,7 @@ func (p *OkxProvider) SubscribeCurrencyPairs(cps ...types.CurrencyPair) error {
 	}
 
 	p.setSubscribedPairs(cps...)
-	telemetry.IncrCounter(
+	metrics.SafeTelemetryIncrCounter(
 		float32(len(cps)),
 		"websocket",
 		"subscribe",
@@ -336,7 +336,7 @@ func (p *OkxProvider) messageReceived(messageType int, bz []byte) {
 	if tickerResp.ID.Channel == "tickers" {
 		for _, tickerPair := range tickerResp.Data {
 			p.setTickerPair(tickerPair)
-			telemetry.IncrCounter(
+			metrics.SafeTelemetryIncrCounter(
 				1,
 				"websocket",
 				"message",
@@ -353,7 +353,7 @@ func (p *OkxProvider) messageReceived(messageType int, bz []byte) {
 	if candleResp.ID.Channel == "candle1m" {
 		for _, candlePair := range candleResp.Data {
 			p.setCandlePair(candlePair, candleResp.ID.InstID)
-			telemetry.IncrCounter(
+			metrics.SafeTelemetryIncrCounter(
 				1,
 				"websocket",
 				"message",
@@ -454,7 +454,7 @@ func (p *OkxProvider) reconnect() error {
 
 	currencyPairs := p.subscribedPairsToSlice()
 
-	telemetry.IncrCounter(
+	metrics.SafeTelemetryIncrCounter(
 		1,
 		"websocket",
 		"reconnect",

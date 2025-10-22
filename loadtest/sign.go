@@ -110,7 +110,7 @@ func (sc *SignerClient) GetKey(accountID, backend, accountKeyFilePath string) cr
 	if err != nil {
 		panic(err)
 	}
-	jsonFile.Close()
+	_ = jsonFile.Close()
 	if err := json.Unmarshal(byteVal, &accountInfo); err != nil {
 		panic(err)
 	}

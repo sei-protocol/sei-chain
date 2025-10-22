@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -14,8 +13,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
-	"github.com/sei-protocol/sei-chain/x/evm/tracers"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/tendermint/tendermint/libs/log"
 )
 
@@ -40,10 +40,10 @@ const (
 var f embed.FS
 
 type PrecompileExecutor struct {
-	accountKeeper pcommon.AccountKeeper
-	bankKeeper    pcommon.BankKeeper
-	bankMsgServer pcommon.BankMsgServer
-	evmKeeper     pcommon.EVMKeeper
+	accountKeeper putils.AccountKeeper
+	bankKeeper    putils.BankKeeper
+	bankMsgServer putils.BankMsgServer
+	evmKeeper     putils.EVMKeeper
 	address       common.Address
 
 	SendID        []byte
@@ -65,13 +65,13 @@ func GetABI() abi.ABI {
 	return pcommon.MustGetABI(f, "abi.json")
 }
 
-func NewPrecompile(bankKeeper pcommon.BankKeeper, bankMsgServer pcommon.BankMsgServer, evmKeeper pcommon.EVMKeeper, accountKeeper pcommon.AccountKeeper) (*pcommon.DynamicGasPrecompile, error) {
+func NewPrecompile(keepers putils.Keepers) (*pcommon.DynamicGasPrecompile, error) {
 	newAbi := GetABI()
 	p := &PrecompileExecutor{
-		bankKeeper:    bankKeeper,
-		bankMsgServer: bankMsgServer,
-		evmKeeper:     evmKeeper,
-		accountKeeper: accountKeeper,
+		bankKeeper:    keepers.BankK(),
+		bankMsgServer: keepers.BankMS(),
+		evmKeeper:     keepers.EVMK(),
+		accountKeeper: keepers.AccountK(),
 		address:       common.HexToAddress(BankAddress),
 	}
 
@@ -214,15 +214,9 @@ func (p PrecompileExecutor) sendNative(ctx sdk.Context, method *abi.Method, args
 		return nil, 0, err
 	}
 
-	precompiledSeiAddr := p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address)
-
-	usei, wei, err := pcommon.HandlePaymentUseiWei(ctx, precompiledSeiAddr, senderSeiAddr, value, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
+	usei, wei, err := pcommon.HandlePaymentUseiWei(ctx, p.evmKeeper.GetSeiAddressOrDefault(ctx, p.address), senderSeiAddr, value, p.bankKeeper, p.evmKeeper, hooks, evm.GetDepth())
 	if err != nil {
 		return nil, 0, err
-	}
-
-	if hooks := tracers.GetCtxEthTracingHooks(ctx); hooks != nil && hooks.OnBalanceChange != nil && (value.Sign() != 0) {
-		tracers.TraceTransferEVMValue(ctx, hooks, p.bankKeeper, precompiledSeiAddr, p.address, senderSeiAddr, caller, value)
 	}
 
 	if err := p.bankKeeper.SendCoinsAndWei(ctx, senderSeiAddr, receiverSeiAddr, usei, wei); err != nil {
@@ -230,19 +224,11 @@ func (p PrecompileExecutor) sendNative(ctx sdk.Context, method *abi.Method, args
 	}
 	accExists := p.accountKeeper.HasAccount(ctx, receiverSeiAddr)
 	if !accExists {
-		defer telemetry.IncrCounter(1, "new", "account")
+		defer metrics.SafeTelemetryIncrCounter(1, "new", "account")
 		p.accountKeeper.SetAccount(ctx, p.accountKeeper.NewAccountWithAddress(ctx, receiverSeiAddr))
 	}
 
-	if hooks := tracers.GetCtxEthTracingHooks(ctx); hooks != nil && hooks.OnBalanceChange != nil && (value.Sign() != 0) {
-		// The SendCoinsAndWei function above works with Sei addresses that haven't been associated here. Hence we cannot
-		// use `GetEVMAddress` and enforce to have a mapping. So we use GetEVMAddressOrDefault to get the EVM address.
-		receiverEvmAddr := tracers.GetEVMAddress(ctx, p.evmKeeper, receiverSeiAddr)
-
-		tracers.TraceTransferEVMValue(ctx, hooks, p.bankKeeper, senderSeiAddr, caller, receiverSeiAddr, receiverEvmAddr, value)
-	}
-
-	if hooks := tracers.GetCtxEthTracingHooks(ctx); hooks != nil {
+	if hooks != nil {
 		newCtx := ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx))
 		remainingGas := pcommon.GetRemainingGas(newCtx, p.evmKeeper)
 		if hooks.OnEnter != nil {
@@ -400,6 +386,6 @@ func (p PrecompileExecutor) Logger(ctx sdk.Context) log.Logger {
 	return ctx.Logger().With("precompile", "bank")
 }
 
-func (p PrecompileExecutor) EVMKeeper() pcommon.EVMKeeper {
+func (p PrecompileExecutor) EVMKeeper() putils.EVMKeeper {
 	return p.evmKeeper
 }

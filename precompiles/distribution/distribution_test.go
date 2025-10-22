@@ -27,6 +27,7 @@ import (
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/distribution"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -89,7 +90,7 @@ func TestWithdraw(t *testing.T) {
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -120,7 +121,7 @@ func TestWithdraw(t *testing.T) {
 	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -144,7 +145,7 @@ func TestWithdraw(t *testing.T) {
 	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -224,7 +225,7 @@ func delegate(ctx sdk.Context,
 	require.Nil(t, k.BankKeeper().MintCoins(ctx, evmtypes.ModuleName, sdk.NewCoins(sdk.NewCoin(k.GetBaseDenom(ctx), sdk.NewInt(200000000)))))
 	require.Nil(t, k.BankKeeper().SendCoinsFromModuleToAccount(ctx, evmtypes.ModuleName, seiAddr, amt))
 
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -268,7 +269,7 @@ func setWithdrawAddressAndWithdraw(
 	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -297,7 +298,7 @@ func setWithdrawAddressAndWithdraw(
 	r, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, r)
+	ante.Preprocess(ctx, r, k.ChainID(ctx))
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), r)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -358,8 +359,8 @@ func TestPrecompile_RunAndCalculateGas_WithdrawDelegationRewards(t *testing.T) {
 
 	type fields struct {
 		Precompile                          pcommon.Precompile
-		distrKeeper                         pcommon.DistributionKeeper
-		evmKeeper                           pcommon.EVMKeeper
+		distrKeeper                         utils.DistributionKeeper
+		evmKeeper                           utils.EVMKeeper
 		address                             common.Address
 		SetWithdrawAddrID                   []byte
 		WithdrawDelegationRewardsID         []byte
@@ -486,7 +487,10 @@ func TestPrecompile_RunAndCalculateGas_WithdrawDelegationRewards(t *testing.T) {
 			evm := vm.EVM{
 				StateDB: stateDb,
 			}
-			p, _ := distribution.NewPrecompile(tt.fields.distrKeeper, k)
+			p, _ := distribution.NewPrecompile(&app.PrecompileKeepers{
+				DistributionKeeper: tt.fields.distrKeeper,
+				EVMKeeper:          k,
+			})
 			withdraw, err := p.ABI.MethodById(p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawDelegationRewardsID)
 			require.Nil(t, err)
 			inputs, err := withdraw.Inputs.Pack(tt.args.validator)
@@ -516,8 +520,8 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 
 	type fields struct {
 		Precompile                          pcommon.Precompile
-		distrKeeper                         pcommon.DistributionKeeper
-		evmKeeper                           pcommon.EVMKeeper
+		distrKeeper                         utils.DistributionKeeper
+		evmKeeper                           utils.EVMKeeper
 		address                             common.Address
 		SetWithdrawAddrID                   []byte
 		WithdrawDelegationRewardsID         []byte
@@ -644,7 +648,10 @@ func TestPrecompile_RunAndCalculateGas_WithdrawMultipleDelegationRewards(t *test
 			evm := vm.EVM{
 				StateDB: stateDb,
 			}
-			p, _ := distribution.NewPrecompile(tt.fields.distrKeeper, k)
+			p, _ := distribution.NewPrecompile(&app.PrecompileKeepers{
+				DistributionKeeper: tt.fields.distrKeeper,
+				EVMKeeper:          k,
+			})
 			withdraw, err := p.ABI.MethodById(p.GetExecutor().(*distribution.PrecompileExecutor).WithdrawMultipleDelegationRewardsID)
 			require.Nil(t, err)
 			inputs, err := withdraw.Inputs.Pack(tt.args.validators)
@@ -674,8 +681,8 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 
 	type fields struct {
 		Precompile                          pcommon.Precompile
-		distrKeeper                         pcommon.DistributionKeeper
-		evmKeeper                           pcommon.EVMKeeper
+		distrKeeper                         utils.DistributionKeeper
+		evmKeeper                           utils.EVMKeeper
 		address                             common.Address
 		SetWithdrawAddrID                   []byte
 		WithdrawDelegationRewardsID         []byte
@@ -817,7 +824,10 @@ func TestPrecompile_RunAndCalculateGas_SetWithdrawAddress(t *testing.T) {
 				StateDB:   stateDb,
 				TxContext: vm.TxContext{Origin: callerEvmAddress},
 			}
-			p, _ := distribution.NewPrecompile(tt.fields.distrKeeper, k)
+			p, _ := distribution.NewPrecompile(&app.PrecompileKeepers{
+				DistributionKeeper: tt.fields.distrKeeper,
+				EVMKeeper:          k,
+			})
 			setAddress, err := p.ABI.MethodById(p.GetExecutor().(*distribution.PrecompileExecutor).SetWithdrawAddrID)
 			require.Nil(t, err)
 			inputs, err := setAddress.Inputs.Pack(tt.args.addressToSet)
@@ -904,7 +914,7 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 	callerSeiAddress, callerEvmAddress := testkeeper.MockAddressPair()
 	_, notAssociatedCallerEvmAddress := testkeeper.MockAddressPair()
 	_, contractEvmAddress := testkeeper.MockAddressPair()
-	pre, _ := distribution.NewPrecompile(nil, nil)
+	pre, _ := distribution.NewPrecompile(&utils.EmptyKeepers{})
 	rewardsMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*distribution.PrecompileExecutor).RewardsID)
 	coin1 := distribution.Coin{
 		Amount:   big.NewInt(1_000_000_000_000_000_000),
@@ -958,8 +968,8 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 	})
 	type fields struct {
 		Precompile                          pcommon.Precompile
-		distrKeeper                         pcommon.DistributionKeeper
-		evmKeeper                           pcommon.EVMKeeper
+		distrKeeper                         utils.DistributionKeeper
+		evmKeeper                           utils.EVMKeeper
 		address                             common.Address
 		SetWithdrawAddrID                   []byte
 		WithdrawDelegationRewardsID         []byte
@@ -1104,7 +1114,10 @@ func TestPrecompile_RunAndCalculateGas_Rewards(t *testing.T) {
 				StateDB:   stateDb,
 				TxContext: vm.TxContext{Origin: callerEvmAddress},
 			}
-			p, _ := distribution.NewPrecompile(tt.fields.distrKeeper, k)
+			p, _ := distribution.NewPrecompile(&app.PrecompileKeepers{
+				DistributionKeeper: tt.fields.distrKeeper,
+				EVMKeeper:          k,
+			})
 			rewards, err := p.ABI.MethodById(p.GetExecutor().(*distribution.PrecompileExecutor).RewardsID)
 			require.Nil(t, err)
 			inputs, err := rewards.Inputs.Pack(tt.args.delegatorAddress)
@@ -1180,7 +1193,7 @@ func TestWithdrawValidatorCommission_noCommissionToWithdrawRightAfterDelegation(
 	require.Nil(t, err)
 
 	msgServer := keeper.NewMsgServerImpl(k)
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -1212,7 +1225,7 @@ func TestWithdrawValidatorCommission_noCommissionToWithdrawRightAfterDelegation(
 	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Equal(t, "no validator commission to withdraw", string(res.ReturnData))
@@ -1244,7 +1257,7 @@ func TestWithdrawValidatorCommission_UnitTest(t *testing.T) {
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 
 	// Create the precompile with mock keeper
-	p, err := distribution.NewPrecompile(mockDistrKeeper, k)
+	p, err := distribution.NewPrecompile(&app.PrecompileKeepers{DistributionKeeper: mockDistrKeeper, EVMKeeper: k})
 	require.Nil(t, err)
 
 	// Get the withdrawValidatorCommission method
@@ -1298,7 +1311,7 @@ func TestWithdrawValidatorCommission_InputValidation(t *testing.T) {
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
 
 	// Create the precompile with mock keeper
-	p, err := distribution.NewPrecompile(&TestDistributionKeeper{}, k)
+	p, err := distribution.NewPrecompile(&app.PrecompileKeepers{DistributionKeeper: &TestDistributionKeeper{}, EVMKeeper: k})
 	require.Nil(t, err)
 
 	// Get the withdrawValidatorCommission method

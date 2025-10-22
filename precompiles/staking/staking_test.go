@@ -26,6 +26,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common"
 	"github.com/sei-protocol/sei-chain/precompiles/staking"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -86,7 +87,7 @@ func TestStaking(t *testing.T) {
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -113,7 +114,7 @@ func TestStaking(t *testing.T) {
 	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -140,7 +141,7 @@ func TestStaking(t *testing.T) {
 	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
@@ -194,7 +195,7 @@ func TestStakingError(t *testing.T) {
 
 	msgServer := keeper.NewMsgServerImpl(k)
 
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.NotEmpty(t, res.VmError)
@@ -217,7 +218,7 @@ func TestStakingError(t *testing.T) {
 	req, err = evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.Nil(t, err)
 
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err = msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.NotEmpty(t, res.VmError)
@@ -274,7 +275,7 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 	_, unassociatedEvmAddress := testkeeper.MockAddressPair()
 	_, contractEvmAddress := testkeeper.MockAddressPair()
 	validatorAddress := "seivaloper134ykhqrkyda72uq7f463ne77e4tn99steprmz7"
-	pre, _ := staking.NewPrecompile(nil, nil, nil, nil)
+	pre, _ := staking.NewPrecompile(&utils.EmptyKeepers{})
 	delegationMethod, _ := pre.ABI.MethodById(pre.GetExecutor().(*staking.PrecompileExecutor).DelegationID)
 	shares := 100
 	delegationResponse := &stakingtypes.QueryDelegationResponse{
@@ -306,9 +307,9 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 
 	type fields struct {
 		Precompile     pcommon.Precompile
-		stakingKeeper  pcommon.StakingKeeper
-		stakingQuerier pcommon.StakingQuerier
-		evmKeeper      pcommon.EVMKeeper
+		stakingKeeper  utils.StakingKeeper
+		stakingQuerier utils.StakingQuerier
+		evmKeeper      utils.EVMKeeper
 	}
 	type args struct {
 		evm                *vm.EVM
@@ -456,7 +457,11 @@ func TestPrecompile_Run_Delegation(t *testing.T) {
 				StateDB:   stateDb,
 				TxContext: vm.TxContext{Origin: callerEvmAddress},
 			}
-			p, _ := staking.NewPrecompile(tt.fields.stakingKeeper, tt.fields.stakingQuerier, k, nil)
+			p, _ := staking.NewPrecompile(&app.PrecompileKeepers{
+				StakingKeeper:  tt.fields.stakingKeeper,
+				StakingQuerier: tt.fields.stakingQuerier,
+				EVMKeeper:      k,
+			})
 			delegation, err := p.ABI.MethodById(p.GetExecutor().(*staking.PrecompileExecutor).DelegationID)
 			require.Nil(t, err)
 			inputs, err := delegation.Inputs.Pack(tt.args.delegatorAddress, tt.args.validatorAddress)
@@ -681,7 +686,7 @@ func TestCreateValidator(t *testing.T) {
 			req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 			require.NoError(t, err)
 
-			ante.Preprocess(setup.ctx, req)
+			ante.Preprocess(setup.ctx, req, setup.k.ChainID(setup.ctx))
 			res, err := setup.msgServer.EVMTransaction(sdk.WrapSDKContext(setup.ctx), req)
 			require.NoError(t, err)
 
@@ -744,7 +749,7 @@ func TestCreateValidator_UnassociatedAddress(t *testing.T) {
 	req, err := evmtypes.NewMsgEVMTransaction(txwrapper)
 	require.NoError(t, err)
 
-	ante.Preprocess(setup.ctx, req)
+	ante.Preprocess(setup.ctx, req, setup.k.ChainID(setup.ctx))
 	res, err := setup.msgServer.EVMTransaction(sdk.WrapSDKContext(setup.ctx), req)
 	require.NoError(t, err)
 	require.NotEmpty(t, res.VmError, "Should fail with unassociated address")
@@ -800,7 +805,7 @@ func TestEditValidator_ErorrIfDoesNotExist(t *testing.T) {
 	require.NoError(t, err)
 
 	msgServer := keeper.NewMsgServerImpl(k)
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.NoError(t, err)
 	// Should fail because validator doesn't exist
@@ -866,7 +871,7 @@ func TestEditValidator(t *testing.T) {
 	createReq, err := evmtypes.NewMsgEVMTransaction(createTxWrapper)
 	require.NoError(t, err)
 
-	ante.Preprocess(ctx, createReq)
+	ante.Preprocess(ctx, createReq, k.ChainID(ctx))
 	createRes, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), createReq)
 	require.NoError(t, err)
 	require.Empty(t, createRes.VmError, "Validator creation should succeed: %s", createRes.VmError)
@@ -905,7 +910,7 @@ func TestEditValidator(t *testing.T) {
 	editReq, err := evmtypes.NewMsgEVMTransaction(editTxWrapper)
 	require.NoError(t, err)
 
-	ante.Preprocess(ctx, editReq)
+	ante.Preprocess(ctx, editReq, k.ChainID(ctx))
 	editRes, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), editReq)
 	require.NoError(t, err)
 	require.Empty(t, editRes.VmError, "Edit validator should succeed: %s", editRes.VmError)

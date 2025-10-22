@@ -1,6 +1,6 @@
 # docker build . -t sei-protocol/sei:latest
 # docker run --rm -it sei-protocol/sei:latest /bin/sh
-FROM golang:1.21.4-alpine AS go-builder
+FROM golang:1.23.0-alpine AS go-builder
 
 # this comes from standard alpine nightly file
 #  https://github.com/rust-lang/docker-rust-nightly/blob/master/alpine3.12/Dockerfile
@@ -38,7 +38,7 @@ COPY . /code/
 # force it to use static lib (from above) not standard libgo_cosmwasm.so file
 # then log output of file /code/build/seid
 # then ensure static linking
-RUN LEDGER_ENABLED=false BUILD_TAGS=muslc LINK_STATICALLY=true make build -B \
+RUN LEDGER_ENABLED=false BUILD_TAGS=muslc LINK_STATICALLY=true make build-verbose -B \
   && file /code/build/seid \
   && echo "Ensuring binary is statically linked ..." \
   && (file /code/build/seid | grep "statically linked")

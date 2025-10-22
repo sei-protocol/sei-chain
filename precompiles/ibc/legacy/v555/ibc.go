@@ -8,6 +8,7 @@ import (
 	"math/big"
 
 	"github.com/cosmos/ibc-go/v3/modules/apps/transfer/types"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 
@@ -57,32 +58,27 @@ func GetABI() abi.ABI {
 type Precompile struct {
 	pcommon.Precompile
 	address          common.Address
-	transferKeeper   pcommon.TransferKeeper
-	evmKeeper        pcommon.EVMKeeper
-	clientKeeper     pcommon.ClientKeeper
-	connectionKeeper pcommon.ConnectionKeeper
-	channelKeeper    pcommon.ChannelKeeper
+	transferKeeper   putils.TransferKeeper
+	evmKeeper        putils.EVMKeeper
+	clientKeeper     putils.ClientKeeper
+	connectionKeeper putils.ConnectionKeeper
+	channelKeeper    putils.ChannelKeeper
 
 	TransferID                   []byte
 	TransferWithDefaultTimeoutID []byte
 }
 
-func NewPrecompile(
-	transferKeeper pcommon.TransferKeeper,
-	evmKeeper pcommon.EVMKeeper,
-	clientKeeper pcommon.ClientKeeper,
-	connectionKeeper pcommon.ConnectionKeeper,
-	channelKeeper pcommon.ChannelKeeper) (*Precompile, error) {
+func NewPrecompile(keepers putils.Keepers) (*Precompile, error) {
 	newAbi := GetABI()
 
 	p := &Precompile{
 		Precompile:       pcommon.Precompile{ABI: newAbi},
 		address:          common.HexToAddress(IBCAddress),
-		transferKeeper:   transferKeeper,
-		evmKeeper:        evmKeeper,
-		clientKeeper:     clientKeeper,
-		connectionKeeper: connectionKeeper,
-		channelKeeper:    channelKeeper,
+		transferKeeper:   keepers.TransferK(),
+		evmKeeper:        keepers.EVMK(),
+		clientKeeper:     keepers.ClientK(),
+		connectionKeeper: keepers.ConnectionK(),
+		channelKeeper:    keepers.ChannelK(),
 	}
 
 	for name, m := range newAbi.Methods {
@@ -116,7 +112,7 @@ func (p Precompile) RequiredGas(input []byte) uint64 {
 func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, callingContract common.Address, input []byte, suppliedGas uint64, _ *big.Int, _ *tracing.Hooks, readOnly bool, _ bool) (ret []byte, remainingGas uint64, err error) {
 	defer func() {
 		if err != nil {
-			evm.StateDB.(*state.DBImpl).SetPrecompileError(err)
+			state.GetDBImpl(evm.StateDB).SetPrecompileError(err)
 		}
 	}()
 	if readOnly {
@@ -130,7 +126,7 @@ func (p Precompile) RunAndCalculateGas(evm *vm.EVM, caller common.Address, calli
 		return nil, 0, errors.New("cannot delegatecall IBC")
 	}
 
-	gasMultiplier := p.evmKeeper.GetPriorityNormalizerPre580(ctx)
+	gasMultiplier := p.evmKeeper.GetPriorityNormalizer(ctx)
 	gasLimitBigInt := new(big.Int).Mul(new(big.Int).SetUint64(suppliedGas), gasMultiplier.TruncateInt().BigInt())
 	if gasLimitBigInt.Cmp(utils.BigMaxU64) > 0 {
 		gasLimitBigInt = utils.BigMaxU64

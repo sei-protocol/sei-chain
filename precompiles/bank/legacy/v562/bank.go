@@ -7,14 +7,15 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/tracing"
 	"github.com/ethereum/go-ethereum/core/vm"
 	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v562"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
+	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/tendermint/tendermint/libs/log"
 )
 
@@ -52,9 +53,9 @@ func GetABI() abi.ABI {
 }
 
 type PrecompileExecutor struct {
-	accountKeeper pcommon.AccountKeeper
-	bankKeeper    pcommon.BankKeeper
-	evmKeeper     pcommon.EVMKeeper
+	accountKeeper putils.AccountKeeper
+	bankKeeper    putils.BankKeeper
+	evmKeeper     putils.EVMKeeper
 	address       common.Address
 
 	SendID        []byte
@@ -72,12 +73,12 @@ type CoinBalance struct {
 	Denom  string
 }
 
-func NewPrecompile(bankKeeper pcommon.BankKeeper, evmKeeper pcommon.EVMKeeper, accountKeeper pcommon.AccountKeeper) (*pcommon.Precompile, error) {
+func NewPrecompile(keepers putils.Keepers) (*pcommon.Precompile, error) {
 	newAbi := GetABI()
 	p := &PrecompileExecutor{
-		bankKeeper:    bankKeeper,
-		evmKeeper:     evmKeeper,
-		accountKeeper: accountKeeper,
+		bankKeeper:    keepers.BankK(),
+		evmKeeper:     keepers.EVMK(),
+		accountKeeper: keepers.AccountK(),
 		address:       common.HexToAddress(BankAddress),
 	}
 
@@ -211,7 +212,7 @@ func (p PrecompileExecutor) sendNative(ctx sdk.Context, method *abi.Method, args
 	}
 	accExists := p.accountKeeper.HasAccount(ctx, receiverSeiAddr)
 	if !accExists {
-		defer telemetry.IncrCounter(1, "new", "account")
+		defer metrics.SafeTelemetryIncrCounter(1, "new", "account")
 		p.accountKeeper.SetAccount(ctx, p.accountKeeper.NewAccountWithAddress(ctx, receiverSeiAddr))
 	}
 	if hooks != nil {

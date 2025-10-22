@@ -14,6 +14,7 @@ func TestTraceTransaction(t *testing.T) {
 	// test callTracer
 	args["tracer"] = "callTracer"
 	resObj := sendRequestGoodWithNamespace(t, "debug", "traceTransaction", DebugTraceHashHex, args)
+	fmt.Println(resObj)
 	result := resObj["result"].(map[string]interface{})
 	require.Equal(t, "0x5b4eba929f3811980f5ae0c5d04fa200f837df4e", result["from"])
 	require.Equal(t, "0x30d40", result["gas"])

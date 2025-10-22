@@ -11,14 +11,12 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 		return nil
 	}
 	prevBaseFee := k.GetNextBaseFeePerGas(ctx)
-	// set the resulting base fee for block n-1 on block n
-	k.SetCurrBaseFeePerGas(ctx, prevBaseFee)
 	targetGasUsed := sdk.NewDec(int64(k.GetTargetGasUsedPerBlock(ctx)))
 	if targetGasUsed.IsZero() { // avoid division by zero
 		return &prevBaseFee // return the previous base fee as is
 	}
-	minimumFeePerGas := k.GetParams(ctx).MinimumFeePerGas
-	maximumFeePerGas := k.GetParams(ctx).MaximumFeePerGas
+	minimumFeePerGas := k.GetMinimumFeePerGas(ctx)
+	maximumFeePerGas := k.GetMaximumFeePerGas(ctx)
 	blockGasLimit := sdk.NewDec(ctx.ConsensusParams().Block.MaxGas)
 	blockGasUsedDec := sdk.NewDec(int64(blockGasUsed))
 
@@ -60,6 +58,7 @@ func (k *Keeper) AdjustDynamicBaseFeePerGas(ctx sdk.Context, blockGasUsed uint64
 	return &newBaseFee
 }
 
+// NOTE: this is only used in migrate_base_fee_off_by_one migration. This is deprecated.
 // dont have height be a prefix, just store the current base fee directly
 func (k *Keeper) GetCurrBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 	store := ctx.KVStore(k.storeKey)
@@ -79,6 +78,7 @@ func (k *Keeper) GetCurrBaseFeePerGas(ctx sdk.Context) sdk.Dec {
 	return d
 }
 
+// NOTE: this is only used in migrate_base_fee_off_by_one migration. This is deprecated.
 func (k *Keeper) SetCurrBaseFeePerGas(ctx sdk.Context, baseFeePerGas sdk.Dec) {
 	store := ctx.KVStore(k.storeKey)
 	bz, err := baseFeePerGas.MarshalJSON()

@@ -11,6 +11,7 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
+	"github.com/holiman/uint256"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -64,7 +65,7 @@ func TestModuleExportGenesis(t *testing.T) {
 func TestConsensusVersion(t *testing.T) {
 	k, _ := testkeeper.MockEVMKeeper()
 	module := evm.NewAppModule(nil, k)
-	assert.Equal(t, uint64(19), module.ConsensusVersion())
+	assert.Equal(t, uint64(20), module.ConsensusVersion())
 }
 
 func TestABCI(t *testing.T) {
@@ -79,19 +80,19 @@ func TestABCI(t *testing.T) {
 	m.BeginBlock(ctx, abci.RequestBeginBlock{})
 	// 1st tx
 	s := state.NewDBImpl(ctx.WithTxIndex(1), k, false)
-	s.SubBalance(evmAddr1, big.NewInt(10000000000000), ethtracing.BalanceChangeUnspecified)
-	s.AddBalance(evmAddr2, big.NewInt(8000000000000), ethtracing.BalanceChangeUnspecified)
+	s.SubBalance(evmAddr1, uint256.NewInt(10000000000000), tracing.BalanceChangeUnspecified)
+	s.AddBalance(evmAddr2, uint256.NewInt(8000000000000), tracing.BalanceChangeUnspecified)
 	feeCollectorAddr, err := k.GetFeeCollectorAddress(ctx)
 	require.Nil(t, err)
-	s.AddBalance(feeCollectorAddr, big.NewInt(2000000000000), ethtracing.BalanceChangeUnspecified)
+	s.AddBalance(feeCollectorAddr, uint256.NewInt(2000000000000), tracing.BalanceChangeUnspecified)
 	surplus, err := s.Finalize()
 	require.Nil(t, err)
 	require.Equal(t, sdk.ZeroInt(), surplus)
 	k.AppendToEvmTxDeferredInfo(ctx.WithTxIndex(1), ethtypes.Bloom{}, common.Hash{4}, surplus)
 	// 3rd tx
 	s = state.NewDBImpl(ctx.WithTxIndex(3), k, false)
-	s.SubBalance(evmAddr2, big.NewInt(5000000000000), ethtracing.BalanceChangeUnspecified)
-	s.AddBalance(evmAddr1, big.NewInt(5000000000000), ethtracing.BalanceChangeUnspecified)
+	s.SubBalance(evmAddr2, uint256.NewInt(5000000000000), tracing.BalanceChangeUnspecified)
+	s.AddBalance(evmAddr1, uint256.NewInt(5000000000000), tracing.BalanceChangeUnspecified)
 	surplus, err = s.Finalize()
 	require.Nil(t, err)
 	require.Equal(t, sdk.ZeroInt(), surplus)
@@ -109,8 +110,8 @@ func TestABCI(t *testing.T) {
 	ctx = addTestBalanceChangeTracerToCtx(ctx, &balanceChanges)
 
 	s = state.NewDBImpl(ctx.WithTxIndex(2), k, false)
-	s.SubBalance(evmAddr2, big.NewInt(3000000000000), ethtracing.BalanceChangeUnspecified)
-	s.AddBalance(evmAddr1, big.NewInt(2000000000000), ethtracing.BalanceChangeUnspecified)
+	s.SubBalance(evmAddr2, uint256.NewInt(3000000000000), tracing.BalanceChangeUnspecified)
+	s.AddBalance(evmAddr1, uint256.NewInt(2000000000000), tracing.BalanceChangeUnspecified)
 	surplus, err = s.Finalize()
 	require.Nil(t, err)
 	require.Equal(t, sdk.NewInt(1000000000000), surplus)
@@ -151,6 +152,47 @@ func TestABCI(t *testing.T) {
 		EndTime:     math.MaxInt64,
 	})
 	require.NotNil(t, err)
+}
+
+// Ensures legacy receipt migration runs on interval and moves receipts to receipt.db
+func TestLegacyReceiptMigrationInterval(t *testing.T) {
+	a := app.Setup(false, false, false)
+	k := a.EvmKeeper
+	ctx := a.GetContextForDeliverTx([]byte{})
+	m := evm.NewAppModule(nil, &k)
+
+	// Seed a legacy receipt directly into KV
+	txHash := common.BytesToHash([]byte{0x42})
+	receipt := &types.Receipt{TxHashHex: txHash.Hex()}
+	store := k.PrefixStore(ctx, types.ReceiptKeyPrefix)
+	bz, err := receipt.Marshal()
+	require.NoError(t, err)
+	store.Set(txHash[:], bz)
+
+	// Advance blocks until we hit the migration interval
+	// Interval defined in keeper/receipt.go as LegacyReceiptMigrationInterval
+	// Ensure we trigger EndBlock on the interval height
+	interval := int64(10) // mirror keeper.LegacyReceiptMigrationInterval
+	for i := int64(1); i <= interval; i++ {
+		ctx = ctx.WithBlockHeight(i)
+		m.BeginBlock(ctx, abci.RequestBeginBlock{})
+		m.EndBlock(ctx, abci.RequestEndBlock{})
+	}
+	k.FlushTransientReceiptsSync(ctx)
+
+	// After migration interval, legacy KV entry should be gone
+	exists := k.PrefixStore(ctx, types.ReceiptKeyPrefix).Get(txHash[:]) != nil
+	require.False(t, exists)
+
+	// And receipt should be retrievable through normal path
+	r, err := k.GetReceipt(ctx, txHash)
+	require.NoError(t, err)
+	require.Equal(t, txHash.Hex(), r.TxHashHex)
+
+	// Check that the receipt is retrievable through receipt.db only
+	r, err = k.GetReceiptFromReceiptStore(ctx, txHash)
+	require.NoError(t, err)
+	require.Equal(t, txHash.Hex(), r.TxHashHex)
 }
 
 func TestAnteSurplus(t *testing.T) {

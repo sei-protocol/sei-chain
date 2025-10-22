@@ -12,17 +12,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/crypto/hd"
-
+	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/config"
 	"github.com/cosmos/cosmos-sdk/codec/legacy"
+	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/evmrpc/rpcutils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
@@ -32,11 +34,6 @@ import (
 )
 
 const LatestCtxHeight int64 = -1
-
-// Since we use a static base fee, we want GasUsedRatio returned in RPC queries
-// to reflect the fact that base fee would never change, which is only true if
-// the block is exactly half-utilized.
-const GasUsedRatio float64 = 0.5
 
 func GetBlockNumberByNrOrHash(ctx context.Context, tmClient rpcclient.Client, blockNrOrHash rpc.BlockNumberOrHash) (*int64, error) {
 	if blockNrOrHash.BlockHash != nil {
@@ -59,6 +56,7 @@ func getBlockNumber(ctx context.Context, tmClient rpcclient.Client, number rpc.B
 		if err != nil {
 			return nil, err
 		}
+		TraceTendermintIfApplicable(ctx, "Genesis", []string{}, genesisRes)
 		numberPtr = &genesisRes.Genesis.InitialHeight
 	default:
 		numberI64 := number.Int64()
@@ -74,6 +72,14 @@ func getHeightFromBigIntBlockNumber(latest int64, blockNumber *big.Int) int64 {
 	default:
 		return blockNumber.Int64()
 	}
+}
+
+// this avoids a gosec lint error rather than just casting
+func toUint64(value int64) uint64 {
+	if value < 0 {
+		return 0
+	}
+	return uint64(value)
 }
 
 func getTestKeyring(homeDir string) (keyring.Keyring, error) {
@@ -150,6 +156,7 @@ func blockByNumberWithRetry(ctx context.Context, client rpcclient.Client, height
 	if blockRes.Block == nil {
 		return nil, fmt.Errorf("could not find block for height %d", height)
 	}
+	TraceTendermintIfApplicable(ctx, "Block", []string{stringifyInt64Ptr(height)}, blockRes)
 	return blockRes, err
 }
 
@@ -173,17 +180,110 @@ func blockByHashWithRetry(ctx context.Context, client rpcclient.Client, hash byt
 	if blockRes.Block == nil {
 		return nil, fmt.Errorf("could not find block for hash %s", hash.String())
 	}
+	TraceTendermintIfApplicable(ctx, "BlockByHash", []string{hash.String()}, blockRes)
 	return blockRes, err
 }
 
-func recordMetrics(apiMethod string, connectionType ConnectionType, startTime time.Time, success bool) {
-	metrics.IncrementRpcRequestCounter(apiMethod, string(connectionType), success)
-	metrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
+type indexedMsg struct {
+	msg   sdk.Msg
+	index int
+}
+
+func filterTransactions(
+	k *keeper.Keeper,
+	ctxProvider func(int64) sdk.Context,
+	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
+	block *coretypes.ResultBlock,
+	includeSyntheticTxs bool,
+	includeBankTransfers bool,
+	cacheCreationMutex *sync.Mutex,
+	globalBlockCache BlockCache,
+) ([]indexedMsg, error) {
+	txs := []indexedMsg{}
+	txCounts := make(map[string]uint64)
+	startOfBlockNonce := make(map[string]uint64)
+	txConfig := txConfigProvider(block.Block.Height)
+	latestCtx := ctxProvider(LatestCtxHeight)
+	ctx := ctxProvider(block.Block.Height)
+	prevCtx := ctxProvider(block.Block.Height - 1)
+	if earliestVersion() > prevCtx.BlockHeight() {
+		return nil, fmt.Errorf("block pruned: %d vs %d", earliestVersion(), prevCtx.BlockHeight())
+	}
+	for i, tx := range block.Block.Txs {
+		sdkTx, err := txConfig.TxDecoder()(tx)
+		if err != nil {
+			continue
+		}
+		for _, msg := range sdkTx.GetMsgs() {
+			switch m := msg.(type) {
+			case *types.MsgEVMTransaction:
+				if m.IsAssociateTx() {
+					continue
+				}
+				ethtx, _ := m.AsTransaction()
+				hash := ethtx.Hash()
+				sender, _ := rpcutils.RecoverEVMSender(ethtx, block.Block.Height, block.Block.Time.Unix())
+				receipt, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, hash)
+				if !found || receipt.BlockNumber != uint64(block.Block.Height) || isReceiptFromAnteError(ctx, receipt) { //nolint:gosec
+					continue
+				}
+				txCount := txCounts[sender.Hex()]
+				if receipt.Status == 0 && receipt.EffectiveGasPrice == 0 {
+					// check if the transaction bumped nonce. If not, exclude it
+					if _, ok := startOfBlockNonce[sender.Hex()]; !ok {
+						startOfBlockNonce[sender.Hex()] = k.GetNonce(prevCtx, common.HexToAddress(sender.Hex()))
+					}
+					if txCount+startOfBlockNonce[sender.Hex()] != ethtx.Nonce() {
+						continue
+					}
+				}
+				if !includeSyntheticTxs && receipt.TxType == types.ShellEVMTxType {
+					continue
+				}
+				txCounts[sender.Hex()] = txCount + 1
+				txs = append(txs, indexedMsg{index: i, msg: msg})
+			case *wasmtypes.MsgExecuteContract:
+				if !includeSyntheticTxs {
+					continue
+				}
+				th := sha256.Sum256(block.Block.Txs[i])
+				_, found := getOrSetCachedReceipt(cacheCreationMutex, globalBlockCache, latestCtx, k, block, th)
+				if !found {
+					continue
+				}
+				txs = append(txs, indexedMsg{index: i, msg: msg})
+			case *banktypes.MsgSend:
+				if !includeBankTransfers {
+					continue
+				}
+				txs = append(txs, indexedMsg{index: i, msg: msg})
+			}
+		}
+	}
+	return txs, nil
+}
+
+func recordMetrics(apiMethod string, connectionType ConnectionType, startTime time.Time) {
+	recordMetricsWithError(apiMethod, connectionType, startTime, nil)
 }
 
 func recordMetricsWithError(apiMethod string, connectionType ConnectionType, startTime time.Time, err error) {
-	metrics.IncrementErrorMetrics(apiMethod, err)
-	recordMetrics(apiMethod, connectionType, startTime, err == nil)
+	// Automatically detect success/failure based on panic state
+	panicValue := recover()
+	success := panicValue == nil || err != nil
+
+	// these are only metrics that are specifically typed errors for tracking.
+	if err != nil {
+		metrics.IncrementErrorMetrics(apiMethod, err)
+	}
+
+	metrics.IncrementRpcRequestCounter(apiMethod, string(connectionType), success)
+	metrics.MeasureRpcRequestLatency(apiMethod, string(connectionType), startTime)
+
+	if panicValue != nil {
+		panic(panicValue)
+	}
 }
 
 func CheckVersion(ctx sdk.Context, k *keeper.Keeper) error {
@@ -216,40 +316,36 @@ type typedTxHash struct {
 	isEvm bool
 }
 
-func getTxHashesFromBlock(block *coretypes.ResultBlock, txConfig client.TxConfig, shouldIncludeSynthetic bool) []typedTxHash {
+func getTxHashesFromBlock(
+	ctxProvider func(int64) sdk.Context,
+	txConfigProvider func(int64) client.TxConfig,
+	earliestVersion func() int64,
+	k *keeper.Keeper,
+	block *coretypes.ResultBlock,
+	shouldIncludeSynthetic bool,
+	cacheCreationMutex *sync.Mutex,
+	globalBlockCache BlockCache,
+) ([]typedTxHash, error) {
 	txHashes := []typedTxHash{}
-	for i, tx := range block.Block.Data.Txs {
-		sdkTx, err := txConfig.TxDecoder()(tx)
-		if err != nil {
-			fmt.Printf("error decoding tx %d in block %d, skipping\n", i, block.Block.Height)
-			continue
-		}
-		if len(sdkTx.GetMsgs()) > 0 {
-			if evmTx, ok := sdkTx.GetMsgs()[0].(*types.MsgEVMTransaction); ok {
-				if evmTx.IsAssociateTx() {
-					continue
-				}
-				ethtx, _ := evmTx.AsTransaction()
-				txHashes = append(txHashes, typedTxHash{hash: ethtx.Hash(), isEvm: true})
-			}
-		}
-		if shouldIncludeSynthetic {
-			txHashes = append(txHashes, typedTxHash{hash: common.Hash(sha256.Sum256(tx)), isEvm: false})
+	txs, err := filterTransactions(k, ctxProvider, txConfigProvider, earliestVersion, block, shouldIncludeSynthetic, false, cacheCreationMutex, globalBlockCache)
+	if err != nil {
+		return nil, err
+	}
+	for _, tx := range txs {
+		switch tx.msg.(type) {
+		case *types.MsgEVMTransaction:
+			ethtx, _ := tx.msg.(*types.MsgEVMTransaction).AsTransaction()
+			txHashes = append(txHashes, typedTxHash{hash: ethtx.Hash(), isEvm: true})
+		case *wasmtypes.MsgExecuteContract:
+			txHashes = append(txHashes, typedTxHash{hash: sha256.Sum256(block.Block.Txs[tx.index]), isEvm: false})
 		}
 	}
-	return txHashes
+	return txHashes, nil
 }
 
 func isReceiptFromAnteError(ctx sdk.Context, receipt *types.Receipt) bool {
 	// hacky heuristic
-	if receipt.Status == 1 {
-		return false
-	}
-	// TODO: uncomment after sei-cosmos is updated
-	// if strings.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0 {
-	// 	return receipt.EffectiveGasPrice == 0
-	// }
-	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < 102491599 {
+	if strings.Compare(ctx.ClosestUpgradeName(), "v5.8.0") < 0 {
 		return receipt.EffectiveGasPrice == 0
 	}
 	return receipt.EffectiveGasPrice == 0 && (strings.Contains(receipt.VmError, core.ErrNonceTooHigh.Error()) ||

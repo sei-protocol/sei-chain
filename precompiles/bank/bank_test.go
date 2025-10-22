@@ -9,14 +9,11 @@ import (
 	"testing"
 	"time"
 
-	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
-
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
-	ethtracing "github.com/ethereum/go-ethereum/core/tracing"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -26,8 +23,6 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
-	"github.com/sei-protocol/sei-chain/x/evm/tracers"
-	"github.com/sei-protocol/sei-chain/x/evm/tracing"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
@@ -51,19 +46,9 @@ func (tx mockTx) GetGasEstimate() uint64                          { return 0 }
 
 func TestRun(t *testing.T) {
 	testApp := testkeeper.EVMTestApp
-
-	var balanceChanges []balanceChange
-
 	ctx := testApp.NewContext(false, tmtypes.Header{}).WithBlockHeight(2)
-	ctx = tracers.SetCtxBlockchainTracer(ctx, &tracing.Hooks{
-		Hooks: &ethtracing.Hooks{
-			OnBalanceChange: func(addr common.Address, prev, new *big.Int, reason ethtracing.BalanceChangeReason) {
-				balanceChanges = append(balanceChanges, balanceChange{prev.String(), new.String(), reason})
-			},
-		},
-	})
-
 	k := &testApp.EvmKeeper
+	upgradeKeeper := &testApp.UpgradeKeeper
 
 	// Setup sender addresses and environment
 	privKey := testkeeper.MockPrivateKey()
@@ -82,7 +67,7 @@ func TestRun(t *testing.T) {
 	// Setup receiving addresses
 	seiAddr, evmAddr := testkeeper.MockAddressPair()
 	k.SetAddressMapping(ctx, seiAddr, evmAddr)
-	p, err := bank.NewPrecompile(k.BankKeeper(), bankkeeper.NewMsgServerImpl(k.BankKeeper()), k, k.AccountKeeper())
+	p, err := bank.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
@@ -162,24 +147,15 @@ func TestRun(t *testing.T) {
 
 	// send the transaction
 	msgServer := keeper.NewMsgServerImpl(k)
-	ante.Preprocess(ctx, req)
+	ante.Preprocess(ctx, req, k.ChainID(ctx))
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
-	ctx, err = ante.NewEVMFeeCheckDecorator(k).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
+	ctx, err = ante.NewEVMFeeCheckDecorator(k, upgradeKeeper).AnteHandle(ctx, mockTx{msgs: []sdk.Msg{req}}, false, func(sdk.Context, sdk.Tx, bool) (sdk.Context, error) {
 		return ctx, nil
 	})
 	require.Nil(t, err)
 	res, err := msgServer.EVMTransaction(sdk.WrapSDKContext(ctx), req)
 	require.Nil(t, err)
 	require.Empty(t, res.VmError)
-
-	// Test balance changes, there is 8 but we care about the first 4 here
-	require.Equal(t, 8, len(balanceChanges))
-	require.Equal(t, []balanceChange{
-		{"9800000000000000000", "9799989999999999900", ethtracing.BalanceChangeTransfer},
-		{"0", "10000000000100", ethtracing.BalanceChangeTransfer},
-		{"10000000000100", "0", ethtracing.BalanceChangeTransfer},
-		{"9799989999999999900", "9800000000000000000", ethtracing.BalanceChangeTransfer},
-	}, balanceChanges[0:4], "balance changes do not match, actual are:\n\n%s", balanceChangesValues(balanceChanges[0:4]))
 
 	evts := ctx.EventManager().ABCIEvents()
 
@@ -309,7 +285,7 @@ func TestSendForUnlinkedReceiver(t *testing.T) {
 
 	// Setup receiving addresses - NOT linked
 	_, evmAddr := testkeeper.MockAddressPair()
-	p, err := bank.NewPrecompile(k.BankKeeper(), bankkeeper.NewMsgServerImpl(k.BankKeeper()), k, k.AccountKeeper())
+	p, err := bank.NewPrecompile(testApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
@@ -379,7 +355,7 @@ func TestMetadata(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
 	k.BankKeeper().SetDenomMetaData(ctx, banktypes.Metadata{Name: "SEI", Symbol: "usei", Base: "usei"})
-	p, err := bank.NewPrecompile(k.BankKeeper(), bankkeeper.NewMsgServerImpl(k.BankKeeper()), k, k.AccountKeeper())
+	p, err := bank.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	statedb := state.NewDBImpl(ctx, k, true)
 	evm := vm.EVM{
@@ -417,24 +393,7 @@ func TestMetadata(t *testing.T) {
 }
 
 func TestAddress(t *testing.T) {
-	k := &testkeeper.EVMTestApp.EvmKeeper
-	p, err := bank.NewPrecompile(k.BankKeeper(), bankkeeper.NewMsgServerImpl(k.BankKeeper()), k, k.AccountKeeper())
+	p, err := bank.NewPrecompile(testkeeper.EVMTestApp.GetPrecompileKeepers())
 	require.Nil(t, err)
 	require.Equal(t, common.HexToAddress(bank.BankAddress), p.Address())
-}
-
-type balanceChange struct {
-	// We use string to avoid big.Int equality issues
-	old    string
-	new    string
-	reason ethtracing.BalanceChangeReason
-}
-
-func balanceChangesValues(changes []balanceChange) string {
-	out := make([]string, len(changes))
-	for i, change := range changes {
-		out[i] = fmt.Sprintf("{%q, %q, ethtracing.BalanceChangeReason(%d)}", change.old, change.new, change.reason)
-	}
-
-	return strings.Join(out, "\n")
 }

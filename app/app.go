@@ -118,6 +118,7 @@ import (
 	v0upgrade "github.com/sei-protocol/sei-chain/app/upgrades/v0"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/precompiles"
+	putils "github.com/sei-protocol/sei-chain/precompiles/utils"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	"github.com/sei-protocol/sei-chain/wasmbinding"
@@ -152,7 +153,6 @@ import (
 	tmos "github.com/tendermint/tendermint/libs/os"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
-	"go.opentelemetry.io/otel/trace"
 
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
@@ -715,25 +715,7 @@ func New(
 	app.IBCKeeper.SetRouter(ibcRouter)
 
 	if enableCustomEVMPrecompiles {
-		customPrecompiles := precompiles.GetCustomPrecompiles(
-			LatestUpgrade,
-			&app.EvmKeeper,
-			app.BankKeeper,
-			bankkeeper.NewMsgServerImpl(app.BankKeeper),
-			wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper),
-			app.WasmKeeper,
-			stakingkeeper.NewMsgServerImpl(app.StakingKeeper),
-			stakingkeeper.Querier{Keeper: app.StakingKeeper},
-			app.GovKeeper,
-			govkeeper.NewMsgServerImpl(app.GovKeeper),
-			app.DistrKeeper,
-			app.OracleKeeper,
-			app.TransferKeeper,
-			app.IBCKeeper.ClientKeeper,
-			app.IBCKeeper.ConnectionKeeper,
-			app.IBCKeeper.ChannelKeeper,
-			app.AccountKeeper,
-		)
+		customPrecompiles := precompiles.GetCustomPrecompiles(LatestUpgrade, app.GetPrecompileKeepers())
 		app.EvmKeeper.SetCustomPrecompiles(customPrecompiles, LatestUpgrade)
 	}
 
@@ -935,6 +917,7 @@ func New(
 			WasmKeeper:          &app.WasmKeeper,
 			OracleKeeper:        &app.OracleKeeper,
 			EVMKeeper:           &app.EvmKeeper,
+			UpgradeKeeper:       &app.UpgradeKeeper,
 			TracingInfo:         app.GetBaseApp().TracingInfo,
 			AccessControlKeeper: &app.AccessControlKeeper,
 			LatestCtxGetter: func() sdk.Context {
@@ -1502,43 +1485,14 @@ func (app *App) GetDeliverTxEntry(ctx sdk.Context, txIndex int, absoluateIndex i
 		AbsoluteIndex: absoluateIndex,
 		TxTracer:      txTracer,
 	}
-	if tx == nil {
-		return
-	}
-	defer func() {
-		if err := recover(); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("panic when generating estimated writeset for %X: %s", bz, err))
-		}
-	}()
-	// get prefill estimate
-	estimatedWritesets, err := app.AccessControlKeeper.GenerateEstimatedWritesets(ctx, app.GetAnteDepGenerator(), txIndex, tx)
-	// if no error, then we assign the mapped writesets for prefill estimate
-	if err == nil {
-		res.EstimatedWritesets = estimatedWritesets
-	}
 	return
 }
 
 // ProcessTXsWithOCC runs the transactions concurrently via OCC
 func (app *App) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
 	entries := make([]*sdk.DeliverTxEntry, len(txs))
-	var span trace.Span
-	if app.TracingEnabled {
-		_, span = app.TracingInfo.Start("GenerateEstimatedWritesets")
-	}
-	wg := sync.WaitGroup{}
 	for txIndex, tx := range txs {
-		wg.Add(1)
-		go func(txIndex int, tx []byte) {
-			defer wg.Done()
-			entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
-		}(txIndex, tx)
-	}
-
-	wg.Wait()
-
-	if app.TracingEnabled {
-		span.End()
+		entries[txIndex] = app.GetDeliverTxEntry(ctx, txIndex, absoluteTxIndices[txIndex], tx, typedTxs[txIndex])
 	}
 
 	batchResult := app.DeliverTxBatch(ctx, sdk.DeliverTxBatchRequest{TxEntries: entries})
@@ -1720,7 +1674,7 @@ func (app *App) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []
 			} else {
 				if isEVM, _ := evmante.IsEVMMessage(typedTx); isEVM {
 					msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
-					if err := evmante.Preprocess(ctx, msg); err != nil {
+					if err := evmante.Preprocess(ctx, msg, app.EvmKeeper.ChainID(ctx)); err != nil {
 						ctx.Logger().Error(fmt.Sprintf("error preprocessing EVM tx due to %s", err))
 						typedTxs[idx] = nil
 						return
@@ -1887,13 +1841,18 @@ func (app *App) RegisterTxService(clientCtx client.Context) {
 
 func (app *App) RPCContextProvider(i int64) sdk.Context {
 	if i == evmrpc.LatestCtxHeight {
-		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false)
+		return app.GetCheckCtx().WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
 	ctx, err := app.CreateQueryContext(i, false)
 	if err != nil {
 		app.Logger().Error(fmt.Sprintf("failed to create query context for EVM; using latest context instead: %v+", err.Error()))
-		return app.GetCheckCtx().WithIsTracing(true).WithIsCheckTx(false)
+		return app.GetCheckCtx().WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false).WithClosestUpgradeName(LatestUpgrade)
 	}
+	closestUpgrade, upgradeHeight := app.UpgradeKeeper.GetClosestUpgrade(app.GetCheckCtx(), i)
+	if closestUpgrade == "" && upgradeHeight == 0 {
+		closestUpgrade = LatestUpgrade
+	}
+	ctx = ctx.WithClosestUpgradeName(closestUpgrade)
 	return ctx.WithIsEVM(true).WithIsTracing(true).WithIsCheckTx(false)
 }
 
@@ -1910,9 +1869,12 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 		}
 		return app.legacyEncodingConfig.TxConfig
 	}
+	earliestVersionFetcher := func() int64 {
+		return app.CommitMultiStore().GetEarliestVersion()
+	}
 
 	if app.evmRPCConfig.HTTPEnabled {
-		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome, nil)
+		evmHTTPServer, err := evmrpc.NewEVMHTTPServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, earliestVersionFetcher, DefaultNodeHome, nil)
 		if err != nil {
 			panic(err)
 		}
@@ -1925,7 +1887,7 @@ func (app *App) RegisterTendermintService(clientCtx client.Context) {
 	}
 
 	if app.evmRPCConfig.WSEnabled {
-		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, DefaultNodeHome)
+		evmWSServer, err := evmrpc.NewEVMWebSocketServer(app.Logger(), app.evmRPCConfig, clientCtx.Client, &app.EvmKeeper, app.BaseApp, app.TracerAnteHandler, app.RPCContextProvider, txConfigProvider, earliestVersionFetcher, DefaultNodeHome)
 		if err != nil {
 			panic(err)
 		}
@@ -2086,6 +2048,10 @@ func (app *App) BlacklistedAccAddrs() map[string]bool {
 	return blacklistedAddrs
 }
 
+func (app *App) GetPrecompileKeepers() putils.Keepers {
+	return NewPrecompileKeepers(app)
+}
+
 // test-only
 func (app *App) SetTxDecoder(txDecoder sdk.TxDecoder) {
 	app.txDecoder = txDecoder
@@ -2130,23 +2096,39 @@ func TmBlockHeaderToEVM(
 	miner := ethcommon.BytesToAddress(block.ProposerAddress)
 	gasLimit, gasWanted := uint64(0), uint64(0)
 
+	zeroExcessBlobGas := uint64(0)
+	baseFee := k.GetNextBaseFeePerGas(noGasBillingCtx).TruncateInt().BigInt()
+
+	if noGasBillingCtx.ChainID() == "pacific-1" && noGasBillingCtx.BlockHeight() < k.UpgradeKeeper().GetDoneHeight(noGasBillingCtx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "6.2.0") {
+		fmt.Println("[Firehose] Skipping base fee inclusion for pacific-1 pre 6.2.0 block")
+		baseFee = nil
+	} else {
+		fmt.Printf("[Firehose] Including base fee in block header %v\n", baseFee)
+		fmt.Printf("[Firehose] Next base fee in block header %v\n")
+	}
+
 	header = &ethtypes.Header{
-		Number:      number,
-		ParentHash:  lastHash,
-		Nonce:       ethtypes.BlockNonce{},   // inapplicable to Sei
-		MixDigest:   ethcommon.Hash{},        // inapplicable to Sei
-		UncleHash:   ethtypes.EmptyUncleHash, // inapplicable to Sei
-		Bloom:       k.GetBlockBloom(noGasBillingCtx),
-		Root:        appHash,
-		Coinbase:    miner,
-		Difficulty:  big.NewInt(0),      // inapplicable to Sei
-		Extra:       ethhexutil.Bytes{}, // inapplicable to Sei
-		GasLimit:    gasLimit,
-		GasUsed:     gasWanted,
-		Time:        uint64(block.Time.Unix()),
-		TxHash:      txHash,
-		ReceiptHash: resultHash,
-		BaseFee:     k.GetBaseFeePerGas(noGasBillingCtx).RoundInt().BigInt(),
+		Number:           number,
+		ParentHash:       lastHash,
+		Nonce:            ethtypes.BlockNonce{},   // inapplicable to Sei
+		MixDigest:        ethcommon.Hash{},        // inapplicable to Sei
+		UncleHash:        ethtypes.EmptyUncleHash, // inapplicable to Sei
+		Bloom:            k.GetBlockBloom(noGasBillingCtx),
+		Root:             appHash,
+		Coinbase:         miner,
+		Difficulty:       big.NewInt(0),      // inapplicable to Sei
+		Extra:            ethhexutil.Bytes{}, // inapplicable to Sei
+		GasLimit:         gasLimit,
+		GasUsed:          gasWanted,
+		Time:             uint64(block.Time.Unix()),
+		TxHash:           txHash,
+		ReceiptHash:      resultHash,
+		BaseFee:          baseFee,
+		ExcessBlobGas:    &zeroExcessBlobGas,
+		WithdrawalsHash:  nil, // inapplicable to Sei
+		BlobGasUsed:      nil, // inapplicable to Sei
+		ParentBeaconRoot: nil, // inapplicable to Sei
+		RequestsHash:     nil, // inapplicable to Sei
 	}
 
 	return

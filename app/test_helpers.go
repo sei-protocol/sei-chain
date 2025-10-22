@@ -18,8 +18,6 @@ import (
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
-	ssconfig "github.com/sei-protocol/sei-db/config"
-	"github.com/sei-protocol/sei-db/ss"
 	seidbtypes "github.com/sei-protocol/sei-db/ss/types"
 	"github.com/stretchr/testify/suite"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -30,6 +28,8 @@ import (
 
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
+	ssconfig "github.com/sei-protocol/sei-db/config"
+	"github.com/sei-protocol/sei-db/ss"
 )
 
 const TestContract = "TEST"
@@ -282,7 +282,11 @@ func SetupWithSc(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions
 
 	options := []AppOption{
 		func(app *App) {
-			app.receiptStore = NewInMemoryStateStore()
+			receiptStore, err := setupReceiptStore()
+			if err != nil {
+				panic(fmt.Sprintf("error while creating receipt store: %s", err))
+			}
+			app.receiptStore = receiptStore
 		},
 	}
 
@@ -374,7 +378,7 @@ func SetupTestingAppWithLevelDb(isCheckTx bool, enableEVMCustomPrecompiles bool)
 	}
 
 	cleanupFn := func() {
-		db.Close()
+		_ = db.Close()
 		err = os.RemoveAll(dir)
 		if err != nil {
 			panic(err)

@@ -5,16 +5,16 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/ethereum/go-ethereum/common"
-	pcommon "github.com/sei-protocol/sei-chain/precompiles/common/legacy/v600"
+	"github.com/sei-protocol/sei-chain/precompiles/utils"
 )
 
 type AssociationHelper struct {
-	evmKeeper     pcommon.EVMKeeper
-	bankKeeper    pcommon.BankKeeper
-	accountKeeper pcommon.AccountKeeper
+	evmKeeper     utils.EVMKeeper
+	bankKeeper    utils.BankKeeper
+	accountKeeper utils.AccountKeeper
 }
 
-func NewAssociationHelper(evmKeeper pcommon.EVMKeeper, bankKeeper pcommon.BankKeeper, accountKeeper pcommon.AccountKeeper) *AssociationHelper {
+func NewAssociationHelper(evmKeeper utils.EVMKeeper, bankKeeper utils.BankKeeper, accountKeeper utils.AccountKeeper) *AssociationHelper {
 	return &AssociationHelper{evmKeeper: evmKeeper, bankKeeper: bankKeeper, accountKeeper: accountKeeper}
 }
 

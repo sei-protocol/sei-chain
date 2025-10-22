@@ -58,6 +58,7 @@ type RPCEndpointConfig struct {
 	JwtSecret              []byte // optional JWT secret
 	batchItemLimit         int
 	batchResponseSizeLimit int
+	readLimit              int64
 }
 
 type rpcHandler struct {
@@ -272,10 +273,10 @@ func (h *HTTPServer) doStop() {
 	err := h.server.Shutdown(ctx)
 	if err != nil && err == ctx.Err() {
 		h.log.Error("HTTP server graceful shutdown timed out")
-		h.server.Close()
+		_ = h.server.Close()
 	}
 
-	h.listener.Close()
+	_ = h.listener.Close()
 	h.log.Info("HTTP server stopped", "endpoint", h.listener.Addr())
 
 	// Clear out everything to allow re-configuring it later.
@@ -332,6 +333,7 @@ func (h *HTTPServer) EnableWS(apis []rpc.API, config WsConfig) error {
 	// Create RPC server and handler.
 	srv := rpc.NewServer()
 	srv.SetBatchLimits(config.batchItemLimit, config.batchResponseSizeLimit)
+	srv.SetReadLimits(config.readLimit)
 	h.log.Info("Registering apis for evm websocket")
 	if err := RegisterApis(h.log, apis, config.Modules, srv); err != nil {
 		return err
@@ -537,7 +539,7 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 
 func (w *gzipResponseWriter) Flush() {
 	if w.gz != nil {
-		w.gz.Flush()
+		_ = w.gz.Flush()
 	}
 	if f, ok := w.resp.(http.Flusher); ok {
 		f.Flush()
@@ -548,7 +550,7 @@ func (w *gzipResponseWriter) close() {
 	if w.gz == nil {
 		return
 	}
-	w.gz.Close()
+	_ = w.gz.Close()
 	gzPool.Put(w.gz)
 	w.gz = nil
 }
