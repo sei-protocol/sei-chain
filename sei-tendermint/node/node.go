@@ -363,20 +363,20 @@ func makeNode(
 
 	// Create the blockchain reactor. Note, we do not start block sync if we're
 	// doing a state sync first.
-	bcReactor := blocksync.NewReactor(
+	bcReactor,err := blocksync.NewReactor(
 		logger.With("module", "blockchain"),
 		stateStore,
 		blockExec,
 		blockStore,
 		csReactor,
-		peerManager,
+		node.router,
 		blockSync && !stateSync && !shoulddbsync,
 		nodeMetrics.consensus,
 		eventBus,
 		restartCh,
 		cfg.SelfRemediation,
 	)
-	bcReactor.SetChannel(node.router.OpenChannelOrPanic(blocksync.GetChannelDescriptor()))
+	if err!=nil { return nil, fmt.Errorf("blocksync.NewReactor(): %w", err) }
 	node.services = append(node.services, bcReactor)
 	node.rpcEnv.BlockSyncReactor = bcReactor
 
