@@ -80,6 +80,9 @@ type Database struct {
 	lastRangeHashedCache int64
 	lastRangeHashedMu    sync.RWMutex
 	hashComputationMu    sync.Mutex
+
+	// Cancel function for background metrics collection
+	metricsCancel context.CancelFunc
 }
 
 type VersionedChangesets struct {
@@ -175,12 +178,18 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 
 	// Start background metrics collection
 	metricsCtx, metricsCancel := context.WithCancel(context.Background())
-	go database.collectMetricsInBackground(metricsCtx, metricsCancel)
+	database.metricsCancel = metricsCancel
+	go database.collectMetricsInBackground(metricsCtx)
 
 	return database, nil
 }
 
 func (db *Database) Close() error {
+	// Stop background metrics collection
+	if db.metricsCancel != nil {
+		db.metricsCancel()
+	}
+
 	if db.streamHandler != nil {
 		// First, stop accepting new pending changes and drain the worker
 		close(db.pendingChanges)
@@ -1168,12 +1177,11 @@ func retrieveLastRangeHashed(db *pebble.DB) (int64, error) {
 }
 
 // collectMetricsInBackground periodically collects PebbleDB internal metrics
-func (db *Database) collectMetricsInBackground(ctx context.Context, cancel context.CancelFunc) {
-	defer cancel()
+func (db *Database) collectMetricsInBackground(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Second) // Collect metrics every 10 seconds
 	defer ticker.Stop()
 
-	for ctx.Err() == nil {
+	for {
 		select {
 		case <-ctx.Done():
 			return
