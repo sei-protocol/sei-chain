@@ -48,7 +48,7 @@ type Reactor struct {
 	service.BaseService
 	logger log.Logger
 
-	evpool     *Pool
+	evpool *Pool
 	router *p2p.Router
 
 	mtx sync.Mutex
@@ -64,20 +64,22 @@ func NewReactor(
 	logger log.Logger,
 	router *p2p.Router,
 	evpool *Pool,
-) (*Reactor,error) {
-	channel,err := router.OpenChannel(GetChannelDescriptor())
-	if err != nil { return nil,fmt.Errorf("router.OpenChannel(): %w",err) }
+) (*Reactor, error) {
+	channel, err := router.OpenChannel(GetChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("router.OpenChannel(): %w", err)
+	}
 	r := &Reactor{
 		logger:       logger,
 		evpool:       evpool,
-		router:   router,
-		channel: channel,
+		router:       router,
+		channel:      channel,
 		peerRoutines: make(map[types.NodeID]context.CancelFunc),
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "Evidence", r)
 
-	return r,nil
+	return r, nil
 }
 
 // OnStart starts separate go routines for each p2p Channel and listens for
@@ -144,7 +146,7 @@ func (r *Reactor) processEvidenceCh(ctx context.Context) error {
 		}
 		if err := r.handleEvidenceMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process evidenceCh message", "err", err)
-			evidenceCh.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }

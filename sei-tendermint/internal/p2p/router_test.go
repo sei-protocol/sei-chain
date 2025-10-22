@@ -95,7 +95,7 @@ func TestRouter_Network(t *testing.T) {
 	t.Logf("We then submit an error for a peer, and watch it get disconnected and")
 	t.Logf("then reconnected as the router retries it.")
 	peerUpdates := local.PeerManager.Subscribe(ctx)
-	channel.SendError(PeerError{
+	local.PeerManager.SendError(PeerError{
 		NodeID: peers[0].NodeID,
 		Err:    errors.New("boom"),
 	})
@@ -289,12 +289,11 @@ func TestRouter_Channel_Error(t *testing.T) {
 
 	ids := network.NodeIDs()
 	aID, bID := ids[0], ids[1]
-	channels := network.MakeChannels(t, chDesc)
-	a := channels[aID]
+	_ = network.MakeChannels(t, chDesc)
 
 	t.Logf("Erroring b should cause it to be disconnected. It will reconnect shortly after.")
 	sub := network.Node(aID).MakePeerUpdates(ctx, t)
-	a.SendError(PeerError{NodeID: bID, Err: errors.New("boom")})
+	network.Node(aID).PeerManager.SendError(PeerError{NodeID: bID, Err: errors.New("boom")})
 	RequireUpdates(t, sub, []PeerUpdate{
 		{NodeID: bID, Status: PeerStatusDown},
 		{NodeID: bID, Status: PeerStatusUp},

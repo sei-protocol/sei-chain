@@ -120,8 +120,8 @@ type Reactor struct {
 	lightBlockChannel *p2p.Channel
 	paramsChannel     *p2p.Channel
 
-	router *p2p.Router
-	eventBus   *eventbus.EventBus
+	router   *p2p.Router
+	eventBus *eventbus.EventBus
 
 	syncer *Syncer
 
@@ -142,38 +142,46 @@ func NewReactor(
 	eventBus *eventbus.EventBus,
 	shouldSync bool,
 	postSyncHook func(context.Context, sm.State) error,
-) (*Reactor,error) {
-	metadataCh,err := router.OpenChannel(GetMetadataChannelDescriptor())
-	if err != nil { return nil, fmt.Errorf("router.OpenChannel(metadata): %w", err) }
-	fileCh,err := router.OpenChannel(GetFileChannelDescriptor())
-	if err != nil { return nil, fmt.Errorf("router.OpenChannel(file): %w", err) }
-	lightBlockCh,err := router.OpenChannel(GetLightBlockChannelDescriptor())
-	if err != nil { return nil, fmt.Errorf("router.OpenChannel(lightBlock): %w", err) }
-	paramsCh,err := router.OpenChannel(GetParamsChannelDescriptor())
-	if err != nil { return nil, fmt.Errorf("router.OpenChannel(params): %w", err) }
+) (*Reactor, error) {
+	metadataCh, err := router.OpenChannel(GetMetadataChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("router.OpenChannel(metadata): %w", err)
+	}
+	fileCh, err := router.OpenChannel(GetFileChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("router.OpenChannel(file): %w", err)
+	}
+	lightBlockCh, err := router.OpenChannel(GetLightBlockChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("router.OpenChannel(lightBlock): %w", err)
+	}
+	paramsCh, err := router.OpenChannel(GetParamsChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("router.OpenChannel(params): %w", err)
+	}
 	reactor := &Reactor{
-		logger:        logger,
-		router: router,
+		logger:            logger,
+		router:            router,
 		metadataChannel:   metadataCh,
 		fileChannel:       fileCh,
 		lightBlockChannel: lightBlockCh,
 		paramsChannel:     paramsCh,
-		peers:         light.NewPeerList(),
-		stateStore:    stateStore,
-		blockStore:    blockStore,
-		initialHeight: initialHeight,
-		chainID:       chainID,
-		providers:     make(map[types.NodeID]*light.BlockProvider),
-		eventBus:      eventBus,
-		config:        config,
-		postSyncHook:  postSyncHook,
-		shouldSync:    shouldSync,
+		peers:             light.NewPeerList(),
+		stateStore:        stateStore,
+		blockStore:        blockStore,
+		initialHeight:     initialHeight,
+		chainID:           chainID,
+		providers:         make(map[types.NodeID]*light.BlockProvider),
+		eventBus:          eventBus,
+		config:            config,
+		postSyncHook:      postSyncHook,
+		shouldSync:        shouldSync,
 	}
 	syncer := NewSyncer(logger, config, baseConfig, shouldSync, reactor.requestMetadata, reactor.requestFile, reactor.commitState, reactor.postSync, defaultResetDirFn)
 	reactor.syncer = syncer
 
 	reactor.BaseService = *service.NewBaseService(logger, "DBSync", reactor)
-	return reactor,nil
+	return reactor, nil
 }
 
 func (r *Reactor) OnStart(ctx context.Context) error {
@@ -485,7 +493,7 @@ func (r *Reactor) processMetadataCh(ctx context.Context, ch *p2p.Channel) {
 		}
 		if err := r.handleMetadataMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process metadataCh message", "err", err)
-			ch.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }
@@ -498,7 +506,7 @@ func (r *Reactor) processFileCh(ctx context.Context, ch *p2p.Channel) {
 		}
 		if err := r.handleFileMessage(m); err != nil {
 			r.logger.Error("failed to process fileCh message", "err", err)
-			ch.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }
@@ -511,7 +519,7 @@ func (r *Reactor) processLightBlockCh(ctx context.Context, ch *p2p.Channel) {
 		}
 		if err := r.handleLightBlockMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process lightBlockCh message", "err", err)
-			ch.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }
@@ -524,7 +532,7 @@ func (r *Reactor) processParamsCh(ctx context.Context, ch *p2p.Channel) {
 		}
 		if err := r.handleParamsMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process paramsCh message", "err", err)
-			ch.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }

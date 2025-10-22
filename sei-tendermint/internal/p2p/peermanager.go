@@ -901,6 +901,25 @@ func (m *PeerManager) Disconnected(ctx context.Context, peerID types.NodeID) {
 	m.dialWaker.Wake()
 }
 
+// SendError reports a peer misbehavior to the router.
+func (m *PeerManager) SendError(pe PeerError) {
+	// TODO: this should be atomic.
+	shouldEvict := pe.Fatal || m.HasMaxPeerCapacity()
+	m.logger.Error("peer error",
+		"peer", pe.NodeID,
+		"err", pe.Err,
+		"evicting", shouldEvict,
+	)
+	if shouldEvict {
+		m.Errored(pe.NodeID, pe.Err)
+	} else {
+		m.SendUpdate(PeerUpdate{
+			NodeID: pe.NodeID,
+			Status: PeerStatusBad,
+		})
+	}
+}
+
 // Errored reports a peer error, causing the peer to be evicted if it's
 // currently connected.
 //

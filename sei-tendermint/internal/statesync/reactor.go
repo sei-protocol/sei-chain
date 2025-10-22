@@ -291,7 +291,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		}
 		return nil
 	}
-	r.sendBlockError = r.lightBlockChannel.SendError
+	r.sendBlockError = r.router.PeerManager().SendError
 
 	r.initStateProvider = func(ctx context.Context, chainID string, initialHeight int64) error {
 		to := light.TrustOptions{
@@ -913,7 +913,7 @@ func (r *Reactor) processSnapshotCh(ctx context.Context) {
 		r.processChGuard.Lock()
 		if err := r.handleSnapshotMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process snapshotCh message", "err", err)
-			r.snapshotChannel.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 		r.processChGuard.Unlock()
 	}
@@ -928,7 +928,7 @@ func (r *Reactor) processChunkCh(ctx context.Context) {
 		r.processChGuard.Lock()
 		if err := r.handleChunkMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process chunkCh message", "err", err)
-			r.chunkChannel.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 		r.processChGuard.Unlock()
 	}
@@ -943,7 +943,7 @@ func (r *Reactor) processLightBlockCh(ctx context.Context) {
 		r.processChGuard.Lock()
 		if err := r.handleLightBlockMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process lightBlockCh message", "err", err)
-			r.lightBlockChannel.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 		r.processChGuard.Unlock()
 	}
@@ -958,7 +958,7 @@ func (r *Reactor) processParamsCh(ctx context.Context) {
 		r.processChGuard.Lock()
 		if err := r.handleParamsMessage(ctx, m, r.paramsChannel); err != nil {
 			r.logger.Error("failed to process paramsCh message", "err", err)
-			r.paramsChannel.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 		r.processChGuard.Unlock()
 	}

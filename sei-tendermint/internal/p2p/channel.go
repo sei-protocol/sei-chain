@@ -130,25 +130,6 @@ func (ch *Channel) Broadcast(msg proto.Message) {
 	ch.send(msg, queues...)
 }
 
-// SendError reports a peer misbehavior to the router.
-func (ch *Channel) SendError(pe PeerError) {
-	// TODO: this should be atomic.
-	shouldEvict := pe.Fatal || ch.router.peerManager.HasMaxPeerCapacity()
-	ch.router.logger.Error("peer error",
-		"peer", pe.NodeID,
-		"err", pe.Err,
-		"evicting", shouldEvict,
-	)
-	if shouldEvict {
-		ch.router.peerManager.Errored(pe.NodeID, pe.Err)
-	} else {
-		ch.router.peerManager.SendUpdate(PeerUpdate{
-			NodeID: pe.NodeID,
-			Status: PeerStatusBad,
-		})
-	}
-}
-
 func (ch *Channel) String() string {
 	return fmt.Sprintf("p2p.Channel<%d:%s>", ch.desc.ID, ch.desc.Name)
 }

@@ -1249,7 +1249,7 @@ func (r *Reactor) processStateCh(ctx context.Context) {
 		}
 		if err := r.handleStateMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process stateCh message", "err", err)
-			r.channels.state.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }
@@ -1267,7 +1267,7 @@ func (r *Reactor) processDataCh(ctx context.Context) {
 		}
 		if err := r.handleDataMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process dataCh message", "err", err)
-			r.channels.data.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }
@@ -1285,7 +1285,7 @@ func (r *Reactor) processVoteCh(ctx context.Context) {
 		}
 		if err := r.handleVoteMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process voteCh message", "err", err)
-			r.channels.vote.SendError(p2p.PeerError{
+			r.router.PeerManager().SendError(p2p.PeerError{
 				NodeID: m.From,
 				Err:    err,
 			})
@@ -1309,7 +1309,7 @@ func (r *Reactor) processVoteSetBitsCh(ctx context.Context) {
 				return
 			}
 			r.logger.Error("failed to process voteSetCh message", "err", err)
-			r.channels.votSet.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }

@@ -11,8 +11,8 @@ import (
 	"github.com/tendermint/tendermint/internal/libs/clist"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/log"
-	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/service"
+	"github.com/tendermint/tendermint/libs/utils"
 	protomem "github.com/tendermint/tendermint/proto/tendermint/mempool"
 	"github.com/tendermint/tendermint/types"
 )
@@ -52,23 +52,25 @@ func NewReactor(
 	cfg *config.MempoolConfig,
 	txmp *TxMempool,
 	router *p2p.Router,
-) (*Reactor,error) {
-	channel,err := router.OpenChannel(GetChannelDescriptor(cfg))
-	if err!=nil { return nil, fmt.Errorf("router.OpenChannel(): %w",err) }
+) (*Reactor, error) {
+	channel, err := router.OpenChannel(GetChannelDescriptor(cfg))
+	if err != nil {
+		return nil, fmt.Errorf("router.OpenChannel(): %w", err)
+	}
 	r := &Reactor{
 		logger:       logger,
 		cfg:          cfg,
 		mempool:      txmp,
 		ids:          NewMempoolIDs(),
-		router: router,
-		channel: channel,
+		router:       router,
+		channel:      channel,
 		peerRoutines: make(map[types.NodeID]context.CancelFunc),
 		observePanic: defaultObservePanic,
 		readyToStart: make(chan struct{}, 1),
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "Mempool", r)
-	return r,nil
+	return r, nil
 }
 
 func (r *Reactor) MarkReadyToStart() {
@@ -203,7 +205,7 @@ func (r *Reactor) processMempoolCh(ctx context.Context) {
 		}
 		if err := r.handleMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process message", "err", err)
-			mempoolCh.SendError(p2p.PeerError{
+			r.router.PeerManager().SendError(p2p.PeerError{
 				NodeID: m.From,
 				Err:    err,
 			})

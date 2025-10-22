@@ -120,13 +120,15 @@ func NewReactor(
 	router *p2p.Router,
 	restartCh chan<- struct{},
 	selfRemediationConfig *config.SelfRemediationConfig,
-) (*Reactor,error) {
-	channel,err := router.OpenChannel(ChannelDescriptor())
-	if err != nil { return nil,err }
+) (*Reactor, error) {
+	channel, err := router.OpenChannel(ChannelDescriptor())
+	if err != nil {
+		return nil, err
+	}
 	r := &Reactor{
 		logger:                        logger,
-		channel: channel,
-		router: router,
+		channel:                       channel,
+		router:                        router,
 		availablePeers:                make(map[types.NodeID]struct{}),
 		lastNoAvailablePeers:          time.Time{},
 		requestsSent:                  make(map[types.NodeID]struct{}),
@@ -136,7 +138,7 @@ func NewReactor(
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "PEX", r)
-	return r,nil
+	return r, nil
 }
 
 // OnStart starts separate go routines for each p2p Channel and listens for
@@ -213,7 +215,7 @@ func (r *Reactor) processPexCh(ctx context.Context) error {
 				dur, err := r.handlePexMessage(m)
 				if err != nil {
 					r.logger.Error("failed to process pex message", "err", err)
-					r.channel.SendError(p2p.PeerError{
+					r.router.PeerManager().SendError(p2p.PeerError{
 						NodeID: m.From,
 						Err:    err,
 					})
