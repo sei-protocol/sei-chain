@@ -46,7 +46,7 @@ fi
 # add the key as a genesis account with massive balances of several different tokens
 ~/go/bin/seid add-genesis-account $(~/go/bin/seid keys show $keyname -a --keyring-backend test) 100000000000000000000usei,100000000000000000000uusdc,100000000000000000000uatom --keyring-backend test
 # gentx for account
-~/go/bin/seid gentx $keyname 7000000000000000usei --chain-id sei-chain --keyring-backend test
+~/go/bin/seid gentx $keyname 7000000000000000usei --chain-id sei-chain --keyring-backend test --moniker "local-validator"
 # add validator information to genesis file
 KEY=$(jq '.pub_key' ~/.sei/config/priv_validator_key.json -c)
 jq '.validators = [{}]' ~/.sei/config/genesis.json > ~/.sei/config/tmp_genesis.json

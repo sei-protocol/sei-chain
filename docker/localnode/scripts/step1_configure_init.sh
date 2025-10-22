@@ -49,7 +49,7 @@ echo "$GENESIS_ACCOUNT_ADDRESS" >> build/generated/genesis_accounts.txt
 seid add-genesis-account "$GENESIS_ACCOUNT_ADDRESS" 10000000usei,10000000uusdc,10000000uatom
 
 # Create gentx
-printf "12345678\n" | seid gentx "$ACCOUNT_NAME" 10000000usei --chain-id sei
+printf "12345678\n" | seid gentx "$ACCOUNT_NAME" 10000000usei --chain-id sei --moniker "$MONIKER"
 cp ~/.sei/config/gentx/* build/generated/gentx/
 
 # Creating some testing accounts

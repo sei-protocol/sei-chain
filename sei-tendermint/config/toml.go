@@ -474,7 +474,7 @@ use-local-snapshot = {{ .StateSync.UseLocalSnapshot }}
 # peer (default: 15 seconds).
 chunk-request-timeout = "{{ .StateSync.ChunkRequestTimeout }}"
 
-# The number of concurrent chunk and block fetchers to run (default: 4).
+# The number of concurrent chunk and block fetchers to run (default: 2).
 fetchers = "{{ .StateSync.Fetchers }}"
 
 verify-light-block-timeout = "{{ .StateSync.VerifyLightBlockTimeout }}"
@@ -572,8 +572,8 @@ unsafe-commit-timeout-override = "{{ .Consensus.UnsafeCommitTimeoutOverride }}"
 # to decide which txs to index based on configuration set in the application.
 #
 # Options:
-#   1) "null" (default) - no indexer services.
-#   2) "kv" - a simple indexer backed by key-value storage (see DBBackend)
+#   1) "null" (default for validators) - no indexer services.
+#   2) "kv" (default for full nodes) - a simple indexer backed by key-value storage (see DBBackend)
 #   3) "psql" - the indexer services backed by PostgreSQL.
 # When "kv" or "psql" is chosen "tx.height" and "tx.hash" will always be indexed.
 indexer = [{{ range $i, $e := .TxIndex.Indexer }}{{if $i}}, {{end}}{{ printf "%q" $e}}{{end}}]
@@ -669,7 +669,7 @@ private-peer-ids = "{{ .P2P.PrivatePeerIDs }}"
 ###         DB Sync (Auto-managed)                   ###
 #######################################################
 # Most node operators should NOT manually configure these settings.
-[db-sync]
+[db-sync-auto]
 
 db-sync-enable = "{{ .DBSync.Enable }}"
 snapshot-interval = "{{ .DBSync.SnapshotInterval }}"
