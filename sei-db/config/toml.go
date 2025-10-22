@@ -51,7 +51,7 @@ ss-prune-interval = {{ .StateStore.PruneIntervalSeconds }}
 ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
 
 # HashRange defines the range of blocks after which a XOR hash is computed and stored
-# defaults to 1,000,000 blocks
+# defaults to 1,000,000 blocks. Set to -1 to disable.
 ss-hash-range = {{ .StateStore.HashRange }}
 
 `
