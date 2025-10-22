@@ -181,7 +181,7 @@ func createEvidenceReactor(
 	dbProvider config.DBProvider,
 	store sm.Store,
 	blockStore *store.BlockStore,
-	peerEvents p2p.PeerEventSubscriber,
+	router *p2p.Router,
 	metrics *evidence.Metrics,
 	eventBus *eventbus.EventBus,
 ) (*evidence.Reactor, *evidence.Pool, closer, error) {
@@ -193,8 +193,10 @@ func createEvidenceReactor(
 	logger = logger.With("module", "evidence")
 
 	evidencePool := evidence.NewPool(logger, evidenceDB, store, blockStore, metrics, eventBus)
-	evidenceReactor := evidence.NewReactor(logger, peerEvents, evidencePool)
-
+	evidenceReactor,err := evidence.NewReactor(logger, router, evidencePool)
+	if err != nil {
+		return nil, nil, evidenceDB.Close, fmt.Errorf("evidence.NewReactor(): %w", err)
+	}
 	return evidenceReactor, evidencePool, evidenceDB.Close, nil
 }
 

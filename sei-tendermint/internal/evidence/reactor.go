@@ -11,6 +11,7 @@ import (
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -48,7 +49,7 @@ type Reactor struct {
 	logger log.Logger
 
 	evpool     *Pool
-	peerEvents p2p.PeerEventSubscriber
+	router *p2p.Router
 
 	mtx sync.Mutex
 
@@ -61,23 +62,22 @@ type Reactor struct {
 // envelopes with EvidenceList messages.
 func NewReactor(
 	logger log.Logger,
-	peerEvents p2p.PeerEventSubscriber,
+	router *p2p.Router,
 	evpool *Pool,
-) *Reactor {
+) (*Reactor,error) {
+	channel,err := router.OpenChannel(GetChannelDescriptor())
+	if err != nil { return nil,fmt.Errorf("router.OpenChannel(): %w",err) }
 	r := &Reactor{
 		logger:       logger,
 		evpool:       evpool,
-		peerEvents:   peerEvents,
+		router:   router,
+		channel: channel,
 		peerRoutines: make(map[types.NodeID]context.CancelFunc),
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "Evidence", r)
 
-	return r
-}
-
-func (r *Reactor) SetChannel(ch *p2p.Channel) {
-	r.channel = ch
+	return r,nil
 }
 
 // OnStart starts separate go routines for each p2p Channel and listens for
@@ -85,9 +85,8 @@ func (r *Reactor) SetChannel(ch *p2p.Channel) {
 // messages on that p2p channel accordingly. The caller must be sure to execute
 // OnStop to ensure the outbound p2p Channels are closed. No error is returned.
 func (r *Reactor) OnStart(ctx context.Context) error {
-	go r.processEvidenceCh(ctx, r.channel)
-	go r.processPeerUpdates(ctx, r.peerEvents(ctx), r.channel)
-
+	r.SpawnCritical("processEvidenceCh", func(ctx context.Context) error { return r.processEvidenceCh(ctx) })
+	r.SpawnCritical("processPeerUpdates", func(ctx context.Context) error { return r.processPeerUpdates(ctx) })
 	return nil
 }
 
@@ -136,11 +135,12 @@ func (r *Reactor) handleEvidenceMessage(ctx context.Context, m p2p.RecvMsg) (err
 
 // processEvidenceCh implements a blocking event loop where we listen for p2p
 // Envelope messages from the evidenceCh.
-func (r *Reactor) processEvidenceCh(ctx context.Context, evidenceCh *p2p.Channel) {
+func (r *Reactor) processEvidenceCh(ctx context.Context) error {
+	evidenceCh := r.channel
 	for {
 		m, err := evidenceCh.Recv(ctx)
 		if err != nil {
-			return
+			return err
 		}
 		if err := r.handleEvidenceMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process evidenceCh message", "err", err)
@@ -160,7 +160,8 @@ func (r *Reactor) processEvidenceCh(ctx context.Context, evidenceCh *p2p.Channel
 // connects/disconnects frequently from the broadcasting peer(s).
 //
 // REF: https://github.com/tendermint/tendermint/issues/4727
-func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpdate, evidenceCh *p2p.Channel) {
+func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpdate) {
+	evidenceCh := r.channel
 	r.logger.Debug("received peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
 
 	r.mtx.Lock()
@@ -201,14 +202,17 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 // processPeerUpdates initiates a blocking process where we listen for and handle
 // PeerUpdate messages. When the reactor is stopped, we will catch the signal and
 // close the p2p PeerUpdatesCh gracefully.
-func (r *Reactor) processPeerUpdates(ctx context.Context, peerUpdates *p2p.PeerUpdates, evidenceCh *p2p.Channel) {
+func (r *Reactor) processPeerUpdates(ctx context.Context) error {
+	peerUpdates := r.router.PeerManager().Subscribe(ctx)
+	for _, update := range peerUpdates.PreexistingPeers() {
+		r.processPeerUpdate(ctx, update)
+	}
 	for {
-		select {
-		case peerUpdate := <-peerUpdates.Updates():
-			r.processPeerUpdate(ctx, peerUpdate, evidenceCh)
-		case <-ctx.Done():
-			return
+		update, err := utils.Recv(ctx, peerUpdates.Updates())
+		if err != nil {
+			return err
 		}
+		r.processPeerUpdate(ctx, update)
 	}
 }
 

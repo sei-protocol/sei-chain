@@ -34,7 +34,6 @@ type reactorTestSuite struct {
 	logger           log.Logger
 	reactors         map[types.NodeID]*evidence.Reactor
 	pools            map[types.NodeID]*evidence.Pool
-	evidenceChannels map[types.NodeID]*p2p.Channel
 	nodes            []*p2p.TestNode
 	numStateStores   int
 }
@@ -49,19 +48,9 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 		reactors:       make(map[types.NodeID]*evidence.Reactor, numStateStores),
 		pools:          make(map[types.NodeID]*evidence.Pool, numStateStores),
 	}
-
-	chDesc := p2p.ChannelDescriptor{
-		ID:                 evidence.EvidenceChannel,
-		MessageType:        new(tmproto.Evidence),
-		RecvBufferCapacity: 10,
-	}
-	rts.evidenceChannels = rts.network.MakeChannelsNoCleanup(t, chDesc)
-	require.Len(t, rts.network.RandomNode().PeerManager.Peers(), 0)
-
-	idx := 0
 	evidenceTime := time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	for _, node := range rts.network.Nodes() {
+	for idx, node := range rts.network.Nodes() {
 		nodeID := node.NodeID
 		logger := rts.logger.With("validator", idx)
 		evidenceDB := dbm.NewMemDB()
@@ -81,17 +70,14 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 		startPool(t, rts.pools[nodeID], stateStores[idx])
 		rts.nodes = append(rts.nodes, node)
 
-		rts.reactors[nodeID] = evidence.NewReactor(
-			logger,
-			node.PeerManager.Subscribe,
-			rts.pools[nodeID],
-		)
+		reactor,err := evidence.NewReactor(logger, node.Router, rts.pools[nodeID])
+		if err!=nil {
+			t.Fatalf("evidence.NewReactor(): %v", err)
+		}
+		rts.reactors[nodeID] = reactor
 
-		rts.reactors[nodeID].SetChannel(rts.evidenceChannels[nodeID])
 		require.NoError(t, rts.reactors[nodeID].Start(ctx))
 		require.True(t, rts.reactors[nodeID].IsRunning())
-
-		idx++
 	}
 
 	t.Cleanup(func() {

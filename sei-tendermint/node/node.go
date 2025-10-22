@@ -274,8 +274,7 @@ func makeNode(
 	}
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(logger, cfg, dbProvider,
-		stateStore, blockStore, peerManager.Subscribe, nodeMetrics.evidence, eventBus)
-	evReactor.SetChannel(node.router.OpenChannelOrPanic(evidence.GetChannelDescriptor()))
+		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
 	closers = append(closers, edbCloser)
 	if err != nil {
 		return nil, combineCloseError(err, makeCloser(closers))
