@@ -72,7 +72,9 @@ func writeDefaultConfigFileIfNone(rootDir string) error {
 
 // Note: any changes to the comments/variables/mapstructure
 // must be reflected in the appropriate struct in config/config.go
-const defaultConfigTemplate = `# This is a TOML config file.
+
+// manualConfigTemplate contains configuration sections that are frequently modified by users
+const manualConfigTemplate = `# This is a TOML config file.
 # For more information, see https://github.com/toml-lang/toml
 
 # NOTE: Any path below can be absolute (e.g. "/var/myawesomeapp/data") or
@@ -147,34 +149,6 @@ abci = "{{ .BaseConfig.ABCI }}"
 # If true, query the ABCI app on connecting to a new peer
 # so the app can decide if we should keep the connection or not
 filter-peers = {{ .BaseConfig.FilterPeers }}
-
-
-#######################################################
-###       Priv Validator Configuration              ###
-#######################################################
-[priv-validator]
-
-# Path to the JSON file containing the private key to use as a validator in the consensus protocol
-key-file = "{{ js .PrivValidator.Key }}"
-
-# Path to the JSON file containing the last sign state of a validator
-state-file = "{{ js .PrivValidator.State }}"
-
-# TCP or UNIX socket address for Tendermint to listen on for
-# connections from an external PrivValidator process
-# when the listenAddr is prefixed with grpc instead of tcp it will use the gRPC Client
-laddr = "{{ .PrivValidator.ListenAddr }}"
-
-# Path to the client certificate generated while creating needed files for secure connection.
-# If a remote validator address is provided but no certificate, the connection will be insecure
-client-certificate-file = "{{ js .PrivValidator.ClientCertificate }}"
-
-# Client key generated while creating certificates for secure connection
-client-key-file = "{{ js .PrivValidator.ClientKey }}"
-
-# Path to the Root Certificate Authority used to sign both client and server certificates
-root-ca-file = "{{ js .PrivValidator.RootCA }}"
-
 
 #######################################################################
 ###                 Advanced Configuration Options                  ###
@@ -280,9 +254,9 @@ pprof-laddr = "{{ .RPC.PprofListenAddress }}"
 # timeout for any read request
 timeout-read = "{{ .RPC.TimeoutRead }}"
 
-#######################################################
-###           P2P Configuration Options             ###
-#######################################################
+#######################################################################
+###           P2P Configuration Options                             ###
+#######################################################################
 [p2p]
 
 # Select the p2p internal queue
@@ -351,10 +325,9 @@ recv-rate = {{ .P2P.RecvRate }}
 # List of node IDs, to which a connection will be (re)established, dropping an existing peer if any existing limit has been reached
 unconditional-peer-ids = "{{ .P2P.UnconditionalPeerIDs }}"
 
-
-#######################################################
-###          Mempool Configuration Option          ###
-#######################################################
+#######################################################################
+###          Mempool Configuration Options                          ###
+#######################################################################
 [mempool]
 
 # recheck has been moved from a config option to a global
@@ -457,9 +430,9 @@ drop-utilisation-threshold = {{ .Mempool.DropUtilisationThreshold }}
 # See DropUtilisationThreshold and DropPriorityThreshold.
 drop-priority-reservoir-size = {{ .Mempool.DropPriorityReservoirSize }}
 
-#######################################################
-###         State Sync Configuration Options        ###
-#######################################################
+#######################################################################
+###         State Sync Configuration Options                        ###
+#######################################################################
 [statesync]
 # State sync rapidly bootstraps a new node by discovering, fetching, and restoring a state machine
 # snapshot from peers instead of fetching and replaying historical blocks. Requires some peers in
@@ -519,9 +492,9 @@ verify-light-block-timeout = "{{ .StateSync.VerifyLightBlockTimeout }}"
 
 blacklist-ttl = "{{ .StateSync.BlacklistTTL }}"
 
-#######################################################
-###         Consensus Configuration Options         ###
-#######################################################
+#######################################################################
+###         Consensus Configuration Options                         ###
+#######################################################################
 [consensus]
 
 wal-file = "{{ js .Consensus.WalPath }}"
@@ -586,10 +559,13 @@ unsafe-commit-timeout-override = "{{ .Consensus.UnsafeCommitTimeoutOverride }}"
 # If this field is set to true, the consensus engine will proceed to the next height
 # as soon as the node has gathered votes from all of the validators on the network.
 # unsafe-bypass-commit-timeout-override = {{ .Consensus.UnsafeBypassCommitTimeoutOverride }}
+`
 
-#######################################################
-###   Transaction Indexer Configuration Options     ###
-#######################################################
+// autoManagedConfigTemplate contains configuration sections that are auto-managed
+const autoManagedConfigTemplate = `
+#######################################################################
+###   Transaction Indexer Configuration (Auto-managed)             ###
+#######################################################################
 [tx-index]
 
 # The backend database list to back the indexer.
@@ -609,9 +585,9 @@ indexer = [{{ range $i, $e := .TxIndex.Indexer }}{{if $i}}, {{end}}{{ printf "%q
 #   postgresql://<user>:<password>@<host>:<port>/<db>?<opts>
 psql-conn = "{{ .TxIndex.PsqlConn }}"
 
-#######################################################
-###       Instrumentation Configuration Options     ###
-#######################################################
+#######################################################################
+###       Instrumentation Configuration (Auto-managed)             ###
+#######################################################################
 [instrumentation]
 
 # When true, Prometheus metrics are served under /metrics on
@@ -631,9 +607,35 @@ max-open-connections = {{ .Instrumentation.MaxOpenConnections }}
 # Instrumentation namespace
 namespace = "{{ .Instrumentation.Namespace }}"
 
-#######################################################
-###       SelfRemediation Configuration Options     ###
-#######################################################
+#######################################################################
+###       Priv Validator Configuration (Auto-managed)              ###
+#######################################################################
+[priv-validator]
+
+# Path to the JSON file containing the private key to use as a validator in the consensus protocol
+key-file = "{{ js .PrivValidator.Key }}"
+
+# Path to the JSON file containing the last sign state of a validator
+state-file = "{{ js .PrivValidator.State }}"
+
+# TCP or UNIX socket address for Tendermint to listen on for
+# connections from an external PrivValidator process
+# when the listenAddr is prefixed with grpc instead of tcp it will use the gRPC Client
+laddr = "{{ .PrivValidator.ListenAddr }}"
+
+# Path to the client certificate generated while creating needed files for secure connection.
+# If a remote validator address is provided but no certificate, the connection will be insecure
+client-certificate-file = "{{ js .PrivValidator.ClientCertificate }}"
+
+# Client key generated while creating certificates for secure connection
+client-key-file = "{{ js .PrivValidator.ClientKey }}"
+
+# Path to the Root Certificate Authority used to sign both client and server certificates
+root-ca-file = "{{ js .PrivValidator.RootCA }}"
+
+#######################################################################
+###       SelfRemediation Configuration (Auto-managed)             ###
+#######################################################################
 [self-remediation]
 
 # If the node has no p2p peers available then trigger a restart
@@ -654,6 +656,9 @@ blocks-behind-check-interval = {{ .SelfRemediation.BlocksBehindCheckIntervalSeco
 # Cooldown between each restart
 restart-cooldown-seconds = {{ .SelfRemediation.RestartCooldownSeconds }}
 
+#######################################################################
+###               DB Sync Configuration (Auto-managed)              ###
+#######################################################################
 [db-sync]
 db-sync-enable = "{{ .DBSync.Enable }}"
 snapshot-interval = "{{ .DBSync.SnapshotInterval }}"
@@ -669,6 +674,9 @@ trust-period = "{{ .DBSync.TrustPeriod }}"
 verify-light-block-timeout = "{{ .DBSync.VerifyLightBlockTimeout }}"
 blacklist-ttl = "{{ .DBSync.BlacklistTTL }}"
 `
+
+// defaultConfigTemplate combines manual and auto-managed templates for backward compatibility
+const defaultConfigTemplate = manualConfigTemplate + autoManagedConfigTemplate
 
 /****** these are for test settings ***********/
 

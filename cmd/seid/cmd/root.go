@@ -39,6 +39,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/tools"
 	"github.com/sei-protocol/sei-chain/tools/migration/ss"
+	seidbconfig "github.com/sei-protocol/sei-db/config"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -436,13 +437,10 @@ func initAppConfig() (string, interface{}) {
 	// Use shared CustomAppConfig from app_config.go
 	customAppConfig := NewCustomAppConfig(srvCfg, evmrpc.DefaultConfig)
 
-	customAppTemplate := serverconfig.DefaultConfigTemplate + `
-[wasm]
-# This is the maximum sdk gas (wasm and storage) that we allow for any x/wasm "smart" queries
-query_gas_limit = 300000
-# This is the number of wasm vm instances we keep cached in memory for speed-up
-# Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
-lru_size = 0
+	customAppTemplate := serverconfig.ManualConfigTemplate + seidbconfig.StateCommitConfigTemplate + seidbconfig.StateStoreConfigTemplate + `
+###############################################################################
+###                            EVM Configuration                            ###
+###############################################################################
 
 [evm]
 # controls whether an HTTP EVM server is enabled
@@ -524,6 +522,21 @@ max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
 
 # Timeout for each trace call
 trace_timeout = "{{ .EVM.TraceTimeout }}"
+` + serverconfig.AutoManagedConfigTemplate + `
+###############################################################################
+###                        WASM Configuration (Auto-managed)                ###
+###############################################################################
+
+[wasm]
+# This is the maximum sdk gas (wasm and storage) that we allow for any x/wasm "smart" queries
+query_gas_limit = 300000
+# This is the number of wasm vm instances we keep cached in memory for speed-up
+# Warning: this is currently unstable and may lead to crashes, best to keep for 0 unless testing locally
+lru_size = 0
+
+###############################################################################
+###                     ETH Replay Configuration (Auto-managed)             ###
+###############################################################################
 
 [eth_replay]
 eth_replay_enabled = {{ .ETHReplay.Enabled }}
@@ -531,12 +544,24 @@ eth_rpc = "{{ .ETHReplay.EthRPC }}"
 eth_data_dir = "{{ .ETHReplay.EthDataDir }}"
 eth_replay_contract_state_checks = {{ .ETHReplay.ContractStateChecks }}
 
+###############################################################################
+###                   ETH Block Test Configuration (Auto-managed)           ###
+###############################################################################
+
 [eth_blocktest]
 eth_blocktest_enabled = {{ .ETHBlockTest.Enabled }}
 eth_blocktest_test_data_path = "{{ .ETHBlockTest.TestDataPath }}"
 
+###############################################################################
+###                    EVM Query Configuration (Auto-managed)               ###
+###############################################################################
+
 [evm_query]
 evm_query_gas_limit = {{ .EvmQuery.GasLimit }}
+
+###############################################################################
+###                 Light Invariance Configuration (Auto-managed)           ###
+###############################################################################
 
 [light_invariance]
 supply_enabled = {{ .LightInvariance.SupplyEnabled }}
