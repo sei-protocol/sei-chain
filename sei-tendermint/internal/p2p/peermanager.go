@@ -72,7 +72,6 @@ type PeerUpdate struct {
 // events (currently just status changes).
 type PeerUpdates struct {
 	preexistingPeers []PeerUpdate
-	routerUpdatesCh  chan PeerUpdate
 	reactorUpdatesCh chan PeerUpdate
 }
 
@@ -82,7 +81,6 @@ type PeerUpdates struct {
 func NewPeerUpdates(updatesCh chan PeerUpdate, buf int) *PeerUpdates {
 	return &PeerUpdates{
 		reactorUpdatesCh: updatesCh,
-		routerUpdatesCh:  make(chan PeerUpdate, buf),
 	}
 }
 
@@ -93,15 +91,6 @@ func (pu *PeerUpdates) PreexistingPeers() []PeerUpdate {
 // Updates returns a channel for consuming peer updates.
 func (pu *PeerUpdates) Updates() <-chan PeerUpdate {
 	return pu.reactorUpdatesCh
-}
-
-// SendUpdate pushes information about a peer into the routing layer,
-// presumably from a peer.
-func (pu *PeerUpdates) SendUpdate(ctx context.Context, update PeerUpdate) {
-	select {
-	case <-ctx.Done():
-	case pu.routerUpdatesCh <- update:
-	}
 }
 
 // PeerManagerOptions specifies options for a PeerManager.
@@ -1027,17 +1016,6 @@ func (m *PeerManager) Register(ctx context.Context, peerUpdates *PeerUpdates) {
 	peerUpdates.preexistingPeers = updates
 
 	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case pu := <-peerUpdates.routerUpdatesCh:
-				m.processPeerEvent(pu)
-			}
-		}
-	}()
-
-	go func() {
 		<-ctx.Done()
 		m.mtx.Lock()
 		defer m.mtx.Unlock()
@@ -1045,7 +1023,7 @@ func (m *PeerManager) Register(ctx context.Context, peerUpdates *PeerUpdates) {
 	}()
 }
 
-func (m *PeerManager) processPeerEvent(pu PeerUpdate) {
+func (m *PeerManager) SendUpdate(pu PeerUpdate) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 

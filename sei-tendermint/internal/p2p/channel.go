@@ -142,7 +142,7 @@ func (ch *Channel) SendError(pe PeerError) {
 	if shouldEvict {
 		ch.router.peerManager.Errored(pe.NodeID, pe.Err)
 	} else {
-		ch.router.peerManager.processPeerEvent(PeerUpdate{
+		ch.router.peerManager.SendUpdate(PeerUpdate{
 			NodeID: pe.NodeID,
 			Status: PeerStatusBad,
 		})

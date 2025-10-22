@@ -3,7 +3,6 @@ package evidence_test
 import (
 	"context"
 	"encoding/hex"
-	"math/rand"
 	"sync"
 	"testing"
 	"time"
@@ -28,8 +27,6 @@ import (
 
 var (
 	numEvidence = 10
-
-	rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
 
 type reactorTestSuite struct {
@@ -38,19 +35,12 @@ type reactorTestSuite struct {
 	reactors         map[types.NodeID]*evidence.Reactor
 	pools            map[types.NodeID]*evidence.Pool
 	evidenceChannels map[types.NodeID]*p2p.Channel
-	peerUpdates      map[types.NodeID]*p2p.PeerUpdates
-	peerChans        map[types.NodeID]chan p2p.PeerUpdate
 	nodes            []*p2p.TestNode
 	numStateStores   int
 }
 
 func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTestSuite {
 	t.Helper()
-
-	pID := make([]byte, 16)
-	_, err := rng.Read(pID)
-	require.NoError(t, err)
-
 	numStateStores := len(stateStores)
 	rts := &reactorTestSuite{
 		numStateStores: numStateStores,
@@ -58,8 +48,6 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 		network:        p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numStateStores}),
 		reactors:       make(map[types.NodeID]*evidence.Reactor, numStateStores),
 		pools:          make(map[types.NodeID]*evidence.Pool, numStateStores),
-		peerUpdates:    make(map[types.NodeID]*p2p.PeerUpdates, numStateStores),
-		peerChans:      make(map[types.NodeID]chan p2p.PeerUpdate, numStateStores),
 	}
 
 	chDesc := p2p.ChannelDescriptor{
@@ -86,24 +74,18 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 			return nil
 		})
 		eventBus := eventbus.NewDefault(logger)
-		err = eventBus.Start(ctx)
+		err := eventBus.Start(ctx)
 		require.NoError(t, err)
 
 		rts.pools[nodeID] = evidence.NewPool(logger, evidenceDB, stateStores[idx], blockStore, evidence.NopMetrics(), eventBus)
 		startPool(t, rts.pools[nodeID], stateStores[idx])
-
-		require.NoError(t, err)
-
-		rts.peerChans[nodeID] = make(chan p2p.PeerUpdate)
-		pu := p2p.NewPeerUpdates(rts.peerChans[nodeID], 1)
-		rts.peerUpdates[nodeID] = pu
-		node.PeerManager.Register(ctx, pu)
 		rts.nodes = append(rts.nodes, node)
 
 		rts.reactors[nodeID] = evidence.NewReactor(
 			logger,
-			func(ctx context.Context) *p2p.PeerUpdates { return pu },
-			rts.pools[nodeID])
+			node.PeerManager.Subscribe,
+			rts.pools[nodeID],
+		)
 
 		rts.reactors[nodeID].SetChannel(rts.evidenceChannels[nodeID])
 		require.NoError(t, rts.reactors[nodeID].Start(ctx))
@@ -288,7 +270,6 @@ func TestReactorBroadcastEvidence(t *testing.T) {
 	}
 
 	rts := setup(ctx, t, stateDBs)
-
 	rts.start(t)
 
 	// Create a series of fixtures where each suite contains a reactor and
@@ -310,15 +291,6 @@ func TestReactorBroadcastEvidence(t *testing.T) {
 
 	evList := createEvidenceList(ctx, t, rts.pools[primary.NodeID], val, numEvidence)
 
-	// Add each secondary suite (node) as a peer to the primary suite (node). This
-	// will cause the primary to gossip all evidence to the secondaries.
-	for _, suite := range secondaries {
-		rts.peerChans[primary.NodeID] <- p2p.PeerUpdate{
-			Status: p2p.PeerStatusUp,
-			NodeID: suite.NodeID,
-		}
-	}
-
 	// Wait till all secondary suites (reactor) received all evidence from the
 	// primary suite (node).
 	rts.waitForEvidence(t, evList, secondaryIDs...)
@@ -326,7 +298,6 @@ func TestReactorBroadcastEvidence(t *testing.T) {
 	for _, pool := range rts.pools {
 		require.Equal(t, numEvidence, int(pool.Size()))
 	}
-
 }
 
 // TestReactorSelectiveBroadcast tests a context where we have two reactors
@@ -353,13 +324,6 @@ func TestReactorBroadcastEvidence_Lagging(t *testing.T) {
 	// Send a list of valid evidence to the first reactor's, the one that is ahead,
 	// evidence pool.
 	evList := createEvidenceList(ctx, t, rts.pools[primary.NodeID], val, numEvidence)
-
-	// Add each secondary suite (node) as a peer to the primary suite (node). This
-	// will cause the primary to gossip all evidence to the secondaries.
-	rts.peerChans[primary.NodeID] <- p2p.PeerUpdate{
-		Status: p2p.PeerStatusUp,
-		NodeID: secondary.NodeID,
-	}
 
 	// only ones less than the peers height should make it through
 	rts.waitForEvidence(t, evList[:height2], secondary.NodeID)
@@ -479,18 +443,6 @@ func TestReactorBroadcastEvidence_FullyConnected(t *testing.T) {
 	rts.start(t)
 
 	evList := createEvidenceList(ctx, t, rts.pools[rts.network.RandomNode().NodeID], val, numEvidence)
-
-	// every suite (reactor) connects to every other suite (reactor)
-	for outerID, outerChan := range rts.peerChans {
-		for innerID := range rts.peerChans {
-			if outerID != innerID {
-				outerChan <- p2p.PeerUpdate{
-					Status: p2p.PeerStatusUp,
-					NodeID: innerID,
-				}
-			}
-		}
-	}
 
 	// wait till all suites (reactors) received all evidence from other suites (reactors)
 	rts.waitForEvidence(t, evList)

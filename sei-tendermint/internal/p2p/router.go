@@ -197,6 +197,10 @@ func NewRouter(
 	return router
 }
 
+func (r *Router) PeerManager() *PeerManager {
+	return r.peerManager
+}
+
 func (r *Router) Endpoint() Endpoint {
 	return r.options.Endpoint
 }

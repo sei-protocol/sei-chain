@@ -344,20 +344,19 @@ func makeNode(
 	}
 	node.rpcEnv.ConsensusState = csState
 
-	csReactor := consensus.NewReactor(
+	csReactor, err := consensus.NewReactor(
 		logger,
 		csState,
-		peerManager.Subscribe,
+		node.router,
 		eventBus,
 		waitSync,
 		nodeMetrics.consensus,
 		cfg,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("consensus.NewReactor(): %w", err)
+	}
 
-	csReactor.SetStateChannel(node.router.OpenChannelOrPanic(consensus.GetStateChannelDescriptor()))
-	csReactor.SetDataChannel(node.router.OpenChannelOrPanic(consensus.GetDataChannelDescriptor()))
-	csReactor.SetVoteChannel(node.router.OpenChannelOrPanic(consensus.GetVoteChannelDescriptor()))
-	csReactor.SetVoteSetChannel(node.router.OpenChannelOrPanic(consensus.GetVoteSetChannelDescriptor()))
 	node.services = append(node.services, csReactor)
 	node.rpcEnv.ConsensusReactor = csReactor
 

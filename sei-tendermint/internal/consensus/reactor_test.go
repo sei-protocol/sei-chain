@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"math/rand"
 	"os"
 	"sync"
@@ -34,7 +33,6 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/scope"
-	tmcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
 )
@@ -55,14 +53,6 @@ type reactorTestSuite struct {
 	voteSetBitsChannels map[types.NodeID]*p2p.Channel
 }
 
-func chDesc(chID p2p.ChannelID, size int) p2p.ChannelDescriptor {
-	return p2p.ChannelDescriptor{
-		ID:                 chID,
-		MessageType:        new(tmcons.Message),
-		RecvBufferCapacity: int(math.Sqrt(float64(size)) + 1),
-	}
-}
-
 func setup(
 	ctx context.Context,
 	t *testing.T,
@@ -80,30 +70,20 @@ func setup(
 		blocksyncSubs: make(map[types.NodeID]eventbus.Subscription, numNodes),
 	}
 
-	rts.stateChannels = rts.network.MakeChannelsNoCleanup(t, chDesc(StateChannel, size))
-	rts.dataChannels = rts.network.MakeChannelsNoCleanup(t, chDesc(DataChannel, size))
-	rts.voteChannels = rts.network.MakeChannelsNoCleanup(t, chDesc(VoteChannel, size))
-	rts.voteSetBitsChannels = rts.network.MakeChannelsNoCleanup(t, chDesc(VoteSetBitsChannel, size))
-
 	i := 0
 	for _, node := range rts.network.Nodes() {
 		nodeID := node.NodeID
 		state := states[i]
 
-		reactor := NewReactor(
+		reactor,err := NewReactor(
 			state.logger.With("node", nodeID),
 			state,
-			func(ctx context.Context) *p2p.PeerUpdates { return node.MakePeerUpdates(ctx, t) },
+			node.Router,
 			state.eventBus,
 			true,
 			NopMetrics(),
 			config.DefaultConfig(),
 		)
-
-		reactor.SetStateChannel(rts.stateChannels[nodeID])
-		reactor.SetDataChannel(rts.dataChannels[nodeID])
-		reactor.SetVoteChannel(rts.voteChannels[nodeID])
-		reactor.SetVoteSetChannel(rts.voteSetBitsChannels[nodeID])
 
 		blocksSub, err := state.eventBus.SubscribeWithArgs(ctx, tmpubsub.SubscribeArgs{
 			ClientID: testSubscriber,
