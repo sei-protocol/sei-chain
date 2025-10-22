@@ -616,7 +616,7 @@ func ensureNoNewTimeout(t *testing.T, stepCh <-chan tmpubsub.Message, timeout in
 		"We should be stuck waiting, not receiving NewTimeout event")
 }
 
-func ensureNewEvent(t *testing.T, ch <-chan tmpubsub.Message, height int64, round int32, timeout time.Duration) {
+func ensureNewEvent(t *testing.T, ch <-chan tmpubsub.Message, height int64, round int32) {
 	t.Helper()
 	msg := ensureMessageBeforeTimeout(t, ch, ensureTimeout)
 	roundStateEvent, ok := msg.Data().(types.EventDataRoundState)
@@ -640,10 +640,9 @@ func ensureNewRound(t *testing.T, roundCh <-chan tmpubsub.Message, height int64,
 	require.Equal(t, round, newRoundEvent.Round)
 }
 
-func ensureNewTimeout(t *testing.T, timeoutCh <-chan tmpubsub.Message, height int64, round int32, timeout int64) {
+func ensureNewTimeout(t *testing.T, timeoutCh <-chan tmpubsub.Message, height int64, round int32) {
 	t.Helper()
-	timeoutDuration := time.Duration(timeout*10) * time.Nanosecond
-	ensureNewEvent(t, timeoutCh, height, round, timeoutDuration)
+	ensureNewEvent(t, timeoutCh, height, round)
 }
 
 func ensureNewProposal(t *testing.T, proposalCh <-chan tmpubsub.Message, height int64, round int32) types.BlockID {
@@ -659,7 +658,7 @@ func ensureNewProposal(t *testing.T, proposalCh <-chan tmpubsub.Message, height 
 
 func ensureNewValidBlock(t *testing.T, validBlockCh <-chan tmpubsub.Message, height int64, round int32) {
 	t.Helper()
-	ensureNewEvent(t, validBlockCh, height, round, ensureTimeout)
+	ensureNewEvent(t, validBlockCh, height, round)
 }
 
 func ensureNewBlock(t *testing.T, blockCh <-chan tmpubsub.Message, height int64) {
@@ -684,12 +683,12 @@ func ensureNewBlockHeader(t *testing.T, blockCh <-chan tmpubsub.Message, height 
 
 func ensureLock(t *testing.T, lockCh <-chan tmpubsub.Message, height int64, round int32) {
 	t.Helper()
-	ensureNewEvent(t, lockCh, height, round, ensureTimeout)
+	ensureNewEvent(t, lockCh, height, round)
 }
 
 func ensureRelock(t *testing.T, relockCh <-chan tmpubsub.Message, height int64, round int32) {
 	t.Helper()
-	ensureNewEvent(t, relockCh, height, round, ensureTimeout)
+	ensureNewEvent(t, relockCh, height, round)
 }
 
 func ensureProposal(t *testing.T, proposalCh <-chan tmpubsub.Message, height int64, round int32, propID types.BlockID) {
@@ -811,7 +810,7 @@ func makeConsensusState(
 
 	configRootDirs := make([]string, 0, nValidators)
 
-	for i := 0; i < nValidators; i++ {
+	for i := range nValidators {
 		blockStore := store.NewBlockStore(dbm.NewMemDB()) // each state needs its own db
 		state, err := sm.MakeGenesisState(genDoc)
 		require.NoError(t, err)
@@ -868,7 +867,7 @@ func randConsensusNetWithPeers(
 
 	var peer0Config *config.Config
 	configRootDirs := make([]string, 0, nPeers)
-	for i := 0; i < nPeers; i++ {
+	for i := range nPeers {
 		state, _ := sm.MakeGenesisState(genDoc)
 		thisConfig, err := ResetConfig(t.TempDir(), fmt.Sprintf("%s_%d", t.Name(), i))
 		require.NoError(t, err)

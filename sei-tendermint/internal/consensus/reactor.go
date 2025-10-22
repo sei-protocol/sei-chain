@@ -1133,13 +1133,15 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 				for peers := range r.peers.Lock() {
 					if _, ok := peers[peerUpdate.NodeID]; ok { return }
 					ps := NewPeerState(r.logger, peerUpdate.NodeID)
-					ctx,cancel := context.WithCancel(ctx)
+					peerCtx,cancel := context.WithCancel(ctx)
 					ps.cancel = cancel
 					peers[peerUpdate.NodeID] = ps
-					s.Spawn(func() error { return utils.IgnoreCancel(r.gossipDataRoutine(ctx, ps)) })
-					s.Spawn(func() error { return utils.IgnoreCancel(r.gossipVotesRoutine(ctx, ps)) })
-					s.Spawn(func() error { return utils.IgnoreCancel(r.queryMaj23Routine(ctx, ps)) })
-					s.Spawn(func() error { <-ctx.Done(); cancel(); return nil })
+					// We intentionally spawn per-peer routines with a cancellable context,
+					// so that it can be canceled from outside when the peer goes down.
+					s.Spawn(func() error { return utils.IgnoreCancel(r.gossipDataRoutine(peerCtx, ps)) })
+					s.Spawn(func() error { return utils.IgnoreCancel(r.gossipVotesRoutine(peerCtx, ps)) })
+					s.Spawn(func() error { return utils.IgnoreCancel(r.queryMaj23Routine(peerCtx, ps)) })
+					s.Spawn(func() error { <-peerCtx.Done(); cancel(); return nil })
 					r.sendNewRoundStepMessage(ps.peerID)
 				}
 			case p2p.PeerStatusDown:
