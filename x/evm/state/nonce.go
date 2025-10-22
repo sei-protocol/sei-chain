@@ -13,7 +13,7 @@ func (s *DBImpl) GetNonce(addr common.Address) uint64 {
 func (s *DBImpl) SetNonce(addr common.Address, nonce uint64, reason tracing.NonceChangeReason) {
 	s.k.PrepareReplayedAddr(s.ctx, addr)
 
-	if s.logger != nil && s.logger.OnNonceChange != nil {
+	if s.logger != nil && s.logger.OnNonceChangeV2 != nil {
 		// The SetCode method could be modified to return the old code/hash directly.
 		s.logger.OnNonceChangeV2(addr, s.GetNonce(addr), nonce, reason)
 	}
