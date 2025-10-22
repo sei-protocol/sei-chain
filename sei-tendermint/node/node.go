@@ -427,7 +427,6 @@ func makeNode(
 		*cfg.StateSync,
 		logger.With("module", "statesync"),
 		proxyApp,
-		peerManager,
 		node.router,
 		stateStore,
 		blockStore,

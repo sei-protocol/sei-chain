@@ -77,13 +77,13 @@ func setup(
 	logger, _ := log.NewDefaultLogger("plain", "debug")
 
 	n := network.Nodes()[0]
-	reactor := NewReactor(
+	reactor, err := NewReactor(
 		factory.DefaultTestChainID,
 		1,
 		*cfg,
 		logger.With("component", "reactor"),
 		conn,
-		n.PeerManager,
+		n.Router,
 		stateStore,
 		blockStore,
 		"",
@@ -94,10 +94,7 @@ func setup(
 		make(chan struct{}),
 		config.DefaultSelfRemediationConfig(),
 	)
-	reactor.SetSnapshotChannel(n.Router.OpenChannelOrPanic(GetSnapshotChannelDescriptor()))
-	reactor.SetChunkChannel(n.Router.OpenChannelOrPanic(GetChunkChannelDescriptor()))
-	reactor.SetLightBlockChannel(n.Router.OpenChannelOrPanic(GetLightBlockChannelDescriptor()))
-	reactor.SetParamsChannel(n.Router.OpenChannelOrPanic(GetParamsChannelDescriptor()))
+	require.NoError(t, err)
 
 	if setSyncer {
 		reactor.syncer = &syncer{

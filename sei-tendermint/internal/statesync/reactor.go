@@ -139,7 +139,7 @@ type Reactor struct {
 
 	conn           abciclient.Client
 	tempDir        string
-	peerManager    *p2p.PeerManager
+	router         *p2p.Router
 	sendBlockError func(p2p.PeerError)
 	postSyncHook   func(context.Context, sm.State) error
 
@@ -198,7 +198,6 @@ func NewReactor(
 	cfg config.StateSyncConfig,
 	logger log.Logger,
 	conn abciclient.Client,
-	peerManager *p2p.PeerManager,
 	router *p2p.Router,
 	stateStore sm.Store,
 	blockStore *store.BlockStore,
@@ -232,7 +231,7 @@ func NewReactor(
 		initialHeight:                 initialHeight,
 		cfg:                           cfg,
 		conn:                          conn,
-		peerManager:                   peerManager,
+		router:                        router,
 		tempDir:                       tempDir,
 		stateStore:                    stateStore,
 		blockStore:                    blockStore,
@@ -1033,7 +1032,7 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 // PeerUpdate messages. When the reactor is stopped, we will catch the signal and
 // close the p2p PeerUpdatesCh gracefully.
 func (r *Reactor) processPeerUpdates(ctx context.Context) {
-	peerUpdates := r.peerManager.Subscribe(ctx)
+	peerUpdates := r.router.PeerManager().Subscribe(ctx)
 	for _, update := range peerUpdates.PreexistingPeers() {
 		r.processPeerUpdate(update)
 	}
