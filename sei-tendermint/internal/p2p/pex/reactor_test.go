@@ -184,9 +184,9 @@ func TestReactorSmallPeerStoreInALargeNetwork(t *testing.T) {
 	for _, nodeID := range testNet.nodes {
 		node := testNet.network.Node(nodeID)
 		require.Eventually(t, func() bool {
-			return node.PeerManager.PeerRatio() >= 0.9
+			return node.Router.PeerManager().PeerRatio() >= 0.9
 		}, time.Minute, checkFrequency,
-			"peer ratio is: %f", node.PeerManager.PeerRatio())
+			"peer ratio is: %f", node.Router.PeerManager().PeerRatio())
 	}
 }
 
@@ -513,12 +513,12 @@ func (r *reactorTestSuite) requireNumberOfPeers(
 	t.Helper()
 	node := r.network.Node(r.nodes[nodeIndex])
 	require.Eventuallyf(t, func() bool {
-		actualNumPeers := len(node.PeerManager.Peers())
+		actualNumPeers := len(node.Router.PeerManager().Peers())
 		return actualNumPeers >= numPeers
 	}, waitPeriod, checkFrequency, "peer failed to connect with the asserted amount of peers "+
 		"index=%d, node=%q, waitPeriod=%s expected=%d actual=%d",
 		nodeIndex, r.nodes[nodeIndex], waitPeriod, numPeers,
-		len(node.PeerManager.Peers()),
+		len(node.Router.PeerManager().Peers()),
 	)
 }
 
@@ -532,7 +532,7 @@ func (r *reactorTestSuite) seedAddrs(t *testing.T) {
 	for i := range r.total - 1 {
 		n1 := r.network.Node(r.nodes[i])
 		n2 := r.network.Node(r.nodes[i+1])
-		_, err := n1.PeerManager.Add(n2.NodeAddress)
+		_, err := n1.Router.PeerManager().Add(n2.NodeAddress)
 		require.NoError(t, err)
 	}
 }
@@ -545,7 +545,7 @@ func (r *reactorTestSuite) checkNodePair(t *testing.T, first, second int) (types
 }
 
 func (r *reactorTestSuite) addAddresses(t *testing.T, node int, addrs []int) {
-	peerManager := r.network.Node(r.nodes[node]).PeerManager
+	peerManager := r.network.Node(r.nodes[node]).Router.PeerManager()
 	for _, addr := range addrs {
 		require.Less(t, addr, r.total)
 		address := r.network.Node(r.nodes[addr]).NodeAddress

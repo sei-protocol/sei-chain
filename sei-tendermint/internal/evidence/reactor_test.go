@@ -98,7 +98,7 @@ func setup(ctx context.Context, t *testing.T, stateStores []sm.Store) *reactorTe
 func (rts *reactorTestSuite) start(t *testing.T) {
 	rts.network.Start(t)
 	require.Len(t,
-		rts.network.RandomNode().PeerManager.Peers(),
+		rts.network.RandomNode().Router.PeerManager().Peers(),
 		rts.numStateStores-1,
 		"network does not have expected number of nodes")
 }
@@ -217,22 +217,22 @@ func TestReactorMultiDisconnect(t *testing.T) {
 
 	_ = createEvidenceList(ctx, t, rts.pools[primary.NodeID], val, numEvidence)
 
-	require.Equal(t, primary.PeerManager.Status(secondary.NodeID), p2p.PeerStatusDown)
+	require.Equal(t, primary.Router.PeerManager().Status(secondary.NodeID), p2p.PeerStatusDown)
 
 	rts.start(t)
 
-	require.Equal(t, primary.PeerManager.Status(secondary.NodeID), p2p.PeerStatusUp)
+	require.Equal(t, primary.Router.PeerManager().Status(secondary.NodeID), p2p.PeerStatusUp)
 	// Ensure "disconnecting" the secondary peer from the primary more than once
 	// is handled gracefully.
 
-	primary.PeerManager.Disconnected(ctx, secondary.NodeID)
-	require.Equal(t, primary.PeerManager.Status(secondary.NodeID), p2p.PeerStatusDown)
-	_, err := primary.PeerManager.TryEvictNext()
+	primary.Router.PeerManager().Disconnected(ctx, secondary.NodeID)
+	require.Equal(t, primary.Router.PeerManager().Status(secondary.NodeID), p2p.PeerStatusDown)
+	_, err := primary.Router.PeerManager().TryEvictNext()
 	require.NoError(t, err)
-	primary.PeerManager.Disconnected(ctx, secondary.NodeID)
+	primary.Router.PeerManager().Disconnected(ctx, secondary.NodeID)
 
-	require.Equal(t, primary.PeerManager.Status(secondary.NodeID), p2p.PeerStatusDown)
-	require.Equal(t, secondary.PeerManager.Status(primary.NodeID), p2p.PeerStatusUp)
+	require.Equal(t, primary.Router.PeerManager().Status(secondary.NodeID), p2p.PeerStatusDown)
+	require.Equal(t, secondary.Router.PeerManager().Status(primary.NodeID), p2p.PeerStatusUp)
 
 }
 
