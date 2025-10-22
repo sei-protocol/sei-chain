@@ -700,7 +700,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 	t.Run("TestRateLimitErrorFormat", func(t *testing.T) {
 		tEnv := newTestEnv(t)
 		// Test the error message format by overwhelming the rate limiter
-		numRequests := 5
+		numRequests := 10
 		results := make(chan error, numRequests)
 
 		// Start requests concurrently to trigger rate limiting
