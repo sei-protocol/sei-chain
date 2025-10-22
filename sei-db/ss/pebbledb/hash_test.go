@@ -411,3 +411,46 @@ func TestGeneratedHash(t *testing.T) {
 	// The hashes should be identical for the same data
 	assert.True(t, bytes.Equal(hash1, hash2))
 }
+
+// TestHashRangeDisabled tests that hash computation is disabled when HashRange is -1
+func TestHashRangeDisabled(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Set up config with hash range disabled
+	cfg := config.StateStoreConfig{
+		HashRange:        -1, // Disabled
+		AsyncWriteBuffer: 100,
+		KeepRecent:       100,
+		KeepLastVersion:  true,
+		ImportNumWorkers: 4,
+	}
+
+	db, err := New(tempDir, cfg)
+	require.NoError(t, err)
+	defer cleanupTestDB(t, db, tempDir)
+
+	// Populate test data for versions 1-30
+	populateTestData(t, db, 1, 30)
+
+	// Try to compute missing ranges with the latest version at 30
+	err = db.computeMissingRanges(30)
+	require.NoError(t, err)
+
+	// Last range hashed should still be 0 (no computation should have occurred)
+	lastHashed, err := db.GetLastRangeHashed()
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), lastHashed)
+
+	// Verify that no hash keys were created for any module
+	for _, module := range util.Modules {
+		// Try to get hash for any range - none should exist
+		hashKey := []byte(fmt.Sprintf(HashTpl, module, 1, 10))
+		_, closer, err := db.storage.Get(hashKey)
+		if err == nil {
+			closer.Close()
+			t.Errorf("Expected no hash to be stored for module %s when HashRange is -1, but found one", module)
+		} else {
+			assert.Equal(t, pebble.ErrNotFound, err)
+		}
+	}
+}
