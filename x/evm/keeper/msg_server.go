@@ -271,17 +271,23 @@ func (k *Keeper) applyEVMTx(ctx sdk.Context, tx *ethtypes.Transaction, msg *core
 	return k.applyEVMMessageWithTracing(ctx, msg, stateDB, gp, shouldIncrementNonce, onStart, onEnd)
 }
 
-func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool, shouldIncrementNonce bool) (*core.ExecutionResult, error) {
-	blockCtx, err := k.GetVMBlockContext(ctx, gp)
-	if err != nil {
-		return nil, err
+func (k *Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool, shouldIncrementNonce bool) (res *core.ExecutionResult, err error) {
+	evmTracer := evmtracers.GetCtxBlockchainTracer(ctx)
+
+	var onStart func(*vm.EVM)
+	if evmTracer != nil && evmTracer.OnSeiSystemCallStart != nil {
+		onStart = func(*vm.EVM) {
+			evmTracer.OnSeiSystemCallStart()
+		}
 	}
-	cfg := types.DefaultChainConfig().EthereumConfig(k.ChainID(ctx))
-	txCtx := core.NewEVMTxContext(msg)
-	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
-	evmInstance.SetTxContext(txCtx)
-	st := core.NewStateTransition(evmInstance, msg, &gp, true, shouldIncrementNonce) // fee already charged in ante handler
-	return st.Execute()
+	var onEnd func(*core.ExecutionResult, error)
+	if evmTracer != nil && evmTracer.OnSeiSystemCallEnd != nil {
+		onEnd = func(*core.ExecutionResult, error) {
+			evmTracer.OnSeiSystemCallEnd()
+		}
+	}
+
+	return k.applyEVMMessageWithTracing(ctx, msg, stateDB, gp, shouldIncrementNonce, onStart, onEnd)
 }
 
 func (k *Keeper) applyEVMMessageWithTracing(

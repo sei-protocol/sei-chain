@@ -2100,11 +2100,7 @@ func TmBlockHeaderToEVM(
 	baseFee := k.GetNextBaseFeePerGas(noGasBillingCtx).TruncateInt().BigInt()
 
 	if noGasBillingCtx.ChainID() == "pacific-1" && noGasBillingCtx.BlockHeight() < k.UpgradeKeeper().GetDoneHeight(noGasBillingCtx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "6.2.0") {
-		fmt.Println("[Firehose] Skipping base fee inclusion for pacific-1 pre 6.2.0 block")
 		baseFee = nil
-	} else {
-		fmt.Printf("[Firehose] Including base fee in block header %v\n", baseFee)
-		fmt.Printf("[Firehose] Next base fee in block header %v\n")
 	}
 
 	header = &ethtypes.Header{
