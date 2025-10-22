@@ -970,37 +970,13 @@ func (m *PeerManager) NumConnected() int {
 	return cnt
 }
 
-// PeerEventSubscriber describes the type of the subscription method, to assist
-// in isolating reactors specific construction and lifecycle from the
-// peer manager.
-type PeerEventSubscriber func(context.Context) *PeerUpdates
-
 // Subscribe subscribes to peer updates. The caller must consume the peer
 // updates in a timely fashion and close the subscription when done, otherwise
 // the PeerManager will halt.
 func (m *PeerManager) Subscribe(ctx context.Context) *PeerUpdates {
-	// FIXME: We use a size 1 buffer here. When we broadcast a peer update
-	// we have to loop over all of the subscriptions, and we want to avoid
-	// having to block and wait for a context switch before continuing on
-	// to the next subscriptions. This also prevents tail latencies from
-	// compounding. Limiting it to 1 means that the subscribers are still
-	// reasonably in sync. However, this should probably be benchmarked.
-	peerUpdates := NewPeerUpdates(make(chan PeerUpdate, 1), 1)
-	m.Register(ctx, peerUpdates)
-	return peerUpdates
-}
-
-// Register allows you to inject a custom PeerUpdate instance into the
-// PeerManager, rather than relying on the instance constructed by the
-// Subscribe method, which wraps the functionality of the Register
-// method.
-//
-// The caller must consume the peer updates from this PeerUpdates
-// instance in a timely fashion and close the subscription when done,
-// otherwise the PeerManager will halt.
-func (m *PeerManager) Register(ctx context.Context, peerUpdates *PeerUpdates) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
+	peerUpdates := NewPeerUpdates(make(chan PeerUpdate, 1), 1)
 	m.subscriptions[peerUpdates] = peerUpdates
 
 	var updates []PeerUpdate
@@ -1021,6 +997,7 @@ func (m *PeerManager) Register(ctx context.Context, peerUpdates *PeerUpdates) {
 		defer m.mtx.Unlock()
 		delete(m.subscriptions, peerUpdates)
 	}()
+	return peerUpdates
 }
 
 func (m *PeerManager) SendUpdate(pu PeerUpdate) {
