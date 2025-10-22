@@ -149,12 +149,12 @@ func invalidDoPrevoteFunc(
 		cs.privValidator = nil // disable priv val so we don't do normal votes
 		cs.mtx.Unlock()
 
-		r.mtx.Lock()
-		ids := make([]types.NodeID, 0, len(r.peers))
-		for _, ps := range r.peers {
-			ids = append(ids, ps.peerID)
+		var ids []types.NodeID
+		for peers := range r.peers.RLock() {
+			for _, ps := range peers {
+				ids = append(ids, ps.peerID)
+			}
 		}
-		r.mtx.Unlock()
 
 		count := 0
 		for _, peerID := range ids {

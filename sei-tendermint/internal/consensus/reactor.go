@@ -132,8 +132,8 @@ type Reactor struct {
 	eventBus *eventbus.EventBus
 	Metrics  *Metrics
 
+	peers       utils.RWMutex[map[types.NodeID]*PeerState]
 	mtx         sync.RWMutex
-	peers       map[types.NodeID]*PeerState
 	waitSync    bool
 	rs          *cstypes.RoundState
 	readySignal chan struct{} // closed when the node is ready to start consensus
@@ -173,7 +173,7 @@ func NewReactor(
 		state:       cs,
 		waitSync:    waitSync,
 		rs:          cs.GetRoundState(),
-		peers:       make(map[types.NodeID]*PeerState),
+		peers:       utils.NewRWMutex(map[types.NodeID]*PeerState{}),
 		eventBus:    eventBus,
 		Metrics:     metrics,
 		router:      router,
@@ -295,11 +295,11 @@ func (r *Reactor) String() string {
 
 // GetPeerState returns PeerState for a given NodeID.
 func (r *Reactor) GetPeerState(peerID types.NodeID) (*PeerState, bool) {
-	r.mtx.RLock()
-	defer r.mtx.RUnlock()
-
-	ps, ok := r.peers[peerID]
-	return ps, ok
+	for peers := range r.peers.RLock() {
+		ps, ok := peers[peerID]
+		return ps,ok
+	}
+	panic("unreachable")
 }
 
 func (r *Reactor) broadcastNewRoundStepMessage(rs *cstypes.RoundState, stateCh *p2p.Channel) {
@@ -1128,25 +1128,27 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 	}
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		process := func(peerUpdate p2p.PeerUpdate) {
-			r.mtx.Lock()
-			defer r.mtx.Unlock()
 			switch peerUpdate.Status {
 			case p2p.PeerStatusUp:
-				ps, ok := r.peers[peerUpdate.NodeID]
-				if ok { return }
-				ctx,cancel := context.WithCancel(ctx)
-				ps = NewPeerState(r.logger, peerUpdate.NodeID)
-				ps.cancel = cancel
-				r.peers[peerUpdate.NodeID] = ps
-				s.Spawn(func() error { return utils.IgnoreCancel(r.gossipDataRoutine(ctx, ps)) })
-				s.Spawn(func() error { return utils.IgnoreCancel(r.gossipVotesRoutine(ctx, ps)) })
-				s.Spawn(func() error { return utils.IgnoreCancel(r.queryMaj23Routine(ctx, ps)) })
-				r.sendNewRoundStepMessage(ps.peerID)
+				for peers := range r.peers.Lock() {
+					if _, ok := peers[peerUpdate.NodeID]; ok { return }
+					ps := NewPeerState(r.logger, peerUpdate.NodeID)
+					ctx,cancel := context.WithCancel(ctx)
+					ps.cancel = cancel
+					peers[peerUpdate.NodeID] = ps
+					s.Spawn(func() error { return utils.IgnoreCancel(r.gossipDataRoutine(ctx, ps)) })
+					s.Spawn(func() error { return utils.IgnoreCancel(r.gossipVotesRoutine(ctx, ps)) })
+					s.Spawn(func() error { return utils.IgnoreCancel(r.queryMaj23Routine(ctx, ps)) })
+					s.Spawn(func() error { <-ctx.Done(); cancel(); return nil })
+					r.sendNewRoundStepMessage(ps.peerID)
+				}
 			case p2p.PeerStatusDown:
-				ps, ok := r.peers[peerUpdate.NodeID]
-				if !ok { return }
-				delete(r.peers, peerUpdate.NodeID)
-				ps.cancel()
+				for peers := range r.peers.Lock() {
+					if ps,ok := peers[peerUpdate.NodeID]; ok {
+						ps.cancel()
+						delete(peers, peerUpdate.NodeID)
+					}
+				}
 			}
 		}
 		peerUpdates := r.router.PeerManager().Subscribe(ctx)

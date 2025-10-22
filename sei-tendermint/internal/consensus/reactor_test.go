@@ -538,9 +538,11 @@ func TestReactorRecordsVotesAndBlockParts(t *testing.T) {
 		t,
 		func() bool {
 			for _, reactor := range rts.reactors {
-				for _, ps := range reactor.peers {
-					if ps.BlockPartsSent() > 0 {
-						return true
+				for peers := range reactor.peers.Lock() {
+					for _, ps := range peers {
+						if ps.BlockPartsSent() > 0 {
+							return true
+						}
 					}
 				}
 			}
