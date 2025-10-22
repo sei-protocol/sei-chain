@@ -285,24 +285,24 @@ func setupNetwork(t *testing.T, opts testOptions) *reactorTestSuite {
 		opts:        opts,
 	}
 
-	// NOTE: we don't assert that the channels get drained after stopping the
-	// reactor
-	rts.pexChannels = rts.network.MakeChannelsNoCleanup(t, ChannelDescriptor())
-
 	for idx, node := range rts.network.Nodes() {
 		nodeID := node.NodeID
 
 		// the first nodes in the array are always mock nodes
 		if idx < opts.MockNodes {
 			rts.mocks = append(rts.mocks, nodeID)
+			rts.pexChannels[nodeID] = node.Router.OpenChannelOrPanic(ChannelDescriptor())
 		} else {
-			rts.reactors[nodeID] = NewReactor(
+			reactor,err := NewReactor(
 				node.Logger,
-				node.PeerManager,
+				node.Router,
 				make(chan struct{}),
 				config.DefaultSelfRemediationConfig(),
 			)
-			rts.reactors[nodeID].SetChannel(rts.pexChannels[nodeID])
+			if err!=nil {
+				t.Fatalf("NewReactor(): %v",err)
+			}
+			rts.reactors[nodeID] = reactor
 		}
 		rts.nodes = append(rts.nodes, nodeID)
 	}
@@ -361,13 +361,16 @@ func (r *reactorTestSuite) addNodes(t *testing.T, nodes int) {
 			MaxRetryTime: r.opts.MaxRetryTime,
 		})
 		nodeID := node.NodeID
-		r.pexChannels[nodeID] = node.MakeChannelNoCleanup(t, ChannelDescriptor())
-		r.reactors[nodeID] = NewReactor(
+		reactor,err := NewReactor(
 			node.Logger,
-			node.PeerManager,
+			node.Router,
 			make(chan struct{}),
 			config.DefaultSelfRemediationConfig(),
 		)
+		if err!=nil {
+			t.Fatalf("NewReactor(): %v",err)
+		}
+		r.reactors[nodeID] = reactor
 		r.nodes = append(r.nodes, nodeID)
 		r.total++
 	}

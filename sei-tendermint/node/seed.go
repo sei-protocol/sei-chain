@@ -110,12 +110,13 @@ func makeSeedNode(
 		}
 	}()
 
-	pexReactor := pex.NewReactor(
+	pexReactor,err := pex.NewReactor(
 		logger,
-		peerManager,
+		router,
 		restartCh,
 		cfg.SelfRemediation,
 	)
+	if err != nil { return nil, fmt.Errorf("pex.NewReactor(): %w", err) }
 
 	proxyApp := proxy.New(client, logger.With("module", "proxy"), nodeMetrics.proxy)
 
@@ -162,7 +163,6 @@ func makeSeedNode(
 		},
 		nodeInfo: nodeInfo,
 	}
-	pexReactor.SetChannel(node.router.OpenChannelOrPanic(pex.ChannelDescriptor()))
 	node.BaseService = *service.NewBaseService(logger, "SeedNode", node)
 
 	return node, nil

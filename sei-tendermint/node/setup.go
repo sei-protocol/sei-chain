@@ -144,33 +144,35 @@ func createMempoolReactor(
 	appClient abciclient.Client,
 	store sm.Store,
 	memplMetrics *mempool.Metrics,
-	peerEvents p2p.PeerEventSubscriber,
-	peerManager *p2p.PeerManager,
-) (*mempool.Reactor, mempool.Mempool) {
+	router *p2p.Router,
+) (*mempool.Reactor, mempool.Mempool, error) {
 	logger = logger.With("module", "mempool")
 
 	mp := mempool.NewTxMempool(
 		logger,
 		cfg.Mempool,
 		appClient,
-		peerManager,
+		router.PeerManager(),
 		mempool.WithMetrics(memplMetrics),
 		mempool.WithPreCheck(sm.TxPreCheckFromStore(store)),
 		mempool.WithPostCheck(sm.TxPostCheckFromStore(store)),
 	)
 
-	reactor := mempool.NewReactor(
+	reactor,err := mempool.NewReactor(
 		logger,
 		cfg.Mempool,
 		mp,
-		peerEvents,
+		router,
 	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mempool.NewReactor(): %w", err)
+	}
 
 	if cfg.Consensus.WaitForTxs() {
 		mp.EnableTxsAvailable()
 	}
 
-	return reactor, mp
+	return reactor, mp, nil
 }
 
 func createEvidenceReactor(

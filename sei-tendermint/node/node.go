@@ -290,9 +290,10 @@ func makeNode(
 	}
 	shoulddbsync := cfg.DBSync.Enable && info.LastBlockHeight == 0
 
-	mpReactor, mp := createMempoolReactor(logger, cfg, proxyApp, stateStore, nodeMetrics.mempool,
-		peerManager.Subscribe, peerManager)
-	mpReactor.SetChannel(node.router.OpenChannelOrPanic(mempool.GetChannelDescriptor(cfg.Mempool)))
+	mpReactor, mp, err := createMempoolReactor(logger, cfg, proxyApp, stateStore, nodeMetrics.mempool, node.router)
+	if err!=nil {
+		return nil, fmt.Errorf("createMempoolReactor(): %w", err)
+	}
 	if !shoulddbsync {
 		mpReactor.MarkReadyToStart()
 	}
@@ -388,14 +389,14 @@ func makeNode(
 	}
 
 	if cfg.P2P.PexReactor {
-		pxReactor := pex.NewReactor(
+		pxReactor,err := pex.NewReactor(
 			logger,
-			peerManager,
+			node.router,
 			restartCh,
 			cfg.SelfRemediation,
 		)
+		if err!=nil { return nil, fmt.Errorf("pex.NewReactor(): %w", err) }
 		node.services = append(node.services, pxReactor)
-		pxReactor.SetChannel(node.router.OpenChannelOrPanic(pex.ChannelDescriptor()))
 	}
 
 	postSyncHook := func(ctx context.Context, state sm.State) error {
