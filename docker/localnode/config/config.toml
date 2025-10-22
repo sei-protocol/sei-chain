@@ -67,40 +67,14 @@ abci = "socket"
 filter-peers = false
 
 
-#######################################################
-###       Priv Validator Configuration              ###
-#######################################################
-[priv-validator]
-
-# Path to the JSON file containing the private key to use as a validator in the consensus protocol
-key-file = "config/priv_validator_key.json"
-
-# Path to the JSON file containing the last sign state of a validator
-state-file = "data/priv_validator_state.json"
-
-# TCP or UNIX socket address for Tendermint to listen on for
-# connections from an external PrivValidator process
-# when the listenAddr is prefixed with grpc instead of tcp it will use the gRPC Client
-laddr = ""
-
-# Path to the client certificate generated while creating needed files for secure connection.
-# If a remote validator address is provided but no certificate, the connection will be insecure
-client-certificate-file = ""
-
-# Client key generated while creating certificates for secure connection
-client-key-file = ""
-
-# Path to the Root Certificate Authority used to sign both client and server certificates
-root-ca-file = ""
-
 
 #######################################################################
 ###                 Advanced Configuration Options                  ###
 #######################################################################
 
-#######################################################
-###       RPC Server Configuration Options          ###
-#######################################################
+#######################################################################
+###                 RPC Server Configuration Options                ###
+#######################################################################
 [rpc]
 
 # TCP or UNIX socket address for the RPC server to listen on
@@ -195,9 +169,9 @@ tls-key-file = ""
 # pprof listen address (https://golang.org/pkg/net/http/pprof)
 pprof-laddr = "localhost:6060"
 
-#######################################################
-###           P2P Configuration Options             ###
-#######################################################
+#######################################################################
+###                   P2P Configuration Options                     ###
+#######################################################################
 [p2p]
 
 # Select the p2p internal queue
@@ -260,9 +234,9 @@ send-rate = 204800000
 # TODO: Remove once MConnConnection is removed.
 recv-rate = 204800000
 
-#######################################################
-###          Mempool Configuration Option          ###
-#######################################################
+#######################################################################
+###                  Mempool Configuration Options                  ###
+#######################################################################
 [mempool]
 
 # recheck has been moved from a config option to a global
@@ -313,9 +287,9 @@ ttl-duration = "0s"
 # it's insertion time into the mempool is beyond ttl-duration.
 ttl-num-blocks = 0
 
-#######################################################
-###         State Sync Configuration Options        ###
-#######################################################
+#######################################################################
+###                 State Sync Configuration Options                ###
+#######################################################################
 [statesync]
 # State sync rapidly bootstraps a new node by discovering, fetching, and restoring a state machine
 # snapshot from peers instead of fetching and replaying historical blocks. Requires some peers in
@@ -349,9 +323,9 @@ chunk-request-timeout = "15s"
 # The number of concurrent chunk fetchers to run (default: 1).
 fetchers = "4"
 
-#######################################################
-###         Consensus Configuration Options         ###
-#######################################################
+#######################################################################
+###                 Consensus Configuration Options                 ###
+#######################################################################
 [consensus]
 
 wal-file = "data/cs.wal/wal"
@@ -386,11 +360,12 @@ create-empty-blocks-interval = "0s"
 peer-gossip-sleep-duration = "100ms"
 peer-query-maj23-sleep-duration = "2s"
 
-gossip-tx-key-only=true
+# Only gossip hashes, not the actual data
+gossip-tx-key-only = "true"
 
-#######################################################
-###   Transaction Indexer Configuration Options     ###
-#######################################################
+#######################################################################
+###           Transaction Indexer Configuration (Auto-managed)      ###
+#######################################################################
 [tx-index]
 
 # The backend database list to back the indexer.
@@ -408,9 +383,9 @@ indexer = ["kv"]
 
 psql-conn = ""
 
-#######################################################
-###       Instrumentation Configuration Options     ###
-#######################################################
+#######################################################################
+###           Instrumentation Configuration (Auto-managed)          ###
+#######################################################################
 [instrumentation]
 
 # When true, Prometheus metrics are served under /metrics on
@@ -427,5 +402,73 @@ prometheus-listen-addr = ":26660"
 # 0 - unlimited.
 max-open-connections = 3
 
+#######################################################################
+###           Priv Validator Configuration (Auto-managed)           ###
+#######################################################################
+[priv-validator]
+
+# Path to the JSON file containing the private key to use as a validator in the consensus protocol
+key-file = "config/priv_validator_key.json"
+
+# Path to the JSON file containing the last sign state of a validator
+state-file = "data/priv_validator_state.json"
+
+# TCP or UNIX socket address for Tendermint to listen on for
+# connections from an external PrivValidator process
+# when the listenAddr is prefixed with grpc instead of tcp it will use the gRPC Client
+laddr = ""
+
+# Path to the client certificate generated while creating needed files for secure connection.
+# If a remote validator address is provided but no certificate, the connection will be insecure
+client-certificate-file = ""
+
+# Client key generated while creating certificates for secure connection
+client-key-file = ""
+
+# Path to the Root Certificate Authority used to sign both client and server certificates
+root-ca-file = ""
+
+
 # Instrumentation namespace
 namespace = "tendermint"
+
+#######################################################################
+###       SelfRemediation Configuration (Auto-managed)              ###
+#######################################################################
+[self-remediation]
+
+# If the node has no p2p peers available then trigger a restart
+# Set to 0 to disable
+p2p-no-peers-available-window-seconds = 0
+
+# If node has no peers for statesync after a period of time then restart
+# Set to 0 to disable
+statesync-no-peers-available-window-seconds = 0
+
+# Threshold for how far back the node can be behind the current block height before triggering a restart
+# Set to 0 to disable
+blocks-behind-threshold = 0
+
+# How often to check if node is behind
+blocks-behind-check-interval = 60
+
+# Cooldown between each restart
+restart-cooldown-seconds = 600
+
+#######################################################################
+###               DB Sync Configuration (Auto-managed)              ###
+#######################################################################
+[db-sync]
+db-sync-enable = "false"
+snapshot-interval = "0"
+snapshot-directory = ""
+snapshot-worker-count = "16"
+timeout-in-seconds = "1200"
+no-file-sleep-in-seconds = "1"
+file-worker-count = "32"
+file-worker-timeout = "30"
+trust-height = "0"
+trust-hash = ""
+trust-period = "24h0m0s"
+verify-light-block-timeout = "1m0s"
+blacklist-ttl = "5m0s"

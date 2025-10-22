@@ -564,7 +564,7 @@ unsafe-commit-timeout-override = "{{ .Consensus.UnsafeCommitTimeoutOverride }}"
 // autoManagedConfigTemplate contains configuration sections that are auto-managed
 const autoManagedConfigTemplate = `
 #######################################################################
-###   Transaction Indexer Configuration (Auto-managed)             ###
+###   Transaction Indexer Configuration (Auto-managed)              ###
 #######################################################################
 [tx-index]
 
