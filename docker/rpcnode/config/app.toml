@@ -14,12 +14,12 @@ minimum-gas-prices = "0.01usei"
 # nothing: all historic states will be saved, nothing will be deleted (i.e. archiving node)
 # everything: all saved states will be deleted, storing only the current and previous state; pruning at 10 block intervals
 # custom: allow pruning options to be manually specified through 'pruning-keep-recent', 'pruning-keep-every', and 'pruning-interval'
-pruning = "custom"
+pruning = "nothing"
 
 # These are applied if and only if the pruning strategy is custom.
 pruning-keep-recent = "0"
-pruning-keep-every = "10"
-pruning-interval = "1000"
+pruning-keep-every = "0"
+pruning-interval = "0"
 
 # HaltHeight contains a non-zero block height at which a node will gracefully
 # halt and shutdown that can be used to assist upgrades and testing.
@@ -240,7 +240,7 @@ sc-cache-size = 1000
 ss-enable = true
 
 # DBBackend defines the backend database used for state-store.
-# Supported backends: pebbledb, rocksdb, sqlite
+# Supported backends: pebbledb, rocksdb
 # defaults to pebbledb (recommended)
 ss-backend = "pebbledb"
 

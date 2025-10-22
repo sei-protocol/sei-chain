@@ -300,7 +300,7 @@ func createRouter(
 
 	p2pLogger := logger.With("module", "p2p")
 
-	ep, err := p2p.NewEndpoint(nodeKey.ID.AddressString(cfg.P2P.ListenAddress))
+	ep, err := p2p.ResolveEndpoint(nodeKey.ID.AddressString(cfg.P2P.ListenAddress))
 	if err != nil {
 		return nil, err
 	}

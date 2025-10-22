@@ -396,7 +396,7 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) (_ []b
 	return nil, nil
 }
 
-func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) (_err error) {
+func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedChangeSet) (_err error) {
 	startTime := time.Now()
 	defer func() {
 		otelMetrics.applyChangesetLatency.Record(
@@ -418,23 +418,24 @@ func (db *Database) ApplyChangeset(version int64, cs *proto.NamedChangeSet) (_er
 		return err
 	}
 
-	for _, kvPair := range cs.Changeset.Pairs {
-		if kvPair.Value == nil {
-			if err := b.Delete(cs.Name, kvPair.Key); err != nil {
+	for _, cs := range changeset {
+		for _, kvPair := range cs.Changeset.Pairs {
+			if kvPair.Value == nil {
+				if err := b.Delete(cs.Name, kvPair.Key); err != nil {
+					return err
+				}
+			} else if err := b.Set(cs.Name, kvPair.Key, kvPair.Value); err != nil {
 				return err
 			}
-		} else if err := b.Set(cs.Name, kvPair.Key, kvPair.Value); err != nil {
-			return err
 		}
+		// Mark the store as updated
+		db.storeKeyDirty.Store(cs.Name, version)
 	}
-
-	// Mark the store as updated
-	db.storeKeyDirty.Store(cs.Name, version)
 
 	if err := b.Write(); err != nil {
 		return err
 	}
-	// Update latest version on write success
+	// Update latest version after all writes succeed
 	db.latestVersion.Store(version)
 	return nil
 }
@@ -489,6 +490,11 @@ func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.Named
 }
 
 func (db *Database) computeMissingRanges(latestVersion int64) error {
+	// If HashRange is disabled (<=0), skip computation
+	if db.config.HashRange <= 0 {
+		return nil
+	}
+
 	lastHashed, err := db.GetLastRangeHashed()
 	if err != nil {
 		return fmt.Errorf("failed to get last hashed range: %w", err)
@@ -599,11 +605,8 @@ func (db *Database) writeAsyncInBackground() {
 	for nextChange := range db.pendingChanges {
 		if db.streamHandler != nil {
 			version := nextChange.Version
-			for _, cs := range nextChange.Changesets {
-				err := db.ApplyChangeset(version, cs)
-				if err != nil {
-					panic(err)
-				}
+			if err := db.ApplyChangesetSync(version, nextChange.Changesets); err != nil {
+				panic(err)
 			}
 		}
 	}
@@ -650,8 +653,8 @@ func (db *Database) Prune(version int64) (_err error) {
 	for itr.First(); itr.Valid(); {
 		currKeyEncoded := slices.Clone(itr.Key())
 
-		// Ignore metadata entry for version during pruning
-		if bytes.Equal(currKeyEncoded, []byte(latestVersionKey)) || bytes.Equal(currKeyEncoded, []byte(earliestVersionKey)) {
+		// Ignore metadata entries during pruning
+		if isMetadataKey(currKeyEncoded) {
 			itr.Next()
 			continue
 		}
@@ -954,8 +957,8 @@ func (db *Database) RawIterate(storeKey string, fn func(key []byte, value []byte
 	for itr.First(); itr.Valid(); itr.Next() {
 		currKeyEncoded := itr.Key()
 
-		// Ignore metadata entry for version
-		if bytes.Equal(currKeyEncoded, []byte(latestVersionKey)) || bytes.Equal(currKeyEncoded, []byte(earliestVersionKey)) {
+		// Ignore metadata entries
+		if isMetadataKey(currKeyEncoded) {
 			continue
 		}
 
@@ -1040,6 +1043,10 @@ func (db *Database) DeleteKeysAtVersion(module string, version int64) error {
 		}
 	}
 	return nil
+}
+
+func isMetadataKey(key []byte) bool {
+	return bytes.HasPrefix(key, []byte("s/_"))
 }
 
 func storePrefix(storeKey string) []byte {

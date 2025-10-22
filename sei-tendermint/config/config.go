@@ -97,7 +97,7 @@ func DefaultConfig() *Config {
 func DefaultValidatorConfig() *Config {
 	cfg := DefaultConfig()
 	cfg.Mode = ModeValidator
-	cfg.TxIndex.Indexer = []string{"null"}
+	cfg.TxIndex.Indexer = []string{"null"} // validators should not build the kv index
 	return cfg
 }
 
@@ -875,9 +875,9 @@ func DefaultMempoolConfig() *MempoolConfig {
 		MaxTxsBytes:                  1024 * 1024 * 1024, // 1GB
 		CacheSize:                    10000,
 		DuplicateTxsCacheSize:        100000,
-		MaxTxBytes:                   1024 * 1024, // 1MB
-		TTLDuration:                  0 * time.Second,
-		TTLNumBlocks:                 0,
+		MaxTxBytes:                   1024 * 1024,     // 1MB
+		TTLDuration:                  5 * time.Second, // prevent stale txs from filling mempool
+		TTLNumBlocks:                 10,              // remove txs after 10 blocks
 		TxNotifyThreshold:            0,
 		CheckTxErrorBlacklistEnabled: false,
 		CheckTxErrorThreshold:        0,
@@ -999,6 +999,10 @@ type StateSyncConfig struct {
 	// If this is true, then state sync will look for existing snapshots
 	// which are located in the snapshot-dir configured in app.toml (default to [home-dir]/data/snapshots)
 	UseLocalSnapshot bool `mapstructure:"use-local-snapshot"`
+
+	// LightBlockResponseTimeout is how long the dispatcher waits for a peer to
+	// return a light block.
+	LightBlockResponseTimeout time.Duration `mapstructure:"light-block-response-timeout"`
 }
 
 func (cfg *StateSyncConfig) TrustHashBytes() []byte {
@@ -1013,14 +1017,15 @@ func (cfg *StateSyncConfig) TrustHashBytes() []byte {
 // DefaultStateSyncConfig returns a default configuration for the state sync service
 func DefaultStateSyncConfig() *StateSyncConfig {
 	return &StateSyncConfig{
-		TrustPeriod:             168 * time.Hour,
-		DiscoveryTime:           15 * time.Second,
-		ChunkRequestTimeout:     15 * time.Second,
-		Fetchers:                2,
-		BackfillBlocks:          0,
-		BackfillDuration:        0 * time.Second,
-		VerifyLightBlockTimeout: 60 * time.Second,
-		BlacklistTTL:            5 * time.Minute,
+		TrustPeriod:               168 * time.Hour,
+		DiscoveryTime:             15 * time.Second,
+		ChunkRequestTimeout:       15 * time.Second,
+		Fetchers:                  2,
+		BackfillBlocks:            0,
+		BackfillDuration:          0 * time.Second,
+		VerifyLightBlockTimeout:   60 * time.Second,
+		BlacklistTTL:              5 * time.Minute,
+		LightBlockResponseTimeout: 10 * time.Second,
 	}
 }
 

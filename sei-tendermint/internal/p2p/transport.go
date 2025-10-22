@@ -143,8 +143,8 @@ func (c *Connection) Close() error {
 type Endpoint struct{ netip.AddrPort }
 
 // NewEndpoint constructs an Endpoint from a types.NetAddress structure.
-func NewEndpoint(addr string) (Endpoint, error) {
-	e, err := types.ParseAddressString(addr)
+func ResolveEndpoint(addr string) (Endpoint, error) {
+	e, err := types.ResolveAddressString(addr)
 	return Endpoint{e}, err
 }
 

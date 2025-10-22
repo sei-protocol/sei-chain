@@ -6,6 +6,7 @@ import (
 
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-db/config"
+	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/ss/types"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/exp/slices"
@@ -225,6 +226,54 @@ func (s *StorageTestSuite) TestDatabaseApplyChangeset() {
 			s.Require().True(ok)
 		}
 	}
+}
+
+// Ensure ApplyChangesetSync(version, []*NamedChangeSet{moduleA, moduleB, ...})
+// only bumps latest version after all module writes are persisted.
+func (s *StorageTestSuite) TestApplyChangesetSyncAtomicAcrossModules() {
+	db, err := s.NewDB(s.T().TempDir(), s.Config)
+	s.Require().NoError(err)
+
+	defer func() { _ = db.Close() }()
+
+	// Prepare two modules' changesets at the same version
+	cs1 := &iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Key: []byte("a1"), Value: []byte("v1")},
+		{Key: []byte("a2"), Value: []byte("v2")},
+	}}
+	cs2 := &iavl.ChangeSet{Pairs: []*iavl.KVPair{
+		{Key: []byte("b1"), Value: []byte("v3")},
+		{Key: []byte("b2"), Value: []byte("v4")},
+	}}
+
+	ncs1 := &proto.NamedChangeSet{Name: storeKey1, Changeset: *cs1}
+	ncs2 := &proto.NamedChangeSet{Name: storeKey2, Changeset: *cs2}
+
+	// Latest version should be 0 before apply
+	s.Require().Equal(int64(0), db.GetLatestVersion())
+
+	// Apply both modules in one sync call
+	s.Require().NoError(db.ApplyChangesetSync(1, []*proto.NamedChangeSet{ncs1, ncs2}))
+
+	// After ApplyChangesetSync returns, latest version must reflect completion
+	s.Require().Equal(int64(1), db.GetLatestVersion())
+
+	// And both modules' data must be readable at version 1
+	v, err := db.Get(storeKey1, 1, []byte("a1"))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte("v1"), v)
+
+	v, err = db.Get(storeKey1, 1, []byte("a2"))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte("v2"), v)
+
+	v, err = db.Get(storeKey2, 1, []byte("b1"))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte("v3"), v)
+
+	v, err = db.Get(storeKey2, 1, []byte("b2"))
+	s.Require().NoError(err)
+	s.Require().Equal([]byte("v4"), v)
 }
 
 func (s *StorageTestSuite) TestDatabaseIteratorEmptyDomain() {
@@ -611,10 +660,23 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 
 	s.Require().NoError(FillData(db, 10, 50))
 
+	// Write some metadata (hash keys) to verify they don't interfere with pruning
+	// These keys start with "s/_" and should be ignored during pruning
+	// Only test with pebbledb since rocksdb doesn't implement hash metadata yet
+	if s.Config.Backend == "pebbledb" {
+		s.Require().NoError(db.WriteBlockRangeHash(storeKey1, 1, 10, []byte("hash1-10")))
+		s.Require().NoError(db.WriteBlockRangeHash(storeKey1, 11, 20, []byte("hash11-20")))
+		s.Require().NoError(db.WriteBlockRangeHash(storeKey2, 1, 25, []byte("hash1-25")))
+	}
+
 	// Verify earliest version is 0
 	earliestVersion := db.GetEarliestVersion()
 	s.Require().NoError(err)
 	s.Require().Equal(int64(0), earliestVersion)
+
+	// Verify latest version is accessible
+	latestVersionBefore := db.GetLatestVersion()
+	s.Require().Equal(int64(50), latestVersionBefore)
 
 	// prune the first 25 versions
 	s.Require().NoError(db.Prune(25))
@@ -627,6 +689,11 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 	latestVersion := db.GetLatestVersion()
 	s.Require().NoError(err)
 	s.Require().Equal(int64(50), latestVersion)
+
+	// Verify metadata keys are still accessible after pruning
+	// (this verifies metadata keys weren't corrupted during pruning)
+	s.Require().Equal(int64(50), db.GetLatestVersion())
+	s.Require().Equal(int64(26), db.GetEarliestVersion())
 
 	// Ensure all keys are no longer present up to and including version 25 and
 	// all keys are present after version 25.
@@ -656,6 +723,10 @@ func (s *StorageTestSuite) TestDatabasePrune() {
 	earliestVersion = db.GetEarliestVersion()
 	s.Require().NoError(err)
 	s.Require().Equal(int64(51), earliestVersion)
+
+	// Verify metadata is still intact after full pruning
+	s.Require().Equal(int64(50), db.GetLatestVersion())
+	s.Require().Equal(int64(51), db.GetEarliestVersion())
 
 	for v := int64(1); v <= 50; v++ {
 		for i := 0; i < 10; i++ {
