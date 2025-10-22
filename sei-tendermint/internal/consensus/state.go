@@ -695,7 +695,6 @@ func (cs *State) reconstructLastCommit(state sm.State) {
 		panic(fmt.Sprintf("failed to reconstruct last commit; %s", err))
 	}
 	cs.roundState.SetLastCommit(votes)
-	return
 }
 
 func (cs *State) votesFromSeenCommit(state sm.State) (*types.VoteSet, error) {
@@ -905,7 +904,6 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 				// error and we're already trying to shut down
 				if ctx.Err() != nil {
 					return
-
 				}
 			}
 
@@ -939,10 +937,10 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 		case mi := <-cs.internalMsgQueue:
 			err := cs.wal.Write(mi)
 			if err != nil {
-				panic(fmt.Errorf(
+				return fmt.Errorf(
 					"failed to write %v msg to consensus WAL due to %w; check your file system and restart the node",
 					mi, err,
-				))
+				)
 			}
 
 			// handles proposals, block parts, votes
@@ -1108,7 +1106,6 @@ func (cs *State) handleMsg(ctx context.Context, mi msgInfo, fsyncUponCompletion 
 			"err", err,
 		)
 	}
-	return
 }
 
 func (cs *State) handleTimeout(
@@ -1163,8 +1160,6 @@ func (cs *State) handleTimeout(
 	default:
 		panic(fmt.Sprintf("invalid timeout step: %v", ti.Step))
 	}
-
-	return
 }
 
 func (cs *State) handleTxsAvailable(ctx context.Context) {
@@ -1190,7 +1185,6 @@ func (cs *State) handleTxsAvailable(ctx context.Context) {
 	case cstypes.RoundStepNewRound: // after timeoutCommit
 		cs.enterPropose(ctx, cs.roundState.Height(), 0, "post-timeout-commit")
 	}
-	return
 }
 
 func (cs *State) getTracingCtx(defaultCtx context.Context) context.Context {
@@ -1297,8 +1291,6 @@ func (cs *State) enterNewRound(ctx context.Context, height int64, round int32, e
 
 	span.End()
 	cs.enterPropose(ctx, height, round, "enterNewRound")
-
-	return
 }
 
 // needProofBlock returns true on the first height (so the genesis app hash is signed right away)
@@ -2288,7 +2280,7 @@ func (cs *State) RecordMetrics(height int64, block *types.Block) {
 		for roundId := 0; int32(roundId) <= roundState.ValidRound; roundId++ {
 			preVotes := roundState.Votes.Prevotes(int32(roundId))
 			pl := preVotes.List()
-			if pl == nil || len(pl) == 0 {
+			if len(pl) == 0 {
 				cs.logger.Info("no prevotes to emit latency metrics for", "height", height, "round", roundId)
 				continue
 			}

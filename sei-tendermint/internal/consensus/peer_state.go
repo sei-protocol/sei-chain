@@ -44,7 +44,6 @@ type PeerState struct {
 	// NOTE: Modify below using setters, never directly.
 	mtx     sync.RWMutex
 	cancel  context.CancelFunc
-	running bool
 	PRS     cstypes.PeerRoundState `json:"round_state"`
 	Stats   *peerStateStats        `json:"stats"`
 }
@@ -62,23 +61,6 @@ func NewPeerState(logger log.Logger, peerID types.NodeID) *PeerState {
 		},
 		Stats: &peerStateStats{},
 	}
-}
-
-// SetRunning sets the running state of the peer.
-func (ps *PeerState) SetRunning(v bool) {
-	ps.mtx.Lock()
-	defer ps.mtx.Unlock()
-
-	ps.running = v
-}
-
-// IsRunning returns true if a PeerState is considered running where multiple
-// broadcasting goroutines exist for the peer.
-func (ps *PeerState) IsRunning() bool {
-	ps.mtx.RLock()
-	defer ps.mtx.RUnlock()
-
-	return ps.running
 }
 
 // GetRoundState returns a shallow copy of the PeerRoundState. There's no point
@@ -380,7 +362,7 @@ func (ps *PeerState) BlockPartsSent() int {
 func (ps *PeerState) SetHasVote(vote *types.Vote) error {
 	// sanity check
 	if vote == nil {
-		return ErrPeerStateSetNilVote
+		panic(ErrPeerStateSetNilVote)
 	}
 	ps.mtx.Lock()
 	defer ps.mtx.Unlock()
