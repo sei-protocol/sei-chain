@@ -444,11 +444,11 @@ func makeNode(
 	ssReactor.SetLightBlockChannel(node.router.OpenChannelOrPanic(statesync.GetLightBlockChannelDescriptor()))
 	ssReactor.SetParamsChannel(node.router.OpenChannelOrPanic(statesync.GetParamsChannelDescriptor()))
 
-	dbsyncReactor := dbsync.NewReactor(
+	dbsyncReactor,err := dbsync.NewReactor(
 		logger.With("module", "dbsync"),
 		*cfg.DBSync,
 		cfg.BaseConfig,
-		peerManager.Subscribe,
+		node.router,
 		stateStore,
 		blockStore,
 		genDoc.InitialHeight,
@@ -463,11 +463,10 @@ func makeNode(
 			return postSyncHook(ctx, state)
 		},
 	)
+	if err!=nil {
+		return nil,fmt.Errorf("dbsync.NewReactor(): %w", err)
+	}
 	node.services = append(node.services, dbsyncReactor)
-	dbsyncReactor.SetMetadataChannel(node.router.OpenChannelOrPanic(dbsync.GetMetadataChannelDescriptor()))
-	dbsyncReactor.SetFileChannel(node.router.OpenChannelOrPanic(dbsync.GetFileChannelDescriptor()))
-	dbsyncReactor.SetLightBlockChannel(node.router.OpenChannelOrPanic(dbsync.GetLightBlockChannelDescriptor()))
-	dbsyncReactor.SetParamsChannel(node.router.OpenChannelOrPanic(dbsync.GetParamsChannelDescriptor()))
 
 	if cfg.Mode == config.ModeValidator {
 		if privValidator != nil {
