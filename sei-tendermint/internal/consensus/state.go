@@ -27,10 +27,11 @@ import (
 	"github.com/tendermint/tendermint/internal/libs/autofile"
 	sm "github.com/tendermint/tendermint/internal/state"
 	tmevents "github.com/tendermint/tendermint/libs/events"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/log"
 	tmmath "github.com/tendermint/tendermint/libs/math"
 	tmos "github.com/tendermint/tendermint/libs/os"
-	"github.com/tendermint/tendermint/libs/service"
 	tmtime "github.com/tendermint/tendermint/libs/time"
 	"github.com/tendermint/tendermint/privval"
 	tmgrpc "github.com/tendermint/tendermint/privval/grpc"
@@ -50,7 +51,7 @@ var (
 )
 
 var msgQueueSize = 1000
-var heartbeatIntervalInSecs = 10
+var heartbeatInterval = 10 * time.Second
 
 // msgs from the reactor which may update the state
 type msgInfo struct {
@@ -131,7 +132,6 @@ type evidencePool interface {
 // commits blocks to the chain and executes them against the application.
 // The internal state machine receives input from peers, the internal validator, and from a timer.
 type State struct {
-	service.BaseService
 	logger log.Logger
 
 	// config details
@@ -199,9 +199,6 @@ type State struct {
 	// for reporting metrics
 	metrics *Metrics
 
-	// wait the channel event happening for shutting down the state gracefully
-	onStopCh chan *cstypes.RoundState
-
 	tracer                otrace.Tracer
 	tracerProviderOptions []trace.TracerProviderOption
 	heightSpan            otrace.Span
@@ -248,7 +245,6 @@ func NewState(
 		evpool:           evpool,
 		evsw:             tmevents.NewEventSwitch(),
 		metrics:          NopMetrics(),
-		onStopCh:         make(chan *cstypes.RoundState),
 	}
 
 	// set function defaults (may be overwritten before calling Start)
@@ -257,7 +253,6 @@ func NewState(
 	cs.setProposal = cs.defaultSetProposal
 
 	// NOTE: we do not call scheduleRound0 yet, we do that upon Start()
-	cs.BaseService = *service.NewBaseService(logger, "State", cs)
 	for _, option := range options {
 		option(cs)
 	}
@@ -414,9 +409,9 @@ func (cs *State) LoadCommit(height int64) *types.Commit {
 	return cs.blockStore.LoadBlockCommit(height)
 }
 
-// OnStart loads the latest state via the WAL, and starts the timeout and
+// Run loads the latest state via the WAL, and starts the timeout and
 // receive routines.
-func (cs *State) OnStart(ctx context.Context) error {
+func (cs *State) Run(ctx context.Context) error {
 	if err := cs.updateStateFromStore(); err != nil {
 		return err
 	}
@@ -429,75 +424,75 @@ func (cs *State) OnStart(ctx context.Context) error {
 		}
 	}
 
-	// we need the timeoutRoutine for replay so
-	// we don't block on the tick chan.
-	cs.SpawnCritical("timeoutTicker", cs.timeoutTicker.Run)
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		// we need the timeoutRoutine for replay so
+		// we don't block on the tick chan.
+		s.SpawnNamed("timeoutTicker", func() error { return cs.timeoutTicker.Run(ctx) })
 
-	// We may have lost some votes if the process crashed reload from consensus
-	// log to catchup.
-	if cs.doWALCatchup {
-		repairAttempted := false
+		// We may have lost some votes if the process crashed reload from consensus
+		// log to catchup.
+		if cs.doWALCatchup {
+			repairAttempted := false
 
-	LOOP:
-		for {
-			err := cs.catchupReplay(ctx, cs.roundState.Height())
-			switch {
-			case err == nil:
-				break LOOP
+		LOOP:
+			for {
+				err := cs.catchupReplay(ctx, cs.roundState.Height())
+				switch {
+				case err == nil:
+					break LOOP
 
-			case !IsDataCorruptionError(err):
-				cs.logger.Error("error on catchup replay; proceeding to start state anyway", "err", err)
-				break LOOP
+				case !IsDataCorruptionError(err):
+					cs.logger.Error("error on catchup replay; proceeding to start state anyway", "err", err)
+					break LOOP
 
-			case repairAttempted:
-				return err
-			}
+				case repairAttempted:
+					return err
+				}
 
-			cs.logger.Error("the WAL file is corrupted; attempting repair", "err", err)
+				cs.logger.Error("the WAL file is corrupted; attempting repair", "err", err)
 
-			// 1) prep work
-			cs.wal.Stop()
+				// 1) prep work
+				cs.wal.Stop()
 
-			repairAttempted = true
+				repairAttempted = true
 
-			// 2) backup original WAL file
-			corruptedFile := fmt.Sprintf("%s.CORRUPTED", cs.config.WalFile())
-			if err := tmos.CopyFile(cs.config.WalFile(), corruptedFile); err != nil {
-				return err
-			}
+				// 2) backup original WAL file
+				corruptedFile := fmt.Sprintf("%s.CORRUPTED", cs.config.WalFile())
+				if err := tmos.CopyFile(cs.config.WalFile(), corruptedFile); err != nil {
+					return err
+				}
 
-			cs.logger.Debug("backed up WAL file", "src", cs.config.WalFile(), "dst", corruptedFile)
+				cs.logger.Debug("backed up WAL file", "src", cs.config.WalFile(), "dst", corruptedFile)
 
-			// 3) try to repair (WAL file will be overwritten!)
-			if err := repairWalFile(corruptedFile, cs.config.WalFile()); err != nil {
-				cs.logger.Error("the WAL repair failed", "err", err)
-				return err
-			}
+				// 3) try to repair (WAL file will be overwritten!)
+				if err := repairWalFile(corruptedFile, cs.config.WalFile()); err != nil {
+					cs.logger.Error("the WAL repair failed", "err", err)
+					return err
+				}
 
-			cs.logger.Info("successful WAL repair")
+				cs.logger.Info("successful WAL repair")
 
-			// reload WAL file
-			if err := cs.loadWalFile(ctx); err != nil {
-				return err
+				// reload WAL file
+				if err := cs.loadWalFile(ctx); err != nil {
+					return err
+				}
 			}
 		}
-	}
 
-	// Double Signing Risk Reduction
-	if err := cs.checkDoubleSigningRisk(cs.roundState.Height()); err != nil {
-		return err
-	}
+		// Double Signing Risk Reduction
+		if err := cs.checkDoubleSigningRisk(cs.roundState.Height()); err != nil {
+			return err
+		}
 
-	// now start the receiveRoutine
-	go cs.receiveRoutine(ctx, 0)
-	// start heartbeater
-	go cs.heartbeater(ctx)
+		// now start the receiveRoutine
+		s.SpawnNamed("receivedRoutine", func() error { return cs.receiveRoutine(ctx, 0) })
+		s.SpawnNamed("heartbeater", func() error { return cs.heartbeater(ctx) })
 
-	// schedule the first round!
-	// use GetRoundState so we don't race the receiveRoutine for access
-	cs.scheduleRound0(cs.GetRoundState())
-
-	return nil
+		// schedule the first round!
+		// use GetRoundState so we don't race the receiveRoutine for access
+		cs.scheduleRound0(cs.GetRoundState())
+		return nil
+	})
 }
 
 // timeoutRoutine: receive requests for timeouts on tickChan and fire timeouts on tockChan
@@ -523,29 +518,6 @@ func (cs *State) loadWalFile(ctx context.Context) error {
 
 	cs.wal = wal
 	return nil
-}
-
-func (cs *State) getOnStopCh() chan *cstypes.RoundState {
-	cs.mtx.RLock()
-	defer cs.mtx.RUnlock()
-
-	return cs.onStopCh
-}
-
-// OnStop implements service.Service.
-func (cs *State) OnStop() {
-	// If the node is committing a new block, wait until it is finished!
-	if cs.GetRoundState().Step == cstypes.RoundStepCommit {
-		cs.mtx.RLock()
-		commitTimeout := cs.state.ConsensusParams.Timeout.Commit
-		cs.mtx.RUnlock()
-		select {
-		case <-cs.getOnStopCh():
-		case <-time.After(commitTimeout):
-			cs.logger.Error("OnStop: timeout waiting for commit to finish", "time", commitTimeout)
-		}
-	}
-	// WAL is stopped in receiveRoutine.
 }
 
 // OpenWAL opens a file to log all consensus messages and timeouts for
@@ -871,20 +843,14 @@ func (cs *State) newStep() {
 	}
 }
 
-func (cs *State) heartbeater(ctx context.Context) {
+func (cs *State) heartbeater(ctx context.Context) error {
 	for {
-		select {
-		case <-time.After(time.Duration(heartbeatIntervalInSecs) * time.Second):
-			cs.fireHeartbeatEvent()
-		case <-ctx.Done():
-			return
+		if err := utils.Sleep(ctx, heartbeatInterval); err!=nil {
+			return err
 		}
+		roundState := cs.roundState.CopyInternal()
+		cs.evsw.FireEvent(types.EventNewRoundStepValue, roundState)
 	}
-}
-
-func (cs *State) fireHeartbeatEvent() {
-	roundState := cs.roundState.CopyInternal()
-	cs.evsw.FireEvent(types.EventNewRoundStepValue, roundState)
 }
 
 //-----------------------------------------
@@ -895,7 +861,7 @@ func (cs *State) fireHeartbeatEvent() {
 // It keeps the RoundState and is the only thing that updates it.
 // Updates (state transitions) happen on timeouts, complete proposals, and 2/3 majorities.
 // State must be locked before any internal state is updated.
-func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) {
+func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) error {
 	onExit := func(cs *State) {
 		// NOTE: the internalMsgQueue may have signed messages from our
 		// priv_val that haven't hit the WAL, but its ok because
@@ -954,7 +920,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) {
 			if cs.nSteps >= maxSteps {
 				cs.logger.Debug("reached max steps; exiting receive routine")
 				cs.nSteps = 0
-				return
+				return nil
 			}
 		}
 
@@ -993,8 +959,7 @@ func (cs *State) receiveRoutine(ctx context.Context, maxSteps int) {
 
 		case <-ctx.Done():
 			onExit(cs)
-			return
-
+			return ctx.Err()
 		}
 		// TODO should we handle context cancels here?
 	}

@@ -22,6 +22,8 @@ import (
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/privval"
 	"github.com/tendermint/tendermint/types"
 )
@@ -101,20 +103,13 @@ func WALGenerateNBlocks(ctx context.Context, t *testing.T, logger log.Logger, wr
 	}
 
 	consensusState.wal = wal
-
-	if err := consensusState.Start(ctx); err != nil {
-		t.Fatal(fmt.Errorf("failed to start consensus state: %w", err))
-	}
-	t.Cleanup(consensusState.Wait)
-
-	defer consensusState.Stop()
-	timer := time.NewTimer(time.Minute)
-	defer timer.Stop()
-
-	select {
-	case <-numBlocksWritten:
-	case <-timer.C:
-		t.Fatal(fmt.Errorf("waited too long for tendermint to produce %d blocks (grep logs for `wal_generator`)", numBlocks))
+	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(consensusState.Run(ctx)) })
+		_,_,err := utils.RecvOrClosed(ctx, numBlocksWritten)
+		return err
+	})
+	if err!=nil {
+		t.Fatal(err)
 	}
 }
 

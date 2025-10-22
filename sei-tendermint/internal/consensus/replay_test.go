@@ -3,7 +3,6 @@ package consensus
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -28,6 +27,8 @@ import (
 	"github.com/tendermint/tendermint/internal/mempool"
 	"github.com/tendermint/tendermint/internal/proxy"
 	"github.com/tendermint/tendermint/internal/pubsub"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	sm "github.com/tendermint/tendermint/internal/state"
 	sf "github.com/tendermint/tendermint/internal/state/test/factory"
 	"github.com/tendermint/tendermint/internal/store"
@@ -54,16 +55,22 @@ import (
 // and which ones we need the wal for - then we'd also be able to only flush the
 // wal writer when we need to, instead of with every message.
 
-func startNewStateAndWaitForBlock(ctx context.Context, t *testing.T, consensusReplayConfig *config.Config,
-	lastBlockHeight int64, blockDB dbm.DB, stateStore sm.Store) {
+func startNewStateAndWaitForBlock(
+	ctx context.Context,
+	consensusReplayConfig *config.Config,
+	lastBlockHeight int64,
+	blockDB dbm.DB,
+	stateStore sm.Store,
+) {
 	logger := log.NewNopLogger()
 	state, err := sm.MakeGenesisStateFromFile(consensusReplayConfig.GenesisFile())
-	require.NoError(t, err)
-	privValidator := loadPrivValidator(t, consensusReplayConfig)
+	if err!=nil {
+		panic(fmt.Errorf("sm.MakeGenesisStateFromFile(): %w", err))
+	}
+	privValidator := loadPrivValidator(consensusReplayConfig)
 	blockStore := store.NewBlockStore(dbm.NewMemDB())
 	cs := newStateWithConfigAndBlockStore(
 		ctx,
-		t,
 		logger,
 		consensusReplayConfig,
 		state,
@@ -72,64 +79,54 @@ func startNewStateAndWaitForBlock(ctx context.Context, t *testing.T, consensusRe
 		blockStore,
 	)
 
-	bytes, err := os.ReadFile(cs.config.WalFile())
-	require.NoError(t, err)
-	require.NotNil(t, bytes)
+	if _, err := os.ReadFile(cs.config.WalFile()); err!=nil {
+		panic(fmt.Errorf("os.ReadFile(%q): %w", cs.config.WalFile(), err))
+	}
 
-	require.NoError(t, cs.Start(ctx))
-	defer func() {
-		cs.Stop()
-	}()
-	t.Cleanup(cs.Wait)
-	// This is just a signal that we haven't halted; its not something contained
-	// in the WAL itself. Assuming the consensus state is running, replay of any
-	// WAL, including the empty one, should eventually be followed by a new
-	// block, or else something is wrong.
-	newBlockSub, err := cs.eventBus.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
-		ClientID: testSubscriber,
-		Query:    types.EventQueryNewBlock,
+	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.SpawnBg(func() error { return utils.IgnoreCancel(cs.Run(ctx)) })
+		// This is just a signal that we haven't halted; its not something contained
+		// in the WAL itself. Assuming the consensus state is running, replay of any
+		// WAL, including the empty one, should eventually be followed by a new
+		// block, or else something is wrong.
+		newBlockSub, err := cs.eventBus.SubscribeWithArgs(ctx, pubsub.SubscribeArgs{
+			ClientID: testSubscriber,
+			Query:    types.EventQueryNewBlock,
+		})
+		if err!=nil { return fmt.Errorf("cs.eventBus.SubscribeWithArgs(): %w", err) }
+		_, err = newBlockSub.Next(ctx)
+		return err
 	})
-	require.NoError(t, err)
-	ctxto, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
-	_, err = newBlockSub.Next(ctxto)
-	if errors.Is(err, context.DeadlineExceeded) {
-		t.Fatal("Timed out waiting for new block (see trace above)")
-	} else if err != nil {
-		t.Fatal("newBlockSub was canceled")
+	if err!=nil {
+		panic(err)
 	}
 }
 
-func sendTxs(ctx context.Context, t *testing.T, cs *State) {
-	t.Helper()
-	for i := 0; i < 256; i++ {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			tx := []byte{byte(i)}
-
-			require.NoError(t, assertMempool(t, cs.txNotifier).CheckTx(ctx, tx, nil, mempool.TxInfo{}))
-
-			i++
+func sendTxs(ctx context.Context, cs *State) error {
+	for i := range 256 {
+		if ctx.Err() != nil {
+			return nil
+		}
+		tx := []byte{byte(i)}
+		if err := cs.txNotifier.(mempool.Mempool).CheckTx(ctx, tx, nil, mempool.TxInfo{}); err!=nil {
+			return fmt.Errorf("cs.mempool.CheckTx(): %w", err)
 		}
 	}
+	return nil
 }
 
 // TestWALCrash uses crashing WAL to test we can recover from any WAL failure.
 func TestWALCrash(t *testing.T) {
 	testCases := []struct {
 		name         string
-		initFn       func(dbm.DB, *State, context.Context)
+		sendTxsFn    func(context.Context, dbm.DB, *State) error
 		heightToStop int64
 	}{
 		{"empty block",
-			func(stateDB dbm.DB, cs *State, ctx context.Context) {},
+			func(ctx context.Context, stateDB dbm.DB, cs *State) error { return nil },
 			1},
 		{"many non-empty blocks",
-			func(stateDB dbm.DB, cs *State, ctx context.Context) {
-				go sendTxs(ctx, t, cs)
-			},
+			func(ctx context.Context, stateDB dbm.DB, cs *State) error { return sendTxs(ctx, cs) },
 			3},
 	}
 
@@ -139,19 +136,22 @@ func TestWALCrash(t *testing.T) {
 
 			consensusReplayConfig, err := ResetConfig(t.TempDir(), tc.name)
 			require.NoError(t, err)
-			crashWALandCheckLiveness(ctx, t, consensusReplayConfig, tc.initFn, tc.heightToStop)
+			crashWALandCheckLiveness(ctx, t, consensusReplayConfig, tc.sendTxsFn, tc.heightToStop)
 		})
 	}
 }
 
-func crashWALandCheckLiveness(rctx context.Context, t *testing.T, consensusReplayConfig *config.Config,
-	initFn func(dbm.DB, *State, context.Context), heightToStop int64) {
+func crashWALandCheckLiveness(
+	ctx context.Context,
+	t *testing.T,
+	consensusReplayConfig *config.Config,
+	sendTxsFn func(context.Context, dbm.DB, *State) error,
+	heightToStop int64,
+) {
 	walPanicked := make(chan error)
 	crashingWal := &crashingWAL{panicCh: walPanicked, heightToStop: heightToStop}
 
-	i := 1
-LOOP:
-	for {
+	for done:=false; !done; {
 		// create consensus state from a clean slate
 		logger := log.NewNopLogger()
 		blockDB := dbm.NewMemDB()
@@ -160,10 +160,9 @@ LOOP:
 		blockStore := store.NewBlockStore(blockDB)
 		state, err := sm.MakeGenesisStateFromFile(consensusReplayConfig.GenesisFile())
 		require.NoError(t, err)
-		privValidator := loadPrivValidator(t, consensusReplayConfig)
+		privValidator := loadPrivValidator(consensusReplayConfig)
 		cs := newStateWithConfigAndBlockStore(
-			rctx,
-			t,
+			ctx,
 			logger,
 			consensusReplayConfig,
 			state,
@@ -172,46 +171,43 @@ LOOP:
 			blockStore,
 		)
 
-		// start sending transactions
-		ctx, cancel := context.WithCancel(rctx)
-		initFn(stateDB, cs, ctx)
+		scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+			// start sending transactions
+			s.SpawnBg(func() error { return sendTxsFn(ctx, stateDB, cs) })
 
-		// clean up WAL file from the previous iteration
-		walFile := cs.config.WalFile()
-		os.Remove(walFile)
+			// clean up WAL file from the previous iteration
+			walFile := cs.config.WalFile()
+			os.Remove(walFile)
 
-		// set crashing WAL
-		csWal, err := cs.OpenWAL(ctx, walFile)
-		require.NoError(t, err)
-		crashingWal.next = csWal
+			// set crashing WAL
+			csWal, err := cs.OpenWAL(ctx, walFile)
+			require.NoError(t, err)
+			crashingWal.next = csWal
 
-		// reset the message counter
-		crashingWal.msgIndex = 1
-		cs.wal = crashingWal
+			// reset the message counter
+			crashingWal.msgIndex = 1
+			cs.wal = crashingWal
 
-		// start consensus state
-		err = cs.Start(ctx)
-		require.NoError(t, err)
+			// start consensus state
+			s.SpawnBg(func() error { return utils.IgnoreCancel(cs.Run(ctx)) })
 
-		i++
-
-		select {
-		case <-rctx.Done():
-			t.Fatal("context canceled before test completed")
-		case err := <-walPanicked:
-			// make sure we can make blocks after a crash
-			startNewStateAndWaitForBlock(ctx, t, consensusReplayConfig, cs.roundState.Height(), blockDB, stateStore)
-
-			// stop consensus state and transactions sender (initFn)
-			cs.Stop()
-			cancel()
-
-			// if we reached the required height, exit
-			if _, ok := err.(ReachedHeightToStopError); ok {
-				break LOOP
+			select {
+			case <-ctx.Done():
+				panic("context canceled before test completed")
+			case err := <-walPanicked:
+				// make sure we can make blocks after a crash
+				startNewStateAndWaitForBlock(ctx, consensusReplayConfig, cs.roundState.Height(), blockDB, stateStore)
+				// if we reached the required height, exit
+				if _, ok := err.(ReachedHeightToStopError); ok {
+					done = true
+				}
+			case <-time.After(10 * time.Second):
+				panic("WAL did not panic for 10 seconds (check the log)")
 			}
-		case <-time.After(10 * time.Second):
-			t.Fatal("WAL did not panic for 10 seconds (check the log)")
+			return nil
+		})
+		if err!=nil {
+			panic(err)
 		}
 	}
 }

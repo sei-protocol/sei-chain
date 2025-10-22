@@ -53,10 +53,6 @@ func RunReplayFile(
 
 // Replay msgs in file or start the console
 func (cs *State) ReplayFile(ctx context.Context, file string, console bool) error {
-
-	if cs.IsRunning() {
-		return errors.New("cs is already running, cannot replay")
-	}
 	if cs.wal != nil {
 		return errors.New("cs wal is open, cannot replay")
 	}
@@ -143,8 +139,6 @@ func newPlayback(fileName string, fp *os.File, cs *State, store sm.Store) *playb
 
 // go back count steps by resetting the state and running (pb.count - count) steps
 func (pb *playback) replayReset(ctx context.Context, count int, newStepSub eventbus.Subscription) error {
-	pb.cs.Stop()
-	pb.cs.Wait()
 
 	newCS, err := NewState(pb.cs.logger, pb.cs.config, pb.stateStore, pb.cs.blockExec,
 		pb.cs.blockStore, pb.cs.txNotifier, pb.cs.evpool, pb.cs.eventBus, pb.cs.tracerProviderOptions)

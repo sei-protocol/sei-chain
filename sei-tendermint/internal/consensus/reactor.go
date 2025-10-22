@@ -2,7 +2,6 @@ package consensus
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"runtime/debug"
 	"sync"
@@ -212,26 +211,22 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	//
 	// TODO: Evaluate if we need this to be synchronized via WaitGroup as to not
 	// leak the goroutine when stopping the reactor.
-	go r.peerStatsRoutine(ctx)
+	r.SpawnCritical("peerStatsRoutine", r.peerStatsRoutine)
 
-	r.subscribeToBroadcastEvents(ctx, r.channels.state)
+	r.subscribeToBroadcastEvents(ctx)
 
 	if !r.WaitSync() {
-		if err := r.state.Start(ctx); err != nil {
-			return err
-		}
+		r.SpawnCritical("state.Run",r.state.Run)
 	} else if err := r.state.updateStateFromStore(); err != nil {
 		return err
 	}
 
-	go r.updateRoundStateRoutine(ctx)
-
-	go r.processStateCh(ctx)
-	go r.processDataCh(ctx)
-	go r.processVoteCh(ctx)
-	go r.processVoteSetBitsCh(ctx)
-	go r.processPeerUpdates(ctx)
-
+	r.SpawnCritical("updateRoundStateRoutine",r.updateRoundStateRoutine)
+	r.SpawnCritical("processStateCh", r.processStateCh)
+	r.SpawnCritical("processDataCh", r.processDataCh)
+	r.SpawnCritical("processVoteCh", r.processVoteCh)
+	r.SpawnCritical("processVoteSetBitsCh", r.processVoteSetBitsCh)
+	r.SpawnCritical("processPeerUpdates", r.processPeerUpdates)
 	return nil
 }
 
@@ -239,18 +234,12 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 // blocking until they all exit, as well as unsubscribing from events and stopping
 // state.
 func (r *Reactor) OnStop() {
-	r.state.Stop()
-
-	if !r.WaitSync() {
-		r.state.Wait()
-	}
 }
 
 // WaitSync returns whether the consensus reactor is waiting for state/block sync.
 func (r *Reactor) WaitSync() bool {
 	r.mtx.RLock()
 	defer r.mtx.RUnlock()
-
 	return r.waitSync
 }
 
@@ -273,15 +262,7 @@ func (r *Reactor) SwitchToConsensus(ctx context.Context, state sm.State, skipWAL
 	// NOTE: The line below causes broadcastNewRoundStepRoutine() to broadcast a
 	// NewRoundStepMessage.
 	r.state.updateToState(state)
-	if err := r.state.Start(ctx); err != nil {
-		panic(fmt.Sprintf(`failed to start consensus state: %v
-
-conS:
-%+v
-
-conR:
-%+v`, err, r.state, r))
-	}
+	r.SpawnCritical("state.Run",r.state.Run)
 
 	r.mtx.Lock()
 	r.waitSync = false
@@ -347,22 +328,14 @@ func (r *Reactor) broadcastHasVoteMessage(vote *types.Vote, stateCh *p2p.Channel
 // subscribeToBroadcastEvents subscribes for new round steps and votes using the
 // internal pubsub defined in the consensus state to broadcast them to peers
 // upon receiving.
-func (r *Reactor) subscribeToBroadcastEvents(ctx context.Context, stateCh *p2p.Channel) {
-	onStopCh := r.state.getOnStopCh()
-
+func (r *Reactor) subscribeToBroadcastEvents(ctx context.Context) {
+	stateCh := r.channels.state
 	err := r.state.evsw.AddListenerForEvent(
 		listenerIDConsensus,
 		types.EventNewRoundStepValue,
 		func(data tmevents.EventData) error {
 			r.broadcastNewRoundStepMessage(data.(*cstypes.RoundState), stateCh)
-			select {
-			case onStopCh <- data.(*cstypes.RoundState):
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-				return nil
-			}
+			return ctx.Err()
 		},
 	)
 	if err != nil {
@@ -408,20 +381,16 @@ func (r *Reactor) sendNewRoundStepMessage(peerID types.NodeID) {
 	r.channels.state.Send(makeRoundStepMessage(r.getRoundState()), peerID)
 }
 
-func (r *Reactor) updateRoundStateRoutine(ctx context.Context) {
+func (r *Reactor) updateRoundStateRoutine(ctx context.Context) error {
 	t := time.NewTicker(100 * time.Microsecond)
-	defer t.Stop()
-
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			rs := r.state.GetRoundState()
-			r.mtx.Lock()
-			r.rs = rs
-			r.mtx.Unlock()
+		if _,err := utils.Recv(ctx, t.C); err!=nil {
+			return err
 		}
+		rs := r.state.GetRoundState()
+		r.mtx.Lock()
+		r.rs = rs
+		r.mtx.Unlock()
 	}
 }
 
@@ -1241,11 +1210,11 @@ func (r *Reactor) recoverToErr(err *error) {
 // execution will result in a PeerError being sent on the StateChannel. When
 // the reactor is stopped, we will catch the signal and close the p2p Channel
 // gracefully.
-func (r *Reactor) processStateCh(ctx context.Context) {
+func (r *Reactor) processStateCh(ctx context.Context) error {
 	for {
 		m, err := r.channels.state.Recv(ctx)
 		if err != nil {
-			return
+			return err
 		}
 		if err := r.handleStateMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process stateCh message", "err", err)
@@ -1259,11 +1228,11 @@ func (r *Reactor) processStateCh(ctx context.Context) {
 // execution will result in a PeerError being sent on the DataChannel. When
 // the reactor is stopped, we will catch the signal and close the p2p Channel
 // gracefully.
-func (r *Reactor) processDataCh(ctx context.Context) {
+func (r *Reactor) processDataCh(ctx context.Context) error {
 	for {
 		m, err := r.channels.data.Recv(ctx)
 		if err != nil {
-			return
+			return err
 		}
 		if err := r.handleDataMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process dataCh message", "err", err)
@@ -1277,11 +1246,11 @@ func (r *Reactor) processDataCh(ctx context.Context) {
 // execution will result in a PeerError being sent on the VoteChannel. When
 // the reactor is stopped, we will catch the signal and close the p2p Channel
 // gracefully.
-func (r *Reactor) processVoteCh(ctx context.Context) {
+func (r *Reactor) processVoteCh(ctx context.Context) error {
 	for {
 		m, err := r.channels.vote.Recv(ctx)
 		if err != nil {
-			return
+			return err
 		}
 		if err := r.handleVoteMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process voteCh message", "err", err)
@@ -1298,16 +1267,13 @@ func (r *Reactor) processVoteCh(ctx context.Context) {
 // execution will result in a PeerError being sent on the VoteSetBitsChannel.
 // When the reactor is stopped, we will catch the signal and close the p2p
 // Channel gracefully.
-func (r *Reactor) processVoteSetBitsCh(ctx context.Context) {
+func (r *Reactor) processVoteSetBitsCh(ctx context.Context) error {
 	for {
 		m, err := r.channels.votSet.Recv(ctx)
 		if err != nil {
-			return
+			return err
 		}
 		if err := r.handleVoteSetBitsMessage(ctx, m); err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return
-			}
 			r.logger.Error("failed to process voteSetCh message", "err", err)
 			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
@@ -1317,7 +1283,7 @@ func (r *Reactor) processVoteSetBitsCh(ctx context.Context) {
 // processPeerUpdates initiates a blocking process where we listen for and handle
 // PeerUpdate messages. When the reactor is stopped, we will catch the signal and
 // close the p2p PeerUpdatesCh gracefully.
-func (r *Reactor) processPeerUpdates(ctx context.Context) {
+func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 	peerUpdates := r.router.PeerManager().Subscribe(ctx)
 	for _, update := range peerUpdates.PreexistingPeers() {
 		r.processPeerUpdate(ctx, update)
@@ -1325,17 +1291,17 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) {
 	for {
 		update, err := utils.Recv(ctx, peerUpdates.Updates())
 		if err != nil {
-			return
+			return err
 		}
 		r.processPeerUpdate(ctx, update)
 	}
 }
 
-func (r *Reactor) peerStatsRoutine(ctx context.Context) {
+func (r *Reactor) peerStatsRoutine(ctx context.Context) error {
 	for {
 		msg, err := utils.Recv(ctx, r.state.statsMsgQueue)
 		if err != nil {
-			return
+			return err
 		}
 		ps, ok := r.GetPeerState(msg.PeerID)
 		if !ok || ps == nil {
