@@ -31,15 +31,35 @@ func (s *DBImpl) SubBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 		ctx = ctx.WithEventManager(sdk.NewEventManager())
 	}
 
+	currentBalance := s.GetBalance(evmAddr)
+	ctx.Logger().Info("SubBalance operation",
+		"address", evmAddr.Hex(),
+		"amount", amt.String(),
+		"current_balance", currentBalance.ToBig().String(),
+		"reason", reason,
+	)
+
 	usei, wei := SplitUseiWeiAmount(amt)
 	addr := s.getSeiAddress(evmAddr)
 	err := s.k.BankKeeper().SubUnlockedCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
 	if err != nil {
+		ctx.Logger().Error("SubBalance failed: SubUnlockedCoins error",
+			"address", evmAddr.Hex(),
+			"amount", amt.String(),
+			"usei", usei.String(),
+			"error", err,
+		)
 		s.err = err
 		return *ZeroInt
 	}
 	err = s.k.BankKeeper().SubWei(ctx, addr, wei)
 	if err != nil {
+		ctx.Logger().Error("SubBalance failed: SubWei error",
+			"address", evmAddr.Hex(),
+			"amount", amt.String(),
+			"wei", wei.String(),
+			"error", err,
+		)
 		s.err = err
 		return *ZeroInt
 	}
@@ -74,15 +94,35 @@ func (s *DBImpl) AddBalance(evmAddr common.Address, amtUint256 *uint256.Int, rea
 		ctx = ctx.WithEventManager(sdk.NewEventManager())
 	}
 
+	currentBalance := s.GetBalance(evmAddr)
+	ctx.Logger().Info("AddBalance operation",
+		"address", evmAddr.Hex(),
+		"amount", amt.String(),
+		"current_balance", currentBalance.ToBig().String(),
+		"reason", reason,
+	)
+
 	usei, wei := SplitUseiWeiAmount(amt)
 	addr := s.getSeiAddress(evmAddr)
 	err := s.k.BankKeeper().AddCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin(s.k.GetBaseDenom(s.ctx), usei)), true)
 	if err != nil {
+		ctx.Logger().Error("AddBalance failed: AddCoins error",
+			"address", evmAddr.Hex(),
+			"amount", amt.String(),
+			"usei", usei.String(),
+			"error", err,
+		)
 		s.err = err
 		return *ZeroInt
 	}
 	err = s.k.BankKeeper().AddWei(ctx, addr, wei)
 	if err != nil {
+		ctx.Logger().Error("AddBalance failed: AddWei error",
+			"address", evmAddr.Hex(),
+			"amount", amt.String(),
+			"wei", wei.String(),
+			"error", err,
+		)
 		s.err = err
 		return *ZeroInt
 	}
@@ -148,6 +188,14 @@ func (s *DBImpl) send(from sdk.AccAddress, to sdk.AccAddress, amt *big.Int) {
 	usei, wei := SplitUseiWeiAmount(amt)
 	err := s.k.BankKeeper().SendCoinsAndWei(s.ctx, from, to, usei, wei)
 	if err != nil {
+		s.ctx.Logger().Error("send operation failed",
+			"from", from.String(),
+			"to", to.String(),
+			"amount", amt.String(),
+			"usei", usei.String(),
+			"wei", wei.String(),
+			"error", err,
+		)
 		s.err = err
 	}
 }

@@ -190,10 +190,36 @@ func (server msgServer) EVMTransaction(goCtx context.Context, msg *types.MsgEVMT
 		originalGasMeter.ConsumeGas(adjustedGasUsed.TruncateInt().Uint64(), "evm transaction")
 	}()
 
+	ctx.Logger().Info("Calling applyEVMMessage from EVMTransaction handler",
+		"tx_hash", tx.Hash().Hex(),
+		"from", emsg.From.Hex(),
+		"to", func() string {
+			if emsg.To != nil {
+				return emsg.To.Hex()
+			}
+			return "contract_creation"
+		}(),
+		"gas_limit", emsg.GasLimit,
+		"nonce", emsg.Nonce,
+		"value", emsg.Value.String(),
+	)
+
 	res, applyErr := server.applyEVMMessage(ctx, emsg, stateDB, gp, true)
 	serverRes = &types.MsgEVMTransactionResponse{
 		Hash: tx.Hash().Hex(),
 	}
+
+	ctx.Logger().Info("Returned from applyEVMMessage",
+		"tx_hash", tx.Hash().Hex(),
+		"has_apply_error", applyErr != nil,
+		"has_vm_error", res != nil && res.Err != nil,
+		"gas_used", func() uint64 {
+			if res != nil {
+				return res.UsedGas
+			}
+			return 0
+		}(),
+	)
 	if applyErr != nil {
 		// This should not happen, as anything that could cause applyErr is supposed to
 		// be checked in CheckTx first
@@ -293,17 +319,100 @@ func (k *Keeper) GetEVMMessage(ctx sdk.Context, tx *ethtypes.Transaction, sender
 }
 
 func (k Keeper) applyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool, shouldIncrementNonce bool) (*core.ExecutionResult, error) {
+	ctx.Logger().Info("Starting applyEVMMessage",
+		"from", msg.From.Hex(),
+		"to", func() string {
+			if msg.To != nil {
+				return msg.To.Hex()
+			}
+			return "contract_creation"
+		}(),
+		"gas_limit", msg.GasLimit,
+		"gas_price", msg.GasPrice.String(),
+		"value", msg.Value.String(),
+		"nonce", msg.Nonce,
+		"data_len", len(msg.Data),
+	)
+
 	blockCtx, err := k.GetVMBlockContext(ctx, gp)
 	if err != nil {
+		ctx.Logger().Error("Failed to get VM block context", "error", err)
 		return nil, err
 	}
+
 	sstore := k.GetParams(ctx).SeiSstoreSetGasEip2200
 	cfg := types.DefaultChainConfig().EthereumConfigWithSstore(k.ChainID(ctx), &sstore)
 	txCtx := core.NewEVMTxContext(msg)
 	evmInstance := vm.NewEVM(*blockCtx, stateDB, cfg, vm.Config{}, k.CustomPrecompiles(ctx))
 	evmInstance.SetTxContext(txCtx)
+
+	ctx.Logger().Info("Executing state transition",
+		"gas_pool_available", uint64(gp),
+		"should_increment_nonce", shouldIncrementNonce,
+	)
+
 	st := core.NewStateTransition(evmInstance, msg, &gp, true, shouldIncrementNonce) // fee already charged in ante handler
-	return st.Execute()
+	result, err := st.Execute()
+
+	if err != nil {
+		ctx.Logger().Error("State transition execution failed",
+			"error", err,
+			"from", msg.From.Hex(),
+			"to", func() string {
+				if msg.To != nil {
+					return msg.To.Hex()
+				}
+				return "contract_creation"
+			}(),
+			"gas_limit", msg.GasLimit,
+		)
+		return result, err
+	}
+
+	if result.Err != nil {
+		errMsg := result.Err.Error()
+		isOutOfGas := strings.Contains(strings.ToLower(errMsg), "out of gas") || strings.Contains(errMsg, "gas")
+
+		if isOutOfGas {
+			ctx.Logger().Error("State transition VM error: LIKELY OUT OF GAS",
+				"vm_error", errMsg,
+				"gas_used", result.UsedGas,
+				"gas_limit", msg.GasLimit,
+				"gas_remaining", msg.GasLimit-result.UsedGas,
+				"gas_used_percentage", fmt.Sprintf("%.2f%%", float64(result.UsedGas)/float64(msg.GasLimit)*100),
+				"from", msg.From.Hex(),
+				"to", func() string {
+					if msg.To != nil {
+						return msg.To.Hex()
+					}
+					return "contract_creation"
+				}(),
+				"note", "This appears to be an out of gas error - transaction may have run out of gas during execution",
+			)
+		} else {
+			ctx.Logger().Error("State transition completed with VM error",
+				"vm_error", errMsg,
+				"gas_used", result.UsedGas,
+				"gas_limit", msg.GasLimit,
+				"gas_remaining", msg.GasLimit-result.UsedGas,
+				"from", msg.From.Hex(),
+				"to", func() string {
+					if msg.To != nil {
+						return msg.To.Hex()
+					}
+					return "contract_creation"
+				}(),
+			)
+		}
+	} else {
+		ctx.Logger().Info("State transition completed successfully",
+			"gas_used", result.UsedGas,
+			"gas_limit", msg.GasLimit,
+			"gas_remaining", msg.GasLimit-result.UsedGas,
+		)
+	}
+
+	return result, nil
 }
 
 func (server msgServer) Send(goCtx context.Context, msg *types.MsgSend) (*types.MsgSendResponse, error) {
