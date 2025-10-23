@@ -859,7 +859,7 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 	priority int64,
 	pendingTxChecker abci.PendingTxChecker,
 	expireHandler abci.ExpireTxHandler,
-	checkTxCallback func(int64, error),
+	checkTxCallback func(int64),
 	txCtx sdk.Context,
 	err error,
 ) {

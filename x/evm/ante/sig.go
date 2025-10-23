@@ -68,10 +68,7 @@ func (svd *EVMSigVerifyDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulat
 		if txNonce < nextNonce {
 			return ctx, sdkerrors.ErrWrongSequence
 		}
-		ctx = ctx.WithCheckTxCallback(func(priority int64, e error) {
-			if e != nil {
-				return
-			}
+		ctx = ctx.WithCheckTxCallback(func(priority int64) {
 			txKey := tmtypes.Tx(ctx.TxBytes()).Key()
 			svd.evmKeeper.AddPendingNonce(txKey, evmAddr, txNonce, priority)
 			metrics.IncrementPendingNonce("added")
