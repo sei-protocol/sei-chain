@@ -440,7 +440,9 @@ func (txmp *TxMempool) CheckTx(
 			}
 		}
 
-		res.CheckTxCallback(res.Priority)
+		if res.CheckTxCallback != nil {
+			res.CheckTxCallback(res.Priority)
+		}
 	}
 
 	if cb != nil {
