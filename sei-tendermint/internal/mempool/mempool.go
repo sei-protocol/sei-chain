@@ -829,6 +829,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 			"num_txs", txmp.NumTxsNotPending(),
 		)
 		txmp.notifyTxsAvailable()
+		// why does not this return an error if insert not successful?
 	}
 
 	return nil
