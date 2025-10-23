@@ -18,8 +18,6 @@ const ManualConfigTemplate = `# This is a TOML config file.
 ###                           Base Configuration                            ###
 ###############################################################################
 
-[base]
-
 # The minimum gas prices a validator is willing to accept for processing a
 # transaction. A transaction's fees must meet the minimum of any denomination
 # specified in this config (e.g. 0.25token1;0.0001token2).
@@ -59,8 +57,6 @@ const AutoManagedConfigTemplate = `
 ###############################################################################
 ###                     Base Configuration (Auto-managed)                   ###
 ###############################################################################
-
-[base-auto]
 
 # HaltHeight contains a non-zero block height at which a node will gracefully
 # halt and shutdown that can be used to assist upgrades and testing.
