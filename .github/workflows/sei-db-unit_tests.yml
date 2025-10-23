@@ -1,45 +1,27 @@
 name: sei-db
 on:
+  pull_request:
   push:
-    tags:
-      - v*
     branches:
       - main
-  pull_request:
-permissions:
-  contents: read
+      - release/**
 
 concurrency:
   cancel-in-progress: true
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
 
-jobs:
-  tests:
-    name: Unit Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/setup-go@v3
-        with:
-          go-version: '1.24'
-      - uses: actions/checkout@v3
-      - name: Run Go Tests
-        working-directory: ./sei-db
-        run: |
-          make test-all
-      - uses: actions/upload-artifact@v4
-        with:
-          name: "${{ github.sha }}-coverage"
-          path: ./sei-db/profile.out
+# TODO: we should combine these tests into go-test at some point. For now this is complicated enough to approach separately.
 
+jobs:
   tests-rocksdb:
     name: RocksDB Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-go@v3
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.24'
-      - uses: actions/checkout@v3
-      
+      - uses: actions/checkout@v5
+
       - name: Install RocksDB dependencies
         run: |
           sudo apt-get update
@@ -76,51 +58,6 @@ jobs:
           export CGO_CFLAGS="-I/usr/local/include"
           export CGO_LDFLAGS="-L/usr/local/lib -lrocksdb -lz -lbz2 -lsnappy -llz4 -lzstd -ljemalloc"
           make test-rocksdb
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: "${{ github.sha }}-coverage-rocksdb"
-          path: ./sei-db/rdb-profile.out
-
-  upload-coverage-report:
-    needs: [tests, tests-rocksdb]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
-        with:
-          go-version: '1.24'
-
-      # Download all coverage reports from the 'tests' job
-      - name: Download coverage reports
-        uses: actions/download-artifact@v4
-        with:
-          path: ./sei-db
-
-      - name: Set GOPATH
-        run: echo "GOPATH=$(go env GOPATH)" >> $GITHUB_ENV
-
-      - name: Add GOPATH/bin to PATH
-        run: echo "GOBIN=$(go env GOPATH)/bin" >> $GITHUB_ENV
-
-      - name: Install gocovmerge
-        run: go get github.com/wadey/gocovmerge && go install github.com/wadey/gocovmerge
-
-      - name: Merge coverage reports
-        working-directory: ./sei-db
-        run: gocovmerge $(find . -type f -name '*profile.out') > coverage.txt
-
-      - name: Check coverage report lines
-        working-directory: ./sei-db
-        run: wc -l coverage.txt
-        continue-on-error: true
-
-      - name: Check coverage report files
-        working-directory: ./sei-db
-        run: ls **/*profile.out
-        continue-on-error: true
-
-      # Now we upload the merged report to Codecov
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
