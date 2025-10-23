@@ -34,7 +34,6 @@ type Application interface {
 	ApplySnapshotChunk(context.Context, *RequestApplySnapshotChunk) (*ResponseApplySnapshotChunk, error) // Apply a shapshot chunk
 	// Notify application to load latest application state (e.g. after DBSync finishes)
 	LoadLatest(context.Context, *RequestLoadLatest) (*ResponseLoadLatest, error)
-	GetTxPriorityHint(context.Context, *RequestGetTxPriorityHint) (*ResponseGetTxPriorityHint, error)
 }
 
 //-------------------------------------------------------
@@ -126,8 +125,4 @@ func (BaseApplication) FinalizeBlock(_ context.Context, req *RequestFinalizeBloc
 
 func (BaseApplication) LoadLatest(_ context.Context, _ *RequestLoadLatest) (*ResponseLoadLatest, error) {
 	return &ResponseLoadLatest{}, nil
-}
-
-func (BaseApplication) GetTxPriorityHint(context.Context, *RequestGetTxPriorityHint) (*ResponseGetTxPriorityHint, error) {
-	return &ResponseGetTxPriorityHint{}, nil
 }

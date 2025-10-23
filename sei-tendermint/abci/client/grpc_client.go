@@ -186,7 +186,3 @@ func (cli *grpcClient) FinalizeBlock(ctx context.Context, params *types.RequestF
 func (cli *grpcClient) LoadLatest(ctx context.Context, params *types.RequestLoadLatest) (*types.ResponseLoadLatest, error) {
 	return cli.client.LoadLatest(ctx, types.ToRequestLoadLatest(params).GetLoadLatest(), grpc.WaitForReady(true))
 }
-
-func (cli *grpcClient) GetTxPriorityHint(ctx context.Context, req *types.RequestGetTxPriorityHint) (*types.ResponseGetTxPriorityHint, error) {
-	return cli.client.GetTxPriorityHint(ctx, types.ToRequestGetTxPriorityHint(req).GetGetTxPriorityHint(), grpc.WaitForReady(true))
-}

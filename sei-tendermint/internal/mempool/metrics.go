@@ -1,11 +1,7 @@
 package mempool
 
 import (
-	"math"
-	"strconv"
-
 	"github.com/go-kit/kit/metrics"
-	"github.com/tendermint/tendermint/types"
 )
 
 const (
@@ -86,30 +82,4 @@ type Metrics struct {
 
 	// Number of txs inserted to mempool
 	InsertedTxs metrics.Counter
-
-	// CheckTxPriorityDistribution is a histogram of the priority of transactions
-	// submitted via CheckTx, labeled by whether a priority hint was provided,
-	// whether the transaction was submitted locally (i.e. no sender node ID), and
-	// whether an error occured during transaction priority determination.
-	//
-	// Note that the priority is normalized as a float64 value between zero and
-	// maximum tx priority.
-	CheckTxPriorityDistribution metrics.Histogram `metrics_buckettype:"exprange" metrics_bucketsizes:"0.000001, 1.0, 20" metrics_labels:"hint, local, error"`
-
-	// CheckTxDroppedByPriorityHint is the number of transactions that were dropped
-	// due to low priority based on the priority hint.
-	CheckTxDroppedByPriorityHint metrics.Counter
-
-	// CheckTxMetDropUtilisationThreshold is the number of transactions for which CheckTx was executed while the mempool
-	// utilisation was above the configured threshold. Note that not all such transactions are dropped, only those that also have a low priority.
-	CheckTxMetDropUtilisationThreshold metrics.Counter
-}
-
-func (m *Metrics) observeCheckTxPriorityDistribution(priority int64, hint bool, senderNodeID types.NodeID, err error) {
-	normalizedPriority := float64(priority) / float64(math.MaxInt64) // Normalize to [0.0, 1.0]
-	m.CheckTxPriorityDistribution.With(
-		"hint", strconv.FormatBool(hint),
-		"local", strconv.FormatBool(senderNodeID == ""),
-		"error", strconv.FormatBool(err != nil),
-	).Observe(normalizedPriority)
 }
