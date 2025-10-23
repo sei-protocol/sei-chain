@@ -6,6 +6,10 @@ on:
       - main
       - release/**
 
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+
 jobs:
   tests:
     name: Unit Tests
