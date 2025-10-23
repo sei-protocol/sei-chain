@@ -1046,7 +1046,9 @@ func (f *LogFetcher) processBatch(ctx context.Context, start, end int64, crit fi
 				blockBloom = f.k.GetEvmOnlyBlockBloom(providerCtx)
 			}
 
-			if !MatchFilters(blockBloom, bloomIndexes) {
+			// When we cannot retrieve a bloom for the EVM-only view (all zeroes),
+			// skip the bloom pre-filter instead of short-circuiting the block.
+			if blockBloom != (ethtypes.Bloom{}) && !MatchFilters(blockBloom, bloomIndexes) {
 				<-f.dbReadSemaphore
 				continue // skip the block if bloom filter does not match
 			}
