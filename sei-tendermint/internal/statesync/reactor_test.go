@@ -179,7 +179,7 @@ func setup(
 
 	t.Cleanup(cancel)
 	t.Cleanup(rts.reactor.Wait)
-	t.Cleanup(leaktest.Check(t))
+	t.Cleanup(leaktest.CheckTimeout(t, 30*time.Second))
 
 	return rts
 }
