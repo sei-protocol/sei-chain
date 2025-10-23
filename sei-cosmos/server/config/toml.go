@@ -148,8 +148,8 @@ prometheus-retention-time = {{ .Telemetry.PrometheusRetentionTime }}
 #
 # Example:
 # [["chain_id", "cosmoshub-1"]]
-global-labels = [{{if .Telemetry.GlobalLabels}}{{ range $k, $v := .Telemetry.GlobalLabels }}
-  ["{{index $v 0 }}", "{{ index $v 1}}"],{{ end }}{{end}}]
+{{if .Telemetry.GlobalLabels}}global-labels = [{{ range $k, $v := .Telemetry.GlobalLabels }}
+  ["{{index $v 0 }}", "{{ index $v 1}}"],{{ end }}]{{else}}global-labels = []{{end}}
 
 ###############################################################################
 ###                       API Configuration (Auto-managed)                  ###

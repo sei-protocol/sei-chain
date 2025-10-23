@@ -76,7 +76,7 @@ make install
 
 * Download the Genesis file: `wget https://github.com/sei-protocol/testnet/raw/main/sei-testnet-1/genesis.json -P $HOME/.sei/config/`
  
-* Edit the minimum-gas-prices in ${HOME}/.sei/config/app.toml: `sed -i 's/minimum-gas-prices = ""/minimum-gas-prices = "0.02usei"/g' $HOME/.sei/config/app.toml`
+* Edit the minimum-gas-prices in ${HOME}/.sei/config/app.toml: `sed -i 's/minimum-gas-prices = ""/minimum-gas-prices = "0.01usei"/g' $HOME/.sei/config/app.toml`
 
 * Start seid by creating a systemd service to run the node in the background
 `nano /etc/systemd/system/seid.service`
