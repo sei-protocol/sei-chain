@@ -258,12 +258,12 @@ genesis-stream-file = "{{ .Genesis.GenesisStreamFile }}"
 # - everything: all saved states will be deleted, storing only the recent 2 blocks; pruning at every block
 # - custom: allow pruning options to be manually specified through 'pruning-keep-recent' and 'pruning-interval'
 # Pruning strategy is completely ignored when seidb is enabled
-pruning = "nothing"
+pruning = "{{ .BaseConfig.Pruning }}"
 
 # These are applied if and only if the pruning strategy is custom, and seidb is not enabled
-pruning-keep-recent = "0"
-pruning-keep-every = "0"
-pruning-interval = "3593"
+pruning-keep-recent = "{{ .BaseConfig.PruningKeepRecent }}"
+pruning-keep-every = "{{ .BaseConfig.PruningKeepEvery }}"
+pruning-interval = "{{ .BaseConfig.PruningInterval }}"
 `
 
 // DefaultConfigTemplate combines manual and auto-managed templates for backward compatibility
