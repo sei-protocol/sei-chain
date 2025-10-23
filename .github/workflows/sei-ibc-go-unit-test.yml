@@ -1,0 +1,18 @@
+name: sei-ibc-go
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+jobs:
+  test:
+    name: IBC Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.24
+      - name: Run tests
+        working-directory: ./sei-ibc-go
+        run: go test ./...
