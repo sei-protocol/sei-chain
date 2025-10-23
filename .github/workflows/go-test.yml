@@ -13,34 +13,44 @@ concurrency:
 
 jobs:
   tests:
+    env:
+      GO_TEST_TIMEOUT: 30m
     name: "Test ${{ matrix.modules.name }}"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         modules:
-          - name: Chain
+          - name: sei-chain
             path: ./
-          - name: Cosmos
+          - name: sei-cosmos
             path: ./sei-cosmos
             tags: ledger test_ledger_mock
-          - name: DB
+          - name: sei-db
             path: ./sei-db
-          - name: Tendermint
+          - name: sei-tendermint
             path: ./sei-tendermint
-          - name: WasmD
+          - name: sei-wasmd
             path: ./sei-wasmd
             tags: ledger test_ledger_mock
-          - name: WasmVM
+          - name: sei-wasmvm
             path: ./sei-wasmvm
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
           go-version: '1.24'
-      - name: Go Test
+      - name: Go test
         working-directory: '${{ matrix.modules.path }}'
-        run: go test -tags='${{ matrix.modules.tags }}' -timeout=30m ./...
+        run: go test -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' ./...
       - name: Go test with race detector
         working-directory: '${{ matrix.modules.path }}'
-        run: go test -race -tags='${{ matrix.modules.tags }}' -timeout=30m ./...
+        run: go test -race -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out ./...
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          fail_ci_if_error: 'true'
+          disable_search: 'true'
+          name: '${{ matrix.modules.name }}-coverage'
+          files: ${{ matrix.modules.path }}/coverage.out
+          flags: ${{ matrix.modules.name }}
