@@ -4,7 +4,6 @@ const (
 	DefaultSnapshotInterval   = 10000
 	DefaultSnapshotKeepRecent = 0 // set to 0 to only keep one current snapshot
 	DefaultAsyncCommitBuffer  = 100
-	DefaultCacheSize          = 100000
 	DefaultSSKeepRecent       = 100000
 	DefaultSSPruneInterval    = 600
 	DefaultSSImportWorkers    = 1
