@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
@@ -14,6 +13,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/cosmos/cosmos-sdk/x/feegrant"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types"
+	"github.com/sei-protocol/sei-chain/app/apptesting"
 )
 
 type BadAnteDecoratorOne struct{}
@@ -43,7 +43,7 @@ func (suite *AnteTestSuite) TestEnsureMempoolFees() {
 	// keys and addresses
 	priv1, _, addr1 := testdata.KeyTestPubAddr()
 	coins := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(300)))
-	err := simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, coins)
+	err := apptesting.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, coins)
 	suite.Require().NoError(err)
 
 	// msg and signatures
@@ -115,7 +115,7 @@ func (suite *AnteTestSuite) TestDeductFees() {
 	acc := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr1)
 	suite.app.AccountKeeper.SetAccount(suite.ctx, acc)
 	coins := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))
-	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, coins)
+	err = apptesting.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, coins)
 	suite.Require().NoError(err)
 
 	dfd := ante.NewDeductFeeDecorator(suite.app.AccountKeeper, suite.app.BankKeeper, nil, suite.app.ParamsKeeper, nil)
@@ -127,7 +127,7 @@ func (suite *AnteTestSuite) TestDeductFees() {
 
 	// Set account with sufficient funds
 	suite.app.AccountKeeper.SetAccount(suite.ctx, acc)
-	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(200))))
+	err = apptesting.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(200))))
 	suite.Require().NoError(err)
 
 	_, err = antehandler(suite.ctx, tx, false)
@@ -157,7 +157,7 @@ func (suite *AnteTestSuite) TestLazySendToModuleAccount() {
 	// Set account with insufficient funds
 	acc := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr1)
 	suite.app.AccountKeeper.SetAccount(suite.ctx, acc)
-	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(900))))
+	err = apptesting.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(900))))
 	suite.Require().NoError(err)
 
 	feeCollectorAcc := suite.app.AccountKeeper.GetModuleAccount(suite.ctx, types.FeeCollectorName)
@@ -214,7 +214,7 @@ func (suite *AnteTestSuite) TestGlobalMinimumFees() {
 	// keys and addresses
 	priv1, _, addr1 := testdata.KeyTestPubAddr()
 	coins := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(3000000000)))
-	err := simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, coins)
+	err := apptesting.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, coins)
 	suite.Require().NoError(err)
 
 	// msg and signatures
@@ -313,12 +313,12 @@ func (suite *AnteTestSuite) TestDeductFeeDependency() {
 	// Set account with sufficient funds
 	acc := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr1)
 	suite.app.AccountKeeper.SetAccount(suite.ctx, acc)
-	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(200))))
+	err = apptesting.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(200))))
 	suite.Require().NoError(err)
 
 	acc2 := suite.app.AccountKeeper.NewAccountWithAddress(suite.ctx, addr2)
 	suite.app.AccountKeeper.SetAccount(suite.ctx, acc2)
-	err = simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr2, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(200))))
+	err = apptesting.FundAccount(suite.app.BankKeeper, suite.ctx, addr2, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(200))))
 	suite.Require().NoError(err)
 	// create fee grant
 	err = suite.app.FeeGrantKeeper.GrantAllowance(suite.ctx, addr2, addr1, &feegrant.BasicAllowance{})
@@ -354,7 +354,7 @@ func (suite *AnteTestSuite) TestMultipleGlobalMinimumFees() {
 	// keys and addresses
 	priv1, _, addr1 := testdata.KeyTestPubAddr()
 	coins := sdk.NewCoins(sdk.NewCoin("atom", sdk.NewInt(3000000000)), sdk.NewCoin("usei", sdk.NewInt(3000000000)))
-	err := simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, coins)
+	err := apptesting.FundAccount(suite.app.BankKeeper, suite.ctx, addr1, coins)
 	suite.Require().NoError(err)
 
 	// msg and signatures

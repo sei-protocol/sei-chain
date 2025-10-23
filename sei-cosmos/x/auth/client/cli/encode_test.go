@@ -1,23 +1,24 @@
-package cli
+package cli_test
 
 import (
 	"context"
 	"encoding/base64"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cosmos/cosmos-sdk/client"
-	simappparams "github.com/cosmos/cosmos-sdk/simapp/params"
 	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/x/auth/client/cli"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
 func TestGetCommandEncode(t *testing.T) {
-	encodingConfig := simappparams.MakeTestEncodingConfig()
+	encodingConfig := app.MakeEncodingConfig()
 
-	cmd := GetEncodeCommand()
+	cmd := cli.GetEncodeCommand()
 	_ = testutil.ApplyMockIODiscardOutErr(cmd)
 
 	authtypes.RegisterLegacyAminoCodec(encodingConfig.Amino)
@@ -48,13 +49,13 @@ func TestGetCommandEncode(t *testing.T) {
 }
 
 func TestGetCommandDecode(t *testing.T) {
-	encodingConfig := simappparams.MakeTestEncodingConfig()
+	encodingConfig := app.MakeEncodingConfig()
 
 	clientCtx := client.Context{}.
 		WithTxConfig(encodingConfig.TxConfig).
 		WithCodec(encodingConfig.Marshaler)
 
-	cmd := GetDecodeCommand()
+	cmd := cli.GetDecodeCommand()
 	_ = testutil.ApplyMockIODiscardOutErr(cmd)
 
 	sdk.RegisterLegacyAminoCodec(encodingConfig.Amino)

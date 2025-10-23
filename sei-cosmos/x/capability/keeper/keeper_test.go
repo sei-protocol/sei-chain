@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"testing"
 
+	seiapp "github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/suite"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/capability/keeper"
@@ -19,13 +19,13 @@ type KeeperTestSuite struct {
 	suite.Suite
 
 	ctx    sdk.Context
-	app    *simapp.SimApp
+	app    *seiapp.App
 	keeper *keeper.Keeper
 }
 
 func (suite *KeeperTestSuite) SetupTest() {
 	checkTx := false
-	app := simapp.Setup(checkTx)
+	app := seiapp.Setup(checkTx, false, false)
 	cdc := app.AppCodec()
 
 	// create new keeper so we can define custom scoping before init and seal

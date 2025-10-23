@@ -6,10 +6,10 @@ import (
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 // IsValSetSorted reports whether valset is sorted.
@@ -26,8 +26,8 @@ func IsValSetSorted(data []types.Validator, powerReduction sdk.Int) bool {
 func TestHistoricalInfo(t *testing.T) {
 	_, app, ctx := createTestInput()
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 50, sdk.NewInt(0))
-	addrVals := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 50, sdk.NewInt(0))
+	addrVals := seiapp.ConvertAddrsToValAddrs(addrDels)
 
 	validators := make([]types.Validator, len(addrVals))
 
@@ -53,8 +53,8 @@ func TestHistoricalInfo(t *testing.T) {
 func TestTrackHistoricalInfo(t *testing.T) {
 	_, app, ctx := createTestInput()
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 50, sdk.NewInt(0))
-	addrVals := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 50, sdk.NewInt(0))
+	addrVals := seiapp.ConvertAddrsToValAddrs(addrDels)
 
 	// set historical entries in params to 5
 	params := types.DefaultParams()
@@ -131,8 +131,8 @@ func TestTrackHistoricalInfo(t *testing.T) {
 func TestGetAllHistoricalInfo(t *testing.T) {
 	_, app, ctx := createTestInput()
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 50, sdk.NewInt(0))
-	addrVals := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 50, sdk.NewInt(0))
+	addrVals := seiapp.ConvertAddrsToValAddrs(addrDels)
 
 	valSet := []types.Validator{
 		teststaking.NewValidator(t, addrVals[0], PKs[0]),

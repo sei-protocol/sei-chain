@@ -1,15 +1,16 @@
 package keeper_test
 
 import (
-	"github.com/cosmos/cosmos-sdk/x/gov/types"
 	"testing"
 	"time"
+
+	"github.com/cosmos/cosmos-sdk/x/gov/types"
 
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 func TestDeposits(t *testing.T) {
@@ -25,7 +26,7 @@ func TestDeposits(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		app := simapp.Setup(false)
+		app := seiapp.Setup(false, false, false)
 		ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 		// With expedited proposals the minimum deposit is higer, so we must
@@ -36,7 +37,7 @@ func TestDeposits(t *testing.T) {
 			depositMultiplier = types.DefaultMinExpeditedDepositTokens.Quo(types.DefaultMinDepositTokens).Int64()
 		}
 
-		TestAddrs := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(10000000*depositMultiplier))
+		TestAddrs := seiapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(10000000*depositMultiplier))
 
 		tp := TestProposal
 		proposal, err := app.GovKeeper.SubmitProposalWithExpedite(ctx, tp, tc.isExpedited)

@@ -8,15 +8,15 @@ import (
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/slashing/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 func TestGetSetValidatorSigningInfo(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 
 	info, found := app.SlashingKeeper.GetValidatorSigningInfo(ctx, sdk.ConsAddress(addrDels[0]))
 	require.False(t, found)
@@ -38,9 +38,9 @@ func TestGetSetValidatorSigningInfo(t *testing.T) {
 }
 
 func TestTombstoned(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 
 	require.Panics(t, func() { app.SlashingKeeper.Tombstone(ctx, sdk.ConsAddress(addrDels[0])) })
 	require.False(t, app.SlashingKeeper.IsTombstoned(ctx, sdk.ConsAddress(addrDels[0])))
@@ -62,9 +62,9 @@ func TestTombstoned(t *testing.T) {
 }
 
 func TestJailUntil(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 
 	require.Panics(t, func() { app.SlashingKeeper.JailUntil(ctx, sdk.ConsAddress(addrDels[0]), time.Now()) })
 
@@ -85,7 +85,7 @@ func TestJailUntil(t *testing.T) {
 }
 
 func TestParseBitGroupsAndBoolArrays(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	bitGroup0 := uint64(0)
 	bitGroup0 |= 1 << 1
 	bitGroup0 |= 1 << 33
@@ -120,7 +120,7 @@ func TestParseBitGroupsAndBoolArrays(t *testing.T) {
 }
 
 func TestGetSetValidatorMissedArrayBit(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 
 	bg0 := uint64(0)
 	bg0 |= 1 << 2

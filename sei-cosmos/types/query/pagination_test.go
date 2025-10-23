@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/apptesting"
 	"github.com/stretchr/testify/suite"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
@@ -12,7 +14,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/store"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -76,7 +77,7 @@ func (s *paginationTestSuite) TestPagination() {
 	addr1 := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
 	acc1 := app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
 	app.AccountKeeper.SetAccount(ctx, acc1)
-	s.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr1, balances))
+	s.Require().NoError(apptesting.FundAccount(app.BankKeeper, ctx, addr1, balances))
 
 	s.T().Log("verify empty page request results a max of defaultLimit records and counts total records")
 	pageReq := &query.PageRequest{}
@@ -185,7 +186,7 @@ func (s *paginationTestSuite) TestReversePagination() {
 	addr1 := sdk.AccAddress(secp256k1.GenPrivKey().PubKey().Address())
 	acc1 := app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
 	app.AccountKeeper.SetAccount(ctx, acc1)
-	s.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr1, balances))
+	s.Require().NoError(apptesting.FundAccount(app.BankKeeper, ctx, addr1, balances))
 
 	s.T().Log("verify paginate with custom limit and countTotal, Reverse false")
 	pageReq := &query.PageRequest{Limit: 2, CountTotal: true, Reverse: true, Key: nil}
@@ -306,7 +307,7 @@ func ExamplePaginate() {
 	addr1 := sdk.AccAddress([]byte("addr1"))
 	acc1 := app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
 	app.AccountKeeper.SetAccount(ctx, acc1)
-	err := simapp.FundAccount(app.BankKeeper, ctx, addr1, balances)
+	err := apptesting.FundAccount(app.BankKeeper, ctx, addr1, balances)
 	if err != nil { // should return no error
 		fmt.Println(err)
 	}
@@ -334,15 +335,15 @@ func ExamplePaginate() {
 	// balances:<denom:"foo0denom" amount:"100" > pagination:<next_key:"foo1denom" total:2 >
 }
 
-func setupTest() (*simapp.SimApp, sdk.Context, codec.Codec) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{Height: 1})
-	appCodec := app.AppCodec()
+func setupTest() (*app.App, sdk.Context, codec.Codec) {
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{Height: 1})
+	appCodec := a.AppCodec()
 
 	db := dbm.NewMemDB()
 	ms := store.NewCommitMultiStore(db)
 
 	ms.LoadLatestVersion()
 
-	return app, ctx, appCodec
+	return a, ctx, appCodec
 }

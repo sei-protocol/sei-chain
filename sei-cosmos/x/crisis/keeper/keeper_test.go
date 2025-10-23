@@ -8,20 +8,20 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/crisis/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 func TestLogger(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 
 	ctx := app.NewContext(true, tmproto.Header{})
 	require.Equal(t, ctx.Logger().With("module", "x/"+types.ModuleName), app.CrisisKeeper.Logger(ctx))
 }
 
 func TestInvariants(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	app.Commit(context.Background())
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
@@ -34,7 +34,7 @@ func TestInvariants(t *testing.T) {
 }
 
 func TestAssertInvariants(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	app.Commit(context.Background())
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 

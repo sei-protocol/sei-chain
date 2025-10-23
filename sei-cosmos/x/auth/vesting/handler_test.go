@@ -3,10 +3,11 @@ package vesting_test
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/apptesting"
 	"github.com/stretchr/testify/suite"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting"
 	"github.com/cosmos/cosmos-sdk/x/auth/vesting/types"
@@ -16,12 +17,12 @@ type HandlerTestSuite struct {
 	suite.Suite
 
 	handler sdk.Handler
-	app     *simapp.SimApp
+	app     *app.App
 }
 
 func (suite *HandlerTestSuite) SetupTest() {
 	checkTx := false
-	app := simapp.Setup(checkTx)
+	app := app.Setup(checkTx, false, false)
 
 	suite.handler = vesting.NewHandler(app.AccountKeeper, app.BankKeeper)
 	suite.app = app
@@ -42,10 +43,10 @@ func (suite *HandlerTestSuite) TestMsgCreateVestingAccount() {
 
 	acc1 := suite.app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
 	suite.app.AccountKeeper.SetAccount(ctx, acc1)
-	suite.Require().NoError(simapp.FundAccount(suite.app.BankKeeper, ctx, addr1, balances))
+	suite.Require().NoError(apptesting.FundAccount(suite.app.BankKeeper, ctx, addr1, balances))
 	acc4 := suite.app.AccountKeeper.NewAccountWithAddress(ctx, addr4)
 	suite.app.AccountKeeper.SetAccount(ctx, acc4)
-	suite.Require().NoError(simapp.FundAccount(suite.app.BankKeeper, ctx, addr4, balances))
+	suite.Require().NoError(apptesting.FundAccount(suite.app.BankKeeper, ctx, addr4, balances))
 
 	testCases := []struct {
 		name      string

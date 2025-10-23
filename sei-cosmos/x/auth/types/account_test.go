@@ -69,15 +69,15 @@ func TestBaseAccountMarshal(t *testing.T) {
 	err = acc.SetSequence(seq)
 	require.Nil(t, err)
 
-	bz, err := app.AccountKeeper.MarshalAccount(acc)
+	bz, err := a.AccountKeeper.MarshalAccount(acc)
 	require.Nil(t, err)
 
-	acc2, err := app.AccountKeeper.UnmarshalAccount(bz)
+	acc2, err := a.AccountKeeper.UnmarshalAccount(bz)
 	require.Nil(t, err)
 	require.Equal(t, acc, acc2)
 
 	// error on bad bytes
-	_, err = app.AccountKeeper.UnmarshalAccount(bz[:len(bz)/2])
+	_, err = a.AccountKeeper.UnmarshalAccount(bz[:len(bz)/2])
 	require.NotNil(t, err)
 }
 

@@ -610,3 +610,11 @@ func (k Keeper) setSpamPreventionCounter(ctx sdk.Context, validatorAddr sdk.ValA
 
 	store.Set(types.GetSpamPreventionCounterKey(validatorAddr), bz)
 }
+
+func (k Keeper) GetStoreKey() sdk.StoreKey {
+	return k.storeKey
+}
+
+func (k Keeper) GetCdc() codec.BinaryCodec {
+	return k.cdc
+}

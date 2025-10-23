@@ -7,20 +7,21 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	disttypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/apptesting"
 )
 
 func TestAllocateTokensToValidatorWithCommission(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrs := simapp.AddTestAddrs(app, ctx, 3, sdk.NewInt(1234))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrs)
+	addrs := seiapp.AddTestAddrs(app, ctx, 3, sdk.NewInt(1234))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrs)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
 	// create validator with 50% commission
@@ -45,7 +46,7 @@ func TestAllocateTokensToValidatorWithCommission(t *testing.T) {
 }
 
 func TestAllocateTokensToManyValidators(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	params := app.StakingKeeper.GetParams(ctx)
 	params.MinCommissionRate = sdk.NewDec(0)
@@ -62,8 +63,8 @@ func TestAllocateTokensToManyValidators(t *testing.T) {
 		testDistrParms,
 	)
 
-	addrs := simapp.AddTestAddrs(app, ctx, 2, sdk.NewInt(1234))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrs)
+	addrs := seiapp.AddTestAddrs(app, ctx, 2, sdk.NewInt(1234))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrs)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
 	// create validator with 50% commission
@@ -98,7 +99,7 @@ func TestAllocateTokensToManyValidators(t *testing.T) {
 	require.NotNil(t, feeCollector)
 
 	// fund fee collector
-	require.NoError(t, simapp.FundModuleAccount(app.BankKeeper, ctx, feeCollector.GetName(), fees))
+	require.NoError(t, apptesting.FundModuleAccount(app.BankKeeper, ctx, feeCollector.GetName(), fees))
 
 	app.AccountKeeper.SetAccount(ctx, feeCollector)
 
@@ -130,11 +131,11 @@ func TestAllocateTokensToManyValidators(t *testing.T) {
 }
 
 func TestAllocateTokensTruncation(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrs := simapp.AddTestAddrs(app, ctx, 3, sdk.NewInt(1234))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrs)
+	addrs := seiapp.AddTestAddrs(app, ctx, 3, sdk.NewInt(1234))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrs)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
 	// create validator with 10% commission
@@ -178,7 +179,7 @@ func TestAllocateTokensTruncation(t *testing.T) {
 	feeCollector := app.AccountKeeper.GetModuleAccount(ctx, types.FeeCollectorName)
 	require.NotNil(t, feeCollector)
 
-	require.NoError(t, simapp.FundModuleAccount(app.BankKeeper, ctx, feeCollector.GetName(), fees))
+	require.NoError(t, apptesting.FundModuleAccount(app.BankKeeper, ctx, feeCollector.GetName(), fees))
 
 	app.AccountKeeper.SetAccount(ctx, feeCollector)
 

@@ -1,9 +1,9 @@
 package types_test
 
 import (
-	"github.com/cosmos/cosmos-sdk/simapp"
+	"github.com/sei-protocol/sei-chain/app"
 )
 
 var (
-	app = simapp.Setup(false)
+	a = app.Setup(false, false, false)
 )

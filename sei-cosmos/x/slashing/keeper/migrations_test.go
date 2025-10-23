@@ -4,24 +4,24 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/slashing/keeper"
 	"github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	gogotypes "github.com/gogo/protobuf/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestMigrate2to3(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 2, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
-	pks := simapp.CreateTestPubKeys(2)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 2, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
+	pks := seiapp.CreateTestPubKeys(2)
 	addr, val := valAddrs[0], pks[0]
 	addr2, val2 := valAddrs[1], pks[1]
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
@@ -133,12 +133,12 @@ func TestMigrate2to3(t *testing.T) {
 }
 
 func TestMigrate2to4(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 2, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
-	pks := simapp.CreateTestPubKeys(2)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 2, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
+	pks := seiapp.CreateTestPubKeys(2)
 	addr, val := valAddrs[0], pks[0]
 	addr2, val2 := valAddrs[1], pks[1]
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
@@ -284,12 +284,12 @@ func TestMigrate2to4(t *testing.T) {
 }
 
 func TestMigrate3to4(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 2, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
-	pks := simapp.CreateTestPubKeys(2)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 2, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
+	pks := seiapp.CreateTestPubKeys(2)
 	addr, val := valAddrs[0], pks[0]
 	addr2, val2 := valAddrs[1], pks[1]
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)

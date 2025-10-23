@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"gotest.tools/assert"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/types/address"
@@ -28,29 +28,29 @@ import (
 type KeeperTestSuite struct {
 	suite.Suite
 
-	app         *simapp.SimApp
+	app         *app.App
 	ctx         sdk.Context
 	queryClient types.QueryClient
 	addrs       []sdk.AccAddress
 }
 
 func (suite *KeeperTestSuite) SetupTest() {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	queryHelper := baseapp.NewQueryServerTestHelper(ctx, app.InterfaceRegistry())
-	types.RegisterQueryServer(queryHelper, app.AccessControlKeeper)
+	queryHelper := baseapp.NewQueryServerTestHelper(ctx, a.InterfaceRegistry())
+	types.RegisterQueryServer(queryHelper, a.AccessControlKeeper)
 	queryClient := types.NewQueryClient(queryHelper)
 
-	suite.app = app
+	suite.app = a
 	suite.ctx = ctx
 	suite.queryClient = queryClient
-	suite.addrs = simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	suite.addrs = app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 }
 
 func TestResourceDependencyMapping(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	testDependencyMapping := acltypes.MessageDependencyMapping{
 		MessageKey: "testKey",
@@ -73,21 +73,21 @@ func TestResourceDependencyMapping(t *testing.T) {
 			},
 		},
 	}
-	err := app.AccessControlKeeper.SetResourceDependencyMapping(ctx, testDependencyMapping)
+	err := a.AccessControlKeeper.SetResourceDependencyMapping(ctx, testDependencyMapping)
 	require.NoError(t, err)
 	// we expect an error due to failed validation
-	err = app.AccessControlKeeper.SetResourceDependencyMapping(ctx, invalidDependencyMapping)
+	err = a.AccessControlKeeper.SetResourceDependencyMapping(ctx, invalidDependencyMapping)
 	require.Error(t, types.ErrNoCommitAccessOp, err)
 	// test simple get
-	mapping := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, "testKey")
+	mapping := a.AccessControlKeeper.GetResourceDependencyMapping(ctx, "testKey")
 	require.Equal(t, testDependencyMapping, mapping)
 	// test get on key not present - we expect synchronousMappning because of invalid Set
-	mapping = app.AccessControlKeeper.GetResourceDependencyMapping(ctx, "invalidKey")
+	mapping = a.AccessControlKeeper.GetResourceDependencyMapping(ctx, "invalidKey")
 	require.Equal(t, types.SynchronousMessageDependencyMapping("invalidKey"), mapping)
 
 	// if we iterate, we should only get 1 value
 	counter := 0
-	app.AccessControlKeeper.IterateResourceKeys(ctx, func(dependencyMapping acltypes.MessageDependencyMapping) (stop bool) {
+	a.AccessControlKeeper.IterateResourceKeys(ctx, func(dependencyMapping acltypes.MessageDependencyMapping) (stop bool) {
 		counter++
 		return true
 	})
@@ -95,10 +95,10 @@ func TestResourceDependencyMapping(t *testing.T) {
 }
 
 func TestInvalidGetMessageDependencies(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrs := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	addrs := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 	// setup staking delegate msg
 	stakingUndelegate := stakingtypes.MsgUndelegate{
 		DelegatorAddress: addrs[0].String(),
@@ -108,19 +108,19 @@ func TestInvalidGetMessageDependencies(t *testing.T) {
 	undelegateKey := types.GenerateMessageKey(&stakingUndelegate)
 
 	// get the message dependencies from keeper (because nothing configured, should return synchronous)
-	app.AccessControlKeeper.SetDependencyMappingDynamicFlag(ctx, undelegateKey, true)
-	delete(app.AccessControlKeeper.MessageDependencyGeneratorMapper, undelegateKey)
-	accessOps := app.AccessControlKeeper.GetMessageDependencies(ctx, &stakingUndelegate)
+	a.AccessControlKeeper.SetDependencyMappingDynamicFlag(ctx, undelegateKey, true)
+	delete(a.AccessControlKeeper.MessageDependencyGeneratorMapper, undelegateKey)
+	accessOps := a.AccessControlKeeper.GetMessageDependencies(ctx, &stakingUndelegate)
 	require.Equal(t, types.SynchronousMessageDependencyMapping("").AccessOps, accessOps)
 	// no longer gets disabled such that there arent writes in the dependency generation path
-	require.True(t, app.AccessControlKeeper.GetResourceDependencyMapping(ctx, undelegateKey).DynamicEnabled)
+	require.True(t, a.AccessControlKeeper.GetResourceDependencyMapping(ctx, undelegateKey).DynamicEnabled)
 }
 
 func TestWasmDependencyMapping(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	otherContractAddress := wasmContractAddresses[1]
 	wasmMapping := acltypes.WasmDependencyMapping{
@@ -137,27 +137,27 @@ func TestWasmDependencyMapping(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 	// test getting a dependency mapping for something function that isn't present
-	_, err = app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, otherContractAddress)
+	_, err = a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, otherContractAddress)
 	require.Error(t, aclkeeper.ErrWasmDependencyMappingNotFound, err)
 }
 
 func TestInvalidWasmDependencyMapping(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	store := ctx.KVStore(app.AccessControlKeeper.GetStoreKey())
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	store := ctx.KVStore(a.AccessControlKeeper.GetStoreKey())
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	store.Set(types.GetWasmContractAddressKey(wasmContractAddress), []byte{0x1})
 
-	_, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	_, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 
 	require.ErrorContains(t, err, "proto: WasmDependencyMapping")
 
@@ -165,15 +165,15 @@ func TestInvalidWasmDependencyMapping(t *testing.T) {
 		[]byte("{\"test\":{}}"),
 	)
 
-	_, err = app.AccessControlKeeper.GetWasmDependencyAccessOps(ctx, wasmContractAddress, "", info, make(aclkeeper.ContractReferenceLookupMap))
+	_, err = a.AccessControlKeeper.GetWasmDependencyAccessOps(ctx, wasmContractAddress, "", info, make(aclkeeper.ContractReferenceLookupMap))
 	require.ErrorContains(t, err, "proto: WasmDependencyMapping")
 }
 
 func TestWasmDependencyMappingWithExecuteMsgInfo(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	wasmMapping := acltypes.WasmDependencyMapping{
 		BaseAccessOps: []*acltypes.WasmAccessOperation{
@@ -196,13 +196,13 @@ func TestWasmDependencyMappingWithExecuteMsgInfo(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the access operations
 	info, _ := types.NewExecuteMessageInfo(
 		[]byte("{\"test\":{}}"),
 	)
-	ops, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(ctx, wasmContractAddress, "", info, make(aclkeeper.ContractReferenceLookupMap))
+	ops, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(ctx, wasmContractAddress, "", info, make(aclkeeper.ContractReferenceLookupMap))
 	require.NoError(t, err)
 
 	expectedAccessOps := []acltypes.AccessOperation{
@@ -225,7 +225,7 @@ func TestWasmDependencyMappingWithExecuteMsgInfo(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.Error(t, err)
 
 	wasmContractAddress = wasmContractAddresses[1]
@@ -245,14 +245,14 @@ func TestWasmDependencyMappingWithExecuteMsgInfo(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 
 	// test getting the access operations
 	info, _ = types.NewExecuteMessageInfo(
 		[]byte("{\"test\":{}}"),
 	)
-	_, err = app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	_, err = a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		"",
@@ -263,10 +263,10 @@ func TestWasmDependencyMappingWithExecuteMsgInfo(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithQueryMsgInfo(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	wasmMapping := acltypes.WasmDependencyMapping{
 		BaseAccessOps: []*acltypes.WasmAccessOperation{
@@ -289,13 +289,13 @@ func TestWasmDependencyMappingWithQueryMsgInfo(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the access operations
 	info, _ := types.NewQueryMessageInfo(
 		[]byte("{\"test\":{}}"),
 	)
-	ops, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(ctx, wasmContractAddress, "", info, make(aclkeeper.ContractReferenceLookupMap))
+	ops, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(ctx, wasmContractAddress, "", info, make(aclkeeper.ContractReferenceLookupMap))
 	require.NoError(t, err)
 
 	expectedAccessOps := []acltypes.AccessOperation{
@@ -306,10 +306,10 @@ func TestWasmDependencyMappingWithQueryMsgInfo(t *testing.T) {
 }
 
 func TestResetWasmDependencyMapping(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	wasmMapping := acltypes.WasmDependencyMapping{
 		BaseAccessOps: []*acltypes.WasmAccessOperation{
@@ -324,29 +324,29 @@ func TestResetWasmDependencyMapping(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 	// test resetting
-	err = app.AccessControlKeeper.ResetWasmDependencyMapping(ctx, wasmContractAddresses[1], "some reason")
+	err = a.AccessControlKeeper.ResetWasmDependencyMapping(ctx, wasmContractAddresses[1], "some reason")
 	require.ErrorIs(t, err, sdkerrors.ErrKeyNotFound)
 
-	err = app.AccessControlKeeper.ResetWasmDependencyMapping(ctx, wasmContractAddress, "some reason")
+	err = a.AccessControlKeeper.ResetWasmDependencyMapping(ctx, wasmContractAddress, "some reason")
 	require.NoError(t, err)
-	mapping, err = app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err = a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, types.SynchronousWasmAccessOps(), mapping.BaseAccessOps)
 	require.Equal(t, "some reason", mapping.ResetReason)
 }
 
 func TestWasmDependencyMappingWithJQSelector(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	wasmMapping := acltypes.WasmDependencyMapping{
 		BaseAccessOps: []*acltypes.WasmAccessOperation{
@@ -385,15 +385,15 @@ func TestWasmDependencyMappingWithJQSelector(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 	// test getting a dependency mapping with selector
 	info, _ := types.NewExecuteMessageInfo([]byte("{\"send\":{\"from\":\"bob\",\"amount\":10}}"))
-	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	deps, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		"",
@@ -406,10 +406,10 @@ func TestWasmDependencyMappingWithJQSelector(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithJQBech32Selector(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
 	require.NoError(t, err)
@@ -441,16 +441,16 @@ func TestWasmDependencyMappingWithJQBech32Selector(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 	// test getting a dependency mapping with selector
 	require.NoError(t, err)
 	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)))
-	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	deps, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		"",
@@ -462,10 +462,10 @@ func TestWasmDependencyMappingWithJQBech32Selector(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithJQLengthPrefixedAddressSelector(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
 	require.NoError(t, err)
@@ -497,16 +497,16 @@ func TestWasmDependencyMappingWithJQLengthPrefixedAddressSelector(t *testing.T) 
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 	// test getting a dependency mapping with selector
 	require.NoError(t, err)
 	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)))
-	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	deps, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		"",
@@ -518,10 +518,10 @@ func TestWasmDependencyMappingWithJQLengthPrefixedAddressSelector(t *testing.T) 
 }
 
 func TestWasmDependencyMappingWithSenderBech32Selector(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
 	require.NoError(t, err)
@@ -543,16 +543,16 @@ func TestWasmDependencyMappingWithSenderBech32Selector(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 	// test getting a dependency mapping with selector
 	require.NoError(t, err)
 	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)))
-	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	deps, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		wasmBech32,
@@ -564,10 +564,10 @@ func TestWasmDependencyMappingWithSenderBech32Selector(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithSenderLengthPrefixedSelector(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
 	require.NoError(t, err)
@@ -589,16 +589,16 @@ func TestWasmDependencyMappingWithSenderLengthPrefixedSelector(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 	// test getting a dependency mapping with selector
 	require.NoError(t, err)
 	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)))
-	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	deps, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		wasmBech32,
@@ -610,10 +610,10 @@ func TestWasmDependencyMappingWithSenderLengthPrefixedSelector(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithConditionalSelector(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
 	require.NoError(t, err)
@@ -645,16 +645,16 @@ func TestWasmDependencyMappingWithConditionalSelector(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 	// test getting a dependency mapping with selector
 	require.NoError(t, err)
 	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)))
-	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	deps, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		wasmBech32,
@@ -667,10 +667,10 @@ func TestWasmDependencyMappingWithConditionalSelector(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithConstantSelector(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
 	require.NoError(t, err)
@@ -693,16 +693,16 @@ func TestWasmDependencyMappingWithConstantSelector(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 	// test getting a dependency mapping with selector
 	require.NoError(t, err)
 	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)))
-	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	deps, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		wasmBech32,
@@ -714,10 +714,10 @@ func TestWasmDependencyMappingWithConstantSelector(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithContractReference(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 3, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	interContractAddress := wasmContractAddresses[1]
 	thirdAddr := wasmContractAddresses[2]
@@ -751,7 +751,7 @@ func TestWasmDependencyMappingWithContractReference(t *testing.T) {
 		ContractAddress: interContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
 	require.NoError(t, err)
 
 	// this mapping creates a reference to the inter-contract dependency
@@ -782,18 +782,18 @@ func TestWasmDependencyMappingWithContractReference(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 
 	// test getting a dependency mapping with selector that expands the inter-contract reference into the contract's dependencies
 	require.NoError(t, err)
 	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", thirdAddr.String())))
-	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	deps, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		thirdAddr.String(),
@@ -819,10 +819,10 @@ func TestWasmDependencyMappingWithContractReference(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithContractReferenceQuery(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 3, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	interContractAddress := wasmContractAddresses[1]
 	thirdAddr := wasmContractAddresses[2]
@@ -856,7 +856,7 @@ func TestWasmDependencyMappingWithContractReferenceQuery(t *testing.T) {
 		ContractAddress: interContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
 	require.NoError(t, err)
 
 	// this mapping creates a reference to the inter-contract dependency
@@ -900,18 +900,18 @@ func TestWasmDependencyMappingWithContractReferenceQuery(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 
 	// test getting a dependency mapping with selector that expands the inter-contract reference into the contract's dependencies
 	require.NoError(t, err)
 	info, _ := types.NewQueryMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", thirdAddr.String())))
-	_, err = app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	_, err = a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		thirdAddr.String(),
@@ -922,10 +922,10 @@ func TestWasmDependencyMappingWithContractReferenceQuery(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithInvalidContractReference(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 3, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	interContractAddress := wasmContractAddresses[1]
 	thirdAddr := wasmContractAddresses[2]
@@ -959,7 +959,7 @@ func TestWasmDependencyMappingWithInvalidContractReference(t *testing.T) {
 		ContractAddress: interContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
 	require.NoError(t, err)
 
 	// this mapping creates a reference to the inter-contract dependency
@@ -1003,18 +1003,18 @@ func TestWasmDependencyMappingWithInvalidContractReference(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 
 	// test getting a dependency mapping with selector that expands the inter-contract reference into the contract's dependencies
 	require.NoError(t, err)
 	info, _ := types.NewQueryMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", thirdAddr.String())))
-	_, err = app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	_, err = a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		thirdAddr.String(),
@@ -1026,10 +1026,10 @@ func TestWasmDependencyMappingWithInvalidContractReference(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithContractReferenceWasmTranslator(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 3, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	interContractAddress := wasmContractAddresses[1]
 	thirdAddr := wasmContractAddresses[2]
@@ -1063,7 +1063,7 @@ func TestWasmDependencyMappingWithContractReferenceWasmTranslator(t *testing.T) 
 		ContractAddress: interContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
 	require.NoError(t, err)
 
 	// this mapping creates a reference to the inter-contract dependency
@@ -1100,18 +1100,18 @@ func TestWasmDependencyMappingWithContractReferenceWasmTranslator(t *testing.T) 
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 
 	// test getting a dependency mapping with selector that expands the inter-contract reference into the contract's dependencies
 	require.NoError(t, err)
 	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", thirdAddr.String())))
-	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	deps, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		thirdAddr.String(),
@@ -1137,10 +1137,10 @@ func TestWasmDependencyMappingWithContractReferenceWasmTranslator(t *testing.T) 
 }
 
 func TestWasmDependencyMappingWithContractReferenceSelectorMultipleReferences(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 4, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 4, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	interContractAddress := wasmContractAddresses[1]
 	inter2ContractAddress := wasmContractAddresses[2]
@@ -1173,7 +1173,7 @@ func TestWasmDependencyMappingWithContractReferenceSelectorMultipleReferences(t 
 		ContractAddress: interContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
 	require.NoError(t, err)
 
 	// create a dummy mapping of a bank balance write for the sender address (eg. performing some action like depositing funds)
@@ -1195,7 +1195,7 @@ func TestWasmDependencyMappingWithContractReferenceSelectorMultipleReferences(t 
 		ContractAddress: inter2ContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, inter2ContractMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, inter2ContractMapping)
 	require.NoError(t, err)
 
 	// this mapping creates a reference to the inter-contract dependency
@@ -1216,18 +1216,18 @@ func TestWasmDependencyMappingWithContractReferenceSelectorMultipleReferences(t 
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 
 	// test getting a dependency mapping with selector that expands the inter-contract reference into the contract's dependencies
 	require.NoError(t, err)
 	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", otherAddr.String())))
-	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	deps, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		otherAddr.String(),
@@ -1253,10 +1253,10 @@ func TestWasmDependencyMappingWithContractReferenceSelectorMultipleReferences(t 
 }
 
 func TestWasmDependencyMappingWithContractReferenceSelectorCircularDependency(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 4, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 4, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	interContractAddress := wasmContractAddresses[1]
 	inter2ContractAddress := wasmContractAddresses[2]
@@ -1289,7 +1289,7 @@ func TestWasmDependencyMappingWithContractReferenceSelectorCircularDependency(t 
 		ContractAddress: interContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
 	require.NoError(t, err)
 
 	// create a dummy mapping of a bank balance write for the sender address (eg. performing some action like depositing funds)
@@ -1318,7 +1318,7 @@ func TestWasmDependencyMappingWithContractReferenceSelectorCircularDependency(t 
 		ContractAddress: inter2ContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, inter2ContractMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, inter2ContractMapping)
 	require.NoError(t, err)
 
 	// this mapping creates a reference to the inter-contract dependency
@@ -1339,18 +1339,18 @@ func TestWasmDependencyMappingWithContractReferenceSelectorCircularDependency(t 
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 
 	// test getting a dependency mapping with selector that expands the inter-contract reference into the contract's dependencies
 	require.NoError(t, err)
 	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", otherAddr.String())))
-	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	deps, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		otherAddr.String(),
@@ -1378,10 +1378,10 @@ func TestWasmDependencyMappingWithContractReferenceSelectorCircularDependency(t 
 }
 
 func TestWasmDependencyMappingWithContractReferenceNonCircularDependency(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 4, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 4, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	interContractAddress := wasmContractAddresses[1]
 	inter2ContractAddress := wasmContractAddresses[2]
@@ -1414,7 +1414,7 @@ func TestWasmDependencyMappingWithContractReferenceNonCircularDependency(t *test
 		ContractAddress: interContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
 	require.NoError(t, err)
 
 	// create a dummy mapping of a bank balance write for the sender address (eg. performing some action like depositing funds)
@@ -1443,7 +1443,7 @@ func TestWasmDependencyMappingWithContractReferenceNonCircularDependency(t *test
 		ContractAddress: inter2ContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, inter2ContractMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, inter2ContractMapping)
 	require.NoError(t, err)
 
 	// this mapping creates a reference to the inter-contract dependency
@@ -1484,18 +1484,18 @@ func TestWasmDependencyMappingWithContractReferenceNonCircularDependency(t *test
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 
 	// test getting a dependency mapping with selector that expands the inter-contract reference into the contract's dependencies
 	require.NoError(t, err)
 	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", otherAddr.String())))
-	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	deps, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		otherAddr.String(),
@@ -1526,10 +1526,10 @@ func TestWasmDependencyMappingWithContractReferenceNonCircularDependency(t *test
 }
 
 func TestWasmDependencyMappingWithContractReferenceCircularDependencyWithContractOverlap(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 4, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 4, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	interContractAddress := wasmContractAddresses[1]
 	inter2ContractAddress := wasmContractAddresses[2]
@@ -1562,7 +1562,7 @@ func TestWasmDependencyMappingWithContractReferenceCircularDependencyWithContrac
 		ContractAddress: interContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
 	require.NoError(t, err)
 
 	// create a dummy mapping of a bank balance write for the sender address (eg. performing some action like depositing funds)
@@ -1591,7 +1591,7 @@ func TestWasmDependencyMappingWithContractReferenceCircularDependencyWithContrac
 		ContractAddress: inter2ContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, inter2ContractMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, inter2ContractMapping)
 	require.NoError(t, err)
 
 	// In this mapping, we will have a cycle that goes through the wasm contract because it goes via a different execute message,
@@ -1643,18 +1643,18 @@ func TestWasmDependencyMappingWithContractReferenceCircularDependencyWithContrac
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 
 	// test getting a dependency mapping with selector that expands the inter-contract reference into the contract's dependencies
 	require.NoError(t, err)
 	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", otherAddr.String())))
-	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	deps, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		otherAddr.String(),
@@ -1686,10 +1686,10 @@ func TestWasmDependencyMappingWithContractReferenceCircularDependencyWithContrac
 }
 
 func TestWasmDependencyMappingWithContractReferenceDNE(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 3, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	interContractAddress := wasmContractAddresses[1]
 	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
@@ -1713,18 +1713,18 @@ func TestWasmDependencyMappingWithContractReferenceDNE(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 
 	// test getting a dependency mapping with selector that expands the inter-contract reference into the contract's dependencies
 	require.NoError(t, err)
 	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", wasmBech32)))
-	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	deps, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		wasmContractAddresses[2].String(),
@@ -1737,10 +1737,10 @@ func TestWasmDependencyMappingWithContractReferenceDNE(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithContractReferencePartitioned(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 4, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 4, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	interContractAddress := wasmContractAddresses[1]
 	inter2ContractAddress := wasmContractAddresses[2]
@@ -1766,7 +1766,7 @@ func TestWasmDependencyMappingWithContractReferencePartitioned(t *testing.T) {
 		ContractAddress: interContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, interContractMapping)
 	require.NoError(t, err)
 
 	// create a dummy mapping of a bank balance write for the sender address (eg. performing some action like depositing funds)
@@ -1802,7 +1802,7 @@ func TestWasmDependencyMappingWithContractReferencePartitioned(t *testing.T) {
 		ContractAddress: inter2ContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, inter2ContractMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, inter2ContractMapping)
 	require.NoError(t, err)
 
 	// this mapping creates a reference to the inter-contract dependency
@@ -1838,18 +1838,18 @@ func TestWasmDependencyMappingWithContractReferencePartitioned(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 
 	// test getting the dependency mapping
-	mapping, err := app.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
+	mapping, err := a.AccessControlKeeper.GetRawWasmDependencyMapping(ctx, wasmContractAddress)
 	require.NoError(t, err)
 	require.Equal(t, wasmMapping, *mapping)
 
 	// test getting a dependency mapping with selector that expands the inter-contract reference into the contract's dependencies
 	require.NoError(t, err)
 	info, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"send\":{\"address\":\"%s\",\"amount\":10}}", otherAddr.String())))
-	deps, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	deps, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		otherAddr.String(),
@@ -1871,7 +1871,7 @@ func TestWasmDependencyMappingWithContractReferencePartitioned(t *testing.T) {
 	require.NoError(t, err)
 
 	info2, _ := types.NewExecuteMessageInfo([]byte(fmt.Sprintf("{\"other_msg\":{\"address\":\"%s\",\"amount\":10}}", otherAddr.String())))
-	deps2, err := app.AccessControlKeeper.GetWasmDependencyAccessOps(
+	deps2, err := a.AccessControlKeeper.GetWasmDependencyAccessOps(
 		ctx,
 		wasmContractAddress,
 		otherAddr.String(),
@@ -1898,10 +1898,10 @@ func TestWasmDependencyMappingWithContractReferencePartitioned(t *testing.T) {
 }
 
 func TestContractReferenceAddressParser(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 1, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
 	require.NoError(t, err)
@@ -1987,52 +1987,52 @@ func TestParseContractReferenceAddress(t *testing.T) {
 }
 
 func TestBuildDependencyDag(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	accounts := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	accounts := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 	// setup test txs
 	msgs := []sdk.Msg{
 		banktypes.NewMsgSend(accounts[0], accounts[1], sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1)))),
 	}
 
-	txBuilder := simapp.MakeTestEncodingConfig().TxConfig.NewTxBuilder()
+	txBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	err := txBuilder.SetMsgs(msgs...)
 	require.NoError(t, err)
 	txs := []sdk.Tx{
 		txBuilder.GetTx(),
 	}
 	// ensure no errors creating dag
-	_, err = app.AccessControlKeeper.BuildDependencyDag(ctx, app.GetAnteDepGenerator(), txs)
+	_, err = a.AccessControlKeeper.BuildDependencyDag(ctx, a.GetAnteDepGenerator(), txs)
 	require.NoError(t, err)
 }
 
 func TestBuildDependencyDagWithGovMessage(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	accounts := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	accounts := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 	// setup test txs
 	msgs := []sdk.Msg{
 		govtypes.NewMsgVote(accounts[0], 1, govtypes.OptionYes),
 	}
 
-	txBuilder := simapp.MakeTestEncodingConfig().TxConfig.NewTxBuilder()
+	txBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	err := txBuilder.SetMsgs(msgs...)
 	require.NoError(t, err)
 	txs := []sdk.Tx{
 		txBuilder.GetTx(),
 	}
 	// ensure no errors creating dag
-	_, err = app.AccessControlKeeper.BuildDependencyDag(ctx, app.GetAnteDepGenerator(), txs)
+	_, err = a.AccessControlKeeper.BuildDependencyDag(ctx, a.GetAnteDepGenerator(), txs)
 	require.ErrorIs(t, err, types.ErrGovMsgInBlock)
 }
 
 func TestBuildDependencyDag_GovPropMessage(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	accounts := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	accounts := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 	govMsg, _ := govtypes.NewMsgSubmitProposal(
 		govtypes.ContentFromProposalType("test2", "test2", govtypes.ProposalTypeText, false),
 		sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1))),
@@ -2041,21 +2041,21 @@ func TestBuildDependencyDag_GovPropMessage(t *testing.T) {
 	// setup test txs
 	msgs := []sdk.Msg{govMsg}
 
-	txBuilder := simapp.MakeTestEncodingConfig().TxConfig.NewTxBuilder()
+	txBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	err := txBuilder.SetMsgs(msgs...)
 	require.NoError(t, err)
 	txs := []sdk.Tx{
 		txBuilder.GetTx(),
 	}
 	// expect ErrGovMsgInBlock
-	_, err = app.AccessControlKeeper.BuildDependencyDag(ctx, app.GetAnteDepGenerator(), txs)
+	_, err = a.AccessControlKeeper.BuildDependencyDag(ctx, a.GetAnteDepGenerator(), txs)
 	require.EqualError(t, err, types.ErrGovMsgInBlock.Error())
 }
 
 func TestBuildDependencyDag_GovDepositMessage(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	addrs := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	addrs := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 
 	govMsg := govtypes.NewMsgDeposit(
 		addrs[1], 1, sdk.Coins{sdk.NewInt64Coin(sdk.DefaultBondDenom, 5)},
@@ -2063,22 +2063,22 @@ func TestBuildDependencyDag_GovDepositMessage(t *testing.T) {
 	// setup test txs
 	msgs := []sdk.Msg{govMsg}
 
-	txBuilder := simapp.MakeTestEncodingConfig().TxConfig.NewTxBuilder()
+	txBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	err := txBuilder.SetMsgs(msgs...)
 	require.NoError(t, err)
 	txs := []sdk.Tx{
 		txBuilder.GetTx(),
 	}
 	// expect ErrGovMsgInBlock
-	_, err = app.AccessControlKeeper.BuildDependencyDag(ctx, app.GetAnteDepGenerator(), txs)
+	_, err = a.AccessControlKeeper.BuildDependencyDag(ctx, a.GetAnteDepGenerator(), txs)
 	require.EqualError(t, err, types.ErrGovMsgInBlock.Error())
 }
 
 func TestBuildDependencyDag_MultipleTransactions(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	accounts := simapp.AddTestAddrsIncremental(app, ctx, 3, sdk.NewInt(30000000))
+	accounts := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
 
 	msgs1 := []sdk.Msg{
 		banktypes.NewMsgSend(accounts[0], accounts[1], sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1)))),
@@ -2088,7 +2088,7 @@ func TestBuildDependencyDag_MultipleTransactions(t *testing.T) {
 		banktypes.NewMsgSend(accounts[1], accounts[2], sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1)))),
 	}
 
-	txBuilder := simapp.MakeTestEncodingConfig().TxConfig.NewTxBuilder()
+	txBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	err := txBuilder.SetMsgs(msgs1...)
 	require.NoError(t, err)
 	tx1 := txBuilder.GetTx()
@@ -2102,21 +2102,21 @@ func TestBuildDependencyDag_MultipleTransactions(t *testing.T) {
 		tx2,
 	}
 
-	_, err = app.AccessControlKeeper.BuildDependencyDag(ctx, app.GetAnteDepGenerator(), txs)
+	_, err = a.AccessControlKeeper.BuildDependencyDag(ctx, a.GetAnteDepGenerator(), txs)
 	require.NoError(t, err)
 
 	mockAnteDepGenerator := func(_ []acltypes.AccessOperation, _ sdk.Tx, _ int) ([]acltypes.AccessOperation, error) {
 		return nil, errors.New("Mocked error")
 	}
-	_, err = app.AccessControlKeeper.BuildDependencyDag(ctx, mockAnteDepGenerator, txs)
+	_, err = a.AccessControlKeeper.BuildDependencyDag(ctx, mockAnteDepGenerator, txs)
 	require.ErrorContains(t, err, "Mocked error")
 }
 
 func BenchmarkAccessOpsBuildDependencyDag(b *testing.B) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	accounts := simapp.AddTestAddrsIncremental(app, ctx, 3, sdk.NewInt(30000000))
+	accounts := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
 
 	msgs1 := []sdk.Msg{
 		banktypes.NewMsgSend(accounts[0], accounts[1], sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1)))),
@@ -2126,7 +2126,7 @@ func BenchmarkAccessOpsBuildDependencyDag(b *testing.B) {
 		banktypes.NewMsgSend(accounts[1], accounts[2], sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1)))),
 	}
 
-	txBuilder := simapp.MakeTestEncodingConfig().TxConfig.NewTxBuilder()
+	txBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	_ = txBuilder.SetMsgs(msgs1...)
 	tx1 := txBuilder.GetTx()
 
@@ -2206,16 +2206,16 @@ func BenchmarkAccessOpsBuildDependencyDag(b *testing.B) {
 	}
 
 	for i := 0; i < b.N; i++ {
-		_, _ = app.AccessControlKeeper.BuildDependencyDag(
+		_, _ = a.AccessControlKeeper.BuildDependencyDag(
 			ctx, mockAnteDepGenerator, txs)
 	}
 }
 
 func TestInvalidAccessOpsBuildDependencyDag(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	accounts := simapp.AddTestAddrsIncremental(app, ctx, 3, sdk.NewInt(30000000))
+	accounts := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
 
 	msgs1 := []sdk.Msg{
 		banktypes.NewMsgSend(accounts[0], accounts[1], sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1)))),
@@ -2225,7 +2225,7 @@ func TestInvalidAccessOpsBuildDependencyDag(t *testing.T) {
 		banktypes.NewMsgSend(accounts[1], accounts[2], sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(1)))),
 	}
 
-	txBuilder := simapp.MakeTestEncodingConfig().TxConfig.NewTxBuilder()
+	txBuilder := app.MakeEncodingConfig().TxConfig.NewTxBuilder()
 	err := txBuilder.SetMsgs(msgs1...)
 	require.NoError(t, err)
 	tx1 := txBuilder.GetTx()
@@ -2254,7 +2254,7 @@ func TestInvalidAccessOpsBuildDependencyDag(t *testing.T) {
 	}
 
 	// ensure no errors creating dag
-	_, err = app.AccessControlKeeper.BuildDependencyDag(
+	_, err = a.AccessControlKeeper.BuildDependencyDag(
 		ctx, mockAnteDepGenerator, txs)
 	require.Error(t, err)
 
@@ -2270,16 +2270,16 @@ func TestInvalidAccessOpsBuildDependencyDag(t *testing.T) {
 	}
 
 	// ensure no errors creating dag
-	_, err = app.AccessControlKeeper.BuildDependencyDag(
+	_, err = a.AccessControlKeeper.BuildDependencyDag(
 		ctx, mockAnteDepGenerator, txs)
 	require.NoError(t, err)
 }
 
 func TestIterateWasmDependenciesBreak(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 4, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 4, sdk.NewInt(30000000))
 	wasmMapping := acltypes.WasmDependencyMapping{
 		BaseAccessOps: []*acltypes.WasmAccessOperation{
 			{
@@ -2294,24 +2294,24 @@ func TestIterateWasmDependenciesBreak(t *testing.T) {
 		ContractAddress: wasmContractAddresses[0].String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 
 	wasmMapping.ContractAddress = wasmContractAddresses[1].String()
 
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 
 	wasmMapping.ContractAddress = wasmContractAddresses[2].String()
 	// set the dependency mapping
-	err = app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err = a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 
 	// count how many times the handler is called
 	counter := 0
 
-	app.AccessControlKeeper.IterateWasmDependencies(ctx, func(dependencyMapping acltypes.WasmDependencyMapping) bool {
+	a.AccessControlKeeper.IterateWasmDependencies(ctx, func(dependencyMapping acltypes.WasmDependencyMapping) bool {
 		counter++
 		// if counter is 2, return true to break the iteration
 		return counter == 2
@@ -2323,7 +2323,7 @@ func TestIterateWasmDependenciesBreak(t *testing.T) {
 
 func (suite *KeeperTestSuite) TestMessageDependencies() {
 	suite.SetupTest()
-	app := suite.app
+	a := suite.app
 	ctx := suite.ctx
 	req := suite.Require()
 
@@ -2361,7 +2361,7 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 		},
 		DynamicEnabled: true,
 	}
-	err := app.AccessControlKeeper.SetResourceDependencyMapping(ctx, delegateStaticMapping)
+	err := a.AccessControlKeeper.SetResourceDependencyMapping(ctx, delegateStaticMapping)
 	req.NoError(err)
 
 	// setup staking delegate msg
@@ -2389,12 +2389,12 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 		},
 		DynamicEnabled: true,
 	}
-	err = app.AccessControlKeeper.SetResourceDependencyMapping(ctx, undelegateStaticMapping)
+	err = a.AccessControlKeeper.SetResourceDependencyMapping(ctx, undelegateStaticMapping)
 	req.NoError(err)
 
 	// get the message dependencies from keeper (because nothing configured, should return synchronous)
-	app.AccessControlKeeper.SetDependencyMappingDynamicFlag(ctx, bankMsgKey, false)
-	accessOps := app.AccessControlKeeper.GetMessageDependencies(ctx, &bankSendMsg)
+	a.AccessControlKeeper.SetDependencyMappingDynamicFlag(ctx, bankMsgKey, false)
+	accessOps := a.AccessControlKeeper.GetMessageDependencies(ctx, &bankSendMsg)
 	req.Equal(types.SynchronousMessageDependencyMapping("").AccessOps, accessOps)
 
 	// setup bank send static dependency
@@ -2410,47 +2410,47 @@ func (suite *KeeperTestSuite) TestMessageDependencies() {
 		},
 		DynamicEnabled: false,
 	}
-	err = app.AccessControlKeeper.SetResourceDependencyMapping(ctx, bankStaticMapping)
+	err = a.AccessControlKeeper.SetResourceDependencyMapping(ctx, bankStaticMapping)
 	req.NoError(err)
 
 	// now, because we have static mappings + dynamic enabled == false, we get the static access ops
-	accessOps = app.AccessControlKeeper.GetMessageDependencies(ctx, &bankSendMsg)
+	accessOps = a.AccessControlKeeper.GetMessageDependencies(ctx, &bankSendMsg)
 	req.Equal(bankStaticMapping.AccessOps, accessOps)
 
 	// lets enable dynamic enabled
-	app.AccessControlKeeper.SetDependencyMappingDynamicFlag(ctx, bankMsgKey, true)
+	a.AccessControlKeeper.SetDependencyMappingDynamicFlag(ctx, bankMsgKey, true)
 	// verify dynamic enabled
-	dependencyMapping := app.AccessControlKeeper.GetResourceDependencyMapping(ctx, bankMsgKey)
+	dependencyMapping := a.AccessControlKeeper.GetResourceDependencyMapping(ctx, bankMsgKey)
 	req.Equal(true, dependencyMapping.DynamicEnabled)
 
 	// now, because we have static mappings + dynamic enabled == true, we get dynamic ops
-	accessOps = app.AccessControlKeeper.GetMessageDependencies(ctx, &bankSendMsg)
-	dynamicOps, err := acltestutil.BankSendDepGenerator(app.AccessControlKeeper, ctx, &bankSendMsg)
+	accessOps = a.AccessControlKeeper.GetMessageDependencies(ctx, &bankSendMsg)
+	dynamicOps, err := acltestutil.BankSendDepGenerator(a.AccessControlKeeper, ctx, &bankSendMsg)
 	req.NoError(err)
 	req.Equal(dynamicOps, accessOps)
 
 	// lets true doing the same for staking delegate, which SHOULD fail validation and set dynamic to false and return static mapping
-	accessOps = app.AccessControlKeeper.GetMessageDependencies(ctx, &stakingDelegate)
+	accessOps = a.AccessControlKeeper.GetMessageDependencies(ctx, &stakingDelegate)
 	req.Equal(delegateStaticMapping.AccessOps, accessOps)
 	// verify dynamic got disabled
-	dependencyMapping = app.AccessControlKeeper.GetResourceDependencyMapping(ctx, delegateKey)
+	dependencyMapping = a.AccessControlKeeper.GetResourceDependencyMapping(ctx, delegateKey)
 	req.Equal(true, dependencyMapping.DynamicEnabled)
 
 	// lets also try with undelegate, but this time there is no dynamic generator, so we disable it as well
-	accessOps = app.AccessControlKeeper.GetMessageDependencies(ctx, &stakingUndelegate)
+	accessOps = a.AccessControlKeeper.GetMessageDependencies(ctx, &stakingUndelegate)
 	req.Equal(undelegateStaticMapping.AccessOps, accessOps)
 	// verify dynamic got disabled
-	dependencyMapping = app.AccessControlKeeper.GetResourceDependencyMapping(ctx, undelegateKey)
+	dependencyMapping = a.AccessControlKeeper.GetResourceDependencyMapping(ctx, undelegateKey)
 	req.Equal(true, dependencyMapping.DynamicEnabled)
 }
 
 func (suite *KeeperTestSuite) TestImportContractReferences() {
 	suite.SetupTest()
-	app := suite.app
+	a := suite.app
 	ctx := suite.ctx
 	req := suite.Require()
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 
 	wasmMapping := acltypes.WasmDependencyMapping{
 		BaseAccessOps: []*acltypes.WasmAccessOperation{
@@ -2471,7 +2471,7 @@ func (suite *KeeperTestSuite) TestImportContractReferences() {
 	}
 
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	req.NoError(err)
 
 	contractReferences := []*acltypes.WasmContractReference{
@@ -2484,7 +2484,7 @@ func (suite *KeeperTestSuite) TestImportContractReferences() {
 	}
 
 	msgInfo, _ := types.NewExecuteMessageInfo([]byte("{\"test\":{}}"))
-	_, err = app.AccessControlKeeper.ImportContractReferences(
+	_, err = a.AccessControlKeeper.ImportContractReferences(
 		ctx,
 		wasmContractAddresses[1],
 		contractReferences,
@@ -2494,7 +2494,7 @@ func (suite *KeeperTestSuite) TestImportContractReferences() {
 	)
 	req.NoError(err)
 
-	_, err = app.AccessControlKeeper.ImportContractReferences(
+	_, err = a.AccessControlKeeper.ImportContractReferences(
 		ctx,
 		wasmContractAddresses[1],
 		contractReferences,
@@ -2512,7 +2512,7 @@ func (suite *KeeperTestSuite) TestImportContractReferences() {
 			JsonTranslationTemplate: "{\"test\":{}, \"test2\":{}}",
 		},
 	}
-	_, err = app.AccessControlKeeper.ImportContractReferences(
+	_, err = a.AccessControlKeeper.ImportContractReferences(
 		ctx,
 		wasmContractAddresses[1],
 		contractReferences,
@@ -2531,7 +2531,7 @@ func (suite *KeeperTestSuite) TestImportContractReferences() {
 		},
 	}
 	msgInfo.MessageType = acltypes.WasmMessageSubtype_QUERY
-	_, err = app.AccessControlKeeper.ImportContractReferences(
+	_, err = a.AccessControlKeeper.ImportContractReferences(
 		ctx,
 		wasmContractAddresses[1],
 		contractReferences,
@@ -2541,7 +2541,7 @@ func (suite *KeeperTestSuite) TestImportContractReferences() {
 	)
 	req.ErrorContains(err, "expected exactly one top-level")
 
-	store := ctx.KVStore(app.AccessControlKeeper.GetStoreKey())
+	store := ctx.KVStore(a.AccessControlKeeper.GetStoreKey())
 	wasmContractAddress := wasmContractAddresses[0]
 	store.Set(types.GetWasmContractAddressKey(wasmContractAddress), []byte{0x1})
 
@@ -2553,7 +2553,7 @@ func (suite *KeeperTestSuite) TestImportContractReferences() {
 			JsonTranslationTemplate: "{\"test\":{}}",
 		},
 	}
-	_, err = app.AccessControlKeeper.ImportContractReferences(
+	_, err = a.AccessControlKeeper.ImportContractReferences(
 		ctx,
 		wasmContractAddresses[1],
 		contractReferences,
@@ -2566,11 +2566,11 @@ func (suite *KeeperTestSuite) TestImportContractReferences() {
 
 func (suite *KeeperTestSuite) TestBuildSelectorOps_JQ() {
 	suite.SetupTest()
-	app := suite.app
+	a := suite.app
 	ctx := suite.ctx
 	req := suite.Require()
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 	msgInfo, _ := types.NewExecuteMessageInfo([]byte("{\"test\":\"value\"}"))
 
 	accessOps := []*acltypes.WasmAccessOperation{
@@ -2584,18 +2584,18 @@ func (suite *KeeperTestSuite) TestBuildSelectorOps_JQ() {
 			Selector:     ".test",
 		},
 	}
-	_, err := app.AccessControlKeeper.BuildSelectorOps(
+	_, err := a.AccessControlKeeper.BuildSelectorOps(
 		ctx, wasmContractAddresses[0], accessOps, wasmContractAddresses[0].String(), msgInfo, make(aclkeeper.ContractReferenceLookupMap))
 	req.NoError(err)
 }
 
 func (suite *KeeperTestSuite) TestBuildSelectorOps_AccessOperationSelectorType_CONTRACT_ADDRESS() {
 	suite.SetupTest()
-	app := suite.app
+	a := suite.app
 	ctx := suite.ctx
 	req := suite.Require()
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 	msgInfo, _ := types.NewExecuteMessageInfo([]byte("{\"test\":\"value\"}"))
 
 	accessOps := []*acltypes.WasmAccessOperation{
@@ -2609,18 +2609,18 @@ func (suite *KeeperTestSuite) TestBuildSelectorOps_AccessOperationSelectorType_C
 			Selector:     ".test",
 		},
 	}
-	_, err := app.AccessControlKeeper.BuildSelectorOps(
+	_, err := a.AccessControlKeeper.BuildSelectorOps(
 		ctx, wasmContractAddresses[0], accessOps, wasmContractAddresses[0].String(), msgInfo, make(aclkeeper.ContractReferenceLookupMap))
 	req.Error(err)
 }
 
 func (suite *KeeperTestSuite) TestBuildSelectorOps_AccessOperationSelectorType_CONTRACT_REFERENCE() {
 	suite.SetupTest()
-	app := suite.app
+	a := suite.app
 	ctx := suite.ctx
 	req := suite.Require()
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 	msgInfo, _ := types.NewExecuteMessageInfo([]byte("{\"test\":\"value\"}"))
 
 	accessOps := []*acltypes.WasmAccessOperation{
@@ -2634,7 +2634,7 @@ func (suite *KeeperTestSuite) TestBuildSelectorOps_AccessOperationSelectorType_C
 			Selector:     ".test",
 		},
 	}
-	_, err := app.AccessControlKeeper.BuildSelectorOps(
+	_, err := a.AccessControlKeeper.BuildSelectorOps(
 		ctx, wasmContractAddresses[0], accessOps, wasmContractAddresses[0].String(), msgInfo, make(aclkeeper.ContractReferenceLookupMap))
 	req.NoError(err)
 }

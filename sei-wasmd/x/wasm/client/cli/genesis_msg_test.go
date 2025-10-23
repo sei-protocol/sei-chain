@@ -1,4 +1,4 @@
-package cli
+package cli_test
 
 import (
 	"context"
@@ -28,6 +28,7 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	tmtypes "github.com/tendermint/tendermint/types"
 
+	"github.com/CosmWasm/wasmd/x/wasm/client/cli"
 	"github.com/CosmWasm/wasmd/x/wasm/keeper"
 	"github.com/CosmWasm/wasmd/x/wasm/types"
 )
@@ -90,7 +91,7 @@ func TestGenesisStoreCodeCmd(t *testing.T) {
 			homeDir := setupGenesis(t, spec.srcGenesis)
 
 			// when
-			cmd := GenesisStoreCodeCmd(homeDir, NewDefaultGenesisIO())
+			cmd := cli.GenesisStoreCodeCmd(homeDir, cli.NewDefaultGenesisIO())
 			spec.mutator(cmd)
 			err := executeCmdWithContext(t, homeDir, cmd)
 			if spec.expError {
@@ -348,7 +349,7 @@ func TestInstantiateContractCmd(t *testing.T) {
 			homeDir := setupGenesis(t, spec.srcGenesis)
 
 			// when
-			cmd := GenesisInstantiateContractCmd(homeDir, NewDefaultGenesisIO())
+			cmd := cli.GenesisInstantiateContractCmd(homeDir, cli.NewDefaultGenesisIO())
 			spec.mutator(cmd)
 			err := executeCmdWithContext(t, homeDir, cmd)
 			if spec.expError {
@@ -548,7 +549,7 @@ func TestExecuteContractCmd(t *testing.T) {
 	for msg, spec := range specs {
 		t.Run(msg, func(t *testing.T) {
 			homeDir := setupGenesis(t, spec.srcGenesis)
-			cmd := GenesisExecuteContractCmd(homeDir, NewDefaultGenesisIO())
+			cmd := cli.GenesisExecuteContractCmd(homeDir, cli.NewDefaultGenesisIO())
 			spec.mutator(cmd)
 
 			// when
@@ -568,7 +569,7 @@ func TestExecuteContractCmd(t *testing.T) {
 func TestGetAllContracts(t *testing.T) {
 	specs := map[string]struct {
 		src types.GenesisState
-		exp []ContractMeta
+		exp []cli.ContractMeta
 	}{
 		"read from contracts state": {
 			src: types.GenesisState{
@@ -583,7 +584,7 @@ func TestGetAllContracts(t *testing.T) {
 					},
 				},
 			},
-			exp: []ContractMeta{
+			exp: []cli.ContractMeta{
 				{
 					ContractAddress: "first-contract",
 					Info:            types.ContractInfo{Label: "first"},
@@ -601,7 +602,7 @@ func TestGetAllContracts(t *testing.T) {
 					{Sum: &types.GenesisState_GenMsgs_InstantiateContract{InstantiateContract: &types.MsgInstantiateContract{Label: "second"}}},
 				},
 			},
-			exp: []ContractMeta{
+			exp: []cli.ContractMeta{
 				{
 					ContractAddress: keeper.BuildContractAddress(0, 1).String(),
 					Info:            types.ContractInfo{Label: "first"},
@@ -621,7 +622,7 @@ func TestGetAllContracts(t *testing.T) {
 					{Sum: &types.GenesisState_GenMsgs_InstantiateContract{InstantiateContract: &types.MsgInstantiateContract{Label: "hundred"}}},
 				},
 			},
-			exp: []ContractMeta{
+			exp: []cli.ContractMeta{
 				{
 					ContractAddress: keeper.BuildContractAddress(0, 100).String(),
 					Info:            types.ContractInfo{Label: "hundred"},
@@ -643,7 +644,7 @@ func TestGetAllContracts(t *testing.T) {
 					{Sum: &types.GenesisState_GenMsgs_InstantiateContract{InstantiateContract: &types.MsgInstantiateContract{Label: "hundred"}}},
 				},
 			},
-			exp: []ContractMeta{
+			exp: []cli.ContractMeta{
 				{
 					ContractAddress: "first-contract",
 					Info:            types.ContractInfo{Label: "first"},
@@ -657,7 +658,7 @@ func TestGetAllContracts(t *testing.T) {
 	}
 	for msg, spec := range specs {
 		t.Run(msg, func(t *testing.T) {
-			got := GetAllContracts(&spec.src)
+			got := cli.GetAllContracts(&spec.src)
 			assert.Equal(t, spec.exp, got)
 		})
 	}

@@ -1,18 +1,19 @@
 package keeper_test
 
 import (
-	"github.com/cosmos/cosmos-sdk/simapp"
+	"testing"
+
 	"github.com/cosmos/cosmos-sdk/x/slashing/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/assert"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"testing"
 )
 
 func TestResizeMissedBlockArray(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 6, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 6, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 
 	// initial parameters for tests
 	initialWindowSize := int64(10)

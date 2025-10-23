@@ -3,44 +3,41 @@ package keeper_test
 import (
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestParams(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	keeper := app.AccessControlKeeper
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	keeper := a.AccessControlKeeper
 
-	response, err := app.AccessControlKeeper.Params(sdk.WrapSDKContext(ctx), &types.QueryParamsRequest{})
+	response, err := a.AccessControlKeeper.Params(sdk.WrapSDKContext(ctx), &types.QueryParamsRequest{})
 	require.NoError(t, err)
 	require.Equal(t, keeper.GetParams(ctx), response.Params)
 }
 
 func TestResourceDependencyMappingFromMessageKey(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	keeper := app.AccessControlKeeper
+	keeper := a.AccessControlKeeper
 	response, err := keeper.ResourceDependencyMappingFromMessageKey(
 		sdk.WrapSDKContext(ctx),
 		&types.ResourceDependencyMappingFromMessageKeyRequest{MessageKey: "key"},
 	)
-
 	require.NoError(t, err)
-	require.Equal(t, keeper.GetResourceDependencyMapping(ctx, types.MessageKey("key")), response.MessageDependencyMapping)
+	require.Equal(t, a.AccessControlKeeper.GetResourceDependencyMapping(ctx, types.MessageKey("key")), response.MessageDependencyMapping)
 }
-
 func TestWasmDependencyMappingCall(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	keeper := app.AccessControlKeeper
-
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	keeper := a.AccessControlKeeper
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	wasmMapping := acltypes.WasmDependencyMapping{
 		BaseAccessOps: []*acltypes.WasmAccessOperation{
@@ -56,7 +53,7 @@ func TestWasmDependencyMappingCall(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 
 	_, err = keeper.WasmDependencyMapping(sdk.WrapSDKContext(ctx), &types.WasmDependencyMappingRequest{ContractAddress: wasmContractAddress.String()})
@@ -70,8 +67,8 @@ func TestWasmDependencyMappingCall(t *testing.T) {
 }
 
 func TestListResourceDependencyMapping(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 	testDependencyMapping := acltypes.MessageDependencyMapping{
 		MessageKey: "testKey",
 		AccessOps: []acltypes.AccessOperation{
@@ -83,20 +80,20 @@ func TestListResourceDependencyMapping(t *testing.T) {
 			*types.CommitAccessOp(),
 		},
 	}
-	err := app.AccessControlKeeper.SetResourceDependencyMapping(ctx, testDependencyMapping)
+	err := a.AccessControlKeeper.SetResourceDependencyMapping(ctx, testDependencyMapping)
 	require.NoError(t, err)
 
-	keeper := app.AccessControlKeeper
+	keeper := a.AccessControlKeeper
 	result, err := keeper.ListResourceDependencyMapping(sdk.WrapSDKContext(ctx), &types.ListResourceDependencyMappingRequest{})
 	require.NoError(t, err)
 	require.Len(t, result.MessageDependencyMappingList, 1)
 }
 
 func TestListWasmDependencyMapping(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
+	a := app.Setup(false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
 	wasmMapping := acltypes.WasmDependencyMapping{
 		BaseAccessOps: []*acltypes.WasmAccessOperation{
@@ -112,10 +109,10 @@ func TestListWasmDependencyMapping(t *testing.T) {
 		ContractAddress: wasmContractAddress.String(),
 	}
 	// set the dependency mapping
-	err := app.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
+	err := a.AccessControlKeeper.SetWasmDependencyMapping(ctx, wasmMapping)
 	require.NoError(t, err)
 
-	keeper := app.AccessControlKeeper
+	keeper := a.AccessControlKeeper
 	result, err := keeper.ListWasmDependencyMapping(sdk.WrapSDKContext(ctx), &types.ListWasmDependencyMappingRequest{})
 	require.NoError(t, err)
 	require.Len(t, result.WasmDependencyMappingList, 1)

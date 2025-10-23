@@ -10,6 +10,7 @@ import (
 	"path"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
@@ -23,9 +24,9 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/server"
 	"github.com/cosmos/cosmos-sdk/server/types"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/genutil"
+	"github.com/cosmos/ibc-go/v3/testing/simapp"
 )
 
 func TestExportCmd_ConsensusParams(t *testing.T) {
@@ -119,56 +120,53 @@ func TestExportCmd_Height(t *testing.T) {
 
 }
 
-func setupApp(t *testing.T, tempDir string) (*simapp.SimApp, context.Context, *tmtypes.GenesisDoc, *cobra.Command) {
+func setupApp(t *testing.T, tempDir string) (*app.App, context.Context, *tmtypes.GenesisDoc, *cobra.Command) {
 	if err := createConfigFolder(tempDir); err != nil {
 		t.Fatalf("error creating config folder: %s", err)
 	}
 
-	logger := log.NewTestingLogger(t)
-	db := dbm.NewMemDB()
 	encCfg := simapp.MakeTestEncodingConfig()
-	app := simapp.NewSimApp(logger, db, nil, true, map[int64]bool{}, tempDir, 0, nil, encCfg, &simapp.EmptyAppOptions{})
+	a := app.Setup(false, false, false)
 
 	serverCtx := server.NewDefaultContext()
 	serverCtx.Config.RootDir = tempDir
 
-	clientCtx := client.Context{}.WithCodec(app.AppCodec())
+	clientCtx := client.Context{}.WithCodec(a.AppCodec())
 	genDoc := newDefaultGenesisDoc(encCfg.Marshaler)
 
 	require.NoError(t, saveGenesisFile(genDoc, serverCtx.Config.GenesisFile()))
-	app.InitChain(
+	a.InitChain(
 		context.Background(), &abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
-			ConsensusParams: simapp.DefaultConsensusParams,
+			ConsensusParams: app.DefaultConsensusParams,
 			AppStateBytes:   genDoc.AppState,
 		},
 	)
-	app.SetDeliverStateToCommit()
-	app.Commit(context.Background())
+	a.SetDeliverStateToCommit()
+	a.Commit(context.Background())
 
 	cmd := server.ExportCmd(
 		func(_ log.Logger, _ dbm.DB, _ io.Writer, height int64, forZeroHeight bool, jailAllowedAddrs []string, appOptons types.AppOptions, file *os.File) (types.ExportedApp, error) {
-			encCfg := simapp.MakeTestEncodingConfig()
 
-			var simApp *simapp.SimApp
+			var aapp *app.App
 			if height != -1 {
-				simApp = simapp.NewSimApp(logger, db, nil, false, map[int64]bool{}, "", 0, nil, encCfg, &simapp.EmptyAppOptions{})
+				aapp = app.Setup(false, false, false)
 
-				if err := simApp.LoadHeight(height); err != nil {
+				if err := aapp.LoadHeight(height); err != nil {
 					return types.ExportedApp{}, err
 				}
 			} else {
-				simApp = simapp.NewSimApp(logger, db, nil, true, map[int64]bool{}, "", 0, nil, encCfg, &simapp.EmptyAppOptions{})
+				aapp = app.Setup(false, false, false)
 			}
 
-			return simApp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)
+			return aapp.ExportAppStateAndValidators(forZeroHeight, jailAllowedAddrs)
 		}, tempDir)
 
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, client.ClientContextKey, &clientCtx)
 	ctx = context.WithValue(ctx, server.ServerContextKey, serverCtx)
 
-	return app, ctx, genDoc, cmd
+	return a, ctx, genDoc, cmd
 }
 
 func createConfigFolder(dir string) error {

@@ -9,14 +9,14 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/codec/types"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/feegrant"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 func TestFilteredFeeValidAllow(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{
 		Time: time.Now(),
 	})
@@ -215,7 +215,7 @@ func TestFilteredFeeValidAllow(t *testing.T) {
 }
 
 func TestFilteredFeeValidAllowance(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 
 	smallAtom := sdk.NewCoins(sdk.NewInt64Coin("atom", 488))
 	bigAtom := sdk.NewCoins(sdk.NewInt64Coin("atom", 1000))

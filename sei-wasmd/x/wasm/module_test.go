@@ -36,7 +36,7 @@ func setupTest(t *testing.T) testData {
 	ctx, keepers := CreateTestInput(t, false, "iterator,staking,stargate")
 	cdc := keeper.MakeTestCodec(t)
 	data := testData{
-		module:        NewAppModule(cdc, keepers.WasmKeeper, keepers.StakingKeeper, keepers.AccountKeeper, keepers.BankKeeper),
+		module:        NewAppModule(cdc, keepers.WasmKeeper, keepers.StakingKeeper, keepers.AccountKeeper),
 		ctx:           ctx,
 		acctKeeper:    keepers.AccountKeeper,
 		keeper:        *keepers.WasmKeeper,

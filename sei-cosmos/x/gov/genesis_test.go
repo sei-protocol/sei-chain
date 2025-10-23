@@ -7,23 +7,22 @@ import (
 
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/gov"
 	"github.com/cosmos/cosmos-sdk/x/gov/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 func TestImportExportQueues(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	addrs := simapp.AddTestAddrs(app, ctx, 2, valTokens)
+	addrs := seiapp.AddTestAddrs(app, ctx, 2, valTokens)
 
 	SortAddresses(addrs)
 
@@ -57,7 +56,7 @@ func TestImportExportQueues(t *testing.T) {
 
 	// export the state and import it into a new app
 	govGenState := gov.ExportGenesis(ctx, app.GovKeeper)
-	genesisState := simapp.NewDefaultGenesisState(app.AppCodec())
+	genesisState := seiapp.NewDefaultGenesisState(app.AppCodec())
 
 	genesisState[authtypes.ModuleName] = app.AppCodec().MustMarshalJSON(authGenState)
 	genesisState[banktypes.ModuleName] = app.AppCodec().MustMarshalJSON(bankGenState)
@@ -69,12 +68,12 @@ func TestImportExportQueues(t *testing.T) {
 	}
 
 	db := dbm.NewMemDB()
-	app2 := simapp.NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 0, nil, simapp.MakeTestEncodingConfig(), &simapp.EmptyAppOptions{})
+	app2 := seiapp.SetupWithDB(db, false, false, false)
 
 	app2.InitChain(
 		context.Background(), &abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
-			ConsensusParams: simapp.DefaultConsensusParams,
+			ConsensusParams: seiapp.DefaultConsensusParams,
 			AppStateBytes:   stateBytes,
 		},
 	)
@@ -110,7 +109,7 @@ func TestImportExportQueues(t *testing.T) {
 }
 
 func TestImportExportQueues_ErrorUnconsistentState(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	require.Panics(t, func() {
 		gov.InitGenesis(ctx, app.AccountKeeper, app.BankKeeper, app.GovKeeper, &types.GenesisState{
@@ -131,9 +130,9 @@ func TestImportExportQueues_ErrorUnconsistentState(t *testing.T) {
 }
 
 func TestEqualProposals(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	addrs := simapp.AddTestAddrs(app, ctx, 2, valTokens)
+	addrs := seiapp.AddTestAddrs(app, ctx, 2, valTokens)
 
 	SortAddresses(addrs)
 

@@ -5,7 +5,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
-	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
 func (suite *IntegrationTestSuite) TestExportGenesis() {

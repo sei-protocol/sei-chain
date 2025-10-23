@@ -9,11 +9,11 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/genutil/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 var (
@@ -45,14 +45,14 @@ func TestValidateGenesisMultipleMessages(t *testing.T) {
 		sdk.NewInt64Coin(sdk.DefaultBondDenom, 50), desc, comm, sdk.OneInt())
 	require.NoError(t, err)
 
-	txGen := simapp.MakeTestEncodingConfig().TxConfig
+	txGen := seiapp.MakeEncodingConfig().TxConfig
 	txBuilder := txGen.NewTxBuilder()
 	require.NoError(t, txBuilder.SetMsgs(msg1, msg2))
 
 	tx := txBuilder.GetTx()
 	genesisState := types.NewGenesisStateFromTx(txGen.TxJSONEncoder(), []sdk.Tx{tx})
 
-	err = types.ValidateGenesis(genesisState, simapp.MakeTestEncodingConfig().TxConfig.TxJSONDecoder())
+	err = types.ValidateGenesis(genesisState, seiapp.MakeEncodingConfig().TxConfig.TxJSONDecoder())
 	require.Error(t, err)
 }
 
@@ -61,7 +61,7 @@ func TestValidateGenesisBadMessage(t *testing.T) {
 
 	msg1 := stakingtypes.NewMsgEditValidator(sdk.ValAddress(pk1.Address()), desc, nil, nil)
 
-	txGen := simapp.MakeTestEncodingConfig().TxConfig
+	txGen := seiapp.MakeEncodingConfig().TxConfig
 	txBuilder := txGen.NewTxBuilder()
 	err := txBuilder.SetMsgs(msg1)
 	require.NoError(t, err)
@@ -69,7 +69,7 @@ func TestValidateGenesisBadMessage(t *testing.T) {
 	tx := txBuilder.GetTx()
 	genesisState := types.NewGenesisStateFromTx(txGen.TxJSONEncoder(), []sdk.Tx{tx})
 
-	err = types.ValidateGenesis(genesisState, simapp.MakeTestEncodingConfig().TxConfig.TxJSONDecoder())
+	err = types.ValidateGenesis(genesisState, seiapp.MakeEncodingConfig().TxConfig.TxJSONDecoder())
 	require.Error(t, err)
 }
 

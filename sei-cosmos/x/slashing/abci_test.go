@@ -8,7 +8,6 @@ import (
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/slashing"
 	"github.com/cosmos/cosmos-sdk/x/slashing/testslashing"
@@ -16,14 +15,15 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 func TestBeginBlocker(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	pks := simapp.CreateTestPubKeys(5)
-	simapp.AddTestAddrsFromPubKeys(app, ctx, pks, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	pks := seiapp.CreateTestPubKeys(5)
+	seiapp.AddTestAddrsFromPubKeys(app, ctx, pks, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
 	trueVotes := []abci.VoteInfo{}
@@ -117,13 +117,13 @@ func TestBeginBlocker(t *testing.T) {
 }
 
 func TestResizeTrimResetValidatorMissedBlocksArray(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 
-	pks := simapp.CreateTestPubKeys(1)
+	pks := seiapp.CreateTestPubKeys(1)
 
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
@@ -177,13 +177,13 @@ func TestResizeTrimResetValidatorMissedBlocksArray(t *testing.T) {
 }
 
 func TestResizeExpandValidatorMissedBlocksArray(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 
-	pks := simapp.CreateTestPubKeys(1)
+	pks := seiapp.CreateTestPubKeys(1)
 
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
@@ -237,13 +237,13 @@ func TestResizeExpandValidatorMissedBlocksArray(t *testing.T) {
 }
 
 func TestResizeExpandShiftValidatorMissedBlocksArrayMultipleBitGroups(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 
-	pks := simapp.CreateTestPubKeys(1)
+	pks := seiapp.CreateTestPubKeys(1)
 
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
@@ -302,13 +302,13 @@ func TestResizeExpandShiftValidatorMissedBlocksArrayMultipleBitGroups(t *testing
 }
 
 func TestResizeExpandShiftValidatorMissedBlocksArrayMultipleBitGroupsBeforeAndAfter(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 
-	pks := simapp.CreateTestPubKeys(1)
+	pks := seiapp.CreateTestPubKeys(1)
 
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
@@ -374,13 +374,13 @@ func TestResizeExpandShiftValidatorMissedBlocksArrayMultipleBitGroupsBeforeAndAf
 }
 
 func TestResizeTrimValidatorMissedBlocksArrayMultipleBitGroups(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 
-	pks := simapp.CreateTestPubKeys(1)
+	pks := seiapp.CreateTestPubKeys(1)
 
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
@@ -438,13 +438,13 @@ func TestResizeTrimValidatorMissedBlocksArrayMultipleBitGroups(t *testing.T) {
 }
 
 func TestResizeTrimValidatorMissedBlocksArrayEliminateBitGroup(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 
-	pks := simapp.CreateTestPubKeys(1)
+	pks := seiapp.CreateTestPubKeys(1)
 
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 

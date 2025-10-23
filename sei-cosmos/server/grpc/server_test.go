@@ -22,7 +22,6 @@ import (
 	reflectionv1 "github.com/cosmos/cosmos-sdk/client/grpc/reflection"
 	clienttx "github.com/cosmos/cosmos-sdk/client/tx"
 	reflectionv2 "github.com/cosmos/cosmos-sdk/server/grpc/reflection/v2alpha1"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/testutil/network"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -33,12 +32,13 @@ import (
 	authclient "github.com/cosmos/cosmos-sdk/x/auth/client"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 type IntegrationTestSuite struct {
 	suite.Suite
 
-	app     *simapp.SimApp
+	app     *seiapp.App
 	cfg     network.Config
 	network *network.Network
 	conn    *grpc.ClientConn
@@ -46,7 +46,7 @@ type IntegrationTestSuite struct {
 
 func (s *IntegrationTestSuite) SetupSuite() {
 	s.T().Log("setting up integration test suite")
-	s.app = simapp.Setup(false)
+	s.app = seiapp.Setup(false, false, false)
 	s.cfg = network.DefaultConfig()
 	s.cfg.NumValidators = 1
 	s.network = network.New(s.T(), s.cfg)

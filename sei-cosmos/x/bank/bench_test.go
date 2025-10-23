@@ -4,12 +4,12 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/apptesting"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
-	simappparams "github.com/cosmos/cosmos-sdk/simapp/params"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -27,17 +27,17 @@ func BenchmarkOneBankSendTxPerBlock(b *testing.B) {
 
 	// construct genesis state
 	genAccs := []types.GenesisAccount{&acc}
-	benchmarkApp := simapp.SetupWithGenesisAccounts(genAccs)
+	benchmarkApp := app.SetupWithGenesisAccounts(genAccs)
 	ctx := benchmarkApp.BaseApp.NewContext(false, tmproto.Header{})
 
 	// some value conceivably higher than the benchmarks would ever go
-	require.NoError(b, simapp.FundAccount(benchmarkApp.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 100000000000))))
+	require.NoError(b, apptesting.FundAccount(benchmarkApp.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 100000000000))))
 
 	benchmarkApp.Commit(context.Background())
-	txGen := simappparams.MakeTestEncodingConfig().TxConfig
+	txGen := app.MakeEncodingConfig().TxConfig
 
 	// Precompute all txs
-	txs, err := simapp.GenSequenceOfTxs(txGen, []sdk.Msg{sendMsg1}, []uint64{0}, []uint64{uint64(0)}, b.N, priv1)
+	txs, err := app.GenSequenceOfTxs(txGen, []sdk.Msg{sendMsg1}, []uint64{0}, []uint64{uint64(0)}, b.N, priv1)
 	require.NoError(b, err)
 	b.ResetTimer()
 
@@ -69,17 +69,17 @@ func BenchmarkOneBankMultiSendTxPerBlock(b *testing.B) {
 
 	// Construct genesis state
 	genAccs := []authtypes.GenesisAccount{&acc}
-	benchmarkApp := simapp.SetupWithGenesisAccounts(genAccs)
+	benchmarkApp := app.SetupWithGenesisAccounts(genAccs)
 	ctx := benchmarkApp.BaseApp.NewContext(false, tmproto.Header{})
 
 	// some value conceivably higher than the benchmarks would ever go
-	require.NoError(b, simapp.FundAccount(benchmarkApp.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 100000000000))))
+	require.NoError(b, apptesting.FundAccount(benchmarkApp.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 100000000000))))
 
 	benchmarkApp.Commit(context.Background())
-	txGen := simappparams.MakeTestEncodingConfig().TxConfig
+	txGen := app.MakeEncodingConfig().TxConfig
 
 	// Precompute all txs
-	txs, err := simapp.GenSequenceOfTxs(txGen, []sdk.Msg{multiSendMsg1}, []uint64{0}, []uint64{uint64(0)}, b.N, priv1)
+	txs, err := app.GenSequenceOfTxs(txGen, []sdk.Msg{multiSendMsg1}, []uint64{0}, []uint64{uint64(0)}, b.N, priv1)
 	require.NoError(b, err)
 	b.ResetTimer()
 

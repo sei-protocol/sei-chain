@@ -7,14 +7,14 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 var (
-	PKs = simapp.CreateTestPubKeys(500)
+	PKs = seiapp.CreateTestPubKeys(500)
 )
 
 func init() {
@@ -23,8 +23,8 @@ func init() {
 
 // createTestInput Returns a simapp with custom StakingKeeper
 // to avoid messing with the hooks.
-func createTestInput() (*codec.LegacyAmino, *simapp.SimApp, sdk.Context) {
-	app := simapp.Setup(false)
+func createTestInput() (*codec.LegacyAmino, *seiapp.App, sdk.Context) {
+	app := seiapp.Setup(false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	app.StakingKeeper = keeper.NewKeeper(
@@ -43,9 +43,9 @@ func ValEq(t *testing.T, exp, got types.Validator) (*testing.T, bool, string, ty
 }
 
 // generateAddresses generates numAddrs of normal AccAddrs and ValAddrs
-func generateAddresses(app *simapp.SimApp, ctx sdk.Context, numAddrs int) ([]sdk.AccAddress, []sdk.ValAddress) {
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, numAddrs, sdk.NewInt(10000))
-	addrVals := simapp.ConvertAddrsToValAddrs(addrDels)
+func generateAddresses(app *seiapp.App, ctx sdk.Context, numAddrs int) ([]sdk.AccAddress, []sdk.ValAddress) {
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, numAddrs, sdk.NewInt(10000))
+	addrVals := seiapp.ConvertAddrsToValAddrs(addrDels)
 
 	return addrDels, addrVals
 }
