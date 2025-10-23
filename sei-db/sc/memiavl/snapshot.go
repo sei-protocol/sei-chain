@@ -5,16 +5,18 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/sei-protocol/sei-db/common/logger"
-	"golang.org/x/sys/unix"
 	"io"
 	"math"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
+
+	"github.com/sei-protocol/sei-db/common/logger"
+	"golang.org/x/sys/unix"
 
 	"github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/sc/types"
@@ -688,17 +690,52 @@ func SequentialReadAndFillPageCache(filePath string) error {
 		close(reportDone)
 	}()
 
-	// Progress reporter
+	startPrefetchProgressReporter(filePath, totalSize, &totalRead, startTime, reportDone)
+
+	concurrency := runtime.NumCPU()
+	var wg sync.WaitGroup
+	jobs := make(chan [2]int64, concurrency)
+	wg.Add(concurrency)
+	const chunkSize = 16 * 1024 * 1024 // 16MB
+	for w := 0; w < concurrency; w++ {
+		go func() {
+			defer wg.Done()
+			buf := make([]byte, chunkSize)
+			for job := range jobs {
+				readChunkIntoCache(f, buf, job[0], int(job[1]), &totalRead)
+			}
+		}()
+	}
+
+	// Enqueue chunks sequentially to retain locality
+	for offset := int64(0); offset < totalSize; offset += chunkSize {
+		end := offset + chunkSize
+		if end > totalSize {
+			end = totalSize
+		}
+		jobs <- [2]int64{offset, end - offset}
+	}
+	close(jobs)
+	wg.Wait()
+
+	elapsed := time.Since(startTime).Seconds()
+	avgSpeedMBps := float64(totalSize) / elapsed / (1024 * 1024)
+	fmt.Printf("Completed prefetching %s: %d MB in %.1fs (%.1f MB/s)\n",
+		filePath, totalSize/(1024*1024), elapsed, avgSpeedMBps)
+	return nil
+}
+
+// startPrefetchProgressReporter periodically logs progress until done is closed.
+func startPrefetchProgressReporter(filePath string, totalSize int64, totalRead *int64, startTime time.Time, done <-chan struct{}) {
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
-
 		for {
 			select {
-			case <-reportDone:
+			case <-done:
 				return
 			case <-ticker.C:
-				tr := atomic.LoadInt64(&totalRead)
+				tr := atomic.LoadInt64(totalRead)
 				elapsed := time.Since(startTime).Seconds()
 				if elapsed <= 0 {
 					continue
@@ -711,27 +748,29 @@ func SequentialReadAndFillPageCache(filePath string) error {
 			}
 		}
 	}()
+}
 
-	const bufSize = 16 * 1024 * 1024 // 16MB
-	buf := make([]byte, bufSize)
-	for {
-		readN, er := f.Read(buf)
+// readChunkIntoCache reads n bytes starting at pos, updating totalRead.
+func readChunkIntoCache(f *os.File, buf []byte, pos int64, n int, totalRead *int64) {
+	remaining := n
+	for remaining > 0 {
+		readN, er := f.ReadAt(buf[:remaining], pos)
 		if readN > 0 {
-			atomic.AddInt64(&totalRead, int64(readN))
+			pos += int64(readN)
+			remaining -= readN
+			atomic.AddInt64(totalRead, int64(readN))
 		}
 		if er == io.EOF {
 			break
 		}
-		if er != nil {
+		if er != nil && er != io.ErrUnexpectedEOF {
 			// Best-effort warming; ignore transient errors
 			break
 		}
+		if readN == 0 {
+			break
+		}
 	}
-	elapsed := time.Since(startTime).Seconds()
-	avgSpeedMBps := float64(totalSize) / elapsed / (1024 * 1024)
-	fmt.Printf("Completed prefetching %s: %d MB in %.1fs (%.1f MB/s)\n",
-		filePath, totalSize/(1024*1024), elapsed, avgSpeedMBps)
-	return nil
 }
 
 // residentRatio returns fraction of pages resident in the page cache for data.
