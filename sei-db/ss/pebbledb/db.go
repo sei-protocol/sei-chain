@@ -543,8 +543,6 @@ func (db *Database) computeHashForRange(beginBlock, endBlock int64) (_err error)
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(
-				attribute.Int64("begin_block", beginBlock),
-				attribute.Int64("end_block", endBlock),
 				attribute.Bool("success", _err == nil),
 			),
 		)
@@ -636,7 +634,6 @@ func (db *Database) Prune(version int64) (_err error) {
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(
-				attribute.Int64("version", version),
 				attribute.Bool("success", _err == nil),
 			),
 		)
@@ -818,7 +815,6 @@ func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err er
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(
-				attribute.Int64("version", version),
 				attribute.Bool("success", _err == nil),
 			),
 		)
