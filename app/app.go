@@ -632,19 +632,19 @@ func New(
 			panic(fmt.Sprintf("error while creating receipt store: %s", err))
 		}
 	}
+	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
+	if err != nil {
+		panic(fmt.Sprintf("error reading EVM config due to %s", err))
+	}
 	app.EvmKeeper = *evmkeeper.NewKeeper(keys[evmtypes.StoreKey],
 		tkeys[evmtypes.TransientStoreKey], app.GetSubspace(evmtypes.ModuleName), app.receiptStore, app.BankKeeper,
 		&app.AccountKeeper, &app.StakingKeeper, app.TransferKeeper,
-		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.UpgradeKeeper)
+		wasmkeeper.NewDefaultPermissionKeeper(app.WasmKeeper), &app.WasmKeeper, &app.UpgradeKeeper, app.evmRPCConfig.TypedTxCacheLimit)
 	app.BankKeeper.RegisterRecipientChecker(app.EvmKeeper.CanAddressReceive)
 
 	bApp.SetPreCommitHandler(app.HandlePreCommit)
 	bApp.SetCloseHandler(app.HandleClose)
 
-	app.evmRPCConfig, err = evmrpc.ReadConfig(appOpts)
-	if err != nil {
-		panic(fmt.Sprintf("error reading EVM config due to %s", err))
-	}
 	evmQueryConfig, err := querier.ReadConfig(appOpts)
 	if err != nil {
 		panic(fmt.Sprintf("error reading evm query config due to %s", err))
@@ -1682,6 +1682,7 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs)) // nil for non-EVM txs
 	txResults = make([]*abci.ExecTxResult, len(txs))
 	typedTxs := app.DecodeTransactionsConcurrently(ctx, txs)
+	app.EvmKeeper.SetTypedTxs(req.GetHeight(), typedTxs)
 
 	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs, typedTxs)
 
