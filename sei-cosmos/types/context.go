@@ -48,7 +48,7 @@ type Context struct {
 	priority          int64                 // The tx priority, only relevant in CheckTx
 	hasPriority       bool                  // Whether the tx has a priority set
 	pendingTxChecker  abci.PendingTxChecker // Checker for pending transaction, only relevant in CheckTx
-	checkTxCallback   func(Context, error)  // callback to make at the end of CheckTx. Input param is the error (nil-able) of `runMsgs`
+	checkTxCallback   func(int64, error)    // callback to make at the end of CheckTx. Input param is the error (nil-able) of `runMsgs`
 	deliverTxCallback func(Context)         // callback to make at the end of DeliverTx.
 	expireTxHandler   func()                // callback that the mempool invokes when a tx is expired
 
@@ -189,7 +189,7 @@ func (c Context) PendingTxChecker() abci.PendingTxChecker {
 	return c.pendingTxChecker
 }
 
-func (c Context) CheckTxCallback() func(Context, error) {
+func (c Context) CheckTxCallback() func(int64, error) {
 	return c.checkTxCallback
 }
 
@@ -505,7 +505,7 @@ func (c Context) WithPendingTxChecker(checker abci.PendingTxChecker) Context {
 	return c
 }
 
-func (c Context) WithCheckTxCallback(checkTxCallback func(Context, error)) Context {
+func (c Context) WithCheckTxCallback(checkTxCallback func(int64, error)) Context {
 	c.checkTxCallback = checkTxCallback
 	return c
 }
