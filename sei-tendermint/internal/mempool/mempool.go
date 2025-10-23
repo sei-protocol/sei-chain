@@ -753,20 +753,7 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 		return err
 	}
 
-	sender := res.Sender
 	priority := res.Priority
-
-	if len(sender) > 0 {
-		if wtx := txmp.txStore.GetTxBySender(sender); wtx != nil {
-			txmp.logger.Error(
-				"rejected incoming good transaction; tx already exists for sender",
-				"tx", fmt.Sprintf("%X", wtx.tx.Hash()),
-				"sender", sender,
-			)
-			txmp.metrics.RejectedTxs.Add(1)
-			return nil
-		}
-	}
 
 	if err := txmp.canAddTx(wtx); err != nil {
 		evictTxs := txmp.priorityIndex.GetEvictableTxs(
@@ -809,7 +796,6 @@ func (txmp *TxMempool) addNewTransaction(wtx *WrappedTx, res *abci.ResponseCheck
 	wtx.gasWanted = res.GasWanted
 	wtx.estimatedGas = res.GasEstimated
 	wtx.priority = priority
-	wtx.sender = sender
 	wtx.peers = map[uint16]struct{}{
 		txInfo.SenderID: {},
 	}

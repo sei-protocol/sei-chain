@@ -159,7 +159,6 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*a
 	}
 	return &abci.ResponseCheckTxV2{ResponseCheckTx: &abci.ResponseCheckTx{
 		Priority:     priority,
-		Sender:       sender,
 		Code:         code.CodeTypeOK,
 		GasWanted:    gasWanted,
 		GasEstimated: gasEstimated,
