@@ -1,9 +1,9 @@
 package state_test
 
 import (
+	"errors"
 	"testing"
 	"time"
-	"errors"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"

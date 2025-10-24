@@ -214,7 +214,7 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 
 	err := validateBlock(state, block)
 	if err != nil {
-		return fmt.Errorf("validateBlock(): %w",err)
+		return fmt.Errorf("validateBlock(): %w", err)
 	}
 
 	err = blockExec.evpool.CheckEvidence(ctx, block.Evidence)
