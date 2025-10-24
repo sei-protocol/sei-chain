@@ -99,6 +99,14 @@ func verifyCommitLightInternal(chainID string, vals *ValidatorSet, blockID Block
 		ignore, count, countAllSignatures, true)
 }
 
+// VerifyCommitLightTrusting verifies that trustLevel of the validator set signed
+// this commit.
+//
+// NOTE the given validators do not necessarily correspond to the validator set
+// for this commit, but there may be some intersection.
+//
+// This method is primarily used by the light client and does NOT check all the
+// signatures.
 func VerifyCommitLightTrusting(chainID string, vals *ValidatorSet, commit *Commit, trustLevel tmmath.Fraction) error {
 	return verifyCommitLightTrustingInternal(chainID, vals, commit, trustLevel, false)
 }
@@ -107,14 +115,6 @@ func VerifyCommitLightTrustingAllSignatures(chainID string, vals *ValidatorSet, 
 	return verifyCommitLightTrustingInternal(chainID, vals, commit, trustLevel, true)
 }
 
-// VerifyCommitLightTrusting verifies that trustLevel of the validator set signed
-// this commit.
-//
-// NOTE the given validators do not necessarily correspond to the validator set
-// for this commit, but there may be some intersection.
-//
-// This method is primarily used by the light client and does not check all the
-// signatures.
 func verifyCommitLightTrustingInternal(chainID string, vals *ValidatorSet, commit *Commit, trustLevel tmmath.Fraction, countAllSignatures bool) error {
 	// sanity checks
 	if vals == nil {
