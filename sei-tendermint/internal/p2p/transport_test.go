@@ -104,7 +104,7 @@ func TestRouter_Listen(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		t.Run(tc.String(), func(t *testing.T) {
+		t.Run(tc.Addr().String(), func(t *testing.T) {
 			logger, _ := log.NewDefaultLogger("plain", "debug")
 			t.Cleanup(leaktest.Check(t))
 			err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
