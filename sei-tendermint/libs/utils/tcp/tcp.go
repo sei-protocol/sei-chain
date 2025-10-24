@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"sync/atomic"
 	"syscall"
+	"fmt"
 
 	"golang.org/x/sys/unix"
 
@@ -73,6 +74,7 @@ func Listen(addr netip.AddrPort) (*net.TCPListener, error) {
 	for addrs := range reservedAddrs.Lock() {
 		if _, ok := addrs[addr]; ok {
 			cfg.Control = func(network, address string, c syscall.RawConn) error {
+				fmt.Printf("LISTEN(%v,%v)\n", network, address)
 				var errInner error
 				if err := c.Control(func(fd uintptr) {
 					errInner = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEPORT, 1)
