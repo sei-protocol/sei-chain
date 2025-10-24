@@ -188,8 +188,8 @@ type State struct {
 	nSteps int
 
 	// some functions can be overwritten for testing
-	doPrevote      func(ctx context.Context, height int64, round int32)
-	setProposal    func(proposal *types.Proposal, t time.Time) error
+	doPrevote   func(ctx context.Context, height int64, round int32)
+	setProposal func(proposal *types.Proposal, t time.Time) error
 
 	// synchronous pubsub between consensus state and reactor.
 	// state only emits EventNewRoundStep, EventValidBlock, and EventVote

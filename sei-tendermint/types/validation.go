@@ -28,7 +28,7 @@ func VerifyCommit(chainID string, vals *ValidatorSet, blockID BlockID,
 	height int64, commit *Commit) error {
 	// run a basic validation of the arguments
 	if err := verifyBasicValsAndCommit(vals, commit, height, blockID); err != nil {
-		return fmt.Errorf("verifyBasicValsAndCommit(): %w",err)
+		return fmt.Errorf("verifyBasicValsAndCommit(): %w", err)
 	}
 
 	// calculate voting power needed. Note that total voting power is capped to

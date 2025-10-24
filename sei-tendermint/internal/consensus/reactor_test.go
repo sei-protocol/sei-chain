@@ -3,6 +3,7 @@ package consensus
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"sync"
 	"testing"
@@ -143,20 +144,20 @@ func setup(
 	return rts
 }
 
-func nextBlock(ctx context.Context, sub eventbus.Subscription, valSet *types.ValidatorSet) (*types.Block,error) {
+func nextBlock(ctx context.Context, sub eventbus.Subscription, valSet *types.ValidatorSet) (*types.Block, error) {
 	msg, err := sub.Next(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("sub.Next(): %w", err)
 	}
 	block := msg.Data().(types.EventDataNewBlock).Block
 	// First block does not contain a Commit.
-	if block.Height<=1 {
-		return block,nil
+	if block.Height <= 1 {
+		return block, nil
 	}
-	if err:=valSet.VerifyCommit(block.ChainID, block.LastCommit.BlockID, block.LastCommit.Height, block.LastCommit); err!=nil {
-		return nil,fmt.Errorf("VerifyCommit(height=%v): %w",block.Height,err)
+	if err := valSet.VerifyCommit(block.ChainID, block.LastCommit.BlockID, block.LastCommit.Height, block.LastCommit); err != nil {
+		return nil, fmt.Errorf("VerifyCommit(height=%v): %w", block.Height, err)
 	}
-	return block,nil
+	return block, nil
 }
 
 // Inserts tx into all mempools.
@@ -171,18 +172,18 @@ func finalizeTx(
 	tx []byte,
 ) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		for i,sub := range blocksSubs {
+		for i, sub := range blocksSubs {
 			s.Spawn(func() error {
 				if err := states[i].txNotifier.(mempool.Mempool).CheckTx(ctx, tx, nil, mempool.TxInfo{}); err != nil {
 					return fmt.Errorf("CheckTx(): %w", err)
 				}
 				for {
-					block,err := nextBlock(ctx, sub, valSet)
+					block, err := nextBlock(ctx, sub, valSet)
 					if err != nil {
 						return fmt.Errorf("nextBlock(): %w", err)
 					}
-					if len(block.Data.Txs)>0 {
-						if err:=utils.TestDiff(tx, block.Data.Txs[0]); err!=nil {
+					if len(block.Data.Txs) > 0 {
+						if err := utils.TestDiff(tx, block.Data.Txs[0]); err != nil {
 							return err
 						}
 						break
@@ -190,7 +191,7 @@ func finalizeTx(
 				}
 				// Next 2 blocks contain commits of the current validatorSet
 				for i := range 2 {
-					if _,err := nextBlock(ctx, sub, valSet); err != nil {
+					if _, err := nextBlock(ctx, sub, valSet); err != nil {
 						return fmt.Errorf("nextBlock(N+%v): %w", i+1, err)
 					}
 				}
@@ -522,7 +523,7 @@ func TestReactorValidatorSetChanges(t *testing.T) {
 		tx := kvstore.MakeValSetChangeTx(keyProto, newPower)
 		require.NoError(t, finalizeTx(ctx, valSet, blocksSubs, states, tx))
 		require.NoError(t, valSet.UpdateWithChangeSet(utils.Slice(types.NewValidator(key, newPower))))
-		t.Logf("DONE %v",i)
+		t.Logf("DONE %v", i)
 	}
 }
 
