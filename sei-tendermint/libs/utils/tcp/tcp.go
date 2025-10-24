@@ -6,8 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"sync/atomic"
-	"syscall"
-	"fmt"
+	"os"
 
 	"golang.org/x/sys/unix"
 
@@ -70,37 +69,41 @@ func Listen(addr netip.AddrPort) (*net.TCPListener, error) {
 	if addr.Port() == 0 {
 		return nil, errors.New("listening on anyport (i.e. 0) is not allowed. If you are implementing a test use TestReserveAddr() instead") // nolint:lll
 	}
-	cfg := net.ListenConfig{}
-	for addrs := range reservedAddrs.Lock() {
-		if _, ok := addrs[addr]; ok {
-			cfg.Control = func(network, address string, c syscall.RawConn) error {
-				fmt.Printf("LISTEN(%v,%v)\n", network, address)
-				var errInner error
-				if err := c.Control(func(fd uintptr) {
-					if errInner = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEPORT, 1); errInner != nil {
-						return
-					}
-					errInner = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
-				}); err != nil {
-					return err
-				}
-				return errInner
-			}
-		}
-	}
-	// Passing the background context is ok, because Listen is
-	// non-blocking if it doesn't need to resolve the address
-	// against a DNS server.
-	// Golang Resolver sucks, because even if provided an IPv4,
-	// it uses IPv6-embedded address on IPv6 socket instead.
-	// To force it to use IPv4, we need to specify the network explicilty.
-	network := "tcp6"
+	var domain int
 	if addr.Addr().Is4() {
-		network = "tcp4"
+		domain = unix.AF_INET
+	} else {
+		domain = unix.AF_INET6
 	}
-	l, err := cfg.Listen(context.Background(), network, addr.String())
+	fd, err := unix.Socket(domain, unix.SOCK_STREAM, 0)
 	if err != nil {
-		return nil, err
+		panic(err)
+	}
+	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1); err != nil {
+		panic(err)
+	}
+	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEPORT, 1); err != nil {
+		panic(err)
+	}
+	// NOTE
+	// linux allows sharing REUSEPORT port across various local IPs.
+	// macOS does not.
+	var addrAny unix.Sockaddr
+	if addr.Addr().Is4() {
+		addrAny = &unix.SockaddrInet4{Port: 0, Addr: addr.Addr().As4()}
+	} else {
+		addrAny = &unix.SockaddrInet6{Port: 0, Addr: addr.Addr().As16()}
+	}
+	if err := unix.Bind(fd, addrAny); err != nil {
+		panic(err)
+	}
+	if err:=unix.Listen(fd, 5); err!=nil {
+		panic(err)
+	}
+	f := os.NewFile(uintptr(fd), "listener")
+	l, err := net.FileListener(f)
+	if err != nil {
+		panic(err)
 	}
 	return l.(*net.TCPListener), nil
 }
