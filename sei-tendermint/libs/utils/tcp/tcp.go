@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"sync/atomic"
+	"fmt"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -14,7 +15,7 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
-var reservedAddrs = utils.NewMutex(map[netip.AddrPort]struct{}{})
+var reservedPorts = utils.NewMutex(map[uint16]struct{}{})
 
 // IPv4Loopback returns the IPv4 loopback address.
 func IPv4Loopback() netip.Addr { return netip.AddrFrom4([4]byte{127, 0, 0, 1}) }
@@ -70,9 +71,10 @@ func Listen(addr netip.AddrPort) (*net.TCPListener, error) {
 		return nil, errors.New("listening on anyport (i.e. 0) is not allowed. If you are implementing a test use TestReserveAddr() instead") // nolint:lll
 	}
 	cfg := net.ListenConfig{}
-	for addrs := range reservedAddrs.Lock() {
-		if _, ok := addrs[addr]; ok {
+	for ports := range reservedPorts.Lock() {
+		if _, ok := ports[addr.Port()]; ok {
 			cfg.Control = func(network, address string, c syscall.RawConn) error {
+				fmt.Printf("LISTEN(%v,%v)\n",network,address)
 				var errInner error
 				if err := c.Control(func(fd uintptr) {
 					errInner = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEPORT, 1)
@@ -127,11 +129,10 @@ func TestReserveAddr() netip.AddrPort {
 		panic(err)
 	}
 	port := uint16(addrRaw.(*unix.SockaddrInet4).Port)
-	addr := netip.AddrPortFrom(ip, port)
-	for addrs := range reservedAddrs.Lock() {
-		addrs[addr] = struct{}{}
+	for ports := range reservedPorts.Lock() {
+		ports[port] = struct{}{}
 	}
-	return addr
+	return netip.AddrPortFrom(ip, port)
 }
 
 func TestPipe() (*net.TCPConn, *net.TCPConn) {
