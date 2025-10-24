@@ -65,7 +65,7 @@ func VerifyCommitLight(chainID string, vals *ValidatorSet, blockID BlockID,
 
 // VerifyCommitLightAllSignatures verifies +2/3 of the set had signed the given commit.
 //
-// This method is primarily used by the light client and DOES check all the
+// This method DOES check all the
 // signatures.
 func VerifyCommitLightAllSignatures(chainID string, vals *ValidatorSet, blockID BlockID,
 	height int64, commit *Commit) error {
@@ -117,7 +117,7 @@ func VerifyCommitLightTrusting(chainID string, vals *ValidatorSet, commit *Commi
 // NOTE the given validators do not necessarily correspond to the validator set
 // for this commit, but there may be some intersection.
 //
-// This method is primarily used by the light client and DOES check all the
+// This method DOES check all the
 // signatures.
 func VerifyCommitLightTrustingAllSignatures(chainID string, vals *ValidatorSet, commit *Commit, trustLevel tmmath.Fraction) error {
 	return verifyCommitLightTrustingInternal(chainID, vals, commit, trustLevel, true)
