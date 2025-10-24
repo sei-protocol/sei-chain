@@ -10,12 +10,13 @@ import (
 	"github.com/tendermint/tendermint/types"
 )
 
-// Envelope contains a message with sender/receiver routing info.
+// sendMsg is a message to be sent to a peer.
 type sendMsg struct {
 	Message   proto.Message // WRAPPED message payload
 	ChannelID ChannelID     // channel id
 }
 
+// RecvMsg is a message received from a peer.
 type RecvMsg struct {
 	Message proto.Message // UNWRAPPED message payload
 	From    types.NodeID  // sender
@@ -54,8 +55,7 @@ type PeerError struct {
 func (pe PeerError) Error() string { return fmt.Sprintf("peer=%q: %s", pe.NodeID, pe.Err.Error()) }
 func (pe PeerError) Unwrap() error { return pe.Err }
 
-// Channel is a bidirectional channel to exchange Protobuf messages with peers.
-// Each message is wrapped in an Envelope to specify its sender and receiver.
+// channel is a bidirectional channel to exchange Protobuf messages with peers.
 type channel struct {
 	desc      ChannelDescriptor
 	recvQueue *Queue[RecvMsg] // inbound messages (peers to reactors)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -51,6 +52,21 @@ type TestNodeOptions struct {
 	MaxPeers     uint16
 	MaxConnected uint16
 	MaxRetryTime time.Duration
+}
+
+func TestAddress(r *Router) NodeAddress {
+	e := r.Endpoint()
+	addr := e.AddrPort.Addr()
+	port := e.AddrPort.Port()
+	// Unmap is used to normalize the address.
+	switch addr.Unmap() {
+	case netip.IPv4Unspecified().Unmap():
+		addr = tcp.IPv4Loopback()
+	case netip.IPv6Unspecified().Unmap():
+		addr = netip.IPv6Loopback()
+	}
+	return Endpoint{netip.AddrPortFrom(addr, port)}.
+		NodeAddress(r.nodeInfoProducer().NodeID)
 }
 
 // MakeNetwork creates a test network with the given number of nodes and
@@ -292,7 +308,8 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	}
 	routerOpts.Connection.FlushThrottle = 0
 	nodeInfo := types.NodeInfo{
-		NodeID:     nodeID,
+		NodeID: nodeID,
+		// Endpoint has been allocated via tcp.TestReserveAddr(), so it is NOT IP(v4/v6)Unspecified.
 		ListenAddr: routerOpts.Endpoint.String(),
 		Moniker:    string(nodeID),
 		Network:    "test",

@@ -38,6 +38,7 @@ type NodeInfo struct {
 
 	// Authenticate
 	NodeID     NodeID `json:"id"`          // authenticated identifier
+	// TODO(gprusak): for some reason ListenAddr is unused. Why do we have it?
 	ListenAddr string `json:"listen_addr"` // accepting incoming
 
 	// Check compatibility.

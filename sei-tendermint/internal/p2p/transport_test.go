@@ -66,7 +66,7 @@ func TestRouter_MaxAcceptedConnections(t *testing.T) {
 			s.SpawnNamed("test", func() error {
 				x := makeRouter(logger)
 				// Establish a connection.
-				tcpConn, err := x.Dial(ctx, r.Address())
+				tcpConn, err := x.Dial(ctx, TestAddress(r))
 				if err != nil {
 					return fmt.Errorf("tcp.Dial(): %w", err)
 				}
@@ -121,7 +121,7 @@ func TestRouter_Listen(t *testing.T) {
 				}
 
 				x := makeRouter(logger)
-				tcpConn, err := x.Dial(ctx, r.Address())
+				tcpConn, err := x.Dial(ctx, TestAddress(r))
 				if err != nil {
 					return fmt.Errorf("tcp.Dial(): %v", err)
 				}
@@ -149,7 +149,7 @@ func TestHandshake_NodeInfo(t *testing.T) {
 		}
 
 		x := makeRouter(logger)
-		tcpConn, err := x.Dial(ctx, r.Address())
+		tcpConn, err := x.Dial(ctx, TestAddress(r))
 		if err != nil {
 			return fmt.Errorf("tcp.Dial(): %v", err)
 		}
@@ -195,7 +195,7 @@ func TestHandshake_Context(t *testing.T) {
 		})
 		s.Spawn(func() error {
 			// Second connection end tries to handshake.
-			tcpConn, err := b.Dial(ctx, a.Address())
+			tcpConn, err := b.Dial(ctx, TestAddress(a))
 			if err != nil {
 				t.Fatalf("tcp.Dial(): %v", err)
 			}

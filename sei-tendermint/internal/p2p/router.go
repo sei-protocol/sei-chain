@@ -149,7 +149,7 @@ type Router struct {
 }
 
 func (r *Router) getChannelDescs() []*ChannelDescriptor {
-	for channels := range r.channels.Lock() {
+	for channels := range r.channels.RLock() {
 		descs := make([]*ChannelDescriptor, 0, len(channels))
 		for _, ch := range channels {
 			descs = append(descs, &ch.desc)
@@ -199,10 +199,6 @@ func NewRouter(
 
 func (r *Router) Endpoint() Endpoint {
 	return r.options.Endpoint
-}
-
-func (r *Router) Address() NodeAddress {
-	return r.Endpoint().NodeAddress(r.nodeInfoProducer().NodeID)
 }
 
 func (r *Router) WaitForStart(ctx context.Context) error {
