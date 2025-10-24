@@ -37,7 +37,8 @@ type NodeInfo struct {
 	ProtocolVersion ProtocolVersion `json:"protocol_version"`
 
 	// Authenticate
-	NodeID     NodeID `json:"id"`          // authenticated identifier
+	NodeID NodeID `json:"id"` // authenticated identifier
+	// TODO(gprusak): for some reason ListenAddr is unused. Why do we have it?
 	ListenAddr string `json:"listen_addr"` // accepting incoming
 
 	// Check compatibility.
