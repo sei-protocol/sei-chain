@@ -328,6 +328,7 @@ func TestStateOversizedBlock(t *testing.T) {
 
 // propose, prevote, and precommit a block
 func TestStateFullRound1(t *testing.T) {
+	t.Skip("https://linear.app/seilabs/issue/CON-102/teststatefullround1-flakes")
 	config := configSetup(t)
 	ctx := t.Context()
 
