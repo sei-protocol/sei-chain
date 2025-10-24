@@ -21,7 +21,6 @@ import (
 	"github.com/cosmos/iavl"
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/common/logger"
-	"github.com/sei-protocol/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/stream/changelog"
@@ -89,19 +88,19 @@ const (
 	SnapshotDirLen = len(SnapshotPrefix) + 20
 )
 
-func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *DB, returnErr error) {
+func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *DB, _err error) {
+	startTime := time.Now()
+	defer func() {
+		otelMetrics.RestartLatency.Record(
+			context.Background(),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(attribute.Bool("success", _err == nil)),
+		)
+	}()
 	var (
 		err      error
 		fileLock FileLock
 	)
-	startTime := time.Now()
-	defer func() {
-		metrics.SeiDBMetrics.RestartLatency.Record(
-			context.Background(),
-			time.Since(startTime).Seconds(),
-			metric.WithAttributes(attribute.Bool("success", returnErr == nil)),
-		)
-	}()
 	if err := opts.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid commit store options: %w", err)
 	}
@@ -295,17 +294,23 @@ func (db *DB) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 
 // ApplyChangeSets wraps MultiTree.ApplyChangeSets, it also appends the changesets in the pending log,
 // which will be persisted to the rlog in next Commit call.
-func (db *DB) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error {
+func (db *DB) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (_err error) {
 	if len(changeSets) == 0 {
 		return nil
 	}
 
-	db.mtx.Lock()
-	defer db.mtx.Unlock()
 	startTime := time.Now()
 	defer func() {
-		metrics.SeiDBMetrics.ApplyChangesetLatency.Record(context.Background(), time.Since(startTime).Milliseconds())
+		otelMetrics.ApplyChangesetLatency.Record(
+			context.Background(),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(attribute.Bool("success", _err == nil)),
+		)
 	}()
+
+	db.mtx.Lock()
+	defer db.mtx.Unlock()
+
 	if db.readOnly {
 		return errReadOnly
 	}
@@ -468,20 +473,21 @@ func (db *DB) pruneSnapshots() {
 }
 
 // Commit wraps SaveVersion to bump the version and writes the pending changes into log files to persist on disk
-func (db *DB) Commit() (version int64, returnErr error) {
-	db.mtx.Lock()
-	defer db.mtx.Unlock()
+func (db *DB) Commit() (version int64, _err error) {
 	startTime := time.Now()
 	defer func() {
 		ctx := context.Background()
-		metrics.SeiDBMetrics.CommitLatency.Record(
+		otelMetrics.CommitLatency.Record(
 			ctx,
-			time.Since(startTime).Milliseconds(),
-			metric.WithAttributes(attribute.Bool("success", returnErr == nil)),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(attribute.Bool("success", _err == nil)),
 		)
-		metrics.SeiDBMetrics.MemNodeTotalSize.Record(ctx, TotalMemNodeSize.Load())
-		metrics.SeiDBMetrics.NumOfMemNode.Record(ctx, TotalNumOfMemNode.Load())
+		otelMetrics.MemNodeTotalSize.Record(ctx, TotalMemNodeSize.Load())
+		otelMetrics.NumOfMemNode.Record(ctx, TotalNumOfMemNode.Load())
 	}()
+
+	db.mtx.Lock()
+	defer db.mtx.Unlock()
 	if db.readOnly {
 		return 0, errReadOnly
 	}
@@ -610,7 +616,7 @@ func (db *DB) RewriteSnapshotBackground() error {
 	return db.rewriteSnapshotBackground()
 }
 
-func (db *DB) rewriteSnapshotBackground() (returnErr error) {
+func (db *DB) rewriteSnapshotBackground() error {
 	if db.snapshotRewriteChan != nil {
 		return errors.New("there's another ongoing snapshot rewriting process")
 	}
@@ -644,7 +650,7 @@ func (db *DB) rewriteSnapshotBackground() (returnErr error) {
 
 		cloned.logger.Info("finished best-effort catchup", "version", cloned.Version(), "latest", mtree.Version())
 		ch <- snapshotResult{mtree: mtree}
-		metrics.SeiDBMetrics.SnapshotCreationLatency.Record(
+		otelMetrics.SnapshotCreationLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 		)
