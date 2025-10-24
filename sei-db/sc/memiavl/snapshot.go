@@ -639,7 +639,7 @@ func (snapshot *Snapshot) prefetchSnapshot(snapshotDir string, prefetchThreshold
 	residentNodes, errNodes := residentRatio(snapshot.nodes)
 	residentLeaves, errLeaves := residentRatio(snapshot.leaves)
 	log.Info(fmt.Sprintf("Tree %s nodes page cache residency ratio is %f\n", treeName, residentNodes))
-	log.Info(fmt.Sprintf("Tree %s leaves page cache residency ratio is %f\n", treeName, residentNodes))
+	log.Info(fmt.Sprintf("Tree %s leaves page cache residency ratio is %f\n", treeName, residentLeaves))
 	if errNodes == nil && errLeaves == nil {
 		if residentNodes >= prefetchThreshold && residentLeaves >= prefetchThreshold {
 			log.Info(fmt.Sprintf("Skipped prefetching for tree %s\n", treeName))
@@ -678,6 +678,8 @@ func SequentialReadAndFillPageCache(filePath string) error {
 	if err != nil {
 		return err
 	}
+	defer f.Close() // Ensure file handle is released for pruning
+
 	fileInfo, err := f.Stat()
 	if err != nil {
 		return err
@@ -685,10 +687,7 @@ func SequentialReadAndFillPageCache(filePath string) error {
 	reportDone := make(chan struct{})
 	var totalRead int64
 	totalSize := fileInfo.Size()
-	defer func() {
-		f.Close()
-		close(reportDone)
-	}()
+	defer close(reportDone) // Stop progress reporter before returning
 
 	startPrefetchProgressReporter(filePath, totalSize, &totalRead, startTime, reportDone)
 
