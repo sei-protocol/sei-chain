@@ -111,6 +111,14 @@ func VerifyCommitLightTrusting(chainID string, vals *ValidatorSet, commit *Commi
 	return verifyCommitLightTrustingInternal(chainID, vals, commit, trustLevel, false)
 }
 
+// VerifyCommitLightTrusting verifies that trustLevel of the validator set signed
+// this commit.
+//
+// NOTE the given validators do not necessarily correspond to the validator set
+// for this commit, but there may be some intersection.
+//
+// This method is primarily used by the light client and DOES check all the
+// signatures.
 func VerifyCommitLightTrustingAllSignatures(chainID string, vals *ValidatorSet, commit *Commit, trustLevel tmmath.Fraction) error {
 	return verifyCommitLightTrustingInternal(chainID, vals, commit, trustLevel, true)
 }
