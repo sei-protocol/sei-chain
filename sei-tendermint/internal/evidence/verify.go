@@ -154,6 +154,7 @@ func (evpool *Pool) verify(ctx context.Context, evidence types.Evidence) error {
 //     the conflicting header's commit
 //   - 2/3+ of the conflicting validator set correctly signed the conflicting block
 //   - the nodes trusted header at the same height as the conflicting header has a different hash
+//   - all signatures must be checked as this will be used as evidence
 //
 // CONTRACT: must run ValidateBasic() on the evidence before verifying
 //
