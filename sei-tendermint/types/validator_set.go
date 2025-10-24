@@ -703,6 +703,10 @@ func (vals *ValidatorSet) VerifyCommitLightTrusting(chainID string, commit *Comm
 	return VerifyCommitLightTrusting(chainID, vals, commit, trustLevel)
 }
 
+func (vals *ValidatorSet) VerifyCommitLightTrustingAllSignatures(chainID string, commit *Commit, trustLevel tmmath.Fraction) error {
+	return VerifyCommitLightTrustingAllSignatures(chainID, vals, commit, trustLevel)
+}
+
 // findPreviousProposer reverses the compare proposer priority function to find the validator
 // with the lowest proposer priority which would have been the previous proposer.
 //

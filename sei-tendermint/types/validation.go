@@ -54,12 +54,22 @@ func VerifyCommit(chainID string, vals *ValidatorSet, blockID BlockID,
 
 // LIGHT CLIENT VERIFICATION METHODS
 
+func VerifyCommitLight(chainID string, vals *ValidatorSet, blockID BlockID,
+	height int64, commit *Commit) error {
+	return verifyCommitLightInternal(chainID, vals, blockID, height, commit, false)
+}
+
+func VerifyCommitLightAllSignatures(chainID string, vals *ValidatorSet, blockID BlockID,
+	height int64, commit *Commit) error {
+	return verifyCommitLightInternal(chainID, vals, blockID, height, commit, true)
+}
+
 // VerifyCommitLight verifies +2/3 of the set had signed the given commit.
 //
 // This method is primarily used by the light client and does not check all the
 // signatures.
-func VerifyCommitLight(chainID string, vals *ValidatorSet, blockID BlockID,
-	height int64, commit *Commit) error {
+func verifyCommitLightInternal(chainID string, vals *ValidatorSet, blockID BlockID,
+	height int64, commit *Commit, countAllSignatures bool) error {
 	// run a basic validation of the arguments
 	if err := verifyBasicValsAndCommit(vals, commit, height, blockID); err != nil {
 		return err
@@ -77,12 +87,20 @@ func VerifyCommitLight(chainID string, vals *ValidatorSet, blockID BlockID,
 	// attempt to batch verify
 	if shouldBatchVerify(vals, commit) {
 		return verifyCommitBatch(chainID, vals, commit,
-			votingPowerNeeded, ignore, count, false, true)
+			votingPowerNeeded, ignore, count, countAllSignatures, true)
 	}
 
 	// if verification failed or is not supported then fallback to single verification
 	return verifyCommitSingle(chainID, vals, commit, votingPowerNeeded,
-		ignore, count, false, true)
+		ignore, count, countAllSignatures, true)
+}
+
+func VerifyCommitLightTrusting(chainID string, vals *ValidatorSet, commit *Commit, trustLevel tmmath.Fraction) error {
+	return verifyCommitLightTrustingInternal(chainID, vals, commit, trustLevel, false)
+}
+
+func VerifyCommitLightTrustingAllSignatures(chainID string, vals *ValidatorSet, commit *Commit, trustLevel tmmath.Fraction) error {
+	return verifyCommitLightTrustingInternal(chainID, vals, commit, trustLevel, true)
 }
 
 // VerifyCommitLightTrusting verifies that trustLevel of the validator set signed
@@ -93,7 +111,7 @@ func VerifyCommitLight(chainID string, vals *ValidatorSet, blockID BlockID,
 //
 // This method is primarily used by the light client and does not check all the
 // signatures.
-func VerifyCommitLightTrusting(chainID string, vals *ValidatorSet, commit *Commit, trustLevel tmmath.Fraction) error {
+func verifyCommitLightTrustingInternal(chainID string, vals *ValidatorSet, commit *Commit, trustLevel tmmath.Fraction, countAllSignatures bool) error {
 	// sanity checks
 	if vals == nil {
 		return errors.New("nil validator set")
@@ -123,12 +141,12 @@ func VerifyCommitLightTrusting(chainID string, vals *ValidatorSet, commit *Commi
 	// up by address rather than index.
 	if shouldBatchVerify(vals, commit) {
 		return verifyCommitBatch(chainID, vals, commit,
-			votingPowerNeeded, ignore, count, false, false)
+			votingPowerNeeded, ignore, count, countAllSignatures, false)
 	}
 
 	// attempt with single verification
 	return verifyCommitSingle(chainID, vals, commit, votingPowerNeeded,
-		ignore, count, false, false)
+		ignore, count, countAllSignatures, false)
 }
 
 // ValidateHash returns an error if the hash is not empty, but its
