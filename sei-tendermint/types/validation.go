@@ -54,20 +54,24 @@ func VerifyCommit(chainID string, vals *ValidatorSet, blockID BlockID,
 
 // LIGHT CLIENT VERIFICATION METHODS
 
+// VerifyCommitLight verifies +2/3 of the set had signed the given commit.
+//
+// This method is primarily used by the light client and does NOT check all the
+// signatures.
 func VerifyCommitLight(chainID string, vals *ValidatorSet, blockID BlockID,
 	height int64, commit *Commit) error {
 	return verifyCommitLightInternal(chainID, vals, blockID, height, commit, false)
 }
 
+// VerifyCommitLightAllSignatures verifies +2/3 of the set had signed the given commit.
+//
+// This method is primarily used by the light client and DOES check all the
+// signatures.
 func VerifyCommitLightAllSignatures(chainID string, vals *ValidatorSet, blockID BlockID,
 	height int64, commit *Commit) error {
 	return verifyCommitLightInternal(chainID, vals, blockID, height, commit, true)
 }
 
-// VerifyCommitLight verifies +2/3 of the set had signed the given commit.
-//
-// This method is primarily used by the light client and does not check all the
-// signatures.
 func verifyCommitLightInternal(chainID string, vals *ValidatorSet, blockID BlockID,
 	height int64, commit *Commit, countAllSignatures bool) error {
 	// run a basic validation of the arguments
