@@ -19,11 +19,6 @@ var reservedAddrs = utils.NewMutex(map[netip.AddrPort]struct{}{})
 // IPv4Loopback returns the IPv4 loopback address.
 func IPv4Loopback() netip.Addr { return netip.AddrFrom4([4]byte{127, 0, 0, 1}) }
 
-// Norm normalizes address by unmapping IPv4 -> IPv6 embedding.
-func Norm(addr netip.AddrPort) netip.AddrPort {
-	return netip.AddrPortFrom(addr.Addr().Unmap(), addr.Port())
-}
-
 func Dial(ctx context.Context, addr netip.AddrPort) (*net.TCPConn, error) {
 	d := net.Dialer{}
 	conn, err := d.DialContext(ctx, "tcp", addr.String())

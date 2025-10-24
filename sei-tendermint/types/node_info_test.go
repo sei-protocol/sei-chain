@@ -241,7 +241,7 @@ func TestResolveAddressString(t *testing.T) {
 			got, err := ResolveAddressString(tc.addr)
 			if want, ok := tc.want.Get(); ok {
 				require.NoError(t, err, tc.addr)
-				require.Equal(t, tcp.Norm(want), tcp.Norm(got))
+				require.Equal(t, want, got)
 			} else {
 				require.Error(t, err, "%v", tc.addr)
 			}

@@ -58,11 +58,10 @@ func TestAddress(r *Router) NodeAddress {
 	e := r.Endpoint()
 	addr := e.AddrPort.Addr()
 	port := e.AddrPort.Port()
-	// Unmap is used to normalize the address.
-	switch addr.Unmap() {
-	case netip.IPv4Unspecified().Unmap():
+	switch addr {
+	case netip.IPv4Unspecified():
 		addr = tcp.IPv4Loopback()
-	case netip.IPv6Unspecified().Unmap():
+	case netip.IPv6Unspecified():
 		addr = netip.IPv6Loopback()
 	}
 	return Endpoint{netip.AddrPortFrom(addr, port)}.
