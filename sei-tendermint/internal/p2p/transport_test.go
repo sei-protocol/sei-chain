@@ -120,14 +120,16 @@ func TestRouter_Listen(t *testing.T) {
 					return fmt.Errorf("r.Endpoint() = %v, want %v", got, want)
 				}
 
-				x := makeRouter(logger)
-				tcpConn, err := x.Dial(ctx, TestAddress(r))
-				if err != nil {
-					return fmt.Errorf("tcp.Dial(): %v", err)
-				}
-				defer tcpConn.Close()
-				if _, err := HandshakeOrClose(ctx, x, tcpConn); err != nil {
-					return fmt.Errorf("handshake(): %v", err)
+				for range 5 {
+					x := makeRouter(logger)
+					tcpConn, err := x.Dial(ctx, TestAddress(r))
+					if err != nil {
+						return fmt.Errorf("tcp.Dial(): %v", err)
+					}
+					defer tcpConn.Close()
+					if _, err := HandshakeOrClose(ctx, x, tcpConn); err != nil {
+						return fmt.Errorf("handshake(): %v", err)
+					}
 				}
 				return nil
 			})
