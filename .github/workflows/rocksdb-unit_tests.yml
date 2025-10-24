@@ -61,7 +61,7 @@ jobs:
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: ./sei-db/coverage.txt
+          files: ./sei-db/rdb-profile.out
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
           flags: sei-db
