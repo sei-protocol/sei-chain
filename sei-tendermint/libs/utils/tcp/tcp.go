@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/netip"
 	"sync/atomic"
-	"fmt"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -15,7 +14,7 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
-var reservedPorts = utils.NewMutex(map[uint16]struct{}{})
+var reservedAddrs = utils.NewMutex(map[netip.AddrPort]struct{}{})
 
 // IPv4Loopback returns the IPv4 loopback address.
 func IPv4Loopback() netip.Addr { return netip.AddrFrom4([4]byte{127, 0, 0, 1}) }
@@ -71,10 +70,9 @@ func Listen(addr netip.AddrPort) (*net.TCPListener, error) {
 		return nil, errors.New("listening on anyport (i.e. 0) is not allowed. If you are implementing a test use TestReserveAddr() instead") // nolint:lll
 	}
 	cfg := net.ListenConfig{}
-	for ports := range reservedPorts.Lock() {
-		if _, ok := ports[addr.Port()]; ok {
+	for addrs := range reservedAddrs.Lock() {
+		if _, ok := addrs[addr]; ok {
 			cfg.Control = func(network, address string, c syscall.RawConn) error {
-				fmt.Printf("LISTEN(%v,%v)\n",network,address)
 				var errInner error
 				if err := c.Control(func(fd uintptr) {
 					errInner = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEPORT, 1)
@@ -102,13 +100,26 @@ func Listen(addr netip.AddrPort) (*net.TCPListener, error) {
 	return l.(*net.TCPListener), nil
 }
 
-// TestReserveAddr (testonly) reserves a port in ephemeral range to open a TCP listener on it.
+// TestReserveAddr (testonly) reserves a localhost port in ephemeral range to open a TCP listener on it.
 // Reservation prevents race conditions with other processes.
 func TestReserveAddr() netip.AddrPort {
+	return TestReservePort(IPv4Loopback())
+}
+
+// TestReservePort (testonly) reserves a port on the given ip in ephemeral range to open a TCP listener on it.
+// Reservation prevents race conditions with other processes.
+func TestReservePort(ip netip.Addr) netip.AddrPort {
 	// Bind a new socket to reserve a port,
 	// Don't mark it as listening to avoid the kernel from queueing up connections
 	// on that socket.
-	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+
+	var domain int
+	if ip.Is4() {
+		domain = unix.AF_INET
+	} else {
+		domain = unix.AF_INET6
+	}
+	fd, err := unix.Socket(domain, unix.SOCK_STREAM, 0)
 	if err != nil {
 		panic(err)
 	}
@@ -118,8 +129,16 @@ func TestReserveAddr() netip.AddrPort {
 	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEPORT, 1); err != nil {
 		panic(err)
 	}
-	ip := IPv4Loopback()
-	addrAny := &unix.SockaddrInet4{Port: 0, Addr: ip.As4()}
+
+	// NOTE
+	// linux allows sharing REUSEPORT port across various local IPs.
+	// macOS does not.
+	var addrAny unix.Sockaddr
+	if ip.Is4() {
+		addrAny = &unix.SockaddrInet4{Port: 0, Addr: ip.As4()}
+	} else {
+		addrAny = &unix.SockaddrInet6{Port: 0, Addr: ip.As16()}
+	}
 	if err := unix.Bind(fd, addrAny); err != nil {
 		panic(err)
 	}
@@ -128,11 +147,17 @@ func TestReserveAddr() netip.AddrPort {
 	if err != nil {
 		panic(err)
 	}
-	port := uint16(addrRaw.(*unix.SockaddrInet4).Port)
-	for ports := range reservedPorts.Lock() {
-		ports[port] = struct{}{}
+	var port uint16
+	if ip.Is4() {
+		port = uint16(addrRaw.(*unix.SockaddrInet4).Port)
+	} else {
+		port = uint16(addrRaw.(*unix.SockaddrInet6).Port)
 	}
-	return netip.AddrPortFrom(ip, port)
+	addr := netip.AddrPortFrom(ip, port)
+	for addrs := range reservedAddrs.Lock() {
+		addrs[addr] = struct{}{}
+	}
+	return addr
 }
 
 func TestPipe() (*net.TCPConn, *net.TCPConn) {

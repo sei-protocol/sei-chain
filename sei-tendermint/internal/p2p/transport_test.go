@@ -96,11 +96,11 @@ func TestRouter_MaxAcceptedConnections(t *testing.T) {
 
 // Test checking if listening on various local interfaces works.
 func TestRouter_Listen(t *testing.T) {
-	testcases := []netip.Addr{
-		netip.IPv4Unspecified(),
-		tcp.IPv4Loopback(),
-		netip.IPv6Unspecified(),
-		netip.IPv6Loopback(),
+	testcases := []netip.AddrPort{
+		tcp.TestReservePort(netip.IPv4Unspecified()),
+		tcp.TestReservePort(tcp.IPv4Loopback()),
+		tcp.TestReservePort(netip.IPv6Unspecified()),
+		tcp.TestReservePort(netip.IPv6Loopback()),
 	}
 
 	for _, tc := range testcases {
@@ -109,14 +109,14 @@ func TestRouter_Listen(t *testing.T) {
 			t.Cleanup(leaktest.Check(t))
 			err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 				opts := makeRouterOptions()
-				opts.Endpoint.AddrPort = netip.AddrPortFrom(tc, opts.Endpoint.Port())
+				opts.Endpoint.AddrPort = tc
 				r := makeRouterWithOptions(logger, opts)
 				s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
 				if err := r.WaitForStart(ctx); err != nil {
 					return err
 				}
 
-				if got, want := r.Endpoint().Addr(), tc; got != want {
+				if got, want := r.Endpoint().AddrPort, tc; got != want {
 					return fmt.Errorf("r.Endpoint() = %v, want %v", got, want)
 				}
 

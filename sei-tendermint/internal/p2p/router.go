@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/netip"
 	"runtime"
-	"syscall"
 	"time"
 
 	"github.com/tendermint/tendermint/crypto"
@@ -482,12 +481,7 @@ func (r *Router) Dial(ctx context.Context, address NodeAddress) (*net.TCPConn, e
 		if endpoint.Port() == 0 {
 			endpoint.AddrPort = netip.AddrPortFrom(endpoint.Addr(), 26657)
 		}
-		dialer := net.Dialer{
-			Control: func(network, address string, c syscall.RawConn) error {
-				r.logger.Info(fmt.Sprintf("DIAL(%v,%v)", network, address))
-				return nil
-			},
-		}
+		dialer := net.Dialer{}
 		// Golang Resolver sucks, because even if provided an IPv4,
 		// it dials IPv6-embedded address instead.
 		// To force it to use IPv4, we need to specify the network explicilty.
