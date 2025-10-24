@@ -95,7 +95,11 @@ func LoadMultiTree(dir string, opts Options) (*MultiTree, error) {
 		}
 		treeMap[name] = NewFromSnapshot(snapshot, opts)
 	}
-	log.Info(fmt.Sprintf("All %d memIAVL trees loaded in %.1fs\n", len(treeNames), time.Since(startTime).Seconds()))
+	timeElapsed := time.Since(startTime).Seconds()
+	log.Info(fmt.Sprintf("All %d memIAVL trees loaded in %.1fs\n", len(treeNames), timeElapsed))
+	if timeElapsed > 600 {
+		log.Info("Loading multitree is too slow. Consider increasing the disk bandwidth to speed up the initialization time.\n")
+	}
 	slices.Sort(treeNames)
 
 	trees := make([]NamedTree, len(treeNames))
@@ -182,6 +186,7 @@ func (t *MultiTree) Copy() *MultiTree {
 	clone := *t
 	clone.trees = trees
 	clone.treesByName = treesByName
+	clone.logger = t.logger
 	return &clone
 }
 
