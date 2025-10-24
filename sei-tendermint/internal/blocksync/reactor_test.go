@@ -27,7 +27,6 @@ import (
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/internal/test/factory"
 	"github.com/tendermint/tendermint/libs/log"
-	bcproto "github.com/tendermint/tendermint/proto/tendermint/blocksync"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -38,8 +37,6 @@ type reactorTestSuite struct {
 
 	reactors map[types.NodeID]*Reactor
 	app      map[types.NodeID]abciclient.Client
-
-	blockSyncChannels map[types.NodeID]*p2p.Channel
 }
 
 func setup(
@@ -60,26 +57,15 @@ func setup(
 
 	logger, _ := log.NewDefaultLogger("plain", "info")
 	rts := &reactorTestSuite{
-		logger:            logger.With("module", "block_sync", "testCase", t.Name()),
-		network:           p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numNodes}),
-		nodes:             make([]types.NodeID, 0, numNodes),
-		reactors:          make(map[types.NodeID]*Reactor, numNodes),
-		app:               make(map[types.NodeID]abciclient.Client, numNodes),
-		blockSyncChannels: make(map[types.NodeID]*p2p.Channel, numNodes),
+		logger:   logger.With("module", "block_sync", "testCase", t.Name()),
+		network:  p2p.MakeTestNetwork(t, p2p.TestNetworkOptions{NumNodes: numNodes}),
+		nodes:    make([]types.NodeID, 0, numNodes),
+		reactors: make(map[types.NodeID]*Reactor, numNodes),
+		app:      make(map[types.NodeID]abciclient.Client, numNodes),
 	}
 
-	chDesc := p2p.ChannelDescriptor{
-		ID:                 BlockSyncChannel,
-		MessageType:        new(bcproto.Message),
-		RecvBufferCapacity: 32,
-	}
-	rts.blockSyncChannels = rts.network.MakeChannelsNoCleanup(t, chDesc)
-
-	i := 0
-	for _, nodeID := range rts.network.NodeIDs() {
+	for i, nodeID := range rts.network.NodeIDs() {
 		rts.addNode(ctx, t, nodeID, genDoc, privVal, maxBlockHeights[i])
-		rts.reactors[nodeID].SetChannel(rts.blockSyncChannels[nodeID])
-		i++
 	}
 
 	t.Cleanup(func() {
@@ -102,7 +88,7 @@ func makeReactor(
 	ctx context.Context,
 	t *testing.T,
 	genDoc *types.GenesisDoc,
-	peerManager *p2p.PeerManager,
+	router *p2p.Router,
 	restartChan chan struct{},
 	selfRemediationConfig *config.SelfRemediationConfig,
 ) *Reactor {
@@ -148,19 +134,23 @@ func makeReactor(
 		sm.NopMetrics(),
 	)
 
-	return NewReactor(
+	r, err := NewReactor(
 		logger,
 		stateStore,
 		blockExec,
 		blockStore,
 		nil,
-		peerManager,
+		router,
 		true,
 		consensus.NopMetrics(),
 		nil, // eventbus, can be nil
 		restartChan,
 		selfRemediationConfig,
 	)
+	if err != nil {
+		t.Fatalf("NewReactor(): %v", err)
+	}
+	return r
 }
 
 func (rts *reactorTestSuite) addNode(
@@ -187,12 +177,10 @@ func (rts *reactorTestSuite) addNode(
 		ctx,
 		t,
 		genDoc,
-		rts.network.Node(nodeID).PeerManager,
+		rts.network.Node(nodeID).Router,
 		restartChan,
 		config.DefaultSelfRemediationConfig(),
 	)
-
-	reactor.SetChannel(rts.blockSyncChannels[nodeID])
 	lastCommit := &types.Commit{}
 
 	state, err := reactor.stateStore.Load()
@@ -249,7 +237,7 @@ func (rts *reactorTestSuite) start(t *testing.T) {
 	t.Helper()
 	rts.network.Start(t)
 	require.Len(t,
-		rts.network.RandomNode().PeerManager.Peers(),
+		rts.network.RandomNode().Router.PeerManager().Peers(),
 		len(rts.nodes)-1,
 		"network does not have expected number of nodes")
 }

@@ -139,7 +139,7 @@ type Reactor struct {
 
 	conn           abciclient.Client
 	tempDir        string
-	peerManager    *p2p.PeerManager
+	router         *p2p.Router
 	sendBlockError func(p2p.PeerError)
 	postSyncHook   func(context.Context, sm.State) error
 
@@ -189,15 +189,16 @@ type Reactor struct {
 
 // NewReactor returns a reference to a new state sync reactor, which implements
 // the service.Service interface. It accepts a logger, connections for snapshots
-// and querying, references to p2p Channels and a channel to listen for peer
-// updates on. Note, the reactor will close all p2p Channels when stopping.
+// and querying, a router used to open the required p2p channels, and a channel
+// to listen for peer updates on. Note, the reactor will close all p2p Channels
+// when stopping.
 func NewReactor(
 	chainID string,
 	initialHeight int64,
 	cfg config.StateSyncConfig,
 	logger log.Logger,
 	conn abciclient.Client,
-	peerManager *p2p.PeerManager,
+	router *p2p.Router,
 	stateStore sm.Store,
 	blockStore *store.BlockStore,
 	tempDir string,
@@ -207,14 +208,30 @@ func NewReactor(
 	needsStateSync bool,
 	restartCh chan struct{},
 	selfRemediationConfig *config.SelfRemediationConfig,
-) *Reactor {
+) (*Reactor, error) {
+	snapshotChannel, err := router.OpenChannel(GetSnapshotChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("open snapshot channel: %w", err)
+	}
+	chunkChannel, err := router.OpenChannel(GetChunkChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("open chunk channel: %w", err)
+	}
+	lightBlockChannel, err := router.OpenChannel(GetLightBlockChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("open light block channel: %w", err)
+	}
+	paramsChannel, err := router.OpenChannel(GetParamsChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("open params channel: %w", err)
+	}
 	r := &Reactor{
 		logger:                        logger,
 		chainID:                       chainID,
 		initialHeight:                 initialHeight,
 		cfg:                           cfg,
 		conn:                          conn,
-		peerManager:                   peerManager,
+		router:                        router,
 		tempDir:                       tempDir,
 		stateStore:                    stateStore,
 		blockStore:                    blockStore,
@@ -224,29 +241,17 @@ func NewReactor(
 		eventBus:                      eventBus,
 		postSyncHook:                  postSyncHook,
 		needsStateSync:                needsStateSync,
+		snapshotChannel:               snapshotChannel,
+		chunkChannel:                  chunkChannel,
+		lightBlockChannel:             lightBlockChannel,
+		paramsChannel:                 paramsChannel,
 		lastNoAvailablePeers:          time.Time{},
 		restartCh:                     restartCh,
 		restartNoAvailablePeersWindow: time.Duration(selfRemediationConfig.StatesyncNoPeersRestartWindowSeconds) * time.Second,
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "StateSync", r)
-	return r
-}
-
-func (r *Reactor) SetSnapshotChannel(ch *p2p.Channel) {
-	r.snapshotChannel = ch
-}
-
-func (r *Reactor) SetChunkChannel(ch *p2p.Channel) {
-	r.chunkChannel = ch
-}
-
-func (r *Reactor) SetLightBlockChannel(ch *p2p.Channel) {
-	r.lightBlockChannel = ch
-}
-
-func (r *Reactor) SetParamsChannel(ch *p2p.Channel) {
-	r.paramsChannel = ch
+	return r, nil
 }
 
 // OnStart starts separate go routines for each p2p Channel and listens for
@@ -286,7 +291,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 		}
 		return nil
 	}
-	r.sendBlockError = r.lightBlockChannel.SendError
+	r.sendBlockError = r.router.PeerManager().SendError
 
 	r.initStateProvider = func(ctx context.Context, chainID string, initialHeight int64) error {
 		to := light.TrustOptions{
@@ -908,7 +913,7 @@ func (r *Reactor) processSnapshotCh(ctx context.Context) {
 		r.processChGuard.Lock()
 		if err := r.handleSnapshotMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process snapshotCh message", "err", err)
-			r.snapshotChannel.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 		r.processChGuard.Unlock()
 	}
@@ -923,7 +928,7 @@ func (r *Reactor) processChunkCh(ctx context.Context) {
 		r.processChGuard.Lock()
 		if err := r.handleChunkMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process chunkCh message", "err", err)
-			r.chunkChannel.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 		r.processChGuard.Unlock()
 	}
@@ -938,7 +943,7 @@ func (r *Reactor) processLightBlockCh(ctx context.Context) {
 		r.processChGuard.Lock()
 		if err := r.handleLightBlockMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process lightBlockCh message", "err", err)
-			r.lightBlockChannel.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 		r.processChGuard.Unlock()
 	}
@@ -953,7 +958,7 @@ func (r *Reactor) processParamsCh(ctx context.Context) {
 		r.processChGuard.Lock()
 		if err := r.handleParamsMessage(ctx, m, r.paramsChannel); err != nil {
 			r.logger.Error("failed to process paramsCh message", "err", err)
-			r.paramsChannel.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 		r.processChGuard.Unlock()
 	}
@@ -1027,7 +1032,7 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 // PeerUpdate messages. When the reactor is stopped, we will catch the signal and
 // close the p2p PeerUpdatesCh gracefully.
 func (r *Reactor) processPeerUpdates(ctx context.Context) {
-	peerUpdates := r.peerManager.Subscribe(ctx)
+	peerUpdates := r.router.PeerManager().Subscribe(ctx)
 	for _, update := range peerUpdates.PreexistingPeers() {
 		r.processPeerUpdate(update)
 	}

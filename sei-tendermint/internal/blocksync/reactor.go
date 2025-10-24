@@ -83,8 +83,8 @@ type Reactor struct {
 	blockSync             *atomicBool
 	previousMaxPeerHeight int64
 
-	peerManager *p2p.PeerManager
-	channel     *p2p.Channel
+	router  *p2p.Router
+	channel *p2p.Channel
 
 	requestsCh <-chan BlockRequest
 	errorsCh   <-chan peerError
@@ -108,13 +108,17 @@ func NewReactor(
 	blockExec *sm.BlockExecutor,
 	store *store.BlockStore,
 	consReactor consensusReactor,
-	peerManager *p2p.PeerManager,
+	router *p2p.Router,
 	blockSync bool,
 	metrics *consensus.Metrics,
 	eventBus *eventbus.EventBus,
 	restartCh chan struct{},
 	selfRemediationConfig *config.SelfRemediationConfig,
-) *Reactor {
+) (*Reactor, error) {
+	channel, err := router.OpenChannel(GetChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("router.AddChannel(): %w", err)
+	}
 	r := &Reactor{
 		logger:                    logger,
 		stateStore:                stateStore,
@@ -122,7 +126,8 @@ func NewReactor(
 		store:                     store,
 		consReactor:               consReactor,
 		blockSync:                 newAtomicBool(blockSync),
-		peerManager:               peerManager,
+		router:                    router,
+		channel:                   channel,
 		metrics:                   metrics,
 		eventBus:                  eventBus,
 		restartCh:                 restartCh,
@@ -133,11 +138,7 @@ func NewReactor(
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "BlockSync", r)
-	return r
-}
-
-func (r *Reactor) SetChannel(ch *p2p.Channel) {
-	r.channel = ch
+	return r, nil
 }
 
 // OnStart starts separate go routines for each p2p Channel and listens for
@@ -166,7 +167,7 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 
 	requestsCh := make(chan BlockRequest, maxTotalRequesters)
 	errorsCh := make(chan peerError, maxPeerErrBuffer) // NOTE: The capacity should be larger than the peer count.
-	r.pool = NewBlockPool(r.logger, startHeight, requestsCh, errorsCh, r.peerManager)
+	r.pool = NewBlockPool(r.logger, startHeight, requestsCh, errorsCh, r.router.PeerManager())
 	r.requestsCh = requestsCh
 	r.errorsCh = errorsCh
 
@@ -280,7 +281,7 @@ func (r *Reactor) processBlockSyncCh(ctx context.Context, blockSyncCh *p2p.Chann
 			}
 
 			r.logger.Error("failed to process blockSyncCh message", "err", err)
-			blockSyncCh.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }
@@ -331,18 +332,12 @@ func (r *Reactor) autoRestartIfBehind(ctx context.Context) {
 
 // processPeerUpdate processes a PeerUpdate.
 func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
-	blockSyncCh := r.channel
 	r.logger.Debug("received peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
-
-	// XXX: Pool#RedoRequest can sometimes give us an empty peer.
-	if len(peerUpdate.NodeID) == 0 {
-		return
-	}
 
 	switch peerUpdate.Status {
 	case p2p.PeerStatusUp:
 		// send a status update the newly added peer
-		blockSyncCh.Send(&bcproto.StatusResponse{
+		r.channel.Send(&bcproto.StatusResponse{
 			Base:   r.store.Base(),
 			Height: r.store.Height(),
 		}, peerUpdate.NodeID)
@@ -355,7 +350,7 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 // PeerUpdate messages. When the reactor is stopped, we will catch the signal and
 // close the p2p PeerUpdatesCh gracefully.
 func (r *Reactor) processPeerUpdates(ctx context.Context) {
-	peerUpdates := r.peerManager.Subscribe(ctx)
+	peerUpdates := r.router.PeerManager().Subscribe(ctx)
 	for _, update := range peerUpdates.PreexistingPeers() {
 		r.processPeerUpdate(update)
 	}
@@ -405,7 +400,7 @@ func (r *Reactor) requestRoutine(ctx context.Context, blockSyncCh *p2p.Channel) 
 		case request := <-r.requestsCh:
 			blockSyncCh.Send(&bcproto.BlockRequest{Height: request.Height}, request.PeerID)
 		case pErr := <-r.errorsCh:
-			blockSyncCh.SendError(p2p.PeerError{NodeID: pErr.peerID, Err: pErr.err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: pErr.peerID, Err: pErr.err})
 		case <-statusUpdateTicker.C:
 			blockSyncCh.Broadcast(&bcproto.StatusRequest{})
 		}
@@ -548,11 +543,11 @@ func (r *Reactor) poolRoutine(ctx context.Context, stateSynced bool, blockSyncCh
 				// NOTE: We've already removed the peer's request, but we still need
 				// to clean up the rest.
 				peerID := r.pool.RedoRequest(first.Height)
-				blockSyncCh.SendError(p2p.PeerError{NodeID: peerID, Err: err})
+				r.router.PeerManager().SendError(p2p.PeerError{NodeID: peerID, Err: err})
 
 				peerID2 := r.pool.RedoRequest(second.Height)
 				if peerID2 != peerID {
-					blockSyncCh.SendError(p2p.PeerError{NodeID: peerID2, Err: err})
+					r.router.PeerManager().SendError(p2p.PeerError{NodeID: peerID2, Err: err})
 				}
 				return
 			}

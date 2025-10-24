@@ -144,33 +144,35 @@ func createMempoolReactor(
 	appClient abciclient.Client,
 	store sm.Store,
 	memplMetrics *mempool.Metrics,
-	peerEvents p2p.PeerEventSubscriber,
-	peerManager *p2p.PeerManager,
-) (*mempool.Reactor, mempool.Mempool) {
+	router *p2p.Router,
+) (*mempool.Reactor, mempool.Mempool, error) {
 	logger = logger.With("module", "mempool")
 
 	mp := mempool.NewTxMempool(
 		logger,
 		cfg.Mempool,
 		appClient,
-		peerManager,
+		router.PeerManager(),
 		mempool.WithMetrics(memplMetrics),
 		mempool.WithPreCheck(sm.TxPreCheckFromStore(store)),
 		mempool.WithPostCheck(sm.TxPostCheckFromStore(store)),
 	)
 
-	reactor := mempool.NewReactor(
+	reactor, err := mempool.NewReactor(
 		logger,
 		cfg.Mempool,
 		mp,
-		peerEvents,
+		router,
 	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mempool.NewReactor(): %w", err)
+	}
 
 	if cfg.Consensus.WaitForTxs() {
 		mp.EnableTxsAvailable()
 	}
 
-	return reactor, mp
+	return reactor, mp, nil
 }
 
 func createEvidenceReactor(
@@ -179,7 +181,7 @@ func createEvidenceReactor(
 	dbProvider config.DBProvider,
 	store sm.Store,
 	blockStore *store.BlockStore,
-	peerEvents p2p.PeerEventSubscriber,
+	router *p2p.Router,
 	metrics *evidence.Metrics,
 	eventBus *eventbus.EventBus,
 ) (*evidence.Reactor, *evidence.Pool, closer, error) {
@@ -191,8 +193,10 @@ func createEvidenceReactor(
 	logger = logger.With("module", "evidence")
 
 	evidencePool := evidence.NewPool(logger, evidenceDB, store, blockStore, metrics, eventBus)
-	evidenceReactor := evidence.NewReactor(logger, peerEvents, evidencePool)
-
+	evidenceReactor, err := evidence.NewReactor(logger, router, evidencePool)
+	if err != nil {
+		return nil, nil, evidenceDB.Close, fmt.Errorf("evidence.NewReactor(): %w", err)
+	}
 	return evidenceReactor, evidencePool, evidenceDB.Close, nil
 }
 

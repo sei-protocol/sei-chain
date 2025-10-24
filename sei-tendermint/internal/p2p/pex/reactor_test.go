@@ -184,9 +184,9 @@ func TestReactorSmallPeerStoreInALargeNetwork(t *testing.T) {
 	for _, nodeID := range testNet.nodes {
 		node := testNet.network.Node(nodeID)
 		require.Eventually(t, func() bool {
-			return node.PeerManager.PeerRatio() >= 0.9
+			return node.Router.PeerManager().PeerRatio() >= 0.9
 		}, time.Minute, checkFrequency,
-			"peer ratio is: %f", node.PeerManager.PeerRatio())
+			"peer ratio is: %f", node.Router.PeerManager().PeerRatio())
 	}
 }
 
@@ -285,24 +285,24 @@ func setupNetwork(t *testing.T, opts testOptions) *reactorTestSuite {
 		opts:        opts,
 	}
 
-	// NOTE: we don't assert that the channels get drained after stopping the
-	// reactor
-	rts.pexChannels = rts.network.MakeChannelsNoCleanup(t, ChannelDescriptor())
-
 	for idx, node := range rts.network.Nodes() {
 		nodeID := node.NodeID
 
 		// the first nodes in the array are always mock nodes
 		if idx < opts.MockNodes {
 			rts.mocks = append(rts.mocks, nodeID)
+			rts.pexChannels[nodeID] = node.Router.OpenChannelOrPanic(ChannelDescriptor())
 		} else {
-			rts.reactors[nodeID] = NewReactor(
+			reactor, err := NewReactor(
 				node.Logger,
-				node.PeerManager,
+				node.Router,
 				make(chan struct{}),
 				config.DefaultSelfRemediationConfig(),
 			)
-			rts.reactors[nodeID].SetChannel(rts.pexChannels[nodeID])
+			if err != nil {
+				t.Fatalf("NewReactor(): %v", err)
+			}
+			rts.reactors[nodeID] = reactor
 		}
 		rts.nodes = append(rts.nodes, nodeID)
 	}
@@ -361,13 +361,16 @@ func (r *reactorTestSuite) addNodes(t *testing.T, nodes int) {
 			MaxRetryTime: r.opts.MaxRetryTime,
 		})
 		nodeID := node.NodeID
-		r.pexChannels[nodeID] = node.MakeChannelNoCleanup(t, ChannelDescriptor())
-		r.reactors[nodeID] = NewReactor(
+		reactor, err := NewReactor(
 			node.Logger,
-			node.PeerManager,
+			node.Router,
 			make(chan struct{}),
 			config.DefaultSelfRemediationConfig(),
 		)
+		if err != nil {
+			t.Fatalf("NewReactor(): %v", err)
+		}
+		r.reactors[nodeID] = reactor
 		r.nodes = append(r.nodes, nodeID)
 		r.total++
 	}
@@ -510,12 +513,12 @@ func (r *reactorTestSuite) requireNumberOfPeers(
 	t.Helper()
 	node := r.network.Node(r.nodes[nodeIndex])
 	require.Eventuallyf(t, func() bool {
-		actualNumPeers := len(node.PeerManager.Peers())
+		actualNumPeers := len(node.Router.PeerManager().Peers())
 		return actualNumPeers >= numPeers
 	}, waitPeriod, checkFrequency, "peer failed to connect with the asserted amount of peers "+
 		"index=%d, node=%q, waitPeriod=%s expected=%d actual=%d",
 		nodeIndex, r.nodes[nodeIndex], waitPeriod, numPeers,
-		len(node.PeerManager.Peers()),
+		len(node.Router.PeerManager().Peers()),
 	)
 }
 
@@ -529,7 +532,7 @@ func (r *reactorTestSuite) seedAddrs(t *testing.T) {
 	for i := range r.total - 1 {
 		n1 := r.network.Node(r.nodes[i])
 		n2 := r.network.Node(r.nodes[i+1])
-		_, err := n1.PeerManager.Add(n2.NodeAddress)
+		_, err := n1.Router.PeerManager().Add(n2.NodeAddress)
 		require.NoError(t, err)
 	}
 }
@@ -542,7 +545,7 @@ func (r *reactorTestSuite) checkNodePair(t *testing.T, first, second int) (types
 }
 
 func (r *reactorTestSuite) addAddresses(t *testing.T, node int, addrs []int) {
-	peerManager := r.network.Node(r.nodes[node]).PeerManager
+	peerManager := r.network.Node(r.nodes[node]).Router.PeerManager()
 	for _, addr := range addrs {
 		require.Less(t, addr, r.total)
 		address := r.network.Node(r.nodes[addr]).NodeAddress

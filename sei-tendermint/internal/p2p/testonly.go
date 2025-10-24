@@ -96,12 +96,12 @@ func (n *TestNetwork) ConnectCycle(ctx context.Context, t *testing.T) {
 	nodes := n.Nodes()
 	N := len(nodes)
 	for i := range nodes {
-		if _, err := nodes[i].PeerManager.Add(nodes[(i+1)%len(nodes)].NodeAddress); err != nil {
+		if _, err := nodes[i].Router.PeerManager().Add(nodes[(i+1)%len(nodes)].NodeAddress); err != nil {
 			panic(err)
 		}
 	}
 	for i := range n.Nodes() {
-		for ready, ctrl := range nodes[i].PeerManager.ready.Lock() {
+		for ready, ctrl := range nodes[i].Router.PeerManager().ready.Lock() {
 			for _, peer := range utils.Slice(nodes[(i+1)%N], nodes[(i+N-1)%N]) {
 				if err := ctrl.WaitUntil(ctx, func() bool {
 					_, ok := ready[peer.NodeID]
@@ -122,14 +122,14 @@ func (n *TestNetwork) Start(t *testing.T) {
 	// Populate peer managers.
 	for i, source := range nodes {
 		for _, target := range nodes[i+1:] { // nodes <i already connected
-			if _, err := source.PeerManager.Add(target.NodeAddress); err != nil {
+			if _, err := source.Router.PeerManager().Add(target.NodeAddress); err != nil {
 				panic(fmt.Errorf("Add(%v): %w", target.NodeAddress, err))
 			}
 		}
 	}
 	t.Log("Await connections.")
 	for _, source := range nodes {
-		for ready, ctrl := range source.PeerManager.ready.Lock() {
+		for ready, ctrl := range source.Router.PeerManager().ready.Lock() {
 			for _, target := range nodes {
 				if target.NodeID == source.NodeID {
 					continue
@@ -223,7 +223,7 @@ func (n *TestNetwork) Remove(t *testing.T, id types.NodeID) {
 		node = nodes[id]
 		delete(nodes, id)
 		for _, peer := range nodes {
-			subs = append(subs, peer.PeerManager.Subscribe(ctx))
+			subs = append(subs, peer.Router.PeerManager().Subscribe(ctx))
 		}
 	}
 	node.Router.Stop()
@@ -243,14 +243,13 @@ type TestNode struct {
 	NodeAddress NodeAddress
 	PrivKey     crypto.PrivKey
 	Router      *Router
-	PeerManager *PeerManager
 }
 
 func (n *TestNode) Connect(ctx context.Context, target *TestNode) {
-	if _, err := n.PeerManager.Add(target.NodeAddress); err != nil {
+	if _, err := n.Router.PeerManager().Add(target.NodeAddress); err != nil {
 		panic(err)
 	}
-	for ready, ctrl := range n.PeerManager.ready.Lock() {
+	for ready, ctrl := range n.Router.PeerManager().ready.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			_, ok := ready[target.NodeID]
 			return ok
@@ -258,7 +257,7 @@ func (n *TestNode) Connect(ctx context.Context, target *TestNode) {
 			panic(err)
 		}
 	}
-	for ready, ctrl := range target.PeerManager.ready.Lock() {
+	for ready, ctrl := range target.Router.PeerManager().ready.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			_, ok := ready[n.NodeID]
 			return ok
@@ -276,7 +275,7 @@ func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
 }
 
 func (n *TestNode) WaitUntilDisconnected(ctx context.Context, target types.NodeID) {
-	for ready, ctrl := range n.PeerManager.ready.Lock() {
+	for ready, ctrl := range n.Router.PeerManager().ready.Lock() {
 		if err := ctrl.WaitUntil(ctx, func() bool {
 			_, ok := ready[target]
 			return !ok
@@ -342,7 +341,6 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 		NodeAddress: routerOpts.Endpoint.NodeAddress(nodeID),
 		PrivKey:     privKey,
 		Router:      router,
-		PeerManager: peerManager,
 	}
 
 	for nodes := range n.nodes.Lock() {
@@ -379,7 +377,7 @@ func (n *TestNode) MakeChannelNoCleanup(
 // It checks that all updates have been consumed during cleanup.
 func (n *TestNode) MakePeerUpdates(ctx context.Context, t *testing.T) *PeerUpdates {
 	t.Helper()
-	sub := n.PeerManager.Subscribe(ctx)
+	sub := n.Router.PeerManager().Subscribe(ctx)
 	t.Cleanup(func() { RequireNoUpdates(t, sub) })
 	return sub
 }
@@ -388,7 +386,7 @@ func (n *TestNode) MakePeerUpdates(ctx context.Context, t *testing.T) *PeerUpdat
 // It does *not* check that all updates have been consumed, but will
 // close the update channel.
 func (n *TestNode) MakePeerUpdatesNoRequireEmpty(ctx context.Context) *PeerUpdates {
-	return n.PeerManager.Subscribe(ctx)
+	return n.Router.PeerManager().Subscribe(ctx)
 }
 
 func MakeTestChannelDesc(chID ChannelID) ChannelDescriptor {

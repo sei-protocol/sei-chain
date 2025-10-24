@@ -85,7 +85,7 @@ type Reactor struct {
 	service.BaseService
 	logger log.Logger
 
-	peerManager *p2p.PeerManager
+	router *p2p.Router
 	// list of available peers to loop through and send peer requests to
 	availablePeers map[types.NodeID]struct{}
 	// keep track of the last time we saw no available peers, so we can restart if it's been too long
@@ -117,13 +117,18 @@ type Reactor struct {
 // NewReactor returns a reference to a new reactor.
 func NewReactor(
 	logger log.Logger,
-	peerManager *p2p.PeerManager,
+	router *p2p.Router,
 	restartCh chan<- struct{},
 	selfRemediationConfig *config.SelfRemediationConfig,
-) *Reactor {
+) (*Reactor, error) {
+	channel, err := router.OpenChannel(ChannelDescriptor())
+	if err != nil {
+		return nil, err
+	}
 	r := &Reactor{
 		logger:                        logger,
-		peerManager:                   peerManager,
+		channel:                       channel,
+		router:                        router,
 		availablePeers:                make(map[types.NodeID]struct{}),
 		lastNoAvailablePeers:          time.Time{},
 		requestsSent:                  make(map[types.NodeID]struct{}),
@@ -133,11 +138,7 @@ func NewReactor(
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "PEX", r)
-	return r
-}
-
-func (r *Reactor) SetChannel(ch *p2p.Channel) {
-	r.channel = ch
+	return r, nil
 }
 
 // OnStart starts separate go routines for each p2p Channel and listens for
@@ -213,9 +214,8 @@ func (r *Reactor) processPexCh(ctx context.Context) error {
 				// A request from another peer, or a response to one of our requests.
 				dur, err := r.handlePexMessage(m)
 				if err != nil {
-					r.logger.Error("failed to process pex message",
-						"msg", m, "err", err)
-					r.channel.SendError(p2p.PeerError{
+					r.logger.Error("failed to process pex message", "err", err)
+					r.router.PeerManager().SendError(p2p.PeerError{
 						NodeID: m.From,
 						Err:    err,
 					})
@@ -234,16 +234,16 @@ func (r *Reactor) processPexCh(ctx context.Context) error {
 // PeerUpdate messages. When the reactor is stopped, we will catch the signal and
 // close the p2p PeerUpdatesCh gracefully.
 func (r *Reactor) processPeerUpdates(ctx context.Context) error {
-	peerUpdates := r.peerManager.Subscribe(ctx)
+	peerUpdates := r.router.PeerManager().Subscribe(ctx)
 	for _, update := range peerUpdates.PreexistingPeers() {
 		r.processPeerUpdate(update)
 	}
 	for {
-		peerUpdate, err := utils.Recv(ctx, peerUpdates.Updates())
+		update, err := utils.Recv(ctx, peerUpdates.Updates())
 		if err != nil {
 			return err
 		}
-		r.processPeerUpdate(peerUpdate)
+		r.processPeerUpdate(update)
 	}
 }
 
@@ -262,7 +262,7 @@ func (r *Reactor) handlePexMessage(m p2p.RecvMsg) (time.Duration, error) {
 
 		// Fetch peers from the peer manager, convert NodeAddresses into URL
 		// strings, and send them back to the caller.
-		nodeAddresses := r.peerManager.Advertise(m.From, maxAddresses)
+		nodeAddresses := r.router.PeerManager().Advertise(m.From, maxAddresses)
 		pexAddresses := make([]protop2p.PexAddress, len(nodeAddresses))
 		for idx, addr := range nodeAddresses {
 			pexAddresses[idx] = protop2p.PexAddress{
@@ -290,7 +290,7 @@ func (r *Reactor) handlePexMessage(m p2p.RecvMsg) (time.Duration, error) {
 			if err != nil {
 				return 0, fmt.Errorf("PEX parse node address error %s", err)
 			}
-			added, err := r.peerManager.Add(peerAddress)
+			added, err := r.router.PeerManager().Add(peerAddress)
 			if err != nil {
 				// TODO(gprusak): This does not distinguish between bad messages (should drop peer) and internal errors (ignore/abort).
 				logger.Error("failed to add PEX address", "address", peerAddress, "err", err)
@@ -377,7 +377,7 @@ func (r *Reactor) calculateNextRequestTime(added int) time.Duration {
 	r.totalPeers += added
 
 	// If the peer store is nearly full, wait the maximum interval.
-	if ratio := r.peerManager.PeerRatio(); ratio >= 0.95 {
+	if ratio := r.router.PeerManager().PeerRatio(); ratio >= 0.95 {
 		r.logger.Debug("Peer manager is nearly full",
 			"sleep_period", fullCapacityInterval, "ratio", ratio)
 		return fullCapacityInterval
