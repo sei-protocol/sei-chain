@@ -90,9 +90,9 @@ func Listen(addr netip.AddrPort) (*net.TCPListener, error) {
 	// macOS does not.
 	var addrAny unix.Sockaddr
 	if addr.Addr().Is4() {
-		addrAny = &unix.SockaddrInet4{Port: 0, Addr: addr.Addr().As4()}
+		addrAny = &unix.SockaddrInet4{Port: int(addr.Port()), Addr: addr.Addr().As4()}
 	} else {
-		addrAny = &unix.SockaddrInet6{Port: 0, Addr: addr.Addr().As16()}
+		addrAny = &unix.SockaddrInet6{Port: int(addr.Port()), Addr: addr.Addr().As16()}
 	}
 	if err := unix.Bind(fd, addrAny); err != nil {
 		panic(err)
