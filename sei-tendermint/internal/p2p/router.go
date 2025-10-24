@@ -482,7 +482,7 @@ func (r *Router) Dial(ctx context.Context, address NodeAddress) (*net.TCPConn, e
 			endpoint.AddrPort = netip.AddrPortFrom(endpoint.Addr(), 26657)
 		}
 		dialer := net.Dialer{}
-		// Golang DialContext sucks, because even if provided an IPv4,
+		// Golang Resolver sucks, because even if provided an IPv4,
 		// it dials IPv6-embedded address instead.
 		// To force it to use IPv4, we need to specify the network explicilty.
 		network := "tcp6"

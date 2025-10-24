@@ -86,7 +86,14 @@ func Listen(addr netip.AddrPort) (*net.TCPListener, error) {
 	// Passing the background context is ok, because Listen is
 	// non-blocking if it doesn't need to resolve the address
 	// against a DNS server.
-	l, err := cfg.Listen(context.Background(), "tcp", addr.String())
+	// Golang Resolver sucks, because even if provided an IPv4,
+	// it uses IPv6-embedded address on IPv6 socket instead.
+	// To force it to use IPv4, we need to specify the network explicilty.
+	network := "tcp6"
+	if addr.Addr().Is4() {
+		network = "tcp4"
+	}
+	l, err := cfg.Listen(context.Background(), network, addr.String())
 	if err != nil {
 		return nil, err
 	}
