@@ -98,7 +98,7 @@ func LoadMultiTree(dir string, opts Options) (*MultiTree, error) {
 	timeElapsed := time.Since(startTime).Seconds()
 	log.Info(fmt.Sprintf("All %d memIAVL trees loaded in %.1fs\n", len(treeNames), timeElapsed))
 	if timeElapsed > 600 {
-		log.Info("Loading multitree is too slow. Consider increasing the disk bandwidth to speed up the initialization time.\n")
+		log.Info("Loading MemIAVL tree from disk is too slow! Consider increasing the disk bandwidth to speed up the initialization time.\n")
 	}
 	slices.Sort(treeNames)
 
