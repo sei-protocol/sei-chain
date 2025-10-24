@@ -77,7 +77,10 @@ func Listen(addr netip.AddrPort) (*net.TCPListener, error) {
 				fmt.Printf("LISTEN(%v,%v)\n", network, address)
 				var errInner error
 				if err := c.Control(func(fd uintptr) {
-					errInner = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEPORT, 1)
+					if errInner = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEPORT, 1); errInner != nil {
+						return
+					}
+					errInner = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
 				}); err != nil {
 					return err
 				}
