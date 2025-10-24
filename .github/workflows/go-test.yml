@@ -40,9 +40,6 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.24'
-      - name: Go test
-        working-directory: '${{ matrix.modules.path }}'
-        run: go test -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' ./...
       - name: Go test with race detector
         working-directory: '${{ matrix.modules.path }}'
         run: go test -race -tags='${{ matrix.modules.tags }}' -timeout='${{env.GO_TEST_TIMEOUT}}' -covermode=atomic -coverprofile=coverage.out ./...
