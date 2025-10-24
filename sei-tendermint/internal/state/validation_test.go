@@ -3,6 +3,7 @@ package state_test
 import (
 	"testing"
 	"time"
+	"errors"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -201,9 +202,10 @@ func TestValidateBlockCommit(t *testing.T) {
 			}
 			block := statefactory.MakeBlock(state, height, wrongHeightCommit)
 			err = blockExec.ValidateBlock(ctx, state, block)
-			_, isErrInvalidCommitHeight := err.(types.ErrInvalidCommitHeight)
-			require.True(t, isErrInvalidCommitHeight, "expected ErrInvalidCommitHeight at height %d but got: %v", height, err)
 
+			if !errors.As(err, &types.ErrInvalidCommitHeight{}) {
+				t.Fatalf("expected ErrInvalidCommitHeight at height %d but got: %v", height, err)
+			}
 			/*
 				#2589: test len(block.LastCommit.Signatures) == state.LastValidators.Size()
 			*/
