@@ -697,6 +697,11 @@ func (vals *ValidatorSet) VerifyCommitLight(chainID string, blockID BlockID,
 	return VerifyCommitLight(chainID, vals, blockID, height, commit)
 }
 
+func (vals *ValidatorSet) VerifyCommitLightAllSignatures(chainID string, blockID BlockID,
+	height int64, commit *Commit) error {
+	return VerifyCommitLightAllSignatures(chainID, vals, blockID, height, commit)
+}
+
 // VerifyCommitLightTrusting verifies that trustLevel of the validator set signed
 // this commit.
 func (vals *ValidatorSet) VerifyCommitLightTrusting(chainID string, commit *Commit, trustLevel tmmath.Fraction) error {
