@@ -1108,17 +1108,17 @@ func sendRequestWithNamespace(t *testing.T, namespace string, port int, method s
 	if len(params) > 0 {
 		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")
 	}
-	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_%s\",\"params\":[%s],\"id\":\"test\"}", namespace, method, paramsFormatted)
+	body := fmt.Sprintf(`{"jsonrpc": "2.0","method": "%s_%s","params":[%s],"id":"test"}`, namespace, method, paramsFormatted)
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, port), strings.NewReader(body))
-	require.Nil(t, err)
+	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	res, err := http.DefaultClient.Do(req)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	defer res.Body.Close()
 	resBody, err := io.ReadAll(res.Body)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	resObj := map[string]interface{}{}
-	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	require.NoError(t, json.Unmarshal(resBody, &resObj))
 	return resObj
 }
 
