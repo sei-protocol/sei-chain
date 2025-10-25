@@ -25,6 +25,8 @@ func TestProofs(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	tree := New(0)
+	opts := Options{}
+	opts.FillDefaults()
 
 	for i, tc := range testCases {
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
@@ -43,9 +45,9 @@ func TestProofs(t *testing.T) {
 
 			// test persisted tree
 			require.NoError(t, tree.WriteSnapshot(context.Background(), tmpDir))
-			snapshot, err := OpenSnapshot(tmpDir)
+			snapshot, err := OpenSnapshot(tmpDir, opts)
 			require.NoError(t, err)
-			ptree := NewFromSnapshot(snapshot, true, 0)
+			ptree := NewFromSnapshot(snapshot, opts)
 			defer func() { _ = ptree.Close() }()
 
 			proof, err = ptree.GetMembershipProof(tc.existKey)

@@ -32,7 +32,7 @@ func NewCommitStore(homeDir string, logger logger.Logger, config config.StateCom
 		SnapshotInterval:                 config.SnapshotInterval,
 		SnapshotKeepRecent:               config.SnapshotKeepRecent,
 		SnapshotWriterLimit:              config.SnapshotWriterLimit,
-		CacheSize:                        config.CacheSize,
+		PrefetchThreshold:                config.SnapshotPrefetchThreshold,
 		CreateIfMissing:                  true,
 		OnlyAllowExportOnSnapshotVersion: config.OnlyAllowExportOnSnapshotVersion,
 	}

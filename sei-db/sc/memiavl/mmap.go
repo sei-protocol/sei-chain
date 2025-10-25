@@ -1,6 +1,7 @@
 package memiavl
 
 import (
+	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
 
@@ -35,6 +36,21 @@ func NewMmap(path string) (*MmapFile, error) {
 		data:   data,
 		handle: handle,
 	}, nil
+}
+
+func (m *MmapFile) PrepareForSequentialRead() {
+	if len(m.data) > 0 {
+		// Override default MADV_RANDOM with SEQUENTIAL + WILLNEED to favor prefetching
+		_ = unix.Madvise(m.data, unix.MADV_SEQUENTIAL)
+		_ = unix.Madvise(m.data, unix.MADV_WILLNEED)
+	}
+}
+
+func (m *MmapFile) PrepareForRandomRead() {
+	if len(m.data) > 0 {
+		// Override default MADV_RANDOM with SEQUENTIAL + WILLNEED to favor prefetching
+		_ = unix.Madvise(m.data, unix.MADV_RANDOM)
+	}
 }
 
 // Close closes the file and mmap handles

@@ -2,6 +2,7 @@ package memiavl
 
 import (
 	"errors"
+	"github.com/sei-protocol/sei-db/common/logger"
 	"runtime"
 
 	"github.com/sei-protocol/sei-db/config"
@@ -23,8 +24,9 @@ type Options struct {
 	AsyncCommitBuffer int
 	// ZeroCopy if true, the get and iterator methods could return a slice pointing to mmaped blob files.
 	ZeroCopy bool
-	// CacheSize defines the cache's max entry size for each memiavl store.
-	CacheSize int
+	// Logger is the memiavl logger
+	Logger logger.Logger
+
 	// LoadForOverwriting if true rollbacks the state, specifically the OpenDB method will
 	// truncate the versions after the `TargetVersion`, the `TargetVersion` becomes the latest version.
 	// it do nothing if the target version is `0`.
@@ -36,6 +38,10 @@ type Options struct {
 
 	// Limit the number of concurrent snapshot writers
 	SnapshotWriterLimit int
+
+	// Prefetch the snapshot file if amount of file in cache is below the threshold
+	// Setting to <=0 means disable prefetching
+	PrefetchThreshold float64
 }
 
 func (opts Options) Validate() error {
@@ -59,9 +65,7 @@ func (opts *Options) FillDefaults() {
 		opts.SnapshotWriterLimit = runtime.NumCPU()
 	}
 
-	if opts.CacheSize < 0 {
-		opts.CacheSize = config.DefaultCacheSize
-	}
-
+	opts.PrefetchThreshold = 0.8
+	opts.Logger = logger.NewNopLogger()
 	opts.SnapshotKeepRecent = config.DefaultSnapshotKeepRecent
 }

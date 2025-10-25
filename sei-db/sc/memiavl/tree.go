@@ -9,6 +9,7 @@ import (
 
 	ics23 "github.com/confio/ics23/go"
 	"github.com/cosmos/iavl"
+	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/sc/types"
 	dbm "github.com/tendermint/tm-db"
@@ -28,6 +29,8 @@ type Tree struct {
 
 	// when true, the get and iterator methods could return a slice pointing to mmaped blob files.
 	zeroCopy bool
+
+	logger logger.Logger
 
 	// sync.RWMutex is used to protect the tree for thread safety during snapshot reload
 	mtx *sync.RWMutex
@@ -64,11 +67,12 @@ func NewWithInitialVersion(initialVersion uint32) *Tree {
 }
 
 // NewFromSnapshot mmap the blob files and create the root node.
-func NewFromSnapshot(snapshot *Snapshot, zeroCopy bool, _ int) *Tree {
+func NewFromSnapshot(snapshot *Snapshot, opts Options) *Tree {
 	tree := &Tree{
 		version:   snapshot.Version(),
 		snapshot:  snapshot,
-		zeroCopy:  zeroCopy,
+		zeroCopy:  opts.ZeroCopy,
+		logger:    opts.Logger,
 		mtx:       &sync.RWMutex{},
 		pendingWg: &sync.WaitGroup{},
 	}
@@ -98,7 +102,7 @@ func (t *Tree) SetInitialVersion(initialVersion int64) error {
 
 // Copy returns a snapshot of the tree which won't be modified by further modifications on the main tree,
 // the returned new tree can be accessed concurrently with the main tree.
-func (t *Tree) Copy(_ int) *Tree {
+func (t *Tree) Copy() *Tree {
 	t.mtx.RLock()
 	defer t.mtx.RUnlock()
 	if _, ok := t.root.(*MemNode); ok {
@@ -141,6 +145,9 @@ func (t *Tree) StartBackgroundWrite() {
 }
 
 func (t *Tree) WaitToCompleteAsyncWrite() {
+	if t.pendingChanges == nil {
+		return
+	}
 	close(t.pendingChanges)
 	t.pendingWg.Wait()
 	t.pendingChanges = nil
