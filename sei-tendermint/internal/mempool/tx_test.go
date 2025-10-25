@@ -13,25 +13,6 @@ import (
 	"github.com/tendermint/tendermint/types"
 )
 
-func TestTxStore_GetTxBySender(t *testing.T) {
-	txs := NewTxStore()
-	wtx := &WrappedTx{
-		tx:        []byte("test_tx"),
-		sender:    "foo",
-		priority:  1,
-		timestamp: time.Now(),
-	}
-
-	res := txs.GetTxBySender(wtx.sender)
-	require.Nil(t, res)
-
-	txs.SetTx(wtx)
-
-	res = txs.GetTxBySender(wtx.sender)
-	require.NotNil(t, res)
-	require.Equal(t, wtx, res)
-}
-
 func TestTxStore_GetTxByHash(t *testing.T) {
 	txs := NewTxStore()
 	wtx := &WrappedTx{
