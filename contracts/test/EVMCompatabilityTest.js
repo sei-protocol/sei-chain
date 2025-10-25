@@ -996,7 +996,7 @@ describe("EVM Test", function () {
       it("Should fetch past logs", async function () {
         const contractAddress = await evmTester.getAddress()
         const filter = {
-          fromBlock: 0,
+          fromBlock: 1,
           toBlock: 'latest',
           address: contractAddress
         };
