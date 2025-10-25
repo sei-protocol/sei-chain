@@ -37,7 +37,8 @@ type NodeInfo struct {
 	ProtocolVersion ProtocolVersion `json:"protocol_version"`
 
 	// Authenticate
-	NodeID     NodeID `json:"id"`          // authenticated identifier
+	NodeID NodeID `json:"id"` // authenticated identifier
+	// TODO(gprusak): for some reason ListenAddr is unused. Why do we have it?
 	ListenAddr string `json:"listen_addr"` // accepting incoming
 
 	// Check compatibility.
@@ -137,26 +138,6 @@ func (info NodeInfo) CompatibleWith(other NodeInfo) error {
 	if info.Network != other.Network {
 		return fmt.Errorf("peer is on a different network. Got %v, expected %v", other.Network, info.Network)
 	}
-
-	// if we have no channels, we're just testing
-	if len(info.Channels) == 0 {
-		return nil
-	}
-
-	// for each of our channels, check if they have it
-	found := false
-OUTER_LOOP:
-	for _, ch1 := range info.Channels {
-		for _, ch2 := range other.Channels {
-			if ch1 == ch2 {
-				found = true
-				break OUTER_LOOP // only need one
-			}
-		}
-	}
-	if !found {
-		return fmt.Errorf("peer has no common channels. Our channels: %v ; Peer channels: %v", info.Channels, other.Channels)
-	}
 	return nil
 }
 
@@ -170,19 +151,6 @@ func (info *NodeInfo) AddChannel(channel uint16) {
 	}
 
 	info.Channels = append(info.Channels, byte(channel))
-}
-
-func (info NodeInfo) Copy() NodeInfo {
-	return NodeInfo{
-		ProtocolVersion: info.ProtocolVersion,
-		NodeID:          info.NodeID,
-		ListenAddr:      info.ListenAddr,
-		Network:         info.Network,
-		Version:         info.Version,
-		Channels:        info.Channels,
-		Moniker:         info.Moniker,
-		Other:           info.Other,
-	}
 }
 
 func (info NodeInfo) ToProto() *tmp2p.NodeInfo {
@@ -251,11 +219,13 @@ func ResolveAddressString(addr string) (netip.AddrPort, error) {
 	if err := id.Validate(); err != nil {
 		return netip.AddrPort{}, err
 	}
+	// ResolveTCPAddr returns IPv6-embedded IPv4 addresses for no reason.
 	tcpAddr, err := net.ResolveTCPAddr("tcp", spl[1])
 	if err != nil {
 		return netip.AddrPort{}, err
 	}
-	return tcpAddr.AddrPort(), nil
+	ap := tcpAddr.AddrPort()
+	return netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()), nil
 }
 
 func removeProtocolIfDefined(addr string) string {

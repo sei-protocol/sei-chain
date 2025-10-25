@@ -19,6 +19,8 @@ import (
 	"github.com/tendermint/tendermint/types"
 )
 
+var selfID = makeInfo(makeKey()).NodeID
+
 func testAddr(x string) NodeAddress {
 	if len(x) != 1 {
 		panic("x must be a single character")

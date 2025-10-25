@@ -49,8 +49,8 @@ type Syncer struct {
 	fileWorkerTimeout      time.Duration
 	fileWorkerCancelFn     context.CancelFunc
 
-	metadataRequestFn func(context.Context) error
-	fileRequestFn     func(context.Context, types.NodeID, uint64, string) error
+	metadataRequestFn func()
+	fileRequestFn     func(types.NodeID, uint64, string)
 	commitStateFn     func(context.Context, uint64) (sm.State, *types.Commit, error)
 	postSyncFn        func(context.Context, sm.State, *types.Commit) error
 	resetDirFn        func(*Syncer)
@@ -71,8 +71,8 @@ func NewSyncer(
 	dbsyncConfig config.DBSyncConfig,
 	baseConfig config.BaseConfig,
 	enable bool,
-	metadataRequestFn func(context.Context) error,
-	fileRequestFn func(context.Context, types.NodeID, uint64, string) error,
+	metadataRequestFn func(),
+	fileRequestFn func(types.NodeID, uint64, string),
 	commitStateFn func(context.Context, uint64) (sm.State, *types.Commit, error),
 	postSyncFn func(context.Context, sm.State, *types.Commit) error,
 	resetDirFn func(*Syncer),
@@ -160,7 +160,7 @@ func (s *Syncer) Process(ctx context.Context) {
 		timedOut, _ := s.isCurrentMetadataTimedOut()
 		if timedOut {
 			s.logger.Info(fmt.Sprintf("last metadata has timed out; sleeping for %f seconds", s.sleepInSeconds.Seconds()))
-			s.metadataRequestFn(ctx)
+			s.metadataRequestFn()
 			time.Sleep(s.sleepInSeconds)
 			continue
 		}
@@ -280,7 +280,7 @@ func (s *Syncer) requestFiles(ctx context.Context, metadataSetAt time.Time) {
 			s.pendingFiles[picked] = struct{}{}
 			completionSignal := make(chan struct{}, 1)
 			s.completionSignals[picked] = completionSignal
-			s.fileRequestFn(ctx, s.peersToSync[0], s.heightToSync, picked)
+			s.fileRequestFn(s.peersToSync[0], s.heightToSync, picked)
 			s.mtx.Unlock()
 
 			ticker := time.NewTicker(s.fileWorkerTimeout)

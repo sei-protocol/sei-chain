@@ -79,7 +79,7 @@ func defaultObservePanic(r any) {}
 
 // getChannelDescriptor produces an instance of a descriptor for this
 // package's required channels.
-func GetChannelDescriptor(cfg *config.MempoolConfig) *p2p.ChannelDescriptor {
+func GetChannelDescriptor(cfg *config.MempoolConfig) p2p.ChannelDescriptor {
 	largestTx := make([]byte, cfg.MaxTxBytes)
 	batchMsg := protomem.Message{
 		Sum: &protomem.Message_Txs{
@@ -87,7 +87,7 @@ func GetChannelDescriptor(cfg *config.MempoolConfig) *p2p.ChannelDescriptor {
 		},
 	}
 
-	return &p2p.ChannelDescriptor{
+	return p2p.ChannelDescriptor{
 		ID:                  MempoolChannel,
 		MessageType:         new(protomem.Message),
 		Priority:            5,
@@ -123,19 +123,19 @@ func (r *Reactor) OnStop() {}
 // For every tx in the message, we execute CheckTx. It returns an error if an
 // empty set of txs are sent in an envelope or if we receive an unexpected
 // message type.
-func (r *Reactor) handleMempoolMessage(ctx context.Context, envelope *p2p.Envelope) error {
-	logger := r.logger.With("peer", envelope.From)
+func (r *Reactor) handleMempoolMessage(ctx context.Context, m p2p.RecvMsg) error {
+	logger := r.logger.With("peer", m.From)
 
-	switch msg := envelope.Message.(type) {
+	switch msg := m.Message.(type) {
 	case *protomem.Txs:
 		if err := msg.Validate(); err != nil {
 			return err
 		}
 		protoTxs := msg.GetTxs()
 
-		txInfo := TxInfo{SenderID: r.ids.GetForPeer(envelope.From)}
-		if len(envelope.From) != 0 {
-			txInfo.SenderNodeID = envelope.From
+		txInfo := TxInfo{SenderID: r.ids.GetForPeer(m.From)}
+		if len(m.From) != 0 {
+			txInfo.SenderNodeID = m.From
 		}
 
 		for _, tx := range protoTxs {
@@ -174,7 +174,7 @@ func (r *Reactor) handleMempoolMessage(ctx context.Context, envelope *p2p.Envelo
 // handleMessage handles an Envelope sent from a peer on a specific p2p Channel.
 // It will handle errors and any possible panics gracefully. A caller can handle
 // any error returned by sending a PeerError on the respective channel.
-func (r *Reactor) handleMessage(ctx context.Context, envelope *p2p.Envelope) (err error) {
+func (r *Reactor) handleMessage(ctx context.Context, m p2p.RecvMsg) (err error) {
 	defer func() {
 		if e := recover(); e != nil {
 			r.observePanic(e)
@@ -187,33 +187,25 @@ func (r *Reactor) handleMessage(ctx context.Context, envelope *p2p.Envelope) (er
 		}
 	}()
 
-	r.logger.Debug("received message", "peer", envelope.From)
-
-	switch envelope.ChannelID {
-	case MempoolChannel:
-		err = r.handleMempoolMessage(ctx, envelope)
-	default:
-		err = fmt.Errorf("unknown channel ID (%d) for envelope (%T)", envelope.ChannelID, envelope.Message)
-	}
-
-	return
+	r.logger.Debug("received message", "peer", m.From)
+	return r.handleMempoolMessage(ctx, m)
 }
 
 // processMempoolCh implements a blocking event loop where we listen for p2p
 // Envelope messages from the mempoolCh.
 func (r *Reactor) processMempoolCh(ctx context.Context, mempoolCh *p2p.Channel) {
 	<-r.readyToStart
-	iter := mempoolCh.RecvAll(ctx)
-	for iter.Next(ctx) {
-		envelope := iter.Envelope()
-		if err := r.handleMessage(ctx, envelope); err != nil {
-			r.logger.Error("failed to process message", "ch_id", envelope.ChannelID, "envelope", envelope, "err", err)
-			if serr := mempoolCh.SendError(ctx, p2p.PeerError{
-				NodeID: envelope.From,
+	for {
+		m, err := mempoolCh.Recv(ctx)
+		if err != nil {
+			return
+		}
+		if err := r.handleMessage(ctx, m); err != nil {
+			r.logger.Error("failed to process message", "err", err)
+			mempoolCh.SendError(p2p.PeerError{
+				NodeID: m.From,
 				Err:    err,
-			}); serr != nil {
-				return
-			}
+			})
 		}
 	}
 }
@@ -329,15 +321,7 @@ func (r *Reactor) broadcastTxRoutine(ctx context.Context, peerID types.NodeID, m
 		if ok := r.mempool.txStore.TxHasPeer(memTx.hash, peerMempoolID); !ok {
 			// Send the mempool tx to the corresponding peer. Note, the peer may be
 			// behind and thus would not be able to process the mempool tx correctly.
-			if err := mempoolCh.Send(ctx, p2p.Envelope{
-				To: peerID,
-				Message: &protomem.Txs{
-					Txs: [][]byte{memTx.tx},
-				},
-			}); err != nil {
-				return
-			}
-
+			mempoolCh.Send(&protomem.Txs{Txs: [][]byte{memTx.tx}}, peerID)
 			r.logger.Debug(
 				"gossiped tx to peer",
 				"tx", fmt.Sprintf("%X", memTx.tx.Hash()),

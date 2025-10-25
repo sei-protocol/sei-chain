@@ -23,7 +23,7 @@ func TestPeerCatchupRounds(t *testing.T) {
 
 	ctx := t.Context()
 
-	valSet, privVals := factory.ValidatorSet(ctx, t, 10, 1)
+	valSet, privVals := factory.ValidatorSet(ctx, 10, 1)
 
 	chainID := cfg.ChainID()
 	hvs := NewHeightVoteSet(chainID, 1, valSet)

@@ -53,9 +53,9 @@ func TestMConnectionSendRecv(t *testing.T) {
 	err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 		server, client := tcp.TestPipe()
 		mconn1 := newMConnection(client)
-		s.SpawnBg(func() error { return mayDisconnectAfterDone(ctx, mconn1.Run(ctx)) })
+		s.SpawnBgNamed("mconn1", func() error { return mayDisconnectAfterDone(ctx, mconn1.Run(ctx)) })
 		mconn2 := newMConnection(server)
-		s.SpawnBg(func() error { return mayDisconnectAfterDone(ctx, mconn2.Run(ctx)) })
+		s.SpawnBgNamed("mconn2", func() error { return mayDisconnectAfterDone(ctx, mconn2.Run(ctx)) })
 
 		rng := utils.TestRng()
 		want := utils.GenBytes(rng, 20)
