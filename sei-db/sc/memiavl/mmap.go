@@ -33,23 +33,22 @@ func NewMmap(path string) (*MmapFile, error) {
 		return nil, err
 	}
 
-	// Apply madvise hints for optimal replay performance
-	// This enables kernel readahead and reduces page fault latency
-	if len(data) > 0 {
-		_ = unix.Madvise(data, unix.MADV_SEQUENTIAL)
-		_ = unix.Madvise(data, unix.MADV_WILLNEED)
-	}
-
-	return &MmapFile{
+	mmapFile := &MmapFile{
 		file:   file,
 		data:   data,
 		handle: handle,
-	}, nil
+	}
+
+	// Apply madvise hints for optimal replay performance
+	// This enables kernel readahead and reduces page fault latency
+	mmapFile.PrepareForSequentialRead()
+
+	return mmapFile, nil
 }
 
 func (m *MmapFile) PrepareForSequentialRead() {
 	if len(m.data) > 0 {
-		// Override default MADV_RANDOM with SEQUENTIAL + WILLNEED to favor prefetching
+		// Set SEQUENTIAL + WILLNEED for optimal sequential access with kernel readahead
 		_ = unix.Madvise(m.data, unix.MADV_SEQUENTIAL)
 		_ = unix.Madvise(m.data, unix.MADV_WILLNEED)
 	}
@@ -57,7 +56,7 @@ func (m *MmapFile) PrepareForSequentialRead() {
 
 func (m *MmapFile) PrepareForRandomRead() {
 	if len(m.data) > 0 {
-		// Override default MADV_RANDOM with SEQUENTIAL + WILLNEED to favor prefetching
+		// Switch to RANDOM access mode to disable readahead for random access patterns
 		_ = unix.Madvise(m.data, unix.MADV_RANDOM)
 	}
 }
