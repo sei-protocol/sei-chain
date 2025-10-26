@@ -1,9 +1,10 @@
 package memiavl
 
 import (
-	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/ledgerwatch/erigon-lib/mmap"
 	"github.com/sei-protocol/sei-db/common/errors"
@@ -18,7 +19,8 @@ type MmapFile struct {
 }
 
 // Open openes the file and create the mmap.
-// the mmap is created with flags: PROT_READ, MAP_SHARED, MADV_RANDOM.
+// the mmap is created with flags: PROT_READ, MAP_SHARED.
+// By default, applies MADV_SEQUENTIAL + MADV_WILLNEED for better readahead during replay.
 func NewMmap(path string) (*MmapFile, error) {
 	file, err := os.Open(filepath.Clean(path))
 	if err != nil {
@@ -29,6 +31,13 @@ func NewMmap(path string) (*MmapFile, error) {
 	if err != nil {
 		_ = file.Close()
 		return nil, err
+	}
+
+	// Apply madvise hints for optimal replay performance
+	// This enables kernel readahead and reduces page fault latency
+	if len(data) > 0 {
+		_ = unix.Madvise(data, unix.MADV_SEQUENTIAL)
+		_ = unix.Madvise(data, unix.MADV_WILLNEED)
 	}
 
 	return &MmapFile{

@@ -144,6 +144,9 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 	for _, tree := range mtree.trees {
 		tree.snapshot.nodesMap.PrepareForRandomRead()
 		tree.snapshot.leavesMap.PrepareForRandomRead()
+		// Note: Do NOT call PrepareForRandomRead on kvsMap!
+		// kvs needs MADV_SEQUENTIAL for kernel readahead during replay
+		// to efficiently load key data as trees are traversed
 	}
 
 	// Create rlog manager and open the rlog file
