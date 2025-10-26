@@ -13,12 +13,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unsafe"
-
-	"github.com/sei-protocol/sei-db/common/logger"
-	"golang.org/x/sys/unix"
 
 	"github.com/sei-protocol/sei-db/common/errors"
+	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/sc/types"
 )
 
@@ -635,25 +632,12 @@ func (snapshot *Snapshot) prefetchSnapshot(snapshotDir string, prefetchThreshold
 	}
 	log := snapshot.logger
 
-	// If most pages are already in page cache, skip prefetch
-	residentNodes, errNodes := residentRatio(snapshot.nodes)
-	residentLeaves, errLeaves := residentRatio(snapshot.leaves)
-	if errNodes == nil && errLeaves == nil {
-		if residentNodes >= prefetchThreshold && residentLeaves >= prefetchThreshold {
-			log.Debug(fmt.Sprintf("Skipped prefetching for tree %s\n", treeName))
-			return
-		}
-	}
+	// Prefetch both nodes and leaves files for cold start performance
+	log.Info(fmt.Sprintf("Starting to prefetch file: %s", filepath.Join(snapshotDir, FileNameNodes)))
+	_ = SequentialReadAndFillPageCache(filepath.Join(snapshotDir, FileNameNodes))
 
-	if residentNodes < prefetchThreshold {
-		log.Info(fmt.Sprintf("Tree %s nodes page cache residency ratio is %f, below threshold %f\n", treeName, residentNodes, prefetchThreshold))
-		_ = SequentialReadAndFillPageCache(filepath.Join(snapshotDir, FileNameNodes))
-	}
-
-	if residentLeaves < prefetchThreshold {
-		log.Info(fmt.Sprintf("Tree %s leaves page cache residency ratio is %f, below threshold %f\n", treeName, residentLeaves, prefetchThreshold))
-		_ = SequentialReadAndFillPageCache(filepath.Join(snapshotDir, FileNameLeaves))
-	}
+	log.Info(fmt.Sprintf("Starting to prefetch file: %s", filepath.Join(snapshotDir, FileNameLeaves)))
+	_ = SequentialReadAndFillPageCache(filepath.Join(snapshotDir, FileNameLeaves))
 
 	log.Info(fmt.Sprintf("Prefetch snapshot for %s completed in %fs. Consider adding more RAM for page cache to avoid preloading during restart.\n", treeName, time.Since(startTime).Seconds()))
 }
@@ -771,37 +755,4 @@ func readChunkIntoCache(f *os.File, buf []byte, pos int64, n int, totalRead *int
 			break
 		}
 	}
-}
-
-// residentRatio returns fraction of pages resident in the page cache for data.
-// Uses mincore on Linux; on other platforms returns an unsupported error.
-func residentRatio(data []byte) (float64, error) {
-	if len(data) == 0 {
-		return 1, nil
-	}
-	if runtime.GOOS != "linux" {
-		return 0, fmt.Errorf("residentRatio unsupported on %s", runtime.GOOS)
-	}
-
-	pageSize := unix.Getpagesize()
-	numPages := (len(data) + pageSize - 1) / pageSize
-	if numPages == 0 {
-		return 1, nil
-	}
-	vec := make([]byte, numPages)
-
-	addr := uintptr(unsafe.Pointer(&data[0]))
-	length := uintptr(len(data))
-	_, _, errno := unix.Syscall(unix.SYS_MINCORE, addr, length, uintptr(unsafe.Pointer(&vec[0])))
-	if errno != 0 {
-		return 0, errno
-	}
-
-	present := 0
-	for _, v := range vec {
-		if v&1 == 1 {
-			present++
-		}
-	}
-	return float64(present) / float64(len(vec)), nil
 }

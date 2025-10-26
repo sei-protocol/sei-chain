@@ -238,7 +238,7 @@ func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 			}
 			t.trees[i].Name = upgrade.Name
 		default:
-			// add tree
+			// add tree (dynamically created during replay, e.g., acc/bank/evm at ~216K)
 			v := utils.NextVersion(t.Version(), t.initialVersion)
 			if v < 0 || v > math.MaxUint32 {
 				return fmt.Errorf("version overflows uint32: %d", v)
@@ -246,6 +246,8 @@ func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 			version := uint32(v)
 			tree := NewWithInitialVersion(version)
 			t.trees = append(t.trees, NamedTree{Tree: tree, Name: upgrade.Name})
+
+			tree.startBackgroundWriteLargeBuffer(100, upgrade.Name)
 		}
 	}
 
@@ -360,6 +362,14 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 		return fmt.Errorf("target index %d is in the future, latest index: %d", endIndex, lastIndex)
 	}
 
+	// Start async write workers for each tree with LARGE buffer for cold start
+	// 128GB machine: we can be very aggressive with buffer sizes (~60GB total)
+	// This allows publisher to complete quickly without blocking on slow trees
+	t.logger.Info(fmt.Sprintf("Starting background workers for %d existing trees", len(t.trees)))
+	for _, namedTree := range t.trees {
+		namedTree.startBackgroundWriteLargeBuffer(100, namedTree.Name)
+	}
+
 	var replayCount = 0
 	err = stream.Replay(firstIndex, endIndex, func(index uint64, entry proto.ChangelogEntry) error {
 		if err := t.ApplyUpgrades(entry.Upgrades); err != nil {
@@ -371,6 +381,7 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 			t.TreeByName(treeName).ApplyChangeSetAsync(cs.Changeset)
 			updatedTrees[treeName] = true
 		}
+		// For trees without changes, still need to bump version
 		for _, tree := range t.trees {
 			if _, found := updatedTrees[tree.Name]; !found {
 				tree.ApplyChangeSetAsync(iavl.ChangeSet{})

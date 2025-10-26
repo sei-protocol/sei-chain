@@ -133,15 +133,35 @@ func (t *Tree) ApplyChangeSetAsync(changeSet iavl.ChangeSet) {
 }
 
 func (t *Tree) StartBackgroundWrite() {
+	t.startBackgroundWrite(1000, "")
+}
+
+func (t *Tree) startBackgroundWrite(bufferSize int, treeName string) {
+	if t.pendingChanges != nil {
+		return // Already started
+	}
 	t.pendingWg.Add(1)
-	t.pendingChanges = make(chan iavl.ChangeSet, 1000)
+	t.pendingChanges = make(chan iavl.ChangeSet, bufferSize)
 	go func() {
 		defer t.pendingWg.Done()
+		var processedCount int
+		var totalPairs int
+
 		for nextChange := range t.pendingChanges {
+			// Track changeset stats
+			totalPairs += len(nextChange.Pairs)
+
 			t.ApplyChangeSet(nextChange)
 			_, _, _ = t.SaveVersion(false)
+			if totalPairs > 0 {
+				processedCount++
+			}
 		}
 	}()
+}
+
+func (t *Tree) startBackgroundWriteLargeBuffer(bufferSize int, treeName string) {
+	t.startBackgroundWrite(bufferSize, treeName)
 }
 
 func (t *Tree) WaitToCompleteAsyncWrite() {
