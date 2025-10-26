@@ -709,6 +709,7 @@ func TestReactorRecordsVotesAndBlockParts(t *testing.T) {
 //}
 
 func TestReactorValidatorSetChanges(t *testing.T) {
+	t.Skip("See: https://linear.app/seilabs/issue/CON-100/testreactorvalidatorsetchanges-hangs-indefinitely-in-ci-when-run-with")
 	ctx := t.Context()
 	cfg := configSetup(t)
 

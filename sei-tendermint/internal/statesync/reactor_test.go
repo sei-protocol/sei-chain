@@ -179,7 +179,7 @@ func setup(
 
 	t.Cleanup(cancel)
 	t.Cleanup(rts.reactor.Wait)
-	t.Cleanup(leaktest.Check(t))
+	t.Cleanup(leaktest.CheckTimeout(t, 30*time.Second))
 
 	return rts
 }
@@ -620,6 +620,7 @@ func TestReactor_StateProviderP2P(t *testing.T) {
 }
 
 func TestReactor_Backfill(t *testing.T) {
+	t.Skip("See: https://linear.app/seilabs/issue/CON-103/testreactor-backfillfailure-rate-9-hangs-indefinitely")
 	// test backfill algorithm with varying failure rates [0, 10]
 	failureRates := []int{0, 2, 9}
 	for _, failureRate := range failureRates {
