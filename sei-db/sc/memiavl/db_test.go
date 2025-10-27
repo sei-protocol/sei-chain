@@ -106,6 +106,7 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 		for !stopped.Load() {
 			value := db.TreeByName("test").Get([]byte("hello1"))
 			require.True(t, value == nil || string(value) == "world1")
+			time.Sleep(5 * time.Millisecond)
 		}
 	}()
 

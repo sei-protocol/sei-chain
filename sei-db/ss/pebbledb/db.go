@@ -62,7 +62,7 @@ type Database struct {
 	asyncWriteWG sync.WaitGroup
 	config       config.StateStoreConfig
 	// Earliest version for db after pruning
-	earliestVersion int64
+	earliestVersion atomic.Int64
 	// Latest version for db
 	latestVersion atomic.Int64
 
@@ -148,11 +148,12 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		storage:         db,
 		asyncWriteWG:    sync.WaitGroup{},
 		config:          config,
-		earliestVersion: earliestVersion,
+		earliestVersion: atomic.Int64{},
 		latestVersion:   atomic.Int64{},
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
 	}
 	database.latestVersion.Store(latestVersion)
+	database.earliestVersion.Store(earliestVersion)
 
 	// Initialize the lastRangeHashed cache
 	lastHashed, err := retrieveLastRangeHashed(db)
@@ -244,13 +245,11 @@ func retrieveLatestVersion(db *pebble.DB) (int64, error) {
 }
 
 func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error {
-	db.earliestVersionMu.Lock()
-	defer db.earliestVersionMu.Unlock()
 	if version < 0 {
 		return fmt.Errorf("version must be non-negative")
 	}
-	if version > db.earliestVersion || ignoreVersion {
-		db.earliestVersion = version
+	if version > db.GetLatestVersion() || ignoreVersion {
+		db.earliestVersion.Store(version)
 		var ts [VersionSize]byte
 		binary.LittleEndian.PutUint64(ts[:], uint64(version))
 		return db.storage.Set([]byte(earliestVersionKey), ts[:], defaultWriteOpts)
@@ -259,9 +258,7 @@ func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error 
 }
 
 func (db *Database) GetEarliestVersion() int64 {
-	db.earliestVersionMu.Lock()
-	defer db.earliestVersionMu.Unlock()
-	return db.earliestVersion
+	return db.earliestVersion.Load()
 }
 
 // Retrieves earliest version from db, if not found, return 0
@@ -613,14 +610,13 @@ func (db *Database) computeHashForRange(beginBlock, endBlock int64) (_err error)
 }
 
 func (db *Database) writeAsyncInBackground() {
+	defer db.asyncWriteWG.Done()
 	for nextChange := range db.pendingChanges {
 		version := nextChange.Version
 		if err := db.ApplyChangesetSync(version, nextChange.Changesets); err != nil {
 			panic(err)
 		}
 	}
-	db.asyncWriteWG.Done()
-
 }
 
 // Prune attempts to prune all versions up to and including the current version
@@ -687,7 +683,7 @@ func (db *Database) Prune(version int64) (_err error) {
 			updated, ok := db.storeKeyDirty.Load(storeKey)
 			versionUpdated, typeOk := updated.(int64)
 			// Skip a store's keys if version it was last updated is less than last prune height
-			if !ok || (typeOk && versionUpdated < db.earliestVersion) {
+			if !ok || (typeOk && versionUpdated < db.GetEarliestVersion()) {
 				itr.SeekGE(storePrefix(storeKey + "0"))
 				continue
 			}
@@ -807,7 +803,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.earliestVersion, true, storeKey), nil
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetLatestVersion(), true, storeKey), nil
 }
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
