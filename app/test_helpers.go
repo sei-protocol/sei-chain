@@ -250,7 +250,6 @@ func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMulti
 		wasm.EnableAllProposals,
 		TestAppOpts{},
 		wasmOpts,
-		EmptyACLOpts,
 		options,
 		baseAppOptions...,
 	)
@@ -305,7 +304,6 @@ func SetupWithSc(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions
 		wasm.EnableAllProposals,
 		TestAppOpts{true},
 		EmptyWasmOpts,
-		EmptyACLOpts,
 		options,
 		baseAppOptions...,
 	)
@@ -356,7 +354,6 @@ func SetupTestingAppWithLevelDb(isCheckTx bool, enableEVMCustomPrecompiles bool)
 		wasm.EnableAllProposals,
 		TestAppOpts{},
 		EmptyWasmOpts,
-		EmptyACLOpts,
 		nil,
 	)
 	if !isCheckTx {
