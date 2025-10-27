@@ -214,12 +214,12 @@ func (blockExec *BlockExecutor) ValidateBlock(ctx context.Context, state State, 
 
 	err := validateBlock(state, block)
 	if err != nil {
-		return err
+		return fmt.Errorf("validateBlock(): %w", err)
 	}
 
 	err = blockExec.evpool.CheckEvidence(ctx, block.Evidence)
 	if err != nil {
-		return err
+		return fmt.Errorf("CheckEvidence(): %w", err)
 	}
 
 	blockExec.cache[hash.String()] = struct{}{}

@@ -18,6 +18,7 @@ import (
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/light"
 	"github.com/tendermint/tendermint/light/provider"
 	dstypes "github.com/tendermint/tendermint/proto/tendermint/dbsync"
@@ -119,8 +120,8 @@ type Reactor struct {
 	lightBlockChannel *p2p.Channel
 	paramsChannel     *p2p.Channel
 
-	peerEvents p2p.PeerEventSubscriber
-	eventBus   *eventbus.EventBus
+	router   *p2p.Router
+	eventBus *eventbus.EventBus
 
 	syncer *Syncer
 
@@ -133,7 +134,7 @@ func NewReactor(
 	logger log.Logger,
 	config config.DBSyncConfig,
 	baseConfig config.BaseConfig,
-	peerEvents p2p.PeerEventSubscriber,
+	router *p2p.Router,
 	stateStore sm.Store,
 	blockStore *store.BlockStore,
 	initialHeight int64,
@@ -141,46 +142,50 @@ func NewReactor(
 	eventBus *eventbus.EventBus,
 	shouldSync bool,
 	postSyncHook func(context.Context, sm.State) error,
-) *Reactor {
+) (*Reactor, error) {
+	metadataCh, err := router.OpenChannel(GetMetadataChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("router.OpenChannel(metadata): %w", err)
+	}
+	fileCh, err := router.OpenChannel(GetFileChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("router.OpenChannel(file): %w", err)
+	}
+	lightBlockCh, err := router.OpenChannel(GetLightBlockChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("router.OpenChannel(lightBlock): %w", err)
+	}
+	paramsCh, err := router.OpenChannel(GetParamsChannelDescriptor())
+	if err != nil {
+		return nil, fmt.Errorf("router.OpenChannel(params): %w", err)
+	}
 	reactor := &Reactor{
-		logger:        logger,
-		peerEvents:    peerEvents,
-		peers:         light.NewPeerList(),
-		stateStore:    stateStore,
-		blockStore:    blockStore,
-		initialHeight: initialHeight,
-		chainID:       chainID,
-		providers:     make(map[types.NodeID]*light.BlockProvider),
-		eventBus:      eventBus,
-		config:        config,
-		postSyncHook:  postSyncHook,
-		shouldSync:    shouldSync,
+		logger:            logger,
+		router:            router,
+		metadataChannel:   metadataCh,
+		fileChannel:       fileCh,
+		lightBlockChannel: lightBlockCh,
+		paramsChannel:     paramsCh,
+		peers:             light.NewPeerList(),
+		stateStore:        stateStore,
+		blockStore:        blockStore,
+		initialHeight:     initialHeight,
+		chainID:           chainID,
+		providers:         make(map[types.NodeID]*light.BlockProvider),
+		eventBus:          eventBus,
+		config:            config,
+		postSyncHook:      postSyncHook,
+		shouldSync:        shouldSync,
 	}
 	syncer := NewSyncer(logger, config, baseConfig, shouldSync, reactor.requestMetadata, reactor.requestFile, reactor.commitState, reactor.postSync, defaultResetDirFn)
 	reactor.syncer = syncer
 
 	reactor.BaseService = *service.NewBaseService(logger, "DBSync", reactor)
-	return reactor
-}
-
-func (r *Reactor) SetMetadataChannel(ch *p2p.Channel) {
-	r.metadataChannel = ch
-}
-
-func (r *Reactor) SetFileChannel(ch *p2p.Channel) {
-	r.fileChannel = ch
-}
-
-func (r *Reactor) SetLightBlockChannel(ch *p2p.Channel) {
-	r.lightBlockChannel = ch
-}
-
-func (r *Reactor) SetParamsChannel(ch *p2p.Channel) {
-	r.paramsChannel = ch
+	return reactor, nil
 }
 
 func (r *Reactor) OnStart(ctx context.Context) error {
-	go r.processPeerUpdates(ctx, r.peerEvents(ctx))
+	go r.processPeerUpdates(ctx)
 	r.dispatcher = light.NewDispatcher(r.lightBlockChannel, func(height uint64) proto.Message {
 		return &dstypes.LightBlockRequest{
 			Height: height,
@@ -230,7 +235,7 @@ func (r *Reactor) OnStop() {
 	r.syncer.Stop()
 }
 
-func (r *Reactor) handleMetadataRequest(ctx context.Context, req *dstypes.MetadataRequest, from types.NodeID) (err error) {
+func (r *Reactor) handleMetadataRequest(from types.NodeID) (err error) {
 	responded := false
 	defer func() {
 		if err != nil {
@@ -279,7 +284,7 @@ func (r *Reactor) handleMetadataMessage(ctx context.Context, m p2p.RecvMsg) erro
 
 	switch msg := m.Message.(type) {
 	case *dstypes.MetadataRequest:
-		return r.handleMetadataRequest(ctx, msg, m.From)
+		return r.handleMetadataRequest(m.From)
 
 	case *dstypes.MetadataResponse:
 		if msg.Height == 0 {
@@ -295,7 +300,7 @@ func (r *Reactor) handleMetadataMessage(ctx context.Context, m p2p.RecvMsg) erro
 	return nil
 }
 
-func (r *Reactor) handleFileRequest(ctx context.Context, req *dstypes.FileRequest, from types.NodeID) (err error) {
+func (r *Reactor) handleFileRequest(req *dstypes.FileRequest, from types.NodeID) (err error) {
 	responded := false
 	defer func() {
 		if err != nil {
@@ -330,10 +335,10 @@ func (r *Reactor) handleFileRequest(ctx context.Context, req *dstypes.FileReques
 	return nil
 }
 
-func (r *Reactor) handleFileMessage(ctx context.Context, m p2p.RecvMsg) error {
+func (r *Reactor) handleFileMessage(m p2p.RecvMsg) error {
 	switch msg := m.Message.(type) {
 	case *dstypes.FileRequest:
-		return r.handleFileRequest(ctx, msg, m.From)
+		return r.handleFileRequest(msg, m.From)
 
 	case *dstypes.FileResponse:
 		// using msg.Height is a more reliable check for empty response than
@@ -431,7 +436,7 @@ func (r *Reactor) handleParamsMessage(ctx context.Context, m p2p.RecvMsg) error 
 	return nil
 }
 
-func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpdate) {
+func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 	r.logger.Debug("received peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
 
 	switch peerUpdate.Status {
@@ -466,14 +471,17 @@ func (r *Reactor) processPeerUpdate(ctx context.Context, peerUpdate p2p.PeerUpda
 	r.logger.Debug("processed peer update", "peer", peerUpdate.NodeID, "status", peerUpdate.Status)
 }
 
-func (r *Reactor) processPeerUpdates(ctx context.Context, peerUpdates *p2p.PeerUpdates) {
+func (r *Reactor) processPeerUpdates(ctx context.Context) {
+	peerUpdates := r.router.PeerManager().Subscribe(ctx)
+	for _, update := range peerUpdates.PreexistingPeers() {
+		r.processPeerUpdate(update)
+	}
 	for {
-		select {
-		case <-ctx.Done():
+		update, err := utils.Recv(ctx, peerUpdates.Updates())
+		if err != nil {
 			return
-		case peerUpdate := <-peerUpdates.Updates():
-			r.processPeerUpdate(ctx, peerUpdate)
 		}
+		r.processPeerUpdate(update)
 	}
 }
 
@@ -485,7 +493,7 @@ func (r *Reactor) processMetadataCh(ctx context.Context, ch *p2p.Channel) {
 		}
 		if err := r.handleMetadataMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process metadataCh message", "err", err)
-			ch.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }
@@ -496,9 +504,9 @@ func (r *Reactor) processFileCh(ctx context.Context, ch *p2p.Channel) {
 		if err != nil {
 			return
 		}
-		if err := r.handleFileMessage(ctx, m); err != nil {
+		if err := r.handleFileMessage(m); err != nil {
 			r.logger.Error("failed to process fileCh message", "err", err)
-			ch.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }
@@ -511,7 +519,7 @@ func (r *Reactor) processLightBlockCh(ctx context.Context, ch *p2p.Channel) {
 		}
 		if err := r.handleLightBlockMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process lightBlockCh message", "err", err)
-			ch.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }
@@ -524,7 +532,7 @@ func (r *Reactor) processParamsCh(ctx context.Context, ch *p2p.Channel) {
 		}
 		if err := r.handleParamsMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process paramsCh message", "err", err)
-			ch.SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }
