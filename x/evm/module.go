@@ -335,9 +335,11 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 	// Migrate legacy EVM receipts to receipt.db in small batches every N blocks
 	if ctx.BlockHeight()%keeper.LegacyReceiptMigrationInterval == 0 {
 		if migrated, err := am.keeper.MigrateLegacyReceiptsBatch(ctx, keeper.LegacyReceiptMigrationBatchSize); err != nil {
-			ctx.Logger().Error(fmt.Sprintf("failed migrating legacy receipts: %s", err))
+			ctx.Logger().Error(fmt.Sprintf("[DEBUG] failed migrating legacy receipts: %s at height %d", err, ctx.BlockHeight()))
 		} else if migrated > 0 {
-			ctx.Logger().Info(fmt.Sprintf("migrated %d legacy EVM receipts to receipt.db", migrated))
+			ctx.Logger().Info(fmt.Sprintf("[DEBUG] migrated %d legacy EVM receipts to receipt.db at height %d", migrated, ctx.BlockHeight()))
+		} else {
+			ctx.Logger().Info(fmt.Sprintf("[DEBUG] no legacy EVM receipts to migrate at height %d", ctx.BlockHeight()))
 		}
 	}
 

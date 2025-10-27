@@ -222,10 +222,12 @@ func (k *Keeper) MigrateLegacyReceiptsBatch(ctx sdk.Context, batchSize int) (int
 
 	// Early exit if nothing to migrate
 	if !iter.Valid() {
+		fmt.Printf("[DEBUG] MigrateLegacyReceiptsBatch: no legacy receipts found to migrate at height %d\n", ctx.BlockHeight())
 		return 0, nil
 	}
 
 	if batchSize <= 0 {
+		fmt.Printf("[DEBUG] MigrateLegacyReceiptsBatch: invalid batch size %d at height %d\n", batchSize, ctx.BlockHeight())
 		return 0, nil
 	}
 
@@ -246,6 +248,7 @@ func (k *Keeper) MigrateLegacyReceiptsBatch(ctx sdk.Context, batchSize int) (int
 
 		receipt := &types.Receipt{}
 		if err := receipt.Unmarshal(value); err != nil {
+			fmt.Printf("[DEBUG] MigrateLegacyReceiptsBatch: failed to unmarshal receipt at height %d, key %x: %v\n", ctx.BlockHeight(), keySuffix, err)
 			return 0, err
 		}
 
@@ -260,12 +263,14 @@ func (k *Keeper) MigrateLegacyReceiptsBatch(ctx sdk.Context, batchSize int) (int
 	}
 
 	if migrated == 0 {
+		fmt.Printf("[DEBUG] MigrateLegacyReceiptsBatch: no receipts processed for migration at height %d\n", ctx.BlockHeight())
 		return 0, nil
 	}
 
 	// Write to transient receipt store first; they'll be flushed to receipt.db at pre-commit
 	for i := range receipts {
 		if err := k.SetTransientReceipt(ctx, txHashes[i], receipts[i]); err != nil {
+			fmt.Printf("[DEBUG] MigrateLegacyReceiptsBatch: failed to set transient receipt at height %d, txHash %s: %v\n", ctx.BlockHeight(), txHashes[i].Hex(), err)
 			return 0, err
 		}
 	}
@@ -275,6 +280,7 @@ func (k *Keeper) MigrateLegacyReceiptsBatch(ctx sdk.Context, batchSize int) (int
 		legacyStore.Delete(kdel)
 	}
 
+	fmt.Printf("[DEBUG] MigrateLegacyReceiptsBatch: successfully migrated %d receipts at height %d\n", migrated, ctx.BlockHeight())
 	return migrated, nil
 }
 
