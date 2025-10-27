@@ -3,8 +3,6 @@ package consensus
 import (
 	"context"
 	"fmt"
-	"math"
-	"math/rand"
 	"os"
 	"sync"
 	"testing"
