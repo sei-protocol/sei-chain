@@ -101,9 +101,6 @@ func setupReactors(ctx context.Context, t *testing.T, logger log.Logger, numNode
 
 		}
 	})
-
-	t.Cleanup(leaktest.Check(t))
-
 	return rts
 }
 
@@ -151,6 +148,7 @@ func TestReactorBroadcastDoesNotPanic(t *testing.T) {
 
 	logger := log.NewNopLogger()
 	rts := setupReactors(ctx, t, logger, numNodes, 0)
+	t.Cleanup(leaktest.Check(t))
 
 	observePanic := func(r any) {
 		t.Fatal("panic detected in reactor")
@@ -195,6 +193,7 @@ func TestReactorBroadcastTxs(t *testing.T) {
 	logger := log.NewNopLogger()
 
 	rts := setupReactors(ctx, t, logger, numNodes, uint(numTxs))
+	t.Cleanup(leaktest.Check(t))
 
 	primary := rts.nodes[0]
 	secondaries := rts.nodes[1:]
@@ -219,6 +218,7 @@ func TestReactorConcurrency(t *testing.T) {
 
 	logger := log.NewNopLogger()
 	rts := setupReactors(ctx, t, logger, numNodes, 0)
+	t.Cleanup(leaktest.Check(t))
 
 	primary := rts.nodes[0]
 	secondary := rts.nodes[1]
@@ -277,6 +277,8 @@ func TestReactorNoBroadcastToSender(t *testing.T) {
 
 	logger := log.NewNopLogger()
 	rts := setupReactors(ctx, t, logger, numNodes, uint(numTxs))
+	// Cannot guarantee no leaks, because go-cache leaks goroutines by design.
+	// t.Cleanup(leaktest.Check(t))
 
 	primary := rts.nodes[0]
 	secondary := rts.nodes[1]
@@ -302,6 +304,7 @@ func TestReactor_MaxTxBytes(t *testing.T) {
 	logger := log.NewNopLogger()
 
 	rts := setupReactors(ctx, t, logger, numNodes, 0)
+	t.Cleanup(leaktest.Check(t))
 
 	primary := rts.nodes[0]
 	secondary := rts.nodes[1]
@@ -338,6 +341,7 @@ func TestDontExhaustMaxActiveIDs(t *testing.T) {
 
 	logger := log.NewNopLogger()
 	rts := setupReactors(ctx, t, logger, 1, MaxActiveIDs+1)
+	t.Cleanup(leaktest.Check(t))
 
 	nodeID := rts.nodes[0]
 
@@ -391,6 +395,7 @@ func TestBroadcastTxForPeerStopsWhenPeerStops(t *testing.T) {
 	logger := log.NewNopLogger()
 
 	rts := setupReactors(ctx, t, logger, 2, 2)
+	t.Cleanup(leaktest.Check(t))
 
 	primary := rts.nodes[0]
 	secondary := rts.nodes[1]
