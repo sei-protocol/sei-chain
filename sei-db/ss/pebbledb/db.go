@@ -802,7 +802,7 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetLatestVersion(), true, storeKey), nil
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, storeKey), nil
 }
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
