@@ -1,7 +1,6 @@
 package ante
 
 import (
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -11,12 +10,9 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	accountkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
-	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -201,59 +197,6 @@ func PreprocessUnpacked(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTrans
 		IsAssociate:   false,
 	}
 	return nil
-}
-
-func (p *EVMPreprocessDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
-	msg := evmtypes.MustGetEVMTransactionMessage(tx)
-	return next(append(txDeps, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_READ,
-		ResourceType:       sdkacltypes.ResourceType_KV_EVM_S2E,
-		IdentifierTemplate: hex.EncodeToString(evmtypes.SeiAddressToEVMAddressKey(msg.Derived.SenderSeiAddr)),
-	}, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_WRITE,
-		ResourceType:       sdkacltypes.ResourceType_KV_EVM_S2E,
-		IdentifierTemplate: hex.EncodeToString(evmtypes.SeiAddressToEVMAddressKey(msg.Derived.SenderSeiAddr)),
-	}, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_WRITE,
-		ResourceType:       sdkacltypes.ResourceType_KV_EVM_E2S,
-		IdentifierTemplate: hex.EncodeToString(evmtypes.EVMAddressToSeiAddressKey(msg.Derived.SenderEVMAddr)),
-	}, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_READ,
-		ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-		IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(msg.Derived.SenderSeiAddr)),
-	}, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_WRITE,
-		ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-		IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(msg.Derived.SenderSeiAddr)),
-	}, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_READ,
-		ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-		IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(msg.Derived.SenderEVMAddr[:])),
-	}, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_WRITE,
-		ResourceType:       sdkacltypes.ResourceType_KV_BANK_BALANCES,
-		IdentifierTemplate: hex.EncodeToString(banktypes.CreateAccountBalancesPrefix(msg.Derived.SenderEVMAddr[:])),
-	}, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_READ,
-		ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-		IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(msg.Derived.SenderSeiAddr)),
-	}, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_WRITE,
-		ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-		IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(msg.Derived.SenderSeiAddr)),
-	}, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_READ,
-		ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-		IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(msg.Derived.SenderEVMAddr[:])),
-	}, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_WRITE,
-		ResourceType:       sdkacltypes.ResourceType_KV_AUTH_ADDRESS_STORE,
-		IdentifierTemplate: hex.EncodeToString(authtypes.AddressStoreKey(msg.Derived.SenderEVMAddr[:])),
-	}, sdkacltypes.AccessOperation{
-		AccessType:         sdkacltypes.AccessType_READ,
-		ResourceType:       sdkacltypes.ResourceType_KV_EVM_NONCE,
-		IdentifierTemplate: hex.EncodeToString(append(evmtypes.NonceKeyPrefix, msg.Derived.SenderEVMAddr[:]...)),
-	}), tx, txIndex)
 }
 
 func isTxTypeAllowed(version derived.SignerVersion, txType uint8) bool {
