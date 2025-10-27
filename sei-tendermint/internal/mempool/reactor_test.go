@@ -277,7 +277,7 @@ func TestReactorNoBroadcastToSender(t *testing.T) {
 
 	logger := log.NewNopLogger()
 	rts := setupReactors(ctx, t, logger, numNodes, uint(numTxs))
-	// Cannot guarantee no leaks, because go-cache leaks goroutines by design.
+	// TODO: Cannot guarantee no leaks, because go-cache leaks goroutines by design.
 	// t.Cleanup(leaktest.Check(t))
 
 	primary := rts.nodes[0]
