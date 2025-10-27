@@ -42,10 +42,10 @@ type PeerState struct {
 	logger log.Logger
 
 	// NOTE: Modify below using setters, never directly.
-	mtx     sync.RWMutex
-	cancel  context.CancelFunc
-	PRS     cstypes.PeerRoundState `json:"round_state"`
-	Stats   *peerStateStats        `json:"stats"`
+	mtx    sync.RWMutex
+	cancel context.CancelFunc
+	PRS    cstypes.PeerRoundState `json:"round_state"`
+	Stats  *peerStateStats        `json:"stats"`
 }
 
 // NewPeerState returns a new PeerState for the given node ID.

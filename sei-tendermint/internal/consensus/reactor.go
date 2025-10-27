@@ -217,12 +217,12 @@ func (r *Reactor) OnStart(ctx context.Context) error {
 	r.subscribeToBroadcastEvents(ctx)
 
 	if !r.WaitSync() {
-		r.SpawnCritical("state.Run",r.state.Run)
+		r.SpawnCritical("state.Run", r.state.Run)
 	} else if err := r.state.updateStateFromStore(); err != nil {
 		return err
 	}
 
-	r.SpawnCritical("updateRoundStateRoutine",r.updateRoundStateRoutine)
+	r.SpawnCritical("updateRoundStateRoutine", r.updateRoundStateRoutine)
 	r.SpawnCritical("processStateCh", r.processStateCh)
 	r.SpawnCritical("processDataCh", r.processDataCh)
 	r.SpawnCritical("processVoteCh", r.processVoteCh)
@@ -263,7 +263,7 @@ func (r *Reactor) SwitchToConsensus(ctx context.Context, state sm.State, skipWAL
 	// NOTE: The line below causes broadcastNewRoundStepRoutine() to broadcast a
 	// NewRoundStepMessage.
 	r.state.updateToState(state)
-	r.SpawnCritical("state.Run",r.state.Run)
+	r.SpawnCritical("state.Run", r.state.Run)
 
 	r.mtx.Lock()
 	r.waitSync = false
@@ -297,7 +297,7 @@ func (r *Reactor) String() string {
 func (r *Reactor) GetPeerState(peerID types.NodeID) (*PeerState, bool) {
 	for peers := range r.peers.RLock() {
 		ps, ok := peers[peerID]
-		return ps,ok
+		return ps, ok
 	}
 	panic("unreachable")
 }
@@ -385,7 +385,7 @@ func (r *Reactor) sendNewRoundStepMessage(peerID types.NodeID) {
 func (r *Reactor) updateRoundStateRoutine(ctx context.Context) error {
 	t := time.NewTicker(100 * time.Microsecond)
 	for {
-		if _,err := utils.Recv(ctx, t.C); err!=nil {
+		if _, err := utils.Recv(ctx, t.C); err != nil {
 			return err
 		}
 		rs := r.state.GetRoundState()
@@ -471,7 +471,9 @@ func (r *Reactor) gossipDataRoutine(ctx context.Context, ps *PeerState) error {
 OUTER_LOOP:
 	for {
 		timer.Reset(r.state.config.PeerGossipSleepDuration)
-		if _,err := utils.Recv(ctx, timer.C); err!=nil { return err }
+		if _, err := utils.Recv(ctx, timer.C); err != nil {
+			return err
+		}
 
 		rs := r.getRoundState()
 		prs := ps.GetRoundState()
@@ -584,7 +586,7 @@ func (r *Reactor) pickSendVote(ps *PeerState, votes types.VoteSetReader, voteCh 
 	}
 	voteCh.Send(&tmcons.Vote{Vote: vote.ToProto()}, ps.peerID)
 
-	if err:=ps.SetHasVote(vote); err != nil {
+	if err := ps.SetHasVote(vote); err != nil {
 		panic(fmt.Errorf("ps.SetHasVote(): %w", err))
 	}
 
@@ -661,7 +663,7 @@ func (r *Reactor) gossipVotesRoutine(ctx context.Context, ps *PeerState) error {
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 
-	for ctx.Err()==nil {
+	for ctx.Err() == nil {
 		rs := r.getRoundState()
 		prs := ps.GetRoundState()
 
@@ -699,7 +701,7 @@ func (r *Reactor) gossipVotesRoutine(ctx context.Context, ps *PeerState) error {
 		}
 
 		timer.Reset(r.state.config.PeerGossipSleepDuration)
-		if _,err := utils.Recv(ctx, timer.C); err!=nil {
+		if _, err := utils.Recv(ctx, timer.C); err != nil {
 			return err
 		}
 	}
@@ -712,7 +714,7 @@ func (r *Reactor) queryMaj23Routine(ctx context.Context, ps *PeerState) error {
 	stateCh := r.channels.state
 	timer := time.NewTimer(0)
 	for {
-		if _,err:=utils.Recv(ctx, timer.C); err!=nil {
+		if _, err := utils.Recv(ctx, timer.C); err != nil {
 			return err
 		}
 
@@ -1123,7 +1125,7 @@ func (r *Reactor) processVoteSetBitsCh(ctx context.Context) error {
 // PeerUpdate messages. When the reactor is stopped, we will catch the signal and
 // close the p2p PeerUpdatesCh gracefully.
 func (r *Reactor) processPeerUpdates(ctx context.Context) error {
-	if _,_,err := utils.RecvOrClosed(ctx, r.readySignal); err!=nil {
+	if _, _, err := utils.RecvOrClosed(ctx, r.readySignal); err != nil {
 		return err
 	}
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
@@ -1131,9 +1133,11 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 			switch peerUpdate.Status {
 			case p2p.PeerStatusUp:
 				for peers := range r.peers.Lock() {
-					if _, ok := peers[peerUpdate.NodeID]; ok { return }
+					if _, ok := peers[peerUpdate.NodeID]; ok {
+						return
+					}
 					ps := NewPeerState(r.logger, peerUpdate.NodeID)
-					peerCtx,cancel := context.WithCancel(ctx)
+					peerCtx, cancel := context.WithCancel(ctx)
 					ps.cancel = cancel
 					peers[peerUpdate.NodeID] = ps
 					// We intentionally spawn per-peer routines with a cancellable context,
@@ -1146,7 +1150,7 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 				}
 			case p2p.PeerStatusDown:
 				for peers := range r.peers.Lock() {
-					if ps,ok := peers[peerUpdate.NodeID]; ok {
+					if ps, ok := peers[peerUpdate.NodeID]; ok {
 						ps.cancel()
 						delete(peers, peerUpdate.NodeID)
 					}
@@ -1159,7 +1163,9 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 		}
 		for {
 			update, err := utils.Recv(ctx, peerUpdates.Updates())
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			process(update)
 		}
 	})

@@ -105,10 +105,10 @@ func WALGenerateNBlocks(ctx context.Context, t *testing.T, logger log.Logger, wr
 	consensusState.wal = wal
 	err = scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error { return utils.IgnoreCancel(consensusState.Run(ctx)) })
-		_,_,err := utils.RecvOrClosed(ctx, numBlocksWritten)
+		_, _, err := utils.RecvOrClosed(ctx, numBlocksWritten)
 		return err
 	})
-	if err!=nil {
+	if err != nil {
 		t.Fatal(err)
 	}
 }

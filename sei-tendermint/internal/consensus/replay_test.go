@@ -27,14 +27,14 @@ import (
 	"github.com/tendermint/tendermint/internal/mempool"
 	"github.com/tendermint/tendermint/internal/proxy"
 	"github.com/tendermint/tendermint/internal/pubsub"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
 	sm "github.com/tendermint/tendermint/internal/state"
 	sf "github.com/tendermint/tendermint/internal/state/test/factory"
 	"github.com/tendermint/tendermint/internal/store"
 	"github.com/tendermint/tendermint/internal/test/factory"
 	"github.com/tendermint/tendermint/libs/log"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/privval"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/tendermint/tendermint/types"
@@ -64,7 +64,7 @@ func startNewStateAndWaitForBlock(
 ) {
 	logger := log.NewNopLogger()
 	state, err := sm.MakeGenesisStateFromFile(consensusReplayConfig.GenesisFile())
-	if err!=nil {
+	if err != nil {
 		panic(fmt.Errorf("sm.MakeGenesisStateFromFile(): %w", err))
 	}
 	privValidator := loadPrivValidator(consensusReplayConfig)
@@ -79,7 +79,7 @@ func startNewStateAndWaitForBlock(
 		blockStore,
 	)
 
-	if _, err := os.ReadFile(cs.config.WalFile()); err!=nil {
+	if _, err := os.ReadFile(cs.config.WalFile()); err != nil {
 		panic(fmt.Errorf("os.ReadFile(%q): %w", cs.config.WalFile(), err))
 	}
 
@@ -93,11 +93,13 @@ func startNewStateAndWaitForBlock(
 			ClientID: testSubscriber,
 			Query:    types.EventQueryNewBlock,
 		})
-		if err!=nil { return fmt.Errorf("cs.eventBus.SubscribeWithArgs(): %w", err) }
+		if err != nil {
+			return fmt.Errorf("cs.eventBus.SubscribeWithArgs(): %w", err)
+		}
 		_, err = newBlockSub.Next(ctx)
 		return err
 	})
-	if err!=nil {
+	if err != nil {
 		panic(err)
 	}
 }
@@ -108,7 +110,7 @@ func sendTxs(ctx context.Context, cs *State) error {
 			return nil
 		}
 		tx := []byte{byte(i)}
-		if err := cs.txNotifier.(mempool.Mempool).CheckTx(ctx, tx, nil, mempool.TxInfo{}); err!=nil {
+		if err := cs.txNotifier.(mempool.Mempool).CheckTx(ctx, tx, nil, mempool.TxInfo{}); err != nil {
 			return fmt.Errorf("cs.mempool.CheckTx(): %w", err)
 		}
 	}
@@ -151,7 +153,7 @@ func crashWALandCheckLiveness(
 	walPanicked := make(chan error)
 	crashingWal := &crashingWAL{panicCh: walPanicked, heightToStop: heightToStop}
 
-	for done:=false; !done; {
+	for done := false; !done; {
 		// create consensus state from a clean slate
 		logger := log.NewNopLogger()
 		blockDB := dbm.NewMemDB()
@@ -206,7 +208,7 @@ func crashWALandCheckLiveness(
 			}
 			return nil
 		})
-		if err!=nil {
+		if err != nil {
 			panic(err)
 		}
 	}

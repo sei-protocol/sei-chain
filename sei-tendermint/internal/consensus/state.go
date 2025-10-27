@@ -27,12 +27,12 @@ import (
 	"github.com/tendermint/tendermint/internal/libs/autofile"
 	sm "github.com/tendermint/tendermint/internal/state"
 	tmevents "github.com/tendermint/tendermint/libs/events"
-	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/log"
 	tmmath "github.com/tendermint/tendermint/libs/math"
 	tmos "github.com/tendermint/tendermint/libs/os"
 	tmtime "github.com/tendermint/tendermint/libs/time"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/privval"
 	tmgrpc "github.com/tendermint/tendermint/privval/grpc"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -188,8 +188,8 @@ type State struct {
 	nSteps int
 
 	// some functions can be overwritten for testing
-	doPrevote      func(ctx context.Context, height int64, round int32)
-	setProposal    func(proposal *types.Proposal, t time.Time) error
+	doPrevote   func(ctx context.Context, height int64, round int32)
+	setProposal func(proposal *types.Proposal, t time.Time) error
 
 	// synchronous pubsub between consensus state and reactor.
 	// state only emits EventNewRoundStep, EventValidBlock, and EventVote
@@ -842,7 +842,7 @@ func (cs *State) newStep() {
 
 func (cs *State) heartbeater(ctx context.Context) error {
 	for {
-		if err := utils.Sleep(ctx, heartbeatInterval); err!=nil {
+		if err := utils.Sleep(ctx, heartbeatInterval); err != nil {
 			return err
 		}
 		roundState := cs.roundState.CopyInternal()

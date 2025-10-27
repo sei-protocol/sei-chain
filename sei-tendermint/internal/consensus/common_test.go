@@ -79,8 +79,8 @@ func configSetup(t *testing.T) *config.Config {
 }
 
 func ensureDir(dir string, mode os.FileMode) {
-	if err:=tmos.EnsureDir(dir, mode); err!=nil {
-		panic(fmt.Errorf("tmos.EnsureDir(%s,%v): %w",dir,mode,err))
+	if err := tmos.EnsureDir(dir, mode); err != nil {
+		panic(fmt.Errorf("tmos.EnsureDir(%s,%v): %w", dir, mode, err))
 	}
 }
 
@@ -483,13 +483,13 @@ func newStateWithConfigAndBlockStore(
 	// Make State
 	stateDB := dbm.NewMemDB()
 	stateStore := sm.NewStore(stateDB)
-	if err:=stateStore.Save(state); err!=nil {
-		panic(fmt.Errorf("stateStore.Save(): %w",err))
+	if err := stateStore.Save(state); err != nil {
+		panic(fmt.Errorf("stateStore.Save(): %w", err))
 	}
 
 	eventBus := eventbus.NewDefault(logger.With("module", "events"))
-	if err:=eventBus.Start(ctx); err!=nil {
-		panic(fmt.Errorf("eventBus.Start(): %w",err))
+	if err := eventBus.Start(ctx); err != nil {
+		panic(fmt.Errorf("eventBus.Start(): %w", err))
 	}
 
 	blockExec := sm.NewBlockExecutor(stateStore, logger, proxyAppConnCon, mempool, evpool, blockStore, eventBus, sm.NopMetrics())
@@ -517,11 +517,11 @@ func loadPrivValidator(cfg *config.Config) *privval.FilePV {
 	ensureDir(filepath.Dir(privValidatorKeyFile), 0700)
 	privValidatorStateFile := cfg.PrivValidator.StateFile()
 	privValidator, err := privval.LoadOrGenFilePV(privValidatorKeyFile, privValidatorStateFile)
-	if err!=nil {
-		panic(fmt.Errorf("privval.LoadOrGenFilePV(): %w",err))
+	if err != nil {
+		panic(fmt.Errorf("privval.LoadOrGenFilePV(): %w", err))
 	}
-	if err:=privValidator.Reset(); err!=nil {
-		panic(fmt.Errorf("privValidator.Reset(): %w",err))
+	if err := privValidator.Reset(); err != nil {
+		panic(fmt.Errorf("privValidator.Reset(): %w", err))
 	}
 	return privValidator
 }
