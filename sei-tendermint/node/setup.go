@@ -320,7 +320,7 @@ func createRouter(
 		nodeInfoProducer,
 		nil, // TODO: replace with mempool CheckTx failure based filterer
 		config,
-	)
+	), nil
 }
 
 func makeNodeInfo(

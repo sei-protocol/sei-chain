@@ -351,12 +351,7 @@ func TestDontExhaustMaxActiveIDs(t *testing.T) {
 			NodeID: peerID,
 		}
 
-		require.NoError(t, rts.mempoolChannels[nodeID].Send(ctx, p2p.Envelope{
-			To: peerID,
-			Message: &protomem.Txs{
-				Txs: [][]byte{},
-			},
-		}))
+		rts.mempoolChannels[nodeID].Send(&protomem.Txs{Txs: [][]byte{}}, peerID)
 	}
 }
 
