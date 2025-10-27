@@ -221,10 +221,6 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		}
 	}
 
-	// We need to prune snapshots during start up to avoid snapshot leaks
-	if !db.readOnly {
-		db.pruneSnapshots()
-	}
 	return db, nil
 }
 
