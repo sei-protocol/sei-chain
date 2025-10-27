@@ -23,7 +23,7 @@ import (
 )
 
 func IsDisconnect(err error) bool {
-	return errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) || errors.As(err, utils.Alloc[*net.OpError](nil))
+	return errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) || utils.ErrorAs[*net.OpError](err).IsPresent()
 }
 
 // ChannelID is an arbitrary channel ID.
@@ -186,12 +186,12 @@ func (c *MConnection) Run(ctx context.Context) error {
 		s.SpawnNamed("sendRoutine", func() error { return c.sendRoutine(ctx) })
 		s.SpawnNamed("recvRoutine", func() error { return c.recvRoutine(ctx) })
 		s.SpawnNamed("statsRoutine", func() error { return c.statsRoutine(ctx) })
-		<-ctx.Done()
-		s.Cancel(ctx.Err())
 		// Unfortunately golang std IO operations do not support cancellation via context.
 		// Instead, we trigger cancellation by closing the underlying connection.
 		// Alternatively, we could utilise net.Conn.Set[Read|Write]Deadline() methods
 		// for precise cancellation, but we don't have a need for that here.
+		<-ctx.Done()
+		s.Cancel(ctx.Err())
 		c.conn.Close()
 		return nil
 	})

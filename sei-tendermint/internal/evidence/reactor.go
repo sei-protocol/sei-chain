@@ -31,8 +31,8 @@ const (
 
 // GetChannelDescriptor produces an instance of a descriptor for this
 // package's required channels.
-func GetChannelDescriptor() *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func GetChannelDescriptor() p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		ID:                  EvidenceChannel,
 		MessageType:         new(tmproto.Evidence),
 		Priority:            6,
@@ -99,17 +99,24 @@ func (r *Reactor) OnStop() { r.evpool.Close() }
 // It returns an error only if the Envelope.Message is unknown for this channel
 // or if the given evidence is invalid. This should never be called outside of
 // handleMessage.
-func (r *Reactor) handleEvidenceMessage(ctx context.Context, envelope *p2p.Envelope) error {
-	logger := r.logger.With("peer", envelope.From)
-
-	switch msg := envelope.Message.(type) {
+func (r *Reactor) handleEvidenceMessage(ctx context.Context, m p2p.RecvMsg) (err error) {
+	defer func() {
+		if e := recover(); e != nil {
+			err = fmt.Errorf("panic in processing message: %v", e)
+			r.logger.Error(
+				"recovering from processing message panic",
+				"err", err,
+				"stack", string(debug.Stack()),
+			)
+		}
+	}()
+	switch msg := m.Message.(type) {
 	case *tmproto.Evidence:
 		// Process the evidence received from a peer
 		// Evidence is sent and received one by one
 		ev, err := types.EvidenceFromProto(msg)
 		if err != nil {
-			logger.Error("failed to convert evidence", "err", err)
-			return err
+			return fmt.Errorf("types.EvidenceFromProto(): %w", err)
 		}
 		if err := r.evpool.AddEvidence(ctx, ev); err != nil {
 			// If we're given invalid evidence by the peer, notify the router that
@@ -127,47 +134,17 @@ func (r *Reactor) handleEvidenceMessage(ctx context.Context, envelope *p2p.Envel
 	return nil
 }
 
-// handleMessage handles an Envelope sent from a peer on a specific p2p Channel.
-// It will handle errors and any possible panics gracefully. A caller can handle
-// any error returned by sending a PeerError on the respective channel.
-func (r *Reactor) handleMessage(ctx context.Context, envelope *p2p.Envelope) (err error) {
-	defer func() {
-		if e := recover(); e != nil {
-			err = fmt.Errorf("panic in processing message: %v", e)
-			r.logger.Error(
-				"recovering from processing message panic",
-				"err", err,
-				"stack", string(debug.Stack()),
-			)
-		}
-	}()
-
-	r.logger.Debug("received message", "message", envelope.Message, "peer", envelope.From)
-
-	switch envelope.ChannelID {
-	case EvidenceChannel:
-		err = r.handleEvidenceMessage(ctx, envelope)
-	default:
-		err = fmt.Errorf("unknown channel ID (%d) for envelope (%v)", envelope.ChannelID, envelope)
-	}
-
-	return
-}
-
 // processEvidenceCh implements a blocking event loop where we listen for p2p
 // Envelope messages from the evidenceCh.
 func (r *Reactor) processEvidenceCh(ctx context.Context, evidenceCh *p2p.Channel) {
-	iter := evidenceCh.RecvAll(ctx)
-	for iter.Next(ctx) {
-		envelope := iter.Envelope()
-		if err := r.handleMessage(ctx, envelope); err != nil {
-			r.logger.Error("failed to process message", "ch_id", envelope.ChannelID, "envelope", envelope, "err", err)
-			if serr := evidenceCh.SendError(ctx, p2p.PeerError{
-				NodeID: envelope.From,
-				Err:    err,
-			}); serr != nil {
-				return
-			}
+	for {
+		m, err := evidenceCh.Recv(ctx)
+		if err != nil {
+			return
+		}
+		if err := r.handleEvidenceMessage(ctx, m); err != nil {
+			r.logger.Error("failed to process evidenceCh message", "err", err)
+			evidenceCh.SendError(p2p.PeerError{NodeID: m.From, Err: err})
 		}
 	}
 }
@@ -293,12 +270,7 @@ func (r *Reactor) broadcastEvidenceLoop(ctx context.Context, peerID types.NodeID
 		// peer may receive this piece of evidence multiple times if it added and
 		// removed frequently from the broadcasting peer.
 
-		if err := evidenceCh.Send(ctx, p2p.Envelope{
-			To:      peerID,
-			Message: evProto,
-		}); err != nil {
-			return
-		}
+		evidenceCh.Send(evProto, peerID)
 		r.logger.Debug("gossiped evidence to peer", "evidence", ev, "peer", peerID)
 
 		select {

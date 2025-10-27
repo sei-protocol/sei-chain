@@ -1,10 +1,7 @@
 package factory
 
 import (
-	"testing"
 	"time"
-
-	"github.com/stretchr/testify/require"
 
 	"github.com/tendermint/tendermint/crypto"
 	"github.com/tendermint/tendermint/types"
@@ -43,8 +40,7 @@ func MakeBlockIDWithHash(hash []byte) types.BlockID {
 
 // MakeHeader fills the rest of the contents of the header such that it passes
 // validate basic
-func MakeHeader(t *testing.T, h *types.Header) *types.Header {
-	t.Helper()
+func MakeHeader(h *types.Header) *types.Header {
 	if h.Version.Block == 0 {
 		h.Version.Block = version.BlockProtocol
 	}
@@ -85,7 +81,8 @@ func MakeHeader(t *testing.T, h *types.Header) *types.Header {
 		h.ProposerAddress = RandomAddress()
 	}
 
-	require.NoError(t, h.ValidateBasic())
-
+	if err := h.ValidateBasic(); err != nil {
+		panic(err)
+	}
 	return h
 }

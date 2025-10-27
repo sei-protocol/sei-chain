@@ -79,6 +79,7 @@ func ParseNodeAddress(urlString string) (NodeAddress, error) {
 // Resolve resolves a NodeAddress into a set of Endpoints, by expanding
 // out a DNS hostname to IP addresses.
 func (a NodeAddress) Resolve(ctx context.Context) ([]Endpoint, error) {
+	// LookIP for some reason returns IPv6-embedded addresses.
 	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", a.Hostname)
 	if err != nil {
 		return nil, err
@@ -89,7 +90,7 @@ func (a NodeAddress) Resolve(ctx context.Context) ([]Endpoint, error) {
 		if !ok {
 			return nil, fmt.Errorf("LookupIP returned invalid IP %q", ip)
 		}
-		endpoints[i] = Endpoint{netip.AddrPortFrom(ip, a.Port)}
+		endpoints[i] = Endpoint{netip.AddrPortFrom(ip.Unmap(), a.Port)}
 	}
 	return endpoints, nil
 }
