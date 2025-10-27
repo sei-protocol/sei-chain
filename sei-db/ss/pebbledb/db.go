@@ -247,11 +247,14 @@ func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error 
 	if version < 0 {
 		return fmt.Errorf("version must be non-negative")
 	}
-	if version > db.GetEarliestVersion() || ignoreVersion {
-		db.earliestVersion.Store(version)
-		var ts [VersionSize]byte
-		binary.LittleEndian.PutUint64(ts[:], uint64(version))
-		return db.storage.Set([]byte(earliestVersionKey), ts[:], defaultWriteOpts)
+	earliestVersion := db.earliestVersion.Load()
+	if version > earliestVersion || ignoreVersion {
+		swapped := db.earliestVersion.CompareAndSwap(earliestVersion, version)
+		if swapped {
+			var ts [VersionSize]byte
+			binary.LittleEndian.PutUint64(ts[:], uint64(version))
+			return db.storage.Set([]byte(earliestVersionKey), ts[:], defaultWriteOpts)
+		}
 	}
 	return nil
 }
