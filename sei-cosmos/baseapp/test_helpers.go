@@ -18,9 +18,6 @@ func (app *BaseApp) Check(txEncoder sdk.TxEncoder, tx sdk.Tx) (sdk.GasInfo, *sdk
 	}
 	ctx := app.checkState.ctx.WithTxBytes(bz).WithVoteInfos(app.voteInfos).WithConsensusParams(app.GetConsensusParams(app.checkState.ctx))
 	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeCheck, tx, sha256.Sum256(bz))
-	if len(ctx.MultiStore().GetEvents()) > 0 {
-		panic("Expected checkTx events to be empty")
-	}
 	return gasInfo, result, err
 }
 
@@ -32,9 +29,6 @@ func (app *BaseApp) Simulate(txBytes []byte) (sdk.GasInfo, *sdk.Result, error) {
 		return sdk.GasInfo{}, nil, err
 	}
 	gasInfo, result, _, _, _, _, _, _, err := app.runTx(ctx, runTxModeSimulate, tx, sha256.Sum256(txBytes))
-	if len(ctx.MultiStore().GetEvents()) > 0 {
-		panic("Expected simulate events to be empty")
-	}
 	return gasInfo, result, err
 }
 

@@ -33,7 +33,7 @@ func (suite *AnteTestSuite) TestDeductFeesNoDelegation() {
 
 	// this just tests our handler
 	dfd := ante.NewDeductFeeDecorator(app.AccountKeeper, app.BankKeeper, app.FeeGrantKeeper, suite.app.ParamsKeeper, nil)
-	feeAnteHandler, _ := sdk.ChainAnteDecorators(sdk.DefaultWrappedAnteDecorator(dfd))
+	feeAnteHandler := sdk.ChainAnteDecorators(dfd)
 
 	// this tests the whole stack
 	anteHandlerStack := suite.anteHandler

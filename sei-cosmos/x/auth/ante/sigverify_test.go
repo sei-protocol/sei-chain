@@ -49,8 +49,8 @@ func (suite *AnteTestSuite) TestSetPubKey() {
 	tx, err := suite.CreateTestTx(privs, accNums, accSeqs, suite.ctx.ChainID())
 	require.NoError(err)
 
-	spkd := sdk.DefaultWrappedAnteDecorator(ante.NewSetPubKeyDecorator(suite.app.AccountKeeper))
-	antehandler, _ := sdk.ChainAnteDecorators(spkd)
+	spkd := ante.NewSetPubKeyDecorator(suite.app.AccountKeeper)
+	antehandler := sdk.ChainAnteDecorators(spkd)
 
 	ctx, err := antehandler(suite.ctx, tx, false)
 	require.NoError(err)
@@ -144,9 +144,9 @@ func (suite *AnteTestSuite) TestSigVerification() {
 	feeAmount := testdata.NewTestFeeAmount()
 	gasLimit := testdata.NewTestGasLimit()
 
-	spkd := sdk.DefaultWrappedAnteDecorator(ante.NewSetPubKeyDecorator(suite.app.AccountKeeper))
-	svd := sdk.DefaultWrappedAnteDecorator(ante.NewSigVerificationDecorator(suite.app.AccountKeeper, suite.clientCtx.TxConfig.SignModeHandler()))
-	antehandler, _ := sdk.ChainAnteDecorators(spkd, svd)
+	spkd := ante.NewSetPubKeyDecorator(suite.app.AccountKeeper)
+	svd := ante.NewSigVerificationDecorator(suite.app.AccountKeeper, suite.clientCtx.TxConfig.SignModeHandler())
+	antehandler := sdk.ChainAnteDecorators(spkd, svd)
 
 	type testCase struct {
 		name        string
@@ -219,7 +219,7 @@ func (suite *AnteTestSuite) TestSigVerification_ExplicitAmino() {
 	suite.clientCtx = client.Context{}.
 		WithTxConfig(txConfig)
 
-	anteHandler, _, err := ante.NewAnteHandler(
+	anteHandler, err := ante.NewAnteHandler(
 		ante.HandlerOptions{
 			AccountKeeper:   suite.app.AccountKeeper,
 			BankKeeper:      suite.app.BankKeeper,
@@ -257,9 +257,9 @@ func (suite *AnteTestSuite) TestSigVerification_ExplicitAmino() {
 	feeAmount := testdata.NewTestFeeAmount()
 	gasLimit := testdata.NewTestGasLimit()
 
-	spkd := sdk.DefaultWrappedAnteDecorator(ante.NewSetPubKeyDecorator(suite.app.AccountKeeper))
-	svd := sdk.DefaultWrappedAnteDecorator(ante.NewSigVerificationDecorator(suite.app.AccountKeeper, suite.clientCtx.TxConfig.SignModeHandler()))
-	antehandler, _ := sdk.ChainAnteDecorators(spkd, svd)
+	spkd := ante.NewSetPubKeyDecorator(suite.app.AccountKeeper)
+	svd := ante.NewSigVerificationDecorator(suite.app.AccountKeeper, suite.clientCtx.TxConfig.SignModeHandler())
+	antehandler := sdk.ChainAnteDecorators(spkd, svd)
 
 	type testCase struct {
 		name      string
@@ -349,10 +349,10 @@ func (suite *AnteTestSuite) runSigDecorators(params types.Params, _ bool, privs 
 	tx, err := suite.CreateTestTx(privs, accNums, accSeqs, suite.ctx.ChainID())
 	suite.Require().NoError(err)
 
-	spkd := sdk.DefaultWrappedAnteDecorator(ante.NewSetPubKeyDecorator(suite.app.AccountKeeper))
-	svgc := sdk.DefaultWrappedAnteDecorator(ante.NewSigGasConsumeDecorator(suite.app.AccountKeeper, ante.DefaultSigVerificationGasConsumer))
-	svd := sdk.DefaultWrappedAnteDecorator(ante.NewSigVerificationDecorator(suite.app.AccountKeeper, suite.clientCtx.TxConfig.SignModeHandler()))
-	antehandler, _ := sdk.ChainAnteDecorators(spkd, svgc, svd)
+	spkd := ante.NewSetPubKeyDecorator(suite.app.AccountKeeper)
+	svgc := ante.NewSigGasConsumeDecorator(suite.app.AccountKeeper, ante.DefaultSigVerificationGasConsumer)
+	svd := ante.NewSigVerificationDecorator(suite.app.AccountKeeper, suite.clientCtx.TxConfig.SignModeHandler())
+	antehandler := sdk.ChainAnteDecorators(spkd, svgc, svd)
 
 	// Determine gas consumption of antehandler with default params
 	before := suite.ctx.GasMeter().GasConsumed()
@@ -384,8 +384,8 @@ func (suite *AnteTestSuite) TestIncrementSequenceDecorator() {
 	tx, err := suite.CreateTestTx(privs, accNums, accSeqs, suite.ctx.ChainID())
 	suite.Require().NoError(err)
 
-	isd := sdk.DefaultWrappedAnteDecorator(ante.NewIncrementSequenceDecorator(suite.app.AccountKeeper))
-	antehandler, _ := sdk.ChainAnteDecorators(isd)
+	isd := ante.NewIncrementSequenceDecorator(suite.app.AccountKeeper)
+	antehandler := sdk.ChainAnteDecorators(isd)
 
 	testCases := []struct {
 		ctx         sdk.Context

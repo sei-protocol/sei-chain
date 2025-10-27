@@ -644,7 +644,7 @@ func NewWasmApp(
 	app.MountTransientStores(tkeys)
 	app.MountMemoryStores(memKeys)
 
-	anteHandler, anteDepGenerator, err := NewAnteHandler(
+	anteHandler, err := NewAnteHandler(
 		HandlerOptions{
 			HandlerOptions: ante.HandlerOptions{
 				AccountKeeper:   app.accountKeeper,
@@ -664,7 +664,6 @@ func NewWasmApp(
 	}
 
 	app.SetAnteHandler(anteHandler)
-	app.SetAnteDepGenerator(anteDepGenerator)
 	app.SetInitChainer(app.InitChainer)
 	app.SetEndBlocker(app.EndBlocker)
 	app.SetPrepareProposalHandler(app.PrepareProposalHandler)

@@ -1,13 +1,9 @@
 package oracle
 
 import (
-	"encoding/hex"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 )
@@ -41,42 +37,6 @@ func (spd SpammingPreventionDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, si
 	}
 
 	return next(ctx, tx, simulate)
-}
-
-func (spd SpammingPreventionDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
-	deps := []sdkacltypes.AccessOperation{}
-	for _, msg := range tx.GetMsgs() {
-		// Error checking will be handled in AnteHandler
-		switch m := msg.(type) {
-		case *types.MsgAggregateExchangeRateVote:
-			valAddr, _ := sdk.ValAddressFromBech32(m.Validator)
-			deps = append(deps, []sdkacltypes.AccessOperation{
-				// validate feeder
-				// read feeder delegation for val addr - READ
-				{
-					ResourceType:       sdkacltypes.ResourceType_KV_ORACLE_FEEDERS,
-					AccessType:         sdkacltypes.AccessType_READ,
-					IdentifierTemplate: hex.EncodeToString(types.GetFeederDelegationKey(valAddr)),
-				},
-				// read validator from staking - READ
-				{
-					ResourceType:       sdkacltypes.ResourceType_KV_STAKING_VALIDATOR,
-					AccessType:         sdkacltypes.AccessType_READ,
-					IdentifierTemplate: hex.EncodeToString(stakingtypes.GetValidatorKey(valAddr)),
-				},
-				// check exchange rate vote exists - READ
-				{
-					ResourceType:       sdkacltypes.ResourceType_KV_ORACLE_AGGREGATE_VOTES,
-					AccessType:         sdkacltypes.AccessType_READ,
-					IdentifierTemplate: hex.EncodeToString(types.GetAggregateExchangeRateVoteKey(valAddr)),
-				},
-			}...)
-		default:
-			continue
-		}
-	}
-
-	return next(append(txDeps, deps...), tx, txIndex)
 }
 
 // CheckOracleSpamming check whether the msgs are spamming purpose or not
@@ -138,9 +98,4 @@ func (VoteAloneDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, 
 	}
 
 	return next(ctx, tx, simulate)
-}
-
-func (VoteAloneDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx sdk.Tx, txIndex int, next sdk.AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
-	// requires no dependencies
-	return next(txDeps, tx, txIndex)
 }

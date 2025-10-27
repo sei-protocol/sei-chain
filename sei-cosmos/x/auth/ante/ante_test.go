@@ -1009,7 +1009,7 @@ func (suite *AnteTestSuite) TestCustomSignatureVerificationGasConsumer() {
 	suite.SetupTest(false) // setup
 
 	// setup an ante handler that only accepts PubKeyEd25519
-	anteHandler, _, err := ante.NewAnteHandler(
+	anteHandler, err := ante.NewAnteHandler(
 		ante.HandlerOptions{
 			AccountKeeper:   suite.app.AccountKeeper,
 			BankKeeper:      suite.app.BankKeeper,

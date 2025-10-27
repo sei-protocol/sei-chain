@@ -239,14 +239,6 @@ func (app *BaseApp) SetAnteHandler(ah sdk.AnteHandler) {
 	app.anteHandler = ah
 }
 
-func (app *BaseApp) SetAnteDepGenerator(adg sdk.AnteDepGenerator) {
-	if app.sealed {
-		panic("SetAnteDepGenerator() on sealed BaseApp")
-	}
-
-	app.anteDepGenerator = adg
-}
-
 func (app *BaseApp) SetAddrPeerFilter(pf sdk.PeerFilter) {
 	if app.sealed {
 		panic("SetAddrPeerFilter() on sealed BaseApp")

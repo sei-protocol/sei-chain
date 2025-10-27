@@ -138,7 +138,6 @@ func TestDeliverTxBatch(t *testing.T) {
 		}
 
 		app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
-		require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
 		app.SetDeliverStateToCommit()
 		app.Commit(context.Background())
 	}
@@ -175,7 +174,6 @@ func TestDeliverTxBatchEmpty(t *testing.T) {
 		require.Len(t, responses.Results, 0)
 
 		app.EndBlock(app.deliverState.ctx, abci.RequestEndBlock{})
-		require.Empty(t, app.deliverState.ctx.MultiStore().GetEvents())
 		app.SetDeliverStateToCommit()
 		app.Commit(context.Background())
 	}

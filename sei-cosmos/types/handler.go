@@ -1,56 +1,20 @@
 package types
 
-import (
-	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
-)
-
 // Handler defines the core of the state transition function of an application.
 type Handler func(ctx Context, msg Msg) (*Result, error)
 
 // AnteHandler authenticates transactions, before their internal messages are handled.
 // If newCtx.IsZero(), ctx is used instead.
 type AnteHandler func(ctx Context, tx Tx, simulate bool) (newCtx Context, err error)
-type AnteDepGenerator func(txDeps []sdkacltypes.AccessOperation, tx Tx, txIndex int) (newTxDeps []sdkacltypes.AccessOperation, err error)
 
 // AnteDecorator wraps the next AnteHandler to perform custom pre- and post-processing.
 type AnteDecorator interface {
 	AnteHandle(ctx Context, tx Tx, simulate bool, next AnteHandler) (newCtx Context, err error)
 }
 
-type AnteDepDecorator interface {
-	AnteDeps(txDeps []sdkacltypes.AccessOperation, tx Tx, txIndex int, next AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error)
-}
-
-type DefaultDepDecorator struct{}
-
-// Defeault AnteDeps returned
-func (d DefaultDepDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx Tx, txIndex int, next AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
-	defaultDeps := []sdkacltypes.AccessOperation{
-		{
-			ResourceType:       sdkacltypes.ResourceType_ANY,
-			AccessType:         sdkacltypes.AccessType_UNKNOWN,
-			IdentifierTemplate: "*",
-		},
-	}
-	return next(append(txDeps, defaultDeps...), tx, txIndex)
-}
-
-type NoDepDecorator struct{}
-
-func (d NoDepDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx Tx, txIndex int, next AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
-	return next(txDeps, tx, txIndex)
-}
-
-type AnteFullDecorator interface {
-	AnteDecorator
-	AnteDepDecorator
-}
-
-func ChainAnteDecorators(chain ...AnteFullDecorator) (AnteHandler, AnteDepGenerator) {
+func ChainAnteDecorators(chain ...AnteDecorator) AnteHandler {
 	anteHandlerChainFunc := chainAnteDecoratorHandlers(chain...)
-	anteHandlerDepGenFunc := chainAnteDecoratorDepGenerators(chain...)
-	return anteHandlerChainFunc, anteHandlerDepGenFunc
-
+	return anteHandlerChainFunc
 }
 
 // ChainDecorator chains AnteDecorators together with each AnteDecorator
@@ -67,7 +31,7 @@ func ChainAnteDecorators(chain ...AnteFullDecorator) (AnteHandler, AnteDepGenera
 // transactions to be processed with an infinite gasmeter and open a DOS attack vector.
 // Use `ante.SetUpContextDecorator` or a custom Decorator with similar functionality.
 // Returns nil when no AnteDecorator are supplied.
-func chainAnteDecoratorHandlers(chain ...AnteFullDecorator) AnteHandler {
+func chainAnteDecoratorHandlers(chain ...AnteDecorator) AnteHandler {
 	if len(chain) == 0 {
 		return nil
 	}
@@ -80,50 +44,6 @@ func chainAnteDecoratorHandlers(chain ...AnteFullDecorator) AnteHandler {
 	return func(ctx Context, tx Tx, simulate bool) (Context, error) {
 		return chain[0].AnteHandle(ctx, tx, simulate, chainAnteDecoratorHandlers(chain[1:]...))
 	}
-}
-
-func chainAnteDecoratorDepGenerators(chain ...AnteFullDecorator) AnteDepGenerator {
-	if len(chain) == 0 {
-		return nil
-	}
-
-	// handle non-terminated decorators chain
-	if (chain[len(chain)-1] != Terminator{}) {
-		chain = append(chain, Terminator{})
-	}
-
-	return func(txDeps []sdkacltypes.AccessOperation, tx Tx, txIndex int) ([]sdkacltypes.AccessOperation, error) {
-		return chain[0].AnteDeps(txDeps, tx, txIndex, chainAnteDecoratorDepGenerators(chain[1:]...))
-	}
-}
-
-type WrappedAnteDecorator struct {
-	Decorator    AnteDecorator
-	DepDecorator AnteDepDecorator
-}
-
-func CustomDepWrappedAnteDecorator(decorator AnteDecorator, depDecorator AnteDepDecorator) WrappedAnteDecorator {
-	return WrappedAnteDecorator{
-		Decorator:    decorator,
-		DepDecorator: depDecorator,
-	}
-}
-
-func DefaultWrappedAnteDecorator(decorator AnteDecorator) WrappedAnteDecorator {
-	return WrappedAnteDecorator{
-		Decorator: decorator,
-		// TODO:: Use DefaultDepDecorator when each decorator defines their own
-		//		  See NewConsumeGasForTxSizeDecorator for an example of how to implement a decorator
-		DepDecorator: NoDepDecorator{},
-	}
-}
-
-func (wad WrappedAnteDecorator) AnteHandle(ctx Context, tx Tx, simulate bool, next AnteHandler) (newCtx Context, err error) {
-	return wad.Decorator.AnteHandle(ctx, tx, simulate, next)
-}
-
-func (wad WrappedAnteDecorator) AnteDeps(txDeps []sdkacltypes.AccessOperation, tx Tx, txIndex int, next AnteDepGenerator) (newTxDeps []sdkacltypes.AccessOperation, err error) {
-	return wad.DepDecorator.AnteDeps(txDeps, tx, txIndex, next)
 }
 
 // Terminator AnteDecorator will get added to the chain to simplify decorator code
@@ -149,9 +69,4 @@ type Terminator struct{}
 // Simply return provided Context and nil error
 func (t Terminator) AnteHandle(ctx Context, _ Tx, _ bool, _ AnteHandler) (Context, error) {
 	return ctx, nil
-}
-
-// Simply return provided txDeps and nil error
-func (t Terminator) AnteDeps(txDeps []sdkacltypes.AccessOperation, _ Tx, _ int, _ AnteDepGenerator) ([]sdkacltypes.AccessOperation, error) {
-	return txDeps, nil
 }

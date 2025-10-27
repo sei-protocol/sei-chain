@@ -17,11 +17,11 @@ func TestAuthzNestedEvmMessage(t *testing.T) {
 	priv1 := secp256k1.GenPrivKey()
 	addr1 := sdk.AccAddress(priv1.PubKey().Address())
 	output = ""
-	anteDecorators := []sdk.AnteFullDecorator{
-		sdk.DefaultWrappedAnteDecorator(antedecorators.NewAuthzNestedMessageDecorator()),
+	anteDecorators := []sdk.AnteDecorator{
+		antedecorators.NewAuthzNestedMessageDecorator(),
 	}
 	ctx := sdk.NewContext(nil, tmproto.Header{}, false, nil)
-	chainedHandler, _ := sdk.ChainAnteDecorators(anteDecorators...)
+	chainedHandler := sdk.ChainAnteDecorators(anteDecorators...)
 
 	nestedEvmMessage := authz.NewMsgExec(addr1, []sdk.Msg{&evmtypes.MsgEVMTransaction{}})
 	// test with nested evm message
