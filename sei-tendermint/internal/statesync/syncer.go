@@ -111,13 +111,9 @@ func (s *syncer) AddSnapshot(peerID types.NodeID, snapshot *snapshot) (bool, err
 
 // AddPeer adds a peer to the pool. For now we just keep it simple and send a
 // single request to discover snapshots, later we may want to do retries and stuff.
-func (s *syncer) AddPeer(ctx context.Context, peerID types.NodeID) error {
+func (s *syncer) AddPeer(peerID types.NodeID) {
 	s.logger.Info("Requesting snapshots from peer", "peer", peerID)
-
-	return s.snapshotCh.Send(ctx, p2p.Envelope{
-		To:      peerID,
-		Message: &ssproto.SnapshotsRequest{},
-	})
+	s.snapshotCh.Send(&ssproto.SnapshotsRequest{}, peerID)
 }
 
 // RemovePeer removes a peer from the pool.
@@ -516,9 +512,7 @@ func (s *syncer) fetchChunks(ctx context.Context, snapshot *snapshot, chunks *ch
 		ticker := time.NewTicker(s.retryTimeout)
 		defer ticker.Stop()
 
-		if err := s.requestChunk(ctx, snapshot, index); err != nil {
-			return
-		}
+		s.requestChunk(snapshot, index)
 
 		select {
 		case <-chunks.WaitFor(index):
@@ -540,12 +534,12 @@ func (s *syncer) fetchChunks(ctx context.Context, snapshot *snapshot, chunks *ch
 // returns nil if there are no peers for the given snapshot or the
 // request is successfully made and an error if the request cannot be
 // completed
-func (s *syncer) requestChunk(ctx context.Context, snapshot *snapshot, chunk uint32) error {
+func (s *syncer) requestChunk(snapshot *snapshot, chunk uint32) {
 	peer := s.snapshots.GetPeer(snapshot)
 	if peer == "" {
 		s.logger.Error("No valid peers found for snapshot", "height", snapshot.Height,
 			"format", snapshot.Format, "hash", snapshot.Hash)
-		return nil
+		return
 	}
 
 	s.logger.Debug(
@@ -556,19 +550,12 @@ func (s *syncer) requestChunk(ctx context.Context, snapshot *snapshot, chunk uin
 		"peer", peer,
 	)
 
-	msg := p2p.Envelope{
-		To: peer,
-		Message: &ssproto.ChunkRequest{
-			Height: snapshot.Height,
-			Format: snapshot.Format,
-			Index:  chunk,
-		},
+	msg := &ssproto.ChunkRequest{
+		Height: snapshot.Height,
+		Format: snapshot.Format,
+		Index:  chunk,
 	}
-
-	if err := s.chunkCh.Send(ctx, msg); err != nil {
-		return err
-	}
-	return nil
+	s.chunkCh.Send(msg, peer)
 }
 
 // verifyApp verifies the sync, checking the app hash, last block height and app version
