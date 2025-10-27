@@ -826,12 +826,12 @@ type ErrEvidenceOverflow struct {
 }
 
 // NewErrEvidenceOverflow returns a new ErrEvidenceOverflow where got > max.
-func NewErrEvidenceOverflow(max, got int64) *ErrEvidenceOverflow {
-	return &ErrEvidenceOverflow{max, got}
+func NewErrEvidenceOverflow(max, got int64) ErrEvidenceOverflow {
+	return ErrEvidenceOverflow{max, got}
 }
 
 // Error returns a string representation of the error.
-func (err *ErrEvidenceOverflow) Error() string {
+func (err ErrEvidenceOverflow) Error() string {
 	return fmt.Sprintf("Too much evidence: Max %d, got %d", err.Max, err.Got)
 }
 

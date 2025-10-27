@@ -160,7 +160,7 @@ func TestStateEnterProposeNoPrivValidator(t *testing.T) {
 	startTestRound(ctx, cs, height, round)
 
 	// if we're not a validator, EnterPropose should timeout
-	ensureNewTimeout(t, timeoutCh, height, round, cs.state.ConsensusParams.Timeout.ProposeTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutCh, height, round)
 
 	if cs.GetRoundState().Proposal != nil {
 		t.Error("Expected to make no proposal, since no privValidator")
@@ -311,7 +311,7 @@ func TestStateOversizedBlock(t *testing.T) {
 
 	// c1 should log an error with the block part message as it exceeds the consensus params. The
 	// block is not added to cs.ProposalBlock so the node timeouts.
-	ensureNewTimeout(t, timeoutProposeCh, height, round, cs1.proposeTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutProposeCh, height, round)
 
 	// and then should send nil prevote and precommit regardless of whether other validators prevote and
 	// precommit on it
@@ -476,7 +476,7 @@ func TestStateLock_NoPOL(t *testing.T) {
 
 	// (note we're entering precommit for a second time this round)
 	// but with invalid args. then we enterPrecommitWait, and the timeout to new round
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	///
 
@@ -489,7 +489,7 @@ func TestStateLock_NoPOL(t *testing.T) {
 	incrementRound(vs2)
 
 	// now we're on a new round and not the proposer, so wait for timeout
-	ensureNewTimeout(t, timeoutProposeCh, height, round, cs1.proposeTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutProposeCh, height, round)
 
 	rs := cs1.GetRoundState()
 
@@ -508,7 +508,7 @@ func TestStateLock_NoPOL(t *testing.T) {
 
 	// now we're going to enter prevote again, but with invalid args
 	// and then prevote wait, which should timeout. then wait for precommit
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 	// the proposed block should still be locked block.
 	// we should precommit nil and be locked on the proposal.
 	ensurePrecommit(t, voteCh, height, round)
@@ -520,7 +520,7 @@ func TestStateLock_NoPOL(t *testing.T) {
 
 	// (note we're entering precommit for a second time this round, but with invalid args
 	// then we enterPrecommitWait and timeout into NewRound
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	round++ // entering new round
 	ensureNewRound(t, newRoundCh, height, round)
@@ -547,7 +547,7 @@ func TestStateLock_NoPOL(t *testing.T) {
 	signAddVotes(ctx, t, cs1, tmproto.PrevoteType, config.ChainID(), newBlockID, vs2)
 	ensurePrevote(t, voteCh, height, round)
 
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 	ensurePrecommit(t, voteCh, height, round) // precommit
 
 	validatePrecommit(ctx, t, cs1, round, 0, vss[0], nil, initialBlockID.Hash) // precommit nil but be locked on proposal
@@ -562,7 +562,7 @@ func TestStateLock_NoPOL(t *testing.T) {
 		vs2) // NOTE: conflicting precommits at same height
 	ensurePrecommit(t, voteCh, height, round)
 
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	// cs1 is locked on a block at this point, so we must generate a new consensus
 	// state to force a new proposal block to be generated.
@@ -601,7 +601,7 @@ func TestStateLock_NoPOL(t *testing.T) {
 	signAddVotes(ctx, t, cs1, tmproto.PrevoteType, config.ChainID(), propBlockID, vs2)
 	ensurePrevote(t, voteCh, height, round)
 
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 	ensurePrecommit(t, voteCh, height, round)
 	validatePrecommit(ctx, t, cs1, round, 0, vss[0], nil, initialBlockID.Hash) // precommit nil but locked on proposal
 
@@ -677,7 +677,7 @@ func TestStateLock_POLUpdateLock(t *testing.T) {
 	signAddVotes(ctx, t, cs1, tmproto.PrecommitType, config.ChainID(), types.BlockID{}, vs2, vs3, vs4)
 
 	// timeout to new round.
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	/*
 		Round 1:
@@ -782,7 +782,7 @@ func TestStateLock_POLRelock(t *testing.T) {
 	signAddVotes(ctx, t, cs1, tmproto.PrecommitType, config.ChainID(), types.BlockID{}, vs2, vs3, vs4)
 
 	// timeout to new round.
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	/*
 		Round 1:
@@ -878,7 +878,7 @@ func TestStateLock_PrevoteNilWhenLockedAndMissProposal(t *testing.T) {
 	signAddVotes(ctx, t, cs1, tmproto.PrecommitType, config.ChainID(), types.BlockID{}, vs2, vs3, vs4)
 
 	// timeout to new round.
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	/*
 		Round 1:
@@ -963,7 +963,7 @@ func TestStateLock_PrevoteNilWhenLockedAndDifferentProposal(t *testing.T) {
 	signAddVotes(ctx, t, cs1, tmproto.PrecommitType, config.ChainID(), types.BlockID{}, vs2, vs3, vs4)
 
 	// timeout to new round.
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	/*
 		Round 1:
@@ -1070,7 +1070,7 @@ func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 	signAddVotes(ctx, t, cs1, tmproto.PrecommitType, config.ChainID(), blockID, vs3)
 
 	// timeout to new round
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	/*
 		Round 1:
@@ -1104,7 +1104,7 @@ func TestStateLock_POLDoesNotUnlock(t *testing.T) {
 	validatePrecommit(ctx, t, cs1, round, 0, vss[0], nil, blockID.Hash)
 
 	signAddVotes(ctx, t, cs1, tmproto.PrecommitType, config.ChainID(), types.BlockID{}, vs2, vs3, vs4)
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	/*
 		Round 2:
@@ -1189,7 +1189,7 @@ func TestStateLock_MissingProposalWhenPOLSeenDoesNotUpdateLock(t *testing.T) {
 	signAddVotes(ctx, t, cs1, tmproto.PrecommitType, config.ChainID(), types.BlockID{}, vs2, vs3, vs4)
 
 	// timeout to new round
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	/*
 		Round 1:
@@ -1275,7 +1275,7 @@ func TestStateLock_DoesNotLockOnOldProposal(t *testing.T) {
 	incrementRound(vs2, vs3, vs4)
 
 	// timeout to new round
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	/*
 		Round 1:
@@ -1345,7 +1345,7 @@ func TestStateLock_POLSafety1(t *testing.T) {
 
 	// cs1 precommit nil
 	ensurePrecommit(t, voteCh, height, round)
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	incrementRound(vs2, vs3, vs4)
 	round++ // moving to the next round
@@ -1386,7 +1386,7 @@ func TestStateLock_POLSafety1(t *testing.T) {
 
 	signAddVotes(ctx, t, cs1, tmproto.PrecommitType, config.ChainID(), types.BlockID{}, vs2, vs3, vs4)
 
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	incrementRound(vs2, vs3, vs4)
 	round++ // moving to the next round
@@ -1398,7 +1398,7 @@ func TestStateLock_POLSafety1(t *testing.T) {
 	*/
 
 	// timeout of propose
-	ensureNewTimeout(t, timeoutProposeCh, height, round, cs1.proposeTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutProposeCh, height, round)
 
 	// finish prevote
 	ensurePrevoteMatch(t, voteCh, height, round, nil)
@@ -1481,7 +1481,7 @@ func TestStateLock_POLSafety2(t *testing.T) {
 	incrementRound(vs2, vs3, vs4)
 
 	// timeout of precommit wait to new round
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	round++ // moving to the next round
 	// in round 2 we see the polkad block from round 0
@@ -1569,7 +1569,7 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 	signAddVotes(ctx, t, cs1, tmproto.PrecommitType, config.ChainID(), types.BlockID{}, vs2, vs3, vs4)
 
 	// timeout to new round.
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	/*
 		Round 1:
@@ -1610,7 +1610,7 @@ func TestState_PrevotePOLFromPreviousRound(t *testing.T) {
 	ensurePrecommit(t, voteCh, height, round)
 
 	// timeout to new round.
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	/*
 		Create a new proposal for D, the same block from Round 1.
@@ -1704,7 +1704,7 @@ func TestProposeValidBlock(t *testing.T) {
 
 	signAddVotes(ctx, t, cs1, tmproto.PrecommitType, config.ChainID(), types.BlockID{}, vs2, vs3, vs4)
 
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	incrementRound(vs2, vs3, vs4)
 	round++ // moving to the next round
@@ -1712,7 +1712,7 @@ func TestProposeValidBlock(t *testing.T) {
 	ensureNewRound(t, newRoundCh, height, round)
 
 	// timeout of propose
-	ensureNewTimeout(t, timeoutProposeCh, height, round, cs1.proposeTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutProposeCh, height, round)
 
 	// We did not see a valid proposal within this round, so prevote nil.
 	ensurePrevoteMatch(t, voteCh, height, round, nil)
@@ -1733,7 +1733,7 @@ func TestProposeValidBlock(t *testing.T) {
 
 	ensureNewRound(t, newRoundCh, height, round)
 
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	round++ // moving to the next round
 
@@ -1791,7 +1791,7 @@ func TestSetValidBlockOnDelayedPrevote(t *testing.T) {
 	// vs3 send prevote nil
 	signAddVotes(ctx, t, cs1, tmproto.PrevoteType, config.ChainID(), types.BlockID{}, vs3)
 
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	ensurePrecommit(t, voteCh, height, round)
 	// we should have precommitted
@@ -1844,7 +1844,7 @@ func TestSetValidBlockOnDelayedProposal(t *testing.T) {
 	startTestRound(ctx, cs1, cs1.roundState.Height(), round)
 	ensureNewRound(t, newRoundCh, height, round)
 
-	ensureNewTimeout(t, timeoutProposeCh, height, round, cs1.proposeTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutProposeCh, height, round)
 
 	ensurePrevoteMatch(t, voteCh, height, round, nil)
 
@@ -1860,7 +1860,7 @@ func TestSetValidBlockOnDelayedProposal(t *testing.T) {
 	signAddVotes(ctx, t, cs1, tmproto.PrevoteType, config.ChainID(), blockID, vs2, vs3, vs4)
 	ensureNewValidBlock(t, validBlockCh, height, round)
 
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	ensurePrecommit(t, voteCh, height, round)
 	validatePrecommit(ctx, t, cs1, round, -1, vss[0], nil, nil)
@@ -2038,7 +2038,7 @@ func TestWaitingTimeoutProposeOnNewRound(t *testing.T) {
 	rs := cs1.GetRoundState()
 	assert.Equal(t, true, rs.Step == cstypes.RoundStepPropose || rs.Step == cstypes.RoundStepNewRound)
 
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.proposeTimeout(round).Milliseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	ensurePrevoteMatch(t, voteCh, height, round, nil)
 }
@@ -2076,7 +2076,7 @@ func TestRoundSkipOnNilPolkaFromHigherRound(t *testing.T) {
 	ensurePrecommit(t, voteCh, height, round)
 	validatePrecommit(ctx, t, cs1, round, -1, vss[0], nil, nil)
 
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	round++ // moving to the next round
 	ensureNewRound(t, newRoundCh, height, round)
@@ -2107,7 +2107,7 @@ func TestWaitTimeoutProposeOnNilPolkaForTheCurrentRound(t *testing.T) {
 	incrementRound(vss[1:]...)
 	signAddVotes(ctx, t, cs1, tmproto.PrevoteType, config.ChainID(), types.BlockID{}, vs2, vs3, vs4)
 
-	ensureNewTimeout(t, timeoutProposeCh, height, round, cs1.proposeTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutProposeCh, height, round)
 
 	ensurePrevoteMatch(t, voteCh, height, round, nil)
 }
@@ -2261,7 +2261,7 @@ func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
 	signAddVotes(ctx, t, cs1, tmproto.PrecommitType, config.ChainID(), blockID, vs3)
 
 	// wait till timeout occurs
-	ensureNewTimeout(t, precommitTimeoutCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, precommitTimeoutCh, height, round)
 
 	ensureNewRound(t, newRoundCh, height, round+1)
 
@@ -2272,7 +2272,7 @@ func TestStartNextHeightCorrectlyAfterTimeout(t *testing.T) {
 
 	cs1.txNotifier.(*fakeTxNotifier).Notify()
 
-	ensureNewTimeout(t, timeoutProposeCh, height+1, round, cs1.proposeTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutProposeCh, height+1, round)
 	rs = cs1.GetRoundState()
 	assert.False(
 		t,
@@ -2398,7 +2398,7 @@ func TestStateHalt1(t *testing.T) {
 	incrementRound(vs2, vs3, vs4)
 
 	// timeout to new round
-	ensureNewTimeout(t, timeoutWaitCh, height, round, cs1.voteTimeout(round).Nanoseconds())
+	ensureNewTimeout(t, timeoutWaitCh, height, round)
 
 	round++ // moving to the next round
 

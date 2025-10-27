@@ -14,7 +14,7 @@ import (
 func validateBlock(state State, block *types.Block) error {
 	// Validate internal consistency.
 	if err := block.ValidateBasic(); err != nil {
-		return err
+		return fmt.Errorf("ValidateBasic(): %w", err)
 	}
 
 	// Validate basic info.
@@ -91,7 +91,7 @@ func validateBlock(state State, block *types.Block) error {
 		// LastCommit.Signatures length is checked in VerifyCommit.
 		if err := state.LastValidators.VerifyCommit(
 			state.ChainID, state.LastBlockID, block.Height-1, block.LastCommit); err != nil {
-			return err
+			return fmt.Errorf("VerifyCommit(): %w", err)
 		}
 	}
 
