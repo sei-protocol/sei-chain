@@ -254,6 +254,8 @@ func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error 
 			var ts [VersionSize]byte
 			binary.LittleEndian.PutUint64(ts[:], uint64(version))
 			return db.storage.Set([]byte(earliestVersionKey), ts[:], defaultWriteOpts)
+		} else {
+			return fmt.Errorf("failed to set earliest version to: %d", version)
 		}
 	}
 	return nil
