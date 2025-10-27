@@ -40,8 +40,6 @@ type reactorTestSuite struct {
 	app      map[types.NodeID]abciclient.Client
 
 	blockSyncChannels map[types.NodeID]*p2p.Channel
-	peerChans         map[types.NodeID]chan p2p.PeerUpdate
-	peerUpdates       map[types.NodeID]*p2p.PeerUpdates
 }
 
 func setup(
@@ -68,11 +66,9 @@ func setup(
 		reactors:          make(map[types.NodeID]*Reactor, numNodes),
 		app:               make(map[types.NodeID]abciclient.Client, numNodes),
 		blockSyncChannels: make(map[types.NodeID]*p2p.Channel, numNodes),
-		peerChans:         make(map[types.NodeID]chan p2p.PeerUpdate, numNodes),
-		peerUpdates:       make(map[types.NodeID]*p2p.PeerUpdates, numNodes),
 	}
 
-	chDesc := &p2p.ChannelDescriptor{
+	chDesc := p2p.ChannelDescriptor{
 		ID:                 BlockSyncChannel,
 		MessageType:        new(bcproto.Message),
 		RecvBufferCapacity: 32,
@@ -106,7 +102,6 @@ func makeReactor(
 	ctx context.Context,
 	t *testing.T,
 	genDoc *types.GenesisDoc,
-	peerEvents p2p.PeerEventSubscriber,
 	peerManager *p2p.PeerManager,
 	restartChan chan struct{},
 	selfRemediationConfig *config.SelfRemediationConfig,
@@ -159,7 +154,6 @@ func makeReactor(
 		blockExec,
 		blockStore,
 		nil,
-		peerEvents,
 		peerManager,
 		true,
 		consensus.NopMetrics(),
@@ -185,11 +179,6 @@ func (rts *reactorTestSuite) addNode(
 	rts.app[nodeID] = proxy.New(abciclient.NewLocalClient(logger, &abci.BaseApplication{}), logger, proxy.NopMetrics())
 	require.NoError(t, rts.app[nodeID].Start(ctx))
 
-	rts.peerChans[nodeID] = make(chan p2p.PeerUpdate)
-	rts.peerUpdates[nodeID] = p2p.NewPeerUpdates(rts.peerChans[nodeID], 1)
-	rts.network.Node(nodeID).PeerManager.Register(ctx, rts.peerUpdates[nodeID])
-
-	peerEvents := func(ctx context.Context) *p2p.PeerUpdates { return rts.peerUpdates[nodeID] }
 	restartChan := make(chan struct{})
 	remediationConfig := config.DefaultSelfRemediationConfig()
 	remediationConfig.BlocksBehindThreshold = 1000
@@ -198,7 +187,6 @@ func (rts *reactorTestSuite) addNode(
 		ctx,
 		t,
 		genDoc,
-		peerEvents,
 		rts.network.Node(nodeID).PeerManager,
 		restartChan,
 		config.DefaultSelfRemediationConfig(),
@@ -273,7 +261,7 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(cfg.RootDir)
 
-	valSet, privVals := factory.ValidatorSet(ctx, t, 1, 30)
+	valSet, privVals := factory.ValidatorSet(ctx, 1, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
 	maxBlockHeight := int64(64)
 
@@ -289,7 +277,7 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 		t,
 		func() bool {
 			height, _, _ := secondaryPool.GetStatus()
-			return secondaryPool.MaxPeerHeight() > 0 && height > 0 && height < 10
+			return secondaryPool.MaxPeerHeight() == maxBlockHeight && height > 0 && height <= maxBlockHeight
 		},
 		10*time.Second,
 		10*time.Millisecond,
@@ -298,11 +286,8 @@ func TestReactor_AbruptDisconnect(t *testing.T) {
 
 	// Remove synced node from the syncing node which should not result in any
 	// deadlocks or race conditions within the context of poolRoutine.
-	rts.peerChans[rts.nodes[1]] <- p2p.PeerUpdate{
-		Status: p2p.PeerStatusDown,
-		NodeID: rts.nodes[0],
-	}
-	rts.network.Node(rts.nodes[1]).PeerManager.Disconnected(ctx, rts.nodes[0])
+	rts.network.Node(rts.nodes[0]).Router.Stop()
+	rts.network.Node(rts.nodes[1]).WaitUntilDisconnected(ctx, rts.nodes[0])
 }
 
 func TestReactor_SyncTime(t *testing.T) {
@@ -312,7 +297,7 @@ func TestReactor_SyncTime(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(cfg.RootDir)
 
-	valSet, privVals := factory.ValidatorSet(ctx, t, 1, 30)
+	valSet, privVals := factory.ValidatorSet(ctx, 1, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
 	maxBlockHeight := int64(101)
 

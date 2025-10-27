@@ -275,7 +275,7 @@ func makeNode(
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(logger, cfg, dbProvider,
 		stateStore, blockStore, peerManager.Subscribe, nodeMetrics.evidence, eventBus)
-	node.router.AddChDescToBeAdded(evidence.GetChannelDescriptor(), evReactor.SetChannel)
+	evReactor.SetChannel(node.router.OpenChannelOrPanic(evidence.GetChannelDescriptor()))
 	closers = append(closers, edbCloser)
 	if err != nil {
 		return nil, combineCloseError(err, makeCloser(closers))
@@ -292,7 +292,7 @@ func makeNode(
 
 	mpReactor, mp := createMempoolReactor(logger, cfg, proxyApp, stateStore, nodeMetrics.mempool,
 		peerManager.Subscribe, peerManager)
-	node.router.AddChDescToBeAdded(mempool.GetChannelDescriptor(cfg.Mempool), mpReactor.SetChannel)
+	mpReactor.SetChannel(node.router.OpenChannelOrPanic(mempool.GetChannelDescriptor(cfg.Mempool)))
 	if !shoulddbsync {
 		mpReactor.MarkReadyToStart()
 	}
@@ -354,10 +354,10 @@ func makeNode(
 		cfg,
 	)
 
-	node.router.AddChDescToBeAdded(consensus.GetStateChannelDescriptor(), csReactor.SetStateChannel)
-	node.router.AddChDescToBeAdded(consensus.GetDataChannelDescriptor(), csReactor.SetDataChannel)
-	node.router.AddChDescToBeAdded(consensus.GetVoteChannelDescriptor(), csReactor.SetVoteChannel)
-	node.router.AddChDescToBeAdded(consensus.GetVoteSetChannelDescriptor(), csReactor.SetVoteSetChannel)
+	csReactor.SetStateChannel(node.router.OpenChannelOrPanic(consensus.GetStateChannelDescriptor()))
+	csReactor.SetDataChannel(node.router.OpenChannelOrPanic(consensus.GetDataChannelDescriptor()))
+	csReactor.SetVoteChannel(node.router.OpenChannelOrPanic(consensus.GetVoteChannelDescriptor()))
+	csReactor.SetVoteSetChannel(node.router.OpenChannelOrPanic(consensus.GetVoteSetChannelDescriptor()))
 	node.services = append(node.services, csReactor)
 	node.rpcEnv.ConsensusReactor = csReactor
 
@@ -369,7 +369,6 @@ func makeNode(
 		blockExec,
 		blockStore,
 		csReactor,
-		peerManager.Subscribe,
 		peerManager,
 		blockSync && !stateSync && !shoulddbsync,
 		nodeMetrics.consensus,
@@ -377,7 +376,7 @@ func makeNode(
 		restartCh,
 		cfg.SelfRemediation,
 	)
-	node.router.AddChDescToBeAdded(blocksync.GetChannelDescriptor(), bcReactor.SetChannel)
+	bcReactor.SetChannel(node.router.OpenChannelOrPanic(blocksync.GetChannelDescriptor()))
 	node.services = append(node.services, bcReactor)
 	node.rpcEnv.BlockSyncReactor = bcReactor
 
@@ -393,12 +392,11 @@ func makeNode(
 		pxReactor := pex.NewReactor(
 			logger,
 			peerManager,
-			peerManager.Subscribe,
 			restartCh,
 			cfg.SelfRemediation,
 		)
 		node.services = append(node.services, pxReactor)
-		node.router.AddChDescToBeAdded(pex.ChannelDescriptor(), pxReactor.SetChannel)
+		pxReactor.SetChannel(node.router.OpenChannelOrPanic(pex.ChannelDescriptor()))
 	}
 
 	postSyncHook := func(ctx context.Context, state sm.State) error {
@@ -426,7 +424,7 @@ func makeNode(
 		*cfg.StateSync,
 		logger.With("module", "statesync"),
 		proxyApp,
-		peerManager.Subscribe,
+		peerManager,
 		stateStore,
 		blockStore,
 		cfg.StateSync.TempDir,
@@ -441,10 +439,10 @@ func makeNode(
 
 	node.shouldHandshake = !stateSync && !shoulddbsync
 	node.services = append(node.services, ssReactor)
-	node.router.AddChDescToBeAdded(statesync.GetSnapshotChannelDescriptor(), ssReactor.SetSnapshotChannel)
-	node.router.AddChDescToBeAdded(statesync.GetChunkChannelDescriptor(), ssReactor.SetChunkChannel)
-	node.router.AddChDescToBeAdded(statesync.GetLightBlockChannelDescriptor(), ssReactor.SetLightBlockChannel)
-	node.router.AddChDescToBeAdded(statesync.GetParamsChannelDescriptor(), ssReactor.SetParamsChannel)
+	ssReactor.SetSnapshotChannel(node.router.OpenChannelOrPanic(statesync.GetSnapshotChannelDescriptor()))
+	ssReactor.SetChunkChannel(node.router.OpenChannelOrPanic(statesync.GetChunkChannelDescriptor()))
+	ssReactor.SetLightBlockChannel(node.router.OpenChannelOrPanic(statesync.GetLightBlockChannelDescriptor()))
+	ssReactor.SetParamsChannel(node.router.OpenChannelOrPanic(statesync.GetParamsChannelDescriptor()))
 
 	dbsyncReactor := dbsync.NewReactor(
 		logger.With("module", "dbsync"),
@@ -466,10 +464,10 @@ func makeNode(
 		},
 	)
 	node.services = append(node.services, dbsyncReactor)
-	node.router.AddChDescToBeAdded(dbsync.GetMetadataChannelDescriptor(), dbsyncReactor.SetMetadataChannel)
-	node.router.AddChDescToBeAdded(dbsync.GetFileChannelDescriptor(), dbsyncReactor.SetFileChannel)
-	node.router.AddChDescToBeAdded(dbsync.GetLightBlockChannelDescriptor(), dbsyncReactor.SetLightBlockChannel)
-	node.router.AddChDescToBeAdded(dbsync.GetParamsChannelDescriptor(), dbsyncReactor.SetParamsChannel)
+	dbsyncReactor.SetMetadataChannel(node.router.OpenChannelOrPanic(dbsync.GetMetadataChannelDescriptor()))
+	dbsyncReactor.SetFileChannel(node.router.OpenChannelOrPanic(dbsync.GetFileChannelDescriptor()))
+	dbsyncReactor.SetLightBlockChannel(node.router.OpenChannelOrPanic(dbsync.GetLightBlockChannelDescriptor()))
+	dbsyncReactor.SetParamsChannel(node.router.OpenChannelOrPanic(dbsync.GetParamsChannelDescriptor()))
 
 	if cfg.Mode == config.ModeValidator {
 		if privValidator != nil {

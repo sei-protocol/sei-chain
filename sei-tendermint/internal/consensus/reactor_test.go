@@ -53,8 +53,8 @@ type reactorTestSuite struct {
 	voteSetBitsChannels map[types.NodeID]*p2p.Channel
 }
 
-func chDesc(chID p2p.ChannelID, size int) *p2p.ChannelDescriptor {
-	return &p2p.ChannelDescriptor{
+func chDesc(chID p2p.ChannelID, size int) p2p.ChannelDescriptor {
+	return p2p.ChannelDescriptor{
 		ID:                 chID,
 		MessageType:        new(tmcons.Message),
 		RecvBufferCapacity: int(math.Sqrt(float64(size)) + 1),
@@ -266,7 +266,7 @@ func TestReactorWithEvidence(t *testing.T) {
 	testName := "consensus_reactor_test"
 	tickerFunc := newMockTickerFunc(true)
 
-	valSet, privVals := factory.ValidatorSet(ctx, t, n, 30)
+	valSet, privVals := factory.ValidatorSet(ctx, n, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
 	states := make([]*State, n)
 	logger := consensusLogger()
