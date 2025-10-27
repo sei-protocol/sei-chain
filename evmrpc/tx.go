@@ -42,6 +42,7 @@ type TransactionAPI struct {
 	homeDir            string
 	connectionType     ConnectionType
 	includeSynthetic   bool
+	watermarks         *WatermarkManager
 	globalBlockCache   BlockCache
 	cacheCreationMutex *sync.Mutex
 }
@@ -58,6 +59,7 @@ func NewTransactionAPI(
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
 	connectionType ConnectionType,
+	watermarks *WatermarkManager,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 ) *TransactionAPI {
@@ -68,6 +70,7 @@ func NewTransactionAPI(
 		txConfigProvider:   txConfigProvider,
 		homeDir:            homeDir,
 		connectionType:     connectionType,
+		watermarks:         watermarks,
 		globalBlockCache:   globalBlockCache,
 		cacheCreationMutex: cacheCreationMutex,
 	}
@@ -81,10 +84,11 @@ func NewSeiTransactionAPI(
 	homeDir string,
 	connectionType ConnectionType,
 	isPanicTx func(ctx context.Context, hash common.Hash) (bool, error),
+	watermarks *WatermarkManager,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
 ) *SeiTransactionAPI {
-	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType, globalBlockCache, cacheCreationMutex)
+	baseAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, connectionType, watermarks, globalBlockCache, cacheCreationMutex)
 	baseAPI.includeSynthetic = true
 	return &SeiTransactionAPI{TransactionAPI: baseAPI, isPanicTx: isPanicTx}
 }
@@ -133,7 +137,7 @@ func getTransactionReceipt(
 	if receipt.Status == 0 && receipt.GasUsed == 0 {
 		// Get the block
 		height := int64(receipt.BlockNumber) //nolint:gosec
-		block, err := blockByNumberWithRetry(ctx, t.tmClient, &height, 1)
+		block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &height, 1)
 		if err != nil {
 			return nil, err
 		}
@@ -164,7 +168,7 @@ func getTransactionReceipt(
 		}
 	}
 	height := int64(receipt.BlockNumber) //nolint:gosec
-	block, err := blockByNumberWithRetry(ctx, t.tmClient, &height, 1)
+	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &height, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +202,7 @@ func (t *TransactionAPI) getTransactionByBlockNumberAndIndex(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	block, err := blockByNumberWithRetry(ctx, t.tmClient, blockNumber, 1)
+	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, blockNumber, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +212,7 @@ func (t *TransactionAPI) getTransactionByBlockNumberAndIndex(ctx context.Context
 func (t *TransactionAPI) GetTransactionByBlockHashAndIndex(ctx context.Context, blockHash common.Hash, txIndex hexutil.Uint) (result *export.RPCTransaction, returnErr error) {
 	startTime := time.Now()
 	defer recordMetricsWithError("eth_getTransactionByBlockHashAndIndex", t.connectionType, startTime, returnErr)
-	block, err := blockByHash(ctx, t.tmClient, blockHash[:])
+	block, err := blockByHashRespectingWatermarks(ctx, t.tmClient, t.watermarks, blockHash[:], 1)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +271,7 @@ func (t *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 		return nil, err
 	}
 	blockNumber := int64(receipt.BlockNumber) //nolint:gosec
-	block, err := blockByNumberWithRetry(ctx, t.tmClient, &blockNumber, 1)
+	block, err := blockByNumberRespectingWatermarks(ctx, t.tmClient, t.watermarks, &blockNumber, 1)
 	if err != nil {
 		return nil, err
 	}

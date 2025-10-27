@@ -104,7 +104,7 @@ func TestEncodeBankMsg(t *testing.T) {
 
 func TestEncodeWasmExecuteMsg(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
-	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil)
+	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx(nil).WithBlockHeight(MockHeight8)
 	fromSeiAddr, fromEvmAddr := testkeeper.MockAddressPair()
 	toSeiAddr, _ := testkeeper.MockAddressPair()
 	b := TxConfig.NewTxBuilder()
@@ -115,10 +115,15 @@ func TestEncodeWasmExecuteMsg(t *testing.T) {
 	})
 	tx := b.GetTx()
 	bz, _ := Encoder(tx)
-	k.MockReceipt(ctx, sha256.Sum256(bz), &types.Receipt{
+	txHash := sha256.Sum256(bz)
+	hash := common.BytesToHash(txHash[:])
+	testkeeper.MustMockReceipt(t, k, ctx, hash, &types.Receipt{
 		TransactionIndex: 1,
 		From:             fromEvmAddr.Hex(),
+		TxHashHex:        hash.Hex(),
 	})
+	receipt := testkeeper.WaitForReceipt(t, k, ctx, hash)
+	require.Equal(t, hash.Hex(), receipt.TxHashHex)
 	resBlock := coretypes.ResultBlock{
 		BlockID: MockBlockID,
 		Block: &tmtypes.Block{
