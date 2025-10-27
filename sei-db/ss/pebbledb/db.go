@@ -80,7 +80,6 @@ type Database struct {
 	lastRangeHashedCache int64
 	lastRangeHashedMu    sync.RWMutex
 	hashComputationMu    sync.Mutex
-	earliestVersionMu    sync.Mutex
 
 	// Cancel function for background metrics collection
 	metricsCancel context.CancelFunc
@@ -248,7 +247,7 @@ func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error 
 	if version < 0 {
 		return fmt.Errorf("version must be non-negative")
 	}
-	if version > db.GetLatestVersion() || ignoreVersion {
+	if version > db.GetEarliestVersion() || ignoreVersion {
 		db.earliestVersion.Store(version)
 		var ts [VersionSize]byte
 		binary.LittleEndian.PutUint64(ts[:], uint64(version))
