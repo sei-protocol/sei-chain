@@ -5,7 +5,6 @@ import (
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
-	aclkeeper "github.com/cosmos/cosmos-sdk/x/accesscontrol/keeper"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	epochwasm "github.com/sei-protocol/sei-chain/x/epoch/client/wasm"
@@ -29,7 +28,6 @@ func RegisterCustomPlugins(
 	bankKeeper wasmtypes.Burner,
 	unpacker codectypes.AnyUnpacker,
 	portSource wasmtypes.ICS20TransferPortSource,
-	aclKeeper aclkeeper.Keeper,
 	evmKeeper *evmkeeper.Keeper,
 	stakingKeeper stakingkeeper.Keeper,
 ) []wasmkeeper.Option {
@@ -43,7 +41,7 @@ func RegisterCustomPlugins(
 		Custom: CustomQuerier(wasmQueryPlugin),
 	})
 	messengerHandlerOpt := wasmkeeper.WithMessageHandler(
-		CustomMessageHandler(router, channelKeeper, capabilityKeeper, bankKeeper, evmKeeper, unpacker, portSource, aclKeeper),
+		CustomMessageHandler(router, channelKeeper, capabilityKeeper, bankKeeper, evmKeeper, unpacker, portSource),
 	)
 
 	return []wasm.Option{

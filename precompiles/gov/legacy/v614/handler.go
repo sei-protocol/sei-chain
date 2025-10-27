@@ -6,13 +6,12 @@ import (
 	"fmt"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/accesscontrol"
-	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
 	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	govtypes "github.com/cosmos/cosmos-sdk/x/gov/types"
 	paramstypes "github.com/cosmos/cosmos-sdk/x/params/types/proposal"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sei-protocol/sei-cosmos/types/accesscontrol"
 )
 
 // EVMKeeper defines the interface for EVM keeper operations

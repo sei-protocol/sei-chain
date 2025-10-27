@@ -31,7 +31,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/store"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
 )
@@ -87,7 +86,6 @@ type BaseApp struct { //nolint: maligned
 	interfaceRegistry types.InterfaceRegistry
 	txDecoder         sdk.TxDecoder // unmarshal []byte into sdk.Tx
 
-	anteDepGenerator          sdk.AnteDepGenerator // ante dep generator for parallelization
 	prepareProposalHandler    sdk.PrepareProposalHandler
 	processProposalHandler    sdk.ProcessProposalHandler
 	finalizeBlocker           sdk.FinalizeBlocker
@@ -870,16 +868,6 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		time.Now(),
 	)
 
-	// Reset events after each checkTx or simulateTx or recheckTx
-	// DeliverTx is garbage collected after FinalizeBlocker
-	if mode != runTxModeDeliver {
-		defer ctx.MultiStore().ResetEvents()
-	}
-
-	// Wait for signals to complete before starting the transaction. This is needed before any of the
-	// resources are acceessed by the ante handlers and message handlers.
-	defer acltypes.SendAllSignalsForTx(ctx.TxCompletionChannels())
-	acltypes.WaitForAllSignalsForTx(ctx.TxBlockingChannels())
 	// check for existing parent tracer, and if applicable, use it
 	spanCtx, span := app.TracingInfo.StartWithContext("RunTx", ctx.TraceSpanContext())
 	defer span.End()
@@ -896,13 +884,9 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 
 	defer func() {
 		if r := recover(); r != nil {
-			acltypes.SendAllSignalsForTx(ctx.TxCompletionChannels())
 			recoveryMW := newOutOfGasRecoveryMiddleware(gasWanted, ctx, app.runTxRecoveryMiddleware)
 			recoveryMW = newOCCAbortRecoveryMiddleware(recoveryMW) // TODO: do we have to wrap with occ enabled check?
 			err, result = processRecovery(r, recoveryMW), nil
-			if mode != runTxModeDeliver {
-				ctx.MultiStore().ResetEvents()
-			}
 		}
 		gInfo = sdk.GasInfo{GasWanted: gasWanted, GasUsed: ctx.GasMeter().GasConsumed(), GasEstimate: gasEstimate}
 	}()
@@ -965,23 +949,6 @@ func (app *BaseApp) runTx(ctx sdk.Context, mode runTxMode, tx sdk.Tx, checksum [
 		// GasMeter expected to be set in AnteHandler
 		gasWanted = ctx.GasMeter().Limit()
 		gasEstimate = ctx.GasEstimate()
-
-		// Dont need to validate in checkTx mode
-		if ctx.MsgValidator() != nil && mode == runTxModeDeliver {
-			storeAccessOpEvents := msCache.GetEvents()
-			accessOps := ctx.TxMsgAccessOps()[acltypes.ANTE_MSG_INDEX]
-
-			// TODO: (occ) This is an example of where we do our current validation. Note that this validation operates on the declared dependencies for a TX / antehandler + the utilized dependencies, whereas the validation
-			missingAccessOps := ctx.MsgValidator().ValidateAccessOperations(accessOps, storeAccessOpEvents)
-			if len(missingAccessOps) != 0 {
-				for op := range missingAccessOps {
-					ctx.Logger().Info((fmt.Sprintf("Antehandler Missing Access Operation:%s ", op.String())))
-					op.EmitValidationFailMetrics()
-				}
-				errMessage := fmt.Sprintf("Invalid Concurrent Execution antehandler missing %d access operations", len(missingAccessOps))
-				return gInfo, nil, nil, 0, nil, nil, ctx, sdkerrors.Wrap(sdkerrors.ErrInvalidConcurrencyExecution, errMessage)
-			}
-		}
 
 		priority = ctx.Priority()
 		pendingTxChecker = ctx.PendingTxChecker()
@@ -1138,27 +1105,6 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 		if msgResult.EvmError != "" {
 			evmError = msgResult.EvmError
 		}
-
-		if ctx.MsgValidator() == nil {
-			continue
-		}
-		storeAccessOpEvents := msgMsCache.GetEvents()
-		accessOps := ctx.TxMsgAccessOps()[i]
-		missingAccessOps := ctx.MsgValidator().ValidateAccessOperations(accessOps, storeAccessOpEvents)
-		// TODO: (occ) This is where we are currently validating our per message dependencies,
-		// whereas validation will be done holistically based on the mvkv for OCC approach
-		if len(missingAccessOps) != 0 {
-			for op := range missingAccessOps {
-				ctx.Logger().Info((fmt.Sprintf("eventMsgName=%s Missing Access Operation:%s ", eventMsgName, op.String())))
-				op.EmitValidationFailMetrics()
-			}
-			errMessage := fmt.Sprintf("Invalid Concurrent Execution messageIndex=%d, missing %d access operations", i, len(missingAccessOps))
-			// we need to bubble up the events for inspection
-			return &sdk.Result{
-				Log:    strings.TrimSpace(msgLogs.String()),
-				Events: events.ToABCIEvents(),
-			}, sdkerrors.Wrap(sdkerrors.ErrInvalidConcurrencyExecution, errMessage)
-		}
 	}
 
 	data, err := proto.Marshal(txMsgData)
@@ -1172,10 +1118,6 @@ func (app *BaseApp) runMsgs(ctx sdk.Context, msgs []sdk.Msg, mode runTxMode) (*s
 		Events:   events.ToABCIEvents(),
 		EvmError: evmError,
 	}, nil
-}
-
-func (app *BaseApp) GetAnteDepGenerator() sdk.AnteDepGenerator {
-	return app.anteDepGenerator
 }
 
 func (app *BaseApp) startCompactionRoutine(db dbm.DB) {

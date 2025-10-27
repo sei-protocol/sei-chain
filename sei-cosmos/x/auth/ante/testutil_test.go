@@ -62,7 +62,7 @@ func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
 	suite.clientCtx = client.Context{}.
 		WithTxConfig(encodingConfig.TxConfig)
 
-	anteHandler, _, err := ante.NewAnteHandler(
+	anteHandler, err := ante.NewAnteHandler(
 		ante.HandlerOptions{
 			AccountKeeper:   suite.app.AccountKeeper,
 			BankKeeper:      suite.app.BankKeeper,

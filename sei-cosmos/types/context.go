@@ -12,7 +12,6 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/store/gaskv"
 	stypes "github.com/cosmos/cosmos-sdk/store/types"
-	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 )
 
 /*
@@ -52,10 +51,6 @@ type Context struct {
 	deliverTxCallback func(Context)         // callback to make at the end of DeliverTx.
 	expireTxHandler   func()                // callback that the mempool invokes when a tx is expired
 
-	txBlockingChannels   acltypes.MessageAccessOpsChannelMapping
-	txCompletionChannels acltypes.MessageAccessOpsChannelMapping
-	txMsgAccessOps       map[int][]acltypes.AccessOperation
-
 	// EVM properties
 	evm                                 bool   // EVM transaction flag
 	evmNonce                            uint64 // EVM Transaction nonce
@@ -65,7 +60,6 @@ type Context struct {
 	evmEntryViaWasmdPrecompile          bool   // EVM is entered via wasmd precompile directly
 	evmPrecompileCalledFromDelegateCall bool   // EVM precompile is called from a delegate call
 
-	msgValidator *acltypes.MsgValidator
 	messageIndex int // Used to track current message being processed
 	txIndex      int
 
@@ -197,28 +191,12 @@ func (c Context) DeliverTxCallback() func(Context) {
 	return c.deliverTxCallback
 }
 
-func (c Context) TxCompletionChannels() acltypes.MessageAccessOpsChannelMapping {
-	return c.txCompletionChannels
-}
-
-func (c Context) TxBlockingChannels() acltypes.MessageAccessOpsChannelMapping {
-	return c.txBlockingChannels
-}
-
-func (c Context) TxMsgAccessOps() map[int][]acltypes.AccessOperation {
-	return c.txMsgAccessOps
-}
-
 func (c Context) MessageIndex() int {
 	return c.messageIndex
 }
 
 func (c Context) TxIndex() int {
 	return c.txIndex
-}
-
-func (c Context) MsgValidator() *acltypes.MsgValidator {
-	return c.msgValidator
 }
 
 // clone the header before returning
@@ -281,10 +259,6 @@ func NewContext(ms MultiStore, header tmproto.Header, isCheckTx bool, logger log
 		minGasPrice:     DecCoins{},
 		eventManager:    NewEventManager(),
 		evmEventManager: NewEVMEventManager(),
-
-		txBlockingChannels:   make(acltypes.MessageAccessOpsChannelMapping),
-		txCompletionChannels: make(acltypes.MessageAccessOpsChannelMapping),
-		txMsgAccessOps:       make(map[int][]acltypes.AccessOperation),
 	}
 }
 
@@ -425,24 +399,6 @@ func (c Context) WithEvmEventManager(em *EVMEventManager) Context {
 	return c
 }
 
-// TxMsgAccessOps returns a Context with an updated list of completion channel
-func (c Context) WithTxMsgAccessOps(accessOps map[int][]acltypes.AccessOperation) Context {
-	c.txMsgAccessOps = accessOps
-	return c
-}
-
-// WithTxCompletionChannels returns a Context with an updated list of completion channel
-func (c Context) WithTxCompletionChannels(completionChannels acltypes.MessageAccessOpsChannelMapping) Context {
-	c.txCompletionChannels = completionChannels
-	return c
-}
-
-// WithTxBlockingChannels returns a Context with an updated list of blocking channels for completion signals
-func (c Context) WithTxBlockingChannels(blockingChannels acltypes.MessageAccessOpsChannelMapping) Context {
-	c.txBlockingChannels = blockingChannels
-	return c
-}
-
 // WithMessageIndex returns a Context with the current message index that's being processed
 func (c Context) WithMessageIndex(messageIndex int) Context {
 	c.messageIndex = messageIndex
@@ -452,11 +408,6 @@ func (c Context) WithMessageIndex(messageIndex int) Context {
 // WithTxIndex returns a Context with the current transaction index that's being processed
 func (c Context) WithTxIndex(txIndex int) Context {
 	c.txIndex = txIndex
-	return c
-}
-
-func (c Context) WithMsgValidator(msgValidator *acltypes.MsgValidator) Context {
-	c.msgValidator = msgValidator
 	return c
 }
 
