@@ -17,6 +17,8 @@ type (
 		Actual   int
 	}
 )
+type errBadBlockID struct{ error }
+type errBadSig struct{ error }
 
 func NewErrInvalidCommitHeight(expected, actual int64) ErrInvalidCommitHeight {
 	return ErrInvalidCommitHeight{
