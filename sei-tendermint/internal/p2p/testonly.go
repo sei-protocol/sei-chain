@@ -2,7 +2,9 @@ package p2p
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -52,6 +54,20 @@ type TestNodeOptions struct {
 	MaxRetryTime time.Duration
 }
 
+func TestAddress(r *Router) NodeAddress {
+	e := r.Endpoint()
+	addr := e.AddrPort.Addr()
+	port := e.AddrPort.Port()
+	switch addr {
+	case netip.IPv4Unspecified():
+		addr = tcp.IPv4Loopback()
+	case netip.IPv6Unspecified():
+		addr = netip.IPv6Loopback()
+	}
+	return Endpoint{netip.AddrPortFrom(addr, port)}.
+		NodeAddress(r.nodeInfoProducer().NodeID)
+}
+
 // MakeNetwork creates a test network with the given number of nodes and
 // connects them to each other.
 func MakeTestNetwork(t *testing.T, opts TestNetworkOptions) *TestNetwork {
@@ -76,54 +92,55 @@ func (n *TestNetwork) Nodes() []*TestNode {
 	return res
 }
 
+func (n *TestNetwork) ConnectCycle(ctx context.Context, t *testing.T) {
+	nodes := n.Nodes()
+	N := len(nodes)
+	for i := range nodes {
+		if _, err := nodes[i].PeerManager.Add(nodes[(i+1)%len(nodes)].NodeAddress); err != nil {
+			panic(err)
+		}
+	}
+	for i := range n.Nodes() {
+		for ready, ctrl := range nodes[i].PeerManager.ready.Lock() {
+			for _, peer := range utils.Slice(nodes[(i+1)%N], nodes[(i+N-1)%N]) {
+				if err := ctrl.WaitUntil(ctx, func() bool {
+					_, ok := ready[peer.NodeID]
+					return ok
+				}); err != nil {
+					panic(err)
+				}
+			}
+		}
+	}
+}
+
 // Start starts the network by setting up a list of node addresses to dial in
 // addition to creating a peer update subscription for each node. Finally, all
 // nodes are connected to each other.
 func (n *TestNetwork) Start(t *testing.T) {
-	subs := map[types.NodeID]*PeerUpdates{}
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
 	nodes := n.Nodes()
-	for _, node := range nodes {
-		subs[node.NodeID] = node.PeerManager.Subscribe(ctx)
-	}
-
-	// For each node, dial the nodes that it still doesn't have a connection to
-	// (either inbound or outbound), and wait for both sides to confirm the
-	// connection via the subscriptions.
+	// Populate peer managers.
 	for i, source := range nodes {
 		for _, target := range nodes[i+1:] { // nodes <i already connected
-			added, err := source.PeerManager.Add(target.NodeAddress)
-			require.NoError(t, err)
-			require.True(t, added)
-
-			select {
-			case <-ctx.Done():
-				require.Fail(t, "operation canceled")
-			case peerUpdate := <-subs[source.NodeID].Updates():
-				peerUpdate.Channels = nil
-				require.Equal(t, PeerUpdate{
-					NodeID: target.NodeID,
-					Status: PeerStatusUp,
-				}, peerUpdate)
+			if _, err := source.PeerManager.Add(target.NodeAddress); err != nil {
+				panic(fmt.Errorf("Add(%v): %w", target.NodeAddress, err))
 			}
-
-			select {
-			case <-ctx.Done():
-				require.Fail(t, "operation canceled")
-			case peerUpdate := <-subs[target.NodeID].Updates():
-				peerUpdate.Channels = nil
-				require.Equal(t, PeerUpdate{
-					NodeID: source.NodeID,
-					Status: PeerStatusUp,
-				}, peerUpdate)
+		}
+	}
+	t.Log("Await connections.")
+	for _, source := range nodes {
+		for ready, ctrl := range source.PeerManager.ready.Lock() {
+			for _, target := range nodes {
+				if target.NodeID == source.NodeID {
+					continue
+				}
+				if err := ctrl.WaitUntil(t.Context(), func() bool {
+					_, ok := ready[target.NodeID]
+					return ok
+				}); err != nil {
+					panic(err)
+				}
 			}
-
-			// Add the address to the target as well, so it's able to dial the
-			// source back if that's even necessary.
-			added, err = target.PeerManager.Add(source.NodeAddress)
-			require.NoError(t, err)
-			require.True(t, added)
 		}
 	}
 }
@@ -143,7 +160,7 @@ func (n *TestNetwork) NodeIDs() []types.NodeID {
 // doing error checks and cleanups.
 func (n *TestNetwork) MakeChannels(
 	t *testing.T,
-	chDesc *ChannelDescriptor,
+	chDesc ChannelDescriptor,
 ) map[types.NodeID]*Channel {
 	channels := map[types.NodeID]*Channel{}
 	for nodes := range n.nodes.Lock() {
@@ -159,7 +176,7 @@ func (n *TestNetwork) MakeChannels(
 // all the channels.
 func (n *TestNetwork) MakeChannelsNoCleanup(
 	t *testing.T,
-	chDesc *ChannelDescriptor,
+	chDesc ChannelDescriptor,
 ) map[types.NodeID]*Channel {
 	channels := map[types.NodeID]*Channel{}
 	for nodes := range n.nodes.Lock() {
@@ -209,11 +226,7 @@ func (n *TestNetwork) Remove(t *testing.T, id types.NodeID) {
 			subs = append(subs, peer.PeerManager.Subscribe(ctx))
 		}
 	}
-	node.cancel()
-	if node.Router.IsRunning() {
-		node.Router.Stop()
-		node.Router.Wait()
-	}
+	node.Router.Stop()
 	for _, sub := range subs {
 		RequireUpdate(t, sub, PeerUpdate{
 			NodeID: node.NodeID,
@@ -231,8 +244,46 @@ type TestNode struct {
 	PrivKey     crypto.PrivKey
 	Router      *Router
 	PeerManager *PeerManager
+}
 
-	cancel context.CancelFunc
+func (n *TestNode) Connect(ctx context.Context, target *TestNode) {
+	if _, err := n.PeerManager.Add(target.NodeAddress); err != nil {
+		panic(err)
+	}
+	for ready, ctrl := range n.PeerManager.ready.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			_, ok := ready[target.NodeID]
+			return ok
+		}); err != nil {
+			panic(err)
+		}
+	}
+	for ready, ctrl := range target.PeerManager.ready.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			_, ok := ready[n.NodeID]
+			return ok
+		}); err != nil {
+			panic(err)
+		}
+	}
+}
+
+func (n *TestNode) Disconnect(ctx context.Context, target types.NodeID) {
+	for conns := range n.Router.conns.RLock() {
+		conns[target].Close()
+	}
+	n.WaitUntilDisconnected(ctx, target)
+}
+
+func (n *TestNode) WaitUntilDisconnected(ctx context.Context, target types.NodeID) {
+	for ready, ctrl := range n.PeerManager.ready.Lock() {
+		if err := ctrl.WaitUntil(ctx, func() bool {
+			_, ok := ready[target]
+			return !ok
+		}); err != nil {
+			panic(err)
+		}
+	}
 }
 
 // MakeNode creates a new Node configured for the network with a
@@ -249,13 +300,15 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	}
 
 	routerOpts := RouterOptions{
-		DialSleep:  func(_ context.Context) error { return nil },
-		Endpoint:   Endpoint{AddrPort: tcp.TestReserveAddr()},
-		Connection: conn.DefaultMConnConfig(),
+		DialSleep:                func(_ context.Context) error { return nil },
+		Endpoint:                 Endpoint{AddrPort: tcp.TestReserveAddr()},
+		Connection:               conn.DefaultMConnConfig(),
+		IncomingConnectionWindow: utils.Some[time.Duration](0),
 	}
 	routerOpts.Connection.FlushThrottle = 0
 	nodeInfo := types.NodeInfo{
-		NodeID:     nodeID,
+		NodeID: nodeID,
+		// Endpoint has been allocated via tcp.TestReserveAddr(), so it is NOT IP(v4/v6)Unspecified.
 		ListenAddr: routerOpts.Endpoint.String(),
 		Moniker:    string(nodeID),
 		Network:    "test",
@@ -270,7 +323,7 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 	}, NopMetrics())
 	require.NoError(t, err)
 
-	router, err := NewRouter(
+	router := NewRouter(
 		logger,
 		NopMetrics(),
 		privKey,
@@ -279,18 +332,8 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 		nil,
 		routerOpts,
 	)
-
-	require.NoError(t, err)
-
-	ctx, cancel := context.WithCancel(t.Context())
-	require.NoError(t, router.Start(ctx))
-	t.Cleanup(func() {
-		if router.IsRunning() {
-			router.Stop()
-			router.Wait()
-		}
-		cancel()
-	})
+	require.NoError(t, router.Start(t.Context()))
+	require.NoError(t, router.WaitForStart(t.Context()))
 
 	node := &TestNode{
 		Logger:      logger,
@@ -300,7 +343,6 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 		PrivKey:     privKey,
 		Router:      router,
 		PeerManager: peerManager,
-		cancel:      cancel,
 	}
 
 	for nodes := range n.nodes.Lock() {
@@ -314,7 +356,7 @@ func (n *TestNetwork) MakeNode(t *testing.T, opts TestNodeOptions) *TestNode {
 // all expected messages have been asserted.
 func (n *TestNode) MakeChannel(
 	t *testing.T,
-	chDesc *ChannelDescriptor,
+	chDesc ChannelDescriptor,
 ) *Channel {
 	channel, err := n.Router.OpenChannel(chDesc)
 	require.NoError(t, err)
@@ -328,11 +370,9 @@ func (n *TestNode) MakeChannel(
 // caller must ensure proper cleanup of the channel.
 func (n *TestNode) MakeChannelNoCleanup(
 	t *testing.T,
-	chDesc *ChannelDescriptor,
+	chDesc ChannelDescriptor,
 ) *Channel {
-	channel, err := n.Router.OpenChannel(chDesc)
-	require.NoError(t, err)
-	return channel
+	return n.Router.OpenChannelOrPanic(chDesc)
 }
 
 // MakePeerUpdates opens a peer update subscription, with automatic cleanup.
@@ -351,8 +391,8 @@ func (n *TestNode) MakePeerUpdatesNoRequireEmpty(ctx context.Context) *PeerUpdat
 	return n.PeerManager.Subscribe(ctx)
 }
 
-func MakeTestChannelDesc(chID ChannelID) *ChannelDescriptor {
-	return &ChannelDescriptor{
+func MakeTestChannelDesc(chID ChannelID) ChannelDescriptor {
+	return ChannelDescriptor{
 		ID:                  chID,
 		MessageType:         &TestMessage{},
 		Priority:            5,
@@ -372,34 +412,25 @@ func RequireEmpty(t *testing.T, channels ...*Channel) {
 }
 
 // RequireReceive requires that the given envelope is received on the channel.
-func RequireReceive(t *testing.T, channel *Channel, expect Envelope) {
+func RequireReceive(t *testing.T, channel *Channel, want RecvMsg) {
 	t.Helper()
-	RequireReceiveUnordered(t, channel, utils.Slice(&expect))
+	RequireReceiveUnordered(t, channel, utils.Slice(want))
 }
 
 // RequireReceiveUnordered requires that the given envelopes are all received on
 // the channel, ignoring order.
-func RequireReceiveUnordered(t *testing.T, channel *Channel, expect []*Envelope) {
+func RequireReceiveUnordered(t *testing.T, channel *Channel, want []RecvMsg) {
 	t.Helper()
-	t.Logf("awaiting %d messages", len(expect))
-	actual := []*Envelope{}
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	iter := channel.RecvAll(ctx)
-	for iter.Next(ctx) {
-		actual = append(actual, iter.Envelope())
-		if len(actual) == len(expect) {
-			require.ElementsMatch(t, expect, actual, "len=%d", len(actual))
-			return
+	t.Logf("awaiting %d messages", len(want))
+	var got []RecvMsg
+	for len(got) < len(want) {
+		m, err := channel.Recv(t.Context())
+		if err != nil {
+			panic(err)
 		}
+		got = append(got, m)
 	}
-	require.FailNow(t, "not enough messages")
-}
-
-// RequireSend requires that the given envelope is sent on the channel.
-func RequireSend(t *testing.T, channel *Channel, envelope Envelope) {
-	t.Logf("sending message %v", envelope)
-	require.NoError(t, channel.Send(t.Context(), envelope))
+	require.ElementsMatch(t, want, got, "len=%d", len(got))
 }
 
 // RequireNoUpdates requires that a PeerUpdates subscription is empty.
@@ -408,11 +439,6 @@ func RequireNoUpdates(t *testing.T, peerUpdates *PeerUpdates) {
 	if len(peerUpdates.Updates()) != 0 {
 		require.FailNow(t, "unexpected peer updates")
 	}
-}
-
-// RequireError requires that the given peer error is submitted for a peer.
-func RequireSendError(t *testing.T, channel *Channel, peerError PeerError) {
-	require.NoError(t, channel.SendError(t.Context(), peerError))
 }
 
 // RequireUpdate requires that a PeerUpdates subscription yields the given update.

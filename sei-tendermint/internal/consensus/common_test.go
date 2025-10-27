@@ -799,7 +799,7 @@ func makeConsensusState(
 	t.Helper()
 	tempDir := t.TempDir()
 
-	valSet, privVals := factory.ValidatorSet(ctx, t, nValidators, 30)
+	valSet, privVals := factory.ValidatorSet(ctx, nValidators, 30)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
 	css := make([]*State, nValidators)
 	logger := consensusLogger()
@@ -858,7 +858,7 @@ func randConsensusNetWithPeers(
 ) ([]*State, *types.GenesisDoc, *config.Config, cleanupFunc) {
 	t.Helper()
 
-	valSet, privVals := factory.ValidatorSet(ctx, t, nValidators, testMinPower)
+	valSet, privVals := factory.ValidatorSet(ctx, nValidators, testMinPower)
 	genDoc := factory.GenesisDoc(cfg, time.Now(), valSet.Validators, factory.ConsensusParams())
 	css := make([]*State, nPeers)
 	t.Helper()
@@ -928,7 +928,7 @@ func makeGenesisState(ctx context.Context, t *testing.T, cfg *config.Config, arg
 	if args.Validators == 0 {
 		args.Power = 4
 	}
-	valSet, privValidators := factory.ValidatorSet(ctx, t, args.Validators, args.Power)
+	valSet, privValidators := factory.ValidatorSet(ctx, args.Validators, args.Power)
 	if args.Params == nil {
 		args.Params = types.DefaultConsensusParams()
 	}

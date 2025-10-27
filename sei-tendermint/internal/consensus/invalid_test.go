@@ -159,12 +159,7 @@ func invalidDoPrevoteFunc(
 		count := 0
 		for _, peerID := range ids {
 			count++
-			err := voteCh.Send(ctx, p2p.Envelope{
-				To: peerID,
-				Message: &tmcons.Vote{
-					Vote: precommit.ToProto(),
-				},
-			})
+			voteCh.Send(&tmcons.Vote{Vote: precommit.ToProto()}, peerID)
 			// we want to have sent some of these votes,
 			// but if the test completes without erroring
 			// or not sending any messages, then we should
