@@ -113,7 +113,6 @@ func makeSeedNode(
 	pexReactor := pex.NewReactor(
 		logger,
 		peerManager,
-		peerManager.Subscribe,
 		restartCh,
 		cfg.SelfRemediation,
 	)
@@ -163,7 +162,7 @@ func makeSeedNode(
 		},
 		nodeInfo: nodeInfo,
 	}
-	node.router.AddChDescToBeAdded(pex.ChannelDescriptor(), pexReactor.SetChannel)
+	pexReactor.SetChannel(node.router.OpenChannelOrPanic(pex.ChannelDescriptor()))
 	node.BaseService = *service.NewBaseService(logger, "SeedNode", node)
 
 	return node, nil
