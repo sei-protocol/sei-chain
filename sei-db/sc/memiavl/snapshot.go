@@ -655,7 +655,7 @@ func (snapshot *Snapshot) prefetchSnapshot(snapshotDir string, prefetchThreshold
 		_ = SequentialReadAndFillPageCache(filepath.Join(snapshotDir, FileNameLeaves))
 	}
 
-	log.Info(fmt.Sprintf("Prefetch snapshot for %s completed in %fs. Consider adding more RAM for page cache to avoid preloading during restart.\n", treeName, time.Since(startTime).Seconds()))
+	log.Info(fmt.Sprintf("Prefetch snapshot for %s completed in %fs. Consider adding more RAM to speed up prefetching when loading snapshots.\n", treeName, time.Since(startTime).Seconds()))
 }
 
 // shouldPreloadTree determines if a tree should be preloaded based on size and name
