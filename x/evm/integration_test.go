@@ -189,10 +189,9 @@ func TestCW721RoyaltiesPointerToERC721Royalties(t *testing.T) {
 	require.Nil(t, err)
 	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
-	err = k.FlushTransientReceiptsSync(ctx)
+	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
-	receipt, err := k.GetReceipt(ctx, tx.Hash())
-	require.Nil(t, err)
+	receipt := testkeeper.WaitForReceipt(t, &k, ctx, tx.Hash())
 	require.NotEmpty(t, receipt.ContractAddress)
 	require.Empty(t, receipt.VmError)
 	// set royalty
@@ -368,6 +367,7 @@ func TestERC1155RoyaltiesPointerToCW1155Royalties(t *testing.T) {
 func TestCW1155RoyaltiesPointerToERC1155Royalties(t *testing.T) {
 	k := testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{}).WithBlockTime(time.Now())
+	var receipt *types.Receipt
 	// deploy erc2981
 	privKey := testkeeper.MockPrivateKey()
 	seiAddr, evmAddr := testkeeper.PrivateKeyToAddresses(privKey)
@@ -410,10 +410,9 @@ func TestCW1155RoyaltiesPointerToERC1155Royalties(t *testing.T) {
 	require.Nil(t, err)
 	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: txbz}, cosmosTx, sha256.Sum256(txbz))
 	require.Equal(t, uint32(0), res.Code)
-	err = k.FlushTransientReceiptsSync(ctx)
+	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
-	receipt, err := k.GetReceipt(ctx, tx.Hash())
-	require.Nil(t, err)
+	receipt = testkeeper.WaitForReceipt(t, &k, ctx, tx.Hash())
 	require.NotEmpty(t, receipt.ContractAddress)
 	require.Empty(t, receipt.VmError)
 	// set royalty
