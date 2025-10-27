@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -100,9 +101,9 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 	require.NoError(t, err)
 
 	// spin up goroutine to keep querying the tree
-	stopped := false
+	stopped := atomic.Bool{}
 	go func() {
-		for !stopped {
+		for !stopped.Load() {
 			value := db.TreeByName("test").Get([]byte("hello1"))
 			require.True(t, value == nil || string(value) == "world1")
 		}
@@ -124,7 +125,9 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 		time.Sleep(time.Millisecond * 20)
 	}
 	for db.snapshotRewriteChan != nil {
+		db.mtx.Lock()
 		require.NoError(t, db.checkAsyncTasks())
+		db.mtx.Unlock()
 	}
 	db.pruneSnapshotLock.Lock()
 	defer db.pruneSnapshotLock.Unlock()
@@ -134,7 +137,7 @@ func TestRewriteSnapshotBackground(t *testing.T) {
 
 	// three files: snapshot, current link, rlog, LOCK
 	require.Equal(t, 4, len(entries))
-	stopped = true
+	stopped.Store(true)
 }
 
 // helper to commit one change to bump height

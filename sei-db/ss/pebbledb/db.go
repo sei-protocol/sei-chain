@@ -80,6 +80,7 @@ type Database struct {
 	lastRangeHashedCache int64
 	lastRangeHashedMu    sync.RWMutex
 	hashComputationMu    sync.Mutex
+	earliestVersionMu    sync.Mutex
 
 	// Cancel function for background metrics collection
 	metricsCancel context.CancelFunc
@@ -174,6 +175,7 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		},
 	)
 	database.streamHandler = streamHandler
+	database.asyncWriteWG.Add(1)
 	go database.writeAsyncInBackground()
 
 	// Start background metrics collection
@@ -242,6 +244,8 @@ func retrieveLatestVersion(db *pebble.DB) (int64, error) {
 }
 
 func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error {
+	db.earliestVersionMu.Lock()
+	defer db.earliestVersionMu.Unlock()
 	if version < 0 {
 		return fmt.Errorf("version must be non-negative")
 	}
@@ -255,6 +259,8 @@ func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error 
 }
 
 func (db *Database) GetEarliestVersion() int64 {
+	db.earliestVersionMu.Lock()
+	defer db.earliestVersionMu.Unlock()
 	return db.earliestVersion
 }
 
@@ -342,7 +348,7 @@ func (db *Database) GetLatestMigratedModule() (string, error) {
 }
 
 func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error) {
-	if version < db.earliestVersion {
+	if version < db.GetEarliestVersion() {
 		return false, nil
 	}
 
@@ -366,7 +372,7 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) (_ []b
 			),
 		)
 	}()
-	if targetVersion < db.earliestVersion {
+	if targetVersion < db.GetEarliestVersion() {
 		return nil, nil
 	}
 
@@ -607,16 +613,13 @@ func (db *Database) computeHashForRange(beginBlock, endBlock int64) (_err error)
 }
 
 func (db *Database) writeAsyncInBackground() {
-	db.asyncWriteWG.Add(1)
-	defer db.asyncWriteWG.Done()
 	for nextChange := range db.pendingChanges {
-		if db.streamHandler != nil {
-			version := nextChange.Version
-			if err := db.ApplyChangesetSync(version, nextChange.Changesets); err != nil {
-				panic(err)
-			}
+		version := nextChange.Version
+		if err := db.ApplyChangesetSync(version, nextChange.Changesets); err != nil {
+			panic(err)
 		}
 	}
+	db.asyncWriteWG.Done()
 
 }
 
@@ -638,6 +641,7 @@ func (db *Database) Prune(version int64) (_err error) {
 			),
 		)
 	}()
+
 	earliestVersion := version + 1 // we increment by 1 to include the provided version
 
 	itr, err := db.storage.NewIter(nil)
@@ -763,7 +767,7 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.earliestVersion, false, storeKey), nil
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, storeKey), nil
 }
 
 // Taken from pebbledb prefix upper bound
