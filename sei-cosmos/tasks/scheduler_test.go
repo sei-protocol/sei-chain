@@ -351,9 +351,7 @@ func TestProcessAll(t *testing.T) {
 				tp := trace.NewNoopTracerProvider()
 				otel.SetTracerProvider(trace.NewNoopTracerProvider())
 				tr := tp.Tracer("scheduler-test")
-				ti := &tracing.Info{
-					Tracer: &tr,
-				}
+				ti := tracing.NewTracingInfo(tr, true)
 
 				s := NewScheduler(tt.workers, ti, tt.deliverTxFunc)
 				ctx := initTestCtx(tt.addStores)

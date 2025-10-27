@@ -3,6 +3,7 @@ package types
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"strings"
 
@@ -36,7 +37,8 @@ type NodeInfo struct {
 	ProtocolVersion ProtocolVersion `json:"protocol_version"`
 
 	// Authenticate
-	NodeID     NodeID `json:"id"`          // authenticated identifier
+	NodeID NodeID `json:"id"` // authenticated identifier
+	// TODO(gprusak): for some reason ListenAddr is unused. Why do we have it?
 	ListenAddr string `json:"listen_addr"` // accepting incoming
 
 	// Check compatibility.
@@ -76,7 +78,7 @@ func (info NodeInfo) ID() NodeID {
 // url-encoding), and we just need to be careful with how we handle that in our
 // clients. (e.g. off by default).
 func (info NodeInfo) Validate() error {
-	if _, err := ParseAddressString(info.ID().AddressString(info.ListenAddr)); err != nil {
+	if _, err := ResolveAddressString(info.ID().AddressString(info.ListenAddr)); err != nil {
 		return err
 	}
 
@@ -136,26 +138,6 @@ func (info NodeInfo) CompatibleWith(other NodeInfo) error {
 	if info.Network != other.Network {
 		return fmt.Errorf("peer is on a different network. Got %v, expected %v", other.Network, info.Network)
 	}
-
-	// if we have no channels, we're just testing
-	if len(info.Channels) == 0 {
-		return nil
-	}
-
-	// for each of our channels, check if they have it
-	found := false
-OUTER_LOOP:
-	for _, ch1 := range info.Channels {
-		for _, ch2 := range other.Channels {
-			if ch1 == ch2 {
-				found = true
-				break OUTER_LOOP // only need one
-			}
-		}
-	}
-	if !found {
-		return fmt.Errorf("peer has no common channels. Our channels: %v ; Peer channels: %v", info.Channels, other.Channels)
-	}
 	return nil
 }
 
@@ -169,19 +151,6 @@ func (info *NodeInfo) AddChannel(channel uint16) {
 	}
 
 	info.Channels = append(info.Channels, byte(channel))
-}
-
-func (info NodeInfo) Copy() NodeInfo {
-	return NodeInfo{
-		ProtocolVersion: info.ProtocolVersion,
-		NodeID:          info.NodeID,
-		ListenAddr:      info.ListenAddr,
-		Network:         info.Network,
-		Version:         info.Version,
-		Channels:        info.Channels,
-		Moniker:         info.Moniker,
-		Other:           info.Other,
-	}
 }
 
 func (info NodeInfo) ToProto() *tmp2p.NodeInfo {
@@ -232,10 +201,10 @@ func NodeInfoFromProto(pb *tmp2p.NodeInfo) (NodeInfo, error) {
 	return dni, nil
 }
 
-// ParseAddressString reads an address string, and returns the IP
+// ResolveAddressString reads an address string, and returns the IP
 // address and port information, returning an error for any validation
 // errors.
-func ParseAddressString(addr string) (netip.AddrPort, error) {
+func ResolveAddressString(addr string) (netip.AddrPort, error) {
 	addrWithoutProtocol := removeProtocolIfDefined(addr)
 	spl := strings.Split(addrWithoutProtocol, "@")
 	if len(spl) != 2 {
@@ -250,7 +219,13 @@ func ParseAddressString(addr string) (netip.AddrPort, error) {
 	if err := id.Validate(); err != nil {
 		return netip.AddrPort{}, err
 	}
-	return netip.ParseAddrPort(spl[1])
+	// ResolveTCPAddr returns IPv6-embedded IPv4 addresses for no reason.
+	tcpAddr, err := net.ResolveTCPAddr("tcp", spl[1])
+	if err != nil {
+		return netip.AddrPort{}, err
+	}
+	ap := tcpAddr.AddrPort()
+	return netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()), nil
 }
 
 func removeProtocolIfDefined(addr string) string {

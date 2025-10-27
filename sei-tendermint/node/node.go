@@ -274,8 +274,7 @@ func makeNode(
 	}
 
 	evReactor, evPool, edbCloser, err := createEvidenceReactor(logger, cfg, dbProvider,
-		stateStore, blockStore, peerManager.Subscribe, nodeMetrics.evidence, eventBus)
-	node.router.AddChDescToBeAdded(evidence.GetChannelDescriptor(), evReactor.SetChannel)
+		stateStore, blockStore, node.router, nodeMetrics.evidence, eventBus)
 	closers = append(closers, edbCloser)
 	if err != nil {
 		return nil, combineCloseError(err, makeCloser(closers))
@@ -290,9 +289,10 @@ func makeNode(
 	}
 	shoulddbsync := cfg.DBSync.Enable && info.LastBlockHeight == 0
 
-	mpReactor, mp := createMempoolReactor(logger, cfg, proxyApp, stateStore, nodeMetrics.mempool,
-		peerManager.Subscribe, peerManager)
-	node.router.AddChDescToBeAdded(mempool.GetChannelDescriptor(cfg.Mempool), mpReactor.SetChannel)
+	mpReactor, mp, err := createMempoolReactor(logger, cfg, proxyApp, stateStore, nodeMetrics.mempool, node.router)
+	if err != nil {
+		return nil, fmt.Errorf("createMempoolReactor(): %w", err)
+	}
 	if !shoulddbsync {
 		mpReactor.MarkReadyToStart()
 	}
@@ -344,40 +344,40 @@ func makeNode(
 	}
 	node.rpcEnv.ConsensusState = csState
 
-	csReactor := consensus.NewReactor(
+	csReactor, err := consensus.NewReactor(
 		logger,
 		csState,
-		peerManager.Subscribe,
+		node.router,
 		eventBus,
 		waitSync,
 		nodeMetrics.consensus,
 		cfg,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("consensus.NewReactor(): %w", err)
+	}
 
-	node.router.AddChDescToBeAdded(consensus.GetStateChannelDescriptor(), csReactor.SetStateChannel)
-	node.router.AddChDescToBeAdded(consensus.GetDataChannelDescriptor(), csReactor.SetDataChannel)
-	node.router.AddChDescToBeAdded(consensus.GetVoteChannelDescriptor(), csReactor.SetVoteChannel)
-	node.router.AddChDescToBeAdded(consensus.GetVoteSetChannelDescriptor(), csReactor.SetVoteSetChannel)
 	node.services = append(node.services, csReactor)
 	node.rpcEnv.ConsensusReactor = csReactor
 
 	// Create the blockchain reactor. Note, we do not start block sync if we're
 	// doing a state sync first.
-	bcReactor := blocksync.NewReactor(
+	bcReactor, err := blocksync.NewReactor(
 		logger.With("module", "blockchain"),
 		stateStore,
 		blockExec,
 		blockStore,
 		csReactor,
-		peerManager.Subscribe,
-		peerManager,
+		node.router,
 		blockSync && !stateSync && !shoulddbsync,
 		nodeMetrics.consensus,
 		eventBus,
 		restartCh,
 		cfg.SelfRemediation,
 	)
-	node.router.AddChDescToBeAdded(blocksync.GetChannelDescriptor(), bcReactor.SetChannel)
+	if err != nil {
+		return nil, fmt.Errorf("blocksync.NewReactor(): %w", err)
+	}
 	node.services = append(node.services, bcReactor)
 	node.rpcEnv.BlockSyncReactor = bcReactor
 
@@ -390,15 +390,16 @@ func makeNode(
 	}
 
 	if cfg.P2P.PexReactor {
-		pxReactor := pex.NewReactor(
+		pxReactor, err := pex.NewReactor(
 			logger,
-			peerManager,
-			peerManager.Subscribe,
+			node.router,
 			restartCh,
 			cfg.SelfRemediation,
 		)
+		if err != nil {
+			return nil, fmt.Errorf("pex.NewReactor(): %w", err)
+		}
 		node.services = append(node.services, pxReactor)
-		node.router.AddChDescToBeAdded(pex.ChannelDescriptor(), pxReactor.SetChannel)
 	}
 
 	postSyncHook := func(ctx context.Context, state sm.State) error {
@@ -420,13 +421,13 @@ func makeNode(
 	// FIXME The way we do phased startups (e.g. replay -> block sync -> consensus) is very messy,
 	// we should clean this whole thing up. See:
 	// https://github.com/tendermint/tendermint/issues/4644
-	ssReactor := statesync.NewReactor(
+	ssReactor, err := statesync.NewReactor(
 		genDoc.ChainID,
 		genDoc.InitialHeight,
 		*cfg.StateSync,
 		logger.With("module", "statesync"),
 		proxyApp,
-		peerManager.Subscribe,
+		node.router,
 		stateStore,
 		blockStore,
 		cfg.StateSync.TempDir,
@@ -438,19 +439,18 @@ func makeNode(
 		restartCh,
 		cfg.SelfRemediation,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("statesync.NewReactor(): %w", err)
+	}
 
 	node.shouldHandshake = !stateSync && !shoulddbsync
 	node.services = append(node.services, ssReactor)
-	node.router.AddChDescToBeAdded(statesync.GetSnapshotChannelDescriptor(), ssReactor.SetSnapshotChannel)
-	node.router.AddChDescToBeAdded(statesync.GetChunkChannelDescriptor(), ssReactor.SetChunkChannel)
-	node.router.AddChDescToBeAdded(statesync.GetLightBlockChannelDescriptor(), ssReactor.SetLightBlockChannel)
-	node.router.AddChDescToBeAdded(statesync.GetParamsChannelDescriptor(), ssReactor.SetParamsChannel)
 
-	dbsyncReactor := dbsync.NewReactor(
+	dbsyncReactor, err := dbsync.NewReactor(
 		logger.With("module", "dbsync"),
 		*cfg.DBSync,
 		cfg.BaseConfig,
-		peerManager.Subscribe,
+		node.router,
 		stateStore,
 		blockStore,
 		genDoc.InitialHeight,
@@ -465,11 +465,10 @@ func makeNode(
 			return postSyncHook(ctx, state)
 		},
 	)
+	if err != nil {
+		return nil, fmt.Errorf("dbsync.NewReactor(): %w", err)
+	}
 	node.services = append(node.services, dbsyncReactor)
-	node.router.AddChDescToBeAdded(dbsync.GetMetadataChannelDescriptor(), dbsyncReactor.SetMetadataChannel)
-	node.router.AddChDescToBeAdded(dbsync.GetFileChannelDescriptor(), dbsyncReactor.SetFileChannel)
-	node.router.AddChDescToBeAdded(dbsync.GetLightBlockChannelDescriptor(), dbsyncReactor.SetLightBlockChannel)
-	node.router.AddChDescToBeAdded(dbsync.GetParamsChannelDescriptor(), dbsyncReactor.SetParamsChannel)
 
 	if cfg.Mode == config.ModeValidator {
 		if privValidator != nil {

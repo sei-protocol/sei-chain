@@ -1,10 +1,10 @@
 package config
 
-// DefaultConfigTemplate defines the configuration template for the seiDB configuration
-const DefaultConfigTemplate = `
-#############################################################################
-###                             SeiDB Configuration                       ###
-#############################################################################
+// StateCommitConfigTemplate defines the configuration template for state-commit
+const StateCommitConfigTemplate = `
+###############################################################################
+###                       State Commit Configuration                        ###
+###############################################################################
 
 [state-commit]
 # Enable defines if the SeiDB should be enabled to override existing IAVL db backend.
@@ -35,6 +35,13 @@ sc-snapshot-writer-limit = {{ .StateCommit.SnapshotWriterLimit }}
 # OnlyAllowExportOnSnapshotVersion defines whether we only allow state sync
 # snapshot creation happens after the memiavl snapshot is created.
 sc-only-allow-export-on-snapshot-version = {{ .StateCommit.OnlyAllowExportOnSnapshotVersion }}
+`
+
+// StateStoreConfigTemplate defines the configuration template for state-store
+const StateStoreConfigTemplate = `
+###############################################################################
+###                         State Store Configuration                       ###
+###############################################################################
 
 [state-store]
 # Enable defines whether the state-store should be enabled for storing historical data.
@@ -71,7 +78,9 @@ ss-prune-interval = {{ .StateStore.PruneIntervalSeconds }}
 ss-import-num-workers = {{ .StateStore.ImportNumWorkers }}
 
 # HashRange defines the range of blocks after which a XOR hash is computed and stored
-# defaults to 1,000,000 blocks
+# defaults to 1,000,000 blocks. Set to -1 to disable.
 ss-hash-range = {{ .StateStore.HashRange }}
-
 `
+
+// DefaultConfigTemplate combines both templates for backward compatibility
+const DefaultConfigTemplate = StateCommitConfigTemplate + StateStoreConfigTemplate
