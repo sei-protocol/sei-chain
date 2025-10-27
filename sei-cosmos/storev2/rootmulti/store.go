@@ -781,7 +781,8 @@ loop:
 	}
 	// initialize the earliest version for SS store
 	if rs.ssStore != nil {
-		rs.ssStore.SetEarliestVersion(height, false)
+		err := rs.ssStore.SetEarliestVersion(height, false)
+		rs.logger.Error("Failed to set earliest version during DB restore", err)
 	}
 
 	return snapshotItem, restoreErr
