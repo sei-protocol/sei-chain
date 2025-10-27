@@ -149,7 +149,7 @@ type Router struct {
 }
 
 func (r *Router) getChannelDescs() []*ChannelDescriptor {
-	for channels := range r.channels.Lock() {
+	for channels := range r.channels.RLock() {
 		descs := make([]*ChannelDescriptor, 0, len(channels))
 		for _, ch := range channels {
 			descs = append(descs, &ch.desc)
@@ -203,10 +203,6 @@ func (r *Router) PeerManager() *PeerManager {
 
 func (r *Router) Endpoint() Endpoint {
 	return r.options.Endpoint
-}
-
-func (r *Router) Address() NodeAddress {
-	return r.Endpoint().NodeAddress(r.nodeInfoProducer().NodeID)
 }
 
 func (r *Router) WaitForStart(ctx context.Context) error {
@@ -287,9 +283,7 @@ func (r *Router) acceptPeers(ctx context.Context) error {
 	if err := r.Endpoint().Validate(); err != nil {
 		return err
 	}
-	var err error
-	var listener net.Listener
-	listener, err = tcp.Listen(r.Endpoint().AddrPort)
+	listener, err := tcp.Listen(r.Endpoint().AddrPort)
 	if err != nil {
 		return fmt.Errorf("net.Listen(): %w", err)
 	}
@@ -302,17 +296,11 @@ func (r *Router) acceptPeers(ctx context.Context) error {
 	sem := semaphore.NewWeighted(int64(maxConns))
 
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.Spawn(func() error {
-			<-ctx.Done()
-			s.Cancel(ctx.Err())
-			listener.Close()
-			return nil
-		})
 		for {
 			if err := sem.Acquire(ctx, 1); err != nil {
 				return err
 			}
-			tcpConn, err := listener.Accept()
+			tcpConn, err := listener.AcceptOrClose(ctx)
 			if err != nil {
 				return err
 			}
@@ -320,7 +308,7 @@ func (r *Router) acceptPeers(ctx context.Context) error {
 			// Spawn a goroutine per connection.
 			s.Spawn(func() error {
 				defer sem.Release(1)
-				if err := r.openConnection(ctx, tcpConn.(*net.TCPConn)); err != nil {
+				if err := r.openConnection(ctx, tcpConn); err != nil {
 					r.logger.Error("accept", "err", err)
 				}
 				return nil
@@ -360,7 +348,7 @@ func (r *Router) openConnection(ctx context.Context, tcpConn *net.TCPConn) error
 	// that it can be coordinated with the peer manager.
 	conn, err := r.handshakePeer(ctx, tcpConn, utils.None[types.NodeID]())
 	if err != nil {
-		return fmt.Errorf("peer handshake failed: endpoint=%v: %w", conn, err)
+		return fmt.Errorf("r.handshakePeer(): %v: %w", tcpConn, err)
 	}
 	peerInfo := conn.PeerInfo()
 	if err := r.filterPeersID(ctx, peerInfo.NodeID); err != nil {

@@ -60,6 +60,7 @@ func HandshakeOrClose(ctx context.Context, r *Router, tcpConn *net.TCPConn) (c *
 			// Early error check. Close conn to terminate tasks which do not respect ctx.
 			<-ctx.Done()
 			if !ok.Load() {
+				s.Cancel(ctx.Err())
 				tcpConn.Close()
 			}
 			return nil
@@ -181,7 +182,7 @@ func (c *Connection) Run(ctx context.Context, r *Router) error {
 	r.peerManager.Ready(ctx, peerID, c.peerChannels)
 	r.logger.Info("peer connected", "peer", peerID, "endpoint", c)
 	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.Spawn(func() error { return c.mconn.Run(ctx) })
+		s.SpawnNamed("mconn.Run", func() error { return c.mconn.Run(ctx) })
 		s.Spawn(func() error { return c.sendRoutine(ctx, r) })
 		s.Spawn(func() error { return c.recvRoutine(ctx, r) })
 		return nil
