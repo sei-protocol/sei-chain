@@ -162,6 +162,10 @@ func TestTraceBlockWithFailureThenSuccess(t *testing.T) {
 			require.Contains(t, res["result"].([]interface{})[0].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["error"].(string), "insufficient funds")
 			// the second tx should show a trace success and a gas used of 21000 (0x5208)
 			require.Equal(t, "0x5208", res["result"].([]interface{})[1].(map[string]interface{})["result"].([]interface{})[0].(map[string]interface{})["result"].(map[string]interface{})["gasUsed"])
+			res = sendRequestWithNamespace("debug", port, "traceBlockByNumber", "0x2", map[string]interface{}{
+				"timeout": "60s", "tracer": "callTracer",
+			})
+			require.Contains(t, res["result"].([]interface{})[0].(map[string]interface{})["result"].(map[string]interface{})["type"].(string), "CALL")
 		},
 	)
 }
