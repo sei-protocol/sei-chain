@@ -14,7 +14,16 @@ func NewEVMNoCosmosFieldsDecorator() EVMNoCosmosFieldsDecorator {
 	return EVMNoCosmosFieldsDecorator{}
 }
 
+type protoTxProvider interface {
+	GetProtoTx() *txtypes.Tx
+}
+
 func (d EVMNoCosmosFieldsDecorator) AnteHandle(ctx sdk.Context, tx sdk.Tx, simulate bool, next sdk.AnteHandler) (sdk.Context, error) {
+	txWrapper, ok := tx.(protoTxProvider)
+	if ok {
+		tx = txWrapper.GetProtoTx()
+	}
+
 	txBody, ok := tx.(interface {
 		GetBody() *txtypes.TxBody
 	})
