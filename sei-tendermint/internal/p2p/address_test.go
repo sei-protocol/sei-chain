@@ -227,9 +227,7 @@ func TestNodeAddress_Resolve(t *testing.T) {
 				return
 			}
 			ok := false
-			tc.expect.AddrPort = tcp.Norm(tc.expect.AddrPort)
 			for _, e := range endpoints {
-				e.AddrPort = tcp.Norm(e.AddrPort)
 				ok = ok || e == tc.expect
 			}
 			if !ok {

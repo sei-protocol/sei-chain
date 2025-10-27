@@ -1,0 +1,70 @@
+name: sei-db
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - release/**
+
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+
+# TODO: we should combine these tests into go-test at some point. For now this is complicated enough to approach separately.
+
+jobs:
+  tests-rocksdb:
+    name: RocksDB Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.24'
+      - uses: actions/checkout@v5
+
+      - name: Install RocksDB dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config cmake git zlib1g-dev libbz2-dev libsnappy-dev liblz4-dev libzstd-dev libjemalloc-dev libgflags-dev liburing-dev
+
+      - name: Cache RocksDB
+        id: cache-rocksdb
+        uses: actions/cache@v3
+        with:
+          path: |
+            /usr/local/lib/librocksdb.*
+            /usr/local/include/rocksdb
+          key: rocksdb-v8.9.1-${{ runner.os }}
+
+      - name: Build and Install RocksDB from source
+        if: steps.cache-rocksdb.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/facebook/rocksdb.git
+          cd rocksdb
+          git checkout v8.9.1
+          make clean
+          CXXFLAGS='-march=native -DNDEBUG' make -j"$(nproc)" shared_lib
+          sudo make install-shared
+          cd ..
+
+      - name: Configure RocksDB library path
+        run: |
+          echo '/usr/local/lib' | sudo tee /etc/ld.so.conf.d/rocksdb.conf
+          sudo ldconfig
+
+      - name: Run RocksDB Tests
+        working-directory: ./sei-db
+        run: |
+          export CGO_CFLAGS="-I/usr/local/include"
+          export CGO_LDFLAGS="-L/usr/local/lib -lrocksdb -lz -lbz2 -lsnappy -llz4 -lzstd -ljemalloc"
+          make test-rocksdb
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./sei-db/rdb-profile.out
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+          flags: sei-db
+          disable_search: true
+          name: sei-db-coverage
+

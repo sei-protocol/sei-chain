@@ -66,7 +66,7 @@ func TestRouter_MaxAcceptedConnections(t *testing.T) {
 			s.SpawnNamed("test", func() error {
 				x := makeRouter(logger)
 				// Establish a connection.
-				tcpConn, err := x.Dial(ctx, r.Address())
+				tcpConn, err := x.Dial(ctx, TestAddress(r))
 				if err != nil {
 					return fmt.Errorf("tcp.Dial(): %w", err)
 				}
@@ -96,32 +96,32 @@ func TestRouter_MaxAcceptedConnections(t *testing.T) {
 
 // Test checking if listening on various local interfaces works.
 func TestRouter_Listen(t *testing.T) {
-	testcases := []netip.Addr{
-		netip.IPv4Unspecified(),
-		tcp.IPv4Loopback(),
-		netip.IPv6Unspecified(),
-		netip.IPv6Loopback(),
+	testcases := []netip.AddrPort{
+		tcp.TestReservePort(netip.IPv4Unspecified()),
+		tcp.TestReservePort(tcp.IPv4Loopback()),
+		tcp.TestReservePort(netip.IPv6Unspecified()),
+		tcp.TestReservePort(netip.IPv6Loopback()),
 	}
 
 	for _, tc := range testcases {
-		t.Run(tc.String(), func(t *testing.T) {
+		t.Run(tc.Addr().String(), func(t *testing.T) {
 			logger, _ := log.NewDefaultLogger("plain", "debug")
 			t.Cleanup(leaktest.Check(t))
 			err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
 				opts := makeRouterOptions()
-				opts.Endpoint.AddrPort = netip.AddrPortFrom(tc, opts.Endpoint.Port())
+				opts.Endpoint.AddrPort = tc
 				r := makeRouterWithOptions(logger, opts)
 				s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
 				if err := r.WaitForStart(ctx); err != nil {
 					return err
 				}
 
-				if got, want := r.Endpoint().Addr(), tc; got != want {
+				if got, want := r.Endpoint().AddrPort, tc; got != want {
 					return fmt.Errorf("r.Endpoint() = %v, want %v", got, want)
 				}
 
 				x := makeRouter(logger)
-				tcpConn, err := x.Dial(ctx, r.Address())
+				tcpConn, err := x.Dial(ctx, TestAddress(r))
 				if err != nil {
 					return fmt.Errorf("tcp.Dial(): %v", err)
 				}
@@ -149,7 +149,7 @@ func TestHandshake_NodeInfo(t *testing.T) {
 		}
 
 		x := makeRouter(logger)
-		tcpConn, err := x.Dial(ctx, r.Address())
+		tcpConn, err := x.Dial(ctx, TestAddress(r))
 		if err != nil {
 			return fmt.Errorf("tcp.Dial(): %v", err)
 		}
@@ -182,7 +182,7 @@ func TestHandshake_Context(t *testing.T) {
 		s.Spawn(func() error {
 			defer listener.Close()
 			// One connection end does not handshake.
-			tcpConn, err := tcp.AcceptOrClose(ctx, listener)
+			tcpConn, err := listener.AcceptOrClose(ctx)
 			if err != nil {
 				return fmt.Errorf("tcp.AcceptOrClose(): %w", err)
 			}
@@ -195,7 +195,7 @@ func TestHandshake_Context(t *testing.T) {
 		})
 		s.Spawn(func() error {
 			// Second connection end tries to handshake.
-			tcpConn, err := b.Dial(ctx, a.Address())
+			tcpConn, err := b.Dial(ctx, TestAddress(a))
 			if err != nil {
 				t.Fatalf("tcp.Dial(): %v", err)
 			}

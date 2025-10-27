@@ -37,7 +37,8 @@ type NodeInfo struct {
 	ProtocolVersion ProtocolVersion `json:"protocol_version"`
 
 	// Authenticate
-	NodeID     NodeID `json:"id"`          // authenticated identifier
+	NodeID NodeID `json:"id"` // authenticated identifier
+	// TODO(gprusak): for some reason ListenAddr is unused. Why do we have it?
 	ListenAddr string `json:"listen_addr"` // accepting incoming
 
 	// Check compatibility.
@@ -218,11 +219,13 @@ func ResolveAddressString(addr string) (netip.AddrPort, error) {
 	if err := id.Validate(); err != nil {
 		return netip.AddrPort{}, err
 	}
+	// ResolveTCPAddr returns IPv6-embedded IPv4 addresses for no reason.
 	tcpAddr, err := net.ResolveTCPAddr("tcp", spl[1])
 	if err != nil {
 		return netip.AddrPort{}, err
 	}
-	return tcpAddr.AddrPort(), nil
+	ap := tcpAddr.AddrPort()
+	return netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()), nil
 }
 
 func removeProtocolIfDefined(addr string) string {
