@@ -2853,10 +2853,7 @@ func (cs *State) updatePrivValidatorPubKey(rctx context.Context) error {
 func (cs *State) checkDoubleSigningRisk(height int64) error {
 	if cs.privValidator != nil && cs.privValidatorPubKey != nil && cs.config.DoubleSignCheckHeight > 0 && height > 0 {
 		valAddr := cs.privValidatorPubKey.Address()
-		doubleSignCheckHeight := cs.config.DoubleSignCheckHeight
-		if doubleSignCheckHeight > height {
-			doubleSignCheckHeight = height
-		}
+		doubleSignCheckHeight := min(cs.config.DoubleSignCheckHeight, height)
 
 		for i := int64(1); i < doubleSignCheckHeight; i++ {
 			lastCommit := cs.LoadCommit(height - i)

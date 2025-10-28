@@ -95,31 +95,6 @@ const (
 	listenerIDConsensus = "consensus-reactor"
 )
 
-// NOTE: Temporary interface for switching to block sync, we should get rid of v0.
-// See: https://github.com/tendermint/tendermint/issues/4595
-type BlockSyncReactor interface {
-	SwitchToBlockSync(context.Context, sm.State) error
-
-	GetMaxPeerBlockHeight() int64
-
-	// GetTotalSyncedTime returns the time duration since the blocksync starting.
-	GetTotalSyncedTime() time.Duration
-
-	// GetRemainingSyncTime returns the estimating time the node will be fully synced,
-	// if will return 0 if the blocksync does not perform or the number of block synced is
-	// too small (less than 100).
-	GetRemainingSyncTime() time.Duration
-}
-
-// ConsSyncReactor defines an interface used for testing abilities of node.startStateSync.
-//
-//go:generate ../../scripts/mockery_generate.sh ConsSyncReactor
-type ConsSyncReactor interface {
-	SwitchToConsensus(sm.State, bool)
-	SetStateSyncingMetrics(float64)
-	SetBlockSyncingMetrics(float64)
-}
-
 // Reactor defines a reactor for the consensus service.
 type Reactor struct {
 	service.BaseService
