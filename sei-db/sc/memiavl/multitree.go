@@ -7,12 +7,14 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/alitto/pond"
 	"golang.org/x/exp/slices"
 
 	"github.com/cosmos/iavl"
 	"github.com/sei-protocol/sei-db/common/errors"
+	"github.com/sei-protocol/sei-db/common/logger"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/stream/types"
@@ -45,8 +47,8 @@ type MultiTree struct {
 	// it always corresponds to the rlog entry with index 1.
 	initialVersion uint32
 
-	zeroCopy  bool
-	cacheSize int
+	zeroCopy bool
+	logger   logger.Logger
 
 	trees          []NamedTree    // always ordered by tree name
 	treesByName    map[string]int // index of the trees by name
@@ -56,16 +58,18 @@ type MultiTree struct {
 	metadata proto.MultiTreeMetadata
 }
 
-func NewEmptyMultiTree(initialVersion uint32, cacheSize int) *MultiTree {
+func NewEmptyMultiTree(initialVersion uint32) *MultiTree {
 	return &MultiTree{
 		initialVersion: initialVersion,
 		treesByName:    make(map[string]int),
 		zeroCopy:       true,
-		cacheSize:      cacheSize,
+		logger:         logger.NewNopLogger(),
 	}
 }
 
-func LoadMultiTree(dir string, zeroCopy bool, cacheSize int) (*MultiTree, error) {
+func LoadMultiTree(dir string, opts Options) (*MultiTree, error) {
+	startTime := time.Now()
+	log := opts.Logger
 	metadata, err := readMetadata(dir)
 	if err != nil {
 		return nil, err
@@ -84,13 +88,17 @@ func LoadMultiTree(dir string, zeroCopy bool, cacheSize int) (*MultiTree, error)
 		}
 		name := e.Name()
 		treeNames = append(treeNames, name)
-		snapshot, err := OpenSnapshot(filepath.Join(dir, name))
+		snapshot, err := OpenSnapshot(filepath.Join(dir, name), opts)
 		if err != nil {
 			return nil, err
 		}
-		treeMap[name] = NewFromSnapshot(snapshot, zeroCopy, cacheSize)
+		treeMap[name] = NewFromSnapshot(snapshot, opts)
 	}
-
+	timeElapsed := time.Since(startTime).Seconds()
+	log.Info(fmt.Sprintf("All %d memIAVL trees loaded in %.1fs\n", len(treeNames), timeElapsed))
+	if timeElapsed > 300 {
+		log.Info("Loading MemIAVL tree from disk is too slow! Consider increasing the disk bandwidth to speed up the tree loading time within 300 seconds.\n")
+	}
 	slices.Sort(treeNames)
 
 	trees := make([]NamedTree, len(treeNames))
@@ -106,8 +114,8 @@ func LoadMultiTree(dir string, zeroCopy bool, cacheSize int) (*MultiTree, error)
 		treesByName:    treesByName,
 		lastCommitInfo: *metadata.CommitInfo,
 		metadata:       *metadata,
-		zeroCopy:       zeroCopy,
-		cacheSize:      cacheSize,
+		zeroCopy:       opts.ZeroCopy,
+		logger:         opts.Logger,
 	}
 	// initial version is necessary for rlog index conversion
 	mtree.setInitialVersion(metadata.InitialVersion)
@@ -165,11 +173,11 @@ func (t *MultiTree) SetZeroCopy(zeroCopy bool) {
 }
 
 // Copy returns a snapshot of the tree which won't be corrupted by further modifications on the main tree.
-func (t *MultiTree) Copy(cacheSize int) *MultiTree {
+func (t *MultiTree) Copy() *MultiTree {
 	trees := make([]NamedTree, len(t.trees))
 	treesByName := make(map[string]int, len(t.trees))
 	for i, entry := range t.trees {
-		tree := entry.Copy(cacheSize)
+		tree := entry.Copy()
 		trees[i] = NamedTree{Tree: tree, Name: entry.Name}
 		treesByName[entry.Name] = i
 	}
@@ -177,6 +185,7 @@ func (t *MultiTree) Copy(cacheSize int) *MultiTree {
 	clone := *t
 	clone.trees = trees
 	clone.treesByName = treesByName
+	clone.logger = t.logger
 	return &clone
 }
 
@@ -326,6 +335,7 @@ func (t *MultiTree) UpdateCommitInfo() {
 
 // Catchup replay the new entries in the Rlog file on the tree to catch up to the target or latest version.
 func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersion int64) error {
+	startTime := time.Now()
 	lastIndex, err := stream.LastOffset()
 	if err != nil {
 		return fmt.Errorf("read rlog last index failed, %w", err)
@@ -370,7 +380,7 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 		t.lastCommitInfo.StoreInfos = []proto.StoreInfo{}
 		replayCount++
 		if replayCount%1000 == 0 {
-			fmt.Printf("Replayed %d changelog entries\n", replayCount)
+			t.logger.Info(fmt.Sprintf("Replayed %d changelog entries\n", replayCount))
 		}
 		return nil
 	})
@@ -383,6 +393,10 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 		return err
 	}
 	t.UpdateCommitInfo()
+
+	replayElapsed := time.Since(startTime).Seconds()
+	t.logger.Info(fmt.Sprintf("Total replayed %d entries in %.1fs (%.1f entries/sec).\n",
+		replayCount, replayElapsed, float64(replayCount)/replayElapsed))
 	return nil
 }
 
