@@ -111,6 +111,26 @@ func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.
 	}, nil
 }
 
+func (c *MockClient) Status(context.Context) (*coretypes.ResultStatus, error) {
+	latest := int64(len(c.blocks))
+	if c.mockedBlockResults != nil {
+		for h := range c.mockedBlockResults {
+			if h > latest {
+				latest = h
+			}
+		}
+	}
+	if latest <= 0 {
+		latest = 1
+	}
+	return &coretypes.ResultStatus{
+		SyncInfo: coretypes.SyncInfo{
+			LatestBlockHeight:   latest,
+			EarliestBlockHeight: 1,
+		},
+	}, nil
+}
+
 func (c *MockClient) recordBlockResult(txResults []*abci.ExecTxResult, consParamUpdates *tmproto.ConsensusParams, events []abci.Event) {
 	c.txResults = append(c.txResults, txResults)
 	c.consParamUpdates = append(c.consParamUpdates, consParamUpdates)

@@ -1,6 +1,7 @@
 package state_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -200,21 +201,16 @@ func TestValidateBlockCommit(t *testing.T) {
 				Signatures: []types.CommitSig{wrongHeightVote.CommitSig()},
 			}
 			block := statefactory.MakeBlock(state, height, wrongHeightCommit)
-			err = blockExec.ValidateBlock(ctx, state, block)
-			_, isErrInvalidCommitHeight := err.(types.ErrInvalidCommitHeight)
-			require.True(t, isErrInvalidCommitHeight, "expected ErrInvalidCommitHeight at height %d but got: %v", height, err)
-
+			if err := blockExec.ValidateBlock(ctx, state, block); !errors.As(err, &types.ErrInvalidCommitHeight{}) {
+				t.Fatalf("expected ErrInvalidCommitHeight at height %d but got: %v", height, err)
+			}
 			/*
 				#2589: test len(block.LastCommit.Signatures) == state.LastValidators.Size()
 			*/
 			block = statefactory.MakeBlock(state, height, wrongSigsCommit)
-			err = blockExec.ValidateBlock(ctx, state, block)
-			_, isErrInvalidCommitSignatures := err.(types.ErrInvalidCommitSignatures)
-			require.True(t, isErrInvalidCommitSignatures,
-				"expected ErrInvalidCommitSignatures at height %d, but got: %v",
-				height,
-				err,
-			)
+			if err := blockExec.ValidateBlock(ctx, state, block); !errors.As(err, &types.ErrInvalidCommitSignatures{}) {
+				t.Fatalf("expected ErrInvalidCommitSignatures at height %d but got: %v", height, err)
+			}
 		}
 
 		/*
@@ -346,10 +342,8 @@ func TestValidateBlockEvidence(t *testing.T) {
 			}
 			block := state.MakeBlock(height, testfactory.MakeNTxs(height, 10), lastCommit, evidence, proposerAddr)
 
-			err := blockExec.ValidateBlock(ctx, state, block)
-			if assert.Error(t, err) {
-				_, ok := err.(*types.ErrEvidenceOverflow)
-				require.True(t, ok, "expected error to be of type ErrEvidenceOverflow at height %d but got %v", height, err)
+			if err := blockExec.ValidateBlock(ctx, state, block); !errors.As(err, &types.ErrEvidenceOverflow{}) {
+				t.Fatalf("expected error to be of type ErrEvidenceOverflow at height %d but got %v", height, err)
 			}
 		}
 

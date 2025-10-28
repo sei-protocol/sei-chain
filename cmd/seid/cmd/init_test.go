@@ -9,6 +9,7 @@ import (
 	srvconfig "github.com/cosmos/cosmos-sdk/server/config"
 	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/sei-protocol/sei-chain/evmrpc"
+	seidbconfig "github.com/sei-protocol/sei-db/config"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 	tmcfg "github.com/tendermint/tendermint/config"
@@ -50,8 +51,8 @@ func TestInitModeConfiguration(t *testing.T) {
 				require.False(t, v.GetBool("evm.http_enabled"), "EVM HTTP should be disabled")
 				require.False(t, v.GetBool("evm.ws_enabled"), "EVM WS should be disabled")
 
-				// Verify pruning uses cosmos default
-				require.Equal(t, "nothing", v.GetString("pruning"))
+				// Verify pruning uses cosmos default (now in iavl section)
+				require.Equal(t, "nothing", v.GetString("iavl.pruning"))
 			},
 		},
 		{
@@ -82,8 +83,8 @@ func TestInitModeConfiguration(t *testing.T) {
 
 				// Note: EVM config requires custom template, tested separately in TestSetEVMConfigByMode and binary tests
 
-				// Verify pruning uses cosmos default
-				require.Equal(t, "nothing", v.GetString("pruning"))
+				// Verify pruning uses cosmos default (now in iavl section)
+				require.Equal(t, "nothing", v.GetString("iavl.pruning"))
 			},
 		},
 		{
@@ -95,8 +96,8 @@ func TestInitModeConfiguration(t *testing.T) {
 				err := v.ReadInConfig()
 				require.NoError(t, err)
 
-				// Verify no pruning for archive
-				require.Equal(t, "nothing", v.GetString("pruning"))
+				// Verify no pruning for archive (now in iavl section)
+				require.Equal(t, "nothing", v.GetString("iavl.pruning"))
 
 				// Verify services are enabled
 				require.True(t, v.GetBool("api.enable"))
@@ -129,11 +130,30 @@ func TestInitModeConfiguration(t *testing.T) {
 			err = tmcfg.WriteConfigFile(tmpDir, tmConfig)
 			require.NoError(t, err)
 
-			// Write app.toml using Cosmos SDK's config writer
-			// Note: EVM config requires custom template (see cmd/seid/cmd/root.go initAppConfig)
-			// which is set at runtime, not during file write. EVM config is tested separately.
+			// Write app.toml using our custom template that includes SeiDB configs
+			// This mirrors what initAppConfig does in root.go
 			appTomlPath := filepath.Join(configDir, "app.toml")
-			srvconfig.WriteConfigFile(appTomlPath, appConfig)
+			customConfig := NewCustomAppConfig(appConfig, evmrpc.DefaultConfig)
+
+			// Apply mode-specific StateStore settings
+			if tt.mode == params.NodeModeValidator || tt.mode == params.NodeModeSeed {
+				customConfig.StateStore.Enable = false
+			} else {
+				customConfig.StateStore.Enable = true
+			}
+
+			// Build custom template with all sections
+			customAppTemplate := srvconfig.ManualConfigTemplate + seidbconfig.StateCommitConfigTemplate + seidbconfig.StateStoreConfigTemplate +
+				srvconfig.AutoManagedConfigTemplate // Simplified - just need the pruning config
+
+			srvconfig.SetConfigTemplate(customAppTemplate)
+			srvconfig.WriteConfigFile(appTomlPath, customConfig)
+
+			// Debug: print the config file for inspection
+			if testing.Verbose() {
+				data, _ := os.ReadFile(appTomlPath)
+				t.Logf("Generated app.toml for mode %s:\n%s\n", tt.mode, string(data))
+			}
 
 			// Run validations
 			if tt.validateTendermint != nil {
@@ -199,7 +219,7 @@ func TestModeConfigurationMatrix(t *testing.T) {
 			appConfig := srvconfig.DefaultConfig()
 			params.SetAppConfigByMode(appConfig, mode)
 
-			require.Equal(t, expected.pruning, appConfig.BaseConfig.Pruning)
+			require.Equal(t, expected.pruning, appConfig.BaseConfig.Pruning, "Pruning strategy should match")
 			require.Equal(t, expected.apiEnable, appConfig.API.Enable)
 
 			// Verify EVM config

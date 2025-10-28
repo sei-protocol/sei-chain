@@ -1,11 +1,15 @@
 package pebbledb
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/sei-protocol/sei-db/common/errors"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 type Batch struct {
@@ -62,8 +66,21 @@ func (b *Batch) Delete(storeKey string, key []byte) error {
 }
 
 func (b *Batch) Write() (err error) {
+	startTime := time.Now()
+	batchSize := int64(b.batch.Len())
+
 	defer func() {
 		err = errors.Join(err, b.batch.Close())
+		ctx := context.Background()
+		otelMetrics.batchWriteLatency.Record(
+			ctx,
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(attribute.Bool("success", err == nil)),
+		)
+		otelMetrics.batchSize.Record(
+			ctx,
+			batchSize,
+		)
 	}()
 
 	return b.batch.Commit(defaultWriteOpts)
@@ -122,8 +139,20 @@ func (b *Batch) HardDelete(storeKey string, key []byte) error {
 }
 
 func (b *RawBatch) Write() (err error) {
+	startTime := time.Now()
+	batchSize := int64(b.batch.Len())
 	defer func() {
 		err = errors.Join(err, b.batch.Close())
+		ctx := context.Background()
+		otelMetrics.batchWriteLatency.Record(
+			ctx,
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(attribute.Bool("success", err == nil)),
+		)
+		otelMetrics.batchSize.Record(
+			ctx,
+			batchSize,
+		)
 	}()
 
 	return b.batch.Commit(defaultWriteOpts)
