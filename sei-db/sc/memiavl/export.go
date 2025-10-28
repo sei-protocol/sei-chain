@@ -31,6 +31,7 @@ func NewMultiTreeExporter(dir string, version uint32, onlyAllowExportOnSnapshotV
 		db    *DB
 		mtree *MultiTree
 	)
+	opts := Options{ZeroCopy: true}
 	if !onlyAllowExportOnSnapshotVersion {
 		db, err = OpenDB(logger.NewNopLogger(), int64(version), Options{
 			Dir:                 dir,
@@ -49,7 +50,7 @@ func NewMultiTreeExporter(dir string, version uint32, onlyAllowExportOnSnapshotV
 		if int64(version) > curVersion {
 			return nil, fmt.Errorf("export skipped because memiavl snapshot is not created yet for height: %d", version)
 		}
-		mtree, err = LoadMultiTree(filepath.Join(dir, snapshotName(int64(version))), true, 0)
+		mtree, err = LoadMultiTree(filepath.Join(dir, snapshotName(int64(version))), opts)
 		if err != nil {
 			return nil, fmt.Errorf("memiavl snapshot don't exist for height: %d, %w", version, err)
 		}

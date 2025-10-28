@@ -53,6 +53,7 @@ type DB struct {
 	logger   logger.Logger
 	fileLock FileLock
 	readOnly bool
+	opts     Options
 
 	// result channel of snapshot rewrite goroutine
 	snapshotRewriteChan chan snapshotResult
@@ -105,7 +106,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		return nil, fmt.Errorf("invalid commit store options: %w", err)
 	}
 	opts.FillDefaults()
-
+	opts.Logger = logger
 	if opts.CreateIfMissing {
 		if err := createDBIfNotExist(opts.Dir, opts.InitialVersion); err != nil {
 			return nil, fmt.Errorf("fail to load db: %w", err)
@@ -135,9 +136,14 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 	}
 
 	path := filepath.Join(opts.Dir, snapshot)
-	mtree, err := LoadMultiTree(path, opts.ZeroCopy, opts.CacheSize)
+	mtree, err := LoadMultiTree(path, opts)
 	if err != nil {
 		return nil, err
+	}
+
+	for _, tree := range mtree.trees {
+		tree.snapshot.nodesMap.PrepareForRandomRead()
+		tree.snapshot.leavesMap.PrepareForRandomRead()
 	}
 
 	// Create rlog manager and open the rlog file
@@ -208,6 +214,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		snapshotKeepRecent: opts.SnapshotKeepRecent,
 		snapshotInterval:   opts.SnapshotInterval,
 		snapshotWriterPool: workerPool,
+		opts:               opts,
 	}
 
 	if !db.readOnly && db.Version() == 0 && len(opts.InitialStores) > 0 {
@@ -221,10 +228,6 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 		}
 	}
 
-	// We need to prune snapshots during start up to avoid snapshot leaks
-	if !db.readOnly {
-		db.pruneSnapshots()
-	}
 	return db, nil
 }
 
@@ -425,51 +428,49 @@ func (db *DB) checkBackgroundSnapshotRewrite() error {
 func (db *DB) pruneSnapshots() {
 	// wait until last prune finish
 	db.pruneSnapshotLock.Lock()
+	defer db.pruneSnapshotLock.Unlock()
 
-	go func() {
-		defer db.pruneSnapshotLock.Unlock()
+	currentVersion, err := currentVersion(db.dir)
+	if err != nil {
+		db.logger.Error("failed to read current snapshot version", "err", err)
+		return
+	}
 
-		currentVersion, err := currentVersion(db.dir)
-		if err != nil {
-			db.logger.Error("failed to read current snapshot version", "err", err)
-			return
-		}
-
-		counter := db.snapshotKeepRecent
-		if err := traverseSnapshots(db.dir, false, func(version int64) (bool, error) {
-			if version >= currentVersion {
-				// ignore any newer snapshot directories, there could be ongoning snapshot rewrite.
-				return false, nil
-			}
-
-			if counter > 0 {
-				counter--
-				return false, nil
-			}
-
-			name := snapshotName(version)
-			db.logger.Info("prune snapshot", "name", name)
-
-			if err := atomicRemoveDir(filepath.Join(db.dir, name)); err != nil {
-				db.logger.Error("failed to prune snapshot", "err", err)
-			}
-
+	counter := db.snapshotKeepRecent
+	if err := traverseSnapshots(db.dir, false, func(version int64) (bool, error) {
+		if version >= currentVersion {
+			// ignore any newer snapshot directories, there could be ongoning snapshot rewrite.
 			return false, nil
-		}); err != nil {
-			db.logger.Error("fail to prune snapshots", "err", err)
-			return
 		}
 
-		// truncate Rlog until the earliest remaining snapshot
-		earliestVersion, err := GetEarliestVersion(db.dir)
-		if err != nil {
-			db.logger.Error("failed to find first snapshot", "err", err)
+		if counter > 0 {
+			counter--
+			return false, nil
 		}
 
-		if err := db.streamHandler.TruncateBefore(utils.VersionToIndex(earliestVersion+1, db.initialVersion)); err != nil {
-			db.logger.Error("failed to truncate rlog", "err", err, "version", earliestVersion+1)
+		name := snapshotName(version)
+		db.logger.Info("prune snapshot", "name", name)
+
+		if err := atomicRemoveDir(filepath.Join(db.dir, name)); err != nil {
+			db.logger.Error("failed to prune snapshot", "err", err)
 		}
-	}()
+
+		return false, nil
+	}); err != nil {
+		db.logger.Error("fail to prune snapshots", "err", err)
+		return
+	}
+
+	// truncate Rlog until the earliest remaining snapshot
+	earliestVersion, err := GetEarliestVersion(db.dir)
+	if err != nil {
+		db.logger.Error("failed to find first snapshot", "err", err)
+	}
+
+	if err := db.streamHandler.TruncateBefore(utils.VersionToIndex(earliestVersion+1, db.initialVersion)); err != nil {
+		db.logger.Error("failed to truncate rlog", "err", err, "version", earliestVersion+1)
+	}
+
 }
 
 // Commit wraps SaveVersion to bump the version and writes the pending changes into log files to persist on disk
@@ -522,17 +523,18 @@ func (db *DB) Copy() *DB {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 
-	return db.copy(db.cacheSize)
+	return db.copy()
 }
 
-func (db *DB) copy(cacheSize int) *DB {
-	mtree := db.MultiTree.Copy(cacheSize)
+func (db *DB) copy() *DB {
+	mtree := db.MultiTree.Copy()
 
 	return &DB{
 		MultiTree:          *mtree,
 		logger:             db.logger,
 		dir:                db.dir,
 		snapshotWriterPool: db.snapshotWriterPool,
+		opts:               db.opts,
 	}
 }
 
@@ -565,7 +567,7 @@ func (db *DB) Reload() error {
 }
 
 func (db *DB) reload() error {
-	mtree, err := LoadMultiTree(currentPath(db.dir), db.zeroCopy, db.cacheSize)
+	mtree, err := LoadMultiTree(currentPath(db.dir), db.opts)
 	if err != nil {
 		return err
 	}
@@ -592,6 +594,8 @@ func (db *DB) rewriteIfApplicable(height int64) {
 
 	// create snapshot when current height - last snapshot height > interval
 	if height-db.SnapshotVersion() >= int64(db.snapshotInterval) {
+		// Try prune old snapshots before starting new snapshot
+		db.pruneSnapshots()
 		if err := db.rewriteSnapshotBackground(); err != nil {
 			db.logger.Error("failed to rewrite snapshot in background", "err", err)
 		}
@@ -626,7 +630,7 @@ func (db *DB) rewriteSnapshotBackground() error {
 	db.snapshotRewriteChan = ch
 	db.snapshotRewriteCancelFunc = cancel
 
-	cloned := db.copy(0)
+	cloned := db.copy()
 	go func() {
 		defer close(ch)
 		startTime := time.Now()
@@ -636,7 +640,7 @@ func (db *DB) rewriteSnapshotBackground() error {
 			return
 		}
 		cloned.logger.Info("finished rewriting snapshot", "version", cloned.Version())
-		mtree, err := LoadMultiTree(currentPath(cloned.dir), cloned.zeroCopy, 0)
+		mtree, err := LoadMultiTree(currentPath(cloned.dir), db.opts)
 		if err != nil {
 			ch <- snapshotResult{err: err}
 			return
@@ -849,7 +853,7 @@ func GetEarliestVersion(root string) (int64, error) {
 // current -> snapshot-0
 // ```
 func initEmptyDB(dir string, initialVersion uint32) error {
-	tmp := NewEmptyMultiTree(initialVersion, 0)
+	tmp := NewEmptyMultiTree(initialVersion)
 	snapshotDir := snapshotName(0)
 	// create tmp worker pool
 	concurrency := runtime.NumCPU()

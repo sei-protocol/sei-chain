@@ -15,6 +15,8 @@ import (
 func TestSnapshotEncodingRoundTrip(t *testing.T) {
 	// setup test tree
 	tree := New(0)
+	opts := Options{}
+	opts.FillDefaults()
 	for _, changes := range ChangeSets[:len(ChangeSets)-1] {
 		tree.ApplyChangeSet(changes)
 		_, _, err := tree.SaveVersion(true)
@@ -24,10 +26,10 @@ func TestSnapshotEncodingRoundTrip(t *testing.T) {
 	snapshotDir := t.TempDir()
 	require.NoError(t, tree.WriteSnapshot(context.Background(), snapshotDir))
 
-	snapshot, err := OpenSnapshot(snapshotDir)
+	snapshot, err := OpenSnapshot(snapshotDir, opts)
 	require.NoError(t, err)
 
-	tree2 := NewFromSnapshot(snapshot, true, 0)
+	tree2 := NewFromSnapshot(snapshot, opts)
 
 	require.Equal(t, tree.Version(), tree2.Version())
 	require.Equal(t, tree.RootHash(), tree2.RootHash())
@@ -41,9 +43,9 @@ func TestSnapshotEncodingRoundTrip(t *testing.T) {
 	require.NoError(t, snapshot.Close())
 
 	// test modify tree loaded from snapshot
-	snapshot, err = OpenSnapshot(snapshotDir)
+	snapshot, err = OpenSnapshot(snapshotDir, opts)
 	require.NoError(t, err)
-	tree3 := NewFromSnapshot(snapshot, true, 0)
+	tree3 := NewFromSnapshot(snapshot, opts)
 	tree3.ApplyChangeSet(ChangeSets[len(ChangeSets)-1])
 	hash, v, err := tree3.SaveVersion(true)
 	require.NoError(t, err)
@@ -74,7 +76,7 @@ func TestSnapshotExport(t *testing.T) {
 	snapshotDir := t.TempDir()
 	require.NoError(t, tree.WriteSnapshot(context.Background(), snapshotDir))
 
-	snapshot, err := OpenSnapshot(snapshotDir)
+	snapshot, err := OpenSnapshot(snapshotDir, Options{})
 	require.NoError(t, err)
 
 	var nodes []*types.SnapshotNode
@@ -94,6 +96,8 @@ func TestSnapshotExport(t *testing.T) {
 func TestSnapshotImportExport(t *testing.T) {
 	// setup test tree
 	tree := New(0)
+	opts := Options{}
+	opts.FillDefaults()
 	for _, changes := range ChangeSets {
 		tree.ApplyChangeSet(changes)
 		_, _, err := tree.SaveVersion(true)
@@ -102,7 +106,7 @@ func TestSnapshotImportExport(t *testing.T) {
 
 	snapshotDir := t.TempDir()
 	require.NoError(t, tree.WriteSnapshot(context.Background(), snapshotDir))
-	snapshot, err := OpenSnapshot(snapshotDir)
+	snapshot, err := OpenSnapshot(snapshotDir, opts)
 	require.NoError(t, err)
 
 	ch := make(chan *types.SnapshotNode)
@@ -125,7 +129,7 @@ func TestSnapshotImportExport(t *testing.T) {
 	err = doImport(snapshotDir2, tree.Version(), ch)
 	require.NoError(t, err)
 
-	snapshot2, err := OpenSnapshot(snapshotDir2)
+	snapshot2, err := OpenSnapshot(snapshotDir2, opts)
 	require.NoError(t, err)
 	require.Equal(t, snapshot.RootNode().Hash(), snapshot2.RootNode().Hash())
 
