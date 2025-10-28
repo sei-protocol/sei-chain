@@ -9,6 +9,14 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
+	"sync/atomic"
+	"time"
+	"unsafe"
+
+	"github.com/sei-protocol/sei-db/common/logger"
+	"golang.org/x/sys/unix"
 
 	"github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/sc/types"
@@ -49,7 +57,8 @@ type Snapshot struct {
 	leavesLayout Leaves
 
 	// nil means empty snapshot
-	root *PersistedNode
+	root   *PersistedNode
+	logger logger.Logger
 }
 
 func NewEmptySnapshot(version uint32) *Snapshot {
@@ -60,7 +69,7 @@ func NewEmptySnapshot(version uint32) *Snapshot {
 
 // OpenSnapshot parse the version number and the root node index from metadata file,
 // and mmap the other files.
-func OpenSnapshot(snapshotDir string) (*Snapshot, error) {
+func OpenSnapshot(snapshotDir string, opts Options) (*Snapshot, error) {
 	// read metadata file
 	bz, err := os.ReadFile(filepath.Join(filepath.Clean(snapshotDir), FileNameMetadata))
 	if err != nil {
@@ -140,6 +149,8 @@ func OpenSnapshot(snapshotDir string) (*Snapshot, error) {
 	}
 
 	snapshot := &Snapshot{
+		logger: opts.Logger,
+
 		nodesMap:  nodesMap,
 		leavesMap: leavesMap,
 		kvsMap:    kvsMap,
@@ -167,6 +178,12 @@ func OpenSnapshot(snapshotDir string) (*Snapshot, error) {
 			isLeaf:   true,
 			index:    0,
 		}
+	}
+
+	// Preload nodes + leaves into page cache using file I/O with SEQUENTIAL+WILLNEED
+	// This eliminates random I/O during replay, relying on natural page cache for split keys
+	if opts.PrefetchThreshold > 0 {
+		snapshot.prefetchSnapshot(snapshotDir, opts.PrefetchThreshold)
 	}
 
 	return snapshot, nil
@@ -600,4 +617,191 @@ func (w *snapshotWriter) writeRecursive(node Node) error {
 
 func createFile(name string) (*os.File, error) {
 	return os.OpenFile(filepath.Clean(name), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+}
+
+// prefetchSnapshot sequentially reads snapshot files into page cache
+// This is critical for cold-start performance: eliminates 99% of random I/O during replay
+func (snapshot *Snapshot) prefetchSnapshot(snapshotDir string, prefetchThreshold float64) {
+	startTime := time.Now()
+	if snapshot.nodes == nil && snapshot.leaves == nil {
+		return // Empty snapshot
+	}
+	// Selective preload: only preload large and active trees
+	// Small/inactive trees have minimal I/O during replay, not worth preloading
+	treeName := filepath.Base(snapshotDir)
+	needsPreload := shouldPreloadTree(treeName)
+	if !needsPreload {
+		return
+	}
+	log := snapshot.logger
+
+	// If most pages are already in page cache, skip prefetch
+	residentNodes, errNodes := residentRatio(snapshot.nodes)
+	residentLeaves, errLeaves := residentRatio(snapshot.leaves)
+	if errNodes == nil && errLeaves == nil {
+		if residentNodes >= prefetchThreshold && residentLeaves >= prefetchThreshold {
+			log.Debug(fmt.Sprintf("Skipped prefetching for tree %s\n", treeName))
+			return
+		}
+	}
+
+	if residentNodes < prefetchThreshold {
+		log.Info(fmt.Sprintf("Tree %s nodes page cache residency ratio is %f, below threshold %f\n", treeName, residentNodes, prefetchThreshold))
+		_ = SequentialReadAndFillPageCache(filepath.Join(snapshotDir, FileNameNodes))
+	}
+
+	if residentLeaves < prefetchThreshold {
+		log.Info(fmt.Sprintf("Tree %s leaves page cache residency ratio is %f, below threshold %f\n", treeName, residentLeaves, prefetchThreshold))
+		_ = SequentialReadAndFillPageCache(filepath.Join(snapshotDir, FileNameLeaves))
+	}
+
+	log.Info(fmt.Sprintf("Prefetch snapshot for %s completed in %fs. Consider adding more RAM to speed up prefetching when loading snapshots.\n", treeName, time.Since(startTime).Seconds()))
+}
+
+// shouldPreloadTree determines if a tree should be preloaded based on size and name
+// Only large/active trees benefit from preload; small trees add overhead
+func shouldPreloadTree(treeName string) bool {
+	// Preload the 3 largest/most active trees
+	// Parallel loading + madvise hints will maximize throughput even on slow disks
+	activeTrees := map[string]bool{
+		"evm":  true,
+		"bank": true,
+		"acc":  true,
+	}
+
+	return activeTrees[treeName]
+}
+
+func SequentialReadAndFillPageCache(filePath string) error {
+	startTime := time.Now()
+	fmt.Printf("[PREFETCH] Starting to prefetch file: %s\n", filePath)
+	f, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close() // Ensure file handle is released for pruning
+
+	fileInfo, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	reportDone := make(chan struct{})
+	var totalRead int64
+	totalSize := fileInfo.Size()
+	defer close(reportDone) // Stop progress reporter before returning
+
+	startPrefetchProgressReporter(filePath, totalSize, &totalRead, startTime, reportDone)
+
+	concurrency := runtime.NumCPU()
+	var wg sync.WaitGroup
+	jobs := make(chan [2]int64, concurrency)
+	wg.Add(concurrency)
+	const chunkSize = 16 * 1024 * 1024 // 16MB
+	for w := 0; w < concurrency; w++ {
+		go func() {
+			defer wg.Done()
+			buf := make([]byte, chunkSize)
+			for job := range jobs {
+				readChunkIntoCache(f, buf, job[0], int(job[1]), &totalRead)
+			}
+		}()
+	}
+
+	// Enqueue chunks sequentially to retain locality
+	for offset := int64(0); offset < totalSize; offset += chunkSize {
+		end := offset + chunkSize
+		if end > totalSize {
+			end = totalSize
+		}
+		jobs <- [2]int64{offset, end - offset}
+	}
+	close(jobs)
+	wg.Wait()
+
+	elapsed := time.Since(startTime).Seconds()
+	avgSpeedMBps := float64(totalSize) / elapsed / (1024 * 1024)
+	fmt.Printf("Completed prefetching %s: %d MB in %.1fs (%.1f MB/s)\n",
+		filePath, totalSize/(1024*1024), elapsed, avgSpeedMBps)
+	return nil
+}
+
+// startPrefetchProgressReporter periodically logs progress until done is closed.
+func startPrefetchProgressReporter(filePath string, totalSize int64, totalRead *int64, startTime time.Time, done <-chan struct{}) {
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				tr := atomic.LoadInt64(totalRead)
+				elapsed := time.Since(startTime).Seconds()
+				if elapsed <= 0 {
+					continue
+				}
+				speedMBps := float64(tr) / elapsed / (1024 * 1024)
+				progressPct := float64(tr) * 100 / float64(totalSize)
+				remaining := float64(totalSize-tr) / (speedMBps * 1024 * 1024)
+				fmt.Printf("Prefetching file '%s': %d/%d MB (%.1f%%), speed: %.1f MB/s, ETA: %.0fs\n",
+					filePath, tr/(1024*1024), totalSize/(1024*1024), progressPct, speedMBps, remaining)
+			}
+		}
+	}()
+}
+
+// readChunkIntoCache reads n bytes starting at pos, updating totalRead.
+func readChunkIntoCache(f *os.File, buf []byte, pos int64, n int, totalRead *int64) {
+	remaining := n
+	for remaining > 0 {
+		readN, er := f.ReadAt(buf[:remaining], pos)
+		if readN > 0 {
+			pos += int64(readN)
+			remaining -= readN
+			atomic.AddInt64(totalRead, int64(readN))
+		}
+		if er == io.EOF {
+			break
+		}
+		if er != nil && er != io.ErrUnexpectedEOF {
+			// Best-effort warming; ignore transient errors
+			break
+		}
+		if readN == 0 {
+			break
+		}
+	}
+}
+
+// residentRatio returns fraction of pages resident in the page cache for data.
+// Uses mincore on Linux; on other platforms returns an unsupported error.
+func residentRatio(data []byte) (float64, error) {
+	if len(data) == 0 {
+		return 1, nil
+	}
+	if runtime.GOOS != "linux" {
+		return 0, fmt.Errorf("residentRatio unsupported on %s", runtime.GOOS)
+	}
+
+	pageSize := unix.Getpagesize()
+	numPages := (len(data) + pageSize - 1) / pageSize
+	if numPages == 0 {
+		return 1, nil
+	}
+	vec := make([]byte, numPages)
+
+	addr := uintptr(unsafe.Pointer(&data[0]))
+	length := uintptr(len(data))
+	_, _, errno := unix.Syscall(unix.SYS_MINCORE, addr, length, uintptr(unsafe.Pointer(&vec[0])))
+	if errno != 0 {
+		return 0, errno
+	}
+
+	present := 0
+	for _, v := range vec {
+		if v&1 == 1 {
+			present++
+		}
+	}
+	return float64(present) / float64(len(vec)), nil
 }

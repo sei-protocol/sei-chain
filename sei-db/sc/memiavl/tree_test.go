@@ -196,7 +196,7 @@ func TestTreeCopy(t *testing.T) {
 	_, _, err := tree.SaveVersion(true)
 	require.NoError(t, err)
 
-	snapshot := tree.Copy(0)
+	snapshot := tree.Copy()
 
 	tree.ApplyChangeSet(iavl.ChangeSet{Pairs: []*iavl.KVPair{
 		{Key: []byte("hello"), Value: []byte("world1")},
@@ -256,9 +256,9 @@ func TestGetByIndex(t *testing.T) {
 	// test persisted tree
 	dir := t.TempDir()
 	require.NoError(t, tree.WriteSnapshot(context.Background(), dir))
-	snapshot, err := OpenSnapshot(dir)
+	snapshot, err := OpenSnapshot(dir, Options{})
 	require.NoError(t, err)
-	ptree := NewFromSnapshot(snapshot, true, 0)
+	ptree := NewFromSnapshot(snapshot, Options{ZeroCopy: true})
 	defer func() { _ = ptree.Close() }()
 
 	for i, pair := range changes.Pairs {
