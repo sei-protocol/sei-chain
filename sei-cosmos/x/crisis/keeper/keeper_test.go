@@ -25,7 +25,7 @@ func TestInvariants(t *testing.T) {
 	app.Commit(context.Background())
 	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
-	require.Equal(t, app.CrisisKeeper.InvCheckPeriod(), uint(5))
+	require.Equal(t, app.CrisisKeeper.InvCheckPeriod(), uint(1))
 
 	// SimApp has 11 registered invariants
 	orgInvRoutes := app.CrisisKeeper.Routes()

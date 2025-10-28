@@ -89,7 +89,7 @@ func (suite *AnteTestSuite) TestEnsureMempoolFees() {
 	suite.Require().Nil(err, "Decorator should not have errored on fee higher than local gasPrice")
 	// Priority is the smallest gas price amount in any denom. Since we have only 1 gas price
 	// of 10atom, the priority here is 10.
-	suite.Equal(int64(10), newCtx.Priority())
+	suite.Equal(int64(10000000000000), newCtx.Priority())
 }
 
 func (suite *AnteTestSuite) TestDeductFees() {

@@ -41,7 +41,7 @@ func TestBaseReq_Sanitize(t *testing.T) {
 }
 
 func TestBaseReq_ValidateBasic(t *testing.T) {
-	fromAddr := "cosmos1cq0sxam6x4l0sv9yz3a2vlqhdhvt2k6jtgcse0"
+	fromAddr := "sei139f7kncmglres2nf3h4hc4tade85ekfr2udfy4"
 	tenstakes, err := types.ParseCoinsNormalized("10usei")
 	require.NoError(t, err)
 	onestake, err := types.ParseDecCoins("1.0usei")

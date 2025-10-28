@@ -411,7 +411,7 @@ func TestWasmDependencyMappingWithJQBech32Selector(t *testing.T) {
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
-	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
+	wasmBech32, err := sdk.Bech32ifyAddressBytes("sei", wasmContractAddress)
 	require.NoError(t, err)
 	wasmMapping := acltypes.WasmDependencyMapping{
 		BaseAccessOps: []*acltypes.WasmAccessOperation{
@@ -467,7 +467,7 @@ func TestWasmDependencyMappingWithJQLengthPrefixedAddressSelector(t *testing.T) 
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
-	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
+	wasmBech32, err := sdk.Bech32ifyAddressBytes("sei", wasmContractAddress)
 	require.NoError(t, err)
 	wasmMapping := acltypes.WasmDependencyMapping{
 		BaseAccessOps: []*acltypes.WasmAccessOperation{
@@ -523,7 +523,7 @@ func TestWasmDependencyMappingWithSenderBech32Selector(t *testing.T) {
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
-	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
+	wasmBech32, err := sdk.Bech32ifyAddressBytes("sei", wasmContractAddress)
 	require.NoError(t, err)
 	wasmMapping := acltypes.WasmDependencyMapping{
 		BaseAccessOps: []*acltypes.WasmAccessOperation{
@@ -569,7 +569,7 @@ func TestWasmDependencyMappingWithSenderLengthPrefixedSelector(t *testing.T) {
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
-	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
+	wasmBech32, err := sdk.Bech32ifyAddressBytes("sei", wasmContractAddress)
 	require.NoError(t, err)
 	wasmMapping := acltypes.WasmDependencyMapping{
 		BaseAccessOps: []*acltypes.WasmAccessOperation{
@@ -615,7 +615,7 @@ func TestWasmDependencyMappingWithConditionalSelector(t *testing.T) {
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
-	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
+	wasmBech32, err := sdk.Bech32ifyAddressBytes("sei", wasmContractAddress)
 	require.NoError(t, err)
 	wasmMapping := acltypes.WasmDependencyMapping{
 		BaseAccessOps: []*acltypes.WasmAccessOperation{
@@ -672,7 +672,7 @@ func TestWasmDependencyMappingWithConstantSelector(t *testing.T) {
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
 	wasmContractAddress := wasmContractAddresses[0]
-	wasmBech32, err := sdk.Bech32ifyAddressBytes("cosmos", wasmContractAddress)
+	wasmBech32, err := sdk.Bech32ifyAddressBytes("sei", wasmContractAddress)
 	require.NoError(t, err)
 	wasmMapping := acltypes.WasmDependencyMapping{
 		BaseAccessOps: []*acltypes.WasmAccessOperation{
@@ -2322,6 +2322,7 @@ func TestIterateWasmDependenciesBreak(t *testing.T) {
 }
 
 func (suite *KeeperTestSuite) TestMessageDependencies() {
+	suite.T().Skip("Skipping message dependencies test since deps are set differently in seiapp")
 	suite.SetupTest()
 	a := suite.app
 	ctx := suite.ctx

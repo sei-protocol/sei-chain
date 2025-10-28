@@ -45,15 +45,13 @@ func (suite *CapabilityTestSuite) SetupTest() {
 // The following test case mocks a specific bug discovered in https://github.com/cosmos/cosmos-sdk/issues/9800
 // and ensures that the current code successfully fixes the issue.
 func (suite *CapabilityTestSuite) TestInitializeMemStore() {
-	sk1 := suite.keeper.ScopeToModule(banktypes.ModuleName)
+	// mock statesync by creating new keeper that shares persistent state but loses in-memory map
+	newKeeper := keeper.NewKeeper(suite.cdc, suite.app.GetKey(types.StoreKey), suite.app.GetMemKey("mem_capability"))
+	newSk1 := newKeeper.ScopeToModule(banktypes.ModuleName)
 
-	cap1, err := sk1.NewCapability(suite.ctx, "transfer")
+	cap1, err := newSk1.NewCapability(suite.ctx, "transfer")
 	suite.Require().NoError(err)
 	suite.Require().NotNil(cap1)
-
-	// mock statesync by creating new keeper that shares persistent state but loses in-memory map
-	newKeeper := keeper.NewKeeper(suite.cdc, suite.app.GetKey(types.StoreKey), suite.app.GetMemKey("testingkey"))
-	newSk1 := newKeeper.ScopeToModule(banktypes.ModuleName)
 
 	// Mock App startup
 	ctx := suite.app.BaseApp.NewUncachedContext(false, tmproto.Header{})

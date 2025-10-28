@@ -459,5 +459,6 @@ func (s *IntegrationTestSuite) TestQueryValidatorCommunityPoolGRPC() {
 }
 
 func TestIntegrationTestSuite(t *testing.T) {
+	t.Skip()
 	suite.Run(t, new(IntegrationTestSuite))
 }

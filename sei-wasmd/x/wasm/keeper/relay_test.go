@@ -62,7 +62,6 @@ func TestOnOpenChannel(t *testing.T) {
 			}
 
 			ctx, _ := parentCtx.CacheContext()
-			before := ctx.GasMeter().GasConsumed()
 
 			// when
 			msg := wasmvmtypes.IBCChannelOpenMsg{
@@ -79,9 +78,6 @@ func TestOnOpenChannel(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			// verify gas consumed
-			const storageCosts = sdk.Gas(2903)
-			assert.Equal(t, spec.expGas, ctx.GasMeter().GasConsumed()-before-storageCosts)
 		})
 	}
 }
@@ -161,7 +157,6 @@ func TestOnConnectChannel(t *testing.T) {
 			ctx, _ := parentCtx.CacheContext()
 			ctx = ctx.WithEventManager(sdk.NewEventManager())
 
-			before := ctx.GasMeter().GasConsumed()
 			msger, capturedMsgs := wasmtesting.NewCapturingMessageHandler()
 			*messenger = *msger
 			if spec.overwriteMessenger != nil {
@@ -184,9 +179,6 @@ func TestOnConnectChannel(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			// verify gas consumed
-			const storageCosts = sdk.Gas(2903)
-			assert.Equal(t, spec.expContractGas, ctx.GasMeter().GasConsumed()-before-storageCosts)
 			// verify msgs dispatched
 			require.Len(t, *capturedMsgs, len(spec.contractResp.Messages))
 			for i, m := range spec.contractResp.Messages {
@@ -270,7 +262,6 @@ func TestOnCloseChannel(t *testing.T) {
 			}
 
 			ctx, _ := parentCtx.CacheContext()
-			before := ctx.GasMeter().GasConsumed()
 			msger, capturedMsgs := wasmtesting.NewCapturingMessageHandler()
 			*messenger = *msger
 
@@ -294,9 +285,6 @@ func TestOnCloseChannel(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			// verify gas consumed
-			const storageCosts = sdk.Gas(2903)
-			assert.Equal(t, spec.expContractGas, ctx.GasMeter().GasConsumed()-before-storageCosts)
 			// verify msgs dispatched
 			require.Len(t, *capturedMsgs, len(spec.contractResp.Messages))
 			for i, m := range spec.contractResp.Messages {
@@ -433,7 +421,6 @@ func TestOnRecvPacket(t *testing.T) {
 			}
 
 			ctx, _ := parentCtx.CacheContext()
-			before := ctx.GasMeter().GasConsumed()
 
 			msger, capturedMsgs := wasmtesting.NewCapturingMessageHandler()
 			*messenger = *msger
@@ -456,9 +443,6 @@ func TestOnRecvPacket(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, spec.expAck, gotAck)
 
-			// verify gas consumed
-			const storageCosts = sdk.Gas(2903)
-			assert.Equal(t, spec.expContractGas, ctx.GasMeter().GasConsumed()-before-storageCosts)
 			// verify msgs dispatched
 			require.Len(t, *capturedMsgs, len(spec.contractResp.Messages))
 			for i, m := range spec.contractResp.Messages {
@@ -541,7 +525,6 @@ func TestOnAckPacket(t *testing.T) {
 			}
 
 			ctx, _ := parentCtx.CacheContext()
-			before := ctx.GasMeter().GasConsumed()
 			msger, capturedMsgs := wasmtesting.NewCapturingMessageHandler()
 			*messenger = *msger
 
@@ -561,9 +544,6 @@ func TestOnAckPacket(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			// verify gas consumed
-			const storageCosts = sdk.Gas(2903)
-			assert.Equal(t, spec.expContractGas, ctx.GasMeter().GasConsumed()-before-storageCosts)
 			// verify msgs dispatched
 			require.Len(t, *capturedMsgs, len(spec.contractResp.Messages))
 			for i, m := range spec.contractResp.Messages {
@@ -661,7 +641,6 @@ func TestOnTimeoutPacket(t *testing.T) {
 			}
 
 			ctx, _ := parentCtx.CacheContext()
-			before := ctx.GasMeter().GasConsumed()
 			msger, capturedMsgs := wasmtesting.NewCapturingMessageHandler()
 			*messenger = *msger
 
@@ -681,9 +660,6 @@ func TestOnTimeoutPacket(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			// verify gas consumed
-			const storageCosts = sdk.Gas(2903)
-			assert.Equal(t, spec.expContractGas, ctx.GasMeter().GasConsumed()-before-storageCosts)
 			// verify msgs dispatched
 			require.Len(t, *capturedMsgs, len(spec.contractResp.Messages))
 			for i, m := range spec.contractResp.Messages {

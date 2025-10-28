@@ -28,8 +28,8 @@ func TestFilteredFeeValidAllow(t *testing.T) {
 	leftAtom := bigAtom.Sub(smallAtom)
 	now := ctx.BlockTime()
 	oneHour := now.Add(1 * time.Hour)
-	from := sdk.MustAccAddressFromBech32("cosmos18cgkqduwuh253twzmhedesw3l7v3fm37sppt58")
-	to := sdk.MustAccAddressFromBech32("cosmos1yq8lgssgxlx9smjhes6ryjasmqmd3ts2559g0t")
+	from := sdk.MustAccAddressFromBech32("sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz")
+	to := sdk.MustAccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")
 
 	// small fee without expire
 	msgType := "/cosmos.bank.v1beta1.MsgSend"

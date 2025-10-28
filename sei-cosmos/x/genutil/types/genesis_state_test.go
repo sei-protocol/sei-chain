@@ -85,7 +85,7 @@ func TestGenesisStateFromGenFile(t *testing.T) {
 
 	require.True(t, bankGenesis.Params.DefaultSendEnabled)
 	require.Equal(t, "1000nametoken,100000000usei", bankGenesis.Balances[0].GetCoins().String())
-	require.Equal(t, "cosmos106vrzv5xkheqhjm023pxcxlqmcjvuhtfyachz4", bankGenesis.Balances[0].GetAddress().String())
+	require.Equal(t, "sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl", bankGenesis.Balances[0].GetAddress().String())
 	require.Equal(t, "The native staking token of the Cosmos Hub.", bankGenesis.DenomMetadata[0].GetDescription())
 	require.Equal(t, "uatom", bankGenesis.DenomMetadata[0].GetBase())
 	require.Equal(t, "matom", bankGenesis.DenomMetadata[0].GetDenomUnits()[1].GetDenom())

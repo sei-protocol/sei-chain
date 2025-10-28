@@ -64,6 +64,7 @@ func (suite *KeeperTestSuite) TestGRPCParams() {
 			func() {
 				req = &types.QueryParamsRequest{}
 				expParams = types.DefaultParams()
+				expParams.WithdrawAddrEnabled = false
 			},
 			true,
 		},
@@ -554,49 +555,10 @@ func (suite *KeeperTestSuite) TestGRPCDelegationRewards() {
 }
 
 func (suite *KeeperTestSuite) TestGRPCDelegatorWithdrawAddress() {
-	app, ctx, queryClient, addrs := suite.app, suite.ctx, suite.queryClient, suite.addrs
+	app, ctx, _, addrs := suite.app, suite.ctx, suite.queryClient, suite.addrs
 
 	err := app.DistrKeeper.SetWithdrawAddr(ctx, addrs[0], addrs[1])
-	suite.Require().Nil(err)
-
-	var req *types.QueryDelegatorWithdrawAddressRequest
-
-	testCases := []struct {
-		msg      string
-		malleate func()
-		expPass  bool
-	}{
-		{
-			"empty request",
-			func() {
-				req = &types.QueryDelegatorWithdrawAddressRequest{}
-			},
-			false,
-		},
-		{
-			"valid request",
-			func() {
-				req = &types.QueryDelegatorWithdrawAddressRequest{DelegatorAddress: addrs[0].String()}
-			},
-			true,
-		},
-	}
-
-	for _, testCase := range testCases {
-		suite.Run(fmt.Sprintf("Case %s", testCase.msg), func() {
-			testCase.malleate()
-
-			withdrawAddress, err := queryClient.DelegatorWithdrawAddress(gocontext.Background(), req)
-
-			if testCase.expPass {
-				suite.Require().NoError(err)
-				suite.Require().Equal(withdrawAddress.WithdrawAddress, addrs[1].String())
-			} else {
-				suite.Require().Error(err)
-				suite.Require().Nil(withdrawAddress)
-			}
-		})
-	}
+	suite.Require().Error(err, "set withdraw address disabled")
 }
 
 func (suite *KeeperTestSuite) TestGRPCCommunityPool() {

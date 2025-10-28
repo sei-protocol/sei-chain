@@ -12,7 +12,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/testutil"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/client/cli"
-	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
 func TestGetCommandEncode(t *testing.T) {
@@ -20,9 +19,6 @@ func TestGetCommandEncode(t *testing.T) {
 
 	cmd := cli.GetEncodeCommand()
 	_ = testutil.ApplyMockIODiscardOutErr(cmd)
-
-	authtypes.RegisterLegacyAminoCodec(encodingConfig.Amino)
-	sdk.RegisterLegacyAminoCodec(encodingConfig.Amino)
 
 	txCfg := encodingConfig.TxConfig
 
@@ -57,8 +53,6 @@ func TestGetCommandDecode(t *testing.T) {
 
 	cmd := cli.GetDecodeCommand()
 	_ = testutil.ApplyMockIODiscardOutErr(cmd)
-
-	sdk.RegisterLegacyAminoCodec(encodingConfig.Amino)
 
 	txCfg := encodingConfig.TxConfig
 	clientCtx = clientCtx.WithTxConfig(txCfg)
