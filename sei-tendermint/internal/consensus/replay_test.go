@@ -348,7 +348,8 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 
 	vss := make([]*validatorStub, nPeers)
 	for i := 0; i < nPeers; i++ {
-		vss[i] = newValidatorStub(css[i].privValidator, int32(i))
+		pv,_ := css[i].privValidator.Get()
+		vss[i] = newValidatorStub(pv, int32(i))
 	}
 	height, round := css[0].roundState.Height(), css[0].roundState.Round()
 
@@ -368,7 +369,8 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	// HEIGHT 2
 	height++
 	incrementHeight(vss...)
-	newValidatorPubKey1, err := css[nVals].privValidator.GetPubKey(ctx)
+	pv,_ := css[nVals].privValidator.Get()
+	newValidatorPubKey1, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
 	valPubKey1ABCI, err := encoding.PubKeyToProto(newValidatorPubKey1)
 	require.NoError(t, err)
@@ -404,7 +406,8 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	// HEIGHT 3
 	height++
 	incrementHeight(vss...)
-	updateValidatorPubKey1, err := css[nVals].privValidator.GetPubKey(ctx)
+	pv,_ = css[nVals].privValidator.Get()
+	updateValidatorPubKey1, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
 	updatePubKey1ABCI, err := encoding.PubKeyToProto(updateValidatorPubKey1)
 	require.NoError(t, err)
@@ -439,14 +442,16 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 	// HEIGHT 4
 	height++
 	incrementHeight(vss...)
-	newValidatorPubKey2, err := css[nVals+1].privValidator.GetPubKey(ctx)
+	pv,_ = css[nVals+1].privValidator.Get()
+	newValidatorPubKey2, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
 	newVal2ABCI, err := encoding.PubKeyToProto(newValidatorPubKey2)
 	require.NoError(t, err)
 	newValidatorTx2 := kvstore.MakeValSetChangeTx(newVal2ABCI, testMinPower)
 	err = assertMempool(t, css[0].txNotifier).CheckTx(ctx, newValidatorTx2, nil, mempool.TxInfo{})
 	assert.NoError(t, err)
-	newValidatorPubKey3, err := css[nVals+2].privValidator.GetPubKey(ctx)
+	pv,_ = css[nVals+2].privValidator.Get()
+	newValidatorPubKey3, err := pv.GetPubKey(ctx)
 	require.NoError(t, err)
 	newVal3ABCI, err := encoding.PubKeyToProto(newValidatorPubKey3)
 	require.NoError(t, err)
@@ -467,7 +472,8 @@ func setupSimulator(ctx context.Context, t *testing.T) *simulatorTestSuite {
 			vsPubKey, err := vs.GetPubKey(ctx)
 			require.NoError(t, err)
 
-			cssPubKey, err := css[cssIdx].privValidator.GetPubKey(ctx)
+			pv,_ := css[cssIdx].privValidator.Get()
+			cssPubKey, err := pv.GetPubKey(ctx)
 			require.NoError(t, err)
 
 			if vsPubKey.Equals(cssPubKey) {

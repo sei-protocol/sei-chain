@@ -1026,11 +1026,11 @@ func (m *PeerManager) SendUpdate(pu PeerUpdate) {
 	switch pu.Status {
 	case PeerStatusBad:
 		if peer, ok := m.store.peers[pu.NodeID]; ok {
-			peer.MutableScore--
+			peer.MutableScore = utils.SaturatingSub(peer.MutableScore, 1)
 		}
 	case PeerStatusGood:
 		if peer, ok := m.store.peers[pu.NodeID]; ok {
-			peer.MutableScore++
+			peer.MutableScore = utils.SaturatingAdd(peer.MutableScore, 1)
 		}
 	}
 

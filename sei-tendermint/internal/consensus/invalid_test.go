@@ -13,6 +13,7 @@ import (
 	"github.com/tendermint/tendermint/internal/eventbus"
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/libs/bytes"
+	"github.com/tendermint/tendermint/libs/utils"
 	tmrand "github.com/tendermint/tendermint/libs/rand"
 	tmtime "github.com/tendermint/tendermint/libs/time"
 	tmcons "github.com/tendermint/tendermint/proto/tendermint/consensus"
@@ -57,7 +58,8 @@ func TestReactorInvalidPrecommit(t *testing.T) {
 	// Update the doPrevote function to just send a valid precommit for a random
 	// block and otherwise disable the priv validator.
 	byzState.mtx.Lock()
-	privVal := byzState.privValidator
+	privVal,ok := byzState.privValidator.Get()
+	if !ok { t.Fatal("privValidator not found") }
 	byzState.doPrevote = func(ctx context.Context, height int64, round int32) {
 		defer close(signal)
 		invalidDoPrevoteFunc(ctx, t, byzState, byzReactor, rts.voteChannels[node.NodeID], privVal)
@@ -117,9 +119,9 @@ func invalidDoPrevoteFunc(
 	// - disable privValidator (so we don't do normal precommits)
 	go func() {
 		cs.mtx.Lock()
-		cs.privValidator = pv
+		cs.privValidator = utils.Some(pv)
 
-		pubKey, err := cs.privValidator.GetPubKey(ctx)
+		pubKey, err := pv.GetPubKey(ctx)
 		require.NoError(t, err)
 
 		addr := pubKey.Address()
@@ -141,11 +143,11 @@ func invalidDoPrevoteFunc(
 		}
 
 		p := precommit.ToProto()
-		err = cs.privValidator.SignVote(ctx, cs.state.ChainID, p)
-		require.NoError(t, err)
+		require.NoError(t, pv.SignVote(ctx, cs.state.ChainID, p))
 
 		precommit.Signature = p.Signature
-		cs.privValidator = nil // disable priv val so we don't do normal votes
+		t.Logf("disable priv val so we don't do normal votes")
+		cs.privValidator = utils.None[types.PrivValidator]()
 		cs.mtx.Unlock()
 
 		var ids []types.NodeID
