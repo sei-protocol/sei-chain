@@ -91,7 +91,6 @@ sed -i.bak -e 's/occ-enabled = .*/occ-enabled = true/' $APP_TOML_PATH
 sed -i.bak -e 's/sc-enable = .*/sc-enable = true/' $APP_TOML_PATH
 sed -i.bak -e 's/ss-enable = .*/ss-enable = true/' $APP_TOML_PATH
 
-
 # set block time to 2s
 if [ ! -z "$1" ]; then
   CONFIG_PATH="$1"
