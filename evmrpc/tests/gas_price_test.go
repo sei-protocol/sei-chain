@@ -22,7 +22,7 @@ func TestGasPriceCongestionThreshold(t *testing.T) {
 	baseCtx = baseCtx.WithConsensusParams(consensusParams)
 	ctxProvider := func(int64) sdk.Context { return baseCtx }
 
-	i := evmrpc.NewInfoAPI(nil, nil, ctxProvider, nil, t.TempDir(), 1024, evmrpc.ConnectionTypeHTTP, nil)
+	i := evmrpc.NewInfoAPI(nil, nil, ctxProvider, nil, t.TempDir(), 1024, evmrpc.ConnectionTypeHTTP, nil, nil)
 
 	oneGwei := big.NewInt(1000000000)
 	median := big.NewInt(2000000000) // 2 gwei

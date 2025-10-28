@@ -67,14 +67,15 @@ func NewEVMHTTPServer(
 
 	ctx := ctxProvider(LatestCtxHeight)
 
-	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, globalBlockCache, cacheCreationMutex)
+	watermarks := NewWatermarkManager(tmClient, ctxProvider, nil, k.ReceiptStore())
+	txAPI := NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex)
 	debugAPI := NewDebugAPI(tmClient, k, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex)
 	if isPanicOrSyntheticTxFunc == nil {
 		isPanicOrSyntheticTxFunc = func(ctx context.Context, hash common.Hash) (bool, error) {
 			return debugAPI.isPanicOrSyntheticTx(ctx, hash)
 		}
 	}
-	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, globalBlockCache, cacheCreationMutex)
+	seiTxAPI := NewSeiTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex)
 	seiDebugAPI := NewSeiDebugAPI(tmClient, k, ctxProvider, txConfigProvider, simulateConfig, app, antehandler, ConnectionTypeHTTP, config, globalBlockCache, cacheCreationMutex)
 
 	dbReadSemaphore := make(chan struct{}, MaxDBReadConcurrency)
@@ -86,15 +87,15 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, globalBlockCache, cacheCreationMutex),
+			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "sei",
-			Service:   NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, globalBlockCache, cacheCreationMutex),
+			Service:   NewSeiBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "sei2",
-			Service:   NewSei2BlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, globalBlockCache, cacheCreationMutex),
+			Service:   NewSei2BlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeHTTP, isPanicOrSyntheticTxFunc, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "eth",
@@ -106,11 +107,11 @@ func NewEVMHTTPServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewStateAPI(tmClient, k, ctxProvider, ConnectionTypeHTTP),
+			Service:   NewStateAPI(tmClient, k, ctxProvider, ConnectionTypeHTTP, watermarks),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, config.MaxBlocksForLog, ConnectionTypeHTTP, txConfigProvider(LatestCtxHeight).TxDecoder()),
+			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, config.MaxBlocksForLog, ConnectionTypeHTTP, txConfigProvider(LatestCtxHeight).TxDecoder(), watermarks),
 		},
 		{
 			Namespace: "eth",
@@ -138,6 +139,7 @@ func NewEVMHTTPServer(
 				globalBlockCache,
 				cacheCreationMutex,
 				globalLogSlicePool,
+				watermarks,
 			),
 		},
 		{
@@ -154,6 +156,7 @@ func NewEVMHTTPServer(
 				globalBlockCache,
 				cacheCreationMutex,
 				globalLogSlicePool,
+				watermarks,
 			),
 		},
 		{
@@ -229,6 +232,7 @@ func NewEVMWebSocketServer(
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
 	}
+	watermarks := NewWatermarkManager(tmClient, ctxProvider, nil, k.ReceiptStore())
 	dbReadSemaphore := make(chan struct{}, MaxDBReadConcurrency)
 	globalBlockCache := NewBlockCache(3000)
 	cacheCreationMutex := &sync.Mutex{}
@@ -240,19 +244,19 @@ func NewEVMWebSocketServer(
 		},
 		{
 			Namespace: "eth",
-			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeWS, globalBlockCache, cacheCreationMutex),
+			Service:   NewBlockAPI(tmClient, k, ctxProvider, txConfigProvider, ConnectionTypeWS, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeWS, globalBlockCache, cacheCreationMutex),
+			Service:   NewTransactionAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, ConnectionTypeWS, watermarks, globalBlockCache, cacheCreationMutex),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewStateAPI(tmClient, k, ctxProvider, ConnectionTypeWS),
+			Service:   NewStateAPI(tmClient, k, ctxProvider, ConnectionTypeWS, watermarks),
 		},
 		{
 			Namespace: "eth",
-			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, config.MaxBlocksForLog, ConnectionTypeWS, txConfigProvider(LatestCtxHeight).TxDecoder()),
+			Service:   NewInfoAPI(tmClient, k, ctxProvider, txConfigProvider, homeDir, config.MaxBlocksForLog, ConnectionTypeWS, txConfigProvider(LatestCtxHeight).TxDecoder(), watermarks),
 		},
 		{
 			Namespace: "eth",
@@ -277,6 +281,7 @@ func NewEVMWebSocketServer(
 				globalBlockCache:   globalBlockCache,
 				cacheCreationMutex: cacheCreationMutex,
 				globalLogSlicePool: globalLogSlicePool,
+				watermarks:         watermarks,
 			}, &SubscriptionConfig{subscriptionCapacity: 100, newHeadLimit: config.MaxSubscriptionsNewHead}, &FilterConfig{timeout: config.FilterTimeout, maxLog: config.MaxLogNoBlock, maxBlock: config.MaxBlocksForLog}, ConnectionTypeWS),
 		},
 		{
