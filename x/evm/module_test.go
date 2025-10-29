@@ -121,11 +121,10 @@ func TestABCI(t *testing.T) {
 	k.SetMsgs([]*types.MsgEVMTransaction{msg})
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 1, Log: "test error"}})
 	m.EndBlock(ctx, abci.RequestEndBlock{})
-	err = k.FlushTransientReceiptsSync(ctx)
+	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
 	tx, _ := msg.AsTransaction()
-	receipt, err := k.GetReceipt(ctx, tx.Hash())
-	require.Nil(t, err)
+	receipt := testkeeper.WaitForReceipt(t, k, ctx, tx.Hash())
 	require.Equal(t, receipt.BlockNumber, uint64(ctx.BlockHeight()))
 	require.Equal(t, receipt.VmError, "test error")
 
@@ -166,15 +165,14 @@ func TestLegacyReceiptMigrationInterval(t *testing.T) {
 		m.BeginBlock(ctx, abci.RequestBeginBlock{})
 		m.EndBlock(ctx, abci.RequestEndBlock{})
 	}
-	k.FlushTransientReceiptsSync(ctx)
+	require.NoError(t, k.FlushTransientReceipts(ctx))
 
 	// After migration interval, legacy KV entry should be gone
 	exists := k.PrefixStore(ctx, types.ReceiptKeyPrefix).Get(txHash[:]) != nil
 	require.False(t, exists)
 
 	// And receipt should be retrievable through normal path
-	r, err := k.GetReceipt(ctx, txHash)
-	require.NoError(t, err)
+	r := testkeeper.WaitForReceipt(t, &k, ctx, txHash)
 	require.Equal(t, txHash.Hex(), r.TxHashHex)
 
 	// Check that the receipt is retrievable through receipt.db only

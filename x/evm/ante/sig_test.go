@@ -143,7 +143,7 @@ func TestSigVerifyPendingTransaction(t *testing.T) {
 	})
 	require.Nil(t, err)
 	require.NotNil(t, newCtx.PendingTxChecker())
-	newCtx.CheckTxCallback()(newCtx, err)
+	newCtx.CheckTxCallback()(newCtx.Priority())
 
 	// test checker
 	require.Equal(t, abci.Pending, newCtx.PendingTxChecker()())

@@ -49,7 +49,7 @@ func TestGetReceiptWithRetry(t *testing.T) {
 	require.Equal(t, txHash.Hex(), r.TxHashHex)
 }
 
-func TestFlushTransientReceiptsSync(t *testing.T) {
+func TestFlushTransientReceipts(t *testing.T) {
 	k := &testkeeper.EVMTestApp.EvmKeeper
 	ctx := testkeeper.EVMTestApp.GetContextForDeliverTx([]byte{})
 	txHash := common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
@@ -69,7 +69,7 @@ func TestFlushTransientReceiptsSync(t *testing.T) {
 	require.Error(t, err)
 
 	// Flush synchronously
-	err = k.FlushTransientReceiptsSync(ctx)
+	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
 
 	// Now should be retrievable from persistent store
@@ -82,7 +82,7 @@ func TestFlushTransientReceiptsSync(t *testing.T) {
 	// Could be not found or still present depending on flush logic, so we don't assert error here
 
 	// Flushing with no receipts should not error
-	err = k.FlushTransientReceiptsSync(ctx)
+	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
 }
 
@@ -131,7 +131,7 @@ func TestFlushTransientReceiptsLegacyReceipts(t *testing.T) {
 	require.NoError(t, err)
 
 	// Flush both receipts
-	err = k.FlushTransientReceiptsSync(ctx)
+	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
 
 	// Verify cumulative gas not changed for either receipt
@@ -154,7 +154,7 @@ func TestFlushTransientReceiptsLegacyReceipts(t *testing.T) {
 	}
 	err = k.SetTransientReceipt(ctx, txHash3, receipt3)
 	require.NoError(t, err)
-	err = k.FlushTransientReceiptsSync(ctx)
+	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
 
 	r3, err := k.GetReceipt(ctx, txHash3)
@@ -187,7 +187,7 @@ func TestFlushTransientReceiptsLegacyReceipts(t *testing.T) {
 	require.NoError(t, err)
 
 	// Flush both receipts
-	err = k.FlushTransientReceiptsSync(ctx)
+	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
 
 	// Verify cumulative gas not changed for either receipt
@@ -210,7 +210,7 @@ func TestFlushTransientReceiptsLegacyReceipts(t *testing.T) {
 	}
 	err = k.SetTransientReceipt(ctx, txHash6, receipt6)
 	require.NoError(t, err)
-	err = k.FlushTransientReceiptsSync(ctx)
+	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
 
 	r6, err := k.GetReceipt(ctx, txHash6)
@@ -243,7 +243,7 @@ func TestFlushTransientReceiptsLegacyReceipts(t *testing.T) {
 	require.NoError(t, err)
 
 	// Flush both receipts
-	err = k.FlushTransientReceiptsSync(ctx)
+	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
 
 	// Verify cumulative gas not changed for either receipt
@@ -266,7 +266,7 @@ func TestFlushTransientReceiptsLegacyReceipts(t *testing.T) {
 	}
 	err = k.SetTransientReceipt(ctx, txHash9, receipt9)
 	require.NoError(t, err)
-	err = k.FlushTransientReceiptsSync(ctx)
+	err = k.FlushTransientReceipts(ctx)
 	require.NoError(t, err)
 
 	r9, err := k.GetReceipt(ctx, txHash9)

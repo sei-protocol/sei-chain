@@ -1,6 +1,8 @@
 package types
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -10,6 +12,30 @@ import (
 	tmmath "github.com/tendermint/tendermint/libs/math"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
+
+func matchErr[E error](err error) error {
+	var got E
+	if !errors.As(err, &got) {
+		return fmt.Errorf("expected error of type %T, got %#v", got, err)
+	}
+	return nil
+}
+
+func equalErr[E interface {
+	error
+	comparable
+}](want E) func(error) error {
+	return func(err error) error {
+		var got E
+		if !errors.As(err, &got) {
+			return fmt.Errorf("expected error of type %T, got %#v", got, err)
+		}
+		if got != want {
+			return fmt.Errorf("expected error %v, got %v", want, got)
+		}
+		return nil
+	}
+}
 
 // Check VerifyCommit, VerifyCommitLight and VerifyCommitLightTrusting basic
 // verification.
@@ -39,21 +65,21 @@ func TestValidatorSet_VerifyCommit_All(t *testing.T) {
 		nilVotes    int
 		absentVotes int
 
-		expErr bool
+		wantErr func(error) error
 	}{
-		{"good (batch verification)", chainID, blockID, 3, height, 3, 0, 0, false},
-		{"good (single verification)", chainID, blockID, 1, height, 1, 0, 0, false},
+		{"good (batch verification)", chainID, blockID, 3, height, 3, 0, 0, nil},
+		{"good (single verification)", chainID, blockID, 1, height, 1, 0, 0, nil},
 
-		{"wrong signature (#0)", "EpsilonEridani", blockID, 2, height, 2, 0, 0, true},
-		{"wrong block ID", chainID, makeBlockIDRandom(), 2, height, 2, 0, 0, true},
-		{"wrong height", chainID, blockID, 1, height - 1, 1, 0, 0, true},
+		{"wrong signature (#0)", "EpsilonEridani", blockID, 2, height, 2, 0, 0, matchErr[errBadSig]},
+		{"wrong block ID", chainID, makeBlockIDRandom(), 2, height, 2, 0, 0, matchErr[errBadBlockID]},
+		{"wrong height", chainID, blockID, 1, height - 1, 1, 0, 0, matchErr[ErrInvalidCommitHeight]},
 
-		{"wrong set size: 4 vs 3", chainID, blockID, 4, height, 3, 0, 0, true},
-		{"wrong set size: 1 vs 2", chainID, blockID, 1, height, 2, 0, 0, true},
+		{"wrong set size: 4 vs 3", chainID, blockID, 4, height, 3, 0, 0, equalErr(ErrInvalidCommitSignatures{Expected: 4, Actual: 3})},
+		{"wrong set size: 1 vs 2", chainID, blockID, 1, height, 2, 0, 0, equalErr(ErrInvalidCommitSignatures{Expected: 1, Actual: 2})},
 
-		{"insufficient voting power: got 30, needed more than 66", chainID, blockID, 10, height, 3, 2, 5, true},
-		{"insufficient voting power: got 0, needed more than 6", chainID, blockID, 1, height, 0, 0, 1, true},
-		{"insufficient voting power: got 60, needed more than 60", chainID, blockID, 9, height, 6, 3, 0, true},
+		{"insufficient voting power: got 30, needed more than 66", chainID, blockID, 10, height, 3, 2, 5, equalErr(ErrNotEnoughVotingPowerSigned{Got: 30, Needed: 66})},
+		{"insufficient voting power: got 0, needed more than 6", chainID, blockID, 1, height, 0, 0, 1, equalErr(ErrNotEnoughVotingPowerSigned{Got: 0, Needed: 6})},
+		{"insufficient voting power: got 60, needed more than 60", chainID, blockID, 9, height, 6, 3, 0, equalErr(ErrNotEnoughVotingPowerSigned{Got: 60, Needed: 60})},
 	}
 
 	for _, tc := range testCases {
@@ -104,32 +130,26 @@ func TestValidatorSet_VerifyCommit_All(t *testing.T) {
 			}
 
 			err := valSet.VerifyCommit(chainID, blockID, height, commit)
-			if tc.expErr {
-				if assert.Error(t, err, "VerifyCommit") {
-					assert.Contains(t, err.Error(), tc.description, "VerifyCommit")
-				}
+			if tc.wantErr != nil {
+				assert.NoError(t, tc.wantErr(err), "VerifyCommit")
 			} else {
 				assert.NoError(t, err, "VerifyCommit")
 			}
 
 			err = valSet.VerifyCommitLight(chainID, blockID, height, commit)
-			if tc.expErr {
-				if assert.Error(t, err, "VerifyCommitLight") {
-					assert.Contains(t, err.Error(), tc.description, "VerifyCommitLight")
-				}
+			if tc.wantErr != nil {
+				assert.NoError(t, tc.wantErr(err), "VerifyCommitLight")
 			} else {
 				assert.NoError(t, err, "VerifyCommitLight")
 			}
 
 			// only a subsection of the tests apply to VerifyCommitLightTrusting
 			if totalVotes != tc.valSize || !tc.blockID.Equals(blockID) || tc.height != height {
-				tc.expErr = false
+				tc.wantErr = nil
 			}
 			err = valSet.VerifyCommitLightTrusting(chainID, commit, trustLevel)
-			if tc.expErr {
-				if assert.Error(t, err, "VerifyCommitLightTrusting") {
-					assert.Contains(t, err.Error(), tc.description, "VerifyCommitLightTrusting")
-				}
+			if tc.wantErr != nil {
+				assert.NoError(t, tc.wantErr(err), "VerifyCommitLightTrusting")
 			} else {
 				assert.NoError(t, err, "VerifyCommitLightTrusting")
 			}

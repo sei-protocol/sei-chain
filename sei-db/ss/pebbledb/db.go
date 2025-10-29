@@ -2,6 +2,7 @@ package pebbledb
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -22,6 +23,8 @@ import (
 	"github.com/sei-protocol/sei-db/ss/types"
 	"github.com/sei-protocol/sei-db/ss/util"
 	"github.com/sei-protocol/sei-db/stream/changelog"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/exp/slices"
 )
 
@@ -59,7 +62,7 @@ type Database struct {
 	asyncWriteWG sync.WaitGroup
 	config       config.StateStoreConfig
 	// Earliest version for db after pruning
-	earliestVersion int64
+	earliestVersion atomic.Int64
 	// Latest version for db
 	latestVersion atomic.Int64
 
@@ -77,6 +80,9 @@ type Database struct {
 	lastRangeHashedCache int64
 	lastRangeHashedMu    sync.RWMutex
 	hashComputationMu    sync.Mutex
+
+	// Cancel function for background metrics collection
+	metricsCancel context.CancelFunc
 }
 
 type VersionedChangesets struct {
@@ -141,11 +147,12 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		storage:         db,
 		asyncWriteWG:    sync.WaitGroup{},
 		config:          config,
-		earliestVersion: earliestVersion,
+		earliestVersion: atomic.Int64{},
 		latestVersion:   atomic.Int64{},
 		pendingChanges:  make(chan VersionedChangesets, config.AsyncWriteBuffer),
 	}
 	database.latestVersion.Store(latestVersion)
+	database.earliestVersion.Store(earliestVersion)
 
 	// Initialize the lastRangeHashed cache
 	lastHashed, err := retrieveLastRangeHashed(db)
@@ -168,12 +175,23 @@ func New(dataDir string, config config.StateStoreConfig) (*Database, error) {
 		},
 	)
 	database.streamHandler = streamHandler
+	database.asyncWriteWG.Add(1)
 	go database.writeAsyncInBackground()
+
+	// Start background metrics collection
+	metricsCtx, metricsCancel := context.WithCancel(context.Background())
+	database.metricsCancel = metricsCancel
+	go database.collectMetricsInBackground(metricsCtx)
 
 	return database, nil
 }
 
 func (db *Database) Close() error {
+	// Stop background metrics collection
+	if db.metricsCancel != nil {
+		db.metricsCancel()
+	}
+
 	if db.streamHandler != nil {
 		// First, stop accepting new pending changes and drain the worker
 		close(db.pendingChanges)
@@ -229,17 +247,22 @@ func (db *Database) SetEarliestVersion(version int64, ignoreVersion bool) error 
 	if version < 0 {
 		return fmt.Errorf("version must be non-negative")
 	}
-	if version > db.earliestVersion || ignoreVersion {
-		db.earliestVersion = version
-		var ts [VersionSize]byte
-		binary.LittleEndian.PutUint64(ts[:], uint64(version))
-		return db.storage.Set([]byte(earliestVersionKey), ts[:], defaultWriteOpts)
+	earliestVersion := db.earliestVersion.Load()
+	if version > earliestVersion || ignoreVersion {
+		swapped := db.earliestVersion.CompareAndSwap(earliestVersion, version)
+		if swapped {
+			var ts [VersionSize]byte
+			binary.LittleEndian.PutUint64(ts[:], uint64(version))
+			return db.storage.Set([]byte(earliestVersionKey), ts[:], defaultWriteOpts)
+		} else {
+			return fmt.Errorf("failed to set earliest version to: %d", version)
+		}
 	}
 	return nil
 }
 
 func (db *Database) GetEarliestVersion() int64 {
-	return db.earliestVersion
+	return db.earliestVersion.Load()
 }
 
 // Retrieves earliest version from db, if not found, return 0
@@ -326,7 +349,7 @@ func (db *Database) GetLatestMigratedModule() (string, error) {
 }
 
 func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error) {
-	if version < db.earliestVersion {
+	if version < db.GetEarliestVersion() {
 		return false, nil
 	}
 
@@ -338,8 +361,19 @@ func (db *Database) Has(storeKey string, version int64, key []byte) (bool, error
 	return val != nil, nil
 }
 
-func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byte, error) {
-	if targetVersion < db.earliestVersion {
+func (db *Database) Get(storeKey string, targetVersion int64, key []byte) (_ []byte, _err error) {
+	startTime := time.Now()
+	defer func() {
+		otelMetrics.getLatency.Record(
+			context.Background(),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(
+				attribute.Bool("success", _err == nil),
+				attribute.String("store", storeKey),
+			),
+		)
+	}()
+	if targetVersion < db.GetEarliestVersion() {
 		return nil, nil
 	}
 
@@ -378,8 +412,15 @@ func (db *Database) Get(storeKey string, targetVersion int64, key []byte) ([]byt
 	return nil, nil
 }
 
-// ApplyChangesetSync apply all changesets for a single version in blocking way
-func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedChangeSet) error {
+func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedChangeSet) (_err error) {
+	startTime := time.Now()
+	defer func() {
+		otelMetrics.applyChangesetLatency.Record(
+			context.Background(),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(attribute.Bool("success", _err == nil)),
+		)
+	}()
 	// Check if version is 0 and change it to 1
 	// We do this specifically since keys written as part of genesis state come in as version 0
 	// But pebbledb treats version 0 as special, so apply the changeset at version 1 instead
@@ -415,7 +456,20 @@ func (db *Database) ApplyChangesetSync(version int64, changeset []*proto.NamedCh
 	return nil
 }
 
-func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) error {
+func (db *Database) ApplyChangesetAsync(version int64, changesets []*proto.NamedChangeSet) (_err error) {
+	startTime := time.Now()
+	defer func() {
+		otelMetrics.applyChangesetAsyncLatency.Record(
+			context.Background(),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(attribute.Bool("success", _err == nil)),
+		)
+		// Record pending queue depth
+		otelMetrics.pendingChangesQueueDepth.Record(
+			context.Background(),
+			int64(len(db.pendingChanges)),
+		)
+	}()
 	// Add to pending changes first
 	db.pendingChanges <- VersionedChangesets{
 		Version:    version,
@@ -489,7 +543,17 @@ func (db *Database) computeMissingRanges(latestVersion int64) error {
 	return nil
 }
 
-func (db *Database) computeHashForRange(beginBlock, endBlock int64) error {
+func (db *Database) computeHashForRange(beginBlock, endBlock int64) (_err error) {
+	startTime := time.Now()
+	defer func() {
+		otelMetrics.hashComputationLatency.Record(
+			context.Background(),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(
+				attribute.Bool("success", _err == nil),
+			),
+		)
+	}()
 	chunkSize := endBlock - beginBlock + 1
 	if chunkSize <= 0 {
 		// Nothing to do
@@ -550,17 +614,16 @@ func (db *Database) computeHashForRange(beginBlock, endBlock int64) error {
 }
 
 func (db *Database) writeAsyncInBackground() {
-	db.asyncWriteWG.Add(1)
 	defer db.asyncWriteWG.Done()
 	for nextChange := range db.pendingChanges {
-		if db.streamHandler != nil {
-			version := nextChange.Version
-			if err := db.ApplyChangesetSync(version, nextChange.Changesets); err != nil {
-				panic(err)
-			}
+		version := nextChange.Version
+		if err := db.ApplyChangesetSync(version, nextChange.Changesets); err != nil {
+			panic(err)
+		}
+		if err := db.SetLatestVersion(nextChange.Version); err != nil {
+			panic(err)
 		}
 	}
-
 }
 
 // Prune attempts to prune all versions up to and including the current version
@@ -570,7 +633,18 @@ func (db *Database) writeAsyncInBackground() {
 // NOTE: There is a rare case when a module's keys are skipped during pruning even though
 // it has been updated. This occurs when that module's keys are updated in between pruning runs, the node after is restarted.
 // This is not a large issue given the next time that module is updated, it will be properly pruned thereafter.
-func (db *Database) Prune(version int64) error {
+func (db *Database) Prune(version int64) (_err error) {
+	startTime := time.Now()
+	defer func() {
+		otelMetrics.pruneLatency.Record(
+			context.Background(),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(
+				attribute.Bool("success", _err == nil),
+			),
+		)
+	}()
+
 	earliestVersion := version + 1 // we increment by 1 to include the provided version
 
 	itr, err := db.storage.NewIter(nil)
@@ -616,7 +690,7 @@ func (db *Database) Prune(version int64) error {
 			updated, ok := db.storeKeyDirty.Load(storeKey)
 			versionUpdated, typeOk := updated.(int64)
 			// Skip a store's keys if version it was last updated is less than last prune height
-			if !ok || (typeOk && versionUpdated < db.earliestVersion) {
+			if !ok || (typeOk && versionUpdated < db.GetEarliestVersion()) {
 				itr.SeekGE(storePrefix(storeKey + "0"))
 				continue
 			}
@@ -696,7 +770,7 @@ func (db *Database) Iterator(storeKey string, version int64, start, end []byte) 
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.earliestVersion, false), nil
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), false, storeKey), nil
 }
 
 // Taken from pebbledb prefix upper bound
@@ -736,12 +810,23 @@ func (db *Database) ReverseIterator(storeKey string, version int64, start, end [
 		return nil, fmt.Errorf("failed to create PebbleDB iterator: %w", err)
 	}
 
-	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.earliestVersion, true), nil
+	return newPebbleDBIterator(itr, storePrefix(storeKey), start, end, version, db.GetEarliestVersion(), true, storeKey), nil
 }
 
 // Import loads the initial version of the state in parallel with numWorkers goroutines
 // TODO: Potentially add retries instead of panics
-func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) error {
+func (db *Database) Import(version int64, ch <-chan types.SnapshotNode) (_err error) {
+	startTime := time.Now()
+	defer func() {
+		otelMetrics.importLatency.Record(
+			context.Background(),
+			time.Since(startTime).Seconds(),
+			metric.WithAttributes(
+				attribute.Bool("success", _err == nil),
+			),
+		)
+	}()
+
 	var wg sync.WaitGroup
 
 	worker := func() {
@@ -1092,4 +1177,60 @@ func retrieveLastRangeHashed(db *pebble.DB) (int64, error) {
 		return 0, fmt.Errorf("last range hashed in database overflows int64: %d", ubz)
 	}
 	return int64(ubz), nil
+}
+
+// collectMetricsInBackground periodically collects PebbleDB internal metrics
+func (db *Database) collectMetricsInBackground(ctx context.Context) {
+	ticker := time.NewTicker(10 * time.Second) // Collect metrics every 10 seconds
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			db.collectAndRecordMetrics(ctx)
+		}
+	}
+}
+
+// collectAndRecordMetrics collects PebbleDB internal metrics and records them
+func (db *Database) collectAndRecordMetrics(ctx context.Context) {
+	if db.storage == nil {
+		return
+	}
+
+	m := db.storage.Metrics()
+
+	// Compaction metrics - report raw counts
+	otelMetrics.compactionCount.Add(ctx, m.Compact.Count)
+	otelMetrics.compactionDuration.Record(ctx, m.Compact.Duration.Seconds())
+
+	// Flush metrics - report raw counts
+	otelMetrics.flushCount.Add(ctx, m.Flush.Count)
+	otelMetrics.flushDuration.Record(ctx, m.Flush.WriteThroughput.WorkDuration.Seconds())
+	otelMetrics.flushBytesWritten.Add(ctx, m.Flush.WriteThroughput.Bytes)
+
+	// Storage metrics per level with level as attribute
+	for level := 0; level < len(m.Levels); level++ {
+		levelMetrics := m.Levels[level]
+		levelAttr := attribute.Int("level", level)
+
+		otelMetrics.sstableCount.Record(ctx, levelMetrics.NumFiles, metric.WithAttributes(levelAttr))
+		otelMetrics.sstableTotalSize.Record(ctx, int64(levelMetrics.Size), metric.WithAttributes(levelAttr))
+		otelMetrics.compactionBytesRead.Add(ctx, int64(levelMetrics.BytesIn), metric.WithAttributes(levelAttr))
+		otelMetrics.compactionBytesWritten.Add(ctx, int64(levelMetrics.BytesCompacted), metric.WithAttributes(levelAttr))
+	}
+
+	// Memtable metrics
+	otelMetrics.memtableCount.Record(ctx, int64(m.MemTable.Count))
+	otelMetrics.memtableTotalSize.Record(ctx, int64(m.MemTable.Size))
+
+	// WAL metrics
+	otelMetrics.walSize.Record(ctx, int64(m.WAL.Size))
+
+	// Cache metrics - report raw counts
+	otelMetrics.cacheHits.Add(ctx, int64(m.BlockCache.Hits))
+	otelMetrics.cacheMisses.Add(ctx, int64(m.BlockCache.Misses))
+	otelMetrics.cacheSize.Record(ctx, int64(m.BlockCache.Size))
 }
