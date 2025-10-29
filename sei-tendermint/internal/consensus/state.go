@@ -135,8 +135,10 @@ type State struct {
 
 	// config details
 	config            *config.ConsensusConfig
-	mempoolConfig     *config.MempoolConfig
 	privValidator     utils.Option[types.PrivValidator] // for signing votes
+	// privValidator pubkey, memoized for the duration of one block
+	// to avoid extra requests to HSM
+	privValidatorPubKey utils.Option[crypto.PubKey]
 
 	// store blocks and commits
 	blockStore sm.BlockStore
@@ -158,9 +160,6 @@ type State struct {
 	mtx        sync.RWMutex
 	roundState cstypes.SafeRoundState
 	state      sm.State // State until height-1.
-	// privValidator pubkey, memoized for the duration of one block
-	// to avoid extra requests to HSM
-	privValidatorPubKey utils.Option[crypto.PubKey]
 
 	// state changes may be triggered by: msgs from peers,
 	// msgs from ourself, or by timeouts
@@ -2804,11 +2803,6 @@ func (cs *State) updatePrivValidatorPubKey(ctx context.Context) error {
 	privValidator,ok := cs.privValidator.Get()
 	if !ok { return nil }
 	timeout := cs.voteTimeout(cs.roundState.Round())
-
-	// no GetPubKey retry beyond the proposal/voting in RetrySignerClient
-	if _,isRetry := privValidator.(*privval.RetrySignerClient); isRetry && cs.roundState.Step() >= cstypes.RoundStepPrecommit {
-		timeout = 0
-	}
 
 	// set context timeout depending on the configuration and the State step,
 	// this helps in avoiding blocking of the remote signer connection.
