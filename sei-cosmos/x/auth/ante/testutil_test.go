@@ -40,8 +40,8 @@ type AnteTestSuite struct {
 }
 
 // returns context and app with params set on account keeper
-func createTestApp(isCheckTx bool) (*app.App, sdk.Context) {
-	app := app.Setup(isCheckTx, false, false)
+func createTestApp(t *testing.T, isCheckTx bool) (*app.App, sdk.Context) {
+	app := app.Setup(t, isCheckTx, false, false)
 	ctx := app.BaseApp.NewContext(isCheckTx, tmproto.Header{})
 	app.AccountKeeper.SetParams(ctx, authtypes.DefaultParams())
 
@@ -50,7 +50,7 @@ func createTestApp(isCheckTx bool) (*app.App, sdk.Context) {
 
 // SetupTest setups a new test, with new app, context, and anteHandler.
 func (suite *AnteTestSuite) SetupTest(isCheckTx bool) {
-	suite.app, suite.ctx = createTestApp(isCheckTx)
+	suite.app, suite.ctx = createTestApp(suite.T(), isCheckTx)
 	suite.ctx = suite.ctx.WithBlockHeight(1)
 
 	// Set up TxConfig.

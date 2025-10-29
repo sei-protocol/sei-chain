@@ -30,7 +30,7 @@ func TestGeneratorInvalidMessageTypes(t *testing.T) {
 	accs := authtypes.GenesisAccounts{}
 	balances := []types.Balance{}
 
-	app := seiapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	oracleVote := oracletypes.MsgAggregateExchangeRateVote{
@@ -68,7 +68,7 @@ func TestMsgBeginWasmExecuteGenerator(t *testing.T) {
 		},
 	}
 
-	app := seiapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	execMsg := wasmtypes.MsgExecuteContract{
@@ -100,7 +100,7 @@ func TestGeneratorInvalidMsgFormat(t *testing.T) {
 		},
 	}
 
-	app := seiapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	execMsg := wasmtypes.MsgExecuteContract{
@@ -130,7 +130,7 @@ func TestGeneratorInvalidContractAddrFormat(t *testing.T) {
 		},
 	}
 
-	app := seiapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	execMsg := wasmtypes.MsgExecuteContract{
@@ -164,7 +164,7 @@ func TestGeneratorGetRawWasmDependencyMappingError(t *testing.T) {
 			Coins:   coins,
 		},
 	}
-	app := seiapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	execMsg := wasmtypes.MsgExecuteContract{

@@ -1,6 +1,8 @@
 package crisis_test
 
 import (
+	"testing"
+
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -16,8 +18,8 @@ var (
 	dummyRouteWhichFails  = types.NewInvarRoute(testModuleName, "which-fails", func(_ sdk.Context) (string, bool) { return "whoops", true })
 )
 
-func createTestApp() (*seiapp.App, sdk.Context, []sdk.AccAddress) {
-	app := seiapp.Setup(false, false, false)
+func createTestApp(t *testing.T) (*seiapp.App, sdk.Context, []sdk.AccAddress) {
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.NewContext(false, tmproto.Header{})
 
 	constantFee := sdk.NewInt64Coin(sdk.DefaultBondDenom, 10)

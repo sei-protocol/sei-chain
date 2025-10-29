@@ -71,7 +71,7 @@ func TestWasmDependencyDeprecatedSelectors(t *testing.T) {
 }
 
 func TestWasmDependencyDuplicateMessageNameInContractReference(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))

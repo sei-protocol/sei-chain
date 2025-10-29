@@ -53,9 +53,9 @@ var lock = new(sync.Mutex)
 type AppConstructor = func(val Validator) servertypes.Application
 
 // NewAppConstructor returns a new simapp AppConstructor
-func NewAppConstructor(encodingCfg params.EncodingConfig) AppConstructor {
+func NewAppConstructor(t *testing.T, encodingCfg params.EncodingConfig) AppConstructor {
 	return func(val Validator) servertypes.Application {
-		return app.Setup(false, false, false)
+		return app.Setup(t, false, false, false)
 	}
 }
 
@@ -88,7 +88,7 @@ type Config struct {
 
 // DefaultConfig returns a sane default configuration suitable for nearly all
 // testing requirements.
-func DefaultConfig() Config {
+func DefaultConfig(t *testing.T) Config {
 	encCfg := app.MakeEncodingConfig()
 
 	return Config{
@@ -97,7 +97,7 @@ func DefaultConfig() Config {
 		LegacyAmino:       encCfg.Amino,
 		InterfaceRegistry: encCfg.InterfaceRegistry,
 		AccountRetriever:  authtypes.AccountRetriever{},
-		AppConstructor:    NewAppConstructor(encCfg),
+		AppConstructor:    NewAppConstructor(t, encCfg),
 		GenesisState:      app.ModuleBasics.DefaultGenesis(encCfg.Marshaler),
 		TimeoutCommit:     2 * time.Second,
 		ChainID:           "chain-" + utils.NewRand().Str(6),

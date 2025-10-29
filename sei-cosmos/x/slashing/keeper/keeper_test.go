@@ -21,7 +21,7 @@ import (
 )
 
 func TestUnJailNotBonded(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	p := app.StakingKeeper.GetParams(ctx)
@@ -85,7 +85,7 @@ func TestUnJailNotBonded(t *testing.T) {
 // Ensure that SigningInfo.StartHeight is set correctly
 // and that they are not immediately jailed
 func TestHandleNewValidator(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
@@ -128,7 +128,7 @@ func TestHandleNewValidator(t *testing.T) {
 // Ensure that they're only slashed once
 func TestHandleAlreadyJailed(t *testing.T) {
 	// initial setup
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
@@ -191,7 +191,7 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 
 	// initial setup
 	// TestParams set the SignedBlocksWindow to 1000 and MaxMissedBlocksPerWindow to 500
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	app.SlashingKeeper.SetParams(ctx, testslashing.TestParams())
 
@@ -290,7 +290,7 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 }
 
 func TestSlash(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 6, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 	keeper := app.SlashingKeeper

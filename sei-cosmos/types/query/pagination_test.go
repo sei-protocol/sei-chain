@@ -15,9 +15,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/codec"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	"github.com/cosmos/cosmos-sdk/store"
-	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/address"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
 )
@@ -61,7 +59,7 @@ func (s *paginationTestSuite) TestParsePagination() {
 }
 
 func (s *paginationTestSuite) TestPagination() {
-	app, ctx, _ := setupTest()
+	app, ctx, _ := setupTest(s.T())
 	queryHelper := baseapp.NewQueryServerTestHelper(ctx, app.InterfaceRegistry())
 	types.RegisterQueryServer(queryHelper, app.BankKeeper)
 	queryClient := types.NewQueryClient(queryHelper)
@@ -170,7 +168,7 @@ func (s *paginationTestSuite) TestPagination() {
 }
 
 func (s *paginationTestSuite) TestReversePagination() {
-	app, ctx, _ := setupTest()
+	app, ctx, _ := setupTest(s.T())
 	queryHelper := baseapp.NewQueryServerTestHelper(ctx, app.InterfaceRegistry())
 	types.RegisterQueryServer(queryHelper, app.BankKeeper)
 	queryClient := types.NewQueryClient(queryHelper)
@@ -293,50 +291,8 @@ func (s *paginationTestSuite) TestReversePagination() {
 	s.Require().Nil(res.Pagination.NextKey)
 }
 
-func ExamplePaginate() {
-	app, ctx, _ := setupTest()
-
-	var balances sdk.Coins
-
-	for i := 0; i < 2; i++ {
-		denom := fmt.Sprintf("foo%ddenom", i)
-		balances = append(balances, sdk.NewInt64Coin(denom, 100))
-	}
-
-	balances = balances.Sort()
-	addr1 := sdk.AccAddress([]byte("addr1"))
-	acc1 := app.AccountKeeper.NewAccountWithAddress(ctx, addr1)
-	app.AccountKeeper.SetAccount(ctx, acc1)
-	err := apptesting.FundAccount(app.BankKeeper, ctx, addr1, balances)
-	if err != nil { // should return no error
-		fmt.Println(err)
-	}
-	// Paginate example
-	pageReq := &query.PageRequest{Key: nil, Limit: 1, CountTotal: true}
-	request := types.NewQueryAllBalancesRequest(addr1, pageReq)
-	balResult := sdk.NewCoins()
-	authStore := ctx.KVStore(app.GetKey(types.StoreKey))
-	balancesStore := prefix.NewStore(authStore, types.BalancesPrefix)
-	accountStore := prefix.NewStore(balancesStore, address.MustLengthPrefix(addr1))
-	pageRes, err := query.Paginate(accountStore, request.Pagination, func(key []byte, value []byte) error {
-		var tempRes sdk.Coin
-		err := app.AppCodec().Unmarshal(value, &tempRes)
-		if err != nil {
-			return err
-		}
-		balResult = append(balResult, tempRes)
-		return nil
-	})
-	if err != nil { // should return no error
-		fmt.Println(err)
-	}
-	fmt.Println(&types.QueryAllBalancesResponse{Balances: balResult, Pagination: pageRes})
-	// Output:
-	// balances:<denom:"foo0denom" amount:"100" > pagination:<next_key:"foo1denom" total:2 >
-}
-
-func setupTest() (*app.App, sdk.Context, codec.Codec) {
-	a := app.Setup(false, false, false)
+func setupTest(t *testing.T) (*app.App, sdk.Context, codec.Codec) {
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{Height: 1})
 	appCodec := a.AppCodec()
 

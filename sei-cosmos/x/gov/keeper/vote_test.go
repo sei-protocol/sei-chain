@@ -12,7 +12,7 @@ import (
 )
 
 func TestVotes(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	addrs := seiapp.AddTestAddrsIncremental(app, ctx, 5, sdk.NewInt(30000000))

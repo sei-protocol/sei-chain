@@ -23,7 +23,7 @@ type KeeperTestSuite struct {
 }
 
 func (suite *KeeperTestSuite) SetupTest() {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(suite.T(), false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	queryHelper := baseapp.NewQueryServerTestHelper(ctx, app.InterfaceRegistry())
@@ -37,7 +37,7 @@ func (suite *KeeperTestSuite) SetupTest() {
 }
 
 func TestIncrementProposalNumber(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	tp := TestProposal
@@ -58,7 +58,7 @@ func TestIncrementProposalNumber(t *testing.T) {
 }
 
 func TestProposalQueues(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	// create test proposals

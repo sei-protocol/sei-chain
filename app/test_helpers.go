@@ -12,9 +12,7 @@ import (
 
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmkeeper "github.com/CosmWasm/wasmd/x/wasm/keeper"
-	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
-	crptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	ssconfig "github.com/sei-protocol/sei-db/config"
@@ -94,15 +92,15 @@ type TestWrapper struct {
 	Ctx sdk.Context
 }
 
-func NewTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
+func NewTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
 	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, false, baseAppOptions...)
 }
 
-func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
+func NewTestWrapperWithSc(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
 	return newTestWrapper(t, tm, valPub, enableEVMCustomPrecompiles, true, baseAppOptions...)
 }
 
-func newTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enableEVMCustomPrecompiles bool, useSc bool, baseAppOptions ...func(*baseapp.BaseApp)) *TestWrapper {
+func newTestWrapper(t *testing.T, tm time.Time, valPub cryptotypes.PubKey, enableEVMCustomPrecompiles bool, useSc bool, baseAppOptions ...func(*bam.BaseApp)) *TestWrapper {
 	var appPtr *App
 	originalHome := DefaultNodeHome
 	tempHome := t.TempDir()
@@ -111,9 +109,9 @@ func newTestWrapper(t *testing.T, tm time.Time, valPub crptotypes.PubKey, enable
 		DefaultNodeHome = originalHome
 	})
 	if useSc {
-		appPtr = SetupWithSc(false, enableEVMCustomPrecompiles, baseAppOptions...)
+		appPtr = SetupWithSc(t, false, enableEVMCustomPrecompiles, baseAppOptions...)
 	} else {
-		appPtr = Setup(false, enableEVMCustomPrecompiles, false, baseAppOptions...)
+		appPtr = Setup(t, false, enableEVMCustomPrecompiles, false, baseAppOptions...)
 	}
 	ctx := appPtr.NewContext(false, tmproto.Header{Height: 1, ChainID: "sei-test", Time: tm})
 	wrapper := &TestWrapper{
@@ -133,7 +131,7 @@ func (s *TestWrapper) FundAcc(acc sdk.AccAddress, amounts sdk.Coins) {
 	s.Require().NoError(err)
 }
 
-func (s *TestWrapper) setupValidator(bondStatus stakingtypes.BondStatus, valPub crptotypes.PubKey) sdk.ValAddress {
+func (s *TestWrapper) setupValidator(bondStatus stakingtypes.BondStatus, valPub cryptotypes.PubKey) sdk.ValAddress {
 	valAddr := sdk.ValAddress(valPub.Address())
 	bondDenom := s.App.StakingKeeper.GetParams(s.Ctx).BondDenom
 	selfBond := sdk.NewCoins(sdk.Coin{Amount: sdk.NewInt(100), Denom: bondDenom})
@@ -228,12 +226,7 @@ func setupReceiptStore() (seidbtypes.StateStore, error) {
 	return receiptStore, nil
 }
 
-func Setup(isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*baseapp.BaseApp)) (res *App) {
-	db := dbm.NewMemDB()
-	return SetupWithDB(db, isCheckTx, enableEVMCustomPrecompiles, overrideWasmGasMultiplier, baseAppOptions...)
-}
-
-func SetupWithDB(db dbm.DB, isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*baseapp.BaseApp)) (res *App) {
+func SetupWithDefaultHome(isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
 
@@ -261,7 +254,7 @@ func SetupWithDB(db dbm.DB, isCheckTx bool, enableEVMCustomPrecompiles bool, ove
 
 	res = New(
 		log.NewNopLogger(),
-		db,
+		dbm.NewMemDB(),
 		nil,
 		true,
 		map[int64]bool{},
@@ -299,7 +292,78 @@ func SetupWithDB(db dbm.DB, isCheckTx bool, enableEVMCustomPrecompiles bool, ove
 	return res
 }
 
-func SetupWithSc(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*baseapp.BaseApp)) (res *App) {
+func Setup(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
+	db := dbm.NewMemDB()
+	return SetupWithDB(t, db, isCheckTx, enableEVMCustomPrecompiles, overrideWasmGasMultiplier, baseAppOptions...)
+}
+
+func SetupWithDB(t *testing.T, db dbm.DB, isCheckTx bool, enableEVMCustomPrecompiles bool, overrideWasmGasMultiplier bool, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
+	encodingConfig := MakeEncodingConfig()
+	cdc := encodingConfig.Marshaler
+
+	options := []AppOption{
+		func(app *App) {
+			receiptStore, err := setupReceiptStore()
+			if err != nil {
+				panic(fmt.Sprintf("error while creating receipt store: %s", err))
+			}
+			app.receiptStore = receiptStore
+		},
+	}
+	wasmOpts := EmptyWasmOpts
+	if overrideWasmGasMultiplier {
+		gasRegisterConfig := wasmkeeper.DefaultGasRegisterConfig()
+		gasRegisterConfig.GasMultiplier = 21_000_000
+		wasmOpts = []wasm.Option{
+			wasmkeeper.WithGasRegister(
+				wasmkeeper.NewWasmGasRegister(
+					gasRegisterConfig,
+				),
+			),
+		}
+	}
+
+	res = New(
+		log.NewNopLogger(),
+		db,
+		nil,
+		true,
+		map[int64]bool{},
+		t.TempDir(),
+		1,
+		enableEVMCustomPrecompiles,
+		config.TestConfig(),
+		encodingConfig,
+		wasm.EnableAllProposals,
+		TestAppOpts{},
+		wasmOpts,
+		EmptyACLOpts,
+		options,
+		baseAppOptions...,
+	)
+	if !isCheckTx {
+		genesisState := NewDefaultGenesisState(cdc)
+		stateBytes, err := json.MarshalIndent(genesisState, "", " ")
+		if err != nil {
+			panic(err)
+		}
+
+		_, err = res.InitChain(
+			context.Background(), &abci.RequestInitChain{
+				Validators:      []abci.ValidatorUpdate{},
+				ConsensusParams: DefaultConsensusParams,
+				AppStateBytes:   stateBytes,
+			},
+		)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	return res
+}
+
+func SetupWithSc(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions ...func(*bam.BaseApp)) (res *App) {
 	db := dbm.NewMemDB()
 	encodingConfig := MakeEncodingConfig()
 	cdc := encodingConfig.Marshaler
@@ -320,7 +384,7 @@ func SetupWithSc(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions
 		nil,
 		true,
 		map[int64]bool{},
-		DefaultNodeHome,
+		t.TempDir(),
 		1,
 		enableEVMCustomPrecompiles,
 		config.TestConfig(),
@@ -357,7 +421,7 @@ func SetupWithSc(isCheckTx bool, enableEVMCustomPrecompiles bool, baseAppOptions
 	return res
 }
 
-func SetupTestingAppWithLevelDb(isCheckTx bool, enableEVMCustomPrecompiles bool) (*App, func()) {
+func SetupTestingAppWithLevelDb(t *testing.T, isCheckTx bool, enableEVMCustomPrecompiles bool) (*App, func()) {
 	dir := "sei_testing"
 	db, err := sdk.NewLevelDB("sei_leveldb_testing", dir)
 	if err != nil {
@@ -371,7 +435,7 @@ func SetupTestingAppWithLevelDb(isCheckTx bool, enableEVMCustomPrecompiles bool)
 		nil,
 		true,
 		map[int64]bool{},
-		DefaultNodeHome,
+		t.TempDir(),
 		5,
 		enableEVMCustomPrecompiles,
 		nil,
@@ -431,7 +495,7 @@ var DefaultConsensusParams = &tmproto.ConsensusParams{
 	},
 }
 
-func setup(withGenesis bool, invCheckPeriod uint) (*App, GenesisState) {
+func setup(t *testing.T, withGenesis bool, invCheckPeriod uint) (*App, GenesisState) {
 	db := dbm.NewMemDB()
 	encCdc := MakeEncodingConfig()
 	app := New(
@@ -440,7 +504,7 @@ func setup(withGenesis bool, invCheckPeriod uint) (*App, GenesisState) {
 		nil,
 		true,
 		map[int64]bool{},
-		DefaultNodeHome,
+		t.TempDir(),
 		1,
 		false,
 		config.TestConfig(),
@@ -462,7 +526,7 @@ func setup(withGenesis bool, invCheckPeriod uint) (*App, GenesisState) {
 // of one consensus engine unit (10^6) in the default token of the simapp from first genesis
 // account. A Nop logger is set in SimApp.
 func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs []authtypes.GenesisAccount, balances ...banktypes.Balance) *App {
-	app, genesisState := setup(true, 5)
+	app, genesisState := setup(t, true, 5)
 	// set genesis accounts
 	authGenesis := authtypes.NewGenesisState(authtypes.DefaultParams(), genAccs)
 	genesisState[authtypes.ModuleName] = app.AppCodec().MustMarshalJSON(authGenesis)
@@ -518,7 +582,7 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	require.NoError(t, err)
 
 	// init chain will set the validator set and initialize the genesis accounts
-	app.InitChain(
+	_, _ = app.InitChain(
 		context.Background(), &abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
@@ -527,8 +591,8 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 	)
 
 	// commit genesis changes
-	app.Commit(context.Background())
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+	_, _ = app.Commit(context.Background())
+	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 		Height:             app.LastBlockHeight() + 1,
 		Hash:               app.LastCommitID().Hash,
 		NextValidatorsHash: valSet.Hash(),
@@ -539,8 +603,8 @@ func SetupWithGenesisValSet(t *testing.T, valSet *tmtypes.ValidatorSet, genAccs 
 
 // SetupWithGenesisAccounts initializes a new SimApp with the provided genesis
 // accounts and possible balances.
-func SetupWithGenesisAccounts(genAccs []authtypes.GenesisAccount, balances ...banktypes.Balance) *App {
-	app, genesisState := setup(true, 0)
+func SetupWithGenesisAccounts(t *testing.T, genAccs []authtypes.GenesisAccount, balances ...banktypes.Balance) *App {
+	app, genesisState := setup(t, true, 0)
 	authGenesis := authtypes.NewGenesisState(authtypes.DefaultParams(), genAccs)
 	genesisState[authtypes.ModuleName] = app.AppCodec().MustMarshalJSON(authGenesis)
 
@@ -557,7 +621,7 @@ func SetupWithGenesisAccounts(genAccs []authtypes.GenesisAccount, balances ...ba
 		panic(err)
 	}
 
-	app.InitChain(
+	_, _ = app.InitChain(
 		context.Background(), &abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
 			ConsensusParams: DefaultConsensusParams,
@@ -565,8 +629,8 @@ func SetupWithGenesisAccounts(genAccs []authtypes.GenesisAccount, balances ...ba
 		},
 	)
 
-	app.Commit(context.Background())
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
+	_, _ = app.Commit(context.Background())
+	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: app.LastBlockHeight() + 1})
 
 	return app
 }
@@ -774,7 +838,7 @@ func SignCheckDeliver(
 	}
 
 	// Simulate a sending a transaction and committing a block
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: header.Height})
+	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: header.Height})
 	gInfo, res, err := app.Deliver(txCfg.TxEncoder(), tx)
 
 	if expPass {
@@ -785,8 +849,8 @@ func SignCheckDeliver(
 		require.Nil(t, res)
 	}
 
-	app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: header.Height})
-	app.Commit(context.Background())
+	_, _ = app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{Height: header.Height})
+	_, _ = app.Commit(context.Background())
 
 	return gInfo, res, err
 }
@@ -822,7 +886,7 @@ func incrementAllSequenceNumbers(initSeqNums []uint64) {
 
 // CheckBalance checks the balance of an account.
 func CheckBalance(t *testing.T, app *App, addr sdk.AccAddress, balances sdk.Coins) {
-	ctxCheck := app.BaseApp.NewContext(true, tmproto.Header{})
+	ctxCheck := app.NewContext(true, tmproto.Header{})
 	require.True(t, balances.IsEqual(app.BankKeeper.GetAllBalances(ctxCheck, addr)))
 }
 

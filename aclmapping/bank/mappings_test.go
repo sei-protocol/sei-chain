@@ -81,7 +81,7 @@ func TestMsgBankSendAclOps(t *testing.T) {
 		},
 	}
 
-	app := seiapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	handler := bank.NewHandler(app.BankKeeper)
@@ -115,7 +115,7 @@ func TestGeneratorInvalidMessageTypes(t *testing.T) {
 	accs := authtypes.GenesisAccounts{}
 	balances := []types.Balance{}
 
-	app := seiapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	oracleVote := oracletypes.MsgAggregateExchangeRateVote{
@@ -153,7 +153,7 @@ func TestMsgBeginBankSendGenerator(t *testing.T) {
 		},
 	}
 
-	app := seiapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	sendMsg := banktypes.MsgSend{
@@ -193,7 +193,7 @@ func TestInvalidToAddress(t *testing.T) {
 		},
 	}
 
-	app := seiapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	sendMsg := banktypes.MsgSend{
@@ -237,7 +237,7 @@ func TestAccountoesNotExist(t *testing.T) {
 		},
 	}
 
-	app := seiapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	sendMsg := banktypes.MsgSend{

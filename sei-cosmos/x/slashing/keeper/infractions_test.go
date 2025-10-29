@@ -10,7 +10,7 @@ import (
 )
 
 func TestResizeMissedBlockArray(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 6, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)

@@ -12,7 +12,7 @@ import (
 )
 
 func TestParams(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 	keeper := a.AccessControlKeeper
 
@@ -22,7 +22,7 @@ func TestParams(t *testing.T) {
 }
 
 func TestResourceDependencyMappingFromMessageKey(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	keeper := a.AccessControlKeeper
@@ -34,7 +34,7 @@ func TestResourceDependencyMappingFromMessageKey(t *testing.T) {
 	require.Equal(t, a.AccessControlKeeper.GetResourceDependencyMapping(ctx, types.MessageKey("key")), response.MessageDependencyMapping)
 }
 func TestWasmDependencyMappingCall(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 	keeper := a.AccessControlKeeper
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
@@ -67,7 +67,7 @@ func TestWasmDependencyMappingCall(t *testing.T) {
 }
 
 func TestListResourceDependencyMapping(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 	testDependencyMapping := acltypes.MessageDependencyMapping{
 		MessageKey: "testKey",
@@ -90,7 +90,7 @@ func TestListResourceDependencyMapping(t *testing.T) {
 }
 
 func TestListWasmDependencyMapping(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))

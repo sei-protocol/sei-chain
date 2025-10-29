@@ -196,7 +196,7 @@ func TestGeneratorInvalidMessageTypes(t *testing.T) {
 	accs := authtypes.GenesisAccounts{}
 	balances := []banktypes.Balance{}
 
-	app := seiapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	oracleVote := oracletypes.MsgAggregateExchangeRateVote{
@@ -219,7 +219,7 @@ func TestMsgBeginBurnDepedencyGenerator(t *testing.T) {
 	accs := authtypes.GenesisAccounts{}
 	balances := []banktypes.Balance{}
 
-	app := seiapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	sendMsg := tokenfactorytypes.MsgBurn{

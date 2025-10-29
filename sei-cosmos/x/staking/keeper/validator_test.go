@@ -27,7 +27,7 @@ func newMonikerValidator(t testing.TB, operator sdk.ValAddress, pubKey cryptotyp
 }
 
 func bootstrapValidatorTest(t testing.TB, power int64, numAddrs int) (*seiapp.App, sdk.Context, []sdk.AccAddress, []sdk.ValAddress) {
-	_, app, ctx := createTestInput()
+	_, app, ctx := createTestInput(t.(*testing.T))
 
 	addrDels, addrVals := generateAddresses(app, ctx, numAddrs)
 

@@ -26,7 +26,7 @@ type KeeperTestSuite struct {
 }
 
 func (suite *KeeperTestSuite) SetupTest() {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(suite.T(), false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	querier := keeper.Querier{Keeper: app.StakingKeeper}
@@ -51,7 +51,7 @@ func (suite *KeeperTestSuite) SetupTest() {
 	suite.app, suite.ctx, suite.queryClient, suite.addrs, suite.vals = app, ctx, queryClient, addrs, validators
 }
 func TestParams(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	expParams := types.DefaultParams()

@@ -5,5 +5,5 @@ import (
 )
 
 var (
-	a = app.Setup(false, false, false)
+	a = app.SetupWithDefaultHome(false, false, false)
 )

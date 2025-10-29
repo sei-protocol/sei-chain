@@ -16,7 +16,7 @@ import (
 )
 
 func TestFilteredFeeValidAllow(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{
 		Time: time.Now(),
 	})
@@ -215,7 +215,7 @@ func TestFilteredFeeValidAllow(t *testing.T) {
 }
 
 func TestFilteredFeeValidAllowance(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 
 	smallAtom := sdk.NewCoins(sdk.NewInt64Coin("atom", 488))
 	bigAtom := sdk.NewCoins(sdk.NewInt64Coin("atom", 1000))

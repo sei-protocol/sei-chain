@@ -24,8 +24,8 @@ import (
 	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
-func setup(db dbm.DB, withGenesis bool, invCheckPeriod uint, opts ...wasm.Option) (*seiapp.App, seiapp.GenesisState) {
-	wasmApp := seiapp.Setup(false, false, false)
+func setup(t *testing.T, db dbm.DB, withGenesis bool, invCheckPeriod uint, opts ...wasm.Option) (*seiapp.App, seiapp.GenesisState) {
+	wasmApp := seiapp.Setup(t, false, false, false)
 	if withGenesis {
 		return wasmApp, seiapp.NewDefaultGenesisState(seiapp.MakeEncodingConfig().Marshaler)
 	}
@@ -35,7 +35,7 @@ func setup(db dbm.DB, withGenesis bool, invCheckPeriod uint, opts ...wasm.Option
 // SetupWithGenesisAccounts initializes a new WasmApp with the provided genesis
 // accounts and possible balances.
 func SetupWithGenesisAccounts(b testing.TB, db dbm.DB, genAccs []authtypes.GenesisAccount, balances ...banktypes.Balance) *seiapp.App {
-	wasmApp, genesisState := setup(db, true, 0)
+	wasmApp, genesisState := setup(b.(*testing.T), db, true, 0)
 	authGenesis := authtypes.NewGenesisState(authtypes.DefaultParams(), genAccs)
 	appCodec := seiapp.MakeEncodingConfig().Marshaler
 

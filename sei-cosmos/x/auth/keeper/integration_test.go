@@ -10,7 +10,7 @@ import (
 
 // returns context and app with params set on account keeper
 func createTestApp(isCheckTx bool) (*app.App, sdk.Context) {
-	app := app.Setup(isCheckTx, false, false)
+	app := app.SetupWithDefaultHome(isCheckTx, false, false)
 	ctx := app.BaseApp.NewContext(isCheckTx, tmproto.Header{})
 	app.AccountKeeper.SetParams(ctx, authtypes.DefaultParams())
 

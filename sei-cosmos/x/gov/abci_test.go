@@ -18,7 +18,7 @@ import (
 )
 
 func TestTickExpiredDepositPeriod(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 
@@ -69,7 +69,7 @@ func TestTickExpiredDepositPeriod(t *testing.T) {
 }
 
 func TestTickMultipleExpiredDepositPeriod(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 
@@ -145,7 +145,7 @@ func TestTickMultipleExpiredDepositPeriod(t *testing.T) {
 }
 
 func TestTickPassedDepositPeriod(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 
@@ -201,7 +201,7 @@ func TestTickPassedDepositPeriod(t *testing.T) {
 }
 
 func TestTickPassedVotingPeriod(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 
@@ -289,7 +289,7 @@ func TestProposalPassedEndblocker(t *testing.T) {
 
 					depositMultiplier := getDepositMultiplier(tc.isExpedited)
 
-					app := seiapp.Setup(false, false, false)
+					app := seiapp.Setup(t, false, false, false)
 					ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 					addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens.Mul(sdk.NewInt(depositMultiplier)))
 					params := app.StakingKeeper.GetParams(ctx)
@@ -374,7 +374,7 @@ func TestExpeditedProposalPassAndConvertToRegular(t *testing.T) {
 			isExpedited := true
 			testProposal := types.NewTextProposal("TestTitle", "description", isExpedited)
 
-			app := seiapp.Setup(false, false, false)
+			app := seiapp.Setup(t, false, false, false)
 			ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 			addrs := seiapp.AddTestAddrs(app, ctx, 10, valTokens)
 			params := app.StakingKeeper.GetParams(ctx)
@@ -562,7 +562,7 @@ func TestExpeditedProposalPassAndConvertToRegular(t *testing.T) {
 }
 
 func TestEndBlockerProposalHandlerFailed(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrs := seiapp.AddTestAddrs(app, ctx, 1, valTokens)
 	params := app.StakingKeeper.GetParams(ctx)

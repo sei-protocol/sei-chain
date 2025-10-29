@@ -116,7 +116,7 @@ func TestQueries(t *testing.T) {
 	types.RegisterLegacyAminoCodec(cdc)
 	banktypes.RegisterLegacyAminoCodec(cdc)
 
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	addr := seiapp.AddTestAddrs(app, ctx, 1, sdk.NewInt(1000000000))

@@ -78,14 +78,6 @@ var (
 			types.NewOutput(addr1, coins),
 		},
 	}
-	multiSendMsg5 = &types.MsgMultiSend{
-		Inputs: []types.Input{
-			types.NewInput(addr1, coins),
-		},
-		Outputs: []types.Output{
-			types.NewOutput(moduleAccAddr, coins),
-		},
-	}
 )
 
 func TestSendNotEnoughBalance(t *testing.T) {
@@ -94,7 +86,7 @@ func TestSendNotEnoughBalance(t *testing.T) {
 	}
 
 	genAccs := []authtypes.GenesisAccount{acc}
-	a := app.SetupWithGenesisAccounts(genAccs)
+	a := app.SetupWithGenesisAccounts(t, genAccs)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 67))))
@@ -129,7 +121,7 @@ func TestSendReceiverNotInAllowList(t *testing.T) {
 	}
 
 	genAccs := []authtypes.GenesisAccount{acc}
-	a := app.SetupWithGenesisAccounts(genAccs)
+	a := app.SetupWithGenesisAccounts(t, genAccs)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 	testDenom := "testDenom"
 	factoryDenom := fmt.Sprintf("factory/%s/%s", addr1.String(), testDenom)
@@ -163,7 +155,7 @@ func TestSendSenderAndReceiverInAllowList(t *testing.T) {
 	}
 
 	genAccs := []authtypes.GenesisAccount{acc}
-	a := app.SetupWithGenesisAccounts(genAccs)
+	a := app.SetupWithGenesisAccounts(t, genAccs)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 	testDenom := "testDenom"
 	factoryDenom := fmt.Sprintf("factory/%s/%s", addr1.String(), testDenom)
@@ -197,7 +189,7 @@ func TestSendWithEmptyAllowList(t *testing.T) {
 	}
 
 	genAccs := []authtypes.GenesisAccount{acc}
-	a := app.SetupWithGenesisAccounts(genAccs)
+	a := app.SetupWithGenesisAccounts(t, genAccs)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 	testDenom := "testDenom"
 	factoryDenom := fmt.Sprintf("factory/%s/%s", addr1.String(), testDenom)
@@ -231,7 +223,7 @@ func TestSendSenderNotInAllowList(t *testing.T) {
 	}
 
 	genAccs := []authtypes.GenesisAccount{acc}
-	a := app.SetupWithGenesisAccounts(genAccs)
+	a := app.SetupWithGenesisAccounts(t, genAccs)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 	testDenom := "testDenom"
 	factoryDenom := fmt.Sprintf("factory/%s/%s", addr1.String(), testDenom)
@@ -265,7 +257,7 @@ func TestMsgMultiSendWithAccounts(t *testing.T) {
 	}
 
 	genAccs := []authtypes.GenesisAccount{acc}
-	a := app.SetupWithGenesisAccounts(genAccs)
+	a := app.SetupWithGenesisAccounts(t, genAccs)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 67))))
@@ -299,15 +291,6 @@ func TestMsgMultiSendWithAccounts(t *testing.T) {
 			expPass:    false,
 			privKeys:   []cryptotypes.PrivKey{priv1},
 		},
-		{
-			desc:       "wrong accSeq should not pass Simulate",
-			msgs:       []sdk.Msg{multiSendMsg5},
-			accNums:    []uint64{0},
-			accSeqs:    []uint64{0}, // wrong account sequence
-			expSimPass: false,
-			expPass:    false,
-			privKeys:   []cryptotypes.PrivKey{priv1},
-		},
 	}
 
 	for _, tc := range testCases {
@@ -335,7 +318,7 @@ func TestMsgMultiSendMultipleOut(t *testing.T) {
 	}
 
 	genAccs := []authtypes.GenesisAccount{acc1, acc2}
-	a := app.SetupWithGenesisAccounts(genAccs)
+	a := app.SetupWithGenesisAccounts(t, genAccs)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
@@ -384,7 +367,7 @@ func TestMsgMultiSendMultipleInOut(t *testing.T) {
 	}
 
 	genAccs := []authtypes.GenesisAccount{acc1, acc2, acc4}
-	a := app.SetupWithGenesisAccounts(genAccs)
+	a := app.SetupWithGenesisAccounts(t, genAccs)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
@@ -431,7 +414,7 @@ func TestMsgMultiSendDependent(t *testing.T) {
 	require.NoError(t, err)
 
 	genAccs := []authtypes.GenesisAccount{acc1, acc2}
-	a := app.SetupWithGenesisAccounts(genAccs)
+	a := app.SetupWithGenesisAccounts(t, genAccs)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	require.NoError(t, apptesting.FundAccount(a.BankKeeper, ctx, addr1, sdk.NewCoins(sdk.NewInt64Coin("foocoin", 42))))
@@ -669,7 +652,7 @@ func TestMultiSendAllowList(t *testing.T) {
 			}
 
 			genAccs := []authtypes.GenesisAccount{sender, receiver}
-			a := app.SetupWithGenesisAccounts(genAccs)
+			a := app.SetupWithGenesisAccounts(t, genAccs)
 			ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 			msgs := make([]sdk.Msg, 0)

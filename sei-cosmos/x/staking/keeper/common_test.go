@@ -23,8 +23,8 @@ func init() {
 
 // createTestInput Returns a simapp with custom StakingKeeper
 // to avoid messing with the hooks.
-func createTestInput() (*codec.LegacyAmino, *seiapp.App, sdk.Context) {
-	app := seiapp.Setup(false, false, false)
+func createTestInput(t *testing.T) (*codec.LegacyAmino, *seiapp.App, sdk.Context) {
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	app.StakingKeeper = keeper.NewKeeper(

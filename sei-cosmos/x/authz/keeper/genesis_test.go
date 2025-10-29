@@ -23,7 +23,7 @@ type GenesisTestSuite struct {
 
 func (suite *GenesisTestSuite) SetupTest() {
 	checkTx := false
-	app := app.Setup(checkTx, false, false)
+	app := app.Setup(suite.T(), checkTx, false, false)
 
 	suite.ctx = app.BaseApp.NewContext(checkTx, tmproto.Header{Height: 1})
 	suite.keeper = app.AuthzKeeper

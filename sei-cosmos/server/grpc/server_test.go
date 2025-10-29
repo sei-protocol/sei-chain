@@ -46,7 +46,7 @@ type IntegrationTestSuite struct {
 
 func (s *IntegrationTestSuite) SetupSuite() {
 	s.T().Log("setting up integration test suite")
-	s.app = seiapp.Setup(false, false, false)
+	s.app = seiapp.Setup(t, false, false, false)
 	s.cfg = network.DefaultConfig()
 	s.cfg.NumValidators = 1
 	s.network = network.New(s.T(), s.cfg)

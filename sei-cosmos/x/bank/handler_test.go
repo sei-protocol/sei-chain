@@ -65,7 +65,7 @@ func TestSendToModuleAccount(t *testing.T) {
 		},
 	}
 
-	app := seiapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	app.BankKeeper = bankkeeper.NewBaseKeeper(

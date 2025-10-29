@@ -12,7 +12,7 @@ import (
 )
 
 func TestKeeper_InitAndExportGenesis(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 	addresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 
@@ -35,7 +35,7 @@ func TestKeeper_InitAndExportGenesis(t *testing.T) {
 }
 
 func TestKeeper_InitGenesis_EmptyGenesis(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 	testGenesis := types.GenesisState{
 		Params: types.DefaultParams(),
@@ -47,7 +47,7 @@ func TestKeeper_InitGenesis_EmptyGenesis(t *testing.T) {
 }
 
 func TestKeeper_InitGenesis_MultipleDependencies(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 	addresses := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
 
@@ -69,7 +69,7 @@ func TestKeeper_InitGenesis_MultipleDependencies(t *testing.T) {
 }
 
 func TestKeeper_InitGenesis_InvalidDependencies(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	invalidAccessOp := types.SynchronousMessageDependencyMapping("Test1")

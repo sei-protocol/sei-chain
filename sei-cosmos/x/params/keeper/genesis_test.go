@@ -20,7 +20,7 @@ type GenesisTestSuite struct {
 
 func (suite *GenesisTestSuite) SetupTest() {
 	checkTx := false
-	app := seiapp.Setup(checkTx, false, false)
+	app := seiapp.Setup(suite.T(), checkTx, false, false)
 	suite.ctx = app.BaseApp.NewContext(checkTx, tmproto.Header{Height: 1})
 	suite.keeper = app.ParamsKeeper
 }

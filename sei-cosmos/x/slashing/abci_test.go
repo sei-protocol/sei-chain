@@ -19,7 +19,7 @@ import (
 )
 
 func TestBeginBlocker(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	pks := seiapp.CreateTestPubKeys(5)
@@ -117,7 +117,7 @@ func TestBeginBlocker(t *testing.T) {
 }
 
 func TestResizeTrimResetValidatorMissedBlocksArray(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
@@ -177,7 +177,7 @@ func TestResizeTrimResetValidatorMissedBlocksArray(t *testing.T) {
 }
 
 func TestResizeExpandValidatorMissedBlocksArray(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
@@ -237,7 +237,7 @@ func TestResizeExpandValidatorMissedBlocksArray(t *testing.T) {
 }
 
 func TestResizeExpandShiftValidatorMissedBlocksArrayMultipleBitGroups(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
@@ -302,7 +302,7 @@ func TestResizeExpandShiftValidatorMissedBlocksArrayMultipleBitGroups(t *testing
 }
 
 func TestResizeExpandShiftValidatorMissedBlocksArrayMultipleBitGroupsBeforeAndAfter(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
@@ -374,7 +374,7 @@ func TestResizeExpandShiftValidatorMissedBlocksArrayMultipleBitGroupsBeforeAndAf
 }
 
 func TestResizeTrimValidatorMissedBlocksArrayMultipleBitGroups(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
@@ -438,7 +438,7 @@ func TestResizeTrimValidatorMissedBlocksArrayMultipleBitGroups(t *testing.T) {
 }
 
 func TestResizeTrimValidatorMissedBlocksArrayEliminateBitGroup(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))

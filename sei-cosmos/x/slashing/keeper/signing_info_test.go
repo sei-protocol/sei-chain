@@ -14,7 +14,7 @@ import (
 )
 
 func TestGetSetValidatorSigningInfo(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 
@@ -38,7 +38,7 @@ func TestGetSetValidatorSigningInfo(t *testing.T) {
 }
 
 func TestTombstoned(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 
@@ -62,7 +62,7 @@ func TestTombstoned(t *testing.T) {
 }
 
 func TestJailUntil(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 
@@ -85,7 +85,7 @@ func TestJailUntil(t *testing.T) {
 }
 
 func TestParseBitGroupsAndBoolArrays(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	bitGroup0 := uint64(0)
 	bitGroup0 |= 1 << 1
 	bitGroup0 |= 1 << 33
@@ -120,7 +120,7 @@ func TestParseBitGroupsAndBoolArrays(t *testing.T) {
 }
 
 func TestGetSetValidatorMissedArrayBit(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 
 	bg0 := uint64(0)
 	bg0 |= 1 << 2

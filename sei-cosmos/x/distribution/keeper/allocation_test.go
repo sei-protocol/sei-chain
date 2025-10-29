@@ -17,7 +17,7 @@ import (
 )
 
 func TestAllocateTokensToValidatorWithCommission(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	addrs := seiapp.AddTestAddrs(app, ctx, 3, sdk.NewInt(1234))
@@ -46,7 +46,7 @@ func TestAllocateTokensToValidatorWithCommission(t *testing.T) {
 }
 
 func TestAllocateTokensToManyValidators(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	params := app.StakingKeeper.GetParams(ctx)
 	params.MinCommissionRate = sdk.NewDec(0)
@@ -131,7 +131,7 @@ func TestAllocateTokensToManyValidators(t *testing.T) {
 }
 
 func TestAllocateTokensTruncation(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	addrs := seiapp.AddTestAddrs(app, ctx, 3, sdk.NewInt(1234))

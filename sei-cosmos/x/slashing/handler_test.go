@@ -23,7 +23,7 @@ import (
 
 func TestCannotUnjailUnlessJailed(t *testing.T) {
 	// initial setup
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	pks := seiapp.CreateTestPubKeys(1)
 	seiapp.AddTestAddrsFromPubKeys(app, ctx, pks, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
@@ -49,7 +49,7 @@ func TestCannotUnjailUnlessJailed(t *testing.T) {
 
 func TestCannotUnjailUnlessMeetMinSelfDelegation(t *testing.T) {
 	// initial setup
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	pks := seiapp.CreateTestPubKeys(1)
 	seiapp.AddTestAddrsFromPubKeys(app, ctx, pks, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
@@ -80,7 +80,7 @@ func TestCannotUnjailUnlessMeetMinSelfDelegation(t *testing.T) {
 
 func TestJailedValidatorDelegations(t *testing.T) {
 	// initial setup
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{Time: time.Unix(0, 0)})
 	pks := seiapp.CreateTestPubKeys(3)
 
@@ -142,7 +142,7 @@ func TestInvalidMsg(t *testing.T) {
 // unrevocation, starting height reset, and revocation again
 func TestHandleAbsentValidator(t *testing.T) {
 	// initial setup
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{Time: time.Unix(0, 0)})
 	pks := seiapp.CreateTestPubKeys(1)
 	seiapp.AddTestAddrsFromPubKeys(app, ctx, pks, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))

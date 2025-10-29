@@ -30,7 +30,7 @@ func TestKeeperTestSuite(t *testing.T) {
 }
 
 func (suite *KeeperTestSuite) SetupTest() {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(suite.T(), false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	suite.app = app

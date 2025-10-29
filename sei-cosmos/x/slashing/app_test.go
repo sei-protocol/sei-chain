@@ -58,7 +58,7 @@ func TestSlashingMsgs(t *testing.T) {
 		},
 	}
 
-	app := seiapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	seiapp.CheckBalance(t, app, addr1, sdk.Coins{genCoin})
 
 	description := stakingtypes.NewDescription("foo_moniker", "", "", "", "")

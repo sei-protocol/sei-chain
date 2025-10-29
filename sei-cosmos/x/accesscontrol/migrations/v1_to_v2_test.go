@@ -13,7 +13,7 @@ import (
 )
 
 func TestV1ToV2(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 	wasmContractAddress1 := wasmContractAddresses[0]

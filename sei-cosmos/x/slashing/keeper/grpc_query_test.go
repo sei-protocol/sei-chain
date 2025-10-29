@@ -28,7 +28,7 @@ type SlashingTestSuite struct {
 }
 
 func (suite *SlashingTestSuite) SetupTest() {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(suite.T(), false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	app.AccountKeeper.SetParams(ctx, authtypes.DefaultParams())

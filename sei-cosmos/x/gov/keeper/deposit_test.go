@@ -26,7 +26,7 @@ func TestDeposits(t *testing.T) {
 	}
 
 	for _, tc := range testcases {
-		app := seiapp.Setup(false, false, false)
+		app := seiapp.Setup(t, false, false, false)
 		ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 		// With expedited proposals the minimum deposit is higer, so we must

@@ -5,7 +5,7 @@ import (
 )
 
 var (
-	a                     = app.Setup(false, false, false)
+	a                     = app.SetupWithDefaultHome(false, false, false)
 	ecdc                  = app.MakeEncodingConfig()
 	appCodec, legacyAmino = ecdc.Marshaler, ecdc.Amino
 )

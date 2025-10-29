@@ -20,7 +20,7 @@ import (
 )
 
 func TestImportExportQueues(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrs := seiapp.AddTestAddrs(app, ctx, 2, valTokens)
 
@@ -68,7 +68,7 @@ func TestImportExportQueues(t *testing.T) {
 	}
 
 	db := dbm.NewMemDB()
-	app2 := seiapp.SetupWithDB(db, false, false, false)
+	app2 := seiapp.SetupWithDB(t, db, false, false, false)
 
 	app2.InitChain(
 		context.Background(), &abci.RequestInitChain{
@@ -109,7 +109,7 @@ func TestImportExportQueues(t *testing.T) {
 }
 
 func TestImportExportQueues_ErrorUnconsistentState(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	require.Panics(t, func() {
 		gov.InitGenesis(ctx, app.AccountKeeper, app.BankKeeper, app.GovKeeper, &types.GenesisState{
@@ -130,7 +130,7 @@ func TestImportExportQueues_ErrorUnconsistentState(t *testing.T) {
 }
 
 func TestEqualProposals(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	addrs := seiapp.AddTestAddrs(app, ctx, 2, valTokens)
 

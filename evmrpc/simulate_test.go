@@ -98,7 +98,7 @@ func TestEstimateGas(t *testing.T) {
 }
 
 func TestChainConfigReflectsSstoreParam(t *testing.T) {
-	testApp := app.Setup(false, false, false)
+	testApp := app.Setup(t, false, false, false)
 	baseCtx := testApp.GetContextForDeliverTx([]byte{})
 
 	oldCtx, _ := baseCtx.CacheContext()
@@ -303,7 +303,7 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 	testHeight := int64(1000) // A height before v6.2.0 upgrade
 
 	// Create a new test app to have control over the upgrade keeper
-	testApp := app.Setup(false, false, false)
+	testApp := app.Setup(t, false, false, false)
 	testCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(testHeight)
 
 	// Set the chain ID to "pacific-1" to trigger the upgrade check
@@ -380,7 +380,7 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 
 // Concise gas-limit sanity test
 func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
-	testApp := app.Setup(false, false, false)
+	testApp := app.Setup(t, false, false, false)
 	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
 
 	ctxProvider := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
@@ -401,7 +401,7 @@ func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 
 // Gas‐limit fallback tests
 func TestGasLimitFallbackToDefault(t *testing.T) {
-	testApp := app.Setup(false, false, false)
+	testApp := app.Setup(t, false, false, false)
 	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
 	ctxProvider := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
 	cfg := &evmrpc.SimulateConfig{GasCap: 20_000_000, EVMTimeout: time.Second}
@@ -450,7 +450,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		}
 
 		// Use the existing test app from the global setup
-		testApp := testkeeper.TestApp()
+		testApp := testkeeper.TestApp(t)
 
 		// Create simulation API
 		simAPI := evmrpc.NewSimulationAPI(

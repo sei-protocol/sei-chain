@@ -26,7 +26,7 @@ func (c *TestCase) run(t *testing.T, app *processblock.App) {
 }
 
 func TestTemplate(t *testing.T) {
-	app := processblock.NewTestApp()
+	app := processblock.NewTestApp(t)
 	p := processblock.CommonPreset(app) // choose a preset
 	for _, testCase := range []TestCase{
 		{

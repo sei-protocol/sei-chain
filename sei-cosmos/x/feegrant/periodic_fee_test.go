@@ -14,7 +14,7 @@ import (
 )
 
 func TestPeriodicFeeValidAllow(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{
 		Time: time.Now(),
 	})

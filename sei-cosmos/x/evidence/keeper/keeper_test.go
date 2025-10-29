@@ -82,7 +82,7 @@ type KeeperTestSuite struct {
 
 func (suite *KeeperTestSuite) SetupTest() {
 	checkTx := false
-	app := seiapp.Setup(checkTx, false, false)
+	app := seiapp.Setup(suite.T(), checkTx, false, false)
 
 	// recreate keeper in order to use custom testing types
 	evidenceKeeper := keeper.NewKeeper(

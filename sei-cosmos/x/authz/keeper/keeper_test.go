@@ -28,7 +28,7 @@ type TestSuite struct {
 }
 
 func (s *TestSuite) SetupTest() {
-	a := app.Setup(false, false, false)
+	a := app.Setup(s.T(), false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 	now := tmtime.Now()
 	ctx = ctx.WithBlockHeader(tmproto.Header{Time: now})

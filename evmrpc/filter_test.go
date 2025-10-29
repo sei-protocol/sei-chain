@@ -547,7 +547,7 @@ func TestCollectLogsEvmTransactionIndex(t *testing.T) {
 	// It tests that transaction indices are set correctly for EVM transactions
 
 	// Set up the test environment - use the correct return values from MockEVMKeeper
-	k, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper(t)
 
 	// Create a mock block with mixed transaction types (similar to block 2 in our test data)
 	// We'll simulate the transaction hashes that getTxHashesFromBlock would return

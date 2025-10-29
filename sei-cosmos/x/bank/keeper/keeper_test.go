@@ -100,7 +100,7 @@ func (suite *IntegrationTestSuite) initKeepersWithmAccPerms(blockedAddrs map[str
 
 func (suite *IntegrationTestSuite) SetupTest() {
 	sdk.RegisterDenom(sdk.DefaultBondDenom, sdk.OneDec())
-	a := app.Setup(false, false, false)
+	a := app.Setup(suite.T(), false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
 
 	a.AccountKeeper.SetParams(ctx, authtypes.DefaultParams())

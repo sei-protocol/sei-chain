@@ -13,7 +13,7 @@ import (
 )
 
 func TestGrant(t *testing.T) {
-	app := seiapp.Setup(false, false, false)
+	app := seiapp.Setup(t, false, false, false)
 	addr, err := sdk.AccAddressFromBech32("sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz")
 	require.NoError(t, err)
 	addr2, err := sdk.AccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")

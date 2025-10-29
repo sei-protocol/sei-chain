@@ -35,7 +35,7 @@ type KeeperTestSuite struct {
 }
 
 func (suite *KeeperTestSuite) SetupTest() {
-	a := app.Setup(false, false, false)
+	a := app.Setup(suite.T(), false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	queryHelper := baseapp.NewQueryServerTestHelper(ctx, a.InterfaceRegistry())
@@ -49,7 +49,7 @@ func (suite *KeeperTestSuite) SetupTest() {
 }
 
 func TestResourceDependencyMapping(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	testDependencyMapping := acltypes.MessageDependencyMapping{
@@ -95,7 +95,7 @@ func TestResourceDependencyMapping(t *testing.T) {
 }
 
 func TestInvalidGetMessageDependencies(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	addrs := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
@@ -117,7 +117,7 @@ func TestInvalidGetMessageDependencies(t *testing.T) {
 }
 
 func TestWasmDependencyMapping(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
@@ -149,7 +149,7 @@ func TestWasmDependencyMapping(t *testing.T) {
 }
 
 func TestInvalidWasmDependencyMapping(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	store := ctx.KVStore(a.AccessControlKeeper.GetStoreKey())
@@ -170,7 +170,7 @@ func TestInvalidWasmDependencyMapping(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithExecuteMsgInfo(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
@@ -263,7 +263,7 @@ func TestWasmDependencyMappingWithExecuteMsgInfo(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithQueryMsgInfo(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
@@ -306,7 +306,7 @@ func TestWasmDependencyMappingWithQueryMsgInfo(t *testing.T) {
 }
 
 func TestResetWasmDependencyMapping(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
@@ -343,7 +343,7 @@ func TestResetWasmDependencyMapping(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithJQSelector(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
@@ -406,7 +406,7 @@ func TestWasmDependencyMappingWithJQSelector(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithJQBech32Selector(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
@@ -462,7 +462,7 @@ func TestWasmDependencyMappingWithJQBech32Selector(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithJQLengthPrefixedAddressSelector(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
@@ -518,7 +518,7 @@ func TestWasmDependencyMappingWithJQLengthPrefixedAddressSelector(t *testing.T) 
 }
 
 func TestWasmDependencyMappingWithSenderBech32Selector(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
@@ -564,7 +564,7 @@ func TestWasmDependencyMappingWithSenderBech32Selector(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithSenderLengthPrefixedSelector(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
@@ -610,7 +610,7 @@ func TestWasmDependencyMappingWithSenderLengthPrefixedSelector(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithConditionalSelector(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
@@ -667,7 +667,7 @@ func TestWasmDependencyMappingWithConditionalSelector(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithConstantSelector(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
@@ -714,7 +714,7 @@ func TestWasmDependencyMappingWithConstantSelector(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithContractReference(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
@@ -819,7 +819,7 @@ func TestWasmDependencyMappingWithContractReference(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithContractReferenceQuery(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
@@ -922,7 +922,7 @@ func TestWasmDependencyMappingWithContractReferenceQuery(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithInvalidContractReference(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
@@ -1026,7 +1026,7 @@ func TestWasmDependencyMappingWithInvalidContractReference(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithContractReferenceWasmTranslator(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
@@ -1137,7 +1137,7 @@ func TestWasmDependencyMappingWithContractReferenceWasmTranslator(t *testing.T) 
 }
 
 func TestWasmDependencyMappingWithContractReferenceSelectorMultipleReferences(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 4, sdk.NewInt(30000000))
@@ -1253,7 +1253,7 @@ func TestWasmDependencyMappingWithContractReferenceSelectorMultipleReferences(t 
 }
 
 func TestWasmDependencyMappingWithContractReferenceSelectorCircularDependency(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 4, sdk.NewInt(30000000))
@@ -1378,7 +1378,7 @@ func TestWasmDependencyMappingWithContractReferenceSelectorCircularDependency(t 
 }
 
 func TestWasmDependencyMappingWithContractReferenceNonCircularDependency(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 4, sdk.NewInt(30000000))
@@ -1526,7 +1526,7 @@ func TestWasmDependencyMappingWithContractReferenceNonCircularDependency(t *test
 }
 
 func TestWasmDependencyMappingWithContractReferenceCircularDependencyWithContractOverlap(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 4, sdk.NewInt(30000000))
@@ -1686,7 +1686,7 @@ func TestWasmDependencyMappingWithContractReferenceCircularDependencyWithContrac
 }
 
 func TestWasmDependencyMappingWithContractReferenceDNE(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
@@ -1737,7 +1737,7 @@ func TestWasmDependencyMappingWithContractReferenceDNE(t *testing.T) {
 }
 
 func TestWasmDependencyMappingWithContractReferencePartitioned(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 4, sdk.NewInt(30000000))
@@ -1898,7 +1898,7 @@ func TestWasmDependencyMappingWithContractReferencePartitioned(t *testing.T) {
 }
 
 func TestContractReferenceAddressParser(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 1, sdk.NewInt(30000000))
@@ -1987,7 +1987,7 @@ func TestParseContractReferenceAddress(t *testing.T) {
 }
 
 func TestBuildDependencyDag(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	accounts := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
@@ -2008,7 +2008,7 @@ func TestBuildDependencyDag(t *testing.T) {
 }
 
 func TestBuildDependencyDagWithGovMessage(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	accounts := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
@@ -2029,7 +2029,7 @@ func TestBuildDependencyDagWithGovMessage(t *testing.T) {
 }
 
 func TestBuildDependencyDag_GovPropMessage(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	accounts := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
@@ -2053,7 +2053,7 @@ func TestBuildDependencyDag_GovPropMessage(t *testing.T) {
 }
 
 func TestBuildDependencyDag_GovDepositMessage(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 	addrs := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 
@@ -2075,7 +2075,7 @@ func TestBuildDependencyDag_GovDepositMessage(t *testing.T) {
 }
 
 func TestBuildDependencyDag_MultipleTransactions(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	accounts := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
@@ -2113,7 +2113,7 @@ func TestBuildDependencyDag_MultipleTransactions(t *testing.T) {
 }
 
 func BenchmarkAccessOpsBuildDependencyDag(b *testing.B) {
-	a := app.Setup(false, false, false)
+	a := app.SetupWithDefaultHome(false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	accounts := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
@@ -2212,7 +2212,7 @@ func BenchmarkAccessOpsBuildDependencyDag(b *testing.B) {
 }
 
 func TestInvalidAccessOpsBuildDependencyDag(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	accounts := app.AddTestAddrsIncremental(a, ctx, 3, sdk.NewInt(30000000))
@@ -2276,7 +2276,7 @@ func TestInvalidAccessOpsBuildDependencyDag(t *testing.T) {
 }
 
 func TestIterateWasmDependenciesBreak(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
 
 	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 4, sdk.NewInt(30000000))

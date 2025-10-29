@@ -14,8 +14,8 @@ import (
 	dbm "github.com/tendermint/tm-db"
 )
 
-func setup(withGenesis bool, invCheckPeriod uint, db dbm.DB) (*app.App, map[string]json.RawMessage) {
-	a := app.SetupWithDB(db, false, false, false)
+func setup(t *testing.T, withGenesis bool, invCheckPeriod uint, db dbm.DB) (*app.App, map[string]json.RawMessage) {
+	a := app.SetupWithDB(t, db, false, false, false)
 	if withGenesis {
 		return a, app.ModuleBasics.DefaultGenesis(a.AppCodec())
 	}
@@ -23,8 +23,8 @@ func setup(withGenesis bool, invCheckPeriod uint, db dbm.DB) (*app.App, map[stri
 }
 
 // Setup initializes a new SimApp. A Nop logger is set in SimApp.
-func SetupWithDB(isCheckTx bool, db dbm.DB) *app.App {
-	a, genesisState := setup(!isCheckTx, 5, db)
+func SetupWithDB(t *testing.T, isCheckTx bool, db dbm.DB) *app.App {
+	a, genesisState := setup(t, !isCheckTx, 5, db)
 	if !isCheckTx {
 		// init chain must be called to stop deliverState from being nil
 		stateBytes, err := json.MarshalIndent(genesisState, "", " ")
@@ -48,7 +48,7 @@ func SetupWithDB(isCheckTx bool, db dbm.DB) *app.App {
 func TestRollback(t *testing.T) {
 	t.Skip()
 	db := dbm.NewMemDB()
-	a := SetupWithDB(false, db)
+	a := SetupWithDB(t, false, db)
 	a.SetDeliverStateToCommit()
 	a.Commit(context.Background())
 	ver0 := a.LastBlockHeight()
@@ -75,7 +75,7 @@ func TestRollback(t *testing.T) {
 	require.Equal(t, target, a.LastBlockHeight())
 
 	// recreate app to have clean check state
-	a = SetupWithDB(false, db)
+	a = SetupWithDB(t, false, db)
 	store = a.NewContext(true, tmproto.Header{}).KVStore(a.GetKey("bank"))
 	require.Equal(t, []byte("value5"), store.Get([]byte("key")))
 
