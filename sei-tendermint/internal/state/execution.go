@@ -117,7 +117,7 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 		&abci.RequestPrepareProposal{
 			MaxTxBytes:            maxDataBytes,
 			Txs:                   block.Txs.ToSliceOfBytes(),
-			LocalLastCommit:       buildExtendedCommitInfo(lastCommit, blockExec.store, state.InitialHeight),
+			LocalLastCommit:       buildCommitInfo(lastCommit, blockExec.store, state.InitialHeight),
 			ByzantineValidators:   block.Evidence.ToABCI(),
 			Height:                block.Height,
 			Time:                  block.Time,
@@ -559,8 +559,8 @@ func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) a
 	}
 }
 
-// buildExtendedCommitInfo populates an ABCI extended commit from the
-// corresponding Tendermint extended commit ec, using the stored validator set
+// buildCommitInfo populates an ABCI commit from the
+// corresponding Tendermint commit ec, using the stored validator set
 // from ec.  It requires ec to include the original precommit votes along with
 // the vote extensions from the last commit.
 //
@@ -568,10 +568,10 @@ func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) a
 // data, it returns an empty record.
 //
 // Assumes that the commit signatures are sorted according to validator index.
-func buildExtendedCommitInfo(ec *types.Commit, store Store, initialHeight int64) abci.ExtendedCommitInfo {
+func buildCommitInfo(ec *types.Commit, store Store, initialHeight int64) abci.CommitInfo {
 	if ec.Height < initialHeight {
 		// There are no extended commits for heights below the initial height.
-		return abci.ExtendedCommitInfo{}
+		return abci.CommitInfo{}
 	}
 
 	valSet, err := store.LoadValidators(ec.Height)
@@ -593,7 +593,7 @@ func buildExtendedCommitInfo(ec *types.Commit, store Store, initialHeight int64)
 		))
 	}
 
-	votes := make([]abci.ExtendedVoteInfo, ecSize)
+	votes := make([]abci.VoteInfo, ecSize)
 	for i, val := range valSet.Validators {
 		ecs := ec.Signatures[i]
 
@@ -605,13 +605,13 @@ func buildExtendedCommitInfo(ec *types.Commit, store Store, initialHeight int64)
 			))
 		}
 
-		votes[i] = abci.ExtendedVoteInfo{
+		votes[i] = abci.VoteInfo{
 			Validator:       types.TM2PB.Validator(val),
 			SignedLastBlock: ecs.BlockIDFlag != types.BlockIDFlagAbsent,
 		}
 	}
 
-	return abci.ExtendedCommitInfo{
+	return abci.CommitInfo{
 		Round: ec.Round,
 		Votes: votes,
 	}
