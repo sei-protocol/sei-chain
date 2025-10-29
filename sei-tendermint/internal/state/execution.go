@@ -693,7 +693,7 @@ func (state State) Update(
 
 	nextVersion := state.Version
 
-	// NOTE: the AppHash and the VoteExtension has not been populated.
+	// NOTE: the AppHash has not been populated.
 	// It will be filled on state.Save.
 	return State{
 		Version:                          nextVersion,

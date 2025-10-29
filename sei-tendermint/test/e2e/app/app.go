@@ -78,7 +78,6 @@ type Config struct {
 	PrepareProposalDelayMS uint64 `toml:"prepare_proposal_delay_ms"`
 	ProcessProposalDelayMS uint64 `toml:"process_proposal_delay_ms"`
 	CheckTxDelayMS         uint64 `toml:"check_tx_delay_ms"`
-	VoteExtensionDelayMS   uint64 `toml:"vote_extension_delay_ms"`
 	FinalizeBlockDelayMS   uint64 `toml:"finalize_block_delay_ms"`
 }
 
