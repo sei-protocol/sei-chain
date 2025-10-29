@@ -117,7 +117,7 @@ func (blockExec *BlockExecutor) CreateProposalBlock(
 		&abci.RequestPrepareProposal{
 			MaxTxBytes:            maxDataBytes,
 			Txs:                   block.Txs.ToSliceOfBytes(),
-			LocalLastCommit:       buildCommitInfo(lastCommit, blockExec.store, state.InitialHeight),
+			LocalLastCommitInfo:   buildCommitInfo(lastCommit, blockExec.store, state.InitialHeight),
 			ByzantineValidators:   block.Evidence.ToABCI(),
 			Height:                block.Height,
 			Time:                  block.Time,

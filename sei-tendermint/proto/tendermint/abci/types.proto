@@ -117,7 +117,8 @@ message RequestPrepareProposal {
   // txs is an array of transactions that will be included in a block,
   // sent to the app for possible modifications.
   repeated bytes txs = 2;
-  CommitInfo local_last_commit = 3 [(gogoproto.nullable) = false];
+  reserved 3; // local_last_commit
+  reserved "local_last_commit";
   repeated Misbehavior byzantine_validators = 4 [(gogoproto.nullable) = false];
   int64 height = 5;
   google.protobuf.Timestamp time = 6 [
@@ -137,6 +138,7 @@ message RequestPrepareProposal {
   bytes last_block_part_set_hash = 16;
   bytes last_commit_hash = 17;
   bytes last_results_hash = 18;
+  CommitInfo local_last_commit_info = 19 [(gogoproto.nullable) = false]; // meant to replace the deprecated ExtendedCommitInfo local_last_commit
 }
 
 message RequestProcessProposal {
