@@ -41,6 +41,7 @@ message Request {
     RequestGetTxPriorityHint get_tx_priority_hint = 24;
   }
   reserved 6, 8, 9, 17, 18; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestExtendVote, RequestVerifyVoteExtension
+  reserved "extend_vote", "verify_vote_extension";
 }
 
 message RequestEcho {
@@ -241,6 +242,7 @@ message Response {
     ResponseGetTxPriorityHint get_tx_priority_hint = 25;
   }
   reserved 7, 9, 10, 18, 19; // ResponseBeginBlock, ResponseDeliverTx, ResponseEndBlock, ResponseExtendVote, ResponseVerifyVoteExtension
+  reserved "extend_vote", "verify_vote_extension";
 }
 
 // nondeterministic
@@ -538,6 +540,7 @@ message ExtendedVoteInfo {
   bool signed_last_block = 2;
 
   reserved 3; // vote_extension
+  reserved "vote_extension";
 }
 
 enum MisbehaviorType {
