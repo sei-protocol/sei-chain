@@ -33,8 +33,6 @@ message Request {
     RequestApplySnapshotChunk apply_snapshot_chunk = 14;
     RequestPrepareProposal prepare_proposal = 15;
     RequestProcessProposal process_proposal = 16;
-    RequestExtendVote extend_vote = 17;
-    RequestVerifyVoteExtension verify_vote_extension = 18;
     RequestFinalizeBlock finalize_block = 19;
     RequestBeginBlock begin_block = 20;
     RequestDeliverTx deliver_tx = 21;
@@ -42,7 +40,7 @@ message Request {
     RequestLoadLatest load_latest = 23;
     RequestGetTxPriorityHint get_tx_priority_hint = 24;
   }
-  reserved 6, 8, 9; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock
+  reserved 6, 8, 9, 17, 18; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestExtendVote, RequestVerifyVoteExtension
 }
 
 message RequestEcho {
@@ -166,20 +164,6 @@ message RequestProcessProposal {
   bytes last_results_hash = 19;
 }
 
-// Extends a vote with application-side injection
-message RequestExtendVote {
-  bytes hash = 1;
-  int64 height = 2;
-}
-
-// Verify the vote extension
-message RequestVerifyVoteExtension {
-  bytes hash = 1;
-  bytes validator_address = 2;
-  int64 height = 3;
-  bytes vote_extension = 4;
-}
-
 message RequestFinalizeBlock {
   repeated bytes txs = 1;
   CommitInfo decided_last_commit = 2 [(gogoproto.nullable) = false];
@@ -249,8 +233,6 @@ message Response {
     ResponseApplySnapshotChunk apply_snapshot_chunk = 15;
     ResponsePrepareProposal prepare_proposal = 16;
     ResponseProcessProposal process_proposal = 17;
-    ResponseExtendVote extend_vote = 18;
-    ResponseVerifyVoteExtension verify_vote_extension = 19;
     ResponseFinalizeBlock finalize_block = 20;
     ResponseBeginBlock begin_block = 21;
     ResponseDeliverTx deliver_tx = 22;
@@ -258,7 +240,7 @@ message Response {
     ResponseLoadLatest load_latest = 24;
     ResponseGetTxPriorityHint get_tx_priority_hint = 25;
   }
-  reserved 7, 9, 10; // ResponseBeginBlock, ResponseDeliverTx, ResponseEndBlock
+  reserved 7, 9, 10, 18, 19; // ResponseBeginBlock, ResponseDeliverTx, ResponseEndBlock, ResponseExtendVote, ResponseVerifyVoteExtension
 }
 
 // nondeterministic
@@ -410,20 +392,6 @@ message ResponseProcessProposal {
   }
 }
 
-message ResponseExtendVote {
-  bytes vote_extension = 1;
-}
-
-message ResponseVerifyVoteExtension {
-  VerifyStatus status = 1;
-
-  enum VerifyStatus {
-    UNKNOWN = 0;
-    ACCEPT = 1;
-    REJECT = 2;
-  }
-}
-
 message ResponseFinalizeBlock {
   repeated Event events = 1 [
     (gogoproto.nullable) = false,
@@ -568,8 +536,8 @@ message ExtendedVoteInfo {
   Validator validator = 1 [(gogoproto.nullable) = false];
   // Indicates whether the validator signed the last block, allowing for rewards based on validator availability.
   bool signed_last_block = 2;
-  // Non-deterministic extension provided by the sending validator's application.
-  bytes vote_extension = 3;
+
+  reserved 3; // vote_extension
 }
 
 enum MisbehaviorType {
@@ -650,8 +618,6 @@ service ABCIApplication {
   rpc ApplySnapshotChunk(RequestApplySnapshotChunk) returns (ResponseApplySnapshotChunk);
   rpc PrepareProposal(RequestPrepareProposal) returns (ResponsePrepareProposal);
   rpc ProcessProposal(RequestProcessProposal) returns (ResponseProcessProposal);
-  rpc ExtendVote(RequestExtendVote) returns (ResponseExtendVote);
-  rpc VerifyVoteExtension(RequestVerifyVoteExtension) returns (ResponseVerifyVoteExtension);
   rpc FinalizeBlock(RequestFinalizeBlock) returns (ResponseFinalizeBlock);
   rpc LoadLatest(RequestLoadLatest) returns (ResponseLoadLatest);
   rpc GetTxPriorityHint(RequestGetTxPriorityHint) returns (ResponseGetTxPriorityHint);
