@@ -418,7 +418,7 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) (c *Conne
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			if err := r.peerManager.DialFailed(ctx, address); err != nil {
-				r.logger.Error("failed to report dial failure %v: %w", address, err)
+				r.logger.Error("failed to report dial failure", "addr", address.String(), "err", err)
 			}
 		}
 		return nil, fmt.Errorf("failed to handshake with peer %v: %w", address, err)

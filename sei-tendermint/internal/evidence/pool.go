@@ -615,7 +615,7 @@ func (evpool *Pool) processConsensusBuffer(ctx context.Context, state sm.State) 
 		}
 
 		if err := evpool.addPendingEvidence(ctx, dve); err != nil {
-			evpool.logger.Error("failed to flush evidence from consensus buffer to pending list: %w", err)
+			evpool.logger.Error("failed to flush evidence from consensus buffer to pending list", "err", err)
 			continue
 		}
 
