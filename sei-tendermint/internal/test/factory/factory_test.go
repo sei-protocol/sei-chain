@@ -7,7 +7,7 @@ import (
 )
 
 func TestMakeHeader(t *testing.T) {
-	MakeHeader(t, &types.Header{})
+	MakeHeader(&types.Header{})
 }
 
 func TestRandomNodeID(t *testing.T) {

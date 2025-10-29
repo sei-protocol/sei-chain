@@ -71,7 +71,7 @@ type PeerUpdate struct {
 // PeerUpdates is a peer update subscription with notifications about peer
 // events (currently just status changes).
 type PeerUpdates struct {
-	routerUpdatesCh  chan PeerUpdate
+	preexistingPeers []PeerUpdate
 	reactorUpdatesCh chan PeerUpdate
 }
 
@@ -81,22 +81,16 @@ type PeerUpdates struct {
 func NewPeerUpdates(updatesCh chan PeerUpdate, buf int) *PeerUpdates {
 	return &PeerUpdates{
 		reactorUpdatesCh: updatesCh,
-		routerUpdatesCh:  make(chan PeerUpdate, buf),
 	}
+}
+
+func (pu *PeerUpdates) PreexistingPeers() []PeerUpdate {
+	return pu.preexistingPeers
 }
 
 // Updates returns a channel for consuming peer updates.
 func (pu *PeerUpdates) Updates() <-chan PeerUpdate {
 	return pu.reactorUpdatesCh
-}
-
-// SendUpdate pushes information about a peer into the routing layer,
-// presumably from a peer.
-func (pu *PeerUpdates) SendUpdate(ctx context.Context, update PeerUpdate) {
-	select {
-	case <-ctx.Done():
-	case pu.routerUpdatesCh <- update:
-	}
 }
 
 // PeerManagerOptions specifies options for a PeerManager.
@@ -321,13 +315,13 @@ type PeerManager struct {
 	mtx                 sync.Mutex
 	dynamicPrivatePeers map[types.NodeID]struct{} // dynamically added private peers
 	store               *peerStore
-	subscriptions       map[*PeerUpdates]*PeerUpdates // keyed by struct identity (address)
-	dialing             map[types.NodeID]bool         // peers being dialed (DialNext → Dialed/DialFail)
-	upgrading           map[types.NodeID]types.NodeID // peers claimed for upgrade (DialNext → Dialed/DialFail)
-	connected           map[types.NodeID]bool         // connected peers (Dialed/Accepted → Disconnected)
-	ready               map[types.NodeID]bool         // ready peers (Ready → Disconnected)
-	evict               map[types.NodeID]error        // peers scheduled for eviction (Connected → EvictNext)
-	evicting            map[types.NodeID]bool         // peers being evicted (EvictNext → Disconnected)
+	subscriptions       map[*PeerUpdates]*PeerUpdates              // keyed by struct identity (address)
+	dialing             map[types.NodeID]bool                      // peers being dialed (DialNext → Dialed/DialFail)
+	upgrading           map[types.NodeID]types.NodeID              // peers claimed for upgrade (DialNext → Dialed/DialFail)
+	connected           map[types.NodeID]bool                      // connected peers (Dialed/Accepted → Disconnected)
+	ready               utils.Watch[map[types.NodeID]ChannelIDSet] // ready peers (Ready → Disconnected)
+	evict               map[types.NodeID]error                     // peers scheduled for eviction (Connected → EvictNext)
+	evicting            map[types.NodeID]bool                      // peers being evicted (EvictNext → Disconnected)
 	metrics             *Metrics
 }
 
@@ -366,7 +360,7 @@ func NewPeerManager(
 		dialing:             map[types.NodeID]bool{},
 		upgrading:           map[types.NodeID]types.NodeID{},
 		connected:           map[types.NodeID]bool{},
-		ready:               map[types.NodeID]bool{},
+		ready:               utils.NewWatch(map[types.NodeID]ChannelIDSet{}),
 		evict:               map[types.NodeID]error{},
 		evicting:            map[types.NodeID]bool{},
 		subscriptions:       map[*PeerUpdates]*PeerUpdates{},
@@ -794,7 +788,10 @@ func (m *PeerManager) Ready(ctx context.Context, peerID types.NodeID, channels C
 	defer m.mtx.Unlock()
 
 	if m.connected[peerID] {
-		m.ready[peerID] = true
+		for ready, ctrl := range m.ready.Lock() {
+			ready[peerID] = channels
+			ctrl.Updated()
+		}
 		m.broadcast(ctx, PeerUpdate{
 			NodeID:   peerID,
 			Status:   PeerStatusUp,
@@ -883,15 +880,18 @@ func (m *PeerManager) Disconnected(ctx context.Context, peerID types.NodeID) {
 		m.store.ranked = nil
 	}
 
-	ready := m.ready[peerID]
-
 	delete(m.connected, peerID)
 	delete(m.upgrading, peerID)
 	delete(m.evict, peerID)
 	delete(m.evicting, peerID)
-	delete(m.ready, peerID)
+	var isReady bool
+	for ready, ctrl := range m.ready.Lock() {
+		_, isReady = ready[peerID]
+		delete(ready, peerID)
+		ctrl.Updated()
+	}
 
-	if ready {
+	if isReady {
 		m.broadcast(ctx, PeerUpdate{
 			NodeID: peerID,
 			Status: PeerStatusDown,
@@ -899,6 +899,25 @@ func (m *PeerManager) Disconnected(ctx context.Context, peerID types.NodeID) {
 	}
 
 	m.dialWaker.Wake()
+}
+
+// SendError reports a peer misbehavior to the router.
+func (m *PeerManager) SendError(pe PeerError) {
+	// TODO: this should be atomic.
+	shouldEvict := pe.Fatal || m.HasMaxPeerCapacity()
+	m.logger.Error("peer error",
+		"peer", pe.NodeID,
+		"err", pe.Err,
+		"evicting", shouldEvict,
+	)
+	if shouldEvict {
+		m.Errored(pe.NodeID, pe.Err)
+	} else {
+		m.SendUpdate(PeerUpdate{
+			NodeID: pe.NodeID,
+			Status: PeerStatusBad,
+		})
+	}
 }
 
 // Errored reports a peer error, causing the peer to be evicted if it's
@@ -970,49 +989,26 @@ func (m *PeerManager) NumConnected() int {
 	return cnt
 }
 
-// PeerEventSubscriber describes the type of the subscription method, to assist
-// in isolating reactors specific construction and lifecycle from the
-// peer manager.
-type PeerEventSubscriber func(context.Context) *PeerUpdates
-
 // Subscribe subscribes to peer updates. The caller must consume the peer
 // updates in a timely fashion and close the subscription when done, otherwise
 // the PeerManager will halt.
 func (m *PeerManager) Subscribe(ctx context.Context) *PeerUpdates {
-	// FIXME: We use a size 1 buffer here. When we broadcast a peer update
-	// we have to loop over all of the subscriptions, and we want to avoid
-	// having to block and wait for a context switch before continuing on
-	// to the next subscriptions. This also prevents tail latencies from
-	// compounding. Limiting it to 1 means that the subscribers are still
-	// reasonably in sync. However, this should probably be benchmarked.
-	peerUpdates := NewPeerUpdates(make(chan PeerUpdate, 1), 1)
-	m.Register(ctx, peerUpdates)
-	return peerUpdates
-}
-
-// Register allows you to inject a custom PeerUpdate instance into the
-// PeerManager, rather than relying on the instance constructed by the
-// Subscribe method, which wraps the functionality of the Register
-// method.
-//
-// The caller must consume the peer updates from this PeerUpdates
-// instance in a timely fashion and close the subscription when done,
-// otherwise the PeerManager will halt.
-func (m *PeerManager) Register(ctx context.Context, peerUpdates *PeerUpdates) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
+	peerUpdates := NewPeerUpdates(make(chan PeerUpdate, 1), 1)
 	m.subscriptions[peerUpdates] = peerUpdates
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case pu := <-peerUpdates.routerUpdatesCh:
-				m.processPeerEvent(ctx, pu)
-			}
+	var updates []PeerUpdate
+	for ready := range m.ready.Lock() {
+		for id, channels := range ready {
+			updates = append(updates, PeerUpdate{
+				NodeID:   id,
+				Status:   PeerStatusUp,
+				Channels: channels,
+			})
 		}
-	}()
+	}
+	peerUpdates.preexistingPeers = updates
 
 	go func() {
 		<-ctx.Done()
@@ -1020,15 +1016,12 @@ func (m *PeerManager) Register(ctx context.Context, peerUpdates *PeerUpdates) {
 		defer m.mtx.Unlock()
 		delete(m.subscriptions, peerUpdates)
 	}()
+	return peerUpdates
 }
 
-func (m *PeerManager) processPeerEvent(ctx context.Context, pu PeerUpdate) {
+func (m *PeerManager) SendUpdate(pu PeerUpdate) {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
-
-	if ctx.Err() != nil {
-		return
-	}
 
 	switch pu.Status {
 	case PeerStatusBad:
@@ -1122,12 +1115,13 @@ func (m *PeerManager) Score(id types.NodeID) int {
 func (m *PeerManager) Status(id types.NodeID) PeerStatus {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
-	switch {
-	case m.ready[id]:
-		return PeerStatusUp
-	default:
+	for ready := range m.ready.Lock() {
+		if _, ok := ready[id]; ok {
+			return PeerStatusUp
+		}
 		return PeerStatusDown
 	}
+	panic("unreachable")
 }
 
 func (m *PeerManager) State(id types.NodeID) string {
@@ -1135,8 +1129,10 @@ func (m *PeerManager) State(id types.NodeID) string {
 	defer m.mtx.Unlock()
 
 	states := []string{}
-	if _, ok := m.ready[id]; ok {
-		states = append(states, "ready")
+	for ready := range m.ready.Lock() {
+		if _, ok := ready[id]; ok {
+			states = append(states, "ready")
+		}
 	}
 	if _, ok := m.dialing[id]; ok {
 		states = append(states, "dialing")
@@ -1610,7 +1606,10 @@ func keyPeerInfoRange() ([]byte, []byte) {
 
 // Added for unit test
 func (m *PeerManager) MarkReadyConnected(nodeId types.NodeID) {
-	m.ready[nodeId] = true
+	for ready, ctrl := range m.ready.Lock() {
+		ready[nodeId] = ChannelIDSet{}
+		ctrl.Updated()
+	}
 	m.connected[nodeId] = true
 }
 

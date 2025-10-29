@@ -206,16 +206,16 @@ func TestVerifyLightClientAttack_Equivocation(t *testing.T) {
 
 	logger := log.NewNopLogger()
 
-	conflictingVals, conflictingPrivVals := factory.ValidatorSet(ctx, t, 5, 10)
+	conflictingVals, conflictingPrivVals := factory.ValidatorSet(ctx, 5, 10)
 
-	conflictingHeader := factory.MakeHeader(t, &types.Header{
+	conflictingHeader := factory.MakeHeader(&types.Header{
 		ChainID:        evidenceChainID,
 		Height:         10,
 		Time:           defaultEvidenceTime,
 		ValidatorsHash: conflictingVals.Hash(),
 	})
 
-	trustedHeader := factory.MakeHeader(t, &types.Header{
+	trustedHeader := factory.MakeHeader(&types.Header{
 		ChainID:            evidenceChainID,
 		Height:             10,
 		Time:               defaultEvidenceTime,
@@ -306,16 +306,16 @@ func TestVerifyLightClientAttack_Amnesia(t *testing.T) {
 	logger := log.NewNopLogger()
 
 	var height int64 = 10
-	conflictingVals, conflictingPrivVals := factory.ValidatorSet(ctx, t, 5, 10)
+	conflictingVals, conflictingPrivVals := factory.ValidatorSet(ctx, 5, 10)
 
-	conflictingHeader := factory.MakeHeader(t, &types.Header{
+	conflictingHeader := factory.MakeHeader(&types.Header{
 		ChainID:        evidenceChainID,
 		Height:         height,
 		Time:           defaultEvidenceTime,
 		ValidatorsHash: conflictingVals.Hash(),
 	})
 
-	trustedHeader := factory.MakeHeader(t, &types.Header{
+	trustedHeader := factory.MakeHeader(&types.Header{
 		ChainID:            evidenceChainID,
 		Height:             height,
 		Time:               defaultEvidenceTime,
@@ -508,14 +508,14 @@ func makeLunaticEvidence(
 ) (ev *types.LightClientAttackEvidence, trusted *types.LightBlock, common *types.LightBlock) {
 	t.Helper()
 
-	commonValSet, commonPrivVals := factory.ValidatorSet(ctx, t, totalVals, defaultVotingPower)
+	commonValSet, commonPrivVals := factory.ValidatorSet(ctx, totalVals, defaultVotingPower)
 
 	require.Greater(t, totalVals, byzVals)
 
 	// extract out the subset of byzantine validators in the common validator set
 	byzValSet, byzPrivVals := commonValSet.Validators[:byzVals], commonPrivVals[:byzVals]
 
-	phantomValSet, phantomPrivVals := factory.ValidatorSet(ctx, t, phantomVals, defaultVotingPower)
+	phantomValSet, phantomPrivVals := factory.ValidatorSet(ctx, phantomVals, defaultVotingPower)
 
 	conflictingVals := phantomValSet.Copy()
 	require.NoError(t, conflictingVals.UpdateWithChangeSet(byzValSet))
@@ -523,19 +523,19 @@ func makeLunaticEvidence(
 
 	conflictingPrivVals = orderPrivValsByValSet(ctx, t, conflictingVals, conflictingPrivVals)
 
-	commonHeader := factory.MakeHeader(t, &types.Header{
+	commonHeader := factory.MakeHeader(&types.Header{
 		ChainID: evidenceChainID,
 		Height:  commonHeight,
 		Time:    commonTime,
 	})
 
-	trustedHeader := factory.MakeHeader(t, &types.Header{
+	trustedHeader := factory.MakeHeader(&types.Header{
 		ChainID: evidenceChainID,
 		Height:  height,
 		Time:    defaultEvidenceTime,
 	})
 
-	conflictingHeader := factory.MakeHeader(t, &types.Header{
+	conflictingHeader := factory.MakeHeader(&types.Header{
 		ChainID:        evidenceChainID,
 		Height:         height,
 		Time:           attackTime,
@@ -570,7 +570,7 @@ func makeLunaticEvidence(
 		ValidatorSet: commonValSet,
 	}
 	trustedBlockID := factory.MakeBlockIDWithHash(trustedHeader.Hash())
-	trustedVals, privVals := factory.ValidatorSet(ctx, t, totalVals, defaultVotingPower)
+	trustedVals, privVals := factory.ValidatorSet(ctx, totalVals, defaultVotingPower)
 	trustedVoteSet := types.NewVoteSet(evidenceChainID, height, 1, tmproto.SignedMsgType(2), trustedVals)
 	trustedCommit, err := factory.MakeCommit(ctx, trustedBlockID, height, 1, trustedVoteSet, privVals, defaultEvidenceTime)
 	require.NoError(t, err)

@@ -168,9 +168,10 @@ func setArchiveTypeAppConfig(config *srvconfig.Config) {
 	setFullnodeTypeAppConfig(config)
 
 	// Archive nodes keep all history
-	config.StateStore.KeepRecent = 0 // 0 = keep all history
+	config.StateStore.KeepRecent = 0 // 0 = keep all state history
+	config.MinRetainBlocks = 0       // 0 = keep all Tendermint blocks
 
-	// Pruning and MinRetainBlocks use defaults (nothing,0,0 - keep all block history)
+	// Pruning uses defaults (nothing,0,0 - keep all state history)
 }
 
 // SetAppConfigByMode sets app config values based on node mode

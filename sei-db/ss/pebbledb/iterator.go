@@ -2,10 +2,13 @@ package pebbledb
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 
 	"github.com/cockroachdb/pebble"
 	"github.com/sei-protocol/sei-db/ss/types"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/exp/slices"
 )
 
@@ -26,19 +29,22 @@ type iterator struct {
 	version            int64
 	valid              bool
 	reverse            bool
+	iterationCount     int64
+	storeKey           string
 }
 
-func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool) *iterator {
+func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte, version int64, earliestVersion int64, reverse bool, storeKey string) *iterator {
 	// Return invalid iterator if requested iterator height is lower than earliest version after pruning
 	if version < earliestVersion {
 		return &iterator{
-			source:  src,
-			prefix:  prefix,
-			start:   mvccStart,
-			end:     mvccEnd,
-			version: version,
-			valid:   false,
-			reverse: reverse,
+			source:   src,
+			prefix:   prefix,
+			start:    mvccStart,
+			end:      mvccEnd,
+			version:  version,
+			valid:    false,
+			reverse:  reverse,
+			storeKey: storeKey,
 		}
 	}
 
@@ -51,13 +57,14 @@ func newPebbleDBIterator(src *pebble.Iterator, prefix, mvccStart, mvccEnd []byte
 	}
 
 	itr := &iterator{
-		source:  src,
-		prefix:  prefix,
-		start:   mvccStart,
-		end:     mvccEnd,
-		version: version,
-		valid:   valid,
-		reverse: reverse,
+		source:   src,
+		prefix:   prefix,
+		start:    mvccStart,
+		end:      mvccEnd,
+		version:  version,
+		valid:    valid,
+		reverse:  reverse,
+		storeKey: storeKey,
 	}
 
 	if valid {
@@ -289,6 +296,8 @@ func (itr *iterator) nextReverse() {
 }
 
 func (itr *iterator) Next() {
+	itr.iterationCount++
+
 	if itr.reverse {
 		itr.nextReverse()
 	} else {
@@ -328,6 +337,17 @@ func (itr *iterator) Close() error {
 	_ = itr.source.Close()
 	itr.source = nil
 	itr.valid = false
+
+	// Record the number of iterations performed by this iterator
+	otelMetrics.iteratorIterations.Record(
+		context.Background(),
+		float64(itr.iterationCount),
+		metric.WithAttributes(
+			attribute.Bool("reverse", itr.reverse),
+			attribute.String("store", itr.storeKey),
+		),
+	)
+
 	return nil
 }
 

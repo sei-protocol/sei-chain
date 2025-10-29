@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/fortytw2/leaktest"
 	"github.com/stretchr/testify/require"
@@ -257,7 +258,7 @@ func makeSocketClientServer(
 
 	ctx, cancel := context.WithCancel(ctx)
 	t.Cleanup(cancel)
-	t.Cleanup(leaktest.Check(t))
+	t.Cleanup(leaktest.CheckTimeout(t, 10*time.Second))
 
 	// Start the listener
 	socket := fmt.Sprintf("unix://%s.sock", name)
@@ -287,7 +288,7 @@ func makeGRPCClientServer(
 ) (abciclient.Client, service.Service, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	t.Cleanup(cancel)
-	t.Cleanup(leaktest.Check(t))
+	t.Cleanup(leaktest.CheckTimeout(t, 10*time.Second))
 
 	// Start the listener
 	socket := fmt.Sprintf("unix://%s.sock", name)

@@ -213,6 +213,10 @@ func (k *Keeper) BankKeeper() bankkeeper.Keeper {
 	return k.bankKeeper
 }
 
+func (k *Keeper) ReceiptStore() seidbtypes.StateStore {
+	return k.receiptStore
+}
+
 func (k *Keeper) WasmKeeper() *wasmkeeper.PermissionedKeeper {
 	return k.wasmKeeper
 }

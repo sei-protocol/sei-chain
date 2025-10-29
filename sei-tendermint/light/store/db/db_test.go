@@ -190,7 +190,7 @@ func Test_Concurrency(t *testing.T) {
 
 func randLightBlock(ctx context.Context, t *testing.T, height int64) *types.LightBlock {
 	t.Helper()
-	vals, _ := factory.ValidatorSet(ctx, t, 2, 1)
+	vals, _ := factory.ValidatorSet(ctx, 2, 1)
 	return &types.LightBlock{
 		SignedHeader: &types.SignedHeader{
 			Header: &types.Header{

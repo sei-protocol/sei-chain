@@ -158,13 +158,12 @@ func TestNodeInfoCompatible(t *testing.T) {
 	}{
 		{"Wrong block version", func(ni *NodeInfo) { ni.ProtocolVersion.Block++ }},
 		{"Wrong network", func(ni *NodeInfo) { ni.Network += "-wrong" }},
-		{"No common channels", func(ni *NodeInfo) { ni.Channels = []byte{newTestChannel} }},
 	}
 
 	for _, tc := range testCases {
 		ni := testNodeInfo(t, nodeKey2ID, name)
 		tc.malleateNodeInfo(&ni)
-		assert.Error(t, ni1.CompatibleWith(ni))
+		assert.Error(t, ni1.CompatibleWith(ni), tc.testName)
 	}
 }
 
@@ -242,7 +241,7 @@ func TestResolveAddressString(t *testing.T) {
 			got, err := ResolveAddressString(tc.addr)
 			if want, ok := tc.want.Get(); ok {
 				require.NoError(t, err, tc.addr)
-				require.Equal(t, tcp.Norm(want), tcp.Norm(got))
+				require.Equal(t, want, got)
 			} else {
 				require.Error(t, err, "%v", tc.addr)
 			}

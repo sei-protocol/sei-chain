@@ -156,6 +156,14 @@ func (rs *Store) flush() error {
 			}
 			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
 		}
+	} else {
+		// ensure the state store watermark advances even for empty blocks
+		if rs.ssStore != nil {
+			if err := rs.ssStore.SetLatestVersion(currentVersion); err != nil {
+				panic(err)
+			}
+			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
+		}
 	}
 	return rs.scStore.ApplyChangeSets(changeSets)
 }
@@ -773,7 +781,8 @@ loop:
 	}
 	// initialize the earliest version for SS store
 	if rs.ssStore != nil {
-		rs.ssStore.SetEarliestVersion(height, false)
+		err := rs.ssStore.SetEarliestVersion(height, false)
+		rs.logger.Error("Failed to set earliest version during DB restore", err)
 	}
 
 	return snapshotItem, restoreErr

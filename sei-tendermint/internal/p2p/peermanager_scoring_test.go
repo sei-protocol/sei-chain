@@ -2,7 +2,6 @@ package p2p
 
 import (
 	"testing"
-	"time"
 
 	"github.com/tendermint/tendermint/libs/log"
 
@@ -38,7 +37,7 @@ func TestPeerScoring(t *testing.T) {
 
 		// add a bunch of good status updates and watch things increase.
 		for i := 1; i < 10; i++ {
-			peerManager.processPeerEvent(ctx, PeerUpdate{
+			peerManager.SendUpdate(PeerUpdate{
 				NodeID: a.NodeID,
 				Status: PeerStatusGood,
 			})
@@ -46,7 +45,7 @@ func TestPeerScoring(t *testing.T) {
 		}
 		// watch the corresponding decreases respond to update
 		for i := 1; i < 10; i++ {
-			peerManager.processPeerEvent(ctx, PeerUpdate{
+			peerManager.SendUpdate(PeerUpdate{
 				NodeID: a.NodeID,
 				Status: PeerStatusBad,
 			})
@@ -65,32 +64,6 @@ func TestPeerScoring(t *testing.T) {
 		}
 		require.EqualValues(t, DefaultMutableScore-2, peerManager.Scores()[a.NodeID])
 	})
-	t.Run("AsynchronousIncrement", func(t *testing.T) {
-		start := peerManager.Scores()[a.NodeID]
-		pu := peerManager.Subscribe(ctx)
-		pu.SendUpdate(ctx, PeerUpdate{
-			NodeID: a.NodeID,
-			Status: PeerStatusGood,
-		})
-		require.Eventually(t,
-			func() bool { return start+1 == peerManager.Scores()[a.NodeID] },
-			time.Second,
-			time.Millisecond,
-			"startAt=%d score=%d", start, peerManager.Scores()[a.NodeID])
-	})
-	t.Run("AsynchronousDecrement", func(t *testing.T) {
-		start := peerManager.Scores()[a.NodeID]
-		pu := peerManager.Subscribe(ctx)
-		pu.SendUpdate(ctx, PeerUpdate{
-			NodeID: a.NodeID,
-			Status: PeerStatusBad,
-		})
-		require.Eventually(t,
-			func() bool { return start-1 == peerManager.Scores()[a.NodeID] },
-			time.Second,
-			time.Millisecond,
-			"startAt=%d score=%d", start, peerManager.Scores()[a.NodeID])
-	})
 	t.Run("TestNonPersistantPeerUpperBound", func(t *testing.T) {
 		// Reset peer state to remove any previous penalties
 		peerManager.store.peers[a.NodeID] = &peerInfo{
@@ -99,7 +72,7 @@ func TestPeerScoring(t *testing.T) {
 		}
 
 		// Add successful blocks to increase score
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			peerManager.IncrementBlockSyncs(a.NodeID)
 		}
 

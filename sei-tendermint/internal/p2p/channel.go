@@ -3,7 +3,6 @@ package p2p
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/gogo/protobuf/proto"
 
@@ -11,17 +10,16 @@ import (
 	"github.com/tendermint/tendermint/types"
 )
 
-// Envelope contains a message with sender/receiver routing info.
-type Envelope struct {
-	From      types.NodeID  // sender (empty if outbound)
-	To        types.NodeID  // receiver (empty if inbound)
-	Broadcast bool          // send to all connected peers (ignores To)
-	Message   proto.Message // message payload
-	ChannelID ChannelID
+// sendMsg is a message to be sent to a peer.
+type sendMsg struct {
+	Message   proto.Message // WRAPPED message payload
+	ChannelID ChannelID     // channel id
 }
 
-func (e Envelope) IsZero() bool {
-	return e.From == "" && e.To == "" && e.Message == nil
+// RecvMsg is a message received from a peer.
+type RecvMsg struct {
+	Message proto.Message // UNWRAPPED message payload
+	From    types.NodeID  // sender
 }
 
 // Wrapper is a Protobuf message that can contain a variety of inner messages
@@ -57,155 +55,88 @@ type PeerError struct {
 func (pe PeerError) Error() string { return fmt.Sprintf("peer=%q: %s", pe.NodeID, pe.Err.Error()) }
 func (pe PeerError) Unwrap() error { return pe.Err }
 
-// Channel is a bidirectional channel to exchange Protobuf messages with peers.
-// Each message is wrapped in an Envelope to specify its sender and receiver.
-type Channel struct {
-	ID    ChannelID
-	inCh  *Queue           // inbound messages (peers to reactors)
-	outCh chan<- Envelope  // outbound messages (reactors to peers)
-	errCh chan<- PeerError // peer error reporting
+// channel is a bidirectional channel to exchange Protobuf messages with peers.
+type channel struct {
+	desc      ChannelDescriptor
+	recvQueue *Queue[RecvMsg] // inbound messages (peers to reactors)
+}
 
-	name string
+type Channel struct {
+	*channel
+	router *Router
 }
 
 // NewChannel creates a new channel. It is primarily for internal and test
 // use, reactors should use Router.OpenChannel().
-func NewChannel(id ChannelID, inCh *Queue, outCh chan<- Envelope, errCh chan<- PeerError) *Channel {
-	return &Channel{
-		ID:    id,
-		inCh:  inCh,
-		outCh: outCh,
-		errCh: errCh,
+func newChannel(desc ChannelDescriptor) *channel {
+	return &channel{
+		desc: desc,
+		// TODO(gprusak): get rid of this random cap*cap value once we understand
+		// what the sizes per channel really should be.
+		recvQueue: NewQueue[RecvMsg](desc.RecvBufferCapacity * desc.RecvBufferCapacity),
 	}
 }
 
-// Send blocks until the envelope has been sent, or until ctx ends.
-// An error only occurs if the context ends before the send completes.
-func (ch *Channel) Send(ctx context.Context, envelope Envelope) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case ch.outCh <- envelope:
-		return nil
+func (ch *Channel) send(msg proto.Message, queues ...*Queue[sendMsg]) {
+	// wrap the message if needed
+	if wrapper, ok := ch.desc.MessageType.(Wrapper); ok {
+		wrapper := utils.ProtoClone(wrapper)
+		if err := wrapper.Wrap(msg); err != nil {
+			ch.router.logger.Error("failed to wrap message", "channel", ch.desc.ID, "err", err)
+			return
+		}
+		msg = wrapper
+	}
+	m := sendMsg{msg, ch.desc.ID}
+	size := proto.Size(msg)
+	for _, q := range queues {
+		if pruned, ok := q.Send(m, size, ch.desc.Priority).Get(); ok {
+			ch.router.metrics.QueueDroppedMsgs.With("ch_id", fmt.Sprint(pruned.ChannelID), "direction", "out").Add(float64(1))
+		}
 	}
 }
 
-// SendError blocks until the given error has been sent, or ctx ends.
-// An error only occurs if the context ends before the send completes.
-func (ch *Channel) SendError(ctx context.Context, pe PeerError) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case ch.errCh <- pe:
-		return nil
+func (ch *Channel) Send(msg proto.Message, to types.NodeID) {
+	ok := false
+	var c *Connection
+	for conns := range ch.router.conns.RLock() {
+		c, ok = conns[to]
 	}
+	if !ok {
+		ch.router.logger.Debug("dropping message for unconnected peer", "peer", to, "channel", ch.desc.ID)
+		return
+	}
+	if _, contains := c.peerChannels[ch.desc.ID]; !contains {
+		// reactor tried to send a message across a channel that the
+		// peer doesn't have available. This is a known issue due to
+		// how peer subscriptions work:
+		// https://github.com/tendermint/tendermint/issues/6598
+		return
+	}
+	ch.send(msg, c.sendQueue)
 }
 
-func (ch *Channel) String() string { return fmt.Sprintf("p2p.Channel<%d:%s>", ch.ID, ch.name) }
+// Broadcasts msg to all peers on the channel.
+func (ch *Channel) Broadcast(msg proto.Message) {
+	var queues []*Queue[sendMsg]
+	for conns := range ch.router.conns.RLock() {
+		queues = make([]*Queue[sendMsg], 0, len(conns))
+		for _, c := range conns {
+			if _, ok := c.peerChannels[ch.desc.ID]; ok {
+				queues = append(queues, c.sendQueue)
+			}
+		}
+	}
+	ch.send(msg, queues...)
+}
 
-func (ch *Channel) ReceiveLen() int { return ch.inCh.Len() }
+func (ch *Channel) String() string {
+	return fmt.Sprintf("p2p.Channel<%d:%s>", ch.desc.ID, ch.desc.Name)
+}
+
+func (ch *Channel) ReceiveLen() int { return ch.recvQueue.Len() }
 
 // Recv Receives the next message from the channel.
-func (ch *Channel) Recv(ctx context.Context) (Envelope, error) { return ch.inCh.Recv(ctx) }
-
-// RecvAll returns a new unbuffered iterator to receive messages from ch.
-// The iterator runs until ctx ends.
-func (ch *Channel) RecvAll(ctx context.Context) *ChannelIterator {
-	iter := &ChannelIterator{
-		pipe: make(chan Envelope), // unbuffered
-	}
-	go func() {
-		defer close(iter.pipe)
-		iteratorWorker(ctx, ch, iter.pipe)
-	}()
-	return iter
-}
-
-// ChannelIterator provides a context-aware path for callers
-// (reactors) to process messages from the P2P layer without relying
-// on the implementation details of the P2P layer. Channel provides
-// access to it's Outbound stream as an iterator, and the
-// MergedChannelIterator makes it possible to combine multiple
-// channels into a single iterator.
-type ChannelIterator struct {
-	pipe    chan Envelope
-	current *Envelope
-}
-
-func iteratorWorker(ctx context.Context, ch *Channel, pipe chan Envelope) {
-	for {
-		e, err := ch.inCh.Recv(ctx)
-		if err != nil {
-			return
-		}
-		if err := utils.Send(ctx, pipe, e); err != nil {
-			return
-		}
-	}
-}
-
-// Next returns true when the Envelope value has advanced, and false
-// when the context is canceled or iteration should stop. If an iterator has returned false,
-// it will never return true again.
-// in general, use Next, as in:
-//
-//	for iter.Next(ctx) {
-//	     envelope := iter.Envelope()
-//	     // ... do things ...
-//	}
-func (iter *ChannelIterator) Next(ctx context.Context) bool {
-	select {
-	case <-ctx.Done():
-		iter.current = nil
-		return false
-	case envelope, ok := <-iter.pipe:
-		if !ok {
-			iter.current = nil
-			return false
-		}
-
-		iter.current = &envelope
-
-		return true
-	}
-}
-
-// Envelope returns the current Envelope object held by the
-// iterator. When the last call to Next returned true, Envelope will
-// return a non-nil object. If Next returned false then Envelope is
-// always nil.
-func (iter *ChannelIterator) Envelope() *Envelope { return iter.current }
-
-// MergedChannelIterator produces an iterator that merges the
-// messages from the given channels in arbitrary order.
-//
-// This allows the caller to consume messages from multiple channels
-// without needing to manage the concurrency separately.
-func MergedChannelIterator(ctx context.Context, chs ...*Channel) *ChannelIterator {
-	iter := &ChannelIterator{
-		pipe: make(chan Envelope), // unbuffered
-	}
-	wg := new(sync.WaitGroup)
-
-	for _, ch := range chs {
-		wg.Add(1)
-		go func(ch *Channel) {
-			defer wg.Done()
-			iteratorWorker(ctx, ch, iter.pipe)
-		}(ch)
-	}
-
-	done := make(chan struct{})
-	go func() { defer close(done); wg.Wait() }()
-
-	go func() {
-		defer close(iter.pipe)
-		// we could return early if the context is canceled,
-		// but this is safer because it means the pipe stays
-		// open until all of the ch worker threads end, which
-		// should happen very quickly.
-		<-done
-	}()
-
-	return iter
+func (ch *Channel) Recv(ctx context.Context) (RecvMsg, error) {
+	return ch.recvQueue.Recv(ctx)
 }

@@ -138,20 +138,13 @@ func (voteSet *VoteSet) Size() int {
 // NOTE: VoteSet must not be nil
 // NOTE: Vote must not be nil
 func (voteSet *VoteSet) AddVote(vote *Vote) (added bool, err error) {
-	if voteSet == nil {
-		panic("AddVote() on nil VoteSet")
-	}
 	voteSet.mtx.Lock()
 	defer voteSet.mtx.Unlock()
-
 	return voteSet.addVote(vote)
 }
 
 // NOTE: Validates as much as possible before attempting to verify the signature.
 func (voteSet *VoteSet) addVote(vote *Vote) (added bool, err error) {
-	if vote == nil {
-		return false, ErrVoteNil
-	}
 	valIndex := vote.ValidatorIndex
 	valAddr := vote.ValidatorAddress
 	blockKey := vote.BlockID.Key()

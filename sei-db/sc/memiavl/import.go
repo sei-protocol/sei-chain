@@ -237,12 +237,13 @@ func updateMetadataFile(dir string, height int64) (returnErr error) {
 		return err
 	}
 	storeInfos := make([]proto.StoreInfo, 0, len(entries))
+	opts := Options{PrefetchThreshold: 0}
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
 		name := e.Name()
-		snapshot, err := OpenSnapshot(filepath.Join(dir, name))
+		snapshot, err := OpenSnapshot(filepath.Join(dir, name), opts)
 		if err != nil {
 			return err
 		}

@@ -13,6 +13,7 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	protop2p "github.com/tendermint/tendermint/proto/tendermint/p2p"
 	"github.com/tendermint/tendermint/types"
 )
@@ -60,8 +61,8 @@ var NoPeersAvailableError = errors.New("no available peers to send a PEX request
 // within each reactor (as they are now) or, considering that the reactor doesn't
 // really need to care about the channel descriptors, if they should be housed
 // in the node module.
-func ChannelDescriptor() *conn.ChannelDescriptor {
-	return &conn.ChannelDescriptor{
+func ChannelDescriptor() conn.ChannelDescriptor {
+	return conn.ChannelDescriptor{
 		ID:                  PexChannel,
 		MessageType:         new(protop2p.PexMessage),
 		Priority:            1,
@@ -84,8 +85,7 @@ type Reactor struct {
 	service.BaseService
 	logger log.Logger
 
-	peerManager *p2p.PeerManager
-	peerEvents  p2p.PeerEventSubscriber
+	router *p2p.Router
 	// list of available peers to loop through and send peer requests to
 	availablePeers map[types.NodeID]struct{}
 	// keep track of the last time we saw no available peers, so we can restart if it's been too long
@@ -117,15 +117,18 @@ type Reactor struct {
 // NewReactor returns a reference to a new reactor.
 func NewReactor(
 	logger log.Logger,
-	peerManager *p2p.PeerManager,
-	peerEvents p2p.PeerEventSubscriber,
+	router *p2p.Router,
 	restartCh chan<- struct{},
 	selfRemediationConfig *config.SelfRemediationConfig,
-) *Reactor {
+) (*Reactor, error) {
+	channel, err := router.OpenChannel(ChannelDescriptor())
+	if err != nil {
+		return nil, err
+	}
 	r := &Reactor{
 		logger:                        logger,
-		peerManager:                   peerManager,
-		peerEvents:                    peerEvents,
+		channel:                       channel,
+		router:                        router,
 		availablePeers:                make(map[types.NodeID]struct{}),
 		lastNoAvailablePeers:          time.Time{},
 		requestsSent:                  make(map[types.NodeID]struct{}),
@@ -135,11 +138,7 @@ func NewReactor(
 	}
 
 	r.BaseService = *service.NewBaseService(logger, "PEX", r)
-	return r
-}
-
-func (r *Reactor) SetChannel(ch *p2p.Channel) {
-	r.channel = ch
+	return r, nil
 }
 
 // OnStart starts separate go routines for each p2p Channel and listens for
@@ -147,9 +146,8 @@ func (r *Reactor) SetChannel(ch *p2p.Channel) {
 // messages on that p2p channel accordingly. The caller must be sure to execute
 // OnStop to ensure the outbound p2p Channels are closed.
 func (r *Reactor) OnStart(ctx context.Context) error {
-	peerUpdates := r.peerEvents(ctx)
 	r.Spawn("processPexCh", func(ctx context.Context) error { return r.processPexCh(ctx) })
-	r.Spawn("processPeerUpdates", func(ctx context.Context) error { return r.processPeerUpdates(ctx, peerUpdates) })
+	r.Spawn("processPeerUpdates", func(ctx context.Context) error { return r.processPeerUpdates(ctx) })
 	return nil
 }
 
@@ -160,121 +158,124 @@ func (r *Reactor) OnStop() {}
 // processPexCh implements a blocking event loop where we listen for p2p
 // Envelope messages from the pexCh.
 func (r *Reactor) processPexCh(ctx context.Context) error {
-	incoming := make(chan *p2p.Envelope)
-	go func() {
-		defer close(incoming)
-		iter := r.channel.RecvAll(ctx)
-		for iter.Next(ctx) {
-			if err := utils.Send(ctx, incoming, iter.Envelope()); err != nil {
-				return
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		incoming := make(chan p2p.RecvMsg)
+		s.Spawn(func() error {
+			for {
+				m, err := r.channel.Recv(ctx)
+				if err != nil {
+					return err
+				}
+				if err := utils.Send(ctx, incoming, m); err != nil {
+					return err
+				}
 			}
-		}
-	}()
+		})
 
-	// Initially, we will request peers quickly to bootstrap.  This duration
-	// will be adjusted upward as knowledge of the network grows.
-	var nextPeerRequest = minReceiveRequestInterval
-	noAvailablePeerFailCounter := 0
-	lastNoAvailablePeersTime := time.Now()
+		// Initially, we will request peers quickly to bootstrap.  This duration
+		// will be adjusted upward as knowledge of the network grows.
+		var nextPeerRequest = minReceiveRequestInterval
+		noAvailablePeerFailCounter := 0
+		lastNoAvailablePeersTime := time.Now()
 
-	timer := time.NewTimer(0)
-	for {
-		timer.Reset(nextPeerRequest)
+		timer := time.NewTimer(0)
+		for {
+			timer.Reset(nextPeerRequest)
 
-		select {
-		case <-ctx.Done():
-			return nil
+			select {
+			case <-ctx.Done():
+				return nil
 
-		case <-timer.C:
-			// back off sending peer requests if there's none available.
-			// Let the loop continue to handle incoming pex messages
-			waitPeriod := noAvailablePeersWaitPeriod * time.Duration(noAvailablePeerFailCounter)
-			if time.Since(lastNoAvailablePeersTime) < waitPeriod {
-				r.logger.Debug(fmt.Sprintf("waiting for more peers to become available still in the waitPeriod=%v\n", waitPeriod))
-				continue
-			}
-
-			// Send a request for more peer addresses.
-			if err := r.sendRequestForPeers(ctx); err != nil {
-				r.logger.Error("failed to send request for peers", "err", err)
-				if errors.Is(err, NoPeersAvailableError) {
-					noAvailablePeerFailCounter++
-					lastNoAvailablePeersTime = time.Now()
+			case <-timer.C:
+				// back off sending peer requests if there's none available.
+				// Let the loop continue to handle incoming pex messages
+				waitPeriod := noAvailablePeersWaitPeriod * time.Duration(noAvailablePeerFailCounter)
+				if time.Since(lastNoAvailablePeersTime) < waitPeriod {
+					r.logger.Debug(fmt.Sprintf("waiting for more peers to become available still in the waitPeriod=%v\n", waitPeriod))
 					continue
 				}
-				return err
-			}
-			noAvailablePeerFailCounter = 0
-		case envelope, ok := <-incoming:
-			if !ok {
-				return nil // channel closed
-			}
 
-			// A request from another peer, or a response to one of our requests.
-			dur, err := r.handlePexMessage(ctx, envelope)
-			if err != nil {
-				r.logger.Error("failed to process message",
-					"ch_id", envelope.ChannelID, "envelope", envelope, "err", err)
-				if serr := r.channel.SendError(ctx, p2p.PeerError{
-					NodeID: envelope.From,
-					Err:    err,
-				}); serr != nil {
-					return serr
+				// Send a request for more peer addresses.
+				if err := r.sendRequestForPeers(); err != nil {
+					r.logger.Error("failed to send request for peers", "err", err)
+					if errors.Is(err, NoPeersAvailableError) {
+						noAvailablePeerFailCounter++
+						lastNoAvailablePeersTime = time.Now()
+						continue
+					}
+					return err
 				}
-			} else if dur != 0 {
-				// We got a useful result; update the poll timer.
-				nextPeerRequest = dur
-			}
+				noAvailablePeerFailCounter = 0
+			case m, ok := <-incoming:
+				if !ok {
+					return nil // channel closed
+				}
 
-			timer.Stop()
+				// A request from another peer, or a response to one of our requests.
+				dur, err := r.handlePexMessage(m)
+				if err != nil {
+					r.logger.Error("failed to process pex message", "err", err)
+					r.router.PeerManager().SendError(p2p.PeerError{
+						NodeID: m.From,
+						Err:    err,
+					})
+				} else if dur != 0 {
+					// We got a useful result; update the poll timer.
+					nextPeerRequest = dur
+				}
+
+				timer.Stop()
+			}
 		}
-	}
+	})
 }
 
 // processPeerUpdates initiates a blocking process where we listen for and handle
 // PeerUpdate messages. When the reactor is stopped, we will catch the signal and
 // close the p2p PeerUpdatesCh gracefully.
-func (r *Reactor) processPeerUpdates(ctx context.Context, peerUpdates *p2p.PeerUpdates) error {
+func (r *Reactor) processPeerUpdates(ctx context.Context) error {
+	peerUpdates := r.router.PeerManager().Subscribe(ctx)
+	for _, update := range peerUpdates.PreexistingPeers() {
+		r.processPeerUpdate(update)
+	}
 	for {
-		peerUpdate, err := utils.Recv(ctx, peerUpdates.Updates())
+		update, err := utils.Recv(ctx, peerUpdates.Updates())
 		if err != nil {
 			return err
 		}
-		r.processPeerUpdate(peerUpdate)
+		r.processPeerUpdate(update)
 	}
 }
 
 // handlePexMessage handles envelopes sent from peers on the PexChannel.
 // If an update was received, a new polling interval is returned; otherwise the
 // duration is 0.
-func (r *Reactor) handlePexMessage(ctx context.Context, envelope *p2p.Envelope) (time.Duration, error) {
-	logger := r.logger.With("peer", envelope.From)
+func (r *Reactor) handlePexMessage(m p2p.RecvMsg) (time.Duration, error) {
+	logger := r.logger.With("peer", m.From)
 
-	switch msg := envelope.Message.(type) {
+	switch msg := m.Message.(type) {
 	case *protop2p.PexRequest:
 		// Verify that this peer hasn't sent us another request too recently.
-		if err := r.markPeerRequest(envelope.From); err != nil {
-			return 0, fmt.Errorf("PEX mark peer req from %s: %w", envelope.From, err)
+		if err := r.markPeerRequest(m.From); err != nil {
+			return 0, fmt.Errorf("PEX mark peer req from %s: %w", m.From, err)
 		}
 
 		// Fetch peers from the peer manager, convert NodeAddresses into URL
 		// strings, and send them back to the caller.
-		nodeAddresses := r.peerManager.Advertise(envelope.From, maxAddresses)
+		nodeAddresses := r.router.PeerManager().Advertise(m.From, maxAddresses)
 		pexAddresses := make([]protop2p.PexAddress, len(nodeAddresses))
 		for idx, addr := range nodeAddresses {
 			pexAddresses[idx] = protop2p.PexAddress{
 				URL: addr.String(),
 			}
 		}
-		return 0, r.channel.Send(ctx, p2p.Envelope{
-			To:      envelope.From,
-			Message: &protop2p.PexResponse{Addresses: pexAddresses},
-		})
+		r.channel.Send(&protop2p.PexResponse{Addresses: pexAddresses}, m.From)
+		return 0, nil
 
 	case *protop2p.PexResponse:
 		// Verify that this response corresponds to one of our pending requests.
-		if err := r.markPeerResponse(envelope.From); err != nil {
-			return 0, fmt.Errorf("PEX mark peer resp from %s: %w", envelope.From, err)
+		if err := r.markPeerResponse(m.From); err != nil {
+			return 0, fmt.Errorf("PEX mark peer resp from %s: %w", m.From, err)
 		}
 
 		// Verify that the response does not exceed the safety limit.
@@ -289,7 +290,7 @@ func (r *Reactor) handlePexMessage(ctx context.Context, envelope *p2p.Envelope) 
 			if err != nil {
 				return 0, fmt.Errorf("PEX parse node address error %s", err)
 			}
-			added, err := r.peerManager.Add(peerAddress)
+			added, err := r.router.PeerManager().Add(peerAddress)
 			if err != nil {
 				// TODO(gprusak): This does not distinguish between bad messages (should drop peer) and internal errors (ignore/abort).
 				logger.Error("failed to add PEX address", "address", peerAddress, "err", err)
@@ -342,27 +343,18 @@ func (r *Reactor) processPeerUpdate(peerUpdate p2p.PeerUpdate) {
 // that peer a request for more peer addresses. The chosen peer is moved into
 // the requestsSent bucket so that we will not attempt to contact them again
 // until they've replied or updated.
-func (r *Reactor) sendRequestForPeers(ctx context.Context) error {
+func (r *Reactor) sendRequestForPeers() error {
 	r.mtx.Lock()
 	defer r.mtx.Unlock()
-	if len(r.availablePeers) == 0 {
-		return NoPeersAvailableError
-	}
-
 	// Select an arbitrary peer from the available set.
-	var peerID types.NodeID
-	for peerID = range r.availablePeers {
-		break
+	for peerID := range r.availablePeers {
+		// Move the peer from available to pending.
+		delete(r.availablePeers, peerID)
+		r.requestsSent[peerID] = struct{}{}
+		r.channel.Send(&protop2p.PexRequest{}, peerID)
+		return nil
 	}
-	// Move the peer from available to pending.
-	delete(r.availablePeers, peerID)
-	r.requestsSent[peerID] = struct{}{}
-
-	// TODO(gprusak): blocking send while holding a mutex.
-	return r.channel.Send(ctx, p2p.Envelope{
-		To:      peerID,
-		Message: &protop2p.PexRequest{},
-	})
+	return NoPeersAvailableError
 }
 
 // calculateNextRequestTime selects how long we should wait before attempting
@@ -385,7 +377,7 @@ func (r *Reactor) calculateNextRequestTime(added int) time.Duration {
 	r.totalPeers += added
 
 	// If the peer store is nearly full, wait the maximum interval.
-	if ratio := r.peerManager.PeerRatio(); ratio >= 0.95 {
+	if ratio := r.router.PeerManager().PeerRatio(); ratio >= 0.95 {
 		r.logger.Debug("Peer manager is nearly full",
 			"sleep_period", fullCapacityInterval, "ratio", ratio)
 		return fullCapacityInterval

@@ -2,12 +2,12 @@ package mempool
 
 import (
 	"container/list"
+	"context"
 	"sync"
 	"time"
 
-	"github.com/rs/zerolog/log"
-
 	"github.com/patrickmn/go-cache"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -132,39 +132,6 @@ func (NopTxCache) Push(types.TxKey) bool { return true }
 func (NopTxCache) Remove(types.TxKey)    {}
 func (NopTxCache) Size() int             { return 0 }
 
-// NopTxCacheWithTTL defines a no-op TTL transaction cache.
-type NopTxCacheWithTTL struct{}
-
-var _ TxCacheWithTTL = (*NopTxCacheWithTTL)(nil)
-
-func (NopTxCacheWithTTL) Set(types.TxKey, int)                {}
-func (NopTxCacheWithTTL) Get(types.TxKey) (int, bool)         { return 0, false }
-func (NopTxCacheWithTTL) Increment(types.TxKey)               {}
-func (NopTxCacheWithTTL) Reset()                              {}
-func (NopTxCacheWithTTL) GetForMetrics() (int, int, int, int) { return 0, 0, 0, 0 }
-func (NopTxCacheWithTTL) Stop()                               {}
-
-// TxCacheWithTTL defines an interface for TTL-based transaction caching
-type TxCacheWithTTL interface {
-	// Set adds a transaction to the cache with TTL
-	Set(txKey types.TxKey, counter int)
-
-	// Get retrieves the counter for a transaction key
-	Get(txKey types.TxKey) (counter int, found bool)
-
-	// Increment increments the counter for a transaction key, extending TTL
-	Increment(txKey types.TxKey)
-
-	// GetForMetrics returns the max count, total count, duplicate count, and non duplicate count
-	GetForMetrics() (int, int, int, int)
-
-	// Reset clears the cache
-	Reset()
-
-	// Stop stops the cache and cleans up background goroutines
-	Stop()
-}
-
 // DuplicateTxCache implements TxCacheWithTTL using go-cache
 type DuplicateTxCache struct {
 	maxSize   int
@@ -183,18 +150,26 @@ type DuplicateTxCache struct {
 // positives in cache lookups. A larger value reduces collision risk but uses
 // more memory. A common choice is to use the full length of a cryptographic hash
 // (e.g., 32 bytes for SHA-256) to balance memory usage and collision risk.
-func NewDuplicateTxCache(maxSize int, defaultExpiration, cleanupInterval time.Duration, maxKeyLen int) *DuplicateTxCache {
-	// If defaultExpiration is 0 (no expiration), don't create a cleanup interval
-	// to avoid starting background janitor goroutines that can cause leaks
-	if defaultExpiration == 0 {
-		cleanupInterval = 0
-		log.Debug().Msg("TTL cache expiration disabled")
-	}
-
+func NewDuplicateTxCache(maxSize int, defaultExpiration time.Duration, maxKeyLen int) *DuplicateTxCache {
 	return &DuplicateTxCache{
-		maxSize:   maxSize,
-		cache:     cache.New(defaultExpiration, cleanupInterval),
+		maxSize: maxSize,
+		// Force cleanup interval to 0 - otherwise go-cache leaks a goroutine.
+		// TODO: replace with a more reasonable implementation of cache, which doesn't do such things.
+		cache:     cache.New(defaultExpiration, 0),
 		maxKeyLen: maxKeyLen,
+	}
+}
+
+func (t *DuplicateTxCache) Run(ctx context.Context, cleanupInterval time.Duration) error {
+	if cleanupInterval <= 0 {
+		return nil
+	}
+	// Periodically delete the expired items.
+	for {
+		if err := utils.Sleep(ctx, cleanupInterval); err != nil {
+			return err
+		}
+		t.cache.DeleteExpired()
 	}
 }
 
