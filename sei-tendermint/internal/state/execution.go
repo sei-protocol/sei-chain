@@ -568,51 +568,51 @@ func buildLastCommitInfo(block *types.Block, store Store, initialHeight int64) a
 // data, it returns an empty record.
 //
 // Assumes that the commit signatures are sorted according to validator index.
-func buildCommitInfo(ec *types.Commit, store Store, initialHeight int64) abci.CommitInfo {
-	if ec.Height < initialHeight {
+func buildCommitInfo(commit *types.Commit, store Store, initialHeight int64) abci.CommitInfo {
+	if commit.Height < initialHeight {
 		// There are no extended commits for heights below the initial height.
 		return abci.CommitInfo{}
 	}
 
-	valSet, err := store.LoadValidators(ec.Height)
+	valSet, err := store.LoadValidators(commit.Height)
 	if err != nil {
-		panic(fmt.Errorf("failed to load validator set at height %d, initial height %d: %w", ec.Height, initialHeight, err))
+		panic(fmt.Errorf("failed to load validator set at height %d, initial height %d: %w", commit.Height, initialHeight, err))
 	}
 
 	var (
-		ecSize    = ec.Size()
-		valSetLen = len(valSet.Validators)
+		commitSize = commit.Size()
+		valSetLen  = len(valSet.Validators)
 	)
 
-	// Ensure that the size of the validator set in the extended commit matches
+	// Ensure that the size of the validator set in the commit matches
 	// the size of the validator set in the state store.
-	if ecSize != valSetLen {
+	if commitSize != valSetLen {
 		panic(fmt.Errorf(
-			"extended commit size (%d) does not match validator set length (%d) at height %d\n\n%v\n\n%v",
-			ecSize, valSetLen, ec.Height, ec.Signatures, valSet.Validators,
+			"commit size (%d) does not match validator set length (%d) at height %d\n\n%v\n\n%v",
+			commitSize, valSetLen, commit.Height, commit.Signatures, valSet.Validators,
 		))
 	}
 
-	votes := make([]abci.VoteInfo, ecSize)
+	votes := make([]abci.VoteInfo, commitSize)
 	for i, val := range valSet.Validators {
-		ecs := ec.Signatures[i]
+		commitSig := commit.Signatures[i]
 
 		// Absent signatures have empty validator addresses, but otherwise we
 		// expect the validator addresses to be the same.
-		if ecs.BlockIDFlag != types.BlockIDFlagAbsent && !bytes.Equal(ecs.ValidatorAddress, val.Address) {
+		if commitSig.BlockIDFlag != types.BlockIDFlagAbsent && !bytes.Equal(commitSig.ValidatorAddress, val.Address) {
 			panic(fmt.Errorf("validator address of extended commit signature in position %d (%s) does not match the corresponding validator's at height %d (%s)",
-				i, ecs.ValidatorAddress, ec.Height, val.Address,
+				i, commitSig.ValidatorAddress, commit.Height, val.Address,
 			))
 		}
 
 		votes[i] = abci.VoteInfo{
 			Validator:       types.TM2PB.Validator(val),
-			SignedLastBlock: ecs.BlockIDFlag != types.BlockIDFlagAbsent,
+			SignedLastBlock: commitSig.BlockIDFlag != types.BlockIDFlagAbsent,
 		}
 	}
 
 	return abci.CommitInfo{
-		Round: ec.Round,
+		Round: commit.Round,
 		Votes: votes,
 	}
 }
