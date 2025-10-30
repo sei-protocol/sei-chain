@@ -46,10 +46,6 @@ type WrappedTx struct {
 	// in the ResponseCheckTx response.
 	priority int64
 
-	// sender defines the transaction's sender as specified by the application in
-	// the ResponseCheckTx response.
-	sender string
-
 	// timestamp is the time at which the node first received the transaction from
 	// a peer. It is used as a second dimension is prioritizing transactions when
 	// two transactions have the same priority.
@@ -96,15 +92,13 @@ func (wtx *WrappedTx) Size() int {
 //     access is not allowed. Regardless, it is not expected for the mempool to
 //     need mutative access.
 type TxStore struct {
-	mtx       sync.RWMutex
-	hashTxs   map[types.TxKey]*WrappedTx // primary index
-	senderTxs map[string]*WrappedTx      // sender is defined by the ABCI application
+	mtx     sync.RWMutex
+	hashTxs map[types.TxKey]*WrappedTx // primary index
 }
 
 func NewTxStore() *TxStore {
 	return &TxStore{
-		senderTxs: make(map[string]*WrappedTx),
-		hashTxs:   make(map[types.TxKey]*WrappedTx),
+		hashTxs: make(map[types.TxKey]*WrappedTx),
 	}
 }
 
@@ -129,15 +123,6 @@ func (txs *TxStore) GetAllTxs() []*WrappedTx {
 	}
 
 	return wTxs
-}
-
-// GetTxBySender returns a *WrappedTx by the transaction's sender property
-// defined by the ABCI application.
-func (txs *TxStore) GetTxBySender(sender string) *WrappedTx {
-	txs.mtx.RLock()
-	defer txs.mtx.RUnlock()
-
-	return txs.senderTxs[sender]
 }
 
 // GetTxByHash returns a *WrappedTx by the transaction's hash.
@@ -176,10 +161,6 @@ func (txs *TxStore) SetTx(wtx *WrappedTx) {
 	txs.mtx.Lock()
 	defer txs.mtx.Unlock()
 
-	if len(wtx.sender) > 0 {
-		txs.senderTxs[wtx.sender] = wtx
-	}
-
 	txs.hashTxs[wtx.tx.Key()] = wtx
 }
 
@@ -188,10 +169,6 @@ func (txs *TxStore) SetTx(wtx *WrappedTx) {
 func (txs *TxStore) RemoveTx(wtx *WrappedTx) {
 	txs.mtx.Lock()
 	defer txs.mtx.Unlock()
-
-	if len(wtx.sender) > 0 {
-		delete(txs.senderTxs, wtx.sender)
-	}
 
 	delete(txs.hashTxs, wtx.tx.Key())
 	wtx.removed = true
