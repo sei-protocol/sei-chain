@@ -146,6 +146,7 @@ import (
 	tmos "github.com/tendermint/tendermint/libs/os"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
+	"go.opentelemetry.io/otel/attribute"
 
 	// this line is used by starport scaffolding # stargate/app/moduleImport
 
@@ -1618,6 +1619,11 @@ func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequ
 		}
 	}()
 	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
+
+	blockSpanCtx, blockSpan := app.GetBaseApp().TracingInfo.Start("Block")
+	defer blockSpan.End()
+	blockSpan.SetAttributes(attribute.Int64("height", req.GetHeight()))
+	ctx = ctx.WithTraceSpanContext(blockSpanCtx)
 
 	events = []abci.Event{}
 	beginBlockReq := abci.RequestBeginBlock{

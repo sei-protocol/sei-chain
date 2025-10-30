@@ -7,12 +7,9 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	abci "github.com/tendermint/tendermint/abci/types"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 func (app *App) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res abci.ResponseBeginBlock) {
-	blockSpan := app.GetBaseApp().TracingInfo.StartBlockSpan()
-	blockSpan.SetAttributes(attribute.Int64("height", req.Header.Height))
 	spanCtx, beginBlockSpan := app.GetBaseApp().TracingInfo.Start("BeginBlock")
 	defer beginBlockSpan.End()
 	ctx = ctx.WithTraceSpanContext(spanCtx)
@@ -61,7 +58,6 @@ func (app *App) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchRequest) (
 func (app *App) Commit(ctx context.Context) (res *abci.ResponseCommit, err error) {
 	_, span := app.GetBaseApp().TracingInfo.Start("Commit")
 	defer span.End()
-	defer app.GetBaseApp().TracingInfo.EndBlockSpan()
 	return app.BaseApp.Commit(ctx)
 }
 
