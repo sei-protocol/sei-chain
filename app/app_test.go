@@ -678,7 +678,7 @@ func isSwaggerRouteAdded(router *mux.Router) bool {
 }
 
 func TestGaslessTransactionExtremeGasValue(t *testing.T) {
-	sei := app.Setup(false, false, false)
+	sei := app.Setup(t, false, false, false)
 	ctx := sei.BaseApp.NewContext(false, types.Header{})
 
 	testAddr := sdk.AccAddress([]byte("test_address_1234567"))

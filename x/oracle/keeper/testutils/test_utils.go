@@ -1,7 +1,10 @@
 // nolint
-package keeper
+package testutils
 
 import (
+	"bytes"
+	"encoding/hex"
+	"strconv"
 	"testing"
 	"time"
 
@@ -17,12 +20,12 @@ import (
 
 	"github.com/cosmos/cosmos-sdk/codec"
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
+	"github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/simapp"
-	simparams "github.com/cosmos/cosmos-sdk/simapp/params"
 	"github.com/cosmos/cosmos-sdk/std"
 	"github.com/cosmos/cosmos-sdk/store"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	"github.com/cosmos/cosmos-sdk/x/auth"
 	authkeeper "github.com/cosmos/cosmos-sdk/x/auth/keeper"
@@ -40,6 +43,8 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	stakingkeeper "github.com/cosmos/cosmos-sdk/x/staking/keeper"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	appparams "github.com/sei-protocol/sei-chain/app/params"
+	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
 )
 
 const faucetAccountName = "faucet"
@@ -59,7 +64,7 @@ func MakeTestCodec(t *testing.T) codec.Codec {
 }
 
 // MakeEncodingConfig nolint
-func MakeEncodingConfig(_ *testing.T) simparams.EncodingConfig {
+func MakeEncodingConfig(_ *testing.T) appparams.EncodingConfig {
 	amino := codec.NewLegacyAmino()
 	interfaceRegistry := codectypes.NewInterfaceRegistry()
 	marshaler := codec.NewProtoCodec(interfaceRegistry)
@@ -72,7 +77,7 @@ func MakeEncodingConfig(_ *testing.T) simparams.EncodingConfig {
 	ModuleBasics.RegisterInterfaces(interfaceRegistry)
 	types.RegisterCodec(amino)
 	types.RegisterInterfaces(interfaceRegistry)
-	return simparams.EncodingConfig{
+	return appparams.EncodingConfig{
 		InterfaceRegistry: interfaceRegistry,
 		Marshaler:         marshaler,
 		TxConfig:          txCfg,
@@ -82,7 +87,7 @@ func MakeEncodingConfig(_ *testing.T) simparams.EncodingConfig {
 
 // Test addresses
 var (
-	ValPubKeys = simapp.CreateTestPubKeys(7)
+	ValPubKeys = CreateTestPubKeys(7)
 
 	pubKeys = []crypto.PubKey{
 		secp256k1.GenPrivKey().PubKey(),
@@ -126,7 +131,7 @@ type TestInput struct {
 	Cdc           *codec.LegacyAmino
 	AccountKeeper authkeeper.AccountKeeper
 	BankKeeper    bankkeeper.Keeper
-	OracleKeeper  Keeper
+	OracleKeeper  oraclekeeper.Keeper
 	StakingKeeper stakingkeeper.Keeper
 	DistrKeeper   distrkeeper.Keeper
 }
@@ -229,7 +234,7 @@ func CreateTestInput(t *testing.T) TestInput {
 		require.NoError(t, err)
 	}
 
-	keeper := NewKeeper(
+	keeper := oraclekeeper.NewKeeper(
 		appCodec,
 		keyOracle,
 		memKeys[types.MemStoreKey],
@@ -271,4 +276,33 @@ func FundAccount(input TestInput, addr sdk.AccAddress, amounts sdk.Coins) error 
 	}
 
 	return input.BankKeeper.SendCoinsFromModuleToAccount(input.Ctx, faucetAccountName, addr, amounts)
+}
+
+// CreateTestPubKeys returns a total of numPubKeys public keys in ascending order.
+func CreateTestPubKeys(numPubKeys int) []cryptotypes.PubKey {
+	publicKeys := make([]cryptotypes.PubKey, 0, numPubKeys)
+	var buffer bytes.Buffer
+
+	// start at 10 to avoid changing 1 to 01, 2 to 02, etc
+	for i := 100; i < (numPubKeys + 100); i++ {
+		numString := strconv.Itoa(i)
+		buffer.WriteString("0B485CFC0EECC619440448436F8FC9DF40566F2369E72400281454CB552AF") // base pubkey string
+		buffer.WriteString(numString)                                                       // adding on final two digits to make pubkeys unique
+		publicKeys = append(publicKeys, NewPubKeyFromHex(buffer.String()))
+		buffer.Reset()
+	}
+
+	return publicKeys
+}
+
+// NewPubKeyFromHex returns a PubKey from a hex string.
+func NewPubKeyFromHex(pk string) (res cryptotypes.PubKey) {
+	pkBytes, err := hex.DecodeString(pk)
+	if err != nil {
+		panic(err)
+	}
+	if len(pkBytes) != ed25519.PubKeySize {
+		panic(errors.Wrap(errors.ErrInvalidPubKey, "invalid pubkey size"))
+	}
+	return &ed25519.PubKey{Key: pkBytes}
 }
