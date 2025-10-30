@@ -11,7 +11,7 @@ func TestReceiptLogIndex(t *testing.T) {
 	tx2Data := sendErc20(2)
 	tx2 := signTxWithMnemonic(sendErc20(2), erc20DeployerMnemonics)
 	tx2Bz := encodeEvmTx(tx2Data, tx2)
-	SetupTestServer([][][]byte{{tx1Bz, tx2Bz}}, erc20Initializer()).Run(
+	SetupTestServer(t, [][][]byte{{tx1Bz, tx2Bz}}, erc20Initializer()).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getTransactionReceipt", tx2.Hash().Hex())
 			// both tx 1 and tx2 have 1 log. Log of tx 1 will have log index 0x0 and

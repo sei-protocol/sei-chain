@@ -8,13 +8,13 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/capability"
 	"github.com/cosmos/cosmos-sdk/x/capability/keeper"
 	"github.com/cosmos/cosmos-sdk/x/capability/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 type CapabilityTestSuite struct {
@@ -22,14 +22,14 @@ type CapabilityTestSuite struct {
 
 	cdc    codec.Codec
 	ctx    sdk.Context
-	app    *simapp.SimApp
+	app    *seiapp.App
 	keeper *keeper.Keeper
 	module module.AppModule
 }
 
 func (suite *CapabilityTestSuite) SetupTest() {
 	checkTx := false
-	app := simapp.Setup(checkTx)
+	app := seiapp.Setup(suite.T(), checkTx, false, false)
 	cdc := app.AppCodec()
 
 	// create new keeper so we can define custom scoping before init and seal
@@ -45,15 +45,13 @@ func (suite *CapabilityTestSuite) SetupTest() {
 // The following test case mocks a specific bug discovered in https://github.com/cosmos/cosmos-sdk/issues/9800
 // and ensures that the current code successfully fixes the issue.
 func (suite *CapabilityTestSuite) TestInitializeMemStore() {
-	sk1 := suite.keeper.ScopeToModule(banktypes.ModuleName)
+	// mock statesync by creating new keeper that shares persistent state but loses in-memory map
+	newKeeper := keeper.NewKeeper(suite.cdc, suite.app.GetKey(types.StoreKey), suite.app.GetMemKey("mem_capability"))
+	newSk1 := newKeeper.ScopeToModule(banktypes.ModuleName)
 
-	cap1, err := sk1.NewCapability(suite.ctx, "transfer")
+	cap1, err := newSk1.NewCapability(suite.ctx, "transfer")
 	suite.Require().NoError(err)
 	suite.Require().NotNil(cap1)
-
-	// mock statesync by creating new keeper that shares persistent state but loses in-memory map
-	newKeeper := keeper.NewKeeper(suite.cdc, suite.app.GetKey(types.StoreKey), suite.app.GetMemKey("testingkey"))
-	newSk1 := newKeeper.ScopeToModule(banktypes.ModuleName)
 
 	// Mock App startup
 	ctx := suite.app.BaseApp.NewUncachedContext(false, tmproto.Header{})

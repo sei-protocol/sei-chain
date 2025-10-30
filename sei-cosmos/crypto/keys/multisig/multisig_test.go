@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/require"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -15,7 +16,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/crypto/types/multisig"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
@@ -351,7 +351,7 @@ func TestDisplay(t *testing.T) {
 	require.PanicsWithValue("reflect.Value.Interface: cannot return value obtained from unexported field or method",
 		func() { require.Empty(msig.String()) },
 	)
-	ccfg := simapp.MakeTestEncodingConfig()
+	ccfg := app.MakeEncodingConfig()
 	bz, err := ccfg.Marshaler.MarshalInterfaceJSON(msig)
 	require.NoError(err)
 	expectedPrefix := `{"@type":"/cosmos.crypto.multisig.LegacyAminoPubKey","threshold":2,"public_keys":[{"@type":"/cosmos.crypto.secp256k1.PubKey"`

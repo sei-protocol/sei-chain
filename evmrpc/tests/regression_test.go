@@ -352,7 +352,7 @@ func Test0x2cbbf34f930076000024953b87da7dc119a04f71fc4734a4bfabbe60558a49c6(t *t
 }
 
 func testTx(t *testing.T, txHash string, version string, expectedGasUsed string, expectedOutput string, hasErr bool) {
-	s := SetupMockPacificTestServer(func(a *app.App, mc *MockClient) sdk.Context {
+	s := SetupMockPacificTestServer(t, func(a *app.App, mc *MockClient) sdk.Context {
 		ctx := a.RPCContextProvider(evmrpc.LatestCtxHeight).WithClosestUpgradeName(version)
 		ctx = setLegacySstoreIfNeeded(ctx, a, version)
 		blockHeight := mockStatesFromTxJson(ctx, txHash, a, mc)
@@ -388,6 +388,7 @@ func testBlock(
 	t *testing.T, blockNumber uint64, version string, expectedGasUsed string,
 ) {
 	s := SetupMockPacificTestServer(
+		t,
 		func(a *app.App, mc *MockClient) sdk.Context {
 			ctx := a.RPCContextProvider(evmrpc.LatestCtxHeight).WithClosestUpgradeName(version)
 			ctx = setLegacySstoreIfNeeded(ctx, a, version)

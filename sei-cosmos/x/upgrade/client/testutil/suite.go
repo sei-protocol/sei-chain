@@ -3,12 +3,12 @@ package testutil
 import (
 	"fmt"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
 	"github.com/cosmos/cosmos-sdk/testutil/network"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/upgrade/client/cli"
 	"github.com/cosmos/cosmos-sdk/x/upgrade/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/suite"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
@@ -20,7 +20,7 @@ func NewIntegrationTestSuite(cfg network.Config) *IntegrationTestSuite {
 type IntegrationTestSuite struct {
 	suite.Suite
 
-	app     *simapp.SimApp
+	app     *seiapp.App
 	cfg     network.Config
 	network *network.Network
 	ctx     sdk.Context
@@ -28,11 +28,11 @@ type IntegrationTestSuite struct {
 
 func (s *IntegrationTestSuite) SetupSuite() {
 	s.T().Log("setting up integration test suite")
-	app := simapp.Setup(false)
+	app := seiapp.Setup(s.T(), false, false, false)
 	s.app = app
 	s.ctx = app.BaseApp.NewContext(false, tmproto.Header{})
 
-	cfg := network.DefaultConfig()
+	cfg := network.DefaultConfig(s.T())
 	cfg.NumValidators = 1
 
 	s.cfg = cfg

@@ -10,7 +10,7 @@ import (
 )
 
 func TestMigrateSstoreGas(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	k := a.EvmKeeper
 	ctx := a.GetContextForDeliverTx([]byte{})
 
