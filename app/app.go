@@ -1245,10 +1245,13 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 			if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 				return &abci.ResponseFinalizeBlock{}, nil
 			}
-			cms := app.WriteState()
-			app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
-			appHash := app.GetWorkingHash()
-			resp := app.getFinalizeBlockResponse(appHash, events, txRes, endBlockResp)
+			// Flush state using the workflow stage
+			wf := &BlockWorkflow{Ctx: ctx}
+			if err := app.FlushStateStage(wf); err != nil {
+				ctx.Logger().Error("FlushStateStage failed in optimistic path", "error", err)
+				return nil, err
+			}
+			resp := app.getFinalizeBlockResponse(wf.AppHash, events, txRes, endBlockResp)
 			return &resp, nil
 		}
 	}
@@ -1260,14 +1263,19 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		return nil, processErr
 	}
 
-	app.SetDeliverStateToCommit()
+	// Flush state using the workflow stage (state flush is separate from block processing)
+	// This prepares state for commit but doesn't perform the actual Commit call
+	// The actual Commit happens separately via ABCI Commit
+	wf := &BlockWorkflow{Ctx: ctx}
+	if err := app.FlushStateStage(wf); err != nil {
+		ctx.Logger().Error("FlushStateStage failed in FinalizeBlocker", "error", err)
+		return nil, err
+	}
+
 	if app.EvmKeeper.EthReplayConfig.Enabled || app.EvmKeeper.EthBlockTestConfig.Enabled {
 		return &abci.ResponseFinalizeBlock{}, nil
 	}
-	cms := app.WriteState()
-	app.LightInvarianceChecks(cms, app.lightInvarianceConfig)
-	appHash := app.GetWorkingHash()
-	resp := app.getFinalizeBlockResponse(appHash, events, txResults, endBlockResp)
+	resp := app.getFinalizeBlockResponse(wf.AppHash, events, txResults, endBlockResp)
 	return &resp, nil
 }
 
@@ -1619,108 +1627,11 @@ func (app *App) BuildDependenciesAndRunTxs(ctx sdk.Context, txs [][]byte, typedT
 	return app.ProcessBlockSynchronous(ctx, txs, typedTxs, absoluteTxIndices), ctx
 }
 
+// ProcessBlock is the main entrypoint for block processing.
+// It delegates to ProcessBlockWorkflow which organizes the work into clear stages.
+// This method is maintained for backward compatibility.
 func (app *App) ProcessBlock(ctx sdk.Context, txs [][]byte, req BlockProcessRequest, lastCommit abci.CommitInfo, simulate bool) (events []abci.Event, txResults []*abci.ExecTxResult, endBlockResp abci.ResponseEndBlock, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			panicMsg := fmt.Sprintf("%v", r)
-			// Re-panic for upgrade-related panics to allow proper upgrade mechanism
-			if upgradePanicRe.MatchString(panicMsg) {
-				ctx.Logger().Error("upgrade panic detected, panicking to trigger upgrade", "panic", r)
-				panic(r) // Re-panic to trigger upgrade mechanism
-			}
-			ctx.Logger().Error("panic recovered in ProcessBlock", "panic", r)
-			err = fmt.Errorf("ProcessBlock panic: %v", r)
-			events = nil
-			txResults = nil
-			endBlockResp = abci.ResponseEndBlock{}
-		}
-	}()
-
-	defer func() {
-		if !app.httpServerStartSignalSent {
-			app.httpServerStartSignalSent = true
-			app.httpServerStartSignal <- struct{}{}
-		}
-		if !app.wsServerStartSignalSent {
-			app.wsServerStartSignalSent = true
-			app.wsServerStartSignal <- struct{}{}
-		}
-	}()
-	ctx = ctx.WithIsOCCEnabled(app.OccEnabled())
-
-	events = []abci.Event{}
-	beginBlockReq := abci.RequestBeginBlock{
-		Hash: req.GetHash(),
-		ByzantineValidators: utils.Map(req.GetByzantineValidators(), func(mis abci.Misbehavior) abci.Evidence {
-			return abci.Evidence(mis)
-		}),
-		LastCommitInfo: abci.LastCommitInfo{
-			Round: lastCommit.Round,
-			Votes: utils.Map(lastCommit.Votes, func(vote abci.VoteInfo) abci.VoteInfo {
-				return abci.VoteInfo{
-					Validator:       vote.Validator,
-					SignedLastBlock: vote.SignedLastBlock,
-				}
-			}),
-		},
-		Header: tmproto.Header{
-			ChainID:         app.ChainID,
-			Height:          req.GetHeight(),
-			Time:            req.GetTime(),
-			ProposerAddress: ctx.BlockHeader().ProposerAddress,
-		},
-		Simulate: simulate,
-	}
-	beginBlockResp := app.BeginBlock(ctx, beginBlockReq)
-	events = append(events, beginBlockResp.Events...)
-
-	evmTxs := make([]*evmtypes.MsgEVMTransaction, len(txs)) // nil for non-EVM txs
-	txResults = make([]*abci.ExecTxResult, len(txs))
-	typedTxs := app.DecodeTransactionsConcurrently(ctx, txs)
-
-	prioritizedTxs, otherTxs, prioritizedTypedTxs, otherTypedTxs, prioritizedIndices, otherIndices := app.PartitionPrioritizedTxs(ctx, txs, typedTxs)
-
-	// run the prioritized txs
-	prioritizedResults, ctx := app.ExecuteTxsConcurrently(ctx, prioritizedTxs, prioritizedTypedTxs, prioritizedIndices)
-	for relativePrioritizedIndex, originalIndex := range prioritizedIndices {
-		txResults[originalIndex] = prioritizedResults[relativePrioritizedIndex]
-		evmTxs[originalIndex] = app.GetEVMMsg(prioritizedTypedTxs[relativePrioritizedIndex])
-	}
-
-	// Finalize all Bank Module Transfers here so that events are included for prioritiezd txs
-	deferredWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
-	events = append(events, deferredWriteEvents...)
-
-	midBlockEvents := app.MidBlock(ctx, req.GetHeight())
-	events = append(events, midBlockEvents...)
-
-	otherResults, ctx := app.ExecuteTxsConcurrently(ctx, otherTxs, otherTypedTxs, otherIndices)
-	for relativeOtherIndex, originalIndex := range otherIndices {
-		txResults[originalIndex] = otherResults[relativeOtherIndex]
-		evmTxs[originalIndex] = app.GetEVMMsg(otherTypedTxs[relativeOtherIndex])
-	}
-	app.EvmKeeper.SetTxResults(txResults)
-	app.EvmKeeper.SetMsgs(evmTxs)
-
-	// Finalize all Bank Module Transfers here so that events are included
-	lazyWriteEvents := app.BankKeeper.WriteDeferredBalances(ctx)
-	events = append(events, lazyWriteEvents...)
-
-	// Sum up total used per block only for evm transactions
-	evmTotalGasUsed := int64(0)
-	for _, txResult := range txResults {
-		if txResult.EvmTxInfo != nil {
-			evmTotalGasUsed += txResult.GasUsed
-		}
-	}
-
-	endBlockResp = app.EndBlock(ctx, abci.RequestEndBlock{
-		Height:       req.GetHeight(),
-		BlockGasUsed: evmTotalGasUsed,
-	})
-
-	events = append(events, endBlockResp.Events...)
-	return events, txResults, endBlockResp, nil
+	return app.ProcessBlockWorkflow(ctx, txs, req, lastCommit, simulate)
 }
 
 func (app *App) GetEVMMsg(tx sdk.Tx) (res *evmtypes.MsgEVMTransaction) {
