@@ -1,0 +1,21 @@
+name: UCI
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 12 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  stale:
+    name: Stale
+    permissions:
+      issues: write
+      pull-requests: write
+    uses: sei-protocol/uci/.github/workflows/stale-check.yml@masih/stale-prs
