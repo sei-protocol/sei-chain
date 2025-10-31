@@ -4,13 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 
 	// this line is used by starport scaffolding # 1
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/gorilla/mux"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
 	"github.com/spf13/cobra"
@@ -290,45 +287,6 @@ func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-
 
 // ConsensusVersion implements ConsensusVersion.
 func (AppModule) ConsensusVersion() uint64 { return 21 }
-
-// BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
-func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
-	// clear tx/tx responses from last block
-	if !ctx.IsTracing() {
-		am.keeper.SetMsgs([]*types.MsgEVMTransaction{})
-		am.keeper.SetTxResults([]*abci.ExecTxResult{})
-	}
-	// mock beacon root if replaying
-	if am.keeper.EthReplayConfig.Enabled {
-		if beaconRoot := am.keeper.ReplayBlock.BeaconRoot(); beaconRoot != nil {
-			blockCtx, err := am.keeper.GetVMBlockContext(ctx, core.GasPool(math.MaxUint64))
-			if err != nil {
-				panic(err)
-			}
-			statedb := state.NewDBImpl(ctx, am.keeper, false)
-			vmenv := vm.NewEVM(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{}, am.keeper.CustomPrecompiles(ctx))
-			core.ProcessBeaconBlockRoot(*beaconRoot, vmenv)
-			_, err = statedb.Finalize()
-			if err != nil {
-				panic(err)
-			}
-		}
-	}
-	if am.keeper.EthBlockTestConfig.Enabled {
-		parentHash := common.BytesToHash(ctx.BlockHeader().LastBlockId.Hash)
-		blockCtx, err := am.keeper.GetVMBlockContext(ctx, core.GasPool(math.MaxUint64))
-		if err != nil {
-			panic(err)
-		}
-		statedb := state.NewDBImpl(ctx, am.keeper, false)
-		vmenv := vm.NewEVM(*blockCtx, statedb, types.DefaultChainConfig().EthereumConfig(am.keeper.ChainID(ctx)), vm.Config{}, am.keeper.CustomPrecompiles(ctx))
-		core.ProcessParentBlockHash(parentHash, vmenv)
-		_, err = statedb.Finalize()
-		if err != nil {
-			panic(err)
-		}
-	}
-}
 
 // EndBlock executes all ABCI EndBlock logic respective to the evm module. It
 // returns no validator updates.

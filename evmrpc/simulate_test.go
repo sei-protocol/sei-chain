@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/example/contracts/simplestorage"
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
@@ -128,6 +129,7 @@ func TestChainConfigReflectsSstoreParam(t *testing.T) {
 	backend := evmrpc.NewBackend(
 		ctxProvider,
 		&testApp.EvmKeeper,
+		legacyabci.BeginBlockKeepers{},
 		func(int64) client.TxConfig { return encodingCfg.TxConfig },
 		&mock.Client{},
 		&SConfig,
@@ -289,7 +291,7 @@ func TestConvertBlockNumber(t *testing.T) {
 			return sdk.Context{}.WithBlockHeight(1000)
 		}
 		return sdk.Context{}
-	}, nil, nil, &MockClient{}, nil, nil, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	}, nil, legacyabci.BeginBlockKeepers{}, nil, &MockClient{}, nil, nil, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Equal(t, int64(10), backend.ConvertBlockNumber(10))
 	require.Equal(t, int64(1), backend.ConvertBlockNumber(0))
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-2))
@@ -327,6 +329,7 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 	backend := evmrpc.NewBackend(
 		ctxProvider,
 		&testApp.EvmKeeper,
+		legacyabci.BeginBlockKeepers{},
 		func(int64) client.TxConfig { return TxConfig },
 		&MockClient{},
 		config,
@@ -361,6 +364,7 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 	backendDifferentChain := evmrpc.NewBackend(
 		ctxProviderDifferentChain,
 		&testApp.EvmKeeper,
+		legacyabci.BeginBlockKeepers{},
 		func(int64) client.TxConfig { return TxConfig },
 		&MockClient{},
 		config,
@@ -387,6 +391,7 @@ func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 	cfg := &evmrpc.SimulateConfig{GasCap: 10_000_000, EVMTimeout: time.Second}
 
 	backend := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper,
+		legacyabci.BeginBlockKeepers{},
 		func(int64) client.TxConfig { return TxConfig },
 		&MockClient{}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 
@@ -407,13 +412,13 @@ func TestGasLimitFallbackToDefault(t *testing.T) {
 	cfg := &evmrpc.SimulateConfig{GasCap: 20_000_000, EVMTimeout: time.Second}
 
 	// Case 1: BlockResults fails
-	backend1 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &brFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	backend1 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, &brFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	h1, err := backend1.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(10_000_000), h1.GasLimit) // DefaultBlockGasLimit
 
 	// Case 2: Block fails
-	backend2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &bcFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
+	backend2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, legacyabci.BeginBlockKeepers{}, func(int64) client.TxConfig { return TxConfig }, &bcFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	h2, err := backend2.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(10_000_000), h2.GasLimit) // DefaultBlockGasLimit
@@ -456,6 +461,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		simAPI := evmrpc.NewSimulationAPI(
 			ctxProvider,
 			EVMKeeper,
+			legacyabci.BeginBlockKeepers{},
 			func(int64) client.TxConfig { return TxConfig },
 			&MockClient{},
 			config,

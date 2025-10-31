@@ -45,6 +45,7 @@ import (
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
@@ -194,9 +195,8 @@ func (s *TestWrapper) BeginBlock() {
 			SignedLastBlock: true,
 		}},
 	}
-	reqBeginBlock := abci.RequestBeginBlock{Header: header, LastCommitInfo: lastCommitInfo}
 
-	s.App.BeginBlocker(s.Ctx, reqBeginBlock)
+	legacyabci.BeginBlock(s.Ctx, header.Height, lastCommitInfo.Votes, []abci.Misbehavior{}, s.App.BeginBlockKeepers)
 }
 
 func (s *TestWrapper) EndBlock() {
