@@ -177,11 +177,6 @@ func (tkv *Store) CacheWrapWithTrace(_ types.StoreKey, _ io.Writer, _ types.Trac
 	panic("cannot CacheWrapWithTrace a TraceKVStore")
 }
 
-// CacheWrapWithListeners implements the CacheWrapper interface.
-func (tkv *Store) CacheWrapWithListeners(_ types.StoreKey, _ []types.WriteListener) types.CacheWrap {
-	panic("cannot CacheWrapWithListeners a TraceKVStore")
-}
-
 func (tkv *Store) VersionExists(version int64) bool {
 	return tkv.parent.VersionExists(version)
 }

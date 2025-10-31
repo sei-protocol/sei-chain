@@ -15,5 +15,5 @@ func NewTestKVStore() types.KVStore {
 }
 
 func NewTestCacheMultiStore(stores map[types.StoreKey]types.CacheWrapper) types.CacheMultiStore {
-	return cachemulti.NewStore(dbm.NewMemDB(), stores, map[string]types.StoreKey{}, nil, nil, make(map[types.StoreKey][]storetypes.WriteListener))
+	return cachemulti.NewStore(dbm.NewMemDB(), stores, map[string]types.StoreKey{}, nil, nil)
 }
