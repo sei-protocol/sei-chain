@@ -33,7 +33,7 @@ func TestChainID(t *testing.T) {
 
 func TestAccounts(t *testing.T) {
 	homeDir := t.TempDir()
-	api := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir, 1024, evmrpc.ConnectionTypeHTTP, nil)
+	api := evmrpc.NewInfoAPI(nil, nil, nil, nil, homeDir, 1024, evmrpc.ConnectionTypeHTTP, nil, nil)
 	clientCtx := client.Context{}.WithViper("").WithHomeDir(homeDir)
 	clientCtx, err := config.ReadFromClientConfig(clientCtx)
 	require.Nil(t, err)
@@ -226,7 +226,7 @@ func TestGasPriceLogic(t *testing.T) {
 			}
 			return baseCtx.WithBlockHeight(height)
 		}
-		i := evmrpc.NewInfoAPI(nil, nil, ctxProvider, nil, t.TempDir(), 1024, evmrpc.ConnectionTypeHTTP, nil)
+		i := evmrpc.NewInfoAPI(nil, nil, ctxProvider, nil, t.TempDir(), 1024, evmrpc.ConnectionTypeHTTP, nil, nil)
 		gasPrice, err := i.GasPriceHelper(
 			context.Background(),
 			test.baseFee,
@@ -278,7 +278,7 @@ func TestCalculateGasUsedRatioGasAccumulation(t *testing.T) {
 			return Ctx
 		}
 		return Ctx.WithBlockHeight(height)
-	}, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder)
+	}, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, nil)
 
 	// Test with a block that has multiple EVM transactions
 	// Using block height 2 which has multiple transactions in the mock
@@ -304,7 +304,7 @@ func TestCalculateGasUsedRatioReceiptRetrievalError(t *testing.T) {
 			return Ctx
 		}
 		return Ctx.WithBlockHeight(height)
-	}, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder)
+	}, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, nil)
 
 	// Test with a block height that has transactions but no receipts (to simulate receipt errors)
 	// The calculation should not fail even if receipt retrieval fails
@@ -356,7 +356,7 @@ func TestCalculateGasUsedRatioConsensusParamsFallback(t *testing.T) {
 		return baseCtx.WithConsensusParams(nil)
 	}
 
-	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProviderWithoutConsensusParams, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder)
+	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProviderWithoutConsensusParams, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, nil)
 
 	// The calculation should still work using fallback gas limit
 	ratio, err := api.CalculateGasUsedRatio(context.Background(), 1)
@@ -384,7 +384,7 @@ func TestCalculateGasUsedRatioConsensusParamsNilBlock(t *testing.T) {
 		return baseCtx
 	}
 
-	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProviderWithNilBlock, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder)
+	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProviderWithNilBlock, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, nil)
 
 	// Should use fallback logic and still work
 	ratio, err := api.CalculateGasUsedRatio(context.Background(), 1)
@@ -411,12 +411,43 @@ func TestCalculateGasUsedRatioZeroGasLimit(t *testing.T) {
 		return baseCtx
 	}
 
-	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProviderWithZeroGasLimit, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder)
+	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProviderWithZeroGasLimit, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, nil)
 
 	// Should return 0 to avoid division by zero
 	ratio, err := api.CalculateGasUsedRatio(context.Background(), 1)
 	require.NoError(t, err)
 	require.Equal(t, 0.0, ratio, "Should return 0.0 when gas limit is 0 to avoid division by zero")
+}
+
+func TestBlockNumberWatermarkDirect(t *testing.T) {
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return Ctx
+		}
+		return Ctx.WithBlockHeight(height)
+	}
+	wm := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore())
+	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProvider, nil, "", 1024, evmrpc.ConnectionTypeHTTP, nil, wm)
+	require.NotPanics(t, func() {
+		_ = api.BlockNumber()
+	})
+}
+
+func TestWatermarkComputation(t *testing.T) {
+	ctxProvider := func(height int64) sdk.Context {
+		if height == evmrpc.LatestCtxHeight {
+			return Ctx
+		}
+		return Ctx.WithBlockHeight(height)
+	}
+	wm := evmrpc.NewWatermarkManager(&MockClient{}, ctxProvider, nil, EVMKeeper.ReceiptStore())
+	require.NotPanics(t, func() {
+		_, _, _, err := wm.Watermarks(context.Background())
+		assert.NoError(t, err)
+		latest, err := wm.LatestHeight(context.Background())
+		assert.NoError(t, err)
+		assert.Greater(t, latest, int64(0))
+	})
 }
 
 func TestCalculateGasUsedRatioBlockNumberMismatch(t *testing.T) {
@@ -428,7 +459,7 @@ func TestCalculateGasUsedRatioBlockNumberMismatch(t *testing.T) {
 			return Ctx
 		}
 		return Ctx.WithBlockHeight(height)
-	}, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder)
+	}, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, nil)
 
 	// Test with a block where receipts might have mismatched block numbers
 	// The method should still work and skip mismatched receipts
@@ -448,7 +479,7 @@ func TestCalculateGasUsedRatioMultipleTransactionsAccumulation(t *testing.T) {
 			return Ctx
 		}
 		return Ctx.WithBlockHeight(height)
-	}, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder)
+	}, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, nil)
 
 	// Test block 2 which has multiple transactions
 	ratioBlock2, err := api.CalculateGasUsedRatio(context.Background(), 2)
@@ -481,7 +512,7 @@ func TestCalculateGasUsedRatioWithDifferentGasLimits(t *testing.T) {
 		return baseCtx
 	}
 
-	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProviderWithCustomGasLimit, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder)
+	api := evmrpc.NewInfoAPI(&MockClient{}, EVMKeeper, ctxProviderWithCustomGasLimit, nil, "", 1024, evmrpc.ConnectionTypeHTTP, Decoder, nil)
 
 	ratio, err := api.CalculateGasUsedRatio(context.Background(), 2)
 	require.NoError(t, err)

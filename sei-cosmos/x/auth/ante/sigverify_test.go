@@ -11,13 +11,13 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256r1"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
 	"github.com/cosmos/cosmos-sdk/crypto/types/multisig"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	"github.com/cosmos/cosmos-sdk/x/auth/ante"
 	"github.com/cosmos/cosmos-sdk/x/auth/legacy/legacytx"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
+	"github.com/sei-protocol/sei-chain/app"
 )
 
 func (suite *AnteTestSuite) TestSetPubKey() {
@@ -67,7 +67,7 @@ func (suite *AnteTestSuite) TestSetPubKey() {
 func (suite *AnteTestSuite) TestConsumeSignatureVerificationGas() {
 	params := types.DefaultParams()
 	msg := []byte{1, 2, 3, 4}
-	cdc := simapp.MakeTestEncodingConfig().Amino
+	cdc := app.MakeEncodingConfig().Amino
 
 	p := types.DefaultParams()
 	skR1, _ := secp256r1.GenPrivKey()
@@ -208,7 +208,7 @@ func (suite *AnteTestSuite) TestSigVerification() {
 // In the meantime, we want to make double-sure amino compatibility works.
 // ref: https://github.com/cosmos/cosmos-sdk/issues/7229
 func (suite *AnteTestSuite) TestSigVerification_ExplicitAmino() {
-	suite.app, suite.ctx = createTestApp(true)
+	suite.app, suite.ctx = createTestApp(suite.T(), true)
 	suite.ctx = suite.ctx.WithBlockHeight(1)
 
 	// Set up TxConfig.

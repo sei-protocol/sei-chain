@@ -16,7 +16,7 @@ import (
 
 func TestGetBlockByHash(t *testing.T) {
 	txBz := signAndEncodeTx(send(0), mnemonic1)
-	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
 			blockHash := res["result"].(map[string]interface{})["hash"]
@@ -29,7 +29,7 @@ func TestGetSeiBlockByHash(t *testing.T) {
 	cw20 := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
 	tx1 := signAndEncodeTx(registerCW20Pointer(0, cw20), mnemonic1)
 	tx2 := signAndEncodeCosmosTx(transferCW20Msg(mnemonic1, cw20), mnemonic1, 7, 0)
-	SetupTestServer([][][]byte{{tx1}, {tx2}}, mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, true)).Run(
+	SetupTestServer(t, [][][]byte{{tx1}, {tx2}}, mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, true)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("sei", port, "getBlockByHash", common.HexToHash("0x9dd3e6c427b6936f973b240cd5780b8ee4bf8fab0c8d281afb28089db51bb4af").Hex(), true)
 			txs := res["result"].(map[string]interface{})["transactions"]
@@ -42,7 +42,7 @@ func TestGetBlockByNumber(t *testing.T) {
 	txBz1 := signAndEncodeTx(send(0), mnemonic1)
 	txBz2 := signAndEncodeTx(send(1), mnemonic1)
 	txBz3 := signAndEncodeTx(send(2), mnemonic1)
-	SetupTestServer([][][]byte{{txBz1}, {txBz2}, {txBz3}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{txBz1}, {txBz2}, {txBz3}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getBlockByNumber", "earliest", true)
 			blockHash := res["result"].(map[string]interface{})["hash"]
@@ -69,7 +69,7 @@ func TestGetBlockByNumber(t *testing.T) {
 func TestGetBlockSkipTxIndex(t *testing.T) {
 	tx1 := signAndEncodeCosmosTx(bankSendMsg(mnemonic1), mnemonic1, 7, 0)
 	tx2 := signAndEncodeTx(send(0), mnemonic1)
-	SetupTestServer([][][]byte{{tx1, tx2}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{tx1, tx2}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
 			txs := res["result"].(map[string]any)["transactions"].([]any)
@@ -82,14 +82,14 @@ func TestGetBlockSkipTxIndex(t *testing.T) {
 func TestAnteFailureNonce(t *testing.T) {
 	txBz := signAndEncodeTx(send(1), mnemonic1) // wrong nonce
 	// incorrect nonce should always be excluded
-	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1), mockUpgrade("v5.8.0", 0)).Run(
+	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1), mockUpgrade("v5.8.0", 0)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
 			txs := res["result"].(map[string]interface{})["transactions"].([]interface{})
 			require.Len(t, txs, 0)
 		},
 	)
-	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1), mockUpgrade("v5.5.5", 0)).Run(
+	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1), mockUpgrade("v5.5.5", 0)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
 			txs := res["result"].(map[string]interface{})["transactions"].([]interface{})
@@ -101,7 +101,7 @@ func TestAnteFailureNonce(t *testing.T) {
 func TestAnteFailureOthers(t *testing.T) {
 	txBz := signAndEncodeTx(send(0), mnemonic1)
 	// insufficient fund should be included post v5.8.0
-	SetupTestServer([][][]byte{{txBz}}, mockUpgrade("v5.8.0", 0)).Run(
+	SetupTestServer(t, [][][]byte{{txBz}}, mockUpgrade("v5.8.0", 0)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
 			txs := res["result"].(map[string]interface{})["transactions"].([]interface{})
@@ -109,7 +109,7 @@ func TestAnteFailureOthers(t *testing.T) {
 		},
 	)
 	// insufficient fund should not be included pre v5.8.0
-	SetupTestServer([][][]byte{{txBz}}, mockUpgrade("v5.5.5", 0)).Run(
+	SetupTestServer(t, [][][]byte{{txBz}}, mockUpgrade("v5.5.5", 0)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getBlockByHash", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex(), true)
 			txs := res["result"].(map[string]interface{})["transactions"].([]interface{})
@@ -121,7 +121,7 @@ func TestAnteFailureOthers(t *testing.T) {
 func TestGetBlockReceipts(t *testing.T) {
 	txBz1 := signAndEncodeTx(send(0), mnemonic1)
 	txBz2 := signAndEncodeTx(send(1), mnemonic1)
-	SetupTestServer([][][]byte{{txBz1, txBz2}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{txBz1, txBz2}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getBlockReceipts", common.HexToHash("0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe").Hex())
 			require.Len(t, res["result"], 2)
@@ -138,7 +138,7 @@ func TestGetBlockAfterBaseFeeChange(t *testing.T) {
 	unsigned := send(1)
 	tx := signTxWithMnemonic(unsigned, mnemonic1)
 	txBz := encodeEvmTx(unsigned, tx)
-	ts := SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1), mockBaseFee(1000000001))
+	ts := SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1), mockBaseFee(1000000001))
 	ts.Run(func(port int) {
 		res := sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x2", true)
 		txs := res["result"].(map[string]interface{})["transactions"].([]interface{})
@@ -164,7 +164,7 @@ func TestBlockBloom(t *testing.T) {
 	tx2 := encodeEvmTx(txdata2, signedTx2)
 	cw20 := "sei18cszlvm6pze0x9sz32qnjq4vtd45xehqs8dq7cwy8yhq35wfnn3quh5sau" // hardcoded
 	tx3 := signAndEncodeCosmosTx(transferCW20Msg(mnemonic1, cw20), mnemonic1, 9, 0)
-	SetupTestServer([][][]byte{{tx1, tx2, tx3}}, erc20Initializer(), mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, true)).Run(
+	SetupTestServer(t, [][][]byte{{tx1, tx2, tx3}}, erc20Initializer(), mnemonicInitializer(mnemonic1), cw20Initializer(mnemonic1, true)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getBlockByNumber", "0x2", false)
 			blockBloomString := res["result"].(map[string]interface{})["logsBloom"]

@@ -2,14 +2,14 @@ syntax = "proto3";
 
 package ibc.core.connection.v1;
 
-option go_package = "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types";
-
-import "gogoproto/gogo.proto";
 import "cosmos/base/query/v1beta1/pagination.proto";
-import "ibc/core/client/v1/client.proto";
-import "ibc/core/connection/v1/connection.proto";
+import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
 import "google/protobuf/any.proto";
+import "ibc/core/client/v1/client.proto";
+import "ibc/core/connection/v1/connection.proto";
+
+option go_package = "github.com/cosmos/ibc-go/v3/modules/core/03-connection/types";
 
 // Query provides defines the gRPC querier service
 service Query {
@@ -38,8 +38,9 @@ service Query {
   // ConnectionConsensusState queries the consensus state associated with the
   // connection.
   rpc ConnectionConsensusState(QueryConnectionConsensusStateRequest) returns (QueryConnectionConsensusStateResponse) {
-    option (google.api.http).get = "/ibc/core/connection/v1/connections/{connection_id}/consensus_state/"
-                                   "revision/{revision_number}/height/{revision_height}";
+    option (google.api.http).get =
+      "/ibc/core/connection/v1/connections/{connection_id}/consensus_state/"
+      "revision/{revision_number}/height/{revision_height}";
   }
 }
 
@@ -119,7 +120,7 @@ message QueryConnectionClientStateResponse {
 // Query/ConnectionConsensusState RPC method
 message QueryConnectionConsensusStateRequest {
   // connection identifier
-  string connection_id   = 1 [(gogoproto.moretags) = "yaml:\"connection_id\""];
+  string connection_id = 1 [(gogoproto.moretags) = "yaml:\"connection_id\""];
   uint64 revision_number = 2;
   uint64 revision_height = 3;
 }

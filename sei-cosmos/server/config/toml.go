@@ -7,11 +7,11 @@ import (
 	"os"
 	"text/template"
 
-	"github.com/sei-protocol/sei-db/config"
 	"github.com/spf13/viper"
 )
 
-const DefaultConfigTemplate = `# This is a TOML config file.
+// ManualConfigTemplate contains configuration sections that are frequently modified by users
+const ManualConfigTemplate = `# This is a TOML config file.
 # For more information, see https://github.com/toml-lang/toml
 
 ###############################################################################
@@ -23,18 +23,17 @@ const DefaultConfigTemplate = `# This is a TOML config file.
 # specified in this config (e.g. 0.25token1;0.0001token2).
 minimum-gas-prices = "{{ .BaseConfig.MinGasPrices }}"
 
-# Pruning Strategies:
-# - default: Keep the recent 362880 blocks and prune is triggered every 10 blocks
-# - nothing: all historic states will be saved, nothing will be deleted (i.e. archiving node)
-# - everything: all saved states will be deleted, storing only the recent 2 blocks; pruning at every block
-# - custom: allow pruning options to be manually specified through 'pruning-keep-recent' and 'pruning-interval'
-# Pruning strategy is completely ignored when seidb is enabled
-pruning = "{{ .BaseConfig.Pruning }}"
+# MinRetainBlocks defines the minimum block height offset from the current block
+# for pruning Tendermint blocks. Set to 0 to disable pruning. This only affects
+# Tendermint block pruning, not application state (see "pruning-*" configs).
+min-retain-blocks = {{ .BaseConfig.MinRetainBlocks }}
 
-# These are applied if and only if the pruning strategy is custom, and seidb is not enabled
-pruning-keep-recent = "{{ .BaseConfig.PruningKeepRecent }}"
-pruning-keep-every = "{{ .BaseConfig.PruningKeepEvery }}"
-pruning-interval = "{{ .BaseConfig.PruningInterval }}"
+# ConcurrencyWorkers defines how many workers to run for concurrent transaction execution.
+# Default is dynamically set to 2x CPU cores, capped at 128, with a minimum of 10.
+concurrency-workers = {{ .BaseConfig.ConcurrencyWorkers }}
+
+# occ-enabled defines whether OCC is enabled or not for transaction execution
+occ-enabled = {{ .BaseConfig.OccEnabled }}
 
 # HaltHeight contains a non-zero block height at which a node will gracefully
 # halt and shutdown that can be used to assist upgrades and testing.
@@ -49,22 +48,6 @@ halt-height = {{ .BaseConfig.HaltHeight }}
 # Note: Commitment of state will be attempted on the corresponding block.
 halt-time = {{ .BaseConfig.HaltTime }}
 
-# MinRetainBlocks defines the minimum block height offset from the current
-# block being committed, such that all blocks past this offset are pruned
-# from Tendermint. It is used as part of the process of determining the
-# ResponseCommit.RetainHeight value during ABCI Commit. A value of 0 indicates
-# that no blocks should be pruned.
-#
-# This configuration value is only responsible for pruning Tendermint blocks.
-# It has no bearing on application state pruning which is determined by the
-# "pruning-*" configurations.
-#
-# Note: Tendermint block pruning is dependant on this parameter in conunction
-# with the unbonding (safety threshold) period, state pruning and state sync
-# snapshot parameters to determine the correct minimum value of
-# ResponseCommit.RetainHeight.
-min-retain-blocks = {{ .BaseConfig.MinRetainBlocks }}
-
 # InterBlockCache enables inter-block caching.
 inter-block-cache = {{ .BaseConfig.InterBlockCache }}
 
@@ -74,10 +57,6 @@ inter-block-cache = {{ .BaseConfig.InterBlockCache }}
 # Example:
 # ["message.sender", "message.recipient"]
 index-events = {{ .BaseConfig.IndexEvents }}
-
-# IavlCacheSize set the size of the iavl tree cache.
-# Default cache size is 50mb.
-iavl-cache-size = {{ .BaseConfig.IAVLCacheSize }}
 
 # IAVLDisableFastNode enables or disables the fast node feature of IAVL.
 # Default is true.
@@ -104,14 +83,30 @@ num-orphan-per-file = {{ .BaseConfig.NumOrphanPerFile }}
 # if separate-orphan-storage is true, where to store orphan data
 orphan-dir = "{{ .BaseConfig.OrphanDirectory }}"
 
-# concurrency-workers defines how many workers to run for concurrent transaction execution
-# concurrency-workers = {{ .BaseConfig.ConcurrencyWorkers }}
-
-# occ-enabled defines whether OCC is enabled or not for transaction execution
-occ-enabled = {{ .BaseConfig.OccEnabled }}
-
 ###############################################################################
-###                         Telemetry Configuration                         ###
+###                        State Sync Configuration                         ###
+###############################################################################
+
+# State sync snapshots allow other nodes to rapidly join the network without replaying historical
+# blocks, instead downloading and applying a snapshot of the application state at a given height.
+[state-sync]
+
+# snapshot-interval specifies the block interval at which local state sync snapshots are
+# taken (0 to disable). Must be a multiple of pruning-keep-every.
+snapshot-interval = {{ .StateSync.SnapshotInterval }}
+
+# snapshot-keep-recent specifies the number of recent snapshots to keep and serve (0 to keep all).
+snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
+
+# snapshot-directory sets the directory for where state sync snapshots are persisted.
+# default is emtpy which will then store under the app home directory same as before.
+snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
+`
+
+// AutoManagedConfigTemplate contains configuration sections that are auto-managed
+const AutoManagedConfigTemplate = `
+###############################################################################
+###                   Telemetry Configuration (Auto-managed)                ###
 ###############################################################################
 
 [telemetry]
@@ -136,17 +131,20 @@ enable-service-label = {{ .Telemetry.EnableServiceLabel }}
 # PrometheusRetentionTime, when positive, enables a Prometheus metrics sink.
 prometheus-retention-time = {{ .Telemetry.PrometheusRetentionTime }}
 
+# When both 'api.enable' and 'telemetry.enabled' are true, this node will expose
+# application metrics (custom Cosmos SDK metrics) on the API server endpoint along with the
+# Tendermint metrics (port 26660) which are always enabled.
+
 # GlobalLabels defines a global set of name/value label tuples applied to all
 # metrics emitted using the wrapper functions defined in telemetry package.
 #
 # Example:
 # [["chain_id", "cosmoshub-1"]]
-global-labels = [{{ range $k, $v := .Telemetry.GlobalLabels }}
-  ["{{index $v 0 }}", "{{ index $v 1}}"],{{ end }}
-]
+{{if .Telemetry.GlobalLabels}}global-labels = [{{ range $k, $v := .Telemetry.GlobalLabels }}
+  ["{{index $v 0 }}", "{{ index $v 1}}"],{{ end }}]{{else}}global-labels = []{{end}}
 
 ###############################################################################
-###                           API Configuration                             ###
+###                       API Configuration (Auto-managed)                  ###
 ###############################################################################
 
 [api]
@@ -176,7 +174,7 @@ rpc-max-body-bytes = {{ .API.RPCMaxBodyBytes }}
 enabled-unsafe-cors = {{ .API.EnableUnsafeCORS }}
 
 ###############################################################################
-###                           Rosetta Configuration                         ###
+###                     Rosetta Configuration (Auto-managed)                ###
 ###############################################################################
 
 [rosetta]
@@ -200,7 +198,7 @@ retries = {{ .Rosetta.Retries }}
 offline = {{ .Rosetta.Offline }}
 
 ###############################################################################
-###                           gRPC Configuration                            ###
+###                       gRPC Configuration (Auto-managed)                 ###
 ###############################################################################
 
 [grpc]
@@ -212,7 +210,7 @@ enable = {{ .GRPC.Enable }}
 address = "{{ .GRPC.Address }}"
 
 ###############################################################################
-###                        gRPC Web Configuration                           ###
+###                        gRPC Web Configuration (Auto-managed)            ###
 ###############################################################################
 
 [grpc-web]
@@ -228,28 +226,8 @@ address = "{{ .GRPCWeb.Address }}"
 enable-unsafe-cors = {{ .GRPCWeb.EnableUnsafeCORS }}
 
 ###############################################################################
-###                        State Sync Configuration                         ###
+###                         Genesis Configuration (Auto-managed)            ###
 ###############################################################################
-
-# State sync snapshots allow other nodes to rapidly join the network without replaying historical
-# blocks, instead downloading and applying a snapshot of the application state at a given height.
-[state-sync]
-
-# snapshot-interval specifies the block interval at which local state sync snapshots are
-# taken (0 to disable). Must be a multiple of pruning-keep-every.
-snapshot-interval = {{ .StateSync.SnapshotInterval }}
-
-# snapshot-keep-recent specifies the number of recent snapshots to keep and serve (0 to keep all).
-snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
-
-# snapshot-directory sets the directory for where state sync snapshots are persisted.
-# default is emtpy which will then store under the app home directory same as before.
-snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
-
-###############################################################################
-###                         Genesis Configuration                           ###
-###############################################################################
-
 
 # Genesis config allows configuring whether to stream from an genesis json file in streamed form
 [genesis]
@@ -260,7 +238,28 @@ stream-import = {{ .Genesis.StreamImport }}
 
 # genesis-stream-file specifies the path of the genesis json file to stream from.
 genesis-stream-file = "{{ .Genesis.GenesisStreamFile }}"
-` + config.DefaultConfigTemplate
+
+###############################################################################
+###                    Legacy IAVL Settings (Auto-managed)                  ###
+###############################################################################
+
+[iavl]
+# Pruning Strategies:
+# - default: Keep the recent 362880 blocks and prune is triggered every 10 blocks
+# - nothing: all historic states will be saved, nothing will be deleted (i.e. archiving node)
+# - everything: all saved states will be deleted, storing only the recent 2 blocks; pruning at every block
+# - custom: allow pruning options to be manually specified through 'pruning-keep-recent' and 'pruning-interval'
+# Pruning strategy is completely ignored when seidb is enabled
+pruning = "{{ .BaseConfig.Pruning }}"
+
+# These are applied if and only if the pruning strategy is custom, and seidb is not enabled
+pruning-keep-recent = "{{ .BaseConfig.PruningKeepRecent }}"
+pruning-keep-every = "{{ .BaseConfig.PruningKeepEvery }}"
+pruning-interval = "{{ .BaseConfig.PruningInterval }}"
+`
+
+// DefaultConfigTemplate combines manual and auto-managed templates for backward compatibility
+const DefaultConfigTemplate = ManualConfigTemplate + AutoManagedConfigTemplate
 
 var configTemplate *template.Template
 

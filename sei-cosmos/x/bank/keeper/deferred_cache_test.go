@@ -1,10 +1,10 @@
 package keeper_test
 
 import (
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/app/apptesting"
 )
 
 func (suite *IntegrationTestSuite) TestDeferredCacheUpsertBalances() {
@@ -21,8 +21,8 @@ func (suite *IntegrationTestSuite) TestDeferredCacheUpsertBalances() {
 
 	bankBalances := sdk.NewCoins(newFooCoin(20), newBarCoin(30))
 	// set up bank balances
-	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, addr1, bankBalances))
-	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, multiPermAcc.GetAddress(), bankBalances))
+	suite.Require().NoError(apptesting.FundAccount(app.BankKeeper, ctx, addr1, bankBalances))
+	suite.Require().NoError(apptesting.FundAccount(app.BankKeeper, ctx, multiPermAcc.GetAddress(), bankBalances))
 	// we initialize a deferrred cache to test functions directly as opposed to via bankkeeper functionality
 	deferredCache := bankkeeper.NewDeferredCache(app.AppCodec(), app.GetMemKey(types.DeferredCacheStoreKey))
 

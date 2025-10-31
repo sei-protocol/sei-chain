@@ -10,7 +10,7 @@ import (
 )
 
 func TestAccountRetriever(t *testing.T) {
-	cfg := network.DefaultConfig()
+	cfg := network.DefaultConfig(t)
 	cfg.NumValidators = 1
 
 	network := network.New(t, cfg)

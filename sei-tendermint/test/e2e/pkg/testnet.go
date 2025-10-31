@@ -58,26 +58,24 @@ const (
 
 // Testnet represents a single testnet.
 type Testnet struct {
-	Name                       string
-	File                       string
-	Dir                        string
-	IP                         *net.IPNet
-	InitialHeight              int64
-	InitialState               map[string]string
-	Validators                 map[*Node]int64
-	ValidatorUpdates           map[int64]map[*Node]int64
-	Nodes                      []*Node
-	KeyType                    string
-	Evidence                   int
-	VoteExtensionsEnableHeight int64
-	LogLevel                   string
-	TxSize                     int
-	ABCIProtocol               Protocol
-	PrepareProposalDelayMS     int
-	ProcessProposalDelayMS     int
-	CheckTxDelayMS             int
-	VoteExtensionDelayMS       int
-	FinalizeBlockDelayMS       int
+	Name                   string
+	File                   string
+	Dir                    string
+	IP                     *net.IPNet
+	InitialHeight          int64
+	InitialState           map[string]string
+	Validators             map[*Node]int64
+	ValidatorUpdates       map[int64]map[*Node]int64
+	Nodes                  []*Node
+	KeyType                string
+	Evidence               int
+	LogLevel               string
+	TxSize                 int
+	ABCIProtocol           Protocol
+	PrepareProposalDelayMS int
+	ProcessProposalDelayMS int
+	CheckTxDelayMS         int
+	FinalizeBlockDelayMS   int
 }
 
 // Node represents a Tendermint node in a testnet.
@@ -149,7 +147,6 @@ func LoadTestnet(file string) (*Testnet, error) {
 		PrepareProposalDelayMS: int(manifest.PrepareProposalDelayMS),
 		ProcessProposalDelayMS: int(manifest.ProcessProposalDelayMS),
 		CheckTxDelayMS:         int(manifest.CheckTxDelayMS),
-		VoteExtensionDelayMS:   int(manifest.VoteExtensionDelayMS),
 		FinalizeBlockDelayMS:   int(manifest.FinalizeBlockDelayMS),
 	}
 	if len(manifest.KeyType) != 0 {

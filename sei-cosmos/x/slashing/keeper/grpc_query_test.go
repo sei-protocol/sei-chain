@@ -9,33 +9,33 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/slashing/testslashing"
 	"github.com/cosmos/cosmos-sdk/x/slashing/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 type SlashingTestSuite struct {
 	suite.Suite
 
-	app         *simapp.SimApp
+	app         *seiapp.App
 	ctx         sdk.Context
 	queryClient types.QueryClient
 	addrDels    []sdk.AccAddress
 }
 
 func (suite *SlashingTestSuite) SetupTest() {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(suite.T(), false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	app.AccountKeeper.SetParams(ctx, authtypes.DefaultParams())
 	app.BankKeeper.SetParams(ctx, banktypes.DefaultParams())
 	app.SlashingKeeper.SetParams(ctx, testslashing.TestParams())
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 2, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 2, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 
 	info1 := types.NewValidatorSigningInfo(sdk.ConsAddress(addrDels[0]), int64(4), int64(3),
 		time.Unix(2, 0), false, int64(10))

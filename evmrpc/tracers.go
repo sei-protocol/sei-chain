@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
@@ -67,8 +68,10 @@ func NewDebugAPI(
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 	debugCfg Config,
+	globalBlockCache BlockCache,
+	cacheCreationMutex *sync.Mutex,
 ) *DebugAPI {
-	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler)
+	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex)
 	tracersAPI := tracers.NewAPI(backend)
 	evictCallback := func(key common.Hash, value bool) {}
 	isPanicCache := expirable.NewLRU[common.Hash, bool](IsPanicCacheSize, evictCallback, IsPanicCacheTTL)
@@ -103,8 +106,10 @@ func NewSeiDebugAPI(
 	antehandler sdk.AnteHandler,
 	connectionType ConnectionType,
 	debugCfg Config,
+	globalBlockCache BlockCache,
+	cacheCreationMutex *sync.Mutex,
 ) *SeiDebugAPI {
-	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler)
+	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex)
 	tracersAPI := tracers.NewAPI(backend)
 
 	var sem chan struct{}
@@ -141,8 +146,24 @@ func (api *DebugAPI) TraceTransaction(ctx context.Context, hash common.Hash, con
 
 	startTime := time.Now()
 	defer recordMetricsWithError("debug_traceTransaction", api.connectionType, startTime, returnErr)
-	result, returnErr = api.tracersAPI.TraceTransaction(ctx, hash, config)
-	return
+	return api.tracersAPI.TraceTransaction(ctx, hash, config)
+}
+
+func (api *DebugAPI) AsRawJSON(result interface{}) ([]byte, bool) {
+	switch v := result.(type) {
+	case json.RawMessage:
+		return v, true
+	case []byte:
+		return v, true
+	case string:
+		return []byte(v), true
+	default:
+		bz, err := json.Marshal(v)
+		if err != nil {
+			return nil, false
+		}
+		return bz, true
+	}
 }
 
 func (api *SeiDebugAPI) TraceBlockByNumberExcludeTraceFail(ctx context.Context, number rpc.BlockNumber, config *tracers.TraceConfig) (result interface{}, returnErr error) {

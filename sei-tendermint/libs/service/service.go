@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
@@ -165,6 +166,10 @@ func (bs *BaseService) Spawn(name string, task func(ctx context.Context) error) 
 	}()
 }
 
+// Spawns a critical task which should run until success OR as long as the service is running.
+// It panics in any of the following cases:
+// * task returns context.Canceled BEFORE the service is canceled.
+// * task returns an error other than context.Canceled.
 func (bs *BaseService) SpawnCritical(name string, task func(ctx context.Context) error) {
 	inner := bs.inner.Load()
 	if inner == nil {
@@ -174,8 +179,10 @@ func (bs *BaseService) SpawnCritical(name string, task func(ctx context.Context)
 	inner.wg.Add(1)
 	go func() {
 		defer inner.wg.Done()
-		if err := utils.IgnoreCancel(task(inner.ctx)); err != nil {
-			panic(fmt.Sprintf("critical task failed: name=%v, service=%v: %v", name, bs.name, err))
+		if err := task(inner.ctx); err != nil {
+			if !errors.Is(err, context.Canceled) || inner.ctx.Err() == nil {
+				panic(fmt.Sprintf("critical task failed: name=%v, service=%v: %v", name, bs.name, err))
+			}
 		}
 	}()
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
@@ -13,7 +14,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	txtypes "github.com/cosmos/cosmos-sdk/types/tx"
 	signingtypes "github.com/cosmos/cosmos-sdk/types/tx/signing"
@@ -22,7 +22,7 @@ import (
 )
 
 func NewTestTxConfig() client.TxConfig {
-	cfg := simapp.MakeTestEncodingConfig()
+	cfg := app.MakeEncodingConfig()
 	return cfg.TxConfig
 }
 

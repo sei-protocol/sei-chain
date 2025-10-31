@@ -3,6 +3,7 @@ go 1.24.5
 use (
 	.
 	./sei-cosmos
+	./sei-db
 	./sei-tendermint
 	./sei-wasmd
 	./sei-wasmvm

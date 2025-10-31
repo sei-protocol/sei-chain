@@ -9,7 +9,7 @@ import (
 
 func TestGetBalance(t *testing.T) {
 	txBz := signAndEncodeTx(send(0), mnemonic1)
-	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("eth", port, "getBalance", getAddrWithMnemonic(mnemonic1).Hex(), "0x1")
 			balance := res["result"].(string)
@@ -20,7 +20,7 @@ func TestGetBalance(t *testing.T) {
 			res = sendRequestWithNamespace("eth", port, "getBalance", getAddrWithMnemonic(mnemonic1).Hex(), "0x3")
 			fmt.Println(res)
 			err := res["error"].(map[string]interface{})
-			require.Equal(t, "cannot query future blocks", err["message"].(string))
+			require.Contains(t, err["message"].(string), "not yet available", "expected gating message when querying future blocks")
 		},
 	)
 }

@@ -128,10 +128,7 @@ func (st *Store) Query(req abci.RequestQuery) (res abci.ResponseQuery) {
 }
 
 func (st *Store) VersionExists(version int64) bool {
-	earliest, err := st.store.GetEarliestVersion()
-	if err != nil {
-		panic(err)
-	}
+	earliest := st.store.GetEarliestVersion()
 	return version >= earliest
 }
 

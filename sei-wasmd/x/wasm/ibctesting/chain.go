@@ -483,7 +483,7 @@ func (chain *TestChain) CreateTMClientHeader(chainID string, blockHeight int64, 
 		voteSet.AddVote(vote)
 	}
 
-	commit := voteSet.MakeExtendedCommit().ToCommit()
+	commit := voteSet.MakeCommit()
 
 	signedHeader := &tmproto.SignedHeader{
 		Header: tmHeader.ToProto(),

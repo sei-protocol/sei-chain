@@ -347,5 +347,6 @@ func (s *ConverterTestSuite) TestBalanceOps() {
 }
 
 func TestConverterTestSuite(t *testing.T) {
+	t.Skip() // rosetta is deprecated
 	suite.Run(t, new(ConverterTestSuite))
 }

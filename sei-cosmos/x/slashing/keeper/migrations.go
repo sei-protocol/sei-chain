@@ -6,7 +6,6 @@ import (
 	"sort"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	v043 "github.com/cosmos/cosmos-sdk/x/slashing/legacy/v043"
 
 	"github.com/cosmos/cosmos-sdk/x/slashing/types"
 
@@ -25,7 +24,7 @@ func NewMigrator(keeper Keeper) Migrator {
 
 // Migrate1to2 migrates from version 1 to 2.
 func (m Migrator) Migrate1to2(ctx sdk.Context) error {
-	return v043.MigrateStore(ctx, m.keeper.storeKey)
+	return nil
 }
 
 // Migrate2to3 migrates from version 2 to 3.

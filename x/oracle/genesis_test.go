@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/sei-protocol/sei-chain/x/oracle"
-	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
+	"github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -15,13 +15,13 @@ import (
 func TestExportInitGenesis(t *testing.T) {
 	input, _ := setup(t)
 
-	input.OracleKeeper.SetFeederDelegation(input.Ctx, keeper.ValAddrs[0], keeper.Addrs[1])
+	input.OracleKeeper.SetFeederDelegation(input.Ctx, testutils.ValAddrs[0], testutils.Addrs[1])
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, "denom", sdk.NewDec(123))
-	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, keeper.ValAddrs[0], types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{{Denom: "foo", ExchangeRate: sdk.NewDec(123)}}, keeper.ValAddrs[0]))
+	input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, testutils.ValAddrs[0], types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{{Denom: "foo", ExchangeRate: sdk.NewDec(123)}}, testutils.ValAddrs[0]))
 	input.OracleKeeper.SetVoteTarget(input.Ctx, "denom")
 	input.OracleKeeper.SetVoteTarget(input.Ctx, "denom2")
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, keeper.ValAddrs[0], 2, 3, 0)
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, keeper.ValAddrs[1], 4, 5, 0)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[0], 2, 3, 0)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[1], 4, 5, 0)
 	input.OracleKeeper.AddPriceSnapshot(input.Ctx, types.NewPriceSnapshot(
 		types.PriceSnapshotItems{
 			{
@@ -62,7 +62,7 @@ func TestExportInitGenesis(t *testing.T) {
 	))
 	genesis := oracle.ExportGenesis(input.Ctx, input.OracleKeeper)
 
-	newInput := keeper.CreateTestInput(t)
+	newInput := testutils.CreateTestInput(t)
 	oracle.InitGenesis(newInput.Ctx, newInput.OracleKeeper, genesis)
 	newGenesis := oracle.ExportGenesis(newInput.Ctx, newInput.OracleKeeper)
 

@@ -48,7 +48,7 @@ func NewTxCmd() *cobra.Command {
 
 type newGenerateOrBroadcastFunc func(client.Context, *pflag.FlagSet, ...sdk.Msg) error
 
-func newSplitAndApply(
+func NewSplitAndApply(
 	genOrBroadcastFn newGenerateOrBroadcastFunc, clientCtx client.Context,
 	fs *pflag.FlagSet, msgs []sdk.Msg, chunkSize int,
 ) error {
@@ -182,7 +182,7 @@ $ %[1]s tx distribution withdraw-all-rewards --from mykey
 					clientCtx.BroadcastMode, FlagMaxMessagesPerTx)
 			}
 
-			return newSplitAndApply(tx.GenerateOrBroadcastTxCLI, clientCtx, cmd.Flags(), msgs, chunkSize)
+			return NewSplitAndApply(tx.GenerateOrBroadcastTxCLI, clientCtx, cmd.Flags(), msgs, chunkSize)
 		},
 	}
 

@@ -13,14 +13,12 @@ func TestQueuePruning(t *testing.T) {
 	rng := utils.TestRng()
 	n := 20
 	var want []int
-	sq := NewQueue(n)
+	sq := NewQueue[int](n)
 	for range 100 {
 		// Send a bunch of messages.
 		for range 30 {
-			// priority is not part of the envelope currently,
-			// so we hack it by encoding it as a ChannelID.
-			v := ChannelID(rng.Int())
-			sq.Send(Envelope{From: "merlin", ChannelID: v}, int(v))
+			v := rng.Int()
+			sq.Send(v, 10, int(v))
 			want = append(want, int(v))
 		}
 
@@ -39,7 +37,7 @@ func TestQueuePruning(t *testing.T) {
 				t.Fatal(err)
 			}
 			l := len(want)
-			if got, want := int(got.ChannelID), want[l-1]; got != want {
+			if want := want[l-1]; got != want {
 				t.Fatalf("sq.Recv() = %d, want %d", got, want)
 			}
 			want = want[:l-1]
@@ -53,7 +51,7 @@ func TestQueuePruning(t *testing.T) {
 // Test that receivers are notified when a message is available.
 func TestQueueConcurrency(t *testing.T) {
 	ctx := t.Context()
-	q1, q2 := NewQueue(1), NewQueue(1)
+	q1, q2 := NewQueue[RecvMsg](1), NewQueue[RecvMsg](1)
 
 	if err := utils.IgnoreCancel(scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnBg(func() error {
@@ -63,12 +61,12 @@ func TestQueueConcurrency(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				q2.Send(msg, 0)
+				q2.Send(msg, 12, 0)
 			}
 		})
 		// Send and receive a bunch of messages.
 		for range 100 {
-			q1.Send(Envelope{From: "merlin"}, 0)
+			q1.Send(RecvMsg{From: "merlin"}, 12, 0)
 			if _, err := q2.Recv(ctx); err != nil {
 				return err
 			}

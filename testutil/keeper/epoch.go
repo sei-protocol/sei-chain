@@ -18,8 +18,8 @@ import (
 	tmdb "github.com/tendermint/tm-db"
 )
 
-func TestApp() *app.App {
-	return app.Setup(false, false, false)
+func TestApp(t *testing.T) *app.App {
+	return app.Setup(t, false, false, false)
 }
 
 func EpochKeeper(t testing.TB) (*keeper.Keeper, sdk.Context) {

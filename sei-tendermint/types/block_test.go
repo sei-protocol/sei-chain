@@ -542,11 +542,11 @@ func TestBlockMaxDataBytesNoEvidence(t *testing.T) {
 	}
 }
 
-// TestVoteSetToExtendedCommit tests that the extended commit produced from a
+// TestVoteSetToCommit tests that the extended commit produced from a
 // vote set contains the same vote information as the vote set. The test ensures
-// that the MakeExtendedCommit method behaves as expected, whether vote extensions
+// that the MakeCommit method behaves as expected, whether vote extensions
 // are present in the original votes or not.
-func TestVoteSetToExtendedCommit(t *testing.T) {
+func TestVoteSetToCommit(t *testing.T) {
 	blockID := makeBlockIDRandom()
 	ctx := t.Context()
 
@@ -586,11 +586,11 @@ func TestVoteSetToExtendedCommit(t *testing.T) {
 	}
 }
 
-// TestExtendedCommitToVoteSet tests that the vote set produced from an extended commit
-// contains the same vote information as the extended commit. The test ensures
+// TestCommitToVoteSet tests that the vote set produced from a commit
+// contains the same vote information as the commit. The test ensures
 // that the ToVoteSet method behaves as expected, whether vote extensions
 // are present in the original votes or not.
-func TestExtendedCommitToVoteSet(t *testing.T) {
+func TestCommitToVoteSet(t *testing.T) {
 	lastID := makeBlockIDRandom()
 	h := int64(3)
 

@@ -7,9 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
-
-	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
+	"github.com/sei-protocol/sei-chain/app/apptesting"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 
 	"github.com/stretchr/testify/require"
 
@@ -472,7 +471,7 @@ func (suite *AnteTestSuite) TestAnteHandlerFees() {
 		{
 			"signer does not have enough funds to pay the fee",
 			func() {
-				err := simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr0, sdk.NewCoins(sdk.NewInt64Coin("usei", 149)))
+				err := apptesting.FundAccount(suite.app.BankKeeper, suite.ctx, addr0, sdk.NewCoins(sdk.NewInt64Coin("usei", 149)))
 				suite.Require().NoError(err)
 			},
 			false,
@@ -489,7 +488,7 @@ func (suite *AnteTestSuite) TestAnteHandlerFees() {
 				suite.Require().True(suite.app.BankKeeper.GetAllBalances(suite.ctx, modAcc.GetAddress()).Empty())
 				require.True(sdk.IntEq(suite.T(), suite.app.BankKeeper.GetAllBalances(suite.ctx, addr0).AmountOf("usei"), sdk.NewInt(149)))
 
-				err := simapp.FundAccount(suite.app.BankKeeper, suite.ctx, addr0, sdk.NewCoins(sdk.NewInt64Coin("usei", 1)))
+				err := apptesting.FundAccount(suite.app.BankKeeper, suite.ctx, addr0, sdk.NewCoins(sdk.NewInt64Coin("usei", 1)))
 				suite.Require().NoError(err)
 			},
 			false,

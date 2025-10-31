@@ -85,14 +85,17 @@ func (genDoc *GenesisDoc) SaveAs(file string) error {
 	return os.WriteFile(file, genDocBytes, 0644) // nolint:gosec
 }
 
-// ValidatorHash returns the hash of the validator set contained in the GenesisDoc
-func (genDoc *GenesisDoc) ValidatorHash() []byte {
+func (genDoc *GenesisDoc) ValidatorSet() *ValidatorSet {
 	vals := make([]*Validator, len(genDoc.Validators))
 	for i, v := range genDoc.Validators {
 		vals[i] = NewValidator(v.PubKey, v.Power)
 	}
-	vset := NewValidatorSet(vals)
-	return vset.Hash()
+	return NewValidatorSet(vals)
+}
+
+// ValidatorHash returns the hash of the validator set contained in the GenesisDoc
+func (genDoc *GenesisDoc) ValidatorHash() []byte {
+	return genDoc.ValidatorSet().Hash()
 }
 
 // ValidateAndComplete checks that all necessary fields are present

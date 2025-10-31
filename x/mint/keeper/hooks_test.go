@@ -32,7 +32,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	t.Parallel()
 
 	t.Run("Initial should be zero", func(t *testing.T) {
-		seiApp := keepertest.TestApp()
+		seiApp := keepertest.TestApp(t)
 		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
 
 		header := tmproto.Header{
@@ -44,7 +44,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	})
 
 	t.Run("even full release", func(t *testing.T) {
-		seiApp := keepertest.TestApp()
+		seiApp := keepertest.TestApp(t)
 		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
 
 		header := tmproto.Header{
@@ -89,7 +89,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	})
 
 	t.Run("uneven full release", func(t *testing.T) {
-		seiApp := keepertest.TestApp()
+		seiApp := keepertest.TestApp(t)
 		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
 
 		header := tmproto.Header{
@@ -135,7 +135,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	})
 
 	t.Run("multiple full releases", func(t *testing.T) {
-		seiApp := keepertest.TestApp()
+		seiApp := keepertest.TestApp(t)
 		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
 
 		header := tmproto.Header{
@@ -193,7 +193,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 	})
 
 	t.Run("outage during release", func(t *testing.T) {
-		seiApp := keepertest.TestApp()
+		seiApp := keepertest.TestApp(t)
 		ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
 
 		header := tmproto.Header{
@@ -267,7 +267,7 @@ func TestEndOfEpochMintedCoinDistribution(t *testing.T) {
 }
 
 func TestNoEpochPassedNoDistribution(t *testing.T) {
-	seiApp := keepertest.TestApp()
+	seiApp := keepertest.TestApp(t)
 	ctx := seiApp.BaseApp.NewContext(false, tmproto.Header{Time: time.Now()})
 
 	header := tmproto.Header{Height: seiApp.LastBlockHeight() + 1}

@@ -531,7 +531,7 @@ func TestProposalStrings(t *testing.T) {
 			exp: `Store Code Proposal:
   Title:       Foo
   Description: Bar
-  Run as:      cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4
+  Run as:      sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl
   WasmCode:    0102030405060708090A
 `,
 		},
@@ -542,11 +542,11 @@ func TestProposalStrings(t *testing.T) {
 			exp: `Instantiate Code Proposal:
   Title:       Foo
   Description: Bar
-  Run as:      cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4
-  Admin:       cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4
+  Run as:      sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl
+  Admin:       sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl
   Code id:     1
   Label:       testing
-  Msg:         "{\"verifier\":\"cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4\",\"beneficiary\":\"cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4\"}"
+  Msg:         "{\"verifier\":\"sei1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqsgf6nud\",\"beneficiary\":\"sei1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqsgf6nud\"}"
   Funds:       1foo,2bar
 `,
 		},
@@ -555,11 +555,11 @@ func TestProposalStrings(t *testing.T) {
 			exp: `Instantiate Code Proposal:
   Title:       Foo
   Description: Bar
-  Run as:      cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4
-  Admin:       cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4
+  Run as:      sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl
+  Admin:       sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl
   Code id:     1
   Label:       testing
-  Msg:         "{\"verifier\":\"cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4\",\"beneficiary\":\"cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4\"}"
+  Msg:         "{\"verifier\":\"sei1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqsgf6nud\",\"beneficiary\":\"sei1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqsgf6nud\"}"
   Funds:       
 `,
 		},
@@ -568,11 +568,11 @@ func TestProposalStrings(t *testing.T) {
 			exp: `Instantiate Code Proposal:
   Title:       Foo
   Description: Bar
-  Run as:      cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4
+  Run as:      sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl
   Admin:       
   Code id:     1
   Label:       testing
-  Msg:         "{\"verifier\":\"cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4\",\"beneficiary\":\"cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4\"}"
+  Msg:         "{\"verifier\":\"sei1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqsgf6nud\",\"beneficiary\":\"sei1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqsgf6nud\"}"
   Funds:       
 `,
 		},
@@ -581,9 +581,9 @@ func TestProposalStrings(t *testing.T) {
 			exp: `Migrate Contract Proposal:
   Title:       Foo
   Description: Bar
-  Contract:    cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr
+  Contract:    sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz
   Code id:     1
-  Msg:         "{\"verifier\":\"cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4\"}"
+  Msg:         "{\"verifier\":\"sei1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqsgf6nud\"}"
 `,
 		},
 		"update admin": {
@@ -591,8 +591,8 @@ func TestProposalStrings(t *testing.T) {
 			exp: `Update Contract Admin Proposal:
   Title:       Foo
   Description: Bar
-  Contract:    cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr
-  New Admin:   cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4
+  Contract:    sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl
+  New Admin:   sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz
 `,
 		},
 		"clear admin": {
@@ -600,7 +600,7 @@ func TestProposalStrings(t *testing.T) {
 			exp: `Clear Contract Admin Proposal:
   Title:       Foo
   Description: Bar
-  Contract:    cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr
+  Contract:    sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz
 `,
 		},
 		"pin codes": {
@@ -646,7 +646,7 @@ func TestProposalYaml(t *testing.T) {
 			}),
 			exp: `title: Foo
 description: Bar
-run_as: cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4
+run_as: sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl
 wasm_byte_code: AQIDBAUGBwgJCg==
 instantiate_permission: null
 `,
@@ -657,11 +657,11 @@ instantiate_permission: null
 			}),
 			exp: `title: Foo
 description: Bar
-run_as: cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4
-admin: cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4
+run_as: sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl
+admin: sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl
 code_id: 1
 label: testing
-msg: '{"verifier":"cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4","beneficiary":"cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4"}'
+msg: '{"verifier":"sei1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqsgf6nud","beneficiary":"sei1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqsgf6nud"}'
 funds:
 - denom: foo
   amount: "1"
@@ -673,11 +673,11 @@ funds:
 			src: InstantiateContractProposalFixture(func(p *InstantiateContractProposal) { p.Funds = nil }),
 			exp: `title: Foo
 description: Bar
-run_as: cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4
-admin: cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4
+run_as: sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl
+admin: sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl
 code_id: 1
 label: testing
-msg: '{"verifier":"cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4","beneficiary":"cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4"}'
+msg: '{"verifier":"sei1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqsgf6nud","beneficiary":"sei1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqsgf6nud"}'
 funds: []
 `,
 		},
@@ -685,11 +685,11 @@ funds: []
 			src: InstantiateContractProposalFixture(func(p *InstantiateContractProposal) { p.Admin = "" }),
 			exp: `title: Foo
 description: Bar
-run_as: cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4
+run_as: sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl
 admin: ""
 code_id: 1
 label: testing
-msg: '{"verifier":"cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4","beneficiary":"cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4"}'
+msg: '{"verifier":"sei1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqsgf6nud","beneficiary":"sei1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqsgf6nud"}'
 funds: []
 `,
 		},
@@ -697,24 +697,24 @@ funds: []
 			src: MigrateContractProposalFixture(),
 			exp: `title: Foo
 description: Bar
-contract: cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr
+contract: sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz
 code_id: 1
-msg: '{"verifier":"cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4"}'
+msg: '{"verifier":"sei1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqsgf6nud"}'
 `,
 		},
 		"update admin": {
 			src: UpdateAdminProposalFixture(),
 			exp: `title: Foo
 description: Bar
-new_admin: cosmos1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs2m6sx4
-contract: cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr
+new_admin: sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz
+contract: sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl
 `,
 		},
 		"clear admin": {
 			src: ClearAdminProposalFixture(),
 			exp: `title: Foo
 description: Bar
-contract: cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr
+contract: sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz
 `,
 		},
 		"pin codes": {

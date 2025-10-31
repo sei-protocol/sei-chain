@@ -94,7 +94,7 @@ func (d PriorityCaptureDecorator) AnteDeps(txDeps []accesscontrol.AccessOperatio
 }
 
 func TestPriorityWithExactAnteChain_BankSend(t *testing.T) {
-	testApp := app.Setup(false, false, false)
+	testApp := app.Setup(t, false, false, false)
 	ctx := testApp.NewContext(false, tmproto.Header{ChainID: "sei-test"}).WithBlockHeight(2).WithIsCheckTx(true)
 	testApp.ParamsKeeper.SetCosmosGasParams(ctx, *paramtypes.DefaultCosmosGasParams())
 	testApp.ParamsKeeper.SetFeesParams(ctx, paramtypes.DefaultGenesis().GetFeesParams())
@@ -165,7 +165,7 @@ func (d PrioritySetterDecorator) AnteDeps(txDeps []accesscontrol.AccessOperation
 }
 
 func TestPrioritySetterWithAnteHandlers(t *testing.T) {
-	testApp := app.Setup(false, false, false)
+	testApp := app.Setup(t, false, false, false)
 	ctx := testApp.NewContext(false, tmproto.Header{}).WithBlockHeight(2).WithIsCheckTx(true)
 	testApp.ParamsKeeper.SetCosmosGasParams(ctx, *paramtypes.DefaultCosmosGasParams())
 	testApp.ParamsKeeper.SetFeesParams(ctx, paramtypes.DefaultGenesis().GetFeesParams())

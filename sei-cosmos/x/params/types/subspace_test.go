@@ -11,10 +11,10 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/store"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/params/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 type SubspaceTestSuite struct {
@@ -34,7 +34,7 @@ func (suite *SubspaceTestSuite) SetupTest() {
 	ms.MountStoreWithDB(tkey, sdk.StoreTypeTransient, db)
 	suite.NoError(ms.LoadLatestVersion())
 
-	encCfg := simapp.MakeTestEncodingConfig()
+	encCfg := seiapp.MakeEncodingConfig()
 	ss := types.NewSubspace(encCfg.Marshaler, encCfg.Amino, key, tkey, "testsubspace")
 
 	suite.cdc = encCfg.Marshaler

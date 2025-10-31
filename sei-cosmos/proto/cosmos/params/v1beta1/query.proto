@@ -1,9 +1,9 @@
 syntax = "proto3";
 package cosmos.params.v1beta1;
 
+import "cosmos/params/v1beta1/params.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
-import "cosmos/params/v1beta1/params.proto";
 
 option go_package = "github.com/cosmos/cosmos-sdk/x/params/types/proposal";
 

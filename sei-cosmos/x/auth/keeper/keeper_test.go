@@ -3,11 +3,11 @@ package keeper_test
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/auth/keeper"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
@@ -27,7 +27,7 @@ var (
 type KeeperTestSuite struct {
 	suite.Suite
 
-	app *simapp.SimApp
+	app *app.App
 	ctx sdk.Context
 
 	queryClient types.QueryClient
@@ -119,19 +119,19 @@ func TestGetSetParams(t *testing.T) {
 }
 
 func TestSupply_ValidatePermissions(t *testing.T) {
-	app, _ := createTestApp(true)
+	a, _ := createTestApp(true)
 
 	// add module accounts to supply keeper
-	maccPerms := simapp.GetMaccPerms()
+	maccPerms := app.GetMaccPerms()
 	maccPerms[holder] = nil
 	maccPerms[types.Burner] = []string{types.Burner}
 	maccPerms[types.Minter] = []string{types.Minter}
 	maccPerms[multiPerm] = []string{types.Burner, types.Minter, types.Staking}
 	maccPerms[randomPerm] = []string{"random"}
 
-	cdc := simapp.MakeTestEncodingConfig().Marshaler
+	cdc := app.MakeEncodingConfig().Marshaler
 	keeper := keeper.NewAccountKeeper(
-		cdc, app.GetKey(types.StoreKey), app.GetSubspace(types.ModuleName),
+		cdc, a.GetKey(types.StoreKey), a.GetSubspace(types.ModuleName),
 		types.ProtoBaseAccount, maccPerms,
 	)
 
@@ -143,6 +143,6 @@ func TestSupply_ValidatePermissions(t *testing.T) {
 
 	// unregistered permissions
 	otherAcc := types.NewEmptyModuleAccount("other", "other")
-	err = app.AccountKeeper.ValidatePermissions(otherAcc)
+	err = a.AccountKeeper.ValidatePermissions(otherAcc)
 	require.Error(t, err)
 }

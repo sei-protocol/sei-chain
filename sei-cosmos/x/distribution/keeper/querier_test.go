@@ -9,7 +9,6 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/cosmos/cosmos-sdk/x/distribution/keeper"
@@ -17,6 +16,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 const custom = "custom"
@@ -116,11 +116,11 @@ func TestQueries(t *testing.T) {
 	types.RegisterLegacyAminoCodec(cdc)
 	banktypes.RegisterLegacyAminoCodec(cdc)
 
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addr := simapp.AddTestAddrs(app, ctx, 1, sdk.NewInt(1000000000))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addr)
+	addr := seiapp.AddTestAddrs(app, ctx, 1, sdk.NewInt(1000000000))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addr)
 	valOpAddr1 := valAddrs[0]
 
 	querier := keeper.NewQuerier(app.DistrKeeper, cdc)

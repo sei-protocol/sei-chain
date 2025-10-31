@@ -68,9 +68,6 @@ var (
 	ipv6       = uniformChoice{false, true}
 	keyType    = uniformChoice{types.ABCIPubKeyTypeEd25519, types.ABCIPubKeyTypeSecp256k1}
 	abciDelays = uniformChoice{"none", "small", "large"}
-
-	voteExtensionEnableHeightOffset = uniformChoice{int64(0), int64(10), int64(100)}
-	voteExtensionEnabled            = uniformChoice{true, false}
 )
 
 // Generate generates random testnets using the given RNG.
@@ -120,10 +117,6 @@ func generateTestnet(r *rand.Rand, opt map[string]interface{}) (e2e.Manifest, er
 		TxSize:           txSize.Choose(r).(int),
 	}
 
-	if voteExtensionEnabled.Choose(r).(bool) {
-		manifest.VoteExtensionsEnableHeight = manifest.InitialHeight + voteExtensionEnableHeightOffset.Choose(r).(int64)
-	}
-
 	if opt["abci"] == "builtin" {
 		manifest.ABCIProtocol = string(e2e.ProtocolBuiltin)
 	} else {
@@ -135,13 +128,11 @@ func generateTestnet(r *rand.Rand, opt map[string]interface{}) (e2e.Manifest, er
 	case "small":
 		manifest.PrepareProposalDelayMS = 100
 		manifest.ProcessProposalDelayMS = 100
-		manifest.VoteExtensionDelayMS = 20
 		manifest.FinalizeBlockDelayMS = 200
 	case "large":
 		manifest.PrepareProposalDelayMS = 200
 		manifest.ProcessProposalDelayMS = 200
 		manifest.CheckTxDelayMS = 20
-		manifest.VoteExtensionDelayMS = 100
 		manifest.FinalizeBlockDelayMS = 500
 	}
 

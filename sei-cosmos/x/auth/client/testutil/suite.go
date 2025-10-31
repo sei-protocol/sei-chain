@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CosmWasm/wasmd/app"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	tmcli "github.com/tendermint/tendermint/libs/cli"
@@ -20,7 +21,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	kmultisig "github.com/cosmos/cosmos-sdk/crypto/keys/multisig"
 	cryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/testutil"
 	clitestutil "github.com/cosmos/cosmos-sdk/testutil/cli"
 	"github.com/cosmos/cosmos-sdk/testutil/network"
@@ -1148,9 +1148,6 @@ func (s *IntegrationTestSuite) TestGetAccountsCmd() {
 }
 
 func TestGetBroadcastCommandOfflineFlag(t *testing.T) {
-	clientCtx := client.Context{}.WithOffline(true)
-	clientCtx = clientCtx.WithTxConfig(simapp.MakeTestEncodingConfig().TxConfig)
-
 	cmd := authcli.GetBroadcastCommand()
 	_ = testutil.ApplyMockIODiscardOutErr(cmd)
 	cmd.SetArgs([]string{fmt.Sprintf("--%s=true", flags.FlagOffline), ""})
@@ -1160,7 +1157,7 @@ func TestGetBroadcastCommandOfflineFlag(t *testing.T) {
 
 func TestGetBroadcastCommandWithoutOfflineFlag(t *testing.T) {
 	clientCtx := client.Context{}
-	txCfg := simapp.MakeTestEncodingConfig().TxConfig
+	txCfg := app.MakeEncodingConfig().TxConfig
 	clientCtx = clientCtx.WithTxConfig(txCfg)
 
 	ctx := context.Background()

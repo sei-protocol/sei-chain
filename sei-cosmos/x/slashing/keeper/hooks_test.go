@@ -1,18 +1,19 @@
 package keeper_test
 
 import (
-	"github.com/cosmos/cosmos-sdk/simapp"
+	"testing"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/assert"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"testing"
 )
 
 func TestAfterValidatorBonded(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 6, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 6, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
 	keeper := app.SlashingKeeper
 	consAddr := sdk.ConsAddress(addrDels[0])
 

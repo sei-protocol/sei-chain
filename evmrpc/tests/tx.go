@@ -53,7 +53,7 @@ func sendErc20(nonce uint64) ethtypes.TxData {
 	return &ethtypes.DynamicFeeTx{
 		Nonce:     nonce,
 		GasFeeCap: big.NewInt(1000000000),
-		Gas:       100000,
+		Gas:       500000,
 		To:        &erc20Addr,
 		Data:      bz,
 		ChainID:   chainId,
@@ -66,7 +66,7 @@ func depositErc20(nonce uint64) ethtypes.TxData {
 	return &ethtypes.DynamicFeeTx{
 		Nonce:     nonce,
 		GasFeeCap: big.NewInt(1000000000),
-		Gas:       100000,
+		Gas:       500000,
 		To:        &erc20Addr,
 		Value:     big.NewInt(1),
 		Data:      bz,

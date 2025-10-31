@@ -25,8 +25,8 @@ func getTestSyncer(t *testing.T) *Syncer {
 		*dbsyncConfig,
 		baseConfig,
 		true,
-		func(ctx context.Context) error { return nil },
-		func(ctx context.Context, ni types.NodeID, u uint64, s string) error { return nil },
+		func() {},
+		func(ni types.NodeID, u uint64, s string) {},
 		func(ctx context.Context, u uint64) (state.State, *types.Commit, error) {
 			return state.State{}, nil, nil
 		},

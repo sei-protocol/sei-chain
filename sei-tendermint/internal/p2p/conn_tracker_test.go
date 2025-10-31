@@ -26,11 +26,11 @@ func randLocalAddr() netip.AddrPort {
 }
 
 func TestConnTracker(t *testing.T) {
-	for name, factory := range map[string]func() connectionTracker{
-		"BaseSmall": func() connectionTracker {
+	for name, factory := range map[string]func() *connTracker{
+		"BaseSmall": func() *connTracker {
 			return newConnTracker(10, time.Second)
 		},
-		"BaseLarge": func() connectionTracker {
+		"BaseLarge": func() *connTracker {
 			return newConnTracker(100, time.Hour)
 		},
 	} {

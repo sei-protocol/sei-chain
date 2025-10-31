@@ -62,6 +62,7 @@ var (
 	NextBaseFeePerGasPrefix         = []byte{0x1c}
 	EvmOnlyBlockBloomPrefix         = []byte{0x1d}
 	ContractMetaKeyPrefix           = []byte{0x1e}
+	ZeroStorageCleanupCheckpointKey = []byte{0x1e}
 )
 
 var (

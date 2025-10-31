@@ -34,10 +34,10 @@ func TestMsgSendValidation(t *testing.T) {
 		expectedErr string // empty means no error expected
 		msg         *MsgSend
 	}{
-		{"", NewMsgSend(addr1, addr2, atom123)},                                // valid send
-		{"", NewMsgSend(addr1, addr2, atom123eth123)},                          // valid send with multiple coins
-		{"", NewMsgSend(addrLong, addr2, atom123)},                             // valid send with long addr sender
-		{"", NewMsgSend(addr1, addrLong, atom123)},                             // valid send with long addr recipient
+		{"", NewMsgSend(addr1, addr2, atom123)},       // valid send
+		{"", NewMsgSend(addr1, addr2, atom123eth123)}, // valid send with multiple coins
+		{"Invalid sender address (address length must be 20 or 32 bytes, got 25: unknown address): invalid address", NewMsgSend(addrLong, addr2, atom123)},    // valid send with long addr sender
+		{"Invalid recipient address (address length must be 20 or 32 bytes, got 25: unknown address): invalid address", NewMsgSend(addr1, addrLong, atom123)}, // valid send with long addr recipient
 		{": invalid coins", NewMsgSend(addr1, addr2, atom0)},                   // non positive coin
 		{"123atom,0eth: invalid coins", NewMsgSend(addr1, addr2, atom123eth0)}, // non positive coin in multicoins
 		{"Invalid sender address (empty address string is not allowed): invalid address", NewMsgSend(addrEmpty, addr2, atom123)},
@@ -61,7 +61,7 @@ func TestMsgSendGetSignBytes(t *testing.T) {
 	var msg = NewMsgSend(addr1, addr2, coins)
 	res := msg.GetSignBytes()
 
-	expected := `{"type":"cosmos-sdk/MsgSend","value":{"amount":[{"amount":"10","denom":"atom"}],"from_address":"cosmos1d9h8qat57ljhcm","to_address":"cosmos1da6hgur4wsmpnjyg"}}`
+	expected := `{"type":"cosmos-sdk/MsgSend","value":{"amount":[{"amount":"10","denom":"atom"}],"from_address":"sei1d9h8qat54uvf5a","to_address":"sei1da6hgur4wseuc2ay"}}`
 	require.Equal(t, expected, string(res))
 }
 
@@ -109,7 +109,7 @@ func TestInputValidation(t *testing.T) {
 		{"", NewInput(addr1, someCoins)},
 		{"", NewInput(addr2, someCoins)},
 		{"", NewInput(addr2, multiCoins)},
-		{"", NewInput(addrLong, someCoins)},
+		{"address length must be 20 or 32 bytes, got 25: unknown address", NewInput(addrLong, someCoins)},
 
 		{"empty address string is not allowed", NewInput(addrEmpty, someCoins)},
 		{": invalid coins", NewInput(addr1, emptyCoins)},                // invalid coins
@@ -150,7 +150,7 @@ func TestOutputValidation(t *testing.T) {
 		{"", NewOutput(addr1, someCoins)},
 		{"", NewOutput(addr2, someCoins)},
 		{"", NewOutput(addr2, multiCoins)},
-		{"", NewOutput(addrLong, someCoins)},
+		{"Invalid output address (address length must be 20 or 32 bytes, got 25: unknown address): invalid address", NewOutput(addrLong, someCoins)},
 
 		{"Invalid output address (empty address string is not allowed): invalid address", NewOutput(addrEmpty, someCoins)},
 		{": invalid coins", NewOutput(addr1, emptyCoins)},                // invalid coins
@@ -233,7 +233,7 @@ func TestMsgMultiSendGetSignBytes(t *testing.T) {
 	}
 	res := msg.GetSignBytes()
 
-	expected := `{"type":"cosmos-sdk/MsgMultiSend","value":{"inputs":[{"address":"cosmos1d9h8qat57ljhcm","coins":[{"amount":"10","denom":"atom"}]}],"outputs":[{"address":"cosmos1da6hgur4wsmpnjyg","coins":[{"amount":"10","denom":"atom"}]}]}}`
+	expected := `{"type":"cosmos-sdk/MsgMultiSend","value":{"inputs":[{"address":"sei1d9h8qat54uvf5a","coins":[{"amount":"10","denom":"atom"}]}],"outputs":[{"address":"sei1da6hgur4wseuc2ay","coins":[{"amount":"10","denom":"atom"}]}]}}`
 	require.Equal(t, expected, string(res))
 }
 
@@ -253,9 +253,9 @@ func TestMsgMultiSendGetSigners(t *testing.T) {
 
 func TestMsgSendSigners(t *testing.T) {
 	signers := []sdk.AccAddress{
-		{1, 2, 3},
-		{4, 5, 6},
-		{7, 8, 9},
+		sdk.MustAccAddressFromBech32("sei10xwrnrezdg227cgt82az7f7j47q3zklvu5ax6k"),
+		sdk.MustAccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl"),
+		sdk.MustAccAddressFromBech32("sei1l976cvcndrr6hnuyzn93azaxx8sc2xre5crtpz"),
 	}
 
 	someCoins := sdk.NewCoins(sdk.NewInt64Coin("atom", 123))

@@ -1,9 +1,9 @@
 syntax = "proto3";
 package cosmos.bank.v1beta1;
 
-import "gogoproto/gogo.proto";
-import "cosmos_proto/cosmos.proto";
 import "cosmos/base/v1beta1/coin.proto";
+import "cosmos_proto/cosmos.proto";
+import "gogoproto/gogo.proto";
 
 option go_package = "github.com/cosmos/cosmos-sdk/x/bank/types";
 
@@ -14,6 +14,8 @@ option go_package = "github.com/cosmos/cosmos-sdk/x/bank/types";
 message SendAuthorization {
   option (cosmos_proto.implements_interface) = "Authorization";
 
-  repeated cosmos.base.v1beta1.Coin spend_limit = 1
-      [(gogoproto.nullable) = false, (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"];
+  repeated cosmos.base.v1beta1.Coin spend_limit = 1 [
+    (gogoproto.nullable) = false,
+    (gogoproto.castrepeated) = "github.com/cosmos/cosmos-sdk/types.Coins"
+  ];
 }

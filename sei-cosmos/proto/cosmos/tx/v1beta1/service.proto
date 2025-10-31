@@ -1,16 +1,16 @@
 syntax = "proto3";
 package cosmos.tx.v1beta1;
 
-import "google/api/annotations.proto";
 import "cosmos/base/abci/v1beta1/abci.proto";
+import "cosmos/base/query/v1beta1/pagination.proto";
 import "cosmos/tx/v1beta1/tx.proto";
 import "gogoproto/gogo.proto";
-import "cosmos/base/query/v1beta1/pagination.proto";
+import "google/api/annotations.proto";
 import "tendermint/types/block.proto";
 import "tendermint/types/types.proto";
 
+option go_package = "github.com/cosmos/cosmos-sdk/types/tx";
 option (gogoproto.goproto_registration) = true;
-option go_package                       = "github.com/cosmos/cosmos-sdk/types/tx";
 
 // Service defines a gRPC service for interacting with transactions.
 service Service {
@@ -51,7 +51,7 @@ message GetTxsEventRequest {
   repeated string events = 1;
   // pagination defines a pagination for the request.
   cosmos.base.query.v1beta1.PageRequest pagination = 2;
-  OrderBy                               order_by   = 3;
+  OrderBy order_by = 3;
 }
 
 // OrderBy defines the sorting order
@@ -79,8 +79,8 @@ message GetTxsEventResponse {
 // RPC method.
 message BroadcastTxRequest {
   // tx_bytes is the raw transaction.
-  bytes         tx_bytes = 1;
-  BroadcastMode mode     = 2;
+  bytes tx_bytes = 1;
+  BroadcastMode mode = 2;
 }
 
 // BroadcastMode specifies the broadcast mode for the TxService.Broadcast RPC method.
@@ -157,9 +157,9 @@ message GetBlockWithTxsRequest {
 // Since: cosmos-sdk 0.45.2
 message GetBlockWithTxsResponse {
   // txs are the transactions in the block.
-  repeated cosmos.tx.v1beta1.Tx txs      = 1;
-  .tendermint.types.BlockID     block_id = 2;
-  .tendermint.types.Block       block    = 3;
+  repeated cosmos.tx.v1beta1.Tx txs = 1;
+  .tendermint.types.BlockID block_id = 2;
+  .tendermint.types.Block block = 3;
   // pagination defines a pagination for the response.
   cosmos.base.query.v1beta1.PageResponse pagination = 4;
 }

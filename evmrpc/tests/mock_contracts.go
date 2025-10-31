@@ -87,7 +87,7 @@ func erc20Initializer() func(ctx sdk.Context, a *app.App) {
 		contractData := GetBin("ERC20")
 		evmAddr := getAddrWithMnemonic(erc20DeployerMnemonics)
 		seiAddr := getSeiAddrWithMnemonic(erc20DeployerMnemonics)
-		tx := ethtypes.NewContractCreation(0, common.Big0, 1000000, common.Big0, contractData)
+		tx := ethtypes.NewContractCreation(0, common.Big0, 8000000, common.Big0, contractData)
 		protoTx, _ := ethtx.NewLegacyTx(tx)
 		msg, _ := types.NewMsgEVMTransaction(protoTx)
 		msg.Derived = &derived.Derived{

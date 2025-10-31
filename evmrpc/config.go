@@ -72,9 +72,6 @@ type Config struct {
 	// controls whether to have txns go through one by one
 	Slow bool `mapstructure:"slow"`
 
-	// controls whether to synchronously flush receipts before block finalze or not
-	FlushReceiptSync bool `mapstructure:"flush_receipt_sync"`
-
 	// Deny list defines list of methods that EVM RPC should fail fast
 	DenyList []string `mapstructure:"deny_list"`
 
@@ -125,7 +122,6 @@ var DefaultConfig = Config{
 	CheckTxTimeout:               5 * time.Second,
 	MaxTxPoolTxs:                 1000,
 	Slow:                         false,
-	FlushReceiptSync:             false,
 	DenyList:                     make([]string, 0),
 	MaxLogNoBlock:                10000,
 	MaxBlocksForLog:              2000,
@@ -155,7 +151,6 @@ const (
 	flagMaxTxPoolTxs                 = "evm.max_tx_pool_txs"
 	flagCheckTxTimeout               = "evm.checktx_timeout"
 	flagSlow                         = "evm.slow"
-	FlagFlushReceiptSync             = "evm.flush_receipt_sync"
 	flagDenyList                     = "evm.deny_list"
 	flagMaxLogNoBlock                = "evm.max_log_no_block"
 	flagMaxBlocksForLog              = "evm.max_blocks_for_log"
@@ -251,11 +246,6 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 			return cfg, err
 		}
 	}
-	if v := opts.Get(FlagFlushReceiptSync); v != nil {
-		if cfg.FlushReceiptSync, err = cast.ToBoolE(v); err != nil {
-			return cfg, err
-		}
-	}
 	if v := opts.Get(flagDenyList); v != nil {
 		if cfg.DenyList, err = cast.ToStringSliceE(v); err != nil {
 			return cfg, err
@@ -309,3 +299,91 @@ func ReadConfig(opts servertypes.AppOptions) (Config, error) {
 
 	return cfg, nil
 }
+
+// ConfigTemplate defines the TOML configuration template for EVM RPC
+const ConfigTemplate = `
+###############################################################################
+###                            EVM Configuration                            ###
+###############################################################################
+
+[evm]
+# controls whether an HTTP EVM server is enabled
+http_enabled = {{ .EVM.HTTPEnabled }}
+http_port = {{ .EVM.HTTPPort }}
+
+# controls whether a websocket server is enabled
+ws_enabled = {{ .EVM.WSEnabled }}
+ws_port = {{ .EVM.WSPort }}
+
+# ReadTimeout is the maximum duration for reading the entire
+# request, including the body.
+# Because ReadTimeout does not let Handlers make per-request
+# decisions on each request body's acceptable deadline or
+# upload rate, most users will prefer to use
+# ReadHeaderTimeout. It is valid to use them both.
+read_timeout = "{{ .EVM.ReadTimeout }}"
+
+# ReadHeaderTimeout is the amount of time allowed to read
+# request headers. The connection's read deadline is reset
+# after reading the headers and the Handler can decide what
+# is considered too slow for the body. If ReadHeaderTimeout
+# is zero, the value of ReadTimeout is used. If both are
+# zero, there is no timeout.
+read_header_timeout = "{{ .EVM.ReadHeaderTimeout }}"
+
+# WriteTimeout is the maximum duration before timing out
+# writes of the response. It is reset whenever a new
+# request's header is read. Like ReadTimeout, it does not
+# let Handlers make decisions on a per-request basis.
+write_timeout = "{{ .EVM.WriteTimeout }}"
+
+# IdleTimeout is the maximum amount of time to wait for the
+# next request when keep-alives are enabled. If IdleTimeout
+# is zero, the value of ReadTimeout is used. If both are
+# zero, ReadHeaderTimeout is used.
+idle_timeout = "{{ .EVM.IdleTimeout }}"
+
+# Maximum gas limit for simulation
+simulation_gas_limit = {{ .EVM.SimulationGasLimit }}
+
+# Timeout for EVM call in simulation
+simulation_evm_timeout = "{{ .EVM.SimulationEVMTimeout }}"
+
+# list of CORS allowed origins, separated by comma
+cors_origins = "{{ .EVM.CORSOrigins }}"
+
+# list of WS origins, separated by comma
+ws_origins = "{{ .EVM.WSOrigins }}"
+
+# timeout for filters
+filter_timeout = "{{ .EVM.FilterTimeout }}"
+
+# checkTx timeout for sig verify
+checktx_timeout = "{{ .EVM.CheckTxTimeout }}"
+
+# controls whether to have txns go through one by one
+slow = {{ .EVM.Slow }}
+
+# Deny list defines list of methods that EVM RPC should fail fast, e.g ["debug_traceBlockByNumber"]
+deny_list = {{ .EVM.DenyList }}
+
+# max number of logs returned if block range is open-ended
+max_log_no_block = {{ .EVM.MaxLogNoBlock }}
+
+# max number of blocks to query logs for
+max_blocks_for_log = {{ .EVM.MaxBlocksForLog }}
+
+# max number of concurrent NewHead subscriptions
+max_subscriptions_new_head = {{ .EVM.MaxSubscriptionsNewHead }}
+
+# MaxConcurrentTraceCalls defines the maximum number of concurrent debug_trace calls.
+# Set to 0 for unlimited.
+max_concurrent_trace_calls = {{ .EVM.MaxConcurrentTraceCalls }}
+
+# Max number of blocks allowed to look back for tracing
+# Set to -1 for unlimited lookback, which is useful for archive nodes.
+max_trace_lookback_blocks = {{ .EVM.MaxTraceLookbackBlocks }}
+
+# Timeout for each trace call
+trace_timeout = "{{ .EVM.TraceTimeout }}"
+`

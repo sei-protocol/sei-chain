@@ -291,7 +291,7 @@ $ %s query tx --%s=%s <sig1_base64>,<sig2_base64...>
 				}
 			case typeSig:
 				{
-					sigParts, err := parseSigArgs(args)
+					sigParts, err := ParseSigArgs(args)
 					if err != nil {
 						return err
 					}
@@ -350,7 +350,7 @@ $ %s query tx --%s=%s <sig1_base64>,<sig2_base64...>
 }
 
 // parseSigArgs parses comma-separated signatures from the CLI arguments.
-func parseSigArgs(args []string) ([]string, error) {
+func ParseSigArgs(args []string) ([]string, error) {
 	if len(args) != 1 || args[0] == "" {
 		return nil, fmt.Errorf("argument should be comma-separated signatures")
 	}

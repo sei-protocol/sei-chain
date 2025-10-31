@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/cosmos/cosmos-sdk/x/gov/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 func (suite *KeeperTestSuite) TestGRPCQueryProposal() {
@@ -336,7 +336,7 @@ func (suite *KeeperTestSuite) TestGRPCQueryVote() {
 func (suite *KeeperTestSuite) TestGRPCQueryVotes() {
 	app, ctx, queryClient := suite.app, suite.ctx, suite.queryClient
 
-	addrs := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	addrs := seiapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
 
 	var (
 		req      *types.QueryVotesRequest

@@ -228,7 +228,7 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abc
 		res := sdkerrors.ResponseCheckTx(err, 0, 0, app.trace)
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, err
 	}
-	gInfo, result, _, priority, pendingTxChecker, expireTxHandler, txCtx, err := app.runTx(sdkCtx, mode, tx, sha256.Sum256(req.Tx))
+	gInfo, result, _, priority, pendingTxChecker, expireTxHandler, checkTxCallback, txCtx, err := app.runTx(sdkCtx, mode, tx, sha256.Sum256(req.Tx))
 	if err != nil {
 		res := sdkerrors.ResponseCheckTx(err, gInfo.GasWanted, gInfo.GasUsed, app.trace)
 		return &abci.ResponseCheckTxV2{ResponseCheckTx: &res}, err
@@ -242,9 +242,11 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abc
 			GasEstimated: int64(gInfo.GasEstimate),
 		},
 		ExpireTxHandler:  expireTxHandler,
+		CheckTxCallback:  checkTxCallback,
 		EVMNonce:         txCtx.EVMNonce(),
 		EVMSenderAddress: txCtx.EVMSenderAddress(),
 		IsEVM:            txCtx.IsEVM(),
+		Priority:         txCtx.Priority(),
 	}
 	if pendingTxChecker != nil {
 		res.IsPendingTransaction = true
@@ -301,7 +303,7 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk
 		telemetry.SetGauge(float32(gInfo.GasWanted), "tx", "gas", "wanted")
 	}()
 
-	gInfo, result, anteEvents, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum).WithVoteInfos(app.voteInfos), runTxModeDeliver, tx, checksum)
+	gInfo, result, anteEvents, _, _, _, _, resCtx, err := app.runTx(ctx.WithTxBytes(req.Tx).WithTxSum(checksum).WithVoteInfos(app.voteInfos), runTxModeDeliver, tx, checksum)
 	if err != nil {
 		resultStr = "failed"
 		// if we have a result, use those events instead of just the anteEvents
@@ -1197,14 +1199,6 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 	} else {
 		return nil, errors.New("finalize block handler not set")
 	}
-}
-
-func (app *BaseApp) ExtendVote(ctx context.Context, req *abci.RequestExtendVote) (*abci.ResponseExtendVote, error) {
-	return &abci.ResponseExtendVote{}, nil
-}
-
-func (app *BaseApp) VerifyVoteExtension(ctx context.Context, req *abci.RequestVerifyVoteExtension) (*abci.ResponseVerifyVoteExtension, error) {
-	return &abci.ResponseVerifyVoteExtension{}, nil
 }
 
 func (app *BaseApp) LoadLatest(ctx context.Context, req *abci.RequestLoadLatest) (*abci.ResponseLoadLatest, error) {

@@ -11,24 +11,24 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/baseapp"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/store/prefix"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/params/types"
 	"github.com/cosmos/cosmos-sdk/x/params/types/proposal"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 type KeeperTestSuite struct {
 	suite.Suite
 
-	app *simapp.SimApp
+	app *seiapp.App
 	ctx sdk.Context
 
 	queryClient proposal.QueryClient
 }
 
 func (suite *KeeperTestSuite) SetupTest() {
-	suite.app, suite.ctx = createTestApp(true)
+	suite.app, suite.ctx = createTestApp(suite.T(), true)
 
 	queryHelper := baseapp.NewQueryServerTestHelper(suite.ctx, suite.app.InterfaceRegistry())
 	proposal.RegisterQueryServer(queryHelper, suite.app.ParamsKeeper)
@@ -40,8 +40,8 @@ func TestKeeperTestSuite(t *testing.T) {
 }
 
 // returns context and app
-func createTestApp(isCheckTx bool) (*simapp.SimApp, sdk.Context) {
-	app := simapp.Setup(isCheckTx)
+func createTestApp(t *testing.T, isCheckTx bool) (*seiapp.App, sdk.Context) {
+	app := seiapp.Setup(t, isCheckTx, false, false)
 	ctx := app.BaseApp.NewContext(isCheckTx, tmproto.Header{})
 
 	return app, ctx

@@ -6,27 +6,25 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 )
 
-func setup(withGenesis bool, invCheckPeriod uint, db dbm.DB) (*simapp.SimApp, simapp.GenesisState) {
-	encCdc := simapp.MakeTestEncodingConfig()
-	app := simapp.NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, simapp.DefaultNodeHome, invCheckPeriod, nil, encCdc, simapp.EmptyAppOptions{})
+func setup(t *testing.T, withGenesis bool, invCheckPeriod uint, db dbm.DB) (*app.App, map[string]json.RawMessage) {
+	a := app.SetupWithDB(t, db, false, false, false)
 	if withGenesis {
-		return app, simapp.NewDefaultGenesisState(encCdc.Marshaler)
+		return a, app.ModuleBasics.DefaultGenesis(a.AppCodec())
 	}
-	return app, simapp.GenesisState{}
+	return a, map[string]json.RawMessage{}
 }
 
 // Setup initializes a new SimApp. A Nop logger is set in SimApp.
-func SetupWithDB(isCheckTx bool, db dbm.DB) *simapp.SimApp {
-	app, genesisState := setup(!isCheckTx, 5, db)
+func SetupWithDB(t *testing.T, isCheckTx bool, db dbm.DB) *app.App {
+	a, genesisState := setup(t, !isCheckTx, 5, db)
 	if !isCheckTx {
 		// init chain must be called to stop deliverState from being nil
 		stateBytes, err := json.MarshalIndent(genesisState, "", " ")
@@ -35,67 +33,66 @@ func SetupWithDB(isCheckTx bool, db dbm.DB) *simapp.SimApp {
 		}
 
 		// Initialize the chain
-		app.InitChain(
+		a.InitChain(
 			context.Background(), &abci.RequestInitChain{
 				Validators:      []abci.ValidatorUpdate{},
-				ConsensusParams: simapp.DefaultConsensusParams,
+				ConsensusParams: app.DefaultConsensusParams,
 				AppStateBytes:   stateBytes,
 			},
 		)
 	}
 
-	return app
+	return a
 }
 
 func TestRollback(t *testing.T) {
 	t.Skip()
 	db := dbm.NewMemDB()
-	app := SetupWithDB(false, db)
-	app.SetDeliverStateToCommit()
-	app.Commit(context.Background())
-	ver0 := app.LastBlockHeight()
+	a := SetupWithDB(t, false, db)
+	a.SetDeliverStateToCommit()
+	a.Commit(context.Background())
+	ver0 := a.LastBlockHeight()
 	// commit 10 blocks
 	for i := int64(1); i <= 10; i++ {
 		header := tmproto.Header{
 			Height:  ver0 + i,
-			AppHash: app.LastCommitID().Hash,
+			AppHash: a.LastCommitID().Hash,
 		}
-		app.BeginBlock(sdk.Context{}, abci.RequestBeginBlock{Header: header})
-		ctx := app.NewContext(false, header)
-		store := ctx.KVStore(app.GetKey("bank"))
+		a.BeginBlock(sdk.Context{}, abci.RequestBeginBlock{Header: header})
+		ctx := a.NewContext(false, header)
+		store := ctx.KVStore(a.GetKey("bank"))
 		store.Set([]byte("key"), []byte(fmt.Sprintf("value%d", i)))
-		app.Commit(context.Background())
+		a.Commit(context.Background())
 	}
 
-	require.Equal(t, ver0+10, app.LastBlockHeight())
-	store := app.NewContext(true, tmproto.Header{}).KVStore(app.GetKey("bank"))
+	require.Equal(t, ver0+10, a.LastBlockHeight())
+	store := a.NewContext(true, tmproto.Header{}).KVStore(a.GetKey("bank"))
 	require.Equal(t, []byte("value10"), store.Get([]byte("key")))
 
 	// rollback 5 blocks
 	target := ver0 + 5
-	require.NoError(t, app.CommitMultiStore().RollbackToVersion(target))
-	require.Equal(t, target, app.LastBlockHeight())
+	require.NoError(t, a.CommitMultiStore().RollbackToVersion(target))
+	require.Equal(t, target, a.LastBlockHeight())
 
 	// recreate app to have clean check state
-	encCdc := simapp.MakeTestEncodingConfig()
-	app = simapp.NewSimApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, simapp.DefaultNodeHome, 5, nil, encCdc, simapp.EmptyAppOptions{})
-	store = app.NewContext(true, tmproto.Header{}).KVStore(app.GetKey("bank"))
+	a = SetupWithDB(t, false, db)
+	store = a.NewContext(true, tmproto.Header{}).KVStore(a.GetKey("bank"))
 	require.Equal(t, []byte("value5"), store.Get([]byte("key")))
 
 	// commit another 5 blocks with different values
 	for i := int64(6); i <= 10; i++ {
 		header := tmproto.Header{
 			Height:  ver0 + i,
-			AppHash: app.LastCommitID().Hash,
+			AppHash: a.LastCommitID().Hash,
 		}
-		app.BeginBlock(sdk.Context{}, abci.RequestBeginBlock{Header: header})
-		ctx := app.NewContext(false, header)
-		store := ctx.KVStore(app.GetKey("bank"))
+		a.BeginBlock(sdk.Context{}, abci.RequestBeginBlock{Header: header})
+		ctx := a.NewContext(false, header)
+		store := ctx.KVStore(a.GetKey("bank"))
 		store.Set([]byte("key"), []byte(fmt.Sprintf("VALUE%d", i)))
-		app.Commit(context.Background())
+		a.Commit(context.Background())
 	}
 
-	require.Equal(t, ver0+10, app.LastBlockHeight())
-	store = app.NewContext(true, tmproto.Header{}).KVStore(app.GetKey("bank"))
+	require.Equal(t, ver0+10, a.LastBlockHeight())
+	store = a.NewContext(true, tmproto.Header{}).KVStore(a.GetKey("bank"))
 	require.Equal(t, []byte("VALUE10"), store.Get([]byte("key")))
 }

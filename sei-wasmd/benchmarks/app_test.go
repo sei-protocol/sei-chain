@@ -10,38 +10,34 @@ import (
 	"github.com/stretchr/testify/require"
 
 	abci "github.com/tendermint/tendermint/abci/types"
-	"github.com/tendermint/tendermint/libs/log"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/simapp/helpers"
-	simappparams "github.com/cosmos/cosmos-sdk/simapp/params"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 
-	"github.com/CosmWasm/wasmd/app"
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
-func setup(db dbm.DB, withGenesis bool, invCheckPeriod uint, opts ...wasm.Option) (*app.WasmApp, app.GenesisState) {
-	encodingConfig := app.MakeEncodingConfig()
-	wasmApp := app.NewWasmApp(log.NewNopLogger(), db, nil, true, map[int64]bool{}, app.DefaultNodeHome, invCheckPeriod, nil, encodingConfig, wasm.EnableAllProposals, app.EmptyBaseAppOptions{}, opts)
+func setup(t *testing.T, db dbm.DB, withGenesis bool, invCheckPeriod uint, opts ...wasm.Option) (*seiapp.App, seiapp.GenesisState) {
+	wasmApp := seiapp.Setup(t, false, false, false)
 	if withGenesis {
-		return wasmApp, app.NewDefaultGenesisState()
+		return wasmApp, seiapp.NewDefaultGenesisState(seiapp.MakeEncodingConfig().Marshaler)
 	}
-	return wasmApp, app.GenesisState{}
+	return wasmApp, seiapp.GenesisState{}
 }
 
 // SetupWithGenesisAccounts initializes a new WasmApp with the provided genesis
 // accounts and possible balances.
-func SetupWithGenesisAccounts(b testing.TB, db dbm.DB, genAccs []authtypes.GenesisAccount, balances ...banktypes.Balance) *app.WasmApp {
-	wasmApp, genesisState := setup(db, true, 0)
+func SetupWithGenesisAccounts(b testing.TB, db dbm.DB, genAccs []authtypes.GenesisAccount, balances ...banktypes.Balance) *seiapp.App {
+	wasmApp, genesisState := setup(b.(*testing.T), db, true, 0)
 	authGenesis := authtypes.NewGenesisState(authtypes.DefaultParams(), genAccs)
-	appCodec := app.NewTestSupport(b, wasmApp).AppCodec()
+	appCodec := seiapp.MakeEncodingConfig().Marshaler
 
 	genesisState[authtypes.ModuleName] = appCodec.MustMarshalJSON(authGenesis)
 
@@ -62,7 +58,7 @@ func SetupWithGenesisAccounts(b testing.TB, db dbm.DB, genAccs []authtypes.Genes
 		context.Background(),
 		&abci.RequestInitChain{
 			Validators:      []abci.ValidatorUpdate{},
-			ConsensusParams: app.DefaultConsensusParams,
+			ConsensusParams: seiapp.DefaultConsensusParams,
 			AppStateBytes:   stateBytes,
 		},
 	)
@@ -75,7 +71,7 @@ func SetupWithGenesisAccounts(b testing.TB, db dbm.DB, genAccs []authtypes.Genes
 }
 
 type AppInfo struct {
-	App          *app.WasmApp
+	App          *seiapp.App
 	MinterKey    *secp256k1.PrivKey
 	MinterAddr   sdk.AccAddress
 	ContractAddr string
@@ -118,7 +114,7 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 
 	// add wasm contract
 	height := int64(2)
-	txGen := simappparams.MakeTestEncodingConfig().TxConfig
+	txGen := seiapp.MakeEncodingConfig().TxConfig
 	wasmApp.BeginBlock(wasmApp.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: tmproto.Header{Height: height, Time: time.Now()}})
 
 	// upload the code
@@ -128,7 +124,7 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 		Sender:       addr.String(),
 		WASMByteCode: cw20Code,
 	}
-	storeTx, err := helpers.GenTx(txGen, []sdk.Msg{&storeMsg}, nil, 55123123, "", []uint64{0}, []uint64{0}, minter)
+	storeTx, err := seiapp.GenTx(txGen, []sdk.Msg{&storeMsg}, nil, 55123123, "", []uint64{0}, []uint64{0}, minter)
 	require.NoError(b, err)
 	_, res, err := wasmApp.Deliver(txGen.TxEncoder(), storeTx)
 	require.NoError(b, err)
@@ -162,7 +158,7 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 		Msg:    initBz,
 	}
 	gasWanted := 500000 + 10000*uint64(numAccounts)
-	initTx, err := helpers.GenTx(txGen, []sdk.Msg{&initMsg}, nil, gasWanted, "", []uint64{0}, []uint64{1}, minter)
+	initTx, err := seiapp.GenTx(txGen, []sdk.Msg{&initMsg}, nil, gasWanted, "", []uint64{0}, []uint64{1}, minter)
 	require.NoError(b, err)
 	_, res, err = wasmApp.Deliver(txGen.TxEncoder(), initTx)
 	require.NoError(b, err)
@@ -184,7 +180,7 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 		Denom:        denom,
 		AccNum:       0,
 		SeqNum:       2,
-		TxConfig:     simappparams.MakeTestEncodingConfig().TxConfig,
+		TxConfig:     seiapp.MakeEncodingConfig().TxConfig,
 	}
 }
 
@@ -195,7 +191,7 @@ func GenSequenceOfTxs(b testing.TB, info *AppInfo, msgGen func(*AppInfo) ([]sdk.
 	for i := 0; i < numToGenerate; i++ {
 		msgs, err := msgGen(info)
 		require.NoError(b, err)
-		txs[i], err = helpers.GenTx(
+		txs[i], err = seiapp.GenTx(
 			info.TxConfig,
 			msgs,
 			fees,

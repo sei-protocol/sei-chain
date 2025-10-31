@@ -44,6 +44,6 @@ func main() {
 	}
 
 	if err = rpcserver.Serve(ctx, listener, mux, logger, config); err != nil {
-		logger.Error("rpc serve: %v", err)
+		logger.Error("rpc serve", "err", err)
 	}
 }

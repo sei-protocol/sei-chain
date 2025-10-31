@@ -1,11 +1,10 @@
 syntax = "proto3";
 package seiprotocol.seichain.tokenfactory;
 
+import "cosmos/bank/v1beta1/bank.proto";
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
-import "cosmos/bank/v1beta1/bank.proto";
-import "cosmos/base/query/v1beta1/pagination.proto";
-import "tokenfactory/authorityMetadata.proto";
+import "tokenfactory/authority_metadata.proto";
 import "tokenfactory/params.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/tokenfactory/types";
@@ -20,10 +19,8 @@ service Query {
 
   // DenomAuthorityMetadata defines a gRPC query method for fetching
   // DenomAuthorityMetadata for a particular denom.
-  rpc DenomAuthorityMetadata(QueryDenomAuthorityMetadataRequest)
-      returns (QueryDenomAuthorityMetadataResponse) {
-    option (google.api.http).get =
-        "/sei-protocol/seichain/tokenfactory/denoms/{denom}/authority_metadata";
+  rpc DenomAuthorityMetadata(QueryDenomAuthorityMetadataRequest) returns (QueryDenomAuthorityMetadataResponse) {
+    option (google.api.http).get = "/sei-protocol/seichain/tokenfactory/denoms/{denom}/authority_metadata";
   }
 
   // DenomsMetadata defines a gRPC query method for fetching
@@ -34,17 +31,14 @@ service Query {
 
   // DenomsFromCreator defines a gRPC query method for fetching all
   // denominations created by a specific admin/creator.
-  rpc DenomsFromCreator(QueryDenomsFromCreatorRequest)
-      returns (QueryDenomsFromCreatorResponse) {
-    option (google.api.http).get =
-        "/sei-protocol/seichain/tokenfactory/denoms_from_creator/{creator}";
+  rpc DenomsFromCreator(QueryDenomsFromCreatorRequest) returns (QueryDenomsFromCreatorResponse) {
+    option (google.api.http).get = "/sei-protocol/seichain/tokenfactory/denoms_from_creator/{creator}";
   }
 
   // DenomAllowList defines a gRPC query method for fetching the denom allow list
   rpc DenomAllowList(QueryDenomAllowListRequest) returns (QueryDenomAllowListResponse) {
     option (google.api.http).get = "/sei-protocol/seichain/tokenfactory/denoms/allow_list";
   }
-
 }
 
 // QueryParamsRequest is the request type for the Query/Params RPC method.

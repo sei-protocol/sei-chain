@@ -1,45 +1,58 @@
-package p2p_test
+package p2p
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	slog "log"
-	"runtime"
+	"net"
+	"net/netip"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/fortytw2/leaktest"
 	"github.com/gogo/protobuf/proto"
 	gogotypes "github.com/gogo/protobuf/types"
-	"github.com/stretchr/testify/mock"
 	dbm "github.com/tendermint/tm-db"
 
-	"github.com/tendermint/tendermint/internal/p2p"
-	"github.com/tendermint/tendermint/internal/p2p/mocks"
-	"github.com/tendermint/tendermint/internal/p2p/p2ptest"
+	"github.com/tendermint/tendermint/crypto"
+	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/log"
+	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/libs/utils/require"
+	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/types"
 )
 
-func echoReactor(ctx context.Context, channel *p2p.Channel) {
-	iter := channel.Receive(ctx)
-	for iter.Next(ctx) {
-		envelope := iter.Envelope()
-		value := envelope.Message.(*p2ptest.Message).Value
-		slog.Printf("sending back %v", value)
-		if err := channel.Send(ctx, p2p.Envelope{
-			To:      envelope.From,
-			Message: &p2ptest.Message{Value: value},
-		}); err != nil {
+func mayDisconnectAfterDone(ctx context.Context, err error) error {
+	err = utils.IgnoreCancel(err)
+	if err == nil || ctx.Err() == nil || !conn.IsDisconnect(err) {
+		return err
+	}
+	return nil
+}
+
+func makeChDesc(id ChannelID) ChannelDescriptor {
+	return ChannelDescriptor{
+		ID:                  id,
+		MessageType:         &TestMessage{},
+		Priority:            5,
+		RecvBufferCapacity:  10,
+		RecvMessageCapacity: 10000,
+	}
+}
+
+func echoReactor(ctx context.Context, channel *Channel) {
+	for {
+		m, err := channel.Recv(ctx)
+		if err != nil {
 			return
 		}
+		channel.Send(m.Message, m.From)
 	}
-	slog.Printf("echoReactor done")
 }
 
 func TestRouter_Network(t *testing.T) {
@@ -48,9 +61,10 @@ func TestRouter_Network(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 
 	t.Logf("Create a test network and open a channel where all peers run echoReactor.")
-	network := p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: 8})
+	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 8})
 	local := network.RandomNode()
 	peers := network.Peers(local.NodeID)
+	chDesc := makeChDesc(5)
 	channels := network.MakeChannels(t, chDesc)
 
 	network.Start(t)
@@ -62,62 +76,42 @@ func TestRouter_Network(t *testing.T) {
 
 	t.Logf("Sending a message to each peer should work.")
 	for _, peer := range peers {
-		msg := &p2ptest.Message{Value: "foo"}
-		p2ptest.RequireSend(t, channel, p2p.Envelope{To: peer.NodeID, Message: msg, ChannelID: chDesc.ID})
-		p2ptest.RequireReceive(t, channel, p2p.Envelope{From: peer.NodeID, Message: msg, ChannelID: chDesc.ID})
+		msg := &TestMessage{Value: "foo"}
+		channel.Send(msg, peer.NodeID)
+		RequireReceive(t, channel, RecvMsg{From: peer.NodeID, Message: msg})
 	}
 
 	t.Logf("Sending a broadcast should return back a message from all peers.")
-	p2ptest.RequireSend(t, channel, p2p.Envelope{
-		Broadcast: true,
-		Message:   &p2ptest.Message{Value: "bar"},
-	})
-	expect := []*p2p.Envelope{}
+	channel.Broadcast(&TestMessage{Value: "bar"})
+	want := []RecvMsg{}
 	for _, peer := range peers {
-		expect = append(expect, &p2p.Envelope{
-			From:      peer.NodeID,
-			ChannelID: 1,
-			Message:   &p2ptest.Message{Value: "bar"},
+		want = append(want, RecvMsg{
+			From:    peer.NodeID,
+			Message: &TestMessage{Value: "bar"},
 		})
 	}
-	p2ptest.RequireReceiveUnordered(t, channel, expect)
+	RequireReceiveUnordered(t, channel, want)
 
 	t.Logf("We then submit an error for a peer, and watch it get disconnected and")
 	t.Logf("then reconnected as the router retries it.")
-	peerUpdates := local.MakePeerUpdatesNoRequireEmpty(ctx, t)
-	require.NoError(t, channel.SendError(ctx, p2p.PeerError{
+	peerUpdates := local.Router.PeerManager().Subscribe(ctx)
+	local.Router.PeerManager().SendError(PeerError{
 		NodeID: peers[0].NodeID,
 		Err:    errors.New("boom"),
-	}))
-	p2ptest.RequireUpdates(t, peerUpdates, []p2p.PeerUpdate{
-		{NodeID: peers[0].NodeID, Status: p2p.PeerStatusDown},
-		{NodeID: peers[0].NodeID, Status: p2p.PeerStatusUp},
+	})
+	RequireUpdates(t, peerUpdates, []PeerUpdate{
+		{NodeID: peers[0].NodeID, Status: PeerStatusDown},
+		{NodeID: peers[0].NodeID, Status: PeerStatusUp},
 	})
 }
 
 func TestRouter_Channel_Basic(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 	logger, _ := log.NewDefaultLogger("plain", "debug")
-
 	ctx := t.Context()
+	chDesc := makeChDesc(5)
 
-	// Set up a router with no transports (so no peers).
-	peerManager, err := p2p.NewPeerManager(logger, selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
-	require.NoError(t, err)
-
-	transport := p2p.TestTransport(logger, selfID)
-	router, err := p2p.NewRouter(
-		logger,
-		p2p.NopMetrics(),
-		selfKey,
-		peerManager,
-		func() *types.NodeInfo { return &selfInfo },
-		transport,
-		nil,
-		p2p.RouterOptions{},
-	)
-	require.NoError(t, err)
-
+	router := makeRouter(logger)
 	require.NoError(t, router.Start(ctx))
 	t.Cleanup(router.Wait)
 
@@ -131,93 +125,72 @@ func TestRouter_Channel_Basic(t *testing.T) {
 	require.Error(t, err)
 
 	t.Logf("Opening a different channel should work.")
-	chDesc2 := &p2p.ChannelDescriptor{ID: 2, MessageType: &p2ptest.Message{}}
+	chDesc2 := ChannelDescriptor{ID: 2, MessageType: &TestMessage{}}
 	_, err = router.OpenChannel(chDesc2)
 	require.NoError(t, err)
 
 	t.Logf("We should be able to send on the channel, even though there are no peers.")
-	p2ptest.RequireSend(t, channel, p2p.Envelope{
-		To:      types.NodeID(strings.Repeat("a", 40)),
-		Message: &p2ptest.Message{Value: "foo"},
-	})
+	channel.Send(&TestMessage{Value: "foo"}, types.NodeID(strings.Repeat("a", 40)))
 
 	t.Logf("A message to ourselves should be dropped.")
-	p2ptest.RequireSend(t, channel, p2p.Envelope{
-		To:      selfID,
-		Message: &p2ptest.Message{Value: "self"},
-	})
-	p2ptest.RequireEmpty(t, channel)
+	channel.Send(&TestMessage{Value: "self"}, TestAddress(router).NodeID)
+	RequireEmpty(t, channel)
 }
 
-// Channel tests are hairy to mock, so we use an in-memory network instead.
-func TestRouter_Channel_SendReceive(t *testing.T) {
-	ctx := t.Context()
-
+func TestRouter_SendReceive(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
+	chDesc := makeChDesc(5)
 
 	t.Logf("Create a test network and open a channel on all nodes.")
-	network := p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: 3})
+	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 3})
 
 	ids := network.NodeIDs()
 	aID, bID, cID := ids[0], ids[1], ids[2]
 	channels := network.MakeChannels(t, chDesc)
 	a, b, c := channels[aID], channels[bID], channels[cID]
-	otherChannels := network.MakeChannels(t, p2ptest.MakeChannelDesc(9))
+	otherChannels := network.MakeChannels(t, MakeTestChannelDesc(9))
 
 	network.Start(t)
 
 	t.Logf("Sending a message a->b should work, and not send anything further to a, b, or c.")
-	p2ptest.RequireSend(t, a, p2p.Envelope{To: bID, Message: &p2ptest.Message{Value: "foo"}, ChannelID: chDesc.ID})
-	p2ptest.RequireReceive(t, b, p2p.Envelope{From: aID, Message: &p2ptest.Message{Value: "foo"}, ChannelID: chDesc.ID})
-	p2ptest.RequireEmpty(t, a, b, c)
-
-	t.Logf("Sending a nil message a->b should be dropped.")
-	p2ptest.RequireSend(t, a, p2p.Envelope{To: bID, Message: nil, ChannelID: chDesc.ID})
-	p2ptest.RequireEmpty(t, a, b, c)
+	a.Send(&TestMessage{Value: "foo"}, bID)
+	RequireReceive(t, b, RecvMsg{From: aID, Message: &TestMessage{Value: "foo"}})
+	RequireEmpty(t, a, b, c)
 
 	t.Logf("Sending a different message type should be dropped.")
-	p2ptest.RequireSend(t, a, p2p.Envelope{To: bID, Message: &gogotypes.BoolValue{Value: true}, ChannelID: chDesc.ID})
-	p2ptest.RequireEmpty(t, a, b, c)
+	a.Send(&gogotypes.BoolValue{Value: true}, bID)
+	RequireEmpty(t, a, b, c)
 
 	t.Logf("Sending to an unknown peer should be dropped.")
-	p2ptest.RequireSend(t, a, p2p.Envelope{
-		To:        types.NodeID(strings.Repeat("a", 40)),
-		Message:   &p2ptest.Message{Value: "a"},
-		ChannelID: chDesc.ID,
-	})
-	p2ptest.RequireEmpty(t, a, b, c)
-
-	t.Logf("Sending without a recipient should be dropped.")
-	p2ptest.RequireSend(t, a, p2p.Envelope{Message: &p2ptest.Message{Value: "noto"}, ChannelID: chDesc.ID})
-	p2ptest.RequireEmpty(t, a, b, c)
+	a.Send(&TestMessage{Value: "a"}, types.NodeID(strings.Repeat("a", 40)))
+	RequireEmpty(t, a, b, c)
 
 	t.Logf("Sending to self should be dropped.")
-	p2ptest.RequireSend(t, a, p2p.Envelope{To: aID, Message: &p2ptest.Message{Value: "self"}, ChannelID: chDesc.ID})
-	p2ptest.RequireEmpty(t, a, b, c)
+	a.Send(&TestMessage{Value: "self"}, aID)
+	RequireEmpty(t, a, b, c)
 
 	t.Logf("Removing b and sending to it should be dropped.")
-	network.Remove(ctx, t, bID)
-	p2ptest.RequireSend(t, a, p2p.Envelope{To: bID, Message: &p2ptest.Message{Value: "nob"}, ChannelID: chDesc.ID})
-	p2ptest.RequireEmpty(t, a, b, c)
+	network.Remove(t, bID)
+	a.Send(&TestMessage{Value: "nob"}, bID)
+	RequireEmpty(t, a, b, c)
 
 	t.Logf("After all this, sending a message c->a should work.")
-	p2ptest.RequireSend(t, c, p2p.Envelope{To: aID, Message: &p2ptest.Message{Value: "bar"}, ChannelID: chDesc.ID})
-	p2ptest.RequireReceive(t, a, p2p.Envelope{From: cID, Message: &p2ptest.Message{Value: "bar"}, ChannelID: chDesc.ID})
-	p2ptest.RequireEmpty(t, a, b, c)
+	c.Send(&TestMessage{Value: "bar"}, aID)
+	RequireReceive(t, a, RecvMsg{From: cID, Message: &TestMessage{Value: "bar"}})
+	RequireEmpty(t, a, b, c)
 
 	t.Logf("None of these messages should have made it onto the other channels.")
 	for _, other := range otherChannels {
-		p2ptest.RequireEmpty(t, other)
+		RequireEmpty(t, other)
 	}
 }
 
 func TestRouter_Channel_Broadcast(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
-
-	ctx := t.Context()
+	chDesc := makeChDesc(5)
 
 	t.Logf("Create a test network and open a channel on all nodes.")
-	network := p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: 4})
+	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 4})
 
 	ids := network.NodeIDs()
 	aID, bID, cID, dID := ids[0], ids[1], ids[2], ids[3]
@@ -227,29 +200,30 @@ func TestRouter_Channel_Broadcast(t *testing.T) {
 	network.Start(t)
 
 	t.Logf("Sending a broadcast from b should work.")
-	p2ptest.RequireSend(t, b, p2p.Envelope{Broadcast: true, Message: &p2ptest.Message{Value: "foo"}, ChannelID: chDesc.ID})
-	p2ptest.RequireReceive(t, a, p2p.Envelope{From: bID, Message: &p2ptest.Message{Value: "foo"}, ChannelID: chDesc.ID})
-	p2ptest.RequireReceive(t, c, p2p.Envelope{From: bID, Message: &p2ptest.Message{Value: "foo"}, ChannelID: chDesc.ID})
-	p2ptest.RequireReceive(t, d, p2p.Envelope{From: bID, Message: &p2ptest.Message{Value: "foo"}, ChannelID: chDesc.ID})
-	p2ptest.RequireEmpty(t, a, b, c, d)
+	b.Broadcast(&TestMessage{Value: "foo"})
+	for _, ch := range utils.Slice(a, c, d) {
+		RequireReceive(t, ch, RecvMsg{From: bID, Message: &TestMessage{Value: "foo"}})
+	}
+	RequireEmpty(t, a, b, c, d)
 
 	t.Logf("Removing one node from the network shouldn't prevent broadcasts from working.")
-	network.Remove(ctx, t, dID)
-	p2ptest.RequireSend(t, a, p2p.Envelope{Broadcast: true, Message: &p2ptest.Message{Value: "bar"}, ChannelID: chDesc.ID})
-	p2ptest.RequireReceive(t, b, p2p.Envelope{From: aID, Message: &p2ptest.Message{Value: "bar"}, ChannelID: chDesc.ID})
-	p2ptest.RequireReceive(t, c, p2p.Envelope{From: aID, Message: &p2ptest.Message{Value: "bar"}, ChannelID: chDesc.ID})
-	p2ptest.RequireEmpty(t, a, b, c, d)
+	network.Remove(t, dID)
+	a.Broadcast(&TestMessage{Value: "bar"})
+	for _, ch := range utils.Slice(b, c) {
+		RequireReceive(t, ch, RecvMsg{From: aID, Message: &TestMessage{Value: "bar"}})
+	}
+	RequireEmpty(t, a, b, c, d)
 }
 
 func TestRouter_Channel_Wrapper(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
 	t.Logf("Create a test network and open a channel on all nodes.")
-	network := p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: 2})
+	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 2})
 
 	ids := network.NodeIDs()
 	aID, bID := ids[0], ids[1]
-	chDesc := &p2p.ChannelDescriptor{
-		ID:                  chID,
+	chDesc := ChannelDescriptor{
+		ID:                  17,
 		MessageType:         &wrapperMessage{},
 		Priority:            5,
 		SendQueueCapacity:   10,
@@ -262,42 +236,36 @@ func TestRouter_Channel_Wrapper(t *testing.T) {
 
 	network.Start(t)
 
-	// Since wrapperMessage implements p2p.Wrapper and handles Message, it
+	// Since wrapperMessage implements Wrapper and handles Message, it
 	// should automatically wrap and unwrap sent messages -- we prepend the
 	// wrapper actions to the message value to signal this.
-	p2ptest.RequireSend(t, a, p2p.Envelope{To: bID, Message: &p2ptest.Message{Value: "foo"}, ChannelID: chDesc.ID})
-	p2ptest.RequireReceive(t, b, p2p.Envelope{From: aID, Message: &p2ptest.Message{Value: "unwrap:wrap:foo"}, ChannelID: chDesc.ID})
+	a.Send(&TestMessage{Value: "foo"}, bID)
+	RequireReceive(t, b, RecvMsg{From: aID, Message: &TestMessage{Value: "unwrap:wrap:foo"}})
 
 	// If we send a different message that can't be wrapped, it should be dropped.
-	p2ptest.RequireSend(t, a, p2p.Envelope{To: bID, Message: &gogotypes.BoolValue{Value: true}, ChannelID: chDesc.ID})
-	p2ptest.RequireEmpty(t, b)
+	a.Send(&gogotypes.BoolValue{Value: true}, bID)
+	RequireEmpty(t, b)
 
 	// If we send the wrapper message itself, it should also be passed through
 	// since WrapperMessage supports it, and should only be unwrapped at the receiver.
-	p2ptest.RequireSend(t, a, p2p.Envelope{
-		To:        bID,
-		Message:   &wrapperMessage{Message: p2ptest.Message{Value: "foo"}},
-		ChannelID: chDesc.ID,
+	a.Send(&wrapperMessage{TestMessage: TestMessage{Value: "foo"}}, bID)
+	RequireReceive(t, b, RecvMsg{
+		From:    aID,
+		Message: &TestMessage{Value: "unwrap:foo"},
 	})
-	p2ptest.RequireReceive(t, b, p2p.Envelope{
-		From:      aID,
-		Message:   &p2ptest.Message{Value: "unwrap:foo"},
-		ChannelID: chDesc.ID,
-	})
-
 }
 
 // WrapperMessage prepends the value with "wrap:" and "unwrap:" to test it.
 type wrapperMessage struct {
-	p2ptest.Message
+	TestMessage
 }
 
-var _ p2p.Wrapper = (*wrapperMessage)(nil)
+var _ Wrapper = (*wrapperMessage)(nil)
 
 func (w *wrapperMessage) Wrap(inner proto.Message) error {
 	switch inner := inner.(type) {
-	case *p2ptest.Message:
-		w.Message.Value = fmt.Sprintf("wrap:%v", inner.Value)
+	case *TestMessage:
+		w.TestMessage.Value = fmt.Sprintf("wrap:%v", inner.Value)
 	case *wrapperMessage:
 		*w = *inner
 	default:
@@ -307,646 +275,521 @@ func (w *wrapperMessage) Wrap(inner proto.Message) error {
 }
 
 func (w *wrapperMessage) Unwrap() (proto.Message, error) {
-	return &p2ptest.Message{Value: fmt.Sprintf("unwrap:%v", w.Message.Value)}, nil
+	return &TestMessage{Value: fmt.Sprintf("unwrap:%v", w.Value)}, nil
 }
 
 func TestRouter_Channel_Error(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
-
+	chDesc := makeChDesc(5)
 	ctx := t.Context()
 
 	t.Logf("Create a test network and open a channel on all nodes.")
-	network := p2ptest.MakeNetwork(t, p2ptest.NetworkOptions{NumNodes: 3})
+	network := MakeTestNetwork(t, TestNetworkOptions{NumNodes: 3})
 	network.Start(t)
 
 	ids := network.NodeIDs()
 	aID, bID := ids[0], ids[1]
-	channels := network.MakeChannels(t, chDesc)
-	a := channels[aID]
+	_ = network.MakeChannels(t, chDesc)
 
 	t.Logf("Erroring b should cause it to be disconnected. It will reconnect shortly after.")
 	sub := network.Node(aID).MakePeerUpdates(ctx, t)
-	p2ptest.RequireSendError(t, a, p2p.PeerError{NodeID: bID, Err: errors.New("boom")})
-	p2ptest.RequireUpdates(t, sub, []p2p.PeerUpdate{
-		{NodeID: bID, Status: p2p.PeerStatusDown},
-		{NodeID: bID, Status: p2p.PeerStatusUp},
+	network.Node(aID).Router.PeerManager().SendError(PeerError{NodeID: bID, Err: errors.New("boom")})
+	RequireUpdates(t, sub, []PeerUpdate{
+		{NodeID: bID, Status: PeerStatusDown},
+		{NodeID: bID, Status: PeerStatusUp},
 	})
 }
 
-func TestRouter_AcceptPeers(t *testing.T) {
-	testcases := map[string]struct {
-		peerInfo types.NodeInfo
-		ok       bool
-	}{
-		"valid handshake": {peerInfo, true},
-		"empty handshake": {types.NodeInfo{}, false},
-		"self handshake":  {selfInfo, false},
-		"incompatible peer": {
-			types.NodeInfo{
-				NodeID:     peerID,
-				ListenAddr: "0.0.0.0:0",
-				Network:    "other-network",
-				Moniker:    string(peerID),
-			},
-			false,
+var keyFiltered = makeKey()
+var infoFiltered = makeInfo(keyFiltered)
+
+func makeRouterWithOptionsAndKey(logger log.Logger, ropts RouterOptions, key crypto.PrivKey) *Router {
+	// Set up and start the router.
+	opts := PeerManagerOptions{
+		MinRetryTime: 100 * time.Millisecond,
+	}
+	info := makeInfo(key)
+	peerManager, err := NewPeerManager(logger, info.NodeID, dbm.NewMemDB(), opts, NopMetrics())
+	if err != nil {
+		panic(fmt.Errorf("NewPeerManager: %w", err))
+	}
+	return NewRouter(
+		logger.With("node", info.NodeID),
+		NopMetrics(),
+		key,
+		peerManager,
+		func() *types.NodeInfo { return &info },
+		func(_ context.Context, id types.NodeID) error {
+			if id == infoFiltered.NodeID {
+				return errors.New("should filter")
+			}
+			return nil
 		},
-	}
+		ropts,
+	)
+}
 
-	for name, tc := range testcases {
-		t.Run(name, func(t *testing.T) {
-			ctx := t.Context()
-
-			t.Cleanup(leaktest.Check(t))
-
-			// Set up a mock transport that handshakes.
-			connCtx, connCancel := context.WithCancel(ctx)
-			mockConnection := &mocks.Connection{}
-			mockConnection.On("String").Maybe().Return("mock")
-			mockConnection.On("Handshake", mock.Anything, selfInfo, selfKey).
-				Return(tc.peerInfo, nil)
-			mockConnection.On("Close").Run(func(_ mock.Arguments) { connCancel() }).Return(nil).Maybe()
-			mockConnection.On("RemoteEndpoint").Return(p2p.Endpoint{})
-			if tc.ok {
-				mockConnection.On("ReceiveMessage", mock.Anything).Return(chID, nil, io.EOF).Maybe()
-			}
-
-			mockTransport := &mocks.Transport{}
-			mockTransport.On("Accept", mock.Anything).Once().Return(mockConnection, nil)
-			mockTransport.On("Accept", mock.Anything).Maybe().Return(nil, context.Canceled)
-			mockTransport.On("Run", mock.Anything).Return(nil)
-
-			// Set up and start the router.
-			peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
-			require.NoError(t, err)
-
-			sub := peerManager.Subscribe(ctx)
-
-			router, err := p2p.NewRouter(
-				log.NewNopLogger(),
-				p2p.NopMetrics(),
-				selfKey,
-				peerManager,
-				func() *types.NodeInfo { return &selfInfo },
-				mockTransport,
-				nil,
-				p2p.RouterOptions{},
-			)
-			require.NoError(t, err)
-			require.NoError(t, router.Start(ctx))
-
-			if tc.ok {
-				p2ptest.RequireUpdate(t, sub, p2p.PeerUpdate{
-					NodeID: tc.peerInfo.NodeID,
-					Status: p2p.PeerStatusUp,
-				})
-				// force a context switch so that the
-				// connection is handled.
-				time.Sleep(time.Millisecond)
-			} else {
-				select {
-				case <-connCtx.Done():
-				case <-time.After(100 * time.Millisecond):
-					require.Fail(t, "connection not closed")
-				}
-			}
-
-			router.Stop()
-			mockTransport.AssertExpectations(t)
-			mockConnection.AssertExpectations(t)
-		})
+func makeRouterOptions() RouterOptions {
+	return RouterOptions{
+		DialSleep:          func(context.Context) error { return nil },
+		NumConcurrentDials: func() int { return 100 },
+		Endpoint:           Endpoint{tcp.TestReserveAddr()},
+		Connection:         conn.DefaultMConnConfig(),
 	}
 }
 
-func TestRouter_AcceptPeers_Errors(t *testing.T) {
-
-	for _, err := range []error{io.EOF, context.Canceled, context.DeadlineExceeded} {
-		t.Run(err.Error(), func(t *testing.T) {
-			t.Cleanup(leaktest.Check(t))
-
-			ctx := t.Context()
-
-			// Set up a mock transport that returns io.EOF once, which should prevent
-			// the router from calling Accept again.
-			mockTransport := &mocks.Transport{}
-			mockTransport.On("Accept", mock.Anything).Once().Return(nil, context.Canceled)
-			mockTransport.On("Run", mock.Anything).Return(nil)
-
-			// Set up and start the router.
-			peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
-			require.NoError(t, err)
-
-			router, err := p2p.NewRouter(
-				log.NewNopLogger(),
-				p2p.NopMetrics(),
-				selfKey,
-				peerManager,
-				func() *types.NodeInfo { return &selfInfo },
-				mockTransport,
-				nil,
-				p2p.RouterOptions{},
-			)
-			require.NoError(t, err)
-
-			require.NoError(t, router.Start(ctx))
-			time.Sleep(time.Second)
-			router.Stop()
-
-			mockTransport.AssertExpectations(t)
-
-		})
-
-	}
+func makeRouterWithOptions(logger log.Logger, ropts RouterOptions) *Router {
+	return makeRouterWithOptionsAndKey(logger, ropts, makeKey())
 }
 
-func TestRouter_AcceptPeers_HeadOfLineBlocking(t *testing.T) {
+func makeRouterWithKey(logger log.Logger, key crypto.PrivKey) *Router {
+	return makeRouterWithOptionsAndKey(logger, makeRouterOptions(), key)
+}
+
+func makeRouter(logger log.Logger) *Router {
+	return makeRouterWithKey(logger, makeKey())
+}
+
+func TestRouter_FilterByIP(t *testing.T) {
+	logger, _ := log.NewDefaultLogger("plain", "debug")
+	ctx := t.Context()
 	t.Cleanup(leaktest.Check(t))
 
-	ctx := t.Context()
+	var reject atomic.Bool
+	opts := makeRouterOptions()
+	opts.FilterPeerByIP = func(ctx context.Context, addr netip.AddrPort) error {
+		if reject.Load() {
+			return errors.New("fail all")
+		}
+		return nil
+	}
+	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		r := makeRouterWithOptions(logger, opts)
+		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
+		if err := r.WaitForStart(ctx); err != nil {
+			return err
+		}
+		sub := r.peerManager.Subscribe(ctx)
 
-	// Set up a mock transport that returns a connection that blocks during the
-	// handshake. It should be able to accept several of these in parallel, i.e.
-	// a single connection can't halt other connections being accepted.
-	acceptCh := make(chan bool, 3)
-	closeCh := make(chan time.Time)
+		t.Logf("Connection should succeed.")
+		r2 := makeRouter(logger)
+		tcpConn, err := r2.Dial(ctx, TestAddress(r))
+		if err != nil {
+			return fmt.Errorf("peerTransport.Dial(): %w", err)
+		}
+		defer tcpConn.Close()
+		conn, err := HandshakeOrClose(ctx, r2, tcpConn)
+		if err != nil {
+			return fmt.Errorf("conn.Handshake(): %w", err)
+		}
+		RequireUpdate(t, sub, PeerUpdate{
+			NodeID: TestAddress(r2).NodeID,
+			Status: PeerStatusUp,
+		})
+		conn.Close()
 
-	mockConnection := &mocks.Connection{}
-	mockConnection.On("String").Maybe().Return("mock")
-	mockConnection.On("Handshake", mock.Anything, selfInfo, selfKey).
-		WaitUntil(closeCh).Return(types.NodeInfo{}, io.EOF)
-	mockConnection.On("Close").Return(nil)
-	mockConnection.On("RemoteEndpoint").Return(p2p.Endpoint{})
+		t.Logf("Enable filtering.")
+		reject.Store(true)
 
-	mockTransport := &mocks.Transport{}
-	mockTransport.On("Accept", mock.Anything).Times(3).Run(func(_ mock.Arguments) {
-		acceptCh <- true
-	}).Return(mockConnection, nil)
-	mockTransport.On("Accept", mock.Anything).Once().Return(nil, context.Canceled)
-	mockTransport.On("Run", mock.Anything).Return(nil)
-
-	// Set up and start the router.
-	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
-	require.NoError(t, err)
-
-	router, err := p2p.NewRouter(
-		log.NewNopLogger(),
-		p2p.NopMetrics(),
-		selfKey,
-		peerManager,
-		func() *types.NodeInfo { return &selfInfo },
-		mockTransport,
-		nil,
-		p2p.RouterOptions{},
-	)
-	require.NoError(t, err)
-	require.NoError(t, router.Start(ctx))
-
-	require.Eventually(t, func() bool {
-		return len(acceptCh) == 3
-	}, time.Second, 10*time.Millisecond, "num", len(acceptCh))
-	close(closeCh)
-	time.Sleep(100 * time.Millisecond)
-
-	router.Stop()
-	mockTransport.AssertExpectations(t)
-	mockConnection.AssertExpectations(t)
+		t.Logf("Connection should fail during handshake.")
+		r2 = makeRouter(logger)
+		tcpConn, err = r2.Dial(ctx, TestAddress(r))
+		if err != nil {
+			return fmt.Errorf("peerTransport.Dial(): %w", err)
+		}
+		defer tcpConn.Close()
+		if _, err := HandshakeOrClose(ctx, r2, tcpConn); err == nil {
+			return fmt.Errorf("handshake(): expected error")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
 
-func TestRouter_DialPeers(t *testing.T) {
+func TestRouter_AcceptPeers(t *testing.T) {
+	selfKey := makeKey()
+	peerKey := makeKey()
+	badInfo := makeInfo(peerKey)
+	badInfo.Network = "other-network"
 	testcases := map[string]struct {
-		dialID   types.NodeID
-		peerInfo types.NodeInfo
-		dialErr  error
-		ok       bool
+		info types.NodeInfo
+		key  crypto.PrivKey
+		ok   bool
 	}{
-		"valid dial":         {peerInfo.NodeID, peerInfo, nil, true},
-		"empty handshake":    {peerInfo.NodeID, types.NodeInfo{}, nil, false},
-		"unexpected node ID": {peerInfo.NodeID, selfInfo, nil, false},
-		"dial error":         {peerInfo.NodeID, peerInfo, errors.New("boom"), false},
-		"incompatible peer": {
-			peerInfo.NodeID,
-			types.NodeInfo{
-				NodeID:     peerID,
-				ListenAddr: "0.0.0.0:0",
-				Network:    "other-network",
-				Moniker:    string(peerID),
-			},
-			nil,
-			false,
-		},
+		"valid handshake":      {makeInfo(peerKey), peerKey, true},
+		"empty handshake":      {types.NodeInfo{}, peerKey, false},
+		"self handshake":       {makeInfo(selfKey), selfKey, false},
+		"incompatible network": {badInfo, peerKey, false},
+		"filtered":             {infoFiltered, keyFiltered, false},
 	}
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
+			logger, _ := log.NewDefaultLogger("plain", "debug")
 			t.Cleanup(leaktest.Check(t))
-			ctx := t.Context()
-
-			address := p2p.NodeAddress{Protocol: "mock", NodeID: tc.dialID}
-			endpoint := p2p.Endpoint{Protocol: "mock", Path: string(tc.dialID)}
-
-			// Set up a mock transport that handshakes.
-			connCtx, connCancel := context.WithCancel(ctx)
-			defer connCancel()
-			mockConnection := &mocks.Connection{}
-			mockConnection.On("String").Maybe().Return("mock")
-			if tc.dialErr == nil {
-				mockConnection.On("Handshake", mock.Anything, selfInfo, selfKey).
-					Return(tc.peerInfo, nil)
-				mockConnection.On("Close").Run(func(_ mock.Arguments) { connCancel() }).Return(nil).Maybe()
-			}
-			if tc.ok {
-				mockConnection.On("ReceiveMessage", mock.Anything).Return(chID, nil, io.EOF).Maybe()
-			}
-
-			mockTransport := &mocks.Transport{}
-			mockTransport.On("Run", mock.Anything).Return(nil)
-			mockTransport.On("Accept", mock.Anything).Maybe().Return(nil, context.Canceled)
-			if tc.dialErr == nil {
-				mockTransport.On("Dial", mock.Anything, endpoint).Once().Return(mockConnection, nil)
-				// This handles the retry when a dialed connection gets closed after ReceiveMessage
-				// returns io.EOF above.
-				mockTransport.On("Dial", mock.Anything, endpoint).Maybe().Return(nil, io.EOF)
-			} else {
-				mockTransport.On("Dial", mock.Anything, endpoint).Once().
-					Run(func(_ mock.Arguments) { connCancel() }).
-					Return(nil, tc.dialErr)
-			}
-
-			// Set up and start the router.
-			peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
-			require.NoError(t, err)
-
-			added, err := peerManager.Add(address)
-			require.NoError(t, err)
-			require.True(t, added)
-			sub := peerManager.Subscribe(ctx)
-
-			router, err := p2p.NewRouter(
-				log.NewNopLogger(),
-				p2p.NopMetrics(),
-				selfKey,
-				peerManager,
-				func() *types.NodeInfo { return &selfInfo },
-				mockTransport,
-				nil,
-				p2p.RouterOptions{},
-			)
-			require.NoError(t, err)
-			require.NoError(t, router.Start(ctx))
-
-			if tc.ok {
-				p2ptest.RequireUpdate(t, sub, p2p.PeerUpdate{
-					NodeID: tc.peerInfo.NodeID,
-					Status: p2p.PeerStatusUp,
-				})
-				// force a context switch so that the
-				// connection is handled.
-				time.Sleep(time.Millisecond)
-			} else {
-				select {
-				case <-connCtx.Done():
-				case <-time.After(100 * time.Millisecond):
-					require.Fail(t, "connection not closed")
+			if err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+				r := makeRouterWithKey(logger, selfKey)
+				s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
+				if err := r.WaitForStart(ctx); err != nil {
+					return err
 				}
-			}
+				sub := r.peerManager.Subscribe(ctx)
 
-			router.Stop()
-			mockTransport.AssertExpectations(t)
-			mockConnection.AssertExpectations(t)
+				x := makeRouterWithKey(logger, tc.key)
+				// WARNING: here we malform the router internal state.
+				// It would be better to have a dedicated API for performing malformed handshakes.
+				*x.nodeInfoProducer() = tc.info
+				tcpConn, err := x.Dial(ctx, TestAddress(r))
+				if err != nil {
+					return fmt.Errorf("peerTransport.Dial(): %w", err)
+				}
+				defer tcpConn.Close()
+				if tc.ok {
+					if _, err := HandshakeOrClose(ctx, x, tcpConn); err != nil {
+						return fmt.Errorf("conn.Handshake(): %w", err)
+					}
+					RequireUpdate(t, sub, PeerUpdate{
+						NodeID: tc.info.NodeID,
+						Status: PeerStatusUp,
+					})
+				} else {
+					t.Logf("Expect immediate or delayed failure.")
+					// Peer should drop the connection during handshake.
+					conn, err := HandshakeOrClose(ctx, x, tcpConn)
+					if err != nil {
+						return nil
+					}
+					if err := conn.Run(ctx, x); !errors.Is(err, io.EOF) {
+						return fmt.Errorf("want EOF, got %w", err)
+					}
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// Test checking that multiple peers connecting at once don't block each other.
+func TestRouter_AcceptPeers_Parallel(t *testing.T) {
+	logger, _ := log.NewDefaultLogger("plain", "debug")
+	ctx := t.Context()
+	t.Cleanup(leaktest.Check(t))
+
+	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		t.Logf("Set up and start the router.")
+		r := makeRouter(logger)
+		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
+		if err := r.WaitForStart(ctx); err != nil {
+			return err
+		}
+		sub := r.peerManager.Subscribe(ctx)
+
+		t.Logf("Dial raw connections.")
+		var peers []*Router
+		var conns []*net.TCPConn
+		for range 10 {
+			x := makeRouter(logger)
+			peers = append(peers, x)
+			conn, err := x.Dial(ctx, TestAddress(r))
+			if err != nil {
+				return fmt.Errorf("x.Dial(): %w", err)
+			}
+			defer conn.Close()
+			conns = append(conns, conn)
+		}
+		t.Logf("Handshake the connections in reverse order.")
+		for i := len(conns) - 1; i >= 0; i-- {
+			if _, err := HandshakeOrClose(ctx, peers[i], conns[i]); err != nil {
+				return fmt.Errorf("conn.Handshake(): %w", err)
+			}
+			RequireUpdate(t, sub, PeerUpdate{
+				NodeID: TestAddress(peers[i]).NodeID,
+				Status: PeerStatusUp,
+			})
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRouter_DialPeer_Retry(t *testing.T) {
+	logger, _ := log.NewDefaultLogger("plain", "debug")
+	t.Cleanup(leaktest.Check(t))
+
+	if err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		t.Logf("Set up and start the router.")
+		r := makeRouter(logger)
+		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
+		if err := r.WaitForStart(ctx); err != nil {
+			return err
+		}
+		sub := r.peerManager.Subscribe(ctx)
+
+		x := makeRouter(logger)
+		listener, err := tcp.Listen(x.Endpoint().AddrPort)
+		if err != nil {
+			return fmt.Errorf("tcp.Listen(): %w", err)
+		}
+		defer listener.Close()
+
+		t.Log("Populate peer manager.")
+		if ok, err := r.peerManager.Add(TestAddress(x)); !ok || err != nil {
+			return fmt.Errorf("peerManager.Add() = %v,%w", ok, err)
+		}
+
+		t.Log("Accept and drop.")
+		conn, err := listener.AcceptOrClose(ctx)
+		if err != nil {
+			return fmt.Errorf("peerTransport.Dial(): %w", err)
+		}
+		conn.Close()
+
+		t.Log("Accept and complete handshake.")
+		conn, err = listener.AcceptOrClose(ctx)
+		if err != nil {
+			return fmt.Errorf("peerTransport.Dial(): %w", err)
+		}
+		defer conn.Close()
+		if _, err := HandshakeOrClose(ctx, x, conn); err != nil {
+			return fmt.Errorf("conn.Handshake(): %w", err)
+		}
+		RequireUpdate(t, sub, PeerUpdate{
+			NodeID: TestAddress(x).NodeID,
+			Status: PeerStatusUp,
+		})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRouter_DialPeer_Reject(t *testing.T) {
+	key := makeKey()
+	info := makeInfo(key)
+	info2 := makeInfo(makeKey())
+	info3 := info
+	info3.Network = "other-network"
+	info4 := info
+	info4.Channels = []byte{0x23}
+	testcases := map[string]struct {
+		dialID types.NodeID
+		info   types.NodeInfo
+	}{
+		"empty handshake":       {info.NodeID, types.NodeInfo{}},
+		"unexpected node ID":    {info2.NodeID, info},
+		"incompatible network":  {info.NodeID, info3},
+		"incompatible channels": {info.NodeID, info4},
+	}
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			logger, _ := log.NewDefaultLogger("plain", "debug")
+			t.Cleanup(leaktest.Check(t))
+			err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+				r := makeRouter(logger)
+				s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
+				if err := r.WaitForStart(ctx); err != nil {
+					return err
+				}
+
+				x := makeRouter(logger)
+				listener, err := tcp.Listen(x.Endpoint().AddrPort)
+				if err != nil {
+					return fmt.Errorf("tcp.Listen(): %w", err)
+				}
+				defer listener.Close()
+				if ok, err := r.peerManager.Add(x.Endpoint().NodeAddress(tc.dialID)); !ok || err != nil {
+					return fmt.Errorf("peerManager.Add() = %v,%w", ok, err)
+				}
+				tcpConn, err := listener.AcceptOrClose(ctx)
+				if err != nil {
+					return fmt.Errorf("peerTransport.Accept(): %w", err)
+				}
+				defer tcpConn.Close()
+				// Connections should be closed either during handshake, or immediately afterwards.
+				*x.nodeInfoProducer() = tc.info
+				conn, err := HandshakeOrClose(ctx, x, tcpConn)
+				if err != nil {
+					return nil
+				}
+				if err := conn.Run(ctx, x); !errors.Is(err, io.EOF) {
+					return fmt.Errorf("want EOF, got %w", err)
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
 		})
 	}
 }
 
 func TestRouter_DialPeers_Parallel(t *testing.T) {
+	logger, _ := log.NewDefaultLogger("plain", "debug")
+	ctx := t.Context()
 	t.Cleanup(leaktest.Check(t))
 
-	ctx := t.Context()
+	t.Logf("Set up and start the router.")
+	if err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		r := makeRouter(logger)
+		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
+		if err := r.WaitForStart(ctx); err != nil {
+			return err
+		}
+		sub := r.peerManager.Subscribe(ctx)
 
-	a := p2p.NodeAddress{Protocol: "mock", NodeID: types.NodeID(strings.Repeat("a", 40))}
-	b := p2p.NodeAddress{Protocol: "mock", NodeID: types.NodeID(strings.Repeat("b", 40))}
-	c := p2p.NodeAddress{Protocol: "mock", NodeID: types.NodeID(strings.Repeat("c", 40))}
-
-	// Set up a mock transport that returns a connection that blocks during the
-	// handshake. It should dial all peers in parallel.
-	dialCh := make(chan bool, 3)
-	closeCh := make(chan time.Time)
-
-	mockConnection := &mocks.Connection{}
-	mockConnection.On("String").Maybe().Return("mock")
-	mockConnection.On("Handshake", mock.Anything, selfInfo, selfKey).
-		WaitUntil(closeCh).Return(types.NodeInfo{}, nil, io.EOF)
-	mockConnection.On("Close").Return(nil)
-
-	mockTransport := &mocks.Transport{}
-	mockTransport.On("Run", mock.Anything).Return(nil)
-	mockTransport.On("Accept", mock.Anything).Once().Return(nil, context.Canceled)
-	for _, address := range []p2p.NodeAddress{a, b, c} {
-		endpoint := p2p.Endpoint{Protocol: address.Protocol, Path: string(address.NodeID)}
-		mockTransport.On("Dial", mock.Anything, endpoint).Run(func(_ mock.Arguments) {
-			dialCh <- true
-		}).Return(mockConnection, nil)
+		t.Logf("Accept raw connections.")
+		var peers []*Router
+		var conns []*net.TCPConn
+		for i := range 10 {
+			t.Logf("ACCEPT %v", i)
+			peer := makeRouter(logger)
+			listener, err := tcp.Listen(peer.Endpoint().AddrPort)
+			if err != nil {
+				return fmt.Errorf("tcp.Listen(): %w", err)
+			}
+			defer listener.Close()
+			if ok, err := r.peerManager.Add(TestAddress(peer)); !ok || err != nil {
+				return fmt.Errorf("peerManager.Add() = %v,%w", ok, err)
+			}
+			conn, err := listener.AcceptOrClose(ctx)
+			if err != nil {
+				return fmt.Errorf("peerTransport.Accept(): %w", err)
+			}
+			defer conn.Close()
+			conns = append(conns, conn)
+			peers = append(peers, peer)
+		}
+		t.Logf("Handshake the connections in reverse order.")
+		for i := len(conns) - 1; i >= 0; i-- {
+			conn := conns[i]
+			peer := peers[i]
+			if _, err := HandshakeOrClose(ctx, peer, conn); err != nil {
+				return fmt.Errorf("conn.Handshake(): %w", err)
+			}
+			RequireUpdate(t, sub, PeerUpdate{
+				NodeID: TestAddress(peer).NodeID,
+				Status: PeerStatusUp,
+			})
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
-
-	// Set up and start the router.
-	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
-	require.NoError(t, err)
-
-	added, err := peerManager.Add(a)
-	require.NoError(t, err)
-	require.True(t, added)
-
-	added, err = peerManager.Add(b)
-	require.NoError(t, err)
-	require.True(t, added)
-
-	added, err = peerManager.Add(c)
-	require.NoError(t, err)
-	require.True(t, added)
-
-	router, err := p2p.NewRouter(
-		log.NewNopLogger(),
-		p2p.NopMetrics(),
-		selfKey,
-		peerManager,
-		func() *types.NodeInfo { return &selfInfo },
-		mockTransport,
-		nil,
-		p2p.RouterOptions{
-			DialSleep: func(_ context.Context) error { return nil },
-			NumConcurrentDials: func() int {
-				ncpu := runtime.NumCPU()
-				if ncpu <= 3 {
-					return 3
-				}
-				return ncpu
-			},
-		},
-	)
-
-	require.NoError(t, err)
-	require.NoError(t, router.Start(ctx))
-
-	require.Eventually(t,
-		func() bool {
-			return len(dialCh) == 3
-		},
-		5*time.Second,
-		100*time.Millisecond,
-		"reached %d rather than 3", len(dialCh))
-
-	close(closeCh)
-	time.Sleep(500 * time.Millisecond)
-
-	router.Stop()
-	mockTransport.AssertExpectations(t)
-	mockConnection.AssertExpectations(t)
 }
 
 func TestRouter_EvictPeers(t *testing.T) {
-	t.Cleanup(leaktest.Check(t))
 	logger, _ := log.NewDefaultLogger("plain", "debug")
-
-	ctx := t.Context()
-
-	// Set up a mock transport that we can evict.
-	closeCh := make(chan time.Time)
-	closeOnce := sync.Once{}
-
-	mockConnection := &mocks.Connection{}
-	mockConnection.On("String").Maybe().Return("mock")
-	mockConnection.On("Handshake", mock.Anything, selfInfo, selfKey).
-		Return(peerInfo, nil)
-	mockConnection.On("ReceiveMessage", mock.Anything).WaitUntil(closeCh).Return(chID, nil, io.EOF)
-	mockConnection.On("RemoteEndpoint").Return(p2p.Endpoint{})
-	mockConnection.On("Close").Run(func(_ mock.Arguments) {
-		closeOnce.Do(func() {
-			close(closeCh)
-		})
-	}).Return(nil)
-
-	mockTransport := &mocks.Transport{}
-	mockTransport.On("Accept", mock.Anything).Once().Return(mockConnection, nil)
-	mockTransport.On("Accept", mock.Anything).Maybe().Return(nil, context.Canceled)
-	mockTransport.On("Run", mock.Anything).Return(nil)
-
-	// Set up and start the router.
-	peerManager, err := p2p.NewPeerManager(logger, selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
-	require.NoError(t, err)
-
-	sub := peerManager.Subscribe(ctx)
-
-	router, err := p2p.NewRouter(
-		logger,
-		p2p.NopMetrics(),
-		selfKey,
-		peerManager,
-		func() *types.NodeInfo { return &selfInfo },
-		mockTransport,
-		nil,
-		p2p.RouterOptions{},
-	)
-	require.NoError(t, err)
-	require.NoError(t, router.Start(ctx))
-
-	// Wait for the mock peer to connect, then evict it by reporting an error.
-	p2ptest.RequireUpdate(t, sub, p2p.PeerUpdate{
-		NodeID: peerInfo.NodeID,
-		Status: p2p.PeerStatusUp,
-	})
-	t.Logf("node is up")
-	peerManager.Errored(peerInfo.NodeID, errors.New("boom"))
-
-	p2ptest.RequireUpdate(t, sub, p2p.PeerUpdate{
-		NodeID: peerInfo.NodeID,
-		Status: p2p.PeerStatusDown,
-	})
-
-	router.Stop()
-	mockTransport.AssertExpectations(t)
-	mockConnection.AssertExpectations(t)
-}
-
-func TestRouter_ChannelCompatability(t *testing.T) {
 	t.Cleanup(leaktest.Check(t))
-	ctx := t.Context()
+	if err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		r := makeRouter(logger)
+		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
+		if err := r.WaitForStart(ctx); err != nil {
+			return err
+		}
+		sub := r.peerManager.Subscribe(ctx)
 
-	incompatiblePeer := types.NodeInfo{
-		NodeID:     peerID,
-		ListenAddr: "0.0.0.0:0",
-		Network:    "test",
-		Moniker:    string(peerID),
-		Channels:   []byte{0x03},
+		x := makeRouter(logger)
+		tcpConn, err := x.Dial(ctx, TestAddress(r))
+		if err != nil {
+			return fmt.Errorf("Dial(): %w", err)
+		}
+		defer tcpConn.Close()
+		conn, err := HandshakeOrClose(ctx, x, tcpConn)
+		if err != nil {
+			return fmt.Errorf("conn.Handshake(): %w", err)
+		}
+		peerID := TestAddress(x).NodeID
+		RequireUpdate(t, sub, PeerUpdate{
+			NodeID: peerID,
+			Status: PeerStatusUp,
+		})
+
+		t.Log("Report the peer as bad.")
+		r.peerManager.Errored(peerID, errors.New("boom"))
+		RequireUpdate(t, sub, PeerUpdate{
+			NodeID: peerID,
+			Status: PeerStatusDown,
+		})
+		t.Log("Wait for conn down")
+		if err := conn.Run(ctx, x); !errors.Is(err, io.EOF) {
+			return fmt.Errorf("want EOF, got %w", err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
-
-	mockConnection := &mocks.Connection{}
-	mockConnection.On("String").Maybe().Return("mock")
-	mockConnection.On("Handshake", mock.Anything, selfInfo, selfKey).
-		Return(incompatiblePeer, nil)
-	mockConnection.On("RemoteEndpoint").Return(p2p.Endpoint{})
-	mockConnection.On("Close").Return(nil)
-
-	mockTransport := &mocks.Transport{}
-	mockTransport.On("Run", mock.Anything).Return(nil)
-	mockTransport.On("Accept", mock.Anything).Once().Return(mockConnection, nil)
-	mockTransport.On("Accept", mock.Anything).Once().Return(nil, context.Canceled)
-
-	// Set up and start the router.
-	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
-	require.NoError(t, err)
-
-	router, err := p2p.NewRouter(
-		log.NewNopLogger(),
-		p2p.NopMetrics(),
-		selfKey,
-		peerManager,
-		func() *types.NodeInfo { return &selfInfo },
-		mockTransport,
-		nil,
-		p2p.RouterOptions{},
-	)
-	require.NoError(t, err)
-	require.NoError(t, router.Start(ctx))
-	time.Sleep(1 * time.Second)
-	router.Stop()
-	require.Empty(t, peerManager.Peers())
-
-	mockConnection.AssertExpectations(t)
-	mockTransport.AssertExpectations(t)
 }
 
 func TestRouter_DontSendOnInvalidChannel(t *testing.T) {
+	logger, _ := log.NewDefaultLogger("plain", "debug")
 	t.Cleanup(leaktest.Check(t))
-	ctx := t.Context()
+	if err := scope.Run(t.Context(), func(ctx context.Context, s scope.Scope) error {
+		r := makeRouter(logger)
+		s.SpawnBg(func() error { return utils.IgnoreCancel(r.Run(ctx)) })
+		if err := r.WaitForStart(ctx); err != nil {
+			return err
+		}
+		sub := r.peerManager.Subscribe(ctx)
 
-	peer := types.NodeInfo{
-		NodeID:     peerID,
-		ListenAddr: "0.0.0.0:0",
-		Network:    "test",
-		Moniker:    string(peerID),
-		Channels:   []byte{0x02},
+		desc1 := makeChDesc(1)
+		r1, err := r.OpenChannel(desc1)
+		if err != nil {
+			return fmt.Errorf("r.OpenChannel(1): %w", err)
+		}
+
+		desc2 := makeChDesc(2)
+		r2, err := r.OpenChannel(desc2)
+		if err != nil {
+			return fmt.Errorf("r.OpenChannel(2): %w", err)
+		}
+
+		x := makeRouter(logger)
+		x1, err := x.OpenChannel(desc1)
+		if err != nil {
+			return fmt.Errorf("x.OpenChannel(1): %w", err)
+		}
+
+		tcpConn, err := x.Dial(ctx, TestAddress(r))
+		if err != nil {
+			return fmt.Errorf("Dial(): %w", err)
+		}
+		defer tcpConn.Close()
+		conn, err := HandshakeOrClose(ctx, x, tcpConn)
+		if err != nil {
+			return fmt.Errorf("conn.Handshake(): %w", err)
+		}
+		RequireUpdate(t, sub, PeerUpdate{
+			NodeID: TestAddress(x).NodeID,
+			Status: PeerStatusUp,
+		})
+		s.SpawnBg(func() error { return mayDisconnectAfterDone(ctx, conn.Run(ctx, x)) })
+		n := 1
+		msg1 := &TestMessage{Value: "Hello"}
+		msg2 := &TestMessage{Value: "Hello2"}
+		t.Log("Broadcast messages of both channels.")
+		s.Spawn(func() error {
+			for range n {
+				r1.Broadcast(msg1)
+				r2.Broadcast(msg2)
+			}
+			return nil
+		})
+		t.Log("Expect messages of 1 channel only.")
+		for range n {
+			got, err := x1.Recv(ctx)
+			if err != nil {
+				return fmt.Errorf("ReceiveMessage(): %w", err)
+			}
+			if err := utils.TestDiff[proto.Message](got.Message, msg1); err != nil {
+				return fmt.Errorf("gotMsg: %v", err)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
-
-	mockConnection := &mocks.Connection{}
-	mockConnection.On("String").Maybe().Return("mock")
-	mockConnection.On("Handshake", mock.Anything, selfInfo, selfKey).
-		Return(peer, nil)
-	mockConnection.On("RemoteEndpoint").Return(p2p.Endpoint{})
-	mockConnection.On("Close").Return(nil)
-	mockConnection.On("ReceiveMessage", mock.Anything).Return(chID, nil, io.EOF)
-
-	mockTransport := &mocks.Transport{}
-	mockTransport.On("AddChannelDescriptors", mock.Anything).Return()
-	mockTransport.On("Accept", mock.Anything).Once().Return(mockConnection, nil)
-	mockTransport.On("Accept", mock.Anything).Maybe().Return(nil, context.Canceled)
-	mockTransport.On("Run", mock.Anything).Return(nil)
-
-	// Set up and start the router.
-	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
-	require.NoError(t, err)
-
-	sub := peerManager.Subscribe(ctx)
-
-	router, err := p2p.NewRouter(
-		log.NewNopLogger(),
-		p2p.NopMetrics(),
-		selfKey,
-		peerManager,
-		func() *types.NodeInfo { return &selfInfo },
-		mockTransport,
-		nil,
-		p2p.RouterOptions{},
-	)
-	require.NoError(t, err)
-	require.NoError(t, router.Start(ctx))
-
-	p2ptest.RequireUpdate(t, sub, p2p.PeerUpdate{
-		NodeID: peerInfo.NodeID,
-		Status: p2p.PeerStatusUp,
-	})
-
-	channel, err := router.OpenChannel(chDesc)
-	require.NoError(t, err)
-
-	require.NoError(t, channel.Send(ctx, p2p.Envelope{
-		To:      peer.NodeID,
-		Message: &p2ptest.Message{Value: "Hi"},
-	}))
-
-	router.Stop()
-	mockTransport.AssertExpectations(t)
-}
-
-func TestRouter_Channel_FilterByID(t *testing.T) {
-	t.Cleanup(leaktest.Check(t))
-
-	// Set up a mock transport that handshakes.
-	connCtx, connCancel := context.WithCancel(t.Context())
-	defer connCancel()
-	peer := types.NodeInfo{
-		NodeID:     peerID,
-		ListenAddr: "0.0.0.0:0",
-		Network:    "test",
-		Moniker:    string(peerID),
-		Channels:   []byte{0x02},
-	}
-
-	mockConnection := &mocks.Connection{}
-	mockConnection.On("String").Maybe().Return("mock")
-	mockConnection.On("Handshake", mock.Anything, selfInfo, selfKey).
-		Return(peer, nil)
-	mockConnection.On("RemoteEndpoint").Return(p2p.Endpoint{})
-	mockConnection.On("Close").Return(nil)
-	mockConnection.On("ReceiveMessage", mock.Anything).Return(chID, nil, io.EOF)
-
-	mockTransport := &mocks.Transport{}
-	mockTransport.On("AddChannelDescriptors", mock.Anything).Return()
-	mockTransport.On("String").Maybe().Return("mock")
-	mockTransport.On("Accept", mock.Anything).Once().Return(mockConnection, nil)
-	mockTransport.On("Accept", mock.Anything).Maybe().Return(nil, context.Canceled)
-	mockTransport.On("Run", mock.Anything).Return(nil)
-
-	peerManager, err := p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
-	require.NoError(t, err)
-
-	// no filter
-	router, err := p2p.NewRouter(
-		log.NewNopLogger(),
-		p2p.NopMetrics(),
-		selfKey,
-		peerManager,
-		func() *types.NodeInfo { return &selfInfo },
-		mockTransport,
-		nil,
-		p2p.RouterOptions{},
-	)
-	require.NoError(t, err)
-
-	require.NoError(t, router.Start(connCtx))
-	t.Cleanup(router.Wait)
-
-	time.Sleep(1 * time.Second)
-
-	require.Equal(t, 1, len(peerManager.Peers()))
-
-	peerManager, err = p2p.NewPeerManager(log.NewNopLogger(), selfID, dbm.NewMemDB(), p2p.PeerManagerOptions{}, p2p.NopMetrics())
-	require.NoError(t, err)
-
-	// with filter
-	router, err = p2p.NewRouter(
-		log.NewNopLogger(),
-		p2p.NopMetrics(),
-		selfKey,
-		peerManager,
-		func() *types.NodeInfo { return &selfInfo },
-		mockTransport,
-		func(_ context.Context, _ types.NodeID) error { return errors.New("should filter") },
-		p2p.RouterOptions{},
-	)
-	require.NoError(t, err)
-
-	require.NoError(t, router.Start(connCtx))
-	t.Cleanup(router.Wait)
-
-	time.Sleep(1 * time.Second)
-
-	require.Equal(t, 0, len(peerManager.Peers()))
 }

@@ -144,33 +144,35 @@ func createMempoolReactor(
 	appClient abciclient.Client,
 	store sm.Store,
 	memplMetrics *mempool.Metrics,
-	peerEvents p2p.PeerEventSubscriber,
-	peerManager *p2p.PeerManager,
-) (*mempool.Reactor, mempool.Mempool) {
+	router *p2p.Router,
+) (*mempool.Reactor, mempool.Mempool, error) {
 	logger = logger.With("module", "mempool")
 
 	mp := mempool.NewTxMempool(
 		logger,
 		cfg.Mempool,
 		appClient,
-		peerManager,
+		router.PeerManager(),
 		mempool.WithMetrics(memplMetrics),
 		mempool.WithPreCheck(sm.TxPreCheckFromStore(store)),
 		mempool.WithPostCheck(sm.TxPostCheckFromStore(store)),
 	)
 
-	reactor := mempool.NewReactor(
+	reactor, err := mempool.NewReactor(
 		logger,
 		cfg.Mempool,
 		mp,
-		peerEvents,
+		router,
 	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("mempool.NewReactor(): %w", err)
+	}
 
 	if cfg.Consensus.WaitForTxs() {
 		mp.EnableTxsAvailable()
 	}
 
-	return reactor, mp
+	return reactor, mp, nil
 }
 
 func createEvidenceReactor(
@@ -179,7 +181,7 @@ func createEvidenceReactor(
 	dbProvider config.DBProvider,
 	store sm.Store,
 	blockStore *store.BlockStore,
-	peerEvents p2p.PeerEventSubscriber,
+	router *p2p.Router,
 	metrics *evidence.Metrics,
 	eventBus *eventbus.EventBus,
 ) (*evidence.Reactor, *evidence.Pool, closer, error) {
@@ -191,8 +193,10 @@ func createEvidenceReactor(
 	logger = logger.With("module", "evidence")
 
 	evidencePool := evidence.NewPool(logger, evidenceDB, store, blockStore, metrics, eventBus)
-	evidenceReactor := evidence.NewReactor(logger, peerEvents, evidencePool)
-
+	evidenceReactor, err := evidence.NewReactor(logger, router, evidencePool)
+	if err != nil {
+		return nil, nil, evidenceDB.Close, fmt.Errorf("evidence.NewReactor(): %w", err)
+	}
 	return evidenceReactor, evidencePool, evidenceDB.Close, nil
 }
 
@@ -300,31 +304,27 @@ func createRouter(
 
 	p2pLogger := logger.With("module", "p2p")
 
-	ep, err := p2p.NewEndpoint(nodeKey.ID.AddressString(cfg.P2P.ListenAddress))
+	ep, err := p2p.ResolveEndpoint(nodeKey.ID.AddressString(cfg.P2P.ListenAddress))
 	if err != nil {
 		return nil, err
 	}
-	transportConf := conn.DefaultMConnConfig()
-	transportConf.FlushThrottle = cfg.P2P.FlushThrottleTimeout
-	transportConf.SendRate = cfg.P2P.SendRate
-	transportConf.RecvRate = cfg.P2P.RecvRate
-	transportConf.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
-	transport := p2p.NewMConnTransport(
-		p2pLogger, ep, transportConf, []*p2p.ChannelDescriptor{},
-		p2p.MConnTransportOptions{
-			MaxAcceptedConnections: uint32(cfg.P2P.MaxConnections),
-		},
-	)
+	config := getRouterConfig(cfg, appClient)
+	config.Endpoint = ep
+	config.MaxAcceptedConnections = uint32(cfg.P2P.MaxConnections)
+	config.Connection = conn.DefaultMConnConfig()
+	config.Connection.FlushThrottle = cfg.P2P.FlushThrottleTimeout
+	config.Connection.SendRate = cfg.P2P.SendRate
+	config.Connection.RecvRate = cfg.P2P.RecvRate
+	config.Connection.MaxPacketMsgPayloadSize = cfg.P2P.MaxPacketMsgPayloadSize
 	return p2p.NewRouter(
 		p2pLogger,
 		p2pMetrics,
 		nodeKey.PrivKey,
 		peerManager,
 		nodeInfoProducer,
-		transport,
 		nil, // TODO: replace with mempool CheckTx failure based filterer
-		getRouterConfig(cfg, appClient),
-	)
+		config,
+	), nil
 }
 
 func makeNodeInfo(

@@ -212,7 +212,6 @@ func MakeGenesis(testnet *e2e.Testnet) (types.GenesisDoc, error) {
 	}
 	genesis.ConsensusParams.Evidence.MaxAgeNumBlocks = e2e.EvidenceAgeHeight
 	genesis.ConsensusParams.Evidence.MaxAgeDuration = e2e.EvidenceAgeTime
-	genesis.ConsensusParams.ABCI.VoteExtensionsEnableHeight = testnet.VoteExtensionsEnableHeight
 	for validator, power := range testnet.Validators {
 		genesis.Validators = append(genesis.Validators, types.GenesisValidator{
 			Name:    validator.Name,
@@ -351,7 +350,6 @@ func MakeAppConfig(node *e2e.Node) ([]byte, error) {
 		"prepare_proposal_delay_ms": node.Testnet.PrepareProposalDelayMS,
 		"process_proposal_delay_ms": node.Testnet.ProcessProposalDelayMS,
 		"check_tx_delay_ms":         node.Testnet.CheckTxDelayMS,
-		"vote_extension_delay_ms":   node.Testnet.VoteExtensionDelayMS,
 		"finalize_block_delay_ms":   node.Testnet.FinalizeBlockDelayMS,
 	}
 

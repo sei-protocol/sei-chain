@@ -2,34 +2,35 @@ package keeper_test
 
 import (
 	"fmt"
-	"github.com/cosmos/cosmos-sdk/x/slashing/types"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/cosmos/cosmos-sdk/x/slashing/types"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/slashing"
 	"github.com/cosmos/cosmos-sdk/x/slashing/testslashing"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 func TestUnJailNotBonded(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	p := app.StakingKeeper.GetParams(ctx)
 	p.MaxValidators = 5
 	app.StakingKeeper.SetParams(ctx, p)
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 6, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
-	pks := simapp.CreateTestPubKeys(6)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 6, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
+	pks := seiapp.CreateTestPubKeys(6)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 
 	// create max (5) validators all with the same power
@@ -84,12 +85,12 @@ func TestUnJailNotBonded(t *testing.T) {
 // Ensure that SigningInfo.StartHeight is set correctly
 // and that they are not immediately jailed
 func TestHandleNewValidator(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
-	pks := simapp.CreateTestPubKeys(1)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
+	pks := seiapp.CreateTestPubKeys(1)
 	addr, val := valAddrs[0], pks[0]
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
 	ctx = ctx.WithBlockHeight(app.SlashingKeeper.SignedBlocksWindow(ctx) + 1)
@@ -127,12 +128,12 @@ func TestHandleNewValidator(t *testing.T) {
 // Ensure that they're only slashed once
 func TestHandleAlreadyJailed(t *testing.T) {
 	// initial setup
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
-	valAddrs := simapp.ConvertAddrsToValAddrs(addrDels)
-	pks := simapp.CreateTestPubKeys(1)
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 1, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	valAddrs := seiapp.ConvertAddrsToValAddrs(addrDels)
+	pks := seiapp.CreateTestPubKeys(1)
 	addr, val := valAddrs[0], pks[0]
 	power := int64(100)
 	tstaking := teststaking.NewHelper(t, ctx, app.StakingKeeper)
@@ -190,7 +191,7 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 
 	// initial setup
 	// TestParams set the SignedBlocksWindow to 1000 and MaxMissedBlocksPerWindow to 500
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 	app.SlashingKeeper.SetParams(ctx, testslashing.TestParams())
 
@@ -199,8 +200,8 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 	app.StakingKeeper.SetParams(ctx, params)
 	power := int64(100)
 
-	pks := simapp.CreateTestPubKeys(3)
-	simapp.AddTestAddrsFromPubKeys(app, ctx, pks, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	pks := seiapp.CreateTestPubKeys(3)
+	seiapp.AddTestAddrsFromPubKeys(app, ctx, pks, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 
 	addr, val := pks[0].Address(), pks[0]
 	consAddr := sdk.ConsAddress(addr)
@@ -289,9 +290,9 @@ func TestValidatorDippingInAndOut(t *testing.T) {
 }
 
 func TestSlash(t *testing.T) {
-	app := simapp.Setup(false)
+	app := seiapp.Setup(t, false, false, false)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	addrDels := simapp.AddTestAddrsIncremental(app, ctx, 6, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
+	addrDels := seiapp.AddTestAddrsIncremental(app, ctx, 6, app.StakingKeeper.TokensFromConsensusPower(ctx, 200))
 	keeper := app.SlashingKeeper
 
 	consAddr := sdk.ConsAddress(addrDels[0])

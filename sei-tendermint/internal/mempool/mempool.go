@@ -18,6 +18,7 @@ import (
 	"github.com/tendermint/tendermint/internal/libs/reservoir"
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/types"
 )
 
@@ -72,7 +73,7 @@ type TxMempool struct {
 
 	// A TTL cache which keeps all txs that we have seen before over the TTL window.
 	// Currently, this can be used for tracking whether checkTx is always serving the same tx or not.
-	duplicateTxsCache TxCacheWithTTL
+	duplicateTxsCache utils.Option[*DuplicateTxCache]
 
 	// txStore defines the main storage of valid transactions. Indexes are built
 	// on top of this store.
@@ -139,7 +140,6 @@ func NewTxMempool(
 		proxyAppConn:        proxyAppConn,
 		height:              -1,
 		cache:               NopTxCache{},
-		duplicateTxsCache:   NopTxCacheWithTTL{}, // Default to NOP implementation
 		metrics:             NopMetrics(),
 		txStore:             NewTxStore(),
 		gossipIndex:         clist.New(),
@@ -161,7 +161,7 @@ func NewTxMempool(
 	}
 
 	if cfg.DuplicateTxsCacheSize > 0 {
-		txmp.duplicateTxsCache = NewDuplicateTxCache(cfg.DuplicateTxsCacheSize, 1*time.Minute, 1*time.Minute, maxCacheKeySize)
+		txmp.duplicateTxsCache = utils.Some(NewDuplicateTxCache(cfg.DuplicateTxsCacheSize, 1*time.Minute, maxCacheKeySize))
 	}
 
 	return txmp
@@ -359,8 +359,8 @@ func (txmp *TxMempool) CheckTx(
 
 	// Check TTL cache to see if we've recently processed this transaction
 	// Only execute TTL cache logic if we're using a real TTL cache (not NOP)
-	if txmp.config.DuplicateTxsCacheSize > 0 {
-		txmp.duplicateTxsCache.Increment(txHash)
+	if c, ok := txmp.duplicateTxsCache.Get(); ok {
+		c.Increment(txHash)
 	}
 
 	res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTx{Tx: tx})
@@ -438,6 +438,10 @@ func (txmp *TxMempool) CheckTx(
 			if err := txmp.pendingTxs.Insert(wtx, res, txInfo); err != nil {
 				return err
 			}
+		}
+
+		if res.CheckTxCallback != nil {
+			res.CheckTxCallback(res.Priority)
 		}
 	}
 
@@ -1193,23 +1197,23 @@ func (txmp *TxMempool) handlePendingTransactions() {
 
 // Run executes mempool background tasks.
 func (txmp *TxMempool) Run(ctx context.Context) error {
-	return txmp.runDuplicateTxMetrics(ctx)
-}
-
-func (txmp *TxMempool) runDuplicateTxMetrics(ctx context.Context) error {
-	if txmp.duplicateTxsCache == nil {
+	c, ok := txmp.duplicateTxsCache.Get()
+	if !ok {
 		return nil
 	}
-	for {
-		if err := utils.Sleep(ctx, 10*time.Second); err != nil {
-			return err
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		s.Spawn(func() error { return c.Run(ctx, time.Minute) })
+		for {
+			if err := utils.Sleep(ctx, 10*time.Second); err != nil {
+				return err
+			}
+			// TODO(gprusak): instead of actively updating stats,
+			// TxMempool should implement prometheus.Collector.
+			maxOccurrence, totalOccurrence, duplicateCount, nonDuplicateCount := c.GetForMetrics()
+			txmp.metrics.DuplicateTxMaxOccurrences.Set(float64(maxOccurrence))
+			txmp.metrics.DuplicateTxTotalOccurrences.Set(float64(totalOccurrence))
+			txmp.metrics.NumberOfDuplicateTxs.Set(float64(duplicateCount))
+			txmp.metrics.NumberOfNonDuplicateTxs.Set(float64(nonDuplicateCount))
 		}
-		// TODO(gprusak): instead of actively updating stats,
-		// TxMempool should implement prometheus.Collector.
-		maxOccurrence, totalOccurrence, duplicateCount, nonDuplicateCount := txmp.duplicateTxsCache.GetForMetrics()
-		txmp.metrics.DuplicateTxMaxOccurrences.Set(float64(maxOccurrence))
-		txmp.metrics.DuplicateTxTotalOccurrences.Set(float64(totalOccurrence))
-		txmp.metrics.NumberOfDuplicateTxs.Set(float64(duplicateCount))
-		txmp.metrics.NumberOfNonDuplicateTxs.Set(float64(nonDuplicateCount))
-	}
+	})
 }

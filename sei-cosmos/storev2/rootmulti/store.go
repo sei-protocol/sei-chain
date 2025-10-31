@@ -49,7 +49,6 @@ type Store struct {
 	storesParams   map[types.StoreKey]storeParams
 	storeKeys      map[string]types.StoreKey
 	ckvStores      map[types.StoreKey]types.CommitKVStore
-	pendingChanges chan VersionedChangesets
 	pruningManager *pruning.Manager
 }
 
@@ -67,12 +66,11 @@ func NewStore(
 ) *Store {
 	scStore := sc.NewCommitStore(homeDir, logger, scConfig)
 	store := &Store{
-		logger:         logger,
-		scStore:        scStore,
-		storesParams:   make(map[types.StoreKey]storeParams),
-		storeKeys:      make(map[string]types.StoreKey),
-		ckvStores:      make(map[types.StoreKey]types.CommitKVStore),
-		pendingChanges: make(chan VersionedChangesets, 1000),
+		logger:       logger,
+		scStore:      scStore,
+		storesParams: make(map[types.StoreKey]storeParams),
+		storeKeys:    make(map[string]types.StoreKey),
+		ckvStores:    make(map[types.StoreKey]types.CommitKVStore),
 	}
 	if ssConfig.Enable {
 		ssStore, err := ss.NewStateStore(logger, homeDir, ssConfig)
@@ -80,16 +78,12 @@ func NewStore(
 			panic(err)
 		}
 		// Check whether SC was enabled before but SS was not
-		ssVersion, _ := ssStore.GetLatestVersion()
+		ssVersion := ssStore.GetLatestVersion()
 		scVersion, _ := scStore.GetLatestVersion()
 		if ssVersion <= 0 && scVersion > 0 && !migrateIavl {
 			panic("Enabling SS store without state sync could cause data corruption")
 		}
-		if err = ss.RecoverStateStore(logger, homeDir, ssStore); err != nil {
-			panic(err)
-		}
 		store.ssStore = ssStore
-		go store.StateStoreCommit()
 	}
 	return store
 
@@ -135,19 +129,6 @@ func (rs *Store) Commit(bumpVersion bool) types.CommitID {
 	return rs.lastCommitInfo.CommitID()
 }
 
-// StateStoreCommit is a background routine to apply changes to SS store
-func (rs *Store) StateStoreCommit() {
-	for pendingChangeSet := range rs.pendingChanges {
-		version := pendingChangeSet.Version
-		telemetry.SetGauge(float32(version), "storeV2", "ss", "version")
-		for _, cs := range pendingChangeSet.Changesets {
-			if err := rs.ssStore.ApplyChangeset(version, cs); err != nil {
-				panic(err)
-			}
-		}
-	}
-}
-
 // Flush all the pending changesets to commit store.
 func (rs *Store) flush() error {
 	var changeSets []*proto.NamedChangeSet
@@ -170,10 +151,18 @@ func (rs *Store) flush() error {
 			return changeSets[i].Name < changeSets[j].Name
 		})
 		if rs.ssStore != nil {
-			rs.pendingChanges <- VersionedChangesets{
-				Version:    currentVersion,
-				Changesets: changeSets,
+			if err := rs.ssStore.ApplyChangesetAsync(currentVersion, changeSets); err != nil {
+				return err
 			}
+			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
+		}
+	} else {
+		// ensure the state store watermark advances even for empty blocks
+		if rs.ssStore != nil {
+			if err := rs.ssStore.SetLatestVersion(currentVersion); err != nil {
+				panic(err)
+			}
+			telemetry.SetGauge(float32(currentVersion), "storeV2", "ss", "version")
 		}
 	}
 	return rs.scStore.ApplyChangeSets(changeSets)
@@ -181,7 +170,6 @@ func (rs *Store) flush() error {
 
 func (rs *Store) Close() error {
 	err := rs.scStore.Close()
-	close(rs.pendingChanges)
 	if rs.ssStore != nil {
 		err = commonerrors.Join(err, rs.ssStore.Close())
 	}
@@ -249,9 +237,6 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 // CacheMultiStoreWithVersion Implements interface MultiStore
 // used to createQueryContext, abci_query or grpc query service.
 func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStore, error) {
-	if version <= 0 || (rs.lastCommitInfo != nil && version == rs.lastCommitInfo.Version) {
-		return rs.CacheMultiStore(), nil
-	}
 	rs.mtx.RLock()
 	defer rs.mtx.RUnlock()
 	stores := make(map[types.StoreKey]types.CacheWrapper)
@@ -796,7 +781,8 @@ loop:
 	}
 	// initialize the earliest version for SS store
 	if rs.ssStore != nil {
-		rs.ssStore.SetEarliestVersion(height, false)
+		err := rs.ssStore.SetEarliestVersion(height, false)
+		rs.logger.Error("Failed to set earliest version during DB restore", err)
 	}
 
 	return snapshotItem, restoreErr
@@ -898,13 +884,9 @@ func (rs *Store) StoreKeys() []types.StoreKey {
 
 // GetEarliestVersion return earliest version for SS or latestVersion if only SC is enabled
 func (rs *Store) GetEarliestVersion() int64 {
-	latestVersion := rs.lastCommitInfo.Version
 	if rs.ssStore != nil {
-		version, err := rs.ssStore.GetEarliestVersion()
-		if err != nil {
-			return latestVersion
-		}
-		return version
+		return rs.ssStore.GetEarliestVersion()
+	} else {
+		return rs.lastCommitInfo.Version
 	}
-	return latestVersion
 }

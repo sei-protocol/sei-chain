@@ -2,14 +2,12 @@
 syntax = "proto3";
 package cosmos.authz.v1beta1;
 
+import "cosmos/authz/v1beta1/authz.proto";
 import "cosmos_proto/cosmos.proto";
 import "gogoproto/gogo.proto";
-import "google/protobuf/timestamp.proto";
 import "google/protobuf/any.proto";
-import "cosmos/base/abci/v1beta1/abci.proto";
-import "cosmos/authz/v1beta1/authz.proto";
 
-option go_package                      = "github.com/cosmos/cosmos-sdk/x/authz";
+option go_package = "github.com/cosmos/cosmos-sdk/x/authz";
 option (gogoproto.goproto_getters_all) = false;
 
 // Msg defines the authz Msg service.
@@ -61,8 +59,8 @@ message MsgGrantResponse {}
 // MsgRevoke revokes any authorization with the provided sdk.Msg type on the
 // granter's account with that has been granted to the grantee.
 message MsgRevoke {
-  string granter      = 1;
-  string grantee      = 2;
+  string granter = 1;
+  string grantee = 2;
   string msg_type_url = 3;
 }
 
