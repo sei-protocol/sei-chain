@@ -46,8 +46,9 @@ type Context struct {
 	eventManager      *EventManager
 	evmEventManager   *EVMEventManager
 	priority          int64                 // The tx priority, only relevant in CheckTx
+	hasPriority       bool                  // Whether the tx has a priority set
 	pendingTxChecker  abci.PendingTxChecker // Checker for pending transaction, only relevant in CheckTx
-	checkTxCallback   func(Context, error)  // callback to make at the end of CheckTx. Input param is the error (nil-able) of `runMsgs`
+	checkTxCallback   func(int64)           // callback to make at the end of CheckTx
 	deliverTxCallback func(Context)         // callback to make at the end of DeliverTx.
 	expireTxHandler   func()                // callback that the mempool invokes when a tx is expired
 
@@ -188,7 +189,7 @@ func (c Context) PendingTxChecker() abci.PendingTxChecker {
 	return c.pendingTxChecker
 }
 
-func (c Context) CheckTxCallback() func(Context, error) {
+func (c Context) CheckTxCallback() func(int64) {
 	return c.checkTxCallback
 }
 
@@ -241,10 +242,17 @@ func (c Context) StoreTracer() gaskv.IStoreTracer {
 	return c.storeTracer
 }
 
-// WithEventManager returns a Context with an updated tx priority
+// WithPriority returns a Context with an updated tx priority.
 func (c Context) WithPriority(p int64) Context {
 	c.priority = p
+	c.hasPriority = true
 	return c
+}
+
+// HasPriority returns true iff the priority is set for this Context even if it
+// was set to zero.
+func (c Context) HasPriority() bool {
+	return c.hasPriority
 }
 
 // HeaderHash returns a copy of the header hash obtained during abci.RequestBeginBlock
@@ -497,7 +505,7 @@ func (c Context) WithPendingTxChecker(checker abci.PendingTxChecker) Context {
 	return c
 }
 
-func (c Context) WithCheckTxCallback(checkTxCallback func(Context, error)) Context {
+func (c Context) WithCheckTxCallback(checkTxCallback func(int64)) Context {
 	c.checkTxCallback = checkTxCallback
 	return c
 }

@@ -9,7 +9,7 @@ import (
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	"github.com/sei-protocol/sei-chain/app"
 	"github.com/sei-protocol/sei-chain/x/oracle"
-	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
+	"github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
@@ -54,8 +54,8 @@ func TestSpammingPreventionAnteHandler(t *testing.T) {
 
 	exchangeRateStr := randomExchangeRate.String() + utils.MicroAtomDenom
 
-	voteMsg := types.NewMsgAggregateExchangeRateVote(exchangeRateStr, keeper.Addrs[0], keeper.ValAddrs[0])
-	invalidVoteMsg := types.NewMsgAggregateExchangeRateVote(exchangeRateStr, keeper.Addrs[3], keeper.ValAddrs[2])
+	voteMsg := types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[0], testutils.ValAddrs[0])
+	invalidVoteMsg := types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[3], testutils.ValAddrs[2])
 
 	spd := oracle.NewSpammingPreventionDecorator(input.OracleKeeper)
 	anteHandler, _ := sdk.ChainAnteDecorators(spd)
@@ -85,7 +85,7 @@ func TestSpammingPreventionAnteHandler(t *testing.T) {
 	require.Error(t, err)
 
 	// set aggregate vote for val 0
-	input.OracleKeeper.SetAggregateExchangeRateVote(ctx, keeper.ValAddrs[0], types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{}, keeper.ValAddrs[0]))
+	input.OracleKeeper.SetAggregateExchangeRateVote(ctx, testutils.ValAddrs[0], types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{}, testutils.ValAddrs[0]))
 	// now should fail
 	_, err = anteHandler(ctx, app.NewTestTx([]sdk.Msg{voteMsg}), false)
 	require.Error(t, err)
@@ -96,7 +96,7 @@ func TestSpammingPreventionAnteDeps(t *testing.T) {
 
 	exchangeRateStr := randomExchangeRate.String() + utils.MicroAtomDenom
 
-	voteMsg := types.NewMsgAggregateExchangeRateVote(exchangeRateStr, keeper.Addrs[0], keeper.ValAddrs[0])
+	voteMsg := types.NewMsgAggregateExchangeRateVote(exchangeRateStr, testutils.Addrs[0], testutils.ValAddrs[0])
 
 	spd := oracle.NewSpammingPreventionDecorator(input.OracleKeeper)
 	anteHandler, depGen := sdk.ChainAnteDecorators(spd)

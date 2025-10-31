@@ -98,7 +98,7 @@ func TestInstantiateProposal(t *testing.T) {
 	require.NoError(t, err)
 
 	// then
-	contractAddr, err := sdk.AccAddressFromBech32("cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr")
+	contractAddr, err := sdk.AccAddressFromBech32("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
 	require.NoError(t, err)
 
 	cInfo := wasmKeeper.GetContractInfo(ctx, contractAddr)
@@ -174,7 +174,7 @@ func TestInstantiateProposal_NoAdmin(t *testing.T) {
 	require.NoError(t, err)
 
 	// then
-	contractAddr, err := sdk.AccAddressFromBech32("cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr")
+	contractAddr, err := sdk.AccAddressFromBech32("sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m")
 	require.NoError(t, err)
 
 	cInfo := wasmKeeper.GetContractInfo(ctx, contractAddr)
@@ -764,7 +764,7 @@ func TestUpdateInstantiateConfigProposal(t *testing.T) {
 		CreateFn:      wasmtesting.NoOpCreateFn,
 		AnalyzeCodeFn: wasmtesting.WithoutIBCAnalyzeFn,
 	}
-	anyAddress, err := sdk.AccAddressFromBech32("cosmos100dejzacpanrldpjjwksjm62shqhyss44jf5xz")
+	anyAddress, err := sdk.AccAddressFromBech32("sei1rs8v2232uv5nw8c88ruvyjy08mmxfx25pur3pl")
 	require.NoError(t, err)
 
 	withAddressAccessConfig := types.AccessTypeOnlyAddress.With(anyAddress)

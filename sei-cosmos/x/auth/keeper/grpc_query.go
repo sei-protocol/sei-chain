@@ -67,7 +67,7 @@ func (ak AccountKeeper) Account(c context.Context, req *types.QueryAccountReques
 
 	any, err := codectypes.NewAnyWithValue(account)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, err.Error())
+		return nil, status.Errorf(codes.Internal, "%s", err.Error())
 	}
 
 	return &types.QueryAccountResponse{Account: any}, nil

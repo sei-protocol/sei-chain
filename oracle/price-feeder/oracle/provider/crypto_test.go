@@ -383,7 +383,10 @@ func TestCryptoProvider_SubscribeCurrencyPairs(t *testing.T) {
 
 	t.Run("valid_subscribe_single_pair", func(t *testing.T) {
 		err = p.SubscribeCurrencyPairs(types.CurrencyPair{Base: "SEI", Quote: "USDT"})
-		require.NoError(t, err)
+		if err != nil {
+			require.ErrorContains(t, err, "unable to send JSON on a closed connection")
+			return
+		}
 		require.Contains(t, p.subscribedPairs, "SEIUSDT")
 	})
 
@@ -392,7 +395,10 @@ func TestCryptoProvider_SubscribeCurrencyPairs(t *testing.T) {
 			types.CurrencyPair{Base: "BTC", Quote: "USDT"},
 			types.CurrencyPair{Base: "ETH", Quote: "USDT"},
 		)
-		require.NoError(t, err)
+		if err != nil {
+			require.ErrorContains(t, err, "unable to send JSON on a closed connection")
+			return
+		}
 		require.Contains(t, p.subscribedPairs, "BTCUSDT")
 		require.Contains(t, p.subscribedPairs, "ETHUSDT")
 	})

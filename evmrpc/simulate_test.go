@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	testkeeper "github.com/sei-protocol/sei-chain/testutil/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/stretchr/testify/require"
+	"github.com/tendermint/tendermint/rpc/client/mock"
 	"github.com/tendermint/tendermint/rpc/coretypes"
 )
 
@@ -93,6 +95,55 @@ func TestEstimateGas(t *testing.T) {
 	require.Equal(t, "0x54ac", result) // 21497
 
 	Ctx = Ctx.WithBlockHeight(8)
+}
+
+func TestChainConfigReflectsSstoreParam(t *testing.T) {
+	testApp := app.Setup(t, false, false, false)
+	baseCtx := testApp.GetContextForDeliverTx([]byte{})
+
+	oldCtx, _ := baseCtx.CacheContext()
+	oldCtx = oldCtx.WithBlockHeight(100).WithIsTracing(true)
+
+	newCtx, _ := baseCtx.CacheContext()
+	newCtx = newCtx.WithBlockHeight(200).WithIsTracing(true)
+	params := testApp.EvmKeeper.GetParams(newCtx)
+	params.SeiSstoreSetGasEip2200 = 72000
+	testApp.EvmKeeper.SetParams(newCtx, params)
+
+	oldHeight := oldCtx.BlockHeight()
+	ctxProvider := func(height int64) sdk.Context {
+		switch {
+		case height == evmrpc.LatestCtxHeight:
+			return newCtx
+		case height >= newCtx.BlockHeight():
+			return newCtx
+		case height == oldHeight:
+			return oldCtx
+		default:
+			return newCtx
+		}
+	}
+
+	encodingCfg := app.MakeEncodingConfig()
+	backend := evmrpc.NewBackend(
+		ctxProvider,
+		&testApp.EvmKeeper,
+		func(int64) client.TxConfig { return encodingCfg.TxConfig },
+		&mock.Client{},
+		&SConfig,
+		testApp.BaseApp,
+		testApp.TracerAnteHandler,
+		evmrpc.NewBlockCache(3000),
+		&sync.Mutex{},
+	)
+
+	oldCfg := backend.ChainConfigAtHeight(oldHeight)
+	require.NotNil(t, oldCfg.SeiSstoreSetGasEIP2200)
+	require.Equal(t, types.DefaultSeiSstoreSetGasEIP2200, *oldCfg.SeiSstoreSetGasEIP2200)
+
+	latestCfg := backend.ChainConfig()
+	require.NotNil(t, latestCfg.SeiSstoreSetGasEIP2200)
+	require.Equal(t, uint64(72000), *latestCfg.SeiSstoreSetGasEIP2200)
 }
 
 func TestEstimateGasAfterCalls(t *testing.T) {
@@ -238,7 +289,7 @@ func TestConvertBlockNumber(t *testing.T) {
 			return sdk.Context{}.WithBlockHeight(1000)
 		}
 		return sdk.Context{}
-	}, nil, nil, &MockClient{}, nil, nil, nil)
+	}, nil, nil, &MockClient{}, nil, nil, nil, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	require.Equal(t, int64(10), backend.ConvertBlockNumber(10))
 	require.Equal(t, int64(1), backend.ConvertBlockNumber(0))
 	require.Equal(t, int64(1000), backend.ConvertBlockNumber(-2))
@@ -252,7 +303,7 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 	testHeight := int64(1000) // A height before v6.2.0 upgrade
 
 	// Create a new test app to have control over the upgrade keeper
-	testApp := app.Setup(false, false, false)
+	testApp := app.Setup(t, false, false, false)
 	testCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(testHeight)
 
 	// Set the chain ID to "pacific-1" to trigger the upgrade check
@@ -281,6 +332,8 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 		config,
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
+		evmrpc.NewBlockCache(3000),
+		&sync.Mutex{},
 	)
 
 	// Test HeaderByNumber with a height before v6.2.0 upgrade
@@ -313,6 +366,8 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 		config,
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
+		evmrpc.NewBlockCache(3000),
+		&sync.Mutex{},
 	)
 
 	headerDifferentChain, err := backendDifferentChain.HeaderByNumber(context.Background(), 1000)
@@ -325,7 +380,7 @@ func TestPreV620UpgradeUsesBaseFeeNil(t *testing.T) {
 
 // Concise gas-limit sanity test
 func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
-	testApp := app.Setup(false, false, false)
+	testApp := app.Setup(t, false, false, false)
 	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
 
 	ctxProvider := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
@@ -333,7 +388,7 @@ func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 
 	backend := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper,
 		func(int64) client.TxConfig { return TxConfig },
-		&MockClient{}, cfg, testApp.BaseApp, testApp.TracerAnteHandler)
+		&MockClient{}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 
 	header, err := backend.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
@@ -346,79 +401,96 @@ func TestGasLimitUsesConsensusOrConfig(t *testing.T) {
 
 // Gas‐limit fallback tests
 func TestGasLimitFallbackToDefault(t *testing.T) {
-	testApp := app.Setup(false, false, false)
+	testApp := app.Setup(t, false, false, false)
 	baseCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(1)
 	ctxProvider := func(h int64) sdk.Context { return baseCtx.WithBlockHeight(h) }
 	cfg := &evmrpc.SimulateConfig{GasCap: 20_000_000, EVMTimeout: time.Second}
 
 	// Case 1: BlockResults fails
-	backend1 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &brFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler)
+	backend1 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &brFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	h1, err := backend1.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(10_000_000), h1.GasLimit) // DefaultBlockGasLimit
 
 	// Case 2: Block fails
-	backend2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &bcFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler)
+	backend2 := evmrpc.NewBackend(ctxProvider, &testApp.EvmKeeper, func(int64) client.TxConfig { return TxConfig }, &bcFailClient{MockClient: &MockClient{}}, cfg, testApp.BaseApp, testApp.TracerAnteHandler, evmrpc.NewBlockCache(3000), &sync.Mutex{})
 	h2, err := backend2.HeaderByNumber(context.Background(), 1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(10_000_000), h2.GasLimit) // DefaultBlockGasLimit
 }
 
 func TestSimulationAPIRequestLimiter(t *testing.T) {
-	// Test setup using a proper context similar to other tests
-	testCtx := Ctx.WithBlockHeight(1)
 
-	// Create a simulation API with a very small request limiter to test rate limiting
-	ctxProvider := func(height int64) sdk.Context {
-		if height == evmrpc.LatestCtxHeight {
-			return testCtx.WithIsTracing(true)
-		}
-		return testCtx.WithBlockHeight(height).WithIsTracing(true)
+	type testEnv struct {
+		simAPI *evmrpc.SimulationAPI
+		args   export.TransactionArgs
 	}
-
-	// Create a config with a small concurrency limit for reliable testing
-	config := &evmrpc.SimulateConfig{
-		GasCap:                       1000000,
-		EVMTimeout:                   5 * time.Second,
-		MaxConcurrentSimulationCalls: 2, // Small limit to easily trigger rate limiting
-	}
-
-	// Use the existing test app from the global setup
-	testApp := testkeeper.TestApp()
-
-	// Create simulation API
-	simAPI := evmrpc.NewSimulationAPI(
-		ctxProvider,
-		EVMKeeper,
-		func(int64) client.TxConfig { return TxConfig },
-		&MockClient{},
-		config,
-		testApp.BaseApp,
-		testApp.TracerAnteHandler,
-		evmrpc.ConnectionTypeHTTP,
-	)
-
-	// Setup test data - create addresses and fund account
-	_, from := testkeeper.MockAddressPair()
-	_, to := testkeeper.MockAddressPair()
-
-	// Fund the account for actual transactions
-	amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(testCtx), sdk.NewInt(2000000)))
-	EVMKeeper.BankKeeper().MintCoins(testCtx, types.ModuleName, amts)
-	EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(testCtx, types.ModuleName, sdk.AccAddress(from[:]), amts)
 
 	// Helper function to create uint64 pointer
 	uint64Ptr := func(v uint64) *uint64 { return &v }
 
-	// Convert to export.TransactionArgs for eth_call
-	args := export.TransactionArgs{
-		From:  &from,
-		To:    &to,
-		Value: (*hexutil.Big)(big.NewInt(16)),
-		Nonce: (*hexutil.Uint64)(uint64Ptr(1)),
+	newTestEnv := func(t *testing.T) *testEnv {
+		t.Helper()
+		// Test setup using a proper context similar to other tests
+		testCtx := Ctx.WithBlockHeight(1)
+
+		// Create a simulation API with a very small request limiter to test rate limiting
+		ctxProvider := func(height int64) sdk.Context {
+			if height == evmrpc.LatestCtxHeight {
+				return testCtx.WithIsTracing(true)
+			}
+			return testCtx.WithBlockHeight(height).WithIsTracing(true)
+		}
+
+		// Create a config with a small concurrency limit for reliable testing
+		config := &evmrpc.SimulateConfig{
+			GasCap:                       1000000,
+			EVMTimeout:                   5 * time.Second,
+			MaxConcurrentSimulationCalls: 2, // Small limit to easily trigger rate limiting
+		}
+
+		// Use the existing test app from the global setup
+		testApp := testkeeper.TestApp(t)
+
+		// Create simulation API
+		simAPI := evmrpc.NewSimulationAPI(
+			ctxProvider,
+			EVMKeeper,
+			func(int64) client.TxConfig { return TxConfig },
+			&MockClient{},
+			config,
+			testApp.BaseApp,
+			testApp.TracerAnteHandler,
+			evmrpc.ConnectionTypeHTTP,
+			evmrpc.NewBlockCache(3000),
+			&sync.Mutex{},
+		)
+
+		// Setup test data - create addresses and fund account
+		_, from := testkeeper.MockAddressPair()
+		_, to := testkeeper.MockAddressPair()
+
+		// Fund the account for actual transactions
+		amts := sdk.NewCoins(sdk.NewCoin(EVMKeeper.GetBaseDenom(testCtx), sdk.NewInt(2000000)))
+		require.NoError(t, EVMKeeper.BankKeeper().MintCoins(testCtx, types.ModuleName, amts))
+		require.NoError(t, EVMKeeper.BankKeeper().SendCoinsFromModuleToAccount(testCtx, types.ModuleName, from[:], amts))
+
+		// Convert to export.TransactionArgs for eth_call
+		args := export.TransactionArgs{
+			From:  &from,
+			To:    &to,
+			Value: (*hexutil.Big)(big.NewInt(16)),
+			Nonce: (*hexutil.Uint64)(uint64Ptr(1)),
+		}
+
+		return &testEnv{
+			simAPI: simAPI,
+			args:   args,
+		}
 	}
 
 	t.Run("TestEthCallRateLimiting", func(t *testing.T) {
+		tEnv := newTestEnv(t)
 		// Test eth_call rate limiting with concurrent requests
 		numRequests := 10 // Much more than the limit of 2
 		results := make(chan error, numRequests)
@@ -426,7 +498,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		// Start all requests concurrently to overwhelm the rate limiter
 		for i := 0; i < numRequests; i++ {
 			go func() {
-				_, err := simAPI.Call(context.Background(), args, nil, nil, nil)
+				_, err := tEnv.simAPI.Call(context.Background(), tEnv.args, nil, nil, nil)
 				results <- err
 			}()
 		}
@@ -459,6 +531,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 	})
 
 	t.Run("TestEstimateGasRateLimiting", func(t *testing.T) {
+		tEnv := newTestEnv(t)
 		// Test eth_estimateGas rate limiting
 		numRequests := 8
 		results := make(chan error, numRequests)
@@ -466,7 +539,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		// Start all requests concurrently
 		for i := 0; i < numRequests; i++ {
 			go func() {
-				_, err := simAPI.EstimateGas(context.Background(), args, nil, nil)
+				_, err := tEnv.simAPI.EstimateGas(context.Background(), tEnv.args, nil, nil)
 				results <- err
 			}()
 		}
@@ -498,14 +571,15 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 	})
 
 	t.Run("TestEstimateGasAfterCallsRateLimiting", func(t *testing.T) {
+		tEnv := newTestEnv(t)
 		// Test eth_estimateGasAfterCalls rate limiting
 		numRequests := 2
 		results := make(chan error, numRequests)
 
 		// Create a simple call to use as a precondition
 		callArgs := export.TransactionArgs{
-			From:  &from,
-			To:    &to,
+			From:  tEnv.args.From,
+			To:    tEnv.args.To,
 			Value: (*hexutil.Big)(big.NewInt(8)),
 			Nonce: (*hexutil.Uint64)(uint64Ptr(0)),
 		}
@@ -513,7 +587,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 		// Start all requests concurrently
 		for i := 0; i < numRequests; i++ {
 			go func() {
-				_, err := simAPI.EstimateGasAfterCalls(context.Background(), args, []export.TransactionArgs{callArgs}, nil, nil)
+				_, err := tEnv.simAPI.EstimateGasAfterCalls(context.Background(), tEnv.args, []export.TransactionArgs{callArgs}, nil, nil)
 				results <- err
 			}()
 		}
@@ -545,12 +619,13 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 	})
 
 	t.Run("TestSequentialRequestsAfterLoad", func(t *testing.T) {
+		tEnv := newTestEnv(t)
 		numRequests := 10
 		results := make(chan error, numRequests)
 
 		for i := 0; i < numRequests; i++ {
 			go func() {
-				_, err := simAPI.Call(context.Background(), args, nil, nil, nil)
+				_, err := tEnv.simAPI.Call(context.Background(), tEnv.args, nil, nil, nil)
 				results <- err
 			}()
 		}
@@ -565,7 +640,7 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 
 		// Now send sequential requests and ensure they succeed
 		for i := 0; i < 3; i++ {
-			_, err := simAPI.Call(context.Background(), args, nil, nil, nil)
+			_, err := tEnv.simAPI.Call(context.Background(), tEnv.args, nil, nil, nil)
 			require.NoError(t, err, "Sequential request %d should succeed after rate limiter recovers", i+1)
 		}
 
@@ -573,38 +648,40 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 	})
 
 	t.Run("TestDifferentMethodsShareSameLimiter", func(t *testing.T) {
+		tEnv := newTestEnv(t)
 		// Test that different simulation methods share the same rate limiter
-		numCallRequests := 3
-		numEstimateRequests := 3
+		numCallRequests := 10
+		numEstimateRequests := 10
 		totalRequests := numCallRequests + numEstimateRequests
 
 		results := make(chan error, totalRequests)
-
+		var wg sync.WaitGroup
 		// Start mixed requests concurrently to verify they share the same limiter
-		for i := 0; i < numCallRequests; i++ {
+		for range numCallRequests {
+			wg.Add(1)
 			go func() {
-				_, err := simAPI.Call(context.Background(), args, nil, nil, nil)
+				defer wg.Done()
+				_, err := tEnv.simAPI.Call(context.Background(), tEnv.args, nil, nil, nil)
 				results <- err
 			}()
 		}
 
-		for i := 0; i < numEstimateRequests; i++ {
+		for range numEstimateRequests {
+			wg.Add(1)
 			go func() {
-				_, err := simAPI.EstimateGas(context.Background(), args, nil, nil)
+				defer wg.Done()
+				_, err := tEnv.simAPI.EstimateGas(context.Background(), tEnv.args, nil, nil)
 				results <- err
 			}()
 		}
 
-		// Collect all results
-		var errors []error
-		for i := 0; i < totalRequests; i++ {
-			errors = append(errors, <-results)
-		}
+		wg.Wait()
+		close(results)
 
-		// Count results
+		// Collect all results and count
 		successCount := 0
 		rejectedCount := 0
-		for _, err := range errors {
+		for err := range results {
 			if err == nil {
 				successCount++
 			} else if strings.Contains(err.Error(), "rejected due to rate limit: server busy") {
@@ -621,22 +698,28 @@ func TestSimulationAPIRequestLimiter(t *testing.T) {
 	})
 
 	t.Run("TestRateLimitErrorFormat", func(t *testing.T) {
+		tEnv := newTestEnv(t)
 		// Test the error message format by overwhelming the rate limiter
-		numRequests := 5
+		numRequests := 20
 		results := make(chan error, numRequests)
 
 		// Start requests concurrently to trigger rate limiting
-		for i := 0; i < numRequests; i++ {
+		var wg sync.WaitGroup
+		for range numRequests {
+			wg.Add(1)
 			go func() {
-				_, err := simAPI.Call(context.Background(), args, nil, nil, nil)
+				defer wg.Done()
+				_, err := tEnv.simAPI.Call(context.Background(), tEnv.args, nil, nil, nil)
 				results <- err
 			}()
 		}
+		wg.Wait()
+		close(results)
 
 		// Collect results and check error messages
 		var rateLimitErrors []error
-		for i := 0; i < numRequests; i++ {
-			if err := <-results; err != nil && strings.Contains(err.Error(), "rejected due to rate limit") {
+		for err := range results {
+			if err != nil && strings.Contains(err.Error(), "rejected due to rate limit") {
 				rateLimitErrors = append(rateLimitErrors, err)
 			}
 		}

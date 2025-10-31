@@ -41,6 +41,8 @@ jobs:
           set -euo pipefail
           codex login --api-key "$OPENAI_API_KEY"
           
+          echo ${{ secrets.OPENAI_API_KEY }} | codex login --with-api-key
+
       - name: Compute merge-base diff (compact)
         run: |
           set -euo pipefail
