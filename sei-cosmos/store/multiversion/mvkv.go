@@ -351,11 +351,6 @@ func (*VersionIndexedStore) CacheWrap(storeKey types.StoreKey) types.CacheWrap {
 	panic("CacheWrap not supported for version indexed store")
 }
 
-// CacheWrapWithListeners implements types.KVStore.
-func (*VersionIndexedStore) CacheWrapWithListeners(storeKey types.StoreKey, listeners []types.WriteListener) types.CacheWrap {
-	panic("CacheWrapWithListeners not supported for version indexed store")
-}
-
 // CacheWrapWithTrace implements types.KVStore.
 func (*VersionIndexedStore) CacheWrapWithTrace(storeKey types.StoreKey, w io.Writer, tc types.TraceContext) types.CacheWrap {
 	panic("CacheWrapWithTrace not supported for version indexed store")

@@ -145,14 +145,6 @@ func (app *BaseApp) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res
 		res.Events = sdk.MarkEventsToIndex(res.Events, app.indexEvents)
 	}
 
-	// call the streaming service hooks with the EndBlock messages
-	if !req.Simulate {
-		for _, streamingListener := range app.abciListeners {
-			if err := streamingListener.ListenBeginBlock(app.deliverState.ctx, req, res); err != nil {
-				app.logger.Error("EndBlock listening hook failed", "height", req.Header.Height, "err", err)
-			}
-		}
-	}
 	return res
 }
 
@@ -163,13 +155,6 @@ func (app *BaseApp) MidBlock(ctx sdk.Context, height int64) (events []abci.Event
 		midBlockEvents := app.midBlocker(ctx, height)
 		events = sdk.MarkEventsToIndex(midBlockEvents, app.indexEvents)
 	}
-	// TODO: add listener handling
-	// // call the streaming service hooks with the EndBlock messages
-	// for _, streamingListener := range app.abciListeners {
-	// 	if err := streamingListener.ListenMidBlock(app.deliverState.ctx, req, res); err != nil {
-	// 		app.logger.Error("MidBlock listening hook failed", "height", req.Height, "err", err)
-	// 	}
-	// }
 
 	return events
 }
@@ -188,13 +173,6 @@ func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abc
 
 	if cp := app.GetConsensusParams(ctx); cp != nil {
 		res.ConsensusParamUpdates = legacytm.ABCIToLegacyConsensusParams(cp)
-	}
-
-	// call the streaming service hooks with the EndBlock messages
-	for _, streamingListener := range app.abciListeners {
-		if err := streamingListener.ListenEndBlock(app.deliverState.ctx, req, res); err != nil {
-			app.logger.Error("EndBlock listening hook failed", "height", req.Height, "err", err)
-		}
 	}
 
 	return res
@@ -285,13 +263,6 @@ func (app *BaseApp) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchReques
 // gas execution context.
 func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) (res abci.ResponseDeliverTx) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "deliver_tx")
-	defer func() {
-		for _, streamingListener := range app.abciListeners {
-			if err := streamingListener.ListenDeliverTx(app.deliverState.ctx, req, res); err != nil {
-				app.logger.Error("DeliverTx listening hook failed", "err", err)
-			}
-		}
-	}()
 
 	gInfo := sdk.GasInfo{}
 	resultStr := "successful"

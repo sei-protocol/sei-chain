@@ -7,7 +7,6 @@ import (
 
 	"cosmossdk.io/errors"
 	"github.com/cosmos/cosmos-sdk/store/cachekv"
-	"github.com/cosmos/cosmos-sdk/store/listenkv"
 	"github.com/cosmos/cosmos-sdk/store/tracekv"
 	"github.com/cosmos/cosmos-sdk/store/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -78,10 +77,6 @@ func (st *Store) CacheWrap(k types.StoreKey) types.CacheWrap {
 // CacheWrapWithTrace implements the Store interface.
 func (st *Store) CacheWrapWithTrace(k types.StoreKey, w io.Writer, tc types.TraceContext) types.CacheWrap {
 	return cachekv.NewStore(tracekv.NewStore(st, w, tc), k, types.DefaultCacheSizeLimit)
-}
-
-func (st *Store) CacheWrapWithListeners(k types.StoreKey, listeners []types.WriteListener) types.CacheWrap {
-	return cachekv.NewStore(listenkv.NewStore(st, k, listeners), k, types.DefaultCacheSizeLimit)
 }
 
 // Implements types.KVStore.

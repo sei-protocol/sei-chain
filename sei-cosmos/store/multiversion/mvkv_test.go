@@ -129,7 +129,6 @@ func TestVersionIndexedStoreBoilerplateFunctions(t *testing.T) {
 
 	// asserts panics where appropriate
 	require.Panics(t, func() { vis.CacheWrap(types.NewKVStoreKey("mock")) })
-	require.Panics(t, func() { vis.CacheWrapWithListeners(types.NewKVStoreKey("mock"), nil) })
 	require.Panics(t, func() { vis.CacheWrapWithTrace(types.NewKVStoreKey("mock"), nil, nil) })
 	require.Panics(t, func() { vis.GetWorkingHash() })
 
