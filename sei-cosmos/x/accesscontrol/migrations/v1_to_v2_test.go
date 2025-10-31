@@ -3,24 +3,24 @@ package migrations_test
 import (
 	"testing"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	acltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/migrations"
 	"github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
+	"github.com/sei-protocol/sei-chain/app"
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 func TestV1ToV2(t *testing.T) {
-	app := simapp.Setup(false)
-	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
-	wasmContractAddresses := simapp.AddTestAddrsIncremental(app, ctx, 2, sdk.NewInt(30000000))
+	a := app.Setup(t, false, false, false)
+	ctx := a.BaseApp.NewContext(false, tmproto.Header{})
+	wasmContractAddresses := app.AddTestAddrsIncremental(a, ctx, 2, sdk.NewInt(30000000))
 	wasmContractAddress1 := wasmContractAddresses[0]
 	wasmContractAddress2 := wasmContractAddresses[1]
 
 	// populate legacy mappings
-	store := ctx.KVStore(app.AccessControlKeeper.GetStoreKey())
+	store := ctx.KVStore(a.AccessControlKeeper.GetStoreKey())
 	legacyMapping1 := acltypes.LegacyWasmDependencyMapping{
 		AccessOps: []acltypes.LegacyAccessOperationWithSelector{
 			{
@@ -66,7 +66,7 @@ func TestV1ToV2(t *testing.T) {
 	store.Set(types.GetWasmContractAddressKey(wasmContractAddress2), legacyBz2)
 
 	// run migration
-	err := migrations.V1ToV2(ctx, app.AccessControlKeeper.GetStoreKey())
+	err := migrations.V1ToV2(ctx, a.AccessControlKeeper.GetStoreKey())
 	require.Nil(t, err)
 
 	// verify new format is set

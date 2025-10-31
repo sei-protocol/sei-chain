@@ -32,31 +32,8 @@ min-retain-blocks = {{ .BaseConfig.MinRetainBlocks }}
 # Default is dynamically set to 2x CPU cores, capped at 128, with a minimum of 10.
 concurrency-workers = {{ .BaseConfig.ConcurrencyWorkers }}
 
-###############################################################################
-###                        State Sync Configuration                         ###
-###############################################################################
-
-# State sync snapshots allow other nodes to rapidly join the network without replaying historical
-# blocks, instead downloading and applying a snapshot of the application state at a given height.
-[state-sync]
-
-# snapshot-interval specifies the block interval at which local state sync snapshots are
-# taken (0 to disable). Must be a multiple of pruning-keep-every.
-snapshot-interval = {{ .StateSync.SnapshotInterval }}
-
-# snapshot-keep-recent specifies the number of recent snapshots to keep and serve (0 to keep all).
-snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
-
-# snapshot-directory sets the directory for where state sync snapshots are persisted.
-# default is emtpy which will then store under the app home directory same as before.
-snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
-`
-
-// AutoManagedConfigTemplate contains configuration sections that are auto-managed
-const AutoManagedConfigTemplate = `
-###############################################################################
-###                     Base Configuration (Auto-managed)                   ###
-###############################################################################
+# occ-enabled defines whether OCC is enabled or not for transaction execution
+occ-enabled = {{ .BaseConfig.OccEnabled }}
 
 # HaltHeight contains a non-zero block height at which a node will gracefully
 # halt and shutdown that can be used to assist upgrades and testing.
@@ -106,9 +83,28 @@ num-orphan-per-file = {{ .BaseConfig.NumOrphanPerFile }}
 # if separate-orphan-storage is true, where to store orphan data
 orphan-dir = "{{ .BaseConfig.OrphanDirectory }}"
 
-# occ-enabled defines whether OCC is enabled or not for transaction execution
-occ-enabled = {{ .BaseConfig.OccEnabled }}
+###############################################################################
+###                        State Sync Configuration                         ###
+###############################################################################
 
+# State sync snapshots allow other nodes to rapidly join the network without replaying historical
+# blocks, instead downloading and applying a snapshot of the application state at a given height.
+[state-sync]
+
+# snapshot-interval specifies the block interval at which local state sync snapshots are
+# taken (0 to disable). Must be a multiple of pruning-keep-every.
+snapshot-interval = {{ .StateSync.SnapshotInterval }}
+
+# snapshot-keep-recent specifies the number of recent snapshots to keep and serve (0 to keep all).
+snapshot-keep-recent = {{ .StateSync.SnapshotKeepRecent }}
+
+# snapshot-directory sets the directory for where state sync snapshots are persisted.
+# default is emtpy which will then store under the app home directory same as before.
+snapshot-directory = "{{ .StateSync.SnapshotDirectory }}"
+`
+
+// AutoManagedConfigTemplate contains configuration sections that are auto-managed
+const AutoManagedConfigTemplate = `
 ###############################################################################
 ###                   Telemetry Configuration (Auto-managed)                ###
 ###############################################################################

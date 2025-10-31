@@ -1,8 +1,9 @@
-package keeper
+package keeper_test
 
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 	"github.com/stretchr/testify/require"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -12,28 +13,28 @@ import (
 
 func TestSlashAndResetMissCounters(t *testing.T) {
 	// initial setup
-	input := CreateTestInput(t)
-	addr, val := ValAddrs[0], ValPubKeys[0]
-	addr1, val1 := ValAddrs[1], ValPubKeys[1]
+	input := testutils.CreateTestInput(t)
+	addr, val := testutils.ValAddrs[0], testutils.ValPubKeys[0]
+	addr1, val1 := testutils.ValAddrs[1], testutils.ValPubKeys[1]
 	amt := sdk.TokensFromConsensusPower(100, sdk.DefaultPowerReduction)
 	sh := staking.NewHandler(input.StakingKeeper)
 	ctx := input.Ctx
 
 	// Validator created
-	_, err := sh(ctx, NewTestMsgCreateValidator(addr, val, amt))
+	_, err := sh(ctx, testutils.NewTestMsgCreateValidator(addr, val, amt))
 	require.NoError(t, err)
-	_, err = sh(ctx, NewTestMsgCreateValidator(addr1, val1, amt))
+	_, err = sh(ctx, testutils.NewTestMsgCreateValidator(addr1, val1, amt))
 	require.NoError(t, err)
 	staking.EndBlocker(ctx, input.StakingKeeper)
 
 	require.Equal(
 		t, input.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr)),
-		sdk.NewCoins(sdk.NewCoin(input.StakingKeeper.GetParams(ctx).BondDenom, InitTokens.Sub(amt))),
+		sdk.NewCoins(sdk.NewCoin(input.StakingKeeper.GetParams(ctx).BondDenom, testutils.InitTokens.Sub(amt))),
 	)
 	require.Equal(t, amt, input.StakingKeeper.Validator(ctx, addr).GetBondedTokens())
 	require.Equal(
 		t, input.BankKeeper.GetAllBalances(ctx, sdk.AccAddress(addr1)),
-		sdk.NewCoins(sdk.NewCoin(input.StakingKeeper.GetParams(ctx).BondDenom, InitTokens.Sub(amt))),
+		sdk.NewCoins(sdk.NewCoin(input.StakingKeeper.GetParams(ctx).BondDenom, testutils.InitTokens.Sub(amt))),
 	)
 	require.Equal(t, amt, input.StakingKeeper.Validator(ctx, addr1).GetBondedTokens())
 
@@ -41,63 +42,63 @@ func TestSlashAndResetMissCounters(t *testing.T) {
 	slashFraction := input.OracleKeeper.SlashFraction(input.Ctx)
 	minValidVotes := input.OracleKeeper.MinValidPerWindow(input.Ctx).MulInt64(votePeriodsPerWindow).TruncateInt64()
 	// Case 1, no slash
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], uint64(votePeriodsPerWindow-minValidVotes), 0, uint64(minValidVotes))
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[0], uint64(votePeriodsPerWindow-minValidVotes), 0, uint64(minValidVotes))
 	input.OracleKeeper.SlashAndResetCounters(input.Ctx)
 	staking.EndBlocker(input.Ctx, input.StakingKeeper)
 
-	validator, _ := input.StakingKeeper.GetValidator(input.Ctx, ValAddrs[0])
+	validator, _ := input.StakingKeeper.GetValidator(input.Ctx, testutils.ValAddrs[0])
 	require.Equal(t, amt, validator.GetBondedTokens())
 
 	// Case 1.5, no slash - case where total votes is greater than votes per window
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], uint64(votePeriodsPerWindow), 0, uint64(votePeriodsPerWindow))
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[0], uint64(votePeriodsPerWindow), 0, uint64(votePeriodsPerWindow))
 	input.OracleKeeper.SlashAndResetCounters(input.Ctx)
 	staking.EndBlocker(input.Ctx, input.StakingKeeper)
 
-	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, ValAddrs[0])
+	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, testutils.ValAddrs[0])
 	require.Equal(t, amt, validator.GetBondedTokens())
 
 	// Case 2, slash
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], uint64(votePeriodsPerWindow-minValidVotes+1), 0, uint64(minValidVotes-1))
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[0], uint64(votePeriodsPerWindow-minValidVotes+1), 0, uint64(minValidVotes-1))
 	input.OracleKeeper.SlashAndResetCounters(input.Ctx)
-	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, ValAddrs[0])
+	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, testutils.ValAddrs[0])
 	require.Equal(t, amt.Sub(slashFraction.MulInt(amt).TruncateInt()), validator.GetBondedTokens())
 	require.True(t, validator.IsJailed())
 
 	// Case 2.5, slash w/ jail for abstaining too much along with misses
-	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, ValAddrs[0])
+	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, testutils.ValAddrs[0])
 	validator.Jailed = false
 	validator.Tokens = amt
 	input.StakingKeeper.SetValidator(input.Ctx, validator)
 	require.Equal(t, amt, validator.GetBondedTokens())
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], 0, uint64(votePeriodsPerWindow-minValidVotes+1), 0)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[0], 0, uint64(votePeriodsPerWindow-minValidVotes+1), 0)
 	input.OracleKeeper.SlashAndResetCounters(input.Ctx)
-	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, ValAddrs[0])
+	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, testutils.ValAddrs[0])
 	// slashing for not voting validly sufficiently
 	require.Equal(t, amt.Sub(slashFraction.MulInt(amt).TruncateInt()), validator.GetBondedTokens())
 	require.True(t, validator.IsJailed())
 
 	// Case 3, slash unbonded validator
-	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, ValAddrs[0])
+	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, testutils.ValAddrs[0])
 	validator.Status = stakingtypes.Unbonded
 	validator.Jailed = false
 	validator.Tokens = amt
 	input.StakingKeeper.SetValidator(input.Ctx, validator)
 
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], uint64(votePeriodsPerWindow-minValidVotes+1), 0, 0)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[0], uint64(votePeriodsPerWindow-minValidVotes+1), 0, 0)
 	input.OracleKeeper.SlashAndResetCounters(input.Ctx)
-	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, ValAddrs[0])
+	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, testutils.ValAddrs[0])
 	require.Equal(t, amt, validator.Tokens)
 	require.False(t, validator.IsJailed())
 
 	// Case 4, slash jailed validator
-	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, ValAddrs[0])
+	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, testutils.ValAddrs[0])
 	validator.Status = stakingtypes.Bonded
 	validator.Jailed = true
 	validator.Tokens = amt
 	input.StakingKeeper.SetValidator(input.Ctx, validator)
 
-	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, ValAddrs[0], uint64(votePeriodsPerWindow-minValidVotes+1), 0, 0)
+	input.OracleKeeper.SetVotePenaltyCounter(input.Ctx, testutils.ValAddrs[0], uint64(votePeriodsPerWindow-minValidVotes+1), 0, 0)
 	input.OracleKeeper.SlashAndResetCounters(input.Ctx)
-	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, ValAddrs[0])
+	validator, _ = input.StakingKeeper.GetValidator(input.Ctx, testutils.ValAddrs[0])
 	require.Equal(t, amt, validator.Tokens)
 }

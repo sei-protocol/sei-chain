@@ -19,7 +19,7 @@ import (
 
 func TestTraceBlockByNumber(t *testing.T) {
 	txBz := signAndEncodeTx(send(0), mnemonic1)
-	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("debug", port, "traceBlockByNumber", "0x2", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",
@@ -34,7 +34,7 @@ func TestTraceBlockByNumber(t *testing.T) {
 func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
 	txBz := signAndEncodeTx(send(0), mnemonic1)
 	panicTxBz := signAndEncodeTx(send(100), mnemonic1)
-	SetupTestServer([][][]byte{{txBz, panicTxBz}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{txBz, panicTxBz}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("sei", port, "traceBlockByNumberExcludeTraceFail", "0x2", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",
@@ -50,7 +50,7 @@ func TestTraceBlockByNumberExcludeTraceFail(t *testing.T) {
 
 func TestTraceBlockByHash(t *testing.T) {
 	txBz := signAndEncodeTx(send(0), mnemonic1)
-	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("debug", port, "traceBlockByHash", "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",
@@ -65,7 +65,7 @@ func TestTraceBlockByHash(t *testing.T) {
 func TestTraceBlockByHashExcludeTraceFail(t *testing.T) {
 	txBz := signAndEncodeTx(send(0), mnemonic1)
 	panicTxBz := signAndEncodeTx(send(100), mnemonic1)
-	SetupTestServer([][][]byte{{txBz, panicTxBz}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{txBz, panicTxBz}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("sei", port, "traceBlockByHashExcludeTraceFail", "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",
@@ -82,7 +82,7 @@ func TestTraceBlockByHashExcludeTraceFail(t *testing.T) {
 func TestTraceHistoricalPrecompiles(t *testing.T) {
 	from := getAddrWithMnemonic(mnemonic1)
 	txData := jsonExtractAsBytesFromArray(0).(*ethtypes.DynamicFeeTx)
-	SetupTestServer([][][]byte{{}, {}, {}}, mnemonicInitializer(mnemonic1), mockUpgrade("v5.5.2", 1), mockUpgrade(app.LatestUpgrade, 3)).Run(
+	SetupTestServer(t, [][][]byte{{}, {}, {}}, mnemonicInitializer(mnemonic1), mockUpgrade("v5.5.2", 1), mockUpgrade(app.LatestUpgrade, 3)).Run(
 		func(port int) {
 			args := export.TransactionArgs{
 				From:     &from,
@@ -118,7 +118,7 @@ func TestTraceMultipleTransactionsShouldNotHang(t *testing.T) {
 		txBzList[nonce-1] = signAndEncodeTx(sendErc20(uint64(nonce)), erc20DeployerMnemonics)
 	}
 	txBzList = append(txBzList, signAndEncodeTx(callWasmIter(0, cwIter), mnemonic1))
-	SetupTestServer([][][]byte{txBzList}, mnemonicInitializer(mnemonic1), multiCoinInitializer(mnemonic1), cwIterInitializer(mnemonic1), erc20Initializer()).Run(
+	SetupTestServer(t, [][][]byte{txBzList}, mnemonicInitializer(mnemonic1), multiCoinInitializer(mnemonic1), cwIterInitializer(mnemonic1), erc20Initializer()).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("debug", port, "traceBlockByHash", "0x6f2168eb453152b1f68874fe32cea6fcb199bfd63836acb72a8eb33e666613fe", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",
@@ -135,7 +135,7 @@ func TestTraceStateAccess(t *testing.T) {
 	sdkTx, _ := testkeeper.EVMTestApp.GetTxConfig().TxDecoder()(txBz)
 	evmTx, _ := sdkTx.GetMsgs()[0].(*types.MsgEVMTransaction).AsTransaction()
 	hash := evmTx.Hash()
-	SetupTestServer([][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{txBz}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("debug", port, "traceStateAccess", hash.Hex())
 			result := res["result"].(map[string]interface{})["app"].(map[string]interface{})["modules"].(map[string]interface{})
@@ -153,7 +153,7 @@ func TestTraceBlockWithFailureThenSuccess(t *testing.T) {
 	maxUseiInWei := sdk.NewInt(math.MaxInt64).Mul(state.SdkUseiToSweiMultiplier).BigInt()
 	insufficientFundsTx := signAndEncodeTx(sendAmount(0, maxUseiInWei), mnemonic1)
 	successTx := signAndEncodeTx(send(1), mnemonic1)
-	SetupTestServer([][][]byte{{insufficientFundsTx, successTx}}, mnemonicInitializer(mnemonic1)).Run(
+	SetupTestServer(t, [][][]byte{{insufficientFundsTx, successTx}}, mnemonicInitializer(mnemonic1)).Run(
 		func(port int) {
 			res := sendRequestWithNamespace("debug", port, "traceBlockByNumber", "0x2", map[string]interface{}{
 				"timeout": "60s", "tracer": "flatCallTracer",

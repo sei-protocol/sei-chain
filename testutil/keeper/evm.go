@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var EVMTestApp = app.Setup(false, true, false)
+var EVMTestApp = app.SetupWithDefaultHome(false, true, false)
 var mockKeeper *evmkeeper.Keeper
 var mockCtx sdk.Context
 var mtx = &sync.Mutex{}
@@ -52,8 +52,8 @@ func MockEVMKeeperWithPrecompiles() (*evmkeeper.Keeper, sdk.Context) {
 	return &k, ctx
 }
 
-func MockEVMKeeper() (*evmkeeper.Keeper, sdk.Context) {
-	testApp := app.Setup(false, false, false)
+func MockEVMKeeper(t *testing.T) (*evmkeeper.Keeper, sdk.Context) {
+	testApp := app.Setup(t, false, false, false)
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8).WithBlockTime(time.Now())
 	k := testApp.EvmKeeper
 	k.InitGenesis(ctx, *evmtypes.DefaultGenesis())
@@ -74,8 +74,8 @@ func MockEVMKeeper() (*evmkeeper.Keeper, sdk.Context) {
 	return &k, ctx
 }
 
-func MockEVMKeeperPrecompiles() (*evmkeeper.Keeper, sdk.Context) {
-	testApp := app.Setup(false, true, false)
+func MockEVMKeeperPrecompiles(t *testing.T) (*evmkeeper.Keeper, sdk.Context) {
+	testApp := app.Setup(t, false, true, false)
 	ctx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8).WithBlockTime(time.Now())
 	k := testApp.EvmKeeper
 	k.InitGenesis(ctx, *evmtypes.DefaultGenesis())

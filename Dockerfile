@@ -18,7 +18,7 @@ RUN go mod download
 # Copy source and build (CGO enabled for libwasmvm)
 COPY . .
 ENV CGO_ENABLED=1
-RUN make build
+RUN make build build-price-feeder
 
 # Collect libwasmvm*.so: try ./seiwasmd; else auto-derive version and download glibc .so
 ARG WASMVM_VERSION=""
@@ -56,6 +56,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=go-builder /app/sei-chain/build/seid /bin/seid
+COPY --from=go-builder /app/sei-chain/build/price-feeder /bin/price-feeder
 COPY --from=go-builder /build/deps/libwasmvm*.so /usr/lib/
 
 # Ensure generic symlink exists and refresh linker cache
