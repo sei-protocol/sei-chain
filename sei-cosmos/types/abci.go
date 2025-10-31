@@ -8,12 +8,6 @@ import (
 // InitChainer initializes application state at genesis
 type InitChainer func(ctx Context, req abci.RequestInitChain) abci.ResponseInitChain
 
-// BeginBlocker runs code before the transactions in a block
-//
-// Note: applications which set create_empty_blocks=false will not have regular block timing and should use
-// e.g. BFT timestamps rather than block height for any periodic BeginBlock logic
-type BeginBlocker func(ctx Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock
-
 // MidBlocker runs code after the early transactions in a block and return any relevant events
 type MidBlocker func(ctx Context, height int64) []abci.Event
 

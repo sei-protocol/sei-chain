@@ -8,6 +8,7 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -58,7 +59,7 @@ func TestRollback(t *testing.T) {
 			Height:  ver0 + i,
 			AppHash: a.LastCommitID().Hash,
 		}
-		a.BeginBlock(sdk.Context{}, abci.RequestBeginBlock{Header: header})
+		legacyabci.BeginBlock(sdk.Context{}, header.Height, []abci.VoteInfo{}, []abci.Misbehavior{}, a.BeginBlockKeepers)
 		ctx := a.NewContext(false, header)
 		store := ctx.KVStore(a.GetKey("bank"))
 		store.Set([]byte("key"), []byte(fmt.Sprintf("value%d", i)))
@@ -85,7 +86,7 @@ func TestRollback(t *testing.T) {
 			Height:  ver0 + i,
 			AppHash: a.LastCommitID().Hash,
 		}
-		a.BeginBlock(sdk.Context{}, abci.RequestBeginBlock{Header: header})
+		legacyabci.BeginBlock(sdk.Context{}, header.Height, []abci.VoteInfo{}, []abci.Misbehavior{}, a.BeginBlockKeepers)
 		ctx := a.NewContext(false, header)
 		store := ctx.KVStore(a.GetKey("bank"))
 		store.Set([]byte("key"), []byte(fmt.Sprintf("VALUE%d", i)))
