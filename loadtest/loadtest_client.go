@@ -107,7 +107,7 @@ func BuildGrpcClients(config *Config) ([]typestx.ServiceClient, []*grpc.ClientCo
 	)
 	dialOptions = append(dialOptions, grpc.WithBlock())
 	if config.TLS {
-		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{InsecureSkipVerify: true}))) //nolint:gosec // Use insecure skip verify.
+		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{})))
 	} else {
 		dialOptions = append(dialOptions, grpc.WithInsecure())
 	}

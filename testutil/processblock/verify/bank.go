@@ -7,6 +7,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/auth/signing"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	"github.com/sei-protocol/sei-chain/testutil/processblock"
+	tokenfactorytypes "github.com/sei-protocol/sei-chain/x/tokenfactory/types"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,6 +32,10 @@ func Balance(t *testing.T, app *processblock.App, f BlockRunnable, txs []signing
 					for _, output := range m.Outputs {
 						updateMultipleExpectedBalanceChange(expectedChanges, output.Address, output.Coins, true)
 					}
+				case *tokenfactorytypes.MsgMint:
+					updateExpectedBalanceChange(expectedChanges, m.Sender, m.Amount, true)
+				case *tokenfactorytypes.MsgBurn:
+					updateExpectedBalanceChange(expectedChanges, m.Sender, m.Amount, false)
 				default:
 					// TODO: add coverage for other balance-affecting messages to enable testing for those message types
 					continue

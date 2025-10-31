@@ -1,0 +1,4 @@
+INVOICE
+Total: $72.50
+Due Date: 09/15/2025
+Pay To: Example Utilities Co.

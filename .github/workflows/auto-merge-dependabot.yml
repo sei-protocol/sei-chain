@@ -1,0 +1,37 @@
+name: Auto-Merge Dependabot Updates
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - labeled
+      - synchronize
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  automerge:
+   if: github.actor == 'dependabot[bot]' && contains(github.event.pull_request.labels.*.name, 'safe-to-merge')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable auto-merge for patch/minor updates
+        uses: "peter-evans/enable-pull-request-automerge@v3"
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          merge-method: squash
+
+      - name: Auto-approve safe updates
+        uses: hmarr/auto-approve-action@v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Label as safe
+        run: gh pr edit "$PR_URL" --add-label "safe-to-merge"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
