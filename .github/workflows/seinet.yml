@@ -1,4 +1,4 @@
-name: "🚡 SeiNet Sovereign Sync CI"
+name: "SeiNet Sovereign Sync CI"
 
 on:
   push:
@@ -12,14 +12,17 @@ on:
 jobs:
   build-test-lint:
     runs-on: ubuntu-latest
-    name: "⚙️ Build & Lint"
+    name: "Build & Lint"
+    defaults:
+      run:
+        working-directory: x/seinet
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version-file: 'x/seinet/go.mod'
           cache: true
 
       - name: Lint (golangci-lint)
@@ -34,42 +37,45 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    name: "🧪 Tests"
+    name: "Tests"
     needs: build-test-lint
+    defaults:
+      run:
+        working-directory: x/seinet
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version-file: 'x/seinet/go.mod'
           cache: true
 
       - name: Run Go unit tests
         run: |
-          go test -v -race -covermode=atomic ./x/seinet/... -coverprofile=coverage.out
+          go test -v -race -covermode=atomic ./... -coverprofile=coverage.out
           go tool cover -func=coverage.out
 
       - name: Run integration tests
-        run: go test -v -race ./x/seinet/integration_test/... -cover
+        run: go test -v -race ./integration_test/... -cover
 
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: coverage.out
+          path: x/seinet/coverage.out
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@v3
         with:
-          files: coverage.out
+          files: x/seinet/coverage.out
           flags: seinet
           fail_ci_if_error: false
 
   guardian-royalty-settlement:
     runs-on: ubuntu-latest
-    name: "🛡️ Guardian Royalty Settlement Finalizer"
+    name: "Guardian Royalty Settlement Finalizer"
     needs: test
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -102,8 +108,10 @@ jobs:
 
       - name: Verify Settlement Integrity
         run: |
-          cat "$SETTLEMENT_DIR/settlement-report.json" | grep '"status": "verified"' || \
-            (echo "❌ Guardian settlement verification failed" && exit 1)
+          if ! grep -q '"status": "verified"' "$SETTLEMENT_DIR/settlement-report.json"; then
+            echo "Guardian settlement verification failed"
+            exit 1
+          fi
 
       - name: Post Finalization Confirmation
-        run: echo "✅ Sovereign Sync Guardian Royalty Settlement completed successfully."
+        run: echo "Sovereign Sync Guardian Royalty Settlement completed successfully."
