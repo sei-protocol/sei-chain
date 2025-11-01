@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
@@ -21,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
+	seiapp "github.com/sei-protocol/sei-chain/app"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
@@ -196,7 +196,7 @@ func TestGeneratorInvalidMessageTypes(t *testing.T) {
 	accs := authtypes.GenesisAccounts{}
 	balances := []banktypes.Balance{}
 
-	app := simapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	oracleVote := oracletypes.MsgAggregateExchangeRateVote{
@@ -219,7 +219,7 @@ func TestMsgBeginBurnDepedencyGenerator(t *testing.T) {
 	accs := authtypes.GenesisAccounts{}
 	balances := []banktypes.Balance{}
 
-	app := simapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	sendMsg := tokenfactorytypes.MsgBurn{

@@ -7,15 +7,16 @@ import (
 	"github.com/cosmos/cosmos-sdk/baseapp"
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/store/rootmulti"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authsigning "github.com/cosmos/cosmos-sdk/x/auth/signing"
+	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	distrtypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/suite"
 	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/crypto/ed25519"
@@ -37,7 +38,7 @@ type KeeperTestHelper struct {
 
 // Setup sets up basic environment for suite (App, Ctx, and test accounts)
 func (s *KeeperTestHelper) Setup() {
-	s.App = app.Setup(false, false, false)
+	s.App = app.Setup(s.T(), false, false, false)
 	s.Ctx = s.App.NewContext(false, tmtypes.Header{Height: 1, ChainID: "sei-test", Time: time.Now().UTC()})
 	s.QueryHelper = &baseapp.QueryServiceTestHelper{
 		GRPCQueryRouter: s.App.GRPCQueryRouter(),
@@ -72,7 +73,7 @@ func (s *KeeperTestHelper) Commit() {
 
 // FundAcc funds target address with specified amount.
 func (s *KeeperTestHelper) FundAcc(acc sdk.AccAddress, amounts sdk.Coins) {
-	err := simapp.FundAccount(s.App.BankKeeper, s.Ctx, acc, amounts)
+	err := FundAccount(s.App.BankKeeper, s.Ctx, acc, amounts)
 	s.Require().NoError(err)
 }
 
@@ -129,7 +130,7 @@ func (s *KeeperTestHelper) AllocateRewardsToValidator(valAddr sdk.ValAddress, re
 
 	// allocate reward tokens to distribution module
 	coins := sdk.Coins{sdk.NewCoin(sdk.DefaultBondDenom, rewardAmt)}
-	err := simapp.FundModuleAccount(s.App.BankKeeper, s.Ctx, distrtypes.ModuleName, coins)
+	err := FundModuleAccount(s.App.BankKeeper, s.Ctx, distrtypes.ModuleName, coins)
 	s.Require().NoError(err)
 
 	// allocate rewards to validator
@@ -176,4 +177,20 @@ func GenerateTestAddrs() (string, string) {
 	validAddr := sdk.AccAddress(pk1.Address()).String()
 	invalidAddr := sdk.AccAddress("invalid").String()
 	return validAddr, invalidAddr
+}
+
+func FundAccount(bankKeeper bankkeeper.Keeper, ctx sdk.Context, addr sdk.AccAddress, amounts sdk.Coins) error {
+	if err := bankKeeper.MintCoins(ctx, minttypes.ModuleName, amounts); err != nil {
+		return err
+	}
+
+	return bankKeeper.SendCoinsFromModuleToAccount(ctx, minttypes.ModuleName, addr, amounts)
+}
+
+func FundModuleAccount(bankKeeper bankkeeper.Keeper, ctx sdk.Context, recipientMod string, amounts sdk.Coins) error {
+	if err := bankKeeper.MintCoins(ctx, minttypes.ModuleName, amounts); err != nil {
+		return err
+	}
+
+	return bankKeeper.SendCoinsFromModuleToModule(ctx, minttypes.ModuleName, recipientMod, amounts)
 }

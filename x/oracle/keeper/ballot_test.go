@@ -1,4 +1,4 @@
-package keeper
+package keeper_test
 
 import (
 	"sort"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 
@@ -14,7 +15,7 @@ import (
 )
 
 func TestOrganizeAggregate(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	power := int64(100)
 	amt := sdk.TokensFromConsensusPower(power, sdk.DefaultPowerReduction)
@@ -22,49 +23,49 @@ func TestOrganizeAggregate(t *testing.T) {
 	ctx := input.Ctx
 
 	// Validator created
-	_, err := sh(ctx, NewTestMsgCreateValidator(ValAddrs[0], ValPubKeys[0], amt))
+	_, err := sh(ctx, testutils.NewTestMsgCreateValidator(testutils.ValAddrs[0], testutils.ValPubKeys[0], amt))
 	require.NoError(t, err)
-	_, err = sh(ctx, NewTestMsgCreateValidator(ValAddrs[1], ValPubKeys[1], amt))
+	_, err = sh(ctx, testutils.NewTestMsgCreateValidator(testutils.ValAddrs[1], testutils.ValPubKeys[1], amt))
 	require.NoError(t, err)
-	_, err = sh(ctx, NewTestMsgCreateValidator(ValAddrs[2], ValPubKeys[2], amt))
+	_, err = sh(ctx, testutils.NewTestMsgCreateValidator(testutils.ValAddrs[2], testutils.ValPubKeys[2], amt))
 	require.NoError(t, err)
 	staking.EndBlocker(ctx, input.StakingKeeper)
 
 	sdrBallot := types.ExchangeRateBallot{
-		types.NewVoteForTally(sdk.NewDec(17), utils.MicroSeiDenom, ValAddrs[0], power),
-		types.NewVoteForTally(sdk.NewDec(10), utils.MicroSeiDenom, ValAddrs[1], power),
-		types.NewVoteForTally(sdk.NewDec(6), utils.MicroSeiDenom, ValAddrs[2], power),
+		types.NewVoteForTally(sdk.NewDec(17), utils.MicroSeiDenom, testutils.ValAddrs[0], power),
+		types.NewVoteForTally(sdk.NewDec(10), utils.MicroSeiDenom, testutils.ValAddrs[1], power),
+		types.NewVoteForTally(sdk.NewDec(6), utils.MicroSeiDenom, testutils.ValAddrs[2], power),
 	}
 	krwBallot := types.ExchangeRateBallot{
-		types.NewVoteForTally(sdk.NewDec(1000), utils.MicroAtomDenom, ValAddrs[0], power),
-		types.NewVoteForTally(sdk.NewDec(1300), utils.MicroAtomDenom, ValAddrs[1], power),
-		types.NewVoteForTally(sdk.NewDec(2000), utils.MicroAtomDenom, ValAddrs[2], power),
+		types.NewVoteForTally(sdk.NewDec(1000), utils.MicroAtomDenom, testutils.ValAddrs[0], power),
+		types.NewVoteForTally(sdk.NewDec(1300), utils.MicroAtomDenom, testutils.ValAddrs[1], power),
+		types.NewVoteForTally(sdk.NewDec(2000), utils.MicroAtomDenom, testutils.ValAddrs[2], power),
 	}
 
 	for i := range sdrBallot {
-		input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, ValAddrs[i],
+		input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, testutils.ValAddrs[i],
 			types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{
 				{Denom: sdrBallot[i].Denom, ExchangeRate: sdrBallot[i].ExchangeRate},
 				{Denom: krwBallot[i].Denom, ExchangeRate: krwBallot[i].ExchangeRate},
-			}, ValAddrs[i]))
+			}, testutils.ValAddrs[i]))
 	}
 
 	// organize votes by denom
 	ballotMap := input.OracleKeeper.OrganizeBallotByDenom(input.Ctx, map[string]types.Claim{
-		ValAddrs[0].String(): {
+		testutils.ValAddrs[0].String(): {
 			Power:     power,
 			WinCount:  0,
-			Recipient: ValAddrs[0],
+			Recipient: testutils.ValAddrs[0],
 		},
-		ValAddrs[1].String(): {
+		testutils.ValAddrs[1].String(): {
 			Power:     power,
 			WinCount:  0,
-			Recipient: ValAddrs[1],
+			Recipient: testutils.ValAddrs[1],
 		},
-		ValAddrs[2].String(): {
+		testutils.ValAddrs[2].String(): {
 			Power:     power,
 			WinCount:  0,
-			Recipient: ValAddrs[2],
+			Recipient: testutils.ValAddrs[2],
 		},
 	})
 
@@ -79,7 +80,7 @@ func TestOrganizeAggregate(t *testing.T) {
 }
 
 func TestClearBallots(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	power := int64(100)
 	amt := sdk.TokensFromConsensusPower(power, sdk.DefaultPowerReduction)
@@ -87,31 +88,31 @@ func TestClearBallots(t *testing.T) {
 	ctx := input.Ctx
 
 	// Validator created
-	_, err := sh(ctx, NewTestMsgCreateValidator(ValAddrs[0], ValPubKeys[0], amt))
+	_, err := sh(ctx, testutils.NewTestMsgCreateValidator(testutils.ValAddrs[0], testutils.ValPubKeys[0], amt))
 	require.NoError(t, err)
-	_, err = sh(ctx, NewTestMsgCreateValidator(ValAddrs[1], ValPubKeys[1], amt))
+	_, err = sh(ctx, testutils.NewTestMsgCreateValidator(testutils.ValAddrs[1], testutils.ValPubKeys[1], amt))
 	require.NoError(t, err)
-	_, err = sh(ctx, NewTestMsgCreateValidator(ValAddrs[2], ValPubKeys[2], amt))
+	_, err = sh(ctx, testutils.NewTestMsgCreateValidator(testutils.ValAddrs[2], testutils.ValPubKeys[2], amt))
 	require.NoError(t, err)
 	staking.EndBlocker(ctx, input.StakingKeeper)
 
 	sdrBallot := types.ExchangeRateBallot{
-		types.NewVoteForTally(sdk.NewDec(17), utils.MicroSeiDenom, ValAddrs[0], power),
-		types.NewVoteForTally(sdk.NewDec(10), utils.MicroSeiDenom, ValAddrs[1], power),
-		types.NewVoteForTally(sdk.NewDec(6), utils.MicroSeiDenom, ValAddrs[2], power),
+		types.NewVoteForTally(sdk.NewDec(17), utils.MicroSeiDenom, testutils.ValAddrs[0], power),
+		types.NewVoteForTally(sdk.NewDec(10), utils.MicroSeiDenom, testutils.ValAddrs[1], power),
+		types.NewVoteForTally(sdk.NewDec(6), utils.MicroSeiDenom, testutils.ValAddrs[2], power),
 	}
 	krwBallot := types.ExchangeRateBallot{
-		types.NewVoteForTally(sdk.NewDec(1000), utils.MicroAtomDenom, ValAddrs[0], power),
-		types.NewVoteForTally(sdk.NewDec(1300), utils.MicroAtomDenom, ValAddrs[1], power),
-		types.NewVoteForTally(sdk.NewDec(2000), utils.MicroAtomDenom, ValAddrs[2], power),
+		types.NewVoteForTally(sdk.NewDec(1000), utils.MicroAtomDenom, testutils.ValAddrs[0], power),
+		types.NewVoteForTally(sdk.NewDec(1300), utils.MicroAtomDenom, testutils.ValAddrs[1], power),
+		types.NewVoteForTally(sdk.NewDec(2000), utils.MicroAtomDenom, testutils.ValAddrs[2], power),
 	}
 
 	for i := range sdrBallot {
-		input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, ValAddrs[i],
+		input.OracleKeeper.SetAggregateExchangeRateVote(input.Ctx, testutils.ValAddrs[i],
 			types.NewAggregateExchangeRateVote(types.ExchangeRateTuples{
 				{Denom: sdrBallot[i].Denom, ExchangeRate: sdrBallot[i].ExchangeRate},
 				{Denom: krwBallot[i].Denom, ExchangeRate: krwBallot[i].ExchangeRate},
-			}, ValAddrs[i]))
+			}, testutils.ValAddrs[i]))
 	}
 
 	input.OracleKeeper.ClearBallots(input.Ctx, 5)
@@ -125,15 +126,11 @@ func TestClearBallots(t *testing.T) {
 }
 
 func TestApplyWhitelist(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	input.OracleKeeper.ApplyWhitelist(input.Ctx, types.DenomList{
-		types.Denom{
-			Name: "uatom",
-		},
-		types.Denom{
-			Name: "uusdc",
-		},
+		{Name: "uatom"},
+		{Name: "uusdc"},
 	}, map[string]types.Denom{})
 
 	_, err := input.OracleKeeper.GetVoteTarget(input.Ctx, "uatom")

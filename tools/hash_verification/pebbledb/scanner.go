@@ -17,10 +17,7 @@ type HashScanner struct {
 }
 
 func NewHashScanner(db types.StateStore, blocksInterval int64, backfill bool) *HashScanner {
-	latestVersion, err := db.GetLatestVersion()
-	if err != nil {
-		panic(err)
-	}
+	latestVersion := db.GetLatestVersion()
 	fmt.Printf("Detected Pebbledb latest version: %d\n", latestVersion)
 	return &HashScanner{
 		db:             db,
