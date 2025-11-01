@@ -248,6 +248,10 @@ func (am AppModule) RegisterServices(cfg module.Configurator) {
 	_ = cfg.RegisterMigration(types.ModuleName, 19, func(ctx sdk.Context) error {
 		return migrations.MigrateRemoveCurrBlockBaseFee(ctx, am.keeper)
 	})
+
+	_ = cfg.RegisterMigration(types.ModuleName, 20, func(ctx sdk.Context) error {
+		return migrations.MigrateSstoreGas(ctx, am.keeper)
+	})
 }
 
 // RegisterInvariants registers the capability module's invariants.
@@ -285,7 +289,7 @@ func (am AppModule) ExportGenesisStream(ctx sdk.Context, cdc codec.JSONCodec) <-
 }
 
 // ConsensusVersion implements ConsensusVersion.
-func (AppModule) ConsensusVersion() uint64 { return 20 }
+func (AppModule) ConsensusVersion() uint64 { return 21 }
 
 // BeginBlock executes all ABCI BeginBlock logic respective to the capability module.
 func (am AppModule) BeginBlock(ctx sdk.Context, _ abci.RequestBeginBlock) {
@@ -341,7 +345,11 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 		}
 	}
 
-	newBaseFee := am.keeper.AdjustDynamicBaseFeePerGas(ctx, uint64(req.BlockGasUsed))
+	if scanned, deleted := am.keeper.PruneZeroStorageSlots(ctx, keeper.ZeroStorageCleanupBatchSize); deleted > 0 {
+		ctx.Logger().Info(fmt.Sprintf("pruned %d zero-value contract storage slots while scanning %d keys", deleted, scanned))
+	}
+
+	newBaseFee := am.keeper.AdjustDynamicBaseFeePerGas(ctx, uint64(req.BlockGasUsed)) // nolint:gosec
 	if newBaseFee != nil {
 		metrics.GaugeEvmBlockBaseFee(newBaseFee.TruncateInt().BigInt(), req.Height)
 	}
@@ -369,7 +377,7 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 				TxHashHex:        txHash.Hex(),
 				TransactionIndex: deferredInfo.TxIndex,
 				VmError:          deferredInfo.Error,
-				BlockNumber:      uint64(ctx.BlockHeight()),
+				BlockNumber:      uint64(ctx.BlockHeight()), // nolint:gosec
 			})
 			continue
 		}
@@ -410,15 +418,15 @@ func (am AppModule) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) []abci.V
 			continue
 		}
 		// Only EVM receipts in this block that are not synthetic
-		if r.TxType == types.ShellEVMTxType || r.BlockNumber != uint64(ctx.BlockHeight()) {
+		if r.TxType == types.ShellEVMTxType || r.BlockNumber != uint64(ctx.BlockHeight()) { //nolint:gosec
 			continue
 		}
 		if len(r.Logs) == 0 {
 			continue
 		}
-		// Re-create a per-tx bloom from EVM-only logs (exclude synthetic)
+		// Re-create a per-tx bloom from EVM-only logs (exclude synthetic receipts but not synthetic logs)
 		evmOnlyBloom := ethtypes.CreateBloom(&ethtypes.Receipt{
-			Logs: keeper.GetEvmOnlyLogsForTx(r, 0),
+			Logs: keeper.GetLogsForTx(r, 0),
 		})
 		evmOnlyBlooms = append(evmOnlyBlooms, evmOnlyBloom)
 	}

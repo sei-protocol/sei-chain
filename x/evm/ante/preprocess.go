@@ -120,6 +120,12 @@ func (p *EVMPreprocessDecorator) IsAccountBalancePositive(ctx sdk.Context, seiAd
 
 // stateless
 func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, chainID *big.Int, isBlockTest bool) error {
+	return PreprocessUnpacked(ctx, msgEVMTransaction, chainID, isBlockTest, nil)
+}
+
+// PreprocessUnpacked does the same thing as Preprocess but accepts already unpacked txData to save computation
+// if txData is nil, it will unpack from msgEVMTransaction.Data.
+func PreprocessUnpacked(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, chainID *big.Int, isBlockTest bool, txData ethtx.TxData) error {
 	if msgEVMTransaction.Derived != nil {
 		if msgEVMTransaction.Derived.PubKey == nil {
 			// this means the message has `Derived` set from the outside, in which case we should reject
@@ -128,9 +134,14 @@ func Preprocess(ctx sdk.Context, msgEVMTransaction *evmtypes.MsgEVMTransaction, 
 		// already preprocessed
 		return nil
 	}
-	txData, err := evmtypes.UnpackTxData(msgEVMTransaction.Data)
-	if err != nil {
-		return err
+
+	if txData == nil {
+		// TxData not passed in, unpack it.
+		var err error
+		txData, err = evmtypes.UnpackTxData(msgEVMTransaction.Data)
+		if err != nil {
+			return err
+		}
 	}
 
 	if atx, ok := txData.(*ethtx.AssociateTx); ok {
@@ -267,7 +278,7 @@ func AdjustV(V *big.Int, txType uint8, chainID *big.Int) *big.Int {
 
 func GetVersion(ctx sdk.Context, ethCfg *params.ChainConfig) derived.SignerVersion {
 	blockNum := big.NewInt(ctx.BlockHeight())
-	ts := uint64(ctx.BlockTime().Unix())
+	ts := uint64(ctx.BlockTime().Unix()) // nolint:gosec
 	switch {
 	case ethCfg.IsPrague(blockNum, ts):
 		return derived.Prague

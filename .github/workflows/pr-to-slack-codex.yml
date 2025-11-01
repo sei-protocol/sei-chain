@@ -3,6 +3,7 @@
     needs: [upload-coverage-report]
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+
     steps:
       - name: Checkout PR HEAD (full history)
         uses: actions/checkout@v4
@@ -16,7 +17,14 @@
           node-version: '20'
 
       - name: Install Codex CLI
-        run: npm install -g @openai/codex
+        run: npm i -g @openai/codex
+
+      - name: Codex login
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.OPENAI_API_KEY }}" | codex login --with-api-key
 
       - name: Compute merge-base diff
         run: |
@@ -31,22 +39,77 @@
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
-          MAX=${MAX_TOKENS:-6000}
-          if ! codex pr \
-              --diff pr.diff \
-              --stat pr.stat \
-              --pr-url "$PR_URL" \
-              --pr-number "$PR_NUMBER" \
-              --max-output-tokens "$MAX" \
-              --slack; then
-            codex pr \
-              --diff pr.diff \
-              --stat pr.stat \
-              --pr-url "$PR_URL" \
-              --pr-number "$PR_NUMBER" \
-              --max-output-tokens "$MAX" \
-              --no-guard \
-              --slack
+          MAX=${MAX_DIFF_BYTES:-900000} # ~0.9MB ceiling; override if needed
+
+          BYTES=$(wc -c < pr.diff || echo 0)
+          echo "pr.diff size: $BYTES bytes (limit: $MAX)"
+
+          # Prepare AppSec-focused Codex prompt
+          {
+            echo "You are a skilled AppSec reviewer. Analyze this PR for:"
+            echo "bugs, vulnerabilities, cryptographic weaknesses, signature leaks, or replay attack vectors."
+            echo "Prioritize the changed hunks in pr.diff, but use repo context if needed."
+            echo
+            echo "Output format:"
+            echo "- Start with '## Executive summary' (1 paragraph)"
+            echo "- Then '## Findings and fixes' as a bullet list"
+            echo "- Use \`file:line\` inline code for references"
+            echo "- Use fenced code blocks (\`\`\`diff\`\`\`) for patches"
+            echo
+            echo "PR URL: $PR_URL"
+            echo
+          } > prompt.txt
+
+          if [ "$BYTES" -le "$MAX" ] && [ "$BYTES" -gt 0 ]; then
+            echo "Embedding diff (size OK)"
+            {
+              echo "Unified diff (merge-base vs HEAD):"
+              echo '```diff'
+              cat pr.diff
+              echo '```'
+            } >> prompt.txt
+
+            echo "Prompt size:"; wc -c prompt.txt
+            echo "Prompt head:"; head -n 40 prompt.txt
+
+            env -i OPENAI_API_KEY="$OPENAI_API_KEY" PATH="$PATH" HOME="$HOME" \
+            codex --model gpt-5-codex --ask-for-approval never exec \
+              --sandbox read-only \
+              --output-last-message review.md \
+              < prompt.txt \
+              > codex.log 2>&1
+          else
+            echo "Large diff detected — switching to URL-based prompt."
+            BASE_REF='${{ github.event.pull_request.base.ref }}'
+            git fetch --no-tags origin "$BASE_REF":"refs/remotes/origin/$BASE_REF"
+            MB=$(git merge-base "origin/$BASE_REF" HEAD)
+            HEAD_SHA=$(git rev-parse HEAD)
+            DIFF_URL="${PR_URL}.diff"
+
+            {
+              echo "The diff is too large to embed."
+              echo "Fetch it manually from:"
+              echo "$DIFF_URL"
+              echo
+              echo "Merge-base: $MB"
+              echo "Head:       $HEAD_SHA"
+              echo
+              echo "Diffstat summary:"
+              echo '```'
+              cat pr.stat || true
+              echo '```'
+            } >> prompt.txt
+
+            echo "Prompt size:"; wc -c prompt.txt
+            echo "Prompt head:"; head -n 60 prompt.txt
+
+            env -i OPENAI_API_KEY="$OPENAI_API_KEY" PATH="$PATH" HOME="$HOME" \
+            codex --model gpt-5-codex --ask-for-approval never exec \
+              --sandbox danger-full-access \
+              --output-last-message review.md \
+              < prompt.txt \
+              > codex.log 2>&1
           fi

@@ -61,6 +61,7 @@ var (
 	BaseFeePerGasPrefix             = []byte{0x1b}
 	NextBaseFeePerGasPrefix         = []byte{0x1c}
 	EvmOnlyBlockBloomPrefix         = []byte{0x1d}
+	ZeroStorageCleanupCheckpointKey = []byte{0x1e}
 )
 
 var (
@@ -104,13 +105,13 @@ func (trk TransientReceiptKey) TransactionHash() common.Hash {
 
 func BlockBloomKey(height int64) []byte {
 	bz := make([]byte, 8)
-	binary.BigEndian.PutUint64(bz, uint64(height))
+	binary.BigEndian.PutUint64(bz, uint64(height)) //nolint:gosec
 	return append(BlockBloomPrefix, bz...)
 }
 
 func TxHashesKey(height int64) []byte {
 	bz := make([]byte, 8)
-	binary.BigEndian.PutUint64(bz, uint64(height))
+	binary.BigEndian.PutUint64(bz, uint64(height)) //nolint:gosec
 	return append(TxHashesPrefix, bz...)
 }
 

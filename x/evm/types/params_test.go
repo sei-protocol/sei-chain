@@ -20,6 +20,7 @@ func TestDefaultParams(t *testing.T) {
 		MaxDynamicBaseFeeUpwardAdjustment:      types.DefaultMaxDynamicBaseFeeUpwardAdjustment,
 		MaxDynamicBaseFeeDownwardAdjustment:    types.DefaultMaxDynamicBaseFeeDownwardAdjustment,
 		TargetGasUsedPerBlock:                  types.DefaultTargetGasUsedPerBlock,
+		SeiSstoreSetGasEip2200:                 types.DefaultSeiSstoreSetGasEIP2200,
 	}, types.DefaultParams())
 	require.Nil(t, types.DefaultParams().Validate())
 }
@@ -106,4 +107,13 @@ func TestValidateParamsValidDeliverTxHookWasmGasLimit(t *testing.T) {
 
 	err := params.Validate()
 	require.NoError(t, err)
+}
+
+func TestValidateParamsInvalidSeiSstoreSetGasEip2200(t *testing.T) {
+	params := types.DefaultParams()
+	params.SeiSstoreSetGasEip2200 = 0 // Set to invalid value (0)
+
+	err := params.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid sei sstore set gas eip2200: must be greater than 0")
 }

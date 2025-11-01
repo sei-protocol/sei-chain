@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   tests: false
   timeout: 10m
@@ -5,17 +7,15 @@ run:
     - codeanalysis
 
 linters:
-  disable-all: true
+  default: none
   enable:
     - bodyclose
     - dogsled
-    - exportloopref
     - errcheck
     - goconst
     - gofmt
     - goimports
     - gosec
-    - gosimple
     - govet
     - ineffassign
     - misspell
@@ -23,16 +23,15 @@ linters:
     - staticcheck
     - stylecheck
     - unconvert
-    - misspell
 
 issues:
   exclude-rules:
     - text: "Use of weak random number generator"
       linters:
         - gosec
-    - text: "ST1003:"
+    - text: "ST1003:" # Naming style
       linters:
         - stylecheck
-    - text: "ST1016:"
+    - text: "ST1016:" # Naming convention for receiver names
       linters:
         - stylecheck

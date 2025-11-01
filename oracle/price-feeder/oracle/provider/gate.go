@@ -167,7 +167,7 @@ func NewGateProvider(
 	wsConn, response, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
 	defer func() {
 		if response != nil {
-			response.Body.Close()
+			_ = response.Body.Close()
 		}
 	}()
 	if err != nil {
@@ -582,13 +582,13 @@ func (p *GateProvider) resetReconnectTimer() {
 // 3. Expect a 'pong' as a response. If the response message is not received within
 // N seconds, please raise an error or reconnect.
 func (p *GateProvider) reconnect() error {
-	p.wsClient.Close()
+	_ = p.wsClient.Close()
 
 	p.logger.Debug().Msg("reconnecting websocket")
 	wsConn, response, err := websocket.DefaultDialer.Dial(p.wsURL.String(), nil)
 	defer func() {
 		if response != nil {
-			response.Body.Close()
+			_ = response.Body.Close()
 		}
 	}()
 	if err != nil {
@@ -625,7 +625,7 @@ func (p *GateProvider) GetAvailablePairs() (map[string]struct{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var pairsSummary []GatePairSummary
 	if err := json.NewDecoder(resp.Body).Decode(&pairsSummary); err != nil {
