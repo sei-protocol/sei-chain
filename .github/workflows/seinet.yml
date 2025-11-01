@@ -1,4 +1,4 @@
-name: "\U0001F6A1\uFE0F SeiNet Sovereign Sync CI"
+name: "🚡 SeiNet Sovereign Sync CI"
 
 on:
   push:
@@ -12,10 +12,9 @@ on:
 jobs:
   build-test-lint:
     runs-on: ubuntu-latest
-    name: "\u2699\uFE0F Build & Lint"
+    name: "⚙️ Build & Lint"
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -28,14 +27,15 @@ jobs:
         with:
           version: v1.54.2
           working-directory: x/seinet
+          args: --timeout=5m --max-issues-per-linter=0
 
       - name: Build
-        run: |
-          go build ./...
+        run: go build ./...
 
   test:
     runs-on: ubuntu-latest
-    name: "\U0001F9EA Tests"
+    name: "🧪 Tests"
+    needs: build-test-lint
     steps:
       - uses: actions/checkout@v4
 
@@ -47,12 +47,18 @@ jobs:
 
       - name: Run Go unit tests
         run: |
-          go test -v ./x/seinet/... -coverprofile=coverage.out
+          go test -v -race -covermode=atomic ./x/seinet/... -coverprofile=coverage.out
           go tool cover -func=coverage.out
 
       - name: Run integration tests
-        run: |
-          go test ./x/seinet/integration_test/... -v -cover
+        run: go test -v -race ./x/seinet/integration_test/... -cover
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.out
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@v3
@@ -61,15 +67,43 @@ jobs:
           flags: seinet
           fail_ci_if_error: false
 
-  notify:
-    name: "\U0001F514 Slack Notification"
+  guardian-royalty-settlement:
     runs-on: ubuntu-latest
-    if: failure()
+    name: "🛡️ Guardian Royalty Settlement Finalizer"
+    needs: test
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GUARDIAN_MODE: codexfinalize-guardian-royalty-settlement-system-zcixa7
+      SETTLEMENT_DIR: x/seinet/guardian
     steps:
-      - name: Send Slack alert on failure
-        uses: rtCamp/action-slack-notify@v2
-        env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-          SLACK_COLOR: "#ff4c4c"
-          SLACK_TITLE: "\u274C SeiNet Sovereign Sync CI Failed"
-          SLACK_MESSAGE: "Check logs \u2192 Workflow: ${{ github.workflow }} | Commit: ${{ github.sha }}"
+      - uses: actions/checkout@v4
+
+      - name: Install Codex CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/openai/codex/main/install.sh | bash
+          echo "${HOME}/.local/bin" >> $GITHUB_PATH
+
+      - name: Authenticate Codex
+        run: |
+          echo "${{ secrets.OPENAI_API_KEY }}" | codex login --with-api-key
+
+      - name: Run Guardian Royalty Settlement Simulation
+        run: |
+          codex exec guardian:verify \
+            --mode "$GUARDIAN_MODE" \
+            --input "$SETTLEMENT_DIR/manifest.json" \
+            --output "$SETTLEMENT_DIR/settlement-report.json"
+
+      - name: Upload Guardian Settlement Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardian-settlement-report
+          path: x/seinet/guardian/settlement-report.json
+
+      - name: Verify Settlement Integrity
+        run: |
+          cat "$SETTLEMENT_DIR/settlement-report.json" | grep '"status": "verified"' || \
+            (echo "❌ Guardian settlement verification failed" && exit 1)
+
+      - name: Post Finalization Confirmation
+        run: echo "✅ Sovereign Sync Guardian Royalty Settlement completed successfully."
