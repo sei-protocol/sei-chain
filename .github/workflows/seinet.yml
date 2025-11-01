@@ -1,0 +1,117 @@
+name: "SeiNet Sovereign Sync CI"
+
+on:
+  push:
+    paths:
+      - "x/seinet/**"
+      - ".github/workflows/seinet.yml"
+  pull_request:
+    paths:
+      - "x/seinet/**"
+
+jobs:
+  build-test-lint:
+    runs-on: ubuntu-latest
+    name: "Build & Lint"
+    defaults:
+      run:
+        working-directory: x/seinet
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'x/seinet/go.mod'
+          cache: true
+
+      - name: Lint (golangci-lint)
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: v1.54.2
+          working-directory: x/seinet
+          args: --timeout=5m --max-issues-per-linter=0
+
+      - name: Build
+        run: go build ./...
+
+  test:
+    runs-on: ubuntu-latest
+    name: "Tests"
+    needs: build-test-lint
+    defaults:
+      run:
+        working-directory: x/seinet
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'x/seinet/go.mod'
+          cache: true
+
+      - name: Run Go unit tests
+        run: |
+          go test -v -race -covermode=atomic ./... -coverprofile=coverage.out
+          go tool cover -func=coverage.out
+
+      - name: Run integration tests
+        run: go test -v -race ./integration_test/... -cover
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: x/seinet/coverage.out
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: x/seinet/coverage.out
+          flags: seinet
+          fail_ci_if_error: false
+
+  guardian-royalty-settlement:
+    runs-on: ubuntu-latest
+    name: "Guardian Royalty Settlement Finalizer"
+    needs: test
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GUARDIAN_MODE: codexfinalize-guardian-royalty-settlement-system-zcixa7
+      SETTLEMENT_DIR: x/seinet/guardian
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Codex CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/openai/codex/main/install.sh | bash
+          echo "${HOME}/.local/bin" >> $GITHUB_PATH
+
+      - name: Authenticate Codex
+        run: |
+          echo "${{ secrets.OPENAI_API_KEY }}" | codex login --with-api-key
+
+      - name: Run Guardian Royalty Settlement Simulation
+        run: |
+          codex exec guardian:verify \
+            --mode "$GUARDIAN_MODE" \
+            --input "$SETTLEMENT_DIR/manifest.json" \
+            --output "$SETTLEMENT_DIR/settlement-report.json"
+
+      - name: Upload Guardian Settlement Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardian-settlement-report
+          path: x/seinet/guardian/settlement-report.json
+
+      - name: Verify Settlement Integrity
+        run: |
+          if ! grep -q '"status": "verified"' "$SETTLEMENT_DIR/settlement-report.json"; then
+            echo "Guardian settlement verification failed"
+            exit 1
+          fi
+
+      - name: Post Finalization Confirmation
+        run: echo "Sovereign Sync Guardian Royalty Settlement completed successfully."
