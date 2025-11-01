@@ -258,9 +258,6 @@ func (gam GenesisOnlyAppModule) RegisterServices(Configurator) {}
 // ConsensusVersion implements AppModule/ConsensusVersion.
 func (gam GenesisOnlyAppModule) ConsensusVersion() uint64 { return 1 }
 
-// BeginBlock returns an empty module begin-block
-func (gam GenesisOnlyAppModule) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) {}
-
 // EndBlock returns an empty module end-block
 func (GenesisOnlyAppModule) EndBlock(_ sdk.Context, _ abci.RequestEndBlock) []abci.ValidatorUpdate {
 	return []abci.ValidatorUpdate{}
@@ -272,7 +269,6 @@ type Manager struct {
 	Modules            map[string]AppModule
 	OrderInitGenesis   []string
 	OrderExportGenesis []string
-	OrderBeginBlockers []string
 	OrderMidBlockers   []string
 	OrderEndBlockers   []string
 	OrderMigrations    []string
@@ -292,7 +288,6 @@ func NewManager(modules ...AppModule) *Manager {
 		Modules:            moduleMap,
 		OrderInitGenesis:   modulesStr,
 		OrderExportGenesis: modulesStr,
-		OrderBeginBlockers: modulesStr,
 		OrderEndBlockers:   modulesStr,
 	}
 }
@@ -307,12 +302,6 @@ func (m *Manager) SetOrderInitGenesis(moduleNames ...string) {
 func (m *Manager) SetOrderExportGenesis(moduleNames ...string) {
 	m.assertNoForgottenModules("SetOrderExportGenesis", moduleNames)
 	m.OrderExportGenesis = moduleNames
-}
-
-// SetOrderBeginBlockers sets the order of set begin-blocker calls
-func (m *Manager) SetOrderBeginBlockers(moduleNames ...string) {
-	m.assertNoForgottenModules("SetOrderBeginBlockers", moduleNames)
-	m.OrderBeginBlockers = moduleNames
 }
 
 // SetOrderMidBlockers sets the order of set mid-blocker calls
@@ -593,27 +582,6 @@ func (m Manager) RunMigrations(ctx sdk.Context, cfg Configurator, fromVM Version
 	}
 
 	return updatedVM, nil
-}
-
-// BeginBlock performs begin block functionality for all modules. It creates a
-// child context with an event manager to aggregate events emitted from all
-// modules.
-func (m *Manager) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock {
-	ctx = ctx.WithEventManager(sdk.NewEventManager())
-
-	defer telemetry.MeasureSince(time.Now(), "module", "total_begin_block")
-	for _, moduleName := range m.OrderBeginBlockers {
-		module, ok := m.Modules[moduleName].(BeginBlockAppModule)
-		if ok {
-			moduleStartTime := time.Now()
-			module.BeginBlock(ctx, req)
-			telemetry.ModuleMeasureSince(moduleName, moduleStartTime, "module", "begin_block")
-		}
-	}
-
-	return abci.ResponseBeginBlock{
-		Events: ctx.EventManager().ABCIEvents(),
-	}
 }
 
 // EndBlock performs end block functionality for all modules. It creates a

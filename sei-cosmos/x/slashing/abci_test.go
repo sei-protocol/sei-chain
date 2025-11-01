@@ -65,7 +65,7 @@ func TestBeginBlocker(t *testing.T) {
 			Votes: trueVotes,
 		},
 	}
-	slashing.BeginBlocker(ctx, req, app.SlashingKeeper)
+	slashing.BeginBlocker(ctx, req.LastCommitInfo.Votes, app.SlashingKeeper)
 
 	for i := 0; i < 5; i++ {
 		info, found := app.SlashingKeeper.GetValidatorSigningInfo(ctx, sdk.ConsAddress(pks[i].Address()))
@@ -86,7 +86,7 @@ func TestBeginBlocker(t *testing.T) {
 			},
 		}
 
-		slashing.BeginBlocker(ctx, req, app.SlashingKeeper)
+		slashing.BeginBlocker(ctx, req.LastCommitInfo.Votes, app.SlashingKeeper)
 	}
 
 	// for 5000 blocks, mark the validator as having not signed
@@ -98,7 +98,7 @@ func TestBeginBlocker(t *testing.T) {
 			},
 		}
 
-		slashing.BeginBlocker(ctx, req, app.SlashingKeeper)
+		slashing.BeginBlocker(ctx, req.LastCommitInfo.Votes, app.SlashingKeeper)
 	}
 
 	// end block
@@ -160,7 +160,7 @@ func TestResizeTrimResetValidatorMissedBlocksArray(t *testing.T) {
 	app.SlashingKeeper.SetParams(ctx, params)
 
 	ctx = ctx.WithBlockHeight(18)
-	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true), app.SlashingKeeper)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true).LastCommitInfo.Votes, app.SlashingKeeper)
 
 	bitGroup = uint64(0)
 	missedInfo, found := app.SlashingKeeper.GetValidatorMissedBlocks(ctx, consAddr)
@@ -219,7 +219,7 @@ func TestResizeExpandValidatorMissedBlocksArray(t *testing.T) {
 	app.SlashingKeeper.SetValidatorMissedBlocks(ctx, consAddr, tooSmallArray)
 
 	ctx = ctx.WithBlockHeight(39)
-	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true), app.SlashingKeeper)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true).LastCommitInfo.Votes, app.SlashingKeeper)
 
 	bitGroup = uint64(0)
 	bitGroup |= 1 << 1
@@ -281,7 +281,7 @@ func TestResizeExpandShiftValidatorMissedBlocksArrayMultipleBitGroups(t *testing
 	app.SlashingKeeper.SetValidatorMissedBlocks(ctx, consAddr, tooSmallArray)
 
 	ctx = ctx.WithBlockHeight(2053)
-	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true), app.SlashingKeeper)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true).LastCommitInfo.Votes, app.SlashingKeeper)
 
 	bg0 = uint64(0)
 	bg0 |= 1 << 0
@@ -350,7 +350,7 @@ func TestResizeExpandShiftValidatorMissedBlocksArrayMultipleBitGroupsBeforeAndAf
 	app.SlashingKeeper.SetValidatorMissedBlocks(ctx, consAddr, tooSmallArray)
 
 	ctx = ctx.WithBlockHeight(509)
-	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true), app.SlashingKeeper)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true).LastCommitInfo.Votes, app.SlashingKeeper)
 
 	bg0 = uint64(0)
 	bg0 |= 1 << 0
@@ -423,7 +423,7 @@ func TestResizeTrimValidatorMissedBlocksArrayMultipleBitGroups(t *testing.T) {
 	app.SlashingKeeper.SetValidatorMissedBlocks(ctx, consAddr, tooSmallArray)
 
 	ctx = ctx.WithBlockHeight(509)
-	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, false), app.SlashingKeeper)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, false).LastCommitInfo.Votes, app.SlashingKeeper)
 
 	missedInfo, found := app.SlashingKeeper.GetValidatorMissedBlocks(ctx, consAddr)
 	require.True(t, found)
@@ -486,7 +486,7 @@ func TestResizeTrimValidatorMissedBlocksArrayEliminateBitGroup(t *testing.T) {
 	app.SlashingKeeper.SetValidatorMissedBlocks(ctx, consAddr, tooSmallArray)
 
 	ctx = ctx.WithBlockHeight(509)
-	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true), app.SlashingKeeper)
+	slashing.BeginBlocker(ctx, testslashing.CreateBeginBlockReq(val.Address(), 200, true).LastCommitInfo.Votes, app.SlashingKeeper)
 
 	missedInfo, found := app.SlashingKeeper.GetValidatorMissedBlocks(ctx, consAddr)
 	require.True(t, found)

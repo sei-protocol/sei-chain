@@ -16,6 +16,7 @@ import (
 	slashingtypes "github.com/cosmos/cosmos-sdk/x/slashing/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/teststaking"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 	"github.com/stretchr/testify/suite"
 	abci "github.com/tendermint/tendermint/abci/types"
@@ -67,7 +68,7 @@ func (s *KeeperTestHelper) Commit() {
 		panic(err)
 	}
 	newHeader := tmtypes.Header{Height: oldHeight + 1, ChainID: oldHeader.ChainID, Time: time.Now().UTC()}
-	s.App.BeginBlock(s.Ctx, abci.RequestBeginBlock{Header: newHeader})
+	legacyabci.BeginBlock(s.Ctx, newHeader.Height, []abci.VoteInfo{}, []abci.Misbehavior{}, s.App.BeginBlockKeepers)
 	s.Ctx = s.App.GetBaseApp().NewContext(false, newHeader)
 }
 

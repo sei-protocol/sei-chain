@@ -73,7 +73,7 @@ func TestABCI(t *testing.T) {
 	k.BankKeeper().SendCoinsFromModuleToAccount(ctx, types.ModuleName, sdk.AccAddress(evmAddr1[:]), amt)
 	m := evm.NewAppModule(nil, k)
 	// first block
-	m.BeginBlock(ctx, abci.RequestBeginBlock{})
+	k.BeginBlock(ctx)
 	// 1st tx
 	s := state.NewDBImpl(ctx.WithTxIndex(1), k, false)
 	s.SubBalance(evmAddr1, uint256.NewInt(10000000000000), tracing.BalanceChangeUnspecified)
@@ -100,7 +100,7 @@ func TestABCI(t *testing.T) {
 	require.Equal(t, uint64(2), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), "usei").Amount.Uint64())
 
 	// second block
-	m.BeginBlock(ctx, abci.RequestBeginBlock{})
+	k.BeginBlock(ctx)
 	// 2nd tx
 	s = state.NewDBImpl(ctx.WithTxIndex(2), k, false)
 	s.SubBalance(evmAddr2, uint256.NewInt(3000000000000), tracing.BalanceChangeUnspecified)
@@ -116,7 +116,7 @@ func TestABCI(t *testing.T) {
 	require.Equal(t, uint64(2), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName), "usei").Amount.Uint64())
 
 	// third block
-	m.BeginBlock(ctx, abci.RequestBeginBlock{})
+	k.BeginBlock(ctx)
 	msg := mockEVMTransactionMessage(t)
 	k.SetMsgs([]*types.MsgEVMTransaction{msg})
 	k.SetTxResults([]*abci.ExecTxResult{{Code: 1, Log: "test error"}})
@@ -129,7 +129,7 @@ func TestABCI(t *testing.T) {
 	require.Equal(t, receipt.VmError, "test error")
 
 	// disallow creating vesting account for coinbase address
-	m.BeginBlock(ctx, abci.RequestBeginBlock{})
+	k.BeginBlock(ctx)
 	coinbase := state.GetCoinbaseAddress(2)
 	vms := vesting.NewMsgServerImpl(*k.AccountKeeper(), k.BankKeeper())
 	_, err = vms.CreateVestingAccount(sdk.WrapSDKContext(ctx), &vestingtypes.MsgCreateVestingAccount{
@@ -162,7 +162,7 @@ func TestLegacyReceiptMigrationInterval(t *testing.T) {
 	interval := int64(10) // mirror keeper.LegacyReceiptMigrationInterval
 	for i := int64(1); i <= interval; i++ {
 		ctx = ctx.WithBlockHeight(i)
-		m.BeginBlock(ctx, abci.RequestBeginBlock{})
+		k.BeginBlock(ctx)
 		m.EndBlock(ctx, abci.RequestEndBlock{})
 	}
 	require.NoError(t, k.FlushTransientReceipts(ctx))
@@ -187,7 +187,7 @@ func TestAnteSurplus(t *testing.T) {
 	ctx := a.GetContextForDeliverTx([]byte{})
 	m := evm.NewAppModule(nil, &k)
 	// first block
-	m.BeginBlock(ctx, abci.RequestBeginBlock{})
+	k.BeginBlock(ctx)
 	k.AddAnteSurplus(ctx, common.BytesToHash([]byte("1234")), sdk.NewInt(1_000_000_000_001))
 	m.EndBlock(ctx, abci.RequestEndBlock{})
 	require.Equal(t, uint64(1), k.BankKeeper().GetBalance(ctx, k.AccountKeeper().GetModuleAddress(types.ModuleName), "usei").Amount.Uint64())

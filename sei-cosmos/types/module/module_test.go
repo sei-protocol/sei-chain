@@ -107,10 +107,6 @@ func TestManagerOrderSetters(t *testing.T) {
 	mm.SetOrderExportGenesis("module2", "module1")
 	require.Equal(t, []string{"module2", "module1"}, mm.OrderExportGenesis)
 
-	require.Equal(t, []string{"module1", "module2"}, mm.OrderBeginBlockers)
-	mm.SetOrderBeginBlockers("module2", "module1")
-	require.Equal(t, []string{"module2", "module1"}, mm.OrderBeginBlockers)
-
 	// we expect none of the modules to be included by default
 	require.Empty(t, mm.OrderMidBlockers)
 	mm.SetOrderMidBlockers("module2", "module1")
@@ -245,25 +241,6 @@ func TestManager_ExportGenesis(t *testing.T) {
 		"module1": json.RawMessage(`{"key1": "value1"}`),
 		"module2": json.RawMessage(`{"key2": "value2"}`)}
 	require.Equal(t, want, mm.ExportGenesis(ctx, cdc))
-}
-
-func TestManager_BeginBlock(t *testing.T) {
-	mockCtrl := gomock.NewController(t)
-	t.Cleanup(mockCtrl.Finish)
-
-	mockAppModule1 := mocks.NewMockAppModule(mockCtrl)
-	mockAppModule2 := mocks.NewMockAppModule(mockCtrl)
-	mockAppModule1.EXPECT().Name().Times(2).Return("module1")
-	mockAppModule2.EXPECT().Name().Times(2).Return("module2")
-	mm := module.NewManager(mockAppModule1, mockAppModule2)
-	require.NotNil(t, mm)
-	require.Equal(t, 2, len(mm.Modules))
-
-	req := abci.RequestBeginBlock{Hash: []byte("test")}
-
-	mockAppModule1.EXPECT().BeginBlock(gomock.Any(), gomock.Eq(req)).Times(1)
-	mockAppModule2.EXPECT().BeginBlock(gomock.Any(), gomock.Eq(req)).Times(1)
-	mm.BeginBlock(sdk.NewContext(nil, tmproto.Header{}, false, nil), req)
 }
 
 func TestManager_MidBlock(t *testing.T) {

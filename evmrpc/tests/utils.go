@@ -145,6 +145,7 @@ func setupTestServer(
 		cfg,
 		mockClient,
 		&a.EvmKeeper,
+		a.BeginBlockKeepers,
 		a.BaseApp,
 		a.TracerAnteHandler,
 		ctxProvider,

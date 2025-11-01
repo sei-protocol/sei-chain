@@ -5,15 +5,41 @@ import (
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
 	abci "github.com/tendermint/tendermint/abci/types"
 )
 
-func (app *App) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res abci.ResponseBeginBlock) {
+func (app *App) BeginBlock(
+	ctx sdk.Context,
+	height int64,
+	votes []abci.VoteInfo,
+	byzantineValidators []abci.Misbehavior,
+	checkHeight bool,
+) (res abci.ResponseBeginBlock) {
 	spanCtx, beginBlockSpan := app.GetBaseApp().TracingInfo.StartWithContext("BeginBlock", ctx.TraceSpanContext())
 	defer beginBlockSpan.End()
 	ctx = ctx.WithTraceSpanContext(spanCtx)
-	return app.BaseApp.BeginBlock(ctx, req)
+	ctx = ctx.WithEventManager(sdk.NewEventManager())
+	// inline begin block
+	if checkHeight {
+		if err := app.ValidateHeight(height); err != nil {
+			panic(err)
+		}
+	}
+	metrics.GaugeSeidVersionAndCommit(app.versionInfo.Version, app.versionInfo.GitCommit)
+	// check if we've reached a target height, if so, execute any applicable handlers
+	if app.forkInitializer != nil {
+		app.forkInitializer(ctx)
+		app.forkInitializer = nil
+	}
+	if app.HardForkManager.TargetHeightReached(ctx) {
+		app.HardForkManager.ExecuteForTargetHeight(ctx)
+	}
+	legacyabci.BeginBlock(ctx, height, votes, byzantineValidators, app.BeginBlockKeepers)
+	return abci.ResponseBeginBlock{
+		Events: sdk.MarkEventsToIndex(ctx.EventManager().ABCIEvents(), app.IndexEvents),
+	}
 }
 
 func (app *App) MidBlock(ctx sdk.Context, height int64) []abci.Event {
