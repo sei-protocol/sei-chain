@@ -1,13 +1,14 @@
-package keeper
+package keeper_test
 
 import (
 	"testing"
 
+	"github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 	"github.com/stretchr/testify/require"
 )
 
 func TestKeeper_GetVoteTargets(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	input.OracleKeeper.ClearVoteTargets(input.Ctx)
 
@@ -21,7 +22,7 @@ func TestKeeper_GetVoteTargets(t *testing.T) {
 }
 
 func TestKeeper_IsVoteTarget(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 
 	input.OracleKeeper.ClearVoteTargets(input.Ctx)
 

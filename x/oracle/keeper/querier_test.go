@@ -1,4 +1,4 @@
-package keeper
+package keeper_test
 
 import (
 	"testing"
@@ -8,15 +8,17 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 
+	"github.com/sei-protocol/sei-chain/x/oracle/keeper"
+	"github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 	"github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/sei-protocol/sei-chain/x/oracle/utils"
 )
 
 func TestQueryParams(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 	ctx := sdk.WrapSDKContext(input.Ctx)
 
-	querier := NewQuerier(input.OracleKeeper)
+	querier := keeper.NewQuerier(input.OracleKeeper)
 	res, err := querier.Params(ctx, &types.QueryParamsRequest{})
 	require.NoError(t, err)
 
@@ -24,9 +26,9 @@ func TestQueryParams(t *testing.T) {
 }
 
 func TestQueryExchangeRate(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 	ctx := sdk.WrapSDKContext(input.Ctx)
-	querier := NewQuerier(input.OracleKeeper)
+	querier := keeper.NewQuerier(input.OracleKeeper)
 
 	rate := sdk.NewDec(1700)
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom, rate)
@@ -40,9 +42,9 @@ func TestQueryExchangeRate(t *testing.T) {
 }
 
 func TestQueryEmptyExchangeRates(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 	ctx := sdk.WrapSDKContext(input.Ctx)
-	querier := NewQuerier(input.OracleKeeper)
+	querier := keeper.NewQuerier(input.OracleKeeper)
 
 	res, err := querier.ExchangeRates(ctx, &types.QueryExchangeRatesRequest{})
 	require.NoError(t, err)
@@ -51,9 +53,9 @@ func TestQueryEmptyExchangeRates(t *testing.T) {
 }
 
 func TestQueryExchangeRates(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 	ctx := sdk.WrapSDKContext(input.Ctx)
-	querier := NewQuerier(input.OracleKeeper)
+	querier := keeper.NewQuerier(input.OracleKeeper)
 
 	rate := sdk.NewDec(1700)
 	input.OracleKeeper.SetBaseExchangeRate(input.Ctx, utils.MicroAtomDenom, rate)
@@ -69,23 +71,23 @@ func TestQueryExchangeRates(t *testing.T) {
 }
 
 func TestQueryFeederDelegation(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 	ctx := sdk.WrapSDKContext(input.Ctx)
-	querier := NewQuerier(input.OracleKeeper)
+	querier := keeper.NewQuerier(input.OracleKeeper)
 
-	input.OracleKeeper.SetFeederDelegation(input.Ctx, ValAddrs[0], Addrs[1])
+	input.OracleKeeper.SetFeederDelegation(input.Ctx, testutils.ValAddrs[0], testutils.Addrs[1])
 
 	res, err := querier.FeederDelegation(ctx, &types.QueryFeederDelegationRequest{
-		ValidatorAddr: ValAddrs[0].String(),
+		ValidatorAddr: testutils.ValAddrs[0].String(),
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, Addrs[1].String(), res.FeederAddr)
+	require.Equal(t, testutils.Addrs[1].String(), res.FeederAddr)
 }
 
 func TestQuerySlashingWindow(t *testing.T) {
-	input := CreateTestInput(t)
-	querier := NewQuerier(input.OracleKeeper)
+	input := testutils.CreateTestInput(t)
+	querier := keeper.NewQuerier(input.OracleKeeper)
 	votePeriod := input.OracleKeeper.VotePeriod(input.Ctx)
 
 	blocks := int64(12502)
@@ -109,9 +111,9 @@ func TestQuerySlashingWindow(t *testing.T) {
 }
 
 func TestQueryVoteTargets(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 	ctx := sdk.WrapSDKContext(input.Ctx)
-	querier := NewQuerier(input.OracleKeeper)
+	querier := keeper.NewQuerier(input.OracleKeeper)
 
 	input.OracleKeeper.ClearVoteTargets(input.Ctx)
 
@@ -126,9 +128,9 @@ func TestQueryVoteTargets(t *testing.T) {
 }
 
 func TestQueryPriceSnapshotHistory(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 	ctx := sdk.WrapSDKContext(input.Ctx)
-	querier := NewQuerier(input.OracleKeeper)
+	querier := keeper.NewQuerier(input.OracleKeeper)
 
 	priceSnapshots := types.PriceSnapshots{
 		types.NewPriceSnapshot(types.PriceSnapshotItems{
@@ -163,10 +165,10 @@ func TestQueryPriceSnapshotHistory(t *testing.T) {
 }
 
 func TestQueryTwaps(t *testing.T) {
-	input := CreateTestInput(t)
+	input := testutils.CreateTestInput(t)
 	input.Ctx = input.Ctx.WithBlockTime(time.Unix(5400, 0))
 	ctx := sdk.WrapSDKContext(input.Ctx)
-	querier := NewQuerier(input.OracleKeeper)
+	querier := keeper.NewQuerier(input.OracleKeeper)
 	_, err := querier.Twaps(ctx, &types.QueryTwapsRequest{LookbackSeconds: 3600})
 	require.Error(t, err)
 

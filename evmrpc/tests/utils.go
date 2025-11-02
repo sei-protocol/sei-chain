@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"sync/atomic"
+	"testing"
 	"time"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -36,6 +38,9 @@ func init() {
 type TestServer struct {
 	evmrpc.EVMServer
 	port int
+
+	mockClient *MockClient
+	app        *app.App
 }
 
 func (ts TestServer) Run(r func(port int)) {
@@ -44,11 +49,32 @@ func (ts TestServer) Run(r func(port int)) {
 	r(ts.port)
 }
 
+func (ts TestServer) SetupBlocks(blocks [][][]byte, initializer ...func(sdk.Context, *app.App)) {
+	ts.mockClient.blocks = append(ts.mockClient.blocks, blocks...)
+	blockHeight := int64(len(ts.mockClient.txResults) + 1)
+	for i, block := range blocks {
+		height := blockHeight + int64(i)
+		blockTime := time.Now()
+		res, err := ts.app.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
+			Txs:    block,
+			Hash:   mockHash(height, 0),
+			Height: height,
+			Time:   blockTime,
+		})
+		if err != nil {
+			panic(err)
+		}
+		_, _ = ts.app.Commit(context.Background())
+		ts.mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
+	}
+}
+
 func initializeApp(
+	t *testing.T,
 	chainID string,
 	initializer ...func(sdk.Context, *app.App),
 ) (*app.App, *abci.ResponseFinalizeBlock) {
-	a := app.Setup(false, true, chainID == "pacific-1")
+	a := app.Setup(t, false, true, chainID == "pacific-1")
 	a.ChainID = chainID
 	res, err := a.FinalizeBlock(context.Background(), &abci.RequestFinalizeBlock{
 		Txs:    [][]byte{},
@@ -68,10 +94,11 @@ func initializeApp(
 }
 
 func SetupTestServer(
+	t *testing.T,
 	blocks [][][]byte,
 	initializer ...func(sdk.Context, *app.App),
 ) TestServer {
-	a, res := initializeApp("sei-test", initializer...)
+	a, res := initializeApp(t, "sei-test", initializer...)
 	mockClient := &MockClient{blocks: append([][][]byte{{}}, blocks...)}
 	mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	for i, block := range blocks {
@@ -86,27 +113,28 @@ func SetupTestServer(
 		if err != nil {
 			panic(err)
 		}
+		// for i, txRes := range res.TxResults {
+		// 	fmt.Printf("tx %d: %s\n", i, txRes.Log)
+		// }
 		_, _ = a.Commit(context.Background())
 		mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	}
-	return setupTestServer(a, a.RPCContextProvider, mockClient, blocks, initializer...)
+	return setupTestServer(a, a.RPCContextProvider, mockClient)
 }
 
-func SetupMockPacificTestServer(initializer func(*app.App, *MockClient) sdk.Context) TestServer {
-	a, res := initializeApp("pacific-1")
+func SetupMockPacificTestServer(t *testing.T, initializer func(*app.App, *MockClient) sdk.Context) TestServer {
+	a, res := initializeApp(t, "pacific-1")
 	mockClient := &MockClient{blocks: [][][]byte{{}}}
 	// seed mock client with genesis block results so latest height queries work
 	mockClient.recordBlockResult(res.TxResults, res.ConsensusParamUpdates, res.Events)
 	ctx := initializer(a, mockClient)
-	return setupTestServer(a, func(int64) sdk.Context { return ctx }, mockClient, [][][]byte{})
+	return setupTestServer(a, func(int64) sdk.Context { return ctx }, mockClient)
 }
 
 func setupTestServer(
 	a *app.App,
 	ctxProvider func(int64) sdk.Context,
 	mockClient *MockClient,
-	blocks [][][]byte,
-	initializer ...func(sdk.Context, *app.App),
 ) TestServer {
 	port := int(portProvider.Add(1))
 	cfg := evmrpc.DefaultConfig
@@ -129,7 +157,17 @@ func setupTestServer(
 	if err != nil {
 		panic(err)
 	}
-	return TestServer{EVMServer: s, port: port}
+	if store := a.EvmKeeper.ReceiptStore(); store != nil {
+		latest := int64(math.MaxInt64)
+		if latest <= 0 {
+			latest = 1
+		}
+		if err := store.SetLatestVersion(latest); err != nil {
+			panic(err)
+		}
+		_ = store.SetEarliestVersion(1, true)
+	}
+	return TestServer{EVMServer: s, port: port, mockClient: mockClient, app: a}
 }
 
 func sendRequestWithNamespace(namespace string, port int, method string, params ...interface{}) map[string]interface{} {
@@ -240,6 +278,10 @@ func encodeEvmTx(txData ethtypes.TxData, signed *ethtypes.Transaction) []byte {
 
 func signAndEncodeCosmosTx(msg sdk.Msg, mnemonic string, acctN uint64, seq uint64) []byte {
 	tx := signCosmosTxWithMnemonic(msg, mnemonic, acctN, seq)
+	return encodeCosmosTx(tx)
+}
+
+func encodeCosmosTx(tx sdk.Tx) []byte {
 	txBz, _ := testkeeper.EVMTestApp.GetTxConfig().TxEncoder()(tx)
 	return txBz
 }

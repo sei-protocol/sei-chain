@@ -10,6 +10,7 @@ import (
 	"github.com/sei-protocol/sei-chain/app/antedecorators"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	oraclekeeper "github.com/sei-protocol/sei-chain/x/oracle/keeper"
+	oracletestutils "github.com/sei-protocol/sei-chain/x/oracle/keeper/testutils"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -109,20 +110,20 @@ func CallGaslessDecoratorWithMsg(ctx sdk.Context, msg sdk.Msg, oracleKeeper orac
 }
 
 func TestOracleVoteGasless(t *testing.T) {
-	input := oraclekeeper.CreateTestInput(t)
+	input := oracletestutils.CreateTestInput(t)
 
-	addr := oraclekeeper.Addrs[0]
-	addr1 := oraclekeeper.Addrs[1]
-	valAddr, val := oraclekeeper.ValAddrs[0], oraclekeeper.ValPubKeys[0]
-	valAddr1, val1 := oraclekeeper.ValAddrs[1], oraclekeeper.ValPubKeys[1]
+	addr := oracletestutils.Addrs[0]
+	addr1 := oracletestutils.Addrs[1]
+	valAddr, val := oracletestutils.ValAddrs[0], oracletestutils.ValPubKeys[0]
+	valAddr1, val1 := oracletestutils.ValAddrs[1], oracletestutils.ValPubKeys[1]
 	amt := sdk.TokensFromConsensusPower(100, sdk.DefaultPowerReduction)
 	sh := staking.NewHandler(input.StakingKeeper)
 	ctx := input.Ctx.WithIsCheckTx(true)
 
 	// Validator created
-	_, err := sh(ctx, oraclekeeper.NewTestMsgCreateValidator(valAddr, val, amt))
+	_, err := sh(ctx, oracletestutils.NewTestMsgCreateValidator(valAddr, val, amt))
 	require.NoError(t, err)
-	_, err = sh(ctx, oraclekeeper.NewTestMsgCreateValidator(valAddr1, val1, amt))
+	_, err = sh(ctx, oracletestutils.NewTestMsgCreateValidator(valAddr1, val1, amt))
 	require.NoError(t, err)
 	staking.EndBlocker(ctx, input.StakingKeeper)
 

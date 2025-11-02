@@ -19,7 +19,7 @@ type OptimisticProcessingTestSuite struct {
 }
 
 func (suite *OptimisticProcessingTestSuite) SetupTest() {
-	suite.app = Setup(false, false, false)
+	suite.app = Setup(suite.T(), false, false, false)
 	suite.ctx = suite.app.BaseApp.NewContext(false, tmproto.Header{Height: 1})
 }
 
