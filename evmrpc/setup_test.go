@@ -542,6 +542,7 @@ func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
 	testApp := app.SetupWithDefaultHome(false, false, false)
 	Ctx = testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
+	baseCtx := Ctx
 	MultiTxCtx, _ = Ctx.CacheContext()
 	EVMKeeper = &testApp.EvmKeeper
 	EVMKeeper.InitGenesis(Ctx, *types.DefaultGenesis())
@@ -568,6 +569,9 @@ func init() {
 	ctxProvider := func(height int64) sdk.Context {
 		if height == MockHeight2 {
 			return MultiTxCtx.WithIsTracing(true)
+		}
+		if height == evmrpc.LatestCtxHeight {
+			return baseCtx.WithIsTracing(true)
 		}
 		return Ctx.WithIsTracing(true)
 	}
