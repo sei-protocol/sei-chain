@@ -236,7 +236,7 @@ func (r *Router) OpenChannel(chDesc ChannelDescriptor) (*Channel, error) {
 	panic("unreachable")
 }
 
-func (r *Router) numConccurentDials() int {
+func (r *Router) numConcurrentDials() int {
 	if r.options.NumConcurrentDials == nil {
 		return runtime.NumCPU()
 	}
@@ -364,7 +364,7 @@ func (r *Router) openConnection(ctx context.Context, tcpConn *net.TCPConn) error
 // dialPeers maintains outbound connections to peers by dialing them.
 func (r *Router) dialPeers(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		sem := semaphore.NewWeighted(int64(r.numConccurentDials()))
+		sem := semaphore.NewWeighted(int64(r.numConcurrentDials()))
 		for {
 			if err := sem.Acquire(ctx, 1); err != nil {
 				return err
