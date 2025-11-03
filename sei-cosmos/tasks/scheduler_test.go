@@ -67,7 +67,7 @@ func initTestCtx(injectStores bool) sdk.Context {
 		stores[testStoreKey] = cachekv.NewStore(mem, testStoreKey, 1000)
 		keys[testStoreKey.Name()] = testStoreKey
 	}
-	store := cachemulti.NewStore(db, stores, keys, nil, nil, nil)
+	store := cachemulti.NewStore(db, stores, keys, nil, nil)
 	ctx = ctx.WithMultiStore(&store)
 	ctx = ctx.WithLogger(log.NewNopLogger())
 	return ctx
