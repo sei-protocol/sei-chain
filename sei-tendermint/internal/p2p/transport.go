@@ -192,8 +192,6 @@ func (c *Connection) Run(ctx context.Context, r *Router) error {
 			delete(conns, peerID)
 		}
 	}
-	// TODO(gprusak): investigate if peerManager handles overlapping connetions correctly
-	r.peerManager.Disconnected(ctx, peerID)
 	return err
 }
 

@@ -28,8 +28,23 @@ type peerStore struct {
 	options *PeerManagerOptions
 	db      dbm.DB
 	peers   map[types.NodeID]*peerInfo
+	dynamicPrivatePeers map[types.NodeID]struct{} // dynamically added private peers
 	ranked  utils.Option[[]*peerInfo]
+
+	upgrading           map[types.NodeID]types.NodeID              // peers claimed for upgrade (DialNext → Dialed/DialFail)
+	ready               utils.Watch[map[types.NodeID]ChannelIDSet] // ready peers (Ready → Disconnected)
+
 	metrics *Metrics
+}
+
+func (s *peerStore) NumConnected() int {
+	cnt := 0
+	for _,p := range s.peers {
+		if p.connected && !s.options.UnconditionalPeers[p.ID] {
+			cnt++
+		}
+	}
+	return cnt
 }
 
 // newPeerStore creates a new peer store, loading all persisted peers from the
@@ -61,12 +76,19 @@ func newPeerStore(db dbm.DB, options *PeerManagerOptions, metrics *Metrics) (*pe
 	if iter.Error() != nil {
 		return nil, iter.Error()
 	}
-	return &peerStore{peers: peers, db: db, options: options, metrics: metrics}, nil
+	return &peerStore{
+		peers: peers,
+		db: db,
+		options: options,
+		metrics: metrics,
+		upgrading:           map[types.NodeID]types.NodeID{},
+		ready:               utils.NewWatch(map[types.NodeID]ChannelIDSet{}),
+	}, nil
 }
 
 func (s *peerStore) BanPeer(id types.NodeID) error {
 	if peer, ok := s.peers[id]; ok {
-		if peer.Persistent || peer.BlockSync {
+		if s.options.PersistentPeers[id] || s.options.BlockSyncPeers[id] {
 			// cannot ban peers listed in the config file
 			return fmt.Errorf("attempting to ban %s but no-op. Remove the peer from config.toml instead", id)
 		}
@@ -77,19 +99,32 @@ func (s *peerStore) BanPeer(id types.NodeID) error {
 	return nil
 }
 
-func (s *peerStore) DialFailed(address NodeAddress) (bool,error) {
-	peer,ok := s.peers[address.NodeID]
-	if !ok { return false,nil }
-	if _, ok := peer.AddressInfo[address]; !ok { return false,nil }
-	peer.AddressInfo[address].LastDialFailure = utils.Some(time.Now().UTC())
-	peer.AddressInfo[address].DialFailures++
+func (s *peerStore) DialFailed(addr NodeAddress) error {
+	for from, to := range s.upgrading {
+		if to == addr.NodeID {
+			delete(s.upgrading, from) // Unmark failed upgrade attempt.
+		}
+	}
+
+	peer,ok := s.peers[addr.NodeID]
+	if !ok { return nil }
+	if _, ok := peer.AddressInfo[addr]; !ok { return nil }
+	peer.AddressInfo[addr].LastDialFailure = utils.Some(time.Now().UTC())
+	peer.AddressInfo[addr].DialFailures++
 	peer.ConsecSuccessfulBlocks = 0
 	if err:=storePeerInfo(s.db,peer.storedPeerInfo); err!=nil {
-		return false,err
+		return err
 	}
 	// We need to invalidate the cache after score changed
 	s.ranked = utils.None[[]*peerInfo]()
-	return true,nil
+
+	if d,ok := s.RetryDelay(addr).Get(); ok {
+		// TODO: update next dial time (under watch)
+		_ = d
+	} else {
+		s.Delete(addr.NodeID)
+	}
+	return nil
 }
 
 // Get fetches a peer. The boolean indicates whether the peer existed or not.
@@ -180,7 +215,7 @@ func (s *peerStore) Ranked() []*peerInfo {
 	sort.Slice(ranked, func(i, j int) bool {
 		// FIXME: If necessary, consider precomputing scores before sorting,
 		// to reduce the number of Score() calls.
-		if a, b := ranked[i].Score(), ranked[j].Score(); a != b {
+		if a, b := s.Score(ranked[i].ID), s.Score(ranked[j].ID); a != b {
 			return a > b
 		}
 		// TODO(gprusak): we don't allow ties because tests require deterministic order.
@@ -215,11 +250,16 @@ type storedPeerInfo struct {
 // peerInfo contains peer information stored in a peerStore.
 type peerInfo struct {
 	storedPeerInfo
-	NumOfDisconnections uint64
 
 	// These fields are ephemeral, i.e. not persisted to the database.
-	MutableScore PeerScore // updated by router
+	NumOfDisconnections uint64
 	ConsecSuccessfulBlocks int64
+	BaseScore  PeerScore
+	FinalScore PeerScore
+
+	// Connection state.
+	dialing bool
+	conn utils.Option[*Connection]
 }
 
 // newPeerInfo creates a peerInfo for a new peer. Each peer will start with a positive MutableScore.
@@ -230,7 +270,7 @@ func newPeerInfo(id types.NodeID) *peerInfo {
 			ID:           id,
 			AddressInfo:  map[NodeAddress]*peerAddressInfo{},
 		},
-		MutableScore: DefaultMutableScore, // Should start with a default value above 0
+		BaseScore: DefaultMutableScore, // Should start with a default value above 0
 	}
 }
 
@@ -271,12 +311,16 @@ func (p *storedPeerInfo) ToProto() *p2pproto.PeerInfo {
 	return msg
 }
 
+func (s *peerStore) updateScore(id types.NodeID) {
+	p,ok := s.peers[id]
+	if !ok { return }
+	p.FinalScore = s.score(p)
+}
+
 // Score calculates a score for the peer. Higher-scored peers will be
 // preferred over lower scores.
-func (s *peerStore) Score(id types.NodeID) PeerScore {
-	p,ok := s.peers[id]
-	if !ok { return 0 }
-
+func (s *peerStore) score(p *peerInfo) PeerScore {
+	id := p.ID
 	// Use predetermined scores if set
 	if score,ok := s.options.PeerScores[id]; ok {
 		return score
@@ -284,7 +328,7 @@ func (s *peerStore) Score(id types.NodeID) PeerScore {
 	if s.options.UnconditionalPeers[id] {
 		return PeerScoreUnconditional
 	}
-	score := int64(p.MutableScore)
+	score := int64(p.BaseScore)
 	if s.options.PersistentPeers[id] || s.options.BlockSyncPeers[id] {
 		return PeerScorePersistent
 	}
@@ -307,12 +351,7 @@ func (s *peerStore) Score(id types.NodeID) PeerScore {
 		effectiveDisconnections := int64(float64(p.NumOfDisconnections) * decayFactor)
 		score -= effectiveDisconnections / 3
 	}
-
-	// Cap score for non-persistent peers
-	if !s.options.PersistentPeers[id] {
-		score = min(score, int64(MaxPeerScoreNotPersistent))
-	}
-	return PeerScore(max(score,0))
+	return PeerScore(max(min(score, int64(MaxPeerScoreNotPersistent)),0))
 }
 
 // Validate validates the peer info.
@@ -399,10 +438,10 @@ func keyPeerInfoRange() ([]byte, []byte) {
 }
 
 func (s *peerStore) Add(addr NodeAddress) (bool,error) {
-	if err := address.Validate(); err != nil {
+	if err := addr.Validate(); err != nil {
 		return false, err
 	}
-	if address.NodeID == s.options.SelfID {
+	if addr.NodeID == s.options.SelfID {
 		m.logger.Info("can't add self to peer store, skipping address", "address", address.String(), "self", m.selfID)
 		return false, nil
 	}
@@ -412,14 +451,15 @@ func (s *peerStore) Add(addr NodeAddress) (bool,error) {
 	if _, ok := s.peers[addr.NodeID].AddressInfo[addr]; ok {
 		return false, nil
 	}
-	s.peers[addr.NodeID].AddressInfo[addr] = &peerAddressInfo{Address: address}
-	m.logger.Info(fmt.Sprintf("Adding new peer %s with address %s to peer store\n", peer.ID, address.String()))
-	if err := storePeerInfo(s.db, peer.storedPeerInfo); err!=nil {
-		return err
+	s.peers[addr.NodeID].AddressInfo[addr] = &peerAddressInfo{Address: addr}
+	m.logger.Info(fmt.Sprintf("Adding new peer %s with address %s to peer store\n", peer.ID, addr.String()))
+	if err := storePeerInfo(s.db, s.peers[addr.NodeID].storedPeerInfo); err!=nil {
+		return false, err
 	}
-	if err := m.prunePeers(); err != nil {
+	if err := s.prunePeers(); err != nil {
 		return true, err
 	}
+	return true, nil
 }
 
 // prunePeers removes low-scored peers from the peer store if it contains more
@@ -446,20 +486,22 @@ func (s *peerStore) prunePeers() error {
 	return nil
 }
 
-func (s *peerStore) Disconnected(id types.NodeID) {
+func (s *peerStore) Disconnect(conn *Connection) {
 	// Update score and invalidate cache if a peer got disconnected
-	if peer, ok := s.peers[id]; ok {
-		peer.NumOfDisconnections++
-		peer.ConsecSuccessfulBlocks = 0
-		s.ranked = utils.None[[]*peerInfo]()
+	if peer, ok := s.peers[conn.PeerInfo().NodeID]; ok {
+		if peer.conn==utils.Some(conn) {
+			peer.NumOfDisconnections++
+			peer.ConsecSuccessfulBlocks = 0
+			peer.conn = utils.None[*Connection]()
+		}
 	}
 }
 
 func (s *peerStore) UpdateScore(id types.NodeID, diff int64) {
 	if peer,ok := s.peers[id]; ok {
-		score := int64(peer.MutableScore)+diff
+		score := int64(peer.BaseScore)+diff
 		score = min(max(score,0),int64(MaxPeerScoreNotPersistent))
-		peer.MutableScore = PeerScore(score)
+		peer.BaseScore = PeerScore(score)
 		s.ranked = utils.None[[]*peerInfo]()
 	}
 }
@@ -512,14 +554,83 @@ func (s *peerStore) IncBlockSyncs(id types.NodeID) {
 	}
 }
 
-func (s *peerStore) Dialed(addr NodeAddress) (bool,error) {
-	// TODO
-	now := time.Now().UTC()
-	peer.LastConnected = utils.Some(now)
-	if addressInfo, ok := peer.AddressInfo[addr]; ok {
-		addressInfo.DialFailures = 0
-		addressInfo.LastDialSuccess = utils.Some(now)
-		// If not found, assume address has been removed.
+func (s *peerStore) Ready(conn *Connection, dialAddr utils.Option[NodeAddress]) error {
+	id := conn.PeerInfo().NodeID
+	if id == s.options.SelfID {
+		return fmt.Errorf("rejecting connection from self (%v)", id)
 	}
-	return s.Set(peer)
+	if _,ok := s.peers[id]; !ok {
+		s.peers[id] = newPeerInfo(id)
+	}
+	peer := s.peers[id]
+	if peer.conn.IsPresent() {
+		return fmt.Errorf("can't accept, peer=%q is already connected", id)
+	}
+	if !s.options.UnconditionalPeers[id] && s.options.MaxConnected > 0 &&
+		s.NumConnected() >= int(s.options.MaxConnected)+int(s.options.MaxConnectedUpgrade) {
+		return fmt.Errorf("accepted peer %q failed, already connected to maximum number of peers", peerID)
+	}
+	now := time.Now().UTC()
+	peer.dialing = false
+	peer.conn = utils.Some(conn)
+	peer.LastConnected = utils.Some(now)
+	// reset this to avoid penalizing peers for their past transgressions
+	for _,info := range peer.AddressInfo {
+		info.DialFailures = 0
+		info.LastDialFailure = utils.None[time.Time]()
+	}
+	if dialAddr,ok := dialAddr.Get(); ok {
+		peer.AddressInfo[dialAddr] = &peerAddressInfo{
+			Address: dialAddr, LastDialSuccess: utils.Some(now),
+		}
+	}
+	return nil
 }
+
+// SendError reports a peer misbehavior to the router.
+func (s *peerStore) SendError(pe PeerError) {
+	shouldEvict := pe.Fatal
+	if maxConnected,ok := s.options.MaxConnected.Get(); ok {
+		shouldEvict = shouldEvict || (s.NumConnected() >= int(maxConnected))
+	}
+	s.logger.Error("peer error",
+		"peer", pe.NodeID,
+		"err", pe.Err,
+		"evicting", shouldEvict,
+	)
+	if shouldEvict {
+		peer := s.peers[pe.NodeID]
+		s.logger.Info("evicting peer", "peer", pe.NodeID, "cause", pe.Err)
+		peer.Close()
+		peer.evicting = true
+	} else {
+		s.UpdateScore(pe.NodeID,-1)
+	}
+}
+
+
+// Advertise returns a list of peer addresses to advertise to a peer.
+//
+// FIXME: This is fairly naïve and only returns the addresses of the
+// highest-ranked peers.
+func (s *peerStore) Advertise(limit int) []NodeAddress {
+	var addrs []NodeAddress
+
+	// advertise ourselves, to let everyone know how to dial us back
+	// and enable mutual address discovery
+	if addr,ok := s.options.SelfAddress.Get(); ok {
+		addrs = append(addrs, addr)
+	}
+
+	for _, peer := range s.Ranked() {
+		for _, info := range peer.AddressInfo {
+			if len(addrs) >= limit { return addrs }
+			// only add non-private NodeIDs
+			if _, ok := s.options.PrivatePeers[peer.ID]; ok { continue }
+			if _, ok := s.dynamicPrivatePeers[peer.ID]; ok { continue }
+			addrs = append(addrs, info.Address)
+		}
+	}
+	return addrs
+}
+

@@ -26,22 +26,14 @@ import (
 type RouterOptions struct {
 	// ResolveTimeout is the timeout for resolving NodeAddress URLs.
 	// 0 means no timeout.
-	ResolveTimeout time.Duration
+	ResolveTimeout utils.Option[time.Duration]
 
 	// DialTimeout is the timeout for dialing a peer. 0 means no timeout.
-	DialTimeout time.Duration
+	DialTimeout utils.Option[time.Duration]
 
 	// HandshakeTimeout is the timeout for handshaking with a peer. 0 means
 	// no timeout.
-	HandshakeTimeout time.Duration
-
-	// MaxIncomingConnectionAttempts rate limits the number of incoming connection
-	// attempts per IP address. Defaults to 100.
-	MaxIncomingConnectionAttempts utils.Option[uint]
-
-	// IncomingConnectionWindow describes how often an IP address
-	// can attempt to create a new connection. Defaults to 100ms.
-	IncomingConnectionWindow utils.Option[time.Duration]
+	HandshakeTimeout utils.Option[time.Duration]
 
 	// FilterPeerByIP is used by the router to inject filtering
 	// behavior for new incoming connections. The router passes
@@ -58,17 +50,6 @@ type RouterOptions struct {
 	// return an error to reject the peer.
 	FilterPeerByID func(context.Context, types.NodeID) error
 
-	// DialSleep controls the amount of time that the router
-	// sleeps between dialing peers. If not set, a default value
-	// is used that sleeps for a (random) amount of time up to 3
-	// seconds between submitting each peer to be dialed.
-	DialSleep func(context.Context) error
-
-	// NumConcrruentDials controls how many parallel go routines
-	// are used to dial peers. This defaults to the value of
-	// runtime.NumCPU.
-	NumConcurrentDials func() int
-
 	// MaxAcceptedConnections is the maximum number of simultaneous accepted
 	// (incoming) connections. Beyond this, new connections will block until
 	// a slot is free. 0 means unlimited.
@@ -77,14 +58,6 @@ type RouterOptions struct {
 	Endpoint Endpoint
 
 	Connection conn.MConnConfig
-}
-
-func (o *RouterOptions) getIncomingConnectionWindow() time.Duration {
-	return o.IncomingConnectionWindow.Or(100 * time.Millisecond)
-}
-
-func (o *RouterOptions) getMaxIncomingConnectionAttempts() uint {
-	return o.MaxIncomingConnectionAttempts.Or(100)
 }
 
 // Router manages peer connections and routes messages between peers and reactor
@@ -136,7 +109,6 @@ type Router struct {
 	options     RouterOptions
 	privKey     crypto.PrivKey
 	peerManager *PeerManager
-	connTracker *connTracker
 
 	conns            utils.RWMutex[map[types.NodeID]*Connection]
 	nodeInfoProducer func() *types.NodeInfo
@@ -177,10 +149,7 @@ func NewRouter(
 		lc:               newMetricsLabelCache(),
 		privKey:          privKey,
 		nodeInfoProducer: nodeInfoProducer,
-		connTracker: newConnTracker(
-			options.getMaxIncomingConnectionAttempts(),
-			options.getIncomingConnectionWindow(),
-		),
+
 		peerManager:       peerManager,
 		options:           options,
 		channels:          utils.NewRWMutex(map[ChannelID]*channel{}),
@@ -236,13 +205,6 @@ func (r *Router) OpenChannel(chDesc ChannelDescriptor) (*Channel, error) {
 	panic("unreachable")
 }
 
-func (r *Router) numConccurentDials() int {
-	if r.options.NumConcurrentDials == nil {
-		return runtime.NumCPU()
-	}
-	return r.options.NumConcurrentDials()
-}
-
 func (r *Router) filterPeersIP(ctx context.Context, addrPort netip.AddrPort) error {
 	if r.options.FilterPeerByIP == nil {
 		return nil
@@ -263,20 +225,6 @@ func (r *Router) filterPeersID(ctx context.Context, id types.NodeID) error {
 	}
 
 	return r.options.FilterPeerByID(ctx, id)
-}
-
-func (r *Router) dialSleep(ctx context.Context) error {
-	if r.options.DialSleep != nil {
-		return r.options.DialSleep(ctx)
-	}
-	const (
-		maxDialerInterval = 3000
-		minDialerInterval = 250
-	)
-
-	// nolint:gosec // G404: Use of weak random number generator
-	dur := time.Duration(rand.Int63n(maxDialerInterval-minDialerInterval+1) + minDialerInterval)
-	return utils.Sleep(ctx, dur*time.Millisecond)
 }
 
 func (r *Router) acceptPeers(ctx context.Context) error {
@@ -317,120 +265,15 @@ func (r *Router) acceptPeers(ctx context.Context) error {
 	})
 }
 
-func (r *Router) openConnection(ctx context.Context, tcpConn *net.TCPConn) error {
-	defer tcpConn.Close()
-	r.metrics.NewConnections.With("direction", "in").Add(1)
-	incomingAddr := remoteEndpoint(tcpConn).AddrPort
-	if err := r.connTracker.AddConn(incomingAddr); err != nil {
-		return fmt.Errorf("rate limiting incoming peer %v: %w", incomingAddr, err)
-	}
-	defer r.connTracker.RemoveConn(incomingAddr)
-
-	if err := r.filterPeersIP(ctx, incomingAddr); err != nil {
-		r.logger.Debug("peer filtered by IP", "ip", incomingAddr, "err", err)
-		return nil
-	}
-
-	// FIXME: The peer manager may reject the peer during Accepted()
-	// after we've handshaked with the peer (to find out which peer it
-	// is). However, because the handshake has no ack, the remote peer
-	// will think the handshake was successful and start sending us
-	// messages.
-	//
-	// This can cause problems in tests, where a disconnection can cause
-	// the local node to immediately redial, while the remote node may
-	// not have completed the disconnection yet and therefore reject the
-	// reconnection attempt (since it thinks we're still connected from
-	// before).
-	//
-	// The Router should do the handshake and have a final ack/fail
-	// message to make sure both ends have accepted the connection, such
-	// that it can be coordinated with the peer manager.
-	conn, err := r.handshakePeer(ctx, tcpConn, utils.None[types.NodeID]())
-	if err != nil {
-		return fmt.Errorf("r.handshakePeer(): %v: %w", tcpConn, err)
-	}
-	peerInfo := conn.PeerInfo()
-	if err := r.filterPeersID(ctx, peerInfo.NodeID); err != nil {
-		r.logger.Debug("peer filtered by node ID", "node", peerInfo.NodeID, "err", err)
-		return nil
-	}
-	if err := r.peerManager.Accepted(peerInfo.NodeID); err != nil {
-		return fmt.Errorf("failed to accept connection: op=incoming/accepted, peer=%v: %w", peerInfo.NodeID, err)
-	}
-	return conn.Run(ctx, r)
-}
-
-// dialPeers maintains outbound connections to peers by dialing them.
-func (r *Router) dialPeers(ctx context.Context) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		sem := semaphore.NewWeighted(int64(r.numConccurentDials()))
-		for {
-			if err := sem.Acquire(ctx, 1); err != nil {
-				return err
-			}
-			address, err := r.peerManager.DialNext(ctx)
-			if err != nil {
-				return fmt.Errorf("failed to find next peer to dial: %w", err)
-			}
-			s.Spawn(func() error {
-				err := func() error {
-					r.logger.Debug("Going to dial", "peer", address.NodeID)
-					conn, err := r.connectPeer(ctx, address)
-					sem.Release(1)
-
-					if err != nil {
-						return fmt.Errorf("connectPeer(): %w", err)
-					}
-					return conn.Run(ctx, r)
-				}()
-				r.logger.Error("dial", "err", err)
-				return nil
-			})
-
-			// this jitters the frequency that we call
-			// DialNext and prevents us from attempting to
-			// create connections too quickly.
-			if err := r.dialSleep(ctx); err != nil {
-				return err
-			}
-		}
-	})
-}
-
-func (r *Router) connectPeer(ctx context.Context, address NodeAddress) (c *Connection, err error) {
+func (r *Router) ConnectPeer(ctx context.Context, address NodeAddress) (c *Connection, err error) {
 	tcpConn, err := r.Dial(ctx, address)
 	if err != nil {
-		if !errors.Is(err, context.Canceled) {
-			if err := r.peerManager.DialFailed(ctx, address); err != nil {
-				r.logger.Debug("failed to report dial failure", "peer", address, "err", err)
-			}
-		}
-		return nil, fmt.Errorf("failed to dial peer %v: %w", address, err)
+		return nil, fmt.Errorf("r.Dial(): %w", err)
 	}
-	defer func() {
-		if err != nil {
-			tcpConn.Close()
-		}
-	}()
-
 	conn, err := r.handshakePeer(ctx, tcpConn, utils.Some(address.NodeID))
 	if err != nil {
-		if !errors.Is(err, context.Canceled) {
-			if err := r.peerManager.DialFailed(ctx, address); err != nil {
-				r.logger.Error("failed to report dial failure %v: %w", address, err)
-			}
-		}
+		tcpConn.Close()
 		return nil, fmt.Errorf("failed to handshake with peer %v: %w", address, err)
-	}
-
-	// TODO(gprusak): this symmetric logic for handling duplicate connections is a source of race conditions:
-	// if 2 nodes try to establish a connection to each other at the same time, both connections will be dropped.
-	// Instead either:
-	// * break the symmetry by favoring incoming connection iff my.NodeID > peer.NodeID
-	// * keep incoming and outcoming connection pools separate to avoid the collision (recommended)
-	if err := r.peerManager.Dialed(address); err != nil {
-		return nil, fmt.Errorf("failed to dial outgoing/dialing peer %v: %w", address.NodeID, err)
 	}
 	return conn, nil
 }
@@ -438,9 +281,9 @@ func (r *Router) connectPeer(ctx context.Context, address NodeAddress) (c *Conne
 // dialPeer connects to a peer by dialing it.
 func (r *Router) Dial(ctx context.Context, address NodeAddress) (*net.TCPConn, error) {
 	resolveCtx := ctx
-	if r.options.ResolveTimeout > 0 {
+	if d,ok := r.options.ResolveTimeout.Get(); ok {
 		var cancel context.CancelFunc
-		resolveCtx, cancel = context.WithTimeout(resolveCtx, r.options.ResolveTimeout)
+		resolveCtx, cancel = context.WithTimeout(resolveCtx, d)
 		defer cancel()
 	}
 
@@ -458,9 +301,9 @@ func (r *Router) Dial(ctx context.Context, address NodeAddress) (*net.TCPConn, e
 
 	for _, endpoint := range endpoints {
 		dialCtx := ctx
-		if r.options.DialTimeout > 0 {
+		if d,ok := r.options.DialTimeout.Get(); ok {
 			var cancel context.CancelFunc
-			dialCtx, cancel = context.WithTimeout(dialCtx, r.options.DialTimeout)
+			dialCtx, cancel = context.WithTimeout(dialCtx, d)
 			defer cancel()
 		}
 
@@ -502,9 +345,9 @@ func (r *Router) handshakePeer(
 			tcpConn.Close()
 		}
 	}()
-	if r.options.HandshakeTimeout > 0 {
+	if d,ok := r.options.HandshakeTimeout.Get(); ok {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, r.options.HandshakeTimeout)
+		ctx, cancel = context.WithTimeout(ctx, d)
 		defer cancel()
 	}
 	conn, err := HandshakeOrClose(ctx, r, tcpConn)
@@ -514,16 +357,12 @@ func (r *Router) handshakePeer(
 	peerInfo := conn.PeerInfo()
 	nodeInfo := r.nodeInfoProducer()
 	if peerInfo.Network != nodeInfo.Network {
-		if err := r.peerManager.Delete(peerInfo.NodeID); err != nil {
-			return nil, fmt.Errorf("problem removing peer from store from incorrect network [%s]: %w", peerInfo.Network, err)
-		}
-		return nil, fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)
+		return nil, ErrBadNetwork{fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)}
 	}
 	if want, ok := expectID.Get(); ok && want != peerInfo.NodeID {
 		return nil, fmt.Errorf("expected to connect with peer %q, got %q",
 			want, peerInfo.NodeID)
 	}
-
 	if err := nodeInfo.CompatibleWith(peerInfo); err != nil {
 		return nil, ErrRejected{
 			err:            err,
@@ -534,27 +373,10 @@ func (r *Router) handshakePeer(
 	return conn, nil
 }
 
-// evictPeers evicts connected peers as requested by the peer manager.
-func (r *Router) evictPeers(ctx context.Context) error {
-	for {
-		ev, err := r.peerManager.EvictNext(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to find next peer to evict: %w", err)
-		}
-		for conns := range r.conns.Lock() {
-			if c, ok := conns[ev.ID]; ok {
-				r.logger.Info("evicting peer", "peer", ev.ID, "cause", ev.Cause)
-				c.Close()
-			}
-		}
-	}
-}
-
 func (r *Router) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("acceptPeers", func() error { return r.acceptPeers(ctx) })
-		s.SpawnNamed("dialPeers", func() error { return r.dialPeers(ctx) })
-		s.SpawnNamed("evictPeers", func() error { return r.evictPeers(ctx) })
+		s.SpawnNamed("peerManager", func() error { return r.peerManager.Run(ctx, r) })
 		return nil
 	})
 }
