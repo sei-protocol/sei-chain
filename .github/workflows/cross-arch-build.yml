@@ -1,0 +1,130 @@
+name: Cross-Architecture Build Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - release/**
+
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+
+jobs:
+  cross-arch-build:
+    name: "Build ${{ matrix.target }} on ${{ matrix.os }}"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux AMD64
+          - os: ubuntu-latest
+            target: install
+            arch: amd64
+            goos: linux
+            description: "Linux AMD64 - install"
+          - os: ubuntu-latest
+            target: build
+            arch: amd64
+            goos: linux
+            description: "Linux AMD64 - build"
+
+          # macOS AMD64
+          - os: macos-13
+            target: install
+            arch: amd64
+            goos: darwin
+            description: "macOS AMD64 - install"
+          - os: macos-13
+            target: build
+            arch: amd64
+            goos: darwin
+            description: "macOS AMD64 - build"
+
+          # macOS ARM64 (Apple Silicon)
+          - os: macos-latest
+            target: install
+            arch: arm64
+            goos: darwin
+            description: "macOS ARM64 - install"
+          - os: macos-latest
+            target: build
+            arch: arm64
+            goos: darwin
+            description: "macOS ARM64 - build"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.24'
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          # macOS typically has necessary build tools via Xcode Command Line Tools
+          xcode-select --version || xcode-select --install
+
+      - name: Verify Go installation
+        run: |
+          go version
+          echo "GOARCH: $(go env GOARCH)"
+          echo "GOOS: $(go env GOOS)"
+
+      - name: Download Go dependencies
+        run: go mod download
+
+      - name: Run make ${{ matrix.target }}
+        run: make ${{ matrix.target }}
+        env:
+          LEDGER_ENABLED: false
+
+      - name: Verify binary (install target)
+        if: matrix.target == 'install'
+        run: |
+          if command -v seid &> /dev/null; then
+            echo "seid binary installed successfully"
+            seid version --long
+          else
+            echo "seid binary not found in PATH"
+            exit 1
+          fi
+
+      - name: Verify binary (build target)
+        if: matrix.target == 'build'
+        run: |
+          if [ -f ./build/seid ]; then
+            echo "seid binary built successfully"
+            ./build/seid version --long
+          else
+            echo "seid binary not found in build directory"
+            exit 1
+          fi
+
+  cross-arch-build-check:
+    name: Cross-Architecture Build Check
+    runs-on: ubuntu-latest
+    needs: cross-arch-build
+    if: always()
+    steps:
+      - name: Check build results
+        run: |
+          if [ "${{ needs.cross-arch-build.result }}" != "success" ]; then
+            echo "Cross-architecture builds failed or were cancelled"
+            exit 1
+          fi
+          echo "All cross-architecture builds passed!"
+
