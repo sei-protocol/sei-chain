@@ -46,7 +46,8 @@ func testBind(addr netip.AddrPort) int {
 	} else {
 		domain = unix.AF_INET6
 	}
-	fd, err := unix.Socket(domain, unix.SOCK_STREAM, 0)
+	// NONBLOCK and CLOEXEC for consistency with net.ListenConfig.Listen().
+	fd, err := unix.Socket(domain, unix.SOCK_STREAM|unix.SOCK_NONBLOCK|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
 		panic(err)
 	}
