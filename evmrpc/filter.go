@@ -41,12 +41,14 @@ const (
 	RPSLimitThreshold = 100 // block range queries below this threshold bypass rate limiting
 )
 
-// BlockCacheEntry for sotring block, bloom, and receipts cache
+// BlockCacheEntry for sotring block, bloom, receipts, header, and gas limit cache
 type BlockCacheEntry struct {
 	sync.RWMutex
 	Block    *coretypes.ResultBlock
 	Bloom    ethtypes.Bloom
 	Receipts map[common.Hash]*evmtypes.Receipt
+	Header   *ethtypes.Header // lazily computed header for eth_call optimization
+	GasLimit uint64           // lazily computed gas limit (0 means not set)
 }
 
 type BlockCache = *expirable.LRU[int64, *BlockCacheEntry]
@@ -128,6 +130,24 @@ func fillMissingFields(entry *BlockCacheEntry, block *coretypes.ResultBlock, blo
 	// Fill Bloom if missing and provided
 	if entry.Bloom == (ethtypes.Bloom{}) && bloom != (ethtypes.Bloom{}) {
 		entry.Bloom = bloom
+	}
+}
+
+// fillMissingHeader safely fills missing Header field
+func fillMissingHeader(entry *BlockCacheEntry, header *ethtypes.Header) {
+	entry.Lock()
+	defer entry.Unlock()
+	if entry.Header == nil && header != nil {
+		entry.Header = header
+	}
+}
+
+// fillMissingGasLimit safely fills missing GasLimit field
+func fillMissingGasLimit(entry *BlockCacheEntry, gasLimit uint64) {
+	entry.Lock()
+	defer entry.Unlock()
+	if entry.GasLimit == 0 && gasLimit != 0 {
+		entry.GasLimit = gasLimit
 	}
 }
 

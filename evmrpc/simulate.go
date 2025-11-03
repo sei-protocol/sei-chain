@@ -267,9 +267,66 @@ func (b *Backend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHas
 			return nil, nil, err
 		}
 	}
-	header := b.getHeader(big.NewInt(height))
-	header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+	
+	// Try to get cached header from globalBlockCache to avoid redundant header creation
+	var header *ethtypes.Header
+	if cachedEntry, found := b.globalBlockCache.Get(height); found {
+		cachedEntry.RLock()
+		if cachedEntry.Header != nil {
+			// Clone the header to avoid race conditions (headers are read-only after creation)
+			header = b.cloneHeader(cachedEntry.Header)
+		}
+		cachedEntry.RUnlock()
+	}
+	
+	if header == nil {
+		// getHeader will populate both header and gasLimit into globalBlockCache
+		header = b.getHeader(big.NewInt(height))
+		// Note: getHeader already caches the header, so we don't need to cache it again here
+	}
+	
+	// BaseFee changes with each block, so always get fresh value for latest block
+	// For historical blocks, we can use cached value if available
+	if isLatestBlock {
+		header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(LatestCtxHeight)).TruncateInt().BigInt()
+	} else if header.BaseFee == nil {
+		// Only compute if not already set (should be rare)
+		header.BaseFee = b.keeper.GetNextBaseFeePerGas(b.ctxProvider(height - 1)).TruncateInt().BigInt()
+	}
+	
 	return state.NewDBImpl(sdkCtx, b.keeper, true), header, nil
+}
+
+func (b *Backend) cloneHeader(header *ethtypes.Header) *ethtypes.Header {
+	cloned := &ethtypes.Header{
+		ParentHash:  header.ParentHash,
+		UncleHash:   header.UncleHash,
+		Coinbase:    header.Coinbase,
+		Root:        header.Root,
+		TxHash:      header.TxHash,
+		ReceiptHash: header.ReceiptHash,
+		Bloom:       header.Bloom,
+		Difficulty:  header.Difficulty,
+		Number:      new(big.Int).Set(header.Number),
+		GasLimit:    header.GasLimit,
+		GasUsed:     header.GasUsed,
+		Time:        header.Time,
+		Extra:       header.Extra,
+		MixDigest:   header.MixDigest,
+		Nonce:       header.Nonce,
+	}
+	if header.BaseFee != nil {
+		cloned.BaseFee = new(big.Int).Set(header.BaseFee)
+	}
+	if header.ExcessBlobGas != nil {
+		cloned.ExcessBlobGas = new(uint64)
+		*cloned.ExcessBlobGas = *header.ExcessBlobGas
+	}
+	if header.BlobGasUsed != nil {
+		cloned.BlobGasUsed = new(uint64)
+		*cloned.BlobGasUsed = *header.BlobGasUsed
+	}
+	return cloned
 }
 
 func (b *Backend) GetTransaction(ctx context.Context, txHash common.Hash) (found bool, tx *ethtypes.Transaction, blockHash common.Hash, blockNumber uint64, index uint64, err error) {
@@ -571,18 +628,63 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 	if ctx.ChainID() == "pacific-1" && ctx.BlockHeight() < b.keeper.UpgradeKeeper().GetDoneHeight(ctx.WithGasMeter(sdk.NewInfiniteGasMeter(1, 1)), "6.2.0") {
 		baseFee = nil
 	}
-	// Get block results to access consensus parameters
+	
 	number := blockNumber.Int64()
-	block, blockErr := blockByNumber(context.Background(), b.tmClient, &number)
+	var block *coretypes.ResultBlock
+	var blockErr error
 	var gasLimit uint64
+	
+	// Try to use cached block first to avoid redundant Tendermint calls
+	if cachedEntry, found := b.globalBlockCache.Get(number); found {
+		cachedEntry.RLock()
+		if cachedEntry.Block != nil {
+			block = cachedEntry.Block
+			blockErr = nil
+		}
+		cachedEntry.RUnlock()
+	}
+	
+	// If cache miss, fetch from Tendermint
+	if block == nil {
+		block, blockErr = blockByNumber(context.Background(), b.tmClient, &number)
+		// Store in cache for future use (non-blocking)
+		if blockErr == nil && block != nil {
+			loadOrStoreCacheEntry(b.cacheCreationMutex, b.globalBlockCache, number, block)
+		}
+	}
+	
+	// Get gas limit from consensus params in SDK context (use globalBlockCache to avoid redundant blockResultsWithRetry call)
 	if blockErr == nil {
-		// Try to get consensus parameters from block results
-		blockRes, blockResErr := blockResultsWithRetry(context.Background(), b.tmClient, &number)
-		if blockResErr == nil && blockRes.ConsensusParamUpdates != nil && blockRes.ConsensusParamUpdates.Block != nil {
-			gasLimit = uint64(blockRes.ConsensusParamUpdates.Block.MaxGas)
-		} else {
-			// Fallback to default if block results unavailable
-			gasLimit = keeper.DefaultBlockGasLimit
+		var cachedEntry *BlockCacheEntry
+		if entry, found := b.globalBlockCache.Get(number); found {
+			cachedEntry = entry
+			cachedEntry.RLock()
+			if cachedEntry.GasLimit != 0 {
+				gasLimit = cachedEntry.GasLimit
+				cachedEntry.RUnlock()
+			} else {
+				cachedEntry.RUnlock()
+				cachedEntry = nil // Will compute and cache below
+			}
+		}
+		
+		if cachedEntry == nil {
+			// Try to get gas limit from SDK context consensus params (same as info.go)
+			if ctx.ConsensusParams() != nil && ctx.ConsensusParams().Block != nil {
+				gasLimit = uint64(ctx.ConsensusParams().Block.MaxGas)
+			} else {
+				// Fallback: try to get from block results if context doesn't have it
+				blockRes, blockResErr := blockResultsWithRetry(context.Background(), b.tmClient, &number)
+				if blockResErr == nil && blockRes.ConsensusParamUpdates != nil && blockRes.ConsensusParamUpdates.Block != nil {
+					gasLimit = uint64(blockRes.ConsensusParamUpdates.Block.MaxGas)
+				} else {
+					// Final fallback to default
+					gasLimit = keeper.DefaultBlockGasLimit
+				}
+			}
+			// Cache the gas limit in globalBlockCache for future calls
+			entry := loadOrStoreCacheEntry(b.cacheCreationMutex, b.globalBlockCache, number, nil)
+			fillMissingGasLimit(entry, gasLimit)
 		}
 	} else {
 		// Fallback to default if block unavailable
@@ -599,10 +701,21 @@ func (b *Backend) getHeader(blockNumber *big.Int) *ethtypes.Header {
 	}
 
 	//TODO: what should happen if an err occurs here?
-	if blockErr == nil {
+	if blockErr == nil && block != nil {
 		header.ParentHash = common.BytesToHash(block.BlockID.Hash)
 		header.Time = toUint64(block.Block.Time.Unix())
 	}
+	
+	// Cache the header and gas limit in globalBlockCache so other code paths can use them
+	// This ensures bidirectional cache population - both reads and writes go through the same cache
+	if blockErr == nil {
+		entry := loadOrStoreCacheEntry(b.cacheCreationMutex, b.globalBlockCache, number, block)
+		fillMissingHeader(entry, b.cloneHeader(header))
+		if gasLimit != 0 {
+			fillMissingGasLimit(entry, gasLimit)
+		}
+	}
+	
 	return header
 }
 
