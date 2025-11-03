@@ -722,6 +722,12 @@ func (app *WasmApp) ProcessProposalHandler(ctx sdk.Context, req *abci.RequestPro
 }
 
 func (app *WasmApp) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error) {
+	capability.BeginBlocker(ctx, *app.capabilityKeeper)
+	distr.BeginBlocker(ctx, []abci.VoteInfo{}, app.distrKeeper)
+	slashing.BeginBlocker(ctx, []abci.VoteInfo{}, *&app.slashingKeeper)
+	evidence.BeginBlocker(ctx, []abci.Misbehavior{}, *&app.evidenceKeeper)
+	staking.BeginBlocker(ctx, app.stakingKeeper)
+	ibcclient.BeginBlocker(ctx, app.ibcKeeper.ClientKeeper)
 	events := []abci.Event{}
 
 	typedTxs := []sdk.Tx{}
