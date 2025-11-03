@@ -171,14 +171,6 @@ func (cli *grpcClient) ProcessProposal(ctx context.Context, params *types.Reques
 	return cli.client.ProcessProposal(ctx, types.ToRequestProcessProposal(params).GetProcessProposal(), grpc.WaitForReady(true))
 }
 
-func (cli *grpcClient) ExtendVote(ctx context.Context, params *types.RequestExtendVote) (*types.ResponseExtendVote, error) {
-	return cli.client.ExtendVote(ctx, types.ToRequestExtendVote(params).GetExtendVote(), grpc.WaitForReady(true))
-}
-
-func (cli *grpcClient) VerifyVoteExtension(ctx context.Context, params *types.RequestVerifyVoteExtension) (*types.ResponseVerifyVoteExtension, error) {
-	return cli.client.VerifyVoteExtension(ctx, types.ToRequestVerifyVoteExtension(params).GetVerifyVoteExtension(), grpc.WaitForReady(true))
-}
-
 func (cli *grpcClient) FinalizeBlock(ctx context.Context, params *types.RequestFinalizeBlock) (*types.ResponseFinalizeBlock, error) {
 	return cli.client.FinalizeBlock(ctx, types.ToRequestFinalizeBlock(params).GetFinalizeBlock(), grpc.WaitForReady(true))
 }
