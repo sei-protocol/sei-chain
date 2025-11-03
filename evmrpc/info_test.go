@@ -87,7 +87,7 @@ func TestFeeHistory(t *testing.T) {
 		{name: "Valid request by latest", blockCount: 1, lastBlock: "latest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x8", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
 		{name: "Valid request by earliest", blockCount: 1, lastBlock: "earliest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
 		{name: "Request on the same block", blockCount: 1, lastBlock: "0x1", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
-		{name: "Request on future block", blockCount: 1, lastBlock: "0x9", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x8", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
+		{name: "Request on future block", blockCount: 1, lastBlock: "0x9", rewardPercentiles: []interface{}{0.5}, expectedError: errors.New("requested last block 9 is not yet available; safe latest is 8")},
 		{name: "Block count truncates", blockCount: 1025, lastBlock: "latest", rewardPercentiles: []interface{}{25}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
 		{name: "Too many percentiles", blockCount: 10, lastBlock: "latest", rewardPercentiles: make([]interface{}, 101), expectedError: errors.New("rewardPercentiles length must be less than or equal to 100")},
 		{name: "Invalid percentiles order", blockCount: 10, lastBlock: "latest", rewardPercentiles: []interface{}{99, 1}, expectedError: errors.New("invalid reward percentiles: must be ascending and between 0 and 100")},
@@ -110,21 +110,27 @@ func TestFeeHistory(t *testing.T) {
 				rewards, ok := resObj["reward"].([]interface{})
 
 				require.True(t, ok, "Expected rewards to be a slice of interfaces")
-				require.Equal(t, 1, len(rewards), "Expected exactly one reward entry")
-				reward, ok := rewards[0].([]interface{})
-				require.True(t, ok, "Expected reward to be a slice of interfaces")
-				require.Equal(t, 1, len(reward), "Expected exactly one sub-item in reward")
+				require.Greater(t, len(rewards), 0, "Should have at least one reward entry")
 
-				require.Equal(t, tc.expectedReward, reward[0].(string), "Reward does not match expected value")
+				baseFees := resObj["baseFeePerGas"].([]interface{})
+				require.Equal(t, len(rewards), len(baseFees), "Reward and base fee lengths should match")
 
-				require.Equal(t, tc.expectedBaseFee, resObj["baseFeePerGas"].([]interface{})[0].(string))
+				for idx, rewardEntry := range rewards {
+					rewardSlice, ok := rewardEntry.([]interface{})
+					require.Truef(t, ok, "Expected reward entry %d to be a slice", idx)
+					require.Equalf(t, 1, len(rewardSlice), "Expected single percentile per reward entry %d", idx)
+					require.Equalf(t, tc.expectedReward, rewardSlice[0].(string), "Reward does not match expected value at index %d", idx)
+					require.Equalf(t, tc.expectedBaseFee, baseFees[idx].(string), "Base fee does not match expected value at index %d", idx)
+				}
 
 				// Verify gas used ratio is valid (should be between 0 and 1)
 				gasUsedRatios := resObj["gasUsedRatio"].([]interface{})
 				require.Greater(t, len(gasUsedRatios), 0, "Should have at least one gas used ratio")
-				gasUsedRatio := gasUsedRatios[0].(float64)
-				require.GreaterOrEqual(t, gasUsedRatio, 0.0, "Gas used ratio should be >= 0")
-				require.LessOrEqual(t, gasUsedRatio, 1.0, "Gas used ratio should be <= 1")
+				for idx, ratio := range gasUsedRatios {
+					gasUsedRatio := ratio.(float64)
+					require.GreaterOrEqualf(t, gasUsedRatio, 0.0, "Gas used ratio should be >= 0 (index %d)", idx)
+					require.LessOrEqualf(t, gasUsedRatio, 1.0, "Gas used ratio should be <= 1 (index %d)", idx)
+				}
 			}
 		})
 	}

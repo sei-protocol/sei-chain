@@ -173,7 +173,7 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 		lastBlockNumber = earliestHeight
 	default:
 		if lastBlockNumber > latestHeight {
-			lastBlockNumber = latestHeight
+			return nil, fmt.Errorf("requested last block %d is not yet available; safe latest is %d", lastBlockNumber, latestHeight)
 		}
 	}
 
