@@ -36,7 +36,7 @@ func setupTest(t *testing.T) testData {
 	ctx, keepers := CreateTestInput(t, false, "iterator,staking,stargate")
 	cdc := keeper.MakeTestCodec(t)
 	data := testData{
-		module:        NewAppModule(cdc, keepers.WasmKeeper, keepers.StakingKeeper, keepers.AccountKeeper, keepers.BankKeeper),
+		module:        NewAppModule(cdc, keepers.WasmKeeper, keepers.StakingKeeper, keepers.AccountKeeper),
 		ctx:           ctx,
 		acctKeeper:    keepers.AccountKeeper,
 		keeper:        *keepers.WasmKeeper,
@@ -177,7 +177,7 @@ func TestHandleInstantiate(t *testing.T) {
 	require.NoError(t, err)
 	contractBech32Addr := parseInitResponse(t, res.Data)
 
-	require.Equal(t, "cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr", contractBech32Addr)
+	require.Equal(t, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", contractBech32Addr)
 	// this should be standard x/wasm init event, nothing from contract
 	require.Equal(t, 3, len(res.Events), prettyEvents(res.Events))
 	require.Equal(t, "message", res.Events[0].Type)
@@ -236,7 +236,7 @@ func TestHandleExecute(t *testing.T) {
 	require.NoError(t, err)
 	contractBech32Addr := parseInitResponse(t, res.Data)
 
-	require.Equal(t, "cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr", contractBech32Addr)
+	require.Equal(t, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", contractBech32Addr)
 	// this should be standard x/wasm message event,  init event, plus a bank send event (2), with no custom contract events
 	require.Equal(t, 6, len(res.Events), prettyEvents(res.Events))
 	require.Equal(t, "message", res.Events[0].Type)
@@ -368,7 +368,7 @@ func TestHandleExecuteEscrow(t *testing.T) {
 	res, err = h(data.ctx, &initCmd)
 	require.NoError(t, err)
 	contractBech32Addr := parseInitResponse(t, res.Data)
-	require.Equal(t, "cosmos14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9s4hmalr", contractBech32Addr)
+	require.Equal(t, "sei14hj2tavq8fpesdwxxcu44rty3hh90vhujrvcmstl4zr3txmfvw9sh9m79m", contractBech32Addr)
 
 	handleMsg := map[string]interface{}{
 		"release": map[string]interface{}{},

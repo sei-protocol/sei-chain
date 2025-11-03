@@ -10,7 +10,7 @@ import (
 )
 
 func TestDistribution(t *testing.T) {
-	app := processblock.NewTestApp()
+	app := processblock.NewTestApp(t)
 	p := processblock.CommonPreset(app)
 	for _, testCase := range []TestCase{
 		{

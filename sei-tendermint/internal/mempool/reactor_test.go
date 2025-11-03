@@ -195,7 +195,6 @@ func TestReactorBroadcastTxs(t *testing.T) {
 
 // regression test for https://github.com/tendermint/tendermint/issues/5408
 func TestReactorConcurrency(t *testing.T) {
-	t.Skip("See: https://linear.app/seilabs/issue/CON-105/testreactorconcurrency-flakes")
 	numTxs := 10
 	numNodes := 2
 

@@ -40,7 +40,6 @@ import (
 )
 
 func TestNodeStartStop(t *testing.T) {
-	t.Skip("See: https://linear.app/seilabs/issue/CON-104/testnodestartstop-flakes")
 	cfg, err := config.ResetTestRoot(t.TempDir(), "node_node_test")
 	require.NoError(t, err)
 

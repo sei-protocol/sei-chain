@@ -4,10 +4,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	"github.com/sei-protocol/sei-chain/app/apptesting"
 )
 
 func (suite *IntegrationTestSuite) TestViewKeeperStoreTrace() {
@@ -17,7 +17,7 @@ func (suite *IntegrationTestSuite) TestViewKeeperStoreTrace() {
 	acc := app.AccountKeeper.NewAccountWithAddress(ctx, addr)
 
 	app.AccountKeeper.SetAccount(ctx, acc)
-	suite.Require().NoError(simapp.FundAccount(app.BankKeeper, ctx, acc.GetAddress(), origCoins))
+	suite.Require().NoError(apptesting.FundAccount(app.BankKeeper, ctx, acc.GetAddress(), origCoins))
 
 	ctx = ctx.WithIsTracing(true)
 	app.BankKeeper.GetBalance(ctx, addr, fooDenom)

@@ -6,10 +6,10 @@ import (
 	"github.com/stretchr/testify/suite"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/x/params/keeper"
 	"github.com/cosmos/cosmos-sdk/x/params/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 type GenesisTestSuite struct {
@@ -20,7 +20,7 @@ type GenesisTestSuite struct {
 
 func (suite *GenesisTestSuite) SetupTest() {
 	checkTx := false
-	app := simapp.Setup(checkTx)
+	app := seiapp.Setup(suite.T(), checkTx, false, false)
 	suite.ctx = app.BaseApp.NewContext(checkTx, tmproto.Header{Height: 1})
 	suite.keeper = app.ParamsKeeper
 }

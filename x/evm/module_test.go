@@ -31,26 +31,26 @@ import (
 )
 
 func TestModuleName(t *testing.T) {
-	k, _ := testkeeper.MockEVMKeeper()
+	k, _ := testkeeper.MockEVMKeeper(t)
 	module := evm.NewAppModule(nil, k)
 	assert.Equal(t, "evm", module.Name())
 }
 
 func TestModuleRoute(t *testing.T) {
-	k, _ := testkeeper.MockEVMKeeper()
+	k, _ := testkeeper.MockEVMKeeper(t)
 	module := evm.NewAppModule(nil, k)
 	assert.Equal(t, "evm", module.Route().Path())
 	assert.Equal(t, false, module.Route().Empty())
 }
 
 func TestQuerierRoute(t *testing.T) {
-	k, _ := testkeeper.MockEVMKeeper()
+	k, _ := testkeeper.MockEVMKeeper(t)
 	module := evm.NewAppModule(nil, k)
 	assert.Equal(t, "evm", module.QuerierRoute())
 }
 
 func TestModuleExportGenesis(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper(t)
 	module := evm.NewAppModule(nil, k)
 	cdc := app.MakeEncodingConfig().Marshaler
 	jsonMsg := module.ExportGenesis(ctx, cdc)
@@ -59,13 +59,13 @@ func TestModuleExportGenesis(t *testing.T) {
 }
 
 func TestConsensusVersion(t *testing.T) {
-	k, _ := testkeeper.MockEVMKeeper()
+	k, _ := testkeeper.MockEVMKeeper(t)
 	module := evm.NewAppModule(nil, k)
 	assert.Equal(t, uint64(21), module.ConsensusVersion())
 }
 
 func TestABCI(t *testing.T) {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper(t)
 	_, evmAddr1 := testkeeper.MockAddressPair()
 	_, evmAddr2 := testkeeper.MockAddressPair()
 	amt := sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(10)))
@@ -143,7 +143,7 @@ func TestABCI(t *testing.T) {
 
 // Ensures legacy receipt migration runs on interval and moves receipts to receipt.db
 func TestLegacyReceiptMigrationInterval(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	k := a.EvmKeeper
 	ctx := a.GetContextForDeliverTx([]byte{})
 	m := evm.NewAppModule(nil, &k)
@@ -182,7 +182,7 @@ func TestLegacyReceiptMigrationInterval(t *testing.T) {
 }
 
 func TestAnteSurplus(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	k := a.EvmKeeper
 	ctx := a.GetContextForDeliverTx([]byte{})
 	m := evm.NewAppModule(nil, &k)
@@ -200,7 +200,7 @@ func TestAnteSurplus(t *testing.T) {
 
 // This test is just to make sure that the routes can be added without crashing
 func TestRoutesAddition(t *testing.T) {
-	k, _ := testkeeper.MockEVMKeeper()
+	k, _ := testkeeper.MockEVMKeeper(t)
 	appModule := evm.NewAppModule(nil, k)
 	mux := runtime.NewServeMux()
 	appModule.RegisterGRPCGatewayRoutes(client.Context{}, mux)
@@ -209,7 +209,7 @@ func TestRoutesAddition(t *testing.T) {
 }
 
 func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper(t)
 	chainID := k.ChainID(ctx)
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)

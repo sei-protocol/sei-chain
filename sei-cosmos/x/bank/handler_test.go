@@ -8,7 +8,6 @@ import (
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	"github.com/cosmos/cosmos-sdk/testutil/testdata"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
@@ -17,6 +16,7 @@ import (
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
 	stakingtypes "github.com/cosmos/cosmos-sdk/x/staking/types"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 )
 
 func TestInvalidMsg(t *testing.T) {
@@ -65,7 +65,7 @@ func TestSendToModuleAccount(t *testing.T) {
 		},
 	}
 
-	app := simapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	app.BankKeeper = bankkeeper.NewBaseKeeper(
