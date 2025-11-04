@@ -18,11 +18,6 @@ import (
 	"github.com/tendermint/tendermint/types"
 )
 
-// Conn {ID(), channels(), Close(), Run()}
-// PeerManager.New(Dialer func(ctx,add) (Conn,error))
-// Accept(Conn)
-// Delete(id) - close and forget
-
 type ErrBadNetwork struct {error}
 
 type DialFailuresError struct {
@@ -46,16 +41,6 @@ const (
 	PeerStatusDown PeerStatus = "down" // disconnected
 	PeerStatusGood PeerStatus = "good" // peer observed as good
 	PeerStatusBad  PeerStatus = "bad"  // peer observed as bad
-)
-
-// PeerScore is a numeric score assigned to a peer (higher is better).
-type PeerScore uint8
-
-const (
-	PeerScoreUnconditional    PeerScore = math.MaxUint8                  // unconditional peers, 255
-	PeerScorePersistent       PeerScore = PeerScoreUnconditional - 1     // persistent peers, 254
-	MaxPeerScoreNotPersistent PeerScore = PeerScorePersistent - 1        // not persistent peers, 253
-	DefaultMutableScore       PeerScore = MaxPeerScoreNotPersistent - 10 // mutable score, 243
 )
 
 // PeerUpdate is a peer update event sent via PeerUpdates.
@@ -121,7 +106,8 @@ type PeerManagerOptions struct {
 
 	// Only include those peers for block sync.
 	// These are also persistent peers.
-	BlockSyncPeers map[types.NodeID][]NodeAddress
+	// If empty, all peers are used for block sync.
+	BlockSyncPeers map[types.NodeID]bool
 
 	// PrivatePeerIDs defines a set of NodeID objects which the PEX reactor will
 	// consider private and never gossip.
@@ -130,30 +116,13 @@ type PeerManagerOptions struct {
 	// MaxPeers is the maximum number of peers to track information about, i.e.
 	// store in the peer store. When exceeded, the lowest-scored unconnected peers
 	// will be deleted.
-	MaxPeers utils.Option[uint]
+	MaxPeers utils.Option[int]
 
 	// MaxConnected is the maximum number of connected peers (inbound and
 	// outbound). 0 means no limit.
 	MaxConnected utils.Option[uint]
 
 	Retry utils.Option[*RetryOptions]
-
-	// MaxConnectedUpgrade is the maximum number of additional connections to
-	// use for probing any better-scored peers to upgrade to when all connection
-	// slots are full. 0 disables peer upgrading.
-	//
-	// For example, if we are already connected to MaxConnected peers, but we
-	// know or learn about better-scored peers (e.g. configured persistent
-	// peers) that we are not connected too, then we can probe these peers by
-	// using up to MaxConnectedUpgrade connections, and once connected evict the
-	// lowest-scored connected peers. This also works for inbound connections,
-	// i.e. if a higher-scored peer attempts to connect to us, we can accept
-	// the connection and evict a lower-scored peer.
-	MaxConnectedUpgrade uint
-
-	// PeerScores sets fixed scores for specific peers. It is mainly used
-	// for testing. A score of 0 is ignored.
-	PeerScores map[types.NodeID]PeerScore
 
 	// SelfAddress is the address that will be advertised to peers for them to dial back to us.
 	// If Hostname and Port are unset, Advertise() will include no self-announcement
@@ -177,6 +146,20 @@ type PeerManagerOptions struct {
 	// is used that sleeps for a (random) amount of time up to 3
 	// seconds between submitting each peer to be dialed.
 	DialSleep utils.Option[func(context.Context) error]
+}
+
+func (o *PeerManagerOptions) persistent(id types.NodeID) bool {
+	if _,ok := o.PersistentPeers[id]; ok { return true }
+	if _,ok := o.BlockSyncPeers[id]; ok { return true }
+	if _,ok := o.UnconditionalPeers[id]; ok { return true }
+	return false
+}
+
+func (o *PeerManagerOptions) numConccurentDials() int {
+	if f,ok := o.NumConcurrentDials.Get(); ok {
+		return f()
+	}
+	return runtime.NumCPU()
 }
 
 func (o *PeerManagerOptions) getIncomingConnectionWindow() time.Duration {
@@ -244,26 +227,6 @@ func (o *PeerManagerOptions) Validate() error {
 		}
 	}
 	return nil
-}
-
-func (o *RetryOptions) delay(failures uint32, persistent bool) utils.Option[time.Duration] {
-	// We compare values as float64 to avoid overflows.
-	delay := float64(int64(o.Min)) * math.Pow(2, float64(failures))
-	// TODO: this shit should be deterministic
-	delay += float64(rand.Int63n(int64(o.Jitter+1)))
-	if persistent {
-		// We need to retry persistent peers indefinitely, so just cap to MaxPersistent.
-		maxDelay := o.MaxPersistent.Or(o.Max)
-		if delay > float64(maxDelay) {
-			return utils.Some(maxDelay)
-		}
-	} else {
-		// Other peers should be abandoned after Max.
-		if delay > float64(o.Max) {
-			return utils.None[time.Duration]()
-		}
-	}
-	return utils.Some(time.Duration(delay))
 }
 
 // PeerManager manages peer lifecycle information, using a peerStore for
@@ -352,355 +315,22 @@ func NewPeerManager(
 	return peerManager, nil
 }
 
-func (m *PeerManager) GetBlockSyncPeers() map[types.NodeID]bool {
-	return m.options.BlockSyncPeers
-}
-
-func (m *PeerManager) AddPrivatePeer(id types.NodeID) {
-	m.mtx.Lock()
-	defer m.mtx.Unlock()
-	m.dynamicPrivatePeers[id] = struct{}{}
-}
-
-// Add adds a peer to the manager, given as an address. If the peer already
-// exists, the address is added to it if it isn't already present. This will push
-// low scoring peers out of the address book if it exceeds the maximum size.
-func (m *PeerManager) Add(address NodeAddress) (bool, error) {
-	for s := range m.store.Lock() {
-		return s.Add(address)
-	}
-	panic("unreachable")
-}
-
-func (m *PeerManager) Delete(id types.NodeID) error {
-	for s := range m.store.Lock() {
-		return s.Delete(id)
-	}
-	panic("unreachable")
-}
-
-// PeerRatio returns the ratio of peer addresses stored to the maximum size.
-func (m *PeerManager) PeerRatio() float64 {
-	for s := range m.store.Lock() {
-		maxPeers,ok := s.options.MaxPeers.Get()
-		if !ok { return 0 }
-		return float64(s.Size()) / float64(maxPeers)
-	}
-	panic("unreachable")
-}
-
 // DialNext finds an appropriate peer address to dial, and marks it as dialing.
 // If no peer is found, or all connection slots are full, it blocks until one
 // becomes available. The caller must call Dialed() or DialFailed() for the
 // returned peer.
-func (m *PeerManager) DialNext(ctx context.Context) (NodeAddress, error) {
-	m.mtx.Lock()
-	defer m.mtx.Unlock()
+func (m *PeerManager) DialNext() utils.Option[NodeAddress] {
+	// Wait until there is less connections than Max.
+	// Wait until there are peers to dial.
+	for s,ctrl := range m.store.Lock() {
+		ctrl.WaitUntil(ctx,func()bool {
 
-	// We allow dialing MaxConnected+MaxConnectedUpgrade peers. Including
-	// MaxConnectedUpgrade allows us to probe additional peers that have a
-	// higher score than any other peers, and if successful evict it.
-	if maxConnected,ok := m.options.MaxConnected.Get(); ok && m.numConnected()+len(m.dialing) >=
-		int(maxConnected)+int(m.options.MaxConnectedUpgrade) {
-		return NodeAddress{}, nil
-	}
-
-	for _, peer := range m.store.Ranked() {
-		if m.dialing[peer.ID] || m.connected[peer.ID] {
-			continue
-		}
-
-		for addr, info := range peer.AddressInfo {
-			if t,ok := info.LastDialFailure.Get(); ok {
-				d,ok := m.store.RetryDelay(addr).Get()
-				if !ok || time.Since(t) < d { continue }
-			}
-
-			// We now have an eligible address to dial. If we're full but have
-			// upgrade capacity (as checked above), we find a lower-scored peer
-			// we can replace and mark it as upgrading so no one else claims it.
-			//
-			// If we don't find one, there is no point in trying additional
-			// peers, since they will all have the same or lower score than this
-			// peer (since they're ordered by score via peerStore.Ranked).
-			if maxConnected,ok := m.options.MaxConnected.Get(); ok && m.numConnected() >= int(maxConnected) {
-				upgradeFromPeer := m.findUpgradeCandidate(peer.ID)
-				if upgradeFromPeer == "" {
-					return NodeAddress{}, nil
-				}
-				m.upgrading[upgradeFromPeer] = peer.ID
-			}
-
-			m.dialing[peer.ID] = true
-			m.logger.Debug(fmt.Sprintf("Going to dial peer %s with address %s", peer.ID, addressInfo.Address))
-			return addressInfo.Address, nil
+		for id,addrs := range s.addrs {
+			if _,ok := s.conns[id]; ok { continue }
+			// find not connected/dialing peer with the oldest failure (or none)
 		}
 	}
-	return NodeAddress{}, nil
-}
-
-// DialFailed reports a failed dial attempt. This will make the peer available
-// for dialing again when appropriate (possibly after a retry timeout).
-func (m *PeerManager) DialFailed(ctx context.Context, address NodeAddress) error {
-	for s := range m.store.Lock() {
-		return s.DialFailed(address)
-	}
-	panic("unreachable")
-}
-
-// Dialed marks a peer as successfully dialed. Any further connections will be
-// rejected, and once disconnected the peer may be dialed again.
-func (m *PeerManager) Dialed(address NodeAddress) error {
-	m.mtx.Lock()
-	defer m.mtx.Unlock()
-
-	delete(m.dialing, address.NodeID)
-
-	var upgradeFromPeer utils.Option[types.NodeID]
-	for from, to := range m.upgrading {
-		if to == address.NodeID {
-			delete(m.upgrading, from)
-			upgradeFromPeer = utils.Some(from)
-			// Don't break, just in case this peer was marked as upgrading for
-			// multiple lower-scored peers (shouldn't really happen).
-		}
-	}
-	if address.NodeID == m.options.SelfID {
-		return fmt.Errorf("rejecting connection to self (%v)", address.NodeID)
-	}
-	if m.connected[address.NodeID] {
-		return fmt.Errorf("cant dial, peer=%q is already connected", address.NodeID)
-	}
-	if m.options.MaxConnected > 0 && m.numConnected() >= int(m.options.MaxConnected) {
-		if upgradeFromPeer == "" || m.numConnected() >=
-			int(m.options.MaxConnected)+int(m.options.MaxConnectedUpgrade) {
-			return fmt.Errorf("dialed peer %q failed, is already connected to maximum number of peers", address.NodeID)
-		}
-	}
-
-	if ok,err := m.store.Dialed(address); err!=nil {
-		return err
-	} else if !ok {
-		return fmt.Errorf("peer %q was removed while dialing", address.NodeID)
-	}
-
-	if from,ok := upgradeFromPeer.Get(); ok {
-		m.evict[from] = errors.New("too many peers")
-	}
-	m.connected[address.NodeID] = true
-	m.evictWaker.Wake()
-	return nil
-}
-
-// Accepted marks an incoming peer connection successfully accepted. If the peer
-// is already connected or we don't allow additional connections then this will
-// return an error.
-//
-// If full but MaxConnectedUpgrade is non-zero and the incoming peer is
-// better-scored than any existing peers, then we accept it and evict a
-// lower-scored peer.
-func (m *PeerManager) TryAccept(peerID types.NodeID, channels ChannelIDSet) error {
-	m.mtx.Lock()
-	defer m.mtx.Unlock()
-
-	if peerID == m.options.SelfID {
-		return fmt.Errorf("rejecting connection from self (%v)", peerID)
-	}
-	if m.connected[peerID] {
-		return fmt.Errorf("can't accept, peer=%q is already connected", peerID)
-	}
-	if !m.options.UnconditionalPeers[peerID] && m.options.MaxConnected > 0 &&
-		m.numConnected() >= int(m.options.MaxConnected)+int(m.options.MaxConnectedUpgrade) {
-		return fmt.Errorf("accepted peer %q failed, already connected to maximum number of peers", peerID)
-	}
-
-	peer, ok := m.store.Get(peerID)
-	if !ok {
-		peer = m.newPeerInfo(peerID)
-	}
-
-	// reset this to avoid penalizing peers for their past transgressions
-	for _, addr := range peer.AddressInfo {
-		addr.DialFailures = 0
-	}
-
-	// If all connections slots are full, but we allow upgrades (and we checked
-	// above that we have upgrade capacity), then we can look for a lower-scored
-	// peer to replace and if found accept the connection anyway and evict it.
-	var upgradeFromPeer types.NodeID
-	if m.options.MaxConnected > 0 && m.numConnected() >= int(m.options.MaxConnected) {
-		upgradeFromPeer = m.findUpgradeCandidate(peer.ID)
-		if upgradeFromPeer == "" {
-			return fmt.Errorf("upgrade peer %q failed, already connected to maximum number of peers", peer.ID)
-		}
-	}
-
-	peer.LastConnected = utils.Some(time.Now().UTC())
-	if err := m.store.Set(peer); err != nil {
-		return err
-	}
-
-	m.connected[peerID] = true
-	if upgradeFromPeer != "" {
-		m.evict[upgradeFromPeer] = errors.New("found better peer")
-	}
-	m.evictWaker.Wake()
-	return nil
-}
-
-// Ready marks a peer as ready, broadcasting status updates to
-// subscribers. The peer must already be marked as connected. This is
-// separate from Dialed() and Accepted() to allow the router to set up
-// its internal queues before reactors start sending messages. The
-// channels set here are passed in the peer update broadcast to
-// reactors, which can then mediate their own behavior based on the
-// capability of the peers.
-func (m *PeerManager) Ready(ctx context.Context, peerID types.NodeID, channels ChannelIDSet) {
-	m.mtx.Lock()
-	defer m.mtx.Unlock()
-
-	if m.connected[peerID] {
-		for ready, ctrl := range m.ready.Lock() {
-			ready[peerID] = channels
-			ctrl.Updated()
-		}
-		m.broadcast(ctx, PeerUpdate{
-			NodeID:   peerID,
-			Status:   PeerStatusUp,
-			Channels: channels,
-		})
-	}
-}
-
-type Eviction struct {
-	ID    types.NodeID
-	Cause error
-}
-
-// TryEvictNext is equivalent to EvictNext, but immediately returns an empty
-// node ID if no evictable peers are found.
-func (m *PeerManager) evicPeersRoutine(ctx context.Context) (error) {
-	m.mtx.Lock()
-	defer m.mtx.Unlock()
-
-	// If any connected peers are explicitly scheduled for eviction, we return a
-	// random one.
-	for peerID, cause := range m.evict {
-		delete(m.evict, peerID)
-		if m.connected[peerID] && !m.evicting[peerID] {
-			m.evicting[peerID] = true
-			return utils.Some(Eviction{peerID, cause}), nil
-		}
-	}
-
-	// If we're below capacity, we don't need to evict anything.
-	if m.options.MaxConnected == 0 ||
-		m.numConnected()-len(m.evicting) <= int(m.options.MaxConnected) {
-		return utils.None[Eviction](), nil
-	}
-
-	// If we're above capacity (shouldn't really happen), just pick the
-	// lowest-ranked peer to evict.
-	ranked := m.store.Ranked()
-	for i := len(ranked) - 1; i >= 0; i-- {
-		peer := ranked[i]
-		if m.connected[peer.ID] && !m.evicting[peer.ID] {
-			m.evicting[peer.ID] = true
-			return utils.Some(Eviction{peer.ID, errors.New("too many peers")}), nil
-		}
-	}
-
-	return utils.None[Eviction](), nil
-}
-
-func (m *PeerManager) SendError(pe PeerError) {
-	for s := range m.store.Lock() {
-		s.SendError(pe)
-	}
-}
-
-// Subscribe subscribes to peer updates. The caller must consume the peer
-// updates in a timely fashion and close the subscription when done, otherwise
-// the PeerManager will halt.
-func (m *PeerManager) Subscribe(ctx context.Context) *PeerUpdates {
-	m.mtx.Lock()
-	defer m.mtx.Unlock()
-	peerUpdates := NewPeerUpdates(make(chan PeerUpdate, 1), 1)
-	m.subscriptions[peerUpdates] = peerUpdates
-
-	var updates []PeerUpdate
-	for ready := range m.ready.Lock() {
-		for id, channels := range ready {
-			updates = append(updates, PeerUpdate{
-				NodeID:   id,
-				Status:   PeerStatusUp,
-				Channels: channels,
-			})
-		}
-	}
-	peerUpdates.preexistingPeers = updates
-
-	go func() {
-		<-ctx.Done()
-		m.mtx.Lock()
-		defer m.mtx.Unlock()
-		delete(m.subscriptions, peerUpdates)
-	}()
-	return peerUpdates
-}
-
-// broadcast broadcasts a peer update to all subscriptions. The caller must
-// already hold the mutex lock, to make sure updates are sent in the same order
-// as the PeerManager processes them, but this means subscribers must be
-// responsive at all times or the entire PeerManager will halt.
-//
-// FIXME: Consider using an internal channel to buffer updates while also
-// maintaining order if this is a problem.
-func (m *PeerManager) broadcast(ctx context.Context, peerUpdate PeerUpdate) {
-	for _, sub := range m.subscriptions {
-		if ctx.Err() != nil {
-			return
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case sub.reactorUpdatesCh <- peerUpdate:
-		}
-	}
-}
-
-/*
-// Added for unit test
-func (m *PeerManager) MarkReadyConnected(nodeId types.NodeID) {
-	for ready, ctrl := range m.ready.Lock() {
-		ready[nodeId] = ChannelIDSet{}
-		ctrl.Updated()
-	}
-	m.connected[nodeId] = true
-}*/
-
-func (m *PeerManager) Score(id types.NodeID) int {
-	for s := range m.store.Lock() {
-		return int(s.Score(id)) // TODO: it used to be -1 for missing peers.
-	}
-	panic("unreachable")
-}
-
-func (m *PeerManager) SendUpdate(pu PeerUpdate) {
-	for s := range m.store.Lock() {
-		switch pu.Status {
-		case PeerStatusBad: s.UpdateScore(pu.NodeID,-1)
-		case PeerStatusGood: s.UpdateScore(pu.NodeID,1)
-		}
-	}
-	panic("unreachable")
-}
-
-func (m *PeerManager) numConccurentDials() int {
-	if f,ok := m.options.NumConcurrentDials.Get(); ok {
-		return f()
-	}
-	return runtime.NumCPU()
+	return res
 }
 
 func (m *PeerManager) Run(ctx context.Context, r *Router) error {
@@ -710,10 +340,9 @@ func (m *PeerManager) Run(ctx context.Context, r *Router) error {
 			if err := sem.Acquire(ctx, 1); err != nil {
 				return err
 			}
-			addr, err := m.DialNext(ctx)
-			if err != nil {
-				return fmt.Errorf("failed to find next peer to dial: %w", err)
-			}
+			// TODO: separate routine for dialing persistent and regular peers.
+			addr,err := m.DialNext(ctx)
+			if err!=nil { return err }
 			s.Spawn(func() error {
 				r.logger.Debug("Going to dial", "peer", addr.NodeID)
 				// TODO(gprusak): this symmetric logic for handling duplicate connections is a source of race conditions:
@@ -728,13 +357,11 @@ func (m *PeerManager) Run(ctx context.Context, r *Router) error {
 				}
 				for s := range m.store.Lock() {
 					if utils.ErrorAs[errBadNetwork](err).IsPresent() {
-						if err := s.Delete(addr.NodeID); err!=nil {
+						if err := s.Forget(addr.NodeID); err!=nil {
 							return fmt.Errorf("s.Delete(): %w",err)
 						}
 					} else if err!=nil {
-						if err := s.DialFailed(addr); err != nil {
-							return fmt.Errorf("r.peerManger.DialFailed(): %w",err)
-						}
+						s.DialFailed(addr)
 						m.logger.Error("failed to dial TODO","err",err)
 						return nil
 					} else if err := s.Dialed(addr, conn); err != nil {
@@ -814,12 +441,3 @@ func (s *peerStore) State(id types.NodeID) string {
 	}
 	return strings.Join(states, ",")
 }
-
-// Status returns the status for a peer, primarily for testing.
-func (s *peerStore) IsReady(id types.NodeID) bool {
-	if peer,ok := s.peers[id]; ok {
-		return peer.conn.IsPresent()
-	}
-	return false
-}
-

@@ -367,9 +367,11 @@ func (pool *BlockPool) SetPeerRange(peerID types.NodeID, base int64, height int6
 				"prevHeight", peer.height, "prevBase", peer.base)
 			// RemovePeer will redo all requesters associated with this peer.
 			pool.removePeer(peerID, true)
-			if err := pool.peerManager.BanPeer(peerID); err != nil {
-				pool.logger.Error("failed to ban peer", "peer", peerID)
-			}
+			pool.peerManager.SendError(p2p.PeerError{
+				NodeID: peerID,
+				Err:    errors.New("peer is reporting height/base that is lower than what it previously reported"),
+				Fatal: true,
+			})
 			return
 		}
 		peer.base = base

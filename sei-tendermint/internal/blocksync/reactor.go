@@ -30,7 +30,7 @@ const (
 	trySyncIntervalMS = 10
 
 	// ask for best height every 10s
-	statusUpdateIntervalSeconds = 10
+	statusUpdateInterval = 10 * time.Second
 
 	// check if we should switch to consensus reactor
 	switchToConsensusIntervalSeconds = 1
@@ -390,9 +390,7 @@ func (r *Reactor) SwitchToBlockSync(ctx context.Context, state sm.State) error {
 }
 
 func (r *Reactor) requestRoutine(ctx context.Context, blockSyncCh *p2p.Channel) {
-	statusUpdateTicker := time.NewTicker(statusUpdateIntervalSeconds * time.Second)
-	defer statusUpdateTicker.Stop()
-
+	statusUpdateTicker := time.NewTicker(statusUpdateInterval)
 	for {
 		select {
 		case <-ctx.Done():
