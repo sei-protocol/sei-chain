@@ -92,6 +92,7 @@ type TransactionResult struct {
 	Code       uint32
 	Codespace  string
 	Log        string
+	Surplus    sdk.Int // Surplus from fee handling (for EVM transactions)
 }
 
 // ExecutedBlock contains the result of executing a block

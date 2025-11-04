@@ -150,6 +150,7 @@ func (e *ExecutorComponent) executeBlock(blockWithCtx *pipelinetypes.Preprocesse
 				Code:      uint32(1),
 				Codespace: "app",
 				Log:       err.Error(),
+				Surplus:   sdk.ZeroInt(),
 			}
 		}
 

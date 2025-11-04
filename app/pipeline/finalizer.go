@@ -125,12 +125,13 @@ func (f *FinalizerComponent) finalizeBlock(executed *pipelinetypes.ExecutedBlock
 			}
 
 			// Handle deferred info (bloom and surplus)
-			// Note: Surplus handling would require tracking surplus from execution
-			// For now, we'll skip surplus handling as it requires state from execution phase
+			// Get surplus from transaction result (set during execution)
 			bloom := ethtypes.Bloom{}
 			bloom.SetBytes(receipt.LogsBloom)
-			// TODO: Get surplus from execution phase or compute it
-			surplus := sdk.ZeroInt()
+			surplus := txResult.Surplus
+			if surplus.IsNil() {
+				surplus = sdk.ZeroInt()
+			}
 			f.helper.AppendToEvmTxDeferredInfo(ctx, bloom, txHash, surplus)
 
 			// Update gas meter (convert EVM gas to Sei gas)

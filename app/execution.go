@@ -35,6 +35,7 @@ func ExecutePreprocessedEVMTransaction(ctx sdk.Context, preprocessed *pipelinety
 			Code:      sdkerrors.ErrWrongSequence.ABCICode(),
 			Codespace: sdkerrors.RootCodespace,
 			Log:       fmt.Sprintf("nonce mismatch: expected %d, got %d", nextNonce, etx.Nonce()),
+			Surplus:   sdk.ZeroInt(),
 		}, sdkerrors.Wrapf(sdkerrors.ErrWrongSequence, "nonce mismatch: expected %d, got %d", nextNonce, etx.Nonce())
 	}
 
@@ -50,6 +51,7 @@ func ExecutePreprocessedEVMTransaction(ctx sdk.Context, preprocessed *pipelinety
 			Code:      sdkerrors.ErrInvalidRequest.ABCICode(),
 			Codespace: sdkerrors.RootCodespace,
 			Log:       err.Error(),
+			Surplus:   sdk.ZeroInt(),
 		}, err
 	}
 
@@ -70,6 +72,7 @@ func ExecutePreprocessedEVMTransaction(ctx sdk.Context, preprocessed *pipelinety
 			Code:      sdkerrors.ErrWrongSequence.ABCICode(),
 			Codespace: sdkerrors.RootCodespace,
 			Log:       err.Error(),
+			Surplus:   sdk.ZeroInt(),
 		}, sdkerrors.Wrap(sdkerrors.ErrWrongSequence, err.Error())
 	}
 
@@ -79,6 +82,7 @@ func ExecutePreprocessedEVMTransaction(ctx sdk.Context, preprocessed *pipelinety
 			Code:      sdkerrors.ErrInsufficientFunds.ABCICode(),
 			Codespace: sdkerrors.RootCodespace,
 			Log:       err.Error(),
+			Surplus:   sdk.ZeroInt(),
 		}, sdkerrors.Wrap(sdkerrors.ErrInsufficientFunds, err.Error())
 	}
 
@@ -89,6 +93,7 @@ func ExecutePreprocessedEVMTransaction(ctx sdk.Context, preprocessed *pipelinety
 			Code:      sdkerrors.ErrInvalidRequest.ABCICode(),
 			Codespace: sdkerrors.RootCodespace,
 			Log:       err.Error(),
+			Surplus:   sdk.ZeroInt(),
 		}, err
 	}
 
@@ -102,6 +107,7 @@ func ExecutePreprocessedEVMTransaction(ctx sdk.Context, preprocessed *pipelinety
 			Code:      sdkerrors.ErrInvalidRequest.ABCICode(),
 			Codespace: sdkerrors.RootCodespace,
 			Log:       err.Error(),
+			Surplus:   sdk.ZeroInt(),
 		}, err
 	}
 
@@ -112,6 +118,7 @@ func ExecutePreprocessedEVMTransaction(ctx sdk.Context, preprocessed *pipelinety
 				Code:      sdkerrors.ErrInvalidRequest.ABCICode(),
 				Codespace: sdkerrors.RootCodespace,
 				Log:       err.Error(),
+				Surplus:   sdk.ZeroInt(),
 			}, err
 		}
 	}
@@ -126,6 +133,7 @@ func ExecutePreprocessedEVMTransaction(ctx sdk.Context, preprocessed *pipelinety
 		ReturnData: result.ReturnData,
 		Logs:       logs,
 		VmError:    vmError,
+		Surplus:    surplus, // Store surplus for finalizer (can be zero)
 	}, nil
 }
 
@@ -153,5 +161,6 @@ func ExecuteCosmosTransaction(ctx sdk.Context, tx sdk.Tx, txBytes []byte, helper
 		Code:       resp.Code,
 		Codespace:  resp.Codespace,
 		Log:        resp.Log,
+		Surplus:    sdk.ZeroInt(), // COSMOS transactions don't have EVM surplus
 	}, nil
 }
