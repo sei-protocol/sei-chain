@@ -1,4 +1,4 @@
-package app
+package app_test
 
 import (
 	"context"
@@ -19,6 +19,8 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
 	"github.com/stretchr/testify/require"
 	abci "github.com/tendermint/tendermint/abci/types"
+
+	"github.com/sei-protocol/sei-chain/app"
 )
 
 // BenchmarkBlockProcessing compares legacy vs pipeline processing
@@ -33,19 +35,19 @@ func BenchmarkBlockProcessing(b *testing.B) {
 
 func benchmarkBlockProcessingWithMode(b *testing.B, usePipeline bool) {
 	// Store original value
-	originalValue := EnablePipelineProcessing
+	originalValue := app.EnablePipelineProcessing
 	defer func() {
-		EnablePipelineProcessing = originalValue
+		app.EnablePipelineProcessing = originalValue
 	}()
 
 	// Set pipeline mode
-	EnablePipelineProcessing = usePipeline
+	app.EnablePipelineProcessing = usePipeline
 
 	// Setup test environment
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 	t := &testing.T{}
-	testWrapper := NewTestWrapper(t, tm, valPub, false)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 	
 	// Create test account
 	privKey := testkeeper.MockPrivateKey()
@@ -103,7 +105,7 @@ func benchmarkBlockProcessingWithMode(b *testing.B, usePipeline bool) {
 			},
 		}
 
-		resp, err := testWrapper.App.FinalizeBlocker(testWrapper.Ctx, req)
+		resp, err := testWrapper.App.FinalizeBlock(context.Background(), req)
 		require.NoError(b, err)
 		require.NotNil(b, resp)
 
@@ -154,19 +156,19 @@ func BenchmarkBlockProcessingEmptyBlocks(b *testing.B) {
 
 func benchmarkEmptyBlockProcessingWithMode(b *testing.B, usePipeline bool) {
 	// Store original value
-	originalValue := EnablePipelineProcessing
+	originalValue := app.EnablePipelineProcessing
 	defer func() {
-		EnablePipelineProcessing = originalValue
+		app.EnablePipelineProcessing = originalValue
 	}()
 
 	// Set pipeline mode
-	EnablePipelineProcessing = usePipeline
+	app.EnablePipelineProcessing = usePipeline
 
 	// Setup test environment
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 	t := &testing.T{}
-	testWrapper := NewTestWrapper(t, tm, valPub, false)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 
 	// Initialize block height
 	height := int64(1)
@@ -188,7 +190,7 @@ func benchmarkEmptyBlockProcessingWithMode(b *testing.B, usePipeline bool) {
 			},
 		}
 
-		resp, err := testWrapper.App.FinalizeBlocker(testWrapper.Ctx, req)
+		resp, err := testWrapper.App.FinalizeBlock(context.Background(), req)
 		require.NoError(b, err)
 		require.NotNil(b, resp)
 
@@ -213,19 +215,19 @@ func BenchmarkBlockProcessingManyTxs(b *testing.B) {
 
 func benchmarkManyTxsProcessingWithMode(b *testing.B, usePipeline bool) {
 	// Store original value
-	originalValue := EnablePipelineProcessing
+	originalValue := app.EnablePipelineProcessing
 	defer func() {
-		EnablePipelineProcessing = originalValue
+		app.EnablePipelineProcessing = originalValue
 	}()
 
 	// Set pipeline mode
-	EnablePipelineProcessing = usePipeline
+	app.EnablePipelineProcessing = usePipeline
 
 	// Setup test environment
 	tm := time.Now().UTC()
 	valPub := secp256k1.GenPrivKey().PubKey()
 	t := &testing.T{}
-	testWrapper := NewTestWrapper(t, tm, valPub, false)
+	testWrapper := app.NewTestWrapper(t, tm, valPub, false)
 	
 	// Create test account
 	privKey := testkeeper.MockPrivateKey()
@@ -283,7 +285,7 @@ func benchmarkManyTxsProcessingWithMode(b *testing.B, usePipeline bool) {
 			},
 		}
 
-		resp, err := testWrapper.App.FinalizeBlocker(testWrapper.Ctx, req)
+		resp, err := testWrapper.App.FinalizeBlock(context.Background(), req)
 		require.NoError(b, err)
 		require.NotNil(b, resp)
 
