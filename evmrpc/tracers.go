@@ -70,8 +70,9 @@ func NewDebugAPI(
 	debugCfg Config,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
+	watermarks *WatermarkManager,
 ) *DebugAPI {
-	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex)
+	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex, watermarks)
 	tracersAPI := tracers.NewAPI(backend)
 	evictCallback := func(key common.Hash, value bool) {}
 	isPanicCache := expirable.NewLRU[common.Hash, bool](IsPanicCacheSize, evictCallback, IsPanicCacheTTL)
@@ -108,8 +109,9 @@ func NewSeiDebugAPI(
 	debugCfg Config,
 	globalBlockCache BlockCache,
 	cacheCreationMutex *sync.Mutex,
+	watermarks *WatermarkManager,
 ) *SeiDebugAPI {
-	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex)
+	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex, watermarks)
 	tracersAPI := tracers.NewAPI(backend)
 
 	var sem chan struct{}

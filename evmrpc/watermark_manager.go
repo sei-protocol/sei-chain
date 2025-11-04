@@ -97,13 +97,19 @@ func (m *WatermarkManager) Watermarks(ctx context.Context) (int64, int64, int64,
 
 	// State store heights (historical state DB) may lag behind block pruning.
 	if ssLatest, ssEarliest, ok := m.fetchStateStoreWatermarks(); ok {
-		setLatest(ssLatest)
-		setStateEarliest(ssEarliest)
+		if ssLatest > 0 {
+			setLatest(ssLatest)
+		}
+		if ssEarliest > 0 {
+			setStateEarliest(ssEarliest)
+		}
 	}
 
 	// Receipt store height participates only in the latest watermark.
 	if m.receiptStore != nil {
-		setLatest(m.receiptStore.GetLatestVersion())
+		if latest := m.receiptStore.GetLatestVersion(); latest > 0 {
+			setLatest(latest)
+		}
 	}
 
 	if !latestSet {
@@ -246,12 +252,12 @@ func blockByHashRespectingWatermarks(
 	hash []byte,
 	maxRetries int,
 ) (*coretypes.ResultBlock, error) {
+	if wm == nil {
+		return nil, errNoHeightSource
+	}
 	block, err := blockByHashWithRetry(ctx, client, hash, maxRetries)
 	if err != nil {
 		return nil, err
-	}
-	if wm == nil {
-		return block, nil
 	}
 	if err := wm.EnsureBlockHeightAvailable(ctx, block.Block.Height); err != nil {
 		return nil, err

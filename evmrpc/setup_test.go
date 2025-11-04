@@ -57,7 +57,7 @@ const MockHeight103 = 103
 const MockHeight101 = 101
 const MockHeight100 = 100
 
-var DebugTraceHashHex = "0x1234567890123456789023456789012345678901234567890123456789000004"
+var DebugTraceHashHex = "0xa16d8f7ea8741acd23f15fc19b0dd26512aff68c01c6260d7c3a51b297399d32"
 var DebugTraceBlockHash = "0xBE17E0261E539CB7E9A91E123A6D794E0163D656FCF9B8EAC07823F7ED28512B"
 var DebugTracePanicBlockHash = "0x0000000000000000000000000000000000000000000000000000000000000003"
 var MultiTxBlockHash = "0x0000000000000000000000000000000000000000000000000000000000000002"
@@ -116,6 +116,11 @@ var NewHeadsCalled = make(chan struct{}, 1)
 
 type MockClient struct {
 	mock.Client
+	latestOverride int64
+}
+
+func NewMockClientWithLatest(latest int64) *MockClient {
+	return &MockClient{latestOverride: latest}
 }
 
 func mustHexToBytes(h string) []byte {
@@ -404,9 +409,16 @@ func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.
 }
 
 func (c *MockClient) Status(context.Context) (*coretypes.ResultStatus, error) {
+	latest := c.latestOverride
+	if latest <= 0 {
+		latest = MockHeight103
+	}
+	if latest < 1 {
+		latest = 1
+	}
 	return &coretypes.ResultStatus{
 		SyncInfo: coretypes.SyncInfo{
-			LatestBlockHeight:   MockHeight103,
+			LatestBlockHeight:   latest,
 			EarliestBlockHeight: 1,
 		},
 	}, nil
@@ -1032,9 +1044,9 @@ func setupLogs() {
 		TransactionIndex: 2,
 		TxHashHex:        TestSyntheticTxHash,
 	})
-	CtxDebugTrace := Ctx.WithBlockHeight(MockHeight101)
+	CtxDebugTrace := Ctx.WithBlockHeight(MockHeight8)
 	EVMKeeper.MockReceipt(CtxDebugTrace, common.HexToHash(DebugTraceHashHex), &types.Receipt{
-		BlockNumber:      MockHeight101,
+		BlockNumber:      MockHeight8,
 		TransactionIndex: 0,
 		TxHashHex:        DebugTraceHashHex,
 	})

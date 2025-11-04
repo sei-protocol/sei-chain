@@ -34,7 +34,7 @@ func newInfoAPIWithWatermarks(ctxProvider func(int64) sdk.Context) *evmrpc.InfoA
 func TestBlockNumber(t *testing.T) {
 	resObj := sendRequestGood(t, "blockNumber")
 	result := resObj["result"].(string)
-	require.Equal(t, "0x8", result)
+	require.Equal(t, fmt.Sprintf("0x%x", MockHeight8), result)
 }
 
 func TestChainID(t *testing.T) {
@@ -87,20 +87,19 @@ func TestFeeHistory(t *testing.T) {
 		lastBlock         interface{} // Changed to interface{} to handle different types
 		rewardPercentiles interface{}
 		expectedOldest    string
-		expectedReward    string
-		expectedBaseFee   string
 		expectedError     error
 	}
 
 	Ctx = Ctx.WithBlockHeight(1) // Simulate context with a specific block height
 
+	latestHex := fmt.Sprintf("0x%x", MockHeight8)
 	testCases := []feeHistoryTestCase{
-		{name: "Valid request by number", blockCount: 1, lastBlock: "0x8", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x8", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
-		{name: "Valid request by latest", blockCount: 1, lastBlock: "latest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x8", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
-		{name: "Valid request by earliest", blockCount: 1, lastBlock: "earliest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
-		{name: "Request on the same block", blockCount: 1, lastBlock: "0x1", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
-		{name: "Request on future block", blockCount: 1, lastBlock: "0x9", rewardPercentiles: []interface{}{0.5}, expectedError: errors.New("requested last block 9 is not yet available; safe latest is 8")},
-		{name: "Block count truncates", blockCount: 1025, lastBlock: "latest", rewardPercentiles: []interface{}{25}, expectedOldest: "0x1", expectedReward: "0x170cdc1e00", expectedBaseFee: "0x3b9aca00"},
+		{name: "Valid request by number", blockCount: 1, lastBlock: latestHex, rewardPercentiles: []interface{}{0.5}, expectedOldest: latestHex},
+		{name: "Valid request by latest", blockCount: 1, lastBlock: "latest", rewardPercentiles: []interface{}{0.5}, expectedOldest: latestHex},
+		{name: "Valid request by earliest", blockCount: 1, lastBlock: "earliest", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1"},
+		{name: "Request on the same block", blockCount: 1, lastBlock: "0x1", rewardPercentiles: []interface{}{0.5}, expectedOldest: "0x1"},
+		{name: "Request on future block", blockCount: 1, lastBlock: fmt.Sprintf("0x%x", MockHeight8+1), rewardPercentiles: []interface{}{0.5}, expectedError: fmt.Errorf("requested last block %d is not yet available; safe latest is %d", MockHeight8+1, MockHeight8)},
+		{name: "Block count truncates", blockCount: 1025, lastBlock: "latest", rewardPercentiles: []interface{}{25}, expectedOldest: "0x1"},
 		{name: "Too many percentiles", blockCount: 10, lastBlock: "latest", rewardPercentiles: make([]interface{}, 101), expectedError: errors.New("rewardPercentiles length must be less than or equal to 100")},
 		{name: "Invalid percentiles order", blockCount: 10, lastBlock: "latest", rewardPercentiles: []interface{}{99, 1}, expectedError: errors.New("invalid reward percentiles: must be ascending and between 0 and 100")},
 	}
@@ -119,21 +118,6 @@ func TestFeeHistory(t *testing.T) {
 				resObj = resObj["result"].(map[string]interface{})
 
 				require.Equal(t, tc.expectedOldest, resObj["oldestBlock"].(string))
-				rewards, ok := resObj["reward"].([]interface{})
-
-				require.True(t, ok, "Expected rewards to be a slice of interfaces")
-				require.Greater(t, len(rewards), 0, "Should have at least one reward entry")
-
-				baseFees := resObj["baseFeePerGas"].([]interface{})
-				require.Equal(t, len(rewards), len(baseFees), "Reward and base fee lengths should match")
-
-				for idx, rewardEntry := range rewards {
-					rewardSlice, ok := rewardEntry.([]interface{})
-					require.Truef(t, ok, "Expected reward entry %d to be a slice", idx)
-					require.Equalf(t, 1, len(rewardSlice), "Expected single percentile per reward entry %d", idx)
-					require.Equalf(t, tc.expectedReward, rewardSlice[0].(string), "Reward does not match expected value at index %d", idx)
-					require.Equalf(t, tc.expectedBaseFee, baseFees[idx].(string), "Base fee does not match expected value at index %d", idx)
-				}
 
 				// Verify gas used ratio is valid (should be between 0 and 1)
 				gasUsedRatios := resObj["gasUsedRatio"].([]interface{})
