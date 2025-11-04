@@ -39,6 +39,10 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc"
 	"github.com/sei-protocol/sei-chain/tools"
 	"github.com/sei-protocol/sei-chain/tools/migration/ss"
+	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
+	"github.com/sei-protocol/sei-chain/x/evm/querier"
+	"github.com/sei-protocol/sei-chain/x/evm/replay"
+	seinetcli "github.com/sei-protocol/sei-chain/x/seinet/client/cli"
 	seidbconfig "github.com/sei-protocol/sei-db/config"
 	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
@@ -139,6 +143,7 @@ func initRootCmd(
 		CompactCmd(app.DefaultNodeHome),
 		tools.ToolCmd(),
 		SnapshotCmd(),
+		seinetcli.CmdUnlockHardwareKey(),
 	)
 
 	tracingProviderOpts, err := tracing.GetTracerProviderOptions(tracing.DefaultTracingURL)
@@ -222,6 +227,7 @@ func addModuleInitFlags(startCmd *cobra.Command) {
 	crisis.AddModuleInitFlags(startCmd)
 	startCmd.Flags().Bool("migrate-iavl", false, "Run migration of IAVL data store to SeiDB State Store")
 	startCmd.Flags().Int64("migrate-height", 0, "Height at which to start the migration")
+	startCmd.Flags().Int("migrate-cache-size", ss.DefaultCacheSize, "IAVL cache size to use during migration")
 }
 
 // newApp creates a new Cosmos SDK app
@@ -311,7 +317,8 @@ func newApp(
 			homeDir := cast.ToString(appOpts.Get(flags.FlagHome))
 			stateStore := app.GetStateStore()
 			migrationHeight := cast.ToInt64(appOpts.Get("migrate-height"))
-			migrator := ss.NewMigrator(db, stateStore)
+			cacheSize := cast.ToInt(appOpts.Get("migrate-cache-size"))
+			migrator := ss.NewMigrator(db, stateStore, cacheSize)
 			if err := migrator.Migrate(migrationHeight, homeDir); err != nil {
 				panic(err)
 			}

@@ -27,6 +27,10 @@ Ref: https://keepachangelog.com/en/1.0.0/
 -->
 
 # Changelog
+## Unreleased
+
+sei-chain
+* Add workflow to create and push Docker image
 ## v6.2.0
 sei-chain
 * [#2444](https://github.com/sei-protocol/sei-chain/pull/2444) Optimize getLogs performance
