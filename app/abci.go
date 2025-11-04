@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/utils/metrics"
@@ -21,6 +22,7 @@ func (app *App) BeginBlock(
 	defer beginBlockSpan.End()
 	ctx = ctx.WithTraceSpanContext(spanCtx)
 	ctx = ctx.WithEventManager(sdk.NewEventManager())
+	defer telemetry.MeasureSince(time.Now(), "abci", "begin_block")
 	// inline begin block
 	if checkHeight {
 		if err := app.ValidateHeight(height); err != nil {
