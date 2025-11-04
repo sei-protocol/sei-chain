@@ -417,7 +417,15 @@ func EncodeTmBlock(
 		txHash = ethtypes.EmptyTxsHash
 	}
 
-	gasLimit := blockRes.ConsensusParamUpdates.Block.MaxGas
+	// Get gas limit from consensus params, or use default if nil
+	var gasLimit uint64
+	if blockRes.ConsensusParamUpdates != nil && blockRes.ConsensusParamUpdates.Block != nil {
+		gasLimit = uint64(blockRes.ConsensusParamUpdates.Block.MaxGas) //nolint:gosec
+	} else {
+		// Use default gas limit when ConsensusParamUpdates is nil
+		gasLimit = keeper.DefaultBlockGasLimit
+	}
+	
 	result := map[string]interface{}{
 		"number":           (*hexutil.Big)(number),
 		"hash":             blockhash,
