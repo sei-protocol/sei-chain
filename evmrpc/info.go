@@ -311,7 +311,7 @@ func (i *InfoAPI) getRewards(block *coretypes.ResultBlock, baseFee *big.Int, rew
 }
 
 func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGasUsed uint64, err error) {
-	block, err := blockByNumber(ctx, i.tmClient, height)
+	block, err := blockByNumberRespectingWatermarks(ctx, i.tmClient, i.watermarks, height, 1)
 	if err != nil {
 		// block pruned from tendermint store. Skipping
 		return 0, err
@@ -340,7 +340,7 @@ func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGa
 
 // CalculateGasUsedRatio calculates the actual gas used ratio for a specific block
 func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) (float64, error) {
-	block, err := blockByNumber(ctx, i.tmClient, &blockHeight)
+	block, err := blockByNumberRespectingWatermarks(ctx, i.tmClient, i.watermarks, &blockHeight, 1)
 	if err != nil {
 		return 0, err
 	}
