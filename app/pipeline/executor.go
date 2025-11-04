@@ -5,9 +5,9 @@ import (
 	"sync"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/sei-protocol/sei-chain/utils"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
-	"github.com/sei-protocol/sei-chain/utils"
 
 	pipelinetypes "github.com/sei-protocol/sei-chain/app/pipeline/types"
 )
@@ -23,13 +23,13 @@ type ExecutorComponent struct {
 	wg      sync.WaitGroup
 
 	// Dependencies
-	helper pipelinetypes.ExecutionHelper
-	beginBlock func(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock
-	midBlock   func(ctx sdk.Context, height int64) []abci.Event
-	endBlock   func(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock
-	writeState func()
-	getWorkingHash func() []byte
-	executeEVMTransaction func(ctx sdk.Context, preprocessed *pipelinetypes.PreprocessedTx, helper pipelinetypes.ExecutionHelper) (*pipelinetypes.TransactionResult, error)
+	helper                   pipelinetypes.ExecutionHelper
+	beginBlock               func(ctx sdk.Context, req abci.RequestBeginBlock) abci.ResponseBeginBlock
+	midBlock                 func(ctx sdk.Context, height int64) []abci.Event
+	endBlock                 func(ctx sdk.Context, req abci.RequestEndBlock) abci.ResponseEndBlock
+	writeState               func()
+	getWorkingHash           func() []byte
+	executeEVMTransaction    func(ctx sdk.Context, preprocessed *pipelinetypes.PreprocessedTx, helper pipelinetypes.ExecutionHelper) (*pipelinetypes.TransactionResult, error)
 	executeCosmosTransaction func(ctx sdk.Context, tx sdk.Tx, txBytes []byte, helper pipelinetypes.ExecutionHelper) (*pipelinetypes.TransactionResult, error)
 }
 
@@ -47,15 +47,15 @@ func NewExecutorComponent(
 	executeCosmosTransaction func(ctx sdk.Context, tx sdk.Tx, txBytes []byte, helper pipelinetypes.ExecutionHelper) (*pipelinetypes.TransactionResult, error),
 ) *ExecutorComponent {
 	return &ExecutorComponent{
-		in:                      in,
-		out:                     out,
-		helper:                  helper,
-		beginBlock:              beginBlock,
-		midBlock:                midBlock,
-		endBlock:                endBlock,
-		writeState:              writeState,
+		in:                       in,
+		out:                      out,
+		helper:                   helper,
+		beginBlock:               beginBlock,
+		midBlock:                 midBlock,
+		endBlock:                 endBlock,
+		writeState:               writeState,
 		getWorkingHash:           getWorkingHash,
-		executeEVMTransaction:   executeEVMTransaction,
+		executeEVMTransaction:    executeEVMTransaction,
 		executeCosmosTransaction: executeCosmosTransaction,
 	}
 }
@@ -103,10 +103,10 @@ func (e *ExecutorComponent) Start(ctx context.Context) {
 func (e *ExecutorComponent) executeBlock(blockWithCtx *pipelinetypes.PreprocessedBlockWithContext) (*pipelinetypes.ExecutedBlock, error) {
 	preprocessed := blockWithCtx.Block
 	ctx := blockWithCtx.Ctx
-	
+
 	// BeginBlock
 	beginBlockReq := abci.RequestBeginBlock{
-		Hash:              preprocessed.Hash,
+		Hash: preprocessed.Hash,
 		ByzantineValidators: utils.Map(preprocessed.ByzantineValidators, func(mis abci.Misbehavior) abci.Evidence {
 			return abci.Evidence(mis)
 		}),
@@ -208,4 +208,3 @@ func (e *ExecutorComponent) IsRunning() bool {
 	defer e.mu.RUnlock()
 	return e.started
 }
-

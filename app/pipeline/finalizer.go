@@ -83,31 +83,31 @@ func (f *FinalizerComponent) finalizeBlock(executed *pipelinetypes.ExecutedBlock
 	ctx := executed.Ctx
 	preprocessed := executed.PreprocessedBlock
 	keeper := f.helper.GetKeeper()
-	
+
 	// Process each transaction result for EVM transactions
 	for i, txResult := range executed.TxResults {
 		if i >= len(preprocessed.PreprocessedTxs) {
 			continue
 		}
-		
+
 		preprocessedTx := preprocessed.PreprocessedTxs[i]
-		
+
 		// Only write receipts for EVM transactions
 		if preprocessedTx.Type == pipelinetypes.TransactionTypeEVM {
 			// Create a minimal stateDB just for receipt writing
 			// We already have logs in txResult, so we'll add them to stateDB
 			stateDB := state.NewDBImpl(ctx, keeper, false)
 			defer stateDB.Cleanup()
-			
+
 			// Add logs to stateDB (they're needed for WriteReceipt to create bloom)
 			for _, log := range txResult.Logs {
 				stateDB.AddLog(log)
 			}
-			
+
 			// Create transaction hash
 			etx := ethtypes.NewTx(preprocessedTx.TxData.AsEthereumData())
 			txHash := etx.Hash()
-			
+
 			// Write receipt
 			receipt, err := f.helper.WriteReceipt(
 				ctx,
@@ -115,7 +115,7 @@ func (f *FinalizerComponent) finalizeBlock(executed *pipelinetypes.ExecutedBlock
 				preprocessedTx.EVMMessage,
 				uint32(etx.Type()),
 				txHash,
-				uint64(txResult.GasUsed),
+				uint64(txResult.GasUsed), //nolint:gosec // GasUsed is bounded by block gas limit
 				txResult.VmError,
 			)
 			if err != nil {
@@ -123,7 +123,7 @@ func (f *FinalizerComponent) finalizeBlock(executed *pipelinetypes.ExecutedBlock
 				ctx.Logger().Error("failed to write receipt", "error", err, "txIndex", i)
 				continue
 			}
-			
+
 			// Handle deferred info (bloom and surplus)
 			// Note: Surplus handling would require tracking surplus from execution
 			// For now, we'll skip surplus handling as it requires state from execution phase
@@ -132,20 +132,20 @@ func (f *FinalizerComponent) finalizeBlock(executed *pipelinetypes.ExecutedBlock
 			// TODO: Get surplus from execution phase or compute it
 			surplus := sdk.ZeroInt()
 			f.helper.AppendToEvmTxDeferredInfo(ctx, bloom, txHash, surplus)
-			
+
 			// Update gas meter (convert EVM gas to Sei gas)
 			normalizer := f.helper.GetPriorityNormalizer(ctx)
 			adjustedGasUsed := normalizer.MulInt64(txResult.GasUsed).TruncateInt().Uint64()
 			ctx.GasMeter().ConsumeGas(adjustedGasUsed, "evm transaction")
 		}
 	}
-	
+
 	// Flush transient receipts (happens at block level)
 	if err := f.helper.FlushTransientReceipts(ctx); err != nil {
 		ctx.Logger().Error("failed to flush transient receipts", "error", err)
 		// Continue anyway - this is non-critical
 	}
-	
+
 	// Create processed block
 	return &pipelinetypes.ProcessedBlock{
 		ExecutedBlock: executed,
@@ -177,4 +177,3 @@ func (f *FinalizerComponent) IsRunning() bool {
 	defer f.mu.RUnlock()
 	return f.started
 }
-

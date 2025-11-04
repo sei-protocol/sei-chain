@@ -5,13 +5,13 @@ import (
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
+	abci "github.com/tendermint/tendermint/abci/types"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
@@ -41,15 +41,15 @@ type PreprocessedTx struct {
 	Type TransactionType
 
 	// EVM-specific fields (only populated if Type == TransactionTypeEVM)
-	TxData           ethtx.TxData
-	SenderEVMAddr    []byte
-	SenderSeiAddr    sdk.AccAddress
-	EVMMessage       *core.Message // Precomputed EVM message
-	CodeSizeOK       bool
-	IntrinsicGas     uint64
-	FeeCapsOK        bool
-	ChainIDOK        bool
-	Priority         int64
+	TxData            ethtx.TxData
+	SenderEVMAddr     []byte
+	SenderSeiAddr     sdk.AccAddress
+	EVMMessage        *core.Message // Precomputed EVM message
+	CodeSizeOK        bool
+	IntrinsicGas      uint64
+	FeeCapsOK         bool
+	ChainIDOK         bool
+	Priority          int64
 	EffectiveGasPrice *big.Int
 
 	// COSMOS-specific fields (only populated if Type == TransactionTypeCOSMOS)
@@ -62,21 +62,21 @@ type PreprocessedTx struct {
 // PreprocessedBlock contains all preprocessed data for a block
 type PreprocessedBlock struct {
 	// Block request data
-	Height            int64
-	Hash              []byte
-	Time              time.Time
+	Height              int64
+	Hash                []byte
+	Time                time.Time
 	ByzantineValidators []abci.Misbehavior
-	LastCommit        abci.LastCommitInfo
+	LastCommit          abci.LastCommitInfo
 
 	// Preprocessed transactions
 	PreprocessedTxs []*PreprocessedTx
 
 	// Block-level info
-	BaseFee          *big.Int
-	ChainConfig      *params.ChainConfig // Ethereum chain config
-	ConsensusParams  *tmproto.ConsensusParams
-	BlockMaxGas      int64
-	
+	BaseFee         *big.Int
+	ChainConfig     *params.ChainConfig // Ethereum chain config
+	ConsensusParams *tmproto.ConsensusParams
+	BlockMaxGas     int64
+
 	// Context and transaction bytes (needed for execution)
 	Ctx sdk.Context
 	Txs [][]byte // Original transaction bytes
@@ -84,14 +84,14 @@ type PreprocessedBlock struct {
 
 // TransactionResult contains the result of executing a transaction
 type TransactionResult struct {
-	GasUsed   int64
+	GasUsed    int64
 	ReturnData []byte
-	Logs      []*ethtypes.Log
-	VmError   string
-	Events    []abci.Event
-	Code      uint32
-	Codespace string
-	Log       string
+	Logs       []*ethtypes.Log
+	VmError    string
+	Events     []abci.Event
+	Code       uint32
+	Codespace  string
+	Log        string
 }
 
 // ExecutedBlock contains the result of executing a block
@@ -106,7 +106,7 @@ type ExecutedBlock struct {
 	Events       []abci.Event
 	AppHash      []byte
 	EndBlockResp abci.ResponseEndBlock
-	
+
 	// Context for finalization (needed for receipt writing)
 	Ctx sdk.Context
 }
@@ -144,7 +144,7 @@ type PreprocessorHelper interface {
 // ExecutionHelper provides access to keeper methods needed for execution
 type ExecutionHelper interface {
 	PreprocessorHelper // Includes preprocessing helper methods
-	
+
 	// EVM execution methods
 	GetGasPool() core.GasPool
 	GetVMBlockContext(ctx sdk.Context, gp core.GasPool) (*vm.BlockContext, error)
@@ -152,15 +152,15 @@ type ExecutionHelper interface {
 	ChainID(ctx sdk.Context) *big.Int
 	CustomPrecompiles(ctx sdk.Context) map[common.Address]vm.PrecompiledContract
 	ApplyEVMMessage(ctx sdk.Context, msg *core.Message, stateDB *state.DBImpl, gp core.GasPool, shouldIncrementNonce bool) (*core.ExecutionResult, error)
-	
+
 	// State access methods
 	GetNonce(ctx sdk.Context, addr common.Address) uint64
 	GetBalance(ctx sdk.Context, addr sdk.AccAddress) sdk.Int
 	AddAnteSurplus(ctx sdk.Context, hash common.Hash, surplus sdk.Int) error
-	
+
 	// Cosmos transaction execution
 	DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx
-	
+
 	// Keeper access for stateDB creation
 	GetKeeper() *evmkeeper.Keeper
 }
@@ -183,4 +183,3 @@ type OrderedItem interface {
 func (pb *PreprocessedBlock) GetSequenceNumber() int64 {
 	return pb.Height
 }
-

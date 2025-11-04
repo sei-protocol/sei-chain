@@ -122,7 +122,7 @@ func ExecutePreprocessedEVMTransaction(ctx sdk.Context, preprocessed *pipelinety
 	}
 
 	return &pipelinetypes.TransactionResult{
-		GasUsed:    int64(result.UsedGas),
+		GasUsed:    int64(result.UsedGas), //nolint:gosec // GasUsed is bounded by block gas limit
 		ReturnData: result.ReturnData,
 		Logs:       logs,
 		VmError:    vmError,

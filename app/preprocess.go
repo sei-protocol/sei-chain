@@ -6,17 +6,17 @@ import (
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
+	abci "github.com/tendermint/tendermint/abci/types"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	"github.com/sei-protocol/sei-chain/x/evm/types/ethtx"
-	
+
 	pipelinetypes "github.com/sei-protocol/sei-chain/app/pipeline/types"
 )
 
@@ -126,7 +126,7 @@ func buildEVMMessage(tx *ethtypes.Transaction, sender []byte, baseFee *big.Int) 
 		Data:                  tx.Data(),
 		AccessList:            tx.AccessList(),
 		BlobHashes:            tx.BlobHashes(),
-		BlobGasFeeCap:        tx.BlobGasFeeCap(),
+		BlobGasFeeCap:         tx.BlobGasFeeCap(),
 		SetCodeAuthorizations: tx.SetCodeAuthorizations(),
 		From:                  common.BytesToAddress(sender),
 	}
@@ -204,7 +204,7 @@ func PreprocessBlock(
 		if txType == pipelinetypes.TransactionTypeEVM {
 			// EVM transaction preprocessing
 			msg := evmtypes.MustGetEVMTransactionMessage(typedTx)
-			
+
 			// Preprocess signature recovery (already done in DecodeTransactionsConcurrently, but ensure it's done)
 			if msg.Derived == nil {
 				if err := evmante.Preprocess(ctx, msg, chainID, helper.EthBlockTestConfigEnabled()); err != nil {
@@ -277,20 +277,19 @@ func PreprocessBlock(
 			Version:   consensusParamsProto.Version,
 		}
 	}
-	
+
 	return &pipelinetypes.PreprocessedBlock{
-		Height:            req.GetHeight(),
-		Hash:              req.GetHash(),
-		Time:              req.GetTime(),
+		Height:              req.GetHeight(),
+		Hash:                req.GetHash(),
+		Time:                req.GetTime(),
 		ByzantineValidators: req.GetByzantineValidators(),
-		LastCommit:        lastCommit,
-		PreprocessedTxs:   preprocessedTxs,
-		BaseFee:           baseFee,
-		ChainConfig:       chainConfig,
-		ConsensusParams:   consensusParams,
-		BlockMaxGas:       blockMaxGas,
-		Ctx:               ctx,
-		Txs:               txs,
+		LastCommit:          lastCommit,
+		PreprocessedTxs:     preprocessedTxs,
+		BaseFee:             baseFee,
+		ChainConfig:         chainConfig,
+		ConsensusParams:     consensusParams,
+		BlockMaxGas:         blockMaxGas,
+		Ctx:                 ctx,
+		Txs:                 txs,
 	}, nil
 }
-

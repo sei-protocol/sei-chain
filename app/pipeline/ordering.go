@@ -20,8 +20,8 @@ type OrderingComponent struct {
 
 	// Ordering buffer state
 	buffer       map[int64]*pipelinetypes.PreprocessedBlock // Maps height to preprocessed block
-	nextSequence int64                            // Next expected sequence number
-	muBuffer     sync.Mutex                       // Protects buffer and nextSequence
+	nextSequence int64                                      // Next expected sequence number
+	muBuffer     sync.Mutex                                 // Protects buffer and nextSequence
 }
 
 // NewOrderingComponent creates a new OrderingComponent

@@ -4,16 +4,16 @@ import (
 	"math/big"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	abci "github.com/tendermint/tendermint/abci/types"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	abci "github.com/tendermint/tendermint/abci/types"
 
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
-	
+
 	pipelinetypes "github.com/sei-protocol/sei-chain/app/pipeline/types"
 )
 
@@ -135,4 +135,3 @@ func (h *appFinalizerHelper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom et
 func (h *appFinalizerHelper) FlushTransientReceipts(ctx sdk.Context) error {
 	return h.app.EvmKeeper.FlushTransientReceipts(ctx)
 }
-

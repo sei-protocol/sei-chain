@@ -425,7 +425,7 @@ func EncodeTmBlock(
 		// Use default gas limit when ConsensusParamUpdates is nil
 		gasLimit = keeper.DefaultBlockGasLimit
 	}
-	
+
 	result := map[string]interface{}{
 		"number":           (*hexutil.Big)(number),
 		"hash":             blockhash,

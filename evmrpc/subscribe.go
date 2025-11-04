@@ -280,7 +280,7 @@ func encodeTmHeader(
 	for _, txRes := range header.ResultFinalizeBlock.TxResults {
 		gasWanted += txRes.GasUsed
 	}
-	
+
 	// Get gas limit from consensus params, or use default if nil
 	var gasLimit uint64
 	if header.ResultFinalizeBlock.ConsensusParamUpdates != nil && header.ResultFinalizeBlock.ConsensusParamUpdates.Block != nil {
