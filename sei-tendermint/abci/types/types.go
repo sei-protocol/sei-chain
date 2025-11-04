@@ -239,3 +239,15 @@ type ResponseCheckTxV2 struct {
 	IsEVM            bool
 	Priority         int64
 }
+
+type CheckTxTypeV2 int32
+
+const (
+	CheckTxTypeV2New     CheckTxTypeV2 = iota
+	CheckTxTypeV2Recheck
+)
+
+type RequestCheckTxV2 struct {
+	Tx   []byte
+	Type CheckTxType
+}

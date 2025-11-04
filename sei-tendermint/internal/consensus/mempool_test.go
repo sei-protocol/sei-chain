@@ -314,7 +314,7 @@ func (app *CounterApplication) FinalizeBlock(_ context.Context, req *abci.Reques
 	return res, nil
 }
 
-func (app *CounterApplication) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, error) {
+func (app *CounterApplication) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
 	app.mu.Lock()
 	defer app.mu.Unlock()
 

@@ -57,7 +57,7 @@ func (app *App) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abci.Re
 	return app.BaseApp.EndBlock(ctx, req)
 }
 
-func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, error) {
+func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
 	_, span := app.GetBaseApp().TracingInfo.StartWithContext("CheckTx", ctx)
 	defer span.End()
 	return app.BaseApp.CheckTx(ctx, req)

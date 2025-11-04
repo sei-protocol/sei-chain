@@ -1501,7 +1501,7 @@ func TestCheckTx(t *testing.T) {
 		tx := newTxCounter(i, 0) // no messages
 		txBytes, err := codec.Marshal(tx)
 		require.NoError(t, err)
-		r, _ := app.CheckTx(context.Background(), &abci.RequestCheckTx{Tx: txBytes})
+		r, _ := app.CheckTx(context.Background(), &abci.RequestCheckTxV2{Tx: txBytes})
 		require.True(t, r.IsOK(), fmt.Sprintf("%v", r))
 	}
 

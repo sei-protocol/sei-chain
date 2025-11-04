@@ -45,7 +45,7 @@ func (_m *Client) ApplySnapshotChunk(_a0 context.Context, _a1 *types.RequestAppl
 }
 
 // CheckTx provides a mock function with given fields: _a0, _a1
-func (_m *Client) CheckTx(_a0 context.Context, _a1 *types.RequestCheckTx) (*types.ResponseCheckTxV2, error) {
+func (_m *Client) CheckTx(_a0 context.Context, _a1 *types.RequestCheckTxV2) (*types.ResponseCheckTxV2, error) {
 	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
@@ -54,10 +54,10 @@ func (_m *Client) CheckTx(_a0 context.Context, _a1 *types.RequestCheckTx) (*type
 
 	var r0 *types.ResponseCheckTxV2
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestCheckTx) (*types.ResponseCheckTxV2, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestCheckTxV2) (*types.ResponseCheckTxV2, error)); ok {
 		return rf(_a0, _a1)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestCheckTx) *types.ResponseCheckTxV2); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestCheckTxV2) *types.ResponseCheckTxV2); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
@@ -65,7 +65,7 @@ func (_m *Client) CheckTx(_a0 context.Context, _a1 *types.RequestCheckTx) (*type
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *types.RequestCheckTx) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *types.RequestCheckTxV2) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
 		r1 = ret.Error(1)

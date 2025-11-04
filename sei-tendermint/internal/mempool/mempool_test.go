@@ -43,7 +43,7 @@ type testTx struct {
 var DefaultGasEstimated = int64(1)
 var DefaultGasWanted = int64(1)
 
-func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTx) (*abci.ResponseCheckTxV2, error) {
+func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (*abci.ResponseCheckTxV2, error) {
 
 	var (
 		priority int64
