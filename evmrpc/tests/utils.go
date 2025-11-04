@@ -159,9 +159,6 @@ func setupTestServer(
 	}
 	if store := a.EvmKeeper.ReceiptStore(); store != nil {
 		latest := int64(math.MaxInt64)
-		if latest <= 0 {
-			latest = 1
-		}
 		if err := store.SetLatestVersion(latest); err != nil {
 			panic(err)
 		}
