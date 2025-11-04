@@ -218,10 +218,6 @@ func (rs *Store) CacheWrapWithTrace(storeKey types.StoreKey, _ io.Writer, _ type
 	return rs.CacheWrap(storeKey)
 }
 
-func (rs *Store) CacheWrapWithListeners(k types.StoreKey, listeners []types.WriteListener) types.CacheWrap {
-	return rs.CacheMultiStore().CacheWrapWithListeners(k, listeners)
-}
-
 // Implements interface MultiStore
 func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 	rs.mtx.RLock()
@@ -231,7 +227,7 @@ func (rs *Store) CacheMultiStore() types.CacheMultiStore {
 		store := types.KVStore(v)
 		stores[k] = store
 	}
-	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil)
+	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil)
 }
 
 // CacheMultiStoreWithVersion Implements interface MultiStore
@@ -257,7 +253,7 @@ func (rs *Store) CacheMultiStoreWithVersion(version int64) (types.CacheMultiStor
 		}
 	}
 
-	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil), nil
+	return cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil), nil
 }
 
 func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore, error) {
@@ -284,7 +280,7 @@ func (rs *Store) CacheMultiStoreForExport(version int64) (types.CacheMultiStore,
 		}
 	}
 	rs.mtx.RUnlock()
-	cacheMs := cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil, nil)
+	cacheMs := cachemulti.NewStore(nil, stores, rs.storeKeys, nil, nil)
 	// We need this because we need to make sure sc is closed after being used to release the resources
 	cacheMs.AddCloser(scStore)
 	return cacheMs, nil
@@ -669,16 +665,6 @@ func (rs *Store) ResetEvents() {
 	panic("should never attempt to reset events from commit multi store")
 }
 
-// ListeningEnabled will always return false for seiDB
-func (rs *Store) ListeningEnabled(_ types.StoreKey) bool {
-	return false
-}
-
-// AddListeners is no-opts for seiDB
-func (rs *Store) AddListeners(_ types.StoreKey, _ []types.WriteListener) {
-	return
-}
-
 // Restore Implements interface Snapshotter
 func (rs *Store) Restore(
 	height uint64, format uint32, protoReader protoio.Reader,
@@ -781,8 +767,10 @@ loop:
 	}
 	// initialize the earliest version for SS store
 	if rs.ssStore != nil {
-		err := rs.ssStore.SetEarliestVersion(height, false)
-		rs.logger.Error("Failed to set earliest version during DB restore", err)
+		if err := rs.ssStore.SetEarliestVersion(height, false); err != nil {
+			rs.logger.Error("Failed to set earliest version during DB restore", "err", err)
+		}
+
 	}
 
 	return snapshotItem, restoreErr

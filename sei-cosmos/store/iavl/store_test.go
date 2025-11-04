@@ -670,7 +670,4 @@ func TestCacheWraps(t *testing.T) {
 
 	cacheWrappedWithTrace := store.CacheWrapWithTrace(nil, nil, nil)
 	require.IsType(t, &cachekv.Store{}, cacheWrappedWithTrace)
-
-	cacheWrappedWithListeners := store.CacheWrapWithListeners(nil, nil)
-	require.IsType(t, &cachekv.Store{}, cacheWrappedWithListeners)
 }

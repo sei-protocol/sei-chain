@@ -41,10 +41,6 @@ func (ms multiStore) CacheWrapWithTrace(_ store.StoreKey, _ io.Writer, _ sdk.Tra
 	panic("not implemented")
 }
 
-func (ms multiStore) CacheWrapWithListeners(_ store.StoreKey, _ []store.WriteListener) store.CacheWrap {
-	panic("not implemented")
-}
-
 func (ms multiStore) TracingEnabled() bool {
 	panic("not implemented")
 }
@@ -54,14 +50,6 @@ func (ms multiStore) SetTracingContext(tc sdk.TraceContext) sdk.MultiStore {
 }
 
 func (ms multiStore) SetTracer(w io.Writer) sdk.MultiStore {
-	panic("not implemented")
-}
-
-func (ms multiStore) AddListeners(key store.StoreKey, listeners []store.WriteListener) {
-	panic("not implemented")
-}
-
-func (ms multiStore) ListeningEnabled(key store.StoreKey) bool {
 	panic("not implemented")
 }
 
@@ -169,10 +157,6 @@ func (kv kvStore) CacheWrap(_ store.StoreKey) sdk.CacheWrap {
 }
 
 func (kv kvStore) CacheWrapWithTrace(_ store.StoreKey, w io.Writer, tc sdk.TraceContext) sdk.CacheWrap {
-	panic("not implemented")
-}
-
-func (kv kvStore) CacheWrapWithListeners(_ store.StoreKey, _ []store.WriteListener) store.CacheWrap {
 	panic("not implemented")
 }
 

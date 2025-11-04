@@ -2,7 +2,6 @@ package consensus
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"runtime/debug"
 	"sync"
@@ -1242,14 +1241,16 @@ func (r *Reactor) recoverToErr(err *error) {
 // the reactor is stopped, we will catch the signal and close the p2p Channel
 // gracefully.
 func (r *Reactor) processStateCh(ctx context.Context) {
-	for {
+	for ctx.Err() == nil {
 		m, err := r.channels.state.Recv(ctx)
 		if err != nil {
 			return
 		}
 		if err := r.handleStateMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process stateCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			if ctx.Err() == nil {
+				r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			}
 		}
 	}
 }
@@ -1260,14 +1261,16 @@ func (r *Reactor) processStateCh(ctx context.Context) {
 // the reactor is stopped, we will catch the signal and close the p2p Channel
 // gracefully.
 func (r *Reactor) processDataCh(ctx context.Context) {
-	for {
+	for ctx.Err() == nil {
 		m, err := r.channels.data.Recv(ctx)
 		if err != nil {
 			return
 		}
 		if err := r.handleDataMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process dataCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			if ctx.Err() == nil {
+				r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			}
 		}
 	}
 }
@@ -1278,17 +1281,16 @@ func (r *Reactor) processDataCh(ctx context.Context) {
 // the reactor is stopped, we will catch the signal and close the p2p Channel
 // gracefully.
 func (r *Reactor) processVoteCh(ctx context.Context) {
-	for {
+	for ctx.Err() == nil {
 		m, err := r.channels.vote.Recv(ctx)
 		if err != nil {
 			return
 		}
 		if err := r.handleVoteMessage(ctx, m); err != nil {
 			r.logger.Error("failed to process voteCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{
-				NodeID: m.From,
-				Err:    err,
-			})
+			if ctx.Err() == nil {
+				r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			}
 		}
 	}
 }
@@ -1299,17 +1301,16 @@ func (r *Reactor) processVoteCh(ctx context.Context) {
 // When the reactor is stopped, we will catch the signal and close the p2p
 // Channel gracefully.
 func (r *Reactor) processVoteSetBitsCh(ctx context.Context) {
-	for {
+	for ctx.Err() == nil {
 		m, err := r.channels.votSet.Recv(ctx)
 		if err != nil {
 			return
 		}
 		if err := r.handleVoteSetBitsMessage(ctx, m); err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return
-			}
 			r.logger.Error("failed to process voteSetCh message", "err", err)
-			r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			if ctx.Err() == nil {
+				r.router.PeerManager().SendError(p2p.PeerError{NodeID: m.From, Err: err})
+			}
 		}
 	}
 }
