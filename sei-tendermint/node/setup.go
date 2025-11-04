@@ -247,8 +247,7 @@ func createPeerManager(
 			return nil, func() error { return nil }, fmt.Errorf("invalid peer address %q: %w", p, err)
 		}
 
-		peers = append(peers, address)
-		options.PersistentPeers = append(options.PersistentPeers, address.NodeID)
+		options.PersistentPeers[address.NodeID] = append(options.PersistentPeers[address.NodeID],address)
 	}
 
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.BootstrapPeers, ",", " ") {

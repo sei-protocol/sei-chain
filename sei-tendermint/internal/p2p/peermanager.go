@@ -93,35 +93,35 @@ func (pu *PeerUpdates) Updates() <-chan PeerUpdate {
 type RetryOptions struct {
 	// Min is the minimum time to wait between retries. Retry times
 	// double for each retry, up to MaxRetryTime. 0 disables retries.
-	Min time.Duration
+	Min time.Duration // 0.25s
 
 	// Max is the maximum time to wait between retries. 0 means
 	// no maximum, in which case the retry time will keep doubling.
-	Max time.Duration
+	Max time.Duration // 2m
 
 	// MaxPersistent is the maximum time to wait between retries for
 	// peers listed in PersistentPeers. Defaults to MaxRetryTime.
-	MaxPersistent utils.Option[time.Duration]
+	MaxPersistent utils.Option[time.Duration] // 2m
 
 	// Jitter is the upper bound of a random interval added to
 	// retry times, to avoid thundering herds.
-	Jitter time.Duration
+	Jitter time.Duration // 5s
 }
 
 // PeerManagerOptions specifies options for a PeerManager.
 type PeerManagerOptions struct {
 	SelfID types.NodeID
-	// PersistentPeers are peers that we want to maintain persistent connections
-	// to. These will be scored higher than other peers, and if
-	// MaxConnectedUpgrade is non-zero any lower-scored peers will be evicted if
-	// necessary to make room for these.
-	PersistentPeers map[types.NodeID]bool
+	// PersistentPeers are peers that we want to maintain persistent connections to.
+	// We will not preserve any addresses different than those specified in the config,
+	// since they are forgeable.
+	PersistentPeers map[types.NodeID][]NodeAddress
 
-	// Peers to which a connection will be (re)established, dropping an existing peer if any existing limit has been reached
+	// Peers which we will unconditionally accept connections from.
 	UnconditionalPeers map[types.NodeID]bool
 
-	// Only include those peers for block sync
-	BlockSyncPeers map[types.NodeID]bool
+	// Only include those peers for block sync.
+	// These are also persistent peers.
+	BlockSyncPeers map[types.NodeID][]NodeAddress
 
 	// PrivatePeerIDs defines a set of NodeID objects which the PEX reactor will
 	// consider private and never gossip.
@@ -231,11 +231,6 @@ func (o *PeerManagerOptions) Validate() error {
 		}
 	}
 
-	if o.MaxConnected > 0 && len(o.PersistentPeers) > int(o.MaxConnected) {
-		return fmt.Errorf("number of persistent peers %v can't exceed MaxConnected %v",
-			len(o.PersistentPeers), o.MaxConnected)
-	}
-
 	if maxPeers,ok := o.MaxPeers.Get(); ok {
 		if o.MaxConnected == 0 || o.MaxConnected+o.MaxConnectedUpgrade > maxPeers {
 			return fmt.Errorf("MaxConnected %v and MaxConnectedUpgrade %v can't exceed MaxPeers %v",
@@ -254,6 +249,7 @@ func (o *PeerManagerOptions) Validate() error {
 func (o *RetryOptions) delay(failures uint32, persistent bool) utils.Option[time.Duration] {
 	// We compare values as float64 to avoid overflows.
 	delay := float64(int64(o.Min)) * math.Pow(2, float64(failures))
+	// TODO: this shit should be deterministic
 	delay += float64(rand.Int63n(int64(o.Jitter+1)))
 	if persistent {
 		// We need to retry persistent peers indefinitely, so just cap to MaxPersistent.

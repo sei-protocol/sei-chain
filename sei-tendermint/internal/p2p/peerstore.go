@@ -25,22 +25,22 @@ import (
 // from disk on initialization, and any changes are written back to disk
 // (without fsync, since we can afford to lose recent writes).
 type peerStore struct {
-	options *PeerManagerOptions
-	db      dbm.DB
-	peers   map[types.NodeID]*peerInfo
+	options     *PeerManagerOptions
 	dynamicPrivatePeers map[types.NodeID]struct{} // dynamically added private peers
-	ranked  utils.Option[[]*peerInfo]
-
-	upgrading           map[types.NodeID]types.NodeID              // peers claimed for upgrade (DialNext → Dialed/DialFail)
-	ready               utils.Watch[map[types.NodeID]ChannelIDSet] // ready peers (Ready → Disconnected)
-
 	metrics *Metrics
+
+	db          dbm.DB
+	dialHistory []storedPeerInfo
+
+	addrs map[types.NodeID]{ LastFailure; dialing; []{ failures; NodeAddress } } // guys we are not connected to.
+
+	conns map[types.NodeID]{ Option[NodeAddress], *Connection }
 }
 
 func (s *peerStore) NumConnected() int {
 	cnt := 0
 	for _,p := range s.peers {
-		if p.connected && !s.options.UnconditionalPeers[p.ID] {
+		if s.conns[p.ID]!=nil && !s.options.UnconditionalPeers[p.ID] {
 			cnt++
 		}
 	}
@@ -59,13 +59,11 @@ func newPeerStore(db dbm.DB, options *PeerManagerOptions, metrics *Metrics) (*pe
 	}
 	defer iter.Close()
 	for ; iter.Valid(); iter.Next() {
-		// FIXME: We may want to tolerate failures here, by simply logging
-		// the errors and ignoring the faulty peer entries.
-		msg := new(p2pproto.PeerInfo)
-		if err := proto.Unmarshal(iter.Value(), msg); err != nil {
+		var msg p2pproto.PeerInfo
+		if err := proto.Unmarshal(iter.Value(), &msg); err != nil {
 			return nil, fmt.Errorf("invalid peer Protobuf data: %w", err)
 		}
-		peer, err := storedPeerInfoFromProto(msg)
+		peer, err := storedPeerInfoFromProto(&msg)
 		if err != nil {
 			return nil, fmt.Errorf("invalid peer data: %w", err)
 		}
@@ -81,8 +79,6 @@ func newPeerStore(db dbm.DB, options *PeerManagerOptions, metrics *Metrics) (*pe
 		db: db,
 		options: options,
 		metrics: metrics,
-		upgrading:           map[types.NodeID]types.NodeID{},
-		ready:               utils.NewWatch(map[types.NodeID]ChannelIDSet{}),
 	}, nil
 }
 
@@ -92,20 +88,13 @@ func (s *peerStore) BanPeer(id types.NodeID) error {
 			// cannot ban peers listed in the config file
 			return fmt.Errorf("attempting to ban %s but no-op. Remove the peer from config.toml instead", id)
 		}
-		peer.MutableScore = 0
+		peer.BaseScore = 0
 		peer.ConsecSuccessfulBlocks = 0
-		s.ranked = utils.None[[]*peerInfo]()
 	}
 	return nil
 }
 
 func (s *peerStore) DialFailed(addr NodeAddress) error {
-	for from, to := range s.upgrading {
-		if to == addr.NodeID {
-			delete(s.upgrading, from) // Unmark failed upgrade attempt.
-		}
-	}
-
 	peer,ok := s.peers[addr.NodeID]
 	if !ok { return nil }
 	if _, ok := peer.AddressInfo[addr]; !ok { return nil }
@@ -115,9 +104,6 @@ func (s *peerStore) DialFailed(addr NodeAddress) error {
 	if err:=storePeerInfo(s.db,peer.storedPeerInfo); err!=nil {
 		return err
 	}
-	// We need to invalidate the cache after score changed
-	s.ranked = utils.None[[]*peerInfo]()
-
 	if d,ok := s.RetryDelay(addr).Get(); ok {
 		// TODO: update next dial time (under watch)
 		_ = d
@@ -177,7 +163,6 @@ func (s *peerStore) Delete(id types.NodeID) error {
 		return err
 	}
 	delete(s.peers, id)
-	s.ranked = utils.None[[]*peerInfo]()
 	return nil
 }
 
@@ -241,25 +226,27 @@ func (s *peerStore) Size() int {
 	return cnt
 }
 
+// <=1 per ID
+// latest successful dial.
 type storedPeerInfo struct {
-	ID                  types.NodeID
-	AddressInfo         map[NodeAddress]*peerAddressInfo
-	LastConnected       utils.Option[time.Time]
+	ID       types.NodeID
+	Address  NodeAddress
+	LastDial time.Time
 }
+
+// MaxConnectedUpgrade = 4
+// MaxPeers: MaxConnectedUpgrade + 2*MaxConnected // Storage.
+// Round robin through peer addresses when dialing.
+// Prune other addresses on successful dial.
+// Don't punish for failed dials - anyone can forge anyones address.
 
 // peerInfo contains peer information stored in a peerStore.
 type peerInfo struct {
-	storedPeerInfo
+	storedPeerInfo // Max 10 addresses per peer.
 
 	// These fields are ephemeral, i.e. not persisted to the database.
 	NumOfDisconnections uint64
-	ConsecSuccessfulBlocks int64
-	BaseScore  PeerScore
-	FinalScore PeerScore
-
-	// Connection state.
-	dialing bool
-	conn utils.Option[*Connection]
+	BaseScore  float64 // +-1 from consensus, +0.2 from blocksync
 }
 
 // newPeerInfo creates a peerInfo for a new peer. Each peer will start with a positive MutableScore.
@@ -319,7 +306,7 @@ func (s *peerStore) updateScore(id types.NodeID) {
 
 // Score calculates a score for the peer. Higher-scored peers will be
 // preferred over lower scores.
-func (s *peerStore) score(p *peerInfo) PeerScore {
+func (s *peerStore) score(p *peerInfo) float64 {
 	id := p.ID
 	// Use predetermined scores if set
 	if score,ok := s.options.PeerScores[id]; ok {
@@ -328,30 +315,18 @@ func (s *peerStore) score(p *peerInfo) PeerScore {
 	if s.options.UnconditionalPeers[id] {
 		return PeerScoreUnconditional
 	}
-	score := int64(p.BaseScore)
+	score := p.BaseScore
 	if s.options.PersistentPeers[id] || s.options.BlockSyncPeers[id] {
 		return PeerScorePersistent
 	}
-
-	// Add points for block sync performance
-	score += p.ConsecSuccessfulBlocks / 5
-
-	// Penalize for dial failures with time decay
-	for _, addr := range p.AddressInfo {
-		if lastDialFailure,ok := addr.LastDialFailure.Get(); ok {
-			failureScore := float64(addr.DialFailures) * math.Exp(-0.1*float64(time.Since(lastDialFailure).Hours()))
-			score -= int64(failureScore)
-		}
-	}
-
 	// Penalize for disconnections with time decay
-	if lastConnected,ok := p.LastConnected.Get(); ok {
+	if lastConnected,ok := p.LastDial; ok {
 		timeSinceLastDisconnect := time.Since(lastConnected)
 		decayFactor := math.Exp(-0.1 * timeSinceLastDisconnect.Hours())
 		effectiveDisconnections := int64(float64(p.NumOfDisconnections) * decayFactor)
 		score -= effectiveDisconnections / 3
 	}
-	return PeerScore(max(min(score, int64(MaxPeerScoreNotPersistent)),0))
+	return score
 }
 
 // Validate validates the peer info.
@@ -365,9 +340,7 @@ func (p *storedPeerInfo) Validate() error {
 // peerAddressInfo contains information and statistics about a peer address.
 type peerAddressInfo struct {
 	Address         NodeAddress
-	LastDialSuccess utils.Option[time.Time]
-	LastDialFailure utils.Option[time.Time]
-	DialFailures    uint32 // since last successful dial
+	LastDialSuccess time.Time
 }
 
 // peerAddressInfoFromProto converts a Protobuf PeerAddressInfo message
@@ -463,7 +436,7 @@ func (s *peerStore) Add(addr NodeAddress) (bool,error) {
 }
 
 // prunePeers removes low-scored peers from the peer store if it contains more
-// than MaxPeers peers. The caller must hold the mutex lock.
+// than MaxPeers peers.
 func (s *peerStore) prunePeers() error {
 	maxPeers,ok := s.options.MaxPeers.Get()
 	if !ok || s.Size() <= int(maxPeers) {
