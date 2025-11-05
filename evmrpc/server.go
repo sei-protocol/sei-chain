@@ -13,6 +13,7 @@ import (
 	"github.com/sei-protocol/sei-chain/evmrpc/stats"
 	evmCfg "github.com/sei-protocol/sei-chain/x/evm/config"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
+	sstypes "github.com/sei-protocol/sei-db/ss/types"
 	"github.com/tendermint/tendermint/libs/log"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
 )
@@ -40,6 +41,7 @@ func NewEVMHTTPServer(
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
+	stateStore sstypes.StateStore,
 	isPanicOrSyntheticTxFunc func(ctx context.Context, hash common.Hash) (bool, error), // used in *ExcludeTraceFail endpoints
 ) (EVMServer, error) {
 	logger = logger.With("module", "evmrpc")
@@ -61,7 +63,7 @@ func NewEVMHTTPServer(
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
 	}
-	watermarks := NewWatermarkManager(tmClient, ctxProvider, nil, k.ReceiptStore())
+	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
 
 	globalBlockCache := NewBlockCache(3000)
 	cacheCreationMutex := &sync.Mutex{}
@@ -212,6 +214,7 @@ func NewEVMWebSocketServer(
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	homeDir string,
+	stateStore sstypes.StateStore,
 ) (EVMServer, error) {
 	logger = logger.With("module", "evmrpc")
 
@@ -232,7 +235,7 @@ func NewEVMWebSocketServer(
 		EVMTimeout:                   config.SimulationEVMTimeout,
 		MaxConcurrentSimulationCalls: config.MaxConcurrentSimulationCalls,
 	}
-	watermarks := NewWatermarkManager(tmClient, ctxProvider, nil, k.ReceiptStore())
+	watermarks := NewWatermarkManager(tmClient, ctxProvider, stateStore, k.ReceiptStore())
 	dbReadSemaphore := make(chan struct{}, MaxDBReadConcurrency)
 	globalBlockCache := NewBlockCache(3000)
 	cacheCreationMutex := &sync.Mutex{}
