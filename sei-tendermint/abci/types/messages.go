@@ -45,12 +45,6 @@ func ToRequestInfo(req *RequestInfo) *Request {
 	}
 }
 
-func ToRequestCheckTx(req *RequestCheckTx) *Request {
-	return &Request{
-		Value: &Request_CheckTx{req},
-	}
-}
-
 func ToRequestCommit() *Request {
 	return &Request{
 		Value: &Request_Commit{&RequestCommit{}},
