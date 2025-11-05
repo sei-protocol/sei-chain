@@ -179,7 +179,7 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*a
 		mode = runTxModeReCheck
 
 	default:
-		panic(fmt.Sprintf("unknown RequestCheckTx type: %s", req.Type))
+		panic(fmt.Sprintf("unknown RequestCheckTx type: %d", req.Type))
 	}
 
 	sdkCtx := app.getContextForTx(mode, req.Tx)
