@@ -182,7 +182,7 @@ func (es *EventSink) IndexTxEvents(txrs []*abci.TxResultV2) error {
 
 	for _, txr := range txrs {
 		// Encode the result message in protobuf wire format for indexing.
-		resultData, err := proto.Marshal(&abci.TxResult{Height: txr.Height, Index: txr.Index, Result: txr.Result})
+		resultData, err := proto.Marshal(&abci.TxResult{Height: txr.Height, Index: txr.Index, Tx: txr.Tx, Result: txr.Result})
 		if err != nil {
 			return fmt.Errorf("marshaling tx_result: %w", err)
 		}
