@@ -583,25 +583,3 @@ message Snapshot {
   bytes hash = 4; // Arbitrary snapshot hash, equal only if identical
   bytes metadata = 5; // Arbitrary application metadata
 }
-
-//----------------------------------------
-// Service Definition
-
-service ABCIApplication {
-  rpc Echo(RequestEcho) returns (ResponseEcho);
-  rpc Flush(RequestFlush) returns (ResponseFlush);
-  rpc Info(RequestInfo) returns (ResponseInfo);
-  rpc CheckTx(RequestCheckTx) returns (ResponseCheckTx);
-  rpc Query(RequestQuery) returns (ResponseQuery);
-  rpc Commit(RequestCommit) returns (ResponseCommit);
-  rpc InitChain(RequestInitChain) returns (ResponseInitChain);
-  rpc ListSnapshots(RequestListSnapshots) returns (ResponseListSnapshots);
-  rpc OfferSnapshot(RequestOfferSnapshot) returns (ResponseOfferSnapshot);
-  rpc LoadSnapshotChunk(RequestLoadSnapshotChunk) returns (ResponseLoadSnapshotChunk);
-  rpc ApplySnapshotChunk(RequestApplySnapshotChunk) returns (ResponseApplySnapshotChunk);
-  rpc PrepareProposal(RequestPrepareProposal) returns (ResponsePrepareProposal);
-  rpc ProcessProposal(RequestProcessProposal) returns (ResponseProcessProposal);
-  rpc FinalizeBlock(RequestFinalizeBlock) returns (ResponseFinalizeBlock);
-  rpc LoadLatest(RequestLoadLatest) returns (ResponseLoadLatest);
-  rpc GetTxPriorityHint(RequestGetTxPriorityHint) returns (ResponseGetTxPriorityHint);
-}

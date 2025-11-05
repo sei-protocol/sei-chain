@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -18,8 +16,6 @@ import (
 
 	abciclient "github.com/tendermint/tendermint/abci/client"
 	"github.com/tendermint/tendermint/abci/example/code"
-	"github.com/tendermint/tendermint/abci/example/kvstore"
-	"github.com/tendermint/tendermint/abci/server"
 	servertest "github.com/tendermint/tendermint/abci/tests/server"
 	"github.com/tendermint/tendermint/abci/types"
 	"github.com/tendermint/tendermint/proto/tendermint/crypto"
@@ -47,34 +43,6 @@ var (
 	flagPersist string
 )
 
-func RootCmmand(logger log.Logger) *cobra.Command {
-	return &cobra.Command{
-		Use:   "abci-cli",
-		Short: "the ABCI CLI tool wraps an ABCI client",
-		Long:  "the ABCI CLI tool wraps an ABCI client and is used for testing ABCI servers",
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) (err error) {
-
-			switch cmd.Use {
-			case "kvstore", "version":
-				return nil
-			}
-
-			if client == nil {
-				var err error
-				client, err = abciclient.NewClient(logger.With("module", "abci-client"), flagAddress, flagAbci, false)
-				if err != nil {
-					return err
-				}
-
-				if err := client.Start(cmd.Context()); err != nil {
-					return err
-				}
-			}
-			return nil
-		},
-	}
-}
-
 // Structure for data passed to print response.
 type response struct {
 	// generic abci response
@@ -91,18 +59,6 @@ type queryResponse struct {
 	Value    []byte
 	Height   int64
 	ProofOps *crypto.ProofOps
-}
-
-func Execute() error {
-	logger, err := log.NewDefaultLogger(log.LogFormatPlain, log.LogLevelInfo)
-	if err != nil {
-		return err
-	}
-
-	cmd := RootCmmand(logger)
-	addGlobalFlags(cmd)
-	addCommands(cmd, logger)
-	return cmd.Execute()
 }
 
 func addGlobalFlags(cmd *cobra.Command) {
@@ -131,9 +87,6 @@ func addCommands(cmd *cobra.Command, logger log.Logger) {
 	cmd.AddCommand(versionCmd)
 	cmd.AddCommand(testCmd)
 	cmd.AddCommand(getQueryCmd())
-
-	// examples
-	cmd.AddCommand(getKVStoreCmd(logger))
 }
 
 var batchCmd = &cobra.Command{
@@ -242,20 +195,6 @@ func getQueryCmd() *cobra.Command {
 		"whether or not to return a merkle proof of the query result")
 
 	return cmd
-}
-
-func getKVStoreCmd(logger log.Logger) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "kvstore",
-		Short: "ABCI demo example",
-		Long:  "ABCI demo example",
-		Args:  cobra.ExactArgs(0),
-		RunE:  makeKVStoreCmd(logger),
-	}
-
-	cmd.PersistentFlags().StringVarP(&flagPersist, "persist", "", "", "directory to use for a database")
-	return cmd
-
 }
 
 var testCmd = &cobra.Command{
@@ -603,36 +542,6 @@ func cmdQuery(cmd *cobra.Command, args []string) error {
 		},
 	})
 	return nil
-}
-
-func makeKVStoreCmd(logger log.Logger) func(*cobra.Command, []string) error {
-	return func(cmd *cobra.Command, args []string) error {
-		// Create the application - in memory or persisted to disk
-		var app types.Application
-		if flagPersist == "" {
-			app = kvstore.NewApplication()
-		} else {
-			app = kvstore.NewPersistentKVStoreApplication(logger, flagPersist)
-		}
-
-		// Start the listener
-		srv, err := server.NewServer(logger.With("module", "abci-server"), flagAddress, flagAbci, app)
-		if err != nil {
-			return err
-		}
-
-		ctx, cancel := signal.NotifyContext(cmd.Context(), syscall.SIGTERM)
-		defer cancel()
-
-		if err := srv.Start(ctx); err != nil {
-			return err
-		}
-
-		// Run forever.
-		<-ctx.Done()
-		return nil
-	}
-
 }
 
 //--------------------------------------------------------------------------------
