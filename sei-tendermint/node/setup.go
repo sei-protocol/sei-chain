@@ -21,6 +21,7 @@ import (
 	"github.com/tendermint/tendermint/internal/p2p"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/internal/p2p/pex"
+	"github.com/tendermint/tendermint/libs/utils"
 	sm "github.com/tendermint/tendermint/internal/state"
 	"github.com/tendermint/tendermint/internal/state/indexer"
 	"github.com/tendermint/tendermint/internal/statesync"
@@ -212,41 +213,32 @@ func createPeerManager(
 		return nil, func() error { return nil }, fmt.Errorf("couldn't parse ExternalAddress %q: %w", cfg.P2P.ExternalAddress, err)
 	}
 
-	privatePeerIDs := make(map[types.NodeID]struct{})
+	privatePeerIDs :=map[types.NodeID]struct{}{}
 	for _, id := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PrivatePeerIDs, ",", " ") {
 		privatePeerIDs[types.NodeID(id)] = struct{}{}
 	}
 
-	var maxConns uint16
+	var maxConns int
 
 	switch {
 	case cfg.P2P.MaxConnections > 0:
-		maxConns = cfg.P2P.MaxConnections
+		maxConns = int(cfg.P2P.MaxConnections)
 	default:
 		maxConns = 64
 	}
 
-	maxUpgradeConns := uint16(4)
-
 	options := p2p.PeerManagerOptions{
 		SelfAddress:            selfAddr,
-		MaxConnected:           maxConns,
-		MaxConnectedUpgrade:    maxUpgradeConns,
-		MaxPeers:               maxUpgradeConns + 2*maxConns,
-		MinRetryTime:           250 * time.Millisecond,
-		MaxRetryTime:           2 * time.Minute,
-		MaxRetryTimePersistent: 2 * time.Minute,
-		RetryTimeJitter:        5 * time.Second,
+		MaxConnected:           utils.Some(maxConns),
+		MaxPeers:               utils.Some(2*maxConns),
 		PrivatePeers:           privatePeerIDs,
 	}
 
-	peers := []p2p.NodeAddress{}
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.PersistentPeers, ",", " ") {
 		address, err := p2p.ParseNodeAddress(p)
 		if err != nil {
 			return nil, func() error { return nil }, fmt.Errorf("invalid peer address %q: %w", p, err)
 		}
-
 		options.PersistentPeers[address.NodeID] = append(options.PersistentPeers[address.NodeID],address)
 	}
 
@@ -255,7 +247,7 @@ func createPeerManager(
 		if err != nil {
 			return nil, func() error { return nil }, fmt.Errorf("invalid peer address %q: %w", p, err)
 		}
-		peers = append(peers, address)
+		options.BootstrapPeers = append(options.BootstrapPeers, address)
 	}
 
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.BlockSyncPeers, ",", " ") {
@@ -263,13 +255,12 @@ func createPeerManager(
 		if err != nil {
 			return nil, func() error { return nil }, fmt.Errorf("invalid peer address %q: %w", p, err)
 		}
-
-		peers = append(peers, address)
-		options.BlockSyncPeers = append(options.BlockSyncPeers, address.NodeID)
+		options.PersistentPeers[address.NodeID] = append(options.PersistentPeers[address.NodeID],address)
+		options.BlockSyncPeers[address.NodeID] = true
 	}
 
 	for _, p := range tmstrings.SplitAndTrimEmpty(cfg.P2P.UnconditionalPeerIDs, ",", " ") {
-		options.UnconditionalPeers = append(options.UnconditionalPeers, types.NodeID(p))
+		options.UnconditionalPeers[types.NodeID(p)] = true
 	}
 
 	peerDB, err := dbProvider(&config.DBContext{ID: "peerstore", Config: cfg})
@@ -281,13 +272,6 @@ func createPeerManager(
 	if err != nil {
 		return nil, peerDB.Close, fmt.Errorf("failed to create peer manager: %w", err)
 	}
-
-	for _, peer := range peers {
-		if _, err := peerManager.Add(peer); err != nil {
-			return nil, peerDB.Close, fmt.Errorf("failed to add peer %q: %w", peer, err)
-		}
-	}
-
 	return peerManager, peerDB.Close, nil
 }
 

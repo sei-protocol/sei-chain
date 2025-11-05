@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"golang.org/x/sync/semaphore"
 	"math"
-	"math/rand"
 	"net"
 	"net/netip"
-	"runtime"
 	"time"
 
 	"github.com/tendermint/tendermint/crypto"
@@ -52,8 +50,8 @@ type RouterOptions struct {
 
 	// MaxAcceptedConnections is the maximum number of simultaneous accepted
 	// (incoming) connections. Beyond this, new connections will block until
-	// a slot is free. 0 means unlimited.
-	MaxAcceptedConnections uint32
+	// a slot is free.
+	MaxConnections utils.Option[int]
 
 	Endpoint Endpoint
 
@@ -131,9 +129,7 @@ func (r *Router) getChannelDescs() []*ChannelDescriptor {
 	panic("unreachable")
 }
 
-// NewRouter creates a new Router. The given Transports must already be
-// listening on appropriate interfaces, and will be closed by the Router when it
-// stops.
+// NewRouter creates a new Router.
 func NewRouter(
 	logger log.Logger,
 	metrics *Metrics,
@@ -155,19 +151,26 @@ func NewRouter(
 		channels:          utils.NewRWMutex(map[ChannelID]*channel{}),
 		conns:             utils.NewRWMutex(map[types.NodeID]*Connection{}),
 		dynamicIDFilterer: dynamicIDFilterer,
-
-		// This is rendezvous channel, so that no unclosed connections get stuck inside
-		// when transport is closing.
 		started: make(chan struct{}),
 	}
-
 	router.BaseService = service.NewBaseService(logger, "router", router)
-
 	return router
 }
 
 func (r *Router) PeerManager() *PeerManager {
 	return r.peerManager
+}
+
+// PeerRatio returns the ratio of peer addresses stored to the maximum size.
+func (r *Router) PeerRatio() float64 {
+	m,ok := r.options.MaxConnections.Get()
+	if !ok || m == 0 {
+		return 0
+	}
+	for conns := range r.conns.RLock() {
+		return float64(len(conns))/float64(m)
+	}
+	panic("unreachable")
 }
 
 func (r *Router) Endpoint() Endpoint {
@@ -237,12 +240,7 @@ func (r *Router) acceptPeers(ctx context.Context) error {
 	}
 	close(r.started) // signal that we are listening
 
-	maxConns := r.options.MaxAcceptedConnections
-	if maxConns == 0 {
-		maxConns = math.MaxInt32
-	}
-	sem := semaphore.NewWeighted(int64(maxConns))
-
+	sem := semaphore.NewWeighted(int64(r.options.MaxAcceptedConnections.Or(math.MaxInt)))
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for {
 			if err := sem.Acquire(ctx, 1); err != nil {
@@ -289,13 +287,10 @@ func (r *Router) Dial(ctx context.Context, address NodeAddress) (*net.TCPConn, e
 
 	r.logger.Debug("dialing peer address", "peer", address)
 	endpoints, err := address.Resolve(resolveCtx)
-	switch {
-	case err != nil:
-		// Mark the peer as private so it's not broadcasted to other peers.
-		// This is reset upon restart of the node.
-		r.peerManager.AddPrivatePeer(address.NodeID)
-		return nil, fmt.Errorf("failed to resolve address %q: %w", address, err)
-	case len(endpoints) == 0:
+	if err != nil {
+		return nil, fmt.Errorf("address.Resolve(): %w",err)
+	}
+	if len(endpoints) == 0 {
 		return nil, fmt.Errorf("address %q did not resolve to any endpoints", address)
 	}
 
@@ -357,7 +352,7 @@ func (r *Router) handshakePeer(
 	peerInfo := conn.PeerInfo()
 	nodeInfo := r.nodeInfoProducer()
 	if peerInfo.Network != nodeInfo.Network {
-		return nil, ErrBadNetwork{fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)}
+		return nil, errBadNetwork{fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)}
 	}
 	if want, ok := expectID.Get(); ok && want != peerInfo.NodeID {
 		return nil, fmt.Errorf("expected to connect with peer %q, got %q",

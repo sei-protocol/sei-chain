@@ -2,12 +2,10 @@ package p2p
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"math"
+	"runtime"
 	"math/rand"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/tendermint/tendermint/libs/log"
@@ -18,7 +16,6 @@ import (
 	"github.com/tendermint/tendermint/types"
 )
 
-type ErrBadNetwork struct {error}
 
 type DialFailuresError struct {
 	Failures uint32
@@ -75,27 +72,12 @@ func (pu *PeerUpdates) Updates() <-chan PeerUpdate {
 	return pu.reactorUpdatesCh
 }
 
-type RetryOptions struct {
-	// Min is the minimum time to wait between retries. Retry times
-	// double for each retry, up to MaxRetryTime. 0 disables retries.
-	Min time.Duration // 0.25s
-
-	// Max is the maximum time to wait between retries. 0 means
-	// no maximum, in which case the retry time will keep doubling.
-	Max time.Duration // 2m
-
-	// MaxPersistent is the maximum time to wait between retries for
-	// peers listed in PersistentPeers. Defaults to MaxRetryTime.
-	MaxPersistent utils.Option[time.Duration] // 2m
-
-	// Jitter is the upper bound of a random interval added to
-	// retry times, to avoid thundering herds.
-	Jitter time.Duration // 5s
-}
-
 // PeerManagerOptions specifies options for a PeerManager.
 type PeerManagerOptions struct {
 	SelfID types.NodeID
+	// List of peers to be added to the peer store on startup.
+	BootstrapPeers []NodeAddress
+
 	// PersistentPeers are peers that we want to maintain persistent connections to.
 	// We will not preserve any addresses different than those specified in the config,
 	// since they are forgeable.
@@ -114,15 +96,11 @@ type PeerManagerOptions struct {
 	PrivatePeers map[types.NodeID]bool
 
 	// MaxPeers is the maximum number of peers to track information about, i.e.
-	// store in the peer store. When exceeded, the lowest-scored unconnected peers
-	// will be deleted.
+	// store in the peer store. When exceeded, unreachable peers will be deleted.
 	MaxPeers utils.Option[int]
 
-	// MaxConnected is the maximum number of connected peers (inbound and
-	// outbound). 0 means no limit.
-	MaxConnected utils.Option[uint]
-
-	Retry utils.Option[*RetryOptions]
+	// MaxConnected is the maximum number of connected peers (inbound and outbound).
+	MaxConnected utils.Option[int]
 
 	// SelfAddress is the address that will be advertised to peers for them to dial back to us.
 	// If Hostname and Port are unset, Advertise() will include no self-announcement
@@ -170,42 +148,29 @@ func (o *PeerManagerOptions) getMaxIncomingConnectionAttempts() uint {
 	return o.MaxIncomingConnectionAttempts.Or(100)
 }
 
-func (o *RetryOptions) Validate() error {
-	if o.Min <= 0 {
-		return fmt.Errorf("Min = %v, want > 0",o.Min)
-	}
-	if o.Max < o.Min {
-		return fmt.Errorf("Max = %v, want >= Min = %v",o.Max,o.Min)
-	}
-	if mp,ok := o.MaxPersistent.Get(); ok {
-		if mp < o.Min {
-			return fmt.Errorf("MaxPersistent = %v, want >= Min = %v",mp,o.Min)
-		}
-	}
-	if o.Jitter < 0 {
-		return fmt.Errorf("Jitter = %v, want >= 0",o.Jitter)
-	}
-	return nil
-}
-
 // Validate validates the options.
 func (o *PeerManagerOptions) Validate() error {
-	if o.SelfID == "" {
-		return errors.New("self ID not given")
+	if err:=o.SelfID.Validate(); err!=nil {
+		return fmt.Errorf("SelfID: %v", err)
 	}
-	for id := range o.PersistentPeers {
+	for id,addrs := range o.PersistentPeers {
 		if err := id.Validate(); err != nil {
 			return fmt.Errorf("invalid PersistentPeer ID %q: %w", id, err)
+		}
+		for _,addr := range addrs {
+			if err := addr.Validate(); err != nil {
+				return fmt.Errorf("invalid PersistentPeer address %v: %w", addr, err)
+			}
 		}
 	}
 	for id := range o.BlockSyncPeers {
 		if err := id.Validate(); err!=nil {
-			return err
+			return fmt.Errorf("invalid block sync peer ID %q: %w", id, err)
 		}
 	}
 	for id := range o.UnconditionalPeers {
 		if err := id.Validate(); err!=nil {
-			return err
+			return fmt.Errorf("invalid unconditional peer ID %q: %w", id, err)
 		}
 	}
 	for id := range o.PrivatePeers {
@@ -215,15 +180,8 @@ func (o *PeerManagerOptions) Validate() error {
 	}
 
 	if maxPeers,ok := o.MaxPeers.Get(); ok {
-		if o.MaxConnected == 0 || o.MaxConnected+o.MaxConnectedUpgrade > maxPeers {
-			return fmt.Errorf("MaxConnected %v and MaxConnectedUpgrade %v can't exceed MaxPeers %v",
-				o.MaxConnected, o.MaxConnectedUpgrade, maxPeers)
-		}
-	}
-
-	if ro,ok := o.Retry.Get(); ok {
-		if err:=ro.Validate(); err!=nil {
-			return fmt.Errorf("Retry: %w", err)
+		if maxConnected,ok := o.MaxConnected.Get(); !ok || maxConnected > maxPeers {
+			return fmt.Errorf("MaxConnected %v can't exceed MaxPeers %v", maxConnected, maxPeers)
 		}
 	}
 	return nil
@@ -275,9 +233,6 @@ func (o *PeerManagerOptions) Validate() error {
 type PeerManager struct {
 	logger     log.Logger
 	options    PeerManagerOptions
-	connTracker   *connTracker
-
-	mtx                 sync.Mutex
 	store               utils.Mutex[*peerStore]
 	subscriptions       map[*PeerUpdates]*PeerUpdates              // keyed by struct identity (address)
 	metrics             *Metrics
@@ -298,93 +253,7 @@ func NewPeerManager(
 	if err != nil {
 		return nil, err
 	}
-
-	peerManager := &PeerManager{
-		logger:     logger,
-		options:    options,
-		connTracker: newConnTracker(
-			options.getMaxIncomingConnectionAttempts(),
-			options.getIncomingConnectionWindow(),
-		),
-
-		store:               utils.NewMutex(store),
-		dynamicPrivatePeers: map[types.NodeID]struct{}{},
-		subscriptions:       map[*PeerUpdates]*PeerUpdates{},
-		metrics:             metrics,
-	}
 	return peerManager, nil
-}
-
-// DialNext finds an appropriate peer address to dial, and marks it as dialing.
-// If no peer is found, or all connection slots are full, it blocks until one
-// becomes available. The caller must call Dialed() or DialFailed() for the
-// returned peer.
-func (m *PeerManager) DialNext() utils.Option[NodeAddress] {
-	// Wait until there is less connections than Max.
-	// Wait until there are peers to dial.
-	for s,ctrl := range m.store.Lock() {
-		ctrl.WaitUntil(ctx,func()bool {
-
-		for id,addrs := range s.addrs {
-			if _,ok := s.conns[id]; ok { continue }
-			// find not connected/dialing peer with the oldest failure (or none)
-		}
-	}
-	return res
-}
-
-func (m *PeerManager) Run(ctx context.Context, r *Router) error {
-	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		sem := semaphore.NewWeighted(int64(m.numConccurentDials()))
-		for {
-			if err := sem.Acquire(ctx, 1); err != nil {
-				return err
-			}
-			// TODO: separate routine for dialing persistent and regular peers.
-			addr,err := m.DialNext(ctx)
-			if err!=nil { return err }
-			s.Spawn(func() error {
-				r.logger.Debug("Going to dial", "peer", addr.NodeID)
-				// TODO(gprusak): this symmetric logic for handling duplicate connections is a source of race conditions:
-				// if 2 nodes try to establish a connection to each other at the same time, both connections will be dropped.
-				// Instead either:
-				// * break the symmetry by favoring incoming connection iff my.NodeID > peer.NodeID
-				// * keep incoming and outcoming connection pools separate to avoid the collision (recommended)
-				conn, err := r.ConnectPeer(ctx, addr)
-				sem.Release(1)
-				if errors.Is(err, context.Canceled) {
-					return nil
-				}
-				for s := range m.store.Lock() {
-					if utils.ErrorAs[errBadNetwork](err).IsPresent() {
-						if err := s.Forget(addr.NodeID); err!=nil {
-							return fmt.Errorf("s.Delete(): %w",err)
-						}
-					} else if err!=nil {
-						s.DialFailed(addr)
-						m.logger.Error("failed to dial TODO","err",err)
-						return nil
-					} else if err := s.Dialed(addr, conn); err != nil {
-						conn.Close()
-						return fmt.Errorf("failed to dial outgoing/dialing peer %v: %w", address.NodeID, err)
-					}
-				}
-				err = conn.Run(ctx, r)
-				m.logger.Error("[dial] Run()", "err", err)
-				for s := range s.store.Lock() {
-					s.Disconnected(conn)
-				}
-				return nil
-			})
-
-			// this jitters the frequency that we call
-			// DialNext and prevents us from attempting to
-			// create connections too quickly.
-			if err := m.options.dialSleep(ctx); err != nil {
-				return err
-			}
-		}
-	})
 }
 
 func (o *PeerManagerOptions) dialSleep(ctx context.Context) error {
@@ -399,35 +268,6 @@ func (o *PeerManagerOptions) dialSleep(ctx context.Context) error {
 	// nolint:gosec // G404: Use of weak random number generator
 	dur := time.Duration(rand.Int63n(maxDialerInterval-minDialerInterval+1) + minDialerInterval)
 	return utils.Sleep(ctx, dur*time.Millisecond)
-}
-
-func (m *PeerManager) AcceptAndRun(ctx context.Context, tcpConn *net.TCPConn) error {
-	defer tcpConn.Close()
-	m.metrics.NewConnections.With("direction", "in").Add(1)
-	incomingAddr := remoteEndpoint(tcpConn).AddrPort
-	if err := m.connTracker.AddConn(incomingAddr); err != nil {
-		return fmt.Errorf("rate limiting incoming peer %v: %w", incomingAddr, err)
-	}
-	defer m.connTracker.RemoveConn(incomingAddr)
-
-	if err := m.filterPeersIP(ctx, incomingAddr); err != nil {
-		m.logger.Debug("peer filtered by IP", "ip", incomingAddr, "err", err)
-		return nil
-	}
-
-	conn, err := m.handshakePeer(ctx, tcpConn, utils.None[types.NodeID]())
-	if err != nil {
-		return fmt.Errorf("r.handshakePeer(): %v: %w", tcpConn, err)
-	}
-	peerInfo := conn.PeerInfo()
-	if err := m.filterPeersID(ctx, peerInfo.NodeID); err != nil {
-		r.logger.Debug("peer filtered by node ID", "node", peerInfo.NodeID, "err", err)
-		return nil
-	}
-	if err := m.Accepted(conn); err != nil {
-		return fmt.Errorf("failed to accept connection: op=incoming/accepted, peer=%v: %w", peerInfo.NodeID, err)
-	}
-	return conn.Run(ctx, r)
 }
 
 func (s *peerStore) State(id types.NodeID) string {

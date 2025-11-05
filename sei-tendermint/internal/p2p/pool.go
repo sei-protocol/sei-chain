@@ -3,6 +3,7 @@ package p2p
 import (
 	"fmt"
 	"time"
+	"context"
 
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
@@ -25,7 +26,6 @@ func newPeer() *peerAddrs {
 
 type poolOptions struct {
 	selfID types.NodeID
-	maxConns utils.Option[int]
 	maxPeers utils.Option[int]
 	maxAddrsPerPeer utils.Option[int]
 }
@@ -35,7 +35,6 @@ type poolInner struct {
 	options poolOptions
 	// Invariants:
 	// * dials[id] exists => peers[id].LastFail[dials[id]] == None
-	// * len(conns) <= maxConns
 	// * len(peers) <= maxPeers
 	// * len(peers[id].addrs) <= maxAddrsPerPeer
 	peers map[types.NodeID]*peerAddrs
@@ -96,10 +95,7 @@ func get[K comparable, V any](m map[K]V, k K) utils.Option[V] {
 	return utils.None[V]()
 }
 
-func (p *poolInner) DialBegin() utils.Option[NodeAddress] {
-	if m,ok := p.options.maxConns.Get(); ok && len(p.conns) + len(p.dials) >= m {
-		return utils.None[NodeAddress]()
-	}
+func (p *poolInner) Dial() utils.Option[NodeAddress] {
 	// Choose peer with the oldest lastFail.
 	var toDial utils.Option[*peerAddrs]
 	for id,peer := range p.peers {
@@ -121,7 +117,10 @@ func (p *poolInner) DialBegin() utils.Option[NodeAddress] {
 	return best
 }
 
-func (p *poolInner) DialEnd(addr NodeAddress, ok bool) {
+// TODO: DialDone separate from AddConn causes a race condition.
+// TODO: Do not remove dial entry after dial completion.
+// TODO: Separately store successful dials.
+func (p *poolInner) DialDone(addr NodeAddress, ok bool) {
 	if p.dials[addr.NodeID] != addr { return }
 	delete(p.dials, addr.NodeID)
 	if ok { return }
@@ -199,10 +198,41 @@ func (p *pool) AddConn(conn *Connection) error {
 	panic("unreachable")
 }
 
+func (p *pool) DelConn(conn *Connection) {
+	for inner,ctrl := range p.inner.Lock() {
+		ctrl.Updated()
+		inner.DelConn(conn)
+	}
+}
+
 func (p *pool) Connected(id types.NodeID) bool {
 	for inner := range p.inner.Lock() {
 		_,ok := inner.conns[id]
 		return ok
 	}
 	panic("unreachable")
+}
+
+func (p *pool) DialNext(ctx context.Context) (NodeAddress,error) {
+	for inner,ctrl := range p.inner.Lock() {
+		for {
+			if addr,ok := inner.Dial().Get(); ok {
+				return addr, nil
+			}
+			if err:=ctrl.Wait(ctx); err!=nil {
+				return NodeAddress{}, err
+			}
+		}
+	}
+	panic("unreachable")
+}
+
+func (p *pool) DialDone(addr NodeAddress, err error) {
+	for inner,ctrl := range p.inner.Lock() {
+		inner.DialDone(addr, err==nil)
+		if utils.ErrorAs[errBadNetwork](err).IsPresent() {
+			inner.Forget(addr.NodeID)
+		}
+		ctrl.Updated()
+	}
 }

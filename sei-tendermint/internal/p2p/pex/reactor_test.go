@@ -184,9 +184,9 @@ func TestReactorSmallPeerStoreInALargeNetwork(t *testing.T) {
 	for _, nodeID := range testNet.nodes {
 		node := testNet.network.Node(nodeID)
 		require.Eventually(t, func() bool {
-			return node.Router.PeerManager().PeerRatio() >= 0.9
+			return node.Router.PeerRatio() >= 0.9
 		}, time.Minute, checkFrequency,
-			"peer ratio is: %f", node.Router.PeerManager().PeerRatio())
+			"peer ratio is: %f", node.Router.PeerRatio())
 	}
 }
 

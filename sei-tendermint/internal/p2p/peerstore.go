@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"context"
+	"net"
 
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/gogo/protobuf/proto"
@@ -11,9 +13,13 @@ import (
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/scope"
 	p2pproto "github.com/tendermint/tendermint/proto/tendermint/p2p"
 	"github.com/tendermint/tendermint/types"
+	"golang.org/x/sync/semaphore"
 )
+
+type errBadNetwork struct {error}
 
 // <=1 per ID
 // latest successful dial.
@@ -142,9 +148,9 @@ type peerStore struct {
 	logger log.Logger
 	options     *PeerManagerOptions
 	metrics *Metrics
-	// dynamically added private peers
-	dynamicPrivatePeers utils.Mutex[map[types.NodeID]struct{}]
+	connTracker   *connTracker
 
+	dialSem *semaphore.Weighted
 	regularPeers *pool
 	persistentPeers *pool
 	db utils.Mutex[*peerDB]
@@ -187,6 +193,11 @@ func newPeerStore(db dbm.DB, options *PeerManagerOptions, metrics *Metrics) (*pe
 	regularPeers.AddAddrs(regularAddrs)
 
 	return &peerStore{
+		connTracker: newConnTracker(
+			options.getMaxIncomingConnectionAttempts(),
+			options.getIncomingConnectionWindow(),
+		),
+		dialSem: semaphore.NewWeighted(int64(options.numConccurentDials())),
 		persistentPeers: persistentPeers,
 		regularPeers: regularPeers,
 		db: utils.NewMutex(peerDB),
@@ -195,13 +206,6 @@ func newPeerStore(db dbm.DB, options *PeerManagerOptions, metrics *Metrics) (*pe
 	}, nil
 }
 
-
-// Delete deletes a peer, or does nothing if it does not exist.
-func (s *peerStore) Delete(id types.NodeID) error {
-	if s.options.persistent(id) { return nil }
-	s.regularPeers.Forget(id)
-	return s.db.remove(id)
-}
 
 // MaxPeers: 4 + 2*MaxConnected // Storage.
 // Round robin through peer addresses when dialing.
@@ -237,9 +241,9 @@ func (s *peerStore) SendError(pe PeerError) {
 		"err", pe.Err,
 		"evicting", pe.Fatal,
 	)
-	if pe.Fatal {
+	if pe.Fatal && !s.options.persistent(pe.NodeID) {
 		s.logger.Info("evicting peer", "peer", pe.NodeID, "cause", pe.Err)
-		s.Delete(pe.NodeID)
+		s.regularPeers.Forget(pe.NodeID)
 	}
 }
 
@@ -264,16 +268,8 @@ func (s *peerStore) Advertise(limit int) []NodeAddress {
 		addrs = append(addrs, addr)
 	}
 
-	// TODO: advertise successfully dialed peers.
-	for _, peer := range s.Ranked() {
-		for _, info := range peer.AddressInfo {
-			if len(addrs) >= limit { return addrs }
-			// only add non-private NodeIDs
-			if _, ok := s.options.PrivatePeers[peer.ID]; ok { continue }
-			if _, ok := s.dynamicPrivatePeers[peer.ID]; ok { continue }
-			addrs = append(addrs, info.Address)
-		}
-	}
+	// TODO: add successful dial tracking to pool.
+	// TODO: advertise successful dials from persistent and regular.
 	return addrs
 }
 
@@ -286,23 +282,109 @@ func (s *peerStore) Connected(id types.NodeID) bool {
 	}
 }
 
-// PeerRatio returns the ratio of peer addresses stored to the maximum size.
-func (m *peerStore) PeerRatio() float64 {
-	// TODO: combine persistent and regular peers
-	for s := range m.store.Lock() {
-		maxPeers,ok := s.options.MaxPeers.Get()
-		if !ok { return 0 }
-		return float64(s.Size()) / float64(maxPeers)
-	}
-	panic("unreachable")
-}
-
 func (s *peerStore) GetBlockSyncPeers() map[types.NodeID]bool {
 	return s.options.BlockSyncPeers
 }
 
-func (s *peerStore) AddPrivatePeer(id types.NodeID) {
-	s.dynamicPrivatePeers[id] = struct{}{}
+func (s *peerStore) Run(ctx context.Context, r *Router) error {
+	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
+		scope.SpawnNamed("dial-persistent", func() error { return s.dialPeers(ctx, r, s.persistentPeers, math.MaxInt) })
+		scope.SpawnNamed("dial-regular", func() error { return s.dialPeers(ctx, r, s.regularPeers) })
+		return nil
+	})
+}
+
+func (s *peerStore) AcceptAndRun(ctx context.Context, r *Router, tcpConn *net.TCPConn) error {
+	defer tcpConn.Close()
+	s.metrics.NewConnections.With("direction", "in").Add(1)
+	incomingAddr := remoteEndpoint(tcpConn).AddrPort
+	if err := s.connTracker.AddConn(incomingAddr); err != nil {
+		return fmt.Errorf("rate limiting incoming peer %v: %w", incomingAddr, err)
+	}
+	defer s.connTracker.RemoveConn(incomingAddr)
+
+	if err := r.filterPeersIP(ctx, incomingAddr); err != nil {
+		s.logger.Debug("peer filtered by IP", "ip", incomingAddr, "err", err)
+		return nil
+	}
+
+	conn, err := r.handshakePeer(ctx, tcpConn, utils.None[types.NodeID]())
+	if err != nil {
+		return fmt.Errorf("r.handshakePeer(): %v: %w", tcpConn, err)
+	}
+	peerInfo := conn.PeerInfo()
+	if err := r.filterPeersID(ctx, peerInfo.NodeID); err != nil {
+		s.logger.Debug("peer filtered by node ID", "node", peerInfo.NodeID, "err", err)
+		return nil
+	}
+	if s.options.persistent(peerInfo.NodeID) {
+		err = s.persistentPeers.AddConn(conn)
+	} else {
+		err = s.regularPeers.AddConn(conn)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to accept connection: op=incoming/accepted, peer=%v: %w", peerInfo.NodeID, err)
+	}
+	return conn.Run(ctx, r)
+}
+
+func (s *peerStore) dialStore(addr NodeAddress) error {
+	for db := range s.db.Lock() {
+		// TODO
+	}
+}
+
+func (s *peerStore) dialPeers(ctx context.Context, r *Router, pool *pool, maxConns int) error {
+	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
+		connSem := semaphore.NewWeighted(int64(maxConns))
+		for {
+			if err := connSem.Acquire(ctx, 1); err != nil {
+				return err
+			}
+			if err := s.dialSem.Acquire(ctx, 1); err != nil {
+				connSem.Release(1)
+				return err
+			}
+			// TODO: separate routine for dialing persistent and regular peers.
+			addr,err := pool.DialNext(ctx)
+			if err!=nil { return err }
+			scope.Spawn(func() error {
+				defer connSem.Release(1)
+				r.logger.Debug("Going to dial", "peer", addr.NodeID)
+				// TODO(gprusak): this symmetric logic for handling duplicate connections is a source of race conditions:
+				// if 2 nodes try to establish a connection to each other at the same time, both connections will be dropped.
+				// Instead either:
+				// * break the symmetry by favoring incoming connection iff my.NodeID > peer.NodeID
+				// * keep incoming and outcoming connection pools separate to avoid the collision (recommended)
+				conn, err := r.ConnectPeer(ctx, addr)
+				pool.DialDone(addr, err)
+				s.dialSem.Release(1)
+				if err!=nil {
+					s.logger.Error("failed to connect to peer", "peer", addr.NodeID, "err", err)
+					return nil
+				}
+				if err:=s.dialStore(addr); err!=nil {
+					return fmt.Errorf("s.dialStore(): %w",err)
+				}
+				if err:=pool.AddConn(conn); err!=nil {
+					conn.Close()
+					s.logger.Error("failed to add connection to pool", "peer", addr.NodeID, "err", err)
+					return nil
+				}
+				err = conn.Run(ctx, r)
+				s.logger.Error("[dial] Run()", "err", err)
+				pool.DelConn(conn)
+				return nil
+			})
+
+			// this jitters the frequency that we call
+			// DialNext and prevents us from attempting to
+			// create connections too quickly.
+			if err := m.options.dialSleep(ctx); err != nil {
+				return err
+			}
+		}
+	})
 }
 
 
