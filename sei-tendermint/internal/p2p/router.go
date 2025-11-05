@@ -15,6 +15,7 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/im"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/types"
@@ -108,7 +109,7 @@ type Router struct {
 	privKey     crypto.PrivKey
 	peerManager *PeerManager
 
-	conns            utils.RWMutex[map[types.NodeID]*Connection]
+	conns            utils.AtomicWatch[im.Map[types.NodeID,*Connection]]
 	nodeInfoProducer func() *types.NodeInfo
 
 	channels utils.RWMutex[map[ChannelID]*channel]
@@ -149,7 +150,7 @@ func NewRouter(
 		peerManager:       peerManager,
 		options:           options,
 		channels:          utils.NewRWMutex(map[ChannelID]*channel{}),
-		conns:             utils.NewRWMutex(map[types.NodeID]*Connection{}),
+		conns:             utils.NewAtomicWatch(im.NewMap[types.NodeID,*Connection]()),
 		dynamicIDFilterer: dynamicIDFilterer,
 		started: make(chan struct{}),
 	}
@@ -167,10 +168,7 @@ func (r *Router) PeerRatio() float64 {
 	if !ok || m == 0 {
 		return 0
 	}
-	for conns := range r.conns.RLock() {
-		return float64(len(conns))/float64(m)
-	}
-	panic("unreachable")
+	return float64(r.conns.Load().Len())/float64(m)
 }
 
 func (r *Router) Endpoint() Endpoint {
@@ -240,7 +238,7 @@ func (r *Router) acceptPeers(ctx context.Context) error {
 	}
 	close(r.started) // signal that we are listening
 
-	sem := semaphore.NewWeighted(int64(r.options.MaxAcceptedConnections.Or(math.MaxInt)))
+	sem := semaphore.NewWeighted(int64(r.options.MaxConnections.Or(math.MaxInt)))
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		for {
 			if err := sem.Acquire(ctx, 1); err != nil {
@@ -260,6 +258,30 @@ func (r *Router) acceptPeers(ctx context.Context) error {
 				return nil
 			})
 		}
+	})
+}
+
+func (r *Router) addConn(c *Connection) {
+	r.metrics.Peers.Add(1)
+	peerID := c.PeerInfo().NodeID
+	type M = im.Map[types.NodeID,*Connection]
+	r.conns.Update(func(conns M) (M,bool) {
+		if old, ok := conns.Get(peerID); ok {
+			old.Close()
+		}
+		return conns.Set(peerID, c),true
+	})
+}
+
+func (r *Router) delConn(c *Connection) {
+	r.metrics.Peers.Add(-1)
+	peerID := c.PeerInfo().NodeID
+	type M = im.Map[types.NodeID,*Connection]
+	r.conns.Update(func(conns M) (M,bool) {
+		if old, ok := conns.Get(peerID); ok && old == c {
+			return conns.Delete(peerID),true
+		}
+		return M{},false
 	})
 }
 
@@ -301,14 +323,6 @@ func (r *Router) Dial(ctx context.Context, address NodeAddress) (*net.TCPConn, e
 			dialCtx, cancel = context.WithTimeout(dialCtx, d)
 			defer cancel()
 		}
-
-		// FIXME: When we dial and handshake the peer, we should pass it
-		// appropriate address(es) it can use to dial us back. It can't use our
-		// remote endpoint, since TCP uses different port numbers for outbound
-		// connections than it does for inbound. Also, we may need to vary this
-		// by the peer's endpoint, since e.g. a peer on 192.168.0.0 can reach us
-		// on a private address on this endpoint, but a peer on the public
-		// Internet can't and needs a different public address.
 		if err := endpoint.Validate(); err != nil {
 			return nil, err
 		}

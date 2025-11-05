@@ -1,7 +1,6 @@
 package p2p
 
 import (
-	"fmt"
 	"time"
 	"context"
 
@@ -34,12 +33,10 @@ type poolInner struct {
 	selfID types.NodeID
 	options poolOptions
 	// Invariants:
-	// * dials[id] exists => peers[id].LastFail[dials[id]] == None
 	// * len(peers) <= maxPeers
 	// * len(peers[id].addrs) <= maxAddrsPerPeer
 	peers map[types.NodeID]*peerAddrs
-	dials map[types.NodeID]NodeAddress
-	conns map[types.NodeID]*Connection
+	reserved map[types.NodeID]NodeAddress
 }
 
 func (p *poolInner) allocPeer(id types.NodeID) (*peerAddrs,bool) {
@@ -51,8 +48,8 @@ func (p *poolInner) allocPeer(id types.NodeID) (*peerAddrs,bool) {
 		return p.peers[id],true
 	}
 	for old,peer := range p.peers {
-		// Replace some peer with all addresses failed.
-		if len(peer.addrs)==len(peer.fails) {
+		// Find some unreserved peer with all addresses failed and replace it.
+		if _,ok := p.reserved[old]; !ok && len(peer.addrs)==len(peer.fails) {
 			delete(p.peers, old)
 			p.peers[id] = newPeer()
 			return p.peers[id],true
@@ -95,68 +92,50 @@ func get[K comparable, V any](m map[K]V, k K) utils.Option[V] {
 	return utils.None[V]()
 }
 
-func (p *poolInner) Dial() utils.Option[NodeAddress] {
+func (p *poolInner) TryAcquire() utils.Option[NodeAddress] {
 	// Choose peer with the oldest lastFail.
-	var toDial utils.Option[*peerAddrs]
+	var bestPeer utils.Option[*peerAddrs]
 	for id,peer := range p.peers {
-		if _,ok := p.conns[id]; ok { continue }
-		if _,ok := p.dials[id]; ok { continue }
-		if x,ok := toDial.Get(); !ok || before(peer.lastFail, x.lastFail) {
-			toDial = utils.Some(peer)
+		if _,ok := p.reserved[id]; ok { continue }
+		if x,ok := bestPeer.Get(); !ok || before(peer.lastFail, x.lastFail) {
+			bestPeer = utils.Some(peer)
 		}
 	}
 	// Choose address with the oldest lastFail.
 	var best utils.Option[NodeAddress]
-	if peer,ok := toDial.Get(); ok {
+	if peer,ok := bestPeer.Get(); ok {
 		for addr,_ := range peer.addrs {
 			if x,ok := best.Get(); !ok || before(get(peer.fails,addr), get(peer.fails,x)) {
 				best = utils.Some(addr)
 			}
 		}
 	}
+	if x,ok := best.Get(); ok {
+		p.reserved[x.NodeID] = x
+	}
 	return best
 }
 
-// TODO: DialDone separate from AddConn causes a race condition.
-// TODO: Do not remove dial entry after dial completion.
 // TODO: Separately store successful dials.
-func (p *poolInner) DialDone(addr NodeAddress, ok bool) {
-	if p.dials[addr.NodeID] != addr { return }
-	delete(p.dials, addr.NodeID)
-	if ok { return }
-	peer := p.peers[addr.NodeID]
-	now := time.Now()
-	peer.lastFail = utils.Some(now)
-	peer.fails[addr] = now
-}
-
-func (p *poolInner) AddConn(conn *Connection) error {
-	id := conn.PeerInfo().NodeID
-	if old,ok := p.conns[id]; ok {
-		old.Close()
-		delete(p.conns, id)
-	}
-	if m,ok := p.options.maxConns.Get(); ok && len(p.conns) == m {
-		return fmt.Errorf("dialed peer %q failed, already connected to maximum number of peers", id)
-	}
-	p.conns[id] = conn
-	return nil
-}
-
-func (p *poolInner) DelConn(conn *Connection) {
-	id := conn.PeerInfo().NodeID
-	if old,ok := p.conns[id]; ok && old == conn {
-		delete(p.conns, id)
+func (p *poolInner) Release(addr NodeAddress, connected bool) {
+	if p.reserved[addr.NodeID] != addr { panic("Releasing unallocated addr") }
+	delete(p.reserved, addr.NodeID)
+	peer,ok := p.peers[addr.NodeID]
+	if !ok { return }
+	if connected {
+		// Clear the failure record for the peer and the address.
+		peer.lastFail = utils.None[time.Time]()
+		delete(peer.fails,addr)
+	} else {
+		// Record the failure time.
+		now := time.Now()
+		peer.lastFail = utils.Some(now)
+		peer.fails[addr] = now
 	}
 }
 
-func (p *poolInner) Forget(id types.NodeID) {
-	if conn,ok := p.conns[id]; ok {
-		conn.Close()
-		delete(p.conns, id)
-	}
+func (p *poolInner) Drop(id types.NodeID) {
 	delete(p.peers, id)
-	delete(p.dials, id)
 }
 
 type pool struct { inner utils.Watch[*poolInner] }
@@ -165,8 +144,7 @@ func newPool(options poolOptions) *pool {
 	inner := &poolInner{
 		options: options,
 		peers: map[types.NodeID]*peerAddrs{},
-		dials: map[types.NodeID]NodeAddress{},
-		conns: map[types.NodeID]*Connection{},
+		reserved: map[types.NodeID]NodeAddress{},
 	}
 	return &pool{ utils.NewWatch(inner) }
 }
@@ -181,42 +159,19 @@ func (p *pool) AddAddrs(addrs []NodeAddress) {
 	}
 }
 
-func (p *pool) Forget(id types.NodeID) {
+func (p *pool) Drop(id types.NodeID) {
 	for inner,ctrl := range p.inner.Lock() {
 		ctrl.Updated()
-		inner.Forget(id)
+		inner.Drop(id)
 	}
 	panic("unreachable")
 
 }
 
-func (p *pool) AddConn(conn *Connection) error {
-	for inner,ctrl := range p.inner.Lock() {
-		ctrl.Updated()
-		return inner.AddConn(conn)
-	}
-	panic("unreachable")
-}
-
-func (p *pool) DelConn(conn *Connection) {
-	for inner,ctrl := range p.inner.Lock() {
-		ctrl.Updated()
-		inner.DelConn(conn)
-	}
-}
-
-func (p *pool) Connected(id types.NodeID) bool {
-	for inner := range p.inner.Lock() {
-		_,ok := inner.conns[id]
-		return ok
-	}
-	panic("unreachable")
-}
-
-func (p *pool) DialNext(ctx context.Context) (NodeAddress,error) {
+func (p *pool) Acquire(ctx context.Context) (NodeAddress,error) {
 	for inner,ctrl := range p.inner.Lock() {
 		for {
-			if addr,ok := inner.Dial().Get(); ok {
+			if addr,ok := inner.TryAcquire().Get(); ok {
 				return addr, nil
 			}
 			if err:=ctrl.Wait(ctx); err!=nil {
@@ -227,12 +182,12 @@ func (p *pool) DialNext(ctx context.Context) (NodeAddress,error) {
 	panic("unreachable")
 }
 
-func (p *pool) DialDone(addr NodeAddress, err error) {
+// Release releases the reservation made via Acquire.
+// ok specifies whether the connection attempt was successful.
+// Panics if the address was not reserved.
+func (p *pool) Release(addr NodeAddress, ok bool) {
 	for inner,ctrl := range p.inner.Lock() {
-		inner.DialDone(addr, err==nil)
-		if utils.ErrorAs[errBadNetwork](err).IsPresent() {
-			inner.Forget(addr.NodeID)
-		}
+		inner.Release(addr, ok)
 		ctrl.Updated()
 	}
 }

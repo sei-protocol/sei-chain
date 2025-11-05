@@ -334,9 +334,8 @@ func (s *peerStore) dialStore(addr NodeAddress) error {
 	}
 }
 
-func (s *peerStore) dialPeers(ctx context.Context, r *Router, pool *pool, maxConns int) error {
+func (s *peerStore) dialPeers(ctx context.Context, r *Router, pool *pool) error {
 	return scope.Run(ctx, func(ctx context.Context, scope scope.Scope) error {
-		connSem := semaphore.NewWeighted(int64(maxConns))
 		for {
 			if err := connSem.Acquire(ctx, 1); err != nil {
 				return err
@@ -346,10 +345,12 @@ func (s *peerStore) dialPeers(ctx context.Context, r *Router, pool *pool, maxCon
 				return err
 			}
 			// TODO: separate routine for dialing persistent and regular peers.
-			addr,err := pool.DialNext(ctx)
+			addr,err := pool.Acquire(ctx)
 			if err!=nil { return err }
 			scope.Spawn(func() error {
+				connected := false
 				defer connSem.Release(1)
+				defer func(){ pool.Release(addr, connected) }()
 				r.logger.Debug("Going to dial", "peer", addr.NodeID)
 				// TODO(gprusak): this symmetric logic for handling duplicate connections is a source of race conditions:
 				// if 2 nodes try to establish a connection to each other at the same time, both connections will be dropped.
@@ -357,12 +358,12 @@ func (s *peerStore) dialPeers(ctx context.Context, r *Router, pool *pool, maxCon
 				// * break the symmetry by favoring incoming connection iff my.NodeID > peer.NodeID
 				// * keep incoming and outcoming connection pools separate to avoid the collision (recommended)
 				conn, err := r.ConnectPeer(ctx, addr)
-				pool.DialDone(addr, err)
 				s.dialSem.Release(1)
 				if err!=nil {
 					s.logger.Error("failed to connect to peer", "peer", addr.NodeID, "err", err)
 					return nil
 				}
+				connected = true
 				if err:=s.dialStore(addr); err!=nil {
 					return fmt.Errorf("s.dialStore(): %w",err)
 				}

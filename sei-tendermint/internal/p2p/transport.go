@@ -46,7 +46,7 @@ type Connection struct {
 }
 
 // Handshake implements Connection.
-func HandshakeOrClose(ctx context.Context, r *Router, tcpConn *net.TCPConn) (c *Connection, err error) {
+func (r *Router) HandshakeOrClose(ctx context.Context, tcpConn *net.TCPConn) (c *Connection, err error) {
 	defer func() {
 		// Late error check. Close conn to avoid leaking it.
 		if err != nil {
@@ -173,26 +173,15 @@ func (c *Connection) Run(ctx context.Context, r *Router) error {
 	peerID := peerInfo.NodeID
 	r.metrics.Peers.Add(1)
 	defer r.metrics.Peers.Add(-1)
-	for conns := range r.conns.Lock() {
-		if old, ok := conns[peerID]; ok {
-			old.Close()
-		}
-		conns[peerID] = c
-	}
-	r.peerManager.Ready(ctx, peerID, c.peerChannels)
+	r.addConn(c)
+	defer r.delConn(c)
 	r.logger.Info("peer connected", "peer", peerID, "endpoint", c)
-	err := scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("mconn.Run", func() error { return c.mconn.Run(ctx) })
 		s.Spawn(func() error { return c.sendRoutine(ctx, r) })
 		s.Spawn(func() error { return c.recvRoutine(ctx, r) })
 		return nil
 	})
-	for conns := range r.conns.Lock() {
-		if conns[peerID] == c {
-			delete(conns, peerID)
-		}
-	}
-	return err
 }
 
 // String displays connection information.
