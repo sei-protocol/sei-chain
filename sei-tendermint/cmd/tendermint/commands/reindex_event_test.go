@@ -149,8 +149,8 @@ func TestReIndexEvent(t *testing.T) {
 		On("Type").Return(indexer.KV).
 		On("IndexBlockEvents", mock.AnythingOfType("types.EventDataNewBlockHeader")).Return(errors.New("")).Once().
 		On("IndexBlockEvents", mock.AnythingOfType("types.EventDataNewBlockHeader")).Return(nil).
-		On("IndexTxEvents", mock.AnythingOfType("[]*types.TxResult")).Return(errors.New("")).Once().
-		On("IndexTxEvents", mock.AnythingOfType("[]*types.TxResult")).Return(nil)
+		On("IndexTxEvents", mock.AnythingOfType("[]*types.TxResultV2")).Return(errors.New("")).Once().
+		On("IndexTxEvents", mock.AnythingOfType("[]*types.TxResultV2")).Return(nil)
 
 	dtx := abcitypes.ExecTxResult{}
 	abciResp := &abcitypes.ResponseFinalizeBlock{

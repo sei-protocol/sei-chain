@@ -160,7 +160,7 @@ func TestTxSearchWithCancelation(t *testing.T) {
 		{Type: "account", Attributes: []abci.EventAttribute{{Key: []byte("owner"), Value: []byte("Ivan"), Index: true}}},
 		{Type: "", Attributes: []abci.EventAttribute{{Key: []byte("not_allowed"), Value: []byte("Vlad"), Index: true}}},
 	})
-	err := indexer.IndexTxEvents([]*abci.TxResult{txResult})
+	err := indexer.IndexTxEvents([]*abci.TxResultV2{txResult})
 	require.NoError(t, err)
 
 	r, e := indexer.GetTxByHash(types.Tx("HELLO WORLD").Hash())
@@ -184,7 +184,7 @@ func TestTxSearchDeprecatedIndexing(t *testing.T) {
 	})
 	hash1 := types.Tx(txResult1.Tx).Hash()
 
-	err := indexer.IndexTxEvents([]*abci.TxResult{txResult1})
+	err := indexer.IndexTxEvents([]*abci.TxResultV2{txResult1})
 	require.NoError(t, err)
 
 	// index tx also using deprecated indexing (event as key)
@@ -215,27 +215,27 @@ func TestTxSearchDeprecatedIndexing(t *testing.T) {
 
 	testCases := []struct {
 		q       string
-		results []*abci.TxResult
+		results []*abci.TxResultV2
 	}{
 		// search by hash
-		{fmt.Sprintf("tx.hash = '%X'", hash1), []*abci.TxResult{txResult1}},
+		{fmt.Sprintf("tx.hash = '%X'", hash1), []*abci.TxResultV2{txResult1}},
 		// search by hash
-		{fmt.Sprintf("tx.hash = '%X'", hash2), []*abci.TxResult{txResult2}},
+		{fmt.Sprintf("tx.hash = '%X'", hash2), []*abci.TxResultV2{txResult2}},
 		// search by exact match (one key)
-		{"account.number = 1", []*abci.TxResult{txResult1}},
-		{"account.number >= 1 AND account.number <= 5", []*abci.TxResult{txResult1}},
+		{"account.number = 1", []*abci.TxResultV2{txResult1}},
+		{"account.number >= 1 AND account.number <= 5", []*abci.TxResultV2{txResult1}},
 		// search by range (lower bound)
-		{"account.number >= 1", []*abci.TxResult{txResult1}},
+		{"account.number >= 1", []*abci.TxResultV2{txResult1}},
 		// search by range (upper bound)
-		{"account.number <= 5", []*abci.TxResult{txResult1}},
+		{"account.number <= 5", []*abci.TxResultV2{txResult1}},
 		// search using not allowed key
-		{"not_allowed = 'boom'", []*abci.TxResult{}},
+		{"not_allowed = 'boom'", []*abci.TxResultV2{}},
 		// search for not existing tx result
-		{"account.number >= 2 AND account.number <= 5", []*abci.TxResult{}},
+		{"account.number >= 2 AND account.number <= 5", []*abci.TxResultV2{}},
 		// search using not existing key
-		{"account.date >= TIME 2013-05-03T14:45:00Z", []*abci.TxResult{}},
+		{"account.date >= TIME 2013-05-03T14:45:00Z", []*abci.TxResultV2{}},
 		// search by deprecated key
-		{"sender = 'addr1'", []*abci.TxResult{txResult2}},
+		{"sender = 'addr1'", []*abci.TxResultV2{txResult2}},
 	}
 
 	ctx := t.Context()
@@ -261,7 +261,7 @@ func TestTxSearchOneTxWithMultipleSameTagsButDifferentValues(t *testing.T) {
 		{Type: "account", Attributes: []abci.EventAttribute{{Key: []byte("number"), Value: []byte("2"), Index: true}}},
 	})
 
-	err := indexer.IndexTxEvents([]*abci.TxResult{txResult})
+	err := indexer.IndexTxEvents([]*abci.TxResultV2{txResult})
 	require.NoError(t, err)
 
 	ctx := t.Context()
@@ -286,7 +286,7 @@ func TestTxSearchMultipleTxs(t *testing.T) {
 	txResult.Tx = types.Tx("Bob's account")
 	txResult.Height = 2
 	txResult.Index = 1
-	err := indexer.IndexTxEvents([]*abci.TxResult{txResult})
+	err := indexer.IndexTxEvents([]*abci.TxResultV2{txResult})
 	require.NoError(t, err)
 
 	// indexed second, but smaller height (to test the order of transactions)
@@ -297,7 +297,7 @@ func TestTxSearchMultipleTxs(t *testing.T) {
 	txResult2.Height = 1
 	txResult2.Index = 2
 
-	err = indexer.IndexTxEvents([]*abci.TxResult{txResult2})
+	err = indexer.IndexTxEvents([]*abci.TxResultV2{txResult2})
 	require.NoError(t, err)
 
 	// indexed third (to test the order of transactions)
@@ -307,7 +307,7 @@ func TestTxSearchMultipleTxs(t *testing.T) {
 	txResult3.Tx = types.Tx("Jack's account")
 	txResult3.Height = 1
 	txResult3.Index = 1
-	err = indexer.IndexTxEvents([]*abci.TxResult{txResult3})
+	err = indexer.IndexTxEvents([]*abci.TxResultV2{txResult3})
 	require.NoError(t, err)
 
 	// indexed fourth (to test we don't include txs with similar events)
@@ -318,7 +318,7 @@ func TestTxSearchMultipleTxs(t *testing.T) {
 	txResult4.Tx = types.Tx("Mike's account")
 	txResult4.Height = 2
 	txResult4.Index = 2
-	err = indexer.IndexTxEvents([]*abci.TxResult{txResult4})
+	err = indexer.IndexTxEvents([]*abci.TxResultV2{txResult4})
 	require.NoError(t, err)
 
 	ctx := t.Context()
@@ -329,9 +329,9 @@ func TestTxSearchMultipleTxs(t *testing.T) {
 	require.Len(t, results, 3)
 }
 
-func txResultWithEvents(events []abci.Event) *abci.TxResult {
+func txResultWithEvents(events []abci.Event) *abci.TxResultV2 {
 	tx := types.Tx("HELLO WORLD")
-	return &abci.TxResult{
+	return &abci.TxResultV2{
 		Height: 1,
 		Index:  0,
 		Tx:     tx,

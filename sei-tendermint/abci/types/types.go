@@ -260,3 +260,10 @@ type RequestDeliverTxV2 struct {
 type RequestGetTxPriorityHintV2 struct {
 	Tx []byte
 }
+
+type TxResultV2 struct {
+	Height int64
+	Index  uint32
+	Tx     []byte
+	Result ExecTxResult
+}
