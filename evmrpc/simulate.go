@@ -31,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/precompiles/wasmd"
 	"github.com/sei-protocol/sei-chain/utils"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
@@ -56,6 +57,7 @@ type SimulationAPI struct {
 func NewSimulationAPI(
 	ctxProvider func(int64) sdk.Context,
 	keeper *keeper.Keeper,
+	beginBlockKeepers legacyabci.BeginBlockKeepers,
 	txConfigProvider func(int64) client.TxConfig,
 	tmClient rpcclient.Client,
 	config *SimulateConfig,
@@ -66,7 +68,7 @@ func NewSimulationAPI(
 	cacheCreationMutex *sync.Mutex,
 ) *SimulationAPI {
 	api := &SimulationAPI{
-		backend:        NewBackend(ctxProvider, keeper, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex),
+		backend:        NewBackend(ctxProvider, keeper, beginBlockKeepers, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex),
 		connectionType: connectionType,
 	}
 	if config.MaxConcurrentSimulationCalls > 0 {
@@ -222,6 +224,7 @@ type Backend struct {
 	tmClient           rpcclient.Client
 	config             *SimulateConfig
 	app                *baseapp.BaseApp
+	beginBlockKeepers  legacyabci.BeginBlockKeepers
 	antehandler        sdk.AnteHandler
 	globalBlockCache   BlockCache
 	cacheCreationMutex *sync.Mutex
@@ -230,6 +233,7 @@ type Backend struct {
 func NewBackend(
 	ctxProvider func(int64) sdk.Context,
 	keeper *keeper.Keeper,
+	beginBlockKeepers legacyabci.BeginBlockKeepers,
 	txConfigProvider func(int64) client.TxConfig,
 	tmClient rpcclient.Client,
 	config *SimulateConfig,
@@ -241,6 +245,7 @@ func NewBackend(
 	return &Backend{
 		ctxProvider:        ctxProvider,
 		keeper:             keeper,
+		beginBlockKeepers:  beginBlockKeepers,
 		txConfigProvider:   txConfigProvider,
 		tmClient:           tmClient,
 		config:             config,
@@ -524,7 +529,7 @@ func (b *Backend) initializeBlock(ctx context.Context, block *ethtypes.Block) (s
 	reqBeginBlock := tmBlock.Block.ToReqBeginBlock(res.Validators)
 	reqBeginBlock.Simulate = true
 	sdkCtx := b.ctxProvider(prevBlockHeight).WithBlockHeight(blockNumber).WithBlockTime(tmBlock.Block.Time)
-	_ = b.app.BeginBlock(sdkCtx, reqBeginBlock)
+	legacyabci.BeginBlock(sdkCtx, blockNumber, reqBeginBlock.LastCommitInfo.Votes, tmBlock.Block.Evidence.ToABCI(), b.beginBlockKeepers)
 	sdkCtx = sdkCtx.WithNextMs(
 		b.ctxProvider(sdkCtx.BlockHeight()).MultiStore(),
 		[]string{"oracle", "oracle_mem"},

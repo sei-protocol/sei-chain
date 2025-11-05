@@ -21,7 +21,7 @@ type SlashingWriteInfo struct {
 
 // BeginBlocker check for infraction evidence or downtime of validators
 // on every begin block
-func BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock, k keeper.Keeper) {
+func BeginBlocker(ctx sdk.Context, votes []abci.VoteInfo, k keeper.Keeper) {
 	defer telemetry.ModuleMeasureSince(types.ModuleName, time.Now(), telemetry.MetricKeyBeginBlocker)
 
 	var wg sync.WaitGroup
@@ -30,9 +30,9 @@ func BeginBlocker(ctx sdk.Context, req abci.RequestBeginBlock, k keeper.Keeper) 
 	// which have missed too many blocks in a row (downtime slashing)
 
 	// this allows us to preserve the original ordering for writing purposes
-	slashingWriteInfo := make([]*SlashingWriteInfo, len(req.LastCommitInfo.GetVotes()))
+	slashingWriteInfo := make([]*SlashingWriteInfo, len(votes))
 
-	allVotes := req.LastCommitInfo.GetVotes()
+	allVotes := votes
 	for i := range allVotes {
 		wg.Add(1)
 		go func(valIndex int) {

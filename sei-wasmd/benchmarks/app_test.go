@@ -5,12 +5,10 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
 	abci "github.com/tendermint/tendermint/abci/types"
-	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 
 	"github.com/cosmos/cosmos-sdk/client"
@@ -22,6 +20,7 @@ import (
 	"github.com/CosmWasm/wasmd/x/wasm"
 	wasmtypes "github.com/CosmWasm/wasmd/x/wasm/types"
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 )
 
 func setup(t *testing.T, db dbm.DB, withGenesis bool, invCheckPeriod uint, opts ...wasm.Option) (*seiapp.App, seiapp.GenesisState) {
@@ -65,7 +64,7 @@ func SetupWithGenesisAccounts(b testing.TB, db dbm.DB, genAccs []authtypes.Genes
 
 	wasmApp.SetDeliverStateToCommit()
 	wasmApp.Commit(context.Background())
-	wasmApp.BeginBlock(wasmApp.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: tmproto.Header{Height: wasmApp.LastBlockHeight() + 1}})
+	legacyabci.BeginBlock(wasmApp.GetContextForDeliverTx([]byte{}), wasmApp.LastBlockHeight()+1, []abci.VoteInfo{}, []abci.Misbehavior{}, wasmApp.BeginBlockKeepers)
 
 	return wasmApp
 }
@@ -115,7 +114,7 @@ func InitializeWasmApp(b testing.TB, db dbm.DB, numAccounts int) AppInfo {
 	// add wasm contract
 	height := int64(2)
 	txGen := seiapp.MakeEncodingConfig().TxConfig
-	wasmApp.BeginBlock(wasmApp.GetContextForDeliverTx([]byte{}), abci.RequestBeginBlock{Header: tmproto.Header{Height: height, Time: time.Now()}})
+	legacyabci.BeginBlock(wasmApp.GetContextForDeliverTx([]byte{}), height, []abci.VoteInfo{}, []abci.Misbehavior{}, wasmApp.BeginBlockKeepers)
 
 	// upload the code
 	cw20Code, err := ioutil.ReadFile("./testdata/cw20_base.wasm")
