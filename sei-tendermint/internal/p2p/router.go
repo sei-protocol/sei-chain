@@ -15,7 +15,6 @@ import (
 	"github.com/tendermint/tendermint/libs/log"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/libs/utils"
-	"github.com/tendermint/tendermint/libs/utils/im"
 	"github.com/tendermint/tendermint/libs/utils/scope"
 	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"github.com/tendermint/tendermint/types"
@@ -34,21 +33,6 @@ type RouterOptions struct {
 	// no timeout.
 	HandshakeTimeout utils.Option[time.Duration]
 
-	// FilterPeerByIP is used by the router to inject filtering
-	// behavior for new incoming connections. The router passes
-	// the remote IP of the incoming connection the port number as
-	// arguments. Functions should return an error to reject the
-	// peer.
-	FilterPeerByIP func(context.Context, netip.AddrPort) error
-
-	// FilterPeerByID is used by the router to inject filtering
-	// behavior for new incoming connections. The router passes
-	// the NodeID of the node before completing the connection,
-	// but this occurs after the handshake is complete. Filter by
-	// IP address to filter before the handshake. Functions should
-	// return an error to reject the peer.
-	FilterPeerByID func(context.Context, types.NodeID) error
-
 	// MaxAcceptedConnections is the maximum number of simultaneous accepted
 	// (incoming) connections. Beyond this, new connections will block until
 	// a slot is free.
@@ -57,6 +41,8 @@ type RouterOptions struct {
 	Endpoint Endpoint
 
 	Connection conn.MConnConfig
+
+	PeerManager *PeerManagerOptions
 }
 
 // Router manages peer connections and routes messages between peers and reactor
@@ -73,19 +59,6 @@ type RouterOptions struct {
 //	acceptPeers(): in a loop, waits for an inbound connection via
 //	Transport.Accept() and spawns a goroutine that handshakes with it and
 //	begins to route messages if successful.
-//
-//	evictPeers(): in a loop, calls PeerManager.EvictNext() to get the next
-//	peer to evict, and disconnects it by closing its message queue.
-//
-// When a peer is connected, an outbound peer message queue is registered in
-// peerQueues, and routePeer() is called to spawn off two additional goroutines:
-//
-//	sendPeer(): waits for an outbound message from the peerQueues queue,
-//	marshals it, and passes it to the peer transport which delivers it.
-//
-//	receivePeer(): waits for an inbound message from the peer transport,
-//	unmarshals it, and passes it to the appropriate inbound channel queue
-//	in channelQueues.
 //
 // When a reactor opens a channel via OpenChannel, an inbound channel message
 // queue is registered in channelQueues, and a channel goroutine is spawned:
@@ -106,15 +79,14 @@ type Router struct {
 	lc      *metricsLabelCache
 
 	options     RouterOptions
+	connTracker *connTracker
 	privKey     crypto.PrivKey
 	peerManager *PeerManager
 
-	conns            utils.AtomicWatch[im.Map[types.NodeID,*Connection]]
+	conns            utils.Watch[*connRegistry]
 	nodeInfoProducer func() *types.NodeInfo
 
 	channels utils.RWMutex[map[ChannelID]*channel]
-
-	dynamicIDFilterer func(context.Context, types.NodeID) error
 
 	started chan struct{}
 }
@@ -135,29 +107,35 @@ func NewRouter(
 	logger log.Logger,
 	metrics *Metrics,
 	privKey crypto.PrivKey,
-	peerManager *PeerManager,
 	nodeInfoProducer func() *types.NodeInfo,
-	dynamicIDFilterer func(context.Context, types.NodeID) error,
 	options RouterOptions,
 ) *Router {
+	peerManager,err := NewPeerManager(options.PeerManager)
+	if err!=nil {
+		// TODO: return error
+		panic(fmt.Sprintf("failed to create PeerManager: %v", err))
+	}
 	router := &Router{
 		logger:           logger,
 		metrics:          metrics,
 		lc:               newMetricsLabelCache(),
 		privKey:          privKey,
 		nodeInfoProducer: nodeInfoProducer,
-
+		connTracker: newConnTracker(
+			options.getMaxIncomingConnectionAttempts(),
+			options.getIncomingConnectionWindow(),
+		),
 		peerManager:       peerManager,
 		options:           options,
 		channels:          utils.NewRWMutex(map[ChannelID]*channel{}),
-		conns:             utils.NewAtomicWatch(im.NewMap[types.NodeID,*Connection]()),
-		dynamicIDFilterer: dynamicIDFilterer,
+		conns:             utils.NewAtomicWatch(newConnRegistry()),
 		started: make(chan struct{}),
 	}
 	router.BaseService = service.NewBaseService(logger, "router", router)
 	return router
 }
 
+// TODO: hide peer manager altogether.
 func (r *Router) PeerManager() *PeerManager {
 	return r.peerManager
 }
@@ -168,7 +146,7 @@ func (r *Router) PeerRatio() float64 {
 	if !ok || m == 0 {
 		return 0
 	}
-	return float64(r.conns.Load().Len())/float64(m)
+	return float64(r.conns.Load().conns.Len())/float64(m)
 }
 
 func (r *Router) Endpoint() Endpoint {
@@ -206,28 +184,6 @@ func (r *Router) OpenChannel(chDesc ChannelDescriptor) (*Channel, error) {
 	panic("unreachable")
 }
 
-func (r *Router) filterPeersIP(ctx context.Context, addrPort netip.AddrPort) error {
-	if r.options.FilterPeerByIP == nil {
-		return nil
-	}
-	return r.options.FilterPeerByIP(ctx, addrPort)
-}
-
-func (r *Router) filterPeersID(ctx context.Context, id types.NodeID) error {
-	// apply dynamic filterer first
-	if r.dynamicIDFilterer != nil {
-		if err := r.dynamicIDFilterer(ctx, id); err != nil {
-			return err
-		}
-	}
-
-	if r.options.FilterPeerByID == nil {
-		return nil
-	}
-
-	return r.options.FilterPeerByID(ctx, id)
-}
-
 func (r *Router) acceptPeers(ctx context.Context) error {
 	if err := r.Endpoint().Validate(); err != nil {
 		return err
@@ -248,11 +204,22 @@ func (r *Router) acceptPeers(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-
 			// Spawn a goroutine per connection.
 			s.Spawn(func() error {
+				defer tcpConn.Close()
 				defer sem.Release(1)
-				if err := r.openConnection(ctx, tcpConn); err != nil {
+				remoteAddr := tcp.RemoteAddr(tcpConn)
+				if err := r.connTracker.AddConn(remoteAddr); err != nil {
+					r.logger.Error("rate limiting incoming", "addr",remoteAddr, "err",err)
+					return nil
+				}
+				defer r.connTracker.RemoveConn(remoteAddr)
+				conn, err := r.handshakePeer(ctx, tcpConn, utils.None[NodeAddress]())
+				if err != nil {
+					r.logger.Error("r.handshakePeer()", "addr", remoteAddr, "err", err)
+					return nil
+				}
+				if err := conn.Run(ctx, r); err != nil {
 					r.logger.Error("accept", "err", err)
 				}
 				return nil
@@ -261,39 +228,57 @@ func (r *Router) acceptPeers(ctx context.Context) error {
 	})
 }
 
-func (r *Router) addConn(c *Connection) {
-	r.metrics.Peers.Add(1)
-	peerID := c.PeerInfo().NodeID
-	type M = im.Map[types.NodeID,*Connection]
-	r.conns.Update(func(conns M) (M,bool) {
-		if old, ok := conns.Get(peerID); ok {
-			old.Close()
-		}
-		return conns.Set(peerID, c),true
+func (r *Router) dialPeers(ctx context.Context) error {
+	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
+		limiter := rate.NewLimiter()
+		s.Spawn(func() error {
+			for {
+				if err:=limiter.Wait(ctx); err!=nil { return err }
+				addr,err := r.conns.PeerToDial(ctx)
+				if err!=nil { return err }
+				s.Spawn(func() error { r.DialAndRun(ctx, addr) })
+			}
+		})
+		s.Spawn(func() error {
+			for {
+				if err:=limiter.Wait(ctx); err!=nil { return err }
+				addr,err := r.conns.PersistentPeerToDial(ctx)
+				if err!=nil { return err }
+				s.Spawn(func() error { r.DialAndRun(ctx, addr) })
+			}
+		})
+		return nil
 	})
 }
 
-func (r *Router) delConn(c *Connection) {
-	r.metrics.Peers.Add(-1)
-	peerID := c.PeerInfo().NodeID
-	type M = im.Map[types.NodeID,*Connection]
-	r.conns.Update(func(conns M) (M,bool) {
-		if old, ok := conns.Get(peerID); ok && old == c {
-			return conns.Delete(peerID),true
-		}
-		return M{},false
-	})
-}
-
-func (r *Router) ConnectPeer(ctx context.Context, address NodeAddress) (c *Connection, err error) {
-	tcpConn, err := r.Dial(ctx, address)
-	if err != nil {
-		return nil, fmt.Errorf("r.Dial(): %w", err)
+// SendError reports a peer misbehavior to the router.
+func (r *Router) SendError(pe PeerError) {
+	r.logger.Error("peer error",
+		"peer", pe.NodeID,
+		"err", pe.Err,
+		"evicting", pe.Fatal,
+	)
+	if pe.Fatal && !r.peerManager.options.persistent(pe.NodeID) {
+		r.logger.Info("evicting peer", "peer", pe.NodeID, "cause", pe.Err)
+		r.peerManager.Drop(pe.NodeID)
 	}
-	conn, err := r.handshakePeer(ctx, tcpConn, utils.Some(address.NodeID))
+}
+
+// Status returns the status for a peer, primarily for testing.
+func (r *Router) Connected(id types.NodeID) bool {
+	_,ok := r.conns.Load().conns.Get(id)
+	return ok
+}
+
+func (r *Router) GetBlockSyncPeers() map[types.NodeID]bool {
+	return r.peerManager.options.BlockSyncPeers
+}
+
+func (r *Router) ConnectPeer(ctx context.Context, addr NodeAddress) (c *Connection, err error) {
+	conn, err := r.handshakePeer(ctx, tcpConn, utils.Some(addr))
 	if err != nil {
 		tcpConn.Close()
-		return nil, fmt.Errorf("failed to handshake with peer %v: %w", address, err)
+		return nil, fmt.Errorf("failed to handshake with peer %v: %w", addr, err)
 	}
 	return conn, nil
 }
@@ -347,19 +332,25 @@ func (r *Router) Dial(ctx context.Context, address NodeAddress) (*net.TCPConn, e
 func (r *Router) handshakePeer(
 	ctx context.Context,
 	tcpConn *net.TCPConn,
-	expectID utils.Option[types.NodeID],
+	dialAddr utils.Option[NodeAddress],
 ) (c *Connection, err error) {
-	defer func() {
-		if err != nil {
-			tcpConn.Close()
-		}
-	}()
+	defer func() { if err != nil { tcpConn.Close() } }()
+	remoteAddr := tcp.RemoteAddr(tcpConn)
+	if dialAddr.IsPresent() {
+		r.metrics.NewConnections.With("direction", "out").Add(1)
+	} else {
+		r.metrics.NewConnections.With("direction", "in").Add(1)
+	}
+
+	if err := r.peerManager.options.filterPeersIP(ctx, remoteAddr); err != nil {
+		return nil, fmt.Errorf("peer filtered by IP", "ip", remoteAddr, "err", err)
+	}
 	if d,ok := r.options.HandshakeTimeout.Get(); ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, d)
 		defer cancel()
 	}
-	conn, err := HandshakeOrClose(ctx, r, tcpConn)
+	conn, err := r.HandshakeOrClose(ctx, tcpConn, dialAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -368,9 +359,9 @@ func (r *Router) handshakePeer(
 	if peerInfo.Network != nodeInfo.Network {
 		return nil, errBadNetwork{fmt.Errorf("connected to peer from wrong network, %q, removed from peer store", peerInfo.Network)}
 	}
-	if want, ok := expectID.Get(); ok && want != peerInfo.NodeID {
+	if want, ok := dialAddr.Get(); ok && want.NodeID != peerInfo.NodeID {
 		return nil, fmt.Errorf("expected to connect with peer %q, got %q",
-			want, peerInfo.NodeID)
+			want.NodeID, peerInfo.NodeID)
 	}
 	if err := nodeInfo.CompatibleWith(peerInfo); err != nil {
 		return nil, ErrRejected{
@@ -385,7 +376,7 @@ func (r *Router) handshakePeer(
 func (r *Router) Run(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("acceptPeers", func() error { return r.acceptPeers(ctx) })
-		s.SpawnNamed("peerManager", func() error { return r.peerManager.Run(ctx, r) })
+		s.SpawnNamed("dialPeers", func() error { return r.dialPeers(ctx) })
 		return nil
 	})
 }

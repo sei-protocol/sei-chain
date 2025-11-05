@@ -264,29 +264,6 @@ func TestNewPeerManager_Unconditional(t *testing.T) {
 	}, peerManager.Scores())
 }
 
-func TestNewPeerManager_SelfIDChange(t *testing.T) {
-	a := testAddr("a")
-	b := testAddr("b")
-
-	db := dbm.NewMemDB()
-	peerManager, err := NewPeerManager(log.NewNopLogger(), selfID, db, PeerManagerOptions{}, NopMetrics())
-	require.NoError(t, err)
-
-	added, err := peerManager.Add(a)
-	require.NoError(t, err)
-	require.True(t, added)
-	added, err = peerManager.Add(b)
-	require.NoError(t, err)
-	require.True(t, added)
-	require.ElementsMatch(t, []types.NodeID{a.NodeID, b.NodeID}, peerManager.Peers())
-
-	// If we change our selfID to one of the peers in the peer store, it
-	// should be removed from the store.
-	peerManager, err = NewPeerManager(log.NewNopLogger(), a.NodeID, db, PeerManagerOptions{}, NopMetrics())
-	require.NoError(t, err)
-	require.Equal(t, []types.NodeID{b.NodeID}, peerManager.Peers())
-}
-
 func TestPeerManager_Add(t *testing.T) {
 	aID := types.NodeID(strings.Repeat("a", 40))
 	bID := types.NodeID(strings.Repeat("b", 40))

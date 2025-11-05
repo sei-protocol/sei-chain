@@ -15,6 +15,14 @@ import (
 	"github.com/tendermint/tendermint/libs/utils/scope"
 )
 
+func LocalAddr(conn *net.TCPConn) netip.AddrPort {
+	return conn.LocalAddr().(*net.TCPAddr).AddrPort()
+}
+
+func RemoteAddr(conn *net.TCPConn) netip.AddrPort {
+	return conn.RemoteAddr().(*net.TCPAddr).AddrPort()
+}
+
 // reserverAddrs is a global register of reserved ports.
 //   - Some(fd) indicates that the port is not currently in use.
 //     fd is the socket bound to the addr, which guards the port from being allocated to different process.

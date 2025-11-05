@@ -7,6 +7,8 @@ import (
 	"github.com/tendermint/tendermint/internal/libs/protoio"
 	"github.com/tendermint/tendermint/internal/p2p/conn"
 	"github.com/tendermint/tendermint/libs/utils/scope"
+	"github.com/tendermint/tendermint/libs/utils"
+	"github.com/tendermint/tendermint/libs/utils/tcp"
 	"math"
 	"net"
 	"net/netip"
@@ -38,6 +40,7 @@ func (cs ChannelIDSet) Contains(id ChannelID) bool {
 
 // Connection implements Connection for Transport.
 type Connection struct {
+	dialAddr   utils.Option[NodeAddress]
 	conn         *net.TCPConn
 	peerChannels ChannelIDSet
 	peerInfo     types.NodeInfo
@@ -46,7 +49,7 @@ type Connection struct {
 }
 
 // Handshake implements Connection.
-func (r *Router) HandshakeOrClose(ctx context.Context, tcpConn *net.TCPConn) (c *Connection, err error) {
+func (r *Router) HandshakeOrClose(ctx context.Context, tcpConn *net.TCPConn, dialAddr utils.Option[NodeAddress]) (c *Connection, err error) {
 	defer func() {
 		// Late error check. Close conn to avoid leaking it.
 		if err != nil {
@@ -93,12 +96,13 @@ func (r *Router) HandshakeOrClose(ctx context.Context, tcpConn *net.TCPConn) (c 
 		}
 		ok.Store(true)
 		return &Connection{
+			dialAddr: dialAddr,
 			conn:         tcpConn,
 			sendQueue:    NewQueue[sendMsg](queueBufferDefault),
 			peerInfo:     peerInfo,
 			peerChannels: toChannelIDs(peerInfo.Channels),
 			mconn: conn.NewMConnection(
-				r.logger.With("peer", remoteEndpoint(tcpConn).NodeAddress(peerInfo.NodeID)),
+				r.logger.With("peer", Endpoint{tcp.RemoteAddr(tcpConn)}.NodeAddress(peerInfo.NodeID)),
 				secretConn,
 				r.getChannelDescs(),
 				r.options.Connection,
@@ -107,7 +111,7 @@ func (r *Router) HandshakeOrClose(ctx context.Context, tcpConn *net.TCPConn) (c 
 	})
 }
 
-func (c *Connection) sendRoutine(ctx context.Context, r *Router) error {
+func (r *Router) connSendRoutine(ctx context.Context, conn *Connection) error {
 	for {
 		start := time.Now().UTC()
 		m, err := c.sendQueue.Recv(ctx)
@@ -131,9 +135,9 @@ func (c *Connection) sendRoutine(ctx context.Context, r *Router) error {
 
 // receivePeer receives inbound messages from a peer, deserializes them and
 // passes them on to the appropriate channel.
-func (c *Connection) recvRoutine(ctx context.Context, r *Router) error {
+func (r *Router) connRecvRoutine(ctx context.Context, conn *Connection) error {
 	for {
-		chID, bz, err := c.mconn.Recv(ctx)
+		chID, bz, err := conn.mconn.Recv(ctx)
 		if err != nil {
 			return err
 		}
@@ -141,13 +145,13 @@ func (c *Connection) recvRoutine(ctx context.Context, r *Router) error {
 			ch, ok := chs[chID]
 			if !ok {
 				// TODO(gprusak): verify if this is a misbehavior, and drop the peer if it is.
-				r.logger.Debug("dropping message for unknown channel", "peer", c.peerInfo.NodeID, "channel", chID)
+				r.logger.Debug("dropping message for unknown channel", "peer", conn.peerInfo.NodeID, "channel", chID)
 				continue
 			}
 
 			msg := proto.Clone(ch.desc.MessageType)
 			if err := proto.Unmarshal(bz, msg); err != nil {
-				return fmt.Errorf("message decoding failed, dropping message: [peer=%v] %w", c.peerInfo.NodeID, err)
+				return fmt.Errorf("message decoding failed, dropping message: [peer=%v] %w", conn.peerInfo.NodeID, err)
 			}
 			if wrapper, ok := msg.(Wrapper); ok {
 				var err error
@@ -156,30 +160,33 @@ func (c *Connection) recvRoutine(ctx context.Context, r *Router) error {
 				}
 			}
 			// Priority is not used since all messages in this queue are from the same channel.
-			if _, ok := ch.recvQueue.Send(RecvMsg{From: c.peerInfo.NodeID, Message: msg}, proto.Size(msg), 0).Get(); ok {
+			if _, ok := ch.recvQueue.Send(RecvMsg{From: conn.peerInfo.NodeID, Message: msg}, proto.Size(msg), 0).Get(); ok {
 				r.metrics.QueueDroppedMsgs.With("ch_id", fmt.Sprint(chID), "direction", "in").Add(float64(1))
 			}
 			r.metrics.PeerReceiveBytesTotal.With(
 				"chID", fmt.Sprint(chID),
-				"peer_id", string(c.peerInfo.NodeID),
+				"peer_id", string(conn.peerInfo.NodeID),
 				"message_type", r.lc.ValueToMetricLabel(msg)).Add(float64(proto.Size(msg)))
-			r.logger.Debug("received message", "peer", c.peerInfo.NodeID, "message", msg)
+			r.logger.Debug("received message", "peer", conn.peerInfo.NodeID, "message", msg)
 		}
 	}
 }
 
-func (c *Connection) Run(ctx context.Context, r *Router) error {
-	peerInfo := c.PeerInfo()
+func (r *Router) runConn(ctx context.Context, conn *Connection) error {
+	peerInfo := conn.PeerInfo()
 	peerID := peerInfo.NodeID
-	r.metrics.Peers.Add(1)
-	defer r.metrics.Peers.Add(-1)
-	r.addConn(c)
-	defer r.delConn(c)
+	if err := r.peerManager.options.filterPeersID(ctx, peerInfo.NodeID); err != nil {
+		return fmt.Errorf("peer filtered by node ID", "node", peerInfo.NodeID, "err", err)
+	}
+	if err:=r.peerManager.registerConn(conn); err!=nil {
+		return fmt.Errorf("registerConn(): %w", err)
+	}
+	defer r.peerManager.unregisterConn(conn)
 	r.logger.Info("peer connected", "peer", peerID, "endpoint", c)
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
-		s.SpawnNamed("mconn.Run", func() error { return c.mconn.Run(ctx) })
-		s.Spawn(func() error { return c.sendRoutine(ctx, r) })
-		s.Spawn(func() error { return c.recvRoutine(ctx, r) })
+		s.SpawnNamed("mconn.Run", func() error { return conn.mconn.Run(ctx) })
+		s.Spawn(func() error { return r.connSendRoutine(ctx, conn) })
+		s.Spawn(func() error { return r.connRecvRoutine(ctx, conn) })
 		return nil
 	})
 }
@@ -189,23 +196,18 @@ func (c *Connection) String() string {
 	return c.RemoteEndpoint().String()
 }
 
-// LocalEndpoint implements Connection.
-func (c *Connection) LocalEndpoint() Endpoint {
-	return Endpoint{c.conn.LocalAddr().(*net.TCPAddr).AddrPort()}
-}
-
 func (c *Connection) PeerInfo() types.NodeInfo {
 	return c.peerInfo
 }
 
-// RemoteEndpoint implements Connection.
-func remoteEndpoint(conn *net.TCPConn) Endpoint {
-	return Endpoint{conn.RemoteAddr().(*net.TCPAddr).AddrPort()}
+// LocalEndpoint implements Connection.
+func (c *Connection) LocalEndpoint() Endpoint {
+	return Endpoint{tcp.LocalAddr(c.conn)}
 }
 
 // RemoteEndpoint.
 func (c *Connection) RemoteEndpoint() Endpoint {
-	return remoteEndpoint(c.conn)
+	return Endpoint{tcp.RemoteAddr(c.conn)}
 }
 
 // Close.
