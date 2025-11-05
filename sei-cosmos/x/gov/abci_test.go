@@ -15,6 +15,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/gov/types"
 	"github.com/cosmos/cosmos-sdk/x/staking"
 	seiapp "github.com/sei-protocol/sei-chain/app"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 )
 
 func TestTickExpiredDepositPeriod(t *testing.T) {
@@ -301,7 +302,7 @@ func TestProposalPassedEndblocker(t *testing.T) {
 					stakingHandler := staking.NewHandler(app.StakingKeeper)
 
 					header := tmproto.Header{Height: app.LastBlockHeight() + 1}
-					app.BeginBlock(ctx, abci.RequestBeginBlock{Header: header})
+					legacyabci.BeginBlock(ctx, header.Height, []abci.VoteInfo{}, []abci.Misbehavior{}, app.BeginBlockKeepers)
 
 					valAddr := sdk.ValAddress(addrs[0])
 
@@ -382,7 +383,7 @@ func TestExpeditedProposalPassAndConvertToRegular(t *testing.T) {
 			app.StakingKeeper.SetParams(ctx, params)
 			SortAddresses(addrs)
 			header := tmproto.Header{Height: app.LastBlockHeight() + 1}
-			app.BeginBlock(ctx, abci.RequestBeginBlock{Header: header})
+			legacyabci.BeginBlock(ctx, header.Height, []abci.VoteInfo{}, []abci.Misbehavior{}, app.BeginBlockKeepers)
 
 			valAddr := sdk.ValAddress(addrs[0])
 

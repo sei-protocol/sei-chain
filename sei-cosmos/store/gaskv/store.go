@@ -126,11 +126,6 @@ func (gs *Store) CacheWrapWithTrace(_ types.StoreKey, _ io.Writer, _ types.Trace
 	panic("cannot CacheWrapWithTrace a GasKVStore")
 }
 
-// CacheWrapWithListeners implements the CacheWrapper interface.
-func (gs *Store) CacheWrapWithListeners(_ types.StoreKey, _ []types.WriteListener) types.CacheWrap {
-	panic("cannot CacheWrapWithListeners a GasKVStore")
-}
-
 func (gs *Store) iterator(start, end []byte, ascending bool) types.Iterator {
 	var parent types.Iterator
 	if ascending {

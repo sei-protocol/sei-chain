@@ -130,46 +130,13 @@ func (app *BaseApp) Info(ctx context.Context, req *abci.RequestInfo) (*abci.Resp
 	}, nil
 }
 
-// BeginBlock implements the ABCI application interface.
-func (app *BaseApp) BeginBlock(ctx sdk.Context, req abci.RequestBeginBlock) (res abci.ResponseBeginBlock) {
-	defer telemetry.MeasureSince(time.Now(), "abci", "begin_block")
-
-	if !req.Simulate {
-		if err := app.validateHeight(req); err != nil {
-			panic(err)
-		}
-	}
-
-	if app.beginBlocker != nil {
-		res = app.beginBlocker(ctx, req)
-		res.Events = sdk.MarkEventsToIndex(res.Events, app.indexEvents)
-	}
-
-	// call the streaming service hooks with the EndBlock messages
-	if !req.Simulate {
-		for _, streamingListener := range app.abciListeners {
-			if err := streamingListener.ListenBeginBlock(app.deliverState.ctx, req, res); err != nil {
-				app.logger.Error("EndBlock listening hook failed", "height", req.Header.Height, "err", err)
-			}
-		}
-	}
-	return res
-}
-
 func (app *BaseApp) MidBlock(ctx sdk.Context, height int64) (events []abci.Event) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "mid_block")
 
 	if app.midBlocker != nil {
 		midBlockEvents := app.midBlocker(ctx, height)
-		events = sdk.MarkEventsToIndex(midBlockEvents, app.indexEvents)
+		events = sdk.MarkEventsToIndex(midBlockEvents, app.IndexEvents)
 	}
-	// TODO: add listener handling
-	// // call the streaming service hooks with the EndBlock messages
-	// for _, streamingListener := range app.abciListeners {
-	// 	if err := streamingListener.ListenMidBlock(app.deliverState.ctx, req, res); err != nil {
-	// 		app.logger.Error("MidBlock listening hook failed", "height", req.Height, "err", err)
-	// 	}
-	// }
 
 	return events
 }
@@ -183,18 +150,11 @@ func (app *BaseApp) EndBlock(ctx sdk.Context, req abci.RequestEndBlock) (res abc
 
 	if app.endBlocker != nil {
 		res = app.endBlocker(ctx, req)
-		res.Events = sdk.MarkEventsToIndex(res.Events, app.indexEvents)
+		res.Events = sdk.MarkEventsToIndex(res.Events, app.IndexEvents)
 	}
 
 	if cp := app.GetConsensusParams(ctx); cp != nil {
 		res.ConsensusParamUpdates = legacytm.ABCIToLegacyConsensusParams(cp)
-	}
-
-	// call the streaming service hooks with the EndBlock messages
-	for _, streamingListener := range app.abciListeners {
-		if err := streamingListener.ListenEndBlock(app.deliverState.ctx, req, res); err != nil {
-			app.logger.Error("EndBlock listening hook failed", "height", req.Height, "err", err)
-		}
 	}
 
 	return res
@@ -285,13 +245,6 @@ func (app *BaseApp) DeliverTxBatch(ctx sdk.Context, req sdk.DeliverTxBatchReques
 // gas execution context.
 func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) (res abci.ResponseDeliverTx) {
 	defer telemetry.MeasureSince(time.Now(), "abci", "deliver_tx")
-	defer func() {
-		for _, streamingListener := range app.abciListeners {
-			if err := streamingListener.ListenDeliverTx(app.deliverState.ctx, req, res); err != nil {
-				app.logger.Error("DeliverTx listening hook failed", "err", err)
-			}
-		}
-	}()
 
 	gInfo := sdk.GasInfo{}
 	resultStr := "successful"
@@ -308,9 +261,9 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk
 		resultStr = "failed"
 		// if we have a result, use those events instead of just the anteEvents
 		if result != nil {
-			return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(result.Events, app.indexEvents), app.trace)
+			return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(result.Events, app.IndexEvents), app.trace)
 		}
-		return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(anteEvents, app.indexEvents), app.trace)
+		return sdkerrors.ResponseDeliverTxWithEvents(err, gInfo.GasWanted, gInfo.GasUsed, sdk.MarkEventsToIndex(anteEvents, app.IndexEvents), app.trace)
 	}
 
 	res = abci.ResponseDeliverTx{
@@ -318,7 +271,7 @@ func (app *BaseApp) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk
 		GasUsed:   int64(gInfo.GasUsed),   // TODO: Should type accept unsigned ints?
 		Log:       result.Log,
 		Data:      result.Data,
-		Events:    sdk.MarkEventsToIndex(result.Events, app.indexEvents),
+		Events:    sdk.MarkEventsToIndex(result.Events, app.IndexEvents),
 	}
 	if resCtx.IsEVM() {
 		res.EvmTxInfo = &abci.EvmTxInfo{
@@ -1191,7 +1144,7 @@ func (app *BaseApp) FinalizeBlock(ctx context.Context, req *abci.RequestFinalize
 		if err != nil {
 			return nil, err
 		}
-		res.Events = sdk.MarkEventsToIndex(res.Events, app.indexEvents)
+		res.Events = sdk.MarkEventsToIndex(res.Events, app.IndexEvents)
 		// set the signed validators for addition to context in deliverTx
 		app.setVotesInfo(req.DecidedLastCommit.GetVotes())
 

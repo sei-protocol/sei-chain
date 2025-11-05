@@ -244,9 +244,6 @@ func (f *fakeMultiStore) CacheWrap(storetypes.StoreKey) storetypes.CacheWrap { r
 func (f *fakeMultiStore) CacheWrapWithTrace(storetypes.StoreKey, io.Writer, storetypes.TraceContext) storetypes.CacheWrap {
 	return nil
 }
-func (f *fakeMultiStore) CacheWrapWithListeners(storetypes.StoreKey, []storetypes.WriteListener) storetypes.CacheWrap {
-	return nil
-}
 func (f *fakeMultiStore) CacheMultiStore() storetypes.CacheMultiStore { return nil }
 func (f *fakeMultiStore) CacheMultiStoreWithVersion(int64) (storetypes.CacheMultiStore, error) {
 	return nil, nil
@@ -260,8 +257,6 @@ func (f *fakeMultiStore) GetEarliestVersion() int64                             
 func (f *fakeMultiStore) TracingEnabled() bool                                            { return false }
 func (f *fakeMultiStore) SetTracer(io.Writer) storetypes.MultiStore                       { return f }
 func (f *fakeMultiStore) SetTracingContext(storetypes.TraceContext) storetypes.MultiStore { return f }
-func (f *fakeMultiStore) ListeningEnabled(storetypes.StoreKey) bool                       { return false }
-func (f *fakeMultiStore) AddListeners(storetypes.StoreKey, []storetypes.WriteListener)    {}
 func (f *fakeMultiStore) GetWorkingHash() ([]byte, error)                                 { return nil, nil }
 func (f *fakeMultiStore) GetEvents() []abci.Event                                         { return nil }
 func (f *fakeMultiStore) ResetEvents()                                                    {}

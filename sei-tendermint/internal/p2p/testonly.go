@@ -100,7 +100,7 @@ func (n *TestNetwork) ConnectCycle(ctx context.Context, t *testing.T) {
 			panic(err)
 		}
 	}
-	for i := range n.Nodes() {
+	for i := range nodes {
 		for ready, ctrl := range nodes[i].Router.PeerManager().ready.Lock() {
 			for _, peer := range utils.Slice(nodes[(i+1)%N], nodes[(i+N-1)%N]) {
 				if err := ctrl.WaitUntil(ctx, func() bool {
