@@ -5,11 +5,13 @@ on:
   push:
     branches:
       - main
-      - release/**
 
 concurrency:
   cancel-in-progress: true
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+
+env:
+  LEDGER_ENABLED: false
 
 jobs:
   linux-amd64:
@@ -18,8 +20,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
-        with:
-          submodules: true
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -42,33 +42,15 @@ jobs:
 
       - name: Run make install
         run: make install
-        env:
-          LEDGER_ENABLED: false
 
       - name: Verify install binary
-        run: |
-          if command -v seid &> /dev/null; then
-            echo "seid binary installed successfully"
-            seid version --long
-          else
-            echo "seid binary not found in PATH"
-            exit 1
-          fi
+        run: seid version --long
 
       - name: Run make build
         run: make build
-        env:
-          LEDGER_ENABLED: false
 
       - name: Verify build binary
-        run: |
-          if [ -f ./build/seid ]; then
-            echo "seid binary built successfully"
-            ./build/seid version --long
-          else
-            echo "seid binary not found in build directory"
-            exit 1
-          fi
+        run: ./build/seid version --long
 
   macos-arm64:
     name: "macOS ARM64"
@@ -99,30 +81,12 @@ jobs:
 
       - name: Run make install
         run: make install
-        env:
-          LEDGER_ENABLED: false
 
       - name: Verify install binary
-        run: |
-          if command -v seid &> /dev/null; then
-            echo "seid binary installed successfully"
-            seid version --long
-          else
-            echo "seid binary not found in PATH"
-            exit 1
-          fi
+        run: seid version --long
 
       - name: Run make build
         run: make build
-        env:
-          LEDGER_ENABLED: false
 
       - name: Verify build binary
-        run: |
-          if [ -f ./build/seid ]; then
-            echo "seid binary built successfully"
-            ./build/seid version --long
-          else
-            echo "seid binary not found in build directory"
-            exit 1
-          fi
+        run: ./build/seid version --long
