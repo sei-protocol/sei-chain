@@ -172,10 +172,10 @@ func (app *BaseApp) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*a
 	var mode runTxMode
 
 	switch {
-	case req.Type == abci.CheckTxType_New:
+	case req.Type == abci.CheckTxTypeV2New:
 		mode = runTxModeCheck
 
-	case req.Type == abci.CheckTxType_Recheck:
+	case req.Type == abci.CheckTxTypeV2Recheck:
 		mode = runTxModeReCheck
 
 	default:

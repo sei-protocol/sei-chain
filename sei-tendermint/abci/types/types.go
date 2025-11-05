@@ -243,11 +243,11 @@ type ResponseCheckTxV2 struct {
 type CheckTxTypeV2 int32
 
 const (
-	CheckTxTypeV2New     CheckTxTypeV2 = iota
+	CheckTxTypeV2New CheckTxTypeV2 = iota
 	CheckTxTypeV2Recheck
 )
 
 type RequestCheckTxV2 struct {
 	Tx   []byte
-	Type CheckTxType
+	Type CheckTxTypeV2
 }

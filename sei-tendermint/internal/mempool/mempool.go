@@ -962,7 +962,7 @@ func (txmp *TxMempool) updateReCheckTxs(ctx context.Context) {
 		if !txmp.txStore.IsTxRemoved(wtx) {
 			res, err := txmp.proxyAppConn.CheckTx(ctx, &abci.RequestCheckTxV2{
 				Tx:   wtx.tx,
-				Type: abci.CheckTxType_Recheck,
+				Type: abci.CheckTxTypeV2Recheck,
 			})
 			if err != nil {
 				// no need in retrying since the tx will be rechecked after the next block
