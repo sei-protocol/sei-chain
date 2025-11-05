@@ -37,8 +37,8 @@ message Request {
     RequestEndBlock end_block = 22;
     RequestLoadLatest load_latest = 23;
   }
-  reserved 6, 8, 9, 17, 18; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestExtendVote, RequestVerifyVoteExtension
-  reserved "extend_vote", "verify_vote_extension";
+  reserved 6, 8, 9, 17, 18, 7, 21, 24; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestExtendVote, RequestVerifyVoteExtension, RequestCheckTx, RequestDeliverTx, RequestGetTxPriorityHint
+  reserved "extend_vote", "verify_vote_extension", "check_tx", "deliver_tx", "get_tx_priority_hint";
 }
 
 message RequestEcho {
