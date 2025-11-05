@@ -25,7 +25,6 @@ message Request {
     RequestInfo info = 3;
     RequestInitChain init_chain = 4;
     RequestQuery query = 5;
-    RequestCheckTx check_tx = 7;
     RequestCommit commit = 10;
     RequestListSnapshots list_snapshots = 11;
     RequestOfferSnapshot offer_snapshot = 12;
@@ -74,16 +73,6 @@ message RequestQuery {
   string path = 2;
   int64 height = 3;
   bool prove = 4;
-}
-
-enum CheckTxType {
-  NEW = 0 [(gogoproto.enumvalue_customname) = "New"];
-  RECHECK = 1 [(gogoproto.enumvalue_customname) = "Recheck"];
-}
-
-message RequestCheckTx {
-  bytes tx = 1;
-  CheckTxType type = 2;
 }
 
 message RequestCommit {}
