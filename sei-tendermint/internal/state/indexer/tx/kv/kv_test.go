@@ -41,7 +41,7 @@ func TestTxIndex(t *testing.T) {
 
 	loadedTxResult, err := txIndexer.Get(hash)
 	require.NoError(t, err)
-	assert.True(t, proto.Equal(txResult, loadedTxResult))
+	assert.Equal(t, txResult, loadedTxResult)
 
 	tx2 := types.Tx("BYE BYE WORLD")
 	txResult2 := &abci.TxResultV2{
@@ -60,7 +60,7 @@ func TestTxIndex(t *testing.T) {
 
 	loadedTxResult2, err := txIndexer.Get(hash2)
 	require.NoError(t, err)
-	assert.True(t, proto.Equal(txResult2, loadedTxResult2))
+	assert.Equal(t, txResult2, loadedTxResult2)
 }
 
 func TestTxSearch(t *testing.T) {
@@ -141,7 +141,7 @@ func TestTxSearch(t *testing.T) {
 			assert.Len(t, results, tc.resultsLength)
 			if tc.resultsLength > 0 {
 				for _, txr := range results {
-					assert.True(t, proto.Equal(txResult, txr))
+					assert.Equal(t, txResult, txr)
 				}
 			}
 		})
@@ -185,7 +185,7 @@ func TestTxSearchDeprecatedIndexing(t *testing.T) {
 	hash2 := types.Tx(txResult2.Tx).Hash()
 	b := indexer.store.NewBatch()
 
-	rawBytes, err := proto.Marshal(txResult2)
+	rawBytes, err := proto.Marshal(&abci.TxResult{Height: txResult2.Height, Index: txResult2.Index, Tx: txResult2.Tx, Result: txResult2.Result})
 	require.NoError(t, err)
 
 	depKey := []byte(fmt.Sprintf("%s/%s/%d/%d",
@@ -237,7 +237,7 @@ func TestTxSearchDeprecatedIndexing(t *testing.T) {
 			require.NoError(t, err)
 			for _, txr := range results {
 				for _, tr := range tc.results {
-					assert.True(t, proto.Equal(tr, txr))
+					assert.Equal(t, tr, txr)
 				}
 			}
 		})
@@ -262,7 +262,7 @@ func TestTxSearchOneTxWithMultipleSameTagsButDifferentValues(t *testing.T) {
 
 	assert.Len(t, results, 1)
 	for _, txr := range results {
-		assert.True(t, proto.Equal(txResult, txr))
+		assert.Equal(t, txResult, txr)
 	}
 }
 
