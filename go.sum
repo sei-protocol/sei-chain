@@ -1995,8 +1995,8 @@ github.com/sei-protocol/go-ethereum v1.15.7-sei-7 h1:5Um1DHbcv9Nn0ksDHaaj49Ub/Nl
 github.com/sei-protocol/go-ethereum v1.15.7-sei-7/go.mod h1:+S9k+jFzlyVTNcYGvqFhzN/SFhI6vA+aOY4T5tLSPL0=
 github.com/sei-protocol/goutils v0.0.2 h1:Bfa7Sv+4CVLNM20QcpvGb81B8C5HkQC/kW1CQpIbXDA=
 github.com/sei-protocol/goutils v0.0.2/go.mod h1:iYE2DuJfEnM+APPehr2gOUXfuLuPsVxorcDO+Tzq9q8=
-github.com/sei-protocol/sei-cosmos v0.3.66 h1:DZL0OWpv+3/tleudTXUeMJtjb2C92O9PiNJBQoYDhBE=
-github.com/sei-protocol/sei-cosmos v0.3.66/go.mod h1:xckXRG0A8Fxr69YNYTE8/aqSprVui3Byt5iJEiSrEQ4=
+github.com/sei-protocol/sei-cosmos v0.3.67 h1:oxDjeEqiP6p/H2YDPGgEFcjlwRWrMED8jo+z37wIrnc=
+github.com/sei-protocol/sei-cosmos v0.3.67/go.mod h1:xckXRG0A8Fxr69YNYTE8/aqSprVui3Byt5iJEiSrEQ4=
 github.com/sei-protocol/sei-db v0.0.55 h1:1pR1mW4CQS959HhSapKnkFQXb7y7BehV4ZE0Paka+j8=
 github.com/sei-protocol/sei-db v0.0.55/go.mod h1:pDrfm5aqVKD93HADrG5MLkReA4Vlz+2xaLi3T4mQqBc=
 github.com/sei-protocol/sei-iavl v0.2.0 h1:OisPjXiDT+oe+aeckzDEFgkZCYuUjHgs/PP8DPicN+I=
@@ -2007,8 +2007,8 @@ github.com/sei-protocol/sei-tendermint v0.6.7 h1:76ElMtSi08p7oUbMBCFvd9qwXABwI+H
 github.com/sei-protocol/sei-tendermint v0.6.7/go.mod h1:SSZv0P1NBP/4uB3gZr5XJIan3ks3Ui8FJJzIap4r6uc=
 github.com/sei-protocol/sei-tm-db v0.0.5 h1:3WONKdSXEqdZZeLuWYfK5hP37TJpfaUa13vAyAlvaQY=
 github.com/sei-protocol/sei-tm-db v0.0.5/go.mod h1:Cpa6rGyczgthq7/0pI31jys2Fw0Nfrc+/jKdP1prVqY=
-github.com/sei-protocol/sei-wasmd v0.3.10 h1:3sa8zEtUrpOwusIaojl8Jv4+OCFzcU1JZYhQx27ij/o=
-github.com/sei-protocol/sei-wasmd v0.3.10/go.mod h1:C5TM6FIG7Nao2t1v5cdJYZEVXrRUswRNPdJ5XjCsCFk=
+github.com/sei-protocol/sei-wasmd v0.3.11 h1:Ldmge+XVm/8pxdNJhOjLNjZeT2oFiH5LEylwttKmmtc=
+github.com/sei-protocol/sei-wasmd v0.3.11/go.mod h1:C5TM6FIG7Nao2t1v5cdJYZEVXrRUswRNPdJ5XjCsCFk=
 github.com/sei-protocol/sei-wasmvm v1.5.4-sei.0.0.3 h1:hhZdZLR8g+6bxWBZiMflSnIuHgLcK/QEpzyjx0/yXYU=
 github.com/sei-protocol/sei-wasmvm v1.5.4-sei.0.0.3/go.mod h1:Q0bSEtlktzh7W2hhEaifrFp1Erx11ckQZmjq8FLCyys=
 github.com/sei-protocol/tm-db v0.0.4 h1:7Y4EU62Xzzg6wKAHEotm7SXQR0aPLcGhKHkh3qd0tnk=
