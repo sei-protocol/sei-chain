@@ -341,10 +341,10 @@ func AddCommands(
 		commands.MakeSnapshotCommand(InterceptConfigs),
 	)
 
-	inPlaceTestnetCmd := InPlaceTestnetCreator(appCreator, defaultNodeHome)
-	addStartFlags(inPlaceTestnetCmd)
 	startCmd := StartCmd(appCreator, defaultNodeHome, tracerProviderOptions)
 	addStartFlags(startCmd)
+	inPlaceTestnetCmd := InPlaceTestnetCreator(appCreator, defaultNodeHome)
+	addStartFlags(inPlaceTestnetCmd)
 
 	rootCmd.AddCommand(
 		startCmd,
