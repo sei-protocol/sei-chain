@@ -194,7 +194,7 @@ func TestTxSearchDeprecatedIndexing(t *testing.T) {
 	hash2 := types.Tx(txResult2.Tx).Hash()
 	b := esdb.NewBatch()
 
-	rawBytes, err := proto.Marshal(txResult2)
+	rawBytes, err := proto.Marshal(&abci.TxResult{Height: txResult2.Height, Index: txResult2.Index, Result: txResult2.Result})
 	require.NoError(t, err)
 
 	depKey := []byte(fmt.Sprintf("%s/%s/%d/%d",
@@ -246,7 +246,7 @@ func TestTxSearchDeprecatedIndexing(t *testing.T) {
 			require.NoError(t, err)
 			for _, txr := range results {
 				for _, tr := range tc.results {
-					assert.True(t, proto.Equal(tr, txr))
+					assert.Equal(t, tr, txr)
 				}
 			}
 		})
@@ -271,7 +271,7 @@ func TestTxSearchOneTxWithMultipleSameTagsButDifferentValues(t *testing.T) {
 
 	assert.Len(t, results, 1)
 	for _, txr := range results {
-		assert.True(t, proto.Equal(txResult, txr))
+		assert.Equal(t, txResult, txr)
 	}
 }
 
