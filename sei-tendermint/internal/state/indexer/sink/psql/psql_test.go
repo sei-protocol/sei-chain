@@ -281,12 +281,12 @@ SELECT tx_result FROM `+tableTxResults+` WHERE tx_hash = $1;
 		return nil, fmt.Errorf("lookup transaction for hash %q failed: %v", hashString, err)
 	}
 
-	txr := new(abci.TxResultV2)
+	txr := new(abci.TxResult)
 	if err := proto.Unmarshal(resultData, txr); err != nil {
 		return nil, fmt.Errorf("unmarshaling txr: %w", err)
 	}
 
-	return txr, nil
+	return &abci.TxResultV2{Height: txr.Height, Index: txr.Index, Tx: txr.Tx, Result: txr.Result}, nil
 }
 
 func verifyTimeStamp(tableName string) error {
