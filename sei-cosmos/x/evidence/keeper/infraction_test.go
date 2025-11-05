@@ -52,7 +52,7 @@ func (suite *KeeperTestSuite) TestHandleDoubleSign() {
 			},
 		},
 	}
-	slashing.BeginBlocker(ctx, req, suite.app.SlashingKeeper)
+	slashing.BeginBlocker(ctx, req.LastCommitInfo.Votes, suite.app.SlashingKeeper)
 
 	// double sign less than max age
 	oldTokens := suite.app.StakingKeeper.Validator(ctx, operatorAddr).GetTokens()

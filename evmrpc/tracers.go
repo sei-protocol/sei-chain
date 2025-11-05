@@ -19,6 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/export"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/hashicorp/golang-lru/v2/expirable"
+	"github.com/sei-protocol/sei-chain/app/legacyabci"
 	"github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/state"
 	rpcclient "github.com/tendermint/tendermint/rpc/client"
@@ -61,6 +62,7 @@ type SeiDebugAPI struct {
 func NewDebugAPI(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
+	beginBlockKeepers legacyabci.BeginBlockKeepers,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	config *SimulateConfig,
@@ -72,7 +74,7 @@ func NewDebugAPI(
 	cacheCreationMutex *sync.Mutex,
 	watermarks *WatermarkManager,
 ) *DebugAPI {
-	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex, watermarks)
+	backend := NewBackend(ctxProvider, k, beginBlockKeepers, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex, watermarks)
 	tracersAPI := tracers.NewAPI(backend)
 	evictCallback := func(key common.Hash, value bool) {}
 	isPanicCache := expirable.NewLRU[common.Hash, bool](IsPanicCacheSize, evictCallback, IsPanicCacheTTL)
@@ -100,6 +102,7 @@ func NewDebugAPI(
 func NewSeiDebugAPI(
 	tmClient rpcclient.Client,
 	k *keeper.Keeper,
+	beginBlockKeepers legacyabci.BeginBlockKeepers,
 	ctxProvider func(int64) sdk.Context,
 	txConfigProvider func(int64) client.TxConfig,
 	config *SimulateConfig,
@@ -111,7 +114,7 @@ func NewSeiDebugAPI(
 	cacheCreationMutex *sync.Mutex,
 	watermarks *WatermarkManager,
 ) *SeiDebugAPI {
-	backend := NewBackend(ctxProvider, k, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex, watermarks)
+	backend := NewBackend(ctxProvider, k, beginBlockKeepers, txConfigProvider, tmClient, config, app, antehandler, globalBlockCache, cacheCreationMutex, watermarks)
 	tracersAPI := tracers.NewAPI(backend)
 
 	var sem chan struct{}

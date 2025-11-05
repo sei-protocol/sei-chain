@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/suite"
-	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
 	"github.com/cosmos/cosmos-sdk/codec"
@@ -60,8 +59,7 @@ func (suite *CapabilityTestSuite) TestInitializeMemStore() {
 
 	// Mock app beginblock and ensure that no gas has been consumed and memstore is initialized
 	ctx = suite.app.BaseApp.NewContext(false, tmproto.Header{})
-	restartedModule := capability.NewAppModule(suite.cdc, *newKeeper)
-	restartedModule.BeginBlock(ctx, abci.RequestBeginBlock{})
+	capability.BeginBlocker(ctx, *newKeeper)
 	suite.Require().True(newKeeper.IsInitialized(ctx), "memstore initialized flag not set")
 
 	// Mock the first transaction getting capability and subsequently failing
@@ -79,7 +77,7 @@ func (suite *CapabilityTestSuite) TestInitializeMemStore() {
 	// Ensure the capabilities don't get reinitialized on next BeginBlock
 	// by testing to see if capability returns same pointer
 	// also check that initialized flag is still set
-	restartedModule.BeginBlock(ctx, abci.RequestBeginBlock{})
+	capability.BeginBlocker(ctx, *newKeeper)
 	recap, ok := newSk1.GetCapability(ctx, "transfer")
 	suite.Require().True(ok)
 	suite.Require().Equal(cap1, recap, "capabilities got reinitialized after second BeginBlock")
