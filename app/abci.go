@@ -63,7 +63,7 @@ func (app *App) CheckTx(ctx context.Context, req *abci.RequestCheckTxV2) (*abci.
 	return app.BaseApp.CheckTx(ctx, req)
 }
 
-func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
+func (app *App) DeliverTx(ctx sdk.Context, req abci.RequestDeliverTxV2, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx {
 	defer metrics.MeasureDeliverTxDuration(time.Now())
 	// ensure we carry the initial context from tracer here
 	spanCtx, span := app.GetBaseApp().TracingInfo.StartWithContext("DeliverTx", ctx.TraceSpanContext())

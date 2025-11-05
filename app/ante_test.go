@@ -247,7 +247,7 @@ func TestEvmAnteErrorHandler(t *testing.T) {
 
 	addr, _ := testkeeper.PrivateKeyToAddresses(privKey)
 	testkeeper.EVMTestApp.BankKeeper.AddCoins(ctx, addr, sdk.NewCoins(sdk.NewCoin("usei", sdk.NewInt(100000000000))), true)
-	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTx{Tx: encodedTx}, txToSend, sha256.Sum256(encodedTx))
+	res := testkeeper.EVMTestApp.DeliverTx(ctx, abci.RequestDeliverTxV2{Tx: encodedTx}, txToSend, sha256.Sum256(encodedTx))
 	require.NotEqual(t, 0, res.Code)
 	testkeeper.EVMTestApp.EvmKeeper.SetTxResults([]*abci.ExecTxResult{{
 		Code: res.Code,

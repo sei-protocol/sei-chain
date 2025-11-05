@@ -251,3 +251,8 @@ type RequestCheckTxV2 struct {
 	Tx   []byte
 	Type CheckTxTypeV2
 }
+
+type RequestDeliverTxV2 struct {
+	Tx          []byte
+	SigVerified bool
+}
