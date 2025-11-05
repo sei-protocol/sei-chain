@@ -343,8 +343,11 @@ func AddCommands(
 
 	inPlaceTestnetCmd := InPlaceTestnetCreator(appCreator, defaultNodeHome)
 	addStartFlags(inPlaceTestnetCmd)
+	startCmd := StartCmd(appCreator, defaultNodeHome, tracerProviderOptions)
+	addStartFlags(startCmd)
 
 	rootCmd.AddCommand(
+		startCmd,
 		tendermintCmd,
 		ExportCmd(appExport, defaultNodeHome),
 		version.NewVersionCommand(),
