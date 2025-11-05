@@ -13,12 +13,9 @@ import (
 	"runtime/pprof"
 	"time"
 
-	clientconfig "github.com/cosmos/cosmos-sdk/client/config"
-
 	genesistypes "github.com/cosmos/cosmos-sdk/types/genesis"
 	"github.com/spf13/cobra"
 	abciclient "github.com/tendermint/tendermint/abci/client"
-	"github.com/tendermint/tendermint/abci/server"
 	tcmd "github.com/tendermint/tendermint/cmd/tendermint/commands"
 	"github.com/tendermint/tendermint/libs/service"
 	"github.com/tendermint/tendermint/node"
@@ -94,145 +91,6 @@ const (
 	FlagChainID = "chain-id"
 )
 
-// StartCmd runs the service passed in, either stand-alone or in-process with
-// Tendermint.
-func StartCmd(appCreator types.AppCreator, defaultNodeHome string, tracerProviderOptions []trace.TracerProviderOption) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "start",
-		Short: "Run the full node",
-		Long: `Run the full node application with Tendermint in or out of process. By
-default, the application will run with Tendermint in process.
-
-Pruning options can be provided via the '--pruning' flag or alternatively with '--pruning-keep-recent',
-'pruning-keep-every', and 'pruning-interval' together.
-
-For '--pruning' the options are as follows:
-
-default: the last 100 states are kept in addition to every 500th state; pruning at 10 block intervals
-nothing: all historic states will be saved, nothing will be deleted (i.e. archiving node)
-everything: all saved states will be deleted, storing only the current and previous state; pruning at 10 block intervals
-custom: allow pruning options to be manually specified through 'pruning-keep-recent', 'pruning-keep-every', and 'pruning-interval'
-
-Node halting configurations exist in the form of two flags: '--halt-height' and '--halt-time'. During
-the ABCI Commit phase, the node will check if the current block height is greater than or equal to
-the halt-height or if the current block time is greater than or equal to the halt-time. If so, the
-node will attempt to gracefully shutdown and the block will not be committed. In addition, the node
-will not be able to commit subsequent blocks.
-
-For profiling and benchmarking purposes, CPU profiling can be enabled via the '--cpu-profile' flag
-which accepts a path for the resulting pprof file.
-
-The node may be started in a 'query only' mode where only the gRPC and JSON HTTP
-API services are enabled via the 'grpc-only' flag. In this mode, Tendermint is
-bypassed and can be used when legacy queries are needed after an on-chain upgrade
-is performed. Note, when enabled, gRPC will also be automatically enabled.
-`,
-		PreRunE: func(cmd *cobra.Command, _ []string) error {
-			serverCtx := GetServerContextFromCmd(cmd)
-
-			// Bind flags to the Context's Viper so the app construction can set
-			// options accordingly.
-			serverCtx.Viper.BindPFlags(cmd.Flags())
-
-			_, err := GetPruningOptionsFromFlags(serverCtx.Viper)
-			return err
-		},
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			serverCtx := GetServerContextFromCmd(cmd)
-
-			if enableProfile, _ := cmd.Flags().GetBool(FlagProfile); enableProfile {
-				go func() {
-					serverCtx.Logger.Info("Listening for profiling at http://localhost:6060/debug/pprof/")
-					err := http.ListenAndServe(":6060", nil)
-					if err != nil {
-						serverCtx.Logger.Error("Error from profiling server", "error", err)
-					}
-				}()
-			}
-
-			clientCtx, err := client.GetClientQueryContext(cmd)
-			if err != nil {
-				return err
-			}
-			clientCtx, err = clientconfig.ReadFromClientConfig(clientCtx)
-			if err != nil {
-				return err
-			}
-
-			chainID := clientCtx.ChainID
-			flagChainID, _ := cmd.Flags().GetString(FlagChainID)
-			if flagChainID != "" {
-				if flagChainID != chainID {
-					panic(fmt.Sprintf("chain-id mismatch: %s vs %s. The chain-id passed in is different from the value in ~/.sei/config/client.toml \n", flagChainID, chainID))
-				}
-				chainID = flagChainID
-			}
-
-			serverCtx.Viper.Set(flags.FlagChainID, chainID)
-
-			if enableTracing, _ := cmd.Flags().GetBool(tracing.FlagTracing); !enableTracing {
-				serverCtx.Logger.Info("--tracing not passed in, tracing is not enabled")
-				tracerProviderOptions = []trace.TracerProviderOption{}
-			}
-
-			withTM, _ := cmd.Flags().GetBool(flagWithTendermint)
-			if !withTM {
-				serverCtx.Logger.Info("starting ABCI without Tendermint")
-				return startStandAlone(serverCtx, appCreator)
-			}
-
-			// amino is needed here for backwards compatibility of REST routes
-			exitCode := RestartErrorCode
-
-			serverCtx.Logger.Info("Creating node metrics provider")
-			nodeMetricsProvider := node.DefaultMetricsProvider(serverCtx.Config.Instrumentation)(clientCtx.ChainID)
-
-			config, _ := config.GetConfig(serverCtx.Viper)
-			apiMetrics, err := telemetry.New(config.Telemetry)
-			if err != nil {
-				return fmt.Errorf("failed to initialize telemetry: %w", err)
-			}
-			if !config.Genesis.StreamImport {
-				genesisFile, _ := tmtypes.GenesisDocFromFile(serverCtx.Config.GenesisFile())
-				if genesisFile.ChainID != clientCtx.ChainID {
-					panic(fmt.Sprintf("genesis file chain-id=%s does not equal config.toml chain-id=%s", genesisFile.ChainID, clientCtx.ChainID))
-				}
-			}
-
-			restartCoolDownDuration := time.Second * time.Duration(serverCtx.Config.SelfRemediation.RestartCooldownSeconds)
-			// Set the first restart time to be now - restartCoolDownDuration so that the first restart can trigger whenever
-			canRestartAfter := time.Now().Add(-restartCoolDownDuration)
-
-			serverCtx.Logger.Info("Starting Process")
-			for {
-				err = startInProcess(
-					serverCtx,
-					clientCtx,
-					appCreator,
-					tracerProviderOptions,
-					nodeMetricsProvider,
-					apiMetrics,
-					canRestartAfter,
-				)
-				errCode, ok := err.(ErrorCode)
-				exitCode = errCode.Code
-				if !ok {
-					return err
-				}
-				if exitCode != RestartErrorCode {
-					break
-				}
-				serverCtx.Logger.Info("restarting node...")
-				canRestartAfter = time.Now().Add(restartCoolDownDuration)
-			}
-			return nil
-		},
-	}
-
-	addStartNodeFlags(cmd, defaultNodeHome)
-	return cmd
-}
-
 func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 	cmd.Flags().String(flags.FlagHome, defaultNodeHome, "The application home directory")
 	cmd.Flags().Bool(flagWithTendermint, true, "Run abci app embedded in-process with tendermint")
@@ -281,47 +139,6 @@ func addStartNodeFlags(cmd *cobra.Command, defaultNodeHome string) {
 
 	// add support for all Tendermint-specific command line options
 	tcmd.AddNodeFlags(cmd, NewDefaultContext().Config)
-}
-
-func startStandAlone(ctx *Context, appCreator types.AppCreator) error {
-	addr := ctx.Viper.GetString(flagAddress)
-	transport := ctx.Viper.GetString(flagTransport)
-	home := ctx.Viper.GetString(flags.FlagHome)
-
-	db, err := openDB(home)
-	if err != nil {
-		return err
-	}
-
-	traceWriterFile := ctx.Viper.GetString(flagTraceStore)
-	traceWriter, err := openTraceWriter(traceWriterFile)
-	if err != nil {
-		return err
-	}
-
-	app := appCreator(ctx.Logger, db, traceWriter, nil, ctx.Viper)
-
-	svr, err := server.NewServer(ctx.Logger.With("module", "abci-server"), addr, transport, app)
-	if err != nil {
-		return fmt.Errorf("error creating listener: %v", err)
-	}
-
-	goCtx, cancel := context.WithCancel(context.Background())
-	err = svr.Start(goCtx)
-	if err != nil {
-		fmt.Println(err.Error())
-		os.Exit(1)
-	}
-
-	defer func() {
-		cancel()
-		svr.Wait()
-	}()
-
-	restartCh := make(chan struct{})
-
-	// Wait for SIGINT or SIGTERM signal
-	return WaitForQuitSignals(ctx, restartCh, time.Now())
 }
 
 func startInProcess(

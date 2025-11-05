@@ -341,13 +341,10 @@ func AddCommands(
 		commands.MakeSnapshotCommand(InterceptConfigs),
 	)
 
-	startCmd := StartCmd(appCreator, defaultNodeHome, tracerProviderOptions)
-	addStartFlags(startCmd)
 	inPlaceTestnetCmd := InPlaceTestnetCreator(appCreator, defaultNodeHome)
 	addStartFlags(inPlaceTestnetCmd)
 
 	rootCmd.AddCommand(
-		startCmd,
 		tendermintCmd,
 		ExportCmd(appExport, defaultNodeHome),
 		version.NewVersionCommand(),
