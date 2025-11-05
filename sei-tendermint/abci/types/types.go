@@ -256,3 +256,7 @@ type RequestDeliverTxV2 struct {
 	Tx          []byte
 	SigVerified bool
 }
+
+type RequestGetTxPriorityHintV2 struct {
+	Tx []byte
+}

@@ -166,7 +166,7 @@ func (app *application) CheckTx(_ context.Context, req *abci.RequestCheckTxV2) (
 	}}, nil
 }
 
-func (app *application) GetTxPriorityHint(context.Context, *abci.RequestGetTxPriorityHint) (*abci.ResponseGetTxPriorityHint, error) {
+func (app *application) GetTxPriorityHint(context.Context, *abci.RequestGetTxPriorityHintV2) (*abci.ResponseGetTxPriorityHint, error) {
 	return &abci.ResponseGetTxPriorityHint{
 		// Return non-zero priority to allow testing the eviction logic effectively.
 		Priority: 1,

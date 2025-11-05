@@ -135,7 +135,7 @@ func (_m *Application) FinalizeBlock(_a0 context.Context, _a1 *types.RequestFina
 }
 
 // GetTxPriorityHint provides a mock function with given fields: _a0, _a1
-func (_m *Application) GetTxPriorityHint(_a0 context.Context, _a1 *types.RequestGetTxPriorityHint) (*types.ResponseGetTxPriorityHint, error) {
+func (_m *Application) GetTxPriorityHint(_a0 context.Context, _a1 *types.RequestGetTxPriorityHintV2) (*types.ResponseGetTxPriorityHint, error) {
 	ret := _m.Called(_a0, _a1)
 
 	if len(ret) == 0 {
@@ -144,10 +144,10 @@ func (_m *Application) GetTxPriorityHint(_a0 context.Context, _a1 *types.Request
 
 	var r0 *types.ResponseGetTxPriorityHint
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestGetTxPriorityHint) (*types.ResponseGetTxPriorityHint, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestGetTxPriorityHintV2) (*types.ResponseGetTxPriorityHint, error)); ok {
 		return rf(_a0, _a1)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestGetTxPriorityHint) *types.ResponseGetTxPriorityHint); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *types.RequestGetTxPriorityHintV2) *types.ResponseGetTxPriorityHint); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
@@ -155,7 +155,7 @@ func (_m *Application) GetTxPriorityHint(_a0 context.Context, _a1 *types.Request
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *types.RequestGetTxPriorityHint) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *types.RequestGetTxPriorityHintV2) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
 		r1 = ret.Error(1)

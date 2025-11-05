@@ -36,7 +36,6 @@ message Request {
     RequestBeginBlock begin_block = 20;
     RequestEndBlock end_block = 22;
     RequestLoadLatest load_latest = 23;
-    RequestGetTxPriorityHint get_tx_priority_hint = 24;
   }
   reserved 6, 8, 9, 17, 18; // RequestBeginBlock, RequestDeliverTx, RequestEndBlock, RequestExtendVote, RequestVerifyVoteExtension
   reserved "extend_vote", "verify_vote_extension";
@@ -195,10 +194,6 @@ message RequestEndBlock {
 }
 
 message RequestLoadLatest {}
-
-message RequestGetTxPriorityHint {
-  bytes tx = 1; // raw tx bytes
-}
 
 //----------------------------------------
 // Response types

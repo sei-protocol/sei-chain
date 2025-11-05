@@ -321,7 +321,7 @@ func (txmp *TxMempool) CheckTx(
 	if txmp.config.DropUtilisationThreshold > 0 && txmp.utilisation() >= txmp.config.DropUtilisationThreshold {
 		txmp.metrics.CheckTxMetDropUtilisationThreshold.Add(1)
 
-		hint, err := txmp.proxyAppConn.GetTxPriorityHint(ctx, &abci.RequestGetTxPriorityHint{Tx: tx})
+		hint, err := txmp.proxyAppConn.GetTxPriorityHint(ctx, &abci.RequestGetTxPriorityHintV2{Tx: tx})
 		if err != nil {
 			txmp.metrics.observeCheckTxPriorityDistribution(0, true, txInfo.SenderNodeID, err)
 			txmp.logger.Error("failed to get tx priority hint", "err", err)

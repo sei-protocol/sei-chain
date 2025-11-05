@@ -1162,7 +1162,7 @@ func (app *BaseApp) LoadLatest(ctx context.Context, req *abci.RequestLoadLatest)
 	return &abci.ResponseLoadLatest{}, nil
 }
 
-func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxPriorityHint) (_resp *abci.ResponseGetTxPriorityHint, _err error) {
+func (app *BaseApp) GetTxPriorityHint(_ context.Context, req *abci.RequestGetTxPriorityHintV2) (_resp *abci.ResponseGetTxPriorityHint, _err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			// Fall back to no-op priority if we panic for any reason. This is to avoid DoS
