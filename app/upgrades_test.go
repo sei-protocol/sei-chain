@@ -1,10 +1,12 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"reflect"
 	"testing"
 
+	"github.com/CosmWasm/wasmd/x"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -46,4 +48,11 @@ func TestOverrideList(t *testing.T) {
 			assert.True(t, reflect.DeepEqual(tt.expectedList, upgradesList), "Expected %v but got %v", tt.expectedList, upgradesList)
 		})
 	}
+}
+
+func TestDDD(t *testing.T) {
+
+	err := x.ErrorOut()
+	fmt.Printf("%+v", err)
+
 }
