@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc"
 
 	abciclient "github.com/tendermint/tendermint/abci/client"
-	"github.com/tendermint/tendermint/abci/server"
 	"github.com/tendermint/tendermint/config"
 	"github.com/tendermint/tendermint/crypto/ed25519"
 	"github.com/tendermint/tendermint/internal/p2p"
@@ -87,8 +86,6 @@ func run(ctx context.Context, configFile string) error {
 
 		// Start app server.
 		switch cfg.Protocol {
-		case "socket", "grpc":
-			err = startApp(ctx, logger, cfg)
 		case "builtin":
 			if cfg.Mode == string(e2e.ModeSeed) {
 				err = startSeedNode(ctx)
@@ -112,24 +109,6 @@ func run(ctx context.Context, configFile string) error {
 	for {
 		time.Sleep(1 * time.Hour)
 	}
-}
-
-// startApp starts the application server, listening for connections from Tendermint.
-func startApp(ctx context.Context, logger log.Logger, cfg *Config) error {
-	app, err := app.NewApplication(cfg.App())
-	if err != nil {
-		return err
-	}
-	server, err := server.NewServer(logger, cfg.Listen, cfg.Protocol, app)
-	if err != nil {
-		return err
-	}
-	err = server.Start(ctx)
-	if err != nil {
-		return err
-	}
-	logger.Info(fmt.Sprintf("Server listening on %v (%v protocol)", cfg.Listen, cfg.Protocol))
-	return nil
 }
 
 // startNode starts a Tendermint node running the application directly. It assumes the Tendermint
