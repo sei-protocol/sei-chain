@@ -80,6 +80,12 @@ type PreprocessedBlock struct {
 	// Context and transaction bytes (needed for execution)
 	Ctx sdk.Context
 	Txs [][]byte // Original transaction bytes
+
+	// Decoded transactions (to avoid re-decoding during execution)
+	TypedTxs []sdk.Tx
+
+	// Error field - if set, preprocessing failed and the block should not be executed
+	PreprocessError error
 }
 
 // TransactionResult contains the result of executing a transaction
@@ -161,6 +167,10 @@ type ExecutionHelper interface {
 
 	// Cosmos transaction execution
 	DeliverTx(ctx sdk.Context, req abci.RequestDeliverTx, tx sdk.Tx, checksum [32]byte) abci.ResponseDeliverTx
+	
+	// Batch transaction execution (for OCC)
+	ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context)
+	DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []sdk.Tx
 
 	// Keeper access for stateDB creation
 	GetKeeper() *evmkeeper.Keeper

@@ -222,6 +222,7 @@ func addModuleInitFlags(startCmd *cobra.Command) {
 	crisis.AddModuleInitFlags(startCmd)
 	startCmd.Flags().Bool("migrate-iavl", false, "Run migration of IAVL data store to SeiDB State Store")
 	startCmd.Flags().Int64("migrate-height", 0, "Height at which to start the migration")
+	startCmd.Flags().Bool("benchmark-mode", false, "Enable benchmark mode using sei-load generator for TPS testing")
 }
 
 // newApp creates a new Cosmos SDK app
@@ -268,7 +269,12 @@ func newApp(
 	// This makes it such that the wasm VM gas converts to sdk gas at a 6.66x rate vs that of the previous multiplier
 	wasmGasRegisterConfig.GasMultiplier = 21_000_000
 
-	app := app.New(
+	// Set benchmark mode flag if provided
+	if cast.ToBool(appOpts.Get("benchmark-mode")) {
+		app.EnableBenchmarkMode = true
+	}
+
+	appInstance := app.New(
 		logger,
 		db,
 		traceStore,
@@ -309,7 +315,7 @@ func newApp(
 	if cast.ToBool(appOpts.Get("migrate-iavl")) {
 		go func() {
 			homeDir := cast.ToString(appOpts.Get(flags.FlagHome))
-			stateStore := app.GetStateStore()
+			stateStore := appInstance.GetStateStore()
 			migrationHeight := cast.ToInt64(appOpts.Get("migrate-height"))
 			migrator := ss.NewMigrator(db, stateStore)
 			if err := migrator.Migrate(migrationHeight, homeDir); err != nil {
@@ -318,7 +324,7 @@ func newApp(
 		}()
 	}
 
-	return app
+	return appInstance
 }
 
 // appExport creates a new simapp (optionally at a given height)

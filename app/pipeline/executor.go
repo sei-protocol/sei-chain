@@ -5,7 +5,9 @@ import (
 	"sync"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/sei-protocol/sei-chain/utils"
+	evmtypes "github.com/sei-protocol/sei-chain/x/evm/types"
 	abci "github.com/tendermint/tendermint/abci/types"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 
@@ -85,7 +87,7 @@ func (e *ExecutorComponent) Start(ctx context.Context) {
 				}
 				executed, err := e.executeBlock(blockWithCtx)
 				if err != nil {
-					// Log error and continue - component should handle errors
+					// Log execution errors and continue (preprocessing errors are handled in executeBlock)
 					blockWithCtx.Ctx.Logger().Error("execution failed", "error", err, "height", blockWithCtx.Block.Height)
 					continue
 				}
@@ -103,6 +105,18 @@ func (e *ExecutorComponent) Start(ctx context.Context) {
 func (e *ExecutorComponent) executeBlock(blockWithCtx *pipelinetypes.PreprocessedBlockWithContext) (*pipelinetypes.ExecutedBlock, error) {
 	preprocessed := blockWithCtx.Block
 	ctx := blockWithCtx.Ctx
+
+	// Check if preprocessing failed - if so, return error ExecutedBlock immediately
+	if preprocessed.PreprocessError != nil {
+		return &pipelinetypes.ExecutedBlock{
+			PreprocessedBlock: preprocessed,
+			TxResults:         nil,
+			Events:            nil,
+			AppHash:           nil,
+			EndBlockResp:      abci.ResponseEndBlock{},
+			Ctx:               ctx,
+		}, nil
+	}
 
 	// BeginBlock
 	beginBlockReq := abci.RequestBeginBlock{
@@ -130,32 +144,75 @@ func (e *ExecutorComponent) executeBlock(blockWithCtx *pipelinetypes.Preprocesse
 	beginBlockResp := e.beginBlock(ctx, beginBlockReq)
 	events := beginBlockResp.Events
 
-	// Execute transactions
-	txResults := make([]*pipelinetypes.TransactionResult, 0, len(preprocessed.PreprocessedTxs))
-	for i, preprocessedTx := range preprocessed.PreprocessedTxs {
-		var result *pipelinetypes.TransactionResult
-		var err error
+	// Reuse decoded transactions from preprocessing to avoid re-decoding
+	typedTxs := preprocessed.TypedTxs
+	if typedTxs == nil || len(typedTxs) != len(blockWithCtx.Txs) {
+		// Fallback: decode if not available (shouldn't happen in normal flow)
+		typedTxs = e.helper.DecodeTransactionsConcurrently(ctx, blockWithCtx.Txs)
+	}
+	
+	// Build absoluteTxIndices for ALL transactions (not just preprocessed ones)
+	// Transactions skipped during preprocessing will still be executed via DeliverTxBatch
+	// and will fail with appropriate error codes from ante handlers
+	absoluteTxIndices := make([]int, len(blockWithCtx.Txs))
+	for i := range blockWithCtx.Txs {
+		absoluteTxIndices[i] = i // Use original index for all transactions
+	}
 
-		if preprocessedTx.Type == pipelinetypes.TransactionTypeEVM {
-			result, err = e.executeEVMTransaction(ctx, preprocessedTx, e.helper)
-		} else {
-			// COSMOS transaction
-			result, err = e.executeCosmosTransaction(ctx, preprocessedTx.CosmosTx, blockWithCtx.Txs[i], e.helper)
+	// Execute transactions using OCC (batches all transactions together for concurrent execution)
+	execResults, ctx := e.helper.ProcessTXsWithOCC(ctx, blockWithCtx.Txs, typedTxs, absoluteTxIndices)
+
+	// Extract EVM messages for SetMsgs (needed for GetAllEVMTxDeferredInfo in EndBlock)
+	evmMsgs := make([]*evmtypes.MsgEVMTransaction, len(typedTxs))
+	for i, tx := range typedTxs {
+		evmMsgs[i] = e.getEVMMessage(tx)
+	}
+
+	// Set txResults and msgs on keeper (needed for GetAllEVMTxDeferredInfo in EndBlock)
+	// This is critical for EndBlock to process surplus correctly
+	e.helper.GetKeeper().SetTxResults(execResults)
+	e.helper.GetKeeper().SetMsgs(evmMsgs)
+
+	// Convert ExecTxResult to TransactionResult
+	txResults := make([]*pipelinetypes.TransactionResult, 0, len(execResults))
+	for _, execResult := range execResults {
+		// Extract surplus from EVM transactions (it's stored in deferred info during execution)
+		surplus := sdk.ZeroInt()
+		if execResult.EvmTxInfo != nil {
+			// Surplus is already handled during execution via AppendToEvmTxDeferredInfo
+			// We don't need to extract it here since it's already stored
 		}
 
-		if err != nil {
-			ctx.Logger().Error("transaction execution failed", "error", err, "txIndex", i)
-			// Create error result
-			result = &pipelinetypes.TransactionResult{
-				Code:      uint32(1),
-				Codespace: "app",
-				Log:       err.Error(),
-				Surplus:   sdk.ZeroInt(),
-			}
+		// Extract logs from events (for EVM transactions)
+		var logs []*types.Log
+		vmError := ""
+		if execResult.EvmTxInfo != nil {
+			vmError = execResult.EvmTxInfo.VmError
+			// Logs are extracted from events by the EVM module
+			// They're already included in the receipt written during execution
 		}
 
-		txResults = append(txResults, result)
-		events = append(events, result.Events...)
+		txResult := &pipelinetypes.TransactionResult{
+			GasUsed:    execResult.GasUsed,
+			ReturnData: execResult.Data,
+			Logs:       logs,
+			VmError:    vmError,
+			Events:     execResult.Events,
+			Code:       execResult.Code,
+			Codespace:  execResult.Codespace,
+			Log:        execResult.Log,
+			Surplus:    surplus,
+		}
+		txResults = append(txResults, txResult)
+		events = append(events, execResult.Events...)
+	}
+
+	// Calculate total EVM gas used for EndBlock
+	evmTotalGasUsed := int64(0)
+	for _, execResult := range execResults {
+		if execResult.EvmTxInfo != nil {
+			evmTotalGasUsed += execResult.GasUsed
+		}
 	}
 
 	// MidBlock
@@ -165,7 +222,7 @@ func (e *ExecutorComponent) executeBlock(blockWithCtx *pipelinetypes.Preprocesse
 	// EndBlock
 	endBlockResp := e.endBlock(ctx, abci.RequestEndBlock{
 		Height:       preprocessed.Height,
-		BlockGasUsed: 0, // TODO: Calculate from txResults
+		BlockGasUsed: evmTotalGasUsed,
 	})
 	events = append(events, endBlockResp.Events...)
 
@@ -208,4 +265,19 @@ func (e *ExecutorComponent) IsRunning() bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return e.started
+}
+
+// getEVMMessage extracts EVM message from a transaction, similar to App.GetEVMMsg
+func (e *ExecutorComponent) getEVMMessage(tx sdk.Tx) *evmtypes.MsgEVMTransaction {
+	defer func() {
+		if err := recover(); err != nil {
+			// Return nil on panic
+		}
+	}()
+	if tx == nil {
+		return nil
+	} else if emsg := evmtypes.GetEVMTransactionMessage(tx); emsg != nil && !emsg.IsAssociateTx() {
+		return emsg
+	}
+	return nil
 }

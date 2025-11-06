@@ -100,6 +100,14 @@ func (h *appExecutionHelper) DeliverTx(ctx sdk.Context, req abci.RequestDeliverT
 	return h.app.DeliverTx(ctx, req, tx, checksum)
 }
 
+func (h *appExecutionHelper) ProcessTXsWithOCC(ctx sdk.Context, txs [][]byte, typedTxs []sdk.Tx, absoluteTxIndices []int) ([]*abci.ExecTxResult, sdk.Context) {
+	return h.app.ProcessTXsWithOCC(ctx, txs, typedTxs, absoluteTxIndices)
+}
+
+func (h *appExecutionHelper) DecodeTransactionsConcurrently(ctx sdk.Context, txs [][]byte) []sdk.Tx {
+	return h.app.DecodeTransactionsConcurrently(ctx, txs)
+}
+
 func (h *appExecutionHelper) GetKeeper() *evmkeeper.Keeper {
 	return &h.app.EvmKeeper
 }

@@ -128,6 +128,26 @@ func ExecutePreprocessedEVMTransaction(ctx sdk.Context, preprocessed *pipelinety
 		vmError = result.Err.Error()
 	}
 
+	// Write receipt and deferred info during execution (needed for EndBlock)
+	// Set TxIndex in context - this is critical for deferred info storage
+	execCtx := ctx.WithTxIndex(preprocessed.TxIndex)
+	
+	// Write receipt (needed for deferred info bloom)
+	receipt, err := helper.GetKeeper().WriteReceipt(execCtx, stateDB, preprocessed.EVMMessage, uint32(etx.Type()), etx.Hash(), result.UsedGas, vmError)
+	if err != nil {
+		return &pipelinetypes.TransactionResult{
+			Code:      sdkerrors.ErrInvalidRequest.ABCICode(),
+			Codespace: sdkerrors.RootCodespace,
+			Log:       fmt.Sprintf("failed to write receipt: %s", err.Error()),
+			Surplus:   sdk.ZeroInt(),
+		}, fmt.Errorf("failed to write receipt: %w", err)
+	}
+
+	// Write deferred info (needed for EndBlock)
+	bloom := ethtypes.Bloom{}
+	bloom.SetBytes(receipt.LogsBloom)
+	helper.GetKeeper().AppendToEvmTxDeferredInfo(execCtx, bloom, etx.Hash(), surplus)
+
 	return &pipelinetypes.TransactionResult{
 		GasUsed:    int64(result.UsedGas), //nolint:gosec // GasUsed is bounded by block gas limit
 		ReturnData: result.ReturnData,

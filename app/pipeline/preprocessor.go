@@ -83,8 +83,23 @@ func (p *PreprocessorComponent) Start(ctx context.Context) {
 						p.helper,
 					)
 					if err != nil {
-						// Log error and continue - component should handle errors
-						blockReq.Ctx.Logger().Error("preprocessing failed", "error", err)
+						// Only block-level errors should cause preprocessing to fail
+						// Per-transaction errors (like fee validation) are handled by skipping those transactions
+						blockReq.Ctx.Logger().Error("preprocessing failed", "error", err, "height", blockReq.Req.GetHeight())
+						// Create a minimal PreprocessedBlock with error set (only for true block-level failures)
+						errorBlock := &pipelinetypes.PreprocessedBlock{
+							Height:          blockReq.Req.GetHeight(),
+							Hash:            blockReq.Req.GetHash(),
+							Time:            blockReq.Req.GetTime(),
+							PreprocessError: err,
+							Ctx:             blockReq.Ctx,
+							Txs:             blockReq.Txs,
+						}
+						select {
+						case <-p.ctx.Done():
+							return
+						case p.out <- errorBlock:
+						}
 						continue
 					}
 					select {

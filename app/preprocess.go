@@ -193,7 +193,8 @@ func PreprocessBlock(
 
 		txType, err := identifyTransactionType(typedTx)
 		if err != nil {
-			return nil, err
+			// Skip transactions we can't identify
+			continue
 		}
 
 		preprocessedTx := &pipelinetypes.PreprocessedTx{
@@ -208,31 +209,42 @@ func PreprocessBlock(
 			// Preprocess signature recovery (already done in DecodeTransactionsConcurrently, but ensure it's done)
 			if msg.Derived == nil {
 				if err := evmante.Preprocess(ctx, msg, chainID, helper.EthBlockTestConfigEnabled()); err != nil {
-					return nil, fmt.Errorf("error preprocessing EVM tx at index %d: %w", i, err)
+					// Preprocessing errors are per-transaction - skip this transaction
+					ctx.Logger().Error(fmt.Sprintf("error preprocessing EVM tx at index %d: %s", i, err))
+					continue
 				}
 			}
 
 			// Get transaction data
 			txData, err := evmtypes.UnpackTxData(msg.Data)
 			if err != nil {
-				return nil, fmt.Errorf("error unpacking tx data at index %d: %w", i, err)
+				// Unpacking errors are per-transaction - skip this transaction
+				ctx.Logger().Error(fmt.Sprintf("error unpacking tx data at index %d: %s", i, err))
+				continue
 			}
 
 			etx, _ := msg.AsTransaction()
 
 			// Validate basic fields
 			if err := validateTransactionBasic(txData, blockMaxGas); err != nil {
-				return nil, fmt.Errorf("basic validation failed for tx at index %d: %w", i, err)
+				// Basic validation errors are per-transaction - skip this transaction
+				ctx.Logger().Error(fmt.Sprintf("basic validation failed for tx at index %d: %s", i, err))
+				continue
 			}
 
-			// Validate fee caps
+			// Validate fee caps - this is a per-transaction check, not a block-level error
 			if err := validateFeeCaps(txData, baseFee, minFee); err != nil {
-				return nil, fmt.Errorf("fee cap validation failed for tx at index %d: %w", i, err)
+				// Fee validation errors are per-transaction - skip this transaction
+				// The transaction will fail during execution via ante handler
+				ctx.Logger().Error(fmt.Sprintf("fee cap validation failed for tx at index %d: %s", i, err))
+				continue
 			}
 
 			// Validate chain ID
 			if err := validateChainID(txData, chainID); err != nil {
-				return nil, fmt.Errorf("chain ID validation failed for tx at index %d: %w", i, err)
+				// Chain ID validation errors are per-transaction - skip this transaction
+				ctx.Logger().Error(fmt.Sprintf("chain ID validation failed for tx at index %d: %s", i, err))
+				continue
 			}
 
 			// Calculate effective gas price and priority
@@ -245,7 +257,9 @@ func PreprocessBlock(
 			// Calculate intrinsic gas
 			intrGas, err := core.IntrinsicGas(etx.Data(), etx.AccessList(), etx.SetCodeAuthorizations(), etx.To() == nil, true, true, true)
 			if err != nil {
-				return nil, fmt.Errorf("error calculating intrinsic gas for tx at index %d: %w", i, err)
+				// Intrinsic gas calculation errors are per-transaction - skip this transaction
+				ctx.Logger().Error(fmt.Sprintf("error calculating intrinsic gas for tx at index %d: %s", i, err))
+				continue
 			}
 
 			// Populate EVM-specific fields
@@ -291,5 +305,6 @@ func PreprocessBlock(
 		BlockMaxGas:         blockMaxGas,
 		Ctx:                 ctx,
 		Txs:                 txs,
+		TypedTxs:            typedTxs, // Store decoded transactions to avoid re-decoding
 	}, nil
 }

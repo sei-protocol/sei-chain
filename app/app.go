@@ -124,6 +124,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/evm"
 	evmante "github.com/sei-protocol/sei-chain/x/evm/ante"
 	"github.com/sei-protocol/sei-chain/x/evm/blocktest"
+	evmconfig "github.com/sei-protocol/sei-chain/x/evm/config"
 	evmkeeper "github.com/sei-protocol/sei-chain/x/evm/keeper"
 	"github.com/sei-protocol/sei-chain/x/evm/querier"
 	"github.com/sei-protocol/sei-chain/x/evm/replay"
@@ -263,8 +264,11 @@ var (
 	// EnableOCC allows tests to override default OCC enablement behavior
 	EnableOCC = true
 	// EnablePipelineProcessing enables the new pipeline-based block processing path
-	EnablePipelineProcessing = true
+	EnablePipelineProcessing = false
 	EmptyAppOptions          []AppOption
+
+	// EnableBenchmarkMode enables benchmark mode using sei-load generator
+	EnableBenchmarkMode = false
 )
 
 var (
@@ -397,6 +401,10 @@ type App struct {
 
 	// Pipeline processing (if enabled)
 	blockPipeline *BlockPipeline
+
+	// Benchmark mode - generator channel for load testing
+	benchmarkGeneratorCh <-chan *abci.ResponsePrepareProposal
+	enableBenchmarkMode  bool
 }
 
 type AppOption func(*App)
@@ -466,6 +474,7 @@ func New(
 		stateStore:            stateStore,
 		httpServerStartSignal: make(chan struct{}, 1),
 		wsServerStartSignal:   make(chan struct{}, 1),
+		enableBenchmarkMode:   EnableBenchmarkMode,
 	}
 
 	for _, option := range appOptions {
@@ -921,7 +930,11 @@ func New(
 	app.SetAnteDepGenerator(anteDepGenerator)
 	app.SetMidBlocker(app.MidBlocker)
 	app.SetEndBlocker(app.EndBlocker)
-	app.SetPrepareProposalHandler(app.PrepareProposalHandler)
+	if app.enableBenchmarkMode {
+		app.SetPrepareProposalHandler(app.PrepareProposalGeneratorHandler)
+	} else {
+		app.SetPrepareProposalHandler(app.PrepareProposalHandler)
+	}
 	app.SetProcessProposalHandler(app.ProcessProposalHandler)
 	app.SetFinalizeBlocker(app.FinalizeBlocker)
 	app.SetInplaceTestnetInitializer(app.inplacetestnetInitializer)
@@ -996,7 +1009,7 @@ func New(
 			PreprocessBlock,
 			ExecutePreprocessedEVMTransaction,
 			ExecuteCosmosTransaction,
-			10,   // preprocessorWorkers
+			25,   // preprocessorWorkers
 			1000, // bufferSize
 			1,    // startSequence
 		)
@@ -1006,6 +1019,20 @@ func New(
 		logger.Info("Pipeline processing initialized and started")
 	} else {
 		logger.Info("Using legacy block processing", "mode", "legacy")
+	}
+
+	// Initialize benchmark generator if enabled
+	if app.enableBenchmarkMode {
+		logger.Info("Initializing benchmark mode generator", "mode", "benchmark")
+		genCtx := context.Background()
+		// Get EVM chain ID from config mapping (not Cosmos chain ID)
+		evmChainID := evmconfig.GetEVMChainID(app.ChainID).Int64()
+		// Use a reasonable default for MaxTxBytes (20MB - conservative estimate)
+		// The generator will filter transactions to fit within this limit
+		// Tendermint will still validate the final proposal doesn't exceed req.MaxTxBytes
+		defaultMaxTxBytes := int64(20 * 1024 * 1024) // 20MB
+		app.benchmarkGeneratorCh = NewGeneratorCh(genCtx, app.encodingConfig.TxConfig, evmChainID, defaultMaxTxBytes, logger)
+		logger.Info("Benchmark generator initialized and started", "maxTxBytes", defaultMaxTxBytes)
 	}
 
 	return app
@@ -1147,6 +1174,25 @@ func (app *App) PrepareProposalHandler(_ sdk.Context, req *abci.RequestPreparePr
 	}, nil
 }
 
+func (app *App) PrepareProposalGeneratorHandler(_ sdk.Context, req *abci.RequestPrepareProposal) (*abci.ResponsePrepareProposal, error) {
+	// Pull from generator channel - the generator has already filtered transactions by size
+	select {
+	case proposal, ok := <-app.benchmarkGeneratorCh:
+		if proposal == nil || !ok {
+			// Channel closed or no proposal available, return empty (req.Txs will remain in mempool)
+			return &abci.ResponsePrepareProposal{
+				TxRecords: []*abci.TxRecord{},
+			}, nil
+		}
+		return proposal, nil
+	default:
+		// No proposal ready yet, return empty (req.Txs will remain in mempool)
+		return &abci.ResponsePrepareProposal{
+			TxRecords: []*abci.TxRecord{},
+		}, nil
+	}
+}
+
 func (app *App) GetOptimisticProcessingInfo() OptimisticProcessingInfo {
 	app.optimisticProcessingInfoMutex.RLock()
 	defer app.optimisticProcessingInfoMutex.RUnlock()
@@ -1264,6 +1310,12 @@ func (app *App) FinalizeBlocker(ctx sdk.Context, req *abci.RequestFinalizeBlock)
 		case <-time.After(30 * time.Second):
 			ctx.Logger().Error("Timeout waiting for pipeline result")
 			return nil, fmt.Errorf("timeout waiting for pipeline result")
+		}
+
+		// Check if preprocessing failed
+		if processed.ExecutedBlock.PreprocessedBlock.PreprocessError != nil {
+			ctx.Logger().Error("Pipeline preprocessing failed", "error", processed.ExecutedBlock.PreprocessedBlock.PreprocessError, "height", req.Height)
+			return nil, fmt.Errorf("pipeline preprocessing failed: %w", processed.ExecutedBlock.PreprocessedBlock.PreprocessError)
 		}
 
 		// Verify we got the correct block
