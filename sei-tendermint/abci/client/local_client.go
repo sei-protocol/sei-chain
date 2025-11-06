@@ -8,6 +8,20 @@ import (
 	"github.com/tendermint/tendermint/libs/service"
 )
 
+// Client defines the interface for an ABCI client.
+//
+// NOTE these are client errors, eg. ABCI socket connectivity issues.
+// Application-related errors are reflected in response via ABCI error codes
+// and (potentially) error response.
+type Client interface {
+	service.Service
+	types.Application
+
+	Error() error
+	Flush(context.Context) error
+	Echo(context.Context, string) (*types.ResponseEcho, error)
+}
+
 // NOTE: use defer to unlock mutex because Application might panic (e.g., in
 // case of malicious tx or query). It only makes sense for publicly exposed
 // methods like CheckTx (/broadcast_tx_* RPC endpoint) or Query (/abci_query
