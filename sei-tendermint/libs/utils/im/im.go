@@ -1,6 +1,7 @@
 package im
 
 import (
+	"cmp"
 	"iter"
 	"github.com/benbjohnson/immutable"
 	"hash/maphash"
@@ -46,3 +47,34 @@ func (m Map[K, V]) All() iter.Seq2[K, V] {
 		}
 	}
 }
+
+type comparer[K any] func(K,K) int
+
+func (c comparer[K]) Compare(a,b K) int { return c(a,b) }
+
+type SortedMap[K, V any] struct { m *immutable.SortedMap[K,V] }
+
+func NewSortedMap[K, V any](cmp func(K, K) int) SortedMap[K,V] {
+	return SortedMap[K,V]{immutable.NewSortedMap[K,V](comparer[K](cmp))}
+}
+
+func NewOrderedMap[K cmp.Ordered, V any]() SortedMap[K,V] {
+	return NewSortedMap[K,V](cmp.Compare[K])
+}
+
+func (m SortedMap[K, V]) Get(key K) (V, bool) {
+	return m.m.Get(key)
+}
+
+func (m SortedMap[K,V]) Set(key K, value V) SortedMap[K,V] {
+	return SortedMap[K,V]{ m.m.Set(key,value) }
+}
+
+func (m SortedMap[K, V]) Delete(key K) SortedMap[K, V] {
+	return SortedMap[K, V]{ m.m.Delete(key) }
+}
+
+func (m SortedMap[K, V]) Len() int {
+	return m.m.Len()
+}
+

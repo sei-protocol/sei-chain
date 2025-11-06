@@ -13,6 +13,12 @@ import (
 
 const maxAddrsPerPeer = 10
 
+// latest successful dial.
+type dial struct {
+	Address  NodeAddress
+	SuccessTime time.Time
+}
+
 type peerAddrs struct {
 	lastFail utils.Option[time.Time]
 	// Invariants:
@@ -34,15 +40,15 @@ type peerManagerInner struct {
 	isPrivate map[types.NodeID]bool
 	persistentAddrs map[types.NodeID]*peerAddrs
 	// TODO: consider replacing Connection with an interface
+	// * comparable
 	// * Close()
 	// * PeerInfo() types.NodeInfo
 	// * DialAddr() utils.Option[NodeAddress]
 	// to make it testable without router.
 	conns utils.AtomicSend[im.Map[types.NodeID,*Connection]]
-	conditionalConns int
+	conditionalConns int // counts conditional connections in conns.
 	addrs map[types.NodeID]*peerAddrs
 	dialing map[types.NodeID]NodeAddress
-	dialHistory utils.AtomicSend[im.Map[types.NodeID,dialTime]]
 }
 
 func (i *peerManagerInner) findFailedPeer() (types.NodeID,bool) {
@@ -239,8 +245,11 @@ func (i *peerManagerInner) Disconnected(conn *Connection) {
 // * Connected(conn) -> [communicate] -> Disconnected(conn)
 // For adding new peer addrs, call AddAddrs().
 type PeerManager struct {
-	metrics *Metrics
 	options *PeerManagerOptions
+	isBlockSyncPeer map[types.NodeID]bool
+	// Receiver of the inner.conns. It is copyable and allows accessing connections
+	// without taking lock on inner.
+	conns utils.AtomicRecv[im.Map[types.NodeID,*Connection]]
 	inner utils.Watch[*peerManagerInner]
 }
 
@@ -290,13 +299,10 @@ func (s *PeerUpdatesRecv) Recv(ctx context.Context) (PeerUpdate,error) {
 }
 
 func (m *PeerManager) Subscribe() *PeerUpdatesRecv {
-	for inner := range m.inner.Lock() {
-		return &PeerUpdatesRecv{
-			recv: inner.conns.Subscribe(),
-			last: map[types.NodeID]struct{}{},
-		}
+	return &PeerUpdatesRecv{
+		recv: m.conns,
+		last: map[types.NodeID]struct{}{},
 	}
-	panic("unreachable")
 }
 
 func NewPeerManager(options *PeerManagerOptions) (*PeerManager,error) {
@@ -312,8 +318,8 @@ func NewPeerManager(options *PeerManagerOptions) (*PeerManager,error) {
 		conns: utils.NewAtomicSend(im.NewMap[types.NodeID,*Connection]()),
 		addrs: map[types.NodeID]*peerAddrs{},
 		dialing: map[types.NodeID]NodeAddress{},
-		dialHistory: utils.NewAtomicSend(im.NewMap[types.NodeID,dialTime]()),
 	}
+	isBlockSyncPeer := map[types.NodeID]bool{}
 	for _,id := range options.PrivatePeers { inner.isPrivate[id] = true }
 	for _,id := range options.UnconditionalPeers { inner.isUnconditional[id] = true }
 	for _,addr := range options.PersistentPeers {
@@ -324,9 +330,11 @@ func NewPeerManager(options *PeerManagerOptions) (*PeerManager,error) {
 		inner.persistentAddrs[addr.NodeID].addrs[addr] = struct{}{}
 	}
 	for _,addr := range options.BootstrapPeers { inner.AddAddr(addr) }
-
+	for _,id := range options.BlockSyncPeers { isBlockSyncPeer[id] = true }
 	return &PeerManager {
 		options: options,
+		isBlockSyncPeer: isBlockSyncPeer,
+		conns: inner.conns.Subscribe(),
 		inner: utils.NewWatch(inner),
 	},nil
 }
@@ -390,18 +398,8 @@ func (m *PeerManager) Drop(id types.NodeID) {
 	panic("unreachable")
 }
 
-// Advertise returns a list of peer addresses to advertise to a peer.
-func (m *PeerManager) Advertise(limit int) []NodeAddress {
-	var addrs []NodeAddress
-
-	// advertise ourselves, to let everyone know how to dial us back
-	// and enable mutual address discovery
-	if addr,ok := s.options.SelfAddress.Get(); ok {
-		addrs = append(addrs, addr)
-	}
-
-	// TODO: add successful dial tracking to connRegistry.
-	return addrs
+func (m *PeerManager) IsBlockSyncPeer(id types.NodeID) bool {
+	return len(m.isBlockSyncPeer)==0 || m.isBlockSyncPeer[id]
 }
 
 func (m *PeerManager) State(id types.NodeID) string {

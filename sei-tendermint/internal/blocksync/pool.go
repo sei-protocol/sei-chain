@@ -86,7 +86,7 @@ type BlockPool struct {
 	height     int64 // the lowest key in requesters.
 	// peers
 	peers         map[types.NodeID]*bpPeer
-	peerManager   *p2p.PeerManager
+	router   *p2p.Router
 	maxPeerHeight int64 // the biggest reported height
 
 	// atomic
@@ -108,7 +108,7 @@ func NewBlockPool(
 	start int64,
 	requestsCh chan<- BlockRequest,
 	errorsCh chan<- peerError,
-	peerManager *p2p.PeerManager,
+	router *p2p.Router,
 ) *BlockPool {
 	bp := &BlockPool{
 		logger:       logger,
@@ -120,7 +120,7 @@ func NewBlockPool(
 		requestsCh:   requestsCh,
 		errorsCh:     errorsCh,
 		lastSyncRate: 0,
-		peerManager:  peerManager,
+		router: router,
 	}
 	bp.BaseService = *service.NewBaseService(logger, "BlockPool", bp)
 	return bp
@@ -321,9 +321,6 @@ func (pool *BlockPool) AddBlock(peerID types.NodeID, block *types.Block, blockSi
 		if peer != nil {
 			peer.decrPending(blockSize)
 		}
-
-		// Increment the number of consecutive successful block syncs for the peer
-		pool.peerManager.IncrementBlockSyncs(peerID)
 	} else {
 		err := errors.New("requester is different or block already exists")
 		pool.sendError(err, peerID)
@@ -353,8 +350,7 @@ func (pool *BlockPool) SetPeerRange(peerID types.NodeID, base int64, height int6
 	pool.mtx.Lock()
 	defer pool.mtx.Unlock()
 
-	blockSyncPeers := pool.peerManager.GetBlockSyncPeers()
-	if len(blockSyncPeers) > 0 && !blockSyncPeers[peerID] {
+	if !pool.router.IsBlockSyncPeer(peerID) {
 		return
 	}
 

@@ -83,7 +83,7 @@ type Router struct {
 	privKey     crypto.PrivKey
 	peerManager *PeerManager
 
-	conns            utils.Watch[*connRegistry]
+	peerDB utils.Mutex[*peerDB]
 	nodeInfoProducer func() *types.NodeInfo
 
 	channels utils.RWMutex[map[ChannelID]*channel]
@@ -231,24 +231,47 @@ func (r *Router) acceptPeers(ctx context.Context) error {
 func (r *Router) dialPeers(ctx context.Context) error {
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		limiter := rate.NewLimiter()
-		s.Spawn(func() error {
-			for {
-				if err:=limiter.Wait(ctx); err!=nil { return err }
-				addr,err := r.conns.PeerToDial(ctx)
-				if err!=nil { return err }
-				s.Spawn(func() error { r.DialAndRun(ctx, addr) })
-			}
-		})
-		s.Spawn(func() error {
-			for {
-				if err:=limiter.Wait(ctx); err!=nil { return err }
-				addr,err := r.conns.PersistentPeerToDial(ctx)
-				if err!=nil { return err }
-				s.Spawn(func() error { r.DialAndRun(ctx, addr) })
-			}
-		})
+		for persistentPeer := range utils.Slice(true,false) {
+			s.Spawn(func() error {
+				for {
+					if err:=limiter.Wait(ctx); err!=nil { return err }
+					addr,err := r.peerManager.StartDial(ctx, persistentPeer)
+					if err!=nil { return err }
+					s.Spawn(func() error { r.DialAndRun(ctx, addr) })
+				}
+			})
+		}
 		return nil
 	})
+}
+
+// storePeersRoutine periodically snapshots the current connection set to disk,
+// so that peers are immediately rediscovered on restart.
+func (r *Router) storePeersRoutine(ctx context.Context) error {
+	const storeInterval = 10*time.Second
+	const pruneDelay = 10*time.Minute
+	for {
+		for db := range r.peerDB.Lock() {
+			// Mark connections as still available.
+			now := time.Now()
+			// TODO(gprusak): accessing conns directly breaks peerManager abstraction.
+			for _,conn := range r.peerManager.conns.Load().All() {
+				if addr,ok := conn.dialAddr.Get(); ok {
+					// TODO(gprusak): the db interaction should rather be by batching changes
+					// and doing a single WriteSync.
+					if err:=db.Insert(addr,now); err!=nil {
+						return fmt.Errorf("db.Insert(): %w",err)
+					}
+				}
+			}
+			if err:=db.Prune(now.Add(-pruneDelay)); err!=nil {
+				return fmt.Errorf("db.Prune(): %w",err)
+			}
+		}
+		if err:=utils.Sleep(ctx,storeInterval); err!=nil {
+			return err
+		}
+	}
 }
 
 // SendError reports a peer misbehavior to the router.
@@ -262,12 +285,6 @@ func (r *Router) SendError(pe PeerError) {
 		r.logger.Info("evicting peer", "peer", pe.NodeID, "cause", pe.Err)
 		r.peerManager.Drop(pe.NodeID)
 	}
-}
-
-// Status returns the status for a peer, primarily for testing.
-func (r *Router) Connected(id types.NodeID) bool {
-	_,ok := r.conns.Load().conns.Get(id)
-	return ok
 }
 
 func (r *Router) GetBlockSyncPeers() map[types.NodeID]bool {
