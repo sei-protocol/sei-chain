@@ -2,8 +2,9 @@ package memiavl
 
 import (
 	"errors"
-	"github.com/sei-protocol/sei-db/common/logger"
 	"runtime"
+
+	"github.com/sei-protocol/sei-db/common/logger"
 
 	"github.com/sei-protocol/sei-db/config"
 )

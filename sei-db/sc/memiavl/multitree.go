@@ -96,8 +96,8 @@ func LoadMultiTree(dir string, opts Options) (*MultiTree, error) {
 	}
 	timeElapsed := time.Since(startTime).Seconds()
 	log.Info(fmt.Sprintf("All %d memIAVL trees loaded in %.1fs\n", len(treeNames), timeElapsed))
-	if timeElapsed > 300 {
-		log.Info("Loading MemIAVL tree from disk is too slow! Consider increasing the disk bandwidth to speed up the tree loading time within 300 seconds.\n")
+	if timeElapsed > 600 {
+		log.Info("Loading MemIAVL tree from disk is too slow! Consider increasing the disk bandwidth to speed up the initialization time.\n")
 	}
 	slices.Sort(treeNames)
 
@@ -401,23 +401,69 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 }
 
 func (t *MultiTree) WriteSnapshot(ctx context.Context, dir string, wp *pond.WorkerPool) error {
+	t.logger.Info("starting snapshot write", "trees", len(t.trees))
+
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil { //nolint:gosec
 		return err
 	}
 
-	// write the snapshots in parallel and wait all jobs done
-	group, _ := wp.GroupContext(ctx)
+	// Write EVM first to avoid disk I/O contention, then parallel
+	return t.writeSnapshotPriorityEVM(ctx, dir, wp)
+}
+
+// writeSnapshotPriorityEVM writes EVM tree first, then others in parallel
+// Best strategy: reduces disk I/O contention for the largest tree
+func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp *pond.WorkerPool) error {
+	startTime := time.Now()
+
+	// Phase 1: Write EVM tree first (if it exists)
+	var evmTree *Tree
+	var evmName string
+	otherTrees := make([]NamedTree, 0, len(t.trees))
 
 	for _, entry := range t.trees {
-		tree, name := entry.Tree, entry.Name
-		group.Submit(func() error {
-			return tree.WriteSnapshot(ctx, filepath.Join(dir, name))
-		})
+		if entry.Name == "evm" {
+			evmTree = entry.Tree
+			evmName = entry.Name
+		} else {
+			otherTrees = append(otherTrees, entry)
+		}
 	}
 
-	if err := group.Wait(); err != nil {
-		return err
+	if evmTree != nil {
+		t.logger.Info("writing evm tree", "phase", "1/2")
+		evmStart := time.Now()
+		if err := evmTree.WriteSnapshot(ctx, filepath.Join(dir, evmName)); err != nil {
+			return err
+		}
+		evmElapsed := time.Since(evmStart).Seconds()
+		t.logger.Info("evm tree completed", "duration_sec", evmElapsed)
 	}
+
+	// Phase 2: Write all other trees in parallel
+	if len(otherTrees) > 0 {
+		t.logger.Info("writing remaining trees", "phase", "2/2", "count", len(otherTrees))
+		phase2Start := time.Now()
+
+		group, _ := wp.GroupContext(ctx)
+
+		for _, entry := range otherTrees {
+			tree, name := entry.Tree, entry.Name
+			group.Submit(func() error {
+				return tree.WriteSnapshot(ctx, filepath.Join(dir, name))
+			})
+		}
+
+		if err := group.Wait(); err != nil {
+			return err
+		}
+
+		phase2Elapsed := time.Since(phase2Start).Seconds()
+		t.logger.Info("remaining trees completed", "duration_sec", phase2Elapsed, "count", len(otherTrees))
+	}
+
+	elapsed := time.Since(startTime).Seconds()
+	t.logger.Info("all trees completed", "duration_sec", elapsed, "trees", len(t.trees))
 
 	// write commit info
 	metadata := proto.MultiTreeMetadata{
