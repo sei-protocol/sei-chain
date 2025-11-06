@@ -1,44 +1,255 @@
 package p2p
 
 import (
-	"context"
 	"fmt"
-	"runtime"
-	"strings"
 	"time"
-	"net/netip"
+	"context"
+	"errors"
 
-	"github.com/tendermint/tendermint/libs/log"
-
-	dbm "github.com/tendermint/tm-db"
-
+	"github.com/tendermint/tendermint/libs/utils/im"
 	"github.com/tendermint/tendermint/libs/utils"
 	"github.com/tendermint/tendermint/types"
 )
 
+const maxAddrsPerPeer = 10
 
-type DialFailuresError struct {
-	Failures uint32
-	Address  types.NodeID
+type peerAddrs struct {
+	lastFail utils.Option[time.Time]
+	// Invariants:
+	// * fails is a subset of addrs.
+	addrs map[NodeAddress]struct{}
+	fails map[NodeAddress]time.Time
 }
 
-func (e DialFailuresError) Error() string {
-	return fmt.Sprintf("dialing failed %d times will not retry for address=%s, deleting peer", e.Failures, e.Address)
+func newPeerAddrs() *peerAddrs {
+	return &peerAddrs{
+		addrs: map[NodeAddress]struct{}{},
+		fails: map[NodeAddress]time.Time{},
+	}
 }
 
-// PeerStatus is a peer status.
-//
-// The peer manager has many more internal states for a peer (e.g. dialing,
-// connected, evicting, and so on), which are tracked separately. PeerStatus is
-// for external use outside of the peer manager.
-type PeerStatus string
+type peerManagerInner struct {
+	options *PeerManagerOptions
+	isUnconditional map[types.NodeID]bool
+	isPrivate map[types.NodeID]bool
+	persistentAddrs map[types.NodeID]*peerAddrs
+	// TODO: consider replacing Connection with an interface
+	// * Close()
+	// * PeerInfo() types.NodeInfo
+	// * DialAddr() utils.Option[NodeAddress]
+	// to make it testable without router.
+	conns utils.AtomicSend[im.Map[types.NodeID,*Connection]]
+	conditionalConns int
+	addrs map[types.NodeID]*peerAddrs
+	dialing map[types.NodeID]NodeAddress
+	dialHistory utils.AtomicSend[im.Map[types.NodeID,dialTime]]
+}
 
-const (
-	PeerStatusUp   PeerStatus = "up"   // connected and ready
-	PeerStatusDown PeerStatus = "down" // disconnected
-	PeerStatusGood PeerStatus = "good" // peer observed as good
-	PeerStatusBad  PeerStatus = "bad"  // peer observed as bad
-)
+func (i *peerManagerInner) findFailedPeer() (types.NodeID,bool) {
+	conns := i.conns.Load()
+	for old,pa := range i.addrs {
+		if _,ok := i.dialing[old]; ok { continue }
+		if _,ok := conns.Get(old); ok { continue }
+		if len(pa.fails)<len(pa.addrs) { continue }
+		return old,true
+	}
+	return "",false
+}
+
+func (i *peerManagerInner) isPersistent(id types.NodeID) bool {
+	_,ok := i.persistentAddrs[id]
+	return ok
+}
+
+func (i *peerManagerInner) AddAddr(addr NodeAddress) bool {
+	id := addr.NodeID
+	// Adding persistent peer addrs is only allowed during initialization.
+	// This is to make sure that malicious peers won't cause the preconfigured addrs to be dropped.
+	if i.isPersistent(id) { return false }
+	pa,ok := i.addrs[id]
+	// Add new peerAddrs if missing.
+	if !ok {
+		// Prune some peer if maxPeers limit has been reached.
+		if len(i.addrs) == i.options.maxPeers() {
+			toPrune,ok := i.findFailedPeer()
+			if !ok { return false }
+			delete(i.addrs, toPrune)
+		}
+		pa = newPeerAddrs()
+		i.addrs[id] = pa
+	}
+	// Ignore duplicate address.
+	if _,ok := pa.addrs[addr]; ok { return false }
+	// Prune any failing address if maxAddrsPerPeer has been reached.
+	if len(pa.addrs) == maxAddrsPerPeer {
+		var failedAddr utils.Option[NodeAddress]
+		for old,_ := range pa.fails {
+			failedAddr = utils.Some(old)
+			break
+		}
+		toPrune,ok := failedAddr.Get()
+		if !ok { return false }
+		delete(pa.addrs, toPrune)
+	}
+	pa.addrs[addr] = struct{}{}
+	return true
+}
+
+func before(a, b utils.Option[time.Time]) bool {
+	at,ok := a.Get()
+	if !ok { return false }
+	bt,ok := b.Get()
+	if !ok { return true }
+	return at.Before(bt)
+}
+
+func get[K comparable, V any](m map[K]V, k K) utils.Option[V] {
+	if v,ok := m[k]; ok {
+		return utils.Some(v)
+	}
+	return utils.None[V]()
+}
+
+func (i *peerManagerInner) TryStartDial(persistentPeer bool) (NodeAddress,bool) {
+	// Check concurrent dials limit.
+	if len(i.dialing) >= i.options.maxDials() {
+		return NodeAddress{},false
+	}
+	conns := i.conns.Load()
+	// Check max connections limit (unless we are dialing a persistent peer).
+	if !persistentPeer && len(i.dialing) + conns.Len() >= i.options.maxConns() {
+		return NodeAddress{},false
+	}
+	// Choose peer with the oldest lastFail.
+	var bestPeer utils.Option[*peerAddrs]
+	addrs := i.addrs
+	if persistentPeer {
+		addrs = i.persistentAddrs
+	}
+	for id,peerAddrs := range addrs {
+		if i.isPersistent(id) != persistentPeer || len(peerAddrs.addrs)==0 { continue }
+		if _,ok := i.dialing[id]; ok { continue }
+		if _,ok := conns.Get(id); ok { continue }
+		if x,ok := bestPeer.Get(); !ok || before(peerAddrs.lastFail, x.lastFail) {
+			bestPeer = utils.Some(peerAddrs)
+		}
+	}
+	// Choose address with the oldest lastFail.
+	var best utils.Option[NodeAddress]
+	if peer,ok := bestPeer.Get(); ok {
+		for addr,_ := range peer.addrs {
+			if x,ok := best.Get(); !ok || before(get(peer.fails,addr), get(peer.fails,x)) {
+				best = utils.Some(addr)
+			}
+		}
+	}
+	if x,ok := best.Get(); ok {
+		i.dialing[x.NodeID] = x
+	}
+	return best.Get()
+}
+
+func (i *peerManagerInner) DialFailed(addr NodeAddress) {
+	if i.dialing[addr.NodeID] == addr {
+		delete(i.dialing, addr.NodeID)
+	}
+	var peerAddrs *peerAddrs
+	var ok bool
+	if i.isPersistent(addr.NodeID) {
+		peerAddrs,ok = i.persistentAddrs[addr.NodeID]
+	} else {
+		peerAddrs,ok = i.addrs[addr.NodeID]
+	}
+	if !ok { return }
+	// Record the failure time.
+	now := time.Now()
+	peerAddrs.lastFail = utils.Some(now)
+	if _,ok := peerAddrs.addrs[addr]; ok {
+		peerAddrs.fails[addr] = now
+	}
+}
+
+func (i *peerManagerInner) Drop(id types.NodeID) {
+	if !i.isPersistent(id) {
+		delete(i.addrs, id)
+	}
+	if !i.isUnconditional[id] {
+		if conn,ok := i.conns.Load().Get(id); ok {
+			conn.Close()
+		}
+	}
+}
+
+// Connected registers a new connection.
+// If it is an outbound connection the dialing status is cleared (EVEN IF IT RETURNS AN ERROR).
+// It atomically checks maximum connection limit and duplicate connections.
+// TODO(gprusak): instead of returning an error. Call conn.Close(cause), once it is supported.
+func (i *peerManagerInner) Connected(conn *Connection) error {
+	if addr,ok := conn.dialAddr.Get(); ok && i.dialing[addr.NodeID] == addr {
+		delete(i.dialing, addr.NodeID)
+	}
+	selfID := i.options.SelfID
+	peerID := conn.PeerInfo().NodeID
+	if peerID == selfID {
+		return errors.New("connection to self")
+	}
+	conns := i.conns.Load()
+	if old,ok := conns.Get(peerID); ok {
+		// * allow to override connections in the same direction.
+		// * allow inbound conn to override outbound iff peerID > selfID.
+		//   This resolves the situation when peers try to connect to each other
+		//   at the same time.
+		if old.dialAddr.IsPresent() != conn.dialAddr.IsPresent() && (peerID < selfID) != conn.dialAddr.IsPresent() {
+			return fmt.Errorf("duplicate connection from peer %q", peerID)
+		}
+		old.Close()
+		i.conns.Store(conns.Set(peerID, conn))
+		return nil
+	}
+	if !i.isUnconditional[peerID] {
+		if i.conditionalConns >= i.options.maxConns() {
+			conn.Close()
+			return errors.New("too many connections")
+		}
+		i.conditionalConns += 1
+	}
+	i.conns.Store(conns.Set(peerID, conn))
+	return nil
+}
+
+func (i *peerManagerInner) Disconnected(conn *Connection) {
+	peerID := conn.PeerInfo().NodeID
+	conns := i.conns.Load()
+	if old, ok := conns.Get(peerID); ok && old == conn {
+		if !i.isUnconditional[peerID] {
+			i.conditionalConns -= 1
+		}
+		old.Close()
+		i.conns.Store(conns.Delete(peerID))
+	}
+}
+
+// PeerManager manages connections and addresses of potential peers.
+// PeerManager may trigger disconnects by calling conn.Close() in case of conflicting connections.
+// Possible lifecycles of the connection are as follows:
+// For outbound connections:
+// * StartDial() -> [dialing] -> Connected(conn) -> [communicate] -> Disconnected(conn)
+// * StartDial() -> [dialing] -> DialFailed(addr)
+// For inbound connections:
+// * Connected(conn) -> [communicate] -> Disconnected(conn)
+// For adding new peer addrs, call AddAddrs().
+type PeerManager struct {
+	metrics *Metrics
+	options *PeerManagerOptions
+	inner utils.Watch[*peerManagerInner]
+}
+
+// PeerUpdatesRecv.
+// NOT THREAD-SAFE.
+type PeerUpdatesRecv struct {
+	recv utils.AtomicRecv[im.Map[types.NodeID,*Connection]]
+	last map[types.NodeID]struct{}
+}
 
 // PeerUpdate is a peer update event sent via PeerUpdates.
 type PeerUpdate struct {
@@ -47,259 +258,160 @@ type PeerUpdate struct {
 	Channels ChannelIDSet
 }
 
-// PeerUpdates is a peer update subscription with notifications about peer
-// events (currently just status changes).
-type PeerUpdates struct {
-	preexistingPeers []PeerUpdate
-	reactorUpdatesCh chan PeerUpdate
-}
-
-// NewPeerUpdates creates a new PeerUpdates subscription. It is primarily for
-// internal use, callers should typically use PeerManager.Subscribe(). The
-// subscriber must call Close() when done.
-func NewPeerUpdates(updatesCh chan PeerUpdate, buf int) *PeerUpdates {
-	return &PeerUpdates{
-		reactorUpdatesCh: updatesCh,
-	}
-}
-
-func (pu *PeerUpdates) PreexistingPeers() []PeerUpdate {
-	return pu.preexistingPeers
-}
-
-// Updates returns a channel for consuming peer updates.
-func (pu *PeerUpdates) Updates() <-chan PeerUpdate {
-	return pu.reactorUpdatesCh
-}
-
-// PeerManagerOptions specifies options for a PeerManager.
-type PeerManagerOptions struct {
-	SelfID types.NodeID
-	// List of peers to be added to the peer store on startup.
-	BootstrapPeers []NodeAddress
-
-	// PersistentPeers are peers that we want to maintain persistent connections to.
-	// We will not preserve any addresses different than those specified in the config,
-	// since they are forgeable.
-	PersistentPeers map[types.NodeID][]NodeAddress
-
-	// Peers which we will unconditionally accept connections from.
-	UnconditionalPeers map[types.NodeID]bool
-
-	// Only include those peers for block sync.
-	// These are also persistent peers.
-	// If empty, all peers are used for block sync.
-	BlockSyncPeers map[types.NodeID]bool
-
-	// PrivatePeerIDs defines a set of NodeID objects which the PEX reactor will
-	// consider private and never gossip.
-	PrivatePeers map[types.NodeID]bool
-
-	// MaxPeers is the maximum number of peers to track information about, i.e.
-	// store in the peer store. When exceeded, unreachable peers will be deleted.
-	MaxPeers utils.Option[int]
-
-	// MaxConnected is the maximum number of connected peers (inbound and outbound).
-	MaxConnected utils.Option[int]
-
-	// SelfAddress is the address that will be advertised to peers for them to dial back to us.
-	// If Hostname and Port are unset, Advertise() will include no self-announcement
-	SelfAddress utils.Option[NodeAddress]
-
-	// MaxIncomingConnectionAttempts rate limits the number of incoming connection
-	// attempts per IP address. Defaults to 100.
-	MaxIncomingConnectionAttempts utils.Option[uint]
-
-	// IncomingConnectionWindow describes how often an IP address
-	// can attempt to create a new connection. Defaults to 100ms.
-	IncomingConnectionWindow utils.Option[time.Duration]
-
-	// NumConcrruentDials controls how many parallel go routines
-	// are used to dial peers. This defaults to the value of
-	// runtime.NumCPU.
-	NumConcurrentDials utils.Option[func() int]
-
-	// DialSleep controls the amount of time that the router
-	// sleeps between dialing peers. If not set, a default value
-	// is used that sleeps for a (random) amount of time up to 3
-	// seconds between submitting each peer to be dialed.
-	DialSleep utils.Option[func(context.Context) error]
-
-	// FilterPeerByIP is used by the router to inject filtering
-	// behavior for new incoming connections. The router passes
-	// the remote IP of the incoming connection the port number as
-	// arguments. Functions should return an error to reject the
-	// peer.
-	FilterPeerByIP utils.Option[func(context.Context, netip.AddrPort) error]
-
-	// FilterPeerByID is used by the router to inject filtering
-	// behavior for new incoming connections. The router passes
-	// the NodeID of the node before completing the connection,
-	// but this occurs after the handshake is complete. Filter by
-	// IP address to filter before the handshake. Functions should
-	// return an error to reject the peer.
-	FilterPeerByID utils.Option[func(context.Context, types.NodeID) error]
-}
-
-func (o *PeerManagerOptions) filterPeersIP(ctx context.Context, addrPort netip.AddrPort) error {
-	if f,ok := o.FilterPeerByIP.Get(); ok {
-		return f(ctx, addrPort)
-	}
-	return nil
-}
-
-func (o *PeerManagerOptions) filterPeersID(ctx context.Context, id types.NodeID) error {
-	if f,ok := o.FilterPeerByID.Get(); ok {
-		return f(ctx, id)
-	}
-	return nil
-}
-
-func (o *PeerManagerOptions) persistent(id types.NodeID) bool {
-	if _,ok := o.PersistentPeers[id]; ok { return true }
-	if _,ok := o.BlockSyncPeers[id]; ok { return true }
-	if _,ok := o.UnconditionalPeers[id]; ok { return true }
-	return false
-}
-
-func (o *PeerManagerOptions) numConccurentDials() int {
-	if f,ok := o.NumConcurrentDials.Get(); ok {
-		return f()
-	}
-	return runtime.NumCPU()
-}
-
-func (o *PeerManagerOptions) getIncomingConnectionWindow() time.Duration {
-	return o.IncomingConnectionWindow.Or(100 * time.Millisecond)
-}
-
-func (o *PeerManagerOptions) getMaxIncomingConnectionAttempts() uint {
-	return o.MaxIncomingConnectionAttempts.Or(100)
-}
-
-// Validate validates the options.
-func (o *PeerManagerOptions) Validate() error {
-	if err:=o.SelfID.Validate(); err!=nil {
-		return fmt.Errorf("SelfID: %v", err)
-	}
-	for id,addrs := range o.PersistentPeers {
-		if err := id.Validate(); err != nil {
-			return fmt.Errorf("invalid PersistentPeer ID %q: %w", id, err)
+func (s *PeerUpdatesRecv) Recv(ctx context.Context) (PeerUpdate,error) {
+	var update PeerUpdate
+	_, err := s.recv.Wait(ctx, func(conns im.Map[types.NodeID,*Connection]) bool {
+		// Check for disconnected peers.
+		for id,_ := range s.last {
+			if _,ok := conns.Get(id); !ok {
+				delete(s.last, id)
+				update = PeerUpdate{
+					NodeID: id,
+					Status: PeerStatusDown,
+				}
+				return true
+			}
 		}
+		// Check for connected peers.
+		for id,conn := range conns.All() {
+			if _,ok := s.last[id]; !ok {
+				s.last[id] = struct{}{}
+				update = PeerUpdate{
+					NodeID: id,
+					Status: PeerStatusUp,
+					Channels: conn.peerChannels,
+				}
+				return true
+			}
+		}
+		return false
+	})
+	return update, err
+}
+
+func (m *PeerManager) Subscribe() *PeerUpdatesRecv {
+	for inner := range m.inner.Lock() {
+		return &PeerUpdatesRecv{
+			recv: inner.conns.Subscribe(),
+			last: map[types.NodeID]struct{}{},
+		}
+	}
+	panic("unreachable")
+}
+
+func NewPeerManager(options *PeerManagerOptions) (*PeerManager,error) {
+	if err:=options.Validate(); err!=nil {
+		return nil, err
+	}
+	inner := &peerManagerInner{
+		options: options,
+		persistentAddrs: map[types.NodeID]*peerAddrs{},
+		isPrivate: map[types.NodeID]bool{},
+		isUnconditional: map[types.NodeID]bool{},
+
+		conns: utils.NewAtomicSend(im.NewMap[types.NodeID,*Connection]()),
+		addrs: map[types.NodeID]*peerAddrs{},
+		dialing: map[types.NodeID]NodeAddress{},
+		dialHistory: utils.NewAtomicSend(im.NewMap[types.NodeID,dialTime]()),
+	}
+	for _,id := range options.PrivatePeers { inner.isPrivate[id] = true }
+	for _,id := range options.UnconditionalPeers { inner.isUnconditional[id] = true }
+	for _,addr := range options.PersistentPeers {
+		inner.isUnconditional[addr.NodeID] = true
+		if _,ok := inner.persistentAddrs[addr.NodeID]; !ok {
+			inner.persistentAddrs[addr.NodeID] = newPeerAddrs()
+		}
+		inner.persistentAddrs[addr.NodeID].addrs[addr] = struct{}{}
+	}
+	for _,addr := range options.BootstrapPeers { inner.AddAddr(addr) }
+
+	return &PeerManager {
+		options: options,
+		inner: utils.NewWatch(inner),
+	},nil
+}
+
+func (m *PeerManager) AddAddrs(addrs []NodeAddress) error {
+	for inner,ctrl := range m.inner.Lock() {
 		for _,addr := range addrs {
-			if err := addr.Validate(); err != nil {
-				return fmt.Errorf("invalid PersistentPeer address %v: %w", addr, err)
+			if err:=addr.Validate();err!=nil {
+				return err
+			}
+			if inner.AddAddr(addr) {
+				ctrl.Updated()
 			}
 		}
 	}
-	for id := range o.BlockSyncPeers {
-		if err := id.Validate(); err!=nil {
-			return fmt.Errorf("invalid block sync peer ID %q: %w", id, err)
-		}
-	}
-	for id := range o.UnconditionalPeers {
-		if err := id.Validate(); err!=nil {
-			return fmt.Errorf("invalid unconditional peer ID %q: %w", id, err)
-		}
-	}
-	for id := range o.PrivatePeers {
-		if err := id.Validate(); err != nil {
-			return fmt.Errorf("invalid private peer ID %q: %w", id, err)
-		}
-	}
-
-	if maxPeers,ok := o.MaxPeers.Get(); ok {
-		if maxConnected,ok := o.MaxConnected.Get(); !ok || maxConnected > maxPeers {
-			return fmt.Errorf("MaxConnected %v can't exceed MaxPeers %v", maxConnected, maxPeers)
-		}
-	}
 	return nil
 }
 
-// PeerManager manages peer lifecycle information, using a peerStore for
-// underlying storage. Its primary purpose is to determine which peer to connect
-// to next (including retry timers), make sure a peer only has a single active
-// connection (either inbound or outbound), and evict peers to make room for
-// higher-scored peers. It does not manage actual connections (this is handled
-// by the Router), only the peer lifecycle state.
-//
-// For an outbound connection, the flow is as follows:
-//   - DialNext: return a peer address to dial, mark peer as dialing.
-//   - DialFailed: report a dial failure, unmark as dialing.
-//   - Dialed: report a dial success, unmark as dialing and mark as connected
-//     (errors if already connected, e.g. by Accepted).
-//   - Ready: report routing is ready, mark as ready and broadcast PeerStatusUp.
-//   - Disconnected: report peer disconnect, unmark as connected and broadcasts
-//     PeerStatusDown.
-//
-// For an inbound connection, the flow is as follows:
-//   - Accepted: report inbound connection success, mark as connected (errors if
-//     already connected, e.g. by Dialed).
-//   - Ready: report routing is ready, mark as ready and broadcast PeerStatusUp.
-//   - Disconnected: report peer disconnect, unmark as connected and broadcasts
-//     PeerStatusDown.
-//
-// When evicting peers, either because peers are explicitly scheduled for
-// eviction or we are connected to too many peers, the flow is as follows:
-//   - EvictNext: if marked evict and connected, unmark evict and mark evicting.
-//     If beyond MaxConnected, pick lowest-scored peer and mark evicting.
-//   - Disconnected: unmark connected, evicting, evict, and broadcast a
-//     PeerStatusDown peer update.
-//
-// If all connection slots are full (at MaxConnections), we can use up to
-// MaxConnectionsUpgrade additional connections to probe any higher-scored
-// unconnected peers, and if we reach them (or they reach us) we allow the
-// connection and evict a lower-scored peer. We mark the lower-scored peer as
-// upgrading[from]=to to make sure no other higher-scored peers can claim the
-// same one for an upgrade. The flow is as follows:
-//   - Accepted: if upgrade is possible, mark connected and add lower-scored to evict.
-//   - DialNext: if upgrade is possible, mark upgrading[from]=to and dialing.
-//   - DialFailed: unmark upgrading[from]=to and dialing.
-//   - Dialed: unmark upgrading[from]=to and dialing, mark as connected, add
-//     lower-scored to evict.
-//   - EvictNext: pick peer from evict, mark as evicting.
-//   - Disconnected: unmark connected, upgrading[from]=to, evict, evicting.
-type PeerManager struct {
-	logger     log.Logger
-	options    PeerManagerOptions
-	store               utils.Mutex[*peerStore]
-	subscriptions       map[*PeerUpdates]*PeerUpdates              // keyed by struct identity (address)
-	metrics             *Metrics
-}
-
-// NewPeerManager creates a new peer manager.
-func NewPeerManager(
-	logger log.Logger,
-	peerDB dbm.DB,
-	options PeerManagerOptions,
-	metrics *Metrics,
-) (*PeerManager, error) {
-	if err := options.Validate(); err != nil {
-		return nil, err
-	}
-
-	store, err := newPeerStore(peerDB, &options, metrics)
-	if err != nil {
-		return nil, err
-	}
-	return peerManager, nil
-}
-
-func (o *PeerManagerOptions) dialSleep(ctx context.Context) error {
-	if f,ok := o.DialSleep.Get(); ok {
-		return f(ctx)
-	}
-	return utils.Sleep(ctx, 1500 * time.Millisecond)
-}
-
-func (s *peerStore) State(id types.NodeID) string {
-	states := []string{}
-	if peer,ok := s.peers[id]; ok {
-		if peer.dialing {
-			states = append(states, "dialing")
-		} else if peer.conn.IsPresent() {
-			states = append(states, "ready", "connected")
+func (m *PeerManager) StartDial(ctx context.Context, persistentPeer bool) (NodeAddress,error) {
+	for inner,ctrl := range m.inner.Lock() {
+		for {
+			if addr,ok := inner.TryStartDial(persistentPeer); ok {
+				return addr, nil
+			}
+			if err:=ctrl.Wait(ctx); err!=nil {
+				return NodeAddress{}, err
+			}
 		}
 	}
-	return strings.Join(states, ",")
+	panic("unreachable")
+}
+
+// Release releases the reservation made via Acquire.
+func (p *PeerManager) DialFailed(addr NodeAddress) {
+	for inner,ctrl := range p.inner.Lock() {
+		ctrl.Updated()
+		inner.DialFailed(addr)
+	}
+}
+
+func (m *PeerManager) Connected(conn *Connection) error {
+	for inner,ctrl := range m.inner.Lock() {
+		ctrl.Updated()
+		return inner.Connected(conn)
+	}
+	panic("unreachable")
+}
+
+func (m *PeerManager) Disconnected(conn *Connection) {
+	for inner,ctrl := range m.inner.Lock() {
+		ctrl.Updated()
+		inner.Disconnected(conn)
+	}
+}
+
+func (m *PeerManager) Drop(id types.NodeID) {
+	for inner,ctrl := range m.inner.Lock() {
+		ctrl.Updated()
+		inner.Drop(id)
+	}
+	panic("unreachable")
+}
+
+// Advertise returns a list of peer addresses to advertise to a peer.
+func (m *PeerManager) Advertise(limit int) []NodeAddress {
+	var addrs []NodeAddress
+
+	// advertise ourselves, to let everyone know how to dial us back
+	// and enable mutual address discovery
+	if addr,ok := s.options.SelfAddress.Get(); ok {
+		addrs = append(addrs, addr)
+	}
+
+	// TODO: add successful dial tracking to connRegistry.
+	return addrs
+}
+
+func (m *PeerManager) State(id types.NodeID) string {
+	for inner := range m.inner.Lock() {
+		if _,ok := inner.conns.Load().Get(id); ok {
+			return "ready,connected"
+		}
+		if _,ok := inner.dialing[id]; ok {
+			return "dialing"
+		}
+	}
+	return ""
 }

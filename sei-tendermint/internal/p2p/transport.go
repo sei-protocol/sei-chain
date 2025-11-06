@@ -114,7 +114,7 @@ func (r *Router) HandshakeOrClose(ctx context.Context, tcpConn *net.TCPConn, dia
 func (r *Router) connSendRoutine(ctx context.Context, conn *Connection) error {
 	for {
 		start := time.Now().UTC()
-		m, err := c.sendQueue.Recv(ctx)
+		m, err := conn.sendQueue.Recv(ctx)
 		if err != nil {
 			return err
 		}
@@ -126,10 +126,10 @@ func (r *Router) connSendRoutine(ctx context.Context, conn *Connection) error {
 		if m.ChannelID > math.MaxUint8 {
 			return fmt.Errorf("MConnection only supports 1-byte channel IDs (got %v)", m.ChannelID)
 		}
-		if err := c.mconn.Send(ctx, m.ChannelID, bz); err != nil {
+		if err := conn.mconn.Send(ctx, m.ChannelID, bz); err != nil {
 			return err
 		}
-		r.logger.Debug("sent message", "peer", c.peerInfo.NodeID, "message", m.Message)
+		r.logger.Debug("sent message", "peer", conn.peerInfo.NodeID, "message", m.Message)
 	}
 }
 
@@ -175,13 +175,13 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *Connection) error {
 func (r *Router) runConn(ctx context.Context, conn *Connection) error {
 	peerInfo := conn.PeerInfo()
 	peerID := peerInfo.NodeID
-	if err := r.peerManager.options.filterPeersID(ctx, peerInfo.NodeID); err != nil {
+	if err := r.options.filterPeersID(ctx, peerInfo.NodeID); err != nil {
 		return fmt.Errorf("peer filtered by node ID", "node", peerInfo.NodeID, "err", err)
 	}
-	if err:=r.peerManager.registerConn(conn); err!=nil {
+	if err:=r.peerManager.Connected(conn); err!=nil {
 		return fmt.Errorf("registerConn(): %w", err)
 	}
-	defer r.peerManager.unregisterConn(conn)
+	defer r.peerManager.Disconnected(conn)
 	r.logger.Info("peer connected", "peer", peerID, "endpoint", c)
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("mconn.Run", func() error { return conn.mconn.Run(ctx) })

@@ -1,6 +1,7 @@
 package im
 
 import (
+	"iter"
 	"github.com/benbjohnson/immutable"
 	"hash/maphash"
 )
@@ -35,4 +36,13 @@ func (m Map[K, V]) Delete(key K) Map[K, V] {
 
 func (m Map[K, V]) Len() int {
 	return m.m.Len()
+}
+
+func (m Map[K, V]) All() iter.Seq2[K, V] {
+	return func(yield func(K, V) bool) {
+		for it := m.m.Iterator(); !it.Done(); {
+			k,v,_ := it.Next()
+			if !yield(k, v) { break }
+		}
+	}
 }
