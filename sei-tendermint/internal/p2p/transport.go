@@ -173,16 +173,11 @@ func (r *Router) connRecvRoutine(ctx context.Context, conn *Connection) error {
 }
 
 func (r *Router) runConn(ctx context.Context, conn *Connection) error {
-	peerInfo := conn.PeerInfo()
-	peerID := peerInfo.NodeID
-	if err := r.options.filterPeersID(ctx, peerInfo.NodeID); err != nil {
-		return fmt.Errorf("peer filtered by node ID", "node", peerInfo.NodeID, "err", err)
-	}
 	if err:=r.peerManager.Connected(conn); err!=nil {
-		return fmt.Errorf("registerConn(): %w", err)
+		return fmt.Errorf("r.peerManager.Connected(): %w", err)
 	}
 	defer r.peerManager.Disconnected(conn)
-	r.logger.Info("peer connected", "peer", peerID, "endpoint", c)
+	r.logger.Info("peer connected", "peer", conn.PeerInfo().NodeID, "endpoint", conn)
 	return scope.Run(ctx, func(ctx context.Context, s scope.Scope) error {
 		s.SpawnNamed("mconn.Run", func() error { return conn.mconn.Run(ctx) })
 		s.Spawn(func() error { return r.connSendRoutine(ctx, conn) })

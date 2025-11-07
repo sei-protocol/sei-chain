@@ -13,6 +13,8 @@ import (
 
 const maxAddrsPerPeer = 10
 
+type connSet = im.Map[types.NodeID,*Connection]
+
 // latest successful dial.
 type dial struct {
 	Address  NodeAddress
@@ -35,7 +37,8 @@ func newPeerAddrs() *peerAddrs {
 }
 
 type peerManagerInner struct {
-	options *PeerManagerOptions
+	selfID types.NodeID
+	options *RouterOptions
 	isUnconditional map[types.NodeID]bool
 	isPrivate map[types.NodeID]bool
 	persistentAddrs map[types.NodeID]*peerAddrs
@@ -45,7 +48,7 @@ type peerManagerInner struct {
 	// * PeerInfo() types.NodeInfo
 	// * DialAddr() utils.Option[NodeAddress]
 	// to make it testable without router.
-	conns utils.AtomicSend[im.Map[types.NodeID,*Connection]]
+	conns utils.AtomicSend[connSet]
 	conditionalConns int // counts conditional connections in conns.
 	addrs map[types.NodeID]*peerAddrs
 	dialing map[types.NodeID]NodeAddress
@@ -175,7 +178,7 @@ func (i *peerManagerInner) DialFailed(addr NodeAddress) {
 	}
 }
 
-func (i *peerManagerInner) Drop(id types.NodeID) {
+func (i *peerManagerInner) Evict(id types.NodeID) {
 	if !i.isPersistent(id) {
 		delete(i.addrs, id)
 	}
@@ -194,9 +197,8 @@ func (i *peerManagerInner) Connected(conn *Connection) error {
 	if addr,ok := conn.dialAddr.Get(); ok && i.dialing[addr.NodeID] == addr {
 		delete(i.dialing, addr.NodeID)
 	}
-	selfID := i.options.SelfID
 	peerID := conn.PeerInfo().NodeID
-	if peerID == selfID {
+	if peerID == i.selfID {
 		return errors.New("connection to self")
 	}
 	conns := i.conns.Load()
@@ -205,7 +207,7 @@ func (i *peerManagerInner) Connected(conn *Connection) error {
 		// * allow inbound conn to override outbound iff peerID > selfID.
 		//   This resolves the situation when peers try to connect to each other
 		//   at the same time.
-		if old.dialAddr.IsPresent() != conn.dialAddr.IsPresent() && (peerID < selfID) != conn.dialAddr.IsPresent() {
+		if old.dialAddr.IsPresent() != conn.dialAddr.IsPresent() && (peerID < i.selfID) != conn.dialAddr.IsPresent() {
 			return fmt.Errorf("duplicate connection from peer %q", peerID)
 		}
 		old.Close()
@@ -245,18 +247,18 @@ func (i *peerManagerInner) Disconnected(conn *Connection) {
 // * Connected(conn) -> [communicate] -> Disconnected(conn)
 // For adding new peer addrs, call AddAddrs().
 type PeerManager struct {
-	options *PeerManagerOptions
+	options *RouterOptions
 	isBlockSyncPeer map[types.NodeID]bool
 	// Receiver of the inner.conns. It is copyable and allows accessing connections
 	// without taking lock on inner.
-	conns utils.AtomicRecv[im.Map[types.NodeID,*Connection]]
+	conns utils.AtomicRecv[connSet]
 	inner utils.Watch[*peerManagerInner]
 }
 
 // PeerUpdatesRecv.
 // NOT THREAD-SAFE.
 type PeerUpdatesRecv struct {
-	recv utils.AtomicRecv[im.Map[types.NodeID,*Connection]]
+	recv utils.AtomicRecv[connSet]
 	last map[types.NodeID]struct{}
 }
 
@@ -269,7 +271,7 @@ type PeerUpdate struct {
 
 func (s *PeerUpdatesRecv) Recv(ctx context.Context) (PeerUpdate,error) {
 	var update PeerUpdate
-	_, err := s.recv.Wait(ctx, func(conns im.Map[types.NodeID,*Connection]) bool {
+	_, err := s.recv.Wait(ctx, func(conns connSet) bool {
 		// Check for disconnected peers.
 		for id,_ := range s.last {
 			if _,ok := conns.Get(id); !ok {
@@ -305,11 +307,12 @@ func (m *PeerManager) Subscribe() *PeerUpdatesRecv {
 	}
 }
 
-func NewPeerManager(options *PeerManagerOptions) (*PeerManager,error) {
+func NewPeerManager(selfID types.NodeID, options *RouterOptions) (*PeerManager,error) {
 	if err:=options.Validate(); err!=nil {
 		return nil, err
 	}
 	inner := &peerManagerInner{
+		selfID: selfID,
 		options: options,
 		persistentAddrs: map[types.NodeID]*peerAddrs{},
 		isPrivate: map[types.NodeID]bool{},
@@ -322,6 +325,7 @@ func NewPeerManager(options *PeerManagerOptions) (*PeerManager,error) {
 	isBlockSyncPeer := map[types.NodeID]bool{}
 	for _,id := range options.PrivatePeers { inner.isPrivate[id] = true }
 	for _,id := range options.UnconditionalPeers { inner.isUnconditional[id] = true }
+	for _,id := range options.BlockSyncPeers { inner.isUnconditional[id] = true }
 	for _,addr := range options.PersistentPeers {
 		inner.isUnconditional[addr.NodeID] = true
 		if _,ok := inner.persistentAddrs[addr.NodeID]; !ok {
@@ -337,6 +341,10 @@ func NewPeerManager(options *PeerManagerOptions) (*PeerManager,error) {
 		conns: inner.conns.Subscribe(),
 		inner: utils.NewWatch(inner),
 	},nil
+}
+
+func (m *PeerManager) Conns() connSet {
+	return m.conns.Load()
 }
 
 func (m *PeerManager) AddAddrs(addrs []NodeAddress) error {
@@ -390,10 +398,10 @@ func (m *PeerManager) Disconnected(conn *Connection) {
 	}
 }
 
-func (m *PeerManager) Drop(id types.NodeID) {
+func (m *PeerManager) Evict(id types.NodeID) {
 	for inner,ctrl := range m.inner.Lock() {
+		inner.Evict(id)
 		ctrl.Updated()
-		inner.Drop(id)
 	}
 	panic("unreachable")
 }
