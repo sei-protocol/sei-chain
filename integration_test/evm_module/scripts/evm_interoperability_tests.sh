@@ -4,6 +4,10 @@ set -e
 
 cd contracts
 npm ci
+
+# Increase Node.js memory limit to 8GB to prevent OOM
+export NODE_OPTIONS="--max-old-space-size=8192"
+
 npx hardhat test --network seilocal test/CW20toERC20PointerTest.js
 npx hardhat test --network seilocal test/ERC20toCW20PointerTest.js
 npx hardhat test --network seilocal test/ERC20toNativePointerTest.js

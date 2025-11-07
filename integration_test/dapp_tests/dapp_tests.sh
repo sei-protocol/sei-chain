@@ -25,6 +25,10 @@ npx hardhat compile
 # Set the CONFIG environment variable
 export DAPP_TEST_ENV=$1
 
+# Increase Node.js memory limit to 8GB to prevent OOM in tests
+# Uniswap tests are particularly memory intensive
+export NODE_OPTIONS="--max-old-space-size=8192"
+
 # Determine which tests to run
 if [ -z "$2" ]; then
   tests=("$uniswap_test" "$steak_test" "$nft_test")

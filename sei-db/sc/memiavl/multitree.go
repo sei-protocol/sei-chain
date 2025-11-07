@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/alitto/pond"
@@ -45,7 +46,8 @@ type MultiTree struct {
 	// if the tree is start from genesis, it's the initial version of the chain,
 	// if the tree is imported from snapshot, it's the imported version plus one,
 	// it always corresponds to the rlog entry with index 1.
-	initialVersion uint32
+	// Use atomic for concurrent read/write safety
+	initialVersion atomic.Uint32
 
 	zeroCopy bool
 	logger   logger.Logger
@@ -59,12 +61,13 @@ type MultiTree struct {
 }
 
 func NewEmptyMultiTree(initialVersion uint32) *MultiTree {
-	return &MultiTree{
-		initialVersion: initialVersion,
-		treesByName:    make(map[string]int),
-		zeroCopy:       true,
-		logger:         logger.NewNopLogger(),
+	mt := &MultiTree{
+		treesByName: make(map[string]int),
+		zeroCopy:    true,
+		logger:      logger.NewNopLogger(),
 	}
+	mt.initialVersion.Store(initialVersion)
+	return mt
 }
 
 func LoadMultiTree(dir string, opts Options) (*MultiTree, error) {
@@ -159,9 +162,9 @@ func (t *MultiTree) setInitialVersion(initialVersion int64) {
 		panic(fmt.Sprintf("initial version %d is out of range", initialVersion))
 	}
 	iv := uint32(initialVersion)
-	t.initialVersion = iv
+	t.initialVersion.Store(iv)
 	for _, entry := range t.trees {
-		entry.initialVersion = t.initialVersion
+		entry.initialVersion = iv
 	}
 }
 
@@ -239,7 +242,7 @@ func (t *MultiTree) ApplyUpgrades(upgrades []*proto.TreeNameUpgrade) error {
 			t.trees[i].Name = upgrade.Name
 		default:
 			// add tree
-			v := utils.NextVersion(t.Version(), t.initialVersion)
+			v := utils.NextVersion(t.Version(), t.initialVersion.Load())
 			if v < 0 || v > math.MaxUint32 {
 				return fmt.Errorf("version overflows uint32: %d", v)
 			}
@@ -286,13 +289,13 @@ func (t *MultiTree) ApplyChangeSets(changeSets []*proto.NamedChangeSet) error {
 
 // WorkingCommitInfo returns the commit info for the working tree
 func (t *MultiTree) WorkingCommitInfo() *proto.CommitInfo {
-	version := utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion)
+	version := utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion.Load())
 	return t.buildCommitInfo(version)
 }
 
 // SaveVersion bumps the versions of all the stores and optionally returns the new app hash
 func (t *MultiTree) SaveVersion(updateCommitInfo bool) (int64, error) {
-	t.lastCommitInfo.Version = utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion)
+	t.lastCommitInfo.Version = utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion.Load())
 	for _, entry := range t.trees {
 		if _, _, err := entry.SaveVersion(updateCommitInfo); err != nil {
 			return 0, err
@@ -341,7 +344,8 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 		return fmt.Errorf("read rlog last index failed, %w", err)
 	}
 
-	firstIndex := utils.VersionToIndex(utils.NextVersion(t.Version(), t.initialVersion), t.initialVersion)
+	iv := t.initialVersion.Load()
+	firstIndex := utils.VersionToIndex(utils.NextVersion(t.Version(), iv), iv)
 	if firstIndex > lastIndex {
 		// already up-to-date
 		return nil
@@ -349,7 +353,7 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 
 	endIndex := lastIndex
 	if endVersion != 0 {
-		endIndex = utils.VersionToIndex(endVersion, t.initialVersion)
+		endIndex = utils.VersionToIndex(endVersion, iv)
 	}
 
 	if endIndex < firstIndex {
@@ -376,7 +380,7 @@ func (t *MultiTree) Catchup(stream types.Stream[proto.ChangelogEntry], endVersio
 				tree.ApplyChangeSetAsync(iavl.ChangeSet{})
 			}
 		}
-		t.lastCommitInfo.Version = utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion)
+		t.lastCommitInfo.Version = utils.NextVersion(t.lastCommitInfo.Version, t.initialVersion.Load())
 		t.lastCommitInfo.StoreInfos = []proto.StoreInfo{}
 		replayCount++
 		if replayCount%1000 == 0 {
@@ -468,7 +472,7 @@ func (t *MultiTree) writeSnapshotPriorityEVM(ctx context.Context, dir string, wp
 	// write commit info
 	metadata := proto.MultiTreeMetadata{
 		CommitInfo:     &t.lastCommitInfo,
-		InitialVersion: int64(t.initialVersion),
+		InitialVersion: int64(t.initialVersion.Load()),
 	}
 	bz, err := metadata.Marshal()
 	if err != nil {

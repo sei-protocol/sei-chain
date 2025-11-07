@@ -301,7 +301,7 @@ func TestInitialVersion(t *testing.T) {
 
 		db, err = OpenDB(logger.NewNopLogger(), 0, Options{Dir: dir})
 		require.NoError(t, err)
-		require.Equal(t, uint32(initialVersion), db.initialVersion)
+		require.Equal(t, uint32(initialVersion), db.initialVersion.Load())
 		require.Equal(t, v, db.Version())
 		require.Equal(t, hex.EncodeToString(hash), hex.EncodeToString(db.LastCommitInfo().StoreInfos[0].CommitId.Hash))
 

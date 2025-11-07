@@ -180,7 +180,7 @@ func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *
 
 		// truncate the rlog file
 		logger.Info("truncate rlog after version: %d", targetVersion)
-		truncateIndex := utils.VersionToIndex(targetVersion, mtree.initialVersion)
+		truncateIndex := utils.VersionToIndex(targetVersion, mtree.initialVersion.Load())
 		if err := streamHandler.TruncateAfter(truncateIndex); err != nil {
 			return nil, fmt.Errorf("fail to truncate rlog file: %w", err)
 		}
@@ -278,7 +278,7 @@ func (db *DB) SetInitialVersion(initialVersion int64) error {
 		return err
 	}
 
-	return initEmptyDB(db.dir, db.initialVersion)
+	return initEmptyDB(db.dir, db.initialVersion.Load())
 }
 
 // ApplyUpgrades wraps MultiTree.ApplyUpgrades, it also appends the upgrades in a pending log,
@@ -378,7 +378,7 @@ func (db *DB) CommittedVersion() (int64, error) {
 	if lastIndex == 0 {
 		return db.SnapshotVersion(), nil
 	}
-	return utils.IndexToVersion(lastIndex, db.initialVersion), nil
+	return utils.IndexToVersion(lastIndex, db.initialVersion.Load()), nil
 }
 
 // checkBackgroundSnapshotRewrite check the result of background snapshot rewrite, cleans up the old snapshots and switches to a new multitree
@@ -473,7 +473,7 @@ func (db *DB) pruneSnapshots() {
 			db.logger.Error("failed to find first snapshot", "err", err)
 		}
 
-		if err := db.streamHandler.TruncateBefore(utils.VersionToIndex(earliestVersion+1, db.initialVersion)); err != nil {
+		if err := db.streamHandler.TruncateBefore(utils.VersionToIndex(earliestVersion+1, db.initialVersion.Load())); err != nil {
 			db.logger.Error("failed to truncate rlog", "err", err, "version", earliestVersion+1)
 		}
 	}()
@@ -507,7 +507,7 @@ func (db *DB) Commit() (version int64, _err error) {
 	// write to changelog
 	if db.streamHandler != nil {
 		db.pendingLogEntry.Version = v
-		err := db.streamHandler.Write(utils.VersionToIndex(v, db.initialVersion), db.pendingLogEntry)
+		err := db.streamHandler.Write(utils.VersionToIndex(v, db.initialVersion.Load()), db.pendingLogEntry)
 		if err != nil {
 			return 0, err
 		}
