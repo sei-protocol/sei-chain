@@ -106,6 +106,26 @@ func (r *Router) WaitForStart(ctx context.Context) error {
 	return err
 }
 
+func (r *Router) AddAddrs(addrs []NodeAddress) error {
+	return r.peerManager.AddAddrs(addrs)
+}
+
+func (r *Router) Subscribe() *PeerUpdatesRecv {
+	return r.peerManager.Subscribe()
+}
+
+func (r *Router) Advertise(maxAddrs int) []NodeAddress {
+	if maxAddrs==0 { return nil }
+	var addrs []NodeAddress
+	if selfAddr,ok := r.options.SelfAddress.Get(); ok {
+		addrs = append(addrs, selfAddr)
+	}
+	for peerDB := range r.peerDB.Lock() {
+		addrs = append(addrs, peerDB.GetLast(maxAddrs-1)...)
+	}
+	return addrs
+}
+
 // OpenChannel opens a new channel for the given message type.
 func (r *Router) OpenChannel(chDesc ChannelDescriptor) (*Channel, error) {
 	for channels := range r.channels.Lock() {

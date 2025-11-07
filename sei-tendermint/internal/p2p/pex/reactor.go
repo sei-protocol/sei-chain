@@ -215,7 +215,7 @@ func (r *Reactor) processPexCh(ctx context.Context) error {
 				dur, err := r.handlePexMessage(m)
 				if err != nil {
 					r.logger.Error("failed to process pex message", "err", err)
-					r.router.PeerManager().SendError(p2p.PeerError{
+					r.router.SendError(p2p.PeerError{
 						NodeID: m.From,
 						Err:    err,
 					})
@@ -234,12 +234,9 @@ func (r *Reactor) processPexCh(ctx context.Context) error {
 // PeerUpdate messages. When the reactor is stopped, we will catch the signal and
 // close the p2p PeerUpdatesCh gracefully.
 func (r *Reactor) processPeerUpdates(ctx context.Context) error {
-	peerUpdates := r.router.PeerManager().Subscribe(ctx)
-	for _, update := range peerUpdates.PreexistingPeers() {
-		r.processPeerUpdate(update)
-	}
+	recv := r.router.Subscribe()
 	for {
-		update, err := utils.Recv(ctx, peerUpdates.Updates())
+		update, err := recv.Recv(ctx)
 		if err != nil {
 			return err
 		}
@@ -251,8 +248,6 @@ func (r *Reactor) processPeerUpdates(ctx context.Context) error {
 // If an update was received, a new polling interval is returned; otherwise the
 // duration is 0.
 func (r *Reactor) handlePexMessage(m p2p.RecvMsg) (time.Duration, error) {
-	logger := r.logger.With("peer", m.From)
-
 	switch msg := m.Message.(type) {
 	case *protop2p.PexRequest:
 		// Verify that this peer hasn't sent us another request too recently.
@@ -262,7 +257,7 @@ func (r *Reactor) handlePexMessage(m p2p.RecvMsg) (time.Duration, error) {
 
 		// Fetch peers from the peer manager, convert NodeAddresses into URL
 		// strings, and send them back to the caller.
-		nodeAddresses := r.router.PeerManager().Advertise(m.From, maxAddresses)
+		nodeAddresses := r.router.Advertise(maxAddresses)
 		pexAddresses := make([]protop2p.PexAddress, len(nodeAddresses))
 		for idx, addr := range nodeAddresses {
 			pexAddresses[idx] = protop2p.PexAddress{
@@ -284,26 +279,18 @@ func (r *Reactor) handlePexMessage(m p2p.RecvMsg) (time.Duration, error) {
 				len(msg.Addresses), maxAddresses)
 		}
 
-		var numAdded int
+		var addrs []p2p.NodeAddress
 		for _, pexAddress := range msg.Addresses {
-			peerAddress, err := p2p.ParseNodeAddress(pexAddress.URL)
+			addr, err := p2p.ParseNodeAddress(pexAddress.URL)
 			if err != nil {
-				return 0, fmt.Errorf("PEX parse node address error %s", err)
+				return 0, fmt.Errorf("PEX parse node address error: %w", err)
 			}
-			added, err := r.router.PeerManager().Add(peerAddress)
-			if err != nil {
-				// TODO(gprusak): This does not distinguish between bad messages (should drop peer) and internal errors (ignore/abort).
-				logger.Error("failed to add PEX address", "address", peerAddress, "err", err)
-				continue
-			}
-			if added {
-				numAdded++
-				logger.Debug("added PEX address", "address", peerAddress)
-			}
+			addrs = append(addrs,addr)
 		}
-
-		return r.calculateNextRequestTime(numAdded), nil
-
+		if err := r.router.AddAddrs(addrs); err!=nil {
+			return 0, fmt.Errorf("failed adding addresses from PEX response: %w", err)
+		}
+		return r.calculateNextRequestTime(len(addrs)), nil
 	default:
 		return 0, fmt.Errorf("received unknown message: %T", msg)
 	}

@@ -350,7 +350,7 @@ func (m *PeerManager) Conns() connSet {
 func (m *PeerManager) AddAddrs(addrs []NodeAddress) error {
 	for inner,ctrl := range m.inner.Lock() {
 		for _,addr := range addrs {
-			if err:=addr.Validate();err!=nil {
+			if err:=addr.Validate(); err!=nil {
 				return err
 			}
 			if inner.AddAddr(addr) {
