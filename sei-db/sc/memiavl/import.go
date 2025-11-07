@@ -13,11 +13,12 @@ import (
 
 var (
 	// Pipeline channel size - controls how many operations can be queued
-	// Larger = more parallelism, but more memory (2M ops * 120 bytes * 3 channels = ~720MB)
-	nodeChanSize = 2000000
+	// Reduced to 1M to balance memory usage (1M ops * 120 bytes * 3 channels = ~360MB)
+	nodeChanSize = 1000000
 
-	// bufio.Writer buffer size - 256MB reduces system calls and improves throughput
-	bufIOSize = 256 * 1024 * 1024
+	// bufio.Writer buffer size - 128MB balances performance and memory usage
+	// Total memory: 128MB * 3 files + 360MB channels ≈ 750MB per snapshot write
+	bufIOSize = 128 * 1024 * 1024
 )
 
 type MultiTreeImporter struct {
