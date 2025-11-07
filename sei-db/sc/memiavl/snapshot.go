@@ -400,7 +400,7 @@ func (t *Tree) WriteSnapshot(ctx context.Context, snapshotDir string) error {
 	// Use 256MB buffer for all trees (large buffer for better performance)
 	bufSize := bufIOSize
 
-	err := writeSnapshotWithBuffer(ctx, snapshotDir, t.version, bufSize, treeSize, func(w *snapshotWriter) (uint32, error) {
+	err := writeSnapshotWithBuffer(ctx, snapshotDir, t.version, bufSize, treeSize, t.logger, func(w *snapshotWriter) (uint32, error) {
 		if t.root == nil {
 			return 0, nil
 		}
@@ -424,6 +424,7 @@ func writeSnapshotWithBuffer(
 	dir string, version uint32,
 	bufSize int,
 	totalNodes int64,
+	log logger.Logger,
 	doWrite func(*snapshotWriter) (uint32, error),
 ) (returnErr error) {
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil { //nolint:gosec
@@ -474,18 +475,25 @@ func writeSnapshotWithBuffer(
 	leavesWriter := bufio.NewWriterSize(leavesMonitor, bufSize)
 	kvsWriter := bufio.NewWriterSize(kvsMonitor, bufSize)
 
-	w := newSnapshotWriter(ctx, nodesWriter, leavesWriter, kvsWriter)
+	w := newSnapshotWriter(ctx, nodesWriter, leavesWriter, kvsWriter, log)
 	w.treeName = filepath.Base(dir) // Set tree name for progress reporting
 	w.totalNodes = totalNodes       // Set total nodes for progress percentage
 	w.traversalStartTime = time.Now()
 
 	leaves, err := doWrite(w)
+	// Always wait for writer goroutines to finish
+	waitErr := w.waitForWrites()
+
+	// Handle errors with priority to waitErr (the underlying I/O error)
 	if err != nil {
+		// If doWrite failed due to context cancellation, return the real I/O error
+		if err == context.Canceled && waitErr != nil {
+			return waitErr
+		}
 		return err
 	}
-	// Wait for all pending writes to complete
-	if err := w.waitForWrites(); err != nil {
-		return err
+	if waitErr != nil {
+		return waitErr
 	}
 
 	if leaves > 0 {
@@ -539,7 +547,8 @@ func writeSnapshot(
 	dir string, version uint32,
 	doWrite func(*snapshotWriter) (uint32, error),
 ) error {
-	return writeSnapshotWithBuffer(ctx, dir, version, bufIOSize, 0, doWrite)
+	// Use nop logger for backward compatibility
+	return writeSnapshotWithBuffer(ctx, dir, version, bufIOSize, 0, logger.NewNopLogger(), doWrite)
 }
 
 // kvWriteOp represents a key-value write operation
@@ -568,7 +577,8 @@ type branchWriteOp struct {
 
 type snapshotWriter struct {
 	// context for cancel the writing process
-	ctx context.Context
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	nodesWriter, leavesWriter, kvWriter io.Writer
 
@@ -584,6 +594,7 @@ type snapshotWriter struct {
 	traversalStartTime     time.Time
 	lastProgressReport     time.Time
 	progressReportInterval time.Duration
+	logger                 logger.Logger
 
 	// Pipeline for async writes - separate channels for each file
 	kvChan     chan kvWriteOp
@@ -619,7 +630,9 @@ func SetPipelineBufferSize(size int) {
 	nodeChanSize = size
 }
 
-func newSnapshotWriter(ctx context.Context, nodesWriter, leavesWriter, kvsWriter io.Writer) *snapshotWriter {
+func newSnapshotWriter(ctx context.Context, nodesWriter, leavesWriter, kvsWriter io.Writer, log logger.Logger) *snapshotWriter {
+	// Create a cancelable context so we can stop producers on error
+	ctx, cancel := context.WithCancel(ctx)
 	now := time.Now()
 
 	// Create separate buffered channels for each file type
@@ -632,11 +645,13 @@ func newSnapshotWriter(ctx context.Context, nodesWriter, leavesWriter, kvsWriter
 
 	w := &snapshotWriter{
 		ctx:                    ctx,
+		cancel:                 cancel,
 		nodesWriter:            nodesWriter,
 		leavesWriter:           leavesWriter,
 		kvWriter:               kvsWriter,
 		lastProgressReport:     now,
 		progressReportInterval: 30 * time.Second,
+		logger:                 log,
 		kvChan:                 kvChan,
 		leafChan:               leafChan,
 		branchChan:             branchChan,
@@ -659,10 +674,7 @@ func (w *snapshotWriter) kvWriterLoop() {
 
 	for op := range w.kvChan {
 		if err := w.writeKeyValueDirect(op.key, op.value); err != nil {
-			select {
-			case w.writeErrors <- fmt.Errorf("kv write error: %w", err):
-			default:
-			}
+			w.fail(fmt.Errorf("kv write error: %w", err))
 			return
 		}
 	}
@@ -674,10 +686,7 @@ func (w *snapshotWriter) leafWriterLoop() {
 
 	for op := range w.leafChan {
 		if err := w.writeLeafDirect(op.version, op.keyLen, op.keyOffset, op.hash); err != nil {
-			select {
-			case w.writeErrors <- fmt.Errorf("leaf write error: %w", err):
-			default:
-			}
+			w.fail(fmt.Errorf("leaf write error: %w", err))
 			return
 		}
 	}
@@ -689,13 +698,30 @@ func (w *snapshotWriter) branchWriterLoop() {
 
 	for op := range w.branchChan {
 		if err := w.writeBranchDirect(op.version, op.size, op.height, op.preTrees, op.keyLeaf, op.hash); err != nil {
-			select {
-			case w.writeErrors <- fmt.Errorf("branch write error: %w", err):
-			default:
-			}
+			w.fail(fmt.Errorf("branch write error: %w", err))
 			return
 		}
 	}
+}
+
+// fail records an error and cancels the context to stop producers
+func (w *snapshotWriter) fail(err error) {
+	// Log the error immediately for debugging
+	if w.logger != nil {
+		w.logger.Error("snapshot writer failed, canceling operation",
+			"tree", w.treeName,
+			"error", err.Error(),
+			"branches_written", w.branchCounter,
+			"leaves_written", w.leafCounter,
+		)
+	}
+
+	select {
+	case w.writeErrors <- err:
+	default:
+		// Channel full, error already recorded
+	}
+	w.cancel()
 }
 
 // waitForWrites waits for all pending writes to complete and returns any error
@@ -705,14 +731,35 @@ func (w *snapshotWriter) waitForWrites() error {
 	close(w.leafChan)
 	close(w.branchChan)
 
+	if w.logger != nil {
+		w.logger.Info("waiting for async writers to complete",
+			"tree", w.treeName,
+			"branches_queued", w.branchCounter,
+			"leaves_queued", w.leafCounter,
+		)
+	}
+
 	// Wait for all writer goroutines to finish
 	w.wg.Wait()
 
 	// Check for any errors
 	select {
 	case err := <-w.writeErrors:
+		if w.logger != nil {
+			w.logger.Error("async writer reported error after completion",
+				"tree", w.treeName,
+				"error", err.Error(),
+			)
+		}
 		return err
 	default:
+		if w.logger != nil {
+			w.logger.Info("all async writers completed successfully",
+				"tree", w.treeName,
+				"total_branches", w.branchCounter,
+				"total_leaves", w.leafCounter,
+			)
+		}
 		return nil
 	}
 }

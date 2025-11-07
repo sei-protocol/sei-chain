@@ -570,14 +570,47 @@ func (db *DB) RewriteSnapshot(ctx context.Context) error {
 	writeElapsed := time.Since(writeStart).Seconds()
 
 	if err != nil {
-		return errorutils.Join(err, os.RemoveAll(path))
+		db.logger.Error("snapshot write failed, cleaning up temporary directory",
+			"tmpDir", tmpDir,
+			"error", err,
+		)
+		cleanupErr := os.RemoveAll(path)
+		if cleanupErr != nil {
+			db.logger.Error("failed to clean up temporary snapshot directory",
+				"tmpDir", tmpDir,
+				"cleanup_error", cleanupErr,
+			)
+		} else {
+			db.logger.Info("temporary snapshot directory cleaned up successfully",
+				"tmpDir", tmpDir,
+			)
+		}
+		return errorutils.Join(err, cleanupErr)
 	}
 
 	db.logger.Info("snapshot rewrite completed", "duration_sec", writeElapsed)
 
-	if err := os.Rename(path, filepath.Join(db.dir, snapshotDir)); err != nil {
+	// Rename temporary directory to final location
+	if err := os.Rename(path, targetPath); err != nil {
+		db.logger.Error("failed to rename snapshot directory, cleaning up",
+			"tmpDir", tmpDir,
+			"targetDir", snapshotDir,
+			"error", err,
+		)
+		// Clean up temporary directory on rename failure
+		if cleanupErr := os.RemoveAll(path); cleanupErr != nil {
+			db.logger.Error("failed to clean up temporary snapshot directory after rename failure",
+				"tmpDir", tmpDir,
+				"cleanup_error", cleanupErr,
+			)
+			return errorutils.Join(err, cleanupErr)
+		}
+		db.logger.Info("temporary snapshot directory cleaned up after rename failure",
+			"tmpDir", tmpDir,
+		)
 		return err
 	}
+
 	return updateCurrentSymlink(db.dir, snapshotDir)
 }
 
