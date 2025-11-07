@@ -1,23 +1,45 @@
-name: UCI
+# .github/workflows/go-lint.yml
+name: Reusable Go Lint Workflow
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
-
-permissions:
-  contents: read
-  pull-requests: write
-
-concurrency:
-  group: uci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
-  cancel-in-progress: true
+  workflow_call:
+    inputs:
+      go-version:
+        required: true
+        type: string
 
 jobs:
-  go-lint:
-    name: Go Lint
-    uses: sei-protocol/uci/.github/workflows/go-lint.yml@v0.0.1
-    with:
-      go-version: '1.25'  # Codex locked to match go.mod
+  lint:
+    name: Run Go Linter
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🧰 Set up Go ${{ inputs.go-version }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache: true
+
+      - name: 🧹 Go fmt check
+        run: |
+          if [[ $(gofmt -l . | tee /dev/stderr | wc -l) -ne 0 ]]; then
+            echo "❌ gofmt found unformatted files"
+            exit 1
+          fi
+
+      - name: 🔎 Run go vet
+        run: go vet ./...
+
+      - name: 🧪 Run go test
+        run: go test ./...
+
+      - name: 🧪 Optional: Run staticcheck
+        uses: dominikh/staticcheck-action@v1
+        with:
+          version: latest
+
+      - name: ✅ Lint complete
+        run: echo "Go linting complete!"

@@ -1,4 +1,4 @@
-name: Forge test
+name: 🧪 Forge Test Suite
 
 on:
   pull_request:
@@ -12,29 +12,47 @@ env:
   FOUNDRY_PROFILE: ci
 
 jobs:
-  check:
-    strategy:
-      fail-fast: true
-
-    name: Foundry project
+  forge-check:
+    name: 🧱 Foundry Build & Test
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install Foundry
+      - name: 🧰 Install Foundry Toolchain
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: nightly
+          version: nightly  # Pin to `v1.0.0` or similar if you want deterministic CI
 
-      - name: Run Forge build
+      - name: 🧪 Install Dependencies
+        run: forge install
+
+      - name: ⚙️ Forge Build
+        id: build
         run: |
           forge --version
           forge build --evm-version=prague
-        id: build
 
-      - name: Run Forge tests
+      - name: 🧬 Run Forge Tests
+        id: test
         run: |
           forge test -vvv --evm-version=prague
-        id: test
+        continue-on-error: false
+
+      - name: 🧾 Upload Failed Test Logs (on failure only)
+        if: failure()
+        run: |
+          mkdir -p forge-logs
+          cp -r out/ forge-logs/
+          cp -r cache/ forge-logs/ || true
+        continue-on-error: true
+
+      - name: ⬆️ Upload Logs to GitHub
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-debug-logs
+          path: forge-logs/

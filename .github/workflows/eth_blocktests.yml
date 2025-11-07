@@ -1,101 +1,16 @@
-name: "🧬 Sovereign Chain Integration & Codex Lineage"
+name: "📜 Codex Attribution Snapshot"
 
 on:
-  push:
-    branches: [main, evm1]
-  pull_request:
-    branches: [main, evm1, evm]
-
-defaults:
-  run:
-    shell: bash
+  workflow_run:
+    workflows: ["Sovereign Integration Test Suite"]
+    types:
+      - completed
 
 jobs:
-  sovereign-integration-tests:
-    name: "Chain Test Matrix – ${{ matrix.test.name }}"
-    runs-on: ubuntu-large
-    timeout-minutes: 30
-
-    strategy:
-      fail-fast: false
-      matrix:
-        test:
-          - name: "EVM1 Production Check"
-            env:
-              MAINNET: "true"
-            script: "python3 integration_test/scripts/runner.py integration_test/evm_module/prod_sanity_check.yaml"
-          - name: "EVM Interoperability"
-            env: {}
-            script: "./integration_test/evm_module/scripts/evm_interoperability_tests.sh"
-          - name: "dApp Tests"
-            env: {}
-            script: "./integration_test/dapp_tests/dapp_tests.sh seilocal"
-
-    steps:
-      - name: "📥 Checkout Repository"
-        uses: actions/checkout@v4
-
-      - name: "🛠 Set Up Python"
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: "🔧 Set Up Node.js"
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: "📦 Install Test Dependencies"
-        run: |
-          set -euo pipefail
-          pip install --user pyyaml bip_utils mnemonic
-          sudo apt-get update
-          sudo apt-get install -y jq
-
-      - name: "📦 Set Up Go"
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: "🚀 Launch Docker Cluster"
-        env: ${{ matrix.test.env }}
-        run: |
-          set -euo pipefail
-          make docker-cluster-start &
-
-      - name: "⏳ Wait for Chain Bootstrapping"
-        run: |
-          set -euo pipefail
-          until [[ -f build/generated/launch.complete ]]; do
-            sleep 10
-          done
-          until [[ $(wc -l < build/generated/launch.complete) -eq 4 ]]; do
-            sleep 10
-          done
-          sleep 10
-
-      - name: "🌐 Start RPC Node"
-        env: ${{ matrix.test.env }}
-        run: |
-          set -euo pipefail
-          make run-rpc-node-skipbuild &
-
-      - name: "✅ Validate Chain Initialization"
-        run: |
-          set -euo pipefail
-          python3 integration_test/scripts/runner.py integration_test/startup/startup_test.yaml
-
-      - name: "🧪 Execute Test Suite"
-        env: ${{ matrix.test.env }}
-        run: |
-          set -euo pipefail
-          bash -c "${{ matrix.test.script }}"
-
   codex-lineage-record:
     name: "📜 Codex Attribution Snapshot"
     runs-on: ubuntu-latest
-    needs: sovereign-integration-tests
-    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    if: ${{ always() && github.event.workflow_run.conclusion }}
     outputs:
       attribution_message: ${{ steps.log.outputs.summary }}
 
@@ -129,11 +44,11 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           set -euo pipefail
-          case "$TEST_RESULT" in
+          case "${{ github.event.workflow_run.conclusion }}" in
             success) status="✅ Integration Passed"; color="#36A64F" ;;
             failure) status="❌ Integration Tests Failed"; color="#FF0000" ;;
             cancelled) status="⚠️ Integration Tests Cancelled"; color="#FFA500" ;;
-            *) status="ℹ️ Integration Status: $TEST_RESULT"; color="#439FE0" ;;
+            *) status="ℹ️ Integration Status: ${{ github.event.workflow_run.conclusion }}"; color="#439FE0" ;;
           esac
 
           curl -X POST -H 'Content-type: application/json' --data "{
@@ -154,8 +69,3 @@ jobs:
               }
             ]
           }" "$SLACK_WEBHOOK_URL"
-
-      - name: "⛓ Run ETH Blocktest"
-        run: |
-          git checkout c67e485ff8b5be9abc8ad15345ec21aa22e290d9
-          ./run_blocktests.sh ./ethtests/ ${{ matrix.runner-index }} ${{ env.TOTAL_RUNNERS }}
