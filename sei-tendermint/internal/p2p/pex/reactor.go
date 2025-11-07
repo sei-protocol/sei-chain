@@ -260,9 +260,7 @@ func (r *Reactor) handlePexMessage(m p2p.RecvMsg) (time.Duration, error) {
 		nodeAddresses := r.router.Advertise(maxAddresses)
 		pexAddresses := make([]protop2p.PexAddress, len(nodeAddresses))
 		for idx, addr := range nodeAddresses {
-			pexAddresses[idx] = protop2p.PexAddress{
-				URL: addr.String(),
-			}
+			pexAddresses[idx] = protop2p.PexAddress{URL: addr.String()}
 		}
 		r.channel.Send(&protop2p.PexResponse{Addresses: pexAddresses}, m.From)
 		return 0, nil
