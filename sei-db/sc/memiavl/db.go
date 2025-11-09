@@ -21,6 +21,7 @@ import (
 	"github.com/cosmos/iavl"
 	errorutils "github.com/sei-protocol/sei-db/common/errors"
 	"github.com/sei-protocol/sei-db/common/logger"
+	"github.com/sei-protocol/sei-db/common/metrics"
 	"github.com/sei-protocol/sei-db/common/utils"
 	"github.com/sei-protocol/sei-db/proto"
 	"github.com/sei-protocol/sei-db/stream/changelog"
@@ -92,7 +93,7 @@ const (
 func OpenDB(logger logger.Logger, targetVersion int64, opts Options) (database *DB, _err error) {
 	startTime := time.Now()
 	defer func() {
-		otelMetrics.RestartLatency.Record(
+		metrics.SeiDBMetrics.RestartLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", _err == nil)),
@@ -308,7 +309,7 @@ func (db *DB) ApplyChangeSets(changeSets []*proto.NamedChangeSet) (_err error) {
 
 	startTime := time.Now()
 	defer func() {
-		otelMetrics.ApplyChangesetLatency.Record(
+		metrics.SeiDBMetrics.ApplyChangesetLatency.Record(
 			context.Background(),
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", _err == nil)),
@@ -484,13 +485,13 @@ func (db *DB) Commit() (version int64, _err error) {
 	startTime := time.Now()
 	defer func() {
 		ctx := context.Background()
-		otelMetrics.CommitLatency.Record(
+		metrics.SeiDBMetrics.CommitLatency.Record(
 			ctx,
 			time.Since(startTime).Seconds(),
 			metric.WithAttributes(attribute.Bool("success", _err == nil)),
 		)
-		otelMetrics.MemNodeTotalSize.Record(ctx, TotalMemNodeSize.Load())
-		otelMetrics.NumOfMemNode.Record(ctx, TotalNumOfMemNode.Load())
+		metrics.SeiDBMetrics.MemNodeTotalSize.Record(ctx, TotalMemNodeSize.Load())
+		metrics.SeiDBMetrics.NumOfMemNode.Record(ctx, TotalNumOfMemNode.Load())
 	}()
 
 	db.mtx.Lock()
@@ -723,7 +724,7 @@ func (db *DB) rewriteSnapshotBackground() error {
 		ch <- snapshotResult{mtree: mtree}
 		totalElapsed := time.Since(startTime).Seconds()
 		cloned.logger.Info("snapshot rewrite process completed", "duration_sec", totalElapsed, "duration_min", totalElapsed/60)
-		otelMetrics.SnapshotCreationLatency.Record(
+		metrics.SeiDBMetrics.SnapshotCreationLatency.Record(
 			context.Background(),
 			totalElapsed,
 		)
