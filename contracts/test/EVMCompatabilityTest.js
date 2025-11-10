@@ -1,7 +1,8 @@
 const { expect } = require("chai");
 const {isBigNumber} = require("hardhat/common");
 const {uniq, shuffle} = require("lodash");
-const { ethers, upgrades } = require('hardhat');
+const hre = require('hardhat');
+const { ethers, upgrades } = hre;
 const { getImplementationAddress } = require('@openzeppelin/upgrades-core');
 const { deployEvmContract, setupSigners, fundAddress, getCosmosTx, getEvmTx, waitForBaseFeeToEq, waitForBaseFeeToBeGt} = require("./lib")
 const axios = require("axios");
@@ -73,6 +74,8 @@ describe("EVM Test", function () {
     let owner;
     let evmAddr;
     let firstNonce;
+    let loadSigners = [];
+    let loadContracts = [];
 
     // The first contract address deployed from 0xF87A299e6bC7bEba58dbBe5a5Aa21d49bCD16D52
     // should always be 0xbD5d765B226CaEA8507EE030565618dAFFD806e2 when sent with nonce=0
@@ -85,6 +88,7 @@ describe("EVM Test", function () {
       }
       const accounts = await setupSigners(await ethers.getSigners())
       owner = accounts[0].signer;
+      loadSigners = accounts.map((acct) => acct.signer);
       debug(`OWNER = ${owner.address}`)
 
       firstNonce = await ethers.provider.getTransactionCount(owner.address)
@@ -99,6 +103,8 @@ describe("EVM Test", function () {
 
       let tokenAddr = await testToken.getAddress()
       evmAddr = await evmTester.getAddress()
+
+      loadContracts = loadSigners.map((signer) => evmTester.connect(signer));
 
       debug(`Token: ${tokenAddr}, EvmAddr: ${evmAddr}`);
     });
@@ -878,6 +884,77 @@ describe("EVM Test", function () {
           expect(log.logIndex).to.be.undefined;
           expect(log.removed).to.be.undefined;
         }
+      });
+
+      it.only("Should keep head receipts and traces immediately available under load", async function () {
+        // this.timeout(60000);
+        const txOpts = { gasPrice: ethers.parseUnits('100', 'gwei') };
+        const txResponse = await evmTester.setBoolVar(true, txOpts);
+        const txHash = txResponse.hash;
+        const normalizedTxHash = txHash.toLowerCase();
+        const startBlock = await ethers.provider.getBlockNumber();
+        const blocksToInspect = [startBlock, startBlock + 1];
+
+        const waitForBlockNumber = async (targetNumber) => {
+          const attempts = 40;
+          for (let i = 0; i < attempts; i++) {
+            const latest = await ethers.provider.getBlockNumber();
+            if (latest >= targetNumber) {
+              return true;
+            }
+            await sleep(500);
+          }
+          return false;
+        };
+
+        const fetchBlockWithWait = async (blockNumber, waitForBlock) => {
+          const attempts = waitForBlock ? 20 : 1;
+          for (let i = 0; i < attempts; i++) {
+            const block = await ethers.provider.getBlock(blockNumber, true);
+            if (block) {
+              return block;
+            }
+            await sleep(500);
+          }
+          return null;
+        };
+
+        let locatedBlock = null;
+        for (let i = 0; i < blocksToInspect.length; i++) {
+          const blockNumber = blocksToInspect[i];
+          if (i === 1) {
+            const seen = await waitForBlockNumber(blockNumber);
+            if (!seen) {
+              continue;
+            }
+          }
+          const block = await fetchBlockWithWait(blockNumber, i === 1);
+          if (!block || !block.transactions || block.transactions.length === 0) {
+            continue;
+          }
+          const hashes = block.transactions.map((tx) =>
+            typeof tx === "string" ? tx.toLowerCase() : tx.hash.toLowerCase()
+          );
+          if (hashes.includes(normalizedTxHash)) {
+            locatedBlock = block;
+            break;
+          }
+        }
+
+        if (!locatedBlock) {
+          throw new Error("Transaction not found in the latest two blocks");
+        }
+
+        const receipt = await ethers.provider.getTransactionReceipt(txHash);
+        expect(receipt).to.not.be.null;
+        expect(receipt.blockNumber).to.equal(locatedBlock.number);
+
+        const trace = await hre.network.provider.request({
+          method: "debug_traceTransaction",
+          params: [txHash],
+        });
+        expect(trace).to.have.property("structLogs");
+        expect(trace.failed).to.be.false;
       });
 
       it("Should fetch the current gas price", async function () {
