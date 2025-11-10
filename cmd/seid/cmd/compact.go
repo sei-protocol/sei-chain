@@ -9,7 +9,6 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/server"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/sei-protocol/sei-chain/app/params"
 	"github.com/spf13/cobra"
 	leveldbutils "github.com/syndtr/goleveldb/leveldb/util"
 	"github.com/tendermint/tendermint/libs/cli"
@@ -26,7 +25,6 @@ func CompactCmd(defaultNodeHome string) *cobra.Command {
 			clientCtx := client.GetClientContextFromCmd(cmd)
 			serverCtx := server.GetServerContextFromCmd(cmd)
 			config := serverCtx.Config
-			params.SetTendermintConfigs(config)
 			config.SetRoot(clientCtx.HomeDir)
 			rootDir := config.RootDir
 			dataDir := filepath.Join(rootDir, "data")

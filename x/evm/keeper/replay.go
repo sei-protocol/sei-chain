@@ -39,7 +39,7 @@ func (k *Keeper) VerifyTxResult(ctx sdk.Context, hash common.Hash) {
 	if err != nil {
 		panic(err)
 	}
-	if localReceipt.Status != uint32(remoteReceipt.Status) {
+	if localReceipt.Status != uint32(remoteReceipt.Status) { //nolint:gosec
 		panic(fmt.Sprintf("remote transaction has status %d while local has status %d", remoteReceipt.Status, localReceipt.Status))
 	}
 	if len(localReceipt.Logs) != len(remoteReceipt.Logs) {
@@ -95,7 +95,7 @@ func contains(slice []common.Address, element common.Address) bool {
 func (k *Keeper) VerifyState(ctx sdk.Context, addr common.Address) {
 	store := k.PrefixStore(ctx, types.StateKey(addr))
 	iter := store.Iterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		key := common.BytesToHash(iter.Key())
 		ethVal, err := k.EthClient.StorageAt(ctx.Context(), addr, key, k.ReplayBlock.Number())

@@ -52,7 +52,7 @@ func TestGetParamsIfExists(t *testing.T) {
 }
 
 func TestParamGettersTracingVersions(t *testing.T) {
-	k, baseCtx := testkeeper.MockEVMKeeper()
+	k, baseCtx := testkeeper.MockEVMKeeper(t)
 
 	// custom values to distinguish from defaults
 	customBaseFee := sdk.NewDec(123456)

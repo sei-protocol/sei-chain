@@ -23,10 +23,20 @@ type RpcResponse struct {
 	Result  evmrpc.StateAccessResponse `json:"result"`
 }
 
-func mockStatesFromJsonFile(ctx sdk.Context, hash string, a *app.App, client *MockClient) int64 {
-	file, err := os.Open(fmt.Sprintf("mock_data/%s", hash))
+func mockStatesFromBlockJson(ctx sdk.Context, blockNum uint64, a *app.App, client *MockClient) int64 {
+	filepath := fmt.Sprintf("mock_data/blocks/%d.json", blockNum)
+	return mockStatesFromJsonFile(ctx, filepath, a, client)
+}
+
+func mockStatesFromTxJson(ctx sdk.Context, hash string, a *app.App, client *MockClient) int64 {
+	filepath := fmt.Sprintf("mock_data/transactions/%s.json", hash)
+	return mockStatesFromJsonFile(ctx, filepath, a, client)
+}
+
+func mockStatesFromJsonFile(ctx sdk.Context, filepath string, a *app.App, client *MockClient) int64 {
+	file, err := os.Open(filepath) //nolint:gosec
 	check(err)
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	data, err := io.ReadAll(file)
 	check(err)
 	response := &RpcResponse{}
@@ -141,14 +151,14 @@ func mockReceipt(ctx sdk.Context, a *app.App, receipts json.RawMessage) {
 	check(err)
 	for _, parsed := range traces.Traces {
 		typed := types.Receipt{
-			TxType:            uint32(parsed.Type),
+			TxType:            uint32(parsed.Type), //nolint:gosec
 			CumulativeGasUsed: uint64(parsed.CumulativeGasUsed),
 			TxHashHex:         parsed.TransactionHash.Hex(),
 			GasUsed:           uint64(parsed.GasUsed),
 			EffectiveGasPrice: parsed.EffectiveGasPrice.ToInt().Uint64(),
 			BlockNumber:       uint64(parsed.BlockNumber),
-			TransactionIndex:  uint32(parsed.TransactionIndex),
-			Status:            uint32(parsed.Status),
+			TransactionIndex:  uint32(parsed.TransactionIndex), //nolint:gosec
+			Status:            uint32(parsed.Status),           //nolint:gosec
 			From:              parsed.From.Hex(),
 		}
 		if parsed.ContractAddress != nil {

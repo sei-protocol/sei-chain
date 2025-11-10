@@ -16,7 +16,7 @@ func (k *Keeper) GetAllEVMTxDeferredInfo(ctx sdk.Context) (res []*types.Deferred
 	for txIdx, msg := range k.msgs {
 		txRes := k.txResults[txIdx]
 		key := make([]byte, 8)
-		binary.BigEndian.PutUint64(key, uint64(txIdx))
+		binary.BigEndian.PutUint64(key, uint64(txIdx)) //nolint:gosec
 		val := store.Get(key)
 		if val == nil {
 			if msg == nil {
@@ -32,7 +32,7 @@ func (k *Keeper) GetAllEVMTxDeferredInfo(ctx sdk.Context) (res []*types.Deferred
 				ctx.Logger().Error(fmt.Sprintf("transaction %s has code 0 but no deferred info", etx.Hash().Hex()))
 			}
 			res = append(res, &types.DeferredInfo{
-				TxIndex: uint32(txIdx),
+				TxIndex: uint32(txIdx), //nolint:gosec
 				TxHash:  etx.Hash().Bytes(),
 				Error:   txRes.Log,
 			})
@@ -51,9 +51,9 @@ func (k *Keeper) GetAllEVMTxDeferredInfo(ctx sdk.Context) (res []*types.Deferred
 
 func (k *Keeper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom ethtypes.Bloom, txHash common.Hash, surplus sdk.Int) {
 	key := make([]byte, 8)
-	binary.BigEndian.PutUint64(key, uint64(ctx.TxIndex()))
+	binary.BigEndian.PutUint64(key, uint64(ctx.TxIndex())) //nolint:gosec
 	val := &types.DeferredInfo{
-		TxIndex: uint32(ctx.TxIndex()),
+		TxIndex: uint32(ctx.TxIndex()), //nolint:gosec
 		TxBloom: bloom[:],
 		TxHash:  txHash[:],
 		Surplus: surplus,
@@ -69,7 +69,7 @@ func (k *Keeper) AppendToEvmTxDeferredInfo(ctx sdk.Context, bloom ethtypes.Bloom
 
 func (k *Keeper) GetEVMTxDeferredInfo(ctx sdk.Context) (*types.DeferredInfo, bool) {
 	key := make([]byte, 8)
-	binary.BigEndian.PutUint64(key, uint64(ctx.TxIndex()))
+	binary.BigEndian.PutUint64(key, uint64(ctx.TxIndex())) //nolint:gosec
 	val := &types.DeferredInfo{}
 	bz := prefix.NewStore(ctx.TransientStore(k.transientStoreKey), types.DeferredInfoPrefix).Get(key)
 	if bz == nil {

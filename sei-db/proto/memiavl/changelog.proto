@@ -1,0 +1,37 @@
+syntax = "proto3";
+package memiavl;
+
+import "gogoproto/gogo.proto";
+import "iavl/changeset.proto";
+import "memiavl/commit_info.proto";
+
+// NamedChangeSet combine a tree name with the changeset
+message NamedChangeSet {
+  iavl.ChangeSet changeset = 1 [(gogoproto.nullable) = false];
+  string         name      = 2;
+}
+
+// TreeNameUpgrade defines upgrade of tree names:
+// - New tree: { name: "tree" }
+// - Delete tree: { name: "tree", delete: true }
+// - Rename tree: { name: "new-tree", rename_from: "old-tree" }
+message TreeNameUpgrade {
+  string name          = 1;
+  string rename_from   = 2;
+  bool   delete        = 3;
+}
+
+// MultiTreeMetadata stores the metadata for MultiTree
+message MultiTreeMetadata {
+  CommitInfo commit_info     = 1;
+  int64      initial_version = 2;
+}
+
+// ChangelogEntry is a single entry in the changelog
+message ChangelogEntry {
+  int64    version                    = 1;
+  repeated NamedChangeSet  changesets = 2;
+  repeated TreeNameUpgrade upgrades   = 3;
+}
+
+

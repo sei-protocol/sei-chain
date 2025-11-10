@@ -19,8 +19,9 @@ import (
 	"github.com/tendermint/tendermint/rpc/coretypes"
 )
 
-const highTotalGasUsedThreshold = 8500000
+const DefaultBlockGasLimit = 10000000
 const defaultPriorityFeePerGas = 1000000000 // 1gwei
+const defaultThresholdPercentage = 80       // 80%
 
 type InfoAPI struct {
 	tmClient         rpcclient.Client
@@ -31,10 +32,11 @@ type InfoAPI struct {
 	connectionType   ConnectionType
 	maxBlocks        int64
 	txDecoder        sdk.TxDecoder
+	watermarks       *WatermarkManager
 }
 
-func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, maxBlocks int64, connectionType ConnectionType, txDecoder sdk.TxDecoder) *InfoAPI {
-	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType, maxBlocks: maxBlocks, txDecoder: txDecoder}
+func NewInfoAPI(tmClient rpcclient.Client, k *keeper.Keeper, ctxProvider func(int64) sdk.Context, txConfigProvider func(int64) client.TxConfig, homeDir string, maxBlocks int64, connectionType ConnectionType, txDecoder sdk.TxDecoder, watermarks *WatermarkManager) *InfoAPI {
+	return &InfoAPI{tmClient: tmClient, keeper: k, ctxProvider: ctxProvider, txConfigProvider: txConfigProvider, homeDir: homeDir, connectionType: connectionType, maxBlocks: maxBlocks, txDecoder: txDecoder, watermarks: watermarks}
 }
 
 type FeeHistoryResult struct {
@@ -47,7 +49,11 @@ type FeeHistoryResult struct {
 func (i *InfoAPI) BlockNumber() hexutil.Uint64 {
 	startTime := time.Now()
 	defer recordMetrics("eth_BlockNumber", i.connectionType, startTime)
-	return hexutil.Uint64(i.ctxProvider(LatestCtxHeight).BlockHeight())
+	height, err := i.latestHeight(context.Background())
+	if err != nil {
+		height = i.ctxProvider(LatestCtxHeight).BlockHeight()
+	}
+	return hexutil.Uint64(height) //nolint:gosec
 }
 
 //nolint:revive
@@ -84,7 +90,7 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 	if err != nil {
 		return nil, err
 	}
-	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{0.5})
+	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{50})
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +105,7 @@ func (i *InfoAPI) GasPrice(ctx context.Context) (result *hexutil.Big, returnErr 
 
 // Helper function useful for testing
 func (i *InfoAPI) GasPriceHelper(ctx context.Context, baseFee *big.Int, totalGasUsedPrevBlock uint64, medianRewardPrevBlock *big.Int) (*hexutil.Big, error) {
-	isChainCongested := totalGasUsedPrevBlock > highTotalGasUsedThreshold
+	isChainCongested := i.isChainCongested(totalGasUsedPrevBlock)
 	if !isChainCongested {
 		// chain is not congested, increase base fee by 10% to get the gas price to get a tx included in a timely manner
 		gasPrice := new(big.Int).Mul(baseFee, big.NewInt(110))
@@ -125,8 +131,9 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 
 	// default go-ethereum max block history is 1024
 	// https://github.com/ethereum/go-ethereum/blob/master/eth/gasprice/feehistory.go#L235
-	if blockCount > gmath.HexOrDecimal64(i.maxBlocks) {
-		blockCount = gmath.HexOrDecimal64(i.maxBlocks)
+	maxBlocksD64 := gmath.HexOrDecimal64(i.maxBlocks) //nolint:gosec
+	if blockCount > maxBlocksD64 {
+		blockCount = maxBlocksD64
 	}
 
 	// if someone needs more than 100 reward percentiles, we can discuss, but it's not likely
@@ -147,26 +154,37 @@ func (i *InfoAPI) FeeHistory(ctx context.Context, blockCount gmath.HexOrDecimal6
 		return nil, err
 	}
 	genesisHeight := genesis.Genesis.InitialHeight
-	currentHeight := i.ctxProvider(LatestCtxHeight).BlockHeight()
+	latestHeight, err := i.latestHeight(ctx)
+	if err != nil {
+		return nil, err
+	}
+	earliestHeight, err := i.earliestHeight(ctx)
+	if err != nil {
+		// fall back to genesis height if earliest watermark unavailable
+		earliestHeight = genesisHeight
+	}
+	if earliestHeight < genesisHeight {
+		earliestHeight = genesisHeight
+	}
 	switch lastBlock {
 	case rpc.SafeBlockNumber, rpc.FinalizedBlockNumber, rpc.LatestBlockNumber, rpc.PendingBlockNumber:
-		lastBlockNumber = currentHeight
+		lastBlockNumber = latestHeight
 	case rpc.EarliestBlockNumber:
-		lastBlockNumber = genesisHeight
+		lastBlockNumber = earliestHeight
 	default:
-		if lastBlockNumber > currentHeight {
-			lastBlockNumber = currentHeight
+		if lastBlockNumber > latestHeight {
+			lastBlockNumber = latestHeight
 		}
 	}
 
-	if lastBlockNumber < genesisHeight {
-		return nil, errors.New("requested last block is before genesis height")
+	if lastBlockNumber < earliestHeight {
+		return nil, errors.New("requested last block is before earliest available height")
 	}
 
-	if uint64(lastBlockNumber-genesisHeight) < uint64(blockCount) {
-		result.OldestBlock = (*hexutil.Big)(big.NewInt(genesisHeight))
+	if uint64(lastBlockNumber-earliestHeight) < uint64(blockCount) { //nolint:gosec
+		result.OldestBlock = (*hexutil.Big)(big.NewInt(earliestHeight))
 	} else {
-		result.OldestBlock = (*hexutil.Big)(big.NewInt(lastBlockNumber - int64(blockCount) + 1))
+		result.OldestBlock = (*hexutil.Big)(big.NewInt(lastBlockNumber - int64(blockCount) + 1)) //nolint:gosec
 	}
 
 	result.Reward = [][]*hexutil.Big{}
@@ -229,13 +247,13 @@ func (i *InfoAPI) MaxPriorityFeePerGas(ctx context.Context) (fee *hexutil.Big, r
 	if err != nil {
 		return nil, err
 	}
-	isChainCongested := totalGasUsed > highTotalGasUsedThreshold
+	isChainCongested := i.isChainCongested(totalGasUsed)
 	if !isChainCongested {
 		// chain is not congested, return 1gwei as the default priority fee per gas
 		return (*hexutil.Big)(big.NewInt(defaultPriorityFeePerGas)), nil
 	}
 	// chain is congested, return the 50%-tile reward as the priority fee per gas
-	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{0.5})
+	feeHist, err := i.FeeHistory(ctx, 1, rpc.LatestBlockNumber, []float64{50})
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +330,7 @@ func (i *InfoAPI) getCongestionData(ctx context.Context, height *int64) (blockGa
 		}
 		// We've had issues where is included in a block and fails but then is retried and included in a later block, overwriting the receipt.
 		// This is a temporary fix to ensure we only consider receipts that are included in the block we're querying.
-		if receipt.BlockNumber != uint64(block.Block.Height) {
+		if receipt.BlockNumber != uint64(block.Block.Height) { //nolint:gosec
 			continue
 		}
 		totalEVMGasUsed += receipt.GasUsed
@@ -331,12 +349,12 @@ func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) 
 	sdkCtx := i.ctxProvider(blockHeight)
 	var gasLimit uint64
 	if sdkCtx.ConsensusParams() != nil && sdkCtx.ConsensusParams().Block != nil {
-		gasLimit = uint64(sdkCtx.ConsensusParams().Block.MaxGas)
+		gasLimit = uint64(sdkCtx.ConsensusParams().Block.MaxGas) //nolint:gosec
 	} else {
 		// Fallback: try current context
 		currentCtx := i.ctxProvider(LatestCtxHeight)
 		if currentCtx.ConsensusParams() != nil && currentCtx.ConsensusParams().Block != nil {
-			gasLimit = uint64(currentCtx.ConsensusParams().Block.MaxGas)
+			gasLimit = uint64(currentCtx.ConsensusParams().Block.MaxGas) //nolint:gosec
 		} else {
 			// Default fallback
 			gasLimit = 10000000 // Default block gas limit for Sei
@@ -362,7 +380,7 @@ func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) 
 		}
 		// We've had issues where tx is included in a block and fails but then is retried and included in a later block, overwriting the receipt.
 		// This is a temporary fix to ensure we only consider receipts that are included in the block we're querying.
-		if receipt.BlockNumber != uint64(block.Block.Height) {
+		if receipt.BlockNumber != uint64(block.Block.Height) { //nolint:gosec
 			continue
 		}
 		totalEVMGasUsed += receipt.GasUsed
@@ -373,6 +391,14 @@ func (i *InfoAPI) CalculateGasUsedRatio(ctx context.Context, blockHeight int64) 
 	ratioInt := (totalEVMGasUsed * 10000) / gasLimit
 	ratio := float64(ratioInt) / 10000.0
 	return ratio, nil
+}
+
+func (i *InfoAPI) latestHeight(ctx context.Context) (int64, error) {
+	return i.watermarks.LatestHeight(ctx)
+}
+
+func (i *InfoAPI) earliestHeight(ctx context.Context) (int64, error) {
+	return i.watermarks.EarliestHeight(ctx)
 }
 
 // Following go-ethereum implementation
@@ -402,4 +428,21 @@ func CalculatePercentiles(rewardPercentiles []float64, GasAndRewards []GasAndRew
 		res = append(res, (*hexutil.Big)(GasAndRewards[txIndex].Reward))
 	}
 	return res
+}
+
+func (i *InfoAPI) isChainCongested(totalGasUsed uint64) bool {
+	sdkCtx := i.ctxProvider(LatestCtxHeight)
+	var gasLimit uint64
+	if sdkCtx.ConsensusParams() != nil && sdkCtx.ConsensusParams().Block != nil {
+		maxGas := sdkCtx.ConsensusParams().Block.MaxGas
+		if maxGas <= 0 {
+			gasLimit = uint64(DefaultBlockGasLimit)
+		} else {
+			gasLimit = uint64(maxGas)
+		}
+	} else {
+		gasLimit = uint64(DefaultBlockGasLimit)
+	}
+	threshold := gasLimit * uint64(defaultThresholdPercentage) / 100
+	return totalGasUsed > threshold
 }

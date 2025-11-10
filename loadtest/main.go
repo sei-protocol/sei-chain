@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -178,8 +179,8 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 		txQueues[i] = make(chan SignedTx, 10)
 	}
 	done := make(chan struct{})
-	producerRateLimiter := rate.NewLimiter(rate.Limit(config.TargetTps), int(config.TargetTps))
-	consumerSemaphore := semaphore.NewWeighted(int64(config.TargetTps))
+	producerRateLimiter := rate.NewLimiter(rate.Limit(config.TargetTps), int(config.TargetTps)) //nolint:gosec
+	consumerSemaphore := semaphore.NewWeighted(int64(config.TargetTps))                         //nolint:gosec
 	var wg sync.WaitGroup
 	for i := 0; i < len(keys); i++ {
 		go client.BuildTxs(txQueues[i], i, &wg, done, producerRateLimiter, producedCountPerMsgType)
@@ -218,7 +219,7 @@ func startLoadtestWorkers(client *LoadTestClient, config Config) {
 					atomic.StoreInt64(prevSentCounterPerMsgType[msgType], count)
 				}
 				ticks++
-				if config.Ticks > 0 && ticks >= int(config.Ticks) {
+				if config.Ticks > 0 && ticks >= int(config.Ticks) { //nolint:gosec
 					close(done)
 				}
 			case <-done:
@@ -355,7 +356,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		}}
 	case Bank:
 		msgs = []sdk.Msg{}
-		for i := 0; i < int(msgPerTx); i++ {
+		for i := 0; i < int(msgPerTx); i++ { //nolint:gosec
 
 			msgs = append(msgs, &banktypes.MsgSend{
 				FromAddress: sdk.AccAddress(key.PubKey().Address()).String(),
@@ -474,7 +475,7 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 		values := [][]uint64{}
 		num_values := rand.Int()%100 + 1
 		for x := 0; x < num_values; x++ {
-			values = append(values, []uint64{uint64(indices[x]), rand.Uint64() % 12345})
+			values = append(values, []uint64{uint64(indices[x]), rand.Uint64() % 12345}) //nolint:gosec
 		}
 		contract := config.SeiTesterAddress
 		msgData := WasmIteratorWriteMsg{
@@ -515,9 +516,9 @@ func (c *LoadTestClient) generateMessage(key cryptotypes.PrivKey, msgType string
 	}
 
 	if strings.Contains(msgType, "failure") {
-		return msgs, true, signer, gas, int64(fee)
+		return msgs, true, signer, gas, int64(fee) // nolint:gosec
 	}
-	return msgs, false, signer, gas, int64(fee)
+	return msgs, false, signer, gas, int64(fee) // nolint:gosec
 }
 
 func (c *LoadTestClient) generateStakingMsg(delegatorAddr string, chosenValidator string, srcAddr string) sdk.Msg {
@@ -584,7 +585,7 @@ func getTxBlockInfo(blockchainEndpoint string, height string) (int, string, erro
 		fmt.Printf("Error query block data: %s\n", err)
 		return 0, "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -682,7 +683,7 @@ func GetDefaultConfigFilePath() string {
 
 func ReadConfig(path string) Config {
 	config := Config{}
-	file, _ := os.ReadFile(path)
+	file, _ := os.ReadFile(filepath.Clean(path))
 	if err := json.Unmarshal(file, &config); err != nil {
 		panic(err)
 	}

@@ -10,7 +10,7 @@ import (
 )
 
 func TestEpoch(t *testing.T) {
-	app := processblock.NewTestApp()
+	app := processblock.NewTestApp(t)
 	_ = processblock.CommonPreset(app)
 	app.FastEpoch()
 	for i, testCase := range []TestCase{

@@ -9,7 +9,7 @@ import (
 	"github.com/sei-protocol/sei-chain/x/epoch/types"
 )
 
-//nolint:unused,deadcode
+//nolint:unused
 const (
 	flagPacketTimeoutTimestamp = "packet-timeout-timestamp"
 	listSeparator              = ","

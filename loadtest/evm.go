@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
-
 	"math/big"
 	"math/rand"
 	"sync"
@@ -191,7 +190,7 @@ func (txClient *EvmTxClient) getTransactOpts() *bind.TransactOpts {
 		auth.GasFeeCap = DefaultMaxFee
 		auth.GasTipCap = DefaultPriorityFee
 	}
-	auth.Nonce = big.NewInt(int64(txClient.nextNonce()))
+	auth.Nonce = big.NewInt(int64(txClient.nextNonce())) //nolint:gosec
 	auth.Value = big.NewInt(0)
 	auth.GasLimit = uint64(21000)
 	auth.Context = context.Background()

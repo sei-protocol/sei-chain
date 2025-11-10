@@ -1,27 +1,33 @@
 # ---------- Builder ----------
-FROM golang:1.23.7 AS go-builder
+FROM docker.io/golang:1.24.5 AS go-builder
 WORKDIR /app/sei-chain
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && \
     rm -rf /var/lib/apt/lists/*
 
 # Cache Go modules
+COPY go.work go.work.sum ./
 COPY go.mod go.sum ./
+COPY sei-wasmvm/go.mod sei-wasmvm/go.sum ./sei-wasmvm/
+COPY sei-wasmd/go.mod sei-wasmd/go.sum ./sei-wasmd/
+COPY sei-cosmos/go.mod sei-cosmos/go.sum ./sei-cosmos/
+COPY sei-tendermint/go.mod sei-tendermint/go.sum ./sei-tendermint/
+COPY sei-db/go.mod sei-db/go.sum ./sei-db/
 RUN go mod download
 
 # Copy source and build (CGO enabled for libwasmvm)
 COPY . .
 ENV CGO_ENABLED=1
-RUN make build
+RUN make build build-price-feeder
 
-# Collect libwasmvm*.so: try module cache; else auto-derive version and download glibc .so
+# Collect libwasmvm*.so: try ./seiwasmd; else auto-derive version and download glibc .so
 ARG WASMVM_VERSION=""
 RUN set -eux; \
     mkdir -p /build/deps; \
-    GOMODCACHE="$(go env GOMODCACHE)"; \
+    LIBWASM_DIR="./sei-wasmd"; \
     found=0; \
     # Copy from module cache if present
-    FILES="$(find "$GOMODCACHE" -type f -name 'libwasmvm*.so' -print || true)"; \
+    FILES="$(find "$LIBWASM_DIR" -type f -name 'libwasmvm*.so' -print || true)"; \
     if [ -n "$FILES" ]; then \
         echo "$FILES" | xargs -r -n1 -I{} cp -v "{}" /build/deps/; \
         found=1; \
@@ -50,6 +56,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=go-builder /app/sei-chain/build/seid /bin/seid
+COPY --from=go-builder /app/sei-chain/build/price-feeder /bin/price-feeder
 COPY --from=go-builder /build/deps/libwasmvm*.so /usr/lib/
 
 # Ensure generic symlink exists and refresh linker cache

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -300,7 +301,7 @@ Where metadata.json contains:
 func ParseMetadataJSON(cdc *codec.LegacyAmino, metadataFile string) (banktypes.Metadata, error) {
 	proposal := banktypes.Metadata{}
 
-	contents, err := os.ReadFile(metadataFile)
+	contents, err := os.ReadFile(filepath.Clean(metadataFile))
 	if err != nil {
 		return proposal, err
 	}
@@ -315,11 +316,11 @@ func ParseMetadataJSON(cdc *codec.LegacyAmino, metadataFile string) (banktypes.M
 func ParseAllowListJSON(allowListFile string, queryClient evmtypes.QueryClient) (banktypes.AllowList, error) {
 	allowList := banktypes.AllowList{}
 
-	file, err := os.Open(allowListFile)
+	file, err := os.Open(filepath.Clean(allowListFile))
 	if err != nil {
 		return allowList, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	decoder := json.NewDecoder(file)
 	if err := decoder.Decode(&allowList); err != nil {

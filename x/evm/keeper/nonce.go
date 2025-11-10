@@ -25,7 +25,7 @@ func (k *Keeper) SetNonce(ctx sdk.Context, addr common.Address, nonce uint64) {
 
 func (k *Keeper) IterateAllNonces(ctx sdk.Context, cb func(addr common.Address, nonce uint64) bool) {
 	iter := prefix.NewStore(ctx.KVStore(k.storeKey), types.NonceKeyPrefix).Iterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		evmAddr := common.BytesToAddress(iter.Key())
 		if cb(evmAddr, binary.BigEndian.Uint64(iter.Value())) {

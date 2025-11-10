@@ -282,7 +282,7 @@ func (k *Keeper) DeleteCW1155ERC1155Pointer(ctx sdk.Context, erc1155Address comm
 func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte, maxVersion uint16) (addr []byte, version uint16, exists bool) {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
 	iter := store.ReverseIterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	exists = iter.Valid()
 	if !exists {
 		if !ctx.IsTracing() {
@@ -293,9 +293,10 @@ func (k *Keeper) GetPointerInfo(ctx sdk.Context, pref []byte, maxVersion uint16)
 		store := prefix.NewStore(ctx.WithGasMeter(sdk.NewInfiniteGasMeterWithMultiplier(ctx)).KVStore(k.GetStoreKey()), pref)
 		for v := int64(maxVersion); v >= 0; v-- {
 			key := make([]byte, 2)
-			binary.BigEndian.PutUint16(key, uint16(v))
+			vv := uint16(v) //nolint:gosec
+			binary.BigEndian.PutUint16(key, vv)
 			if value := store.Get(key); value != nil {
-				return value, uint16(v), true
+				return value, vv, true
 			}
 		}
 		return nil, 0, false
@@ -324,7 +325,7 @@ func (k *Keeper) GetAnyPointeeInfo(ctx sdk.Context, cwAddress string) (common.Ad
 func (k *Keeper) GetAnyPointerInfo(ctx sdk.Context, pref []byte) (addr []byte, version uint16, exists bool) {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), pref)
 	iter := store.ReverseIterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	exists = iter.Valid()
 	if !exists {
 		return

@@ -72,8 +72,9 @@ func NewMigrator(homeDir string, db dbm.DB) *Migrator {
 func (m *Migrator) Migrate(version int64) error {
 	// Create a snapshot
 	chunks := make(chan io.ReadCloser)
+	height := uint64(version) //nolint:gosec
 	go func() {
-		err := m.createSnapshot(uint64(version), chunks)
+		err := m.createSnapshot(height, chunks)
 		if err != nil {
 			panic(err)
 		}
@@ -83,12 +84,8 @@ func (m *Migrator) Migrate(version int64) error {
 		return err
 	}
 	fmt.Printf("Start restoring SC store for height: %d\n", version)
-	next, _ := m.storeV2.Restore(uint64(version), types.CurrentFormat, streamReader)
-	for {
-		if next.Item == nil {
-			// end of stream
-			break
-		}
+	next, _ := m.storeV2.Restore(height, types.CurrentFormat, streamReader)
+	for next.Item != nil {
 		metadata := next.GetExtension()
 		if metadata == nil {
 			return sdkerrors.Wrapf(sdkerrors.ErrLogic, "unknown snapshot item %T", next.Item)
@@ -96,7 +93,7 @@ func (m *Migrator) Migrate(version int64) error {
 		wasmSnapshotter := CreateWasmSnapshotter(m.storeV2, m.homeDir)
 		extension := wasmSnapshotter
 		fmt.Printf("Start restoring wasm extension for height: %d\n", version)
-		next, err = extension.Restore(uint64(version), metadata.Format, streamReader)
+		next, err = extension.Restore(height, metadata.Format, streamReader)
 		if err != nil {
 			return sdkerrors.Wrapf(err, "extension %s restore", metadata.Name)
 		}
@@ -107,7 +104,7 @@ func (m *Migrator) Migrate(version int64) error {
 
 func (m *Migrator) createSnapshot(height uint64, chunks chan<- io.ReadCloser) error {
 	streamWriter := snapshots.NewStreamWriter(chunks)
-	defer streamWriter.Close()
+	defer func() { _ = streamWriter.Close() }()
 	fmt.Printf("Start creating snapshot for height: %d\n", height)
 	if err := m.storeV1.Snapshot(height, streamWriter); err != nil {
 		m.logger.Error("Snapshot creation failed", "err", err)

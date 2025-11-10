@@ -111,6 +111,26 @@ func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.
 	}, nil
 }
 
+func (c *MockClient) Status(context.Context) (*coretypes.ResultStatus, error) {
+	latest := int64(len(c.blocks))
+	if c.mockedBlockResults != nil {
+		for h := range c.mockedBlockResults {
+			if h > latest {
+				latest = h
+			}
+		}
+	}
+	if latest <= 0 {
+		latest = 1
+	}
+	return &coretypes.ResultStatus{
+		SyncInfo: coretypes.SyncInfo{
+			LatestBlockHeight:   latest,
+			EarliestBlockHeight: 1,
+		},
+	}, nil
+}
+
 func (c *MockClient) recordBlockResult(txResults []*abci.ExecTxResult, consParamUpdates *tmproto.ConsensusParams, events []abci.Event) {
 	c.txResults = append(c.txResults, txResults)
 	c.consParamUpdates = append(c.consParamUpdates, consParamUpdates)
@@ -186,8 +206,8 @@ func (c *MockClient) UnconfirmedTxs(context.Context, *int, *int) (*coretypes.Res
 
 func mockHash(height int64, prefix int64) tmbytes.HexBytes {
 	heightBz, prefixBz := make([]byte, 8), make([]byte, 8)
-	binary.BigEndian.PutUint64(heightBz, uint64(height))
-	binary.BigEndian.PutUint64(prefixBz, uint64(prefix))
+	binary.BigEndian.PutUint64(heightBz, uint64(height)) //nolint:gosec
+	binary.BigEndian.PutUint64(prefixBz, uint64(prefix)) //nolint:gosec
 	return tmbytes.HexBytes(append(prefixBz, heightBz...))
 }
 

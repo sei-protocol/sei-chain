@@ -195,21 +195,25 @@ func (p PrecompileExecutor) ClaimSpecific(ctx sdk.Context, caller common.Address
 			}
 		case asset.IsCW721():
 			allTokens := []string{}
-			startAfter := ""
-			for {
-				res, err := p.wasmViewKeeper.QuerySmartSafe(ctx, contractAddr, CW721TokensQueryPayload(sender, startAfter))
-				if err != nil {
-					return nil, 0, fmt.Errorf("failed to query CW721 contract %s for all tokens: %w", contractAddr.String(), err)
+			if token := asset.GetDenom(); token != "" {
+				allTokens = append(allTokens, token)
+			} else {
+				startAfter := ""
+				for {
+					res, err := p.wasmViewKeeper.QuerySmartSafe(ctx, contractAddr, CW721TokensQueryPayload(sender, startAfter))
+					if err != nil {
+						return nil, 0, fmt.Errorf("failed to query CW721 contract %s for all tokens: %w", contractAddr.String(), err)
+					}
+					tokens, err := ParseCW721TokensQueryResponse(res)
+					if err != nil {
+						return nil, 0, fmt.Errorf("failed to parse CW20 contract %s balance response: %w", contractAddr.String(), err)
+					}
+					if len(tokens) == 0 {
+						break
+					}
+					allTokens = append(allTokens, tokens...)
+					startAfter = tokens[len(tokens)-1]
 				}
-				tokens, err := ParseCW721TokensQueryResponse(res)
-				if err != nil {
-					return nil, 0, fmt.Errorf("failed to parse CW20 contract %s balance response: %w", contractAddr.String(), err)
-				}
-				if len(tokens) == 0 {
-					break
-				}
-				allTokens = append(allTokens, tokens...)
-				startAfter = tokens[len(tokens)-1]
 			}
 			for _, token := range allTokens {
 				_, err := p.wasmKeeper.Execute(ctx, contractAddr, sender, CW721TransferPayload(callerSeiAddr, token), sdk.NewCoins())

@@ -2,6 +2,7 @@ package evmrpc
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -33,4 +34,38 @@ func TestValidateBlockAccess(t *testing.T) {
 	params.MaxBlockLookback = 100
 	err = ValidateBlockAccess(250, params)
 	require.Error(t, err, "block newer than latest height should error")
+}
+
+func TestTraceTransactionTimeout(t *testing.T) {
+	require.Eventually(t, func() bool {
+		args := map[string]interface{}{"tracer": "callTracer"}
+		resObj := sendRequestStrictWithNamespace(
+			t,
+			"debug",
+			"traceTransaction",
+			DebugTraceHashHex,
+			args,
+		)
+
+		errObj, ok := resObj["error"].(map[string]interface{})
+		if ok {
+			return errObj["message"].(string) != ""
+		}
+		return false
+	}, 10*time.Second, 500*time.Millisecond)
+}
+
+func TestTraceBlockByNumberLookbackLimit(t *testing.T) {
+	// Using the strict server (look-back = 1). Block 0 is far behind.
+	resObj := sendRequestStrictWithNamespace(
+		t,
+		"sei",
+		"traceBlockByNumberExcludeTraceFail",
+		"0x0",                    // genesis block
+		map[string]interface{}{}, // empty TraceConfig
+	)
+
+	errObj, ok := resObj["error"].(map[string]interface{})
+	require.True(t, ok, "expected look-back guard to trigger")
+	require.NotEmpty(t, errObj["message"].(string))
 }

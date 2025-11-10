@@ -15,7 +15,7 @@ import (
 
 func MigrateERCNativePointers(ctx sdk.Context, k *keeper.Keeper) error {
 	iter := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), append(types.PointerRegistryPrefix, types.PointerERC20NativePrefix...)).ReverseIterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	seen := map[string]struct{}{}
 	for ; iter.Valid(); iter.Next() {
 		token := string(iter.Key()[:len(iter.Key())-2]) // last two bytes are version
@@ -55,7 +55,7 @@ func MigrateERCNativePointers(ctx sdk.Context, k *keeper.Keeper) error {
 
 func MigrateERCCW20Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 	iter := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), append(types.PointerRegistryPrefix, types.PointerERC20CW20Prefix...)).ReverseIterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	seen := map[string]struct{}{}
 	for ; iter.Valid(); iter.Next() {
 		cwAddr := string(iter.Key()[:len(iter.Key())-2]) // last two bytes are version
@@ -89,7 +89,7 @@ func MigrateERCCW20Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 
 func MigrateERCCW721Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 	iter := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), append(types.PointerRegistryPrefix, types.PointerERC721CW721Prefix...)).ReverseIterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	seen := map[string]struct{}{}
 	for ; iter.Valid(); iter.Next() {
 		cwAddr := string(iter.Key()[:len(iter.Key())-2]) // last two bytes are version
@@ -123,7 +123,7 @@ func MigrateERCCW721Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 
 func MigrateERCCW1155Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 	iter := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), append(types.PointerRegistryPrefix, types.PointerERC1155CW1155Prefix...)).ReverseIterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	seen := map[string]struct{}{}
 	for ; iter.Valid(); iter.Next() {
 		cwAddr := string(iter.Key()[:len(iter.Key())-2]) // last two bytes are version
@@ -157,7 +157,7 @@ func MigrateERCCW1155Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 
 func MigrateCWERC20Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 	iter := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), append(types.PointerRegistryPrefix, types.PointerCW20ERC20Prefix...)).ReverseIterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	bz, _ := json.Marshal(map[string]interface{}{})
 	moduleAcct := k.AccountKeeper().GetModuleAddress(types.ModuleName)
 	codeID := k.GetStoredPointerCodeID(ctx, types.PointerType_ERC20)
@@ -184,7 +184,7 @@ func MigrateCWERC20Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 
 func MigrateCWERC721Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 	iter := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), append(types.PointerRegistryPrefix, types.PointerCW721ERC721Prefix...)).ReverseIterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	bz, _ := json.Marshal(map[string]interface{}{})
 	moduleAcct := k.AccountKeeper().GetModuleAddress(types.ModuleName)
 	codeID := k.GetStoredPointerCodeID(ctx, types.PointerType_ERC721)
@@ -211,7 +211,7 @@ func MigrateCWERC721Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 
 func MigrateCWERC1155Pointers(ctx sdk.Context, k *keeper.Keeper) error {
 	iter := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), append(types.PointerRegistryPrefix, types.PointerCW1155ERC1155Prefix...)).ReverseIterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	bz, _ := json.Marshal(map[string]interface{}{})
 	moduleAcct := k.AccountKeeper().GetModuleAddress(types.ModuleName)
 	codeID := k.GetStoredPointerCodeID(ctx, types.PointerType_ERC1155)

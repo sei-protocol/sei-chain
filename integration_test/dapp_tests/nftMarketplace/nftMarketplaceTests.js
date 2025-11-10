@@ -38,7 +38,7 @@ describe("NFT Marketplace", function () {
         const erc721ContractArtifact = await hre.artifacts.readArtifact("MockERC721");
         erc721token = await deployEthersContract("MockERC721", erc721ContractArtifact.abi, erc721ContractArtifact.bytecode, deployer, ["MockERC721", "MKTNFT"])
 
-        const numNftsToMint = 50
+        const numNftsToMint = 10
         await estimateAndCall(erc721token, "batchMint", [deployer.address, numNftsToMint]);
 
         // Deploy CW721 token with ERC721 pointer

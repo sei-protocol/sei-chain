@@ -49,7 +49,7 @@ func (p MockProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string]T
 		return nil, err
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	csvReader := csv.NewReader(resp.Body)
 	records, err := csvReader.ReadAll()
@@ -126,7 +126,7 @@ func (p MockProvider) GetAvailablePairs() (map[string]struct{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	csvReader := csv.NewReader(resp.Body)
 	records, err := csvReader.ReadAll()

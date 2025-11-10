@@ -1,6 +1,8 @@
 package ethtx
 
 import (
+	"math"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
@@ -38,6 +40,13 @@ func (al AuthList) ToEthAuthList() *[]ethtypes.SetCodeAuthorization {
 		chainId.SetFromBig(auth.ChainID.BigInt())
 		v := new(uint256.Int)
 		v.SetBytes(auth.V)
+
+		var v8 uint8
+		if v.Uint64() > math.MaxUint8 {
+			panic("v value too large to fit in uint8")
+		}
+		v8 = uint8(v.Uint64()) //nolint:gosec
+
 		r := new(uint256.Int)
 		r.SetBytes(auth.R)
 		s := new(uint256.Int)
@@ -46,7 +55,7 @@ func (al AuthList) ToEthAuthList() *[]ethtypes.SetCodeAuthorization {
 			ChainID: *chainId,
 			Address: common.HexToAddress(auth.Address),
 			Nonce:   auth.Nonce,
-			V:       uint8(v.Uint64()),
+			V:       v8,
 			R:       *r,
 			S:       *s,
 		}

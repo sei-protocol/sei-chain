@@ -131,7 +131,7 @@ func generateIavlStats(cmd *cobra.Command, _ []string) {
 		if err != nil {
 			panic(fmt.Errorf("failed to create iterator: %w", err))
 		}
-		defer itr.Close()
+		defer func() { _ = itr.Close() }()
 
 		// Aggregated stats for the current module
 		var totalKeys int

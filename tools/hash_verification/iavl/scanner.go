@@ -50,7 +50,7 @@ func (s *HashScanner) scanAllHeights(module string) [][]byte {
 		if err != nil {
 			panic(fmt.Errorf("failed to create iterator: %w", err))
 		}
-		defer itr.Close()
+		defer func() { _ = itr.Close() }()
 		for ; itr.Valid(); itr.Next() {
 			value := bytes.Clone(itr.Value())
 			node, err := iavl.MakeNode(value)

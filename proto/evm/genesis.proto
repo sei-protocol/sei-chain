@@ -1,15 +1,15 @@
 syntax = "proto3";
 package seiprotocol.seichain.evm;
 
-import "gogoproto/gogo.proto";
 import "evm/params.proto";
+import "gogoproto/gogo.proto";
 
 option go_package = "github.com/sei-protocol/sei-chain/x/evm/types";
 
 // AddressAssociation represents an association between a Cosmos and an Ethereum address.
 message AddressAssociation {
-  string sei_address = 1;    // Sei address
-  string eth_address = 2;    // Ethereum address
+  string sei_address = 1; // Sei address
+  string eth_address = 2; // Ethereum address
 }
 
 message Code {

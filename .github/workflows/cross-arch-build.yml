@@ -1,0 +1,92 @@
+name: Cross-Architecture Build Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.sha || github.ref }}
+
+env:
+  LEDGER_ENABLED: false
+
+jobs:
+  linux-amd64:
+    name: "Linux AMD64"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.24'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Verify Go installation
+        run: |
+          go version
+          echo "GOARCH: $(go env GOARCH)"
+          echo "GOOS: $(go env GOOS)"
+
+      - name: Download Go dependencies
+        run: go mod download
+
+      - name: Run make install
+        run: make install
+
+      - name: Verify install binary
+        run: seid version --long
+
+      - name: Run make build
+        run: make build
+
+      - name: Verify build binary
+        run: ./build/seid version --long
+
+  macos-arm64:
+    name: "macOS ARM64"
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          submodules: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.24'
+
+      - name: Install system dependencies
+        run: |
+          xcode-select --version || xcode-select --install
+
+      - name: Verify Go installation
+        run: |
+          go version
+          echo "GOARCH: $(go env GOARCH)"
+          echo "GOOS: $(go env GOOS)"
+
+      - name: Download Go dependencies
+        run: go mod download
+
+      - name: Run make install
+        run: make install
+
+      - name: Verify install binary
+        run: seid version --long
+
+      - name: Run make build
+        run: make build
+
+      - name: Verify build binary
+        run: ./build/seid version --long

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -225,7 +226,7 @@ func ParseConfig(configPath string) (Config, error) {
 		return cfg, ErrEmptyConfigPath
 	}
 
-	configData, err := os.ReadFile(configPath)
+	configData, err := os.ReadFile(filepath.Clean(configPath))
 	if err != nil {
 		return cfg, fmt.Errorf("failed to read config: %w", err)
 	}

@@ -34,7 +34,7 @@ func setTxHash(ctx sdk.Context, k *keeper.Keeper, key byte, value byte) {
 func getTxHashCount(ctx sdk.Context, k *keeper.Keeper) (cnt int) {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), types.TxHashesPrefix)
 	iter := store.Iterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		cnt++
 	}

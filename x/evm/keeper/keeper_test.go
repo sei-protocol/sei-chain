@@ -32,7 +32,7 @@ import (
 )
 
 func TestPurgePrefixNotHang(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeper(t)
 	_, evmAddr := keeper.MockAddressPair()
 	for i := 0; i < 50; i++ {
 		ctx = ctx.WithMultiStore(ctx.MultiStore().CacheMultiStore())
@@ -43,7 +43,7 @@ func TestPurgePrefixNotHang(t *testing.T) {
 }
 
 func TestGetChainID(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeper(t)
 	require.Equal(t, config.DefaultChainID, k.ChainID(ctx).Int64())
 
 	ctx = ctx.WithChainID("pacific-1")
@@ -57,7 +57,7 @@ func TestGetChainID(t *testing.T) {
 }
 
 func TestGetVMBlockContext(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeper(t)
 	moduleAddr := k.AccountKeeper().GetModuleAddress(authtypes.FeeCollectorName)
 	evmAddr, _ := k.GetEVMAddress(ctx, moduleAddr)
 	k.DeleteAddressMapping(ctx, moduleAddr, evmAddr)
@@ -66,7 +66,7 @@ func TestGetVMBlockContext(t *testing.T) {
 }
 
 func TestGetHashFn(t *testing.T) {
-	k, ctx := keeper.MockEVMKeeper()
+	k, ctx := keeper.MockEVMKeeper(t)
 	f := k.GetHashFn(ctx)
 	require.Equal(t, common.Hash{}, f(math.MaxInt64+1))
 	require.Equal(t, common.BytesToHash(ctx.HeaderHash()), f(uint64(ctx.BlockHeight())))
@@ -199,7 +199,7 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			k, ctx := keeper.MockEVMKeeper()
+			k, ctx := keeper.MockEVMKeeper(t)
 			if test.setup != nil {
 				test.setup(ctx, k)
 			}
@@ -210,7 +210,7 @@ func TestKeeper_CalculateNextNonce(t *testing.T) {
 }
 
 func TestDeferredInfo(t *testing.T) {
-	a := app.Setup(false, false, false)
+	a := app.Setup(t, false, false, false)
 	k := a.EvmKeeper
 	ctx := a.GetContextForDeliverTx([]byte{})
 	ctx = ctx.WithTxIndex(1)
@@ -245,7 +245,7 @@ func TestDeferredInfo(t *testing.T) {
 }
 
 func TestAddPendingNonce(t *testing.T) {
-	k, _ := keeper.MockEVMKeeper()
+	k, _ := keeper.MockEVMKeeper(t)
 	k.AddPendingNonce(tmtypes.TxKey{1}, common.HexToAddress("123"), 1, 1)
 	k.AddPendingNonce(tmtypes.TxKey{2}, common.HexToAddress("123"), 2, 1)
 	k.AddPendingNonce(tmtypes.TxKey{3}, common.HexToAddress("123"), 2, 2) // should replace the one above
@@ -305,7 +305,7 @@ func TestGetCustomPrecompiles(t *testing.T) {
 	require.Greater(t, len(tags), 0, "Should have found at least one tag")
 
 	// Setup keeper and context
-	k, ctx := keeper.MockEVMKeeperPrecompiles()
+	k, ctx := keeper.MockEVMKeeperPrecompiles(t)
 
 	// Set up upgrade heights with increment of 10
 	baseHeight := 1000000
@@ -331,7 +331,7 @@ func TestGetCustomPrecompiles(t *testing.T) {
 }
 
 func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {
-	k, ctx := testkeeper.MockEVMKeeper()
+	k, ctx := testkeeper.MockEVMKeeper(t)
 	chainID := k.ChainID(ctx)
 	chainCfg := types.DefaultChainConfig()
 	ethCfg := chainCfg.EthereumConfig(chainID)
@@ -360,7 +360,7 @@ func mockEVMTransactionMessage(t *testing.T) *types.MsgEVMTransaction {
 
 func TestGetBaseFeeBeforeV620(t *testing.T) {
 	// Set up a test app and context
-	testApp := app.Setup(false, false, false)
+	testApp := app.Setup(t, false, false, false)
 	testHeight := int64(1000)
 	testCtx := testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(testHeight)
 

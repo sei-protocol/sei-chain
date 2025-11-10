@@ -1,11 +1,10 @@
-package aclbankmapping
+package aclbankmapping_test
 
 import (
 	"encoding/hex"
 	"testing"
 
 	"github.com/cosmos/cosmos-sdk/crypto/keys/secp256k1"
-	"github.com/cosmos/cosmos-sdk/simapp"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkacltypes "github.com/cosmos/cosmos-sdk/types/accesscontrol"
 	acltypes "github.com/cosmos/cosmos-sdk/x/accesscontrol/types"
@@ -13,8 +12,10 @@ import (
 	"github.com/cosmos/cosmos-sdk/x/bank"
 	"github.com/cosmos/cosmos-sdk/x/bank/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+	aclbankmapping "github.com/sei-protocol/sei-chain/aclmapping/bank"
 	aclutils "github.com/sei-protocol/sei-chain/aclmapping/utils"
 	utils "github.com/sei-protocol/sei-chain/aclmapping/utils"
+	seiapp "github.com/sei-protocol/sei-chain/app"
 	oracletypes "github.com/sei-protocol/sei-chain/x/oracle/types"
 	"github.com/stretchr/testify/require"
 	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
@@ -27,7 +28,7 @@ func cacheTxContext(ctx sdk.Context) (sdk.Context, sdk.CacheMultiStore) {
 }
 
 func TestMsgBankDependencyGenerator(t *testing.T) {
-	bankDependencyGenerator := GetBankDepedencyGenerator()
+	bankDependencyGenerator := aclbankmapping.GetBankDepedencyGenerator()
 	// verify that there's one entry, for bank send
 	require.Equal(t, 1, len(bankDependencyGenerator))
 	// check that bank send generator is in the map
@@ -80,7 +81,7 @@ func TestMsgBankSendAclOps(t *testing.T) {
 		},
 	}
 
-	app := simapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	handler := bank.NewHandler(app.BankKeeper)
@@ -93,7 +94,7 @@ func TestMsgBankSendAclOps(t *testing.T) {
 
 			_, err := handler(handlerCtx, tc.msg)
 
-			depdenencies, _ := MsgSendDependencyGenerator(app.AccessControlKeeper, handlerCtx, tc.msg)
+			depdenencies, _ := aclbankmapping.MsgSendDependencyGenerator(app.AccessControlKeeper, handlerCtx, tc.msg)
 
 			if !tc.dynamicDep {
 				depdenencies = sdkacltypes.SynchronousAccessOps()
@@ -114,7 +115,7 @@ func TestGeneratorInvalidMessageTypes(t *testing.T) {
 	accs := authtypes.GenesisAccounts{}
 	balances := []types.Balance{}
 
-	app := simapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	oracleVote := oracletypes.MsgAggregateExchangeRateVote{
@@ -123,7 +124,7 @@ func TestGeneratorInvalidMessageTypes(t *testing.T) {
 		Validator:     "validator",
 	}
 
-	_, err := MsgSendDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
+	_, err := aclbankmapping.MsgSendDependencyGenerator(app.AccessControlKeeper, ctx, &oracleVote)
 	require.Error(t, err)
 }
 
@@ -152,7 +153,7 @@ func TestMsgBeginBankSendGenerator(t *testing.T) {
 		},
 	}
 
-	app := simapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	sendMsg := banktypes.MsgSend{
@@ -161,7 +162,7 @@ func TestMsgBeginBankSendGenerator(t *testing.T) {
 		Amount:      coins,
 	}
 
-	accessOps, err := MsgSendDependencyGenerator(app.AccessControlKeeper, ctx, &sendMsg)
+	accessOps, err := aclbankmapping.MsgSendDependencyGenerator(app.AccessControlKeeper, ctx, &sendMsg)
 	require.NoError(t, err)
 	err = acltypes.ValidateAccessOps(accessOps)
 	require.NoError(t, err)
@@ -192,7 +193,7 @@ func TestInvalidToAddress(t *testing.T) {
 		},
 	}
 
-	app := simapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	sendMsg := banktypes.MsgSend{
@@ -201,7 +202,7 @@ func TestInvalidToAddress(t *testing.T) {
 		Amount:      coins,
 	}
 
-	accessOps, err := MsgSendDependencyGenerator(app.AccessControlKeeper, ctx, &sendMsg)
+	accessOps, err := aclbankmapping.MsgSendDependencyGenerator(app.AccessControlKeeper, ctx, &sendMsg)
 	require.NoError(t, err)
 	err = acltypes.ValidateAccessOps(accessOps)
 	require.NoError(t, err)
@@ -236,7 +237,7 @@ func TestAccountoesNotExist(t *testing.T) {
 		},
 	}
 
-	app := simapp.SetupWithGenesisAccounts(accs, balances...)
+	app := seiapp.SetupWithGenesisAccounts(t, accs, balances...)
 	ctx := app.BaseApp.NewContext(false, tmproto.Header{})
 
 	sendMsg := banktypes.MsgSend{
@@ -245,7 +246,7 @@ func TestAccountoesNotExist(t *testing.T) {
 		Amount:      coins,
 	}
 
-	accessOps, err := MsgSendDependencyGenerator(app.AccessControlKeeper, ctx, &sendMsg)
+	accessOps, err := aclbankmapping.MsgSendDependencyGenerator(app.AccessControlKeeper, ctx, &sendMsg)
 	require.NoError(t, err)
 	err = acltypes.ValidateAccessOps(accessOps)
 	require.NoError(t, err)

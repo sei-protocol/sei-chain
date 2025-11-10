@@ -41,7 +41,7 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 100, migrated)
 	// Flush transient receipts so they are available in receipt.db for assertions below
-	require.NoError(t, k.FlushTransientReceiptsSync(ctx))
+	require.NoError(t, k.FlushTransientReceipts(ctx))
 	require.Equal(t, 1, getLegacyReceiptCount(ctx, k))
 
 	// The first tx should have been removed from legacy store; the last should still exist
@@ -53,8 +53,7 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 	// Verify first 100 legacy receipts are retrievable from receipt.db after migration
 	for i := 0; i < 100; i++ {
 		tx := txs[i]
-		r, err := k.GetReceiptFromReceiptStore(ctx, tx)
-		require.NoError(t, err)
+		r := testkeeper.WaitForReceiptFromStore(t, k, ctx, tx)
 		require.Equal(t, tx.Hex(), r.TxHashHex)
 	}
 	// Verify last receipt is not retrievable from receipt.db after migration
@@ -63,24 +62,22 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 
 	// Check GetReceipt works for migrated receipts
 	for _, tx := range txs[:100] {
-		r, err := k.GetReceipt(ctx, tx)
-		require.NoError(t, err)
+		r := testkeeper.WaitForReceipt(t, k, ctx, tx)
 		require.Equal(t, tx.Hex(), r.TxHashHex)
 	}
 
-	// Advance height to ensure subsequent ApplyChangeset uses a new version
+	// Advance height to ensure subsequent ApplyChangesetSync uses a new version
 	ctx = ctx.WithBlockHeight(ctx.BlockHeight() + 1)
 	migrated, err = k.MigrateLegacyReceiptsBatch(ctx, keeper.LegacyReceiptMigrationBatchSize)
 	require.NoError(t, err)
 	require.Equal(t, 1, migrated)
 	// Flush remaining transient receipt
-	require.NoError(t, k.FlushTransientReceiptsSync(ctx))
+	require.NoError(t, k.FlushTransientReceipts(ctx))
 	require.Equal(t, 0, getLegacyReceiptCount(ctx, k))
 
 	// Verify all receipts are retrievable from receipt.db after migration
 	for _, tx := range txs {
-		r, err := k.GetReceiptFromReceiptStore(ctx, tx)
-		require.NoError(t, err)
+		r := testkeeper.WaitForReceiptFromStore(t, k, ctx, tx)
 		require.Equal(t, tx.Hex(), r.TxHashHex)
 	}
 
@@ -91,8 +88,7 @@ func TestMigrateLegacyReceiptsBatch(t *testing.T) {
 
 	// Check GetReceipt works for all receipts
 	for _, tx := range txs {
-		r, err := k.GetReceipt(ctx, tx)
-		require.NoError(t, err)
+		r := testkeeper.WaitForReceipt(t, k, ctx, tx)
 		require.Equal(t, tx.Hex(), r.TxHashHex)
 	}
 }
@@ -109,7 +105,7 @@ func setLegacyReceipt(ctx sdk.Context, k *keeper.Keeper, txHash common.Hash, rec
 func getLegacyReceiptCount(ctx sdk.Context, k *keeper.Keeper) (cnt int) {
 	store := prefix.NewStore(ctx.KVStore(k.GetStoreKey()), types.ReceiptKeyPrefix)
 	iter := store.Iterator(nil, nil)
-	defer iter.Close()
+	defer func() { _ = iter.Close() }()
 	for ; iter.Valid(); iter.Next() {
 		cnt++
 	}

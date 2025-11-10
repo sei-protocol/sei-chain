@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net"
 	"net/http"
@@ -85,6 +86,10 @@ var multiTxBlockTx2 *ethtypes.Transaction
 var multiTxBlockTx3 *ethtypes.Transaction
 var multiTxBlockTx4 *ethtypes.Transaction
 var multiTxBlockSynthTx *ethtypes.Transaction
+
+// Additional normal EVM tx used specifically for block 100 tests
+var Block100NormalTx sdk.Tx
+var block100NormalTx *ethtypes.Transaction
 
 var DebugTraceTx sdk.Tx
 var DebugTracePanicTx sdk.Tx
@@ -193,7 +198,7 @@ func (c *MockClient) mockBlock(height int64) *coretypes.ResultBlock {
 							return bz
 						}(),
 						func() []byte {
-							bz, _ := Encoder(MultiTxBlockTx1)
+							bz, _ := Encoder(Block100NormalTx)
 							return bz
 						}(),
 					},
@@ -329,6 +334,9 @@ func (c *MockClient) BlockByHash(_ context.Context, hash bytes.HexBytes) (*coret
 	if hash.String() == MultiTxBlockHash[2:] {
 		return c.mockBlock(MockHeight2), nil
 	}
+	if strings.ToLower(hash.String()) == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+		return nil, errors.New("not found")
+	}
 	return c.mockBlock(MockHeight8), nil
 }
 
@@ -391,6 +399,15 @@ func (c *MockClient) BlockResults(_ context.Context, height *int64) (*coretypes.
 				MaxBytes: 100000000,
 				MaxGas:   200000000,
 			},
+		},
+	}, nil
+}
+
+func (c *MockClient) Status(context.Context) (*coretypes.ResultStatus, error) {
+	return &coretypes.ResultStatus{
+		SyncInfo: coretypes.SyncInfo{
+			LatestBlockHeight:   MockHeight103,
+			EarliestBlockHeight: 1,
 		},
 	}, nil
 }
@@ -523,7 +540,7 @@ var MultiTxCtx sdk.Context
 
 func init() {
 	types.RegisterInterfaces(EncodingConfig.InterfaceRegistry)
-	testApp := app.Setup(false, false, false)
+	testApp := app.SetupWithDefaultHome(false, false, false)
 	Ctx = testApp.GetContextForDeliverTx([]byte{}).WithBlockHeight(8)
 	MultiTxCtx, _ = Ctx.CacheContext()
 	EVMKeeper = &testApp.EvmKeeper
@@ -541,6 +558,13 @@ func init() {
 		panic(err)
 	}
 	testApp.Commit(context.Background())
+	if store := EVMKeeper.ReceiptStore(); store != nil {
+		latest := int64(math.MaxInt64)
+		if err := store.SetLatestVersion(latest); err != nil {
+			panic(err)
+		}
+		_ = store.SetEarliestVersion(1, true)
+	}
 	ctxProvider := func(height int64) sdk.Context {
 		if height == MockHeight2 {
 			return MultiTxCtx.WithIsTracing(true)
@@ -558,7 +582,7 @@ func init() {
 		panic(err)
 	}
 	txConfigProvider := func(int64) client.TxConfig { return TxConfig }
-	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", isPanicTxFunc)
+	HttpServer, err := evmrpc.NewEVMHTTPServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", isPanicTxFunc)
 	if err != nil {
 		panic(err)
 	}
@@ -570,7 +594,7 @@ func init() {
 	badConfig := evmrpc.DefaultConfig
 	badConfig.HTTPPort = TestBadPort
 	badConfig.FilterTimeout = 500 * time.Millisecond
-	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
+	badHTTPServer, err := evmrpc.NewEVMHTTPServer(infoLog, badConfig, &MockBadClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -589,6 +613,7 @@ func init() {
 		strictConfig,
 		&MockClient{},
 		EVMKeeper,
+		testApp.BeginBlockKeepers,
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		ctxProvider,
@@ -613,6 +638,7 @@ func init() {
 		archiveConfig,
 		&MockClient{},
 		EVMKeeper,
+		testApp.BeginBlockKeepers,
 		testApp.BaseApp,
 		testApp.TracerAnteHandler,
 		ctxProvider,
@@ -628,7 +654,7 @@ func init() {
 	}
 
 	// Start ws server
-	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "")
+	wsServer, err := evmrpc.NewEVMWebSocketServer(infoLog, goodConfig, &MockClient{}, EVMKeeper, testApp.BeginBlockKeepers, testApp.BaseApp, testApp.TracerAnteHandler, ctxProvider, txConfigProvider, "")
 	if err != nil {
 		panic(err)
 	}
@@ -648,7 +674,7 @@ func init() {
 func generateTxData() {
 	chainId := big.NewInt(config.DefaultChainID)
 	to := common.HexToAddress("010203")
-	var txBuilder1, txBuilder1_5, txBuilder2, txBuilder3, txBuilder4, synthTxBuilder client.TxBuilder
+	var txBuilder1, txBuilder1_5, txBuilder2, txBuilder3, txBuilder4, synthTxBuilder, block100TxBuilder client.TxBuilder
 	txBuilder1, tx1 = buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     1,
 		GasFeeCap: big.NewInt(10),
@@ -703,6 +729,16 @@ func generateTxData() {
 		Data:      []byte("synthetic"),
 		ChainID:   chainId,
 	})
+	// Build a dedicated normal EVM tx for block 100
+	block100TxBuilder, block100NormalTx = buildTx(ethtypes.DynamicFeeTx{
+		Nonce:     7,
+		GasFeeCap: big.NewInt(10),
+		Gas:       1000,
+		To:        &to,
+		Value:     big.NewInt(1000),
+		Data:      []byte("abc"),
+		ChainID:   chainId,
+	})
 	debugTraceTxBuilder, debugTraceEthTx := buildTx(ethtypes.DynamicFeeTx{
 		Nonce:     0,
 		GasFeeCap: big.NewInt(1000000000),
@@ -745,6 +781,7 @@ func generateTxData() {
 	MultiTxBlockTx3 = txBuilder3.GetTx()
 	MultiTxBlockTx4 = txBuilder4.GetTx()
 	MultiTxBlockSynthTx = synthTxBuilder.GetTx()
+	Block100NormalTx = block100TxBuilder.GetTx()
 	DebugTraceTx = debugTraceTxBuilder.GetTx()
 	DebugTracePanicTx = debugTracePanicTxBuilder.GetTx()
 	panicEthTx, _ := DebugTracePanicTx.GetMsgs()[0].(*types.MsgEVMTransaction).AsTransaction()
@@ -969,6 +1006,23 @@ func setupLogs() {
 		}},
 		EffectiveGasPrice: 0,
 	})
+	// Also create a normal (non-synthetic) receipt in block 100 with two logs
+	CtxBlock100 := Ctx.WithBlockHeight(MockHeight100)
+	EVMKeeper.MockReceipt(CtxBlock100, block100NormalTx.Hash(), &types.Receipt{
+		BlockNumber:      MockHeight100,
+		TransactionIndex: 1,
+		TxHashHex:        block100NormalTx.Hash().Hex(),
+		LogsBloom:        bloom1[:],
+		Logs: []*types.Log{{
+			Address: "0x1111111111111111111111111111111111111112",
+			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123", "0x0000000000000000000000000000000000000000000000000000000000000456"},
+		}, {
+			Address: "0x1111111111111111111111111111111111111112",
+			Topics:  []string{"0x0000000000000000000000000000000000000000000000000000000000000123"},
+		}},
+		GasUsed:           21000,
+		EffectiveGasPrice: 100,
+	})
 	CtxMock = Ctx.WithBlockHeight(MockHeight103)
 	EVMKeeper.MockReceipt(CtxMock, common.HexToHash(TestSyntheticTxHash), &types.Receipt{
 		TxType:           types.ShellEVMTxType,
@@ -1023,6 +1077,13 @@ func setupLogs() {
 	EVMKeeper.SetBlockBloom(Ctx, []ethtypes.Bloom{bloomSynth, bloom4, bloomTx1})
 	EVMKeeper.SetEvmOnlyBlockBloom(Ctx, []ethtypes.Bloom{bloom4, bloomTx1})
 
+	if store := EVMKeeper.ReceiptStore(); store != nil {
+		if err := store.SetLatestVersion(MockHeight103); err != nil {
+			panic(err)
+		}
+		_ = store.SetEarliestVersion(1, true)
+	}
+
 }
 
 //nolint:deadcode
@@ -1073,17 +1134,17 @@ func sendRequestWithNamespace(t *testing.T, namespace string, port int, method s
 	if len(params) > 0 {
 		paramsFormatted = strings.Join(utils.Map(params, formatParam), ",")
 	}
-	body := fmt.Sprintf("{\"jsonrpc\": \"2.0\",\"method\": \"%s_%s\",\"params\":[%s],\"id\":\"test\"}", namespace, method, paramsFormatted)
+	body := fmt.Sprintf(`{"jsonrpc": "2.0","method": "%s_%s","params":[%s],"id":"test"}`, namespace, method, paramsFormatted)
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s:%d", TestAddr, port), strings.NewReader(body))
-	require.Nil(t, err)
+	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	res, err := http.DefaultClient.Do(req)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	defer res.Body.Close()
 	resBody, err := io.ReadAll(res.Body)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	resObj := map[string]interface{}{}
-	require.Nil(t, json.Unmarshal(resBody, &resObj))
+	require.NoError(t, json.Unmarshal(resBody, &resObj))
 	return resObj
 }
 

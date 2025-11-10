@@ -3,7 +3,7 @@ package processblock
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	bankkeeper "github.com/cosmos/cosmos-sdk/x/bank/keeper"
-	minttypes "github.com/cosmos/cosmos-sdk/x/mint/types"
+	minttypes "github.com/sei-protocol/sei-chain/x/mint/types"
 )
 
 func (a *App) FundAccount(acc sdk.AccAddress, amount int64) {

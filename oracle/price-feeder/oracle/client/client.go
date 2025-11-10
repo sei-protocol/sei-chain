@@ -13,14 +13,14 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/rpc"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
-	"github.com/cosmos/cosmos-sdk/simapp"
-	simappparams "github.com/cosmos/cosmos-sdk/simapp/params"
 	"github.com/cosmos/cosmos-sdk/telemetry"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 	"github.com/cosmos/cosmos-sdk/types/tx/signing"
 	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/rs/zerolog"
+	"github.com/sei-protocol/sei-chain/app"
+	appparams "github.com/sei-protocol/sei-chain/app/params"
 	rpchttp "github.com/tendermint/tendermint/rpc/client/http"
 	tmjsonclient "github.com/tendermint/tendermint/rpc/jsonrpc/client"
 )
@@ -40,7 +40,7 @@ type (
 		ValidatorAddr       sdk.ValAddress
 		ValidatorAddrString string
 		FeeGranterAddr      sdk.AccAddress
-		Encoding            simappparams.EncodingConfig
+		Encoding            appparams.EncodingConfig
 		GasPrices           string
 		GasAdjustment       float64
 		GRPCEndpoint        string
@@ -93,7 +93,7 @@ func NewOracleClient(
 		ValidatorAddr:       sdk.ValAddress(validatorAddrString),
 		ValidatorAddrString: validatorAddrString,
 		FeeGranterAddr:      feegrantAddrErr,
-		Encoding:            simapp.MakeTestEncodingConfig(),
+		Encoding:            app.MakeEncodingConfig(),
 		GasAdjustment:       gasAdjustment,
 		GRPCEndpoint:        grpcEndpoint,
 		GasPrices:           gasPrices,

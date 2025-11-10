@@ -110,10 +110,10 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 		txHash = common.HexToHash(response.EvmTxInfo.TxHash)
 	}
 	var bloom ethtypes.Bloom
-	if r, err := app.EvmKeeper.GetTransientReceipt(wasmToEvmEventCtx, txHash, uint64(ctx.TxIndex())); err == nil && r != nil {
+	if r, err := app.EvmKeeper.GetTransientReceipt(wasmToEvmEventCtx, txHash, uint64(ctx.TxIndex())); err == nil && r != nil { //nolint:gosec
 		r.Logs = append(r.Logs, utils.Map(logs, evmkeeper.ConvertSyntheticEthLog)...)
 		for i, l := range r.Logs {
-			l.Index = uint32(i)
+			l.Index = uint32(i) //nolint:gosec
 		}
 		bloom = ethtypes.CreateBloom(&ethtypes.Receipt{Logs: evmkeeper.GetLogsForTx(r, 0)})
 		r.LogsBloom = bloom[:]
@@ -124,8 +124,8 @@ func (app *App) AddCosmosEventsToEVMReceiptIfApplicable(ctx sdk.Context, tx sdk.
 			TxType:           evmtypes.ShellEVMTxType,
 			TxHashHex:        txHash.Hex(),
 			GasUsed:          ctx.GasMeter().GasConsumed(),
-			BlockNumber:      uint64(ctx.BlockHeight()),
-			TransactionIndex: uint32(ctx.TxIndex()),
+			BlockNumber:      uint64(ctx.BlockHeight()), //nolint:gosec
+			TransactionIndex: uint32(ctx.TxIndex()),     //nolint:gosec
 			Logs:             utils.Map(logs, evmkeeper.ConvertSyntheticEthLog),
 			LogsBloom:        bloom[:],
 			Status:           uint32(ethtypes.ReceiptStatusSuccessful), // we don't create shell receipt for failed Cosmos tx since there is no event anyway
